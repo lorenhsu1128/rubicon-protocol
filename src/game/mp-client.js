@@ -1,5 +1,6 @@
 // Game 多人擴充：客機端出擊、快照套用、事件、輸入
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { angLerp, clamp, lerp } from '../core/math.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
@@ -563,7 +564,7 @@ Object.assign(Game.prototype, {
       $('rTitle').textContent = '對戰結束 — ' + d.label;
       $('rRank').textContent = (d.winners || []).includes(this.net.me) ? 'WIN' : 'LOSE';
       $('resultGrid').innerHTML =
-        d.rows.map((r) => `<span class="dim">${r[0]}</span><span>${r[1]}</span>`).join('') +
+        d.rows.map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`).join('') +
         `<span class="dim">本場獎勵</span><span>+${bonus.toLocaleString()}</span><span class="dim">COAM 結餘</span><span>${this.save.coam.toLocaleString()}</span>`;
       $('btnResultOk').textContent = '返回大廳';
       this.clearMission();
@@ -578,7 +579,7 @@ Object.assign(Game.prototype, {
       this.writeSave();
     }
     $('resultGrid').innerHTML =
-      d.rows.map((r) => `<span class="dim">${r[0]}</span><span>${r[1]}</span>`).join('') +
+      d.rows.map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`).join('') +
       `<span class="dim">COAM 結餘</span><span>${this.save.coam.toLocaleString()}</span>`;
     $('btnResultOk').textContent = '返回大廳';
     this.showScreen('result');

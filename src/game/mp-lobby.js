@@ -1,5 +1,6 @@
 // Game 多人擴充：初始化、建房／搜尋／加入、大廳、訊號
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { START_ASM, asmStats } from '../data/parts.js';
 import { Net } from '../net/net.js';
 import { SIGNALS, iceDiag, unmaskLocalIp } from '../net/transports.js';
@@ -165,7 +166,7 @@ Object.assign(Game.prototype, {
       for (const r of rooms) {
         const d = document.createElement('div');
         d.className = 'part';
-        d.innerHTML = `<div><div class="n">${r.room}</div><div class="s">${r.noProbe ? '信令上看得到，但 WebRTC 直連逾時。可嘗試加入（會自動試中繼），或兩邊先按「解除區網位址匿名」' : `${r.n}/4 人 · 房主 ${r.host} · 關卡 ${r.level}`}</div></div><div class="pr">${r.full ? '已滿' : r.noProbe ? '嘗試加入' : '加入'}</div>`;
+        d.innerHTML = `<div><div class="n">${escHtml(r.room)}</div><div class="s">${r.noProbe ? '信令上看得到，但 WebRTC 直連逾時。可嘗試加入（會自動試中繼），或兩邊先按「解除區網位址匿名」' : `${escHtml(r.n)}/4 人 · 房主 ${escHtml(r.host)} · 關卡 ${escHtml(r.level)}`}</div></div><div class="pr">${r.full ? '已滿' : r.noProbe ? '嘗試加入' : '加入'}</div>`;
         if (!r.full)
           d.onclick = () => {
             if (this.net.joining) return;
@@ -247,7 +248,7 @@ Object.assign(Game.prototype, {
           S.mode === 'pvp' && S.type === 'team'
             ? `<span style="color:${PVP_TEAM_COLORS[p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam]};font-weight:700">［${(p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam) === 0 ? '藍隊' : '紅隊'}］</span> `
             : '';
-        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${p.nick}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
+        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${escHtml(p.nick)}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
       })
       .join('');
     for (const b of $('lobbySlots').querySelectorAll('.kick')) b.onclick = () => n.kick(+b.dataset.s);
@@ -265,7 +266,7 @@ Object.assign(Game.prototype, {
     $('lobbyReq').innerHTML = n.requests
       .map(
         (r, i) =>
-          `<div class="lreq"><span><b>${r.nick}</b> 想加入（${asmStats(r.asm || START_ASM).parts.rarm.name.split(' ')[0]}）</span><span><button class="primary" data-i="${i}" data-ok="1">同意</button> <button data-i="${i}" data-ok="0">拒絕</button></span></div>`,
+          `<div class="lreq"><span><b>${escHtml(r.nick)}</b> 想加入（${asmStats(r.asm || START_ASM).parts.rarm.name.split(' ')[0]}）</span><span><button class="primary" data-i="${i}" data-ok="1">同意</button> <button data-i="${i}" data-ok="0">拒絕</button></span></div>`,
       )
       .join('');
     for (const b of $('lobbyReq').querySelectorAll('button'))

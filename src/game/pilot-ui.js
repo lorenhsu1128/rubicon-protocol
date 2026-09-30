@@ -1,5 +1,6 @@
 // Game：駕駛員畫面——技能樹配點、免費重置、配置預設組（每模式 5 組）、武器熟練度
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { SLOTS, partById } from '../data/parts.js';
 import {
@@ -19,11 +20,6 @@ import {
 import { BRANCHES, PROF_MAX, SKILLS, skillView } from '../data/skills.js';
 import { Game } from './game.js';
 
-const esc = (s) =>
-  String(s).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
 const MODE_NAME = { pve: 'PvE', pvp: 'PvP' };
 
 Object.assign(Game.prototype, {
@@ -133,7 +129,7 @@ Object.assign(Game.prototype, {
         : '（空）';
       row.innerHTML =
         `<input class="pName" maxlength="16" placeholder="預設組 ${i + 1}">` +
-        `<span class="dim pSum">${esc(sum)}</span>` +
+        `<span class="dim pSum">${escHtml(sum)}</span>` +
         `<div class="pBtns"><button class="pSave">儲存目前</button><button class="pLoad primary" ${pr ? '' : 'disabled'}>載入</button><button class="pClr" ${pr ? '' : 'disabled'}>清除</button></div>`;
       const name = row.querySelector('.pName');
       name.value = pr ? pr.name : '';

@@ -40,7 +40,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 ```
 main.js              進入點：依序 import 所有 mixin，最後 new Game()
 index.html／styles.css
-core/math.js         RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…
+core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…）、html.js（escHtml）
 data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
                      skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）
 render/              materials.js（Canvas 貼圖、mechMats、PALETTES）、geometry.js（幾何快取與拼接工具）、
@@ -87,7 +87,7 @@ assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 - 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'8.0'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`。
-- 顯示暱稱、房名等遠端資料時要跳脫 HTML（現有 `innerHTML` 多處未跳脫）。
+- 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。
 - 所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接）。執行時不能依賴外部資源檔：新的素材必須在建置時內嵌進單一 HTML。
 
 ## 其他

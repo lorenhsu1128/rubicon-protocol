@@ -780,21 +780,24 @@ export class MechEntity {
       if (this.downHp <= 0) this.die(from);
       return;
     }
-    if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, Math.max(0, this.hp)));
+    const hpBefore = Math.max(0, this.hp);
+    if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, hpBefore));
     this.hp -= real;
     this.dmgTaken += real;
     if (mp && g.mpStats) {
+      const eff = Math.min(real, hpBefore); // 不計入超過剩餘 AP 的溢出傷害
       if (from && from.team === 'player' && from.slot !== undefined && g.mpStats[from.slot])
-        g.mpStats[from.slot].dmg += real;
+        g.mpStats[from.slot].dmg += eff;
       if (this.team === 'player' && this.slot !== undefined && g.mpStats[this.slot])
-        g.mpStats[this.slot].taken += real;
+        g.mpStats[this.slot].taken += eff;
     }
     if (this.staggerT <= 0) {
       this.acs += impact * (this.shield ? 0.6 : 1);
       this.acsDecayDelay = 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
-        this.staggerT = (this.isBoss ? 1.5 : this.isPlayer ? 1.4 : 2.0) * (1 - this.pmv('stagT'));
+        // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）
+        this.staggerT = (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : 2.0) * (1 - this.pmv('stagT'));
         this.game.fx.ring(this.center(), 4, 0xffb020);
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.isPlayer) {

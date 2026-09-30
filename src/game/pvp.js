@@ -1,6 +1,7 @@
 // ============================================================
 //  PVP — 大亂鬥／分隊 2v2／玩家 vs 電腦 AC；擊破制與淘汰制
 // ============================================================
+import { escHtml } from '../core/html.js';
 import { rnd } from '../core/math.js';
 import { AC_ROSTER } from '../data/enemies.js';
 import { START_ASM } from '../data/parts.js';
@@ -363,7 +364,7 @@ Object.assign(Game.prototype, {
     $('rTitle').textContent = '對戰結束 — ' + label;
     $('rRank').textContent = winners.has(this.net.me) ? 'WIN' : 'LOSE';
     $('resultGrid').innerHTML =
-      rows.map((r) => `<span class="dim">${r[0]}</span><span>${r[1]}</span>`).join('') +
+      rows.map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`).join('') +
       `<span class="dim">本場獎勵</span><span>+${myBonus.toLocaleString()}</span><span class="dim">COAM 結餘</span><span>${this.save.coam.toLocaleString()}</span>`;
     $('btnResultOk').textContent = '返回大廳';
     if (this.net.role === 'host') {

@@ -1,5 +1,6 @@
 // Game：HUD 繪製與訊息提示
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { CONSUMABLES } from '../data/parts.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
@@ -14,7 +15,7 @@ Object.assign(Game.prototype, {
     const p = this.player;
     if (!p) return;
     document.getElementById('hudTop').innerHTML =
-      `<div><b>觀戰</b>　${this.levelName || ''}</div><div id="objective">殘存敵軍 ${this.clientAlive || 0}${this.clientWaves ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div class="dim" style="font-size:11px">鏡頭 <b>${{ follow: '跟隨', director: '導演', all: '全景', free: '自由', boss: '魔王' }[this.specMode || 'follow']}</b>　V：第一人稱　C／1–5：切換模式　Tab／點擊玩家：換人　滾輪：縮放　D：${this.specDetail ? '隱藏' : '顯示'}細節</div>`;
+      `<div><b>觀戰</b>　${escHtml(this.levelName)}</div><div id="objective">殘存敵軍 ${this.clientAlive || 0}${this.clientWaves ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div class="dim" style="font-size:11px">鏡頭 <b>${{ follow: '跟隨', director: '導演', all: '全景', free: '自由', boss: '魔王' }[this.specMode || 'follow']}</b>　V：第一人稱　C／1–5：切換模式　Tab／點擊玩家：換人　滾輪：縮放　D：${this.specDetail ? '隱藏' : '顯示'}細節</div>`;
     document.getElementById('hudBottom').style.display = 'none';
     document.getElementById('weapons').style.display = 'none';
     document.getElementById('lockHint').textContent =
@@ -246,7 +247,7 @@ Object.assign(Game.prototype, {
     const alive = this.isClient ? this.clientAlive || 0 : this.enemies.filter((e) => !e.dead).length;
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML =
-      `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${this.levelName}<div id="objective">殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
+      `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
     if (this.bountyPops.length) {
       c.textAlign = 'left';
       c.font = (innerHeight < 540 ? 'bold 11px' : 'bold 16px') + ' Chakra Petch';

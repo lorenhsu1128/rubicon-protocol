@@ -1,5 +1,6 @@
 // Game：任務流程、敵人生成、道具與支援
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { clamp, pick, rnd } from '../core/math.js';
 import { AC_NAMES, AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES } from '../data/enemies.js';
 import { CONSUMABLES, PARTS, partById } from '../data/parts.js';
@@ -658,7 +659,7 @@ Object.assign(Game.prototype, {
       ['COAM 結餘', S.coam.toLocaleString()],
     ];
     $('resultGrid').innerHTML = rows
-      .map((r) => `<span class="dim">${r[0]}</span><span>${r[1]}</span>`)
+      .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
       .join('');
     if (this.net && this.net.role === 'host') {
       const st = this.mpStats || {};
@@ -669,7 +670,7 @@ Object.assign(Game.prototype, {
           return [`${x.nick}`, `擊破 ${s.kills} · 輸出 ${s.dmg} · 救援 ${s.rev} · 受損 ${s.taken}`];
         });
       $('resultGrid').innerHTML += mprows
-        .map((r) => `<span class="dim">${r[0]}</span><span>${r[1]}</span>`)
+        .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
         .join('');
       $('btnResultOk').textContent = '返回大廳';
       this.net.tr.broadcast({
