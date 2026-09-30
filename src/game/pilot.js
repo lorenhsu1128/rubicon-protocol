@@ -113,6 +113,18 @@ Object.assign(Game.prototype, {
     }
     return out;
   },
+  // PvP：勝負＋輸出＋擊破；打電腦 AC 打折，比賽太短也打折（避免刷經驗）
+  pilotEndXpPvp(winners) {
+    const mul = (this.pvpType === 'vsai' ? 0.7 : 1) * clamp((this.missionT || 0) / 180, 0.3, 1);
+    const out = {};
+    for (const slot in this.mpStats || {}) {
+      const st = this.pilotStat(slot);
+      const m = Math.round((150 + (winners.has(+slot) ? 200 : 0) + Math.min(200, (st.dmg || 0) / 150)) * mul);
+      const k = Math.round(st.xp * mul);
+      out[slot] = { x: m + k, m, k, pf: { ...st.pf } };
+    }
+    return out;
+  },
   // 把結算寫入本機存檔，回傳給結果畫面的報告
   pilotGrant(mode, entry) {
     if (!entry || !this.save.pilot) return null;

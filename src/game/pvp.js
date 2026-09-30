@@ -83,6 +83,7 @@ Object.assign(Game.prototype, {
         palKey: PLAYER_PALS[pl.color],
         slot: pl.slot,
         pvpTeam: pl.pvpTeam,
+        pilot: this.pilotModsForPlayer(pl, 'pvp'),
       });
       e.slot = pl.slot;
       e.isPlayer = pl.slot === this.net.me;
@@ -95,7 +96,8 @@ Object.assign(Game.prototype, {
       if (e.isPlayer) this.player = e;
     });
     this.mpStats = {};
-    for (const e of this.players) this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0, deaths: 0 };
+    for (const e of this.players)
+      this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0, deaths: 0, xp: 0, pf: {} };
     // 電腦補位（大亂鬥補到 4 台；分隊每隊補到 2 台）
     if (S.fill === 'yes' && S.type !== 'vsai') {
       const D = AI_DIFF[S.diff] || AI_DIFF.std;
@@ -323,6 +325,7 @@ Object.assign(Game.prototype, {
       killer.kills = (killer.kills || 0) + 1;
       if (killer.slot !== undefined && this.mpStats[killer.slot]) this.mpStats[killer.slot].kills++;
       this.flashMsg(`${killer.name} 擊破 ${victim.name}`, 0xffb020, 1.6);
+      this.pilotCreditKill(killer, victim);
       if (victim.team === 'enemy') {
         const bounty = Math.round((victim.maxHp * 1.8) / 100) * 100;
         this.save.coam += bounty;
@@ -332,7 +335,7 @@ Object.assign(Game.prototype, {
       }
     } else this.flashMsg(`${victim.name} 被擊破`, 0xff8a8a, 1.4);
     if (this.pvpRule === 'kills') {
-      victim.respawnT = 5 * victim.deaths;
+      victim.respawnT = Math.round(5 * victim.deaths * (1 - victim.pmv('respawn')) * 10) / 10; // 駕駛員「快速重整」
       if (victim.isPlayer) this.flashMsg(`${victim.respawnT} 秒後重生`, 0xffb020, 2);
     } else if (victim.isPlayer) this.flashMsg('已淘汰 — 旁觀模式', 0xff4d4d, 2.5);
   },
@@ -352,6 +355,8 @@ Object.assign(Game.prototype, {
     ]);
     const bonusOf = (slot) => (winners.has(slot) ? 15000 : 5000);
     const myBonus = bonusOf(this.net.me);
+    const xpAll = this.pilotEndXpPvp(winners); // 要在 clearMission 之前計算
+    const pilotRep = this.pilotGrant('pvp', xpAll[this.net.me]);
     this.save.coam += myBonus;
     this.writeSave();
     this.state = 'result';
@@ -369,12 +374,13 @@ Object.assign(Game.prototype, {
         rows,
         bonusBySlot: Object.fromEntries(this.net.players.map((p) => [p.slot, bonusOf(p.slot)])),
         winners: [...winners],
+        xpBySlot: xpAll,
       });
       for (const x of this.net.players) x.ready = false;
     }
     this.clearMission();
     this.pvp = false;
-    this.pilotRenderResult(null);
+    this.pilotRenderResult(pilotRep);
     this.showScreen('result');
   },
   drawPvpHud(c, W, H, p) {

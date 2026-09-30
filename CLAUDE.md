@@ -33,7 +33,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面 → 單機出擊 → `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面 → 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -41,7 +41,8 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 main.js              進入點：依序 import 所有 mixin，最後 new Game()
 index.html／styles.css
 core/math.js         RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…
-data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）
+data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
+                     skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）
 render/              materials.js（Canvas 貼圖、mechMats、PALETTES）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（buildMech、animateMech、武器模型）、vehicle-models.js
 world/               world.js（World：關卡生成、THEMES）、map-extras.js（Vehicle、Pickup、PICKUP_DEFS）
@@ -52,7 +53,8 @@ net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／W
                      snapshot.js（serEnt／applyEnt 快照序列化）
 game/game.js         class Game：constructor、主迴圈 loop、敵我判定等核心
 game/*.js            Game 的 mixin：render-setup、save、input、settings、garage、mission、player、camera、hud、
-                     mp-lobby、mp-host、mp-client、map-extras、first-person、pvp；constants.js 放 mixin 共用常數
+                     mp-lobby、mp-host、mp-client、map-extras、first-person、pvp、pilot（經驗與熟練度累積、結算）、
+                     pilot-ui（駕駛員畫面、預設組）；constants.js 放 mixin 共用常數
 assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 ```
 
@@ -71,10 +73,18 @@ assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 - 不要 import `main.js`（會造成循環相依）。需要 `Game` 實例時用 `this.game` 或參數傳入；底層模組要回呼 Game 時用 hook，例如 `SFX.mirror` 由 `Game.netInit` 設定。遊戲實例沒有掛在 `window` 上。
 - 新增音效：把 mp3 放到 `src/assets/sfx/`，在 `audio/sfx-data.js` 加 import 並放進 `SFX_DATA`。
 
+### 駕駛員系統（技能樹／熟練度）
+
+- PvE 與 PvP 各有一組駕駛員：`save.pilot = { v, pve, pvp }`，每組有 `xp`（累積經驗，等級一律由 `levelOf(xp)` 推算）、`skills`（{技能 id: 級數}）、`prof`（{武器零件 id: 累積有效傷害}）、`presets`（5 組：機體裝備＋配點）。COAM 與零件倉庫兩模式共用。
+- 加成流程：`computePilotMods(payload, mode)` 產生扁平增量表 `pm` → `new MechEntity(..., { pilot: pm })`。`applyPilotStats` 回傳複製後的 stats，`pilotWeaponDef` 回傳複製後的武器定義；**不可修改共用的 `PARTS`／`FIST_DEF`**。實體上用 `e.pmv(key)` 取增量（敵人為 0）。
+- 新增技能：在 `data/skills.js` 的 `SKILLS` 加節點（`fx` 是每級增量），再到實際使用數值的地方讀 `pm`（stats／武器類在 `data/pilot.js`，實體行為用 `pmv`）。改技能表不用遷移存檔，`sanitizeSkills` 讀檔時會自動退還不合法的配點。
+- 多人：客機在 `ready` 訊息附上 `pilotPayload(save)`（兩種模式），房主以 `sanitizePayload` 校正；房主自己的加成直接讀本機存檔（`pilotModsForPlayer`）。生成紀錄帶 `pm`，客機據此建立一致的實體（HUD 上限、自身移動預測）。
+- 經驗與熟練度只在房主／單機累積到 `mpStats[slot].xp/pf`（隨快照同步、房主遷移後保留），結算時以 `end`／`abort` 訊息的 `xpBySlot` 發給各玩家，各自 `pilotGrant` 寫入自己的存檔。命中要把武器 id 當 `takeDamage` 第 7 個參數傳入才會累積熟練度。
+
 ## 架構陷阱
 
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
-- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'7.0'`），否則新舊版本會互連。
+- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'8.0'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`。
 - 顯示暱稱、房名等遠端資料時要跳脫 HTML（現有 `innerHTML` 多處未跳脫）。
