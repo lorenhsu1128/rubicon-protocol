@@ -68,7 +68,7 @@ assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 
 - 各模組明確 import 所需名稱；ESLint（`no-undef`）會抓到漏 import。
 - ES module 匯入的綁定是唯讀的：`let` 狀態（如 `RNG`、`MECH_ID`、`VEH_ID`）只能在定義它的模組內重新賦值，跨模組要改就提供函式。
-- 全域 `game` 由 `main.js` export；只能在執行期（函式內）使用，不要在模組頂層使用。`const game` 不是 `window.game`。
+- 不要 import `main.js`（會造成循環相依）。需要 `Game` 實例時用 `this.game` 或參數傳入；底層模組要回呼 Game 時用 hook，例如 `SFX.mirror` 由 `Game.netInit` 設定。遊戲實例沒有掛在 `window` 上。
 - 新增音效：把 mp3 放到 `src/assets/sfx/`，在 `audio/sfx-data.js` 加 import 並放進 `SFX_DATA`。
 
 ## 架構陷阱

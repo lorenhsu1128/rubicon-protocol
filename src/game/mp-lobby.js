@@ -14,6 +14,12 @@ Object.assign(Game.prototype, {
     this.snapAcc = 0;
     this.freezeT = 0;
     this.spectateIdx = 0;
+    // 房主：有位置的音效轉送給客機（netEv 只在房主時送出）；_noMirror 期間不轉送，
+    // 用在客機收到事件後會自己播放同一音效的流程，避免重複
+    SFX.mirror = (k, v, r, pos) => {
+      if (this._noMirror) return;
+      this.netEv({ t: 'sfx', k, v, r, p: [+pos.x.toFixed(1), +pos.y.toFixed(1), +pos.z.toFixed(1)] });
+    };
     const $ = (id) => document.getElementById(id);
     $('btnMP').onclick = () => {
       SFX.init();

@@ -18,4 +18,4 @@ import './game/map-extras.js';
 import './game/first-person.js';
 import './game/pvp.js';
 
-export const game = new Game();
+new Game();

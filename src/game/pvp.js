@@ -241,7 +241,13 @@ Object.assign(Game.prototype, {
           e.respawnT = undefined;
           const i = Math.floor(Math.random() * 8);
           const p = this.pvpSpawnPoint(i, 8);
-          e.respawnAt(p);
+          // 客機收到 respawn 事件會自己呼叫 respawnAt 並播放音效，這裡不再轉送
+          this._noMirror = true;
+          try {
+            e.respawnAt(p);
+          } finally {
+            this._noMirror = false;
+          }
           this.netEv({ t: 'respawn', i: e.id, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
           this.flashMsg(`${e.name} 重新出擊`, 0x7ee081, 1.2);
         }

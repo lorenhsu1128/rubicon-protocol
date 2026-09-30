@@ -2,7 +2,6 @@
 //  AUDIO — 簡易合成音效
 // ============================================================
 import { clamp, lerp } from '../core/math.js';
-import { game } from '../main.js';
 import { SFX_DATA } from './sfx-data.js';
 
 export const SFX = {
@@ -12,6 +11,7 @@ export const SFX = {
   buf: {},
   ready: false,
   lastT: {},
+  mirror: null, // 房主把有位置的音效轉送給客機：(k, vol, rate, pos) => void，由 Game.netInit 設定
   init() {
     if (this.ctx) return;
     try {
@@ -69,14 +69,7 @@ export const SFX = {
     }
   },
   play(k, vol = 1, rate = 1, detune = 0.06, minGap = 0.03, pos = null) {
-    if (pos && window.game && game.net && game.net.role === 'host' && !game._noMirror)
-      game.netEv({
-        t: 'sfx',
-        k,
-        v: vol,
-        r: rate,
-        p: [+pos.x.toFixed(1), +pos.y.toFixed(1), +pos.z.toFixed(1)],
-      });
+    if (pos && this.mirror) this.mirror(k, vol, rate, pos);
     if (!this.ctx || !this.on) return;
     const b = this.buf[k];
     if (!b) return;
