@@ -35,6 +35,11 @@ Object.assign(Game.prototype, {
     const p = sanitizePayload(pilotPayload(this.save));
     return computePilotMods(p[mode], mode);
   },
+  // 房主：玩家在指定模式的加成。房主自己用本機存檔（永遠是最新的），其他人用 ready 訊息送來的資料
+  pilotModsForPlayer(pl, mode) {
+    if (pl.slot === this.net.me) return this.pilotLocalMods(mode);
+    return pl.pilot ? computePilotMods(pl.pilot[mode], mode) : null;
+  },
   pilotStat(slot) {
     const st = this.mpStats && this.mpStats[slot];
     if (!st) return null;
@@ -74,7 +79,7 @@ Object.assign(Game.prototype, {
       st.xp += victim.team === 'player' ? XP.pvpKillPlayer : XP.pvpKillAi;
       return;
     }
-    const base = victim.maxHp / (this.missionScaleHp || 1);
+    const base = victim.maxHp / (this.scaleHp || 1); // 以敵人未經關卡加成的 AP 計算
     const kxp = Math.round(base * XP.kill * (victim.isBoss ? XP.killBoss : 1));
     st.xp += kxp;
     for (const e of this.players || [])

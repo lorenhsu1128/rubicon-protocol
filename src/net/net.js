@@ -1,5 +1,6 @@
 // ---------- 多人主控 ----------
 import { SFX } from '../audio/audio.js';
+import { pilotPayload, sanitizePayload } from '../data/pilot.js';
 import {
   LocalTransport,
   MAX_ROOMS,
@@ -121,6 +122,7 @@ export class Net {
           peerId: this.tr.id,
           ready: false,
           asm: Object.assign({}, this.g.save.asm),
+          pilot: sanitizePayload(pilotPayload(this.g.save)),
           color: 0,
           order: 0,
           online: true,
@@ -165,6 +167,7 @@ export class Net {
         peerId: this.tr.id,
         ready: false,
         asm: Object.assign({}, this.g.save.asm),
+        pilot: sanitizePayload(pilotPayload(this.g.save)),
         color: 0,
         order: 0,
         online: true,
@@ -320,6 +323,11 @@ export class Net {
     if (rejoin && this.g.state === 'play') this.hostRejoinInMission(pl);
     this.g.renderLobby();
   }
+  // 玩家在目前房間模式的駕駛員等級（大廳顯示用；客機只收到等級，不含配點）
+  pilotLv(p) {
+    const mode = this.pvpSet && this.pvpSet.mode === 'pvp' ? 'pvp' : 'pve';
+    return p.pilot ? p.pilot[mode].lv : p.plv || 0;
+  }
   syncLobby() {
     const list = this.players.map((p) => ({
       slot: p.slot,
@@ -332,6 +340,7 @@ export class Net {
       online: p.online,
       lat: this.lat[p.peerId] || 0,
       pvpTeam: p.pvpTeam,
+      plv: this.pilotLv(p),
     }));
     const m = {
       t: 'lobby',
@@ -397,6 +406,7 @@ export class Net {
       case 'ready':
         p.ready = !!d.v;
         p.asm = d.asm || p.asm;
+        p.pilot = sanitizePayload(d.pilot) || p.pilot; // 駕駛員等級與配點（兩種模式）
         this.syncLobby();
         this.g.renderLobby();
         break;
@@ -628,6 +638,10 @@ export class Net {
         g.onSignal(d.slot, d.n);
         break;
       case 'abort':
+        {
+          const rep = g.pilotGrant(d.pvp ? 'pvp' : 'pve', d.xpBySlot && d.xpBySlot[this.me]);
+          if (rep && rep.x) g.flashMsg(`駕駛員經驗 +${rep.x.toLocaleString()}`, 0x5cc8ff, 2.5);
+        }
         g.flashMsg('房主結束了任務', 0xff4d4d, 2.5);
         g.clearMission();
         g.state = 'lobby';
@@ -731,8 +745,10 @@ export class Net {
       const me = this.meP();
       me.ready = v;
       me.asm = Object.assign({}, this.g.save.asm);
+      me.pilot = sanitizePayload(pilotPayload(this.g.save));
       this.syncLobby();
-    } else this.tr.send(this.hostPeer, { t: 'ready', v, asm: this.g.save.asm });
+    } else
+      this.tr.send(this.hostPeer, { t: 'ready', v, asm: this.g.save.asm, pilot: pilotPayload(this.g.save) });
   }
   sendInput(d) {
     if (this.role === 'client' && this.tr) this.tr.send(this.hostPeer, d);

@@ -297,7 +297,6 @@ Object.assign(Game.prototype, {
     this.enemyPointsTotal = 0;
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
-    this.missionScaleHp = scaleHp; // 擊破經驗以敵人未加成的 AP 計算
     if (boss) {
       const bd = BOSS_DEFS[Math.floor(L / 3 - 1) % BOSS_DEFS.length];
       this.bossDef = bd;
@@ -638,7 +637,8 @@ Object.assign(Game.prototype, {
       S.missionsDone++;
     }
     this.writeSave();
-    this.pilotRenderResult(this.pilotGrant('pve', xpAll[p ? p.slot : 0]));
+    // PvP 中途放棄也會走到這裡：經驗記到對應模式的駕駛員
+    this.pilotRenderResult(this.pilotGrant(this.pvp ? 'pvp' : 'pve', xpAll[p ? p.slot : 0]));
     $('rTitle').textContent = success
       ? this.isBossLevel
         ? '決戰任務 完成'

@@ -728,7 +728,8 @@ Object.assign(Game.prototype, {
         return;
       }
       if (this.net && this.net.role === 'host') {
-        this.net.tr.broadcast({ t: 'abort' });
+        // 放棄時沒有任務經驗，但擊破／支援經驗與熟練度照常發給每位玩家
+        this.net.tr.broadcast({ t: 'abort', pvp: !!this.pvp, xpBySlot: this.pilotEndXpPve(false, true) });
       }
       this.endMission(false, true);
     };

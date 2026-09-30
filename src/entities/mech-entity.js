@@ -794,7 +794,7 @@ export class MechEntity {
       this.acsDecayDelay = 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
-        this.staggerT = this.isBoss ? 1.5 : this.isPlayer ? 1.4 * (1 - this.pmv('stagT')) : 2.0;
+        this.staggerT = (this.isBoss ? 1.5 : this.isPlayer ? 1.4 : 2.0) * (1 - this.pmv('stagT'));
         this.game.fx.ring(this.center(), 4, 0xffb020);
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.isPlayer) {

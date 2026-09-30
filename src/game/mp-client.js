@@ -99,6 +99,7 @@ Object.assign(Game.prototype, {
       bossKind: r.bossKind,
       flankAngle: r.flankAngle,
       pvpTeam: r.pvpTeam,
+      pilot: r.pm || null,
     };
     const e = new MechEntity(this, r.asm, pal, opts);
     e.id = r.i;
