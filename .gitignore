@@ -1,4 +1,5 @@
 ﻿node_modules/
 rubicon-server.json
-dist/
+dist/*
+!dist/rubicon-server.exe
 test-results/

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html`」兩個檔案。
 
 - `src/`：遊戲原始碼（見下方架構）。`src/index.html` 是 HTML 骨架，建置時把 `styles.css` 與打包後的 JS 內嵌進去。
-- `dist/`（gitignore）：建置產物 `rubicon-protocol.html`、`rubicon-server.exe`。**不要手改 dist/**，改 `src/` 後重新建置。
+- `dist/`：建置產物（只有 exe 進 git） `rubicon-protocol.html`、`rubicon-server.exe`。**不要手改 dist/**，改 `src/` 後重新建置。
 - `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/health`、`/ws` WebSocket 中繼），控制台固定 port 8090。開發時讀 `dist/rubicon-protocol.html`，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - 函式庫（three、peerjs、three examples 後處理）仍由 `src/index.html` 從 CDN 以一般 `<script>` 載入，程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。
@@ -85,4 +85,4 @@ assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 - 與使用者溝通、註解與 UI 文字一律使用繁體中文。
 - UI 字串中的全形空白（U+3000）是刻意的，不要移除（ESLint 已設定略過字串）。
 - 程式碼風格由 Prettier 統一（`.prettierrc.json`：單引號、寬 110）；ESLint 只開抓錯誤的規則。
-- `dist/rubicon-server.exe` 約 55 MB，不進 git；發佈時提供 `dist/` 裡的 exe 與 HTML（加上 `README.txt`）。
+- `dist/rubicon-server.exe` 約 55 MB，會提交進 git（`.gitignore` 只放行這個檔；dist/ 其他產物不進 git）。修改 `server.js` 後要 `npm run build:exe` 並一併提交 exe；exe 執行中時無法覆寫。發佈時提供 exe 與 `npm run build` 產生的 HTML（加上 `README.txt`）。
