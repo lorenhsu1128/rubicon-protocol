@@ -24,7 +24,8 @@ Object.assign(Game.prototype, {
     }
     if (p.kits <= 0 || p.hp >= p.maxHp || p.dead || p.downed) return;
     p.kits--;
-    p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.4));
+    p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * p.kitHeal));
+    p.en = Math.min(p.enMax, p.en + p.enMax * p.pmv('kitEn'));
     this.fx.ring(p.center(), 5, 0x7ee081);
     SFX.kit();
     this.rumble(0.15, 0.4, 180);
@@ -268,16 +269,19 @@ Object.assign(Game.prototype, {
     }
     if (mp) {
       this.mpSpawnPlayers();
-      for (const e of this.players) this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0 };
+      for (const e of this.players)
+        this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0, xp: 0, pf: {} };
     } else {
       this.player = new MechEntity(this, S.asm, PALETTES.player, {
         team: 'player',
         name: 'RAVEN',
         palKey: 'player',
         slot: 0,
+        pilot: this.pilotLocalMods('pve'),
       });
       this.player.pos.set(0, this.world.terrainHeight(0, 0), 0);
       this.players = [this.player];
+      this.mpStats[0] = { kills: 0, dmg: 0, rev: 0, taken: 0, xp: 0, pf: {} };
     }
     const np = mp ? this.players.length : 1;
     this.enemies = [];
@@ -293,6 +297,7 @@ Object.assign(Game.prototype, {
     this.enemyPointsTotal = 0;
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
+    this.missionScaleHp = scaleHp; // 擊破經驗以敵人未加成的 AP 計算
     if (boss) {
       const bd = BOSS_DEFS[Math.floor(L / 3 - 1) % BOSS_DEFS.length];
       this.bossDef = bd;
@@ -544,6 +549,7 @@ Object.assign(Game.prototype, {
     this.save.kills++;
     if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
       this.mpStats[from.slot].kills++;
+    this.pilotCreditKill(from, e);
     if (e.isBoss) {
       if (!this.bosses || this.bosses.every((b) => b.dead)) {
         this.save.bosses++;
@@ -618,17 +624,21 @@ Object.assign(Game.prototype, {
       rank = '—';
     const bossMul = this.isBossLevel ? 2.5 : 1;
     const earned = this.missionEarned || 0;
+    const xpAll = this.pilotEndXpPve(success, aborted); // 要在關卡前進之前計算
+    let baseBonus = 0;
     if (success) {
       bonus = Math.round((8000 + L * 2500) * bossMul);
       const score = (p.dmgTaken / p.maxHp) * 0.6 + (Math.max(0, this.missionT - 90) / 180) * 0.4;
       rank = score < 0.25 ? 'S' : score < 0.5 ? 'A' : score < 0.85 ? 'B' : 'C';
       const mul = { S: 1.5, A: 1.2, B: 1, C: 0.8 }[rank];
-      bonus = Math.round(bonus * mul);
+      baseBonus = Math.round(bonus * mul);
+      bonus = Math.round(baseBonus * (1 + p.pmv('coam'))); // 駕駛員技能「報酬交涉」只加在自己身上
       S.coam += bonus;
       S.level++;
       S.missionsDone++;
     }
     this.writeSave();
+    this.pilotRenderResult(this.pilotGrant('pve', xpAll[p ? p.slot : 0]));
     $('rTitle').textContent = success
       ? this.isBossLevel
         ? '決戰任務 完成'
@@ -667,7 +677,8 @@ Object.assign(Game.prototype, {
         success,
         title: $('rTitle').textContent,
         rank,
-        bonus: success ? bonus : 0,
+        bonus: success ? baseBonus : 0,
+        xpBySlot: xpAll,
         rows: [...rows.filter((r) => r[0] !== 'COAM 結餘'), ...mprows],
       });
       for (const x of this.net.players) x.ready = false;

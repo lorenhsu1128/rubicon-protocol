@@ -145,6 +145,7 @@ Object.assign(MechEntity.prototype, {
   enterDowned() {
     this.downed = true;
     this.downT = 30;
+    this.downHp = undefined; // 每次倒地重新計算耐久（takeDamage 依 maxHp 與駕駛員技能初始化）
     this.hp = 0;
     this.acs = 0;
     this.staggerT = 0;

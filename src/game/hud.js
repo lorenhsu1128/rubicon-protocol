@@ -242,7 +242,7 @@ Object.assign(Game.prototype, {
     document.getElementById('enBar').style.width = clamp((p.en / p.enMax) * 100, 0, 100) + '%';
     document.getElementById('acsBar').style.width = clamp((p.acs / p.acsMax) * 100, 0, 100) + '%';
     document.getElementById('kits').innerHTML =
-      `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(3 - p.kits)}</b>　<span class="dim">[R]</span>`;
+      `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(Math.max(0, (p.kitsMax || 3) - p.kits))}</b>　<span class="dim">[R]</span>`;
     const alive = this.isClient ? this.clientAlive || 0 : this.enemies.filter((e) => !e.dead).length;
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML =

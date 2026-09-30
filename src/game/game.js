@@ -159,7 +159,7 @@ export class Game {
     }
   }
   // 電磁脈衝：以射手為中心的環形控場，敵人硬直
-  empPulse(src, radius, stun, color) {
+  empPulse(src, radius, stun, color, wid) {
     const c = src.center();
     this.fx.shockwave(c, radius, color || 0x80c8ff, 0.9);
     this.fx.ring(c.clone().setY(this.world.terrainHeight(c.x, c.z) + 0.2), radius * 0.6, color || 0x80c8ff);
@@ -188,6 +188,7 @@ export class Game {
         this.fx.ring(t.center(), 3, 0x80c8ff);
         this.fx.flash(t.center(), 1.2, 0xbfe8ff, 0.2);
         this.popDamage(t.center(), 'EMP', t.isPlayer, true, false, 0, t.id, 0);
+        this.pilotCreditStun(src, t, wid);
         this.netEv({ t: 'stag', i: t.id });
         if (t.isPlayer) {
           this.flashAlert('遭到電磁脈衝 — 系統停擺');

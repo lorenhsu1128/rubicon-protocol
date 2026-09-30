@@ -166,6 +166,7 @@
           <div id="gWarn"></div>
           <div id="gActions">
             <button class="primary" id="btnSortie">出擊</button>
+            <button id="btnPilot">駕駛員（技能／預設組）</button>
             <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
             <button id="btnToTitle">回標題</button>
             <button id="btnGarageLobby" class="primary" style="display: none">返回大廳</button>
@@ -176,12 +177,38 @@
         </div>
       </div>
 
+      <!-- Pilot -->
+      <div id="pilot" class="screen">
+        <div id="pilotHead">
+          <h2>駕駛員</h2>
+          <div class="pModes">
+            <button id="pMode_pve">PvE</button>
+            <button id="pMode_pvp">PvP</button>
+          </div>
+          <div id="pLevel"></div>
+          <div class="row">
+            <button id="btnPilotReset">全部重置（免費）</button>
+            <button class="primary" id="btnPilotBack">返回車庫</button>
+          </div>
+        </div>
+        <div id="pilotBody">
+          <div id="pTree"></div>
+          <div id="pSide">
+            <h3>配置預設組 <span class="dim">機體裝備＋本模式配點</span></h3>
+            <div id="pPresets"></div>
+            <h3>武器熟練度</h3>
+            <div id="pProf"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Result -->
       <div id="result" class="screen center">
         <div class="panel" style="min-width: 320px">
           <h2 id="rTitle">任務完成</h2>
           <div class="rank" id="rRank">A</div>
           <div id="resultGrid"></div>
+          <div id="rPilot"></div>
           <div class="row"><button class="primary" id="btnResultOk">返回車庫</button></div>
         </div>
       </div>

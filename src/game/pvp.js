@@ -374,6 +374,7 @@ Object.assign(Game.prototype, {
     }
     this.clearMission();
     this.pvp = false;
+    this.pilotRenderResult(null);
     this.showScreen('result');
   },
   drawPvpHud(c, W, H, p) {

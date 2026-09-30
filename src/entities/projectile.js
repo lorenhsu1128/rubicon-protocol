@@ -229,13 +229,13 @@ export class Projectile {
             im = 0;
           }
           if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos);
-          else t.takeDamage(this.dmg * k, im, this.owner, this.pos);
+          else t.takeDamage(this.dmg * k, im, this.owner, this.pos, undefined, undefined, this.wid);
         }
       }
     } else if (direct) {
       const dir = this.vel.clone().normalize();
       if (direct.isProp) g.damageProp(direct, this.dmg, this.impactV, this.pos);
-      else direct.takeDamage(this.dmg, this.impactV, this.owner, this.pos, dir);
+      else direct.takeDamage(this.dmg, this.impactV, this.owner, this.pos, dir, undefined, this.wid);
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
       SFX.hit(direct.isPlayer ? null : this.pos);
       if (this.owner && this.owner.isPlayer && !direct.isPlayer) g.rumble(0.05, 0.25, 40);

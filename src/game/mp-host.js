@@ -233,7 +233,8 @@ Object.assign(Game.prototype, {
   useKitFor(p) {
     if (p.kits <= 0 || p.hp >= p.maxHp || p.dead || p.downed) return;
     p.kits--;
-    p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.4));
+    p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * p.kitHeal));
+    p.en = Math.min(p.enMax, p.en + p.enMax * p.pmv('kitEn'));
     this.fx.ring(p.center(), 5, 0x7ee081);
     SFX.kit();
   },
@@ -259,7 +260,7 @@ Object.assign(Game.prototype, {
     if (!t) return false;
     {
       t.downed = false;
-      t.hp = Math.round(t.maxHp * 0.4);
+      t.hp = Math.round(t.maxHp * (0.4 + rescuer.pmv('reviveHp')));
       t.acs = 0;
       t.staggerT = 0;
       t.iFrames = 2;
@@ -268,6 +269,7 @@ Object.assign(Game.prototype, {
       this.flashMsg(`${rescuer.name} 救起了 ${t.name}`, 0x7ee081, 2);
       this.netEv({ t: 'msg', txt: `${rescuer.name} 救起了 ${t.name}`, c: 0x7ee081 });
       if (this.mpStats && this.mpStats[rescuer.slot]) this.mpStats[rescuer.slot].rev++;
+      this.pilotCreditRevive(rescuer);
       return true;
     }
   },

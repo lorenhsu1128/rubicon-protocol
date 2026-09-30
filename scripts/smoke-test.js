@@ -5,7 +5,7 @@
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
 'use strict';
-/* global window, document, getComputedStyle -- page.evaluate 的回呼在瀏覽器端執行 */
+/* global window, document, localStorage, getComputedStyle -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -153,6 +153,73 @@ async function testSolo(browser, base) {
   await page.keyboard.press('Escape');
   await wait(500);
   check(await visible(page, 'pause'), '暫停選單顯示');
+  if (await page.$('#rPilot')) {
+    await page.click('#btnAbort');
+    check(await waitVisible(page, 'result'), '放棄任務後顯示結果畫面');
+    const rp = (await page.textContent('#rPilot')) || '';
+    check(rp.includes('駕駛員經驗'), `結果畫面顯示駕駛員經驗（${rp.trim().slice(0, 30)}…）`);
+  }
+  await ctx.close();
+}
+
+// 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
+const editSave = (page, fn) =>
+  page.evaluate((src) => {
+    const s = JSON.parse(localStorage.getItem('rubicon_save'));
+    new Function('s', src)(s);
+    localStorage.setItem('rubicon_save', JSON.stringify(s));
+  }, fn);
+async function continueToPilot(page) {
+  await page.reload();
+  await waitVisible(page, 'title');
+  await page.click('#btnContinue');
+  await waitVisible(page, 'garage');
+  await page.click('#btnPilot');
+  return waitVisible(page, 'pilot');
+}
+const ptsLeft = async (page) => Number(await page.textContent('#pPtsLeft'));
+async function testPilot(browser, base) {
+  console.log('駕駛員：舊存檔遷移 → 配點 → 車庫數值 → 預設組');
+  const { ctx, page } = await newPage(browser, 'pilot');
+  await page.goto(base);
+  await waitVisible(page, 'title');
+  if (!(await page.$('#btnPilot'))) {
+    console.log('  （此版本沒有駕駛員系統，略過）');
+    return ctx.close();
+  }
+  await page.click('#btnNew');
+  await waitVisible(page, 'garage');
+  await editSave(page, 'delete s.pilot; s.level = 4; s.missionsDone = 3;'); // 模擬舊版存檔
+  check(await continueToPilot(page), '舊存檔（沒有 pilot）可開啟駕駛員畫面');
+  check((await page.textContent('#pLevel')).includes('Lv 1'), '舊存檔駕駛員從 Lv1 開始');
+  check((await ptsLeft(page)) === 0, 'Lv1 沒有技能點');
+  await editSave(page, 's.pilot.pve.xp = 5000;'); // Lv7 → 6 點
+  await continueToPilot(page);
+  const before = await ptsLeft(page);
+  check(before === 6, `經驗 5000 時有 6 點（${before}）`);
+  check(await page.isDisabled('.pNode[data-skill="g_mag"] .pInc'), 'T2 技能在前段未投點時鎖定');
+  await page.click('.pNode[data-skill="a_ap"] .pInc');
+  check((await ptsLeft(page)) === before - 1, '投點後剩餘點數減少');
+  await page.click('.pNode[data-skill="a_ap"] .pInc');
+  await page.click('.pNode[data-skill="a_ap"] .pInc');
+  check(!(await page.isDisabled('.pNode[data-skill="a_def"] .pInc')), '前段投滿 3 點後 T2 解鎖');
+  await page.fill('#pPresets .pPreset:first-child .pName', '<b>測試</b>');
+  await page.click('#pPresets .pPreset:first-child .pSave');
+  check(!(await page.isDisabled('#pPresets .pPreset:first-child .pLoad')), '預設組儲存後可載入');
+  await page.click('#pMode_pvp');
+  check((await page.textContent('#pLevel')).includes('PvP'), '可切換到 PvP 駕駛員');
+  check((await ptsLeft(page)) === 0, 'PvP 駕駛員的經驗與配點獨立');
+  await page.click('#pMode_pve');
+  await wait(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'pilot.png') });
+  await page.click('#btnPilotBack');
+  check(await waitVisible(page, 'garage'), '返回車庫');
+  check((await page.textContent('#stats')).includes('(+'), '車庫規格顯示技能加成');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'garage-pilot.png') });
+  await page.setViewportSize({ width: 640, height: 360 });
+  await page.click('#btnPilot');
+  await wait(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'pilot-narrow.png') });
   await ctx.close();
 }
 
@@ -224,6 +291,7 @@ async function main() {
     const base = `http://127.0.0.1:${srv.address().port}/`;
     await testFile(browser);
     await testSolo(browser, base);
+    await testPilot(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');

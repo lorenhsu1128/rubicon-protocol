@@ -553,6 +553,8 @@ Object.assign(Game.prototype, {
   clientEnd(d) {
     this.state = 'result';
     const $ = (id) => document.getElementById(id);
+    // 駕駛員經驗與熟練度由房主計算，各自寫入自己的存檔
+    this.pilotRenderResult(this.pilotGrant(d.pvp ? 'pvp' : 'pve', d.xpBySlot && d.xpBySlot[this.net.me]));
     if (d.pvp) {
       const bonus = (d.bonusBySlot && d.bonusBySlot[this.net.me]) || 0;
       this.save.coam += bonus;
@@ -570,6 +572,7 @@ Object.assign(Game.prototype, {
     $('rTitle').textContent = d.title;
     $('rRank').textContent = d.rank;
     if (d.success) {
+      d.bonus = Math.round(d.bonus * (1 + (this.player ? this.player.pmv('coam') : 0))); // 自己的「報酬交涉」
       this.save.coam += d.bonus;
       this.writeSave();
     }

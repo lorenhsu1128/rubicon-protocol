@@ -6,6 +6,8 @@ import './game/save.js';
 import './game/input.js';
 import './game/settings.js';
 import './game/garage.js';
+import './game/pilot.js';
+import './game/pilot-ui.js';
 import './game/mission.js';
 import './game/player.js';
 import './game/camera.js';

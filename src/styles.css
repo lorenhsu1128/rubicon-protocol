@@ -966,3 +966,225 @@ select {
     width: 44vw;
   }
 }
+
+/* ---------- 駕駛員 ---------- */
+#pilot {
+  flex-direction: column;
+  background: var(--bg);
+}
+#pilotHead {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+#pilotHead h2 {
+  margin: 0;
+}
+.pModes button.sel {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+#pLevel {
+  flex: 1;
+  min-width: 220px;
+  font-size: 13px;
+}
+.pLv b {
+  font-size: 20px;
+  color: var(--acc);
+}
+.pPts b {
+  color: var(--acc);
+  font-size: 16px;
+}
+.xpBar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+.xpBar.thin {
+  height: 4px;
+}
+.xpBar i {
+  display: block;
+  height: 100%;
+  background: var(--acc2);
+}
+#pilotBody {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+#pTree {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  align-content: start;
+}
+#pSide {
+  width: min(340px, 34vw);
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px;
+}
+#pSide h3 {
+  font-size: 14px;
+  margin: 4px 0 8px;
+}
+#pSide h3 .dim {
+  font-size: 11px;
+  font-weight: 400;
+}
+.pBranch {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 8px;
+}
+.pBrHead {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--acc2);
+  margin-bottom: 6px;
+}
+.pNode {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.pNode.on {
+  border-color: var(--acc2);
+}
+.pNode.max {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.06);
+}
+.pNode.locked {
+  opacity: 0.55;
+}
+.pNTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pNTop b {
+  flex: 1;
+}
+.pT {
+  font-size: 10px;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  padding: 0 4px;
+}
+.pR {
+  color: var(--acc);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pD {
+  color: var(--ink);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.pD.next {
+  color: var(--dim);
+}
+.pD.lock {
+  color: var(--danger);
+}
+.pBtns {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+  justify-content: flex-end;
+}
+.pBtns button {
+  padding: 4px 12px;
+  min-width: 40px;
+}
+.pPreset {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+}
+.pName {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+}
+.pSum {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.pProfRow {
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 12px;
+}
+#rPilot {
+  margin: 0 0 14px;
+  font-size: 13px;
+  max-width: 420px;
+}
+#rPilot:empty {
+  display: none;
+}
+.rpHead b {
+  color: var(--acc2);
+  font-size: 16px;
+}
+.rpUp {
+  color: var(--acc);
+  margin-top: 4px;
+  font-weight: 600;
+}
+.stat .up {
+  color: var(--acc2);
+  font-weight: 400;
+  font-size: 11px;
+}
+@media (max-width: 1000px), (max-height: 540px) {
+  #pTree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px;
+    gap: 8px;
+  }
+  #pilotHead {
+    padding: 6px 10px;
+    gap: 10px;
+  }
+  #pilotHead h2 {
+    font-size: 15px;
+  }
+}
+@media (max-width: 720px) {
+  #pilotBody {
+    flex-direction: column;
+    overflow: auto;
+  }
+  #pTree {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+  #pSide {
+    width: auto;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+}

@@ -3,6 +3,7 @@ import { SFX } from '../audio/audio.js';
 import { pick } from '../core/math.js';
 import { BOSS_DEFS } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, partById } from '../data/parts.js';
+import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { buildMech } from '../render/mech-model.js';
 import { Game } from './game.js';
@@ -181,22 +182,36 @@ Object.assign(Game.prototype, {
         };
         list.appendChild(d);
       }
-    // stats
+    // stats：顯示套用駕駛員技能後的數值（出擊條件仍以原始數值判斷）
     const P = st.parts;
+    const pMode = this.pilotCtxMode();
+    const pm = this.pilotLocalMods(pMode);
+    const ef = applyPilotStats(st, pm);
+    const fx = (base, eff, fmt = (v) => Math.round(v)) =>
+      Math.abs(eff - base) > 1e-6
+        ? `${fmt(eff)} <span class="up">(${eff > base ? '+' : '−'}${fmt(Math.abs(eff - base))})</span>`
+        : fmt(base);
     const rows = [
-      ['AP（總裝甲）', st.ap],
-      ['防禦（核心）', Math.round(st.def * 100) + '%'],
-      ['姿態穩定', Math.round(st.stab)],
+      ['駕駛員（' + (pMode === 'pvp' ? 'PvP' : 'PvE') + '）', 'Lv ' + levelOf(this.save.pilot[pMode].xp)],
+      ['AP（總裝甲）', fx(st.ap, ef.ap)],
+      ['防禦（核心）', fx(st.def, ef.def, (v) => Math.round(v * 1000) / 10 + '%')],
+      ['姿態穩定', fx(st.stab, ef.stab)],
       [
         '總重量 / 負重',
         `${st.weight.toLocaleString()} / ${st.load.toLocaleString()}`,
         st.overWeight ? 'bad' : 'ok',
       ],
       ['EN 負載 / 輸出', `${st.enLoad} / ${st.enOut}`, st.overEn ? 'bad' : 'ok'],
-      ['EN 容量', st.enCap],
-      ['地面速度', st.speed.toFixed(1)],
-      ['跳躍力', st.jump],
-      ['鎖定距離', Math.round(st.lockRange)],
+      ['EN 容量', fx(st.enCap, ef.enCap)],
+      ['EN 回復', fx(P.generator.recharge, ef.parts.generator.recharge)],
+      ['地面速度', fx(st.speed, ef.speed, (v) => v.toFixed(1))],
+      [
+        'QB 速度 / 消耗',
+        `${fx(P.booster.qb, ef.parts.booster.qb)} / ${fx(P.booster.qbCost, ef.parts.booster.qbCost)}`,
+      ],
+      ['跳躍力', fx(st.jump, ef.jump, (v) => v.toFixed(1))],
+      ['鎖定距離', fx(st.lockRange, ef.lockRange)],
+      ['修復套件', fx(3, 3 + ((pm && pm.kits) || 0))],
       ['腳部型式', { biped: '二足', reverse: '逆關節', quad: '四足', tank: '履帶' }[P.legs.type]],
     ];
     $('stats').innerHTML = rows
@@ -223,6 +238,10 @@ Object.assign(Game.prototype, {
     }
     $('gWarn').textContent = warn.join('　');
     $('btnSortie').disabled = warn.length > 0;
+    $('btnPilot').onclick = () => {
+      SFX.ui();
+      this.openPilot();
+    };
     const mp = !!(this.net && this.net.role);
     $('btnSortie').style.display = mp ? 'none' : '';
     $('btnToTitle').style.display = mp ? 'none' : '';

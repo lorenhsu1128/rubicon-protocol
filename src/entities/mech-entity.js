@@ -4,6 +4,7 @@
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { FIST_DEF, asmStats, partById } from '../data/parts.js';
+import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { Projectile } from './projectile.js';
@@ -15,7 +16,8 @@ export class MechEntity {
     this.id = MECH_ID++;
     this.asm = asm;
     this.pal = pal;
-    this.stats = asmStats(asm);
+    this.pm = opts.pilot || null; // 駕駛員技能加成（computePilotMods 的結果），敵人與友軍為 null
+    this.stats = applyPilotStats(asmStats(asm), this.pm);
     this.opts = opts;
     this.palKey = opts.palKey || null;
     this.slot = opts.slot;
@@ -69,33 +71,14 @@ export class MechEntity {
     this.t = Math.random() * 10;
     this.moving = false;
     this.speedMul = opts.speedMul || 1;
-    this.kits = 3;
+    this.kitsMax = 3 + this.pmv('kits');
+    this.kits = this.kitsMax;
+    this.kitHeal = 0.4 + this.pmv('kitHeal');
     this.dmgTaken = 0;
     this.smokeT = 0;
     this.iFrames = 0;
     this.weapons = {};
-    for (const s of ['rarm', 'larm', 'rback', 'lback']) {
-      let def = partById(s.endsWith('arm') ? 'arm' : 'back', asm[s]);
-      const fist = s.endsWith('arm') && def.type === 'none' && !this.model.vehicle;
-      if (fist) def = FIST_DEF;
-      this.weapons[s] = {
-        def,
-        ammo: def.ammo || 0,
-        mag: def.mag || 0,
-        cd: 0,
-        reloadT: 0,
-        charge: 0,
-        charging: false,
-        side: s[0] === 'r' ? 1 : -1,
-        slot: s,
-        dropped: fist,
-        ownerId: this.id,
-      };
-    } // 空手 → 拳擊
-    this.shield =
-      this.weapons.rback.def.type === 'shield' || this.weapons.lback.def.type === 'shield'
-        ? Math.max(this.weapons.rback.def.absorb || 0, this.weapons.lback.def.absorb || 0)
-        : 0;
+    this.initWeapons();
     this.allyT = opts.allyDur || 0;
     this.departing = false;
     this.recoil = { l: 0, r: 0 };
@@ -125,6 +108,36 @@ export class MechEntity {
       phase: 1,
       stuck: 0,
     };
+  }
+  // 駕駛員加成值（沒有時為 0）
+  pmv(k) {
+    return (this.pm && this.pm[k]) || 0;
+  }
+  // 依組裝建立武器狀態；武器定義套用駕駛員技能與熟練度（複製的副本，不動共用資料）
+  initWeapons() {
+    for (const s of ['rarm', 'larm', 'rback', 'lback']) {
+      let def = partById(s.endsWith('arm') ? 'arm' : 'back', this.asm[s]);
+      const fist = s.endsWith('arm') && def.type === 'none' && !this.model.vehicle;
+      if (fist) def = FIST_DEF; // 空手 → 拳擊
+      def = pilotWeaponDef(def, this.pm);
+      this.weapons[s] = {
+        def,
+        ammo: def.ammo || 0,
+        mag: def.mag || 0,
+        cd: 0,
+        reloadT: 0,
+        charge: 0,
+        charging: false,
+        side: s[0] === 'r' ? 1 : -1,
+        slot: s,
+        dropped: fist,
+        ownerId: this.id,
+      };
+    }
+    this.shield =
+      this.weapons.rback.def.type === 'shield' || this.weapons.lback.def.type === 'shield'
+        ? Math.max(this.weapons.rback.def.absorb || 0, this.weapons.lback.def.absorb || 0)
+        : 0;
   }
   center() {
     return new THREE.Vector3(this.pos.x, this.pos.y + this.model.height * 0.5, this.pos.z);
@@ -201,6 +214,7 @@ export class MechEntity {
               owner: this,
               color: d.color,
               life: d.range / d.speed + 0.3,
+              wid: d.id,
             },
             extra || {},
           ),
@@ -281,6 +295,7 @@ export class MechEntity {
               life: tt + 1.5,
               splash: d.splash,
               gravity: 26,
+              wid: d.id,
             }),
           );
           g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
@@ -312,6 +327,7 @@ export class MechEntity {
                 target: targetEnt,
                 turn: (d.turn * 1.4 * (this.stats.parts.fcs.id === 'f_near' ? 1.5 : 1)) / hmul,
                 splash: d.splash,
+                wid: d.id,
               }),
             );
           }
@@ -332,7 +348,7 @@ export class MechEntity {
       case 'emp':
         {
           if (w.cd > 0) return false;
-          g.empPulse(this, d.radius, d.stun, d.color);
+          g.empPulse(this, d.radius, d.stun, d.color, d.id);
           w.cd = d.rof;
           this.recoil.l = this.recoil.r = 0.5;
         }
@@ -341,7 +357,7 @@ export class MechEntity {
         {
           const dtb = g.lastDt || 0.016;
           if (this.empLock) {
-            if (this.en >= this.stats.enCap - 1) {
+            if (this.en >= this.enMax - 1) {
               this.empLock = false;
               if (this.isPlayer) g.flashMsg('電磁槍冷卻完成', 0x80c8ff, 1);
             } else return false;
@@ -381,7 +397,7 @@ export class MechEntity {
               else {
                 t.empTickT = (t.empTickT || 0) + dtb;
                 if (t.empTickT >= 0.2) {
-                  t.takeDamage(dmg * 0.2, imp * 0.2, this, pt, bdir.clone());
+                  t.takeDamage(dmg * 0.2, imp * 0.2, this, pt, bdir.clone(), undefined, d.id);
                   t.empTickT = 0;
                 }
               }
@@ -433,7 +449,7 @@ export class MechEntity {
             const pt = muzzle.clone().addScaledVector(bdir, h.proj);
             const fall = Math.max(0.55, 1 - n * 0.15);
             if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt);
-            else h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone());
+            else h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
             g.fx.spark(pt, d.color, bdir);
             SFX.hit(h.t.isPlayer ? null : pt);
             n++;
@@ -454,8 +470,7 @@ export class MechEntity {
           w.cd = d.rof * (charged ? 1.6 : 1);
           this.recoil[w.side > 0 ? 'r' : 'l'] = charged ? 1 : 0.4;
           if (this.isPlayer) g.rumble(charged ? 0.9 : 0.1, charged ? 0.6 : 0.6, charged ? 260 : 70);
-          if (!this.useEn(charged ? 250 : 60)) {
-          }
+          this.useEn((charged ? 250 : 60) * (1 - this.pmv('enWpn')));
         }
         break;
       case 'melee':
@@ -528,7 +543,7 @@ export class MechEntity {
       });
     }
     this.weapons[slot] = {
-      def: FIST_DEF,
+      def: pilotWeaponDef(FIST_DEF, this.pm),
       ammo: 999,
       mag: 99,
       cd: 0.4,
@@ -538,6 +553,7 @@ export class MechEntity {
       side: w.side,
       slot,
       dropped: true,
+      ownerId: this.id,
     };
     if (this.isPlayer) {
       g.flashMsg(
@@ -654,6 +670,7 @@ export class MechEntity {
           hp,
           m.dir.clone(),
           { kb: st.kb, lift: st.lift, finisher: !!st.finisher, stagBonus: st.stagBonus },
+          d.id,
         );
         g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir);
         mechFlash(t.model, d.color, 0.16);
@@ -668,7 +685,7 @@ export class MechEntity {
       }
     }
     if (m.t >= st.dur) {
-      if (m.queued && m.stage < d.combo.length - 1 && this.useEn(d.enCost * 0.6)) {
+      if (m.queued && m.stage < d.combo.length - 1 && this.useEn(d.enCost * (0.6 + this.pmv('mChain')))) {
         this.startMeleeStage(
           m.slot,
           m.stage + 1,
@@ -683,7 +700,7 @@ export class MechEntity {
       }
     }
   }
-  takeDamage(dmg, impact, from, at, dir, melee) {
+  takeDamage(dmg, impact, from, at, dir, melee, wid) {
     if (this.dead) return;
     if (this.iFrames > 0) return;
     // DUELIST 格擋：未在連段中、未硬直、面向攻擊者時 55% 擋下近戰第 1 段並反擊
@@ -745,19 +762,25 @@ export class MechEntity {
       this.game.fx.hitStop = 0.05;
     }
     let mul = 1;
-    if (this.staggerT > 0) mul = 1.5;
-    if (this.shield) mul *= 1 - this.shield;
+    if (this.staggerT > 0) mul = 1.5 + this.pmv('stagDmg');
     mul *= 1 - this.stats.def;
-    const real = Math.round(dmg * mul);
     const g = this.game;
+    if (this.shield) {
+      if (g.pilotCreditShield) g.pilotCreditShield(this, dmg * mul * this.shield);
+      mul *= 1 - this.shield;
+    }
+    const real = Math.round(dmg * mul);
     const mp = g.net && g.net.role;
     if (mp && this.team === 'player' && this.downed) {
-      this.downHp = (this.downHp === undefined ? this.maxHp * 0.3 : this.downHp) - real;
+      if (this.downHp === undefined) this.downHp = this.maxHp * (0.3 + this.pmv('downHp'));
+      if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, Math.max(0, this.downHp)));
+      this.downHp -= real;
       this.dmgTaken += real;
       g.popDamage(at || this.center(), real, this.isPlayer, false, !!melee, 0, this.id, impact);
       if (this.downHp <= 0) this.die(from);
       return;
     }
+    if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, Math.max(0, this.hp)));
     this.hp -= real;
     this.dmgTaken += real;
     if (mp && g.mpStats) {
@@ -771,7 +794,7 @@ export class MechEntity {
       this.acsDecayDelay = 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
-        this.staggerT = this.isBoss ? 1.5 : this.isPlayer ? 1.4 : 2.0;
+        this.staggerT = this.isBoss ? 1.5 : this.isPlayer ? 1.4 * (1 - this.pmv('stagT')) : 2.0;
         this.game.fx.ring(this.center(), 4, 0xffb020);
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.isPlayer) {
@@ -850,10 +873,10 @@ export class MechEntity {
     this.dead = false;
     this.downed = false;
     this.hp = this.maxHp;
-    this.en = this.stats.enCap;
+    this.en = this.enMax;
     this.acs = 0;
     this.staggerT = 0;
-    this.iFrames = 3;
+    this.iFrames = 3 + this.pmv('spawnIF');
     this.melee.active = false;
     this.swing = { l: 0, r: 0 };
     this.vel.set(0, 0, 0);
@@ -861,26 +884,9 @@ export class MechEntity {
     this.mesh.position.copy(pos);
     this.mesh.visible = true;
     this.lock = null;
-    this.kits = 3;
+    this.kits = this.kitsMax;
     this.comboHits = 0;
-    for (const s of ['rarm', 'larm', 'rback', 'lback']) {
-      let def = partById(s.endsWith('arm') ? 'arm' : 'back', this.asm[s]);
-      const fist = s.endsWith('arm') && def.type === 'none';
-      if (fist) def = FIST_DEF;
-      this.weapons[s] = {
-        def,
-        ammo: def.ammo || 0,
-        mag: def.mag || 0,
-        cd: 0,
-        reloadT: 0,
-        charge: 0,
-        charging: false,
-        side: s[0] === 'r' ? 1 : -1,
-        slot: s,
-        dropped: fist,
-        ownerId: this.id,
-      };
-    }
+    this.initWeapons();
     g.fx.ring(this.center(), 6, 0x7ee081);
     SFX.play('door', 0.7, 1.2, 0.05, 0.03, this.isPlayer ? null : this.center());
     if (this.isPlayer) g.renderWeaponHud(true);
@@ -966,11 +972,15 @@ export class MechEntity {
       }
     } else {
       if (this.acsDecayDelay > 0) this.acsDecayDelay -= dt;
-      else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * dt);
+      else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * (1 + this.pmv('acsDec')) * dt);
     }
     if (this.iFrames > 0) this.iFrames -= dt;
     if (this.enDelay > 0) this.enDelay -= dt;
-    else this.en = Math.min(this.enMax, this.en + P.generator.recharge * dt * (this.grounded ? 1.6 : 1));
+    else
+      this.en = Math.min(
+        this.enMax,
+        this.en + P.generator.recharge * dt * (this.grounded ? 1.6 + this.pmv('gnd') : 1),
+      );
     // quick boost
     if (wantQB && this.qbT <= 0 && wish.lengthSq() > 0.1 && this.useEn(P.booster.qbCost)) {
       this.qbT = 0.16;
@@ -979,7 +989,7 @@ export class MechEntity {
       if (this.isPlayer) g.rumble(0.1, 0.35, 80);
       g.fx.chevrons(this.pos.clone(), this.qbDir.clone().negate(), 0xffffff);
       if (this.grounded) g.fx.dust(this.pos.clone(), 2.2, 7);
-      this.iFrames = 0.14;
+      this.iFrames = 0.14 + this.pmv('qbIF');
     }
     // assault boost
     if (wantAB && targetEnt && this.en > 5) {
@@ -1041,7 +1051,7 @@ export class MechEntity {
     } else {
       this.hover = false;
       if (wantHover && canFly && (P.legs.type === 'quad' || this.en > 2)) {
-        const cost = P.legs.type === 'quad' ? 60 : 240;
+        const cost = (P.legs.type === 'quad' ? 60 : 240) * (1 - this.pmv('hover'));
         if (this.grounded) {
           this.vel.y = P.legs.jump * 1.5;
           this.grounded = false;
@@ -1615,7 +1625,7 @@ export class MechEntity {
           continue;
         }
         if (w.def.type === 'empbeam') {
-          if (!this.empLock && this.en > this.stats.enCap * 0.3) this.fire(slot, pl.center(), pl);
+          if (!this.empLock && this.en > this.enMax * 0.3) this.fire(slot, pl.center(), pl);
           continue;
         }
         if (w.def.type === 'laser' && w.def.chargeT === 0) {

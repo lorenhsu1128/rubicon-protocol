@@ -1,5 +1,6 @@
 // Game：存檔（localStorage rubicon_save）
 import { START_ASM, START_OWNED } from '../data/parts.js';
+import { newPilot, normalizePilot } from '../data/pilot.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -14,6 +15,7 @@ Object.assign(Game.prototype, {
       kills: 0,
       bosses: 0,
       missionsDone: 0,
+      pilot: newPilot(), // 駕駛員成長：PvE／PvP 各自獨立
     };
   },
   loadSave() {
@@ -25,6 +27,7 @@ Object.assign(Game.prototype, {
         o.asm.c1 = o.asm.c1 || 'cs_bomber';
         o.asm.c2 = o.asm.c2 || 'cs_ally';
         for (const id of ['cs_none', 'cs_bomber', 'cs_ally']) if (!o.owned.includes(id)) o.owned.push(id);
+        o.pilot = normalizePilot(o.pilot); // 舊存檔沒有 pilot 時從 Lv1 開始，並修正不合法的配點
       }
       return o;
     } catch (e) {
