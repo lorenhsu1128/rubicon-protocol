@@ -1,0 +1,968 @@
+:root {
+  --bg: #0c1016;
+  --ink: #e6edf3;
+  --dim: #8a97a6;
+  --line: #2a3644;
+  --acc: #ffb020;
+  --acc2: #5cc8ff;
+  --hp: #7ee081;
+  --en: #5cc8ff;
+  --acs: #ffb020;
+  --danger: #ff4d4d;
+  --panel: rgba(10, 14, 20, 0.86);
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+html {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Chakra Petch', 'Noto Sans TC', system-ui, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#gl {
+  position: fixed;
+  inset: 0;
+  display: block;
+}
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-size: 14px;
+}
+#ui .screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: auto;
+}
+#ui .screen.on {
+  display: flex;
+}
+.center {
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  padding: 18px 22px;
+}
+h1 {
+  font-size: 44px;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+  font-weight: 700;
+  line-height: 1;
+}
+h1 small {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.35em;
+  color: var(--acc);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+h2 {
+  font-size: 20px;
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+p {
+  margin: 6px 0;
+  line-height: 1.55;
+}
+.dim {
+  color: var(--dim);
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 8px 16px;
+  letter-spacing: 0.05em;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+button:hover {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.12);
+}
+button.primary {
+  background: var(--acc);
+  color: #111;
+  border-color: var(--acc);
+  font-weight: 700;
+}
+button.primary:hover {
+  background: #ffc352;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+kbd {
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--acc2);
+  background: rgba(0, 0, 0, 0.35);
+}
+table.keys {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+table.keys td {
+  padding: 3px 12px 3px 0;
+  vertical-align: top;
+}
+
+/* ---------- HUD ---------- */
+#hudTop {
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: rgba(8, 12, 18, 0.55);
+  padding: 6px 10px;
+  border-left: 2px solid var(--acc);
+}
+#hudTop b {
+  color: var(--acc);
+  font-size: 15px;
+}
+#objective {
+  margin-top: 4px;
+  color: var(--dim);
+}
+#hudBottom {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: min(420px, 60vw);
+  background: rgba(8, 12, 18, 0.5);
+  padding: 14px 10px 6px;
+}
+.bar {
+  position: relative;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  margin: 20px 0 4px;
+}
+.bar > i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--hp);
+  transition: width 0.08s linear;
+}
+.bar.en > i {
+  background: var(--en);
+}
+.bar.acs > i {
+  background: var(--acs);
+}
+.bar label {
+  position: absolute;
+  right: 0;
+  top: -16px;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+.bar span {
+  position: absolute;
+  left: 0;
+  top: -16px;
+  font-size: 12px;
+  color: var(--ink);
+}
+#weapons {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: min(320px, 48vw);
+}
+.wslot {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 5px 8px;
+  font-size: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.wslot b {
+  display: block;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+.wslot em {
+  font-style: normal;
+  font-size: 16px;
+  font-weight: 700;
+}
+.wslot .k {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  font-size: 10px;
+  color: var(--acc2);
+}
+.wslot .rl {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--acc);
+  width: 0;
+}
+.wslot.empty {
+  opacity: 0.35;
+}
+.wslot.cs b {
+  color: var(--acc2);
+}
+#bossBar {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  width: min(560px, 80vw);
+  display: none;
+}
+#bossBar .name {
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  color: var(--danger);
+  text-align: center;
+  margin-bottom: 4px;
+}
+#bossBar .bar > i {
+  background: var(--danger);
+}
+#kits {
+  font-size: 12px;
+  color: var(--dim);
+  margin-bottom: -6px;
+}
+#kits b {
+  color: var(--hp);
+}
+#msg {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 18px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+#msg.on {
+  opacity: 1;
+}
+#alert {
+  position: absolute;
+  left: 50%;
+  top: 32%;
+  transform: translateX(-50%);
+  font-size: 15px;
+  letter-spacing: 0.3em;
+  color: var(--danger);
+  opacity: 0;
+}
+#alert.on {
+  opacity: 1;
+}
+#fps {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font-size: 11px;
+  color: var(--dim);
+}
+#lockHint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--ink);
+  letter-spacing: 0.12em;
+  background: rgba(8, 12, 18, 0.5);
+  padding: 3px 10px;
+}
+
+/* ---------- 虛擬手把 ---------- */
+#vpad {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  z-index: 5;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#vpad.on {
+  display: block;
+}
+.vstick {
+  position: absolute;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  pointer-events: auto;
+}
+.vstick .knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+}
+#vsL {
+  left: calc(30px + env(safe-area-inset-left, 0px));
+}
+#vsR {
+  right: calc(30px + env(safe-area-inset-right, 0px));
+}
+.vbtn {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font:
+    700 13px/1.1 'Chakra Petch',
+    sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: auto;
+  letter-spacing: 0.02em;
+}
+.vbtn.big {
+  width: 84px;
+  height: 84px;
+  font-size: 15px;
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.25);
+}
+.vbtn.sm {
+  width: 52px;
+  height: 52px;
+  font-size: 11px;
+}
+.vbtn.act {
+  background: rgba(255, 176, 32, 0.6);
+  border-color: #fff;
+}
+.vbtn.melee {
+  border-color: #ff6ab0;
+  background: rgba(255, 106, 176, 0.3);
+}
+.vbtn.dim {
+  opacity: 0.45;
+}
+.vbtn .k {
+  display: block;
+  font-size: 9px;
+  color: var(--dim);
+  font-weight: 400;
+}
+#vpad .top {
+  position: absolute;
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+}
+#vpad .top .vbtn {
+  position: static;
+}
+
+body.vpad #hudTop {
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 4px 8px;
+  background: rgba(8, 12, 18, 0.45);
+}
+body.vpad #hudTop b {
+  font-size: 12px;
+}
+body.vpad #hudBottom {
+  bottom: auto;
+  top: calc(64px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  width: 200px;
+  padding: 10px 8px 2px;
+  background: rgba(8, 12, 18, 0.4);
+}
+body.vpad #hudBottom .bar {
+  height: 6px;
+  margin: 13px 0 2px;
+}
+body.vpad #hudBottom .bar label {
+  font-size: 9px;
+  top: -12px;
+}
+body.vpad #hudBottom .bar span {
+  font-size: 10px;
+  top: -12px;
+}
+body.vpad #kits {
+  font-size: 10px;
+}
+body.vpad #weapons {
+  bottom: auto;
+  top: calc(72px + env(safe-area-inset-top, 0px));
+  right: 20px;
+  width: 230px;
+  gap: 4px;
+}
+body.vpad .wslot {
+  padding: 3px 6px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.4);
+}
+body.vpad .wslot b {
+  font-size: 9px;
+}
+body.vpad .wslot em {
+  font-size: 12px;
+}
+body.vpad .wslot .k {
+  font-size: 8px;
+}
+body.vpad #lockHint {
+  bottom: auto;
+  top: calc(120px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(8, 12, 18, 0.4);
+}
+body.vpad #bossBar {
+  top: calc(40px + env(safe-area-inset-top, 0px));
+  width: min(360px, 50vw);
+}
+body.vpad #bossBar .name {
+  font-size: 10px;
+}
+body.vpad #msg {
+  font-size: 20px;
+  top: 26%;
+}
+body.vpad #alert {
+  font-size: 12px;
+}
+body.vpad #fps {
+  display: none;
+}
+body.vpad #vpad .top {
+  top: calc(64px + env(safe-area-inset-top, 0px));
+}
+
+/* ---------- 手機橫向（矮螢幕）觸控最佳化 ---------- */
+@media (max-height: 540px) {
+  body.vpad #vsL {
+    width: 104px;
+    height: 104px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    left: calc(16px + env(safe-area-inset-left, 0px));
+  }
+  body.vpad #vsL .knob {
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+  }
+  body.vpad .vbtn {
+    width: 48px;
+    height: 48px;
+    font-size: 11px;
+  }
+  body.vpad .vbtn.big {
+    width: 66px;
+    height: 66px;
+    font-size: 13px;
+  }
+  body.vpad .vbtn.sm {
+    width: 38px;
+    height: 38px;
+    font-size: 10px;
+  }
+  body.vpad .vbtn .k {
+    font-size: 7px;
+  }
+  body.vpad #vbAttack {
+    right: calc(84px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.vpad #vbShoulder {
+    right: calc(158px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.vpad .vbtn[data-a='jump'] {
+    right: calc(92px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(136px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.vpad #vbQB {
+    right: calc(18px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.vpad #vpad .top {
+    top: calc(6px + env(safe-area-inset-top, 0px)) !important;
+    right: calc(10px + env(safe-area-inset-right, 0px)) !important;
+    gap: 6px;
+  }
+  body.vpad #hudTop {
+    top: calc(4px + env(safe-area-inset-top, 0px));
+    left: 6px;
+    font-size: 9px;
+    line-height: 1.3;
+    padding: 3px 6px;
+    max-width: 220px;
+  }
+  body.vpad #hudTop b {
+    font-size: 10px;
+  }
+  body.vpad #hudBottom {
+    top: calc(46px + env(safe-area-inset-top, 0px));
+    left: 6px;
+    width: 150px;
+    padding: 8px 6px 2px;
+  }
+  body.vpad #hudBottom .bar {
+    height: 5px;
+    margin: 11px 0 1px;
+  }
+  body.vpad #hudBottom .bar label,
+  body.vpad #hudBottom .bar span {
+    font-size: 8px;
+    top: -10px;
+  }
+  body.vpad #kits {
+    font-size: 9px;
+  }
+  body.vpad #weapons {
+    top: calc(6px + env(safe-area-inset-top, 0px));
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 210px;
+    gap: 3px;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  body.vpad .wslot {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+  body.vpad .wslot b {
+    font-size: 8px;
+  }
+  body.vpad .wslot em {
+    font-size: 11px;
+  }
+  body.vpad .wslot .k {
+    display: none;
+  }
+  body.vpad .wslot.cs {
+    display: none;
+  }
+  body.vpad #lockHint {
+    top: calc(66px + env(safe-area-inset-top, 0px));
+    font-size: 9px;
+    padding: 1px 6px;
+  }
+  body.vpad #bossBar {
+    top: calc(58px + env(safe-area-inset-top, 0px));
+    width: 180px;
+  }
+  body.vpad #bossBar .name {
+    font-size: 8px;
+  }
+  body.vpad #bossBar .bar {
+    height: 5px;
+  }
+  body.vpad #msg {
+    font-size: 15px;
+    top: 30%;
+  }
+  body.vpad #alert {
+    font-size: 10px;
+    top: 38%;
+  }
+}
+
+/* ---------- 手機／窄螢幕車庫 ---------- */
+@media (max-width: 1000px), (max-height: 540px) {
+  #garageLeft {
+    width: 52vw;
+    min-width: 0;
+  }
+  #garageRight {
+    width: 48vw;
+    min-width: 0;
+    padding: 10px 12px;
+  }
+  #garageMid {
+    display: none;
+  }
+  #gTitle {
+    padding: 8px 10px 6px;
+  }
+  #gTitle h2 {
+    font-size: 15px;
+  }
+  #gTitle .coam {
+    font-size: 13px;
+  }
+  #slots {
+    gap: 3px;
+    padding: 6px 8px;
+  }
+  .slot {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .slot b {
+    font-size: 9px;
+  }
+  #partList {
+    padding: 6px 8px;
+  }
+  .part {
+    padding: 5px 8px;
+    margin-bottom: 4px;
+  }
+  .part .n {
+    font-size: 12px;
+  }
+  .part .s {
+    font-size: 10px;
+  }
+  .part .pr {
+    font-size: 11px;
+  }
+  .stat {
+    font-size: 12px;
+    padding: 3px 0;
+  }
+  #garageRight h2 {
+    font-size: 15px;
+    margin: 0 0 6px;
+  }
+  #gActions {
+    margin-top: 8px;
+    gap: 6px;
+  }
+  #gActions button {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  #missionCard {
+    display: none;
+  }
+  #garageRight .dim {
+    font-size: 10px;
+  }
+}
+
+/* ---------- Garage ---------- */
+#garage {
+  display: none;
+  pointer-events: auto;
+  flex-direction: row;
+  gap: 0;
+}
+#garage.on {
+  display: flex;
+}
+#garageLeft {
+  width: min(360px, 42vw);
+  height: 100%;
+  overflow: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+#garageRight {
+  width: min(300px, 36vw);
+  height: 100%;
+  overflow: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  margin-left: auto;
+  padding: 16px;
+}
+#garageMid {
+  flex: 1;
+  position: relative;
+  pointer-events: none;
+}
+#gTitle {
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid var(--line);
+}
+#gTitle h2 {
+  margin: 0;
+  font-size: 18px;
+}
+#gTitle .coam {
+  color: var(--acc);
+  font-weight: 700;
+  font-size: 15px;
+}
+#slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.slot {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.slot b {
+  display: block;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.slot.sel {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.1);
+}
+#partList {
+  padding: 8px 12px;
+  flex: 1;
+}
+.part {
+  border: 1px solid var(--line);
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.part:hover {
+  border-color: var(--acc2);
+}
+.part.eq {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.08);
+}
+.part .n {
+  font-weight: 600;
+  font-size: 13px;
+}
+.part .s {
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+.part .pr {
+  font-size: 12px;
+  color: var(--acc);
+  white-space: nowrap;
+}
+.part.locked .pr {
+  color: var(--dim);
+}
+.stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.stat span:last-child {
+  font-weight: 600;
+}
+.stat.bad span:last-child {
+  color: var(--danger);
+}
+.stat.ok span:last-child {
+  color: var(--hp);
+}
+.krow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+.kbtn {
+  min-width: 120px;
+}
+.kbtn.wait {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+select {
+  font: inherit;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+}
+.lslot.teamtoggle {
+  cursor: pointer;
+}
+.lslot {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 74px;
+}
+.lslot.empty {
+  opacity: 0.45;
+}
+.lslot b {
+  font-size: 13px;
+}
+.lslot .ok {
+  color: var(--hp);
+}
+.lslot .kick {
+  align-self: flex-end;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.lreq {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--acc);
+  padding: 6px 10px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+#gWarn {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 8px 0;
+  min-height: 18px;
+}
+#gActions {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#missionCard {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 10px 18px;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+#missionCard b {
+  color: var(--acc);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+}
+
+/* result */
+#resultGrid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 24px;
+  font-size: 14px;
+  margin: 8px 0 14px;
+}
+#resultGrid span:nth-child(even) {
+  text-align: right;
+  font-weight: 600;
+}
+.rank {
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--acc);
+  line-height: 1;
+  margin: 6px 0;
+}
+
+@media (max-width: 720px) {
+  h1 {
+    font-size: 30px;
+  }
+  #garageLeft {
+    width: 52vw;
+  }
+  #garageRight {
+    width: 46vw;
+  }
+  #hudBottom {
+    width: 52vw;
+  }
+  #weapons {
+    width: 44vw;
+  }
+}

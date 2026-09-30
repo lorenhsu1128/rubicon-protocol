@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RUBICON PROTOCOL — 機甲傭兵 單機版</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Noto+Sans+TC:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+    <canvas id="hud"></canvas>
+
+    <div id="vpad">
+      <div class="vstick" id="vsL"><div class="knob"></div></div>
+      <!-- 右手拇指四鍵菱形：攻擊（大）、肩部、跳躍、QB（長按＝突擊） -->
+      <div
+        class="vbtn big"
+        data-a="attack"
+        id="vbAttack"
+        style="
+          right: calc(120px + env(safe-area-inset-right, 0px));
+          bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+        "
+      >
+        射擊<span class="k" id="vbAttackK">FIRE</span>
+      </div>
+      <div
+        class="vbtn"
+        data-a="shoulder"
+        id="vbShoulder"
+        style="
+          right: calc(230px + env(safe-area-inset-right, 0px));
+          bottom: calc(200px + env(safe-area-inset-bottom, 0px));
+        "
+      >
+        肩部<span class="k">BACK</span>
+      </div>
+      <div
+        class="vbtn"
+        data-a="jump"
+        style="
+          right: calc(120px + env(safe-area-inset-right, 0px));
+          bottom: calc(240px + env(safe-area-inset-bottom, 0px));
+        "
+      >
+        跳躍<span class="k">HOLD</span>
+      </div>
+      <div
+        class="vbtn"
+        data-a="qbab"
+        id="vbQB"
+        style="
+          right: calc(30px + env(safe-area-inset-right, 0px));
+          bottom: calc(200px + env(safe-area-inset-bottom, 0px));
+        "
+      >
+        QB<span class="k">長按＝突擊</span>
+      </div>
+      <div
+        class="top"
+        style="
+          left: auto;
+          right: calc(20px + env(safe-area-inset-right, 0px));
+          transform: none;
+          top: calc(12px + env(safe-area-inset-top, 0px));
+        "
+      >
+        <div class="vbtn sm" data-a="kit">修復</div>
+        <div class="vbtn sm" data-a="cs1">道具1</div>
+        <div class="vbtn sm" data-a="cs2">道具2</div>
+        <div class="vbtn sm" data-a="pause">暫停</div>
+      </div>
+    </div>
+
+    <div id="ui">
+      <!-- Title -->
+      <div id="title" class="screen center">
+        <div class="panel" style="max-width: 640px">
+          <h1><small>SINGLE PLAYER MECH ACTION</small>RUBICON PROTOCOL</h1>
+          <p class="dim">
+            你是編號 621
+            的強化人類傭兵。在被封鎖的行星上，隨機生成的戰區、隨機編成的敵軍，每三個任務就有一台戰略級兵器等著你。組裝你的
+            AC，接下委託。
+          </p>
+          <table class="keys">
+            <tr>
+              <td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動</td>
+              <td><kbd>Shift</kbd> 快速推進 (Quick Boost)</td>
+            </tr>
+            <tr>
+              <td><kbd>Space</kbd> 長按上升 / 懸浮</td>
+              <td><kbd>F</kbd> 突擊推進 (Assault Boost)</td>
+            </tr>
+            <tr>
+              <td><kbd>滑鼠左鍵</kbd> 右手武器</td>
+              <td><kbd>滑鼠右鍵</kbd> 左手武器</td>
+            </tr>
+            <tr>
+              <td><kbd>Q</kbd> 左背武器　<kbd>E</kbd> 右背武器</td>
+              <td><kbd>Tab</kbd> 切換鎖定／<kbd>點擊敵人</kbd> 鎖定　<kbd>R</kbd> 修復套件</td>
+            </tr>
+            <tr>
+              <td><kbd>1</kbd> / <kbd>2</kbd> 使用消耗品（空襲／友軍）</td>
+              <td><kbd>滑鼠</kbd> 瞄準方向　<kbd>Esc</kbd> 暫停</td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <kbd>V</kbd> 第一／第三人稱切換（第一人稱：滑鼠轉視角、準星置中、視錐內自動鎖定、Tab
+                切換視野內目標、WS 前後 AD 側移）
+              </td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <kbd>Xbox 手把</kbd> 左搖桿移動、右搖桿瞄準、RT/LT 左右手、RB/LB 背部、A 跳躍、B QB、Y 突擊、X
+                修復、RS 鎖定、十字鍵上下 消耗品、Start 暫停（可在設定中改鍵）
+              </td>
+            </tr>
+          </table>
+          <div class="row" style="margin-top: 12px">
+            <button class="primary" id="btnNew">新的傭兵生涯</button>
+            <button id="btnContinue" disabled>繼續存檔</button>
+            <button id="btnMP">多人連線（區網 2–4 人）</button>
+            <button id="btnSettings">按鍵與操作設定</button>
+          </div>
+          <p class="dim" style="font-size: 11px; margin-top: 12px">
+            音效：The Free Firearm Sound Library（CC0）、Kenney.nl（CC0）、JC Sounds Sci-Fi Pack Vol 1（CC-BY
+            4.0）、elnineo／NenadSimic 爆炸（CC0）、dklon Big Explosion（CC-BY 3.0）、EZduzziteh
+            推進器（CC0）。操作說明：先在車庫組裝，再按「出擊」。近戰武器：連點攻擊鍵接續連段，連擊三次或終結技會讓敵人失衡。手部沒裝武器或子彈打光時自動改用拳擊（三段、出招瞬間前衝）。敵人姿態計（橙色弧）填滿會硬直，硬直中受到
+            1.5 倍傷害。站得比目標高命中率上升、比目標低則下降（每公尺 ±7%）；飛行高度上限離地 22
+            m；機體之間會互相碰撞推開（無傷害）；子彈有飛行時間，高機動機體可用 QB
+            側閃躲開。每擊破一台敵機即時入帳 COAM，沒有修理費。敵軍含 5 種具名 AC、突擊／榴彈／自爆
+            MT、裝甲車、步行砲台、武裝直升機、導彈無人機群；自爆與無人機的爆炸敵我不分。
+          </p>
+        </div>
+      </div>
+
+      <!-- Garage -->
+      <div id="garage" class="screen">
+        <div id="garageLeft">
+          <div id="gTitle">
+            <h2>車庫 — 組裝</h2>
+            <div class="coam">COAM <span id="gCoam">0</span></div>
+          </div>
+          <div id="slots"></div>
+          <div id="partList"></div>
+        </div>
+        <div id="garageMid">
+          <div id="missionCard">
+            <b id="mcTitle">任務</b>
+            <div id="mcDesc" class="dim"></div>
+          </div>
+        </div>
+        <div id="garageRight">
+          <h2>機體規格</h2>
+          <div id="stats"></div>
+          <div
+            id="gMissionM"
+            class="dim"
+            style="display: none; font-size: 11px; margin: 6px 0; line-height: 1.5"
+          ></div>
+          <div id="gWarn"></div>
+          <div id="gActions">
+            <button class="primary" id="btnSortie">出擊</button>
+            <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
+            <button id="btnToTitle">回標題</button>
+            <button id="btnGarageLobby" class="primary" style="display: none">返回大廳</button>
+          </div>
+          <p class="dim" style="font-size: 11px; margin-top: 14px">
+            點選左側部位 → 從清單購買／裝備。總重量不可超過腳部負重；EN 負載不可超過發電機輸出。
+          </p>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div id="result" class="screen center">
+        <div class="panel" style="min-width: 320px">
+          <h2 id="rTitle">任務完成</h2>
+          <div class="rank" id="rRank">A</div>
+          <div id="resultGrid"></div>
+          <div class="row"><button class="primary" id="btnResultOk">返回車庫</button></div>
+        </div>
+      </div>
+
+      <!-- Multiplayer entry -->
+      <div id="mp" class="screen center">
+        <div class="panel" style="min-width: min(560px, 92vw); max-height: 90vh; overflow: auto">
+          <h2>多人連線</h2>
+          <p class="dim" style="font-size: 12px" id="mpIntro">
+            同一個區域網路（同一台路由器）的玩家會自動互相看到房間。建房／搜尋時需要網際網路做信令，連上後為點對點。若自動辨識失敗（例如公司網路多出口），所有人輸入相同的「區網代碼」即可。
+          </p>
+          <div class="krow">
+            <span>暱稱</span
+            ><input
+              id="mpNick"
+              maxlength="12"
+              placeholder="輸入暱稱"
+              style="
+                font: inherit;
+                background: var(--panel);
+                color: var(--ink);
+                border: 1px solid var(--line);
+                padding: 6px 10px;
+                width: 180px;
+              "
+            />
+          </div>
+          <div class="row" style="margin-top: 12px">
+            <button class="primary" id="btnMPHost">建立房間</button><button id="btnMPList">搜尋房間</button
+            ><button id="btnMPBack">返回</button>
+          </div>
+          <div id="mpP2Rows">
+            <div class="krow" style="margin-top: 8px">
+              <span>區網代碼（選填）</span
+              ><input
+                id="mpLan"
+                maxlength="12"
+                placeholder="留空＝自動依公網 IP"
+                style="
+                  font: inherit;
+                  background: var(--panel);
+                  color: var(--ink);
+                  border: 1px solid var(--line);
+                  padding: 6px 10px;
+                  width: 180px;
+                "
+              />
+            </div>
+            <div class="krow">
+              <span>直接加入房間編號</span
+              ><span
+                ><input
+                  id="mpRoomNo"
+                  type="number"
+                  min="1"
+                  max="8"
+                  value="1"
+                  style="
+                    font: inherit;
+                    background: var(--panel);
+                    color: var(--ink);
+                    border: 1px solid var(--line);
+                    padding: 6px 10px;
+                    width: 70px;
+                  "
+                />
+                <button id="btnMPDirect">加入</button></span
+              >
+            </div>
+            <div class="krow">
+              <span>連線方式</span
+              ><span
+                ><select id="mpRelay">
+                  <option value="auto">自動（區網直連，失敗時經中繼）</option>
+                  <option value="off">只用區網直連</option>
+                </select>
+                <button id="btnMPDiag">連線診斷</button></span
+              >
+            </div>
+            <div class="krow">
+              <span>直連修復</span
+              ><span
+                ><button id="btnMPUnmask">解除區網位址匿名（需麥克風權限）</button>
+                <button id="btnMPTurn">自訂中繼伺服器</button></span
+              >
+            </div>
+          </div>
+          <div id="mpLog" class="dim" style="font-size: 12px; margin-top: 10px; min-height: 18px"></div>
+          <div id="mpRooms" style="margin-top: 8px"></div>
+        </div>
+      </div>
+      <!-- Lobby -->
+      <div id="lobby" class="screen center">
+        <div class="panel" style="min-width: min(640px, 94vw); max-height: 92vh; overflow: auto">
+          <h2 id="lobbyTitle">房間</h2>
+          <div class="dim" style="font-size: 12px; margin-bottom: 8px">
+            <span id="lobbyLevel"></span>（使用房主的關卡進度）
+          </div>
+          <div id="lobbyMode" style="font-size: 13px; margin-bottom: 6px"></div>
+          <div id="lobbySlots" class="grid" style="grid-template-columns: 1fr 1fr"></div>
+          <div id="lobbyReq" style="margin-top: 10px"></div>
+          <div id="mpAutoWrap" style="margin-top: 8px; font-size: 12px">
+            <label><input type="checkbox" id="mpAuto" /> 自動同意加入請求</label>
+          </div>
+          <div class="row" style="margin-top: 14px">
+            <button id="btnLobbyGarage">車庫組裝</button
+            ><button class="primary" id="btnLobbyReady">準備</button
+            ><button class="primary" id="btnLobbySortie" disabled>出擊</button
+            ><button id="btnLobbyLeave">離開房間</button>
+          </div>
+          <p class="dim" style="font-size: 11px; margin-top: 10px">
+            任務中：Esc 開選單（遊戲不暫停）、F1–F6
+            快捷訊號（集火／救我／撤退／謝謝／等等／出發）、走進倒地隊友的綠色圓圈內按修復鍵即可救援、被擊破後
+            Tab 切換旁觀隊友。房主掉線時由候補房主接手。
+          </p>
+        </div>
+      </div>
+      <!-- Settings -->
+      <div id="settings" class="screen center">
+        <div class="panel" style="min-width: min(560px, 92vw); max-height: 90vh; overflow: auto">
+          <h2>按鍵與操作設定</h2>
+          <p class="dim" style="font-size: 12px">
+            點選右側按鈕後按下想指定的鍵或滑鼠鍵；按 Esc 取消。設定會記在瀏覽器裡。
+          </p>
+          <div id="keyRows"></div>
+          <h3 style="margin: 14px 0 6px; font-size: 15px">控制方式</h3>
+          <div class="krow">
+            <span>瞄準</span
+            ><select id="ctrlAim">
+              <option value="mouse">滑鼠瞄準（預設）</option>
+              <option value="auto">自動瞄準鎖定目標（無鎖定時朝機體前方）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>移動方向基準</span
+            ><select id="ctrlMove">
+              <option value="screen">螢幕方向（預設）</option>
+              <option value="mech">機體面向（前進＝機體前方）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>射擊方式</span
+            ><label><input type="checkbox" id="ctrlHold" /> 按住連射（取消則每按一次射一發）</label>
+          </div>
+          <div class="krow">
+            <span>遊戲節奏</span
+            ><select id="ctrlPace">
+              <option value="0.7">慢（70%）</option>
+              <option value="0.85">標準（85%，預設）</option>
+              <option value="1">快（100%，原速）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>預設視角</span
+            ><select id="ctrlView">
+              <option value="tps">第三人稱俯視（預設）</option>
+              <option value="fps">第一人稱（V 鍵可隨時切換）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>滑鼠靈敏度（第一人稱）</span
+            ><input id="ctrlSens" type="number" step="0.1" min="0.2" max="4" style="width: 80px" />
+          </div>
+          <div class="krow">
+            <span>自動攻擊（觸控／手把）</span
+            ><label
+              ><input type="checkbox" id="ctrlAuto" />
+              有鎖定目標且在射程內時手部武器自動連射（攻擊鍵只用於近戰）</label
+            >
+          </div>
+          <div class="krow">
+            <span>虛擬手把（觸控）</span
+            ><select id="ctrlTouch">
+              <option value="auto">自動（偵測到觸控就顯示）</option>
+              <option value="on">永遠顯示</option>
+              <option value="off">關閉</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>手把震動</span
+            ><label
+              ><input type="checkbox" id="ctrlRumble" /> 開啟（射擊、命中、被擊、爆炸依強度不同回饋）</label
+            >
+          </div>
+          <div class="krow">
+            <span>震動測試</span
+            ><span
+              ><button id="btnVibTest">測試手機震動</button>
+              <span id="vibMsg" class="dim" style="font-size: 11px"></span
+            ></span>
+          </div>
+          <div class="row" style="margin-top: 14px">
+            <button class="primary" id="btnSettingsBack">返回</button
+            ><button id="btnKeysReset">恢復預設</button>
+          </div>
+        </div>
+      </div>
+      <!-- Pause -->
+      <div id="pause" class="screen center">
+        <div class="panel">
+          <h2>暫停</h2>
+          <div class="row">
+            <button class="primary" id="btnResume">繼續</button><button id="btnAbort">放棄任務</button
+            ><button id="btnSettingsP">按鍵設定</button>
+          </div>
+          <p style="margin-top: 14px">
+            <label
+              ><input type="checkbox" id="optPost" checked /> 後製特效（Bloom 光暈／SSAO 環境遮蔽）</label
+            >
+          </p>
+          <p class="dim" style="font-size: 11px">效能不足時可關閉。</p>
+        </div>
+      </div>
+
+      <!-- In-game HUD -->
+      <div id="hudWrap" style="display: none; position: absolute; inset: 0">
+        <div id="hudTop"></div>
+        <div id="hudBottom">
+          <div id="kits"></div>
+          <div class="bar"><span id="hpTxt"></span><label>AP</label><i id="hpBar"></i></div>
+          <div class="bar en"><label>EN</label><i id="enBar"></i></div>
+          <div class="bar acs"><label>ACS</label><i id="acsBar"></i></div>
+        </div>
+        <div id="weapons"></div>
+        <div id="bossBar">
+          <div class="name" id="bossName"></div>
+          <div class="bar"><i id="bossHp"></i></div>
+        </div>
+        <div id="msg"></div>
+        <div id="alert"></div>
+        <div id="fps"></div>
+        <div id="lockHint"></div>
+      </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

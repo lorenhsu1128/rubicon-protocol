@@ -13,8 +13,12 @@ RUBICON PROTOCOL 區網伺服器 v1.0（Windows）
 - rubicon-server.exe   伺服器（免安裝 Node.js）
 - rubicon-protocol.html 遊戲本體（伺服器啟動時讀取此檔）
 - rubicon-server.json   設定（port、自動啟動），第一次啟動後自動產生
-- server.js             伺服器原始碼（有裝 Node.js 時可用 node server.js 執行）
+- server.js             伺服器原始碼（有裝 Node.js 時可用 npm start 執行）
 
 注意
 - 若 Windows SmartScreen 阻擋，按「其他資訊」→「仍要執行」。
 - 關閉黑色主控台視窗即停止伺服器。
+
+開發（原始碼版本，需要 Node.js）
+- 遊戲原始碼在 src/，npm run build 產生 dist/rubicon-protocol.html。
+- npm run build:exe 產生 dist/rubicon-server.exe；發佈時把 dist/ 裡的兩個檔案一起提供即可。
