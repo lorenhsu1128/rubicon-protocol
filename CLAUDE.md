@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html`」兩個檔案。
 
 - `src/`：遊戲原始碼（見下方架構）。`src/index.html` 是 HTML 骨架，建置時把 `styles.css` 與打包後的 JS 內嵌進去。
-- `dist/`：建置產物（只有 exe 進 git） `rubicon-protocol.html`、`rubicon-server.exe`。**不要手改 dist/**，改 `src/` 後重新建置。
+- `dist/`：建置產物 `rubicon-protocol.html`、`rubicon-server.exe`（只有 exe 進 git）。**不要手改 dist/**，改 `src/` 後重新建置。
 - `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/health`、`/ws` WebSocket 中繼），控制台固定 port 8090。開發時讀 `dist/rubicon-protocol.html`，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - 函式庫（three、peerjs、three examples 後處理）仍由 `src/index.html` 從 CDN 以一般 `<script>` 載入，程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。
