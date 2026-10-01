@@ -344,6 +344,92 @@ async function testLibraryJoints(browser, base) {
   await ctx.close();
 }
 
+// 模型庫組裝調整：頁籤開啟 → 換零件 → 從現有機甲載入 → 預組儲存／載入／匯出／匯入 → 動作暫停與時間軸
+async function testWorkshop(browser, base) {
+  console.log('模型庫組裝調整：頁籤 → 零件 → 預組 → 動作時間軸');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'workshop');
+  const tree = async () => (await page.textContent('#wsTree')) || '';
+  await page.goto(base + 'model-library.html');
+  await page.waitForSelector('.cell');
+  await page.click('#tabs button[data-c="workshop"]');
+  check(
+    await page.waitForSelector('#workshop:not([hidden])', { timeout: 10000 }).then(
+      () => true,
+      () => false,
+    ),
+    '「組裝調整」頁籤開啟全螢幕頁面',
+  );
+  await page.waitForSelector('#wsTree .wsConn');
+  await wait(1500);
+  const t0 = await tree();
+  check(
+    t0.includes('手肘') && t0.includes('腰（核心座）') && t0.includes('左噴口'),
+    '右側列出組裝層級與連接點',
+  );
+  check(((await page.textContent('#wsInfo')) || '').includes('連接點 21 個'), '玩家初始機有 21 個連接點');
+  await page.selectOption('#wsParts select[data-k="arms"]', 'a_lt');
+  await wait(1500);
+  check((await tree()).includes('arms/a_lt/r_upper'), '換手臂零件後重新組裝');
+  // 從現有機甲載入（四足）
+  const quad = await page.$$eval('#wsFrom option', (os) =>
+    os.map((o) => o.value).find((v) => v.includes('strider')),
+  );
+  await page.selectOption('#wsFrom', quad);
+  await wait(2000);
+  check(/legs\/l_qd\/body/.test(await tree()), `從現有機甲載入（${quad}）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'workshop.png') });
+  // 預組
+  await page.fill('#wsPresetName', '測試預組');
+  await page.click('#wsSavePreset');
+  await wait(500);
+  await page.selectOption('#wsParts select[data-k="legs"]', 'l_bp');
+  await wait(1500);
+  await page.reload();
+  await page.waitForSelector('#workshop:not([hidden])');
+  await page.waitForSelector('#wsTree .wsConn');
+  check(
+    await page.$eval('#wsPresets', (s) => [...s.options].some((o) => o.value === '測試預組')),
+    '重新整理後預組仍保留',
+  );
+  await page.selectOption('#wsPresets', '測試預組');
+  await page.click('#wsLoadPreset');
+  await wait(2000);
+  check(/legs\/l_qd\/body/.test(await tree()), '載入預組還原零件');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#wsExport')]);
+  const fp = path.join(SHOT_DIR, 'presets.json');
+  await dl.saveAs(fp);
+  const data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+  check(
+    data.presets.some((p) => p.name === '測試預組' && p.asm.legs === 'l_qd'),
+    '匯出預組檔',
+  );
+  data.presets.push({ name: '匯入測試', asm: { ...data.presets[0].asm, head: 'h_hv', legs: '不存在' } });
+  fs.writeFileSync(fp, JSON.stringify(data));
+  await page.setInputFiles('#wsImportFile', fp);
+  await wait(800);
+  await page.selectOption('#wsPresets', '匯入測試');
+  await page.click('#wsLoadPreset');
+  await wait(2000);
+  const tr = await tree();
+  check(tr.includes('head/h_hv') && tr.includes('legs/l_bp/pelvis'), '匯入預組（不存在的零件改回預設）');
+  // 動作：播放 → 暫停 → 拖曳時間軸
+  await page.click('#wsAnims button[data-a="walk"]');
+  await wait(800);
+  await page.click('#wsPlay');
+  await page.$eval('#wsTime', (r) => {
+    r.value = '1.25';
+    r.dispatchEvent(new Event('input'));
+  });
+  await wait(300);
+  check((await page.textContent('#wsTimeText')) === '1.25 s', '暫停後可拖曳時間軸停在任一幀');
+  await page.click('#wsBack');
+  check(await page.isHidden('#workshop'), '回模型庫');
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -477,6 +563,7 @@ async function main() {
     await testLibrary(browser, base);
     await testLibraryGlb(browser, base);
     await testLibraryJoints(browser, base);
+    await testWorkshop(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');

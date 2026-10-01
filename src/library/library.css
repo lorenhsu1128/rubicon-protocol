@@ -487,3 +487,228 @@ button.sel {
   padding: 2px 4px;
   font-size: 12px;
 }
+
+/* ---------- 組裝調整 ---------- */
+#tabs button.wsTab {
+  margin-left: auto;
+  color: var(--acc2);
+}
+#workshop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+#workshop[hidden] {
+  display: none;
+}
+.wsTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.wsTop b {
+  color: var(--acc);
+  font-size: 16px;
+  letter-spacing: 0.05em;
+}
+.wsTop .sp {
+  flex: 1;
+}
+.small {
+  font-size: 12px;
+}
+.wsBody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr) 360px;
+}
+#wsLeft,
+#wsRight {
+  overflow-y: auto;
+  padding: 8px 12px 20px;
+  background: var(--panel);
+}
+#wsLeft {
+  border-right: 1px solid var(--line);
+}
+#wsRight {
+  border-left: 1px solid var(--line);
+}
+#wsLeft h3,
+#wsRight h3 {
+  font-size: 13px;
+  color: var(--acc2);
+  margin: 12px 0 6px;
+}
+#wsLeft > select,
+.wsRow {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.wsRow {
+  display: flex;
+  gap: 4px;
+}
+.wsRow select,
+.wsRow input {
+  flex: 1;
+  min-width: 0;
+}
+.wsSlot {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+.wsSlot > label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.wsSlot select {
+  width: 100%;
+}
+.wsPiece {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 0 2px 10px;
+}
+.wsPiece.sel {
+  color: #ffd23f;
+}
+.wsPiece label {
+  font-size: 11px;
+  color: var(--acc2);
+}
+#wsView {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+#wsGl {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#wsLabels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+#wsToolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+#wsToolbar > * {
+  pointer-events: auto;
+}
+#wsAnimBar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+}
+#wsAnimBar .btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+#wsAnimBar .btns button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.wsTime {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.wsTime input {
+  flex: 1;
+}
+#wsTimeText {
+  min-width: 52px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.wsNode,
+.wsConn {
+  padding: 3px 4px 3px calc(var(--d) * 10px + 4px);
+  font-size: 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.wsNode {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+.wsNode b {
+  font-size: 13px;
+}
+.wsConn {
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+.wsConn .cn {
+  color: #ffd23f;
+  white-space: nowrap;
+}
+.wsConn .cv {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.wsNode:hover,
+.wsConn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.wsNode.sel,
+.wsConn.sel {
+  border-left-color: #ffd23f;
+  background: rgba(255, 210, 63, 0.08);
+}
+@media (max-width: 1100px) {
+  .wsBody {
+    grid-template-columns: 230px minmax(0, 1fr) 300px;
+  }
+}
+@media (max-width: 860px) {
+  .wsBody {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  #wsView {
+    flex: none;
+    height: 62vh;
+    order: -1;
+  }
+  #wsLeft,
+  #wsRight {
+    overflow: visible;
+    border: none;
+    border-top: 1px solid var(--line);
+  }
+}

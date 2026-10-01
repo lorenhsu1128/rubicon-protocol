@@ -6,6 +6,7 @@ import { CATEGORIES, MODEL_CATALOG } from '../render/model-catalog.js';
 import { ModelGrid } from './grid.js';
 import { Inspector } from './inspect.js';
 import { GlbStore } from './store.js';
+import { Workshop } from './workshop.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { cat: 'all', q: '', src: '' };
@@ -51,7 +52,12 @@ function refreshRelated(id) {
   for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
 }
 
-let grid, inspector;
+let grid, inspector, workshop;
+function openWorkshop() {
+  grid.paused = true;
+  history.replaceState(null, '', '#workshop');
+  workshop.open();
+}
 function openEntry(entry) {
   grid.paused = true;
   history.replaceState(null, '', '#' + entry.id);
@@ -61,14 +67,17 @@ function openEntry(entry) {
 function renderTabs() {
   const count = (id) => MODEL_CATALOG.filter((e) => id === 'all' || e.cat === id).length;
   const tabs = [{ id: 'all', name: '全部' }, ...CATEGORIES];
-  $('tabs').innerHTML = tabs
-    .map(
-      (c) =>
-        `<button data-c="${c.id}" class="${state.cat === c.id ? 'sel' : ''}">${escHtml(c.name)}<span class="n">${count(c.id)}</span></button>`,
-    )
-    .join('');
+  $('tabs').innerHTML =
+    tabs
+      .map(
+        (c) =>
+          `<button data-c="${c.id}" class="${state.cat === c.id ? 'sel' : ''}">${escHtml(c.name)}<span class="n">${count(c.id)}</span></button>`,
+      )
+      .join('') +
+    `<button data-c="workshop" class="wsTab" title="自由預組機甲，在整台機甲上調整連接點">組裝調整</button>`;
   for (const b of $('tabs').querySelectorAll('button'))
     b.onclick = () => {
+      if (b.dataset.c === 'workshop') return openWorkshop();
       state.cat = b.dataset.c;
       renderTabs();
       applyFilter();
@@ -155,6 +164,18 @@ async function main() {
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     },
   });
+  workshop = new Workshop({
+    store,
+    toast,
+    onJoints: () => {
+      for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
+      applyFilter();
+    },
+    onClose: () => {
+      grid.paused = false;
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    },
+  });
   $('search').oninput = (e) => {
     state.q = e.target.value;
     applyFilter();
@@ -182,6 +203,10 @@ async function main() {
   // 網址 #head/h_std 直接開啟該模型
   const openFromHash = () => {
     const id = decodeURIComponent(location.hash.slice(1));
+    if (id === 'workshop') {
+      if (!workshop.open_) openWorkshop();
+      return;
+    }
     const entry = id && MODEL_CATALOG.find((e) => e.id === id);
     if (entry && (!inspector.open_ || inspector.entry !== entry)) openEntry(entry);
   };

@@ -48,6 +48,53 @@
     </header>
     <main id="grid"></main>
 
+    <section id="workshop" hidden>
+      <header class="wsTop">
+        <b>組裝調整</b>
+        <span class="dim small" id="wsInfo"></span>
+        <span class="sp"></span>
+        <button id="wsBack" title="回到格狀檢視（Esc）">← 回模型庫</button>
+      </header>
+      <div class="wsBody">
+        <aside id="wsLeft">
+          <h3>預組</h3>
+          <select id="wsFrom"></select>
+          <div class="wsRow">
+            <select id="wsPresets"></select
+            ><button id="wsLoadPreset">載入</button><button id="wsDelPreset">刪除</button>
+          </div>
+          <div class="wsRow">
+            <input id="wsPresetName" placeholder="預組名稱" maxlength="40" /><button id="wsSavePreset">
+              儲存
+            </button>
+          </div>
+          <div class="wsRow">
+            <button id="wsExport">匯出預組</button><button id="wsImport">匯入預組…</button>
+            <input id="wsImportFile" type="file" accept=".json,application/json" hidden />
+          </div>
+          <h3>零件</h3>
+          <div id="wsParts"></div>
+        </aside>
+        <div id="wsView">
+          <canvas id="wsGl"></canvas>
+          <div id="wsLabels"></div>
+          <div id="wsToolbar"></div>
+          <div id="wsAnimBar">
+            <div class="btns" id="wsAnims"></div>
+            <div class="wsTime">
+              <button id="wsPlay"></button>
+              <input type="range" id="wsTime" min="0" max="4" step="0.01" />
+              <span id="wsTimeText"></span>
+            </div>
+          </div>
+        </div>
+        <aside id="wsRight">
+          <h3>連接點</h3>
+          <div id="wsTree"></div>
+        </aside>
+      </div>
+    </section>
+
     <div id="inspect" hidden>
       <div id="insView">
         <canvas id="insGl"></canvas>

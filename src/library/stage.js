@@ -132,12 +132,13 @@ export async function prepareGlbModel(entry, palKey, src) {
 
 // 機甲組裝：每個區塊有 GLB 就用 GLB（瀏覽器暫存＞內建），沒有就用程式模型；連接點套用關節設定
 // 回傳 { rig, glbSlots: 用了 GLB 的槽位, errors: 解析失敗的槽位 }
-export async function buildMechWithGlb(asm, pal, store, scale = 1) {
+// useGlb(slot)：回傳 false 時該區塊強制用程式模型（組裝調整頁的來源切換）
+export async function buildMechWithGlb(asm, pal, store, scale = 1, useGlb = null) {
   const roots = {},
     errors = [];
   for (const info of mechPieces(asm)) {
     const src = store.source(info.slot);
-    if (src.kind !== 'glb') continue;
+    if (src.kind !== 'glb' || (useGlb && !useGlb(info.slot))) continue;
     try {
       roots[info.slot] = glbScene(await parseGlb(src.buf), pal).root;
     } catch (e) {

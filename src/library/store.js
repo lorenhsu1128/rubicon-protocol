@@ -6,16 +6,18 @@ import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
 
 const DB = 'rubicon-model-library',
   GLB = 'glb',
-  JOINTS = 'joints';
+  JOINTS = 'joints',
+  PRESETS = 'presets';
 let dbp = null;
 function db() {
   if (!dbp)
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open(DB, 2);
+      const r = indexedDB.open(DB, 3);
       r.onupgradeneeded = () => {
         const d = r.result;
         if (!d.objectStoreNames.contains(GLB)) d.createObjectStore(GLB, { keyPath: 'id' });
         if (!d.objectStoreNames.contains(JOINTS)) d.createObjectStore(JOINTS, { keyPath: 'slot' });
+        if (!d.objectStoreNames.contains(PRESETS)) d.createObjectStore(PRESETS, { keyPath: 'name' });
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -36,6 +38,7 @@ export class GlbStore {
   constructor() {
     this.local = new Map(); // id → { id, name, size, buf, t }
     this.joints = {}; // 槽位 → { 連接點: { p, r } }（glTF 座標）
+    this.presets = new Map(); // 組裝調整頁的預組：名稱 → { name, asm, t }
     this.ok = true;
   }
   async load() {
@@ -44,6 +47,8 @@ export class GlbStore {
       for (const r of all || []) this.local.set(r.id, r);
       const js = await tx(JOINTS, 'readonly', (s) => s.getAll());
       for (const r of js || []) if (r.conns && Object.keys(r.conns).length) this.joints[r.slot] = r.conns;
+      const ps = await tx(PRESETS, 'readonly', (s) => s.getAll());
+      for (const r of ps || []) this.presets.set(r.name, r);
     } catch (e) {
       this.ok = false; // 私密瀏覽或停用儲存：仍可在本次瀏覽中使用
       console.warn('IndexedDB 無法使用', e);
@@ -133,5 +138,25 @@ export class GlbStore {
         .sort()
         .map((k) => [k, out[k]]),
     );
+  }
+
+  // ---------- 預組（組裝調整頁）----------
+  async putPreset(name, asm) {
+    const r = { name, asm: { ...asm }, t: Date.now() };
+    this.presets.set(name, r);
+    if (this.ok)
+      try {
+        await tx(PRESETS, 'readwrite', (s) => s.put(r));
+      } catch (e) {
+        console.warn('預組儲存失敗', e);
+      }
+    return r;
+  }
+  async removePreset(name) {
+    this.presets.delete(name);
+    if (this.ok)
+      try {
+        await tx(PRESETS, 'readwrite', (s) => s.delete(name));
+      } catch (e) {}
   }
 }
