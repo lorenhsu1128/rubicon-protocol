@@ -86,7 +86,9 @@ function applyFilter() {
         (e.note || '').includes(q)),
   );
   const glb = MODEL_CATALOG.filter((e) => store.source(e.id).kind === 'glb').length;
-  $('count').textContent = `顯示 ${n} / 共 ${MODEL_CATALOG.length} 個模型槽・已有 GLB ${glb} 個`;
+  const jn = store.jointCount();
+  $('count').textContent =
+    `顯示 ${n} / 共 ${MODEL_CATALOG.length} 個模型槽・已有 GLB ${glb} 個` + (jn ? `・關節修改 ${jn} 個` : '');
 }
 
 // 對照表：每個槽位的來源、檔案、目標路徑、尺寸與檢查結果
@@ -120,6 +122,19 @@ function exportManifest() {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+// 關節設定：內建 joints.json ＋這個瀏覽器的修改，放到 src/assets/models/joints.json 後重新建置
+function exportJoints() {
+  const n = store.jointCount();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(
+    new Blob([JSON.stringify(store.mergedJoints(), null, 2) + '\n'], { type: 'application/json' }),
+  );
+  a.download = 'joints.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`已匯出 joints.json（含這個瀏覽器的 ${n} 個修改）：放到 src/assets/models/joints.json 後重新建置`);
+}
+
 async function main() {
   await store.load();
   grid = new ModelGrid($('gridGl'), $('grid'), MODEL_CATALOG, {
@@ -131,6 +146,10 @@ async function main() {
     store,
     onFile: useFile,
     onRemove: removeFile,
+    onJoints: () => {
+      for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
+      applyFilter();
+    },
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -151,6 +170,7 @@ async function main() {
       .join('');
   $('palSel').onchange = (e) => grid.setPalette(e.target.value || null);
   $('btnManifest').onclick = exportManifest;
+  $('btnJoints').onclick = $('insJointsExport').onclick = exportJoints;
   // 拖到格子以外的地方：避免瀏覽器直接開啟檔案
   addEventListener('dragover', (e) => e.preventDefault());
   addEventListener('drop', (e) => {

@@ -16,6 +16,7 @@ import {
 } from '../render/mech-model.js';
 import { THEMES } from '../world/world.js';
 import { buildAxes, buildConnMarker, buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
+import { JointEditor } from './joint-editor.js';
 import { exportTemplate } from './template.js';
 import {
   ANIMS,
@@ -62,7 +63,7 @@ const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.round(
 
 export class Inspector {
   // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
-  constructor({ store, onClose, onFile, onRemove }) {
+  constructor({ store, onClose, onFile, onRemove, onJoints }) {
     this.store = store;
     this.onClose = onClose;
     this.onFile = onFile;
@@ -94,6 +95,14 @@ export class Inspector {
     this.labels = [];
     this.setupPost();
     this.setupUi();
+    this.joints = new JointEditor({
+      scene: this.scene,
+      camera: this.camera,
+      canvas: this.canvas,
+      orbit: this.controls,
+      store,
+      onChange: (slot) => onJoints && onJoints(slot),
+    });
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.open_) this.close();
     });
@@ -200,6 +209,7 @@ export class Inspector {
     this.refs = null;
     this.labels = [];
     $('insLabels').innerHTML = '';
+    if (this.joints) this.joints.unbind();
   }
   // 依目前模式建立場景（非同步：GLB 需要解析）
   async rebuild() {
@@ -342,12 +352,15 @@ export class Inspector {
         labels.push({ pos: V3(), text: CONN_NAMES[name] || name, cls: 'conn', key: 'conns', obj: mk });
       return mk;
     };
+    // 可編輯的連接點：target 的位置／旋轉就是連接點（組合預覽時直接移動連接點群組，子區塊會跟著動）
+    const edits = [];
     if (rig && rig.mounts) {
       // 整台機甲：所有連接點；組合預覽時標出此區塊自己的連接點與它接上的那一個
       const parentMount = own && own.parent ? own.parent.parent : null;
       for (const m of rig.mounts) {
         const hot = e.cat === 'mech' || m.slot === e.id || m.node === parentMount;
-        mark(m.node, hot, hot ? m.name : null);
+        const mk = mark(m.node, hot, hot ? m.name : null);
+        if (m.slot === e.id && e.cat !== 'mech') edits.push({ name: m.name, target: m.node, marker: mk });
       }
     } else if (e.piece) {
       for (const name of Object.keys(pieceConns(e.piece))) {
@@ -355,8 +368,18 @@ export class Inspector {
         const mk = mark(obj, true, name);
         mk.position.copy(c.p);
         mk.rotation.copy(c.r);
+        edits.push({ name, target: mk, marker: mk });
       }
     }
+    this.joints.bind(
+      e,
+      edits,
+      e.cat === 'mech' ? '完整機甲由各區塊組成：請在各區塊的檢視窗調整連接點（例如上臂決定手肘的位置）' : '',
+    );
+    $('insJointH').style.display =
+      $('insJoints').style.display =
+      $('insJointBtns').style.display =
+        e.piece || e.cat === 'mech' ? '' : 'none';
     return labels;
   }
   renderInfo(src, ref) {

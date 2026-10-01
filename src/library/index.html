@@ -33,6 +33,12 @@
           </select></label
         >
         <button id="btnManifest" title="匯出所有 GLB 槽位與檢查結果">匯出對照表</button>
+        <button
+          id="btnJoints"
+          title="匯出連接點設定（內建＋這個瀏覽器的修改），放到 src/assets/models/joints.json"
+        >
+          匯出關節設定
+        </button>
         <span class="dim hint">把 .glb 拖到任一格即可替換（存在這個瀏覽器）</span>
         <span class="dim hint axes"
           >原點與三軸：<b class="ax-x">X</b>　<b class="ax-y">Y 上</b>　<b class="ax-z">Z 正面</b></span
@@ -64,6 +70,11 @@
         </div>
         <div class="dim small" id="insGlbHint"></div>
         <ul id="insChecks"></ul>
+        <h3 id="insJointH">關節設定（連接點）</h3>
+        <div id="insJoints"></div>
+        <div class="btns" id="insJointBtns">
+          <button id="insJointsExport">匯出關節設定（joints.json）</button>
+        </div>
         <h3>顯示</h3>
         <div class="toggles" id="insToggles"></div>
         <div class="row2">
@@ -83,6 +94,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>

@@ -36,7 +36,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面 → 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面 → 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -66,7 +66,7 @@ assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 assets/models/       GLB 模型（<槽位 id>.glb，建置時自動內嵌，以 import ... from 'virtual:models' 取得）
 library/             模型庫：library.js（入口）、grid.js（共用畫布的格狀檢視）、inspect.js（檢視窗）、
                      stage.js（建立／量測／組合）、refs.js（尺寸參考物、原點三軸、連接點標記）、store.js（GLB 來源與 IndexedDB）、
-                     template.js（範本 GLB 匯出）
+                     template.js（範本 GLB 匯出）、joint-editor.js（關節設定編輯器）
 ```
 
 ### Mixin 規則（重要）
@@ -96,7 +96,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 
 - 每個 3D 模型都是 `render/model-catalog.js` 的一個**模型槽**（槽位 id，例如 `head/h_std`、`arms/a_std/r_fore`）。新增模型或零件時要在目錄登記，模型庫才會列出。
 - **機甲由區塊組成**（`render/mech-model.js`）：`partPieces(cat, part)` 把零件拆成區塊（手臂左右各 上臂含肩甲／前臂／手；二足腳 襠部＋左右 大腿／小腿／腳掌；四足 主體＋4×大腿／小腿含腳；履帶整塊；武器分左右），左右各自建模、不用鏡像。每個區塊的原點是它的旋轉中心；`pieceConns(info)` 定義父區塊上的連接點預設值（核心→肩／脖子／背包／肩上武器座、襠部→腰／髖、上臂→手肘…），`buildMech` 依連接點組裝：連接點群組（`mounts`）下掛關節群組（`legs`／`arms`／`head`／`torso`，`animateMech` 只改它們的旋轉），區塊掛在關節群組底下。
-- 連接點可被關節設定覆寫（`render/mech-joints.js`）：內建 `src/assets/models/joints.json`（建置時以 `virtual:joints` 內嵌，遊戲與模型庫都讀）＞程式預設值；檔案用 glTF 座標（+Z 正面、角度）。機甲身高 `height`、`hipY` 是遊戲判定用的常數，不隨連接點改變。
+- 連接點可被關節設定覆寫（`render/mech-joints.js`）：內建 `src/assets/models/joints.json`（建置時以 `virtual:joints` 內嵌，遊戲與模型庫都讀）＞程式預設值；檔案用 glTF 座標（+Z 正面、角度）。模型庫的關節設定編輯器（拖曳箭頭／數值）把修改存在瀏覽器（IndexedDB `joints`，只影響模型庫），「匯出關節設定」輸出合併後的 joints.json。遊戲只讀內建檔，不讀瀏覽器暫存（多人各端必須一致）。機甲身高 `height`、`hipY` 是遊戲判定用的常數，不隨連接點改變。
 - GLB 來源優先順序：瀏覽器暫存（拖曳進模型庫，IndexedDB）＞內建（`src/assets/models/<槽位 id>.glb`）＞程式模型；左側武器沒有 GLB 時暫用右側。完整機甲（`mech/`）不接受整台 GLB，只顯示區塊組合（`buildMech` 的 `opts.piece` 換成 GLB）。目前遊戲本身還沒有讀 GLB，之後換模型時沿用 `render/glb.js`、`buildMech(..., { piece })` 與目錄。
 - GLB 規格（+Z 正面、單位公尺、區塊與原點、依材質名稱換色、預算）見 `docs/glb-spec.md`；數值定義在 `render/glb.js` 的 `GLB_BUDGET`／`PALETTE_SLOTS`，區塊與連接點在 `render/mech-model.js`，修改時同步更新文件。
 - GLB 載入時要逐節點轉座標系（`flipToGame`），不能只轉根節點。

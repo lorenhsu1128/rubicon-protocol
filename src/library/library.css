@@ -435,3 +435,55 @@ button.sel {
 .ax-z {
   color: #6aa0ff;
 }
+/* 關節設定 */
+#insJoints .jrow {
+  border: 1px solid var(--line, #2a3644);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin: 6px 0;
+}
+#insJoints .jrow.sel {
+  border-color: #ffd23f;
+  box-shadow: 0 0 0 1px rgba(255, 210, 63, 0.35);
+}
+#insJoints .jhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+#insJoints .jhead b {
+  color: #ffd23f;
+}
+#insJoints .jsrc {
+  flex: 1;
+}
+#insJoints .jsrc.mod {
+  color: #ffb020;
+}
+#insJoints .jhead button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+#insJoints .jgrid {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  gap: 4px 6px;
+  align-items: center;
+  font-size: 12px;
+}
+#insJoints .jgrid label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+#insJoints .jgrid i {
+  font-style: normal;
+  font-weight: 700;
+}
+#insJoints .jgrid input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+}

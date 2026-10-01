@@ -1,24 +1,32 @@
-// 模型庫的 GLB 來源：瀏覽器暫存（IndexedDB，拖曳進來的檔案）＞ 內建（src/assets/models/，建置時內嵌）＞ 程式模型
+// 模型庫的資料來源（都存在 IndexedDB，只影響這個瀏覽器）：
+// - GLB：瀏覽器暫存（拖曳進來的檔案）＞ 內建（src/assets/models/，建置時內嵌）＞ 程式模型
+// - 關節設定：瀏覽器暫存的連接點覆寫＞ 內建 joints.json ＞ 程式預設值（套用見 render/mech-joints.js）
 import BUILTIN_MODELS from 'virtual:models';
+import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
 
 const DB = 'rubicon-model-library',
-  STORE = 'glb';
+  GLB = 'glb',
+  JOINTS = 'joints';
 let dbp = null;
 function db() {
   if (!dbp)
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open(DB, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: 'id' });
+      const r = indexedDB.open(DB, 2);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        if (!d.objectStoreNames.contains(GLB)) d.createObjectStore(GLB, { keyPath: 'id' });
+        if (!d.objectStoreNames.contains(JOINTS)) d.createObjectStore(JOINTS, { keyPath: 'slot' });
+      };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
   return dbp;
 }
-const tx = async (mode, fn) => {
+const tx = async (store, mode, fn) => {
   const d = await db();
   return new Promise((res, rej) => {
-    const t = d.transaction(STORE, mode);
-    const req = fn(t.objectStore(STORE));
+    const t = d.transaction(store, mode);
+    const req = fn(t.objectStore(store));
     t.oncomplete = () => res(req && req.result);
     t.onerror = () => rej(t.error);
   });
@@ -27,16 +35,20 @@ const tx = async (mode, fn) => {
 export class GlbStore {
   constructor() {
     this.local = new Map(); // id → { id, name, size, buf, t }
+    this.joints = {}; // 槽位 → { 連接點: { p, r } }（glTF 座標）
     this.ok = true;
   }
   async load() {
     try {
-      const all = await tx('readonly', (s) => s.getAll());
+      const all = await tx(GLB, 'readonly', (s) => s.getAll());
       for (const r of all || []) this.local.set(r.id, r);
+      const js = await tx(JOINTS, 'readonly', (s) => s.getAll());
+      for (const r of js || []) if (r.conns && Object.keys(r.conns).length) this.joints[r.slot] = r.conns;
     } catch (e) {
       this.ok = false; // 私密瀏覽或停用儲存：仍可在本次瀏覽中使用
       console.warn('IndexedDB 無法使用', e);
     }
+    setJointOverrides(this.joints);
   }
   // 依優先順序取得槽位的來源：{ kind:'glb', origin:'browser'|'builtin', name, buf, size } 或 { kind:'proc' }
   // 左側武器沒有自己的 GLB 時暫用右側的（fallback: true）；完整機甲由區塊組成，一律不接受 GLB
@@ -74,7 +86,7 @@ export class GlbStore {
     this.local.set(id, r);
     if (this.ok)
       try {
-        await tx('readwrite', (s) => s.put(r));
+        await tx(GLB, 'readwrite', (s) => s.put(r));
       } catch (e) {
         console.warn('GLB 儲存失敗', e);
       }
@@ -84,7 +96,42 @@ export class GlbStore {
     this.local.delete(id);
     if (this.ok)
       try {
-        await tx('readwrite', (s) => s.delete(id));
+        await tx(GLB, 'readwrite', (s) => s.delete(id));
       } catch (e) {}
+  }
+
+  // ---------- 關節設定 ----------
+  // 連接點設定的來源：'browser'（瀏覽器暫存）／'builtin'（joints.json）／'default'（程式預設值）
+  jointOrigin(slot, name) {
+    if (this.joints[slot] && this.joints[slot][name]) return 'browser';
+    const b = builtinJoints();
+    return b[slot] && b[slot][name] ? 'builtin' : 'default';
+  }
+  // 寫入一個連接點（val 為 { p, r }，null 表示移除瀏覽器暫存）；記憶體立即生效，IndexedDB 非同步寫入
+  setJoint(slot, name, val) {
+    const conns = { ...(this.joints[slot] || {}) };
+    if (val) conns[name] = { p: [...val.p], r: [...val.r] };
+    else delete conns[name];
+    if (Object.keys(conns).length) this.joints[slot] = conns;
+    else delete this.joints[slot];
+    setJointOverrides(this.joints);
+    if (!this.ok) return Promise.resolve();
+    return tx(JOINTS, 'readwrite', (s) =>
+      Object.keys(conns).length ? s.put({ slot, conns }) : s.delete(slot),
+    ).catch((e) => console.warn('關節設定儲存失敗', e));
+  }
+  jointCount() {
+    return Object.values(this.joints).reduce((n, c) => n + Object.keys(c).length, 0);
+  }
+  // 匯出用：內建 joints.json ＋ 瀏覽器暫存（同一個連接點以瀏覽器為準），槽位排序
+  mergedJoints() {
+    const out = {};
+    for (const src of [builtinJoints(), this.joints])
+      for (const [slot, conns] of Object.entries(src)) out[slot] = { ...(out[slot] || {}), ...conns };
+    return Object.fromEntries(
+      Object.keys(out)
+        .sort()
+        .map((k) => [k, out[k]]),
+    );
   }
 }

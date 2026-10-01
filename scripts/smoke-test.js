@@ -301,6 +301,49 @@ async function testLibraryGlb(browser, base) {
   await ctx.close();
 }
 
+// 模型庫關節設定：修改連接點 → 瀏覽器保存 → 匯出 joints.json → 組合預覽 → 重設
+async function testLibraryJoints(browser, base) {
+  console.log('模型庫關節設定：修改 → 保存 → 匯出 → 重設');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'library-joints');
+  const elbowY = '.jrow[data-n="elbow"] input[data-k="p"][data-i="1"]';
+  const open = async (id) => {
+    await page.goto(base + 'model-library.html#' + id);
+    await page.waitForSelector('#inspect:not([hidden])');
+    await page.waitForSelector(elbowY);
+    await wait(800);
+  };
+  await open('arms/a_std/r_upper');
+  const def = await page.$eval(elbowY, (i) => i.value);
+  check(def === '-0.9', `手肘預設位置 Y＝${def}（glTF 座標）`);
+  await page.fill(elbowY, '-1.4');
+  await wait(900);
+  check(
+    ((await page.textContent('.jrow[data-n="elbow"] .jsrc')) || '').includes('已修改'),
+    '修改連接點後標示為瀏覽器暫存',
+  );
+  await page.click('.jrow[data-n="elbow"] [data-act="sel"]');
+  await page.click('#insModes button[data-m="compose"]');
+  await wait(2000);
+  check((await page.$eval(elbowY, (i) => i.value)) === '-1.4', '組合預覽套用修改後的手肘位置');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-joints.png') });
+  await open('arms/a_std/r_upper');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-1.4', '重新整理後修改仍保留');
+  check(((await page.textContent('#count')) || '').includes('關節修改 1 個'), '上方顯示關節修改數量');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insJointsExport')]);
+  const fp = path.join(SHOT_DIR, 'joints.json');
+  await dl.saveAs(fp);
+  const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
+  const e = j['arms/a_std/r_upper'] && j['arms/a_std/r_upper'].elbow;
+  check(!!e && e.p[1] === -1.4, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
+  await page.click('.jrow[data-n="elbow"] [data-act="reset"]');
+  await wait(500);
+  check((await page.$eval(elbowY, (i) => i.value)) === '-0.9', '重設後回到預設值');
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -433,6 +476,7 @@ async function main() {
     await testPilot(browser, base);
     await testLibrary(browser, base);
     await testLibraryGlb(browser, base);
+    await testLibraryJoints(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');
