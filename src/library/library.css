@@ -712,3 +712,79 @@ button.sel {
     border-top: 1px solid var(--line);
   }
 }
+#wsDetail {
+  border: 1px solid var(--line);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wsDh {
+  display: flex;
+  flex-direction: column;
+}
+.wsDh b {
+  color: #ffd23f;
+  font-size: 14px;
+}
+.wsDf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.jsrc.mod,
+.wsConn.mod .cv {
+  color: var(--warn);
+}
+.warnTxt {
+  color: var(--acc2);
+}
+button.link {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: #ffd23f;
+  text-decoration: underline;
+}
+#wsDetail .jgrid {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  gap: 4px 6px;
+  align-items: center;
+  font-size: 12px;
+}
+#wsDetail .jgrid label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+#wsDetail .jgrid i {
+  font-style: normal;
+  font-weight: 700;
+}
+#wsDetail .jgrid input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.wsPiece {
+  cursor: pointer;
+}
+.wsPiece:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.wsTools button {
+  background: var(--panel);
+}
+.lbl.conn.cur {
+  color: #fff;
+  border-color: #fff;
+}
+#wsDetail {
+  position: sticky;
+  top: -8px;
+  z-index: 2;
+  background: #11161d;
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.35);
+}

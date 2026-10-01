@@ -6,10 +6,18 @@
 import { escHtml } from '../core/html.js';
 import { PARTS, START_ASM, partById } from '../data/parts.js';
 import { PALETTES } from '../render/materials.js';
-import { CONN_NAMES, PIECE_NAMES, SIDE_NAMES, animateMech, partPieces } from '../render/mech-model.js';
+import {
+  CONN_NAMES,
+  PIECE_NAMES,
+  SIDE_NAMES,
+  animateMech,
+  connOf,
+  partPieces,
+} from '../render/mech-model.js';
 import { gameToGltf } from '../render/mech-joints.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
-import { buildConnMarker, buildGrid } from './refs.js';
+import { buildGrid } from './refs.js';
+import { WsEditor } from './workshop-edit.js';
 import {
   ANIMS,
   addLights,
@@ -114,6 +122,7 @@ export class Workshop {
     this.controls = new THREE.OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
     this.setupUi();
+    this.edit = new WsEditor(this);
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
   }
@@ -249,6 +258,10 @@ export class Workshop {
         this.asm[s.dataset.k] = s.value;
         this.rebuild(false);
       };
+    for (const r of $('wsParts').querySelectorAll('.wsPiece'))
+      r.onclick = (e) => {
+        if (!e.target.closest('label')) this.edit.select({ slot: r.dataset.slot });
+      };
     for (const c of $('wsParts').querySelectorAll('input[data-src]'))
       c.onchange = () => {
         if (c.checked) this.srcOff.delete(c.dataset.src);
@@ -275,12 +288,6 @@ export class Workshop {
     }
     this.rig = rig;
     this.scene.add(rig.group);
-    // 連接點標記
-    this.markers = rig.mounts.map((m) => {
-      const mk = buildConnMarker(0.05, false);
-      m.node.add(mk);
-      return mk;
-    });
     this.applyPose();
     if (refit || !this.fitted) {
       this.resize(true);
@@ -294,6 +301,7 @@ export class Workshop {
       `區塊 ${Object.keys(rig.pieces).length} 塊・GLB ${glbSlots.length} 塊・連接點 ${rig.mounts.length} 個` +
       (errors.length ? `・GLB 讀取失敗 ${errors.length} 塊` : '');
     this.renderTree();
+    this.edit.attach(rig);
   }
   // 依目前的動作與時間擺姿勢：從靜止姿勢以固定 60 Hz 模擬到 t，暫停或拖曳時間軸時姿勢可以重現
   applyPose() {
@@ -305,9 +313,36 @@ export class Workshop {
     for (let x = t0; x <= this.t; x += STEP) animateMech(rig, STEP, animState(this.anim, x));
   }
 
+  // ---------- 區塊資訊（給編輯器與清單用）----------
+  infoOf(slot) {
+    for (const [key] of WS_SLOTS) {
+      const info = slotPieces(key, this.asm).find((x) => x.slot === slot);
+      if (info) return { info, key };
+    }
+    return null;
+  }
+  pieceLabelOf(slot) {
+    const f = this.infoOf(slot);
+    return f ? pieceLabel(f.info) : slot;
+  }
+  // 槽位屬於哪個零件：{ part: 零件名稱, cat: 部位名稱 }
+  partNameOf(slot) {
+    const f = this.infoOf(slot);
+    if (!f) return null;
+    const [, name, list] = WS_SLOTS.find((s) => s[0] === f.key);
+    const p = partById(list, this.asm[f.key]);
+    return p ? { part: p.name, cat: name.replace(/（.*）/, '') } : null;
+  }
+  // 連接點的內建／預設值（glTF），重設時使用（呼叫前要先移除瀏覽器暫存）
+  defaultConn(slot, name) {
+    const f = this.infoOf(slot);
+    const c = connOf(f.info, name);
+    return gameToGltf(c.p, c.r);
+  }
+
   // ---------- 右側：組裝層級 ----------
   // 每個區塊之下列出它的連接點，連接點之下是接在那裡的子區塊
-  tree() {
+  renderTree() {
     const rig = this.rig;
     const childOf = new Map(); // 連接點群組 → 子區塊槽位
     for (const [slot, obj] of Object.entries(rig.pieces)) {
@@ -315,35 +350,17 @@ export class Workshop {
       if (mount && mount.userData.conn) childOf.set(mount, slot);
     }
     const root = Object.entries(rig.pieces).find(([, o]) => o.parent === rig.legsG)[0];
-    return { root, childOf };
-  }
-  renderTree() {
-    const rig = this.rig;
-    const { root, childOf } = this.tree();
-    const infoOf = (slot) => {
-      for (const key of Object.keys(this.asm)) {
-        if (!WS_SLOTS.find((s) => s[0] === key)) continue;
-        const i = slotPieces(key, this.asm).find((x) => x.slot === slot);
-        if (i) return { info: i, key };
-      }
-      return null;
-    };
     const rows = [];
     const walk = (slot, depth) => {
-      const f = infoOf(slot);
-      const part = f ? partById(WS_SLOTS.find((s) => s[0] === f.key)[2], this.asm[f.key]) : null;
+      const p = this.partNameOf(slot);
       rows.push(
-        `<div class="wsNode" data-slot="${slot}" style="--d:${depth}"><b>${escHtml(f ? pieceLabel(f.info) : slot)}</b>` +
-          `<span class="dim small">${escHtml(part ? part.name : '')}・${escHtml(slot)}</span></div>`,
+        `<div class="wsNode" data-slot="${slot}" style="--d:${depth}"><b>${escHtml(this.pieceLabelOf(slot))}</b>` +
+          `<span class="dim small">${escHtml(p ? p.part : '')}・${escHtml(slot)}</span></div>`,
       );
       for (const m of rig.mounts.filter((x) => x.slot === slot)) {
-        const v = gameToGltf(m.node.position, m.node.rotation);
         rows.push(
           `<div class="wsConn" data-slot="${slot}" data-n="${m.name}" style="--d:${depth + 1}">` +
-            `<span class="cn">◆ ${escHtml(CONN_NAMES[m.name] || m.name)}</span>` +
-            `<span class="cv">${v.p.map((n) => n.toFixed(3)).join(', ')}` +
-            (v.r.some((n) => n) ? `　∠ ${v.r.map((n) => n.toFixed(1)).join(', ')}°` : '') +
-            `</span></div>`,
+            `<span class="cn">◆ ${escHtml(CONN_NAMES[m.name] || m.name)}</span><span class="cv"></span></div>`,
         );
         const child = childOf.get(m.node);
         if (child) walk(child, depth + 2);
@@ -351,6 +368,53 @@ export class Workshop {
     };
     walk(root, 0);
     $('wsTree').innerHTML = rows.join('');
+    for (const r of $('wsTree').children) {
+      if (r.classList.contains('wsConn')) this.updateConnRow(r.dataset.slot, r.dataset.n);
+      r.onclick = () =>
+        this.edit.select(
+          r.dataset.n ? { slot: r.dataset.slot, name: r.dataset.n } : { slot: r.dataset.slot },
+        );
+    }
+  }
+  updateConnRow(slot, name) {
+    const r = $('wsTree').querySelector(`.wsConn[data-slot="${slot}"][data-n="${name}"]`);
+    const m = this.rig && this.rig.mounts.find((x) => x.slot === slot && x.name === name);
+    if (!r || !m) return;
+    const v = gameToGltf(m.node.position, m.node.rotation);
+    r.querySelector('.cv').textContent =
+      v.p.map((n) => n.toFixed(3)).join(', ') +
+      (v.r.some((n) => n) ? `　∠ ${v.r.map((n) => n.toFixed(1)).join(', ')}°` : '');
+    r.classList.toggle('mod', this.store.jointOrigin(slot, name) === 'browser');
+  }
+  // 選中的區塊或連接點：在畫面上標出連接點名稱
+  updateLabels(rebuild) {
+    const box = $('wsLabels');
+    if (rebuild) {
+      box.innerHTML = '';
+      this.labels = [];
+      const s = this.edit.sel;
+      if (s && this.rig) {
+        const parent = !s.name ? this.edit.parentMark(s.slot) : null;
+        for (const m of this.edit.marks) {
+          if (!(m.slot === s.slot || m === parent)) continue;
+          const el = document.createElement('div');
+          el.className = 'lbl conn' + (s.name === m.name && m.slot === s.slot ? ' cur' : '');
+          el.textContent = CONN_NAMES[m.name] || m.name;
+          box.appendChild(el);
+          this.labels.push({ el, obj: m.mk });
+        }
+      }
+    }
+    const v = new THREE.Vector3();
+    for (const l of this.labels || []) {
+      l.obj.getWorldPosition(v);
+      v.project(this.camera);
+      const off = v.z > 1 || v.z < -1 || !l.obj.visible;
+      l.el.style.display = off ? 'none' : '';
+      if (off) continue;
+      l.el.style.left = ((v.x + 1) / 2) * this.w + 'px';
+      l.el.style.top = ((1 - v.y) / 2) * this.h + 'px';
+    }
   }
 
   // ---------- 預組匯出／匯入 ----------
@@ -418,5 +482,6 @@ export class Workshop {
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+    this.updateLabels(false);
   }
 }

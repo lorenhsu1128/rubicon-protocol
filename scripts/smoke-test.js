@@ -425,6 +425,33 @@ async function testWorkshop(browser, base) {
   });
   await wait(300);
   check((await page.textContent('#wsTimeText')) === '1.25 s', '暫停後可拖曳時間軸停在任一幀');
+  // 選取與編輯：清單選連接點 → 輸入數值 → 重設；點畫面選區塊
+  const elbow = '#wsTree .wsConn[data-slot="arms/a_std/r_upper"][data-n="elbow"]';
+  await page.click(elbow);
+  await wait(300);
+  check(
+    ((await page.textContent('#wsDetail')) || '').includes('所有使用「AR-011 MELANDER」手臂的機甲'),
+    '選取連接點後顯示影響範圍',
+  );
+  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-1.3');
+  await wait(900);
+  check(
+    ((await page.textContent(elbow + ' .cv')) || '').includes('-1.300') &&
+      (await page.$eval(elbow, (r) => r.classList.contains('mod'))),
+    '輸入數值後連接點移動並標示已修改',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
+  await page.click('#wsDetail [data-act="reset"]');
+  await wait(500);
+  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.900'), '重設後回到預設值');
+  const gl = await page.$('#wsGl');
+  const box = await gl.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
+  await wait(500);
+  check(
+    await page.$eval('#wsDetail', (d) => !!d.querySelector('.wsDh') && d.textContent.includes('接在')),
+    '點畫面上的區塊即選取該區塊',
+  );
   await page.click('#wsBack');
   check(await page.isHidden('#workshop'), '回模型庫');
   await ctx.close();

@@ -68,7 +68,8 @@ assets/models/       GLB 模型（<槽位 id>.glb，建置時自動內嵌，以 
 library/             模型庫：library.js（入口）、grid.js（共用畫布的格狀檢視）、inspect.js（檢視窗）、
                      stage.js（建立／量測／組合）、refs.js（尺寸參考物、原點三軸、連接點標記）、store.js（GLB 來源與 IndexedDB）、
                      template.js（範本 GLB 匯出）、joint-editor.js（關節設定編輯器）、
-                     workshop.js（組裝調整頁：自由預組機甲、在整台機甲上調整連接點）
+                     workshop.js（組裝調整頁：自由預組機甲、在整台機甲上調整連接點）、
+                     workshop-edit.js（組裝調整的選取、拖曳、數值）
 ```
 
 ### Mixin 規則（重要）
