@@ -837,3 +837,20 @@ button.link {
   grid-column: 1 / -1;
   padding: 0;
 }
+.wsWarn {
+  font-size: 12px;
+  color: #ff8a7a;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+.wsWarn:hover {
+  background: rgba(255, 90, 77, 0.1);
+}
+.ok {
+  color: var(--ok);
+}
+#wsChecks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

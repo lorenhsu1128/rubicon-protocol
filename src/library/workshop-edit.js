@@ -5,6 +5,7 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { CONN_NAMES } from '../render/mech-model.js';
 import { gameToGltf, gltfToGame } from '../render/mech-joints.js';
 import { buildConnMarker } from './refs.js';
+import { GAP_WARN, OVERLAP_WARN, checkRig } from './workshop-check.js';
 
 const $ = (id) => document.getElementById(id);
 const HOT = 0xffd23f,
@@ -24,7 +25,34 @@ const same = (a, b) => a && b && a.slot === b.slot && a.name === b.name;
 const round = (v, k) => Math.round(v * k) / k;
 const SETTINGS_KEY = 'rubicon_workshop_steps';
 // 步進：位置以公分、旋轉以角度；吸附預設關閉
-const DEFAULT_STEPS = { move: 1, moveBig: 10, rot: 1, rotBig: 15, snap: false, snapMove: 5, snapRot: 15 };
+// 顯示方式：高亮選中區塊、其他區塊半透明、隱藏無關區塊、穿幫提示
+const DEFAULT_STEPS = {
+  move: 1,
+  moveBig: 10,
+  rot: 1,
+  rotBig: 15,
+  snap: false,
+  snapMove: 5,
+  snapRot: 15,
+  hl: true,
+  ghost: true,
+  hide: false,
+  check: true,
+};
+const FLAG = 0xff5a4d;
+const GHOSTS = new Map();
+// 半透明替身材質（同一個原材質共用一個）
+function ghostOf(m) {
+  if (Array.isArray(m)) return m.map(ghostOf);
+  if (!GHOSTS.has(m)) {
+    const g = m.clone();
+    g.transparent = true;
+    g.opacity = 0.16;
+    g.depthWrite = false;
+    GHOSTS.set(m, g);
+  }
+  return GHOSTS.get(m);
+}
 const SWAP_SIDE = { r: 'l', l: 'r', fl: 'fr', fr: 'fl', bl: 'br', br: 'bl' };
 // 對稱的另一側：槽位（arms/x/r_upper ↔ l_upper、weapon/x/r ↔ l）與連接點名稱（shoulder_r ↔ shoulder_l、hip_fl ↔ hip_fr）
 // 都換邊；兩者都沒有左右之分（例如核心的脖子）時回傳 null
@@ -53,6 +81,17 @@ export class WsEditor {
     this.redo = [];
     this.sym = false;
     this.loadSettings();
+    this.flags = new Set(); // 有穿幫提示的連接點（父槽位|連接點）
+    this.checkT = 0;
+    this.boxes = [0xffd23f, 0x5cc8ff].map((c) => {
+      const b = new THREE.BoxHelper(undefined, c);
+      b.material.depthTest = false;
+      b.material.transparent = true;
+      b.renderOrder = 25;
+      b.visible = false;
+      ws.scene.add(b);
+      return b;
+    });
     // glTF 座標框：繞 Y 轉 180°，代理物件在框內的位置與旋轉就是 glTF 值，拖曳箭頭也沿 glTF 軸
     this.frame = new THREE.Group();
     this.frame.rotation.y = Math.PI;
@@ -122,6 +161,19 @@ export class WsEditor {
       `<button id="wsCopy" title="把選中連接點的值鏡像後複製到另一側">複製到另一側</button></div>` +
       `<div class="wsTools btns">` +
       `<button id="wsUndo" title="復原（Ctrl+Z）">↶ 復原</button><button id="wsRedo" title="重做（Ctrl+Y）">↷ 重做</button></div>` +
+      `<div class="wsTools btns wsShow"><span class="small dim">顯示</span>` +
+      [
+        ['hl', '高亮選中'],
+        ['ghost', '其他半透明'],
+        ['hide', '隱藏無關'],
+        ['check', '穿幫提示'],
+      ]
+        .map(
+          ([k, n]) =>
+            `<label class="tog"><input type="checkbox" data-st="${k}"${st[k] ? ' checked' : ''}> ${n}</label>`,
+        )
+        .join('') +
+      `</div>` +
       `<details class="wsSteps"><summary>步進與吸附</summary>` +
       `<div class="small dim">方向鍵：←→ X、↑↓ Y、PageUp／PageDown Z；按住 Shift 用大步進。旋轉模式下改成繞該軸旋轉。</div>` +
       `<div class="wsStepGrid">` +
@@ -172,6 +224,7 @@ export class WsEditor {
     const s = this.sel;
     if (s && !(s.name ? this.mark(s) : rig.pieces[s.slot])) this.sel = null;
     this.apply();
+    this.dirty();
   }
   mark(s) {
     return this.marks.find((m) => same(m, s));
@@ -193,17 +246,121 @@ export class WsEditor {
       if (obj.parent && obj.parent.parent === m.node) return slot;
     return null;
   }
-  apply() {
+  colorMarks() {
     const s = this.sel;
     const pieceSlot = s ? s.slot : null;
     const parent = s && !s.name ? this.parentMark(s.slot) : null;
     for (const m of this.marks) {
       const cur = s && s.name && same(m, s);
       const hot = cur || m.slot === pieceSlot || m === parent;
-      m.mk.children[0].material.color.setHex(cur ? CUR : hot ? HOT : COLD);
-      m.mk.children[0].material.opacity = hot ? 1 : 0.6;
-      m.mk.scale.setScalar(cur ? 1.6 : 1);
+      const flag = this.settings.check && this.flags.has(m.slot + '|' + m.name);
+      m.mk.children[0].material.color.setHex(cur ? CUR : hot ? HOT : flag ? FLAG : COLD);
+      m.mk.children[0].material.opacity = hot || flag ? 1 : 0.6;
+      m.mk.scale.setScalar(cur ? 1.6 : flag ? 1.3 : 1);
     }
+  }
+  // 焦點區塊：選中的區塊；選中連接點時是擁有它的區塊＋接在上面的子區塊
+  focusSlots() {
+    const s = this.sel;
+    if (!s) return [];
+    const out = [s.slot];
+    if (s.name) {
+      const m = this.mark(s);
+      const c = m && this.childSlot(m);
+      if (c) out.push(c);
+    }
+    return out;
+  }
+  // 顯示方式：半透明（焦點以外）、隱藏無關區塊（只留焦點與它們的父、子區塊）
+  applyDisplay() {
+    const rig = this.rig;
+    if (!rig) return;
+    const st = this.settings;
+    const focus = new Set(this.focusSlots());
+    const related = new Set(focus);
+    for (const f of focus) {
+      const pm = this.parentMark(f);
+      if (pm) related.add(pm.slot);
+      for (const m of this.marks) if (m.slot === f) related.add(this.childSlot(m));
+    }
+    const any = focus.size > 0;
+    for (const [slot, obj] of Object.entries(rig.pieces)) {
+      obj.visible = !(st.hide && any && !related.has(slot));
+      const ghost = st.ghost && any && !focus.has(slot);
+      obj.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material === OUTLINE_MAT) {
+          o.visible = !ghost;
+          return;
+        }
+        if (ghost) {
+          if (!o.userData.origMat) o.userData.origMat = o.material;
+          o.material = ghostOf(o.userData.origMat);
+        } else if (o.userData.origMat) {
+          o.material = o.userData.origMat;
+          delete o.userData.origMat;
+        }
+      });
+    }
+    for (const m of this.marks) m.mk.visible = !(st.hide && any && !related.has(m.slot));
+    const fs = [...focus];
+    this.boxes.forEach((b, i) => {
+      b.userData.target = st.hl && fs[i] ? rig.pieces[fs[i]] : null;
+      b.visible = !!b.userData.target;
+    });
+  }
+  // 每幀：更新高亮外框；穿幫提示在移動中用外框估算、停下來後用網格精算
+  tick(dt) {
+    for (const b of this.boxes) if (b.userData.target) b.setFromObject(b.userData.target);
+    if (!this.rig) return;
+    if (!this.settings.check) return;
+    const moving = this.dragging || this.ws.playing;
+    this.checkT -= dt;
+    if (moving) {
+      if (this.checkT <= 0) {
+        this.runCheck(false);
+        this.checkT = 0.25;
+      }
+      this.needPrecise = true;
+    } else if (this.needPrecise) {
+      this.needPrecise = false;
+      this.runCheck(true);
+    }
+  }
+  dirty() {
+    this.needPrecise = true;
+  }
+  runCheck(precise) {
+    const res = checkRig(this.rig, precise);
+    this.flags = new Set(res.warns.map((w) => w.parent + '|' + w.conn));
+    this.colorMarks();
+    const box = $('wsChecks');
+    if (!box) return;
+    const label = (slot) => this.ws.pieceLabelOf(slot);
+    box.innerHTML =
+      `<div class="small dim">${precise ? '網格精算' : '外框估算（移動中）'}：縫隙 > ${GAP_WARN * 100} cm 或重疊 > ${OVERLAP_WARN * 100}% 時提示</div>` +
+      (res.warns.length
+        ? res.warns
+            .map(
+              (w) =>
+                `<div class="wsWarn" data-slot="${w.parent}" data-n="${w.conn}">⚠ ${escHtml(label(w.child))} ↔ ${escHtml(label(w.parent))}（${escHtml(CONN_NAMES[w.conn] || w.conn)}）：` +
+                [
+                  w.gap > GAP_WARN ? `縫隙 ${(w.gap * 100).toFixed(1)} cm` : '',
+                  w.overlap > OVERLAP_WARN ? `重疊 ${Math.round(w.overlap * 100)}%` : '',
+                ]
+                  .filter(Boolean)
+                  .join('、') +
+                `</div>`,
+            )
+            .join('')
+        : `<div class="small ok">✓ 沒有明顯的縫隙或重疊（${res.all.length} 對相鄰區塊）</div>`);
+    for (const r of box.querySelectorAll('.wsWarn'))
+      r.onclick = () => this.select({ slot: r.dataset.slot, name: r.dataset.n });
+  }
+  apply() {
+    const s = this.sel;
+    this.colorMarks();
+    this.applyDisplay();
     for (const r of document.querySelectorAll('#wsTree .wsNode, #wsTree .wsConn, #wsParts .wsPiece')) {
       const on =
         s && r.dataset.slot === s.slot && (r.classList.contains('wsConn') ? r.dataset.n === s.name : !s.name);
@@ -253,8 +410,8 @@ export class WsEditor {
       return this.select({ slot: m.slot, name: m.name });
     }
     const hits = ray.intersectObject(this.rig.group, true).filter((h) => {
-      if (!h.object.isMesh || h.object.material === OUTLINE_MAT || !h.object.visible) return false;
-      for (let o = h.object; o; o = o.parent) if (o.userData.helper) return false;
+      if (!h.object.isMesh || h.object.material === OUTLINE_MAT) return false;
+      for (let o = h.object; o; o = o.parent) if (o.userData.helper || !o.visible) return false;
       return true;
     });
     for (const h of hits) {
@@ -289,6 +446,7 @@ export class WsEditor {
     }
     if (same(s, this.sel) && !this.dragging) this.syncProxy();
     this.ws.updateConnRow(s.slot, s.name);
+    this.dirty();
   }
   // 寫入覆寫值（null＝移除瀏覽器暫存，回到內建 joints.json 或程式預設值）並更新畫面
   async applyOv(s, ov) {
@@ -482,6 +640,13 @@ export class WsEditor {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch (e) {}
     this.applySnap();
+    this.applyDisplay();
+    this.colorMarks();
+    if (!this.settings.check) {
+      this.flags = new Set();
+      this.colorMarks();
+      if ($('wsChecks')) $('wsChecks').innerHTML = '<div class="small dim">穿幫提示已關閉</div>';
+    } else this.dirty();
   }
   applySnap() {
     if (!this.tc) return;

@@ -311,6 +311,7 @@ export class Workshop {
     if (this.anim === 'rest') return;
     const t0 = Math.max(0, this.t - 1.5);
     for (let x = t0; x <= this.t; x += STEP) animateMech(rig, STEP, animState(this.anim, x));
+    if (this.edit) this.edit.dirty();
   }
 
   // ---------- 區塊資訊（給編輯器與清單用）----------
@@ -480,6 +481,7 @@ export class Workshop {
       $('wsTime').value = this.t;
       $('wsTimeText').textContent = `${this.t.toFixed(2)} s`;
     }
+    this.edit.tick(dt);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.updateLabels(false);

@@ -370,6 +370,7 @@ async function testWorkshop(browser, base) {
     '右側列出組裝層級與連接點',
   );
   check(((await page.textContent('#wsInfo')) || '').includes('連接點 21 個'), '玩家初始機有 21 個連接點');
+  check(((await page.textContent('#wsChecks')) || '').includes('沒有明顯的縫隙'), '玩家初始機沒有穿幫提示');
   await page.selectOption('#wsParts select[data-k="arms"]', 'a_lt');
   await wait(1500);
   check((await tree()).includes('arms/a_lt/r_upper'), '換手臂零件後重新組裝');
@@ -440,6 +441,14 @@ async function testWorkshop(browser, base) {
       (await page.$eval(elbow, (r) => r.classList.contains('mod'))),
     '輸入數值後連接點移動並標示已修改',
   );
+  await wait(1000);
+  const warn = (await page.textContent('#wsChecks')) || '';
+  check(warn.includes('右前臂 ↔ 右上臂（含肩甲）（手肘）：縫隙'), '手肘移開後提示縫隙');
+  for (const k of ['hide', 'check']) await page.click('#wsToolbar input[data-st="' + k + '"]');
+  await wait(500);
+  check(((await page.textContent('#wsChecks')) || '').includes('已關閉'), '穿幫提示可以關閉');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-hide.png') });
+  for (const k of ['hide', 'check']) await page.click('#wsToolbar input[data-st="' + k + '"]');
   await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
   await page.click('#wsDetail [data-act="reset"]');
   await wait(500);
