@@ -467,6 +467,37 @@ export function pieceConns(info) {
 function legHipY(type) {
   return type === 'reverse' ? CUBE.hipY + 0.15 : type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : CUBE.hipY;
 }
+// 區塊接在哪個父區塊的哪個連接點：{ kind: 父區塊種類, name: 連接點 }（襠部／主體是根，回傳 null）
+export function parentConnOf(info) {
+  const k = info.key;
+  switch (info.kind) {
+    case 'head':
+      return { kind: 'core', name: 'neck' };
+    case 'core':
+      return { kind: 'pelvis', name: 'waist' };
+    case 'booster':
+      return { kind: 'core', name: 'backpack' };
+    case 'upper':
+      return { kind: 'core', name: 'shoulder_' + k };
+    case 'fore':
+      return { kind: 'upper', name: 'elbow' };
+    case 'hand':
+      return { kind: 'fore', name: 'wrist' };
+    case 'weapon':
+      return { kind: 'hand', name: 'grip' };
+    case 'back':
+      return { kind: 'core', name: 'back_' + k };
+    case 'thigh':
+      return { kind: info.legType === 'quad' ? 'body' : 'pelvis', name: 'hip_' + k };
+    case 'shin':
+    case 'qshin':
+      return { kind: 'thigh', name: 'knee' };
+    case 'foot':
+      return { kind: 'shin', name: 'ankle' };
+    default:
+      return null;
+  }
+}
 // 連接點：關節設定覆寫＞預設值
 export function connOf(info, name) {
   return resolveConn(info.slot, name, pieceConns(info)[name]);

@@ -379,6 +379,32 @@ button.sel {
 #insChecks li.info {
   color: var(--dim);
 }
+.lbl.axis {
+  font-size: 11px;
+  background: rgba(10, 14, 20, 0.7);
+  border: none;
+}
+.lbl.axis.axx {
+  color: #ff6b6b;
+}
+.lbl.axis.axy {
+  color: #6ee86e;
+}
+.lbl.axis.axz {
+  color: #6aa0ff;
+}
+.lbl.axis.origin {
+  color: #fff;
+  transform: translate(10px, 4px);
+}
+.lbl.conn {
+  font-size: 11px;
+  font-weight: 400;
+  color: #ffd23f;
+  border-color: rgba(255, 210, 63, 0.6);
+  background: rgba(10, 14, 20, 0.75);
+  transform: translate(8px, -120%);
+}
 .lbl.tag {
   color: var(--acc2);
   border-color: var(--acc2);
@@ -396,4 +422,16 @@ button.sel {
 }
 .toast.bad {
   border-color: var(--bad);
+}
+.hint.axes b {
+  font-weight: 700;
+}
+.ax-x {
+  color: #ff6b6b;
+}
+.ax-y {
+  color: #6ee86e;
+}
+.ax-z {
+  color: #6aa0ff;
 }

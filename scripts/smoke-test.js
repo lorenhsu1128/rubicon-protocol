@@ -253,6 +253,11 @@ async function testLibraryGlb(browser, base) {
   const bad = await badCount();
   check(bad.length === 0, `範本 GLB 規格檢查全部通過${bad.length ? '：' + bad.join('；') : ''}`);
   check((await info()).includes('手肘轉軸'), '檢視窗標示此區塊的原點（手肘轉軸）');
+  const lb = await page.$$eval('#insLabels .lbl', (x) => x.map((e) => e.textContent));
+  check(
+    lb.includes('原點') && lb.includes('+Z 正面') && lb.includes('手腕'),
+    '檢視窗顯示原點、三軸與連接點（手腕）',
+  );
   await page.click('#insModes button[data-m="side"]');
   await wait(2000);
   await page.screenshot({ path: path.join(SHOT_DIR, 'library-glb-side.png') });

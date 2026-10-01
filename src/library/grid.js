@@ -4,6 +4,7 @@
 import { escHtml } from '../core/html.js';
 import { fmtSize } from '../render/measure.js';
 import { animateMech, mechPieces } from '../render/mech-model.js';
+import { buildAxes } from './refs.js';
 import {
   addLights,
   animState,
@@ -147,6 +148,12 @@ export class ModelGrid {
     const span = Math.max(4, Math.ceil(Math.max(d.size.x, d.size.z) * 1.6));
     const grid = new THREE.GridHelper(span, span <= 30 ? span : span / 5, 0x2a3644, 0x222b36); // 每格 1 m（大型模型 5 m）
     scene.add(grid, d.pivot);
+    // 原點與三軸（X 紅、Y 綠＝上、Z 藍＝正面），跟著模型轉
+    const ax = buildAxes(Math.min(3, Math.max(0.2, Math.max(d.size.x, d.size.y, d.size.z) * 0.3)), {
+      sprites: true,
+    });
+    ax.group.position.copy(d.built.obj.position);
+    d.pivot.add(ax.group);
     d.pivot.rotation.y = 0.5;
     const cam = new THREE.PerspectiveCamera(30, 4 / 3, 0.01, 1000);
     fitCamera(cam, d.size, 4 / 3, 1.05);

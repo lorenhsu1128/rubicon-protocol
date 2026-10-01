@@ -111,3 +111,78 @@ export function buildDims(size) {
   ];
   return { dims, box, labels };
 }
+
+// ---------- 原點與三軸（glTF 軸名：X 紅、Y 綠＝上、Z 藍＝正面）----------
+// 場景是遊戲座標（正面 −Z）：glTF 的 +X、+Z 分別畫在遊戲的 −X、−Z 方向，看起來就和 Blender／GLB 一致
+export const AXIS_COLORS = { x: 0xff4d4d, y: 0x5ee05e, z: 0x4d8dff };
+const AXIS_DIRS = { x: V(-1, 0, 0), y: V(0, 1, 0), z: V(0, 0, -1) };
+const noDepth = (m) => {
+  m.depthTest = false;
+  m.depthWrite = false;
+  m.transparent = true;
+  return m;
+};
+const LETTER_TEX = {};
+function letterTex(ch, color) {
+  const key = ch + color;
+  if (LETTER_TEX[key]) return LETTER_TEX[key];
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.font = 'bold 48px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 8;
+  g.strokeStyle = 'rgba(0,0,0,0.85)';
+  g.strokeText(ch, 32, 34);
+  g.fillStyle = '#' + new THREE.Color(color).getHexString();
+  g.fillText(ch, 32, 34);
+  return (LETTER_TEX[key] = new THREE.CanvasTexture(c));
+}
+// len：箭頭長度（公尺）；sprites：在箭頭末端放 X／Y／Z 字樣（格狀檢視用，檢視窗改用文字標籤）
+export function buildAxes(len, { sprites = false, dot = true } = {}) {
+  const g = new THREE.Group();
+  g.renderOrder = 20;
+  const labels = [];
+  for (const k of ['x', 'y', 'z']) {
+    const col = AXIS_COLORS[k];
+    const a = new THREE.ArrowHelper(AXIS_DIRS[k], V(0, 0, 0), len, col, len * 0.18, len * 0.09);
+    noDepth(a.line.material);
+    noDepth(a.cone.material);
+    a.line.renderOrder = a.cone.renderOrder = 20;
+    g.add(a);
+    const tip = AXIS_DIRS[k].clone().multiplyScalar(len * 1.15);
+    if (sprites) {
+      const s = new THREE.Sprite(noDepth(new THREE.SpriteMaterial({ map: letterTex(k.toUpperCase(), col) })));
+      s.position.copy(tip);
+      s.scale.setScalar(len * 0.32);
+      s.renderOrder = 21;
+      g.add(s);
+    }
+    labels.push({ pos: tip, text: { x: '+X', y: '+Y 上', z: '+Z 正面' }[k], cls: 'axis ax' + k });
+  }
+  if (dot) {
+    const d = new THREE.Mesh(
+      new THREE.SphereGeometry(len * 0.06, 12, 8),
+      noDepth(new THREE.MeshBasicMaterial({ color: 0xffffff })),
+    );
+    d.renderOrder = 21;
+    g.add(d);
+    labels.push({ pos: V(0, 0, 0), text: '原點', cls: 'axis origin' });
+  }
+  return { group: g, labels };
+}
+
+// 連接點標記：小八面體＋短三軸（顯示連接點的旋轉）；hot 為目前區塊自己的連接點
+export function buildConnMarker(size, hot) {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(
+    new THREE.OctahedronGeometry(size, 0),
+    noDepth(new THREE.MeshBasicMaterial({ color: hot ? 0xffd23f : 0xc084fc, opacity: hot ? 1 : 0.75 })),
+  );
+  m.renderOrder = 22;
+  g.add(m);
+  const ax = buildAxes(size * 2.6, { dot: false });
+  g.add(ax.group);
+  return g;
+}

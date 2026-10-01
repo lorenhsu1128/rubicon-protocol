@@ -5,9 +5,17 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { PALETTES } from '../render/materials.js';
 import { fmtSize } from '../render/measure.js';
 import { CATEGORIES } from '../render/model-catalog.js';
-import { PIECE_ORIGIN, animateMech } from '../render/mech-model.js';
+import {
+  CONN_NAMES,
+  PIECE_NAMES,
+  PIECE_ORIGIN,
+  animateMech,
+  connOf,
+  parentConnOf,
+  pieceConns,
+} from '../render/mech-model.js';
 import { THEMES } from '../world/world.js';
-import { buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
+import { buildAxes, buildConnMarker, buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
 import { exportTemplate } from './template.js';
 import {
   ANIMS,
@@ -26,6 +34,8 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const TOGGLES = [
+  ['axes', '原點與三軸', true],
+  ['conns', '連接點', true],
   ['dims', '尺寸標線', true],
   ['box', '外框', true],
   ['ruler', '刻度尺', true],
@@ -263,6 +273,7 @@ export class Inspector {
       ...dimsList.flatMap(({ it, d }) => d.labels.map((l) => ({ ...l, key: 'dims', obj: it.pivot }))),
       ...ruler.labels.map((l) => ({ ...l, key: 'ruler', obj: this.scene })),
       ...human.labels.map((l) => ({ ...l, key: 'human', obj: this.scene })),
+      ...this.addHelpers(main, size),
     ];
     if (this.mode === 'side') {
       for (const [it, text] of [
@@ -303,6 +314,51 @@ export class Inspector {
     const canAnim = rig && !rig.vehicle;
     $('insAnimH').style.display = $('insAnims').style.display = canAnim ? '' : 'none';
   }
+  // 原點與三軸、連接點標記：加在模型的節點上，跟著模型旋轉與動作
+  addHelpers(main, size) {
+    const e = this.entry,
+      rig = main.built.rig,
+      obj = main.built.obj;
+    const V3 = () => new THREE.Vector3();
+    main.pivot.updateMatrixWorld(true);
+    const ws = (o) => o.getWorldScale(V3()).x || 1;
+    const span = Math.max(size.x, size.y, size.z);
+    const len = Math.min(3, Math.max(0.25, span * 0.28));
+    const msize = Math.min(0.2, Math.max(0.03, span * 0.016));
+    const labels = [];
+    this.helpers = { axes: [], conns: [] };
+    // 原點：組合預覽時是這個區塊的原點，其他是模型本身的原點
+    const own = this.mode === 'compose' && rig && rig.pieces ? rig.pieces[e.id] : null;
+    const host = own || obj;
+    const ax = buildAxes(len / ws(host));
+    host.add(ax.group);
+    this.helpers.axes.push(ax.group);
+    for (const l of ax.labels) labels.push({ ...l, key: 'axes', obj: ax.group });
+    const mark = (parent, hot, name) => {
+      const mk = buildConnMarker(msize / ws(parent), hot);
+      parent.add(mk);
+      this.helpers.conns.push(mk);
+      if (name)
+        labels.push({ pos: V3(), text: CONN_NAMES[name] || name, cls: 'conn', key: 'conns', obj: mk });
+      return mk;
+    };
+    if (rig && rig.mounts) {
+      // 整台機甲：所有連接點；組合預覽時標出此區塊自己的連接點與它接上的那一個
+      const parentMount = own && own.parent ? own.parent.parent : null;
+      for (const m of rig.mounts) {
+        const hot = e.cat === 'mech' || m.slot === e.id || m.node === parentMount;
+        mark(m.node, hot, hot ? m.name : null);
+      }
+    } else if (e.piece) {
+      for (const name of Object.keys(pieceConns(e.piece))) {
+        const c = connOf(e.piece, name);
+        const mk = mark(obj, true, name);
+        mk.position.copy(c.p);
+        mk.rotation.copy(c.r);
+      }
+    }
+    return labels;
+  }
   renderInfo(src, ref) {
     const e = this.entry,
       d = this.main;
@@ -320,7 +376,7 @@ export class Inspector {
         : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
-      ...(e.piece ? [['原點', PIECE_ORIGIN[e.piece.kind]]] : []),
+      ...(e.piece ? this.pieceRows(e.piece) : []),
       ['來源', d.loadError ? d.loadError + '（改顯示程式模型）' : srcText],
       [this.mode === 'compose' ? '組合後尺寸（寬×高×深）' : '遊戲尺寸（寬×高×深）', fmtSize(d.size)],
       ...(st
@@ -371,6 +427,20 @@ export class Inspector {
       });
     $('insChecks').innerHTML = checks.map((c) => `<li class="${c.lv}">${escHtml(c.text)}</li>`).join('');
   }
+  pieceRows(info) {
+    const pc = parentConnOf(info);
+    const names = Object.keys(pieceConns(info)).map((n) => CONN_NAMES[n]);
+    return [
+      ['原點', PIECE_ORIGIN[info.kind]],
+      [
+        '接在',
+        pc
+          ? `${pc.name === 'waist' ? '襠部／主體' : PIECE_NAMES[pc.kind]}的${CONN_NAMES[pc.name]}`
+          : '機體根部（地面）',
+      ],
+      ...(names.length ? [['此區塊的連接點', names.join('、')]] : []),
+    ];
+  }
   download() {
     const src = this.store.source(this.entry.id);
     if (src.kind !== 'glb') return;
@@ -405,6 +475,8 @@ export class Inspector {
     R.ruler.group.visible = o.ruler;
     R.human.group.visible = o.human;
     R.grid.visible = o.grid;
+    for (const a of this.helpers.axes) a.visible = o.axes;
+    for (const c of this.helpers.conns) c.visible = o.conns;
     for (const it of this.items.slice(0, this.mode === 'overlay' ? 1 : 2))
       it.pivot.traverse((m) => {
         if (m.isMesh && m.material === OUTLINE_MAT) m.visible = o.outline;
