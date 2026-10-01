@@ -5,7 +5,7 @@
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
 'use strict';
-/* global window, document, localStorage, getComputedStyle -- page.evaluate 的回呼在瀏覽器端執行 */
+/* global window, document, localStorage, getComputedStyle, scrollTo -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +17,7 @@ const args = process.argv.slice(2);
 const htmlArg = args.find((a) => !a.startsWith('--'));
 const HTML = path.resolve(htmlArg || path.join(ROOT, 'dist/rubicon-protocol.html'));
 const WITH_SERVER = !htmlArg && !args.includes('--no-server');
+const LIBRARY = path.join(path.dirname(HTML), 'model-library.html');
 const SHOT_DIR = path.join(ROOT, 'test-results');
 const BROWSERS = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -37,8 +38,10 @@ function check(ok, label) {
 function serveHtml() {
   return new Promise((res) => {
     const srv = http.createServer((req, resp) => {
+      // /model-library.html 提供同資料夾的模型庫，其他路徑一律回遊戲頁
+      const lib = req.url.split('?')[0] === '/model-library.html';
       resp.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      resp.end(fs.readFileSync(HTML));
+      resp.end(fs.readFileSync(lib ? LIBRARY : HTML));
     });
     srv.listen(0, '127.0.0.1', () => res(srv));
   });
@@ -159,6 +162,57 @@ async function testSolo(browser, base) {
     const rp = (await page.textContent('#rPilot')) || '';
     check(rp.includes('駕駛員經驗'), `結果畫面顯示駕駛員經驗（${rp.trim().slice(0, 30)}…）`);
   }
+  await ctx.close();
+}
+
+// 模型庫：所有模型槽都能建立並量測尺寸、檢視窗資訊與尺寸標線、動作預覽、窄螢幕
+async function testLibrary(browser, base) {
+  console.log('模型庫：格狀檢視 → 量測 → 檢視窗 → 動作預覽');
+  if (!fs.existsSync(LIBRARY)) return check(false, '找不到 dist/model-library.html');
+  const { ctx, page } = await newPage(browser, 'library');
+  await page.goto(base + 'model-library.html');
+  await page.waitForSelector('.cell');
+  const total = await page.$$eval('.cell', (x) => x.length);
+  check(total >= 60, `列出所有模型槽（${total} 格）`);
+  const cols = await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
+  check(cols === 3, `電腦版一行三格（${cols}）`);
+  // 捲動到底讓每一格都建立模型
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, 700);
+    await wait(250);
+  }
+  await wait(3000);
+  const sizes = await page.$$eval('.cell .sz', (x) => x.map((e) => e.textContent));
+  const bad = sizes.filter((t) => !/\d+\.\d\d × \d+\.\d\d × \d+\.\d\d m/.test(t)).length;
+  check(bad === 0, `每格都標示公尺尺寸（未完成 ${bad} 格）`);
+  await page.evaluate(() => scrollTo(0, 0));
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library.png') });
+  await page.click('.cell[data-id="mech/boss_juggernaut"]');
+  check(
+    await page.waitForSelector('#inspect:not([hidden])', { timeout: 10000 }).then(
+      () => true,
+      () => false,
+    ),
+    '點擊格子開啟檢視窗',
+  );
+  await wait(2500);
+  const info = (await page.textContent('#insInfo')) || '';
+  check(info.includes('原始尺寸') && info.includes('×2.6'), 'Boss 同時顯示遊戲尺寸與原始尺寸（×2.6）');
+  const lbls = await page.$$eval('#insLabels .lbl', (x) => x.map((e) => e.textContent));
+  check(
+    lbls.some((t) => t.startsWith('高 ')) && lbls.some((t) => t.includes('1.8 m')),
+    '檢視窗顯示尺寸標線、刻度與人形',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-inspect.png') });
+  await page.click('#insAnims button[data-a="walk"]');
+  await wait(1000);
+  await page.keyboard.press('Escape');
+  check(await page.isHidden('#inspect'), 'Esc 關閉檢視窗');
+  await page.setViewportSize({ width: 420, height: 800 });
+  await wait(800);
+  const cols2 = await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
+  check(cols2 === 1, `窄螢幕改為一行一格（${cols2}）`);
   await ctx.close();
 }
 
@@ -292,6 +346,7 @@ async function main() {
     await testFile(browser);
     await testSolo(browser, base);
     await testPilot(browser, base);
+    await testLibrary(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');

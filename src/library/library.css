@@ -1,0 +1,324 @@
+:root {
+  --bg: #0c1016;
+  --cell: #161b22;
+  --ink: #e6edf3;
+  --dim: #8a97a6;
+  --line: #2a3644;
+  --acc: #ffb020;
+  --acc2: #5cc8ff;
+  --ok: #7ee081;
+  --warn: #ffb020;
+  --bad: #ff4d4d;
+  --panel: rgba(10, 14, 20, 0.92);
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Chakra Petch', 'Noto Sans TC', system-ui, sans-serif;
+  font-size: 14px;
+}
+.dim {
+  color: var(--dim);
+}
+/* 格狀檢視共用一個固定在視窗後方的畫布，每格只是一個透明的「窗」 */
+#gridGl {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 0;
+}
+#top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 16px 0;
+  backdrop-filter: blur(6px);
+}
+.brand {
+  font-size: 18px;
+}
+.brand b {
+  color: var(--acc);
+  letter-spacing: 0.1em;
+}
+.brand .dim {
+  font-size: 12px;
+  margin-left: 10px;
+}
+.tools {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0;
+}
+input,
+select,
+button {
+  font: inherit;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  padding: 5px 10px;
+}
+button {
+  cursor: pointer;
+}
+button:hover,
+button.sel {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+#search {
+  flex: 1;
+  min-width: 160px;
+  max-width: 360px;
+}
+#tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+#tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 6px 10px;
+}
+#tabs button.sel {
+  border-bottom-color: var(--acc);
+}
+#tabs button .n {
+  font-size: 11px;
+  color: var(--dim);
+  margin-left: 4px;
+}
+#grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 16px 40px;
+}
+@media (max-width: 960px) {
+  #grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  #grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.cell {
+  border: 1px solid var(--line);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.cell:hover {
+  border-color: var(--acc2);
+}
+.cell .view {
+  aspect-ratio: 4 / 3;
+  position: relative;
+}
+.cell .view .loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  font-size: 12px;
+}
+.cell .meta {
+  background: var(--panel);
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cell .meta .t {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.cell .meta b {
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.badge.glb {
+  border-color: var(--acc2);
+  color: var(--acc2);
+}
+.badge.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.badge.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.size {
+  color: var(--ink);
+  font-weight: 600;
+}
+.size small {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+/* ---------- 檢視窗 ---------- */
+#inspect {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  background: var(--bg);
+}
+#inspect[hidden] {
+  display: none;
+}
+#insView {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+#insGl {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#insLabels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.lbl {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 1px 5px;
+  background: rgba(10, 14, 20, 0.75);
+  border: 1px solid var(--line);
+}
+.lbl.dimL {
+  color: var(--acc);
+  border-color: var(--acc);
+}
+.lbl.tick {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ink);
+  background: rgba(10, 14, 20, 0.6);
+  border: none;
+  transform: translate(-100%, -50%);
+  padding-right: 6px;
+}
+.lbl.human {
+  font-size: 10px;
+  color: var(--dim);
+}
+#insClose {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 16px;
+  padding: 4px 12px;
+  background: var(--panel);
+}
+#insSide {
+  width: min(360px, 38vw);
+  overflow: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 14px 16px;
+}
+#insSide h2 {
+  margin: 0 0 2px;
+  font-size: 18px;
+}
+#insSide h3 {
+  font-size: 13px;
+  margin: 14px 0 6px;
+  color: var(--acc2);
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 12px;
+}
+.kv span:last-child {
+  font-weight: 600;
+  text-align: right;
+}
+.toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+.toggles label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+.row2 {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.btns button {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+@media (max-width: 760px) {
+  #inspect {
+    flex-direction: column;
+  }
+  #insView {
+    flex: none;
+    height: 58vh;
+  }
+  #insSide {
+    width: auto;
+    flex: 1;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+}

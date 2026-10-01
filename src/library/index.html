@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RUBICON PROTOCOL — 模型庫</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Noto+Sans+TC:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./library.css" />
+  </head>
+  <body>
+    <canvas id="gridGl"></canvas>
+    <header id="top">
+      <div class="brand">
+        <b>RUBICON</b> 模型庫
+        <span class="dim" id="count"></span>
+      </div>
+      <div class="tools">
+        <input id="search" type="search" placeholder="搜尋名稱或編號…" />
+        <label
+          >配色
+          <select id="palSel"></select
+        ></label>
+      </div>
+      <nav id="tabs"></nav>
+    </header>
+    <main id="grid"></main>
+
+    <div id="inspect" hidden>
+      <div id="insView">
+        <canvas id="insGl"></canvas>
+        <div id="insLabels"></div>
+        <button id="insClose" title="關閉（Esc）">✕</button>
+      </div>
+      <aside id="insSide">
+        <h2 id="insName"></h2>
+        <div class="dim" id="insId"></div>
+        <div id="insInfo"></div>
+        <h3>顯示</h3>
+        <div class="toggles" id="insToggles"></div>
+        <div class="row2">
+          <label
+            >配色
+            <select id="insPal"></select
+          ></label>
+          <label
+            >光線
+            <select id="insLight"></select
+          ></label>
+        </div>
+        <h3 id="insAnimH">動作預覽</h3>
+        <div class="btns" id="insAnims"></div>
+      </aside>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
+    <script type="module" src="./library.js"></script>
+  </body>
+</html>
