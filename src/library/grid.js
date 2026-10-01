@@ -3,7 +3,7 @@
 // 有 GLB 的格子顯示 GLB（瀏覽器暫存＞內建），沒有則顯示程式模型；可把 GLB 拖曳到格子上替換。
 import { escHtml } from '../core/html.js';
 import { fmtSize } from '../render/measure.js';
-import { animateMech } from '../render/mech-model.js';
+import { animateMech, mechPieces } from '../render/mech-model.js';
 import {
   addLights,
   animState,
@@ -17,11 +17,22 @@ import {
 
 const CELL_BG = 0x161b22;
 
-// 來源標籤：程式模型／GLB ✓／GLB ⚠ N／GLB ✗ N
-export function sourceBadge(d, src) {
+// 來源標籤：程式模型／GLB ✓／GLB ⚠ N／GLB ✗ N；完整機甲為「組合」＋使用 GLB 的區塊數
+export function sourceBadge(d, src, entry, store) {
+  let comp = d && d.source && d.source.kind === 'composite' ? d.source : null;
+  if (!comp && entry && entry.cat === 'mech' && store)
+    comp = {
+      glbSlots: mechPieces(entry.asm)
+        .map((i) => i.slot)
+        .filter((id) => store.source(id).kind === 'glb'),
+    };
+  if (comp)
+    return comp.glbSlots.length
+      ? { cls: 'glb', text: `組合・GLB ${comp.glbSlots.length}`, title: comp.glbSlots.join('\n') }
+      : { cls: '', text: '組合', title: '由各區塊組合而成（目前都是程式模型）' };
   if (!src || src.kind !== 'glb')
     return { cls: '', text: '程式模型', title: '尚未提供 GLB，顯示 three.js 程式模型' };
-  const origin = src.origin === 'builtin' ? '內建' : '瀏覽器';
+  const origin = (src.origin === 'builtin' ? '內建' : '瀏覽器') + (src.fallback ? '，暫用右側' : '');
   if (d && d.loadError) return { cls: 'bad', text: 'GLB 無法讀取', title: d.loadError };
   if (!d || !d.summary) return { cls: 'glb', text: `GLB（${origin}）`, title: src.name };
   const { errors, warns } = d.summary;
@@ -84,7 +95,7 @@ export class ModelGrid {
     return this.cells.find((c) => c.entry.id === id);
   }
   setBadge(c) {
-    const b = sourceBadge(c.data, this.store.source(c.entry.id));
+    const b = sourceBadge(c.data, this.store.source(c.entry.id), c.entry, this.store);
     const el = c.el.querySelector('.badge');
     el.className = 'badge ' + b.cls;
     el.textContent = b.text;
@@ -120,7 +131,7 @@ export class ModelGrid {
     const src = this.store.source(c.entry.id);
     let d;
     try {
-      d = await prepareSource(c.entry, this.palKey, src);
+      d = await prepareSource(c.entry, this.palKey, src, this.store);
     } catch (e) {
       // GLB 讀取失敗：顯示程式模型並標示錯誤
       d = prepareModel(c.entry, this.palKey);

@@ -39,7 +39,19 @@ export class GlbStore {
     }
   }
   // 依優先順序取得槽位的來源：{ kind:'glb', origin:'browser'|'builtin', name, buf, size } 或 { kind:'proc' }
+  // 左側武器沒有自己的 GLB 時暫用右側的（fallback: true）；完整機甲由區塊組成，一律不接受 GLB
   source(id) {
+    const own = this.ownSource(id);
+    if (own.kind === 'glb') return own;
+    const m = /^((?:weapon|back)\/[^/]+)\/l$/.exec(id);
+    if (m) {
+      const r = this.ownSource(m[1] + '/r');
+      if (r.kind === 'glb') return { ...r, fallback: true };
+    }
+    return own;
+  }
+  ownSource(id) {
+    if (id.startsWith('mech/')) return { kind: 'proc' };
     const r = this.local.get(id);
     if (r) return { kind: 'glb', origin: 'browser', name: r.name, buf: r.buf, size: r.size, t: r.t };
     const b = BUILTIN_MODELS[id];

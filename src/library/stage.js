@@ -1,11 +1,11 @@
 // 模型庫共用：渲染器、燈光、模型建立與量測、相機取景、動作預覽狀態
 import { makeStudioEnv } from '../render/environment.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
-import { buildRigFromGlb, checkGlb, checkSummary, composePart, glbScene, parseGlb } from '../render/glb.js';
+import { checkGlb, checkSummary, glbScene, matsOf, parseGlb } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
 import { measureBox, modelStats } from '../render/measure.js';
 import { START_ASM } from '../data/parts.js';
-import { buildMech } from '../render/mech-model.js';
+import { PIECE_ORIGIN, buildMech, mechPieces } from '../render/mech-model.js';
 
 let ENV = null;
 export const studioEnv = () => ENV || (ENV = makeStudioEnv());
@@ -94,70 +94,103 @@ export function prepareModel(entry, palKey) {
 
 const ONE = () => new THREE.Vector3(1, 1, 1);
 const palOf = (entry, palKey) => (entry.noPal ? null : PALETTES[palKey || entry.pal] || PALETTES.player);
-const isWeapon = (e) => e.cat === 'weapon' || e.cat === 'back';
-// 程式模型在「GLB 製作尺寸」下的外框，作為規格檢查的參考：武器以遊戲內實際尺寸製作（含掛點縮放），其餘以 ×1 製作
+// 程式模型在「GLB 製作尺寸」（×1）下的外框，作為規格檢查的參考
 function referenceBox(entry, palKey) {
   const b = entry.build(palKey || entry.pal);
-  if (!isWeapon(entry)) b.scaleNode.scale.set(1, 1, 1);
+  b.scaleNode.scale.set(1, 1, 1);
   let box = measureBox(b.obj);
   if (box.isEmpty()) box = measureBox(b.obj, true);
   disposeObject(b.obj);
   return box;
 }
+export const originText = (entry) =>
+  entry.piece ? PIECE_ORIGIN[entry.piece.kind] : '地面中心（模型底面中心）';
 
-// GLB：解析、轉座標系、套配色、建立骨架（完整機甲），並對照程式模型做規格檢查
+// GLB：解析、轉座標系、套配色，並對照程式模型做規格檢查
 export async function prepareGlbModel(entry, palKey, src) {
   const gltf = await parseGlb(src.buf);
   const { root, info } = glbScene(gltf, palOf(entry, palKey));
-  const isMech = entry.cat === 'mech';
-  let rig = null,
-    rigMissing = null;
-  if (isMech) ({ rig, missing: rigMissing } = buildRigFromGlb(root));
   const checks = checkGlb({
     root,
     info,
     bytes: src.size,
     spec: entry.spec,
     ref: referenceBox(entry, palKey),
-    rigMissing,
-    isMech,
+    origin: originText(entry),
   });
+  if (src.fallback) checks.unshift({ lv: 'info', text: `沒有左側專用的 GLB，暫用右側的檔案（${src.name}）` });
   const obj = new THREE.Group();
-  obj.add(rig ? rig.group : root);
+  obj.add(root);
   const scale = entry.gameScale ? new THREE.Vector3().setScalar(entry.gameScale) : ONE();
   obj.scale.copy(scale);
   return finalize(
     entry,
-    { obj, scaleNode: obj, scale, rig },
+    { obj, scaleNode: obj, scale, rig: null, piece: entry.piece },
     { source: src, checks, summary: checkSummary(checks), info },
   );
 }
 
-export const prepareSource = (entry, palKey, src) =>
-  src && src.kind === 'glb'
-    ? prepareGlbModel(entry, palKey, src)
-    : Promise.resolve(prepareModel(entry, palKey));
-
-// 組合預覽：玩家初始機（START_ASM，換上此零件）＋此槽位的 GLB
-export const COMPOSE_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];
-const ASM_KEY = {
-  head: 'head',
-  core: 'core',
-  arms: 'arms',
-  legs: 'legs',
-  booster: 'booster',
-  weapon: 'rarm',
-  back: 'rback',
-};
-export async function prepareComposite(entry, palKey, src) {
-  const asm = { ...START_ASM, [ASM_KEY[entry.cat]]: entry.part };
-  const rig = buildMech(asm, palOf(entry, palKey) || PALETTES.player, 1);
-  let notes = [];
-  if (src && src.kind === 'glb') {
-    const { root } = glbScene(await parseGlb(src.buf), palOf(entry, palKey));
-    notes = composePart(rig, entry.cat, root);
+// 機甲組裝：每個區塊有 GLB 就用 GLB（瀏覽器暫存＞內建），沒有就用程式模型；連接點套用關節設定
+// 回傳 { rig, glbSlots: 用了 GLB 的槽位, errors: 解析失敗的槽位 }
+export async function buildMechWithGlb(asm, pal, store, scale = 1) {
+  const roots = {},
+    errors = [];
+  for (const info of mechPieces(asm)) {
+    const src = store.source(info.slot);
+    if (src.kind !== 'glb') continue;
+    try {
+      roots[info.slot] = glbScene(await parseGlb(src.buf), pal).root;
+    } catch (e) {
+      errors.push(`${info.slot}：${e.message || e}`);
+    }
   }
-  return finalize(entry, { obj: rig.group, scaleNode: rig.group, scale: ONE(), rig }, { source: src, notes });
+  const extraMats = Object.values(roots).flatMap(matsOf);
+  const rig = buildMech(asm, pal, scale, { piece: (info) => roots[info.slot] || null, extraMats });
+  return { rig, glbSlots: Object.keys(roots), errors };
+}
+// 完整機甲：區塊組合結果
+export async function prepareMech(entry, palKey, store) {
+  const scale = entry.gameScale ? new THREE.Vector3().setScalar(entry.gameScale) : ONE();
+  const { rig, glbSlots, errors } = await buildMechWithGlb(
+    entry.asm,
+    palOf(entry, palKey) || PALETTES.player,
+    store,
+  );
+  rig.group.scale.copy(scale);
+  return finalize(
+    entry,
+    { obj: rig.group, scaleNode: rig.group, scale, rig },
+    { source: { kind: 'composite', glbSlots, errors } },
+  );
+}
+
+export const prepareSource = (entry, palKey, src, store) =>
+  entry.cat === 'mech'
+    ? prepareMech(entry, palKey, store)
+    : src && src.kind === 'glb'
+      ? prepareGlbModel(entry, palKey, src)
+      : Promise.resolve(prepareModel(entry, palKey));
+
+// 組合預覽：玩家初始機（START_ASM）換上此區塊所屬的零件，所有區塊依各自來源（GLB／程式模型）組裝
+export const COMPOSE_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];
+function composeAsm(entry) {
+  const k = entry.piece && entry.piece.key;
+  if (entry.cat === 'weapon') return { ...START_ASM, [k === 'l' ? 'larm' : 'rarm']: entry.part };
+  if (entry.cat === 'back') return { ...START_ASM, [k === 'l' ? 'lback' : 'rback']: entry.part };
+  return { ...START_ASM, [entry.cat]: entry.part };
+}
+export async function prepareComposite(entry, palKey, store) {
+  const { rig, glbSlots, errors } = await buildMechWithGlb(
+    composeAsm(entry),
+    palOf(entry, palKey) || PALETTES.player,
+    store,
+  );
+  const notes = errors.map((t) => 'GLB 解析失敗：' + t);
+  return finalize(
+    entry,
+    { obj: rig.group, scaleNode: rig.group, scale: ONE(), rig },
+    { source: { kind: 'composite', glbSlots, errors }, notes },
+  );
 }
 
 // 縮放倍率文字：等比例「×2.6」；武器掛點等非等比例「×0.72／0.72／0.5」

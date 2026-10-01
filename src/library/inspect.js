@@ -5,7 +5,7 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { PALETTES } from '../render/materials.js';
 import { fmtSize } from '../render/measure.js';
 import { CATEGORIES } from '../render/model-catalog.js';
-import { animateMech } from '../render/mech-model.js';
+import { PIECE_ORIGIN, animateMech } from '../render/mech-model.js';
 import { THEMES } from '../world/world.js';
 import { buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
 import { exportTemplate } from './template.js';
@@ -197,7 +197,7 @@ export class Inspector {
     const e = this.entry,
       pal = $('insPal').value || null,
       src = this.store.source(e.id);
-    const glb = src.kind === 'glb';
+    const glb = src.kind === 'glb' && !e.noGlb;
     const canCompose = COMPOSE_CATS.includes(e.cat);
     if ((this.mode === 'side' || this.mode === 'overlay') && !glb) this.mode = 'single';
     if (this.mode === 'compose' && !canCompose) this.mode = 'single';
@@ -210,7 +210,10 @@ export class Inspector {
     let main,
       ref = null;
     try {
-      main = this.mode === 'compose' ? await prepareComposite(e, pal, src) : await prepareSource(e, pal, src);
+      main =
+        this.mode === 'compose'
+          ? await prepareComposite(e, pal, this.store)
+          : await prepareSource(e, pal, src, this.store);
     } catch (err) {
       main = prepareModel(e, pal);
       main.loadError = 'GLB 解析失敗：' + (err.message || err);
@@ -307,12 +310,17 @@ export class Inspector {
     $('insName').textContent = e.name;
     $('insId').textContent = `${e.id}${e.note ? '・' + e.note : ''}`;
     const st = scaleText(d.scale);
-    const srcText =
-      src.kind !== 'glb'
+    const comp = d.source && d.source.kind === 'composite' ? d.source : null;
+    const srcText = comp
+      ? comp.glbSlots.length
+        ? `區塊組合：${comp.glbSlots.length} 個區塊用 GLB，其餘為程式模型`
+        : '區塊組合：全部為程式模型'
+      : src.kind !== 'glb'
         ? '程式模型（three.js）'
-        : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}）${src.name}・${kb(src.size)}`;
+        : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
+      ...(e.piece ? [['原點', PIECE_ORIGIN[e.piece.kind]]] : []),
       ['來源', d.loadError ? d.loadError + '（改顯示程式模型）' : srcText],
       [this.mode === 'compose' ? '組合後尺寸（寬×高×深）' : '遊戲尺寸（寬×高×深）', fmtSize(d.size)],
       ...(st
@@ -344,17 +352,23 @@ export class Inspector {
       .join('');
     // GLB 工具與檢查報告
     const glb = src.kind === 'glb';
-    $('insDownload').disabled = !glb;
-    $('insRemove').disabled = !(glb && src.origin === 'browser');
-    $('insGlbHint').textContent = glb
-      ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
-      : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;
+    $('insLoad').disabled = !!e.noGlb;
+    $('insDownload').disabled = !glb || !!src.fallback;
+    $('insRemove').disabled = !(glb && src.origin === 'browser' && !src.fallback);
+    $('insGlbHint').textContent = e.noGlb
+      ? '完整機甲由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（頭、核心、上臂、前臂…）'
+      : glb && !src.fallback
+        ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
+        : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;
     const checks = [
       ...(d.notes || []).map((t) => ({ lv: 'warn', text: t })),
       ...(this.mode === 'compose' || !d.checks ? [] : d.checks),
     ];
-    if (this.mode === 'compose' && glb && !(d.notes || []).length)
-      checks.push({ lv: 'info', text: '組合預覽：以玩家初始機裝上此 GLB，可用動作預覽確認接點與比例' });
+    if (this.mode === 'compose')
+      checks.push({
+        lv: 'info',
+        text: '組合預覽：玩家初始機換上此零件，所有區塊依各自的來源組裝，可用動作預覽確認接點與比例',
+      });
     $('insChecks').innerHTML = checks.map((c) => `<li class="${c.lv}">${escHtml(c.text)}</li>`).join('');
   }
   download() {
@@ -362,7 +376,7 @@ export class Inspector {
     if (src.kind !== 'glb') return;
     this.saveBlob(
       new Blob([src.buf], { type: 'model/gltf-binary' }),
-      this.entry.id.split('/').pop() + '.glb',
+      this.entry.id.split('/').slice(1).join('_') + '.glb',
     );
   }
   // 程式模型照規格匯出的範本（檔名加 _template，避免和正式檔混淆）
@@ -370,7 +384,7 @@ export class Inspector {
     const buf = await exportTemplate(this.entry, $('insPal').value || null);
     this.saveBlob(
       new Blob([buf], { type: 'model/gltf-binary' }),
-      this.entry.id.split('/').pop() + '_template.glb',
+      this.entry.id.split('/').slice(1).join('_') + '_template.glb',
     );
   }
   saveBlob(blob, name) {

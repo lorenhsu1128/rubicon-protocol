@@ -173,7 +173,7 @@ async function testLibrary(browser, base) {
   await page.goto(base + 'model-library.html');
   await page.waitForSelector('.cell');
   const total = await page.$$eval('.cell', (x) => x.length);
-  check(total >= 90, `列出所有模型槽（${total} 格）`);
+  check(total >= 150, `列出所有模型槽（${total} 格）`);
   const cols = await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
   check(cols === 3, `電腦版一行三格（${cols}）`);
   // 捲動到底讓每一格都建立模型
@@ -216,9 +216,10 @@ async function testLibrary(browser, base) {
   await ctx.close();
 }
 
-// 模型庫 GLB 流程：下載範本 GLB → 載入同一槽位 → 規格檢查全部通過 → 組合預覽 → 錯放偵測 → 移除
+// 模型庫 GLB 流程：區塊範本 GLB 匯出 → 載入同一槽位 → 規格檢查全部通過 → 並排對照 → 組合預覽 →
+// 左側武器暫用右側 → 錯放偵測 → 移除 → 完整機甲改用區塊組合
 async function testLibraryGlb(browser, base) {
-  console.log('模型庫 GLB：範本匯出 → 載入 → 規格檢查 → 組合預覽 → 移除');
+  console.log('模型庫 GLB：區塊範本匯出 → 載入 → 規格檢查 → 組合預覽 → 移除');
   if (!fs.existsSync(LIBRARY)) return;
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
   const page = await ctx.newPage();
@@ -227,52 +228,71 @@ async function testLibraryGlb(browser, base) {
     page.$$eval('#insChecks li', (ls) =>
       ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
     );
-  await page.goto(base + 'model-library.html#mech/player');
-  await page.waitForSelector('#inspect:not([hidden])');
-  await wait(1500);
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
-  const fp = path.join(SHOT_DIR, 'player_template.glb');
-  await dl.saveAs(fp);
-  check(fs.statSync(fp).size > 1000, `下載範本 GLB（${Math.round(fs.statSync(fp).size / 1024)} KB）`);
-  await page.setInputFiles('#insFile', fp);
-  await wait(3000);
-  check(((await page.textContent('#insInfo')) || '').includes('GLB（瀏覽器暫存）'), '載入後來源顯示為 GLB');
+  const info = async () => (await page.textContent('#insInfo')) || '';
+  const openSlot = async (id) => {
+    await page.goto(base + 'model-library.html#' + id);
+    await page.waitForSelector('#inspect:not([hidden])');
+    await wait(1500);
+  };
+  const template = async (name) => {
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+    const fp = path.join(SHOT_DIR, name);
+    await dl.saveAs(fp);
+    return fp;
+  };
+  const load = async (fp) => {
+    await page.setInputFiles('#insFile', fp);
+    await wait(3000);
+  };
+  // 區塊：右前臂
+  await openSlot('arms/a_std/r_fore');
+  const fore = await template('a_std_r_fore_template.glb');
+  check(fs.statSync(fore).size > 1000, `下載區塊範本 GLB（${Math.round(fs.statSync(fore).size / 1024)} KB）`);
+  await load(fore);
+  check((await info()).includes('GLB（瀏覽器暫存）'), '載入後來源顯示為 GLB');
   const bad = await badCount();
   check(bad.length === 0, `範本 GLB 規格檢查全部通過${bad.length ? '：' + bad.join('；') : ''}`);
-  check(
-    ((await page.textContent('#insChecks')) || '').includes('機體節點齊全'),
-    'GLB 機體節點齊全，可用動作驅動',
-  );
+  check((await info()).includes('手肘轉軸'), '檢視窗標示此區塊的原點（手肘轉軸）');
   await page.click('#insModes button[data-m="side"]');
   await wait(2000);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-glb-side.png') });
+  await page.click('#insModes button[data-m="compose"]');
+  await wait(2500);
+  check(
+    await page.$eval('#insModes button[data-m="compose"]', (b) => b.classList.contains('sel')),
+    '組合預覽可以開啟',
+  );
+  check((await info()).includes('1 個區塊用 GLB'), '組合預覽裝上此區塊的 GLB');
   await page.click('#insAnims button[data-a="walk"]');
   await wait(800);
-  await page.screenshot({ path: path.join(SHOT_DIR, 'library-glb-side.png') });
-  // 錯放：同一個檔案放進頭部槽位應該報尺寸錯誤
-  await page.keyboard.press('Escape');
-  await page.goto(base + 'model-library.html#head/h_std');
-  await page.waitForSelector('#inspect:not([hidden])');
-  await wait(1200);
-  await page.setInputFiles('#insFile', fp);
-  await wait(3000);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-glb-compose.png') });
+  // 武器：右手載入後，左手沒有自己的 GLB 時暫用右側
+  await openSlot('weapon/w_rifle/r');
+  const rifle = await template('w_rifle_r_template.glb');
+  await load(rifle);
+  const badW = await badCount();
+  check(badW.length === 0, `武器範本 GLB 規格檢查全部通過${badW.length ? '：' + badW.join('；') : ''}`);
+  await openSlot('weapon/w_rifle/l');
+  check((await info()).includes('暫用右側'), '左手武器沒有 GLB 時暫用右側');
+  // 錯放：步槍放進頭部槽位應該報尺寸錯誤，移除後改回程式模型
+  await openSlot('head/h_std');
+  await load(rifle);
   const wrong = await page.$$eval('#insChecks li.error', (ls) => ls.map((l) => l.textContent));
   check(
     wrong.some((t) => t.includes('尺寸')),
     '錯放的 GLB 會報尺寸錯誤',
   );
-  await page.click('#insModes button[data-m="compose"]');
-  await wait(2000);
-  check(
-    await page.$eval('#insModes button[data-m="compose"]', (b) => b.classList.contains('sel')),
-    '組合預覽可以開啟',
-  );
   await page.click('#insRemove');
   await wait(1500);
-  check(((await page.textContent('#insInfo')) || '').includes('程式模型'), '移除後改回程式模型');
+  check((await info()).includes('程式模型'), '移除後改回程式模型');
+  // 完整機甲：不接受整台 GLB，改用區塊組合
+  await openSlot('mech/player');
+  check(await page.$eval('#insLoad', (b) => b.disabled), '完整機甲不接受整台 GLB');
+  check((await info()).includes('2 個區塊用 GLB'), '完整機甲以區塊組合顯示（含 2 個 GLB 區塊）');
   await page.keyboard.press('Escape');
-  await wait(2500);
+  await wait(3000);
   const badge = await page.$eval('.cell[data-id="mech/player"] .badge', (b) => b.textContent);
-  check(/GLB/.test(badge), `格子標示 GLB（${badge}）`);
+  check(/GLB 2/.test(badge), `格子標示區塊組合（${badge}）`);
   await ctx.close();
 }
 

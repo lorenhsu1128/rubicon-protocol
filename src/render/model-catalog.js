@@ -1,12 +1,15 @@
 // 模型目錄：遊戲中每個 3D 模型的「模型槽」。模型庫用它逐一顯示，之後換成 GLB 時也以槽位 id 對應檔案：
-//   src/assets/models/<槽位 id>.glb（例如 head/h_std.glb、weapon/w_rifle.glb、mech/ac_longshot.glb）
+//   src/assets/models/<槽位 id>.glb（例如 head/h_std.glb、arms/a_std/r_fore.glb、weapon/w_rifle/l.glb）
+// 機甲拆成可以單獨替換的「區塊」（mech-model.js 的 partPieces）：手臂左右各 上臂／前臂／手，腳分襠部與左右
+// 大腿／小腿／腳掌，武器分左右。完整機甲只用來預覽區塊組合的結果，不接受整台的 GLB。
 // build(palKey) 一律回傳原始比例的模型與遊戲中的縮放：
-//   { obj 加進場景的根物件（單位矩陣）, scaleNode 承載遊戲縮放的節點, scale 遊戲縮放（Vector3）, rig 可給 animateMech 驅動的機體 }
+//   { obj 加進場景的根物件（單位矩陣）, scaleNode 承載遊戲縮放的節點, scale 遊戲縮放（Vector3）, rig 可給 animateMech 驅動的機體,
+//     piece 區塊資訊（機甲區塊才有） }
 import { withRng } from '../core/math.js';
 import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES } from '../data/enemies.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
-import { buildMech } from './mech-model.js';
+import { PIECE_NAMES, SIDE_NAMES, buildMech, buildPiece, partPieces } from './mech-model.js';
 import { THEMES } from '../world/world.js';
 import {
   box,
@@ -42,104 +45,49 @@ export const CATEGORIES = [
 
 const v3 = (s) => (s && s.isVector3 ? s.clone() : new THREE.Vector3(s, s, s));
 const pal = (key) => PALETTES[key] || PALETTES.player;
-// 拆下子節點並歸零位置與旋轉（掛點旋轉是配合手部姿勢用的；模型本身一律正面朝 −Z、上方 +Y），保留縮放
-function detach(node) {
-  if (node.parent) node.parent.remove(node);
-  node.position.set(0, 0, 0);
-  node.rotation.set(0, 0, 0);
-  return node;
-}
-const mechWith = (over, palKey) => buildMech({ ...START_ASM, ...over }, pal(palKey), 1);
-const NO_WEAPONS = { rarm: 'w_none', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' };
 // 整台機體：scale 放在 group 上
 function wholeRig(rig, scale) {
   rig.group.scale.copy(v3(scale));
   return { obj: rig.group, scaleNode: rig.group, scale: v3(scale), rig };
 }
-// 從機體上拆下的部件：以外層群組包住；keepScale 時保留掛點縮放（武器在遊戲中是縮小掛載的）
-function partOf(node, keepScale) {
-  const wrap = new THREE.Group();
-  wrap.add(detach(node));
-  if (!keepScale) node.scale.set(1, 1, 1);
-  return { obj: wrap, scaleNode: node, scale: node.scale.clone(), rig: null };
-}
 
 const entries = [];
 const add = (e) => entries.push({ pal: 'player', scaleNote: '', ...e });
 
-// ---------- 機甲部件（依零件編號逐一列出）----------
-for (const p of PARTS.head)
-  add({
-    id: `head/${p.id}`,
-    cat: 'head',
-    part: p.id,
-    name: p.name,
-    spec: 'part-head',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, head: p.id }, k).head),
-  });
-for (const p of PARTS.core)
-  add({
-    id: `core/${p.id}`,
-    cat: 'core',
-    part: p.id,
-    name: p.name,
-    spec: 'part-core',
-    build: (k) => {
-      const m = mechWith({ ...NO_WEAPONS, core: p.id }, k);
-      for (const n of [m.head, m.arms.r.sh, m.arms.l.sh, m.arms.r.back, m.arms.l.back, m.nozzles[0].parent])
-        m.torso.remove(n);
-      return partOf(m.torso);
-    },
-  });
-for (const p of PARTS.arms)
-  add({
-    id: `arms/${p.id}`,
-    cat: 'arms',
-    part: p.id,
-    name: p.name,
-    note: '右臂（左臂為鏡像）',
-    spec: 'part-arm',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, arms: p.id }, k).arms.r.sh),
-  });
-for (const p of PARTS.legs)
-  add({
-    id: `legs/${p.id}`,
-    cat: 'legs',
-    part: p.id,
-    name: p.name,
-    spec: 'part-legs',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, legs: p.id }, k).legsG),
-  });
-for (const p of PARTS.booster)
-  add({
-    id: `booster/${p.id}`,
-    cat: 'booster',
-    part: p.id,
-    name: p.name,
-    spec: 'part-booster',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, booster: p.id }, k).nozzles[0].parent),
-  });
-// 武器：保留掛點縮放（遊戲中武器是縮小掛在手上／肩上的）
-for (const p of PARTS.arm.filter((x) => x.type !== 'none'))
-  add({
-    id: `weapon/${p.id}`,
-    cat: 'weapon',
-    part: p.id,
-    name: p.name,
-    scaleNote: '手部掛點縮放',
-    spec: 'weapon-arm',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, rarm: p.id }, k).arms.r.weapon, true),
-  });
-for (const p of PARTS.back.filter((x) => x.type !== 'none'))
-  add({
-    id: `back/${p.id}`,
-    cat: 'back',
-    part: p.id,
-    name: p.name,
-    scaleNote: '肩部掛點縮放',
-    spec: 'weapon-back',
-    build: (k) => partOf(mechWith({ ...NO_WEAPONS, rback: p.id }, k).arms.r.back, true),
-  });
+// ---------- 機甲區塊（依零件編號逐一列出，每個零件再拆成區塊）----------
+// 規格類別：頭／核心／背包／襠部與主體為 part，四肢的每一節為 piece，武器為 weapon
+const SPEC = { head: 'part', core: 'part', booster: 'part', pelvis: 'part', body: 'part' };
+function pieceName(p, info) {
+  if (info.cat === 'weapon' || info.cat === 'back') return `${p.name}（${SIDE_NAMES[info.key]}）`;
+  if (!info.key && (info.kind === info.cat || info.cat !== 'legs')) return p.name;
+  return `${p.name}・${info.key ? SIDE_NAMES[info.key] : ''}${PIECE_NAMES[info.kind]}`;
+}
+const PART_LISTS = [
+  ['head', PARTS.head],
+  ['core', PARTS.core],
+  ['arms', PARTS.arms],
+  ['legs', PARTS.legs],
+  ['booster', PARTS.booster],
+  ['weapon', PARTS.arm],
+  ['back', PARTS.back],
+];
+for (const [cat, list] of PART_LISTS)
+  for (const p of list)
+    for (const info of partPieces(cat, p))
+      add({
+        id: info.slot,
+        cat,
+        part: p.id,
+        piece: info,
+        name: pieceName(p, info),
+        note: info.kind === 'booster' ? '噴焰是粒子特效' : '',
+        spec: cat === 'weapon' || cat === 'back' ? 'weapon' : SPEC[info.kind] || 'piece',
+        build: (k) => {
+          const wrap = new THREE.Group();
+          wrap.add(buildPiece(info, pal(k)));
+          return { obj: wrap, scaleNode: wrap, scale: v3(1), rig: null, piece: info };
+        },
+      });
 
 // ---------- 完整機甲 ----------
 const addMech = (key, name, asm, palKey, scale, note = '', boss = false) =>
@@ -152,6 +100,7 @@ const addMech = (key, name, asm, palKey, scale, note = '', boss = false) =>
     asm,
     gameScale: scale,
     spec: boss ? 'mech-boss' : 'mech',
+    noGlb: true,
     build: (k) => wholeRig(buildMech(asm, pal(k), 1), scale),
   });
 addMech('player', 'RAVEN（玩家初始機）', START_ASM, 'player', 1);

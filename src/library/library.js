@@ -21,6 +21,8 @@ function toast(text, bad) {
 
 // 拖曳／載入 GLB：確認是 glTF 二進位檔才存進瀏覽器
 async function useFile(entry, file) {
+  if (entry.noGlb)
+    return toast('完整機甲由各區塊組成：請把 GLB 拖到各區塊的格子（頭、核心、上臂、前臂…）', true);
   if (!/\.glb$/i.test(file.name)) return toast('只接受 .glb 檔（glTF 二進位）', true);
   try {
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
@@ -30,16 +32,23 @@ async function useFile(entry, file) {
     return toast(`無法使用 ${file.name}：${e.message || e}`, true);
   }
   toast(`已替換「${entry.name}」：${file.name}${store.ok ? '' : '（瀏覽器無法保存，重新整理後會消失）'}`);
-  grid.refresh(entry.id);
+  refreshRelated(entry.id);
   if (inspector.open_ && inspector.entry === entry) await inspector.rebuild();
   applyFilter();
 }
 async function removeFile(entry) {
   await store.remove(entry.id);
   toast(`已移除「${entry.name}」的瀏覽器暫存 GLB`);
-  grid.refresh(entry.id);
+  refreshRelated(entry.id);
   if (inspector.open_ && inspector.entry === entry) await inspector.rebuild();
   applyFilter();
+}
+
+// 來源改變時一併重建：該格、暫用右側檔案的左側武器、所有完整機甲（由區塊組成）
+function refreshRelated(id) {
+  grid.refresh(id);
+  if (/^(weapon|back)\/.+\/r$/.test(id)) grid.refresh(id.replace(/r$/, 'l'));
+  for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
 }
 
 let grid, inspector;

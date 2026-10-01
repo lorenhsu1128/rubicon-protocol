@@ -1,6 +1,6 @@
 // ---------------- WEAPONS（Q 版：粗大方塊化） ----------------
 import { clamp, lerp } from '../core/math.js';
-import { asmParts, partById } from '../data/parts.js';
+import { START_ASM, asmParts, partById } from '../data/parts.js';
 import {
   CB,
   OUTLINE_MAT,
@@ -17,6 +17,7 @@ import {
   kitVents,
 } from './geometry.js';
 import { mechMats } from './materials.js';
+import { resolveConn } from './mech-joints.js';
 
 function buildWeapon(node, w, M, side) {
   if (!w || w.type === 'none') return;
@@ -277,96 +278,535 @@ const CUBE = {
   foreW: 0.56,
   fist: 0.5,
 }; // 量自設計圖正視圖（1 px ≈ 0.00465 m，總高 3.5）
-export function buildMech(asm, pal, scale = 1) {
+
+// ===== 區塊（piece）=====
+// 機甲由一塊塊「區塊」組成，每塊都可以單獨換成 GLB；區塊的原點＝它的旋轉中心（接到父區塊的位置）。
+// 父區塊上的「連接點」決定子區塊接在哪裡（例：核心決定肩、脖子；上臂決定手肘）。連接點預設值在
+// pieceConns()，可被關節設定（mech-joints.js）覆寫。槽位 id：
+//   head/<id>、core/<id>、booster/<id>
+//   arms/<id>/<r|l>_<upper|fore|hand>
+//   legs/<id>/pelvis＋<r|l>_<thigh|shin|foot>（二足、逆關節）、legs/<id>/body＋<fl|fr|bl|br>_<thigh|shin>（四足）、
+//   legs/<id>/body（履帶）
+//   weapon/<id>/<r|l>、back/<id>/<r|l>
+const SIDE_OF = { r: 1, l: -1 };
+const QUAD_LEGS = [
+  ['fl', -1, -1],
+  ['fr', 1, -1],
+  ['bl', -1, 1],
+  ['br', 1, 1],
+];
+export const PIECE_NAMES = {
+  head: '頭',
+  core: '核心',
+  booster: '背包',
+  upper: '上臂（含肩甲）',
+  fore: '前臂',
+  hand: '手',
+  pelvis: '襠部',
+  body: '主體',
+  thigh: '大腿',
+  shin: '小腿',
+  qshin: '小腿（含腳）',
+  foot: '腳掌',
+  weapon: '手持武器',
+  back: '肩上武器',
+};
+// 各區塊 GLB 的原點位置（＝旋轉中心）
+export const PIECE_ORIGIN = {
+  head: '脖子轉軸（頭部底面中心）',
+  core: '腰部（核心底部坐在襠部上的點）',
+  booster: '背包座（背包中心）',
+  upper: '肩關節轉軸',
+  fore: '手肘轉軸',
+  hand: '手腕轉軸',
+  pelvis: '地面中心（兩腳之間的地面）',
+  body: '地面中心',
+  thigh: '髖關節轉軸',
+  shin: '膝關節轉軸',
+  qshin: '膝關節轉軸',
+  foot: '腳踝轉軸',
+  weapon: '握把（手的握點）',
+  back: '肩上武器座',
+};
+export const SIDE_NAMES = { r: '右', l: '左', fl: '左前', fr: '右前', bl: '左後', br: '右後' };
+export const CONN_NAMES = {
+  neck: '脖子',
+  shoulder_r: '右肩',
+  shoulder_l: '左肩',
+  backpack: '背包座',
+  back_r: '右肩上武器座',
+  back_l: '左肩上武器座',
+  waist: '腰（核心座）',
+  hip_r: '右髖',
+  hip_l: '左髖',
+  hip_fl: '左前髖',
+  hip_fr: '右前髖',
+  hip_bl: '左後髖',
+  hip_br: '右後髖',
+  knee: '膝',
+  ankle: '腳踝',
+  elbow: '手肘',
+  wrist: '手腕',
+  grip: '武器握點',
+  nozzle_l: '左噴口',
+  nozzle_r: '右噴口',
+};
+
+const pieceInfo = (slot, cat, part, kind, key = null, extra = {}) => ({
+  slot,
+  cat,
+  part,
+  kind,
+  key,
+  side: key ? (SIDE_OF[key] ?? (key[1] === 'r' ? 1 : -1)) : 0,
+  ...extra,
+});
+// 一個零件拆成哪些區塊（part 為 PARTS 裡的零件物件；cat：head／core／booster／arms／legs／weapon／back）
+export function partPieces(cat, part) {
+  const id = part.id;
+  if (cat === 'head' || cat === 'core' || cat === 'booster')
+    return [pieceInfo(`${cat}/${id}`, cat, part, cat)];
+  if (cat === 'arms')
+    return ['r', 'l'].flatMap((k) =>
+      ['upper', 'fore', 'hand'].map((n) => pieceInfo(`arms/${id}/${k}_${n}`, cat, part, n, k)),
+    );
+  if (cat === 'weapon' || cat === 'back')
+    return part.type === 'none'
+      ? []
+      : ['r', 'l'].map((k) => pieceInfo(`${cat}/${id}/${k}`, cat, part, cat, k));
+  // 腳
+  const legType = part.type;
+  const L = (n, k, kind = n) =>
+    pieceInfo(`legs/${id}/${k ? k + '_' : ''}${n}`, cat, part, kind, k, { legType });
+  if (legType === 'quad')
+    return [L('body', null), ...QUAD_LEGS.flatMap(([k]) => [L('thigh', k), L('shin', k, 'qshin')])];
+  if (legType === 'tank') return [L('body', null)];
+  return [L('pelvis', null), ...['r', 'l'].flatMap((k) => [L('thigh', k), L('shin', k), L('foot', k)])];
+}
+const ASM_CAT = {
+  head: 'head',
+  core: 'core',
+  booster: 'booster',
+  arms: 'arms',
+  legs: 'legs',
+};
+// 整台機甲用到的所有區塊（武器只取實際裝備的那一側）
+export function mechPieces(asm) {
   const p = asmParts(asm);
-  const M = mechMats(pal);
-  const R = CUBE;
-  const C = 0.08;
-  const red = new THREE.MeshStandardMaterial({
-    color: 0xff3a2a,
-    emissive: 0xff2a1a,
-    emissiveIntensity: 1.3,
-    roughness: 0.4,
+  const out = [];
+  for (const [k, cat] of Object.entries(ASM_CAT)) out.push(...partPieces(cat, p[k]));
+  for (const [key, cat, k] of [
+    ['rarm', 'weapon', 'r'],
+    ['larm', 'weapon', 'l'],
+    ['rback', 'back', 'r'],
+    ['lback', 'back', 'l'],
+  ]) {
+    const w = partById(cat === 'weapon' ? 'arm' : 'back', asm[key]);
+    if (w && w.type !== 'none') out.push(...partPieces(cat, w).filter((i) => i.key === k));
+  }
+  return out;
+}
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const C0 = (p, r = [0, 0, 0]) => ({ p, r: new THREE.Euler(r[0], r[1], r[2]) });
+// 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）
+export function pieceConns(info) {
+  const R = CUBE,
+    cw = R.tw,
+    ch = R.th,
+    cd = R.td;
+  switch (info.kind) {
+    case 'core': {
+      const o = {
+        neck: C0(V(0, ch + 0.14, 0)),
+        backpack: C0(V(0, ch * 0.5 + 0.2, cd * 0.6)),
+      };
+      for (const [k, s] of Object.entries(SIDE_OF)) {
+        o['shoulder_' + k] = C0(V(s * (cw / 2 + 0.05), ch + 0.02, 0));
+        o['back_' + k] = C0(V(s * (cw / 2 + 0.05 + R.shPad / 2), ch + 0.02 + R.shPad / 2 + 0.3, 0.2));
+      }
+      return o;
+    }
+    case 'booster':
+      return {
+        nozzle_l: C0(V(-cw * 0.3, -ch * 0.3 - 0.35, 0.42)),
+        nozzle_r: C0(V(cw * 0.3, -ch * 0.3 - 0.35, 0.42)),
+      };
+    case 'upper':
+      return { elbow: C0(V(info.side * (R.shPad / 2 - 0.02), -R.shPad / 2 - R.upL - 0.1, 0)) };
+    case 'fore':
+      return { wrist: C0(V(0, -R.foreL - 0.12, 0)) };
+    case 'hand':
+      return { grip: C0(V(0, -R.fist * 0.3, -R.fist * 0.3), [-Math.PI / 2, 0, 0]) };
+    case 'pelvis': {
+      const hipY = legHipY(info.legType);
+      return {
+        waist: C0(V(0, hipY + 0.33, 0)),
+        hip_r: C0(V(R.hipX, hipY + 0.36, 0)),
+        hip_l: C0(V(-R.hipX, hipY + 0.36, 0)),
+      };
+    }
+    case 'body': {
+      const hipY = legHipY(info.legType);
+      const o = { waist: C0(V(0, hipY + 0.33, 0)) };
+      if (info.legType === 'quad')
+        for (const [k, sx, sz] of QUAD_LEGS) o['hip_' + k] = C0(V(sx * 0.85, hipY - 0.1, sz * 0.7));
+      return o;
+    }
+    case 'thigh':
+      return info.legType === 'quad'
+        ? { knee: C0(V(0, -0.8, 0)) }
+        : { knee: C0(V(0, -R.thighL - 0.05, info.legType === 'reverse' ? 0.12 : 0)) };
+    case 'shin':
+      return { ankle: C0(V(0, -R.shinL - 0.1, 0)) };
+    default:
+      return {};
+  }
+}
+// 髖部高度（決定整台機甲的身高與核心高度；遊戲判定用，不隨關節設定改變）
+function legHipY(type) {
+  return type === 'reverse' ? CUBE.hipY + 0.15 : type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : CUBE.hipY;
+}
+// 連接點：關節設定覆寫＞預設值
+export function connOf(info, name) {
+  return resolveConn(info.slot, name, pieceConns(info)[name]);
+}
+
+// ----- 各區塊的程式模型（原點＝旋轉中心，座標與舊版各關節群組的區域座標相同）-----
+function coreClass(p) {
+  return p.core.id === 'c_hv' ? 'heavy' : p.core.id === 'c_lt' || p.core.id === 'c_nat' ? 'light' : 'medium';
+}
+function pieceCtx(pal, asm) {
+  const p = asmParts(asm || START_ASM);
+  return {
+    M: mechMats(pal),
+    red: new THREE.MeshStandardMaterial({
+      color: 0xff3a2a,
+      emissive: 0xff2a1a,
+      emissiveIntensity: 1.3,
+      roughness: 0.4,
+    }),
+    heavy: coreClass(p) === 'heavy',
+  };
+}
+const BUILD = {
+  head(g, info, { M, red }) {
+    const R = CUBE,
+      hw = R.headW,
+      hh = R.headH,
+      hd = R.headD;
+    CB(g, hw, hh, hd, M.grey, 0, hh / 2, 0, 0, 0, 0, 0.08);
+    CB(g, hw * 0.72, hh * 0.26, 0.08, red, 0, hh * 0.58, -hd * 0.5, 0, 0, 0, 0.02);
+    P(g, gBox(hw * 0.5, hh * 0.14, 0.05), M.sub, 0, hh * 0.22, -hd * 0.52); // 灰色頭盒＋紅色面罩＋下巴格
+    CB(g, hw * 0.7, 0.08, hd * 0.5, M.sub, 0, hh + 0.03, 0.05, 0, 0, 0, 0.02);
+    P(g, gCyl(0.02, 0.02, 0.9, 4), M.joint, hw * 0.2, hh + 0.45, 0.1);
+    for (const s of [-1, 1]) {
+      CB(g, 0.16, hh * 0.7, hd * 0.55, M.sub, s * (hw / 2 + 0.08), hh * 0.45, 0, 0, 0, 0, 0.03);
+      P(g, gCyl(0.05, 0.05, 0.04, 8), M.lens, s * (hw / 2 + 0.17), hh * 0.45, -hd * 0.1, 0, 0, Math.PI / 2);
+    } // 側耳感測塊
+    if (info.part.id === 'h_hv') P(g, gBox(hw * 1.1, 0.1, hd * 0.4), M.sub, 0, hh * 0.95, -hd * 0.2);
+    if (info.part.id === 'h_scan') {
+      P(g, gCyl(0.12, 0.12, 0.1, 8), M.lens, hw * 0.25, hh + 0.1, 0.1);
+      P(g, gCyl(0.03, 0.03, 1.2, 4), M.joint, -hw * 0.25, hh + 0.6, 0.1);
+    }
+  },
+  // 胸部三塊：中央柱（放頭，頂面較低、整體較高）＋左右胸塊（較短但頂面較高、外推）＋下腹連接板
+  core(g, info, { M, red }) {
+    const R = CUBE,
+      ch = R.th,
+      cd = R.td,
+      cx = R.cx,
+      sx = (R.tw - cx) / 2,
+      sideH = ch * 0.85,
+      cenTop = ch + 0.12,
+      sideTop = ch + 0.28;
+    CB(g, cx, ch, cd, M.grey, 0, cenTop - ch / 2, 0, 0, 0, 0, 0.08); // 中央柱（灰）
+    CB(g, cx * 0.7, 0.12, 0.1, red, 0, cenTop - 0.12, -cd * 0.5, 0, 0, 0, 0.02); // 中央頂端紅色指示燈
+    for (let i = 0; i < 3; i++)
+      P(g, gBox(cx * 0.8, 0.03, 0.03), M.joint, 0, cenTop - ch + 0.1 + i * 0.08, -cd * 0.51); // 中央柱下段的橫向散熱縫（設計圖腹部）
+    for (const s of [-1, 1]) {
+      const x = s * (cx / 2 + sx / 2 - 0.02);
+      CB(g, sx, sideH, cd * 1.02, M.main, x, sideTop - sideH / 2, -0.02, 0, 0, 0, 0.08); // 左右胸塊（綠）
+      P(g, gBox(sx * 0.86, 0.05, 0.03), M.acc, x, sideTop - 0.12, -cd * 0.53);
+      kitBolts(g, M, [
+        [x - s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
+        [x + s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
+        [x + s * sx * 0.32, sideTop - 0.25, -cd * 0.53],
+      ]);
+      decal(g, s > 0 ? 1 : 3, 0.34, 0.34, x, sideTop - sideH * 0.5, -cd * 0.53, 0, Math.PI, 0);
+      decal(
+        g,
+        2,
+        0.46,
+        0.46,
+        s * (cx / 2 + sx + 0.01 - 0.02),
+        sideTop - sideH * 0.5,
+        0.05,
+        0,
+        (s * Math.PI) / 2,
+        0,
+      );
+      kitVents(g, M, s * (cx / 2 + sx - 0.02), sideTop - 0.2, -cd * 0.2, 4, 0.14, Math.PI / 2);
+    }
+    P(g, gBox(cx * 0.7, ch * 0.45, 0.04), M.sub, 0, cenTop - ch * 0.5, -cd * 0.52);
+    for (let i = 0; i < 2; i++)
+      P(g, gCyl(0.05, 0.05, 0.04, 8), red, -0.1 + i * 0.2, cenTop - ch * 0.3, -cd * 0.54, Math.PI / 2);
+    decal(g, 3, 0.26, 0.26, 0, cenTop - ch * 0.62, -cd * 0.55, 0, Math.PI, 0); // 中央面板＋紅燈＋AC 標記
+    P(g, gBox(cx * 0.8, 0.06, cd * 0.6), M.acc, 0, cenTop + 0.03, 0);
+  },
+  // 背包：兩個方塊推進器 + 中央箱（噴焰是粒子特效，不是模型）
+  booster(g, info, { M, heavy }) {
+    const cw = CUBE.tw,
+      ch = CUBE.th;
+    CB(g, cw * 0.86, ch * 0.92, 0.6, M.main, 0, 0.02, 0.02, 0, 0, 0, 0.08);
+    decal(g, 5, 0.5, 0.5, 0, ch * 0.22, 0.33, 0, 0, 0); // Power Backpack：大型綠色背箱＋ CUBEE AC-01
+    kitGrille(g, M, 0, -ch * 0.12, 0.32, cw * 0.5, 0.22, 5);
+    for (const s of [-1, 1]) {
+      kitGrille(g, M, s * cw * 0.3, -ch * 0.32, 0.32, 0.22, 0.16, 3);
+      CB(g, 0.3, 0.44, 0.3, M.sub, s * cw * 0.3, -ch * 0.3, 0.42, 0, 0, 0, 0.04);
+      P(g, gCyl(0.13, 0.15, 0.14, 10), M.joint, s * cw * 0.3, -ch * 0.3 - 0.28, 0.42);
+      P(g, gBox(0.12, 0.4, 0.06), M.acc, s * cw * 0.44, 0.1, 0.33);
+    }
+    if (heavy)
+      for (const s of [-1, 1]) P(g, gCyl(0.24, 0.24, ch * 0.9, 10), M.main, s * cw * 0.15, 0.05, 0.5);
+    P(g, gCyl(0.02, 0.02, 1.2, 4), M.joint, cw * 0.1, ch * 0.9, 0.05);
+  },
+  // 上臂：肩關節＋灰色方形肩甲「01」（0.6 立方），下方接上臂（綠）＋黃色環帶
+  upper(g, info, { M }) {
+    const R = CUBE,
+      s = info.side;
+    P(g, gCyl(0.16, 0.16, 0.4, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, R.shPad, R.shPad, R.shPad, M.grey, s * (R.shPad / 2 - 0.02), 0.0, 0, 0, 0, 0, 0.06);
+    decal(g, 7, 0.3, 0.3, s * (R.shPad - 0.01), 0.0, 0, 0, (s * Math.PI) / 2, 0);
+    kitBolts(g, M, [
+      [s * (R.shPad - 0.01), 0.22, 0.2, 0, Math.PI / 2],
+      [s * (R.shPad - 0.01), 0.22, -0.2, 0, Math.PI / 2],
+    ]);
+    const up = new THREE.Group();
+    up.position.set(s * (R.shPad / 2 - 0.02), -R.shPad / 2, 0);
+    g.add(up);
+    const ul = R.upL,
+      aw = R.upW;
+    CB(up, aw, ul + 0.1, aw, M.main, 0, -ul / 2 - 0.05, 0, 0, 0, 0, 0.06);
+    P(up, gBox(aw * 1.02, 0.09, aw * 1.02), M.acc, 0, -ul * 0.55, 0);
+    kitBolts(up, M, [[s * aw * 0.5, -ul * 0.25, 0, 0, Math.PI / 2]]);
+  },
+  // 前臂（藍）＋手肘圓柱＋灰板＋「01」
+  fore(g, info, { M }) {
+    const R = CUBE,
+      s = info.side,
+      fl2 = R.foreL,
+      fw = R.foreW;
+    P(g, gCyl(0.2, 0.2, R.upW + 0.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, fw, fl2 + 0.1, fw, M.main2, 0, -fl2 / 2 - 0.05, 0, 0, 0, 0, 0.06);
+    CB(g, fw * 0.8, fl2 * 0.5, 0.1, M.grey, 0, -fl2 * 0.45, -fw * 0.5, 0, 0, 0, 0.03);
+    decal(g, 7, 0.3, 0.3, s * (fw / 2 + 0.01), -fl2 * 0.5, 0, 0, (s * Math.PI) / 2, 0);
+    kitVents(g, M, -s * fw * 0.5, -fl2 * 0.35, 0.1, 3, 0.06, Math.PI / 2);
+  },
+  // 四指關節手＋拇指（設計圖 Detail A）
+  hand(g, info, { M }) {
+    const fs = CUBE.fist,
+      s = info.side;
+    CB(g, fs * 0.9, fs * 0.8, fs * 0.9, M.grey, 0, -fs * 0.25, 0, 0, 0, 0, 0.05);
+    for (let f = 0; f < 4; f++) {
+      CB(g, 0.09, 0.16, 0.1, M.joint, -0.15 + f * 0.1, -fs * 0.7, -fs * 0.3, 0, 0, 0, 0.02);
+      CB(g, 0.08, 0.12, 0.09, M.grey, -0.15 + f * 0.1, -fs * 0.95, -fs * 0.36, 0, 0, 0, 0.02);
+    }
+    CB(g, 0.1, 0.14, 0.12, M.joint, s * fs * 0.5, -fs * 0.45, -fs * 0.2, 0, 0, 0, 0.02);
+  },
+  // 襠部（藍）：寬度＝胸部中央柱，直接接上半身；原點在地面
+  pelvis(g, info, { M }) {
+    const R = CUBE,
+      hipY = legHipY(info.legType);
+    CB(g, R.pelvisW, R.pelvisH, R.td * 0.72, M.main2, 0, hipY + 0.2, 0, 0, 0, 0, 0.06);
+    decal(g, 0, 0.18, 0.18, 0, hipY + 0.22, -R.td * 0.36 - 0.01, 0, Math.PI, 0);
+  },
+  body(g, info, { M }) {
+    if (info.legType === 'quad') {
+      const hipY = legHipY('quad');
+      CB(g, 1.6, 0.5, 1.6, M.sub, 0, hipY - 0.05, 0, 0, 0, 0, 0.08);
+      CB(g, 1.2, 0.3, 1.2, M.main, 0, hipY + 0.3, 0, 0, 0, 0, 0.05);
+      return;
+    }
+    // 履帶
+    CB(g, 1.7, 0.6, 2.2, M.sub, 0, 0.85, 0, 0, 0, 0, 0.08);
+    CB(g, 1.2, 0.3, 1.4, M.main, 0, 1.25, 0, 0, 0, 0, 0.05);
+    for (const s of [-1, 1]) {
+      CB(g, 0.8, 0.9, 2.8, M.joint, s * 1.25, 0.5, 0, 0, 0, 0, 0.1);
+      CB(g, 0.84, 0.16, 2.9, M.main2, s * 1.25, 1.0, 0, 0, 0, 0, 0.04);
+      for (let i = -1; i <= 1; i++)
+        P(g, gCyl(0.36, 0.36, 0.86, 10), M.acc, s * 1.25, 0.45, i * 0.95, 0, 0, Math.PI / 2);
+      for (let i = 0; i < 9; i++) {
+        P(g, gBox(0.86, 0.08, 0.16), M.rubber, s * 1.25, 0.08, -1.3 + i * 0.32);
+        P(g, gBox(0.86, 0.08, 0.16), M.rubber, s * 1.25, 0.96, -1.3 + i * 0.32);
+      }
+    }
+  },
+  thigh(g, info, { M }) {
+    if (info.legType === 'quad') {
+      P(g, gCyl(0.18, 0.18, 0.5, 8), M.joint, 0, 0, 0, Math.PI / 2);
+      CB(g, 0.42, 0.8, 0.42, M.main2, 0, -0.4, 0, 0, 0, 0, 0.06);
+      return;
+    }
+    const R = CUBE,
+      s = info.side,
+      rev = info.legType === 'reverse',
+      tw = R.thighW,
+      tl = R.thighL,
+      C = 0.08;
+    P(g, gSph(0.19, 12), M.joint, -s * tw * 0.5, 0, 0); // 髖球關節：位於大腿根部內側面與襠部側面的交接點
+    CB(g, tw, tl + 0.1, tw * 0.95, M.main, 0, -tl / 2 + 0.06, rev ? 0.08 : 0, 0, 0, 0, C); // 大腿立方（綠），頂面略高於樞軸
+    P(g, gBox(tw * 0.2, tl * 0.7, 0.03), M.acc, s * tw * 0.15, -tl * 0.5, rev ? -tw * 0.46 : -tw * 0.5); // 黃色直條（設計圖大腿正面）
+    CB(
+      g,
+      tw * 0.5,
+      tl * 0.4,
+      0.1,
+      M.grey,
+      -s * tw * 0.2,
+      -tl * 0.55,
+      rev ? -tw * 0.45 : -tw * 0.5,
+      0,
+      0,
+      0,
+      0.02,
+    );
+    kitBolts(g, M, [
+      [s * tw * 0.5, -tl * 0.3, 0.1, 0, Math.PI / 2],
+      [s * tw * 0.5, -tl * 0.7, 0.1, 0, Math.PI / 2],
+    ]);
+    decal(g, 7, tw * 0.45, tw * 0.45, s * (tw * 0.5 + 0.01), -tl * 0.5, 0.05, 0, (s * Math.PI) / 2, 0);
+  },
+  // 小腿：膝蓋圓柱＋圓形膝蓋蓋＋上段（綠）／下段（藍）
+  shin(g, info, { M }) {
+    const R = CUBE,
+      s = info.side,
+      sw = R.shinW,
+      sl = R.shinL,
+      tw = R.thighW,
+      C = 0.08;
+    P(g, gCyl(sw * 0.32, sw * 0.32, tw * 1.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    for (const q of [-1, 1])
+      P(g, gCyl(sw * 0.2, sw * 0.2, 0.05, 10), M.acc, q * tw * 0.6, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, sw, sl * 0.55, sw * 0.95, M.main, 0, -sl * 0.28, 0, 0, 0, 0, C);
+    CB(g, sw * 0.96, sl * 0.55, sw * 0.92, M.main2, 0, -sl * 0.8, 0, 0, 0, 0, C);
+    P(g, gBox(sw * 0.6, 0.05, 0.02), M.acc, 0, -sl * 0.5, -sw * 0.5);
+    decal(g, 7, sw * 0.42, sw * 0.42, 0, -sl * 0.8, -sw * 0.48, 0, Math.PI, 0); // 黃分隔線＋「01」
+    kitVents(g, M, -s * sw * 0.5, -sl * 0.25, 0.1, 3, 0.05, Math.PI / 2);
+    kitBolts(g, M, [[s * sw * 0.49, -sl * 0.3, 0.12, 0, Math.PI / 2]]);
+  },
+  // 四足的小腿（含腳）
+  qshin(g, info, { M }) {
+    P(g, gCyl(0.16, 0.16, 0.46, 8), M.joint, 0, 0, 0, Math.PI / 2);
+    CB(g, 0.38, 0.7, 0.38, M.main, 0, -0.35, 0, 0, 0, 0, 0.05);
+    CB(g, 0.5, 0.24, 0.6, M.sub, 0, -0.8, 0, 0, 0, 0, 0.04);
+  },
+  // 腳掌（藍）＋腳踝圓柱＋腳趾塊＋腳跟推進器
+  foot(g, info, { M, red }) {
+    const R = CUBE,
+      s = info.side,
+      sw = R.shinW,
+      fl = R.footL,
+      fw = R.footW,
+      fh = R.footH;
+    P(g, gCyl(sw * 0.26, sw * 0.26, sw * 1.1, 8), M.joint, 0, 0.05, 0, 0, 0, Math.PI / 2);
+    CB(g, fw, fh, fl * 0.75, M.main2, 0, -fh / 2, -fl * 0.05, 0, 0, 0, 0.05);
+    CB(g, fw * 0.92, fh * 0.8, fl * 0.3, M.grey, 0, -fh * 0.5, -fl * 0.55, 0, 0, 0, 0.04);
+    for (const t of [-0.28, 0.28])
+      P(g, gBox(fw * 0.3, fh * 0.35, 0.1), M.joint, t * fw, -fh * 0.6, -fl * 0.72);
+    for (const t of [-0.28, 0.28]) {
+      P(g, gBox(fw * 0.22, fh * 0.5, 0.14), M.joint, t * fw, -fh * 0.5, fl * 0.38);
+      P(g, gBox(fw * 0.16, fh * 0.3, 0.06), red, t * fw, -fh * 0.5, fl * 0.47);
+    }
+    CB(g, fw * 0.5, fh * 0.5, fl * 0.2, M.main, 0, 0.05, -fl * 0.1, 0, 0, 0, 0.03);
+    decal(g, 2, 0.28, 0.28, s * (fw / 2 + 0.01), -fh / 2, -fl * 0.05, 0, (s * Math.PI) / 2, 0);
+  },
+  // 武器：以遊戲內實際尺寸製作（Q 版：手持武器縮小、縮短一半；肩上武器箱略縮）
+  weapon(g, info, { M }) {
+    const inner = new THREE.Group();
+    inner.scale.set(0.72, 0.72, 0.5);
+    g.add(inner);
+    buildWeapon(inner, info.part, M, info.side);
+  },
+  back(g, info, { M }) {
+    const inner = new THREE.Group();
+    inner.scale.set(0.8, 0.8, 0.65);
+    g.add(inner);
+    buildWeapon(inner, info.part, M, info.side);
+  },
+};
+function makeProcPiece(info, ctx) {
+  const g = new THREE.Group();
+  (BUILD[info.kind] || (() => {}))(g, info, ctx);
+  g.userData.slot = info.slot;
+  return g;
+}
+// 單獨建立一個區塊的程式模型（模型庫用）；asm 只影響隨核心變化的細節（重型核心的背包）
+export function buildPiece(info, pal, asm) {
+  const g = makeProcPiece(info, pieceCtx(pal, asm));
+  bakeAll(g);
+  g.traverse((o) => {
+    if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
+  return g;
+}
+
+// ===== 組裝整台機甲 =====
+// opts.piece(info)：回傳要取代程式模型的物件（GLB），或 null 使用程式模型
+// 回傳的 rig：animateMech 驅動的關節群組（legs／arms／head／torso）＋ mounts（所有連接點，模型庫顯示與即時調整用）
+export function buildMech(asm, pal, scale = 1, opts = {}) {
+  const p = asmParts(asm);
+  const ctx = pieceCtx(pal, asm);
+  const all = mechPieces(asm);
+  const bySlot = (pred) => all.find(pred);
+  const pieces = {};
+  const mounts = [];
+  const place = (parent, info) => {
+    const obj = (opts.piece && opts.piece(info)) || makeProcPiece(info, ctx);
+    obj.userData.slot = info.slot;
+    parent.add(obj);
+    pieces[info.slot] = obj;
+    return obj;
+  };
+  // 連接點群組（位置、旋轉來自父區塊）；子區塊的關節群組掛在它下面，動作只改關節群組的旋轉
+  const mountAt = (parent, info, name) => {
+    const c = connOf(info, name);
+    const g = new THREE.Group();
+    g.position.copy(c.p);
+    g.rotation.copy(c.r);
+    g.userData.conn = { slot: info.slot, name };
+    parent.add(g);
+    mounts.push({ slot: info.slot, name, node: g });
+    return g;
+  };
+  const joint = (parent) => {
+    const j = new THREE.Group();
+    parent.add(j);
+    return j;
+  };
   const root = new THREE.Group();
   const legsG = new THREE.Group();
   root.add(legsG);
-  const torso = new THREE.Group();
-  root.add(torso);
   const type = p.legs.type;
-  const cls =
-    p.core.id === 'c_hv' ? 'heavy' : p.core.id === 'c_lt' || p.core.id === 'c_nat' ? 'light' : 'medium';
-  const heavy = cls === 'heavy',
-    light = cls === 'light';
+  const cls = coreClass(p);
+  const hipY = legHipY(type);
   const legs = [];
-  let hipY = R.hipY;
   // ===== 腿 =====
+  const lp = (n, k) => bySlot((i) => i.cat === 'legs' && i.kind === n && i.key === k);
+  const base = lp(type === 'biped' || type === 'reverse' ? 'pelvis' : 'body', null);
+  place(legsG, base);
   if (type === 'biped' || type === 'reverse') {
     const rev = type === 'reverse';
-    if (rev) hipY += 0.15;
-    CB(legsG, R.pelvisW, R.pelvisH, R.td * 0.72, M.main2, 0, hipY + 0.2, 0, 0, 0, 0, 0.06);
-    decal(legsG, 0, 0.18, 0.18, 0, hipY + 0.22, -R.td * 0.36 - 0.01, 0, Math.PI, 0); // 襠部（藍）：寬度＝胸部中央柱，直接接上半身
-    for (const s of [-1, 1]) {
-      const L = new THREE.Group();
-      L.position.set(s * R.hipX, hipY + 0.36, 0);
-      legsG.add(L); // 大腿樞軸：襠部側面偏上（距頂面 0.09）
-      const thigh = new THREE.Group();
-      L.add(thigh);
-      const tw = R.thighW,
-        tl = R.thighL;
-      P(thigh, gSph(0.19, 12), M.joint, -s * tw * 0.5, 0, 0); // 髖球關節：位於大腿根部內側面與襠部側面的交接點
-      CB(thigh, tw, tl + 0.1, tw * 0.95, M.main, 0, -tl / 2 + 0.06, rev ? 0.08 : 0, 0, 0, 0, C); // 大腿立方（綠），頂面略高於樞軸
-      P(thigh, gBox(tw * 0.2, tl * 0.7, 0.03), M.acc, s * tw * 0.15, -tl * 0.5, rev ? -tw * 0.46 : -tw * 0.5); // 黃色直條（設計圖大腿正面）
-      CB(
-        thigh,
-        tw * 0.5,
-        tl * 0.4,
-        0.1,
-        M.grey,
-        -s * tw * 0.2,
-        -tl * 0.55,
-        rev ? -tw * 0.45 : -tw * 0.5,
-        0,
-        0,
-        0,
-        0.02,
-      );
-      kitBolts(thigh, M, [
-        [s * tw * 0.5, -tl * 0.3, 0.1, 0, Math.PI / 2],
-        [s * tw * 0.5, -tl * 0.7, 0.1, 0, Math.PI / 2],
-      ]);
-      decal(thigh, 7, tw * 0.45, tw * 0.45, s * (tw * 0.5 + 0.01), -tl * 0.5, 0.05, 0, (s * Math.PI) / 2, 0);
-      const knee = new THREE.Group();
-      knee.position.set(0, -tl - 0.05, rev ? 0.12 : 0);
-      thigh.add(knee);
-      const sw = R.shinW,
-        sl = R.shinL;
-      P(knee, gCyl(sw * 0.32, sw * 0.32, tw * 1.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-      for (const q of [-1, 1])
-        P(knee, gCyl(sw * 0.2, sw * 0.2, 0.05, 10), M.acc, q * tw * 0.6, 0, 0, 0, 0, Math.PI / 2); // 圓形膝蓋蓋
-      CB(knee, sw, sl * 0.55, sw * 0.95, M.main, 0, -sl * 0.28, 0, 0, 0, 0, C); // 小腿上段（綠）
-      CB(knee, sw * 0.96, sl * 0.55, sw * 0.92, M.main2, 0, -sl * 0.8, 0, 0, 0, 0, C); // 小腿下段（藍）
-      P(knee, gBox(sw * 0.6, 0.05, 0.02), M.acc, 0, -sl * 0.5, -sw * 0.5);
-      decal(knee, 7, sw * 0.42, sw * 0.42, 0, -sl * 0.8, -sw * 0.48, 0, Math.PI, 0); // 黃分隔線＋「01」
-      kitVents(knee, M, -s * sw * 0.5, -sl * 0.25, 0.1, 3, 0.05, Math.PI / 2);
-      kitBolts(knee, M, [[s * sw * 0.49, -sl * 0.3, 0.12, 0, Math.PI / 2]]);
-      const foot = new THREE.Group();
-      foot.position.set(0, -sl - 0.1, 0);
-      knee.add(foot);
-      const fl = R.footL,
-        fw = R.footW,
-        fh = R.footH;
-      P(foot, gCyl(sw * 0.26, sw * 0.26, sw * 1.1, 8), M.joint, 0, 0.05, 0, 0, 0, Math.PI / 2);
-      CB(foot, fw, fh, fl * 0.75, M.main2, 0, -fh / 2, -fl * 0.05, 0, 0, 0, 0.05); // 腳板（藍）
-      CB(foot, fw * 0.92, fh * 0.8, fl * 0.3, M.grey, 0, -fh * 0.5, -fl * 0.55, 0, 0, 0, 0.04);
-      for (const t of [-0.28, 0.28])
-        P(foot, gBox(fw * 0.3, fh * 0.35, 0.1), M.joint, t * fw, -fh * 0.6, -fl * 0.72); // 灰色腳趾塊
-      for (const t of [-0.28, 0.28]) {
-        P(foot, gBox(fw * 0.22, fh * 0.5, 0.14), M.joint, t * fw, -fh * 0.5, fl * 0.38);
-        P(foot, gBox(fw * 0.16, fh * 0.3, 0.06), red, t * fw, -fh * 0.5, fl * 0.47);
-      } // 腳跟推進器（橙紅）
-      CB(foot, fw * 0.5, fh * 0.5, fl * 0.2, M.main, 0, 0.05, -fl * 0.1, 0, 0, 0, 0.03);
-      decal(foot, 2, 0.28, 0.28, s * (fw / 2 + 0.01), -fh / 2, -fl * 0.05, 0, (s * Math.PI) / 2, 0);
+    for (const k of ['l', 'r']) {
+      const s = SIDE_OF[k];
+      const thigh = joint(mountAt(legsG, base, 'hip_' + k)); // 大腿樞軸：襠部側面偏上（距頂面 0.09）
+      const ti = lp('thigh', k);
+      place(thigh, ti);
+      const knee = joint(mountAt(thigh, ti, 'knee'));
+      const si = lp('shin', k);
+      place(knee, si);
+      const foot = joint(mountAt(knee, si, 'ankle'));
+      place(foot, lp('foot', k));
       const th = rev ? -0.35 : 0.08,
         kn = rev ? 0.6 : -0.15,
         ft = rev ? -0.25 : 0.07;
@@ -376,215 +816,63 @@ export function buildMech(asm, pal, scale = 1) {
       legs.push({ thigh, knee, foot, side: s, th, kn, ft });
     }
   } else if (type === 'quad') {
-    hipY = 1.3;
-    CB(legsG, 1.6, 0.5, 1.6, M.sub, 0, hipY - 0.05, 0, 0, 0, 0, 0.08);
-    CB(legsG, 1.2, 0.3, 1.2, M.main, 0, hipY + 0.3, 0, 0, 0, 0, 0.05);
-    for (const [sx, sz] of [
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ]) {
-      const L = new THREE.Group();
-      L.position.set(sx * 0.85, hipY - 0.1, sz * 0.7);
-      legsG.add(L);
-      const thigh = new THREE.Group();
-      L.add(thigh);
-      P(thigh, gCyl(0.18, 0.18, 0.5, 8), M.joint, 0, 0, 0, Math.PI / 2);
-      CB(thigh, 0.42, 0.8, 0.42, M.main2, 0, -0.4, 0, 0, 0, 0, 0.06);
-      const knee = new THREE.Group();
-      knee.position.y = -0.8;
-      thigh.add(knee);
-      P(knee, gCyl(0.16, 0.16, 0.46, 8), M.joint, 0, 0, 0, Math.PI / 2);
-      CB(knee, 0.38, 0.7, 0.38, M.main, 0, -0.35, 0, 0, 0, 0, 0.05);
-      const foot = new THREE.Group();
-      foot.position.y = -0.7;
-      knee.add(foot);
-      CB(foot, 0.5, 0.24, 0.6, M.sub, 0, -0.1, 0, 0, 0, 0, 0.04);
+    for (const [k, sx, sz] of QUAD_LEGS) {
+      const thigh = joint(mountAt(legsG, base, 'hip_' + k));
+      const ti = lp('thigh', k);
+      place(thigh, ti);
+      const knee = joint(mountAt(thigh, ti, 'knee'));
+      place(knee, lp('qshin', k));
       thigh.rotation.z = sx * 0.8;
       thigh.rotation.x = sz * 0.3;
       knee.rotation.z = -sx * 1.4;
-      legs.push({ thigh, knee, foot, side: sx, sz });
-    }
-  } else {
-    hipY = 1.1;
-    CB(legsG, 1.7, 0.6, 2.2, M.sub, 0, 0.85, 0, 0, 0, 0, 0.08);
-    CB(legsG, 1.2, 0.3, 1.4, M.main, 0, 1.25, 0, 0, 0, 0, 0.05);
-    for (const s of [-1, 1]) {
-      CB(legsG, 0.8, 0.9, 2.8, M.joint, s * 1.25, 0.5, 0, 0, 0, 0, 0.1);
-      CB(legsG, 0.84, 0.16, 2.9, M.main2, s * 1.25, 1.0, 0, 0, 0, 0, 0.04);
-      for (let i = -1; i <= 1; i++)
-        P(legsG, gCyl(0.36, 0.36, 0.86, 10), M.acc, s * 1.25, 0.45, i * 0.95, 0, 0, Math.PI / 2);
-      for (let i = 0; i < 9; i++) {
-        P(legsG, gBox(0.86, 0.08, 0.16), M.rubber, s * 1.25, 0.08, -1.3 + i * 0.32);
-        P(legsG, gBox(0.86, 0.08, 0.16), M.rubber, s * 1.25, 0.96, -1.3 + i * 0.32);
-      }
+      legs.push({ thigh, knee, foot: knee, side: sx, sz });
     }
   }
-  // ===== 軀幹：近立方體 =====
-  torso.position.y = hipY + 0.33;
-  const cw = R.tw,
-    ch = R.th,
-    cd = R.td;
-  // 胸部三塊：中央柱（放頭，頂面較低、整體較高）＋左右胸塊（較短但頂面較高、外推）＋下腹連接板
-  const cx = R.cx,
-    sx = (cw - cx) / 2,
-    sideH = ch * 0.85,
-    cenTop = ch + 0.12,
-    sideTop = ch + 0.28;
-  CB(torso, cx, ch, cd, M.grey, 0, cenTop - ch / 2, 0, 0, 0, 0, 0.08); // 中央柱（灰）
-  CB(torso, cx * 0.7, 0.12, 0.1, red, 0, cenTop - 0.12, -cd * 0.5, 0, 0, 0, 0.02); // 中央頂端紅色指示燈
-  for (let i = 0; i < 3; i++)
-    P(torso, gBox(cx * 0.8, 0.03, 0.03), M.joint, 0, cenTop - ch + 0.1 + i * 0.08, -cd * 0.51); // 中央柱下段的橫向散熱縫（設計圖腹部）
-  for (const s of [-1, 1]) {
-    const x = s * (cx / 2 + sx / 2 - 0.02);
-    CB(torso, sx, sideH, cd * 1.02, M.main, x, sideTop - sideH / 2, -0.02, 0, 0, 0, 0.08); // 左右胸塊（綠）
-    P(torso, gBox(sx * 0.86, 0.05, 0.03), M.acc, x, sideTop - 0.12, -cd * 0.53);
-    kitBolts(torso, M, [
-      [x - s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
-      [x + s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
-      [x + s * sx * 0.32, sideTop - 0.25, -cd * 0.53],
-    ]);
-    decal(torso, s > 0 ? 1 : 3, 0.34, 0.34, x, sideTop - sideH * 0.5, -cd * 0.53, 0, Math.PI, 0);
-    decal(
-      torso,
-      2,
-      0.46,
-      0.46,
-      s * (cx / 2 + sx + 0.01 - 0.02),
-      sideTop - sideH * 0.5,
-      0.05,
-      0,
-      (s * Math.PI) / 2,
-      0,
-    );
-    kitVents(torso, M, s * (cx / 2 + sx - 0.02), sideTop - 0.2, -cd * 0.2, 4, 0.14, Math.PI / 2);
-  }
-  P(torso, gBox(cx * 0.7, ch * 0.45, 0.04), M.sub, 0, cenTop - ch * 0.5, -cd * 0.52);
-  for (let i = 0; i < 2; i++)
-    P(torso, gCyl(0.05, 0.05, 0.04, 8), red, -0.1 + i * 0.2, cenTop - ch * 0.3, -cd * 0.54, Math.PI / 2);
-  decal(torso, 3, 0.26, 0.26, 0, cenTop - ch * 0.62, -cd * 0.55, 0, Math.PI, 0); // 中央面板＋紅燈＋AC 標記
-  P(torso, gBox(cx * 0.8, 0.06, cd * 0.6), M.acc, 0, cenTop + 0.03, 0);
-  // 背包：兩個方塊推進器 + 中央箱
-  const bp = new THREE.Group();
-  bp.position.set(0, ch * 0.5 + 0.2, cd * 0.6);
-  torso.add(bp);
-  CB(bp, cw * 0.86, ch * 0.92, 0.6, M.main, 0, 0.02, 0.02, 0, 0, 0, 0.08);
-  decal(bp, 5, 0.5, 0.5, 0, ch * 0.22, 0.33, 0, 0, 0); // Power Backpack：大型綠色背箱＋ CUBEE AC-01
-  kitGrille(bp, M, 0, -ch * 0.12, 0.32, cw * 0.5, 0.22, 5);
-  for (const s of [-1, 1]) {
-    kitGrille(bp, M, s * cw * 0.3, -ch * 0.32, 0.32, 0.22, 0.16, 3);
-    CB(bp, 0.3, 0.44, 0.3, M.sub, s * cw * 0.3, -ch * 0.3, 0.42, 0, 0, 0, 0.04);
-    P(bp, gCyl(0.13, 0.15, 0.14, 10), M.joint, s * cw * 0.3, -ch * 0.3 - 0.28, 0.42);
-    P(bp, gBox(0.12, 0.4, 0.06), M.acc, s * cw * 0.44, 0.1, 0.33);
-  }
-  if (heavy) {
-    for (const s of [-1, 1]) P(bp, gCyl(0.24, 0.24, ch * 0.9, 10), M.main, s * cw * 0.15, 0.05, 0.5);
-  }
-  P(bp, gCyl(0.02, 0.02, 1.2, 4), M.joint, cw * 0.1, ch * 0.9, 0.05);
-  const nozzles = [];
-  for (const s of [-1, 1]) {
-    const fl = new THREE.Mesh(
-      new THREE.ConeGeometry(0.16, 0.9, 8),
-      new THREE.MeshBasicMaterial({
-        color: pal.glow || 0x9ff0ff,
-        transparent: true,
-        opacity: 0.85,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    fl.position.set(s * cw * 0.3, -ch * 0.3 - 0.75, 0.42);
-    fl.rotation.x = Math.PI;
-    fl.scale.set(1, 0.01, 1);
-    bp.add(fl);
-    nozzles.push(fl);
-  }
-  // ===== 頭：扁方盒，陷進肩線，紅色發光面罩 =====
-  const head = new THREE.Group();
-  head.position.y = ch + 0.14;
-  torso.add(head);
-  const hw = R.headW,
-    hh = R.headH,
-    hd = R.headD;
-  CB(head, hw, hh, hd, M.grey, 0, hh / 2, 0, 0, 0, 0, 0.08);
-  CB(head, hw * 0.72, hh * 0.26, 0.08, red, 0, hh * 0.58, -hd * 0.5, 0, 0, 0, 0.02);
-  P(head, gBox(hw * 0.5, hh * 0.14, 0.05), M.sub, 0, hh * 0.22, -hd * 0.52); // 灰色頭盒＋紅色面罩＋下巴格
-  CB(head, hw * 0.7, 0.08, hd * 0.5, M.sub, 0, hh + 0.03, 0.05, 0, 0, 0, 0.02);
-  P(head, gCyl(0.02, 0.02, 0.9, 4), M.joint, hw * 0.2, hh + 0.45, 0.1);
-  for (const s of [-1, 1]) {
-    CB(head, 0.16, hh * 0.7, hd * 0.55, M.sub, s * (hw / 2 + 0.08), hh * 0.45, 0, 0, 0, 0, 0.03);
-    P(head, gCyl(0.05, 0.05, 0.04, 8), M.lens, s * (hw / 2 + 0.17), hh * 0.45, -hd * 0.1, 0, 0, Math.PI / 2);
-  } // 側耳感測塊
-  if (p.head.id === 'h_hv') {
-    P(head, gBox(hw * 1.1, 0.1, hd * 0.4), M.sub, 0, hh * 0.95, -hd * 0.2);
-  }
-  if (p.head.id === 'h_scan') {
-    P(head, gCyl(0.12, 0.12, 0.1, 8), M.lens, hw * 0.25, hh + 0.1, 0.1);
-    P(head, gCyl(0.03, 0.03, 1.2, 4), M.joint, -hw * 0.25, hh + 0.6, 0.1);
-  }
-  // ===== 肩：肩上武器箱直接坐在肩線；手臂方塊 =====
+  // ===== 軀幹：腰部連接點下的 torso 群組（動作改它的旋轉與上下起伏）=====
+  const torso = joint(mountAt(root, base, 'waist'));
+  const ci = bySlot((i) => i.cat === 'core');
+  place(torso, ci);
+  // 背包：噴口是連接點（噴焰為粒子特效，由實體依推力發射）
+  const bp = joint(mountAt(torso, ci, 'backpack'));
+  const bi = bySlot((i) => i.cat === 'booster');
+  place(bp, bi);
+  const nozzles = ['nozzle_l', 'nozzle_r'].map((n) => mountAt(bp, bi, n));
+  // 頭
+  const head = joint(mountAt(torso, ci, 'neck'));
+  place(
+    head,
+    bySlot((i) => i.cat === 'head'),
+  );
+  // 手臂：肩（核心）→ 上臂 → 手肘 → 前臂 → 手腕 → 手 → 握點 → 武器；肩上武器座（核心）→ 肩上武器
   const arms = {};
-  for (const s of [-1, 1]) {
-    const sh = new THREE.Group();
-    sh.position.set(s * (cw / 2 + 0.05), ch + 0.02, 0);
-    torso.add(sh);
-    P(sh, gCyl(0.16, 0.16, 0.4, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-    CB(sh, R.shPad, R.shPad, R.shPad, M.grey, s * (R.shPad / 2 - 0.02), 0.0, 0, 0, 0, 0, 0.06);
-    decal(sh, 7, 0.3, 0.3, s * (R.shPad - 0.01), 0.0, 0, 0, (s * Math.PI) / 2, 0);
-    kitBolts(sh, M, [
-      [s * (R.shPad - 0.01), 0.22, 0.2, 0, Math.PI / 2],
-      [s * (R.shPad - 0.01), 0.22, -0.2, 0, Math.PI / 2],
-    ]); // 灰色方形肩甲「01」（0.6 立方）
-    const up = new THREE.Group();
-    up.position.set(s * (R.shPad / 2 - 0.02), -R.shPad / 2, 0);
-    sh.add(up);
-    const ul = R.upL,
-      aw = R.upW;
-    CB(up, aw, ul + 0.1, aw, M.main, 0, -ul / 2 - 0.05, 0, 0, 0, 0, 0.06);
-    P(up, gBox(aw * 1.02, 0.09, aw * 1.02), M.acc, 0, -ul * 0.55, 0);
-    kitBolts(up, M, [[s * aw * 0.5, -ul * 0.25, 0, 0, Math.PI / 2]]); // 上臂（綠）＋黃色環帶
-    const fore = new THREE.Group();
-    fore.position.y = -ul - 0.1;
-    up.add(fore);
-    const fl2 = R.foreL,
-      fw = R.foreW;
-    P(fore, gCyl(0.2, 0.2, aw + 0.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-    CB(fore, fw, fl2 + 0.1, fw, M.main2, 0, -fl2 / 2 - 0.05, 0, 0, 0, 0, 0.06);
-    CB(fore, fw * 0.8, fl2 * 0.5, 0.1, M.grey, 0, -fl2 * 0.45, -fw * 0.5, 0, 0, 0, 0.03);
-    decal(fore, 7, 0.3, 0.3, s * (fw / 2 + 0.01), -fl2 * 0.5, 0, 0, (s * Math.PI) / 2, 0);
-    kitVents(fore, M, -s * fw * 0.5, -fl2 * 0.35, 0.1, 3, 0.06, Math.PI / 2); // 前臂（藍）＋灰板＋「01」
-    const hand = new THREE.Group();
-    hand.position.set(0, -fl2 - 0.12, 0);
-    fore.add(hand);
-    const fs = R.fist;
-    CB(hand, fs * 0.9, fs * 0.8, fs * 0.9, M.grey, 0, -fs * 0.25, 0, 0, 0, 0, 0.05);
-    for (let f = 0; f < 4; f++) {
-      CB(hand, 0.09, 0.16, 0.1, M.joint, -0.15 + f * 0.1, -fs * 0.7, -fs * 0.3, 0, 0, 0, 0.02);
-      CB(hand, 0.08, 0.12, 0.09, M.grey, -0.15 + f * 0.1, -fs * 0.95, -fs * 0.36, 0, 0, 0, 0.02);
-    }
-    CB(hand, 0.1, 0.14, 0.12, M.joint, s * fs * 0.5, -fs * 0.45, -fs * 0.2, 0, 0, 0, 0.02); // 四指關節手＋拇指（設計圖 Detail A）
-    const wm = new THREE.Group();
-    wm.position.set(0, -fs * 0.3, -fs * 0.3);
-    wm.rotation.x = -Math.PI / 2;
-    wm.scale.set(0.72, 0.72, 0.5);
-    hand.add(wm);
-    buildWeapon(wm, partById('arm', s > 0 ? asm.rarm : asm.larm), M, s); // Q 版：武器縮小、縮短一半
+  for (const k of ['l', 'r']) {
+    const ap = (n) => bySlot((i) => i.cat === 'arms' && i.kind === n && i.key === k);
+    const shM = mountAt(torso, ci, 'shoulder_' + k);
+    const up = joint(shM);
+    place(up, ap('upper'));
+    const fore = joint(mountAt(up, ap('upper'), 'elbow'));
+    place(fore, ap('fore'));
+    const hand = joint(mountAt(fore, ap('fore'), 'wrist'));
+    place(hand, ap('hand'));
+    const weapon = joint(mountAt(hand, ap('hand'), 'grip'));
+    const wi = bySlot((i) => i.cat === 'weapon' && i.key === k);
+    if (wi) place(weapon, wi);
+    up.rotation.order = 'ZYX';
     up.rotation.x = 0.35;
     fore.rotation.x = 1.2;
-    const bwp = new THREE.Group();
-    bwp.position.set(s * (cw / 2 + 0.05 + R.shPad / 2), ch + 0.02 + R.shPad / 2 + 0.3, 0.2);
-    bwp.scale.set(0.8, 0.8, 0.65);
-    torso.add(bwp);
-    buildWeapon(bwp, partById('back', s > 0 ? asm.rback : asm.lback), M, s); // 肩上武器箱：外移到肩線外側，避免遮住頭
-    arms[s > 0 ? 'r' : 'l'] = { sh, up, fore, hand, weapon: wm, back: bwp };
+    const back = joint(mountAt(torso, ci, 'back_' + k)); // 肩上武器箱：外移到肩線外側，避免遮住頭
+    const bwi = bySlot((i) => i.cat === 'back' && i.key === k);
+    if (bwi) place(back, bwi);
+    arms[k] = { mount: shM, up, fore, hand, weapon, back };
   }
   bakeAll(root);
   root.scale.setScalar(scale);
   root.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
+  const M = ctx.M;
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun, M.grey];
+  if (opts.extraMats) mats.push(...opts.extraMats);
   return {
     group: root,
     legsG,
@@ -593,12 +881,14 @@ export function buildMech(asm, pal, scale = 1) {
     arms,
     legs,
     nozzles,
+    pieces,
+    mounts,
     hipY,
-    torsoY: hipY + 0.33,
+    torsoY: 0,
     type,
     cls,
-    height: (hipY + ch + 0.22 + R.headH) * scale,
-    coreH: ch,
+    height: (hipY + CUBE.th + 0.22 + CUBE.headH) * scale,
+    coreH: CUBE.th,
     mats,
     flashT: 0,
   };
@@ -648,15 +938,11 @@ export function animateMech(m, dt, st) {
     if (m.head) P(m.head, 0, 0, 0);
     const R = m.arms.r,
       L = m.arms.l;
-    P(R.sh, 0, 0, 0.06);
-    P(R.up, 0.05, 0, 0.3);
+    P(R.up, 0.05, 0, 0.18);
     P(R.fore, 0.35, 0, 0);
-    P(L.sh, 0, 0, -0.06);
-    P(L.up, 0.05, 0, -0.3);
+    P(L.up, 0.05, 0, -0.18);
     P(L.fore, 0.35, 0, 0); // 雙手微張自然下垂
-    for (const n of m.nozzles) {
-      n.scale.y = lerp(n.scale.y, 0.12, 0.2);
-    }
+    m.thrust = lerp(m.thrust || 0, 0.05, 0.2);
     if (m.flashT > 0) {
       m.flashT -= dt;
       if (m.flashT <= 0) for (const mm of m.mats) mm.emissive.setRGB(0, 0, 0);
@@ -787,12 +1073,9 @@ export function animateMech(m, dt, st) {
     m.head.rotation.x = lerp(m.head.rotation.x, -ap * 0.5 + (st.boost ? 0.12 : 0), ks);
     m.head.rotation.z = lerp(m.head.rotation.z, -(st.leanZ || 0) * 0.5, ks);
   }
-  // ===== 推進器火焰 =====
-  const fl = st.boost ? 2.2 : st.hover ? 1.4 : !st.grounded ? 0.9 : st.moving ? 0.6 : 0.08;
-  for (const n of m.nozzles) {
-    n.scale.y = lerp(n.scale.y, fl * (0.8 + Math.random() * 0.4), 0.5);
-    n.scale.x = n.scale.z = lerp(n.scale.x, 0.6 + fl * 0.35, 0.3);
-  }
+  // ===== 推進器推力（0～1，噴焰粒子依此發射）=====
+  const fl = st.boost ? 1 : st.hover ? 0.65 : !st.grounded ? 0.4 : st.moving ? 0.27 : 0.04;
+  m.thrust = lerp(m.thrust || 0, fl, Math.min(1, dt * 10));
   // ===== 手臂：肩外展／內收、上臂三軸、前臂、揮擊、後座 =====
   for (const kk of ['l', 'r']) {
     const a = m.arms[kk];
@@ -868,9 +1151,8 @@ export function animateMech(m, dt, st) {
         }
       }
     }
-    a.sh.rotation.z = lerp(a.sh.rotation.z, side * abd * 0.35, ks); // 肩莢艙微抬
-    a.up.rotation.order = 'ZYX';
-    a.up.rotation.z = lerp(a.up.rotation.z, -side * abd, ks);
+    a.up.rotation.order = 'ZYX'; // 上臂（含肩甲）以肩關節為軸：外展／內收、扭轉、前後擺
+    a.up.rotation.z = lerp(a.up.rotation.z, -side * abd * 0.65, ks);
     a.up.rotation.y = lerp(a.up.rotation.y, twist, ks);
     a.up.rotation.x = lerp(a.up.rotation.x, up, 0.4);
     a.fore.rotation.x = lerp(a.fore.rotation.x, foreT, 0.4);

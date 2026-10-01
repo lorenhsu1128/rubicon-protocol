@@ -121,13 +121,9 @@ Object.assign(Game.prototype, {
     if (m.legsG) hide(m.legsG);
     if (m.head && m.head !== m.torso) hide(m.head);
     if (m.torso) {
-      for (const ch of m.torso.children) {
-        if (ch.isMesh) hide(ch);
-        else if (ch === m.head) hide(ch);
-        else if (m.arms && (ch === m.arms.l.sh || ch === m.arms.r.sh)) {
-        } else if (m.arms && (ch === m.arms.l.back || ch === m.arms.r.back)) hide(ch);
-        else if (ch.isGroup && !(m.arms && (ch === m.arms.l.sh || ch === m.arms.r.sh))) hide(ch);
-      }
+      // 第一人稱只留雙臂（肩部連接點以下），核心、頭、背包、肩上武器都隱藏
+      const keep = m.arms ? [m.arms.l.mount, m.arms.r.mount].filter(Boolean) : [];
+      for (const ch of m.torso.children) if (!keep.includes(ch)) hide(ch);
     }
     if (e.glare) for (const g of e.glare) hide(g);
   },

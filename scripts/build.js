@@ -53,6 +53,18 @@ const modelsPlugin = {
         watchFiles: files,
       };
     });
+    // 關節設定 src/assets/models/joints.json（沒有則為空物件）：import JOINTS from 'virtual:joints'
+    build.onResolve({ filter: /^virtual:joints$/ }, () => ({ path: 'joints', namespace: 'joints' }));
+    build.onLoad({ filter: /.*/, namespace: 'joints' }, () => {
+      const f = path.join(MODELS_DIR, 'joints.json');
+      const has = fs.existsSync(f);
+      return {
+        contents: has ? fs.readFileSync(f, 'utf8') : '{}',
+        loader: 'json',
+        watchFiles: has ? [f] : [],
+        watchDirs: fs.existsSync(MODELS_DIR) ? [MODELS_DIR] : [],
+      };
+    });
   },
 };
 
