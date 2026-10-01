@@ -416,6 +416,17 @@ async function main() {
       const page = await (await browser.newContext()).newPage();
       await page.goto(game.url);
       check(await page.evaluate(() => !!window.RUBICON_SERVER), '遊戲頁已注入 window.RUBICON_SERVER');
+      const lib = await fetch(game.url + 'models');
+      check(lib.ok && (await lib.text()).includes('模型庫'), '/models 提供模型庫頁面');
+      await waitVisible(page, 'title');
+      const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#btnLibrary')]);
+      check(
+        await popup.waitForSelector('.cell', { timeout: 15000 }).then(
+          () => true,
+          () => false,
+        ),
+        '標題畫面「模型庫」按鈕開啟模型庫',
+      );
       await page.context().close();
       await testMultiplayer(browser, game.url, 'server', false);
     }

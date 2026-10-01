@@ -455,6 +455,8 @@ Object.assign(Game.prototype, {
       SFX.init();
       this.openSettings('title');
     };
+    // 模型庫：伺服器上是 /model-library.html，直接開檔時是同資料夾的 model-library.html
+    document.getElementById('btnLibrary').onclick = () => window.open('model-library.html', '_blank');
     document.getElementById('btnSettingsP').onclick = () => this.openSettings('pause');
     document.getElementById('btnSettingsBack').onclick = () => this.closeSettings();
     document.getElementById('btnKeysReset').onclick = () => {

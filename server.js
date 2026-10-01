@@ -38,6 +38,11 @@ function localIPs() {
     for (const a of ifs[k]) if (a.family === 'IPv4' && !a.internal) out.push({ name: k, ip: a.address });
   return out;
 }
+// 模型庫（選用）：與遊戲頁放在同一個資料夾
+function libraryHtml() {
+  const p = path.join(WEB_DIR, 'model-library.html');
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+}
 function gameHtml() {
   const p = path.join(WEB_DIR, 'rubicon-protocol.html');
   if (!fs.existsSync(p)) return null;
@@ -70,6 +75,13 @@ function startGame(port) {
         const h = gameHtml();
         resp.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         resp.end(h);
+      } else if (u === '/models' || u === '/models/' || u === '/model-library.html') {
+        const h = libraryHtml();
+        resp.writeHead(h ? 200 : 404, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        resp.end(h || '找不到 model-library.html（請放在與遊戲頁相同的資料夾）');
       } else if (u === '/health') {
         resp.writeHead(200, { 'Content-Type': 'application/json' });
         resp.end(JSON.stringify({ ok: true, version: VERSION, peers: peers.size, rooms: rooms.size }));
@@ -230,7 +242,7 @@ function controlPage() {
 const $=id=>document.getElementById(id); let cur={};
 async function api(p,b){ const r=await fetch(p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}); return r.json(); }
 async function refresh(){ try{ const s=await api('/api/status'); cur=s; $('st').textContent=s.running?'執行中（port '+s.port+'）':'停止'; $('st').className='st '+(s.running?'on':'off'); if(document.activeElement!==$('port')) $('port').value=s.cfgPort; $('bStart').disabled=s.running; $('bStop').disabled=!s.running; $('bRestart').disabled=!s.running;
-  $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
+  $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a>　<a class="dim" href="'+url+'models" target="_blank">模型庫</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
   $('rooms').innerHTML=(s.rooms||[]).map(r=>'<tr><td>'+esc(r.room)+'</td><td>'+esc(r.host)+'</td><td>'+r.n+'/4</td><td>'+r.level+'</td><td>'+(r.state==='play'?'<span class="st on">任務中</span>':'大廳')+'</td><td>'+(r.spectators||0)+'</td><td><button onclick="spectate(\\''+r.peerId+'\\')">觀戰</button></td></tr>').join('')||'<tr><td colspan="7" class="dim">目前沒有房間</td></tr>';
   $('peers').textContent='線上連線數：'+(s.peers||0); $('log').textContent=s.logs.join('\\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){ $('st').textContent='控制台連線中斷'; } }
 function esc(s){ return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
