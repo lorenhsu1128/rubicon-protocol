@@ -16,6 +16,7 @@ import {
 } from '../render/mech-model.js';
 import { THEMES } from '../world/world.js';
 import { buildAxes, buildConnMarker, buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
+import { ThrusterFx } from '../fx/thruster.js';
 import { JointEditor } from './joint-editor.js';
 import { exportTemplate } from './template.js';
 import {
@@ -37,6 +38,7 @@ const $ = (id) => document.getElementById(id);
 const TOGGLES = [
   ['axes', '原點與三軸', true],
   ['conns', '連接點', true],
+  ['flame', '噴焰特效', true],
   ['dims', '尺寸標線', true],
   ['box', '外框', true],
   ['ruler', '刻度尺', true],
@@ -95,6 +97,7 @@ export class Inspector {
     this.labels = [];
     this.setupPost();
     this.setupUi();
+    this.thruster = new ThrusterFx(this.scene); // 背包噴焰（與遊戲相同的粒子特效）
     this.joints = new JointEditor({
       scene: this.scene,
       camera: this.camera,
@@ -210,6 +213,8 @@ export class Inspector {
     this.labels = [];
     $('insLabels').innerHTML = '';
     if (this.joints) this.joints.unbind();
+    if (this.thruster) this.thruster.clear();
+    this.flameSrc = null;
   }
   // 依目前模式建立場景（非同步：GLB 需要解析）
   async rebuild() {
@@ -369,6 +374,7 @@ export class Inspector {
         mk.position.copy(c.p);
         mk.rotation.copy(c.r);
         edits.push({ name, target: mk, marker: mk });
+        if (name.startsWith('nozzle_')) (this.flameSrc = this.flameSrc || { nozzles: [] }).nozzles.push(mk);
       }
     }
     this.joints.bind(
@@ -539,6 +545,16 @@ export class Inspector {
       const rig = it.built.rig;
       if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState(this.anim, this.t));
     }
+    // 噴焰：整台機甲依動作的推力；單獨檢視背包時以中等推力從噴口連接點噴出
+    if (this.opts.flame) {
+      const rig = this.main && this.main.built.rig;
+      const pal = $('insPal').value || this.entry.pal;
+      const col = pal === 'player' ? 0x8fe8ff : 0xffb060;
+      if (rig && !rig.vehicle && rig.nozzles && rig.nozzles.length)
+        this.thruster.stream(rig, rig.thrust || 0, col, rig.group.getWorldScale(new THREE.Vector3()).x, dt);
+      else if (this.flameSrc) this.thruster.stream(this.flameSrc, 0.6, col, 1, dt);
+    }
+    this.thruster.update(dt);
     this.controls.update();
     if (this.opts.post && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);

@@ -6,6 +6,7 @@ import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { FIST_DEF, asmStats, partById } from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
+import { nozzleWorld } from '../fx/thruster.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { Projectile } from './projectile.js';
 
@@ -1216,22 +1217,9 @@ export class MechEntity {
         leanX: this.leanX || 0,
       });
     }
-    // ---- 推進器光暈（大型加色球體，隨推力縮放）與側噴嘴 ----
+    // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
     {
-      if (!this.glare) {
-        this.glare = this.model.nozzles.map(() => g.fx.glareMesh(this.isPlayer ? 0x9fe8ff : 0xffb070));
-      }
-      const thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
-      this.thrS = lerp(this.thrS || 0, thr, Math.min(1, dt * 10));
-      const wp = new THREE.Vector3();
-      this.model.nozzles.forEach((n, i) => {
-        n.getWorldPosition(wp);
-        const m = this.glare[i];
-        m.position.copy(wp).add(new THREE.Vector3(0, -0.35 * this.scale, 0));
-        const s = (0.25 + this.thrS * 1.3) * this.scale * (0.9 + Math.random() * 0.2);
-        m.scale.setScalar(s);
-        m.material.opacity = 0.15 + this.thrS * 0.55;
-      });
+      this.thrusterFx(dt, this.isPlayer ? 0x9fe8ff : 0xffb070, this.isPlayer ? 0x8fe8ff : 0xffb060, true);
       // 側移／急減速時的肩腰側噴嘴
       const ar = this.leanZ || 0,
         af = this.leanX || 0;
@@ -1284,22 +1272,6 @@ export class MechEntity {
           1.2,
         );
     }
-    // thruster trails
-    if (this.boost || this.hover || (!this.grounded && this.moving)) {
-      if (Math.random() < dt * (this.boost ? 50 : 22))
-        for (const n of this.model.nozzles) {
-          const wp = new THREE.Vector3();
-          n.getWorldPosition(wp);
-          g.fx.boostFlame(
-            wp,
-            new THREE.Vector3(this.vel.x, this.vel.y, this.vel.z)
-              .multiplyScalar(-0.03)
-              .add(new THREE.Vector3(0, -0.6, 0))
-              .normalize(),
-            this.isPlayer ? 0x8fe8ff : 0xffb060,
-          );
-        }
-    }
     // smoke when damaged
     if (this.hp < this.maxHp * 0.35) {
       this.smokeT -= dt;
@@ -1313,6 +1285,44 @@ export class MechEntity {
     }
     if (this.staggerT > 0 && Math.random() < dt * 20)
       g.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xffb020);
+  }
+  // 推進器：噴口光暈（加色球體，隨推力縮放）＋噴焰。機甲的噴焰是粒子特效（沿噴口連接點的 −Y 噴出），
+  // 載具（直升機、無人機）維持原本的尾焰
+  thrusterFx(dt, glareCol, flameCol, jitter) {
+    const g = this.game;
+    if (!this.glare) this.glare = this.model.nozzles.map(() => g.fx.glareMesh(glareCol));
+    const thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
+    this.thrS = lerp(this.thrS || 0, thr, Math.min(1, dt * 10));
+    const wp = new THREE.Vector3(),
+      dir = new THREE.Vector3();
+    const veh = this.model.vehicle;
+    this.model.nozzles.forEach((n, i) => {
+      nozzleWorld(n, wp, dir);
+      if (veh) dir.set(0, -1, 0);
+      const m = this.glare[i];
+      m.position.copy(wp).addScaledVector(dir, 0.35 * this.scale);
+      m.scale.setScalar((0.25 + this.thrS * 1.3) * this.scale * (jitter ? 0.9 + Math.random() * 0.2 : 1));
+      m.material.opacity = 0.15 + this.thrS * 0.55;
+    });
+    if (!veh) {
+      g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);
+      return;
+    }
+    if (
+      (this.boost || this.hover || (!this.grounded && this.moving)) &&
+      Math.random() < dt * (this.boost ? 50 : 22)
+    )
+      for (const n of this.model.nozzles) {
+        n.getWorldPosition(wp);
+        g.fx.boostFlame(
+          wp,
+          new THREE.Vector3(this.vel.x, this.vel.y, this.vel.z)
+            .multiplyScalar(-0.03)
+            .add(new THREE.Vector3(0, -0.6, 0))
+            .normalize(),
+          flameCol,
+        );
+      }
   }
   setAim(targetPos) {
     const c = this.center();
@@ -1348,7 +1358,8 @@ export class MechEntity {
         this.flying = true;
         this.pos.y += dt * 18;
         this.mesh.position.copy(this.pos);
-        this.model.nozzles.forEach((n) => (n.scale.y = 3));
+        this.thrS = 1;
+        g.fx.thruster.stream(this.model, 1, 0x9fffc8, this.scale, dt, this.vel);
         if (Math.random() < dt * 40) g.fx.boostFlame(this.center(), new THREE.Vector3(0, -1, 0), 0x9fffc8);
         if (this.pos.y > 60) {
           this.dead = true;

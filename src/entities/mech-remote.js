@@ -74,39 +74,13 @@ Object.assign(MechEntity.prototype, {
       leanZ: this.leanZ || 0,
       leanX: this.leanX || 0,
     });
-    // 光暈與尾焰
-    if (!this.glare) {
-      this.glare = this.model.nozzles.map(() =>
-        g.fx.glareMesh(
-          this.isPlayer ? 0x9fe8ff : this.team === 'player' || this.team === 'ally' ? 0x9fffc8 : 0xffb070,
-        ),
-      );
-    }
-    const thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
-    this.thrS = lerp(this.thrS || 0, thr, Math.min(1, dt * 10));
-    const wp = new THREE.Vector3();
-    this.model.nozzles.forEach((n, i) => {
-      n.getWorldPosition(wp);
-      const m = this.glare[i];
-      m.position.copy(wp).add(new THREE.Vector3(0, -0.35 * this.scale, 0));
-      m.scale.setScalar((0.25 + this.thrS * 1.3) * this.scale);
-      m.material.opacity = 0.15 + this.thrS * 0.55;
-    });
-    if (
-      (this.boost || this.hover || (!this.grounded && this.moving)) &&
-      Math.random() < dt * (this.boost ? 50 : 22)
-    )
-      for (const n of this.model.nozzles) {
-        n.getWorldPosition(wp);
-        g.fx.boostFlame(
-          wp,
-          new THREE.Vector3(this.vel.x, this.vel.y, this.vel.z)
-            .multiplyScalar(-0.03)
-            .add(new THREE.Vector3(0, -0.6, 0))
-            .normalize(),
-          this.isPlayer ? 0x8fe8ff : 0xffb060,
-        );
-      }
+    // 光暈與噴焰
+    this.thrusterFx(
+      dt,
+      this.isPlayer ? 0x9fe8ff : this.team === 'player' || this.team === 'ally' ? 0x9fffc8 : 0xffb070,
+      this.isPlayer ? 0x8fe8ff : 0xffb060,
+      false,
+    );
     if (this.hp < this.maxHp * 0.35) {
       this.smokeT -= dt;
       if (this.smokeT <= 0) {

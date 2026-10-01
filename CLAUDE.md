@@ -54,7 +54,8 @@ render/              materials.js（Canvas 貼圖、mechMats、PALETTES、palCol
 world/               world.js（World：關卡生成、THEMES）、prop-models.js（地圖物件的網格建造，純函式）、
                      map-extras.js（Vehicle、Pickup、PICKUP_DEFS）
 audio/               audio.js（SFX）、sfx-data.js（匯入 assets/sfx/*.mp3）
-fx/effects.js        Effects 粒子／曳光／碎片
+fx/                  effects.js（Effects 粒子／曳光／碎片）、thruster.js（推進器噴焰粒子：Effects.thruster，
+                     從背包噴口連接點沿其 −Y 噴出；模型庫檢視窗共用）
 entities/            projectile.js、mech-entity.js（MechEntity）、mech-remote.js（MechEntity 客機端擴充）
 net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／WebSocket 傳輸）、net.js（Net）、
                      snapshot.js（serEnt／applyEnt 快照序列化）

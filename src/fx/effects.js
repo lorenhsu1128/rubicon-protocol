@@ -4,6 +4,7 @@
 import { SFX } from '../audio/audio.js';
 import { rnd } from '../core/math.js';
 import { mergeGeos } from '../render/geometry.js';
+import { ThrusterFx } from './thruster.js';
 
 export class Effects {
   constructor(scene) {
@@ -18,6 +19,7 @@ export class Effects {
     scene.add(this.light);
     this.lightT = 0;
     this.hitStop = 0;
+    this.thruster = new ThrusterFx(scene); // 機甲推進器噴焰粒子
   }
   addM(color, opacity = 1, additive = true) {
     return new THREE.MeshBasicMaterial({
@@ -423,6 +425,7 @@ export class Effects {
     }
   }
   update(dt) {
+    this.thruster.update(dt);
     if (this.lightT > 0) {
       this.lightT -= dt;
       if (this.lightT <= 0) this.light.intensity = 0;
@@ -451,6 +454,7 @@ export class Effects {
     for (const e of this.list) this.scene.remove(e.mesh);
     this.list = [];
     this.light.intensity = 0;
+    this.thruster.clear();
   }
 }
 
