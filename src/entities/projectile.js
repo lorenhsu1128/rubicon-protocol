@@ -3,89 +3,14 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { buildProjectileMesh } from '../render/extra-models.js';
 
-const ProjGeo = new THREE.BoxGeometry(0.16, 0.16, 0.9),
-  MissileGeo = new THREE.ConeGeometry(0.18, 0.8, 6),
-  ShellGeo = new THREE.SphereGeometry(0.28, 6, 5);
 export class Projectile {
   constructor(game, o) {
     Object.assign(this, { life: 3, splash: 0, gravity: 0, target: null, turn: 0, dead: false, trailT: 0 }, o);
     this.game = game;
-    const geo =
-      o.kind === 'missile' ? MissileGeo : o.kind === 'shell' || o.kind === 'grenade' ? ShellGeo : ProjGeo;
     const col = o.color || 0xffe0a0;
-    if (o.kind === 'bullet') {
-      this.mesh = new THREE.Group();
-      const L = clamp(this.vel.length() * 0.009, 0.9, 2.0);
-      const core = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: 0xfff2c8,
-          transparent: true,
-          opacity: 0.95,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      core.scale.set(0.4, 0.4, L);
-      const halo = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: col,
-          transparent: true,
-          opacity: 0.5,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      halo.scale.set(1.3, 1.3, L * 1.1);
-      this.mesh.add(core);
-      this.mesh.add(halo);
-    } else if (o.kind === 'missile') {
-      this.mesh = new THREE.Group();
-      const body = new THREE.Mesh(
-        geo,
-        new THREE.MeshStandardMaterial({ color: 0xd0d4d8, metalness: 0.6, roughness: 0.4 }),
-      );
-      const fl = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 6, 5),
-        new THREE.MeshBasicMaterial({
-          color: 0xffb060,
-          transparent: true,
-          opacity: 0.9,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      fl.position.y = -0.5;
-      this.mesh.add(body);
-      this.mesh.add(fl);
-    } else {
-      this.mesh = new THREE.Group();
-      const b = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: col,
-          transparent: true,
-          opacity: 0.95,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      const h = new THREE.Mesh(
-        geo,
-        new THREE.MeshBasicMaterial({
-          color: col,
-          transparent: true,
-          opacity: 0.4,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      h.scale.setScalar(2.2);
-      this.mesh.add(b);
-      this.mesh.add(h);
-    }
+    this.mesh = buildProjectileMesh(o.kind, col, this.vel.length());
     this.mesh.position.copy(this.pos);
     game.scene.add(this.mesh);
     this.orient();

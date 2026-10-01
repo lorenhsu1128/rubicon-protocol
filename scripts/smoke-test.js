@@ -173,7 +173,7 @@ async function testLibrary(browser, base) {
   await page.goto(base + 'model-library.html');
   await page.waitForSelector('.cell');
   const total = await page.$$eval('.cell', (x) => x.length);
-  check(total >= 60, `列出所有模型槽（${total} 格）`);
+  check(total >= 90, `列出所有模型槽（${total} 格）`);
   const cols = await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
   check(cols === 3, `電腦版一行三格（${cols}）`);
   // 捲動到底讓每一格都建立模型

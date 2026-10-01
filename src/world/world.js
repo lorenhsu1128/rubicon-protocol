@@ -1,32 +1,28 @@
 // ============================================================
 //  WORLD — 隨機關卡生成
 // ============================================================
-// legacy prop helpers
 import { RNG, clamp, lerp, makeNoise, makeRng, pick, rnd, rndi, withRng } from '../core/math.js';
+import {
+  LANE_MARK,
+  RAIL_STRIPS,
+  RAIL_TIE,
+  ROAD_STRIPS,
+  box,
+  buildContainer,
+  buildDeck,
+  buildGridPillar,
+  buildLampPost,
+  buildParkedTruck,
+  buildPillar,
+  buildRock,
+  buildTunnelPortal,
+  corridorPiece,
+  deckMats,
+  mat,
+  stripMesh,
+} from './prop-models.js';
 
-const MatCache = {};
-function mat(color, opts) {
-  const k = color + '|' + JSON.stringify(opts || {});
-  if (MatCache[k]) return MatCache[k];
-  const m = new THREE.MeshStandardMaterial(
-    Object.assign({ color, roughness: 0.62, metalness: 0.28, flatShading: true }, opts || {}),
-  );
-  MatCache[k] = m;
-  return m;
-}
-export function box(w, h, d, m, x = 0, y = 0, z = 0) {
-  const g = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-  g.position.set(x, y, z);
-  g.castShadow = true;
-  g.receiveShadow = true;
-  return g;
-}
-export function cyl(rt, rb, h, m, x = 0, y = 0, z = 0, seg = 8) {
-  const g = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), m);
-  g.position.set(x, y, z);
-  g.castShadow = true;
-  return g;
-}
+// 網格建造在 prop-models.js（純函式）；這裡只用亂數決定參數與位置，亂數呼叫順序不可改變
 const ARENA = 150,
   CELL = 2.5,
   GRID = Math.round(ARENA / CELL);
@@ -305,14 +301,8 @@ export class World {
         const w = rnd(3, 7),
           d = rnd(3, 7),
           h = RNG() < 0.3 ? rnd(2.5, 4) : rnd(9, 18);
-        const m2 = pm.clone();
-        m2.transparent = true;
-        const g = box(w, h, d, m2, x, h / 2, z);
-        const eg = new THREE.LineSegments(
-          new THREE.EdgesGeometry(g.geometry),
-          new THREE.LineBasicMaterial({ color: 0x7a8290, transparent: true, opacity: 0.5 }),
-        );
-        g.add(eg);
+        const { mesh: g, mat: m2 } = buildGridPillar(w, h, d, pm);
+        g.position.set(x, h / 2, z);
         this.scene.add(g);
         this.meshes.push(g);
         const ob = {
@@ -362,20 +352,11 @@ export class World {
       const w = rot ? short : long,
         d = rot ? long : short;
       const y = this.terrainHeight(x, z);
-      const g = new THREE.Group();
       const cm = pick(cMat).clone();
       cm.transparent = true;
-      const body = box(w, h, d, cm, 0, h / 2, 0);
-      g.add(body);
       const fm = frame.clone();
       fm.transparent = true;
-      for (const t of [-0.35, 0.35]) {
-        g.add(
-          box(rot ? w + 0.1 : 0.3, h + 0.1, rot ? 0.3 : d + 0.1, fm, rot ? 0 : t * w, h / 2, rot ? t * d : 0),
-        );
-      }
-      g.add(box(w + 0.08, 0.2, d + 0.08, fm, 0, h, 0));
-      g.add(box(w + 0.08, 0.2, d + 0.08, fm, 0, 0.1, 0));
+      const g = buildContainer(w, h, d, rot, cm, fm);
       g.position.set(x, y - 0.15, z);
       this.scene.add(g);
       this.meshes.push(g);
@@ -440,13 +421,11 @@ export class World {
           z = rnd(-58, 58);
         if (Math.hypot(x, z) < 12 || this.onCorridor(x, z, 4)) continue;
         const r = rnd(1.8, 4.2);
-        const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), rm.clone());
+        const m = buildRock(r, rm.clone());
         m.material.transparent = true;
         m.scale.set(rnd(0.8, 1.5), rnd(0.5, 1.0), rnd(0.8, 1.5));
         m.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3));
         m.position.set(x, this.terrainHeight(x, z) + r * 0.2, z);
-        m.castShadow = true;
-        m.receiveShadow = true;
         this.scene.add(m);
         this.meshes.push(m);
         const ob = {
@@ -470,7 +449,8 @@ export class World {
         z = rnd(-55, 55);
       if (Math.hypot(x, z) < 8 || this.onCorridor(x, z, 2) || !this.slopeOK(x, z)) continue;
       const h = rnd(5, 9);
-      const m = box(0.6, h, 0.6, pm, x, this.terrainHeight(x, z) + h / 2 - 0.3, z);
+      const m = buildLampPost(h, pm);
+      m.position.set(x, this.terrainHeight(x, z) + h / 2 - 0.3, z);
       this.scene.add(m);
       this.meshes.push(m);
       {
@@ -496,17 +476,9 @@ export class World {
         const x = rnd(-50, 50),
           z = rnd(-50, 50);
         if (Math.hypot(x, z) < 12 || this.onCorridor(x, z, 4) || !this.slopeOK(x, z)) continue;
-        const g = new THREE.Group();
         const cm = mat(k % 2 ? 0x2b4fb0 : 0xd8d8d8).clone();
         cm.transparent = true;
-        g.add(box(3, 2.4, 7, cm, 0, 1.6, 0));
-        g.add(box(3, 1.6, 2.2, mat(0xe6e6e6).clone(), 0, 1.2, -4.4));
-        for (const sx of [-1.4, 1.4])
-          for (const sz of [-3.8, -1.5, 2.2]) {
-            const w = cyl(0.6, 0.6, 0.5, mat(0x1c1e20), sx, 0.6, sz);
-            w.rotateZ(Math.PI / 2);
-            g.add(w);
-          }
+        const g = buildParkedTruck(cm);
         g.rotation.y = rnd(0, 6.28);
         g.position.set(x, this.terrainHeight(x, z) - 0.1, z);
         this.scene.add(g);
@@ -652,25 +624,7 @@ export class World {
   }
   addDeck(x, z, w, d, y, thick, rotY, mats) {
     // elevated slab you can stand on AND walk under
-    const g = new THREE.Group();
-    const dm = mats.deck.clone();
-    dm.transparent = true;
-    const rm = mats.rail.clone();
-    rm.transparent = true;
-    g.add(box(w, thick, d, dm, 0, -thick / 2, 0));
-    for (const s of [-1, 1]) {
-      g.add(
-        box(
-          rotY ? 0.3 : w,
-          0.9,
-          rotY ? d : 0.3,
-          rm,
-          rotY ? s * (w / 2 - 0.15) : 0,
-          0.45,
-          rotY ? 0 : s * (d / 2 - 0.15),
-        ),
-      );
-    }
+    const { group: g, dm, rm } = buildDeck(w, d, thick, rotY, mats);
     g.position.set(x, y, z);
     this.scene.add(g);
     this.meshes.push(g);
@@ -696,7 +650,8 @@ export class World {
   }
   addPillar(x, z, r, y0, y1, m) {
     const h = y1 - y0;
-    const c = cyl(r, r * 1.15, h, m, x, y0 + h / 2, z, 8);
+    const c = buildPillar(r, h, m);
+    c.position.set(x, y0 + h / 2, z);
     this.scene.add(c);
     this.meshes.push(c);
     this.obstacles.push({ kind: 'circle', x, z, r: r * 1.1, group: c, mats: [], box: null });
@@ -755,69 +710,21 @@ export class World {
       }
       return out;
     };
-    const strip = (u0, u1, color, rough = 0.9, y = 0.06) => {
-      const A = pts(u0),
-        B = pts(u1);
-      const pos = [];
-      for (let i = 0; i < A.length - 1; i++) {
-        const a = A[i],
-          b = B[i],
-          c2 = A[i + 1],
-          d = B[i + 1];
-        pos.push(
-          a.x,
-          a.y + y,
-          a.z,
-          b.x,
-          b.y + y,
-          b.z,
-          c2.x,
-          c2.y + y,
-          c2.z,
-          b.x,
-          b.y + y,
-          b.z,
-          d.x,
-          d.y + y,
-          d.z,
-          c2.x,
-          c2.y + y,
-          c2.z,
-        );
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.computeVertexNormals();
-      const m = new THREE.Mesh(g, mat(color, { roughness: rough }));
-      m.receiveShadow = true;
+    const road = c.kind === 'road';
+    for (const [u0, u1, color, rough, y] of road ? ROAD_STRIPS : RAIL_STRIPS) {
+      const m = stripMesh(pts(u0), pts(u1), color, rough, y);
       this.scene.add(m);
       this.meshes.push(m);
-      return m;
-    };
-    if (c.kind === 'road') {
-      strip(-5, 5, 0x3a3d42);
-      strip(-5.2, -4.8, 0xd8d8d0, 0.8, 0.02);
-      strip(4.8, 5.2, 0xd8d8d0, 0.8, 0.02);
-      for (let s = -half; s < half; s += 8) {
-        const x = c.dir.x * s + c.perp.x * c.off,
-          z = c.dir.y * s + c.perp.y * c.off;
-        const m = box(0.3, 0.05, 3.2, mat(0xe8d070), x, this.terrainHeight(x, z) + 0.09, z);
-        m.rotation.y = Math.atan2(c.dir.x, c.dir.y);
-        this.scene.add(m);
-        this.meshes.push(m);
-      }
-    } else {
-      strip(-4.5, 4.5, 0x6e6558, 1, 0.02);
-      strip(-1.6, -1.3, 0x9aa0a8, 0.4, 0.16);
-      strip(1.3, 1.6, 0x9aa0a8, 0.4, 0.16);
-      for (let s = -half; s < half; s += 1.6) {
-        const x = c.dir.x * s + c.perp.x * c.off,
-          z = c.dir.y * s + c.perp.y * c.off;
-        const m = box(4.2, 0.12, 0.5, mat(0x4a3b2e), x, this.terrainHeight(x, z) + 0.06, z);
-        m.rotation.y = Math.atan2(c.dir.x, c.dir.y);
-        this.scene.add(m);
-        this.meshes.push(m);
-      }
+    }
+    const P = road ? LANE_MARK : RAIL_TIE; // 公路中線標線／鐵路枕木
+    for (let s = -half; s < half; s += P.step) {
+      const x = c.dir.x * s + c.perp.x * c.off,
+        z = c.dir.y * s + c.perp.y * c.off;
+      const m = corridorPiece(P);
+      m.position.set(x, this.terrainHeight(x, z) + P.y, z);
+      m.rotation.y = Math.atan2(c.dir.x, c.dir.y);
+      this.scene.add(m);
+      this.meshes.push(m);
     }
     // 隧道口：地圖兩端各一座（拱門＋門柱＋黑洞＋山體）
     for (const sgn of [-1, 1]) {
@@ -825,16 +732,7 @@ export class World {
       const x = c.dir.x * s + c.perp.x * c.off,
         z = c.dir.y * s + c.perp.y * c.off;
       const y = this.terrainHeight(x, z);
-      const g = new THREE.Group();
-      const dm = mat(0x5b5f66, { roughness: 0.95 });
-      g.add(box(14, 9, 2.5, dm, 0, 4.5, 0));
-      g.add(box(10, 0.9, 2.7, mat(0x8a8f96), 0, 8.1, 0));
-      const hole = box(8, 6.5, 2.8, new THREE.MeshBasicMaterial({ color: 0x07080a }), 0, 3.25, 0);
-      g.add(hole);
-      g.add(box(1.4, 7, 3, mat(0x3d4147), -4.7, 3.5, 0));
-      g.add(box(1.4, 7, 3, mat(0x3d4147), 4.7, 3.5, 0));
-      const mount = box(24, 14, 10, mat(this.theme.rock, { roughness: 1 }), 0, 5, -6);
-      g.add(mount);
+      const g = buildTunnelPortal(this.theme.rock);
       g.position.set(x, y - 0.1, z);
       g.rotation.y = Math.atan2(c.dir.x, c.dir.y) + (sgn > 0 ? Math.PI : 0);
       this.scene.add(g);
@@ -845,11 +743,7 @@ export class World {
   buildFeatures() {
     this.buildCorridor();
     const T = this.theme;
-    const mats = {
-      deck: mat(0x6a6f77, { roughness: 0.85, metalness: 0.2 }),
-      rail: mat(0x3a3d42),
-      pillar: mat(0x4a4f57, { roughness: 0.9 }),
-    };
+    const mats = deckMats();
     for (const f of this.features) {
       if (f.k === 'river_bridge') {
         for (let bpos of f.bridges) {

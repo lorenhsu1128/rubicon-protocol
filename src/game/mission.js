@@ -6,8 +6,9 @@ import { AC_NAMES, AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES } from '../data/e
 import { CONSUMABLES, PARTS, partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
+import { buildBomberMesh } from '../render/extra-models.js';
 import { PALETTES } from '../render/materials.js';
-import { THEMES, World, box, cyl } from '../world/world.js';
+import { THEMES, World } from '../world/world.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -106,21 +107,7 @@ Object.assign(Game.prototype, {
       });
     }
     // bomber mesh
-    const bm = new THREE.Group();
-    const mm = new THREE.MeshStandardMaterial({
-      color: 0x4a5058,
-      roughness: 0.6,
-      metalness: 0.5,
-      flatShading: true,
-    });
-    const b1 = box(2.2, 1.6, 14, mm, 0, 0, 0);
-    const w1 = box(24, 0.4, 4, mm, 0, 0, 1);
-    const t1 = box(8, 0.3, 2.5, mm, 0, 0.6, 6);
-    const f1 = box(0.3, 2.5, 3, mm, 0, 1.4, 6);
-    bm.add(b1, w1, t1, f1);
-    for (const sx of [-7, -3.5, 3.5, 7]) {
-      bm.add(cyl(0.7, 0.7, 3, mm, sx, -0.6, 0.5).rotateX(Math.PI / 2));
-    }
+    const bm = buildBomberMesh();
     const alt = 30,
       speed = 48,
       startD = -95,

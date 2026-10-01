@@ -3,6 +3,7 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { pick, rnd, rndi } from '../core/math.js';
+import { buildPickupMesh, buildTransport } from '../render/extra-models.js';
 
 export const PICKUP_DEFS = {
   repair: { name: '修補包', color: 0x7ee081 },
@@ -57,55 +58,7 @@ export class Vehicle {
     }
   }
   build() {
-    const g = new THREE.Group();
-    const M = (c, o) =>
-      new THREE.MeshStandardMaterial(
-        Object.assign({ color: c, roughness: 0.6, metalness: 0.3, flatShading: true }, o || {}),
-      );
-    const bx = (w, h, d, m, x, y, z) => {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-      b.position.set(x, y, z);
-      b.castShadow = true;
-      g.add(b);
-      return b;
-    };
-    this.carGroups = [];
-    for (let i = 0; i < this.cars; i++) {
-      const cg = new THREE.Group();
-      const zc = -i * this.carLen;
-      if (this.kind === 'train') {
-        if (i === 0) {
-          bx(3.2, 3.2, 7, M(0x7a2a2a), 0, 2.2, zc);
-          bx(2.6, 1.6, 2.4, M(0x2a2d31), 0, 4.2, zc + 1.8);
-          bx(0.8, 1.2, 0.8, M(0x1a1a1a), 0, 4.4, zc - 2.2);
-          bx(3.4, 0.4, 7.2, M(0xd8c060), 0, 0.7, zc);
-        } else {
-          bx(3.2, 3.0, 7, M(i % 2 ? 0x4a5a3a : 0x3a4a6a), 0, 2.1, zc);
-          bx(3.4, 0.3, 7.2, M(0x2a2d31), 0, 0.55, zc);
-          bx(3.4, 0.2, 7.2, M(0x8a8f96), 0, 3.65, zc);
-        }
-        for (const sz of [-2.4, 2.4])
-          for (const sx of [-1.4, 1.4]) {
-            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 10), M(0x1c1e20));
-            w.rotation.z = Math.PI / 2;
-            w.position.set(sx, 0.5, zc + sz);
-            g.add(w);
-          }
-      } else {
-        bx(3, 2.4, 7, M(0x2b4a8a), 0, 1.8, zc - 0.5);
-        bx(3, 1.7, 2.4, M(0xe6e6e6), 0, 1.55, zc + 3.6);
-        bx(2.6, 0.6, 2.2, M(0x30a0ff, { transparent: true, opacity: 0.6 }), 0, 2.3, zc + 3.7);
-        bx(3.2, 0.3, 7.4, M(0x2a2d31), 0, 0.55, zc);
-        for (const sz of [-2.6, -0.5, 3.2])
-          for (const sx of [-1.45, 1.45]) {
-            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.5, 10), M(0x1c1e20));
-            w.rotation.z = Math.PI / 2;
-            w.position.set(sx, 0.6, zc + sz);
-            g.add(w);
-          }
-      }
-      this.carGroups.push(cg);
-    }
+    const g = buildTransport(this.kind, this.cars, this.carLen);
     this.mesh = g;
     this.game.scene.add(g);
     this.mats = [];
@@ -185,31 +138,7 @@ export class Pickup {
     this.pos = pos.clone();
     this.life = 40;
     this.dead = false;
-    const d = PICKUP_DEFS[kind];
-    const g = new THREE.Group();
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({
-        color: d.color,
-        emissive: d.color,
-        emissiveIntensity: 0.8,
-        roughness: 0.4,
-      }),
-    );
-    m.castShadow = true;
-    g.add(m);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(1.2, 1.5, 24),
-      new THREE.MeshBasicMaterial({
-        color: d.color,
-        transparent: true,
-        opacity: 0.6,
-        side: THREE.DoubleSide,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = -0.55;
-    g.add(ring);
+    const g = buildPickupMesh(PICKUP_DEFS[kind].color);
     g.position.copy(this.pos);
     game.scene.add(g);
     this.mesh = g;

@@ -61,9 +61,9 @@ export function prepareModel(entry, palKey) {
   const { obj, scaleNode, scale } = built;
   // 原始尺寸：暫時把遊戲縮放設為 1
   scaleNode.scale.set(1, 1, 1);
-  const sizeOrig = measureBox(obj).getSize(new THREE.Vector3());
+  const sizeOrig = measureBox(obj, entry.measureFx).getSize(new THREE.Vector3());
   scaleNode.scale.copy(scale);
-  const box = measureBox(obj);
+  const box = measureBox(obj, entry.measureFx);
   const size = box.getSize(new THREE.Vector3());
   const c = box.getCenter(new THREE.Vector3());
   obj.position.set(-c.x, -box.min.y, -c.z);
@@ -72,7 +72,7 @@ export function prepareModel(entry, palKey) {
   obj.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
-  return { pivot, built, size, sizeOrig, scale: scale.clone(), stats: modelStats(obj) };
+  return { pivot, built, size, sizeOrig, scale: scale.clone(), stats: modelStats(obj, entry.measureFx) };
 }
 
 // 縮放倍率文字：等比例「×2.6」；武器掛點等非等比例「×0.72／0.72／0.5」

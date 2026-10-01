@@ -7,13 +7,13 @@ export function isFxMaterial(m) {
   return !m || m === OUTLINE_MAT || m.blending === THREE.AdditiveBlending || !!(m.userData && m.userData.fx);
 }
 
-// 回傳 obj 在自身父座標系中的外框（obj 不應有父物件，或父物件為單位矩陣）
-export function measureBox(obj) {
+// 回傳 obj 在自身父座標系中的外框（obj 不應有父物件，或父物件為單位矩陣）；includeFx 時連發光特效一起量（彈體）
+export function measureBox(obj, includeFx = false) {
   obj.updateMatrixWorld(true);
   const box = new THREE.Box3(),
     tmp = new THREE.Box3();
   obj.traverseVisible((o) => {
-    if (!o.isMesh || isFxMaterial(o.material)) return;
+    if (!o.isMesh || (!includeFx && isFxMaterial(o.material))) return;
     const g = o.geometry;
     if (!g.boundingBox) g.computeBoundingBox();
     tmp.copy(g.boundingBox).applyMatrix4(o.matrixWorld);
@@ -27,7 +27,7 @@ const triCount = (g) =>
 const TEX_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap'];
 
 // 統計：三角面（不含描邊與特效）、繪製次數（含描邊）、材質與貼圖
-export function modelStats(obj) {
+export function modelStats(obj, includeFx = false) {
   let tris = 0,
     draws = 0;
   const mats = new Set(),
@@ -35,7 +35,7 @@ export function modelStats(obj) {
   obj.traverseVisible((o) => {
     if (!o.isMesh) return;
     draws++;
-    if (isFxMaterial(o.material)) return;
+    if (!includeFx && isFxMaterial(o.material)) return;
     tris += triCount(o.geometry);
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       mats.add(m);

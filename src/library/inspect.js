@@ -188,6 +188,7 @@ export class Inspector {
     this.controls.update();
     this.renderInfo();
     this.applyOpts();
+    $('insPal').disabled = !!e.noPal; // 地圖物件等沒有陣營配色
     const rig = d.built.rig;
     const canAnim = rig && !rig.vehicle;
     $('insAnimH').style.display = $('insAnims').style.display = canAnim ? '' : 'none';
