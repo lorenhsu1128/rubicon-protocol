@@ -216,6 +216,66 @@ async function testLibrary(browser, base) {
   await ctx.close();
 }
 
+// 模型庫 GLB 流程：下載範本 GLB → 載入同一槽位 → 規格檢查全部通過 → 組合預覽 → 錯放偵測 → 移除
+async function testLibraryGlb(browser, base) {
+  console.log('模型庫 GLB：範本匯出 → 載入 → 規格檢查 → 組合預覽 → 移除');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'library-glb');
+  const badCount = () =>
+    page.$$eval('#insChecks li', (ls) =>
+      ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
+    );
+  await page.goto(base + 'model-library.html#mech/player');
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1500);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+  const fp = path.join(SHOT_DIR, 'player_template.glb');
+  await dl.saveAs(fp);
+  check(fs.statSync(fp).size > 1000, `下載範本 GLB（${Math.round(fs.statSync(fp).size / 1024)} KB）`);
+  await page.setInputFiles('#insFile', fp);
+  await wait(3000);
+  check(((await page.textContent('#insInfo')) || '').includes('GLB（瀏覽器暫存）'), '載入後來源顯示為 GLB');
+  const bad = await badCount();
+  check(bad.length === 0, `範本 GLB 規格檢查全部通過${bad.length ? '：' + bad.join('；') : ''}`);
+  check(
+    ((await page.textContent('#insChecks')) || '').includes('機體節點齊全'),
+    'GLB 機體節點齊全，可用動作驅動',
+  );
+  await page.click('#insModes button[data-m="side"]');
+  await wait(2000);
+  await page.click('#insAnims button[data-a="walk"]');
+  await wait(800);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-glb-side.png') });
+  // 錯放：同一個檔案放進頭部槽位應該報尺寸錯誤
+  await page.keyboard.press('Escape');
+  await page.goto(base + 'model-library.html#head/h_std');
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1200);
+  await page.setInputFiles('#insFile', fp);
+  await wait(3000);
+  const wrong = await page.$$eval('#insChecks li.error', (ls) => ls.map((l) => l.textContent));
+  check(
+    wrong.some((t) => t.includes('尺寸')),
+    '錯放的 GLB 會報尺寸錯誤',
+  );
+  await page.click('#insModes button[data-m="compose"]');
+  await wait(2000);
+  check(
+    await page.$eval('#insModes button[data-m="compose"]', (b) => b.classList.contains('sel')),
+    '組合預覽可以開啟',
+  );
+  await page.click('#insRemove');
+  await wait(1500);
+  check(((await page.textContent('#insInfo')) || '').includes('程式模型'), '移除後改回程式模型');
+  await page.keyboard.press('Escape');
+  await wait(2500);
+  const badge = await page.$eval('.cell[data-id="mech/player"] .badge', (b) => b.textContent);
+  check(/GLB/.test(badge), `格子標示 GLB（${badge}）`);
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -347,6 +407,7 @@ async function main() {
     await testSolo(browser, base);
     await testPilot(browser, base);
     await testLibrary(browser, base);
+    await testLibraryGlb(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');

@@ -24,6 +24,16 @@
           >配色
           <select id="palSel"></select
         ></label>
+        <label
+          >來源
+          <select id="srcSel">
+            <option value="">全部</option>
+            <option value="glb">只看 GLB</option>
+            <option value="proc">只看程式模型</option>
+          </select></label
+        >
+        <button id="btnManifest" title="匯出所有 GLB 槽位與檢查結果">匯出對照表</button>
+        <span class="dim hint">把 .glb 拖到任一格即可替換（存在這個瀏覽器）</span>
       </div>
       <nav id="tabs"></nav>
     </header>
@@ -39,6 +49,18 @@
         <h2 id="insName"></h2>
         <div class="dim" id="insId"></div>
         <div id="insInfo"></div>
+        <h3>模式</h3>
+        <div class="btns" id="insModes"></div>
+        <h3>GLB</h3>
+        <div class="btns">
+          <button id="insLoad">載入 GLB…</button>
+          <button id="insDownload">下載（依槽位命名）</button>
+          <button id="insRemove">移除瀏覽器暫存</button>
+          <button id="insTemplate" title="把程式模型照規格匯出成 GLB，當作建模範本">下載範本 GLB</button>
+          <input id="insFile" type="file" accept=".glb,model/gltf-binary" hidden />
+        </div>
+        <div class="dim small" id="insGlbHint"></div>
+        <ul id="insChecks"></ul>
         <h3>顯示</h3>
         <div class="toggles" id="insToggles"></div>
         <div class="row2">
@@ -58,6 +80,8 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>

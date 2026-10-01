@@ -150,6 +150,7 @@ const addMech = (key, name, asm, palKey, scale, note = '', boss = false) =>
     note,
     pal: palKey,
     asm,
+    gameScale: scale,
     spec: boss ? 'mech-boss' : 'mech',
     build: (k) => wholeRig(buildMech(asm, pal(k), 1), scale),
   });
@@ -189,6 +190,7 @@ const addVeh = (key, name, fn, palKey, scale, note, spec = 'vehicle') =>
     name,
     note,
     pal: palKey,
+    gameScale: scale,
     spec,
     build: (k) => wholeRig(fn(pal(k), 1), scale),
   });

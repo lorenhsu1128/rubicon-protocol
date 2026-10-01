@@ -1,7 +1,11 @@
 // 模型庫共用：渲染器、燈光、模型建立與量測、相機取景、動作預覽狀態
 import { makeStudioEnv } from '../render/environment.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
+import { buildRigFromGlb, checkGlb, checkSummary, composePart, glbScene, parseGlb } from '../render/glb.js';
+import { PALETTES } from '../render/materials.js';
 import { measureBox, modelStats } from '../render/measure.js';
+import { START_ASM } from '../data/parts.js';
+import { buildMech } from '../render/mech-model.js';
 
 let ENV = null;
 export const studioEnv = () => ENV || (ENV = makeStudioEnv());
@@ -56,8 +60,8 @@ export function disposeObject(obj) {
 }
 
 // 建立模型並量測。回傳的 pivot 以模型底面中心為原點（放在地面上、可繞 Y 軸旋轉）
-export function prepareModel(entry, palKey) {
-  const built = entry.build(palKey || entry.pal);
+// 量測並置中：回傳的 pivot 以模型底面中心為原點（放在地面上、可繞 Y 軸旋轉）
+function finalize(entry, built, extra = {}) {
   const { obj, scaleNode, scale } = built;
   // 原始尺寸：暫時把遊戲縮放設為 1
   scaleNode.scale.set(1, 1, 1);
@@ -72,7 +76,88 @@ export function prepareModel(entry, palKey) {
   obj.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
-  return { pivot, built, size, sizeOrig, scale: scale.clone(), stats: modelStats(obj, entry.measureFx) };
+  return {
+    pivot,
+    built,
+    size,
+    sizeOrig,
+    scale: scale.clone(),
+    stats: modelStats(obj, entry.measureFx),
+    ...extra,
+  };
+}
+
+// 程式模型
+export function prepareModel(entry, palKey) {
+  return finalize(entry, entry.build(palKey || entry.pal), { source: { kind: 'proc' } });
+}
+
+const ONE = () => new THREE.Vector3(1, 1, 1);
+const palOf = (entry, palKey) => (entry.noPal ? null : PALETTES[palKey || entry.pal] || PALETTES.player);
+const isWeapon = (e) => e.cat === 'weapon' || e.cat === 'back';
+// 程式模型在「GLB 製作尺寸」下的外框，作為規格檢查的參考：武器以遊戲內實際尺寸製作（含掛點縮放），其餘以 ×1 製作
+function referenceBox(entry, palKey) {
+  const b = entry.build(palKey || entry.pal);
+  if (!isWeapon(entry)) b.scaleNode.scale.set(1, 1, 1);
+  let box = measureBox(b.obj);
+  if (box.isEmpty()) box = measureBox(b.obj, true);
+  disposeObject(b.obj);
+  return box;
+}
+
+// GLB：解析、轉座標系、套配色、建立骨架（完整機甲），並對照程式模型做規格檢查
+export async function prepareGlbModel(entry, palKey, src) {
+  const gltf = await parseGlb(src.buf);
+  const { root, info } = glbScene(gltf, palOf(entry, palKey));
+  const isMech = entry.cat === 'mech';
+  let rig = null,
+    rigMissing = null;
+  if (isMech) ({ rig, missing: rigMissing } = buildRigFromGlb(root));
+  const checks = checkGlb({
+    root,
+    info,
+    bytes: src.size,
+    spec: entry.spec,
+    ref: referenceBox(entry, palKey),
+    rigMissing,
+    isMech,
+  });
+  const obj = new THREE.Group();
+  obj.add(rig ? rig.group : root);
+  const scale = entry.gameScale ? new THREE.Vector3().setScalar(entry.gameScale) : ONE();
+  obj.scale.copy(scale);
+  return finalize(
+    entry,
+    { obj, scaleNode: obj, scale, rig },
+    { source: src, checks, summary: checkSummary(checks), info },
+  );
+}
+
+export const prepareSource = (entry, palKey, src) =>
+  src && src.kind === 'glb'
+    ? prepareGlbModel(entry, palKey, src)
+    : Promise.resolve(prepareModel(entry, palKey));
+
+// 組合預覽：玩家初始機（START_ASM，換上此零件）＋此槽位的 GLB
+export const COMPOSE_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];
+const ASM_KEY = {
+  head: 'head',
+  core: 'core',
+  arms: 'arms',
+  legs: 'legs',
+  booster: 'booster',
+  weapon: 'rarm',
+  back: 'rback',
+};
+export async function prepareComposite(entry, palKey, src) {
+  const asm = { ...START_ASM, [ASM_KEY[entry.cat]]: entry.part };
+  const rig = buildMech(asm, palOf(entry, palKey) || PALETTES.player, 1);
+  let notes = [];
+  if (src && src.kind === 'glb') {
+    const { root } = glbScene(await parseGlb(src.buf), palOf(entry, palKey));
+    notes = composePart(rig, entry.cat, root);
+  }
+  return finalize(entry, { obj: rig.group, scaleNode: rig.group, scale: ONE(), rig }, { source: src, notes });
 }
 
 // 縮放倍率文字：等比例「×2.6」；武器掛點等非等比例「×0.72／0.72／0.5」

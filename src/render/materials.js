@@ -215,6 +215,23 @@ function makeDecalTexture() {
 export let WEAR = null,
   PANEL = null,
   DECAL = null;
+// 配色槽位的實際顏色（含未設定時的回退）：程式模型與 GLB 換色共用
+export function palColor(pal, slot) {
+  switch (slot) {
+    case 'main2':
+      return pal.main2 || pal.main;
+    case 'main3':
+      return pal.main3 || pal.main2 || pal.main;
+    case 'gun':
+      return pal.gun || 0x34373c;
+    case 'grey':
+      return pal.grey || 0x8a8f95;
+    case 'glow':
+      return pal.glow || 0x9ff0ff;
+    default:
+      return pal[slot];
+  }
+}
 export function mechMats(pal) {
   if (!WEAR) {
     WEAR = makeWearTexture();
@@ -237,10 +254,10 @@ export function mechMats(pal) {
         o || {},
       ),
     );
-  return {
+  const M = {
     main: mk(pal.main),
-    main2: mk(pal.main2 || pal.main, { roughness: 0.78 }),
-    main3: mk(pal.main3 || pal.main2 || pal.main, { roughness: 0.7, metalness: 0.45 }),
+    main2: mk(palColor(pal, 'main2'), { roughness: 0.78 }),
+    main3: mk(palColor(pal, 'main3'), { roughness: 0.7, metalness: 0.45 }),
     sub: mk(pal.sub, { metalness: 0.55, roughness: 0.5 }),
     acc: mk(pal.acc, { metalness: 0.3, normalScale: new THREE.Vector2(0.3, 0.3) }),
     joint: new THREE.MeshStandardMaterial({
@@ -250,7 +267,7 @@ export function mechMats(pal) {
       flatShading: true,
     }),
     gun: new THREE.MeshStandardMaterial({
-      color: pal.gun || 0x34373c,
+      color: palColor(pal, 'gun'),
       roughness: 0.5,
       metalness: 0.7,
       flatShading: true,
@@ -258,7 +275,7 @@ export function mechMats(pal) {
       normalMap: PANEL,
       normalScale: new THREE.Vector2(0.4, 0.4),
     }),
-    grey: mk(pal.grey || 0x8a8f95, { roughness: 0.7, metalness: 0.35 }),
+    grey: mk(palColor(pal, 'grey'), { roughness: 0.7, metalness: 0.35 }),
     visor: new THREE.MeshStandardMaterial({
       color: pal.visor,
       emissive: pal.visor,
@@ -273,6 +290,8 @@ export function mechMats(pal) {
       flatShading: true,
     }),
   };
+  for (const k in M) M[k].name = k; // 材質名稱＝配色槽位（匯出 GLB 範本時保留）
+  return M;
 }
 export const PALETTES = {
   player: {

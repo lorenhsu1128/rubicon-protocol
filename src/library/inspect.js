@@ -1,4 +1,5 @@
-// 模型庫檢視窗：放大檢視單一模型（滑鼠／觸控旋轉縮放）、後處理、尺寸參考物、配色與光線、動作預覽
+// 模型庫檢視窗：放大檢視單一模型（滑鼠／觸控旋轉縮放）、後處理、尺寸參考物、配色與光線、動作預覽，
+// 以及 GLB 工具：單獨／並排對照／疊合對照／組合預覽四種模式、規格檢查報告、載入／下載／移除
 import { escHtml } from '../core/html.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { PALETTES } from '../render/materials.js';
@@ -7,15 +8,19 @@ import { CATEGORIES } from '../render/model-catalog.js';
 import { animateMech } from '../render/mech-model.js';
 import { THEMES } from '../world/world.js';
 import { buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
+import { exportTemplate } from './template.js';
 import {
   ANIMS,
+  COMPOSE_CATS,
   addLights,
   animState,
   applyLight,
   disposeObject,
   fitCamera,
   makeRenderer,
+  prepareComposite,
   prepareModel,
+  prepareSource,
   scaleText,
 } from './stage.js';
 
@@ -31,10 +36,27 @@ const TOGGLES = [
   ['shadow', '陰影', true],
   ['rotate', '自動旋轉', false],
 ];
+const MODES = [
+  ['single', '單獨'],
+  ['side', '並排對照'],
+  ['overlay', '疊合對照'],
+  ['compose', '組合預覽'],
+];
+const GHOST = new THREE.MeshBasicMaterial({
+  color: 0x5cc8ff,
+  wireframe: true,
+  transparent: true,
+  opacity: 0.35,
+});
+const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.round(n / 1024) + ' KB');
 
 export class Inspector {
-  constructor(onClose) {
+  // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
+  constructor({ store, onClose, onFile, onRemove }) {
+    this.store = store;
     this.onClose = onClose;
+    this.onFile = onFile;
+    this.onRemove = onRemove;
     this.canvas = $('insGl');
     this.renderer = makeRenderer(this.canvas, true);
     this.scene = new THREE.Scene();
@@ -54,8 +76,12 @@ export class Inspector {
     this.controls.enableDamping = true;
     this.opts = Object.fromEntries(TOGGLES.map(([k, , v]) => [k, v]));
     this.anim = 'garage';
+    this.mode = 'single';
     this.t = 0;
+    this.tok = 0;
     this.open_ = false;
+    this.items = []; // 場景中的模型（並排／疊合時有兩個）
+    this.labels = [];
     this.setupPost();
     this.setupUi();
     addEventListener('keydown', (e) => {
@@ -110,12 +136,29 @@ export class Inspector {
     for (const b of $('insAnims').querySelectorAll('button'))
       b.onclick = () => {
         this.anim = b.dataset.a;
-        this.markAnim();
+        this.markButtons();
       };
+    $('insModes').innerHTML = MODES.map(([k, n]) => `<button data-m="${k}">${n}</button>`).join('');
+    for (const b of $('insModes').querySelectorAll('button'))
+      b.onclick = () => {
+        this.mode = b.dataset.m;
+        this.rebuild();
+      };
+    $('insLoad').onclick = () => $('insFile').click();
+    $('insFile').onchange = async () => {
+      const f = $('insFile').files[0];
+      $('insFile').value = '';
+      if (f) await this.onFile(this.entry, f);
+    };
+    $('insRemove').onclick = () => this.onRemove(this.entry);
+    $('insDownload').onclick = () => this.download();
+    $('insTemplate').onclick = () => this.downloadTemplate();
   }
-  markAnim() {
+  markButtons() {
     for (const b of $('insAnims').querySelectorAll('button'))
       b.classList.toggle('sel', b.dataset.a === this.anim);
+    for (const b of $('insModes').querySelectorAll('button'))
+      b.classList.toggle('sel', b.dataset.m === this.mode);
   }
   open(entry, palKey) {
     this.entry = entry;
@@ -123,59 +166,123 @@ export class Inspector {
     $('inspect').hidden = false;
     this.open_ = true;
     this.anim = 'garage';
-    this.markAnim();
-    this.rebuild();
+    this.mode = 'single';
+    return this.rebuild();
   }
   close() {
     $('inspect').hidden = true;
     this.open_ = false;
+    this.tok++;
     this.clear();
     if (this.onClose) this.onClose();
   }
   clear() {
-    for (const o of [
-      this.data && this.data.pivot,
-      this.refs && this.refs.grid,
-      this.refs && this.refs.ruler.group,
-      this.refs && this.refs.human.group,
-    ]) {
-      if (!o) continue;
-      this.scene.remove(o);
-      disposeObject(o);
+    for (const it of this.items) {
+      this.scene.remove(it.pivot);
+      disposeObject(it.pivot);
     }
-    this.data = null;
+    this.items = [];
+    if (this.refs)
+      for (const o of [this.refs.grid, this.refs.ruler.group, this.refs.human.group]) {
+        this.scene.remove(o);
+        disposeObject(o);
+      }
     this.refs = null;
+    this.labels = [];
     $('insLabels').innerHTML = '';
   }
-  rebuild() {
+  // 依目前模式建立場景（非同步：GLB 需要解析）
+  async rebuild() {
+    const tok = ++this.tok;
+    const e = this.entry,
+      pal = $('insPal').value || null,
+      src = this.store.source(e.id);
+    const glb = src.kind === 'glb';
+    const canCompose = COMPOSE_CATS.includes(e.cat);
+    if ((this.mode === 'side' || this.mode === 'overlay') && !glb) this.mode = 'single';
+    if (this.mode === 'compose' && !canCompose) this.mode = 'single';
+    for (const b of $('insModes').querySelectorAll('button')) {
+      const m = b.dataset.m;
+      b.disabled = ((m === 'side' || m === 'overlay') && !glb) || (m === 'compose' && !canCompose);
+      b.title = b.disabled ? (m === 'compose' ? '只有機甲部件與武器可組合預覽' : '此槽位還沒有 GLB') : '';
+    }
+    this.markButtons();
+    let main,
+      ref = null;
+    try {
+      main = this.mode === 'compose' ? await prepareComposite(e, pal, src) : await prepareSource(e, pal, src);
+    } catch (err) {
+      main = prepareModel(e, pal);
+      main.loadError = 'GLB 解析失敗：' + (err.message || err);
+    }
+    if (this.mode === 'side' || this.mode === 'overlay') ref = prepareModel(e, pal);
+    if (tok !== this.tok) {
+      for (const d of [main, ref]) if (d) disposeObject(d.pivot);
+      return;
+    }
     this.clear();
-    const e = this.entry;
-    const d = prepareModel(e, $('insPal').value || null);
-    this.data = d;
-    this.scene.add(d.pivot);
-    // 參考物
-    const grid = buildGrid(d.size),
-      ruler = buildRuler(d.size),
-      human = buildHuman(d.size),
-      dims = buildDims(d.size);
-    d.pivot.add(dims.dims, dims.box);
+    this.main = main;
+    this.items = [main, ...(ref ? [ref] : [])];
+    // 擺放：並排時 GLB 在左、程式模型在右，整體置中
+    let size = main.size.clone();
+    if (this.mode === 'side') {
+      const gap = Math.max(0.6, Math.max(main.size.x, ref.size.x) * 0.35);
+      const shift = (main.size.x - ref.size.x) / 2;
+      main.pivot.position.x = -(gap / 2 + main.size.x / 2) + shift;
+      ref.pivot.position.x = gap / 2 + ref.size.x / 2 + shift;
+      size = new THREE.Vector3(
+        main.size.x + gap + ref.size.x,
+        Math.max(main.size.y, ref.size.y),
+        Math.max(main.size.z, ref.size.z),
+      );
+    } else if (this.mode === 'overlay') {
+      ref.pivot.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material === OUTLINE_MAT) o.visible = false;
+        else o.material = GHOST;
+      });
+    }
+    for (const it of this.items) this.scene.add(it.pivot);
+    // 參考物與尺寸標線
+    const grid = buildGrid(size),
+      ruler = buildRuler(size),
+      human = buildHuman(size);
     this.scene.add(grid, ruler.group, human.group);
-    this.refs = { grid, ruler, human, dims };
+    const dimsList = this.items
+      .filter((it, i) => this.mode !== 'overlay' || i === 0)
+      .map((it) => {
+        const d = buildDims(it.size);
+        it.pivot.add(d.dims, d.box);
+        return { it, d };
+      });
+    this.refs = { grid, ruler, human, dims: dimsList.map((x) => x.d) };
     this.labels = [
-      ...dims.labels.map((l) => ({ ...l, key: 'dims', obj: d.pivot })),
+      ...dimsList.flatMap(({ it, d }) => d.labels.map((l) => ({ ...l, key: 'dims', obj: it.pivot }))),
       ...ruler.labels.map((l) => ({ ...l, key: 'ruler', obj: this.scene })),
       ...human.labels.map((l) => ({ ...l, key: 'human', obj: this.scene })),
     ];
+    if (this.mode === 'side') {
+      for (const [it, text] of [
+        [main, 'GLB'],
+        [ref, '程式模型'],
+      ])
+        this.labels.push({
+          pos: new THREE.Vector3(0, it.size.y * 1.08 + 0.2, 0),
+          text,
+          cls: 'tag',
+          key: 'always',
+          obj: it.pivot,
+        });
+    }
     const box = $('insLabels');
-    box.innerHTML = '';
     for (const l of this.labels) {
       l.el = document.createElement('div');
       l.el.className = 'lbl ' + l.cls;
       l.el.textContent = l.text;
       box.appendChild(l.el);
     }
-    // 陰影範圍
-    const r = Math.max(4, d.size.length());
+    // 陰影範圍與相機
+    const r = Math.max(4, size.length());
     const sc = this.lights.sun.shadow.camera;
     sc.left = sc.bottom = -r;
     sc.right = sc.top = r;
@@ -184,30 +291,45 @@ export class Inspector {
     sc.updateProjectionMatrix();
     this.lights.sun.position.set(r * 0.6, r * 1.4, -r * 0.8);
     this.resize(true);
-    this.controls.target.copy(fitCamera(this.camera, d.size, this.camera.aspect, 1.6));
+    this.controls.target.copy(fitCamera(this.camera, size, this.camera.aspect, 1.6));
     this.controls.update();
-    this.renderInfo();
+    this.renderInfo(src, ref);
     this.applyOpts();
     $('insPal').disabled = !!e.noPal; // 地圖物件等沒有陣營配色
-    const rig = d.built.rig;
+    const rig = main.built.rig;
     const canAnim = rig && !rig.vehicle;
     $('insAnimH').style.display = $('insAnims').style.display = canAnim ? '' : 'none';
   }
-  renderInfo() {
+  renderInfo(src, ref) {
     const e = this.entry,
-      d = this.data;
+      d = this.main;
     const cat = CATEGORIES.find((c) => c.id === e.cat);
     $('insName').textContent = e.name;
     $('insId').textContent = `${e.id}${e.note ? '・' + e.note : ''}`;
     const st = scaleText(d.scale);
+    const srcText =
+      src.kind !== 'glb'
+        ? '程式模型（three.js）'
+        : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
-      ['來源', '程式模型（three.js）'],
-      ['遊戲尺寸（寬×高×深）', fmtSize(d.size)],
+      ['來源', d.loadError ? d.loadError + '（改顯示程式模型）' : srcText],
+      [this.mode === 'compose' ? '組合後尺寸（寬×高×深）' : '遊戲尺寸（寬×高×深）', fmtSize(d.size)],
       ...(st
         ? [
             ['原始尺寸', fmtSize(d.sizeOrig)],
             ['遊戲縮放', st + (e.scaleNote ? `（${e.scaleNote}）` : '')],
+          ]
+        : []),
+      ...(ref
+        ? [
+            ['程式模型尺寸', fmtSize(ref.size)],
+            [
+              '尺寸比例（GLB／程式）',
+              ['x', 'y', 'z']
+                .map((k) => (ref.size[k] > 0.01 ? `${Math.round((d.size[k] / ref.size[k]) * 100)}%` : '—'))
+                .join('／'),
+            ],
           ]
         : []),
       ['三角面', d.stats.tris.toLocaleString()],
@@ -220,19 +342,59 @@ export class Inspector {
         (r) => `<div class="kv"><span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span></div>`,
       )
       .join('');
+    // GLB 工具與檢查報告
+    const glb = src.kind === 'glb';
+    $('insDownload').disabled = !glb;
+    $('insRemove').disabled = !(glb && src.origin === 'browser');
+    $('insGlbHint').textContent = glb
+      ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
+      : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;
+    const checks = [
+      ...(d.notes || []).map((t) => ({ lv: 'warn', text: t })),
+      ...(this.mode === 'compose' || !d.checks ? [] : d.checks),
+    ];
+    if (this.mode === 'compose' && glb && !(d.notes || []).length)
+      checks.push({ lv: 'info', text: '組合預覽：以玩家初始機裝上此 GLB，可用動作預覽確認接點與比例' });
+    $('insChecks').innerHTML = checks.map((c) => `<li class="${c.lv}">${escHtml(c.text)}</li>`).join('');
+  }
+  download() {
+    const src = this.store.source(this.entry.id);
+    if (src.kind !== 'glb') return;
+    this.saveBlob(
+      new Blob([src.buf], { type: 'model/gltf-binary' }),
+      this.entry.id.split('/').pop() + '.glb',
+    );
+  }
+  // 程式模型照規格匯出的範本（檔名加 _template，避免和正式檔混淆）
+  async downloadTemplate() {
+    const buf = await exportTemplate(this.entry, $('insPal').value || null);
+    this.saveBlob(
+      new Blob([buf], { type: 'model/gltf-binary' }),
+      this.entry.id.split('/').pop() + '_template.glb',
+    );
+  }
+  saveBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
   applyOpts() {
     const o = this.opts,
       R = this.refs;
     if (!R) return;
-    R.dims.dims.visible = o.dims;
-    R.dims.box.visible = o.box;
+    for (const d of R.dims) {
+      d.dims.visible = o.dims;
+      d.box.visible = o.box;
+    }
     R.ruler.group.visible = o.ruler;
     R.human.group.visible = o.human;
     R.grid.visible = o.grid;
-    this.data.pivot.traverse((m) => {
-      if (m.isMesh && m.material === OUTLINE_MAT) m.visible = o.outline;
-    });
+    for (const it of this.items.slice(0, this.mode === 'overlay' ? 1 : 2))
+      it.pivot.traverse((m) => {
+        if (m.isMesh && m.material === OUTLINE_MAT) m.visible = o.outline;
+      });
     this.renderer.shadowMap.enabled = o.shadow;
     this.lights.sun.castShadow = o.shadow;
     this.scene.traverse((m) => {
@@ -260,13 +422,14 @@ export class Inspector {
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
-    if (!this.open_ || !this.data) return;
+    if (!this.open_ || !this.items.length) return;
     this.t += dt;
     this.resize(false);
-    const d = this.data;
-    if (this.opts.rotate) d.pivot.rotation.y += dt * 0.4;
-    const rig = d.built.rig;
-    if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState(this.anim, this.t));
+    for (const it of this.items) {
+      if (this.opts.rotate) it.pivot.rotation.y += dt * 0.4;
+      const rig = it.built.rig;
+      if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState(this.anim, this.t));
+    }
     this.controls.update();
     if (this.opts.post && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
@@ -277,8 +440,7 @@ export class Inspector {
       h = this.h,
       v = new THREE.Vector3();
     for (const l of this.labels) {
-      const show = this.opts[l.key];
-      if (!show) {
+      if (l.key !== 'always' && !this.opts[l.key]) {
         l.el.style.display = 'none';
         continue;
       }

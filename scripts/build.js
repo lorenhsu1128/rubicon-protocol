@@ -19,6 +19,43 @@ const PAGES = [
   { name: '遊戲', dir: SRC, out: 'rubicon-protocol.html' },
   { name: '模型庫', dir: path.join(SRC, 'library'), out: 'model-library.html' },
 ];
+// src/assets/models/ 下的 GLB 會自動內嵌：import BUILTIN_MODELS from 'virtual:models' 取得 { '槽位 id': Uint8Array }
+const MODELS_DIR = path.join(SRC, 'assets', 'models');
+function listModels(dir = MODELS_DIR, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) listModels(p, out);
+    else if (/\.glb$/i.test(e.name)) out.push(p);
+  }
+  return out;
+}
+const modelsPlugin = {
+  name: 'models-index',
+  setup(build) {
+    build.onResolve({ filter: /^virtual:models$/ }, () => ({ path: 'models-index', namespace: 'models' }));
+    build.onLoad({ filter: /.*/, namespace: 'models' }, () => {
+      const files = listModels();
+      const imports = files.map((f, i) => `import m${i} from ${JSON.stringify(f)};`);
+      const map = files.map((f, i) => {
+        const id = path
+          .relative(MODELS_DIR, f)
+          .split(path.sep)
+          .join('/')
+          .replace(/\.glb$/i, '');
+        return `${JSON.stringify(id)}: m${i}`;
+      });
+      return {
+        contents: imports.join('\n') + `\nexport default { ${map.join(', ')} };\n`,
+        resolveDir: SRC,
+        loader: 'js',
+        watchDirs: fs.existsSync(MODELS_DIR) ? [MODELS_DIR] : [],
+        watchFiles: files,
+      };
+    });
+  },
+};
+
 // 頁面模板中的 <link rel="stylesheet" href="./x.css"> 與 <script type="module" src="./x.js"> 會被替換成內嵌內容
 const CSS_TAG = /<link rel="stylesheet" href="\.\/([\w-]+\.css)"\s*\/?>/;
 const JS_TAG = /<script type="module" src="\.\/([\w-]+\.js)"><\/script>/;
@@ -60,6 +97,7 @@ const options = (page) => ({
   write: false,
   logLevel: 'warning',
   plugins: [
+    modelsPlugin,
     {
       name: 'inline-html',
       setup(build) {
