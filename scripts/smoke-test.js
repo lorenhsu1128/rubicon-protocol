@@ -452,6 +452,51 @@ async function testWorkshop(browser, base) {
     await page.$eval('#wsDetail', (d) => !!d.querySelector('.wsDh') && d.textContent.includes('接在')),
     '點畫面上的區塊即選取該區塊',
   );
+  // 對稱編輯、復原／重做、方向鍵微調、複製到另一側、步進設定
+  const lElbow = '#wsTree .wsConn[data-slot="arms/a_std/l_upper"][data-n="elbow"]';
+  const cv = async (sel) => ((await page.textContent(sel + ' .cv')) || '').trim();
+  const blur = () => page.click('#wsRight h3');
+  await page.click(elbow);
+  await page.check('#wsSym');
+  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-1.2');
+  await wait(900);
+  check(
+    (await cv(elbow)).startsWith('-0.280, -1.200') && (await cv(lElbow)).startsWith('0.280, -1.200'),
+    `對稱編輯同時修改另一側（${await cv(lElbow)}）`,
+  );
+  await blur();
+  await page.keyboard.press('Control+z');
+  await wait(600);
+  check(
+    (await cv(elbow)).includes('-0.900') && (await cv(lElbow)).includes('-0.900'),
+    'Ctrl+Z 復原（兩側一起）',
+  );
+  await page.keyboard.press('Control+y');
+  await wait(600);
+  check((await cv(lElbow)).includes('-1.200'), 'Ctrl+Y 重做');
+  await page.keyboard.press('ArrowUp');
+  await wait(400);
+  await page.keyboard.press('Shift+ArrowUp');
+  await wait(600);
+  check((await cv(elbow)).includes('-1.090'), `方向鍵微調 1 cm＋Shift 10 cm（${await cv(elbow)}）`);
+  await page.uncheck('#wsSym');
+  await blur();
+  await page.keyboard.press('ArrowRight');
+  await wait(600);
+  check(
+    (await cv(elbow)).startsWith('-0.270') && (await cv(lElbow)).startsWith('0.280'),
+    '關閉對稱時只改這一側',
+  );
+  await page.click('#wsCopy');
+  await wait(600);
+  check((await cv(lElbow)).startsWith('0.270, -1.090'), `複製到另一側（${await cv(lElbow)}）`);
+  await page.click('.wsSteps summary');
+  await page.fill('.wsSteps input[data-st="move"]', '5');
+  await page.press('.wsSteps input[data-st="move"]', 'Enter');
+  await blur();
+  await page.keyboard.press('ArrowDown');
+  await wait(600);
+  check((await cv(elbow)).includes('-1.140'), '步進可以自己改（5 cm）');
   await page.click('#wsBack');
   check(await page.isHidden('#workshop'), '回模型庫');
   await ctx.close();
