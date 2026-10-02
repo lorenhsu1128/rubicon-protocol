@@ -635,6 +635,7 @@ async function testLocalModels(browser, base) {
       { id: 'prop/container', name: 'container.glb', bytes: await sizedBox(7.5, 2.8, 2.9) },
       { id: 'prop/debris', name: 'debris.glb', bytes: await sizedBox(0.75, 0.35, 0.75) },
       { id: 'prop/lamp_post', name: 'lamp.glb', bytes: await sizedBox(1, 7, 1) },
+      { id: 'prop/grid_pillar', name: 'grid.glb', bytes: await sizedBox(5, 13, 5) }, // 方格主題只有高柱
       { id: 'prop/road', name: 'road.glb', bytes: cube },
       { id: 'arms/a_std/r_fore', name: 'fore.glb', bytes: [...fs.readFileSync(fore)] },
       { id: 'weapon/w_rifle/r', name: 'rifle.glb', bytes: [...fs.readFileSync(rifle)] },
@@ -669,7 +670,7 @@ async function testLocalModels(browser, base) {
   await wait(2500);
   const box = (await page.textContent('#lmBox')) || '';
   check(
-    box.includes('套用 GLB 11 個') && box.includes('失敗 3 個'),
+    box.includes('套用 GLB 12 個') && box.includes('失敗 3 個'),
     `讀取結果：${(box.match(/狀態：([^重]*)/) || ['', ''])[1]}`,
   );
   check(box.includes('關節設定 1 個'), '讀到模型庫的關節設定');
@@ -680,7 +681,7 @@ async function testLocalModels(browser, base) {
   await page.uncheck('#lmBox [data-g="weapon"]');
   await wait(800);
   check(
-    ((await page.textContent('#lmBox')) || '').includes('套用 GLB 10 個'),
+    ((await page.textContent('#lmBox')) || '').includes('套用 GLB 11 個'),
     '關閉武器分類後不套用武器 GLB',
   );
   await page.check('#lmBox [data-g="weapon"]');
@@ -691,7 +692,7 @@ async function testLocalModels(browser, base) {
   await page.click('#btnLmReload');
   await wait(400);
   const ov = await lmOverlay(page);
-  check(ov.includes('套用 GLB 11 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
+  check(ov.includes('套用 GLB 12 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
   await page.click('#lmLoad');
   // 車庫與出擊
@@ -724,11 +725,14 @@ async function testLocalModels(browser, base) {
   check(nf > 0, `機甲區塊換成 GLB（右前臂 ${nf} 次）`);
   const nm = await used('vehicle/bomber');
   check(nm > 0, `空襲轟炸機換成 GLB（${nm} 次）`);
-  const nd = await used('prop/debris'),
-    nl = await used('prop/lamp_post');
+  // 戰區主題隨機：方格主題只有高柱，其他主題有碎塊、路燈桿、貨櫃
+  const props = {};
+  for (const id of ['debris', 'lamp_post', 'container', 'grid_pillar']) props[id] = await used('prop/' + id);
   check(
-    nd > 0 && nl > 0,
-    `地圖物件換成 GLB（碎塊 ${nd}、路燈桿 ${nl}、貨櫃 ${await used('prop/container')}）`,
+    Object.values(props).some((n) => n > 0),
+    `地圖物件換成 GLB（${Object.entries(props)
+      .map(([k, n]) => k + ' ' + n)
+      .join('、')}）`,
   );
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-used.png') });
   await page.click('#btnSettingsBack');
