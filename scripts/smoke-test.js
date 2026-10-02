@@ -465,7 +465,7 @@ async function testLibraryJoints(browser, base) {
   };
   await open('arms/a_std/r_upper');
   const def = await page.$eval(elbowY, (i) => i.value);
-  check(def === '-0.9', `手肘預設位置 Y＝${def}（glTF 座標）`);
+  check(def === '-0.48', `手肘預設位置 Y＝${def}（glTF 座標）`);
   await page.fill(elbowY, '-1.4');
   await wait(900);
   check(
@@ -488,7 +488,7 @@ async function testLibraryJoints(browser, base) {
   check(!!e && e.p[1] === -1.4, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
   await page.click('.jrow[data-n="elbow"] [data-act="reset"]');
   await wait(500);
-  check((await page.$eval(elbowY, (i) => i.value)) === '-0.9', '重設後回到預設值');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-0.48', '重設後回到預設值');
   await ctx.close();
 }
 
@@ -600,7 +600,7 @@ async function testWorkshop(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
   await page.click('#wsDetail [data-act="reset"]');
   await wait(500);
-  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.900'), '重設後回到預設值');
+  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.480'), '重設後回到預設值');
   const gl = await page.$('#wsGl');
   const box = await gl.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
@@ -618,14 +618,14 @@ async function testWorkshop(browser, base) {
   await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-1.2');
   await wait(900);
   check(
-    (await cv(elbow)).startsWith('-0.280, -1.200') && (await cv(lElbow)).startsWith('0.280, -1.200'),
+    (await cv(elbow)).startsWith('0.000, -1.200') && (await cv(lElbow)).startsWith('0.000, -1.200'),
     `對稱編輯同時修改另一側（${await cv(lElbow)}）`,
   );
   await blur();
   await page.keyboard.press('Control+z');
   await wait(600);
   check(
-    (await cv(elbow)).includes('-0.900') && (await cv(lElbow)).includes('-0.900'),
+    (await cv(elbow)).includes('-0.480') && (await cv(lElbow)).includes('-0.480'),
     'Ctrl+Z 復原（兩側一起）',
   );
   await page.keyboard.press('Control+y');
@@ -641,12 +641,12 @@ async function testWorkshop(browser, base) {
   await page.keyboard.press('ArrowRight');
   await wait(600);
   check(
-    (await cv(elbow)).startsWith('-0.270') && (await cv(lElbow)).startsWith('0.280'),
+    (await cv(elbow)).startsWith('0.010') && (await cv(lElbow)).startsWith('0.000'),
     '關閉對稱時只改這一側',
   );
   await page.click('#wsCopy');
   await wait(600);
-  check((await cv(lElbow)).startsWith('0.270, -1.090'), `複製到另一側（${await cv(lElbow)}）`);
+  check((await cv(lElbow)).startsWith('-0.010, -1.090'), `複製到另一側（${await cv(lElbow)}）`);
   await page.click('.wsSteps summary');
   await page.fill('.wsSteps input[data-st="move"]', '5');
   await page.press('.wsSteps input[data-st="move"]', 'Enter');
@@ -691,7 +691,7 @@ async function testEditor(browser, base) {
   check((await stats()).includes('100%／100%／100%'), '載入範本：尺寸與程式模型相同');
   await page.click('#edRot button[data-ax="y"][data-deg="90"]');
   await wait(300);
-  check((await stats()).includes('0.61 × 0.84 × 0.68'), 'Y +90° 旋轉後寬深對調');
+  check((await stats()).includes('0.42 × 0.60 × 0.59'), `Y +90° 旋轉後寬深對調（${await stats()}）`);
   await page.click('#edRot button[data-ax="y"][data-deg="-90"]');
   await page.fill('#edScaleK', '3');
   await page.click('#edScaleGo');
@@ -707,10 +707,10 @@ async function testEditor(browser, base) {
   check((await bad()).length === 0, `對齊後規格檢查全部通過${(await bad()).join('；')}`);
   await page.click('#edOrigin button[data-o="bottom"]');
   await wait(400);
-  check((await stats()).includes('Y0.00 ～ 0.84'), '原點設在底面中心');
+  check((await stats()).includes('Y0.00 ～ 0.60'), `原點設在底面中心（${await stats()}）`);
   await page.keyboard.press('Control+z');
   await wait(400);
-  check((await stats()).includes('Y-0.65 ～ 0.19'), 'Ctrl+Z 復原原點修改');
+  check((await stats()).includes('Y-0.50 ～ 0.10'), `Ctrl+Z 復原原點修改（${await stats()}）`);
   const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
   const t0 = await tris();
   await page.click('#edTree .edNode:last-child [data-act="del"]');

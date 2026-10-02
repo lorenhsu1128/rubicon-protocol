@@ -256,35 +256,43 @@ function buildWeapon(node, w, M, side) {
   }
 }
 
-// ---------------- MECH v6 — Q 版 3D CUBE 風格（CUBEE AC-01 比例） ----------------
-// 三頭身：頭 0.55、軀幹立方 1.2、腿短、腳大；所有等級比例相同，只有裝備與貼花不同
+// ---------------- MECH v7 — 寫實比例（參考圖：約 10.7 頭身、腿長約 58%、細腰、寬肩甲） ----------------
+// 二足站立：腳踝 0.30、膝 1.12、髖 1.94、腰 2.22、胸頂 3.15、頭 3.02～3.33；肩甲外緣寬約 1.9
+// 所有零件共用這組比例，只有裝備與貼花不同
 const CUBE = {
-  hipY: 1.34,
-  hipX: 0.495,
-  thighL: 0.58,
-  thighW: 0.49,
-  shinL: 0.6,
-  shinW: 0.49,
-  footL: 0.8,
-  footW: 0.49,
-  footH: 0.34,
-  pelvisW: 0.5,
-  tw: 1.56,
-  th: 1.02,
-  td: 0.95,
-  cx: 0.65,
-  pelvisH: 0.5,
-  headW: 0.5,
-  headH: 0.5,
-  headD: 0.55,
-  shX: 1.16,
-  shPad: 0.6,
-  upL: 0.5,
-  upW: 0.44,
-  foreL: 0.55,
-  foreW: 0.56,
-  fist: 0.5,
-}; // 量自設計圖正視圖（1 px ≈ 0.00465 m，總高 3.5）
+  hipY: 1.94, // 髖關節高（二足）
+  hipX: 0.34,
+  waistUp: 0.28, // 腰（核心座）在髖關節上方多少
+  thighL: 0.82,
+  thighW: 0.26,
+  shinL: 0.82,
+  shinW: 0.34,
+  ankleH: 0.3, // 腳踝離地
+  footL: 0.72,
+  footW: 0.38,
+  pelvisW: 0.4,
+  pelvisH: 0.42,
+  pelvisD: 0.46,
+  tw: 0.88, // 胸寬
+  td: 0.62, // 胸深
+  cx: 0.36, // 胸部中央柱寬
+  chestTop: 0.93, // 左右胸塊頂（相對腰部）
+  neckY: 0.8, // 脖子（中央柱頂，相對腰部）
+  shX: 0.5, // 肩關節（相對腰部）
+  shY: 0.63,
+  padW: 0.5, // 肩甲
+  padH: 0.6,
+  padD: 0.55,
+  upL: 0.48,
+  upW: 0.26,
+  foreL: 0.52,
+  foreW: 0.4,
+  fist: 0.3,
+  headW: 0.25,
+  headH: 0.31,
+  headD: 0.3,
+  upperH: 0.86, // 腰到判定頂端（遊戲判定身高＝腰高＋此值）
+}; // 量自參考圖正視圖（1 px ≈ 0.00431 m，頭頂 3.33）
 
 // ===== 區塊（piece）=====
 // 機甲由一塊塊「區塊」組成，每塊都可以單獨換成 GLB；區塊的原點＝它的旋轉中心（接到父區塊的位置）。
@@ -418,44 +426,41 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const C0 = (p, r = [0, 0, 0]) => ({ p, r: new THREE.Euler(r[0], r[1], r[2]) });
 // 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）
 export function pieceConns(info) {
-  const R = CUBE,
-    cw = R.tw,
-    ch = R.th,
-    cd = R.td;
+  const R = CUBE;
   switch (info.kind) {
     case 'core': {
       const o = {
-        neck: C0(V(0, ch + 0.14, 0)),
-        backpack: C0(V(0, ch * 0.5 + 0.2, cd * 0.6)),
+        neck: C0(V(0, R.neckY, 0)),
+        backpack: C0(V(0, 0.55, R.td / 2 + 0.2)),
       };
       for (const [k, s] of Object.entries(SIDE_OF)) {
-        o['shoulder_' + k] = C0(V(s * (cw / 2 + 0.05), ch + 0.02, 0));
-        o['back_' + k] = C0(V(s * (cw / 2 + 0.05 + R.shPad / 2), ch + 0.02 + R.shPad / 2 + 0.3, 0.2));
+        o['shoulder_' + k] = C0(V(s * R.shX, R.shY, 0));
+        o['back_' + k] = C0(V(s * 0.6, R.shY + R.padH / 2 + 0.36, 0.22)); // 肩上武器座：肩甲正上方偏後
       }
       return o;
     }
     case 'booster':
       return {
-        nozzle_l: C0(V(-cw * 0.3, -ch * 0.3 - 0.35, 0.42)),
-        nozzle_r: C0(V(cw * 0.3, -ch * 0.3 - 0.35, 0.42)),
+        nozzle_l: C0(V(-0.21, -0.44, 0.26)),
+        nozzle_r: C0(V(0.21, -0.44, 0.26)),
       };
     case 'upper':
-      return { elbow: C0(V(info.side * (R.shPad / 2 - 0.02), -R.shPad / 2 - R.upL - 0.1, 0)) };
+      return { elbow: C0(V(0, -R.upL, 0)) };
     case 'fore':
-      return { wrist: C0(V(0, -R.foreL - 0.12, 0)) };
+      return { wrist: C0(V(0, -R.foreL, 0)) };
     case 'hand':
       return { grip: C0(V(0, -R.fist * 0.3, -R.fist * 0.3), [-Math.PI / 2, 0, 0]) };
     case 'pelvis': {
       const hipY = legHipY(info.legType);
       return {
-        waist: C0(V(0, hipY + 0.33, 0)),
-        hip_r: C0(V(R.hipX, hipY + 0.36, 0)),
-        hip_l: C0(V(-R.hipX, hipY + 0.36, 0)),
+        waist: C0(V(0, waistY(info.legType), 0)),
+        hip_r: C0(V(R.hipX, hipY, 0)),
+        hip_l: C0(V(-R.hipX, hipY, 0)),
       };
     }
     case 'body': {
       const hipY = legHipY(info.legType);
-      const o = { waist: C0(V(0, hipY + 0.33, 0)) };
+      const o = { waist: C0(V(0, waistY(info.legType), 0)) };
       if (info.legType === 'quad')
         for (const [k, sx, sz] of QUAD_LEGS) o['hip_' + k] = C0(V(sx * 0.85, hipY - 0.1, sz * 0.7));
       return o;
@@ -463,16 +468,24 @@ export function pieceConns(info) {
     case 'thigh':
       return info.legType === 'quad'
         ? { knee: C0(V(0, -0.8, 0)) }
-        : { knee: C0(V(0, -R.thighL - 0.05, info.legType === 'reverse' ? 0.12 : 0)) };
+        : { knee: C0(V(0, -R.thighL, info.legType === 'reverse' ? 0.12 : 0)) };
     case 'shin':
-      return { ankle: C0(V(0, -R.shinL - 0.1, 0)) };
+      return { ankle: C0(V(0, -R.shinL, 0)) };
     default:
       return {};
   }
 }
-// 髖部高度（決定整台機甲的身高與核心高度；遊戲判定用，不隨關節設定改變）
+// 髖關節高度：二足、逆關節依待機姿勢讓腳掌貼地（逆關節的大腿後擺 0.35、膝前彎 0.6，所以較低）
 function legHipY(type) {
-  return type === 'reverse' ? CUBE.hipY + 0.15 : type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : CUBE.hipY;
+  const R = CUBE;
+  if (type === 'reverse')
+    return +(R.thighL * Math.cos(0.35) + R.shinL * Math.cos(0.25) + R.ankleH).toFixed(2);
+  return type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : R.hipY;
+}
+// 腰（核心座）高度：決定上半身高度與遊戲判定的身高（不隨關節設定改變）。
+// 四足、履帶的下半身造型不變，以腰部支柱把上半身架到和舊版相同的身高
+function waistY(type) {
+  return type === 'quad' ? 2.18 : type === 'tank' ? 1.98 : legHipY(type) + CUBE.waistUp;
 }
 // 區塊接在哪個父區塊的哪個連接點：{ kind: 父區塊種類, name: 連接點 }（襠部／主體是根，回傳 null）
 export function parentConnOf(info) {
@@ -528,147 +541,170 @@ function pieceCtx(pal, asm) {
   };
 }
 const BUILD = {
+  // 小頭盔：灰色頭盒＋紅色護目鏡＋黑色下巴，半埋在左右胸塊之間
   head(g, info, { M, red }) {
     const R = CUBE,
       hw = R.headW,
       hh = R.headH,
       hd = R.headD;
-    CB(g, hw, hh, hd, M.grey, 0, hh / 2, 0, 0, 0, 0, 0.08);
-    CB(g, hw * 0.72, hh * 0.26, 0.08, red, 0, hh * 0.58, -hd * 0.5, 0, 0, 0, 0.02);
-    P(g, gBox(hw * 0.5, hh * 0.14, 0.05), M.sub, 0, hh * 0.22, -hd * 0.52); // 灰色頭盒＋紅色面罩＋下巴格
-    CB(g, hw * 0.7, 0.08, hd * 0.5, M.sub, 0, hh + 0.03, 0.05, 0, 0, 0, 0.02);
-    P(g, gCyl(0.02, 0.02, 0.9, 4), M.joint, hw * 0.2, hh + 0.45, 0.1);
+    P(g, gCyl(0.07, 0.08, 0.1, 8), M.joint, 0, 0.03, 0.02); // 脖子
+    CB(g, hw, hh * 0.78, hd, M.grey, 0, hh * 0.55, 0.01, 0, 0, 0, 0.05);
+    CB(g, hw * 1.06, hh * 0.18, hd * 0.92, M.sub, 0, hh * 0.9, 0.03, 0, 0, 0, 0.03); // 頂蓋
+    CB(g, hw * 0.82, hh * 0.15, 0.05, red, 0, hh * 0.6, -hd * 0.5, 0, 0, 0, 0.015); // 護目鏡
+    CB(g, hw * 0.62, hh * 0.24, hd * 0.4, M.joint, 0, hh * 0.22, -hd * 0.3, 0, 0, 0, 0.02); // 下巴
     for (const s of [-1, 1]) {
-      CB(g, 0.16, hh * 0.7, hd * 0.55, M.sub, s * (hw / 2 + 0.08), hh * 0.45, 0, 0, 0, 0, 0.03);
-      P(g, gCyl(0.05, 0.05, 0.04, 8), M.lens, s * (hw / 2 + 0.17), hh * 0.45, -hd * 0.1, 0, 0, Math.PI / 2);
+      CB(g, 0.05, hh * 0.42, hd * 0.5, M.sub, s * (hw / 2 + 0.025), hh * 0.55, 0.02, 0, 0, 0, 0.015);
+      P(g, gCyl(0.03, 0.03, 0.02, 8), M.lens, s * (hw / 2 + 0.055), hh * 0.55, -hd * 0.05, 0, 0, Math.PI / 2);
     } // 側耳感測塊
-    if (info.part.id === 'h_hv') P(g, gBox(hw * 1.1, 0.1, hd * 0.4), M.sub, 0, hh * 0.95, -hd * 0.2);
+    P(g, gCyl(0.01, 0.01, 0.5, 4), M.joint, hw * 0.25, hh + 0.25, 0.06);
+    if (info.part.id === 'h_hv')
+      CB(g, hw * 1.2, 0.06, hd * 0.5, M.sub, 0, hh * 0.98, -hd * 0.15, 0, 0, 0, 0.02);
     if (info.part.id === 'h_scan') {
-      P(g, gCyl(0.12, 0.12, 0.1, 8), M.lens, hw * 0.25, hh + 0.1, 0.1);
-      P(g, gCyl(0.03, 0.03, 1.2, 4), M.joint, -hw * 0.25, hh + 0.6, 0.1);
+      P(g, gCyl(0.06, 0.06, 0.06, 8), M.lens, hw * 0.25, hh + 0.04, 0.06);
+      P(g, gCyl(0.015, 0.015, 0.7, 4), M.joint, -hw * 0.25, hh + 0.35, 0.06);
     }
   },
-  // 胸部三塊：中央柱（放頭，頂面較低、整體較高）＋左右胸塊（較短但頂面較高、外推）＋下腹連接板
+  // 核心：黑色細腰＋腹甲＋胸部三塊（中央柱放頭、左右胸塊較高）；原點在腰部
   core(g, info, { M, red }) {
     const R = CUBE,
-      ch = R.th,
       cd = R.td,
       cx = R.cx,
       sx = (R.tw - cx) / 2,
-      sideH = ch * 0.85,
-      cenTop = ch + 0.12,
-      sideTop = ch + 0.28;
-    CB(g, cx, ch, cd, M.grey, 0, cenTop - ch / 2, 0, 0, 0, 0, 0.08); // 中央柱（灰）
-    CB(g, cx * 0.7, 0.12, 0.1, red, 0, cenTop - 0.12, -cd * 0.5, 0, 0, 0, 0.02); // 中央頂端紅色指示燈
-    for (let i = 0; i < 3; i++)
-      P(g, gBox(cx * 0.8, 0.03, 0.03), M.joint, 0, cenTop - ch + 0.1 + i * 0.08, -cd * 0.51); // 中央柱下段的橫向散熱縫（設計圖腹部）
-    for (const s of [-1, 1]) {
-      const x = s * (cx / 2 + sx / 2 - 0.02);
-      CB(g, sx, sideH, cd * 1.02, M.main, x, sideTop - sideH / 2, -0.02, 0, 0, 0, 0.08); // 左右胸塊（綠）
-      P(g, gBox(sx * 0.86, 0.05, 0.03), M.acc, x, sideTop - 0.12, -cd * 0.53);
-      kitBolts(g, M, [
-        [x - s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
-        [x + s * sx * 0.32, sideTop - sideH * 0.85, -cd * 0.53],
-        [x + s * sx * 0.32, sideTop - 0.25, -cd * 0.53],
-      ]);
-      decal(g, s > 0 ? 1 : 3, 0.34, 0.34, x, sideTop - sideH * 0.5, -cd * 0.53, 0, Math.PI, 0);
-      decal(
-        g,
-        2,
-        0.46,
-        0.46,
-        s * (cx / 2 + sx + 0.01 - 0.02),
-        sideTop - sideH * 0.5,
-        0.05,
-        0,
-        (s * Math.PI) / 2,
-        0,
-      );
-      kitVents(g, M, s * (cx / 2 + sx - 0.02), sideTop - 0.2, -cd * 0.2, 4, 0.14, Math.PI / 2);
-    }
-    P(g, gBox(cx * 0.7, ch * 0.45, 0.04), M.sub, 0, cenTop - ch * 0.5, -cd * 0.52);
+      top = R.chestTop,
+      nk = R.neckY,
+      sideB = 0.36;
+    CB(g, 0.48, 0.24, 0.4, M.joint, 0, 0.05, 0.02, 0, 0, 0, 0.04); // 細腰（黑色腰部機構）
     for (let i = 0; i < 2; i++)
-      P(g, gCyl(0.05, 0.05, 0.04, 8), red, -0.1 + i * 0.2, cenTop - ch * 0.3, -cd * 0.54, Math.PI / 2);
-    decal(g, 3, 0.26, 0.26, 0, cenTop - ch * 0.62, -cd * 0.55, 0, Math.PI, 0); // 中央面板＋紅燈＋AC 標記
-    P(g, gBox(cx * 0.8, 0.06, cd * 0.6), M.acc, 0, cenTop + 0.03, 0);
-  },
-  // 背包：兩個方塊推進器 + 中央箱（噴焰是粒子特效，不是模型）
-  booster(g, info, { M, heavy }) {
-    const cw = CUBE.tw,
-      ch = CUBE.th;
-    CB(g, cw * 0.86, ch * 0.92, 0.6, M.main, 0, 0.02, 0.02, 0, 0, 0, 0.08);
-    decal(g, 5, 0.5, 0.5, 0, ch * 0.22, 0.33, 0, 0, 0); // Power Backpack：大型綠色背箱＋ CUBEE AC-01
-    kitGrille(g, M, 0, -ch * 0.12, 0.32, cw * 0.5, 0.22, 5);
+      CB(g, 0.38 - i * 0.04, 0.09, 0.44, M.grey, 0, 0.14 + i * 0.09, -0.02, 0, 0, 0, 0.02); // 腹甲
+    CB(g, 0.7, 0.16, cd * 0.86, M.sub, 0, 0.36, 0, 0, 0, 0, 0.04); // 下胸
+    CB(g, cx, nk - 0.3, cd, M.grey, 0, (nk + 0.3) / 2, 0, 0, 0, 0, 0.05); // 中央柱（灰）
+    CB(g, cx * 0.7, 0.06, 0.05, red, 0, nk - 0.08, -cd * 0.5, 0, 0, 0, 0.015); // 中央頂端紅色指示燈
+    for (let i = 0; i < 3; i++) P(g, gBox(cx * 0.8, 0.02, 0.02), M.joint, 0, 0.36 + i * 0.05, -cd * 0.44); // 散熱縫
     for (const s of [-1, 1]) {
-      kitGrille(g, M, s * cw * 0.3, -ch * 0.32, 0.32, 0.22, 0.16, 3);
-      CB(g, 0.3, 0.44, 0.3, M.sub, s * cw * 0.3, -ch * 0.3, 0.42, 0, 0, 0, 0.04);
-      P(g, gCyl(0.13, 0.15, 0.14, 10), M.joint, s * cw * 0.3, -ch * 0.3 - 0.28, 0.42);
-      P(g, gBox(0.12, 0.4, 0.06), M.acc, s * cw * 0.44, 0.1, 0.33);
+      const x = s * (cx / 2 + sx / 2 - 0.01);
+      CB(g, sx, top - sideB, cd * 1.04, M.main, x, (top + sideB) / 2, -0.02, 0, 0, 0, 0.05); // 左右胸塊
+      P(g, gBox(sx * 0.86, 0.03, 0.02), M.acc, x, top - 0.07, -cd * 0.53);
+      kitBolts(
+        g,
+        M,
+        [
+          [x - s * sx * 0.32, sideB + 0.08, -cd * 0.53],
+          [x + s * sx * 0.32, sideB + 0.08, -cd * 0.53],
+          [x + s * sx * 0.32, top - 0.15, -cd * 0.53],
+        ],
+        0.02,
+      );
+      decal(g, s > 0 ? 1 : 3, 0.18, 0.18, x, (top + sideB) / 2, -cd * 0.53, 0, Math.PI, 0);
+      decal(g, 2, 0.24, 0.24, s * (R.tw / 2 + 0.005), (top + sideB) / 2, 0.03, 0, (s * Math.PI) / 2, 0);
+      kitVents(g, M, s * (R.tw / 2 - 0.02), top - 0.14, -cd * 0.2, 4, 0.08, Math.PI / 2, 0.055);
+      CB(g, 0.14, 0.2, 0.3, M.joint, s * (R.tw / 2 + 0.03), R.shY, 0, 0, 0, 0, 0.02); // 肩關節座
+    }
+    P(g, gBox(cx * 0.7, (nk - 0.3) * 0.45, 0.03), M.sub, 0, nk - 0.26, -cd * 0.51);
+    for (let i = 0; i < 2; i++)
+      P(g, gCyl(0.03, 0.03, 0.03, 8), red, -0.06 + i * 0.12, nk - 0.16, -cd * 0.53, Math.PI / 2);
+    decal(g, 3, 0.15, 0.15, 0, nk - 0.32, -cd * 0.52, 0, Math.PI, 0); // 中央面板＋紅燈＋AC 標記
+    P(g, gBox(cx * 0.8, 0.04, cd * 0.6), M.acc, 0, nk + 0.01, 0);
+  },
+  // 背包：中央箱＋兩個方塊推進器（噴焰是粒子特效，不是模型）
+  booster(g, info, { M, heavy }) {
+    const bw = 0.7,
+      bh = 0.62,
+      bd = 0.4;
+    CB(g, bw, bh, bd, M.main, 0, 0, 0.02, 0, 0, 0, 0.05);
+    decal(g, 5, 0.28, 0.28, 0, bh * 0.22, bd / 2 + 0.03, 0, 0, 0); // Power Backpack
+    kitGrille(g, M, 0, -bh * 0.12, bd / 2 + 0.03, bw * 0.45, 0.12, 5);
+    for (const s of [-1, 1]) {
+      CB(g, 0.18, 0.26, 0.18, M.sub, s * 0.21, -0.22, 0.26, 0, 0, 0, 0.03);
+      P(g, gCyl(0.08, 0.1, 0.1, 10), M.joint, s * 0.21, -0.39, 0.26);
+      P(g, gBox(0.07, 0.24, 0.04), M.acc, s * bw * 0.42, 0.06, bd / 2 + 0.02);
     }
     if (heavy)
-      for (const s of [-1, 1]) P(g, gCyl(0.24, 0.24, ch * 0.9, 10), M.main, s * cw * 0.15, 0.05, 0.5);
-    P(g, gCyl(0.02, 0.02, 1.2, 4), M.joint, cw * 0.1, ch * 0.9, 0.05);
+      for (const s of [-1, 1])
+        P(g, gCyl(0.14, 0.14, bh * 0.9, 10), M.main, s * bw * 0.18, 0.04, bd / 2 + 0.12);
+    P(g, gCyl(0.012, 0.012, 0.8, 4), M.joint, bw * 0.12, bh / 2 + 0.4, 0.05);
   },
-  // 上臂：肩關節＋灰色方形肩甲「01」（0.6 立方），下方接上臂（綠）＋黃色環帶
+  // 上臂：肩關節＋外伸的灰色大肩甲（下方有推進器噴口）＋上臂（綠）＋黃色環帶
   upper(g, info, { M }) {
     const R = CUBE,
-      s = info.side;
-    P(g, gCyl(0.16, 0.16, 0.4, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-    CB(g, R.shPad, R.shPad, R.shPad, M.grey, s * (R.shPad / 2 - 0.02), 0.0, 0, 0, 0, 0, 0.06);
-    decal(g, 7, 0.3, 0.3, s * (R.shPad - 0.01), 0.0, 0, 0, (s * Math.PI) / 2, 0);
-    kitBolts(g, M, [
-      [s * (R.shPad - 0.01), 0.22, 0.2, 0, Math.PI / 2],
-      [s * (R.shPad - 0.01), 0.22, -0.2, 0, Math.PI / 2],
-    ]);
-    const up = new THREE.Group();
-    up.position.set(s * (R.shPad / 2 - 0.02), -R.shPad / 2, 0);
-    g.add(up);
+      s = info.side,
+      pw = R.padW,
+      ph = R.padH,
+      pd = R.padD,
+      px = s * (pw / 2 - 0.06),
+      py = 0.17;
+    P(g, gCyl(0.12, 0.12, 0.24, 10), M.joint, -s * 0.02, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, pw, ph, pd, M.grey, px, py, 0, 0, 0, 0, 0.06); // 大肩甲
+    CB(g, pw * 0.62, ph * 0.4, 0.05, M.sub, px + s * 0.04, py + ph * 0.12, -pd / 2 - 0.02, 0, 0, 0, 0.015);
+    decal(g, 7, 0.22, 0.22, px + s * (pw / 2 + 0.01), py, 0, 0, (s * Math.PI) / 2, 0);
+    kitBolts(
+      g,
+      M,
+      [
+        [px + s * (pw / 2 + 0.01), py + ph * 0.38, pd * 0.35, 0, Math.PI / 2],
+        [px + s * (pw / 2 + 0.01), py + ph * 0.38, -pd * 0.35, 0, Math.PI / 2],
+      ],
+      0.025,
+    );
+    P(g, gCyl(0.07, 0.09, 0.1, 10), M.joint, px + s * pw * 0.25, py - ph / 2 - 0.05, pd * 0.18); // 肩甲下噴口
+    P(g, gCyl(0.06, 0.06, 0.02, 10), M.lens, px + s * pw * 0.25, py - ph / 2 - 0.1, pd * 0.18);
     const ul = R.upL,
       aw = R.upW;
-    CB(up, aw, ul + 0.1, aw, M.main, 0, -ul / 2 - 0.05, 0, 0, 0, 0, 0.06);
-    P(up, gBox(aw * 1.02, 0.09, aw * 1.02), M.acc, 0, -ul * 0.55, 0);
-    kitBolts(up, M, [[s * aw * 0.5, -ul * 0.25, 0, 0, Math.PI / 2]]);
+    CB(g, aw, ul - 0.12, aw * 1.08, M.main, 0, -(ul + 0.08) / 2, 0, 0, 0, 0, 0.04);
+    P(g, gBox(aw * 1.04, 0.05, aw * 1.12), M.acc, 0, -ul * 0.62, 0);
+    kitBolts(g, M, [[s * aw * 0.5, -ul * 0.4, 0, 0, Math.PI / 2]], 0.025);
   },
-  // 前臂（藍）＋手肘圓柱＋灰板＋「01」
+  // 前臂（藍，比上臂粗）＋手肘圓柱＋灰板＋外側噴口＋「01」
   fore(g, info, { M }) {
     const R = CUBE,
       s = info.side,
-      fl2 = R.foreL,
+      fl = R.foreL,
       fw = R.foreW;
-    P(g, gCyl(0.2, 0.2, R.upW + 0.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-    CB(g, fw, fl2 + 0.1, fw, M.main2, 0, -fl2 / 2 - 0.05, 0, 0, 0, 0, 0.06);
-    CB(g, fw * 0.8, fl2 * 0.5, 0.1, M.grey, 0, -fl2 * 0.45, -fw * 0.5, 0, 0, 0, 0.03);
-    decal(g, 7, 0.3, 0.3, s * (fw / 2 + 0.01), -fl2 * 0.5, 0, 0, (s * Math.PI) / 2, 0);
-    kitVents(g, M, -s * fw * 0.5, -fl2 * 0.35, 0.1, 3, 0.06, Math.PI / 2);
+    P(g, gCyl(0.11, 0.11, R.upW + 0.08, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, fw, fl - 0.08, fw, M.main2, 0, -fl / 2 - 0.02, 0, 0, 0, 0, 0.05);
+    CB(g, fw * 0.76, fl * 0.5, 0.05, M.grey, 0, -fl * 0.45, -fw * 0.5, 0, 0, 0, 0.015);
+    decal(g, 7, 0.18, 0.18, s * (fw / 2 + 0.01), -fl * 0.4, 0, 0, (s * Math.PI) / 2, 0);
+    kitVents(g, M, -s * fw * 0.5, -fl * 0.3, 0.06, 3, 0.04, Math.PI / 2, 0.06);
+    P(g, gCyl(0.06, 0.08, 0.1, 10), M.joint, s * (fw / 2 + 0.05), -fl * 0.72, 0.06, 0, 0, (s * Math.PI) / 2);
+    P(g, gCyl(0.05, 0.05, 0.02, 10), M.lens, s * (fw / 2 + 0.1), -fl * 0.72, 0.06, 0, 0, (s * Math.PI) / 2);
   },
-  // 四指關節手＋拇指（設計圖 Detail A）
+  // 四指關節手＋拇指
   hand(g, info, { M }) {
     const fs = CUBE.fist,
       s = info.side;
-    CB(g, fs * 0.9, fs * 0.8, fs * 0.9, M.grey, 0, -fs * 0.25, 0, 0, 0, 0, 0.05);
+    P(g, gCyl(0.06, 0.06, 0.14, 8), M.joint, 0, -0.02, 0, 0, 0, Math.PI / 2);
+    CB(g, fs * 0.75, fs * 0.55, fs * 0.8, M.grey, 0, -fs * 0.32, 0, 0, 0, 0, 0.03);
     for (let f = 0; f < 4; f++) {
-      CB(g, 0.09, 0.16, 0.1, M.joint, -0.15 + f * 0.1, -fs * 0.7, -fs * 0.3, 0, 0, 0, 0.02);
-      CB(g, 0.08, 0.12, 0.09, M.grey, -0.15 + f * 0.1, -fs * 0.95, -fs * 0.36, 0, 0, 0, 0.02);
+      CB(g, 0.045, 0.1, 0.06, M.joint, -0.08 + f * 0.053, -fs * 0.7, -fs * 0.2, 0, 0, 0, 0.012);
+      CB(g, 0.04, 0.08, 0.055, M.grey, -0.08 + f * 0.053, -fs * 0.95, -fs * 0.25, 0, 0, 0, 0.012);
     }
-    CB(g, 0.1, 0.14, 0.12, M.joint, s * fs * 0.5, -fs * 0.45, -fs * 0.2, 0, 0, 0, 0.02);
+    CB(g, 0.06, 0.1, 0.07, M.joint, s * fs * 0.42, -fs * 0.45, -fs * 0.15, 0, 0, 0, 0.012);
   },
-  // 襠部（藍）：寬度＝胸部中央柱，直接接上半身；原點在地面
+  // 襠部（藍）＋髖軸＋前後腰裙；原點在地面
   pelvis(g, info, { M }) {
     const R = CUBE,
-      hipY = legHipY(info.legType);
-    CB(g, R.pelvisW, R.pelvisH, R.td * 0.72, M.main2, 0, hipY + 0.2, 0, 0, 0, 0, 0.06);
-    decal(g, 0, 0.18, 0.18, 0, hipY + 0.22, -R.td * 0.36 - 0.01, 0, Math.PI, 0);
+      hy = legHipY(info.legType),
+      wy = waistY(info.legType),
+      pd = R.pelvisD;
+    CB(g, R.pelvisW, R.pelvisH, pd, M.main2, 0, wy - R.pelvisH / 2 - 0.02, 0, 0, 0, 0, 0.05);
+    P(g, gCyl(0.1, 0.1, R.hipX * 2 - 0.1, 10), M.joint, 0, hy, 0, 0, 0, Math.PI / 2); // 髖軸
+    CB(g, 0.3, 0.52, 0.06, M.grey, 0, wy - 0.3, -pd / 2 - 0.05, 0.12, 0, 0, 0.02); // 前腰裙
+    P(g, gBox(0.2, 0.03, 0.02), M.acc, 0, wy - 0.12, -pd / 2 - 0.1, 0.12);
+    decal(g, 0, 0.12, 0.12, 0, wy - 0.3, -pd / 2 - 0.1, 0.12, Math.PI, 0);
+    CB(g, 0.36, 0.42, 0.06, M.main2, 0, wy - 0.26, pd / 2 + 0.05, -0.15, 0, 0, 0.02); // 後腰裙
   },
   body(g, info, { M }) {
+    const wy = waistY(info.legType);
     if (info.legType === 'quad') {
       const hipY = legHipY('quad');
       CB(g, 1.6, 0.5, 1.6, M.sub, 0, hipY - 0.05, 0, 0, 0, 0, 0.08);
       CB(g, 1.2, 0.3, 1.2, M.main, 0, hipY + 0.3, 0, 0, 0, 0, 0.05);
+      waistPost(g, M, hipY + 0.42, wy);
       return;
     }
     // 履帶
     CB(g, 1.7, 0.6, 2.2, M.sub, 0, 0.85, 0, 0, 0, 0, 0.08);
     CB(g, 1.2, 0.3, 1.4, M.main, 0, 1.25, 0, 0, 0, 0, 0.05);
+    waistPost(g, M, 1.37, wy);
     for (const s of [-1, 1]) {
       CB(g, 0.8, 0.9, 2.8, M.joint, s * 1.25, 0.5, 0, 0, 0, 0, 0.1);
       CB(g, 0.84, 0.16, 2.9, M.main2, s * 1.25, 1.0, 0, 0, 0, 0, 0.04);
@@ -686,52 +722,49 @@ const BUILD = {
       CB(g, 0.42, 0.8, 0.42, M.main2, 0, -0.4, 0, 0, 0, 0, 0.06);
       return;
     }
+    // 黑色大腿骨架＋外側大護甲（參考圖從腰裙兩側垂下的大板）
     const R = CUBE,
       s = info.side,
       rev = info.legType === 'reverse',
       tw = R.thighW,
       tl = R.thighL,
-      C = 0.08;
-    P(g, gSph(0.19, 12), M.joint, -s * tw * 0.5, 0, 0); // 髖球關節：位於大腿根部內側面與襠部側面的交接點
-    CB(g, tw, tl + 0.1, tw * 0.95, M.main, 0, -tl / 2 + 0.06, rev ? 0.08 : 0, 0, 0, 0, C); // 大腿立方（綠），頂面略高於樞軸
-    P(g, gBox(tw * 0.2, tl * 0.7, 0.03), M.acc, s * tw * 0.15, -tl * 0.5, rev ? -tw * 0.46 : -tw * 0.5); // 黃色直條（設計圖大腿正面）
-    CB(
+      z = rev ? 0.06 : 0,
+      ax = s * 0.07,
+      aw = 0.46,
+      ad = 0.42;
+    P(g, gSph(0.15, 12), M.joint, 0, 0, 0); // 髖球關節
+    CB(g, tw, tl - 0.1, tw * 1.05, M.joint, 0, -tl / 2 - 0.02, z, 0, 0, 0, 0.04);
+    CB(g, aw, 0.7, ad, M.main, ax, -0.15, z, 0, 0, 0, 0.06); // 大腿護甲
+    P(g, gBox(0.07, 0.44, 0.02), M.acc, ax + s * 0.12, -0.15, z - ad / 2 - 0.005);
+    CB(g, 0.2, 0.26, 0.05, M.grey, ax - s * 0.08, -0.22, z - ad / 2 - 0.01, 0, 0, 0, 0.015);
+    kitBolts(
       g,
-      tw * 0.5,
-      tl * 0.4,
-      0.1,
-      M.grey,
-      -s * tw * 0.2,
-      -tl * 0.55,
-      rev ? -tw * 0.45 : -tw * 0.5,
-      0,
-      0,
-      0,
-      0.02,
+      M,
+      [
+        [ax + s * (aw / 2 + 0.005), 0.06, z + 0.1, 0, Math.PI / 2],
+        [ax + s * (aw / 2 + 0.005), -0.36, z + 0.1, 0, Math.PI / 2],
+      ],
+      0.025,
     );
-    kitBolts(g, M, [
-      [s * tw * 0.5, -tl * 0.3, 0.1, 0, Math.PI / 2],
-      [s * tw * 0.5, -tl * 0.7, 0.1, 0, Math.PI / 2],
-    ]);
-    decal(g, 7, tw * 0.45, tw * 0.45, s * (tw * 0.5 + 0.01), -tl * 0.5, 0.05, 0, (s * Math.PI) / 2, 0);
+    decal(g, 7, 0.22, 0.22, ax + s * (aw / 2 + 0.01), -0.15, z - 0.05, 0, (s * Math.PI) / 2, 0);
   },
-  // 小腿：膝蓋圓柱＋圓形膝蓋蓋＋上段（綠）／下段（藍）
+  // 小腿：膝蓋圓柱＋灰色膝甲＋上段（綠）／下段（藍）＋膝外側與小腿後方的推進器
   shin(g, info, { M }) {
     const R = CUBE,
       s = info.side,
       sw = R.shinW,
-      sl = R.shinL,
-      tw = R.thighW,
-      C = 0.08;
-    P(g, gCyl(sw * 0.32, sw * 0.32, tw * 1.2, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
-    for (const q of [-1, 1])
-      P(g, gCyl(sw * 0.2, sw * 0.2, 0.05, 10), M.acc, q * tw * 0.6, 0, 0, 0, 0, Math.PI / 2);
-    CB(g, sw, sl * 0.55, sw * 0.95, M.main, 0, -sl * 0.28, 0, 0, 0, 0, C);
-    CB(g, sw * 0.96, sl * 0.55, sw * 0.92, M.main2, 0, -sl * 0.8, 0, 0, 0, 0, C);
-    P(g, gBox(sw * 0.6, 0.05, 0.02), M.acc, 0, -sl * 0.5, -sw * 0.5);
-    decal(g, 7, sw * 0.42, sw * 0.42, 0, -sl * 0.8, -sw * 0.48, 0, Math.PI, 0); // 黃分隔線＋「01」
-    kitVents(g, M, -s * sw * 0.5, -sl * 0.25, 0.1, 3, 0.05, Math.PI / 2);
-    kitBolts(g, M, [[s * sw * 0.49, -sl * 0.3, 0.12, 0, Math.PI / 2]]);
+      sl = R.shinL;
+    P(g, gCyl(0.12, 0.12, R.thighW + 0.1, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, sw + 0.04, 0.34, 0.12, M.grey, 0, 0.06, -sw / 2 - 0.04, 0, 0, 0, 0.03); // 膝甲
+    CB(g, sw, sl * 0.5, sw * 1.1, M.main, 0, -sl * 0.33, 0, 0, 0, 0, 0.05);
+    CB(g, sw * 0.96, sl * 0.42, sw * 1.04, M.main2, 0, -sl * 0.76, 0, 0, 0, 0, 0.05);
+    P(g, gBox(sw * 0.6, 0.03, 0.02), M.acc, 0, -sl * 0.56, -sw * 0.53);
+    decal(g, 7, 0.18, 0.18, 0, -sl * 0.78, -sw * 0.53, 0, Math.PI, 0); // 黃分隔線＋「01」
+    kitVents(g, M, -s * sw * 0.5, -sl * 0.2, 0.06, 3, 0.04, Math.PI / 2, 0.06);
+    P(g, gCyl(0.06, 0.08, 0.1, 10), M.joint, s * (sw / 2 + 0.06), -0.08, 0.06); // 膝外側噴口
+    P(g, gCyl(0.05, 0.05, 0.02, 10), M.lens, s * (sw / 2 + 0.06), -0.14, 0.06);
+    CB(g, 0.18, 0.28, 0.1, M.sub, 0, -sl * 0.35, sw * 0.55 + 0.04, 0, 0, 0, 0.02); // 小腿後推進器
+    P(g, gCyl(0.06, 0.07, 0.08, 10), M.joint, 0, -sl * 0.35 - 0.18, sw * 0.55 + 0.04);
   },
   // 四足的小腿（含腳）
   qshin(g, info, { M }) {
@@ -739,40 +772,45 @@ const BUILD = {
     CB(g, 0.38, 0.7, 0.38, M.main, 0, -0.35, 0, 0, 0, 0, 0.05);
     CB(g, 0.5, 0.24, 0.6, M.sub, 0, -0.8, 0, 0, 0, 0, 0.04);
   },
-  // 腳掌（藍）＋腳踝圓柱＋腳趾塊＋腳跟推進器
+  // 腳掌（藍）＋腳踝圓柱與護甲＋腳趾塊＋腳跟推進器；底面在腳踝下 ankleH（貼地）
   foot(g, info, { M, red }) {
     const R = CUBE,
       s = info.side,
-      sw = R.shinW,
       fl = R.footL,
       fw = R.footW,
-      fh = R.footH;
-    P(g, gCyl(sw * 0.26, sw * 0.26, sw * 1.1, 8), M.joint, 0, 0.05, 0, 0, 0, Math.PI / 2);
-    CB(g, fw, fh, fl * 0.75, M.main2, 0, -fh / 2, -fl * 0.05, 0, 0, 0, 0.05);
-    CB(g, fw * 0.92, fh * 0.8, fl * 0.3, M.grey, 0, -fh * 0.5, -fl * 0.55, 0, 0, 0, 0.04);
+      fh = R.ankleH;
+    P(g, gCyl(0.1, 0.1, fw * 0.8, 8), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    CB(g, fw * 0.72, 0.16, 0.3, M.main, 0, -0.04, -0.02, 0, 0, 0, 0.03); // 腳踝護甲
+    CB(g, fw, fh * 0.6, fl * 0.7, M.main2, 0, -fh * 0.7, -fl * 0.06, 0, 0, 0, 0.04);
+    CB(g, fw * 0.92, fh * 0.45, fl * 0.3, M.grey, 0, -fh + fh * 0.225, -fl * 0.52, 0, 0, 0, 0.03); // 腳趾
     for (const t of [-0.28, 0.28])
-      P(g, gBox(fw * 0.3, fh * 0.35, 0.1), M.joint, t * fw, -fh * 0.6, -fl * 0.72);
+      P(g, gBox(fw * 0.3, fh * 0.3, 0.06), M.joint, t * fw, -fh * 0.8, -fl * 0.69);
     for (const t of [-0.28, 0.28]) {
-      P(g, gBox(fw * 0.22, fh * 0.5, 0.14), M.joint, t * fw, -fh * 0.5, fl * 0.38);
-      P(g, gBox(fw * 0.16, fh * 0.3, 0.06), red, t * fw, -fh * 0.5, fl * 0.47);
+      P(g, gBox(fw * 0.22, fh * 0.45, 0.1), M.joint, t * fw, -fh * 0.68, fl * 0.33);
+      P(g, gBox(fw * 0.16, fh * 0.26, 0.04), red, t * fw, -fh * 0.68, fl * 0.39);
     }
-    CB(g, fw * 0.5, fh * 0.5, fl * 0.2, M.main, 0, 0.05, -fl * 0.1, 0, 0, 0, 0.03);
-    decal(g, 2, 0.28, 0.28, s * (fw / 2 + 0.01), -fh / 2, -fl * 0.05, 0, (s * Math.PI) / 2, 0);
+    decal(g, 2, 0.16, 0.16, s * (fw / 2 + 0.01), -fh * 0.7, -fl * 0.06, 0, (s * Math.PI) / 2, 0);
   },
-  // 武器：以遊戲內實際尺寸製作（Q 版：手持武器縮小、縮短一半；肩上武器箱略縮）
+  // 武器：buildWeapon 的造型以舊版大機甲的尺寸製作，依新比例等比縮小（手持 ×0.5、肩上 ×0.55）
   weapon(g, info, { M }) {
     const inner = new THREE.Group();
-    inner.scale.set(0.72, 0.72, 0.5);
+    inner.scale.setScalar(0.5);
     g.add(inner);
     buildWeapon(inner, info.part, M, info.side);
   },
   back(g, info, { M }) {
     const inner = new THREE.Group();
-    inner.scale.set(0.8, 0.8, 0.65);
+    inner.scale.setScalar(0.55);
     g.add(inner);
     buildWeapon(inner, info.part, M, info.side);
   },
 };
+// 四足／履帶的腰部支柱：把新比例的上半身架到原本的身高
+function waistPost(g, M, y0, y1) {
+  P(g, gCyl(0.2, 0.26, y1 - y0, 12), M.joint, 0, (y0 + y1) / 2, 0);
+  CB(g, 0.6, 0.08, 0.6, M.sub, 0, y1 - 0.08, 0, 0, 0, 0, 0.02);
+}
+
 function makeProcPiece(info, ctx) {
   const g = new THREE.Group();
   (BUILD[info.kind] || (() => {}))(g, info, ctx);
@@ -930,8 +968,8 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     torsoY: 0,
     type,
     cls,
-    height: (hipY + CUBE.th + 0.22 + CUBE.headH) * scale,
-    coreH: CUBE.th,
+    height: (waistY(type) + CUBE.upperH) * scale,
+    coreH: CUBE.chestTop,
     mats,
     flashT: 0,
   };
@@ -981,10 +1019,10 @@ export function animateMech(m, dt, st) {
     if (m.head) P(m.head, 0, 0, 0);
     const R = m.arms.r,
       L = m.arms.l;
-    P(R.up, 0.05, 0, 0.18);
+    P(R.up, 0.05, 0, 0.3);
     P(R.fore, 0.35, 0, 0);
-    P(L.up, 0.05, 0, -0.18);
-    P(L.fore, 0.35, 0, 0); // 雙手微張自然下垂
+    P(L.up, 0.05, 0, -0.3);
+    P(L.fore, 0.35, 0, 0); // 雙手外張（A 字站姿）自然下垂
     m.thrust = lerp(m.thrust || 0, 0.05, 0.2);
     if (m.flashT > 0) {
       m.flashT -= dt;
