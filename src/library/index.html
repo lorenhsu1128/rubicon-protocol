@@ -228,6 +228,40 @@
                 </button>
               </div>
             </div>
+            <div id="edOptTools">
+              <h3>最佳化與輸出</h3>
+              <div class="edRow">
+                <label
+                  >三角面目標 <input id="edOptTris" type="number" min="12" step="100" value="1500" /></label
+                ><button id="edOptGo">減面</button
+                ><button id="edOptBudget" title="減到目標槽位的預算（沒有槽位時用整台機甲的預算）">
+                  減到預算
+                </button>
+              </div>
+              <div class="btns">
+                <button id="edWeld" title="屬性完全相同的頂點合併成一個（減少頂點數，減面前會自動做）">
+                  焊接重複頂點
+                </button>
+              </div>
+              <div class="edRow">
+                <label
+                  >貼圖最大邊長
+                  <select id="edTexMax">
+                    <option value="budget">依預算</option>
+                    <option value="0">不縮小</option>
+                    <option value="2048">2048</option>
+                    <option value="1024">1024</option>
+                    <option value="512">512</option>
+                    <option value="256">256</option>
+                  </select></label
+                >
+              </div>
+              <label class="tog small"
+                ><input type="checkbox" id="edWebp" /> 貼圖存成 WebP（有透明的存 PNG）</label
+              >
+              <label class="tog small"><input type="checkbox" id="edDraco" /> Draco 網格壓縮</label>
+              <div class="dim small">輸出設定用於存到槽位、鏡像、下載與拆分的全部存檔。</div>
+            </div>
             <h3>資訊</h3>
             <div id="edStats"></div>
             <ul id="edChecks"></ul>

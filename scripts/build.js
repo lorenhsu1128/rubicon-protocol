@@ -3,6 +3,7 @@
 //   src/library/index.html  → dist/model-library.html（模型庫）
 // 外部程式庫（three.js r128、PeerJS）不內嵌：頁面模板裡的 <script src="lib/<套件>/<路徑>"> 由 node_modules
 // 複製到 dist/lib/ 同樣的路徑；另外產生 dist/lib/draco/draco-decoder.js（Draco 解碼器，見 render/glb.js）
+// 與 draco-encoder.js（Draco 編碼器，見 library/editor-opt.js）
 // 用法：node scripts/build.js [--dev] [--watch]
 //   --dev    不壓縮、附 inline source map，方便在瀏覽器除錯
 //   --watch  監看 src/ 變更自動重建（隱含 --dev）
@@ -43,6 +44,8 @@ function writeDraco() {
     '// three.js r128 的 Draco 解碼器（examples/js/libs/draco/gltf），由 scripts/build.js 產生\n' +
       `window.RUBICON_DRACO = { wrapper: ${JSON.stringify(wrapper)}, wasm: ${JSON.stringify(wasm)} };\n`,
   );
+  // Draco 編碼器（純 JS，定義全域 DracoEncoderModule）：模型庫的 GLB 編輯器輸出 Draco 壓縮時才以 <script> 載入
+  fs.copyFileSync(path.join(dir, 'draco_encoder.js'), path.join(LIB, 'draco', 'draco-encoder.js'));
 }
 
 const PAGES = [

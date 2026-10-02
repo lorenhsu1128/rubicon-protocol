@@ -9,7 +9,7 @@ const ATTRS = ['position', 'normal', 'uv', 'uv2', 'color'];
 const NORM_MAX = { Uint8Array: 255, Int8Array: 127, Uint16Array: 65535, Int16Array: 32767 };
 
 // 任何屬性（交錯、量化的整數）→ 一般的 Float32 屬性
-function floatAttr(a) {
+export function floatAttr(a) {
   const src = a.isInterleavedBufferAttribute ? a.data.array : a.array;
   const k = a.normalized ? 1 / (NORM_MAX[src.constructor.name] || 1) : 1;
   const out = new Float32Array(a.count * a.itemSize);

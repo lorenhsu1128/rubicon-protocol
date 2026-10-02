@@ -12,6 +12,7 @@ import { CONN_NAMES, PIECE_NAMES, SIDE_NAMES, buildMech, mechPieces } from '../r
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { DROP, NONE, buildSoup, centroid, cutSoup, pieceMeshes, triTotal } from './editor-cut.js';
 import { boxIn, exportGlb } from './editor-ops.js';
+import { processGlb, simplifyGeometry, triCountOf } from './editor-opt.js';
 import { disposeObject } from './stage.js';
 import { WS_SLOTS, restPose, sanitizeAsm } from './workshop.js';
 
@@ -595,9 +596,22 @@ export class SplitTool {
       const root = new THREE.Group();
       root.name = slot.replace(/\//g, '_');
       const parts = pieceMeshes(this.soup, i, M);
-      for (const pm of parts) root.add(new THREE.Mesh(pm.geometry, pm.mat));
+      const entry = MODEL_CATALOG.find((e) => e.id === slot);
+      const spec = entry ? entry.spec : 'piece';
       try {
-        const buf = await exportGlb(root);
+        // 減到這個區塊的預算
+        if ($('edSpOpt') && $('edSpOpt').checked) {
+          const tris = parts.reduce((n, pm) => n + triCountOf(pm.geometry), 0);
+          const ratio = (budgetFor(spec).tris * 0.98) / Math.max(1, tris);
+          if (ratio < 1)
+            for (const pm of parts) {
+              const g = await simplifyGeometry(pm.geometry, ratio);
+              pm.geometry.dispose();
+              pm.geometry = g;
+            }
+        }
+        for (const pm of parts) root.add(new THREE.Mesh(pm.geometry, pm.mat));
+        const buf = await processGlb(await exportGlb(root), ed.exportOptsFor(spec));
         await ed.store.putBuf(slot, `${base}（拆分）→${slot.split('/').slice(1).join('_')}.glb`, buf);
         done++;
         if (ed.onSaved) ed.onSaved(slot);
@@ -690,6 +704,7 @@ export class SplitTool {
       `<button id="edCutShow" title="顯示切割平面並用箭頭（W 移動、E 旋轉）調整">顯示平面</button><button id="edCutGo" class="primary">切開</button></div>` +
       `<div class="dim small">只切分給這兩個區塊、且在半徑範圍內的三角形：平面正面（箭頭方向）分給「正面」的區塊，背面分給「背面」的區塊。</div>` +
       `<h3>存檔</h3>` +
+      `<label class="tog small"><input type="checkbox" id="edSpOpt" checked> 存檔時減面到各區塊的預算</label>` +
       `<div class="btns"><button id="edSpSave" class="primary">全部存到槽位</button><button id="edSpBack">回到對齊</button></div>` +
       `<div class="dim small">每個區塊轉成拉直靜止姿勢下的區塊座標（原點＝關節）存進各自的槽位；之後可在「組裝調整」微調連接點。</div>`;
     $('edSpAuto').onclick = () => this.reassign();

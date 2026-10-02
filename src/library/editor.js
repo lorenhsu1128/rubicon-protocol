@@ -21,6 +21,14 @@ import {
   triCount,
 } from './editor-ops.js';
 import { MaterialTool } from './editor-mat.js';
+import {
+  loadExportOpts,
+  processGlb,
+  saveExportOpts,
+  simplifyGeometry,
+  triCountOf,
+  weldGeometry,
+} from './editor-opt.js';
 import { SplitTool } from './editor-split.js';
 import { buildAxes, buildConnMarker, buildGrid } from './refs.js';
 import {
@@ -125,8 +133,10 @@ export class GlbEditor {
     this.buildLabels();
     this.split = new SplitTool(this);
     this.mat = new MaterialTool(this);
+    this.exportOpts = loadExportOpts();
     this.setupUi();
     this.mat.setupUi();
+    this.setupOpt();
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
   }
@@ -322,6 +332,7 @@ export class GlbEditor {
   setSlot(id) {
     this.entry = (id && editable.find((e) => e.id === id)) || null;
     $('edSlot').value = this.entry ? this.entry.id : '';
+    $('edOptTris').value = budgetFor(this.entry ? this.entry.spec : 'mech').tris;
     this.buildRef();
     this.renderAll();
   }
@@ -770,6 +781,66 @@ export class GlbEditor {
     this.changed();
   }
 
+  // ---------- 最佳化與輸出 ----------
+  setupOpt() {
+    const o = this.exportOpts;
+    $('edTexMax').value = String(o.texMax);
+    $('edWebp').checked = !!o.webp;
+    $('edDraco').checked = !!o.draco;
+    const save = () => {
+      this.exportOpts = {
+        texMax: $('edTexMax').value === 'budget' ? 'budget' : +$('edTexMax').value,
+        webp: $('edWebp').checked,
+        draco: $('edDraco').checked,
+      };
+      saveExportOpts(this.exportOpts);
+    };
+    for (const id of ['edTexMax', 'edWebp', 'edDraco']) $(id).onchange = save;
+    $('edOptGo').onclick = () => this.simplifyTo(parseInt($('edOptTris').value, 10));
+    $('edOptBudget').onclick = () => this.simplifyTo(budgetFor(this.entry ? this.entry.spec : 'mech').tris);
+    $('edWeld').onclick = () => this.weld();
+  }
+  // 匯出設定（貼圖最大邊長「依預算」時取槽位的預算）
+  exportOptsFor(spec) {
+    const o = this.exportOpts;
+    return {
+      texMax: o.texMax === 'budget' ? budgetFor(spec).tex : +o.texMax || 0,
+      webp: o.webp,
+      draco: o.draco,
+    };
+  }
+  // 減面：所有顯示中的網格依比例減到總面數約 target
+  async simplifyTo(target) {
+    const ms = this.mat.meshes();
+    if (!ms.length) return;
+    const total = ms.reduce((n, o) => n + triCountOf(o.geometry), 0);
+    if (!(target > 0)) return this.toast('請輸入目標三角面數', true);
+    if (total <= target) return this.toast(`目前 ${total.toLocaleString()} 面，已在目標以內`);
+    const ratio = (target * 0.98) / total; // 減面器不一定剛好命中，留一點餘裕
+    let res;
+    try {
+      res = [];
+      for (const o of ms) res.push(await simplifyGeometry(o.geometry, ratio));
+    } catch (err) {
+      return this.toast('減面失敗：' + (err.message || err), true);
+    }
+    this.pushUndo();
+    ms.forEach((o, i) => (o.geometry = res[i]));
+    this.changed();
+    const after = ms.reduce((n, o) => n + triCountOf(o.geometry), 0);
+    this.toast(`減面：${total.toLocaleString()} → ${after.toLocaleString()} 面`);
+  }
+  weld() {
+    const ms = this.mat.meshes();
+    if (!ms.length) return;
+    const vc = () => ms.reduce((n, o) => n + o.geometry.attributes.position.count, 0);
+    const before = vc();
+    this.pushUndo();
+    for (const o of ms) o.geometry = weldGeometry(o.geometry);
+    this.changed();
+    this.toast(`焊接重複頂點：${before.toLocaleString()} → ${vc().toLocaleString()} 個頂點`);
+  }
+
   // ---------- 畫面：資訊與檢查 ----------
   renderAll() {
     const has = !!this.content;
@@ -779,7 +850,17 @@ export class GlbEditor {
     $('edFromSlot').disabled = !e;
     $('edRevert').disabled = !has || !this.orig;
     $('edAdd').disabled = this.split.cutting;
-    for (const id of ['edOrient', 'edMirror', 'edHeightGo', 'edScaleGo', 'edPick', 'edDownload'])
+    for (const id of [
+      'edOrient',
+      'edMirror',
+      'edHeightGo',
+      'edScaleGo',
+      'edPick',
+      'edDownload',
+      'edOptGo',
+      'edOptBudget',
+      'edWeld',
+    ])
       $(id).disabled = !has;
     for (const b of document.querySelectorAll('#edRot button, #edOrigin button[data-o]')) b.disabled = !has;
     $('edFit').disabled = !has || !e;
@@ -818,6 +899,13 @@ export class GlbEditor {
     const rows = [
       ['尺寸（寬×高×深）', `${fmt(s.x, 2)} × ${fmt(s.y, 2)} × ${fmt(s.z, 2)} m`],
       ['材質', String(this.mat.list().length)],
+      [
+        '頂點',
+        this.mat
+          .meshes()
+          .reduce((n, o) => n + o.geometry.attributes.position.count, 0)
+          .toLocaleString(),
+      ],
     ];
     const ref = this.curRef();
     if (ref && !ref.isEmpty()) {
@@ -838,7 +926,9 @@ export class GlbEditor {
         )
         .join('') +
       `<div class="kv"><span class="dim">三角面</span><span class="${lv}" id="edTris">${tris.toLocaleString()}（${e ? '建議' : '整台機甲建議'} ≤ ${B.tris.toLocaleString()}）</span></div>` +
-      (lv !== 'ok' ? `<div class="small warnTxt">面數超出預算：之後的「最佳化」階段可以減面</div>` : '');
+      (lv !== 'ok'
+        ? `<div class="small warnTxt">面數超出預算：可用「最佳化與輸出」的「減到預算」減面</div>`
+        : '');
   }
   // 規格檢查：與模型庫檢視窗相同（檔案大小要存檔後才知道，這裡不列）
   renderChecks() {
@@ -925,7 +1015,10 @@ export class GlbEditor {
       mirror ? new THREE.Matrix4().makeScale(-1, 1, 1) : null,
     );
     try {
-      return await exportGlb(root);
+      return await processGlb(
+        await exportGlb(root),
+        this.exportOptsFor(this.entry ? this.entry.spec : 'mech'),
+      );
     } finally {
       for (const m of root.children) m.geometry.dispose();
     }

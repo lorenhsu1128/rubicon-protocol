@@ -998,6 +998,95 @@ async function testEditorMaterials(browser, base) {
   await ctx.close();
 }
 
+// GLB 編輯的最佳化與輸出：高面數模型（不透明＋半透明貼圖）→ 減到預算 → 復原 → 重做 → WebP／PNG＋Draco 下載與存檔 → 檢視窗讀取
+async function testEditorOptimize(browser, base) {
+  console.log('模型庫 GLB 編輯：最佳化（減面、WebP／PNG、Draco）');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'editor-opt');
+  await page.goto(base + 'model-library.html#editor');
+  await page.waitForSelector('#editor:not([hidden])');
+  const bytes = await page.evaluate(async () => {
+    const mk = (alpha) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 512;
+      const g = c.getContext('2d');
+      for (let i = 0; i < 64; i++) {
+        g.fillStyle = `hsla(${i * 37},70%,50%,${alpha ? 0.5 : 1})`;
+        g.fillRect((i % 8) * 64, Math.floor(i / 8) * 64, 64, 64);
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.flipY = false;
+      return t;
+    };
+    const root = new THREE.Group();
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.4, 160, 80),
+      new THREE.MeshStandardMaterial({ map: mk(false), name: 'body' }),
+    );
+    sphere.position.y = 0.4;
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.2, 0.2),
+      new THREE.MeshStandardMaterial({ map: mk(true), transparent: true, name: 'glass' }),
+    );
+    box.position.y = 0.9;
+    root.add(sphere, box);
+    const res = await new Promise((r) => new THREE.GLTFExporter().parse(root, r, { binary: true }));
+    return [...new Uint8Array(res)];
+  });
+  const fp = path.join(SHOT_DIR, 'editor-hi.glb');
+  fs.writeFileSync(fp, Buffer.from(bytes));
+  await page.selectOption('#edSlot', 'head/h_std');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
+  const t0 = await tris();
+  await page.click('#edOptBudget');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('減面：')),
+  );
+  const t1 = await tris();
+  check(t0 > 20000 && t1 <= 3000 && t1 > 1500, `減到預算（${t0} → ${t1} 面，預算 3000）`);
+  await page.click('#edLeft h3');
+  await page.keyboard.press('Control+z');
+  await wait(400);
+  check((await tris()) === t0, '復原減面');
+  await page.keyboard.press('Control+y');
+  await wait(400);
+  await page.check('#edWebp');
+  await page.check('#edDraco');
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60000 }),
+    page.click('#edDownload'),
+  ]);
+  const out = path.join(SHOT_DIR, 'editor-opt.glb');
+  await dl.saveAs(out);
+  const buf = fs.readFileSync(out);
+  const json = JSON.parse(buf.slice(20, 20 + buf.readUInt32LE(12)).toString());
+  check(
+    json.images.map((i) => i.mimeType).join() === 'image/webp,image/png' &&
+      (json.extensionsUsed || []).includes('KHR_draco_mesh_compression'),
+    `輸出：不透明貼圖 WebP、半透明 PNG、Draco 壓縮（${Math.round(bytes.length / 1024)} KB → ${Math.round(buf.length / 1024)} KB）`,
+  );
+  await page.click('#edSave');
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已存到')),
+  );
+  await page.goto(base + 'model-library.html#head/h_std');
+  await page.reload();
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(2500);
+  const info = (await page.textContent('#insInfo')) || '';
+  check(
+    info.includes('GLB（瀏覽器暫存）') && info.includes('貼圖2 張') && !info.includes('解析失敗'),
+    '檢視窗讀取 WebP＋Draco 的 GLB',
+  );
+  // 把設定改回預設，避免影響其他測試（設定存在 localStorage）
+  await page.evaluate(() => localStorage.removeItem('rubicon_glb_export'));
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -1354,6 +1443,7 @@ async function main() {
     await testEditor(browser, base);
     await testEditorSplit(browser, base);
     await testEditorMaterials(browser, base);
+    await testEditorOptimize(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
