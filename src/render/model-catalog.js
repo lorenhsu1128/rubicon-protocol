@@ -260,7 +260,9 @@ addPlain('vehicle', 'transport_train/loco', '運輸列車・機車頭', '地面�
 addPlain('vehicle', 'transport_train/car', '運輸列車・車廂', '遊戲中依節數重複', () =>
   buildTransport('train', 2, 7.5, 1),
 );
-addPlain('vehicle', 'bomber', '空襲轟炸機', '消耗品 AIRSTRIKE', () => buildBomberMesh());
+addPlain('vehicle', 'bomber', '空襲轟炸機', '消耗品 AIRSTRIKE', () => buildBomberMesh(), {
+  origin: '機身中心（機頭朝正面）',
+});
 
 // ---------- 地圖物件（遊戲中尺寸為隨機，這裡取代表值，備註列出範圍）----------
 // GLB 以這裡的代表尺寸製作，遊戲依每個物件的隨機尺寸分別縮放長寬高（prop-models.js 的 propGlb）；

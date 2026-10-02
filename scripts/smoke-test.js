@@ -133,6 +133,20 @@ async function testFile(browser) {
   const { ctx, page } = await newPage(browser, 'file');
   await page.goto('file:///' + HTML.replace(/\\/g, '/'));
   check(await waitVisible(page, 'title'), '標題畫面顯示');
+  // 本地模型庫：直接開檔時，遊戲也讀得到同樣直接開檔的模型庫存的資料
+  if (fs.existsSync(LIBRARY)) {
+    const lib = await ctx.newPage();
+    watch(lib, 'file-lib');
+    await lib.goto('file:///' + LIBRARY.replace(/\\/g, '/'));
+    await wait(1200);
+    await injectLibrary(lib, [], { 'arms/a_std/l_upper': { elbow: { p: [0, -0.9, 0], r: [0, 0, 0] } } });
+    await lib.close();
+    await page.click('#btnSettings');
+    await page.check('#lmOn');
+    await wait(1500);
+    const t = (await page.textContent('#lmBox')) || '';
+    check(t.includes('關節設定 1 個') && !t.includes('讀不到'), '直接開檔時讀得到模型庫（file://）的暫存');
+  }
   await ctx.close();
 }
 

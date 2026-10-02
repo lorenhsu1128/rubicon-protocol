@@ -4,5 +4,7 @@
 
 - 檔名＝模型槽位 id：`src/assets/models/<槽位 id>.glb`，例如 `head/h_std.glb`、`arms/a_std/r_fore.glb`、`weapon/w_rifle/l.glb`。
 - 機甲是一塊塊區塊（手臂左右各上臂／前臂／手，腳分襠部與左右大腿／小腿／腳掌，武器分左右），完整機甲不接受整台的 GLB。
+- 會動的載具也拆成區塊（戰車 `vehicle/tank/hull`、`turret`，直升機 `body`、`rotor`、`tail`，列車 `loco`、`car`）。
+- 遊戲目前還不讀這裡的 GLB；要在遊戲裡試玩，請用遊戲設定的「本地模型庫（單人模式）」讀取模型庫存在瀏覽器裡的檔案。
 - 槽位 id 顯示在模型庫每一格的名稱下方，檢視窗也會寫出要放的路徑。
 - 製作規格見 `docs/glb-spec.md`。沒有 GLB 的槽位會繼續使用程式模型。

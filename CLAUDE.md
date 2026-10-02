@@ -36,7 +36,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面 → 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -50,7 +50,9 @@ render/              materials.js（Canvas 貼圖、mechMats、PALETTES、palCol
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      vehicle-models.js、extra-models.js（運輸車輛、
                      掉落物、轟炸機、彈體）、environment.js（攝影棚環境貼圖）、measure.js（外框尺寸與統計）、
-                     model-catalog.js（模型槽目錄）、glb.js（GLB 載入／換色／描邊／規格檢查）
+                     model-catalog.js（模型槽目錄）、glb.js（GLB 載入／換色／描邊／規格檢查）、
+                     model-provider.js（模型來源掛勾：建模函式依槽位 id 取得取代程式模型的 GLB）、
+                     local-models.js（遊戲的本地模型庫：讀取模型庫 IndexedDB 的 GLB 與關節設定）
 world/               world.js（World：關卡生成、THEMES）、prop-models.js（地圖物件的網格建造，純函式）、
                      map-extras.js（Vehicle、Pickup、PICKUP_DEFS）
 audio/               audio.js（SFX）、sfx-data.js（匯入 assets/sfx/*.mp3）
@@ -62,7 +64,8 @@ net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／W
 game/game.js         class Game：constructor、主迴圈 loop、敵我判定等核心
 game/*.js            Game 的 mixin：render-setup、save、input、settings、garage、mission、player、camera、hud、
                      mp-lobby、mp-host、mp-client、map-extras、first-person、pvp、pilot（經驗與熟練度累積、結算）、
-                     pilot-ui（駕駛員畫面、預設組）；constants.js 放 mixin 共用常數
+                     pilot-ui（駕駛員畫面、預設組）、local-lib（本地模型庫的設定、讀取進度、規格檢查）；
+                     constants.js 放 mixin 共用常數
 assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 assets/models/       GLB 模型（<槽位 id>.glb，建置時自動內嵌，以 import ... from 'virtual:models' 取得）
 library/             模型庫：library.js（入口）、grid.js（共用畫布的格狀檢視）、inspect.js（檢視窗）、
@@ -101,7 +104,8 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 每個 3D 模型都是 `render/model-catalog.js` 的一個**模型槽**（槽位 id，例如 `head/h_std`、`arms/a_std/r_fore`）。新增模型或零件時要在目錄登記，模型庫才會列出。
 - **機甲由區塊組成**（`render/mech-model.js`）：`partPieces(cat, part)` 把零件拆成區塊（手臂左右各 上臂含肩甲／前臂／手；二足腳 襠部＋左右 大腿／小腿／腳掌；四足 主體＋4×大腿／小腿含腳；履帶整塊；武器分左右），左右各自建模、不用鏡像。每個區塊的原點是它的旋轉中心；`pieceConns(info)` 定義父區塊上的連接點預設值（核心→肩／脖子／背包／肩上武器座、襠部→腰／髖、上臂→手肘…），`buildMech` 依連接點組裝：連接點群組（`mounts`）下掛關節群組（`legs`／`arms`／`head`／`torso`，`animateMech` 只改它們的旋轉），區塊掛在關節群組底下。
 - 連接點可被關節設定覆寫（`render/mech-joints.js`）：內建 `src/assets/models/joints.json`（建置時以 `virtual:joints` 內嵌，遊戲與模型庫都讀）＞程式預設值；檔案用 glTF 座標（+Z 正面、角度）。模型庫的關節設定編輯器（拖曳箭頭／數值）把修改存在瀏覽器（IndexedDB `joints`，只影響模型庫），「匯出關節設定」輸出合併後的 joints.json。遊戲只讀內建檔，不讀瀏覽器暫存（多人各端必須一致）。機甲身高 `height`、`hipY` 是遊戲判定用的常數，不隨連接點改變。
-- GLB 來源優先順序：瀏覽器暫存（拖曳進模型庫，IndexedDB）＞內建（`src/assets/models/<槽位 id>.glb`）＞程式模型；左側武器沒有 GLB 時暫用右側。完整機甲（`mech/`）不接受整台 GLB，只顯示區塊組合（`buildMech` 的 `opts.piece` 換成 GLB）。目前遊戲本身還沒有讀 GLB，之後換模型時沿用 `render/glb.js`、`buildMech(..., { piece })` 與目錄。
+- GLB 來源優先順序（模型庫）：瀏覽器暫存（拖曳進模型庫，IndexedDB）＞內建（`src/assets/models/<槽位 id>.glb`）＞程式模型；左側武器沒有 GLB 時暫用右側。完整機甲（`mech/`）不接受整台 GLB，只顯示區塊組合（`buildMech` 的 `opts.piece` 換成 GLB）。會動的載具也拆成區塊（`vehicle/<key>/hull|turret|body|rotor|tail`，`render/vehicle-models.js`），列車分機車頭／車廂；完整載具、疊放貨櫃、掩體的目錄項目有 `parts`，模型庫以區塊組合預覽（`stage.js` 的 `prepareAssembly`）；`noGlb` 且 `parts` 為空的（高台、公路、鐵路）不接受 GLB。
+- **遊戲的本地模型庫**（只在單人模式）：設定（`rubicon_localmodels`：總開關＋機甲區塊／武器／載具／地圖物件／小物件）開啟時，`render/local-models.js` 讀取模型庫 IndexedDB 的 GLB 與關節設定（不建立資料庫、讀完即關閉連線；同來源才讀得到），解析後快取範本。建模函式透過 `render/model-provider.js` 的 `providedModel(slot, pal, unique)` 取得實例：`buildMech` 的區塊、`vehicle-models.js` 的載具區塊（`swapPiece`）、`extra-models.js` 的運輸車輛／掉落物／轟炸機／彈體、`world/prop-models.js` 的地圖物件（`propGlb`：依隨機尺寸縮放、main 材質換成物件顏色、`propMats` 回傳材質給遮擋與閃光）。沒有設定來源時一律回傳 null（程式模型），所以這些函式仍是純函式；多人時 `LocalModels.allow()` 回傳 false，關節覆寫也以 gate 停用。進車庫、單機出擊前（`lmRefresh`）與標題的「重新載入本地模型」會重新讀取。換模型只改外觀，碰撞與判定一律用程式模型的數值。內建 GLB 遊戲目前還不讀。
 - GLB 規格（+Z 正面、單位公尺、區塊與原點、依材質名稱換色、預算）見 `docs/glb-spec.md`；數值定義在 `render/glb.js` 的 `GLB_BUDGET`／`PALETTE_SLOTS`，區塊與連接點在 `render/mech-model.js`，修改時同步更新文件。
 - GLB 載入時要逐節點轉座標系（`flipToGame`），不能只轉根節點。
 - 尺寸一律以公尺標示；量測（`measureBox`）排除描邊外殼與加色發光特效。
@@ -112,9 +116,9 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
 - 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'8.0'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
-- 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`。
+- 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`。
 - 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。
-- 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接）。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML。
+- 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接），只有單人模式開啟本地模型庫時才會換成瀏覽器暫存的 GLB。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML。
 
 ## 其他
 
