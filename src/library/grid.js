@@ -21,11 +21,11 @@ const CELL_BG = 0x161b22;
 // 來源標籤：程式模型／GLB ✓／GLB ⚠ N／GLB ✗ N；完整機甲為「組合」＋使用 GLB 的區塊數
 export function sourceBadge(d, src, entry, store) {
   let comp = d && d.source && d.source.kind === 'composite' ? d.source : null;
-  if (!comp && entry && entry.cat === 'mech' && store)
+  if (!comp && entry && (entry.cat === 'mech' || entry.parts) && store)
     comp = {
-      glbSlots: mechPieces(entry.asm)
-        .map((i) => i.slot)
-        .filter((id) => store.source(id).kind === 'glb'),
+      glbSlots: (entry.parts || mechPieces(entry.asm).map((i) => i.slot)).filter(
+        (id) => store.source(id).kind === 'glb',
+      ),
     };
   if (comp)
     return comp.glbSlots.length

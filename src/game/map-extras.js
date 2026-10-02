@@ -4,6 +4,8 @@ import { rnd } from '../core/math.js';
 import { PICKUP_DEFS, Pickup, Vehicle } from '../world/map-extras.js';
 import { Game } from './game.js';
 
+const BLACK = new THREE.Color(0);
+
 Object.assign(Game.prototype, {
   mapExtrasInit() {
     this.vehicles = [];
@@ -38,7 +40,7 @@ Object.assign(Game.prototype, {
     setTimeout(() => {
       if (p.ob.mats)
         for (const m of p.ob.mats) {
-          if (m.emissive) m.emissive.setRGB(0, 0, 0);
+          if (m.emissive) m.emissive.copy(m.userData.emis0 || BLACK); // GLB 材質還原原本的自發光
         }
     }, 70);
     this.popDamage(at || p.center(), Math.round(dmg), false, false, false, 0, -1, impact);
@@ -186,7 +188,7 @@ Object.assign(Game.prototype, {
           setTimeout(() => {
             if (p.ob.mats)
               for (const m of p.ob.mats) {
-                if (m.emissive) m.emissive.setRGB(0, 0, 0);
+                if (m.emissive) m.emissive.copy(m.userData.emis0 || BLACK);
               }
           }, 70);
         }

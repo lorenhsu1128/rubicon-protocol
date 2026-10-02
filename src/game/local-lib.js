@@ -7,7 +7,8 @@ import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { checkGlb } from '../render/glb.js';
 import { measureBox } from '../render/measure.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
-import { PIECE_ORIGIN, setPieceProvider } from '../render/mech-model.js';
+import { PIECE_ORIGIN } from '../render/mech-model.js';
+import { setModelProvider } from '../render/model-provider.js';
 
 const $ = (id) => document.getElementById(id);
 const CATALOG = new Map(MODEL_CATALOG.map((e) => [e.id, e]));
@@ -27,14 +28,16 @@ function referenceBox(entry) {
 }
 function checker(id, root, info, bytes) {
   const entry = CATALOG.get(id);
-  if (!entry || entry.noGlb) return [{ lv: 'warn', text: '模型目錄沒有這個槽位，不會用到' }];
+  // 不會用到的槽位當成失敗（例如整台載具的舊檔，現在要放到各區塊）
+  if (!entry) throw new Error('模型目錄沒有這個槽位，不會用到');
+  if (entry.noGlb) throw new Error('這個模型由各區塊組成，請把 GLB 放到各區塊的槽位');
   return checkGlb({
     root,
     info,
     bytes,
     spec: entry.spec,
     ref: referenceBox(entry),
-    origin: entry.piece ? PIECE_ORIGIN[entry.piece.kind] : '地面中心（模型底面中心）',
+    origin: entry.piece ? PIECE_ORIGIN[entry.piece.kind] : entry.origin || '地面中心（模型底面中心）',
   });
 }
 
@@ -42,8 +45,7 @@ Object.assign(Game.prototype, {
   lmInit() {
     LocalModels.allow = () => !(this.net && this.net.role);
     LocalModels.applyJoints();
-    // 機甲區塊與武器：每台機甲各自一份材質（受擊閃光會改材質）
-    setPieceProvider((info, pal) => LocalModels.model(info.slot, pal, true));
+    setModelProvider((slot, pal, unique) => LocalModels.model(slot, pal, unique));
   },
   // 重新讀取本地模型庫；manual：標題畫面的按鈕（一律顯示進度與結果）
   // 自動讀取時只有需要解析檔案才顯示進度條
@@ -141,6 +143,17 @@ Object.assign(Game.prototype, {
               ? `<div class="lmBad">✗ ${escHtml(s.id)}：${escHtml(s.err)}（改用程式模型）</div>`
               : `<div class="lmWarn">⚠ ${escHtml(s.id)}：${s.checks.map((c) => escHtml(c.text)).join('；')}</div>`,
           )
+          .join('') +
+        `</details>`;
+    const ok = st && st.slots ? st.slots.filter((s) => s.on && !s.err) : [];
+    if (ok.length)
+      html +=
+        `<details class="lmUsed"><summary>套用中的 GLB（${ok.length}）</summary>` +
+        ok
+          .map((s) => {
+            const n = LocalModels.uses.get(s.id) || 0;
+            return `<div data-slot="${escHtml(s.id)}">${escHtml(s.id)}<span class="dim">　${escHtml(s.name || '')}　遊戲中已使用 ${n} 次</span></div>`;
+          })
           .join('') +
         `</details>`;
     html += `<p class="dim" style="font-size:11px">在模型庫拖進 GLB 或調整連接點後，回到遊戲進車庫或出擊時會自動重新讀取。碰撞與判定維持程式模型的數值。</p>`;

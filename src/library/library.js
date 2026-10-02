@@ -23,7 +23,12 @@ function toast(text, bad) {
 // 拖曳／載入 GLB：確認是 glTF 二進位檔才存進瀏覽器
 async function useFile(entry, file) {
   if (entry.noGlb)
-    return toast('完整機甲由各區塊組成：請把 GLB 拖到各區塊的格子（頭、核心、上臂、前臂…）', true);
+    return toast(
+      entry.cat === 'mech'
+        ? '完整機甲由各區塊組成：請把 GLB 拖到各區塊的格子（頭、核心、上臂、前臂…）'
+        : '這個模型由各區塊組成：請把 GLB 拖到各區塊的格子（例如車身、砲塔、旋翼、車廂）',
+      true,
+    );
   if (!/\.glb$/i.test(file.name)) return toast('只接受 .glb 檔（glTF 二進位）', true);
   try {
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
@@ -45,11 +50,12 @@ async function removeFile(entry) {
   applyFilter();
 }
 
-// 來源改變時一併重建：該格、暫用右側檔案的左側武器、所有完整機甲（由區塊組成）
+// 來源改變時一併重建：該格、暫用右側檔案的左側武器、所有完整機甲（由區塊組成）、用到這個區塊的完整載具
 function refreshRelated(id) {
   grid.refresh(id);
   if (/^(weapon|back)\/.+\/r$/.test(id)) grid.refresh(id.replace(/r$/, 'l'));
-  for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
+  for (const e of MODEL_CATALOG)
+    if (e.cat === 'mech' || (e.parts && e.parts.includes(id))) grid.refresh(e.id);
 }
 
 let grid, inspector, workshop;

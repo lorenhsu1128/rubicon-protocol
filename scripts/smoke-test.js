@@ -277,6 +277,13 @@ async function testLibraryGlb(browser, base) {
   await load(rifle);
   const badW = await badCount();
   check(badW.length === 0, `武器範本 GLB 規格檢查全部通過${badW.length ? '：' + badW.join('；') : ''}`);
+  // 載具區塊：直升機主旋翼（原點在旋翼軸心）
+  await openSlot('vehicle/heli/rotor');
+  const rotor = await template('heli_rotor_template.glb');
+  await load(rotor);
+  const badR = await badCount();
+  check(badR.length === 0, `載具區塊範本 GLB 規格檢查全部通過${badR.length ? '：' + badR.join('；') : ''}`);
+  check((await info()).includes('旋翼軸心'), '載具區塊標示原點（主旋翼軸心）');
   await openSlot('weapon/w_rifle/l');
   check((await info()).includes('暫用右側'), '左手武器沒有 GLB 時暫用右側');
   // 錯放：步槍放進頭部槽位應該報尺寸錯誤，移除後改回程式模型
@@ -601,9 +608,26 @@ async function testLocalModels(browser, base) {
       { id: 'weapon/w_rifle/r', name: 'rifle.glb', bytes: [...fs.readFileSync(rifle)] },
       { id: 'head/h_std', name: 'broken.glb', bytes: [1, 2, 3, 4, 5, 6, 7, 8] },
       { id: 'arms/a_std/l_hand', name: 'cube.glb', bytes: cube },
+      // 載具區塊、列車車廂、掉落物、彈體、轟炸機；整台戰車的舊槽位不會用到（列為失敗）
+      { id: 'vehicle/tank/turret', name: 'turret.glb', bytes: cube },
+      { id: 'vehicle/transport_train/car', name: 'car.glb', bytes: cube },
+      { id: 'small/pickup_repair', name: 'pickup.glb', bytes: cube },
+      { id: 'small/proj_bullet', name: 'bullet.glb', bytes: cube },
+      { id: 'vehicle/bomber', name: 'bomber.glb', bytes: cube },
+      { id: 'vehicle/tank', name: 'old-tank.glb', bytes: cube },
     ],
     { 'arms/a_std/r_upper': { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } } },
   );
+  // 模型庫：完整載具／列車以區塊組合預覽
+  for (const id of ['vehicle/tank', 'vehicle/transport_train']) {
+    await lib.goto(base + 'model-library.html#' + id);
+    await lib.reload(); // 只改 # 不會重新載入頁面，要重新讀取剛寫入的暫存
+    await lib.waitForSelector('#inspect:not([hidden])');
+    await wait(1800);
+    const t = (await lib.textContent('#insInfo')) || '';
+    check(t.includes('1 個區塊用 GLB'), `模型庫：${id} 以區塊組合預覽（GLB 1 塊）`);
+    await lib.screenshot({ path: path.join(SHOT_DIR, `local-models-${id.split('/')[1]}.png`) });
+  }
   await lib.close();
   // 設定畫面：開啟總開關 → 讀取
   await page.click('#btnSettings');
@@ -613,16 +637,17 @@ async function testLocalModels(browser, base) {
   await wait(2500);
   const box = (await page.textContent('#lmBox')) || '';
   check(
-    box.includes('套用 GLB 3 個') && box.includes('失敗 1 個'),
+    box.includes('套用 GLB 8 個') && box.includes('失敗 2 個'),
     `讀取結果：${(box.match(/狀態：([^重]*)/) || ['', ''])[1]}`,
   );
   check(box.includes('關節設定 1 個'), '讀到模型庫的關節設定');
   check(box.includes('head/h_std'), '列出載入失敗的槽位');
+  check(box.includes('由各區塊組成'), '整台載具的舊槽位提示改放到各區塊');
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-settings.png') });
   // 分類開關：關掉武器後只剩 1 個
   await page.uncheck('#lmBox [data-g="weapon"]');
   await wait(800);
-  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 2 個'), '關閉武器分類後不套用武器 GLB');
+  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 7 個'), '關閉武器分類後不套用武器 GLB');
   await page.check('#lmBox [data-g="weapon"]');
   await wait(800);
   await page.click('#btnSettingsBack');
@@ -631,7 +656,7 @@ async function testLocalModels(browser, base) {
   await page.click('#btnLmReload');
   await wait(400);
   const ov = await lmOverlay(page);
-  check(ov.includes('套用 GLB 3 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
+  check(ov.includes('套用 GLB 8 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
   await page.click('#lmLoad');
   // 車庫與出擊
@@ -644,8 +669,28 @@ async function testLocalModels(browser, base) {
   await page.click('#btnSortie');
   check(await waitVisible(page, 'hudWrap', 15000), '出擊後 HUD 顯示');
   await playFor(page, 3000);
+  await page.keyboard.press('Digit1'); // 空襲：轟炸機
+  await playFor(page, 2500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-solo.png') });
   await page.keyboard.press('Escape');
+  await wait(400);
+  // 暫停 → 設定：確認遊戲中真的用到了 GLB
+  await page.click('#btnSettingsP');
+  await waitVisible(page, 'settings');
+  await page.click('.lmUsed summary');
+  const used = async (id) =>
+    page.$eval(
+      `.lmUsed [data-slot="${id}"]`,
+      (e) => +((e.textContent.match(/已使用 (\d+) 次/) || [])[1] || 0),
+    );
+  const nb = await used('small/proj_bullet');
+  check(nb > 0, `子彈換成 GLB（${nb} 發）`);
+  const nf = await used('arms/a_std/r_fore');
+  check(nf > 0, `機甲區塊換成 GLB（右前臂 ${nf} 次）`);
+  const nm = await used('vehicle/bomber');
+  check(nm > 0, `空襲轟炸機換成 GLB（${nm} 次）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-used.png') });
+  await page.click('#btnSettingsBack');
   await wait(400);
   await page.click('#btnAbort');
   check(await waitVisible(page, 'result'), '放棄任務後回到結果畫面');

@@ -1230,11 +1230,13 @@ select {
   margin: 4px 0 6px;
   font-size: 13px;
 }
-.lmIssues {
+.lmIssues,
+.lmUsed {
   font-size: 12px;
   margin: 4px 0;
 }
-.lmIssues > div {
+.lmIssues > div,
+.lmUsed > div {
   padding: 2px 0;
   word-break: break-all;
 }

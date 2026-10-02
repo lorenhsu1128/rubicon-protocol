@@ -33,7 +33,7 @@ export class MechEntity {
       opts.modelKind === 'vehicle'
         ? buildVehicle(pal, this.scale)
         : opts.modelKind === 'heli'
-          ? buildHeli(pal, this.scale)
+          ? buildHeli(pal, this.scale, this.isBoss ? 'boss_helios' : 'heli')
           : opts.modelKind === 'drone'
             ? buildDrone(pal, this.scale)
             : buildMech(asm, pal, this.scale);

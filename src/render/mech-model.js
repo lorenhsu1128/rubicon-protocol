@@ -19,12 +19,7 @@ import {
 import { mechMats } from './materials.js';
 import { resolveConn } from './mech-joints.js';
 import { matsOf } from './glb.js';
-
-// 遊戲的本地模型庫（單人模式）：buildMech 沒有指定 opts.piece 時，由它提供取代程式模型的區塊（或 null）
-let pieceProvider = null;
-export function setPieceProvider(fn) {
-  pieceProvider = fn;
-}
+import { providedModel } from './model-provider.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -806,7 +801,8 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   const mounts = [];
   const provided = [];
   const place = (parent, info) => {
-    let obj = opts.piece ? opts.piece(info) : pieceProvider && pieceProvider(info, pal);
+    // 沒有指定 opts.piece 時問模型來源（遊戲的本地模型庫）；每台機甲各自一份材質（受擊閃光）
+    let obj = opts.piece ? opts.piece(info) : providedModel(info.slot, pal, true);
     if (obj && !opts.piece) provided.push(obj);
     obj = obj || makeProcPiece(info, ctx);
     obj.userData.slot = info.slot;

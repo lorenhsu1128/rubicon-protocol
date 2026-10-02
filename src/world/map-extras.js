@@ -5,6 +5,8 @@ import { SFX } from '../audio/audio.js';
 import { pick, rnd, rndi } from '../core/math.js';
 import { buildPickupMesh, buildTransport } from '../render/extra-models.js';
 
+const BLACK = new THREE.Color(0);
+
 export const PICKUP_DEFS = {
   repair: { name: '修補包', color: 0x7ee081 },
   cs_bomber: { name: 'AIRSTRIKE 空襲 +1', color: 0x5cc8ff },
@@ -62,8 +64,11 @@ export class Vehicle {
     this.mesh = g;
     this.game.scene.add(g);
     this.mats = [];
+    // 會受擊閃光的材質（GLB 可能有多重材質與描邊）
     g.traverse((o) => {
-      if (o.isMesh) this.mats.push(o.material);
+      if (!o.isMesh) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material])
+        if (m.emissive && !this.mats.includes(m)) this.mats.push(m);
     });
     this.update(0);
   }
@@ -85,7 +90,7 @@ export class Vehicle {
     this.mesh.rotation.y = Math.atan2(c.dir.x, c.dir.y) + (this.dirSign > 0 ? 0 : Math.PI);
     if (this.flashT > 0) {
       this.flashT -= dt;
-      if (this.flashT <= 0) for (const m of this.mats) m.emissive.setRGB(0, 0, 0);
+      if (this.flashT <= 0) for (const m of this.mats) m.emissive.copy(m.userData.emis0 || BLACK);
     }
     if (Math.abs(this.s) > w.corridorHalf + 14 + this.cars * this.carLen) this.gone = true;
   }
@@ -138,7 +143,7 @@ export class Pickup {
     this.pos = pos.clone();
     this.life = 40;
     this.dead = false;
-    const g = buildPickupMesh(PICKUP_DEFS[kind].color);
+    const g = buildPickupMesh(PICKUP_DEFS[kind].color, kind);
     g.position.copy(this.pos);
     game.scene.add(g);
     this.mesh = g;

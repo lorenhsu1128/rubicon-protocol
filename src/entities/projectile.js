@@ -36,7 +36,7 @@ export class Projectile {
     const v = this.vel;
     if (v.lengthSq() > 0.01) {
       this.mesh.lookAt(this.pos.x + v.x, this.pos.y + v.y, this.pos.z + v.z);
-      if (this.kind === 'missile') this.mesh.rotateX(Math.PI / 2);
+      if (this.kind === 'missile' && !this.mesh.userData.glb) this.mesh.rotateX(Math.PI / 2);
     }
   }
   update(dt) {

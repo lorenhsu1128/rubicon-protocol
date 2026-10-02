@@ -1,8 +1,15 @@
 // 非機甲的小型模型（純函式，不使用亂數、不加入場景）：運輸貨車／列車、掉落物、轟炸機、彈體
+// 遊戲的本地模型庫可以用 GLB 取代（model-provider.js）：每節車廂、掉落物本體、轟炸機、彈體各自一個槽位
 import { box, cyl } from '../world/prop-models.js';
+import { providedModel } from './model-provider.js';
+
+// 運輸車輛每一節的槽位：列車第一節是機車頭、其餘是車廂；貨車每節相同
+export const transportSlot = (kind, i) =>
+  kind === 'train' ? `vehicle/transport_train/${i === 0 ? 'loco' : 'car'}` : 'vehicle/transport_truck';
 
 // 沿公路／鐵路行駛的運輸車輛；cars 節車廂沿 −Z 排列，車頭朝 +Z
-export function buildTransport(kind, cars, carLen) {
+// first：從第幾節開始建立（模型庫單獨顯示車廂用），第一節放在原點
+export function buildTransport(kind, cars, carLen, first = 0) {
   const g = new THREE.Group();
   const M = (c, o) =>
     new THREE.MeshStandardMaterial(
@@ -15,8 +22,15 @@ export function buildTransport(kind, cars, carLen) {
     g.add(b);
     return b;
   };
-  for (let i = 0; i < cars; i++) {
-    const zc = -i * carLen;
+  for (let i = first; i < cars; i++) {
+    const zc = -(i - first) * carLen;
+    // GLB：原點為這一節的地面中心；每個實例各自一份材質（受擊閃光）
+    const glb = providedModel(transportSlot(kind, i), null, true);
+    if (glb) {
+      glb.position.z = zc;
+      g.add(glb);
+      continue;
+    }
     if (kind === 'train') {
       if (i === 0) {
         bx(3.2, 3.2, 7, M(0x7a2a2a), 0, 2.2, zc);
@@ -52,28 +66,36 @@ export function buildTransport(kind, cars, carLen) {
   return g;
 }
 
-// 掉落物：發光方塊＋地面光環
-export function buildPickupMesh(color) {
+// 掉落物：發光方塊＋地面光環。kind：掉落物種類（GLB 槽位 small/pickup_<kind>，只取代方塊，光環維持程式特效）
+// ring：false 時只建立方塊（模型庫用，作為 GLB 的參考）
+export function buildPickupMesh(color, kind, ring = true) {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8, roughness: 0.4 }),
-  );
-  m.castShadow = true;
-  g.add(m);
-  const ring = new THREE.Mesh(
+  const glb = kind ? providedModel('small/pickup_' + kind) : null;
+  if (glb) g.add(glb);
+  else {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8, roughness: 0.4 }),
+    );
+    m.castShadow = true;
+    g.add(m);
+  }
+  if (!ring) return g;
+  const halo = new THREE.Mesh(
     new THREE.RingGeometry(1.2, 1.5, 24),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
   );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = -0.55;
-  g.add(ring);
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = -0.55;
+  g.add(halo);
   return g;
 }
 
 // 空襲轟炸機：機身沿 Z 軸、機頭朝 −Z
 export function buildBomberMesh() {
   const bm = new THREE.Group();
+  const glb = providedModel('vehicle/bomber');
+  if (glb) return bm.add(glb);
   const mm = new THREE.MeshStandardMaterial({
     color: 0x4a5058,
     roughness: 0.6,
@@ -103,12 +125,46 @@ const glow = (color, opacity) =>
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
+// 彈體 GLB：命名為 glow 的材質改成武器的彈色（同一個顏色共用材質）
+const PROJ_SLOT = {
+  bullet: 'proj_bullet',
+  missile: 'proj_missile',
+  shell: 'proj_shell',
+  grenade: 'proj_shell',
+};
+const projPals = new Map();
+const projPal = (col) => {
+  if (!projPals.has(col)) projPals.set(col, { glow: col });
+  return projPals.get(col);
+};
+const bulletLen = (speed) => Math.min(2.0, Math.max(0.9, speed * 0.009));
+// GLB 彈體：外層群組由 Projectile.orient 以 lookAt 讓 +Z 朝飛行方向，所以 GLB（正面 −Z）轉 180°；
+// 子彈依彈速沿前後拉長（GLB 以 0.9 倍長度製作）；飛彈尾端保留程式的尾焰
+function glbProjectile(kind, col, speed) {
+  const slot = PROJ_SLOT[kind];
+  const inner = slot ? providedModel('small/' + slot, projPal(col)) : null;
+  if (!inner) return null;
+  const mesh = new THREE.Group();
+  inner.rotation.y = Math.PI;
+  if (kind === 'bullet') inner.scale.z = bulletLen(speed) / 0.9;
+  mesh.add(inner);
+  if (kind === 'missile') {
+    const box = new THREE.Box3().setFromObject(inner);
+    const fl = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 5), glow(0xffb060, 0.9));
+    fl.position.z = box.isEmpty() ? -0.5 : box.min.z;
+    mesh.add(fl);
+  }
+  mesh.userData.glb = true;
+  return mesh;
+}
 // 子彈的拖曳長度依速度決定（speed：彈速 m/s）
 export function buildProjectileMesh(kind, color, speed) {
   const col = color || 0xffe0a0;
+  const g = glbProjectile(kind, col, speed);
+  if (g) return g;
   const mesh = new THREE.Group();
   if (kind === 'bullet') {
-    const L = Math.min(2.0, Math.max(0.9, speed * 0.009));
+    const L = bulletLen(speed);
     const core = new THREE.Mesh(ProjGeo, glow(0xfff2c8, 0.95));
     core.scale.set(0.4, 0.4, L);
     const halo = new THREE.Mesh(ProjGeo, glow(col, 0.5));

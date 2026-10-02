@@ -27,7 +27,14 @@ import {
 } from '../world/prop-models.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { buildBomberMesh, buildPickupMesh, buildProjectileMesh, buildTransport } from './extra-models.js';
-import { buildDrone, buildHeli, buildVehicle } from './vehicle-models.js';
+import {
+  VEHICLE_PIECES,
+  VEHICLE_PIECE_NAMES,
+  VEHICLE_PIECE_ORIGIN,
+  buildDrone,
+  buildHeli,
+  buildVehicle,
+} from './vehicle-models.js';
 
 export const CATEGORIES = [
   { id: 'head', name: '頭部' },
@@ -132,24 +139,91 @@ Object.entries(ENEMY_TYPES).forEach(([key, d], i) => {
 });
 
 // ---------- 非機甲敵人／載具 ----------
-const addVeh = (key, name, fn, palKey, scale, note, spec = 'vehicle') =>
+// 會動的部位拆成區塊（vehicle-models.js）：完整載具只預覽區塊組合的結果（parts），GLB 放到各區塊的格子
+// 區塊的程式模型：從整台拆出那個節點，原點移到它的旋轉中心
+function vehiclePiece(rig, pc) {
+  const node = pc === 'hull' ? rig.legsG : pc === 'rotor' ? rig.rotor : pc === 'tail' ? rig.tail : rig.torso;
+  if (node === rig.torso) for (const c of [rig.rotor, rig.tail]) if (c) node.remove(c);
+  node.parent.remove(node);
+  node.position.set(0, 0, 0);
+  node.rotation.set(0, 0, 0);
+  node.scale.set(1, 1, 1);
+  const wrap = new THREE.Group();
+  wrap.add(node);
+  return { obj: wrap, scaleNode: wrap, scale: v3(1), rig: null };
+}
+const addVeh = (key, name, fn, palKey, scale, note, spec, kind) => {
+  const parts = VEHICLE_PIECES[kind].map((pc) => `vehicle/${key}/${pc}`);
   add({
     id: `vehicle/${key}`,
     cat: 'vehicle',
     name,
-    note,
+    note: note + '（由區塊組成）',
     pal: palKey,
     gameScale: scale,
     spec,
-    build: (k) => wholeRig(fn(pal(k), 1), scale),
+    noGlb: true,
+    parts,
+    build: (k) => wholeRig(fn(pal(k), 1, key), scale),
   });
-addVeh('tank', ENEMY_TYPES.tank.name, buildVehicle, ENEMY_TYPES.tank.pal, ENEMY_TYPES.tank.scale, '敵人');
-addVeh('heli', ENEMY_TYPES.heli.name, buildHeli, ENEMY_TYPES.heli.pal, ENEMY_TYPES.heli.scale, '敵人');
+  for (const pc of VEHICLE_PIECES[kind])
+    add({
+      id: `vehicle/${key}/${pc}`,
+      cat: 'vehicle',
+      name: `${name}・${VEHICLE_PIECE_NAMES[pc]}`,
+      note: pc === 'turret' || pc === 'rotor' || pc === 'tail' ? '會旋轉的區塊' : '',
+      pal: palKey,
+      gameScale: scale,
+      spec,
+      origin: VEHICLE_PIECE_ORIGIN[pc],
+      build: (k) => {
+        const b = vehiclePiece(fn(pal(k), 1, key), pc);
+        b.obj.scale.copy(v3(scale));
+        return { ...b, scale: v3(scale) };
+      },
+    });
+};
+addVeh(
+  'tank',
+  ENEMY_TYPES.tank.name,
+  buildVehicle,
+  ENEMY_TYPES.tank.pal,
+  ENEMY_TYPES.tank.scale,
+  '敵人',
+  'vehicle',
+  'tank',
+);
+addVeh(
+  'heli',
+  ENEMY_TYPES.heli.name,
+  buildHeli,
+  ENEMY_TYPES.heli.pal,
+  ENEMY_TYPES.heli.scale,
+  '敵人',
+  'vehicle',
+  'heli',
+);
 {
   const h = BOSS_DEFS.find((b) => b.kind === 'heli');
-  if (h) addVeh('boss_helios', h.name, buildHeli, 'helios', h.scale, 'Boss', 'vehicle-boss');
+  if (h) addVeh('boss_helios', h.name, buildHeli, 'helios', h.scale, 'Boss', 'vehicle-boss', 'heli');
 }
-addVeh('swarm', ENEMY_TYPES.swarm.name, buildDrone, ENEMY_TYPES.swarm.pal, ENEMY_TYPES.swarm.scale, '敵人');
+// 無人機只有一塊（尾焰是程式特效）：原點在機身中心
+add({
+  id: 'vehicle/swarm',
+  cat: 'vehicle',
+  name: ENEMY_TYPES.swarm.name,
+  note: '敵人；尾焰是程式特效',
+  pal: ENEMY_TYPES.swarm.pal,
+  gameScale: ENEMY_TYPES.swarm.scale,
+  spec: 'vehicle',
+  origin: VEHICLE_PIECE_ORIGIN.drone,
+  build: (k) => {
+    const b = vehiclePiece(buildDrone(pal(k), 1), 'body');
+    const sc = v3(ENEMY_TYPES.swarm.scale);
+    b.obj.scale.copy(sc);
+    return { ...b, scale: sc };
+  },
+});
 
 // 其他載具（不屬於敵人、沒有配色）
 const plain = (obj) => {
@@ -171,8 +245,19 @@ const addPlain = (cat, key, name, note, build, extra = {}) =>
 addPlain('vehicle', 'transport_truck', '運輸貨車', '沿公路行駛的可破壞車輛', () =>
   buildTransport('truck', 1, 8),
 );
-addPlain('vehicle', 'transport_train', '運輸列車', '機車頭＋3 節車廂（遊戲中 3–5 節）', () =>
-  buildTransport('train', 4, 7.5),
+addPlain(
+  'vehicle',
+  'transport_train',
+  '運輸列車',
+  '機車頭＋3 節車廂（遊戲中 3–5 節；由區塊組成）',
+  () => buildTransport('train', 4, 7.5),
+  { noGlb: true, parts: ['vehicle/transport_train/loco', 'vehicle/transport_train/car'] },
+);
+addPlain('vehicle', 'transport_train/loco', '運輸列車・機車頭', '地面中心為這一節的底面中心', () =>
+  buildTransport('train', 1, 7.5),
+);
+addPlain('vehicle', 'transport_train/car', '運輸列車・車廂', '遊戲中依節數重複', () =>
+  buildTransport('train', 2, 7.5, 1),
 );
 addPlain('vehicle', 'bomber', '空襲轟炸機', '消耗品 AIRSTRIKE', () => buildBomberMesh());
 
@@ -258,17 +343,36 @@ addPlain('prop', 'rail', '穿越鐵路（一段）', '寬 9 m，遊戲中貫穿�
 );
 
 // ---------- 小物件：掉落物、彈體 ----------
+const CENTER = '物件中心';
 for (const [k, d] of Object.entries(PICKUP_DEFS))
-  addPlain('small', 'pickup_' + k, '掉落物：' + d.name, '浮動旋轉的發光方塊', () => buildPickupMesh(d.color));
+  addPlain(
+    'small',
+    'pickup_' + k,
+    '掉落物：' + d.name,
+    '浮動旋轉的方塊；底下的光環是程式特效',
+    () => buildPickupMesh(d.color, null, false),
+    { origin: CENTER },
+  );
 const proj = (kind) => {
   const m = buildProjectileMesh(kind, 0xffd080, 95);
   if (kind === 'missile') m.rotation.x = -Math.PI / 2; // 彈頭朝 −Z
   return m;
 };
-addPlain('small', 'proj_bullet', '子彈', '發光彈道（長度隨彈速 0.9–2.0 倍）', () => proj('bullet'), {
-  measureFx: true,
+const PROJ_NOTE = '；命名為 glow 的材質改成武器的彈色';
+addPlain(
+  'small',
+  'proj_bullet',
+  '子彈',
+  '發光彈道（長度隨彈速 0.9–2.0 倍，GLB 以 0.9 倍製作）' + PROJ_NOTE,
+  () => proj('bullet'),
+  { measureFx: true, origin: '彈體中心' },
+);
+addPlain('small', 'proj_missile', '飛彈', '彈體（尾焰是程式特效）', () => proj('missile'), {
+  origin: '彈體中心',
 });
-addPlain('small', 'proj_missile', '飛彈', '彈體＋尾焰', () => proj('missile'), { measureFx: true });
-addPlain('small', 'proj_shell', '砲彈／榴彈', '發光彈體', () => proj('shell'), { measureFx: true });
+addPlain('small', 'proj_shell', '砲彈／榴彈', '發光彈體' + PROJ_NOTE, () => proj('shell'), {
+  measureFx: true,
+  origin: '彈體中心',
+});
 
 export const MODEL_CATALOG = entries;

@@ -86,6 +86,7 @@ class LocalModelLib {
     this.status = null; // 最近一次讀取的結果
     this.loading = null;
     this.tinted = new WeakMap(); // 共用材質的換色快取：原材質 → Map(配色 → 材質)
+    this.uses = new Map(); // 槽位 → 這次開啟遊戲後建立過幾個實例（設定畫面顯示，確認遊戲真的用到）
   }
   saveSettings() {
     try {
@@ -204,13 +205,16 @@ class LocalModelLib {
   model(id, pal, unique = false) {
     const tpl = this.template(id);
     if (!tpl) return null;
+    this.uses.set(id, (this.uses.get(id) || 0) + 1);
     const obj = tpl.clone(true);
     obj.traverse((o) => {
       if (!o.isMesh || o.material === OUTLINE_MAT) return;
       const one = (m) => {
         if (unique) {
           const c = tintMaterial(m, pal);
-          return c === m ? m.clone() : c;
+          const u = c === m ? m.clone() : c;
+          if (u.emissive) u.userData.emis0 = u.emissive.clone(); // 受擊閃光後還原
+          return u;
         }
         if (!pal) return m;
         let by = this.tinted.get(m);

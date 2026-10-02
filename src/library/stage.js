@@ -6,6 +6,7 @@ import { PALETTES } from '../render/materials.js';
 import { measureBox, modelStats } from '../render/measure.js';
 import { START_ASM } from '../data/parts.js';
 import { PIECE_ORIGIN, buildMech, mechPieces } from '../render/mech-model.js';
+import { setModelProvider } from '../render/model-provider.js';
 
 let ENV = null;
 export const studioEnv = () => ENV || (ENV = makeStudioEnv());
@@ -104,7 +105,7 @@ function referenceBox(entry, palKey) {
   return box;
 }
 export const originText = (entry) =>
-  entry.piece ? PIECE_ORIGIN[entry.piece.kind] : '地面中心（模型底面中心）';
+  entry.piece ? PIECE_ORIGIN[entry.piece.kind] : entry.origin || '地面中心（模型底面中心）';
 
 // GLB：解析、轉座標系、套配色，並對照程式模型做規格檢查
 export async function prepareGlbModel(entry, palKey, src) {
@@ -165,12 +166,49 @@ export async function prepareMech(entry, palKey, store) {
   );
 }
 
+// 由區塊組成的完整模型（載具、列車）：有 GLB 的區塊暫時掛上模型來源，再照常建立
+export async function prepareAssembly(entry, palKey, store) {
+  const pal = palOf(entry, palKey);
+  const roots = {},
+    errors = [];
+  for (const id of entry.parts) {
+    const src = store.source(id);
+    if (src.kind !== 'glb') continue;
+    try {
+      roots[id] = glbScene(await parseGlb(src.buf), pal).root;
+    } catch (e) {
+      errors.push(`${id}：${e.message || e}`);
+    }
+  }
+  // 同一個區塊可能用好幾次（列車車廂）：第一次用原物件，之後複製
+  const used = new Set();
+  const prev = setModelProvider((slot) => {
+    const r = roots[slot];
+    if (!r) return null;
+    if (!used.has(slot)) return used.add(slot) && r;
+    return r.clone(true);
+  });
+  let built;
+  try {
+    built = entry.build(palKey || entry.pal);
+  } finally {
+    setModelProvider(prev);
+  }
+  const notes = errors.map((t) => 'GLB 解析失敗：' + t);
+  return finalize(entry, built, {
+    source: { kind: 'composite', glbSlots: Object.keys(roots), errors },
+    notes,
+  });
+}
+
 export const prepareSource = (entry, palKey, src, store) =>
-  entry.cat === 'mech'
-    ? prepareMech(entry, palKey, store)
-    : src && src.kind === 'glb'
-      ? prepareGlbModel(entry, palKey, src)
-      : Promise.resolve(prepareModel(entry, palKey));
+  entry.parts
+    ? prepareAssembly(entry, palKey, store)
+    : entry.cat === 'mech'
+      ? prepareMech(entry, palKey, store)
+      : src && src.kind === 'glb'
+        ? prepareGlbModel(entry, palKey, src)
+        : Promise.resolve(prepareModel(entry, palKey));
 
 // 組合預覽：玩家初始機（START_ASM）換上此區塊所屬的零件，所有區塊依各自來源（GLB／程式模型）組裝
 export const COMPOSE_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];

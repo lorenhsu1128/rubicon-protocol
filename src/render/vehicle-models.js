@@ -1,8 +1,46 @@
 // 非機甲敵人模型：地面載具、直升機、無人機
+// 會動的部位拆成區塊（槽位 vehicle/<key>/<區塊>，原點＝旋轉中心），可以各自換成 GLB：
+//   戰車 hull 車身（地面中心）／turret 砲塔含砲管（砲塔旋轉中心）
+//   直升機 body 機身（機身傾斜中心）／rotor 主旋翼（旋翼軸心）／tail 尾旋翼（尾旋翼軸心）
+//   無人機整塊（vehicle/<key>，機身中心）
 import { CB, OUTLINE_MAT, P, bakeAll, decal, gBox, gCyl, kitBolts, kitVents } from './geometry.js';
+import { matsOf } from './glb.js';
 import { mechMats } from './materials.js';
+import { providedModel } from './model-provider.js';
 
-export function buildVehicle(pal, scale = 1) {
+export const VEHICLE_PIECES = {
+  tank: ['hull', 'turret'],
+  heli: ['body', 'rotor', 'tail'],
+};
+export const VEHICLE_PIECE_NAMES = {
+  hull: '車身',
+  turret: '砲塔（含砲管）',
+  body: '機身',
+  rotor: '主旋翼',
+  tail: '尾旋翼',
+};
+export const VEHICLE_PIECE_ORIGIN = {
+  hull: '地面中心（車身底面中心）',
+  turret: '砲塔旋轉中心（砲塔底面中心，離地 1.8 m）',
+  body: '機身傾斜中心（離地 1.2 m）',
+  rotor: '主旋翼軸心',
+  tail: '尾旋翼軸心',
+  drone: '機身中心（離地 0.6 m）',
+};
+// 區塊有 GLB 時：清掉這些節點上的程式網格（keep 除外），把 GLB 掛在第一個節點上
+function swapPiece(slot, pal, nodes, mats, keep = []) {
+  const obj = providedModel(slot, pal, true);
+  if (!obj) return null;
+  for (const n of nodes) {
+    n.userData.prims = null;
+    for (const c of [...n.children]) if (c.isMesh && !keep.includes(c)) n.remove(c);
+  }
+  nodes[0].add(obj);
+  mats.push(...matsOf(obj));
+  return obj;
+}
+
+export function buildVehicle(pal, scale = 1, key = 'tank') {
   const M = mechMats(pal);
   const root = new THREE.Group();
   const legsG = new THREE.Group();
@@ -47,6 +85,9 @@ export function buildVehicle(pal, scale = 1) {
   P(back, gCyl(0.06, 0.06, 0.9, 6), M.sub, 0, 0.05, -0.8, Math.PI / 2);
   P(torso, gCyl(0.02, 0.02, 1.2, 4), M.joint, -0.6, 1.4, 0.4);
   decal(torso, 3, 0.4, 0.4, 0.76, 0.45, 0.2, 0, Math.PI / 2, 0);
+  const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun];
+  swapPiece(`vehicle/${key}/hull`, pal, [legsG], mats);
+  swapPiece(`vehicle/${key}/turret`, pal, [torso, hand, back], mats);
   bakeAll(root);
   root.scale.setScalar(scale);
   root.traverse((o) => {
@@ -70,11 +111,11 @@ export function buildVehicle(pal, scale = 1) {
     vehicle: true,
     height: 3.0 * scale,
     coreH: 1.0,
-    mats: [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun],
+    mats,
     flashT: 0,
   };
 }
-export function buildHeli(pal, scale = 1) {
+export function buildHeli(pal, scale = 1, key = 'heli') {
   const M = mechMats(pal);
   const root = new THREE.Group();
   const legsG = new THREE.Group();
@@ -147,6 +188,10 @@ export function buildHeli(pal, scale = 1) {
       (-i * Math.PI) / 2 + Math.PI / 2,
     );
   P(rotor, gCyl(0.28, 0.28, 0.16, 8), M.joint, 0, 0, 0);
+  const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun];
+  swapPiece(`vehicle/${key}/body`, pal, [torso, hand, back], mats);
+  swapPiece(`vehicle/${key}/rotor`, pal, [rotor], mats);
+  swapPiece(`vehicle/${key}/tail`, pal, [tail], mats);
   bakeAll(root);
   root.scale.setScalar(scale);
   root.traverse((o) => {
@@ -172,11 +217,11 @@ export function buildHeli(pal, scale = 1) {
     vehicle: true,
     height: 2.9 * scale,
     coreH: 1.3,
-    mats: [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun],
+    mats,
     flashT: 0,
   };
 }
-export function buildDrone(pal, scale = 1) {
+export function buildDrone(pal, scale = 1, key = 'swarm') {
   const M = mechMats(pal);
   const root = new THREE.Group();
   const legsG = new THREE.Group();
@@ -217,6 +262,8 @@ export function buildDrone(pal, scale = 1) {
   fl.position.set(0, 0, 0.9);
   fl.rotation.x = -Math.PI / 2;
   torso.add(fl);
+  const mats = [M.main, M.main2, M.acc];
+  swapPiece(`vehicle/${key}`, pal, [torso], mats, [fl]); // 尾焰維持程式特效
   bakeAll(root);
   root.scale.setScalar(scale);
   const arms = {
@@ -237,7 +284,7 @@ export function buildDrone(pal, scale = 1) {
     vehicle: true,
     height: 1.1 * scale,
     coreH: 0.5,
-    mats: [M.main, M.main2, M.acc],
+    mats,
     flashT: 0,
   };
 }

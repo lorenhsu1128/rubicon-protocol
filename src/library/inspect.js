@@ -405,7 +405,7 @@ export class Inspector {
         : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
-      ...(e.piece ? this.pieceRows(e.piece) : []),
+      ...(e.piece ? this.pieceRows(e.piece) : e.origin ? [['原點', e.origin]] : []),
       ['來源', d.loadError ? d.loadError + '（改顯示程式模型）' : srcText],
       [this.mode === 'compose' ? '組合後尺寸（寬×高×深）' : '遊戲尺寸（寬×高×深）', fmtSize(d.size)],
       ...(st
@@ -441,7 +441,9 @@ export class Inspector {
     $('insDownload').disabled = !glb || !!src.fallback;
     $('insRemove').disabled = !(glb && src.origin === 'browser' && !src.fallback);
     $('insGlbHint').textContent = e.noGlb
-      ? '完整機甲由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（頭、核心、上臂、前臂…）'
+      ? e.cat === 'mech'
+        ? '完整機甲由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（頭、核心、上臂、前臂…）'
+        : '這個模型由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（' + e.parts.join('、') + '）'
       : glb && !src.fallback
         ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
         : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;
