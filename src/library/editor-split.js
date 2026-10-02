@@ -1,7 +1,8 @@
 // GLB 編輯器的「拆分」：把一整台機甲（或一隻手）的 GLB 拆成遊戲的各個區塊。
-// 1. 對齊：選零件組合，程式模型（各區塊不同顏色的線框）疊在模型上；用朝向／尺寸工具對齊，並調整程式模型的姿勢配合模型
-//    （手臂張開、手肘彎曲等，例如 T 字或 A 字姿勢）。
-// 2. 分配：每個三角形分給最近的程式模型區塊；框選改分配、平面切割（切開三角形並補切面）。
+// 1. 對齊：選零件組合、勾選要拆的區塊，每個勾選的區塊顯示一個「範圍框」（程式模型的外框，可調整大小，跟著姿勢）；
+//    用朝向／尺寸／移動工具把 GLB 的對應部位放進框裡，必要時調整程式模型的姿勢（手臂張開、手肘彎曲等）。
+// 2. 拆分：每個框裁切出框內的模型（沿框面切開並補面），框外的模型移除；相鄰兩框重疊的地方以連接點平面切開
+//    （父子區塊；其他重疊的區塊以兩框中心連線的中垂面切開）。之後可以框選改分配或排除、平面切割微調。
 // 3. 存檔：每個區塊轉成「拉直靜止姿勢」下該區塊的區域座標（原點＝旋轉中心）存進各自的槽位。
 import { escHtml } from '../core/html.js';
 import { PARTS, START_ASM } from '../data/parts.js';
@@ -10,8 +11,8 @@ import { budgetFor } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
 import { CONN_NAMES, PIECE_NAMES, SIDE_NAMES, buildMech, mechPieces } from '../render/mech-model.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
-import { DROP, NONE, buildSoup, centroid, cutSoup, pieceMeshes, triTotal } from './editor-cut.js';
-import { boxIn, exportGlb } from './editor-ops.js';
+import { DROP, NONE, buildSoup, centroid, cutSoup, filterSoup, pieceMeshes, triTotal } from './editor-cut.js';
+import { exportGlb } from './editor-ops.js';
 import { processGlb, simplifyGeometry, triCountOf } from './editor-opt.js';
 import { disposeObject } from './stage.js';
 import { WS_SLOTS, restPose, sanitizeAsm } from './workshop.js';
@@ -44,6 +45,8 @@ export class SplitTool {
     this.off = new Set(); // 不參與分配的區塊槽位
     this.quick = { arm: 0, elbow: 0, leg: 0, knee: 0 };
     this.pose = {}; // 槽位 → [x, y, z]°（加在快速姿勢之上）
+    this.boxAdj = {}; // 槽位 → { size: [寬, 高, 深], off: [x, y, z] }（區塊區域座標，相對程式模型外框的中心）
+    this.expand = 0; // 所有範圍框放大的比例
     this.rig = null;
     this.list = []; // [{ info, slot, color }]，索引就是三角形湯裡的區塊編號
     this.cur = 0; // 選中的區塊（框選的目標、姿勢數值）
@@ -117,14 +120,21 @@ export class SplitTool {
     const ed = this.ed;
     if (!ed.content) return ed.toast('請先載入模型', true);
     if (!this.included().length) return ed.toast('至少要有一個區塊參與分配', true);
-    this.soup = buildSoup(ed.content, ed.frame);
-    if (!this.soup.length) return ed.toast('模型沒有可見的網格', true);
+    const soup0 = buildSoup(ed.content, ed.frame);
+    if (!soup0.length) return ed.toast('模型沒有可見的網格', true);
+    const res = this.clipAll(soup0);
+    if (!triTotal(res.soup)) return ed.toast('範圍框裡沒有模型：請把 GLB 移進勾選區塊的範圍框', true);
+    this.soup = res.soup;
     this.cutting = true;
     this.undo = [];
     this.redo = [];
     ed.xform.visible = false;
     if (ed.tc) ed.tc.detach();
-    this.soup = this.assigned(this.soup);
+    ed.toast(
+      `拆分完成：框內 ${res.kept.toLocaleString()} 面，框外 ${res.removed.toLocaleString()} 面已移除` +
+        (res.open ? `；${res.open} 處切口沒有封閉，未補面（模型有不封閉的面，例如貼花或破洞）` : ''),
+      false,
+    );
     this.render();
     this.display();
     ed.renderAll();
@@ -176,6 +186,21 @@ export class SplitTool {
         if (o.material === OUTLINE_MAT) o.visible = false;
         else o.material = mat;
       });
+      x.wire = mat;
+      // 範圍框：邊線＋半透明面，掛在區塊上（跟著姿勢），大小在 pieceData 設定
+      const vis = new THREE.Group();
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+        new THREE.LineBasicMaterial({ color: x.color, transparent: true, opacity: 0.95 }),
+      );
+      const fill = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshBasicMaterial({ color: x.color, transparent: true, opacity: 0.07, depthWrite: false }),
+      );
+      fill.userData.helper = edges.userData.helper = true;
+      vis.add(edges, fill);
+      obj.add(vis);
+      x.vis = vis;
       obj.userData.idx = i;
     });
     this.ed.scene.add(this.rig.group);
@@ -208,120 +233,161 @@ export class SplitTool {
     this.pieceData();
     this.ed.renderStats();
   }
-  // 每個區塊：glTF 座標 → 區塊區域座標的矩陣、區域外框
+  // 每個區塊：glTF 座標 → 區塊區域座標的矩陣（A）、程式模型的區域外框（pbox）、範圍框（box，含調整與放大）
   pieceData() {
     const frameW = this.ed.frame.matrixWorld;
     this.data = this.list.map((x) => {
       const obj = this.rig.pieces[x.slot];
       if (!obj) return null;
       const inv = obj.matrixWorld.clone().invert();
-      const box = new THREE.Box3(),
+      const pbox = new THREE.Box3(),
         tmp = new THREE.Box3(),
-        m = new THREE.Matrix4(),
-        v = new THREE.Vector3();
-      const surf = []; // 區塊的三角形（區域座標），外框相近時用來算到表面的距離
+        m = new THREE.Matrix4();
       obj.traverse((o) => {
-        if (!o.isMesh || o.material === OUTLINE_MAT || !o.visible) return;
+        if (!o.isMesh || o.material === OUTLINE_MAT || o.userData.helper) return;
         if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
         m.multiplyMatrices(inv, o.matrixWorld);
-        box.union(tmp.copy(o.geometry.boundingBox).applyMatrix4(m));
-        const g = o.geometry,
-          pos = g.attributes.position,
-          idx = g.index;
-        const n = idx ? idx.count : pos.count;
-        for (let k = 0; k < n; k++) {
-          v.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m);
-          surf.push(v.x, v.y, v.z);
-        }
+        pbox.union(tmp.copy(o.geometry.boundingBox).applyMatrix4(m));
       });
-      return {
-        obj,
-        A: inv.clone().multiply(frameW),
-        box,
-        surf: new Float32Array(surf),
-        center: box.getCenter(new THREE.Vector3()),
-        size: Math.max(box.getSize(new THREE.Vector3()).length(), 0.05),
-      };
+      const c = pbox.getCenter(new THREE.Vector3()),
+        size = pbox.getSize(new THREE.Vector3());
+      const adj = this.boxAdj[x.slot];
+      if (adj) {
+        size.fromArray(adj.size);
+        c.add(new THREE.Vector3().fromArray(adj.off));
+      }
+      size.multiplyScalar(1 + this.expand).max(new THREE.Vector3(0.01, 0.01, 0.01));
+      const A = inv.clone().multiply(frameW);
+      return { obj, A, Ainv: A.clone().invert(), pbox, box: new THREE.Box3().setFromCenterAndSize(c, size) };
+    });
+    this.updateVis();
+  }
+  // 範圍框與線框只顯示勾選的區塊
+  updateVis() {
+    this.list.forEach((x, i) => {
+      const d = this.data && this.data[i];
+      const on = !this.off.has(x.slot);
+      if (x.wire) x.wire.visible = on;
+      if (!x.vis) return;
+      x.vis.visible = on && !!d;
+      if (d) {
+        d.box.getCenter(x.vis.position);
+        d.box.getSize(x.vis.scale);
+      }
+      x.vis.children[0].material.opacity = i === this.cur ? 1 : 0.7;
+      x.vis.children[1].material.opacity = i === this.cur ? 0.14 : 0.06;
     });
   }
-  // 參與分配的區塊在 glTF 座標的外框（「對齊程式模型」用）
-  refBox() {
+  // 範圍框在 glTF 座標的外框（AABB）
+  frameAabb(i) {
+    const d = this.data[i];
     const b = new THREE.Box3();
-    if (!this.rig) return b;
-    for (const i of this.included()) {
-      const d = this.data[i];
-      if (d) b.union(boxIn(d.obj, this.ed.frame, false));
+    const v = new THREE.Vector3();
+    for (let k = 0; k < 8; k++) {
+      v.set(
+        k & 1 ? d.box.max.x : d.box.min.x,
+        k & 2 ? d.box.max.y : d.box.min.y,
+        k & 4 ? d.box.max.z : d.box.min.z,
+      );
+      b.expandByPoint(v.applyMatrix4(d.Ainv));
     }
     return b;
   }
-
-  // ---------- 分配 ----------
-  // 每個三角形分給最近的區塊（點到區塊外框的距離；在多個外框內時取相對中心最近的），排除的三角形保留
-  // 先算到各區塊外框的距離；外框距離相近（NEAR 以內）的區塊不只一個時，再比到區塊表面的實際距離
-  assigned(soup) {
-    const NEAR = 0.15;
-    const idx = this.included().filter((i) => this.data[i]);
-    const c = new THREE.Vector3(),
-      q = new THREE.Vector3(),
-      cp = new THREE.Vector3();
-    const T = new THREE.Triangle();
-    const surfDist = (d, pt) => {
-      const a = d.surf;
-      let best = Infinity;
-      for (let o = 0; o < a.length; o += 9) {
-        T.a.set(a[o], a[o + 1], a[o + 2]);
-        T.b.set(a[o + 3], a[o + 4], a[o + 5]);
-        T.c.set(a[o + 6], a[o + 7], a[o + 8]);
-        const dd = T.closestPointToPoint(pt, cp).distanceToSquared(pt);
-        if (dd < best) best = dd;
-      }
-      return Math.sqrt(best);
-    };
-    const near = [];
-    return soup.map((s) => {
-      const tri = s.tri.slice();
-      for (let t = 0; t < tri.length; t++) {
-        if (tri[t] === DROP) continue;
-        centroid(s, t, c);
-        let best = NONE,
-          bd = Infinity,
-          bn = Infinity;
-        near.length = 0;
-        for (const i of idx) {
-          const d = this.data[i];
-          q.copy(c).applyMatrix4(d.A);
-          const dist = d.box.distanceToPoint(q);
-          near.push([i, dist]);
-          const norm = q.distanceTo(d.center) / d.size;
-          if (dist < bd - 1e-6 || (Math.abs(dist - bd) <= 1e-6 && norm < bn)) {
-            best = i;
-            bd = dist;
-            bn = norm;
-          }
-        }
-        const cand = near.filter((x) => x[1] <= bd + NEAR);
-        if (cand.length > 1) {
-          let sd = Infinity;
-          for (const [i] of cand) {
-            const d = this.data[i];
-            if (!d.surf.length) continue;
-            const dist = surfDist(d, q.copy(c).applyMatrix4(d.A));
-            if (dist < sd) {
-              sd = dist;
-              best = i;
-            }
-          }
-        }
-        tri[t] = best;
-      }
-      return { ...s, tri };
-    });
+  // 參與的範圍框合起來的外框（「對齊程式模型」用）
+  refBox() {
+    const b = new THREE.Box3();
+    if (!this.rig) return b;
+    for (const i of this.included()) if (this.data[i]) b.union(this.frameAabb(i));
+    return b;
   }
-  reassign() {
-    if (!this.cutting) return;
-    this.push();
-    this.soup = this.assigned(this.soup);
-    this.changed();
+
+  // ---------- 拆分：範圍框裁切 ----------
+  centerFrame(i) {
+    return this.data[i].box.getCenter(new THREE.Vector3()).applyMatrix4(this.data[i].Ainv);
+  }
+  // 區塊接在哪個區塊（清單索引）的哪個連接點
+  parentOf(i) {
+    const obj = this.data[i].obj;
+    const node = obj.parent && obj.parent.parent;
+    const m = node && this.rig.mounts.find((x) => x.node === node);
+    return m ? { pi: this.list.findIndex((x) => x.slot === m.slot), node } : null;
+  }
+  // 範圍框的 6 個面（glTF 座標；法線朝外）；框面往外推一點，剛好貼在框面上的三角形不會被切掉
+  framePlanes(i) {
+    const d = this.data[i];
+    const c = d.box.getCenter(new THREE.Vector3()),
+      h = d.box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    const out = [];
+    for (let k = 0; k < 3; k++)
+      for (const sgn of [-1, 1]) {
+        const pl = c.clone();
+        pl.setComponent(k, c.getComponent(k) + sgn * h.getComponent(k));
+        const nl = new THREE.Vector3();
+        nl.setComponent(k, sgn);
+        const n = nl.transformDirection(d.Ainv);
+        out.push({ p: pl.applyMatrix4(d.Ainv).addScaledVector(n, 0.002), n });
+      }
+    return out;
+  }
+  // 兩框重疊時切開的平面（對 i 而言法線朝外）：父子區塊用連接點平面（法線＝父框中心 → 連接點），其他用中垂面
+  pairPlane(i, j) {
+    const ci = this.centerFrame(i),
+      cj = this.centerFrame(j);
+    const conn = (node) => this.ed.frame.worldToLocal(node.getWorldPosition(new THREE.Vector3()));
+    const pj = this.parentOf(j),
+      pi = this.parentOf(i);
+    let p, n;
+    if (pj && pj.pi === i) {
+      p = conn(pj.node);
+      n = p.clone().sub(ci);
+    } else if (pi && pi.pi === j) {
+      p = conn(pi.node);
+      n = cj.clone().sub(p);
+    } else {
+      p = ci.clone().add(cj).multiplyScalar(0.5);
+      n = cj.clone().sub(ci);
+    }
+    if (n.lengthSq() < 1e-10) n = cj.clone().sub(ci);
+    if (n.lengthSq() < 1e-10) n.set(0, 1, 0);
+    return { p, n: n.normalize() };
+  }
+  // 每個勾選的區塊：先挑出外框碰得到的三角形，再依序以框面與重疊平面切開（保留內側、補切面）；框外的全部移除
+  clipAll(soup0) {
+    this.rig.group.updateMatrixWorld(true);
+    this.ed.frame.updateMatrixWorld(true);
+    this.pieceData();
+    const idx = this.included().filter((i) => this.data[i]);
+    const aabb = idx.map((i) => this.frameAabb(i));
+    const tb = new THREE.Box3(),
+      v = new THREE.Vector3();
+    const out = [];
+    let open = 0;
+    idx.forEach((i, k) => {
+      const planes = this.framePlanes(i);
+      idx.forEach((j, kk) => {
+        if (j !== i && aabb[k].intersectsBox(aabb[kk])) planes.push(this.pairPlane(i, j));
+      });
+      let sub = filterSoup(
+        soup0,
+        (s, t) => {
+          const a = s.attrs.position.arr;
+          tb.makeEmpty();
+          for (let q = 0; q < 3; q++) tb.expandByPoint(v.fromArray(a, t * 9 + q * 3));
+          return tb.intersectsBox(aabb[k]);
+        },
+        0,
+      );
+      for (const pl of planes) {
+        if (!sub.length) break;
+        const res = cutSoup(sub, { p: pl.p, n: pl.n, r: Infinity, A: 0, B: 1 });
+        open += res.open;
+        sub = filterSoup(res.soup, (s, t) => s.tri[t] === 0, 0);
+      }
+      for (const s of sub) s.tri.fill(i);
+      out.push(...sub);
+    });
+    const kept = triTotal(out);
+    return { soup: out, kept, removed: Math.max(0, triTotal(soup0) - kept), open };
   }
 
   // ---------- 框選 ----------
@@ -445,7 +511,7 @@ export class SplitTool {
     const pi = this.list.findIndex((x) => x.slot === m.slot);
     if (ci < 0 || pi < 0) return;
     const p = ed.frame.worldToLocal(m.node.getWorldPosition(new THREE.Vector3()));
-    const cb = boxIn(this.data[ci].obj, ed.frame, false);
+    const cb = this.frameAabb(ci);
     const n = cb.getCenter(new THREE.Vector3()).sub(p);
     if (n.lengthSq() < 1e-8) n.set(0, -1, 0);
     n.normalize();
@@ -630,6 +696,8 @@ export class SplitTool {
     if (this.cutting) this.display();
     this.renderPieces();
     this.renderPose();
+    this.renderBoxEdit();
+    this.updateVis();
   }
   render() {
     const on = this.active;
@@ -647,15 +715,18 @@ export class SplitTool {
     const R = $('edSplitRight');
     if (!this.cutting) {
       R.innerHTML =
-        `<h3>拆分：對齊與姿勢</h3>` +
-        `<div class="dim small">先用下方的朝向、尺寸工具把模型對齊彩色線框（「對齊程式模型」會對齊參與分配的區塊），再調整線框的姿勢配合模型。</div>` +
+        `<h3>拆分：範圍框</h3>` +
+        `<div class="dim small">左側勾選要拆的區塊，用下方的移動、旋轉、尺寸工具把 GLB 的對應部位放進同色的範圍框；框外的模型拆分時會移除。必要時調整程式模型的姿勢。</div>` +
+        `<label class="edSlider">全部放大<input type="range" min="0" max="100" step="1" id="edExpand" value="${Math.round(this.expand * 100)}"><span>${Math.round(this.expand * 100)}%</span></label>` +
+        `<div id="edBoxEdit"></div>` +
+        `<h3>姿勢</h3>` +
         QUICK.map(
           ([k, n, a, b]) =>
             `<label class="edSlider">${n}<input type="range" min="${a}" max="${b}" step="1" data-q="${k}" value="${this.quick[k]}"><span>${this.quick[k]}°</span></label>`,
         ).join('') +
         `<div id="edPose"></div>` +
         `<div class="btns"><button id="edPoseReset">重設姿勢</button>` +
-        `<button id="edSpStart" class="primary" title="每個三角形分給最近的區塊">開始拆分（自動分配）</button></div>`;
+        `<button id="edSpStart" class="primary" title="裁切出每個範圍框內的模型，框外的移除">拆分（裁切範圍框）</button></div>`;
       for (const r of R.querySelectorAll('input[data-q]')) {
         r.oninput = () => {
           this.quick[r.dataset.q] = +r.value;
@@ -663,6 +734,7 @@ export class SplitTool {
           this.applyPose();
         };
       }
+      this.renderBoxEdit();
       $('edPoseReset').onclick = () => {
         this.quick = { arm: 0, elbow: 0, leg: 0, knee: 0 };
         this.pose = {};
@@ -670,6 +742,11 @@ export class SplitTool {
         this.render();
       };
       $('edSpStart').onclick = () => this.start();
+      $('edExpand').oninput = () => {
+        this.expand = +$('edExpand').value / 100;
+        $('edExpand').nextElementSibling.textContent = $('edExpand').value + '%';
+        this.pieceData();
+      };
       this.renderPose();
       return;
     }
@@ -689,9 +766,9 @@ export class SplitTool {
       })
       .join('');
     R.innerHTML =
-      `<h3>拆分：分配</h3>` +
-      `<div class="dim small">左側點選區塊（或點畫面上的模型）作為框選目標。</div>` +
-      `<div class="btns"><button id="edSpAuto" title="依目前的姿勢重新分配（排除的三角形保留）">重新自動分配</button>` +
+      `<h3>拆分：微調</h3>` +
+      `<div class="dim small">左側點選區塊（或點畫面上的模型）作為框選目標。要改範圍框或模型位置請按「回到對齊」。</div>` +
+      `<div class="btns">` +
       `<button id="edSpBox" title="在畫面上拖曳框選，改分給選中的區塊（框選時不能旋轉視角）">框選</button></div>` +
       `<label class="tog small"><input type="checkbox" id="edSpFront" checked> 只選朝向鏡頭的面</label>` +
       `<label class="tog small"><input type="checkbox" id="edSpDrop"> 框選改成「排除」（不存進任何區塊）</label>` +
@@ -707,7 +784,6 @@ export class SplitTool {
       `<label class="tog small"><input type="checkbox" id="edSpOpt" checked> 存檔時減面到各區塊的預算</label>` +
       `<div class="btns"><button id="edSpSave" class="primary">全部存到槽位</button><button id="edSpBack">回到對齊</button></div>` +
       `<div class="dim small">每個區塊轉成拉直靜止姿勢下的區塊座標（原點＝關節）存進各自的槽位；之後可在「組裝調整」微調連接點。</div>`;
-    $('edSpAuto').onclick = () => this.reassign();
     $('edSpBox').onclick = () => this.setBox(!this.boxMode);
     $('edSpColor').onchange = () => {
       this.colorView = $('edSpColor').checked;
@@ -756,13 +832,14 @@ export class SplitTool {
     const n = this.counts();
     const rows = this.list.map((x, i) => {
       const on = !this.off.has(x.slot);
+      if (this.cutting && !on) return ''; // 拆分後只列出勾選的區塊
       const c = n.get(i) || 0;
       const entry = MODEL_CATALOG.find((e) => e.id === x.slot);
       const B = budgetFor(entry ? entry.spec : 'piece');
       const lv = c > B.tris * 1.5 ? 'error' : c > B.tris ? 'warn' : '';
       return (
         `<div class="edPc${i === this.cur ? ' sel' : ''}${on ? '' : ' off'}" data-i="${i}">` +
-        `<input type="checkbox" data-on="${i}"${on ? ' checked' : ''}${this.cutting ? ' disabled' : ''} title="參與分配">` +
+        `<input type="checkbox" data-on="${i}"${on ? ' checked' : ''}${this.cutting ? ' disabled' : ''} title="勾選＝拆出這個區塊">` +
         `<i style="background:#${x.color.getHexString()}"></i><span class="nm">${escHtml(label(x.info))}</span>` +
         (this.cutting
           ? `<span class="small ${lv}" title="建議 ≤ ${B.tris}">${c.toLocaleString()}</span>`
@@ -778,7 +855,20 @@ export class SplitTool {
       );
     }
     const box = $('edPieces');
-    box.innerHTML = rows.join('');
+    box.innerHTML =
+      (this.cutting
+        ? ''
+        : `<div class="btns"><button data-all="1">全選</button><button data-all="0">全不選</button></div>`) +
+      rows.join('');
+    for (const b of box.querySelectorAll('[data-all]'))
+      b.onclick = () => {
+        for (const x of this.list) {
+          if (b.dataset.all === '1') this.off.delete(x.slot);
+          else this.off.add(x.slot);
+        }
+        this.updateVis();
+        this.renderPieces();
+      };
     for (const r of box.querySelectorAll('.edPc'))
       r.onclick = (e) => {
         const i = +r.dataset.i;
@@ -786,10 +876,44 @@ export class SplitTool {
           if (e.target.checked) this.off.delete(this.list[i].slot);
           else this.off.add(this.list[i].slot);
           r.classList.toggle('off', !e.target.checked);
+          this.updateVis();
           return;
         }
         this.select(i);
       };
+  }
+  // 選中區塊的範圍框：尺寸與位移（位移以 glTF 軸顯示：X、Z 與區塊座標相反）
+  renderBoxEdit() {
+    const box = $('edBoxEdit');
+    if (!box) return;
+    const x = this.list[this.cur],
+      d = this.data && this.data[this.cur];
+    if (!x || !d) return (box.innerHTML = '');
+    const ps = d.pbox.getSize(new THREE.Vector3());
+    const adj = this.boxAdj[x.slot] || { size: ps.toArray(), off: [0, 0, 0] };
+    const off = [-adj.off[0], adj.off[1], -adj.off[2]];
+    const f = (k, i, v, step) =>
+      `<label>${['寬', '高', '深', 'X', 'Y', 'Z'][k === 's' ? i : i + 3]}<input type="number" step="${step}" data-k="${k}" data-i="${i}" value="${+v.toFixed(3)}"></label>`;
+    box.innerHTML =
+      `<div class="small"><b style="color:#${x.color.getHexString()}">■</b> ${escHtml(label(x.info))}的範圍框（m）</div>` +
+      `<div class="edRow">${adj.size.map((v, i) => f('s', i, v, 0.05)).join('')}</div>` +
+      `<div class="edRow">${off.map((v, i) => f('o', i, v, 0.05)).join('')}<button id="edBoxReset">重設</button></div>`;
+    for (const inp of box.querySelectorAll('input'))
+      inp.onchange = () => {
+        const cur = this.boxAdj[x.slot] || { size: ps.toArray(), off: [0, 0, 0] };
+        const v = parseFloat(inp.value);
+        if (!Number.isFinite(v)) return;
+        const i = +inp.dataset.i;
+        if (inp.dataset.k === 's') cur.size[i] = Math.max(0.01, v);
+        else cur.off[i] = i === 1 ? v : -v;
+        this.boxAdj[x.slot] = cur;
+        this.pieceData();
+      };
+    $('edBoxReset').onclick = () => {
+      delete this.boxAdj[x.slot];
+      this.pieceData();
+      this.renderBoxEdit();
+    };
   }
   // 選中區塊的關節旋轉（加在快速姿勢之上）
   renderPose() {

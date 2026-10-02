@@ -63,6 +63,25 @@ export function buildSoup(content, space) {
 
 export const triTotal = (soup) => soup.reduce((n, s) => n + s.tri.length, 0);
 
+// 只留下 keep(s, t) 為真的三角形，全部標成 label
+export function filterSoup(soup, keep, label) {
+  const out = [];
+  for (const s of soup) {
+    const ts = [];
+    for (let t = 0; t < s.tri.length; t++) if (keep(s, t)) ts.push(t);
+    if (!ts.length) continue;
+    const attrs = {};
+    for (const [name, a] of Object.entries(s.attrs)) {
+      const per = a.size * 3;
+      const arr = new Float32Array(ts.length * per);
+      ts.forEach((t, k) => arr.set(a.arr.subarray(t * per, (t + 1) * per), k * per));
+      attrs[name] = { size: a.size, arr };
+    }
+    out.push({ mat: s.mat, attrs, tri: new Uint8Array(ts.length).fill(label) });
+  }
+  return out;
+}
+
 // 三角形 t 的重心（寫進 v）
 export function centroid(s, t, v) {
   const p = s.attrs.position.arr,
@@ -99,6 +118,15 @@ const lerpV = (a, b, t) => {
   }
   return out;
 };
+// 原封不動複製三角形 t（不切開的三角形走這條，比較快）
+function copyTri(w, s, t, piece) {
+  for (const [name, a] of Object.entries(w.attrs)) {
+    const src = s.attrs[name].arr,
+      per = a.size * 3;
+    for (let i = t * per; i < (t + 1) * per; i++) a.arr.push(src[i]);
+  }
+  w.tri.push(piece);
+}
 function pushTri(w, verts, piece) {
   for (const v of verts)
     for (const [name, a] of Object.entries(w.attrs)) a.arr.push(...(v[name] || new Array(a.size).fill(0)));
@@ -127,16 +155,15 @@ export function cutSoup(soup, { p, n, r, A, B }) {
     const pos = s.attrs.position.arr;
     for (let t = 0; t < s.tri.length; t++) {
       const piece = s.tri[t];
-      const verts = [0, 1, 2].map((k) => vtx(s, t, k));
       if (piece !== A && piece !== B) {
-        pushTri(w, verts, piece);
+        copyTri(w, s, t, piece);
         continue;
       }
       centroid(s, t, c);
       w3.copy(c).sub(p);
       const radial = w3.clone().addScaledVector(n, -w3.dot(n));
       if (radial.length() > r) {
-        pushTri(w, verts, piece);
+        copyTri(w, s, t, piece);
         continue;
       }
       const d = [0, 1, 2].map(
@@ -147,9 +174,10 @@ export function cutSoup(soup, { p, n, r, A, B }) {
       );
       const sd = d.map((x) => x >= 0);
       if (sd[0] === sd[1] && sd[1] === sd[2]) {
-        pushTri(w, verts, sd[0] ? B : A);
+        copyTri(w, s, t, sd[0] ? B : A);
         continue;
       }
+      const verts = [0, 1, 2].map((k) => vtx(s, t, k));
       // 只有一個頂點在另一側：a 是那一點，b、c 照原本的順序（維持三角形方向）
       const k = sd[0] !== sd[1] && sd[0] !== sd[2] ? 0 : sd[1] !== sd[0] && sd[1] !== sd[2] ? 1 : 2;
       const ia = k,
@@ -175,12 +203,7 @@ export function cutSoup(soup, { p, n, r, A, B }) {
     const si = cuts.indexOf(Math.max(...cuts));
     const s = next[si];
     const w = writer(s);
-    for (let t = 0; t < s.tri.length; t++)
-      pushTri(
-        w,
-        [0, 1, 2].map((k) => vtx(s, t, k)),
-        s.tri[t],
-      );
+    for (let t = 0; t < s.tri.length; t++) copyTri(w, s, t, s.tri[t]);
     const u = cap.u,
       v = cap.v;
     for (const [side, nn] of [
