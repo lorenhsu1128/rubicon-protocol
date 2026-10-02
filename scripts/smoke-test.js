@@ -640,6 +640,108 @@ async function testWorkshop(browser, base) {
   await ctx.close();
 }
 
+// GLB 編輯器：檢視窗開啟 → 載入範本 → 旋轉／縮放 → 對齊程式模型 → 原點 → 復原 → 節點刪除 → 存到槽位 → 鏡像存到另一側 → 還原原始檔
+async function testEditor(browser, base) {
+  console.log('模型庫 GLB 編輯：載入 → 朝向／尺寸／原點 → 存檔 → 鏡像');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'editor');
+  const stats = async () => ((await page.textContent('#edStats')) || '').replace(/\s+/g, ' ');
+  const bad = () =>
+    page.$$eval('#edChecks li', (ls) =>
+      ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
+    );
+  await page.goto(base + 'model-library.html#arms/a_std/r_fore');
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1500);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+  const fp = path.join(SHOT_DIR, 'editor-fore.glb');
+  await dl.saveAs(fp);
+  await page.click('#insEdit');
+  check(
+    await page.waitForSelector('#editor:not([hidden])', { timeout: 10000 }).then(
+      () => true,
+      () => false,
+    ),
+    '檢視窗的「在 GLB 編輯器開啟」開啟編輯頁',
+  );
+  check((await page.$eval('#edSlot', (s) => s.value)) === 'arms/a_std/r_fore', '編輯頁帶入目前的槽位');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  check((await stats()).includes('100%／100%／100%'), '載入範本：尺寸與程式模型相同');
+  await page.click('#edRot button[data-ax="y"][data-deg="90"]');
+  await wait(300);
+  check((await stats()).includes('0.61 × 0.84 × 0.68'), 'Y +90° 旋轉後寬深對調');
+  await page.click('#edRot button[data-ax="y"][data-deg="-90"]');
+  await page.fill('#edScaleK', '3');
+  await page.click('#edScaleGo');
+  await wait(600);
+  check((await stats()).includes('300%／300%／300%'), '等比放大 3 倍');
+  check(
+    (await bad()).some((t) => t.includes('尺寸')),
+    '放大後規格檢查提示尺寸不符',
+  );
+  await page.click('#edFit');
+  await wait(600);
+  check((await stats()).includes('100%／100%／100%'), '對齊程式模型（外框整體符合）');
+  check((await bad()).length === 0, `對齊後規格檢查全部通過${(await bad()).join('；')}`);
+  await page.click('#edOrigin button[data-o="bottom"]');
+  await wait(400);
+  check((await stats()).includes('Y0.00 ～ 0.84'), '原點設在底面中心');
+  await page.keyboard.press('Control+z');
+  await wait(400);
+  check((await stats()).includes('Y-0.65 ～ 0.19'), 'Ctrl+Z 復原原點修改');
+  const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
+  const t0 = await tris();
+  await page.click('#edTree .edNode:last-child [data-act="del"]');
+  await wait(400);
+  const t1 = await tris();
+  check(t1 < t0, `刪除節點後三角面減少（${t0} → ${t1}）`);
+  await page.keyboard.press('Control+z');
+  await wait(400);
+  check((await tris()) === t0, '復原刪除');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor.png') });
+  await page.click('#edSave');
+  await wait(1500);
+  await page.click('#edSaveMirror');
+  await wait(1500);
+  const toasts = await page.$$eval('.toast', (t) => t.map((x) => x.textContent));
+  check(
+    toasts.some((t) => t.includes('右前臂')) && toasts.some((t) => t.includes('左前臂')),
+    '存到槽位並鏡像存到另一側',
+  );
+  // 鏡像的左前臂：在檢視窗規格檢查全部通過
+  await page.goto(base + 'model-library.html#arms/a_std/l_fore');
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(2000);
+  const insInfo = (await page.textContent('#insInfo')) || '';
+  const insBad = await page.$$eval('#insChecks li', (ls) =>
+    ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
+  );
+  check(
+    insInfo.includes('（編輯）') && insBad.length === 0,
+    `鏡像的左前臂載入檢視窗、規格檢查通過${insBad.join('；')}`,
+  );
+  // 存過的槽位保留原始檔：重新開啟編輯器 → 載入槽位的 GLB → 還原原始檔
+  await page.goto(base + 'model-library.html#editor=arms/a_std/r_fore');
+  await page.reload();
+  await page.waitForSelector('#editor:not([hidden])');
+  await wait(1500);
+  check(
+    ((await page.textContent('#edSrc')) || '').includes('瀏覽器暫存'),
+    '網址 #editor=槽位 開啟並載入槽位的 GLB',
+  );
+  check(!(await page.$eval('#edRevert', (b) => b.disabled)), '存過的槽位可以還原原始檔');
+  page.once('dialog', (d) => d.accept());
+  await page.click('#edRevert');
+  await wait(1200);
+  check(((await page.textContent('#edSrc')) || '').includes('原始檔'), '還原原始檔');
+  await page.click('#edBack');
+  check(await page.isHidden('#editor'), '回模型庫');
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -993,6 +1095,7 @@ async function main() {
     await testDraco(browser, 'file:///' + LIBRARY.split(path.sep).join('/'), 'file');
     await testLibraryJoints(browser, base);
     await testWorkshop(browser, base);
+    await testEditor(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {

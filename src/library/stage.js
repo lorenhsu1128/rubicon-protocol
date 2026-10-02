@@ -101,7 +101,7 @@ export function prepareModel(entry, palKey) {
 const ONE = () => new THREE.Vector3(1, 1, 1);
 const palOf = (entry, palKey) => (entry.noPal ? null : PALETTES[palKey || entry.pal] || PALETTES.player);
 // 程式模型在「GLB 製作尺寸」（×1）下的外框，作為規格檢查的參考
-function referenceBox(entry, palKey) {
+export function referenceBox(entry, palKey) {
   const b = entry.build(palKey || entry.pal);
   b.scaleNode.scale.set(1, 1, 1);
   let box = measureBox(b.obj);

@@ -344,39 +344,47 @@ button.sel {
   font-size: 11px;
   margin-top: 4px;
 }
-#insChecks {
+#insChecks,
+#edChecks {
   list-style: none;
   padding: 0;
   margin: 8px 0 0;
   font-size: 12px;
 }
-#insChecks li {
+#insChecks li,
+#edChecks li {
   padding: 3px 0 3px 20px;
   position: relative;
   line-height: 1.45;
 }
-#insChecks li::before {
+#insChecks li::before,
+#edChecks li::before {
   position: absolute;
   left: 0;
   font-weight: 700;
 }
-#insChecks li.ok::before {
+#insChecks li.ok::before,
+#edChecks li.ok::before {
   content: '✓';
   color: var(--ok);
 }
-#insChecks li.warn::before {
+#insChecks li.warn::before,
+#edChecks li.warn::before {
   content: '⚠';
   color: var(--warn);
 }
-#insChecks li.error::before {
+#insChecks li.error::before,
+#edChecks li.error::before {
   content: '✗';
   color: var(--bad);
 }
-#insChecks li.info::before {
+#insChecks li.info::before,
+#edChecks li.info::before {
   content: 'ℹ';
   color: var(--dim);
 }
-#insChecks li.info {
+#insChecks li.info,
+#edChecks li.info {
   color: var(--dim);
 }
 .lbl.axis {
@@ -493,7 +501,8 @@ button.sel {
   margin-left: auto;
   color: var(--acc2);
 }
-#workshop {
+#workshop,
+#editor {
   position: fixed;
   inset: 0;
   z-index: 15;
@@ -501,7 +510,8 @@ button.sel {
   flex-direction: column;
   background: var(--bg);
 }
-#workshop[hidden] {
+#workshop[hidden],
+#editor[hidden] {
   display: none;
 }
 .wsTop {
@@ -530,24 +540,31 @@ button.sel {
   grid-template-columns: 270px minmax(0, 1fr) 360px;
 }
 #wsLeft,
-#wsRight {
+#edLeft,
+#wsRight,
+#edRight {
   overflow-y: auto;
   padding: 8px 12px 20px;
   background: var(--panel);
 }
-#wsLeft {
+#wsLeft,
+#edLeft {
   border-right: 1px solid var(--line);
 }
-#wsRight {
+#wsRight,
+#edRight {
   border-left: 1px solid var(--line);
 }
 #wsLeft h3,
-#wsRight h3 {
+#edLeft h3,
+#wsRight h3,
+#edRight h3 {
   font-size: 13px;
   color: var(--acc2);
   margin: 12px 0 6px;
 }
 #wsLeft > select,
+#edLeft > select,
 .wsRow {
   width: 100%;
   margin-bottom: 6px;
@@ -589,23 +606,27 @@ button.sel {
   font-size: 11px;
   color: var(--acc2);
 }
-#wsView {
+#wsView,
+#edView {
   position: relative;
   min-width: 0;
   min-height: 0;
 }
-#wsGl {
+#wsGl,
+#edGl {
   width: 100%;
   height: 100%;
   display: block;
 }
-#wsLabels {
+#wsLabels,
+#edLabels {
   position: absolute;
   inset: 0;
   pointer-events: none;
   overflow: hidden;
 }
-#wsToolbar {
+#wsToolbar,
+#edToolbar {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -616,7 +637,8 @@ button.sel {
   align-items: center;
   pointer-events: none;
 }
-#wsToolbar > * {
+#wsToolbar > *,
+#edToolbar > * {
   pointer-events: auto;
 }
 #wsAnimBar {
@@ -700,19 +722,23 @@ button.sel {
     flex-direction: column;
     overflow-y: auto;
   }
-  #wsView {
+  #wsView,
+  #edView {
     flex: none;
     height: 62vh;
     order: -1;
   }
   #wsLeft,
-  #wsRight {
+  #edLeft,
+  #wsRight,
+  #edRight {
     overflow: visible;
     border: none;
     border-top: 1px solid var(--line);
   }
 }
-#wsDetail {
+#wsDetail,
+#edDetail {
   border: 1px solid var(--line);
   padding: 8px;
   display: flex;
@@ -746,23 +772,27 @@ button.link {
   color: #ffd23f;
   text-decoration: underline;
 }
-#wsDetail .jgrid {
+#wsDetail .jgrid,
+#edDetail .jgrid {
   display: grid;
   grid-template-columns: auto repeat(3, minmax(0, 1fr));
   gap: 4px 6px;
   align-items: center;
   font-size: 12px;
 }
-#wsDetail .jgrid label {
+#wsDetail .jgrid label,
+#edDetail .jgrid label {
   display: flex;
   align-items: center;
   gap: 3px;
 }
-#wsDetail .jgrid i {
+#wsDetail .jgrid i,
+#edDetail .jgrid i {
   font-style: normal;
   font-weight: 700;
 }
-#wsDetail .jgrid input {
+#wsDetail .jgrid input,
+#edDetail .jgrid input {
   width: 100%;
   min-width: 0;
   padding: 2px 4px;
@@ -781,7 +811,8 @@ button.link {
   color: #fff;
   border-color: #fff;
 }
-#wsDetail {
+#wsDetail,
+#edDetail {
   position: sticky;
   top: -8px;
   z-index: 2;
@@ -853,4 +884,92 @@ button.link {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* ---------- GLB 編輯 ---------- */
+#tabs button.edTab {
+  margin-left: 4px;
+}
+#edLeft > select {
+  width: 100%;
+  margin-bottom: 6px;
+}
+#edLeft .btns,
+#edRight .btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.edRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.edRow label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.edRow input[type='number'] {
+  width: 64px;
+  padding: 2px 4px;
+}
+#edOrigin button.sel,
+#edPick.sel {
+  border-color: #ffd23f;
+  color: #ffd23f;
+}
+.edNode {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px calc(var(--d) * 10px + 4px);
+  font-size: 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.edNode .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edNode b {
+  flex: 1;
+}
+.edNode:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.edNode.sel {
+  border-left-color: #ffd23f;
+  background: rgba(255, 210, 63, 0.08);
+}
+.edNode.off .nm {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+button.mini {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
+}
+.edName {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.edName input {
+  flex: 1;
+  min-width: 0;
+}
+#edStats .warn {
+  color: var(--warn);
+}
+#edStats .error {
+  color: var(--bad);
 }

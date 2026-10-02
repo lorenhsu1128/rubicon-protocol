@@ -5,8 +5,10 @@ import { PALETTES } from '../render/materials.js';
 import { CATEGORIES, MODEL_CATALOG } from '../render/model-catalog.js';
 import { ModelGrid } from './grid.js';
 import { Inspector } from './inspect.js';
+import { COMPOSE_CATS } from './stage.js';
 import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
+import { GlbEditor } from './editor.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { cat: 'all', q: '', src: '' };
@@ -60,13 +62,23 @@ function refreshRelated(id) {
     if (e.cat === 'mech' || (e.parts && e.parts.includes(id))) grid.refresh(e.id);
 }
 
-let grid, inspector, workshop;
+let grid, inspector, workshop, editor;
 function openWorkshop() {
   grid.paused = true;
   history.replaceState(null, '', '#workshop');
   workshop.open();
 }
+// GLB 編輯器：網址 #editor 或 #editor=槽位 id
+function openEditor(slot) {
+  if (inspector.open_) inspector.close();
+  grid.paused = true;
+  history.replaceState(null, '', '#editor' + (slot ? '=' + slot : ''));
+  editor.open(slot);
+}
 function openEntry(entry) {
+  // 從編輯頁、組裝調整頁以網址切換到模型時，先關掉全螢幕頁面
+  if (editor.open_) editor.close();
+  if (workshop.open_) workshop.close();
   grid.paused = true;
   history.replaceState(null, '', '#' + entry.id);
   inspector.open(entry, grid.palKey);
@@ -82,10 +94,12 @@ function renderTabs() {
           `<button data-c="${c.id}" class="${state.cat === c.id ? 'sel' : ''}">${escHtml(c.name)}<span class="n">${count(c.id)}</span></button>`,
       )
       .join('') +
-    `<button data-c="workshop" class="wsTab" title="自由預組機甲，在整台機甲上調整連接點">組裝調整</button>`;
+    `<button data-c="workshop" class="wsTab" title="自由預組機甲，在整台機甲上調整連接點">組裝調整</button>` +
+    `<button data-c="editor" class="wsTab edTab" title="修正 GLB 的朝向、尺寸、原點與節點">GLB 編輯</button>`;
   for (const b of $('tabs').querySelectorAll('button'))
     b.onclick = () => {
       if (b.dataset.c === 'workshop') return openWorkshop();
+      if (b.dataset.c === 'editor') return openEditor(null);
       state.cat = b.dataset.c;
       renderTabs();
       applyFilter();
@@ -168,6 +182,27 @@ async function main() {
       for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
       applyFilter();
     },
+    onEdit: (id) => openEditor(id),
+    onClose: () => {
+      grid.paused = false;
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    },
+  });
+  editor = new GlbEditor({
+    store,
+    toast,
+    onSaved: (id) => {
+      refreshRelated(id);
+      applyFilter();
+    },
+    onInspect: (id) => {
+      const entry = MODEL_CATALOG.find((e) => e.id === id);
+      if (!entry) return;
+      editor.close();
+      grid.paused = true;
+      history.replaceState(null, '', '#' + id);
+      inspector.open(entry, grid.palKey, COMPOSE_CATS.includes(entry.cat) ? 'compose' : 'single');
+    },
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -205,13 +240,19 @@ async function main() {
   addEventListener('dragover', (e) => e.preventDefault());
   addEventListener('drop', (e) => {
     e.preventDefault();
-    if (!e.target.closest || !e.target.closest('.cell')) toast('請把 .glb 拖到要替換的那一格上', true);
+    if (!e.target.closest || !e.target.closest('.cell,#editor'))
+      toast('請把 .glb 拖到要替換的那一格上', true);
   });
   renderTabs();
   applyFilter();
   // 網址 #head/h_std 直接開啟該模型
   const openFromHash = () => {
     const id = decodeURIComponent(location.hash.slice(1));
+    if (id === 'editor' || id.startsWith('editor=')) {
+      const slot = id.slice(7) || null;
+      if (!editor.open_ || (slot && (!editor.entry || editor.entry.id !== slot))) openEditor(slot);
+      return;
+    }
     if (id === 'workshop') {
       if (!workshop.open_) openWorkshop();
       return;

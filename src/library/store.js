@@ -86,8 +86,12 @@ export class GlbStore {
     return !!BUILTIN_MODELS[id];
   }
   async put(id, file) {
-    const buf = await file.arrayBuffer();
-    const r = { id, name: file.name, size: buf.byteLength, buf, t: Date.now() };
+    return this.putBuf(id, file.name, await file.arrayBuffer());
+  }
+  // orig：GLB 編輯器存檔時保留的原始檔 { name, buf }（之後可以還原）；直接拖曳替換時沒有
+  async putBuf(id, name, buf, orig = null) {
+    const r = { id, name, size: buf.byteLength, buf, t: Date.now() };
+    if (orig) r.orig = { name: orig.name, buf: orig.buf, size: orig.buf.byteLength };
     this.local.set(id, r);
     if (this.ok)
       try {

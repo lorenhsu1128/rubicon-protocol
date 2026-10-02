@@ -68,12 +68,13 @@ const groundText = (y) =>
 
 export class Inspector {
   // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
-  constructor({ store, onClose, onFile, onRemove, onJoints, onError }) {
+  constructor({ store, onClose, onFile, onRemove, onJoints, onError, onEdit }) {
     this.store = store;
     this.onClose = onClose;
     this.onFile = onFile;
     this.onRemove = onRemove;
     this.onError = onError;
+    this.onEdit = onEdit;
     this.canvas = $('insGl');
     this.renderer = makeRenderer(this.canvas, true);
     this.scene = new THREE.Scene();
@@ -179,6 +180,7 @@ export class Inspector {
     $('insRemove').onclick = () => this.onRemove(this.entry);
     $('insDownload').onclick = () => this.download();
     $('insTemplate').onclick = () => this.downloadTemplate();
+    $('insEdit').onclick = () => this.onEdit && this.onEdit(this.entry.id);
   }
   markButtons() {
     for (const b of $('insAnims').querySelectorAll('button'))
@@ -186,13 +188,14 @@ export class Inspector {
     for (const b of $('insModes').querySelectorAll('button'))
       b.classList.toggle('sel', b.dataset.m === this.mode);
   }
-  open(entry, palKey) {
+  // mode：開啟時的模式（預設單獨；GLB 編輯器存檔後可直接開組合預覽）
+  open(entry, palKey, mode = 'single') {
     this.entry = entry;
     $('insPal').value = palKey || '';
     $('inspect').hidden = false;
     this.open_ = true;
     this.anim = 'garage';
-    this.mode = 'single';
+    this.mode = mode;
     return this.rebuild();
   }
   close() {
@@ -445,7 +448,7 @@ export class Inspector {
       .join('');
     // GLB 工具與檢查報告
     const glb = src.kind === 'glb';
-    $('insLoad').disabled = !!e.noGlb;
+    $('insLoad').disabled = $('insEdit').disabled = !!e.noGlb;
     $('insDownload').disabled = !glb || !!src.fallback;
     $('insRemove').disabled = !(glb && src.origin === 'browser' && !src.fallback);
     $('insGlbHint').textContent = e.noGlb

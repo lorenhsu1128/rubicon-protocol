@@ -99,6 +99,95 @@
       </div>
     </section>
 
+    <section id="editor" class="edPage" hidden>
+      <header class="wsTop">
+        <b>GLB 編輯</b>
+        <span class="dim small" id="edInfo"></span>
+        <span class="sp"></span>
+        <button id="edBack" title="回到格狀檢視（Esc）">← 回模型庫</button>
+      </header>
+      <div class="wsBody">
+        <aside id="edLeft">
+          <h3>目標槽位</h3>
+          <select id="edSlot"></select>
+          <div id="edSpec"></div>
+          <h3>檔案</h3>
+          <div class="btns">
+            <button id="edOpen" title="也可以直接把 .glb 拖到畫面上">開啟 GLB…</button>
+            <button id="edFromSlot" title="載入這個槽位目前的 GLB（瀏覽器暫存或內建）">載入槽位的 GLB</button>
+            <button id="edRevert" title="放棄所有修改，回到最初匯入的檔案">還原原始檔</button>
+            <input id="edFile" type="file" accept=".glb,model/gltf-binary" hidden />
+          </div>
+          <div class="dim small" id="edSrc"></div>
+          <h3>節點</h3>
+          <div id="edTree"></div>
+        </aside>
+        <div id="edView">
+          <canvas id="edGl"></canvas>
+          <div id="edLabels"></div>
+          <div id="edToolbar"></div>
+        </div>
+        <aside id="edRight">
+          <h3>選取</h3>
+          <div id="edDetail"></div>
+          <h3>朝向</h3>
+          <div class="edRow">
+            <label
+              >正面是
+              <select id="edFront"></select
+            ></label>
+            <label
+              >上方是
+              <select id="edUp"></select
+            ></label>
+            <button id="edOrient" title="轉成規格的 +Z 正面、+Y 上方">套用</button>
+          </div>
+          <div class="btns" id="edRot">
+            <button data-ax="x" data-deg="90">X +90°</button
+            ><button data-ax="x" data-deg="-90">X −90°</button>
+            <button data-ax="y" data-deg="90">Y +90°</button
+            ><button data-ax="y" data-deg="-90">Y −90°</button>
+            <button data-ax="z" data-deg="90">Z +90°</button
+            ><button data-ax="z" data-deg="-90">Z −90°</button>
+            <button id="edMirror" title="沿 X 軸左右翻轉（例如把左手改成右手）">左右翻轉</button>
+          </div>
+          <h3>尺寸</h3>
+          <div class="edRow">
+            <select id="edFitMode"></select
+            ><select id="edAnchor"></select>
+            <button id="edFit" title="等比縮放並移到程式模型的外框">對齊程式模型</button>
+          </div>
+          <div class="edRow">
+            <label>高度 <input id="edHeight" type="number" min="0" step="0.01" placeholder="m" /></label>
+            <button id="edHeightGo" title="等比縮放到指定高度（以原點為中心）">套用</button>
+            <label>倍率 <input id="edScaleK" type="number" min="0" step="0.1" value="1" /></label>
+            <button id="edScaleGo" title="等比縮放（以原點為中心）">套用</button>
+          </div>
+          <h3>原點</h3>
+          <div class="btns" id="edOrigin">
+            <button data-o="bottom">底面中心</button><button data-o="center">外框中心</button
+            ><button data-o="top">頂面中心</button
+            ><button id="edPick" title="在模型上點一下設定原點">點選設定</button>
+          </div>
+          <label class="tog small"
+            ><input type="checkbox" id="edPickMid" checked /> 點選時取前後表面的中點（關節中心）</label
+          >
+          <h3>資訊</h3>
+          <div id="edStats"></div>
+          <ul id="edChecks"></ul>
+          <h3>存檔</h3>
+          <div class="btns">
+            <button id="edSave" title="套用變換後存到目標槽位（保留原始檔，可以還原）">存到槽位</button>
+            <button id="edSaveMirror">鏡像存到另一側</button>
+            <button id="edDownload">下載 .glb</button>
+            <button id="edInspect" title="到模型庫檢視窗查看（可用組合預覽裝到整台機甲上）">
+              到檢視窗查看
+            </button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
     <div id="inspect" hidden>
       <div id="insView">
         <canvas id="insGl"></canvas>
@@ -117,6 +206,7 @@
           <button id="insDownload">下載（依槽位命名）</button>
           <button id="insRemove">移除瀏覽器暫存</button>
           <button id="insTemplate" title="把程式模型照規格匯出成 GLB，當作建模範本">下載範本 GLB</button>
+          <button id="insEdit" title="在 GLB 編輯器修正朝向、尺寸與原點">在 GLB 編輯器開啟</button>
           <input id="insFile" type="file" accept=".glb,model/gltf-binary" hidden />
         </div>
         <div class="dim small" id="insGlbHint"></div>

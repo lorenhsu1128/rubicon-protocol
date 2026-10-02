@@ -36,7 +36,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、存到槽位與鏡像存到另一側、還原原始檔）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -73,7 +73,8 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
                      template.js（範本 GLB 匯出）、joint-editor.js（關節設定編輯器）、
                      workshop.js（組裝調整頁：自由預組機甲、在整台機甲上調整連接點）、
                      workshop-edit.js（組裝調整的選取、拖曳、數值、對稱、復原、鍵盤微調與吸附、顯示方式）、
-                     workshop-check.js（相鄰區塊的縫隙／重疊估算）
+                     workshop-check.js（相鄰區塊的縫隙／重疊估算）、editor.js（GLB 編輯頁）、
+                     editor-ops.js（GLB 編輯的幾何運算：外框、朝向、對齊、套用變換、鏡像、匯出）
 ```
 
 ### Mixin 規則（重要）
@@ -106,6 +107,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 連接點可被關節設定覆寫（`render/mech-joints.js`）：內建 `src/assets/models/joints.json`（建置時以 `virtual:joints` 內嵌，遊戲與模型庫都讀）＞程式預設值；檔案用 glTF 座標（+Z 正面、角度）。模型庫的關節設定編輯器（拖曳箭頭／數值）把修改存在瀏覽器（IndexedDB `joints`，只影響模型庫），「匯出關節設定」輸出合併後的 joints.json。遊戲只讀內建檔，不讀瀏覽器暫存（多人各端必須一致）。機甲身高 `height`、`hipY` 是遊戲判定用的常數，不隨連接點改變。
 - GLB 來源優先順序（模型庫）：瀏覽器暫存（拖曳進模型庫，IndexedDB）＞內建（`src/assets/models/<槽位 id>.glb`）＞程式模型；左側武器沒有 GLB 時暫用右側。完整機甲（`mech/`）不接受整台 GLB，只顯示區塊組合（`buildMech` 的 `opts.piece` 換成 GLB）。會動的載具也拆成區塊（`vehicle/<key>/hull|turret|body|rotor|tail`，`render/vehicle-models.js`），列車分機車頭／車廂；完整載具、疊放貨櫃、掩體的目錄項目有 `parts`，模型庫以區塊組合預覽（`stage.js` 的 `prepareAssembly`）；`noGlb` 且 `parts` 為空的（高台、公路、鐵路）不接受 GLB。
 - **遊戲的本地模型庫**（只在單人模式）：設定（`rubicon_localmodels`：總開關＋機甲區塊／武器／載具／地圖物件／小物件）開啟時，`render/local-models.js` 讀取模型庫 IndexedDB 的 GLB 與關節設定（不建立資料庫、讀完即關閉連線；同來源才讀得到），解析後快取範本。建模函式透過 `render/model-provider.js` 的 `providedModel(slot, pal, unique)` 取得實例：`buildMech` 的區塊、`vehicle-models.js` 的載具區塊（`swapPiece`）、`extra-models.js` 的運輸車輛／掉落物／轟炸機／彈體、`world/prop-models.js` 的地圖物件（`propGlb`：依隨機尺寸縮放、main 材質換成物件顏色、`propMats` 回傳材質給遮擋與閃光）。沒有設定來源時一律回傳 null（程式模型），所以這些函式仍是純函式；多人時 `LocalModels.allow()` 回傳 false，關節覆寫也以 gate 停用。進車庫、單機出擊前（`lmRefresh`）與標題的「重新載入本地模型」會重新讀取。換模型只改外觀，碰撞與判定一律用程式模型的數值。內建 GLB 遊戲目前還不讀。
+- **GLB 編輯器**（模型庫的「GLB 編輯」頁籤，網址 `#editor` 或 `#editor=槽位 id`；檢視窗的「在 GLB 編輯器開啟」）：修正外部（AI 生成等）GLB 的朝向、尺寸、原點與節點。編輯中的模型保持 glTF 座標（`frame` 繞 Y 轉 180° 顯示＞`xform` 整體變換＞原始場景），存檔時 `bakeScene` 把變換寫進頂點（行列式為負時翻轉三角形順序）、輸出扁平節點的 GLB。存到槽位時在 IndexedDB 紀錄的 `orig` 保留原始檔（拖曳替換則沒有），可以還原；鏡像存到另一側不保留原始檔。不指定槽位時只能下載。規劃中的後續階段：拆分與組合、材質、最佳化（減面等）。
 - GLB 規格（+Z 正面、單位公尺、區塊與原點、依材質名稱換色、預算）見 `docs/glb-spec.md`；數值定義在 `render/glb.js` 的 `GLB_BUDGET`／`PALETTE_SLOTS`，區塊與連接點在 `render/mech-model.js`，修改時同步更新文件。
 - GLB 載入時要逐節點轉座標系（`flipToGame`），不能只轉根節點。
 - 尺寸一律以公尺標示；量測（`measureBox`）排除描邊外殼與加色發光特效。
