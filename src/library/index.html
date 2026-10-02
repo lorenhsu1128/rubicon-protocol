@@ -136,6 +136,8 @@
           <div id="edTreeBox">
             <h3>節點</h3>
             <div id="edTree"></div>
+            <h3>材質</h3>
+            <div id="edMats"></div>
           </div>
         </aside>
         <div id="edView">
@@ -190,6 +192,42 @@
             <label class="tog small"
               ><input type="checkbox" id="edPickMid" checked /> 點選時取前後表面的中點（關節中心）</label
             >
+            <div id="edMatTools" hidden>
+              <h3>換色（材質）</h3>
+              <div class="edRow">
+                <label
+                  >預覽配色
+                  <select id="edPreview"></select
+                ></label>
+              </div>
+              <div class="edRow">
+                <label
+                  >框選改成
+                  <select id="edMatSlot"></select></label
+                ><button id="edMatBox" title="在畫面上拖曳框選三角形，改用這個色槽（框選時不能旋轉視角）">
+                  框選
+                </button>
+              </div>
+              <label class="tog small"
+                ><input type="checkbox" id="edMatFront" checked /> 只選朝向鏡頭的面</label
+              >
+              <div class="edRow">
+                <label
+                  >色槽的貼圖
+                  <select id="edTexMode"></select
+                ></label>
+              </div>
+              <div class="edRow">
+                <label>依顏色分群 <input id="edClusterK" type="number" min="2" max="8" value="5" /> 群</label
+                ><button id="edCluster" title="依貼圖顏色把三角形分群，各群指定色槽">分群</button>
+              </div>
+              <div id="edClusters"></div>
+              <div class="btns">
+                <button id="edMergeMats" title="類型、名稱、顏色、參數與貼圖都相同的材質合併成一個">
+                  合併相同的材質
+                </button>
+              </div>
+            </div>
             <h3>資訊</h3>
             <div id="edStats"></div>
             <ul id="edChecks"></ul>

@@ -1049,3 +1049,67 @@ button.primary {
   border-color: #ffd23f;
   color: #ffd23f;
 }
+
+.edMat {
+  font-size: 12px;
+  border-left: 2px solid transparent;
+}
+.edMat summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.edMat summary i,
+.edCl i {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 1px solid var(--line);
+}
+.edMat .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edMat[open] {
+  border-left-color: #ffd23f;
+  background: rgba(255, 255, 255, 0.03);
+}
+.edMat label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 22px;
+}
+.edMat label input[type='range'],
+.edMat label select {
+  flex: 1;
+  min-width: 0;
+}
+.edCl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+.edCl .small {
+  min-width: 96px;
+}
+.edCl select {
+  flex: 1;
+  min-width: 0;
+}
+#edMatBox.sel {
+  border-color: #ffd23f;
+  color: #ffd23f;
+}
+#edClusterK {
+  width: 44px;
+}
+#edMatTools[hidden] {
+  display: none;
+}

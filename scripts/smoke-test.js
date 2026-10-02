@@ -735,15 +735,23 @@ async function testEditor(browser, base) {
   await wait(600);
   check((await tris()) === t0, '復原合併與加入');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor.png') });
+  const toastHas = (txt) =>
+    page
+      .waitForFunction(
+        (t) => [...document.querySelectorAll('.toast')].some((x) => x.textContent.includes(t)),
+        txt,
+        {
+          timeout: 10000,
+        },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
   await page.click('#edSave');
-  await wait(1500);
+  const savedR = await toastHas('右前臂');
   await page.click('#edSaveMirror');
-  await wait(1500);
-  const toasts = await page.$$eval('.toast', (t) => t.map((x) => x.textContent));
-  check(
-    toasts.some((t) => t.includes('右前臂')) && toasts.some((t) => t.includes('左前臂')),
-    '存到槽位並鏡像存到另一側',
-  );
+  check(savedR && (await toastHas('左前臂')), '存到槽位並鏡像存到另一側');
   // 鏡像的左前臂：在檢視窗規格檢查全部通過
   await page.goto(base + 'model-library.html#arms/a_std/l_fore');
   await page.waitForSelector('#inspect:not([hidden])');
@@ -795,6 +803,12 @@ async function testEditorSplit(browser, base) {
   await page.waitForSelector('#editor:not([hidden])');
   await page.setInputFiles('#edFile', fp);
   await wait(1500);
+  const mats = async () => ((await page.textContent('#edMats')) || '').match(/共 (\d+) 個材質/)[1];
+  const m0 = +(await mats());
+  await page.click('#edMergeMats');
+  await wait(800);
+  const m1 = +(await mats());
+  check(m1 < m0, `合併相同的材質（${m0} → ${m1}）`);
   await page.click('#edSplitOn');
   await wait(800);
   check(
@@ -886,6 +900,101 @@ async function testEditorSplit(browser, base) {
     );
   check(n19, '完整機甲由拆出的 19 個區塊組成');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split-mech.png') });
+  await ctx.close();
+}
+
+// GLB 編輯的材質：AI 風格模型（一個材質、一張多色貼圖）→ 依顏色分群 → 套用色槽 → 框選改色槽 → 復原 → 存檔
+async function testEditorMaterials(browser, base) {
+  console.log('模型庫 GLB 編輯：材質（分群、框選色槽、灰階貼圖、存檔）');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await ctx.newPage();
+  watch(page, 'editor-mat');
+  await page.goto(base + 'model-library.html#editor');
+  await page.waitForSelector('#editor:not([hidden])');
+  const bytes = await page.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const cols = [
+      [200, 60, 50],
+      [70, 160, 80],
+      [60, 90, 190],
+      [128, 128, 128],
+    ];
+    for (let q = 0; q < 4; q++)
+      for (let y = 0; y < 32; y++)
+        for (let x = 0; x < 32; x++) {
+          const k = 0.8 + 0.2 * Math.sin(x * 0.7 + y * 0.3);
+          g.fillStyle = `rgb(${(cols[q][0] * k) | 0},${(cols[q][1] * k) | 0},${(cols[q][2] * k) | 0})`;
+          g.fillRect((q % 2) * 32 + x, Math.floor(q / 2) * 32 + y, 1, 1);
+        }
+    const tex = new THREE.CanvasTexture(c);
+    tex.flipY = false;
+    const geo = new THREE.BoxGeometry(0.6, 0.5, 0.6);
+    const uv = geo.attributes.uv;
+    for (let f = 0; f < 6; f++) {
+      const q = f < 2 ? 0 : f < 4 ? 1 : 2;
+      for (let i = f * 4; i < f * 4 + 4; i++)
+        uv.setXY(
+          i,
+          (q % 2) * 0.5 + uv.getX(i) * 0.45 + 0.02,
+          Math.floor(q / 2) * 0.5 + uv.getY(i) * 0.45 + 0.02,
+        );
+    }
+    geo.translate(0, 0.25, 0);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, name: 'Material_0' }));
+    const res = await new Promise((r) => new THREE.GLTFExporter().parse(mesh, r, { binary: true }));
+    return [...new Uint8Array(res)];
+  });
+  const fp = path.join(SHOT_DIR, 'editor-ai.glb');
+  fs.writeFileSync(fp, Buffer.from(bytes));
+  await page.selectOption('#edSlot', 'head/h_std');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  const tinted = async () =>
+    (await page.$$eval('#edChecks li', (l) => l.map((x) => x.textContent))).find((t) =>
+      t.includes('換色的材質'),
+    ) || '';
+  const matCount = async () => ((await page.textContent('#edMats')) || '').match(/共 (\d+) 個材質/)[1];
+  check((await matCount()) === '1', 'AI 風格模型：一個材質');
+  await page.fill('#edClusterK', '3');
+  await page.click('#edCluster');
+  await wait(800);
+  check((await page.$$('#edClusters .edCl')).length === 3, '依顏色分成 3 群');
+  await page.click('#edClApply');
+  await wait(800);
+  const t1 = await tinted();
+  check(
+    t1.includes('main') && t1.includes('sub') && t1.includes('main2'),
+    `套用分群：三群各成一個色槽材質（${t1}）`,
+  );
+  await page.selectOption('#edPreview', 'player');
+  await page.selectOption('#edMatSlot', 'acc');
+  await page.click('#edMatBox');
+  const bb = await (await page.$('#edGl')).boundingBox();
+  await page.mouse.move(bb.x + 5, bb.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(bb.x + bb.width - 5, bb.y + bb.height - 5, { steps: 4 });
+  await page.mouse.up();
+  await wait(600);
+  check((await tinted()).includes('acc'), '框選的三角形改成強調色（acc）');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor-mat.png') });
+  await page.click('#edMatBox');
+  await page.click('#edLeft h3');
+  await page.keyboard.press('Control+z');
+  await wait(600);
+  check(!(await tinted()).includes('acc') && (await matCount()) === '3', '復原框選');
+  await page.click('#edSave');
+  await wait(1500);
+  await page.goto(base + 'model-library.html#head/h_std');
+  await page.reload();
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(2000);
+  const ins = (await page.$$eval('#insChecks li', (l) => l.map((x) => x.textContent))).find((t) =>
+    t.includes('換色的材質'),
+  );
+  check(!!ins && ins.includes('main') && ins.includes('main2'), `存檔後檢視窗：依配色換色（${ins}）`);
   await ctx.close();
 }
 
@@ -1244,6 +1353,7 @@ async function main() {
     await testWorkshop(browser, base);
     await testEditor(browser, base);
     await testEditorSplit(browser, base);
+    await testEditorMaterials(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {

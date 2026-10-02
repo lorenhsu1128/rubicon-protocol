@@ -20,6 +20,7 @@ import {
   orientMatrix,
   triCount,
 } from './editor-ops.js';
+import { MaterialTool } from './editor-mat.js';
 import { SplitTool } from './editor-split.js';
 import { buildAxes, buildConnMarker, buildGrid } from './refs.js';
 import {
@@ -110,7 +111,7 @@ export class GlbEditor {
       const tc = new THREE.TransformControls(this.camera, this.canvas);
       tc.setSize(0.85);
       tc.addEventListener('dragging-changed', (e) => {
-        this.controls.enabled = !e.value && !this.split.boxMode;
+        this.controls.enabled = !e.value && !this.split.boxMode && !this.mat.boxMode;
         this.dragging = e.value;
         if (this.split.cutting) return; // 拖曳的是切割平面
         if (e.value) this.pushUndo();
@@ -123,7 +124,9 @@ export class GlbEditor {
     this.mode = 'translate';
     this.buildLabels();
     this.split = new SplitTool(this);
+    this.mat = new MaterialTool(this);
     this.setupUi();
+    this.mat.setupUi();
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
   }
@@ -414,6 +417,7 @@ export class GlbEditor {
       this.split.render();
     }
     this.clearModel();
+    this.mat.reset();
     const root = gltf.scene;
     root.updateMatrixWorld(true);
     this.content = root;
@@ -552,6 +556,7 @@ export class GlbEditor {
   }
   pick(e) {
     if (this.split.cutting) return this.split.pick(e);
+    if (this.mat.boxMode) return;
     if (!this.content) return;
     const r = this.canvas.getBoundingClientRect();
     const ray = new THREE.Raycaster();
@@ -582,7 +587,8 @@ export class GlbEditor {
     const t = (o) => [o.position.toArray(), o.quaternion.toArray(), o.scale.toArray()];
     return {
       x: t(this.xform),
-      n: this.nodes.map((o) => [...t(o), o.visible, !!o.userData.edDeleted, o.name]),
+      n: this.nodes.map((o) => [...t(o), o.visible, !!o.userData.edDeleted, o.name, o.geometry, o.material]),
+      m: this.mat.snap(),
     };
   }
   restore(s) {
@@ -604,7 +610,10 @@ export class GlbEditor {
       o.visible = v[3];
       o.userData.edDeleted = v[4];
       o.name = v[5];
+      if (v[6]) o.geometry = v[6];
+      if (v[7]) o.material = v[7];
     });
+    this.mat.restore(s.m);
   }
   // 修改前呼叫；mergeKey 相同且間隔很短的連續修改（例如打字）合併成一步
   pushUndo(mergeKey) {
@@ -636,6 +645,7 @@ export class GlbEditor {
     this.writeDetail();
     this.renderStats();
     this.renderUndo();
+    this.mat.render();
     clearTimeout(this.checkTimer);
     this.checkTimer = setTimeout(() => this.renderChecks(), 250);
   }
@@ -765,6 +775,7 @@ export class GlbEditor {
     const has = !!this.content;
     const e = this.entry;
     $('edSrc').textContent = has ? this.srcLabel : '尚未載入模型';
+    this.mat.render();
     $('edFromSlot').disabled = !e;
     $('edRevert').disabled = !has || !this.orig;
     $('edAdd').disabled = this.split.cutting;
@@ -804,7 +815,10 @@ export class GlbEditor {
     const B = budgetFor(e ? e.spec : 'mech');
     const tris = triCount(this.content);
     const lv = tris <= B.tris ? 'ok' : tris <= B.tris * 1.5 ? 'warn' : 'error';
-    const rows = [['尺寸（寬×高×深）', `${fmt(s.x, 2)} × ${fmt(s.y, 2)} × ${fmt(s.z, 2)} m`]];
+    const rows = [
+      ['尺寸（寬×高×深）', `${fmt(s.x, 2)} × ${fmt(s.y, 2)} × ${fmt(s.z, 2)} m`],
+      ['材質', String(this.mat.list().length)],
+    ];
     const ref = this.curRef();
     if (ref && !ref.isEmpty()) {
       const rs = ref.getSize(new THREE.Vector3());
@@ -997,7 +1011,9 @@ export class GlbEditor {
   }
   render() {
     this.controls.update();
+    const sw = this.mat.beforeRender(); // 預覽配色
     this.renderer.render(this.scene, this.camera);
+    this.mat.afterRender(sw);
     this.updateLabels();
   }
   loop() {
