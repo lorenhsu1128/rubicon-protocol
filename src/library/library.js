@@ -208,6 +208,8 @@ async function main() {
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     },
   });
+  // 冒煙測試用：網址帶 ?test 時讓測試取得編輯器（算控制點在畫面上的位置）
+  if (/[?&]test\b/.test(location.search)) window.__glbEditor = editor;
   workshop = new Workshop({
     store,
     toast,

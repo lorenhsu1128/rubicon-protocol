@@ -122,13 +122,44 @@ export class GlbEditor {
         this.controls.enabled = !e.value && !this.split.boxMode && !this.mat.boxMode;
         this.dragging = e.value;
         if (this.split.cutting) return; // 拖曳的是切割平面
+        if (this.originMode) {
+          if (!e.value) this.applyOriginHandle();
+          return;
+        }
         if (e.value) this.pushUndo();
         else this.changed();
       });
-      tc.addEventListener('objectChange', () => !this.split.cutting && this.writeDetail());
+      tc.addEventListener(
+        'objectChange',
+        () => !this.split.cutting && !this.originMode && this.writeDetail(),
+      );
       this.scene.add(tc);
       this.tc = tc;
     }
+    // 拖曳原點的把手（glTF 座標，放在 frame 裡）
+    this.originMode = false;
+    this.oh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff8a3d, depthTest: false, transparent: true }),
+    );
+    this.oh.renderOrder = 30;
+    this.oh.visible = false;
+    this.frame.add(this.oh);
+    // 程式模型的原點（在場景原點）：黃色圓環＋十字，作為設定原點的參考
+    this.refOrigin = new THREE.Group();
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true });
+    for (const r of [
+      [Math.PI / 2, 0],
+      [0, 0],
+      [0, Math.PI / 2],
+    ]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.006, 6, 32), ringMat);
+      ring.rotation.set(r[0], r[1], 0);
+      ring.renderOrder = 29;
+      this.refOrigin.add(ring);
+    }
+    this.refOrigin.visible = false;
+    this.scene.add(this.refOrigin);
     this.mode = 'translate';
     this.buildLabels();
     this.split = new SplitTool(this);
@@ -274,6 +305,7 @@ export class GlbEditor {
     // 原點
     for (const b of document.querySelectorAll('#edOrigin button[data-o]'))
       b.onclick = () => this.setOrigin(boxPoint(this.box(), b.dataset.o));
+    $('edOriginDrag').onclick = () => this.setOriginMode(!this.originMode);
     $('edPick').onclick = () => {
       this.pickOrigin = !this.pickOrigin;
       $('edPick').classList.toggle('sel', this.pickOrigin);
@@ -304,7 +336,8 @@ export class GlbEditor {
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (k === 'Escape') {
-        if (this.pickOrigin) {
+        if (this.originMode) this.setOriginMode(false);
+        else if (this.pickOrigin) {
           this.pickOrigin = false;
           $('edPick').classList.remove('sel');
         } else this.close();
@@ -383,6 +416,7 @@ export class GlbEditor {
     if (this.refObj) this.refObj.visible = this.show.ref && !sp;
     for (const m of this.connMarks) m.mk.visible = this.show.conns && !sp;
     if (sp && this.split.rig) this.split.rig.group.visible = this.show.ref;
+    this.refOrigin.visible = !!this.entry && !sp && this.show.ref;
     this.grid.visible = this.show.grid;
   }
 
@@ -486,6 +520,25 @@ export class GlbEditor {
     this.xform.matrix.decompose(this.xform.position, this.xform.quaternion, this.xform.scale);
     this.changed();
   }
+  // 拖曳原點：把手從目前的原點出發，用箭頭拖到想要的位置，放開後模型移動、讓那一點成為原點
+  setOriginMode(on) {
+    if (on && !this.content) return;
+    this.originMode = on;
+    this.oh.position.set(0, 0, 0);
+    this.oh.visible = on;
+    this.oh.scale.setScalar(this.axes.group.scale.x);
+    $('edOriginDrag').classList.toggle('sel', on);
+    if (!this.tc) return;
+    if (on) {
+      this.setMode('translate');
+      this.tc.attach(this.oh);
+    } else if (this.content && !this.split.cutting) this.tc.attach(this.sel || this.xform);
+  }
+  applyOriginHandle() {
+    const p = this.oh.position.clone();
+    this.oh.position.set(0, 0, 0);
+    if (p.lengthSq() > 1e-12) this.setOrigin(p);
+  }
   // 把 glTF 座標中的點 p 設為原點（移動模型，使 p 落在 0,0,0）
   setOrigin(p) {
     if (!this.content) return;
@@ -504,6 +557,7 @@ export class GlbEditor {
 
   // ---------- 節點 ----------
   select(o) {
+    if (this.originMode) this.setOriginMode(false);
     this.sel = o;
     if (this.tc) {
       if (this.content && !this.split.cutting) this.tc.attach(o || this.xform);
@@ -567,6 +621,7 @@ export class GlbEditor {
   }
   pick(e) {
     if (this.split.cutting) return this.split.pick(e);
+    if (this.split.active && this.split.pickBox(e)) return;
     if (this.mat.boxMode) return;
     if (!this.content) return;
     const r = this.canvas.getBoundingClientRect();
@@ -600,6 +655,7 @@ export class GlbEditor {
       x: t(this.xform),
       n: this.nodes.map((o) => [...t(o), o.visible, !!o.userData.edDeleted, o.name, o.geometry, o.material]),
       m: this.mat.snap(),
+      sp: this.split.snapBoxes(),
     };
   }
   restore(s) {
@@ -625,6 +681,7 @@ export class GlbEditor {
       if (v[7]) o.material = v[7];
     });
     this.mat.restore(s.m);
+    this.split.restoreBoxes(s.sp);
   }
   // 修改前呼叫；mergeKey 相同且間隔很短的連續修改（例如打字）合併成一步
   pushUndo(mergeKey) {
@@ -981,6 +1038,17 @@ export class GlbEditor {
         cls: 'conn',
         obj: m.mk,
       })),
+      ...(this.entry
+        ? [
+            {
+              pos: new THREE.Vector3(0, -0.09, 0),
+              text: '程式模型原點：' + originText(this.entry),
+              cls: 'conn refo',
+              obj: this.refOrigin,
+            },
+          ]
+        : []),
+      { pos: new THREE.Vector3(0, 0.05, 0), text: '新原點（放開套用）', cls: 'conn cur', obj: this.oh },
     ];
     for (const l of this.labels) {
       l.el = document.createElement('div');
@@ -991,11 +1059,15 @@ export class GlbEditor {
   }
   updateLabels() {
     const v = new THREE.Vector3();
-    for (const l of this.labels || []) {
+    const shown = (o) => {
+      for (let x = o; x; x = x.parent) if (!x.visible) return false;
+      return true;
+    };
+    for (const l of [...(this.labels || []), ...this.split.labels]) {
       v.copy(l.pos);
       l.obj.localToWorld(v);
       v.project(this.camera);
-      const off = v.z > 1 || v.z < -1 || !l.obj.visible;
+      const off = v.z > 1 || v.z < -1 || !shown(l.obj);
       l.el.style.display = off ? 'none' : '';
       if (off) continue;
       l.el.style.left = ((v.x + 1) / 2) * this.w + 'px';
@@ -1090,6 +1162,8 @@ export class GlbEditor {
     this.lights.sun.target.position.copy(c);
     const len = Math.min(3, Math.max(0.15, size.length() * 0.15));
     this.axes.group.scale.setScalar(len / 0.5);
+    this.refOrigin.scale.setScalar(len / 0.5);
+    this.oh.scale.setScalar(len / 0.5);
   }
   resize(force) {
     const el = this.canvas.parentElement;

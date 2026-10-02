@@ -14,6 +14,7 @@ import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { DROP, NONE, buildSoup, centroid, cutSoup, filterSoup, pieceMeshes, triTotal } from './editor-cut.js';
 import { exportGlb } from './editor-ops.js';
 import { processGlb, simplifyGeometry, triCountOf } from './editor-opt.js';
+import { buildConnMarker } from './refs.js';
 import { disposeObject } from './stage.js';
 import { WS_SLOTS, restPose, sanitizeAsm } from './workshop.js';
 
@@ -93,6 +94,27 @@ export class SplitTool {
     this.plane.visible = false;
     ed.frame.add(this.plane);
     this.radius = 0.3;
+    this.labels = []; // 關節名稱標籤（編輯器每幀投影）
+    this.warns = [];
+    this.jointMarks = [];
+    // 範圍框的控制點：6 個面的中央（沿該面的方向拉）＋中心（移動整個框）
+    this.hg = new THREE.Group();
+    this.hg.visible = false;
+    const hmat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
+    for (let k = 0; k < 3; k++)
+      for (const sgn of [-1, 1]) {
+        const h = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), hmat(0xffffff));
+        h.userData.h = { k, sgn };
+        h.userData.helper = true;
+        h.renderOrder = 31;
+        this.hg.add(h);
+      }
+    const hc = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 12), hmat(0xffd23f));
+    hc.userData.h = { center: true };
+    hc.userData.helper = true;
+    hc.renderOrder = 31;
+    this.hg.add(hc);
+    this.setupHandles();
     this.setupBox();
   }
 
@@ -102,6 +124,10 @@ export class SplitTool {
       if (this.cutting && !confirm('離開拆分模式會放棄目前的分配與切割，確定？')) return;
       this.stopCut();
       this.active = false;
+      if (this.hg.parent) this.hg.parent.remove(this.hg);
+      this.hg.visible = false;
+      for (const l of this.labels) l.el.remove();
+      this.labels = [];
       if (this.rig) {
         this.ed.scene.remove(this.rig.group);
         disposeObject(this.rig.group);
@@ -125,6 +151,7 @@ export class SplitTool {
     const res = this.clipAll(soup0);
     if (!triTotal(res.soup)) return ed.toast('範圍框裡沒有模型：請把 GLB 移進勾選區塊的範圍框', true);
     this.soup = res.soup;
+    this.warns = this.lengthWarnings();
     this.cutting = true;
     this.undo = [];
     this.redo = [];
@@ -150,6 +177,7 @@ export class SplitTool {
       this.view = null;
     }
     this.ed.xform.visible = true;
+    this.updateVis();
     if (this.ed.content && this.ed.tc) this.ed.tc.attach(this.ed.sel || this.ed.xform);
   }
   back() {
@@ -164,6 +192,9 @@ export class SplitTool {
     return this.list.map((x, i) => i).filter((i) => !this.off.has(this.list[i].slot));
   }
   buildRig() {
+    if (this.hg.parent) this.hg.parent.remove(this.hg); // 控制點不跟著舊的程式模型一起釋放
+    for (const l of this.labels) l.el.remove();
+    this.labels = [];
     if (this.rig) {
       this.ed.scene.remove(this.rig.group);
       disposeObject(this.rig.group);
@@ -202,6 +233,17 @@ export class SplitTool {
       obj.add(vis);
       x.vis = vis;
       obj.userData.idx = i;
+    });
+    // 關節（連接點）標記：勾選的區塊與接在它上面的區塊之間
+    this.jointMarks = this.rig.mounts.map((m) => {
+      const mk = buildConnMarker(0.035, true);
+      m.node.add(mk);
+      const owner = this.list.findIndex((x) => x.slot === m.slot);
+      const child = this.list.findIndex((x) => {
+        const o = this.rig.pieces[x.slot];
+        return o && o.parent && o.parent.parent === m.node;
+      });
+      return { mk, m, owner, child };
     });
     this.ed.scene.add(this.rig.group);
     this.applyPose();
@@ -277,6 +319,158 @@ export class SplitTool {
       x.vis.children[0].material.opacity = i === this.cur ? 1 : 0.7;
       x.vis.children[1].material.opacity = i === this.cur ? 0.14 : 0.06;
     });
+    const on = (i) => i >= 0 && !this.off.has(this.list[i].slot);
+    for (const j of this.jointMarks) j.mk.visible = on(j.owner) || on(j.child);
+    // 標籤：選中區塊自己的關節與它接上的關節
+    const box = $('edLabels');
+    for (const l of this.labels) l.el.remove();
+    this.labels = [];
+    if (this.active)
+      for (const j of this.jointMarks) {
+        if (!j.mk.visible || (j.owner !== this.cur && j.child !== this.cur)) continue;
+        const el = document.createElement('div');
+        el.className = 'lbl conn';
+        el.textContent = CONN_NAMES[j.m.name] || j.m.name;
+        box.appendChild(el);
+        this.labels.push({ el, obj: j.mk, pos: new THREE.Vector3() });
+      }
+    this.updateHandles();
+  }
+  // 控制點：掛在選中區塊上，放在範圍框各面的中央；大小依框的尺寸
+  updateHandles() {
+    const d = this.data && this.data[this.cur];
+    const x = this.list[this.cur];
+    const show = this.active && !this.cutting && d && x && !this.off.has(x.slot);
+    this.hg.visible = !!show;
+    if (!show) return;
+    if (this.hg.parent !== d.obj) d.obj.add(this.hg);
+    const c = d.box.getCenter(new THREE.Vector3()),
+      sz = d.box.getSize(new THREE.Vector3());
+    const hs = Math.max(0.025, Math.min(0.08, Math.max(sz.x, sz.y, sz.z) * 0.07));
+    for (const h of this.hg.children) {
+      h.scale.setScalar(hs);
+      h.position.copy(c);
+      const u = h.userData.h;
+      if (!u.center) h.position.setComponent(u.k, c.getComponent(u.k) + (u.sgn * sz.getComponent(u.k)) / 2);
+    }
+  }
+  // ---------- 拖曳控制點（在 #edView 的捕獲階段攔截，不讓視角與箭頭工具接到）----------
+  ray(e) {
+    const ed = this.ed;
+    const r = ed.canvas.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(
+      new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1),
+      ed.camera,
+    );
+    return ray;
+  }
+  setupHandles() {
+    const ed = this.ed;
+    $('edView').addEventListener(
+      'pointerdown',
+      (e) => {
+        if (!this.hg.visible || e.button !== 0) return;
+        const hit = this.ray(e).intersectObjects(this.hg.children, false)[0];
+        if (!hit) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const d = this.data[this.cur];
+        ed.pushUndo();
+        const W = d.obj.matrixWorld.clone();
+        const center = d.box.getCenter(new THREE.Vector3());
+        this.drag = {
+          h: hit.object.userData.h,
+          d,
+          slot: this.list[this.cur].slot,
+          box0: d.box.clone(),
+          W,
+          inv: W.clone().invert(),
+          // 中心：在面向鏡頭、通過框中心的平面上移動
+          plane: new THREE.Plane().setFromNormalAndCoplanarPoint(
+            ed.camera.getWorldDirection(new THREE.Vector3()),
+            center.clone().applyMatrix4(W),
+          ),
+          grab: hit.point.clone().applyMatrix4(W.clone().invert()).sub(center),
+        };
+        ed.controls.enabled = false;
+      },
+      true,
+    );
+    addEventListener('pointermove', (e) => {
+      const g = this.drag;
+      if (!g) return;
+      const ray = this.ray(e).ray;
+      const box = g.box0.clone();
+      if (g.h.center) {
+        const hitW = ray.intersectPlane(g.plane, new THREE.Vector3());
+        if (!hitW) return;
+        const local = hitW.applyMatrix4(g.inv).sub(g.grab);
+        box.translate(local.sub(g.box0.getCenter(new THREE.Vector3())));
+      } else {
+        // 控制點沿該面的法線移動：取滑鼠射線與這條線最接近的點
+        const k = g.h.k;
+        const c0 = g.box0.getCenter(new THREE.Vector3());
+        const face = c0.clone();
+        face.setComponent(k, g.h.sgn > 0 ? g.box0.max.getComponent(k) : g.box0.min.getComponent(k));
+        const P0 = face.clone().applyMatrix4(g.W);
+        const u = new THREE.Vector3().setComponent(k, 1).transformDirection(g.W);
+        const w0 = P0.clone().sub(ray.origin);
+        const a = u.dot(u),
+          b = u.dot(ray.direction),
+          c = ray.direction.dot(ray.direction),
+          dd = u.dot(w0),
+          ee = ray.direction.dot(w0);
+        const den = a * c - b * b;
+        if (Math.abs(den) < 1e-8) return;
+        const t = (b * ee - c * dd) / den;
+        if (g.h.sgn > 0)
+          box.max.setComponent(k, Math.max(box.min.getComponent(k) + 0.01, box.max.getComponent(k) + t));
+        else box.min.setComponent(k, Math.min(box.max.getComponent(k) - 0.01, box.min.getComponent(k) + t));
+      }
+      this.setBoxFromEff(g.slot, g.d, box);
+    });
+    addEventListener('pointerup', () => {
+      if (!this.drag) return;
+      this.drag = null;
+      ed.controls.enabled = !this.boxMode && !ed.mat.boxMode;
+      this.renderBoxEdit();
+    });
+  }
+  // 由範圍框（含全部放大）反推調整值
+  setBoxFromEff(slot, d, box) {
+    const k = 1 + this.expand;
+    const size = box.getSize(new THREE.Vector3()).divideScalar(k);
+    const off = box.getCenter(new THREE.Vector3()).sub(d.pbox.getCenter(new THREE.Vector3()));
+    this.boxAdj[slot] = { size: size.toArray(), off: off.toArray() };
+    this.pieceData();
+  }
+  // 點畫面上的範圍框：選取該區塊
+  pickBox(e) {
+    if (this.cutting || !this.rig) return false;
+    const fills = this.list.filter((x) => x.vis && x.vis.visible).map((x) => x.vis.children[1]);
+    const hit = this.ray(e).intersectObjects(fills, false)[0];
+    if (!hit) return false;
+    const i = this.list.findIndex((x) => x.vis && x.vis.children[1] === hit.object);
+    if (i >= 0) this.select(i);
+    return i >= 0;
+  }
+  // 復原（編輯器的快照）：範圍框調整與放大比例
+  snapBoxes() {
+    return { adj: JSON.parse(JSON.stringify(this.boxAdj)), expand: this.expand };
+  }
+  restoreBoxes(b) {
+    if (!b) return;
+    this.boxAdj = JSON.parse(JSON.stringify(b.adj));
+    this.expand = b.expand;
+    if (this.rig && !this.cutting) {
+      this.pieceData();
+      this.renderBoxEdit();
+      if ($('edExpand')) {
+        $('edExpand').value = Math.round(this.expand * 100);
+        $('edExpand').nextElementSibling.textContent = Math.round(this.expand * 100) + '%';
+      }
+    }
   }
   // 範圍框在 glTF 座標的外框（AABB）
   frameAabb(i) {
@@ -299,6 +493,69 @@ export class SplitTool {
     if (!this.rig) return b;
     for (const i of this.included()) if (this.data[i]) b.union(this.frameAabb(i));
     return b;
+  }
+
+  // ---------- 長度偏差：拆出的區塊沿骨頭方向（原點 → 子區塊的連接點）比程式模型短或長 ----------
+  lengthWarnings() {
+    const out = [];
+    const v = new THREE.Vector3();
+    for (const i of this.included()) {
+      const d = this.data[i];
+      if (!d) continue;
+      const pts = [];
+      for (const s of this.soup) {
+        const a = s.attrs.position.arr;
+        for (let t = 0; t < s.tri.length; t++)
+          if (s.tri[t] === i)
+            for (let q = 0; q < 3; q++)
+              pts.push(
+                v
+                  .fromArray(a, t * 9 + q * 3)
+                  .clone()
+                  .applyMatrix4(d.A),
+              );
+      }
+      if (!pts.length) continue;
+      const name = label(this.list[i].info);
+      const inv = d.obj.matrixWorld.clone().invert();
+      const corners = [];
+      for (let k = 0; k < 8; k++)
+        corners.push(
+          new THREE.Vector3(
+            k & 1 ? d.pbox.max.x : d.pbox.min.x,
+            k & 2 ? d.pbox.max.y : d.pbox.min.y,
+            k & 4 ? d.pbox.max.z : d.pbox.min.z,
+          ),
+        );
+      const kids = this.jointMarks.filter((j) => j.owner === i && j.child >= 0);
+      if (kids.length) {
+        for (const j of kids) {
+          const c = j.m.node.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+          const L = c.length();
+          if (L < 0.05) continue;
+          const dir = c.clone().divideScalar(L);
+          const glb = Math.max(...pts.map((q) => q.dot(dir)));
+          const proc = Math.max(...corners.map((q) => q.dot(dir)));
+          const conn = CONN_NAMES[j.m.name] || j.m.name;
+          if (glb < L * 0.9)
+            out.push(
+              `${name}：到${conn}還差 ${(L - glb).toFixed(2)} m，和${label(this.list[j.child].info)}之間可能有縫隙`,
+            );
+          else if (glb > proc + L * 0.15)
+            out.push(
+              `${name}：比程式模型長 ${(glb - proc).toFixed(2)} m（超過${conn}），可能插進${label(this.list[j.child].info)}`,
+            );
+        }
+      } else {
+        const gb = new THREE.Box3().setFromPoints(pts).getSize(new THREE.Vector3());
+        const pb = d.pbox.getSize(new THREE.Vector3());
+        const worst = Math.max(
+          ...['x', 'y', 'z'].map((k) => (pb[k] > 0.05 ? Math.abs(gb[k] - pb[k]) / pb[k] : 0)),
+        );
+        if (worst > 0.3) out.push(`${name}：尺寸與程式模型相差 ${Math.round(worst * 100)}%`);
+      }
+    }
+    return out;
   }
 
   // ---------- 拆分：範圍框裁切 ----------
@@ -716,7 +973,7 @@ export class SplitTool {
     if (!this.cutting) {
       R.innerHTML =
         `<h3>拆分：範圍框</h3>` +
-        `<div class="dim small">左側勾選要拆的區塊，用下方的移動、旋轉、尺寸工具把 GLB 的對應部位放進同色的範圍框；框外的模型拆分時會移除。必要時調整程式模型的姿勢。</div>` +
+        `<div class="dim small">左側勾選要拆的區塊，用下方的移動、旋轉、尺寸工具把 GLB 的對應部位放進同色的範圍框；框外的模型拆分時會移除。點範圍框或左側清單選取區塊，拖曳框上的白色控制點調整該面、黃色控制點移動整個框；小菱形是關節位置，GLB 的關節請對準它。</div>` +
         `<label class="edSlider">全部放大<input type="range" min="0" max="100" step="1" id="edExpand" value="${Math.round(this.expand * 100)}"><span>${Math.round(this.expand * 100)}%</span></label>` +
         `<div id="edBoxEdit"></div>` +
         `<h3>姿勢</h3>` +
@@ -743,6 +1000,7 @@ export class SplitTool {
       };
       $('edSpStart').onclick = () => this.start();
       $('edExpand').oninput = () => {
+        this.ed.pushUndo('expand');
         this.expand = +$('edExpand').value / 100;
         $('edExpand').nextElementSibling.textContent = $('edExpand').value + '%';
         this.pieceData();
@@ -767,6 +1025,9 @@ export class SplitTool {
       .join('');
     R.innerHTML =
       `<h3>拆分：微調</h3>` +
+      (this.warns.length
+        ? `<div class="edWarnBox">${this.warns.map((w) => `<div class="edWarn">⚠ ${escHtml(w)}</div>`).join('')}<div class="dim small">可回到對齊調整，或拆分後到「組裝調整」移動連接點。</div></div>`
+        : `<div class="small ok">✓ 各區塊沿骨頭方向的長度與程式模型相近</div>`) +
       `<div class="dim small">左側點選區塊（或點畫面上的模型）作為框選目標。要改範圍框或模型位置請按「回到對齊」。</div>` +
       `<div class="btns">` +
       `<button id="edSpBox" title="在畫面上拖曳框選，改分給選中的區塊（框選時不能旋轉視角）">框選</button></div>` +
@@ -904,12 +1165,14 @@ export class SplitTool {
         const v = parseFloat(inp.value);
         if (!Number.isFinite(v)) return;
         const i = +inp.dataset.i;
+        this.ed.pushUndo('box|' + x.slot + inp.dataset.k + i);
         if (inp.dataset.k === 's') cur.size[i] = Math.max(0.01, v);
         else cur.off[i] = i === 1 ? v : -v;
         this.boxAdj[x.slot] = cur;
         this.pieceData();
       };
     $('edBoxReset').onclick = () => {
+      this.ed.pushUndo();
       delete this.boxAdj[x.slot];
       this.pieceData();
       this.renderBoxEdit();

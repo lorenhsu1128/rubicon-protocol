@@ -187,11 +187,15 @@
             <div class="btns" id="edOrigin">
               <button data-o="bottom">底面中心</button><button data-o="center">外框中心</button
               ><button data-o="top">頂面中心</button
-              ><button id="edPick" title="在模型上點一下設定原點">點選設定</button>
+              ><button id="edPick" title="在模型上點一下設定原點">點選設定</button
+              ><button id="edOriginDrag" title="拖曳箭頭把原點移到想要的位置，放開後套用（Esc 結束）">
+                拖曳原點
+              </button>
             </div>
             <label class="tog small"
               ><input type="checkbox" id="edPickMid" checked /> 點選時取前後表面的中點（關節中心）</label
             >
+            <div class="dim small">黃色圓環是程式模型的原點：把 GLB 的關節（或底面中心）拖到這裡對齊。</div>
             <div id="edMatTools" hidden>
               <h3>換色（材質）</h3>
               <div class="edRow">

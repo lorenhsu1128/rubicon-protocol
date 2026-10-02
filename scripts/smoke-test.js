@@ -104,6 +104,25 @@ function watch(page, name) {
   });
 }
 
+// GLB 編輯器（網址帶 ?test 時 window.__glbEditor）：物件投影到畫面的座標、從某點拖曳、畫面上看得到的標籤
+const screenOf = (page, expr) =>
+  page.evaluate((expr) => {
+    const ed = window.__glbEditor;
+    const o = new Function('ed', 'return ' + expr)(ed);
+    const v = o.getWorldPosition(new THREE.Vector3()).project(ed.camera);
+    const r = ed.canvas.getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }, expr);
+async function dragFrom(page, [x, y], dx, dy) {
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 3 });
+  await page.mouse.move(x + dx, y + dy, { steps: 3 });
+  await page.mouse.up();
+  await wait(400);
+}
+const visibleLabels = (page) =>
+  page.$$eval('#edLabels .lbl', (l) => l.filter((x) => x.style.display !== 'none').map((x) => x.textContent));
 const visible = (page, id) =>
   page.evaluate((id) => {
     const el = document.getElementById(id);
@@ -652,7 +671,7 @@ async function testEditor(browser, base) {
     page.$$eval('#edChecks li', (ls) =>
       ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
     );
-  await page.goto(base + 'model-library.html#arms/a_std/r_fore');
+  await page.goto(base + 'model-library.html?test#arms/a_std/r_fore');
   await page.waitForSelector('#inspect:not([hidden])');
   await wait(1500);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
@@ -734,6 +753,20 @@ async function testEditor(browser, base) {
   for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z');
   await wait(600);
   check((await tris()) === t0, '復原合併與加入');
+  // 拖曳原點：顯示程式模型原點 → 把手往下拖 → 放開套用 → 復原
+  check((await visibleLabels(page)).includes('程式模型原點：手肘轉軸'), '顯示程式模型的原點位置（手肘轉軸）');
+  const yRange = async () => ((await stats()).match(/外框範圍 Y ?(-?[\d.]+)/) || [])[1];
+  const y0 = await yRange();
+  await page.click('#edOriginDrag');
+  await wait(300);
+  await dragFrom(page, await screenOf(page, 'ed.oh'), 0, 80);
+  const y1 = await yRange();
+  check(y1 !== y0, `拖曳原點後放開套用（外框底部 ${y0} → ${y1} m）`);
+  await page.keyboard.press('Escape');
+  await blur();
+  await page.keyboard.press('Control+z');
+  await wait(400);
+  check((await yRange()) === y0, '復原拖曳原點');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor.png') });
   const toastHas = (txt) =>
     page
@@ -804,7 +837,7 @@ async function testEditorSplit(browser, base) {
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
   const fp = path.join(SHOT_DIR, 'editor-mech.glb');
   await dl.saveAs(fp);
-  await page.goto(base + 'model-library.html#editor');
+  await page.goto(base + 'model-library.html?test#editor');
   await page.reload();
   await page.waitForSelector('#editor:not([hidden])');
   await page.setInputFiles('#edFile', fp);
@@ -837,11 +870,45 @@ async function testEditorSplit(browser, base) {
     ((await page.textContent('#edBoxEdit')) || '').includes('左上臂（含肩甲）的範圍框'),
     '選取區塊顯示它的範圍框尺寸',
   );
+  // 拖曳範圍框底面的控制點：只有高度與位移改變；復原
+  const boxVals = () => page.$$eval('#edBoxEdit input', (i) => i.map((x) => +x.value));
+  const bv0 = await boxVals();
+  await dragFrom(
+    page,
+    await screenOf(page, 'ed.split.hg.children.find((h) => h.userData.h.k === 1 && h.userData.h.sgn < 0)'),
+    0,
+    50,
+  );
+  const bv1 = await boxVals();
+  check(
+    bv1[1] > bv0[1] && bv1[0] === bv0[0] && bv1[2] === bv0[2],
+    `拖曳控制點拉長範圍框（高 ${bv0[1]} → ${bv1[1]} m）`,
+  );
+  await page.click('#edSplitRight h3');
+  await page.keyboard.press('Control+z');
+  await wait(300);
+  check((await boxVals()).join() === bv0.join(), '復原範圍框的拖曳');
+  // 點範圍框選取區塊
+  await page.click('.edPc:has-text("左手") .nm');
+  // 點框的上半部（框中央可能被移動 GLB 的箭頭擋住）
+  const fc = await screenOf(
+    page,
+    '(() => { const v = ed.split.list.find((x) => x.slot === "arms/a_std/l_upper").vis; const o = new THREE.Object3D(); o.position.set(0, 0.35, 0); v.add(o); v.updateMatrixWorld(true); return o; })()',
+  );
+  await page.mouse.click(fc[0], fc[1]);
+  await wait(300);
+  check(((await page.textContent('#edBoxEdit')) || '').includes('左上臂'), '點畫面上的範圍框即選取該區塊');
+  check((await visibleLabels(page)).includes('手肘'), '顯示選中區塊的關節位置（手肘）');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split-boxes.png') });
   await page.click('#edSpStart');
   await wait(2500);
   const t1 = await lastToast();
   check(/框外 [\d,]+ 面已移除/.test(t1), `範圍框裁切：框外的模型移除（${t1}）`);
+  check(
+    !!(await page.$('#edSplitRight .edWarn')) ||
+      ((await page.textContent('#edSplitRight')) || '').includes('長度與程式模型相近'),
+    '拆分後顯示長度偏差檢查',
+  );
   const p1 = await pieces();
   check(!p1.includes('右前臂') && !p1.includes('頭'), '拆分後只列出勾選的區塊');
   const hand1 = await count('左手');

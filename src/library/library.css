@@ -1113,3 +1113,17 @@ button.primary {
 #edMatTools[hidden] {
   display: none;
 }
+
+#edOriginDrag.sel {
+  border-color: #ff8a3d;
+  color: #ff8a3d;
+}
+.lbl.refo {
+  color: #ffd23f;
+  border-color: #ffd23f;
+}
+.edWarn {
+  font-size: 12px;
+  color: var(--warn);
+  padding: 2px 0;
+}
