@@ -62,6 +62,9 @@ const GHOST = new THREE.MeshBasicMaterial({
   opacity: 0.35,
 });
 const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.round(n / 1024) + ' KB');
+// 模型最低點相對原點（遊戲中原點貼地）的高度
+const groundText = (y) =>
+  Math.abs(y) < 0.05 ? '貼地' : y < 0 ? `沉入地面 ${(-y).toFixed(2)} m` : `懸空 ${y.toFixed(2)} m`;
 
 export class Inspector {
   // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
@@ -410,6 +413,9 @@ export class Inspector {
       ...(e.piece ? this.pieceRows(e.piece) : e.origin ? [['原點', e.origin]] : []),
       ['來源', d.loadError ? d.loadError + '（改顯示程式模型）' : srcText],
       [this.mode === 'compose' ? '組合後尺寸（寬×高×深）' : '遊戲尺寸（寬×高×深）', fmtSize(d.size)],
+      ...(d.ground !== null && d.ground !== undefined
+        ? [['最低點（遊戲中離地）', groundText(d.ground)]]
+        : []),
       ...(st
         ? [
             ['原始尺寸', fmtSize(d.sizeOrig)],

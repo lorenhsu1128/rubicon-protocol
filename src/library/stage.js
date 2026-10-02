@@ -62,7 +62,7 @@ export function disposeObject(obj) {
 
 // 建立模型並量測。回傳的 pivot 以模型底面中心為原點（放在地面上、可繞 Y 軸旋轉）
 // 量測並置中：回傳的 pivot 以模型底面中心為原點（放在地面上、可繞 Y 軸旋轉）
-function finalize(entry, built, extra = {}) {
+function finalize(entry, built, extra = {}, atOrigin = !entry.piece) {
   const { obj, scaleNode, scale } = built;
   // 原始尺寸：暫時把遊戲縮放設為 1
   scaleNode.scale.set(1, 1, 1);
@@ -74,6 +74,10 @@ function finalize(entry, built, extra = {}) {
   obj.position.set(-c.x, -box.min.y, -c.z);
   const pivot = new THREE.Group();
   pivot.add(obj);
+  // 原點在地面的模型（區塊以外）照遊戲的擺法：原點貼地，最低點低於原點就沉入地面、高於原點就懸空
+  // （pivot 內部仍以最低點為底，尺寸標線跟著模型）；區塊的原點是旋轉中心，仍以最低點貼地（組合預覽是整台機甲，照遊戲擺）
+  const ground = atOrigin ? box.min.y : null;
+  if (ground !== null) pivot.position.y = ground;
   obj.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
@@ -84,6 +88,7 @@ function finalize(entry, built, extra = {}) {
     sizeOrig,
     scale: scale.clone(),
     stats: modelStats(obj, entry.measureFx),
+    ground,
     ...extra,
   };
 }
@@ -229,6 +234,7 @@ export async function prepareComposite(entry, palKey, store) {
     entry,
     { obj: rig.group, scaleNode: rig.group, scale: ONE(), rig },
     { source: { kind: 'composite', glbSlots, errors }, notes },
+    true,
   );
 }
 

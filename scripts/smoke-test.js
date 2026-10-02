@@ -331,6 +331,7 @@ async function testLibraryGlb(browser, base) {
   await openSlot('mech/player');
   check(await page.$eval('#insLoad', (b) => b.disabled), '完整機甲不接受整台 GLB');
   check((await info()).includes('2 個區塊用 GLB'), '完整機甲以區塊組合顯示（含 2 個 GLB 區塊）');
+  check((await info()).includes('最低點（遊戲中離地）貼地'), '完整機甲照遊戲擺放：原點貼地、腳底在地面上');
   await page.keyboard.press('Escape');
   await wait(3000);
   const badge = await page.$eval('.cell[data-id="mech/player"] .badge', (b) => b.textContent);
