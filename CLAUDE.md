@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概要
 
-瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html`」兩個檔案（模型庫 `model-library.html` 選用）。
+瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；外部程式庫放在 HTML 旁的 `lib/` 資料夾。發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html` ＋ `lib/`」（模型庫 `model-library.html` 選用）。
 
 - `src/`：遊戲原始碼（見下方架構）。`src/index.html` 是 HTML 骨架，建置時把 `styles.css` 與打包後的 JS 內嵌進去。
 - `src/library/`：模型庫頁面（見下方「模型庫與 GLB」），建置成 `dist/model-library.html`。
-- `dist/`：建置產物 `rubicon-protocol.html`、`model-library.html`、`rubicon-server.exe`，**全部都要提交進 git**（每次改動 src/ 都要重新建置並一起 commit／push）。**不要手改 dist/**，改 `src/` 後重新建置。
+- `dist/`：建置產物 `rubicon-protocol.html`、`model-library.html`、`lib/`（程式庫）、`rubicon-server.exe`，**全部都要提交進 git**（每次改動 src/ 都要重新建置並一起 commit／push）。**不要手改 dist/**，改 `src/` 後重新建置。
 - `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - `docs/glb-spec.md`：給美術的 GLB 製作規格。
-- 函式庫（three、peerjs、three examples 後處理；模型庫另有 OrbitControls、GLTFLoader、GLTFExporter）仍由各頁面的 `index.html` 從 CDN 以一般 `<script>` 載入，程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。
+- 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
 
 ## 指令
 
@@ -118,11 +118,11 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`。
 - 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。
-- 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接），只有單人模式開啟本地模型庫時才會換成瀏覽器暫存的 GLB。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML。
+- 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接），只有單人模式開啟本地模型庫時才會換成瀏覽器暫存的 GLB。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML，程式庫放 `dist/lib/`。
 
 ## 其他
 
 - 與使用者溝通、註解與 UI 文字一律使用繁體中文。
 - UI 字串中的全形空白（U+3000）是刻意的，不要移除（ESLint 已設定略過字串）。
 - 程式碼風格由 Prettier 統一（`.prettierrc.json`：單引號、寬 110）；ESLint 只開抓錯誤的規則。
-- `dist/` 的檔案都要提交：每次 commit 前先跑 `npm run build`（正式版；`npm run dev` 產生的是含 source map 的開發版，不要提交），確認 `dist/` 的 HTML 已更新再一起 commit。`dist/rubicon-server.exe` 約 55 MB，修改 `server.js` 後要 `npm run build:exe` 並一併提交；exe 執行中時無法覆寫。發佈時提供 dist/ 的 exe 與 HTML（加上 `README.txt`）。
+- `dist/` 的檔案都要提交：每次 commit 前先跑 `npm run build`（正式版；`npm run dev` 產生的是含 source map 的開發版，不要提交），確認 `dist/` 的 HTML 已更新再一起 commit。`dist/rubicon-server.exe` 約 55 MB，修改 `server.js` 後要 `npm run build:exe` 並一併提交；exe 執行中時無法覆寫。發佈時提供 dist/ 的 exe、HTML 與 `lib/` 資料夾（加上 `README.txt`）。伺服器的 `/lib/…`（以及 `/models/lib/…`）提供同資料夾 `lib/` 裡的檔案。

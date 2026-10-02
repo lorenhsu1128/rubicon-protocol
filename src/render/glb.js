@@ -36,26 +36,54 @@ export const budgetFor = (spec) =>
   GLB_BUDGET[spec.split('-')[0]] ||
   (spec.startsWith('part') ? GLB_BUDGET.part : GLB_BUDGET.prop);
 // ---------- 解析 ----------
-// Draco 網格壓縮（KHR_draco_mesh_compression，例如 glb-shrink 的輸出）：解碼器從 CDN 載入（需要網路），全頁共用一個
-const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/gltf/';
-let draco = null;
-function dracoLoader() {
-  if (!draco && THREE.DRACOLoader) {
-    draco = new THREE.DRACOLoader();
-    draco.setDecoderPath(DRACO_PATH);
-  }
-  return draco;
+// Draco 網格壓縮（KHR_draco_mesh_compression，例如 glb-shrink 的輸出）：第一次遇到時以 <script> 載入頁面旁的
+// lib/draco/draco-decoder.js（scripts/build.js 產生，內含 wasm；直接開檔時不能用 fetch 讀本地檔案），全頁共用一個解碼器
+const DRACO_SCRIPT = 'lib/draco/draco-decoder.js';
+let dracoP = null;
+function loadDraco() {
+  if (!dracoP)
+    dracoP = new Promise((resolve, reject) => {
+      if (!THREE.DRACOLoader) return reject(new Error('DRACOLoader 未載入'));
+      const done = () => {
+        const D = window.RUBICON_DRACO;
+        const d = new THREE.DRACOLoader();
+        // 解碼器檔案改由已載入的內容提供，不經網路
+        d._loadLibrary = (url) =>
+          Promise.resolve(
+            url.endsWith('.wasm') ? Uint8Array.from(atob(D.wasm), (c) => c.charCodeAt(0)).buffer : D.wrapper,
+          );
+        resolve(d);
+      };
+      if (window.RUBICON_DRACO) return done();
+      const s = document.createElement('script');
+      s.src = DRACO_SCRIPT;
+      s.onload = done;
+      s.onerror = () => {
+        dracoP = null; // 下次再試
+        reject(new Error(`找不到 Draco 解碼器（${DRACO_SCRIPT}，應放在頁面旁的 lib 資料夾）`));
+      };
+      document.head.appendChild(s);
+    });
+  return dracoP;
 }
-export function parseGlb(buf) {
-  return new Promise((resolve, reject) => {
-    if (!THREE.GLTFLoader) return reject(new Error('GLTFLoader 未載入'));
-    const data =
-      buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    const loader = new THREE.GLTFLoader();
-    const d = dracoLoader();
-    if (d) loader.setDRACOLoader(d);
-    loader.parse(data, '', resolve, (e) => reject(e instanceof Error ? e : new Error(String(e))));
-  });
+// GLB 的 JSON 區塊是否用到 Draco 壓縮
+function usesDraco(data) {
+  try {
+    const len = new DataView(data, 12, 4).getUint32(0, true);
+    return new TextDecoder().decode(new Uint8Array(data, 20, len)).includes('KHR_draco_mesh_compression');
+  } catch (e) {
+    return false;
+  }
+}
+export async function parseGlb(buf) {
+  if (!THREE.GLTFLoader) throw new Error('GLTFLoader 未載入');
+  const data =
+    buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const loader = new THREE.GLTFLoader();
+  if (usesDraco(data)) loader.setDRACOLoader(await loadDraco());
+  return new Promise((resolve, reject) =>
+    loader.parse(data, '', resolve, (e) => reject(e instanceof Error ? e : new Error(String(e)))),
+  );
 }
 
 // glTF 正面為 +Z，遊戲為 −Z：把每個節點的座標系繞 Y 軸轉 180°（位置、旋轉、網格頂點），

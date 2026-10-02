@@ -12,6 +12,7 @@ const BASE = process.pkg ? path.dirname(process.execPath) : __dirname;
 const CFG_PATH = path.join(BASE, 'rubicon-server.json');
 // 遊戲頁：打包成 exe 時讀同資料夾的 rubicon-protocol.html；開發時讀 npm run build 的產物
 const WEB_DIR = process.pkg ? BASE : path.join(__dirname, 'dist');
+const LIB_DIR = path.join(WEB_DIR, 'lib'); // 程式庫（同資料夾的 lib/）
 const CONTROL_PORT = 8090;
 const VERSION = '1.0';
 let cfg = { port: 80, autoStart: true };
@@ -82,6 +83,20 @@ function startGame(port) {
           'Cache-Control': 'no-store',
         });
         resp.end(h || '找不到 model-library.html（請放在與遊戲頁相同的資料夾）');
+      } else if (/^\/(models\/)?lib\//.test(u)) {
+        // 程式庫（three.js、PeerJS、Draco 解碼器）：遊戲頁與模型庫旁的 lib 資料夾；/models/ 的相對路徑也導到這裡
+        const rel = decodeURIComponent(u.replace(/^\/(models\/)?lib\//, ''));
+        const f = path.resolve(LIB_DIR, rel);
+        if (!f.startsWith(LIB_DIR + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
+          resp.writeHead(404);
+          resp.end('not found');
+        } else {
+          resp.writeHead(200, {
+            'Content-Type': 'application/javascript; charset=utf-8',
+            'Cache-Control': 'max-age=3600',
+          });
+          fs.createReadStream(f).pipe(resp);
+        }
       } else if (u === '/health') {
         resp.writeHead(200, { 'Content-Type': 'application/json' });
         resp.end(JSON.stringify({ ok: true, version: VERSION, peers: peers.size, rooms: rooms.size }));
