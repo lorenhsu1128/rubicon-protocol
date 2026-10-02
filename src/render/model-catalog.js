@@ -15,6 +15,7 @@ import {
   box,
   buildContainer,
   buildCorridorSegment,
+  buildDebris,
   buildDeck,
   buildGridPillar,
   buildLampPost,
@@ -262,6 +263,10 @@ addPlain('vehicle', 'transport_train/car', '運輸列車・車廂', '遊戲中�
 addPlain('vehicle', 'bomber', '空襲轟炸機', '消耗品 AIRSTRIKE', () => buildBomberMesh());
 
 // ---------- 地圖物件（遊戲中尺寸為隨機，這裡取代表值，備註列出範圍）----------
+// GLB 以這裡的代表尺寸製作，遊戲依每個物件的隨機尺寸分別縮放長寬高（prop-models.js 的 propGlb）；
+// 由其他物件拼成或沿路線產生的（疊放貨櫃、掩體、高台、公路、鐵路）只預覽，不接受 GLB
+const PROP_SCALED = '；GLB 依隨機尺寸縮放長寬高';
+const COMPOSED = { noGlb: true, parts: [] };
 const T = THEMES.industrial;
 const clear = (m) => {
   const c = m.clone();
@@ -278,68 +283,128 @@ const containerOf = (stack) => () => {
   both.add(g, top);
   return both;
 };
-addPlain('prop', 'container', '貨櫃', '長 6–9、寬 2.6–3.2、高 2.6–3.0 m', containerOf(false));
-addPlain('prop', 'container_stack', '疊放貨櫃', '約 25% 的貨櫃會疊第二層', containerOf(true));
-addPlain('prop', 'rock', '岩石', '半徑 1.8–4.2 m，各軸隨機縮放', () => {
-  const r = buildRock(3, mat(T.rock, { roughness: 1 }));
-  r.scale.set(1.15, 0.75, 1.15);
-  return r;
+addPlain(
+  'prop',
+  'container',
+  '貨櫃',
+  '長 6–9、寬 2.6–3.2、高 2.6–3.0 m' + PROP_SCALED + '；main 材質為貨櫃顏色',
+  containerOf(false),
+);
+addPlain(
+  'prop',
+  'container_stack',
+  '疊放貨櫃',
+  '約 25% 的貨櫃會疊第二層（使用貨櫃的 GLB）',
+  containerOf(true),
+  {
+    noGlb: true,
+    parts: ['prop/container'],
+  },
+);
+addPlain(
+  'prop',
+  'rock',
+  '岩石',
+  '半徑 1.8–4.2 m，各軸隨機縮放與旋轉' + PROP_SCALED,
+  () => {
+    const r = buildRock(3, mat(T.rock, { roughness: 1 }));
+    r.scale.set(1.15, 0.75, 1.15);
+    return r;
+  },
+  { origin: '物件中心（岩石中心）' },
+);
+addPlain('prop', 'lamp_post', '柱子／路燈桿', '高 5–9 m' + PROP_SCALED, () => {
+  const m = buildLampPost(7, mat(0x33373c));
+  m.position.y = 3.5;
+  return m;
 });
-addPlain('prop', 'lamp_post', '柱子／路燈桿', '高 5–9 m', () => buildLampPost(7, mat(0x33373c)));
-addPlain('prop', 'debris', '散落碎塊', '純裝飾，0.3–1.2 m', () => box(0.75, 0.35, 0.75, mat(0x55595e)));
+addPlain('prop', 'debris', '散落碎塊', '純裝飾，0.3–1.2 m' + PROP_SCALED, () => {
+  const m = buildDebris(0.75, 0.35, 0.75, mat(0x55595e));
+  m.position.y = 0.175;
+  return m;
+});
 addPlain('prop', 'parked_truck', '停放卡車', '可破壞', () => buildParkedTruck(clear(mat(0xd8d8d8))));
 addPlain(
   'prop',
   'grid_pillar',
   '方格高柱',
-  '方格主題，寬 3–7、高 2.5–18 m',
+  '方格主題，寬 3–7、高 2.5–18 m' + PROP_SCALED,
   () => buildGridPillar(5, 13, 5, mat(0xc9cdd5, { roughness: 0.9, metalness: 0.05 })).mesh,
 );
 addPlain(
   'prop',
   'deck',
   '橋面板',
-  '橋梁／高架橋／掩體頂共用',
+  '橋梁／高架橋／掩體頂共用；護欄沿 X' + PROP_SCALED,
   () => buildDeck(8, 20, 0.7, false, deckMats()).group,
+  { origin: '橋面板頂面中心' },
 );
-addPlain('prop', 'pillar', '支柱', '橋梁與高架橋下方', () => buildPillar(0.6, 6, deckMats().pillar));
-addPlain('prop', 'bunker', '掩體', '頂板＋四支柱＋一面牆；寬 9–14、高 5–6.5 m', () => {
-  const M = deckMats();
-  const w = 11,
-    d = 11,
-    h = 5.8;
-  const g = new THREE.Group();
-  const top = buildDeck(w, d, 0.8, false, M).group;
-  top.position.y = h;
-  g.add(top);
-  for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) {
-      const p = buildPillar(0.5, h - 0.3, M.pillar);
-      p.position.set(sx * (w / 2 - 1), -0.5 + (h - 0.3) / 2, sz * (d / 2 - 1));
-      g.add(p);
-    }
-  g.add(box(w - 2, h - 0.8, 0.8, clear(M.pillar), 0, (h - 0.8) / 2, d / 2 - 0.4));
-  return g;
-});
-addPlain('prop', 'platform', '高台＋坡道', '寬 10–18、高 4–7 m', () => {
-  const pm = mat(0x7a7f88, { roughness: 0.8 });
-  const w = 14,
-    d = 14,
-    h = 5.5,
-    rl = h * 2.2;
-  const g = new THREE.Group();
-  g.add(box(w, h, d, clear(pm), 0, h / 2 - 0.5, 0));
-  const ramp = box(rl, 0.4, 6, pm, w / 2 + rl / 2, h / 2 - 0.7, 0);
-  ramp.rotation.z = -Math.atan2(h - 0.5, rl);
-  g.add(ramp);
-  return g;
-});
-addPlain('prop', 'tunnel_portal', '隧道口', '公路／鐵路兩端', () => buildTunnelPortal(T.rock));
-addPlain('prop', 'road', '穿越公路（一段）', '寬 10 m，遊戲中貫穿整張地圖', () =>
-  buildCorridorSegment('road', 24),
+addPlain('prop', 'pillar', '支柱', '橋梁、高架橋、掩體下方' + PROP_SCALED, () =>
+  buildPillar(0.6, 6, deckMats().pillar),
 );
-addPlain('prop', 'rail', '穿越鐵路（一段）', '寬 9 m，遊戲中貫穿整張地圖', () =>
-  buildCorridorSegment('rail', 24),
+addPlain(
+  'prop',
+  'bunker',
+  '掩體',
+  '頂板＋四支柱＋一面牆；寬 9–14、高 5–6.5 m（頂板與支柱使用橋面板、支柱的 GLB）',
+  () => {
+    const M = deckMats();
+    const w = 11,
+      d = 11,
+      h = 5.8;
+    const g = new THREE.Group();
+    const top = buildDeck(w, d, 0.8, false, M).group;
+    top.position.y = h;
+    g.add(top);
+    for (const sx of [-1, 1])
+      for (const sz of [-1, 1]) {
+        const p = buildPillar(0.5, h - 0.3, M.pillar);
+        p.position.set(sx * (w / 2 - 1), -0.5 + (h - 0.3) / 2, sz * (d / 2 - 1));
+        g.add(p);
+      }
+    g.add(box(w - 2, h - 0.8, 0.8, clear(M.pillar), 0, (h - 0.8) / 2, d / 2 - 0.4));
+    return g;
+  },
+  { noGlb: true, parts: ['prop/deck', 'prop/pillar'] },
+);
+addPlain(
+  'prop',
+  'platform',
+  '高台＋坡道',
+  '寬 10–18、高 4–7 m（程式模型）',
+  () => {
+    const pm = mat(0x7a7f88, { roughness: 0.8 });
+    const w = 14,
+      d = 14,
+      h = 5.5,
+      rl = h * 2.2;
+    const g = new THREE.Group();
+    g.add(box(w, h, d, clear(pm), 0, h / 2 - 0.5, 0));
+    const ramp = box(rl, 0.4, 6, pm, w / 2 + rl / 2, h / 2 - 0.7, 0);
+    ramp.rotation.z = -Math.atan2(h - 0.5, rl);
+    g.add(ramp);
+    return g;
+  },
+  COMPOSED,
+);
+addPlain('prop', 'tunnel_portal', '隧道口', '公路／鐵路兩端；開口朝 −Z；main 材質為主題的岩石色', () =>
+  buildTunnelPortal(T.rock),
+);
+addPlain(
+  'prop',
+  'road',
+  '穿越公路（一段）',
+  '寬 10 m，遊戲中沿路線產生、貫穿整張地圖（程式模型）',
+  () => buildCorridorSegment('road', 24),
+  COMPOSED,
+);
+addPlain(
+  'prop',
+  'rail',
+  '穿越鐵路（一段）',
+  '寬 9 m，遊戲中沿路線產生、貫穿整張地圖（程式模型）',
+  () => buildCorridorSegment('rail', 24),
+  COMPOSED,
 );
 
 // ---------- 小物件：掉落物、彈體 ----------

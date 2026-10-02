@@ -64,6 +64,7 @@ export function flipToGame(root) {
   });
 }
 
+export const materialSlot = (name) => slotOf(name);
 const slotOf = (name) => {
   const n = String(name || '')
     .toLowerCase()

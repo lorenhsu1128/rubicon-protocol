@@ -202,11 +202,11 @@ export async function prepareAssembly(entry, palKey, store) {
 }
 
 export const prepareSource = (entry, palKey, src, store) =>
-  entry.parts
+  entry.parts && entry.parts.length
     ? prepareAssembly(entry, palKey, store)
     : entry.cat === 'mech'
       ? prepareMech(entry, palKey, store)
-      : src && src.kind === 'glb'
+      : src && src.kind === 'glb' && !entry.noGlb
         ? prepareGlbModel(entry, palKey, src)
         : Promise.resolve(prepareModel(entry, palKey));
 

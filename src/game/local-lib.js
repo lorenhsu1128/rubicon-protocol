@@ -30,7 +30,12 @@ function checker(id, root, info, bytes) {
   const entry = CATALOG.get(id);
   // 不會用到的槽位當成失敗（例如整台載具的舊檔，現在要放到各區塊）
   if (!entry) throw new Error('模型目錄沒有這個槽位，不會用到');
-  if (entry.noGlb) throw new Error('這個模型由各區塊組成，請把 GLB 放到各區塊的槽位');
+  if (entry.noGlb)
+    throw new Error(
+      entry.parts && !entry.parts.length
+        ? '這個物件不接受 GLB（維持程式模型）'
+        : '這個模型由各區塊組成，請把 GLB 放到各區塊的槽位',
+    );
   return checkGlb({
     root,
     info,

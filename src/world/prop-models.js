@@ -1,6 +1,43 @@
 // 地圖物件的網格建造（純函式，不使用亂數）：關卡生成以亂數決定參數後呼叫這裡，模型庫也直接使用。
 // 修改這裡的幾何會改變所有種子產生的地圖外觀，但不影響亂數序列（多人各端仍一致）。
+import { OUTLINE_MAT } from '../render/geometry.js';
+import { materialSlot } from '../render/glb.js';
+import { providedModel } from '../render/model-provider.js';
+
 const MatCache = {};
+
+// ---------- 本地模型庫的 GLB（單人模式，見 render/model-provider.js）----------
+// GLB 以模型庫的代表尺寸（ref）製作，遊戲依實際尺寸（size，GLB 本身的 X／Y／Z）分別縮放；rotY 再繞 Y 轉；
+// y：GLB 原點相對於回傳群組的高度（呼叫端把群組放在物件中心時用）。命名為 main 的材質改成物件的顏色；
+// 不加描邊（與程式模型一致）；fade：材質設為可透明（擋住鏡頭時半透明）
+const PROP_MATS = new WeakMap();
+// 換成 GLB 時的材質清單（遮擋半透明、受擊閃光用）；程式模型為 null
+export const propMats = (obj) => PROP_MATS.get(obj) || null;
+function propGlb(slot, { color, ref, size, rotY = 0, y = 0, fade = false } = {}) {
+  const obj = providedModel('prop/' + slot, null, true);
+  if (!obj) return null;
+  const mats = [],
+    outlines = [];
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.material === OUTLINE_MAT) return outlines.push(o);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (color !== undefined && materialSlot(m.name) === 'main') m.color.set(color);
+      if (fade) m.transparent = true;
+      if (!mats.includes(m)) mats.push(m);
+    }
+  });
+  for (const o of outlines) o.parent.remove(o);
+  if (ref && size) obj.scale.set(size[0] / ref[0], size[1] / ref[1], size[2] / ref[2]);
+  const g = new THREE.Group();
+  const holder = new THREE.Group();
+  holder.position.y = y;
+  holder.rotation.y = rotY;
+  holder.add(obj);
+  g.add(holder);
+  PROP_MATS.set(g, mats);
+  return g;
+}
 export function mat(color, opts) {
   const k = color + '|' + JSON.stringify(opts || {});
   if (MatCache[k]) return MatCache[k];
@@ -26,6 +63,14 @@ export function cyl(rt, rb, h, m, x = 0, y = 0, z = 0, seg = 8) {
 
 // 方格主題的高柱方塊（含邊線）；原點在底面中心下方 h/2（呼叫端設定位置）
 export function buildGridPillar(w, h, d, baseMat) {
+  const glb = propGlb('grid_pillar', {
+    color: baseMat.color.getHex(),
+    ref: [5, 13, 5],
+    size: [w, h, d],
+    y: -h / 2,
+    fade: true,
+  });
+  if (glb) return { mesh: glb, mat: null };
   const m2 = baseMat.clone();
   m2.transparent = true;
   const g = box(w, h, d, m2, 0, h / 2, 0);
@@ -37,8 +82,16 @@ export function buildGridPillar(w, h, d, baseMat) {
   return { mesh: g, mat: m2 };
 }
 
-// 貨櫃：箱體＋兩道框＋上下邊條；rot 為真時長邊沿 Z 軸
+// 貨櫃：箱體＋兩道框＋上下邊條；rot 為真時長邊沿 Z 軸（GLB 以長邊沿 X 製作，rot 時轉 90°）
 export function buildContainer(w, h, d, rot, cm, fm) {
+  const glb = propGlb('container', {
+    color: cm.color.getHex(),
+    ref: [7.5, 2.8, 2.9],
+    size: rot ? [d, h, w] : [w, h, d],
+    rotY: rot ? Math.PI / 2 : 0,
+    fade: true,
+  });
+  if (glb) return glb;
   const g = new THREE.Group();
   g.add(box(w, h, d, cm, 0, h / 2, 0));
   for (const t of [-0.35, 0.35]) {
@@ -52,18 +105,34 @@ export function buildContainer(w, h, d, rot, cm, fm) {
 }
 
 // 岩石（十二面體，縮放與旋轉由呼叫端決定）
+// GLB：代表尺寸是半徑 3 的岩石再縮放 (1.15, 0.75, 1.15)，原點在岩石中心
 export function buildRock(r, m) {
+  const glb = propGlb('rock', {
+    color: m.color.getHex(),
+    ref: [3 * 1.15, 3 * 0.75, 3 * 1.15],
+    size: [r, r, r],
+    fade: true,
+  });
+  if (glb) return glb;
   const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), m);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
 }
 
-// 柱子／路燈桿（中心在原點）
-export const buildLampPost = (h, m) => box(0.6, h, 0.6, m);
+// 柱子／路燈桿（中心在原點；GLB 原點在底面中心、以高 7 m 製作）
+export const buildLampPost = (h, m) =>
+  propGlb('lamp_post', { color: m.color.getHex(), ref: [1, 7, 1], size: [1, h, 1], y: -h / 2 }) ||
+  box(0.6, h, 0.6, m);
+// 散落碎塊（中心在原點；GLB 原點在底面中心、以 0.75 × 0.35 × 0.75 m 製作）
+export const buildDebris = (w, h, d, m) =>
+  propGlb('debris', { color: m.color.getHex(), ref: [0.75, 0.35, 0.75], size: [w, h, d], y: -h / 2 }) ||
+  box(w, h, d, m);
 
 // 路邊停放的卡車：車廂＋駕駛艙＋6 輪
 export function buildParkedTruck(cm) {
+  const glb = propGlb('parked_truck', { color: cm.color.getHex(), fade: true });
+  if (glb) return glb;
   const g = new THREE.Group();
   g.add(box(3, 2.4, 7, cm, 0, 1.6, 0));
   g.add(box(3, 1.6, 2.2, mat(0xe6e6e6).clone(), 0, 1.2, -4.4));
@@ -77,7 +146,16 @@ export function buildParkedTruck(cm) {
 }
 
 // 高架板（橋面／高架橋／掩體頂）：板＋兩側護欄；原點在板頂面
+// GLB 以 8 × 0.7 × 20 m（護欄沿 X）製作；rotY 時護欄沿 Z，轉 90°
 export function buildDeck(w, d, thick, rotY, mats) {
+  const glb = propGlb('deck', {
+    color: mats.deck.color.getHex(),
+    ref: [8, 0.7, 20],
+    size: rotY ? [d, thick, w] : [w, thick, d],
+    rotY: rotY ? Math.PI / 2 : 0,
+    fade: true,
+  });
+  if (glb) return { group: glb, dm: null, rm: null };
   const g = new THREE.Group();
   const dm = mats.deck.clone();
   dm.transparent = true;
@@ -105,11 +183,15 @@ export const deckMats = () => ({
   pillar: mat(0x4a4f57, { roughness: 0.9 }),
 });
 
-// 支柱（下粗上細的圓柱）：原點在底面中心
-export const buildPillar = (r, h, m) => cyl(r, r * 1.15, h, m, 0, h / 2, 0, 8);
+// 支柱（下粗上細的圓柱）：原點在底面中心（呼叫端會把位置改到中心；GLB 以半徑 0.6、高 6 m 製作）
+export const buildPillar = (r, h, m) =>
+  propGlb('pillar', { color: m.color.getHex(), ref: [0.6, 6, 0.6], size: [r, h, r], y: -h / 2 }) ||
+  cyl(r, r * 1.15, h, m, 0, h / 2, 0, 8);
 
 // 隧道口：牆面＋拱頂＋黑洞＋門柱＋背後山體；原點在地面中心，開口朝 −Z
 export function buildTunnelPortal(rockColor) {
+  const glb = propGlb('tunnel_portal', { color: rockColor });
+  if (glb) return glb;
   const g = new THREE.Group();
   const dm = mat(0x5b5f66, { roughness: 0.95 });
   g.add(box(14, 9, 2.5, dm, 0, 4.5, 0));

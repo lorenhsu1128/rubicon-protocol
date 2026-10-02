@@ -443,7 +443,9 @@ export class Inspector {
     $('insGlbHint').textContent = e.noGlb
       ? e.cat === 'mech'
         ? '完整機甲由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（頭、核心、上臂、前臂…）'
-        : '這個模型由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（' + e.parts.join('、') + '）'
+        : e.parts.length
+          ? '這個模型由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（' + e.parts.join('、') + '）'
+          : '這個物件在遊戲中由其他物件拼成或沿路線產生，不接受 GLB，維持程式模型'
       : glb && !src.fallback
         ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
         : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;

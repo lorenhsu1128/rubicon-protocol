@@ -601,9 +601,27 @@ async function testLocalModels(browser, base) {
         new THREE.GLTFExporter().parse(m, (b) => res([...new Uint8Array(b)]), { binary: true });
       }),
   );
+  // 地圖物件：和代表尺寸一樣大的方塊（原點在底面中心、材質 main 換成物件顏色），遊戲依隨機尺寸縮放
+  const sizedBox = (w, h, d) =>
+    lib.evaluate(
+      ([w, h, d]) =>
+        new Promise((res) => {
+          const m = new THREE.Mesh(
+            new THREE.BoxGeometry(w, h, d),
+            new THREE.MeshStandardMaterial({ name: 'main', color: 0xff00ff }),
+          );
+          m.position.y = h / 2;
+          new THREE.GLTFExporter().parse(m, (b) => res([...new Uint8Array(b)]), { binary: true });
+        }),
+      [w, h, d],
+    );
   await injectLibrary(
     lib,
     [
+      { id: 'prop/container', name: 'container.glb', bytes: await sizedBox(7.5, 2.8, 2.9) },
+      { id: 'prop/debris', name: 'debris.glb', bytes: await sizedBox(0.75, 0.35, 0.75) },
+      { id: 'prop/lamp_post', name: 'lamp.glb', bytes: await sizedBox(1, 7, 1) },
+      { id: 'prop/road', name: 'road.glb', bytes: cube },
       { id: 'arms/a_std/r_fore', name: 'fore.glb', bytes: [...fs.readFileSync(fore)] },
       { id: 'weapon/w_rifle/r', name: 'rifle.glb', bytes: [...fs.readFileSync(rifle)] },
       { id: 'head/h_std', name: 'broken.glb', bytes: [1, 2, 3, 4, 5, 6, 7, 8] },
@@ -637,7 +655,7 @@ async function testLocalModels(browser, base) {
   await wait(2500);
   const box = (await page.textContent('#lmBox')) || '';
   check(
-    box.includes('套用 GLB 8 個') && box.includes('失敗 2 個'),
+    box.includes('套用 GLB 11 個') && box.includes('失敗 3 個'),
     `讀取結果：${(box.match(/狀態：([^重]*)/) || ['', ''])[1]}`,
   );
   check(box.includes('關節設定 1 個'), '讀到模型庫的關節設定');
@@ -647,7 +665,10 @@ async function testLocalModels(browser, base) {
   // 分類開關：關掉武器後只剩 1 個
   await page.uncheck('#lmBox [data-g="weapon"]');
   await wait(800);
-  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 7 個'), '關閉武器分類後不套用武器 GLB');
+  check(
+    ((await page.textContent('#lmBox')) || '').includes('套用 GLB 10 個'),
+    '關閉武器分類後不套用武器 GLB',
+  );
   await page.check('#lmBox [data-g="weapon"]');
   await wait(800);
   await page.click('#btnSettingsBack');
@@ -656,7 +677,7 @@ async function testLocalModels(browser, base) {
   await page.click('#btnLmReload');
   await wait(400);
   const ov = await lmOverlay(page);
-  check(ov.includes('套用 GLB 8 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
+  check(ov.includes('套用 GLB 11 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
   await page.click('#lmLoad');
   // 車庫與出擊
@@ -689,6 +710,12 @@ async function testLocalModels(browser, base) {
   check(nf > 0, `機甲區塊換成 GLB（右前臂 ${nf} 次）`);
   const nm = await used('vehicle/bomber');
   check(nm > 0, `空襲轟炸機換成 GLB（${nm} 次）`);
+  const nd = await used('prop/debris'),
+    nl = await used('prop/lamp_post');
+  check(
+    nd > 0 && nl > 0,
+    `地圖物件換成 GLB（碎塊 ${nd}、路燈桿 ${nl}、貨櫃 ${await used('prop/container')}）`,
+  );
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-used.png') });
   await page.click('#btnSettingsBack');
   await wait(400);

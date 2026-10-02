@@ -9,6 +9,7 @@ import {
   ROAD_STRIPS,
   box,
   buildContainer,
+  buildDebris,
   buildDeck,
   buildGridPillar,
   buildLampPost,
@@ -16,6 +17,7 @@ import {
   buildPillar,
   buildRock,
   buildTunnelPortal,
+  propMats,
   corridorPiece,
   deckMats,
   mat,
@@ -314,7 +316,7 @@ export class World {
           top: h,
           y: 0,
           group: g,
-          mats: [m2],
+          mats: propMats(g) || [m2],
           box: new THREE.Box3(
             new THREE.Vector3(x - w / 2, 0, z - d / 2),
             new THREE.Vector3(x + w / 2, h, z + d / 2),
@@ -369,7 +371,7 @@ export class World {
         top: y - 0.15 + h,
         y: y - 0.15,
         group: g,
-        mats: [cm, fm],
+        mats: propMats(g) || [cm, fm],
         box: new THREE.Box3(
           new THREE.Vector3(x - w / 2, y - 0.2, z - d / 2),
           new THREE.Vector3(x + w / 2, y + h, z + d / 2),
@@ -382,17 +384,20 @@ export class World {
       if (RNG() < 0.25) {
         const g2 = g.clone();
         g2.position.y += h;
+        const cloneMat = (m) => {
+          const c = m.clone();
+          c.transparent = true;
+          return c;
+        };
         g2.traverse((o) => {
-          if (o.isMesh) {
-            o.material = o.material.clone();
-            o.material.transparent = true;
-          }
+          if (o.isMesh)
+            o.material = Array.isArray(o.material) ? o.material.map(cloneMat) : cloneMat(o.material);
         });
         this.scene.add(g2);
         this.meshes.push(g2);
         const mats2 = [];
         g2.traverse((o) => {
-          if (o.isMesh) mats2.push(o.material);
+          if (o.isMesh) mats2.push(...(Array.isArray(o.material) ? o.material : [o.material]));
         });
         const ob2 = {
           kind: 'box',
@@ -422,7 +427,8 @@ export class World {
         if (Math.hypot(x, z) < 12 || this.onCorridor(x, z, 4)) continue;
         const r = rnd(1.8, 4.2);
         const m = buildRock(r, rm.clone());
-        m.material.transparent = true;
+        const rmats = propMats(m) || [m.material];
+        for (const mm of rmats) mm.transparent = true;
         m.scale.set(rnd(0.8, 1.5), rnd(0.5, 1.0), rnd(0.8, 1.5));
         m.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3));
         m.position.set(x, this.terrainHeight(x, z) + r * 0.2, z);
@@ -434,7 +440,7 @@ export class World {
           z,
           r: r * 1.05,
           group: m,
-          mats: [m.material],
+          mats: rmats,
           box: new THREE.Box3().setFromObject(m),
         };
         this.obstacles.push(ob);
@@ -464,7 +470,8 @@ export class World {
     for (let k = 0; k < 40; k++) {
       const x = rnd(-60, 60),
         z = rnd(-60, 60);
-      const m = box(rnd(0.3, 1.2), rnd(0.2, 0.5), rnd(0.3, 1.2), dm, x, this.terrainHeight(x, z) + 0.1, z);
+      const m = buildDebris(rnd(0.3, 1.2), rnd(0.2, 0.5), rnd(0.3, 1.2), dm);
+      m.position.set(x, this.terrainHeight(x, z) + 0.1, z);
       m.rotation.y = rnd(0, 3);
       m.castShadow = false;
       this.scene.add(m);
@@ -489,7 +496,7 @@ export class World {
           z,
           r: 3.6,
           group: g,
-          mats: [cm],
+          mats: propMats(g) || [cm],
           box: new THREE.Box3().setFromObject(g),
         };
         this.obstacles.push(ob);
@@ -637,7 +644,7 @@ export class World {
       top: y,
       y: y - thick,
       group: g,
-      mats: [dm, rm],
+      mats: propMats(g) || [dm, rm],
       box: new THREE.Box3(
         new THREE.Vector3(x - w / 2, y - thick, z - d / 2),
         new THREE.Vector3(x + w / 2, y + 0.9, z + d / 2),

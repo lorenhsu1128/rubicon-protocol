@@ -26,7 +26,9 @@ async function useFile(entry, file) {
     return toast(
       entry.cat === 'mech'
         ? '完整機甲由各區塊組成：請把 GLB 拖到各區塊的格子（頭、核心、上臂、前臂…）'
-        : '這個模型由各區塊組成：請把 GLB 拖到各區塊的格子（例如車身、砲塔、旋翼、車廂）',
+        : entry.parts && entry.parts.length
+          ? '這個模型由各區塊組成：請把 GLB 拖到各區塊的格子（' + entry.parts.join('、') + '）'
+          : '這個物件在遊戲中由其他物件拼成或沿路線產生，不接受 GLB',
       true,
     );
   if (!/\.glb$/i.test(file.name)) return toast('只接受 .glb 檔（glTF 二進位）', true);
