@@ -742,6 +742,120 @@ async function testEditor(browser, base) {
   await ctx.close();
 }
 
+// GLB 編輯的拆分：整台機甲範本（展示姿勢）→ 拆分模式 → 姿勢對照 → 自動分配 → 平面切割補面 → 框選排除與復原 → 全部存到槽位
+async function testEditorSplit(browser, base) {
+  console.log('模型庫 GLB 編輯：拆分整台機甲 → 姿勢 → 自動分配 → 切割補面 → 框選 → 全部存檔');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'editor-split');
+  page.on('dialog', (d) => d.accept());
+  const pieces = async () => ((await page.textContent('#edPieces')) || '').replace(/\s+/g, ' ');
+  await page.goto(base + 'model-library.html#mech/player');
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1500);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+  const fp = path.join(SHOT_DIR, 'editor-mech.glb');
+  await dl.saveAs(fp);
+  await page.goto(base + 'model-library.html#editor');
+  await page.reload();
+  await page.waitForSelector('#editor:not([hidden])');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  await page.click('#edSplitOn');
+  await wait(800);
+  check(
+    (await pieces()).includes('右前臂') && (await pieces()).includes('左腳掌'),
+    '拆分模式列出零件組合的所有區塊',
+  );
+  // 範本是展示姿勢：手肘彎曲約 69°、上臂前舉約 20°
+  await page.$eval('input[data-q="elbow"]', (r) => {
+    r.value = '69';
+    r.dispatchEvent(new Event('input'));
+  });
+  for (const side of ['右', '左']) {
+    await page.click(`.edPc:has-text("${side}上臂")`);
+    await page.fill('#edPose input[data-k="0"]', '20');
+    await page.press('#edPose input[data-k="0"]', 'Enter');
+  }
+  await wait(300);
+  await page.click('#edSpStart');
+  await wait(2500);
+  check(
+    (await pieces()).includes('未分配 0'),
+    `自動分配：所有三角形都分給區塊（${(await pieces()).slice(-30)}）`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split.png') });
+  // 平面切割：左大腿 → 左小腿（膝）
+  const knee = await page.$$eval('#edCutConn option', (os) =>
+    os.map((o) => [o.value, o.textContent]).find((o) => o[1].includes('左大腿') && o[1].includes('膝')),
+  );
+  await page.selectOption('#edCutConn', knee[0]);
+  await page.click('#edCutPlace');
+  await wait(300);
+  await page.click('#edCutGo');
+  await wait(1500);
+  const toasts = await page.$$eval('.toast', (t) => t.map((x) => x.textContent));
+  check(
+    toasts.some((t) => /切開 [\d,]+ 個三角形，補面 [1-9]/.test(t)),
+    `平面切割並補面（${toasts.join('；')}）`,
+  );
+  // 框選改成排除 → 復原
+  await page.check('#edSpDrop');
+  await page.click('#edSpBox');
+  const gl = await page.$('#edGl');
+  const bb = await gl.boundingBox();
+  await page.mouse.move(bb.x + bb.width * 0.3, bb.y + bb.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(bb.x + bb.width * 0.7, bb.y + bb.height * 0.8, { steps: 4 });
+  await page.mouse.up();
+  await wait(800);
+  check(!(await pieces()).includes('排除 0'), `框選排除三角形（${(await pieces()).slice(-30)}）`);
+  await page.click('#edSpBox');
+  await page.uncheck('#edSpDrop');
+  await page.click('#edSpUndo');
+  await wait(800);
+  check((await pieces()).includes('排除 0'), '復原框選');
+  await page.click('#edSpSave');
+  await page
+    .waitForFunction(
+      () => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已存 19 個區塊')),
+      null,
+      {
+        timeout: 30000,
+      },
+    )
+    .catch(() => {});
+  // 拆出的右前臂：檢視窗規格檢查通過（尺寸、原點與程式模型一致）
+  await page.goto(base + 'model-library.html#arms/a_std/r_fore');
+  await page.reload();
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(2000);
+  const info = (await page.textContent('#insInfo')) || '';
+  const bad = await page.$$eval('#insChecks li', (ls) =>
+    ls.filter((l) => /warn|error/.test(l.className)).map((l) => l.textContent),
+  );
+  check(info.includes('（拆分）') && bad.length === 0, `拆出的右前臂存進槽位、規格檢查通過${bad.join('；')}`);
+  await page.goto(base + 'model-library.html#mech/player');
+  await page.reload();
+  await page.waitForSelector('#inspect:not([hidden])');
+  const n19 = await page
+    .waitForFunction(
+      () => (document.getElementById('insInfo').textContent || '').includes('19 個區塊用 GLB'),
+      null,
+      {
+        timeout: 20000,
+      },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+  check(n19, '完整機甲由拆出的 19 個區塊組成');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split-mech.png') });
+  await ctx.close();
+}
+
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
@@ -1096,6 +1210,7 @@ async function main() {
     await testLibraryJoints(browser, base);
     await testWorkshop(browser, base);
     await testEditor(browser, base);
+    await testEditorSplit(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {

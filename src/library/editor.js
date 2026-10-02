@@ -19,6 +19,7 @@ import {
   orientMatrix,
   triCount,
 } from './editor-ops.js';
+import { SplitTool } from './editor-split.js';
 import { buildAxes, buildConnMarker, buildGrid } from './refs.js';
 import {
   addLights,
@@ -108,17 +109,19 @@ export class GlbEditor {
       const tc = new THREE.TransformControls(this.camera, this.canvas);
       tc.setSize(0.85);
       tc.addEventListener('dragging-changed', (e) => {
-        this.controls.enabled = !e.value;
+        this.controls.enabled = !e.value && !this.split.boxMode;
         this.dragging = e.value;
+        if (this.split.cutting) return; // 拖曳的是切割平面
         if (e.value) this.pushUndo();
         else this.changed();
       });
-      tc.addEventListener('objectChange', () => this.writeDetail());
+      tc.addEventListener('objectChange', () => !this.split.cutting && this.writeDetail());
       this.scene.add(tc);
       this.tc = tc;
     }
     this.mode = 'translate';
     this.buildLabels();
+    this.split = new SplitTool(this);
     this.setupUi();
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
@@ -165,6 +168,7 @@ export class GlbEditor {
     };
     $('edFromSlot').onclick = () => this.loadFromSlot(false);
     $('edRevert').onclick = () => this.revert();
+    $('edSplitOn').onclick = () => this.split.toggle();
     const view = $('edView');
     view.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -290,7 +294,7 @@ export class GlbEditor {
       if (k === 'e' || k === 'E') return this.setMode('rotate');
       if (k === 'r' || k === 'R') return this.setMode('scale');
       if (k === 'f' || k === 'F') return this.frameView();
-      if (k === 'Delete' && this.sel) return this.removeNode(this.sel);
+      if (k === 'Delete' && this.sel && !this.split.cutting) return this.removeNode(this.sel);
     });
     this.setMode(this.mode);
     this.renderAll();
@@ -354,8 +358,10 @@ export class GlbEditor {
     this.buildLabels();
   }
   applyShow() {
-    if (this.refObj) this.refObj.visible = this.show.ref;
-    for (const m of this.connMarks) m.mk.visible = this.show.conns;
+    const sp = this.split && this.split.active;
+    if (this.refObj) this.refObj.visible = this.show.ref && !sp;
+    for (const m of this.connMarks) m.mk.visible = this.show.conns && !sp;
+    if (sp && this.split.rig) this.split.rig.group.visible = this.show.ref;
     this.grid.visible = this.show.grid;
   }
 
@@ -395,6 +401,10 @@ export class GlbEditor {
       gltf = await parseGlb(buf);
     } catch (err) {
       return this.toast(`無法讀取 ${name}：${err.message || err}`, true);
+    }
+    if (this.split.cutting) {
+      this.split.stopCut();
+      this.split.render();
     }
     this.clearModel();
     const root = gltf.scene;
@@ -459,17 +469,22 @@ export class GlbEditor {
     if (!this.content) return;
     this.applyWorld(new THREE.Matrix4().makeTranslation(-p.x, -p.y, -p.z), false);
   }
+  // 對齊與比例的參考外框：拆分模式時是參與分配的區塊，否則是目標槽位的程式模型
+  curRef() {
+    return this.split.active ? this.split.refBox() : this.refBox;
+  }
   fitToRef() {
     if (!this.content) return;
-    if (!this.refBox || this.refBox.isEmpty()) return this.toast('請先選擇槽位，才有程式模型可以對齊', true);
-    this.applyWorld(fitMatrix(this.box(), this.refBox, $('edFitMode').value, $('edAnchor').value), false);
+    const ref = this.curRef();
+    if (!ref || ref.isEmpty()) return this.toast('請先選擇槽位，才有程式模型可以對齊', true);
+    this.applyWorld(fitMatrix(this.box(), ref, $('edFitMode').value, $('edAnchor').value), false);
   }
 
   // ---------- 節點 ----------
   select(o) {
     this.sel = o;
     if (this.tc) {
-      if (this.content) this.tc.attach(o || this.xform);
+      if (this.content && !this.split.cutting) this.tc.attach(o || this.xform);
       else this.tc.detach();
     }
     this.selBox.visible = !!o;
@@ -486,6 +501,7 @@ export class GlbEditor {
     this.changed();
   }
   pick(e) {
+    if (this.split.cutting) return this.split.pick(e);
     if (!this.content) return;
     const r = this.canvas.getBoundingClientRect();
     const ray = new THREE.Raycaster();
@@ -547,6 +563,7 @@ export class GlbEditor {
     this.redo = [];
   }
   step(back) {
+    if (this.split.cutting) return this.split.step(back);
     if (!this.content) return;
     const from = back ? this.undo : this.redo;
     const e = from.pop();
@@ -704,7 +721,7 @@ export class GlbEditor {
     $('edSpec').innerHTML = e
       ? `<div class="kv"><span class="dim">槽位</span><span>${escHtml(e.name)}</span></div>` +
         `<div class="kv"><span class="dim">原點應在</span><span>${escHtml(originText(e))}</span></div>`
-      : `<div class="dim small">不指定槽位時沒有程式模型可以對照，只能下載。整台機甲或整隻手臂請先下載，之後用「拆分」（下一階段）存成各區塊。</div>`;
+      : `<div class="dim small">不指定槽位時沒有程式模型可以對照，只能下載。整台機甲或整隻手臂請用左側的「拆分成區塊」。</div>`;
     $('edInfo').textContent = has ? this.fileName : '';
     this.renderTree();
     this.renderDetail();
@@ -729,8 +746,9 @@ export class GlbEditor {
     const tris = triCount(this.content);
     const lv = tris <= B.tris ? 'ok' : tris <= B.tris * 1.5 ? 'warn' : 'error';
     const rows = [['尺寸（寬×高×深）', `${fmt(s.x, 2)} × ${fmt(s.y, 2)} × ${fmt(s.z, 2)} m`]];
-    if (this.refBox && !this.refBox.isEmpty()) {
-      const rs = this.refBox.getSize(new THREE.Vector3());
+    const ref = this.curRef();
+    if (ref && !ref.isEmpty()) {
+      const rs = ref.getSize(new THREE.Vector3());
       rows.push(['程式模型', `${fmt(rs.x, 2)} × ${fmt(rs.y, 2)} × ${fmt(rs.z, 2)} m`]);
       rows.push([
         '比例（GLB／程式）',
@@ -752,7 +770,7 @@ export class GlbEditor {
   // 規格檢查：與模型庫檢視窗相同（檔案大小要存檔後才知道，這裡不列）
   renderChecks() {
     const ul = $('edChecks');
-    if (!this.content || !this.entry) {
+    if (!this.content || !this.entry || this.split.active) {
       ul.innerHTML = '';
       return;
     }
@@ -886,7 +904,8 @@ export class GlbEditor {
   frameView() {
     this.resize(true);
     const b = this.box().clone().applyMatrix4(this.frame.matrixWorld);
-    if (this.refObj) b.union(new THREE.Box3().setFromObject(this.refObj));
+    if (this.refObj && !this.split.active) b.union(new THREE.Box3().setFromObject(this.refObj));
+    if (this.split.active && this.split.rig) b.union(new THREE.Box3().setFromObject(this.split.rig.group));
     const size = b.isEmpty() ? new THREE.Vector3(2, 2, 2) : b.getSize(new THREE.Vector3());
     const t = fitCamera(this.camera, size, this.camera.aspect, 1.6);
     const c = b.isEmpty() ? new THREE.Vector3(0, 1, 0) : b.getCenter(new THREE.Vector3());

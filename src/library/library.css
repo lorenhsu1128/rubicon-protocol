@@ -973,3 +973,79 @@ button.mini {
 #edStats .error {
   color: var(--bad);
 }
+
+.edBoxSel {
+  position: absolute;
+  border: 1px dashed #ffd23f;
+  background: rgba(255, 210, 63, 0.12);
+  pointer-events: none;
+}
+.edBoxSel[hidden] {
+  display: none;
+}
+#edAsm label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+#edAsm select {
+  width: 100%;
+}
+.edPc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.edPc i {
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+.edPc .nm {
+  flex: 1;
+}
+.edPc.sel {
+  border-left-color: #ffd23f;
+  background: rgba(255, 210, 63, 0.08);
+}
+.edPc.off .nm {
+  opacity: 0.45;
+}
+.edPc .warn {
+  color: var(--warn);
+}
+.edPc .error {
+  color: var(--bad);
+}
+.edSlider {
+  display: grid;
+  grid-template-columns: 70px 1fr 42px;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+#edSplitRight .btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+#edSplitRight button.sel {
+  border-color: #ffd23f;
+  color: #ffd23f;
+}
+button.primary {
+  border-color: var(--acc);
+  color: var(--acc);
+}
+#edSplitOn.sel {
+  border-color: #ffd23f;
+  color: #ffd23f;
+}
