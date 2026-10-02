@@ -701,6 +701,39 @@ async function testEditor(browser, base) {
   await page.keyboard.press('Control+z');
   await wait(400);
   check((await tris()) === t0, '復原刪除');
+  // 組合：加入另一個 GLB 成新節點 → 移動 → 復原；合併節點
+  const blur = () => page.click('#edLeft h3');
+  await page.setInputFiles('#edAddFile', fp);
+  await wait(1200);
+  check((await tris()) === t0 * 2, `加入 GLB 成新節點（三角面 ${await tris()}）`);
+  await page.fill('#edDetail input[data-k="p"][data-i="0"]', '1');
+  await page.press('#edDetail input[data-k="p"][data-i="0"]', 'Tab');
+  await wait(500);
+  check(
+    /尺寸（寬×高×深） ?1\.\d\d/.test(await stats()),
+    `移動加入的節點後外框變寬（${(await stats()).slice(0, 30)}）`,
+  );
+  await blur();
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+z');
+  await wait(500);
+  check((await tris()) === t0, '復原加入的節點');
+  await page.keyboard.press('Control+y');
+  await page.keyboard.press('Control+y');
+  await wait(500);
+  const nodes = () => page.$$eval('#edTree .edNode', (r) => r.length);
+  const n0 = await nodes();
+  await page.click('#edTree .edNode[data-i="0"]');
+  await page.click('#edMergeNode');
+  await wait(800);
+  check(
+    (await tris()) === t0 * 2 && (await nodes()) < n0,
+    `合併成一個節點（節點 ${n0} → ${await nodes()}，三角面不變）`,
+  );
+  await blur();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z');
+  await wait(600);
+  check((await tris()) === t0, '復原合併與加入');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor.png') });
   await page.click('#edSave');
   await wait(1500);

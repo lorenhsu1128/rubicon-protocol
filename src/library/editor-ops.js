@@ -192,3 +192,58 @@ export function exportGlb(root) {
     }
   });
 }
+
+// 合併：root 底下的網格套用變換（相對 space）後，同一個材質合併成一個網格（屬性取共有的，保留索引）；
+// 多重材質的網格不合併。回傳新的群組（變換歸零）
+export function mergeByMaterial(root, space, name) {
+  const flat = bakeScene(root, space, name);
+  const out = new THREE.Group();
+  out.name = name;
+  const byMat = new Map();
+  for (const m of flat.children) {
+    if (Array.isArray(m.material)) {
+      out.add(m);
+      continue;
+    }
+    if (!byMat.has(m.material)) byMat.set(m.material, []);
+    byMat.get(m.material).push(m);
+  }
+  for (const [mat, list] of byMat) {
+    if (list.length === 1) {
+      out.add(list[0]);
+      continue;
+    }
+    const geos = list.map((m) => m.geometry);
+    const names = Object.keys(geos[0].attributes).filter((k) =>
+      geos.every((g) => g.attributes[k] && g.attributes[k].itemSize === geos[0].attributes[k].itemSize),
+    );
+    const g = new THREE.BufferGeometry();
+    for (const k of names) {
+      const size = geos[0].attributes[k].itemSize;
+      const arr = new Float32Array(geos.reduce((n, x) => n + x.attributes[k].count, 0) * size);
+      let o = 0;
+      for (const x of geos) {
+        const a = x.attributes[k];
+        for (let i = 0; i < a.count * size; i++) arr[o + i] = a.array[i];
+        o += a.count * size;
+      }
+      g.setAttribute(k, new THREE.BufferAttribute(arr, size));
+    }
+    const idx = [];
+    let base = 0;
+    for (const x of geos) {
+      const n = x.attributes.position.count;
+      if (x.index) for (const i of x.index.array) idx.push(i + base);
+      else for (let i = 0; i < n; i++) idx.push(i + base);
+      base += n;
+      x.dispose();
+    }
+    g.setIndex(new THREE.BufferAttribute(base > 65535 ? new Uint32Array(idx) : new Uint16Array(idx), 1));
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.name = list[0].name;
+    out.add(mesh);
+  }
+  return out;
+}

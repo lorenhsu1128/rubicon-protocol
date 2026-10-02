@@ -14,6 +14,7 @@ import {
   boxPoint,
   exportGlb,
   fitMatrix,
+  mergeByMaterial,
   gameBoxToGltf,
   mirrorSlot,
   orientMatrix,
@@ -167,6 +168,12 @@ export class GlbEditor {
       if (f) await this.loadFile(f);
     };
     $('edFromSlot').onclick = () => this.loadFromSlot(false);
+    $('edAdd').onclick = () => $('edAddFile').click();
+    $('edAddFile').onchange = async () => {
+      const f = $('edAddFile').files[0];
+      $('edAddFile').value = '';
+      if (f) await this.addFile(f);
+    };
     $('edRevert').onclick = () => this.revert();
     $('edSplitOn').onclick = () => this.split.toggle();
     const view = $('edView');
@@ -492,6 +499,49 @@ export class GlbEditor {
     this.renderTree();
     this.renderDetail();
   }
+  // 加入節點（加入 GLB、合併的結果）：登記到節點清單並選取
+  addNode(root, parent = this.content) {
+    parent.add(root);
+    root.traverse((o) => {
+      this.nodes.push(o);
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    this.select(root);
+  }
+  // 組合：另一個 GLB 加入成新節點（放在原點，用移動／旋轉／縮放調整位置）
+  async addFile(f) {
+    if (!this.content) return this.loadFile(f);
+    if (!/\.glb$/i.test(f.name)) return this.toast('只接受 .glb 檔（glTF 二進位）', true);
+    let gltf;
+    try {
+      gltf = await parseGlb(await f.arrayBuffer());
+    } catch (err) {
+      return this.toast(`無法讀取 ${f.name}：${err.message || err}`, true);
+    }
+    this.pushUndo();
+    const root = gltf.scene;
+    root.name = f.name.replace(/\.glb$/i, '');
+    this.addNode(root);
+    this.changed();
+    this.toast(`已加入「${root.name}」：選取後可移動、旋轉、縮放`);
+  }
+  // 合併：節點與它的子節點合成一個節點，同材質的網格合併成一個（變換寫進頂點）
+  mergeNode(o) {
+    if (!o) return;
+    let n = 0;
+    o.traverse((x) => x.isMesh && x.visible && n++);
+    if (!n) return this.toast('這個節點底下沒有可見的網格', true);
+    this.pushUndo();
+    const merged = mergeByMaterial(o, o.parent, o.name || '合併');
+    o.visible = false;
+    o.userData.edDeleted = true;
+    this.addNode(merged, o.parent);
+    this.changed();
+    this.toast(`已合併 ${n} 個網格 → ${merged.children.length} 個（依材質）`);
+  }
   removeNode(o) {
     if (!o) return;
     this.pushUndo();
@@ -544,6 +594,12 @@ export class GlbEditor {
     set(this.xform, s.x);
     this.nodes.forEach((o, i) => {
       const v = s.n[i];
+      if (!v) {
+        // 快照之後才加入的節點（加入 GLB、合併）：復原時移除
+        o.visible = false;
+        o.userData.edDeleted = true;
+        return;
+      }
       set(o, v);
       o.visible = v[3];
       o.userData.edDeleted = v[4];
@@ -600,7 +656,7 @@ export class GlbEditor {
       return d + 1;
     };
     this.nodes.forEach((o, i) => {
-      if (o.userData.edDeleted) return;
+      for (let x = o; x && x !== this.content; x = x.parent) if (x.userData.edDeleted) return; // 刪除（含被合併）的節點與其子節點
       const tris = o.isMesh
         ? Math.round(
             (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3,
@@ -647,11 +703,13 @@ export class GlbEditor {
       `<div class="wsDh"><b>${escHtml(o ? o.name || '（未命名節點）' : '整體模型')}</b>` +
       `<span class="dim small">${o ? '節點（父節點座標）' : '模型相對原點的位置（glTF 座標）'}</span></div>` +
       (o
-        ? `<label class="edName">名稱 <input id="edNodeName" value="${escHtml(o.name)}" maxlength="60"></label>`
+        ? `<label class="edName">名稱 <input id="edNodeName" value="${escHtml(o.name)}" maxlength="60"></label>` +
+          `<div class="btns"><button id="edMergeNode" title="這個節點與子節點合成一個節點，同材質的網格合併">合併成一個節點</button></div>`
         : '') +
       `<div class="jgrid">${row('p', '位置 m', 0.01)}${row('r', '旋轉 °', 1)}${row('s', '縮放', 0.01)}</div>` +
       `<label class="tog small"><input type="checkbox" id="edLock" checked> 等比縮放</label>`;
     for (const inp of box.querySelectorAll('.jgrid input')) inp.onchange = () => this.fromInputs(inp);
+    if ($('edMergeNode')) $('edMergeNode').onclick = () => this.mergeNode(o);
     const nm = $('edNodeName');
     if (nm)
       nm.onchange = () => {
@@ -709,6 +767,7 @@ export class GlbEditor {
     $('edSrc').textContent = has ? this.srcLabel : '尚未載入模型';
     $('edFromSlot').disabled = !e;
     $('edRevert').disabled = !has || !this.orig;
+    $('edAdd').disabled = this.split.cutting;
     for (const id of ['edOrient', 'edMirror', 'edHeightGo', 'edScaleGo', 'edPick', 'edDownload'])
       $(id).disabled = !has;
     for (const b of document.querySelectorAll('#edRot button, #edOrigin button[data-o]')) b.disabled = !has;
