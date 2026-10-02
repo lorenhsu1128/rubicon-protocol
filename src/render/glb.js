@@ -36,14 +36,25 @@ export const budgetFor = (spec) =>
   GLB_BUDGET[spec.split('-')[0]] ||
   (spec.startsWith('part') ? GLB_BUDGET.part : GLB_BUDGET.prop);
 // ---------- 解析 ----------
+// Draco 網格壓縮（KHR_draco_mesh_compression，例如 glb-shrink 的輸出）：解碼器從 CDN 載入（需要網路），全頁共用一個
+const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/gltf/';
+let draco = null;
+function dracoLoader() {
+  if (!draco && THREE.DRACOLoader) {
+    draco = new THREE.DRACOLoader();
+    draco.setDecoderPath(DRACO_PATH);
+  }
+  return draco;
+}
 export function parseGlb(buf) {
   return new Promise((resolve, reject) => {
     if (!THREE.GLTFLoader) return reject(new Error('GLTFLoader 未載入'));
     const data =
       buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    new THREE.GLTFLoader().parse(data, '', resolve, (e) =>
-      reject(e instanceof Error ? e : new Error(String(e))),
-    );
+    const loader = new THREE.GLTFLoader();
+    const d = dracoLoader();
+    if (d) loader.setDRACOLoader(d);
+    loader.parse(data, '', resolve, (e) => reject(e instanceof Error ? e : new Error(String(e))));
   });
 }
 

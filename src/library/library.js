@@ -163,6 +163,7 @@ async function main() {
     store,
     onFile: useFile,
     onRemove: removeFile,
+    onError: (msg) => toast(msg, true),
     onJoints: () => {
       for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
       applyFilter();

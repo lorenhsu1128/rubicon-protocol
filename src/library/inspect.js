@@ -65,11 +65,12 @@ const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(2) + ' MB' : Math.round(
 
 export class Inspector {
   // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
-  constructor({ store, onClose, onFile, onRemove, onJoints }) {
+  constructor({ store, onClose, onFile, onRemove, onJoints, onError }) {
     this.store = store;
     this.onClose = onClose;
     this.onFile = onFile;
     this.onRemove = onRemove;
+    this.onError = onError;
     this.canvas = $('insGl');
     this.renderer = makeRenderer(this.canvas, true);
     this.scene = new THREE.Scene();
@@ -242,6 +243,7 @@ export class Inspector {
     } catch (err) {
       main = prepareModel(e, pal);
       main.loadError = 'GLB 解析失敗：' + (err.message || err);
+      if (this.onError) this.onError(`${e.name}：${main.loadError}`);
     }
     if (this.mode === 'side' || this.mode === 'overlay') ref = prepareModel(e, pal);
     if (tok !== this.tok) {
@@ -450,6 +452,7 @@ export class Inspector {
         ? `確定採用時放到 src/assets/models/${e.id}.glb，建置後會內嵌進遊戲`
         : `尚未提供 GLB。製作規格見 docs/glb-spec.md；完成後拖到格子上或按「載入 GLB…」`;
     const checks = [
+      ...(d.loadError ? [{ lv: 'error', text: d.loadError + '（目前顯示程式模型）' }] : []),
       ...(d.notes || []).map((t) => ({ lv: 'warn', text: t })),
       ...(this.mode === 'compose' || !d.checks ? [] : d.checks),
     ];
