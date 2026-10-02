@@ -18,6 +18,18 @@ import {
 } from './geometry.js';
 import { mechMats } from './materials.js';
 import { resolveConn } from './mech-joints.js';
+import { matsOf } from './glb.js';
+
+// 遊戲的本地模型庫（單人模式）：buildMech 沒有指定 opts.piece 時，由它提供取代程式模型的區塊（或 null）
+let pieceProvider = null;
+export function setPieceProvider(fn) {
+  pieceProvider = fn;
+}
+// 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
+const BLACK = new THREE.Color(0);
+const unflash = (m) => {
+  for (const mm of m.mats) mm.emissive.copy(mm.userData.emis0 || BLACK);
+};
 
 function buildWeapon(node, w, M, side) {
   if (!w || w.type === 'none') return;
@@ -792,8 +804,11 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   const bySlot = (pred) => all.find(pred);
   const pieces = {};
   const mounts = [];
+  const provided = [];
   const place = (parent, info) => {
-    const obj = (opts.piece && opts.piece(info)) || makeProcPiece(info, ctx);
+    let obj = opts.piece ? opts.piece(info) : pieceProvider && pieceProvider(info, pal);
+    if (obj && !opts.piece) provided.push(obj);
+    obj = obj || makeProcPiece(info, ctx);
     obj.userData.slot = info.slot;
     parent.add(obj);
     pieces[info.slot] = obj;
@@ -904,6 +919,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   const M = ctx.M;
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun, M.grey];
   if (opts.extraMats) mats.push(...opts.extraMats);
+  for (const o of provided) mats.push(...matsOf(o));
   return {
     group: root,
     legsG,
@@ -939,7 +955,7 @@ export function animateMech(m, dt, st) {
     }
     if (m.flashT > 0) {
       m.flashT -= dt;
-      if (m.flashT <= 0) for (const mm of m.mats) mm.emissive.setRGB(0, 0, 0);
+      if (m.flashT <= 0) unflash(m);
     }
     if (m.cls === 'heli') {
       m.torso.rotation.x = lerp(m.torso.rotation.x, (st.leanX || 0) * 0.6, 0.1);
@@ -976,7 +992,7 @@ export function animateMech(m, dt, st) {
     m.thrust = lerp(m.thrust || 0, 0.05, 0.2);
     if (m.flashT > 0) {
       m.flashT -= dt;
-      if (m.flashT <= 0) for (const mm of m.mats) mm.emissive.setRGB(0, 0, 0);
+      if (m.flashT <= 0) unflash(m);
     }
     return;
   }
@@ -1203,7 +1219,7 @@ export function animateMech(m, dt, st) {
   }
   if (m.flashT > 0) {
     m.flashT -= dt;
-    if (m.flashT <= 0) for (const mm of m.mats) mm.emissive.setRGB(0, 0, 0);
+    if (m.flashT <= 0) unflash(m);
   }
 }
 

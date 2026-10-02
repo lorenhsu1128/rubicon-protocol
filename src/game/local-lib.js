@@ -7,7 +7,7 @@ import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { checkGlb } from '../render/glb.js';
 import { measureBox } from '../render/measure.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
-import { PIECE_ORIGIN } from '../render/mech-model.js';
+import { PIECE_ORIGIN, setPieceProvider } from '../render/mech-model.js';
 
 const $ = (id) => document.getElementById(id);
 const CATALOG = new Map(MODEL_CATALOG.map((e) => [e.id, e]));
@@ -42,6 +42,8 @@ Object.assign(Game.prototype, {
   lmInit() {
     LocalModels.allow = () => !(this.net && this.net.role);
     LocalModels.applyJoints();
+    // 機甲區塊與武器：每台機甲各自一份材質（受擊閃光會改材質）
+    setPieceProvider((info, pal) => LocalModels.model(info.slot, pal, true));
   },
   // 重新讀取本地模型庫；manual：標題畫面的按鈕（一律顯示進度與結果）
   // 自動讀取時只有需要解析檔案才顯示進度條
@@ -102,6 +104,14 @@ Object.assign(Game.prototype, {
     clearTimeout(this.lmHideT);
     this.lmHideT = setTimeout(() => box.classList.remove('on'), 2500);
     box.onclick = () => box.classList.remove('on');
+  },
+  // 車庫：顯示這台機甲有幾個區塊用了本地 GLB
+  lmGarageNote(rig) {
+    const el = $('gLocal');
+    if (!el) return;
+    const n = Object.values(rig.pieces).filter((o) => o.userData.localGlb).length;
+    el.textContent = n ? `本地模型庫：此機 ${n} 個區塊使用 GLB` : '';
+    el.style.display = n ? '' : 'none';
   },
   // 設定畫面的「本地模型庫」區塊
   renderLocalModels() {

@@ -260,6 +260,7 @@ Object.assign(Game.prototype, {
     this.garageMech = buildMech(asm, PALETTES.player, 1);
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
+    this.lmGarageNote(this.garageMech);
     this.writeSave();
   },
 });

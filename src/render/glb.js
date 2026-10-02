@@ -157,7 +157,11 @@ export const matsOf = (root) => {
   const s = new Set();
   root.traverse((o) => {
     if (!o.isMesh || o.material === OUTLINE_MAT) return;
-    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m.emissive) s.add(m);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material])
+      if (m.emissive) {
+        if (!m.userData.emis0) m.userData.emis0 = m.emissive.clone(); // 受擊閃光後還原
+        s.add(m);
+      }
   });
   return [...s];
 };

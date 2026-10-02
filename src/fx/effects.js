@@ -270,8 +270,9 @@ export class Effects {
     const center = ent.center();
     const pieces = [];
     const nodes = [];
+    // 程式模型的網格掛在群組上；GLB 的網格可能掛在一般節點（Object3D）上，且網格本身帶有位移
     root.traverse((o) => {
-      if (o.isGroup && o.children.some((c) => c.isMesh)) nodes.push(o);
+      if ((o.isGroup || o.type === 'Object3D') && o.children.some((c) => c.isMesh)) nodes.push(o);
     });
     for (const n of nodes) {
       const g = new THREE.Group();
@@ -279,10 +280,7 @@ export class Effects {
       const meshes = n.children.filter((c) => c.isMesh && c.material.blending !== THREE.AdditiveBlending);
       for (const m of meshes) {
         n.remove(m);
-        m.position.set(0, 0, 0);
-        m.rotation.set(0, 0, 0);
-        m.scale.set(1, 1, 1);
-        g.add(m);
+        g.add(m); // 碎片群組＝原節點的世界變換，網格保留自己的區域變換
       }
       // sub-groups (e.g. weapons under hand) are handled as their own nodes; flames are not meshes so they vanish with the root
       this.scene.add(g);

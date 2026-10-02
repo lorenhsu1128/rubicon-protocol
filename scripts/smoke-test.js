@@ -5,7 +5,7 @@
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
 'use strict';
-/* global window, document, localStorage, getComputedStyle, scrollTo, indexedDB -- page.evaluate 的回呼在瀏覽器端執行 */
+/* global window, document, localStorage, getComputedStyle, scrollTo, indexedDB, THREE -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -582,12 +582,25 @@ async function testLocalModels(browser, base) {
   watch(lib, 'local-models-lib');
   await lib.goto(base + 'model-library.html');
   await wait(1500);
+  // 明顯的測試方塊（材質 acc 依配色換色）：裝在左手
+  const cube = await lib.evaluate(
+    () =>
+      new Promise((res) => {
+        const m = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.7, 0.7),
+          new THREE.MeshStandardMaterial({ name: 'acc', color: 0xffffff }),
+        );
+        m.position.y = -0.2;
+        new THREE.GLTFExporter().parse(m, (b) => res([...new Uint8Array(b)]), { binary: true });
+      }),
+  );
   await injectLibrary(
     lib,
     [
       { id: 'arms/a_std/r_fore', name: 'fore.glb', bytes: [...fs.readFileSync(fore)] },
       { id: 'weapon/w_rifle/r', name: 'rifle.glb', bytes: [...fs.readFileSync(rifle)] },
       { id: 'head/h_std', name: 'broken.glb', bytes: [1, 2, 3, 4, 5, 6, 7, 8] },
+      { id: 'arms/a_std/l_hand', name: 'cube.glb', bytes: cube },
     ],
     { 'arms/a_std/r_upper': { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } } },
   );
@@ -600,7 +613,7 @@ async function testLocalModels(browser, base) {
   await wait(2500);
   const box = (await page.textContent('#lmBox')) || '';
   check(
-    box.includes('套用 GLB 2 個') && box.includes('失敗 1 個'),
+    box.includes('套用 GLB 3 個') && box.includes('失敗 1 個'),
     `讀取結果：${(box.match(/狀態：([^重]*)/) || ['', ''])[1]}`,
   );
   check(box.includes('關節設定 1 個'), '讀到模型庫的關節設定');
@@ -609,7 +622,7 @@ async function testLocalModels(browser, base) {
   // 分類開關：關掉武器後只剩 1 個
   await page.uncheck('#lmBox [data-g="weapon"]');
   await wait(800);
-  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 1 個'), '關閉武器分類後不套用武器 GLB');
+  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 2 個'), '關閉武器分類後不套用武器 GLB');
   await page.check('#lmBox [data-g="weapon"]');
   await wait(800);
   await page.click('#btnSettingsBack');
@@ -618,7 +631,7 @@ async function testLocalModels(browser, base) {
   await page.click('#btnLmReload');
   await wait(400);
   const ov = await lmOverlay(page);
-  check(ov.includes('套用 GLB 2 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
+  check(ov.includes('套用 GLB 3 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
   await page.click('#lmLoad');
   // 車庫與出擊
@@ -626,10 +639,30 @@ async function testLocalModels(browser, base) {
   check(await waitVisible(page, 'garage'), '車庫畫面顯示');
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
+  const note = (await page.textContent('#gLocal')) || '';
+  check(note.includes('3 個區塊使用 GLB'), `車庫的機甲換上本地 GLB（${note.trim()}）`);
   await page.click('#btnSortie');
   check(await waitVisible(page, 'hudWrap', 15000), '出擊後 HUD 顯示');
   await playFor(page, 3000);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-solo.png') });
+  await page.keyboard.press('Escape');
+  await wait(400);
+  await page.click('#btnAbort');
+  check(await waitVisible(page, 'result'), '放棄任務後回到結果畫面');
+  await page.click('#btnResultOk');
+  check(await waitVisible(page, 'garage'), '回到車庫');
+  // 多人：同一個瀏覽器（設定相同），進房間後車庫改回程式模型
+  const mp = await ctx.newPage();
+  watch(mp, 'local-models-mp');
+  await mp.goto(base + '?lan=local');
+  await mp.click('#btnMP');
+  await setNick(mp, 'LOCAL');
+  await mp.click('#btnMPHost');
+  check(await waitVisible(mp, 'lobby'), '多人：房主進入大廳');
+  await mp.click('#btnLobbyGarage');
+  check(await waitVisible(mp, 'garage'), '多人：大廳進車庫');
+  await wait(1200);
+  check(!(await visible(mp, 'gLocal')), '多人時不套用本地模型');
   await ctx.close();
 }
 
