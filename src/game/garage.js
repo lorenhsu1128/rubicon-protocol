@@ -58,6 +58,11 @@ Object.assign(Game.prototype, {
       this.clearMission();
     }
     this.renderGarage();
+    // 單人模式：重新讀取本地模型庫（有變動才解析），讀完再重建預覽
+    if (!(this.net && this.net.role))
+      this.lmRefresh().then((st) => {
+        if (st && st.on && this.state === 'garage') this.renderGarage();
+      });
   },
   randomAsm() {
     const o = this.save.owned;

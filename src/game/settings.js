@@ -53,6 +53,7 @@ Object.assign(Game.prototype, {
     $('ctrlView').value = this.ctrl.view || 'tps';
     $('ctrlSens').value = this.ctrl.sens || 1;
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
+    this.renderLocalModels();
   },
   captureBinding(code) {
     if (!this.rebinding) return false;

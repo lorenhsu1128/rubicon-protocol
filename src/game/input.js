@@ -457,6 +457,7 @@ Object.assign(Game.prototype, {
     };
     // 模型庫：伺服器上是 /model-library.html，直接開檔時是同資料夾的 model-library.html
     document.getElementById('btnLibrary').onclick = () => window.open('model-library.html', '_blank');
+    document.getElementById('btnLmReload').onclick = () => this.lmRefresh(true);
     document.getElementById('btnSettingsP').onclick = () => this.openSettings('pause');
     document.getElementById('btnSettingsBack').onclick = () => this.closeSettings();
     document.getElementById('btnKeysReset').onclick = () => {
@@ -695,7 +696,17 @@ Object.assign(Game.prototype, {
       this.save = this.loadSave() || this.newSave();
       this.openGarage();
     };
-    $('btnSortie').onclick = () => this.startMission();
+    $('btnSortie').onclick = () => {
+      // 單機出擊前重新讀取本地模型庫
+      if (this.lmBusy) return;
+      this.lmBusy = true;
+      this.lmRefresh()
+        .catch((e) => console.warn('本地模型庫讀取失敗', e))
+        .then(() => {
+          this.lmBusy = false;
+          if (this.state === 'garage') this.startMission();
+        });
+    };
     $('btnRandomAsm').onclick = () => {
       this.randomAsm();
       this.renderGarage();

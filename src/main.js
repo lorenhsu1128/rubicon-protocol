@@ -5,6 +5,7 @@ import './game/render-setup.js';
 import './game/save.js';
 import './game/input.js';
 import './game/settings.js';
+import './game/local-lib.js';
 import './game/garage.js';
 import './game/pilot.js';
 import './game/pilot-ui.js';

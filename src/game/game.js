@@ -91,6 +91,7 @@ export class Game {
     this.netInit();
     this.mapExtrasInit();
     this.fpInit();
+    this.lmInit();
     const sp = new URLSearchParams(location.search).get('spectate');
     if (sp && window.RUBICON_SERVER) {
       setTimeout(() => {

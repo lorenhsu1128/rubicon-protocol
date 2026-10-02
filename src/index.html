@@ -14,6 +14,14 @@
   <body>
     <canvas id="gl"></canvas>
     <canvas id="hud"></canvas>
+    <!-- 本地模型庫讀取進度 -->
+    <div id="lmLoad">
+      <div class="panel">
+        <div id="lmLoadTitle">讀取本地模型庫…</div>
+        <div class="lmBar"><i id="lmLoadBar"></i></div>
+        <div id="lmLoadTxt" class="dim"></div>
+      </div>
+    </div>
 
     <div id="vpad">
       <div class="vstick" id="vsL"><div class="knob"></div></div>
@@ -127,6 +135,12 @@
             <button id="btnMP">多人連線（區網 2–4 人）</button>
             <button id="btnSettings">按鍵與操作設定</button>
             <button id="btnLibrary" title="檢視所有 3D 模型與尺寸">模型庫</button>
+            <button
+              id="btnLmReload"
+              title="單人模式使用模型庫存在這個瀏覽器的 GLB 與關節設定（在按鍵與操作設定開啟）"
+            >
+              重新載入本地模型
+            </button>
           </div>
           <p class="dim" style="font-size: 11px; margin-top: 12px">
             音效：The Free Firearm Sound Library（CC0）、Kenney.nl（CC0）、JC Sounds Sci-Fi Pack Vol 1（CC-BY
@@ -401,6 +415,8 @@
               <span id="vibMsg" class="dim" style="font-size: 11px"></span
             ></span>
           </div>
+          <h3 style="margin: 14px 0 6px; font-size: 15px">本地模型庫（單人模式）</h3>
+          <div id="lmBox"></div>
           <div class="row" style="margin-top: 14px">
             <button class="primary" id="btnSettingsBack">返回</button
             ><button id="btnKeysReset">恢復預設</button>
@@ -451,6 +467,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>

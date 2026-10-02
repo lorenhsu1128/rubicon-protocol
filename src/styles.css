@@ -1188,3 +1188,59 @@ select {
     overflow: visible;
   }
 }
+/* 本地模型庫 */
+#lmLoad {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 6, 10, 0.55);
+}
+#lmLoad.on {
+  display: flex;
+}
+#lmLoad .panel {
+  min-width: min(420px, 90vw);
+  max-width: 92vw;
+}
+#lmLoadTxt {
+  font-size: 12px;
+  min-height: 1.4em;
+  word-break: break-all;
+}
+.lmBar {
+  height: 8px;
+  margin: 10px 0 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
+}
+.lmBar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--acc);
+  transition: width 0.15s;
+}
+.lmGroups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 4px 0 6px;
+  font-size: 13px;
+}
+.lmIssues {
+  font-size: 12px;
+  margin: 4px 0;
+}
+.lmIssues > div {
+  padding: 2px 0;
+  word-break: break-all;
+}
+.lmBad {
+  color: #ff8a7a;
+}
+.lmWarn {
+  color: #ffd27a;
+}

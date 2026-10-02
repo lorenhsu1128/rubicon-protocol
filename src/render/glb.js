@@ -71,6 +71,20 @@ const slotOf = (name) => {
   return PALETTE_SLOTS.includes(n) ? n : null;
 };
 
+// 依材質名稱套用配色：回傳換色後的複製材質；名稱不在換色槽位（或沒有配色）時回傳原材質
+export function tintMaterial(m, pal) {
+  const slot = slotOf(m.name);
+  const col = slot && pal ? palColor(pal, slot) : undefined;
+  if (col === undefined) return m;
+  const c = m.clone();
+  c.color.set(col);
+  if ((slot === 'visor' || slot === 'glow') && c.emissive) {
+    c.emissive.set(col);
+    c.emissiveIntensity = Math.max(c.emissiveIntensity || 0, 1.2);
+  }
+  return c;
+}
+
 // 平滑法線（外推描邊用），寫入 onormal 屬性
 function addOutlineNormals(g) {
   if (g.attributes.onormal) return;
@@ -120,19 +134,9 @@ export function glbScene(gltf, pal) {
     const out = list.map((m) => {
       info.materials++;
       if (m.type === 'MeshBasicMaterial') info.unlit++;
-      const slot = slotOf(m.name);
-      const col = slot && pal ? palColor(pal, slot) : undefined;
-      if (col === undefined) {
-        info.kept.add(m.name || '（未命名）');
-        return m;
-      }
-      info.tinted.add(slot);
-      const c = m.clone();
-      c.color.set(col);
-      if ((slot === 'visor' || slot === 'glow') && c.emissive) {
-        c.emissive.set(col);
-        c.emissiveIntensity = Math.max(c.emissiveIntensity || 0, 1.2);
-      }
+      const c = tintMaterial(m, pal);
+      if (c === m) info.kept.add(m.name || '（未命名）');
+      else info.tinted.add(slotOf(m.name));
       return c;
     });
     o.material = Array.isArray(o.material) ? out : out[0];

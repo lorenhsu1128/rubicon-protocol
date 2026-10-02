@@ -6,16 +6,18 @@
 // 遊戲內部座標的正面是 −Z（兩者差繞 Y 軸 180°）：位置的 x、z 取負，旋轉的 x、z 取負
 import BUILTIN_JOINTS from 'virtual:joints';
 
-let overrides = {};
+let overrides = {},
+  gate = null;
 export const builtinJoints = () => BUILTIN_JOINTS;
-export function setJointOverrides(map) {
+// gate：回傳 false 時暫時不套用覆寫（遊戲的本地模型庫在多人時停用）
+export function setJointOverrides(map, g = null) {
   overrides = map || {};
+  gate = g;
 }
 // 某個連接點的設定（glTF 座標），沒有則為 null；瀏覽器暫存＞內建
 export function jointSetting(slot, name) {
-  return (
-    (overrides[slot] && overrides[slot][name]) || (BUILTIN_JOINTS[slot] && BUILTIN_JOINTS[slot][name]) || null
-  );
+  const ov = !gate || gate() ? overrides : {};
+  return (ov[slot] && ov[slot][name]) || (BUILTIN_JOINTS[slot] && BUILTIN_JOINTS[slot][name]) || null;
 }
 
 const D2R = Math.PI / 180;

@@ -5,7 +5,7 @@
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
 'use strict';
-/* global window, document, localStorage, getComputedStyle, scrollTo -- page.evaluate 的回呼在瀏覽器端執行 */
+/* global window, document, localStorage, getComputedStyle, scrollTo, indexedDB -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -518,6 +518,121 @@ const editSave = (page, fn) =>
     new Function('s', src)(s);
     localStorage.setItem('rubicon_save', JSON.stringify(s));
   }, fn);
+// 本地模型庫：在模型庫頁面直接寫入 IndexedDB（GLB 與關節設定），遊戲單人模式讀取並套用
+async function injectLibrary(page, glbs, joints) {
+  await page.evaluate(
+    ({ glbs, joints }) =>
+      new Promise((res, rej) => {
+        const r = indexedDB.open('rubicon-model-library', 3);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          for (const [n, k] of [
+            ['glb', 'id'],
+            ['joints', 'slot'],
+            ['presets', 'name'],
+          ])
+            if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: k });
+        };
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => {
+          const d = r.result;
+          const t = d.transaction(['glb', 'joints'], 'readwrite');
+          for (const g of glbs) {
+            const buf = new Uint8Array(g.bytes).buffer;
+            t.objectStore('glb').put({
+              id: g.id,
+              name: g.name,
+              size: buf.byteLength,
+              buf,
+              t: g.t || Date.now(),
+            });
+          }
+          for (const [slot, conns] of Object.entries(joints || {}))
+            t.objectStore('joints').put({ slot, conns });
+          t.oncomplete = () => {
+            d.close();
+            res();
+          };
+          t.onerror = () => rej(t.error);
+        };
+      }),
+    { glbs, joints },
+  );
+}
+const lmOverlay = (page) =>
+  page.evaluate(() => {
+    const el = document.getElementById('lmLoad');
+    return el && el.classList.contains('on') ? el.textContent.replace(/s+/g, ' ').trim() : '';
+  });
+
+async function testLocalModels(browser, base) {
+  console.log('本地模型庫：模型庫的瀏覽器暫存 → 遊戲單人模式讀取');
+  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
+  const { ctx, page } = await newPage(browser, 'local-models');
+  await page.goto(base);
+  check(await waitVisible(page, 'title'), '標題畫面顯示');
+  await page.click('#btnLmReload');
+  await wait(300);
+  check((await lmOverlay(page)).includes('沒有開啟'), '總開關沒開時，重新載入提示到設定開啟');
+  await page.click('#lmLoad');
+  // 在模型庫頁面寫入：右前臂、步槍（右）、壞檔（頭），以及右上臂的手肘連接點
+  const lib = await ctx.newPage();
+  watch(lib, 'local-models-lib');
+  await lib.goto(base + 'model-library.html');
+  await wait(1500);
+  await injectLibrary(
+    lib,
+    [
+      { id: 'arms/a_std/r_fore', name: 'fore.glb', bytes: [...fs.readFileSync(fore)] },
+      { id: 'weapon/w_rifle/r', name: 'rifle.glb', bytes: [...fs.readFileSync(rifle)] },
+      { id: 'head/h_std', name: 'broken.glb', bytes: [1, 2, 3, 4, 5, 6, 7, 8] },
+    ],
+    { 'arms/a_std/r_upper': { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } } },
+  );
+  await lib.close();
+  // 設定畫面：開啟總開關 → 讀取
+  await page.click('#btnSettings');
+  check(await waitVisible(page, 'settings'), '設定畫面顯示');
+  check(!(await page.isChecked('#lmOn')), '本地模型庫預設關閉');
+  await page.check('#lmOn');
+  await wait(2500);
+  const box = (await page.textContent('#lmBox')) || '';
+  check(
+    box.includes('套用 GLB 2 個') && box.includes('失敗 1 個'),
+    `讀取結果：${(box.match(/狀態：([^重]*)/) || ['', ''])[1]}`,
+  );
+  check(box.includes('關節設定 1 個'), '讀到模型庫的關節設定');
+  check(box.includes('head/h_std'), '列出載入失敗的槽位');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-settings.png') });
+  // 分類開關：關掉武器後只剩 1 個
+  await page.uncheck('#lmBox [data-g="weapon"]');
+  await wait(800);
+  check(((await page.textContent('#lmBox')) || '').includes('套用 GLB 1 個'), '關閉武器分類後不套用武器 GLB');
+  await page.check('#lmBox [data-g="weapon"]');
+  await wait(800);
+  await page.click('#btnSettingsBack');
+  await waitVisible(page, 'title');
+  // 標題畫面的重新載入：顯示進度與結果
+  await page.click('#btnLmReload');
+  await wait(400);
+  const ov = await lmOverlay(page);
+  check(ov.includes('套用 GLB 2 個'), `重新載入本地模型顯示結果（${ov.slice(0, 60)}）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
+  await page.click('#lmLoad');
+  // 車庫與出擊
+  await page.click('#btnNew');
+  check(await waitVisible(page, 'garage'), '車庫畫面顯示');
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
+  await page.click('#btnSortie');
+  check(await waitVisible(page, 'hudWrap', 15000), '出擊後 HUD 顯示');
+  await playFor(page, 3000);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-solo.png') });
+  await ctx.close();
+}
+
 async function continueToPilot(page) {
   await page.reload();
   await waitVisible(page, 'title');
@@ -645,6 +760,7 @@ async function main() {
     await testLibraryGlb(browser, base);
     await testLibraryJoints(browser, base);
     await testWorkshop(browser, base);
+    await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');
