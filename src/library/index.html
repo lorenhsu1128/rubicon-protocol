@@ -196,6 +196,58 @@
               ><input type="checkbox" id="edPickMid" checked /> 點選時取前後表面的中點（關節中心）</label
             >
             <div class="dim small">黃色圓環是程式模型的原點：把 GLB 的關節（或底面中心）拖到這裡對齊。</div>
+            <div id="edFaceTools">
+              <h3>刪除多邊形</h3>
+              <div class="btns"><button id="edFaceOn">選取多邊形…</button></div>
+              <div id="edFacePanel" hidden>
+                <div class="btns" id="edFaceShape"></div>
+                <div class="edRow" id="edBrushRow">
+                  <label
+                    >筆刷半徑 <input id="edBrushR" type="number" min="2" max="300" value="24" /> px</label
+                  >
+                </div>
+                <div class="edRow">
+                  <label
+                    >深度
+                    <select id="edFaceDepth">
+                      <option value="visible">只選看得到的</option>
+                      <option value="front">只選朝向鏡頭的（含被擋住的）</option>
+                      <option value="all">穿透（全部）</option>
+                    </select></label
+                  >
+                </div>
+                <div>
+                  <label class="tog small"
+                    ><input type="checkbox" id="edFaceFull" /> 完全在範圍內才選（三個頂點）</label
+                  >
+                </div>
+                <div>
+                  <label class="tog small"
+                    ><input type="checkbox" id="edFaceSym" /> 對稱選取（以原點的 X=0 左右鏡像）</label
+                  >
+                </div>
+                <div class="btns">
+                  <button id="edFaceGrow" title="已選的三角形所在的整塊（相連的面）">擴展到相連</button
+                  ><button id="edFaceInv">反選</button><button id="edFaceClear" title="Esc">清除選取</button>
+                </div>
+                <div class="edRow">
+                  <label>小碎塊：少於 <input id="edFaceSmallN" type="number" min="0" value="50" /> 面</label
+                  ><label
+                    >或面積 &lt;
+                    <input id="edFaceSmallA" type="number" min="0" step="0.1" value="0.5" />%</label
+                  >
+                </div>
+                <div class="btns">
+                  <button id="edFaceSmall" title="自動選取漂浮的小碎塊（最大的一塊不選）">選取小碎塊</button>
+                </div>
+                <div id="edFaceInfo" class="small"></div>
+                <div class="btns"><button id="edFaceDel" class="primary">刪除選取的面（Delete）</button></div>
+                <div class="dim small">
+                  左鍵選取：Shift 加選、Ctrl 減選（筆刷按住 Ctrl 擦除）；右鍵旋轉、中鍵平移、滾輪縮放；Esc
+                  清除選取，再按一次離開。建議在拆分之前先清掉不要的部分。
+                </div>
+              </div>
+            </div>
             <div id="edMatTools" hidden>
               <h3>換色（材質）</h3>
               <div class="edRow">

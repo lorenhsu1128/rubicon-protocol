@@ -1287,6 +1287,214 @@ async function testEditorTextures(browser, base) {
   await ctx.close();
 }
 
+// GLB 編輯的刪除多邊形：矩形（只選看得到的 vs 穿透）、刪除與復原、套索、筆刷與擦除、點選相連、對稱、小碎塊、反選、擴展到相連、存檔讀回、拆分模式停用
+async function testEditorFaces(browser, base) {
+  console.log('模型庫 GLB 編輯：刪除多邊形（矩形、套索、筆刷、相連、對稱、小碎塊）');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await ctx.newPage();
+  watch(page, 'editor-del');
+  await page.goto(base + 'model-library.html?test#editor');
+  await page.waitForSelector('#editor:not([hidden])');
+  const bytes = await page.evaluate(async () => {
+    const root = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ name: 'main' });
+    const add = (name, geo, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.name = name;
+      m.position.set(x, y, z);
+      root.add(m);
+    };
+    add('body', new THREE.BoxGeometry(0.4, 0.6, 0.3, 6, 8, 4), 0, 0.35, 0);
+    add('base', new THREE.BoxGeometry(1, 0.05, 1, 6, 1, 6), 0, 0.025, 0);
+    add('junk', new THREE.BoxGeometry(0.05, 0.05, 0.05), 0.45, 1.0, 0);
+    add('earL', new THREE.BoxGeometry(0.06, 0.1, 0.06), -0.27, 0.6, 0);
+    add('earR', new THREE.BoxGeometry(0.06, 0.1, 0.06), 0.27, 0.6, 0);
+    const res = await new Promise((r) => new THREE.GLTFExporter().parse(root, r, { binary: true }));
+    return [...new Uint8Array(res)];
+  });
+  const fp = path.join(SHOT_DIR, 'editor-del.glb');
+  fs.writeFileSync(fp, Buffer.from(bytes));
+  await page.selectOption('#edSlot', 'head/h_std');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  const stat = () =>
+    page.evaluate(() => {
+      const ed = window.__glbEditor;
+      const ms = ed.mat.meshes();
+      const tri = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
+      const by = {};
+      for (const o of ms) by[o.name] = tri(o.geometry);
+      return {
+        tris: ms.reduce((n, o) => n + tri(o.geometry), 0),
+        verts: ms.reduce((n, o) => n + o.geometry.attributes.position.count, 0),
+        sel: ed.faces.count(),
+        by,
+      };
+    });
+  // 節點的區域座標 → 畫面座標
+  const at = (name, local = [0, 0, 0]) =>
+    page.evaluate(
+      ([name, local]) => {
+        const ed = window.__glbEditor;
+        const o = ed.content.getObjectByName(name);
+        ed.scene.updateMatrixWorld(true);
+        const v = o.localToWorld(new THREE.Vector3(...local)).project(ed.camera);
+        const r = ed.canvas.getBoundingClientRect();
+        return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      },
+      [name, local],
+    );
+  const drag = async (pts, mod) => {
+    if (mod) await page.keyboard.down(mod);
+    await page.mouse.move(...pts[0]);
+    await page.mouse.down();
+    for (const p of pts.slice(1)) await page.mouse.move(...p, { steps: 3 });
+    await page.mouse.up();
+    if (mod) await page.keyboard.up(mod);
+    await wait(400);
+  };
+  const shape = async (s) => page.click(`#edFaceShape button[data-s="${s}"]`);
+  const esc = async () => {
+    await page.click('#edFaceClear');
+    await wait(200);
+  };
+  const s0 = await stat();
+  await page.click('#edFaceOn');
+  check(await visible(page, 'edFacePanel'), '進入選取多邊形模式');
+  // 矩形框住整個 body：只選看得到的 < 穿透
+  const corners = [];
+  for (const x of [-0.2, 0.2])
+    for (const y of [-0.3, 0.3]) for (const z of [-0.15, 0.15]) corners.push(await at('body', [x, y, z]));
+  const xs = corners.map((c) => c[0]),
+    ys = corners.map((c) => c[1]);
+  const rect = [
+    [Math.min(...xs) - 4, Math.min(...ys) - 4],
+    [Math.max(...xs) + 4, Math.max(...ys) + 4],
+  ];
+  await shape('rect');
+  await drag(rect);
+  const vis = (await stat()).sel;
+  await page.selectOption('#edFaceDepth', 'all');
+  await drag(rect);
+  const all = (await stat()).sel;
+  check(vis > 0 && vis < all && all >= s0.by.body, `矩形：只選看得到的 ${vis} 面 < 穿透 ${all} 面`);
+  await page.selectOption('#edFaceDepth', 'visible');
+  await drag(rect);
+  await page.click('#edLeft h3');
+  await page.keyboard.press('Delete');
+  await wait(500);
+  const s1 = await stat();
+  check(
+    s1.tris === s0.tris - vis && s1.verts < s0.verts && s1.sel === 0,
+    `刪除選取的面（${s0.tris} → ${s1.tris} 面，頂點 ${s0.verts} → ${s1.verts}）`,
+  );
+  await page.keyboard.press('Control+z');
+  await wait(500);
+  check((await stat()).tris === s0.tris, '復原刪除');
+  // 套索：body 中心周圍的八邊形
+  const c = await at('body');
+  await shape('lasso');
+  const oct = [...Array(8)].map((_, i) => [
+    c[0] + 40 * Math.cos((i * Math.PI) / 4),
+    c[1] + 40 * Math.sin((i * Math.PI) / 4),
+  ]);
+  await drag([...oct, oct[0]]);
+  const lasso = (await stat()).sel;
+  check(lasso > 0 && lasso < vis, `套索選取（${lasso} 面）`);
+  // 筆刷：刷過 body 中心，按住 Ctrl 再刷一次擦除
+  await esc();
+  await shape('brush');
+  const line = [
+    [c[0] - 50, c[1]],
+    [c[0] + 50, c[1]],
+  ];
+  await drag(line);
+  const b1 = (await stat()).sel;
+  await page.fill('#edBrushR', '12');
+  await drag(line, 'Control');
+  const b2 = (await stat()).sel;
+  check(b1 > 0 && b2 < b1, `筆刷選取 ${b1} 面，Ctrl 擦除後 ${b2} 面`);
+  // 點選相連：底座整塊
+  await esc();
+  await shape('pick');
+  await page.mouse.click(...(await at('base', [0.45, 0.025, 0.45])));
+  await wait(400);
+  check((await stat()).sel === s0.by.base, `點選相連：整個底座（${(await stat()).sel} / ${s0.by.base} 面）`);
+  // 對稱：點左耳，右耳一起選
+  await esc();
+  await page.check('#edFaceSym');
+  await page.mouse.click(...(await at('earL')));
+  await wait(400);
+  check((await stat()).sel === s0.by.earL + s0.by.earR, `對稱選取：左右耳（${(await stat()).sel} 面）`);
+  // 對稱＋矩形穿透框住左耳：右耳的三角形依鏡像一起選（不經過相連擴展）
+  const ec = [];
+  for (const x of [-0.03, 0.03])
+    for (const y of [-0.05, 0.05]) for (const z of [-0.03, 0.03]) ec.push(await at('earL', [x, y, z]));
+  await page.click('#edFaceClear');
+  await shape('rect');
+  await page.selectOption('#edFaceDepth', 'all');
+  await drag([
+    [Math.min(...ec.map((q) => q[0])) - 2, Math.min(...ec.map((q) => q[1])) - 2],
+    [Math.max(...ec.map((q) => q[0])) + 2, Math.max(...ec.map((q) => q[1])) + 2],
+  ]);
+  const symR = await page.evaluate(() =>
+    Object.fromEntries(
+      [...window.__glbEditor.faces.sel].map(([o, s]) => [o.name, s.f.reduce((x, y) => x + y, 0)]),
+    ),
+  );
+  check(
+    symR.earL === s0.by.earL && symR.earR === s0.by.earR,
+    `對稱＋矩形：左耳 ${symR.earL}、右耳 ${symR.earR} 面`,
+  );
+  await page.selectOption('#edFaceDepth', 'visible');
+  await page.uncheck('#edFaceSym');
+  // 小碎塊：少於 20 面（漂浮的小方塊、兩個耳朵）
+  await page.fill('#edFaceSmallN', '20');
+  await page.fill('#edFaceSmallA', '0');
+  await page.click('#edFaceSmall');
+  await wait(400);
+  const small = (await stat()).sel;
+  check(small === s0.by.junk + s0.by.earL + s0.by.earR, `選取小碎塊（${small} 面）`);
+  await page.click('#edFaceInv');
+  check((await stat()).sel === s0.tris - small, '反選');
+  // 擴展到相連：筆刷點一下底座角落 → 整個底座
+  await esc();
+  await shape('brush');
+  const corner = await at('base', [0.45, 0.025, 0.45]);
+  await drag([corner, [corner[0] + 3, corner[1]]]);
+  const dab = (await stat()).sel;
+  await page.click('#edFaceGrow');
+  check(
+    dab > 0 && dab < s0.by.base && (await stat()).sel === s0.by.base,
+    `擴展到相連（${dab} → ${(await stat()).sel} 面）`,
+  );
+  // 整個網格刪掉：小方塊
+  await esc();
+  await shape('pick');
+  await page.mouse.click(...(await at('junk')));
+  await wait(300);
+  await page.click('#edFaceDel');
+  await wait(500);
+  const s2 = await stat();
+  check(s2.tris === s0.tris - s0.by.junk && !('junk' in s2.by), '刪除整個網格（當成刪除節點）');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor-del.png') });
+  await page.click('#edSave');
+  await wait(1500);
+  await page.click('#edFromSlot');
+  await wait(1500);
+  check((await stat()).tris === s2.tris, `存檔後讀回（${(await stat()).tris} 面）`);
+  // 拆分模式中停用
+  await page.click('#edFaceOn');
+  await page.click('#edSplitOn');
+  await wait(500);
+  check(
+    (await page.$eval('#edFaceOn', (b) => b.disabled)) && !(await visible(page, 'edFacePanel')),
+    '拆分模式中停用刪除多邊形',
+  );
+  await ctx.close();
+}
+
 // GLB 編輯的最佳化與輸出：高面數模型（不透明＋半透明貼圖）→ 減到預算 → 復原 → 重做 → WebP／PNG＋Draco 下載與存檔 → 檢視窗讀取
 async function testEditorOptimize(browser, base) {
   console.log('模型庫 GLB 編輯：最佳化（減面、WebP／PNG、Draco）');
@@ -1742,6 +1950,7 @@ async function main() {
     await testEditorSplit(browser, base);
     await testEditorMaterials(browser, base);
     await testEditorTextures(browser, base);
+    await testEditorFaces(browser, base);
     await testEditorOptimize(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

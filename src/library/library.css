@@ -1160,3 +1160,25 @@ button.primary {
   color: var(--warn);
   padding: 2px 0;
 }
+
+.edFaceDraw {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#edFacePanel[hidden],
+#edBrushRow[hidden] {
+  display: none;
+}
+#edFaceShape button.sel,
+#edFaceOn.sel {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+#edFaceSmallN,
+#edFaceSmallA,
+#edBrushR {
+  width: 56px;
+}

@@ -598,6 +598,7 @@ export class MaterialTool {
     });
   }
   setBox(on) {
+    if (on && this.ed.faces) this.ed.faces.setOn(false);
     this.boxMode = on;
     this.ed.controls.enabled = !on;
     if ($('edMatBox')) $('edMatBox').classList.toggle('sel', on);

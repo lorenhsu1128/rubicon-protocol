@@ -20,6 +20,7 @@ import {
   orientMatrix,
   triCount,
 } from './editor-ops.js';
+import { FaceTool } from './editor-del.js';
 import { MaterialTool } from './editor-mat.js';
 import {
   loadExportOpts,
@@ -121,6 +122,7 @@ export class GlbEditor {
       tc.setSize(0.85);
       tc.addEventListener('dragging-changed', (e) => {
         this.controls.enabled = !e.value && !this.split.boxMode && !this.mat.boxMode;
+        if (this.faces.on) return;
         this.dragging = e.value;
         if (this.split.cutting) return; // 拖曳的是切割平面
         if (this.originMode) {
@@ -166,10 +168,12 @@ export class GlbEditor {
     this.split = new SplitTool(this);
     this.mat = new MaterialTool(this);
     this.tex = new TextureTool(this);
+    this.faces = new FaceTool(this);
     this.exportOpts = loadExportOpts();
     this.setupUi();
     this.mat.setupUi();
     this.tex.setupUi();
+    this.faces.setupUi();
     this.setupOpt();
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
@@ -339,6 +343,11 @@ export class GlbEditor {
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (k === 'Escape') {
+        if (this.faces.on) {
+          if (this.faces.count()) this.faces.clear();
+          else this.faces.setOn(false);
+          return;
+        }
         if (this.originMode) this.setOriginMode(false);
         else if (this.pickOrigin) {
           this.pickOrigin = false;
@@ -350,6 +359,7 @@ export class GlbEditor {
       if (k === 'e' || k === 'E') return this.setMode('rotate');
       if (k === 'r' || k === 'R') return this.setMode('scale');
       if (k === 'f' || k === 'F') return this.frameView();
+      if (k === 'Delete' && this.faces.count()) return this.faces.deleteSel();
       if (k === 'Delete' && this.sel && !this.split.cutting) return this.removeNode(this.sel);
     });
     this.setMode(this.mode);
@@ -467,6 +477,7 @@ export class GlbEditor {
     }
     this.clearModel();
     this.mat.reset();
+    this.faces.reset();
     const root = gltf.scene;
     root.updateMatrixWorld(true);
     this.content = root;
@@ -628,7 +639,7 @@ export class GlbEditor {
   pick(e) {
     if (this.split.cutting) return this.split.pick(e);
     if (this.split.active && this.split.pickBox(e)) return;
-    if (this.mat.boxMode) return;
+    if (this.mat.boxMode || this.faces.on) return;
     if (!this.content) return;
     const r = this.canvas.getBoundingClientRect();
     const ray = new THREE.Raycaster();
@@ -720,6 +731,7 @@ export class GlbEditor {
     this.renderStats();
     this.renderUndo();
     this.mat.render();
+    this.faces.prune();
     clearTimeout(this.checkTimer);
     this.checkTimer = setTimeout(() => this.renderChecks(), 250);
   }
@@ -942,6 +954,7 @@ export class GlbEditor {
     this.renderStats();
     this.renderUndo();
     this.renderChecks();
+    this.faces.render();
   }
   renderUndo() {
     $('edUndo').disabled = !this.undo.length;
@@ -1184,6 +1197,7 @@ export class GlbEditor {
   }
   render() {
     this.controls.update();
+    this.faces.sync();
     const sw = this.mat.beforeRender(); // 預覽配色
     this.renderer.render(this.scene, this.camera);
     this.mat.afterRender(sw);

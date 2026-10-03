@@ -134,6 +134,7 @@ export class SplitTool {
         this.rig = null;
       }
     } else {
+      this.ed.faces.setOn(false);
       this.active = true;
       this.buildRig();
     }
