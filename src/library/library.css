@@ -1110,6 +1110,39 @@ button.primary {
 #edClusterK {
   width: 44px;
 }
+.edTexs {
+  padding: 2px 4px 4px 22px;
+}
+.edTex {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 3px 0;
+}
+.edTex img {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1px solid var(--line);
+  background: repeating-conic-gradient(#555 0 25%, #333 0 50%) 0 0 / 10px 10px;
+}
+.edTexI {
+  flex: 1;
+  min-width: 0;
+}
+.edTexB,
+.edTexAdd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+.edTexB select,
+.edTexAdd select {
+  flex: 1;
+  min-width: 70px;
+  font-size: 11px;
+}
 #edMatTools[hidden] {
   display: none;
 }

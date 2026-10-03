@@ -1074,6 +1074,219 @@ async function testEditorMaterials(browser, base) {
   await ctx.close();
 }
 
+// GLB 編輯的貼圖：列出、下載（目前／原檔／UV／zip）、替換（共用／只換這個材質／單一通道）、復原、灰階換原圖、加入貼圖、存檔讀回
+async function testEditorTextures(browser, base) {
+  console.log('模型庫 GLB 編輯：貼圖（匯出、UV、zip、替換、通道、加入）');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'editor-tex');
+  await page.goto(base + 'model-library.html?test#editor');
+  await page.waitForSelector('#editor:not([hidden])');
+  // 兩個材質共用一張顏色貼圖（Material_0 另有粗糙度／金屬感貼圖），第三個材質沒有貼圖
+  const bytes = await page.evaluate(async () => {
+    const tex = (w, draw) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = w;
+      draw(c.getContext('2d'));
+      const t = new THREE.CanvasTexture(c);
+      t.flipY = false;
+      return t;
+    };
+    const col = tex(64, (g) => {
+      ['#c83c32', '#46a050', '#3c5abe', '#808080'].forEach((f, q) => {
+        g.fillStyle = f;
+        g.fillRect((q % 2) * 32, Math.floor(q / 2) * 32, 32, 32);
+      });
+    });
+    const orm = tex(32, (g) => {
+      g.fillStyle = 'rgb(255,128,64)';
+      g.fillRect(0, 0, 32, 32);
+    });
+    const root = new THREE.Group();
+    const mk = (mat, x) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), mat);
+      m.position.set(x, 0.15, 0);
+      root.add(m);
+    };
+    mk(
+      new THREE.MeshStandardMaterial({ name: 'Material_0', map: col, roughnessMap: orm, metalnessMap: orm }),
+      -0.4,
+    );
+    mk(new THREE.MeshStandardMaterial({ name: 'Material_1', map: col }), 0);
+    mk(new THREE.MeshStandardMaterial({ name: 'plain', color: 0xff0000 }), 0.4);
+    const res = await new Promise((r) => new THREE.GLTFExporter().parse(root, r, { binary: true }));
+    return [...new Uint8Array(res)];
+  });
+  const fp = path.join(SHOT_DIR, 'editor-tex.glb');
+  fs.writeFileSync(fp, Buffer.from(bytes));
+  const png = async (name, w, h, fill) => {
+    const b64 = await page.evaluate(
+      ([w, h, fill]) => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const g = c.getContext('2d');
+        g.fillStyle = fill;
+        g.fillRect(0, 0, w, h);
+        return c.toDataURL('image/png').split(',')[1];
+      },
+      [w, h, fill],
+    );
+    const f = path.join(SHOT_DIR, name);
+    fs.writeFileSync(f, Buffer.from(b64, 'base64'));
+    return f;
+  };
+  const red = await png('tex-red.png', 32, 32, '#ff0000');
+  const blue = await png('tex-blue.png', 32, 32, '#2040ff');
+  const gray = await png('tex-gray.png', 16, 16, 'rgb(200,200,200)');
+  await page.selectOption('#edSlot', 'head/h_std');
+  await page.setInputFiles('#edFile', fp);
+  await wait(1500);
+  const info = () =>
+    page.evaluate(() =>
+      window.__glbEditor.mat.list().map(({ m }) => ({
+        name: m.name,
+        map: m.map ? m.map.image.width : 0,
+        rm: m.roughnessMap ? m.roughnessMap.image.width : 0,
+        same: m.roughnessMap === m.metalnessMap,
+        ao: !!m.aoMap,
+        color: m.color.getHexString(),
+      })),
+    );
+  const of = async (name) => (await info()).find((x) => x.name === name) || {};
+  // 某個材質的貼圖在 (2, 2) 的像素
+  const pixel = (name, key) =>
+    page.evaluate(
+      ([name, key]) => {
+        const m = window.__glbEditor.mat
+          .list()
+          .map((e) => e.m)
+          .find((x) => x.name === name);
+        const img = m[key].image;
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return [...g.getImageData(2, 2, 1, 1).data];
+      },
+      [name, key],
+    );
+  const matEl = async (name) => {
+    for (const e of await page.$$('#edMats .edMat'))
+      if (((await e.$eval('.nm', (x) => x.textContent)) || '').startsWith(name)) return e;
+    return null;
+  };
+  const openMat = async (name) => {
+    const e = await matEl(name);
+    if (!(await e.evaluate((x) => x.open))) await (await e.$('summary')).click();
+    return matEl(name);
+  };
+  const rowSel = async (name, i) => (await (await matEl(name)).$$('.edTex select[data-ta="rep"]'))[i];
+  const choose = async (sel, value, file) => {
+    await sel.selectOption(value);
+    await page.setInputFiles('#edTexFile', file);
+    await wait(800);
+  };
+  const undo = async () => {
+    await page.click('#edLeft h3');
+    await page.keyboard.press('Control+z');
+    await wait(600);
+  };
+  const dl = async (fn) => {
+    const [d] = await Promise.all([page.waitForEvent('download'), fn()]);
+    return { name: d.suggestedFilename(), buf: fs.readFileSync(await d.path()) };
+  };
+  const isPng = (b) => b.slice(0, 4).toString('hex') === '89504e47';
+
+  const m0 = await openMat('Material_0');
+  const rows = await m0.$$('.edTex');
+  const txt = await m0.textContent();
+  check(rows.length === 2, `材質的貼圖列：顏色＋粗糙度／金屬感（${rows.length} 列）`);
+  check(txt.includes('2 個材質共用') && txt.includes('粗糙度／金屬感'), '顯示共用與種類');
+  const cur = await dl(() => rows[0].$eval('[data-ta="dl"]', (b) => b.click()));
+  check(isPng(cur.buf) && /_color\.png$/.test(cur.name), `下載目前的貼圖（${cur.name}）`);
+  const orig = await dl(() => rows[0].$eval('[data-ta="orig"]', (b) => b.click()));
+  check(orig.buf.length > 0 && /\.(png|jpg|webp)$/.test(orig.name), `下載原始檔（${orig.name}）`);
+  const uv = await dl(() => rows[0].$eval('[data-ta="uv"]', (b) => b.click()));
+  check(isPng(uv.buf) && /_uv\.png$/.test(uv.name), `下載 UV 線框（${uv.name}）`);
+  const zip = await dl(() => page.click('#edTexZip'));
+  const zs = zip.buf.toString('utf8');
+  check(
+    zip.buf.slice(0, 2).toString() === 'PK' &&
+      zs.includes('貼圖/') &&
+      zs.includes('原始檔/') &&
+      zs.includes('UV/') &&
+      /\.zip$/.test(zip.name),
+    `下載全部貼圖 zip（${zip.name}，${zip.buf.length} bytes）`,
+  );
+
+  // 換圖：共用的兩個材質一起換 → 復原 → 只換這個材質
+  await choose(await rowSel('Material_0', 0), 'all', red);
+  check(
+    (await of('Material_0')).map === 32 && (await of('Material_1')).map === 32,
+    '替換貼圖：共用的材質一起換',
+  );
+  const px = await pixel('Material_1', 'map');
+  check(px[0] > 240 && px[1] < 20, `換上的圖片內容正確（${px.slice(0, 3)}）`);
+  await undo();
+  check((await of('Material_0')).map === 64 && (await of('Material_1')).map === 64, '復原替換');
+  await page.selectOption('#edTexScope', 'mat');
+  await choose(await rowSel('Material_0', 0), 'all', red);
+  check(
+    (await of('Material_0')).map === 32 && (await of('Material_1')).map === 64,
+    '只換這個材質：另一個材質維持原圖',
+  );
+  // 只換粗糙度（G 通道），金屬感（B）保留
+  await choose(await rowSel('Material_0', 1), 'g', gray);
+  const orm = await pixel('Material_0', 'roughnessMap');
+  const o0 = await of('Material_0');
+  check(
+    Math.abs(orm[1] - 200) <= 2 && Math.abs(orm[2] - 64) <= 2 && o0.rm === 32 && o0.same,
+    `只換粗糙度通道（G=${orm[1]}、B=${orm[2]}，尺寸 ${o0.rm}）`,
+  );
+
+  // 色槽材質（灰階）：換原圖後灰階圖重算
+  await page.selectOption('#edTexScope', 'tex');
+  const m1 = await openMat('Material_1');
+  await (await m1.$('select[data-act="slot"]')).selectOption('main');
+  await wait(800);
+  const mainEl = await openMat('main');
+  check(((await mainEl.textContent()) || '').includes('灰階（由原圖產生）'), '色槽材質：灰階貼圖列');
+  await choose((await mainEl.$$('.edTex select[data-ta="rep"]'))[0], 'src', blue);
+  const g1 = await pixel('main', 'map');
+  check(
+    g1[0] === g1[1] && g1[1] === g1[2] && (await of('main')).map === 32,
+    `換原圖：灰階圖依新圖重算（${g1.slice(0, 3)}）`,
+  );
+
+  // 沒有貼圖的材質：加入顏色與 AO 貼圖
+  const plain = await openMat('plain');
+  await choose(await plain.$('select[data-ta="add"]'), 'map', blue);
+  await choose(await (await matEl('plain')).$('select[data-ta="add"]'), 'aoMap', gray);
+  const p1 = await of('plain');
+  const uv2 = await page.evaluate(() =>
+    window.__glbEditor.mat.meshes().some((o) => o.material.name === 'plain' && !!o.geometry.attributes.uv2),
+  );
+  check(
+    p1.map === 32 && p1.color === 'ffffff' && p1.ao && uv2,
+    '加入顏色（材質顏色改白）與 AO 貼圖（補 uv2）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'editor-tex.png') });
+
+  // 存到槽位後讀回：換過的貼圖、加入的貼圖都在
+  await page.click('#edSave');
+  await wait(1500);
+  await page.click('#edFromSlot');
+  await wait(1500);
+  const back = await info();
+  const b0 = back.find((x) => x.name === 'Material_0') || {};
+  const bp = back.find((x) => x.name === 'plain') || {};
+  check(b0.map === 32 && b0.rm === 32 && bp.map === 32 && bp.ao, '存檔後讀回：替換與加入的貼圖都保留');
+  await ctx.close();
+}
+
 // GLB 編輯的最佳化與輸出：高面數模型（不透明＋半透明貼圖）→ 減到預算 → 復原 → 重做 → WebP／PNG＋Draco 下載與存檔 → 檢視窗讀取
 async function testEditorOptimize(browser, base) {
   console.log('模型庫 GLB 編輯：最佳化（減面、WebP／PNG、Draco）');
@@ -1140,8 +1353,17 @@ async function testEditorOptimize(browser, base) {
   await dl.saveAs(out);
   const buf = fs.readFileSync(out);
   const json = JSON.parse(buf.slice(20, 20 + buf.readUInt32LE(12)).toString());
+  // 依材質找圖片（節點順序隨載入時機而變，不能假設圖片的順序）
+  const mimeOf = (name) => {
+    const m = json.materials.find((x) => x.name === name);
+    const t = json.textures[m.pbrMetallicRoughness.baseColorTexture.index];
+    const src =
+      t.extensions && t.extensions.EXT_texture_webp ? t.extensions.EXT_texture_webp.source : t.source;
+    return json.images[src].mimeType;
+  };
   check(
-    json.images.map((i) => i.mimeType).join() === 'image/webp,image/png' &&
+    mimeOf('body') === 'image/webp' &&
+      mimeOf('glass') === 'image/png' &&
       (json.extensionsUsed || []).includes('KHR_draco_mesh_compression'),
     `輸出：不透明貼圖 WebP、半透明 PNG、Draco 壓縮（${Math.round(bytes.length / 1024)} KB → ${Math.round(buf.length / 1024)} KB；${json.images.map((i) => i.mimeType).join()}；${(json.extensionsUsed || []).join()}）`,
   );
@@ -1519,6 +1741,7 @@ async function main() {
     await testEditor(browser, base);
     await testEditorSplit(browser, base);
     await testEditorMaterials(browser, base);
+    await testEditorTextures(browser, base);
     await testEditorOptimize(browser, base);
     await testLocalModels(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

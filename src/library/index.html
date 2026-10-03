@@ -231,6 +231,36 @@
                   合併相同的材質
                 </button>
               </div>
+              <h3>貼圖</h3>
+              <div class="dim small">
+                各材質的貼圖在左側材質清單（展開材質）：下載、原檔、UV
+                線框、替換、移除、加入貼圖；也可以把圖片拖到貼圖列上替換。
+              </div>
+              <div class="edRow">
+                <label
+                  >換圖範圍
+                  <select id="edTexScope">
+                    <option value="tex">這張貼圖（所有共用的材質）</option>
+                    <option value="mat">只換這個材質</option>
+                  </select></label
+                >
+              </div>
+              <div>
+                <label class="tog small"
+                  ><input type="checkbox" id="edTexGray" /> 色槽材質換顏色貼圖時轉灰階（遊戲是陣營色 ×
+                  貼圖）</label
+                >
+              </div>
+              <div>
+                <label class="tog small"
+                  ><input type="checkbox" id="edUvOver" checked /> UV 線框疊在貼圖上</label
+                >
+              </div>
+              <div class="btns">
+                <button id="edTexZip" title="目前畫面上用的所有貼圖打包成 .zip">下載全部貼圖（.zip）</button>
+              </div>
+              <label class="tog small"><input type="checkbox" id="edZipOrig" checked /> zip 包含原始檔</label>
+              <label class="tog small"><input type="checkbox" id="edZipUv" checked /> zip 包含 UV 線框</label>
             </div>
             <div id="edOptTools">
               <h3>最佳化與輸出</h3>

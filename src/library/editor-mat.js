@@ -29,7 +29,7 @@ const TEX_MODES = [
   ['none', '移除貼圖（純色）'],
 ];
 const slotLabel = (s) => (s ? `${SLOT_NAMES[s] || s}（${s}）` : '保留原色');
-const slotOfName = (name) => {
+export const slotOfName = (name) => {
   const n = String(name || '')
     .toLowerCase()
     .replace(/\.\d+$/, '');
@@ -38,7 +38,9 @@ const slotOfName = (name) => {
 // 色槽材質 → 原材質、原材質 → { 色槽|模式: 色槽材質 }（不放 userData：GLTFExporter 會把 userData 寫進檔案）
 const BASE = new WeakMap(),
   SLOTS = new WeakMap();
-const baseOf = (m) => BASE.get(m) || m;
+export const baseOf = (m) => BASE.get(m) || m;
+// 材質上的貼圖欄位（快照、貼圖工具共用）
+export const TEX_KEYS = ['map', 'emissiveMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'];
 const matsArr = (o) => (Array.isArray(o.material) ? o.material : [o.material]);
 const lum = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
@@ -225,8 +227,11 @@ export function kmeans(points, weights, k, iters = 12) {
 }
 
 // 灰階貼圖：亮度 × k（讓這一群的平均亮度約 0.85，換色後的顏色才接近陣營色）
-const GRAY = new Map();
-function grayTex(tex, k) {
+// 產生的灰階貼圖 → { src: 原圖, k }（換原圖時依同樣的倍率重算）
+const GRAY = new Map(),
+  DERIVED = new WeakMap();
+export const derivedOf = (t) => (t && DERIVED.get(t)) || null;
+export function grayTex(tex, k) {
   const key = tex.uuid + '|' + k.toFixed(2);
   if (GRAY.has(key)) return GRAY.get(key);
   const img = tex.image;
@@ -250,6 +255,7 @@ function grayTex(tex, k) {
   t.repeat.copy(tex.repeat);
   t.name = (tex.name || 'tex') + '_gray';
   GRAY.set(key, t);
+  DERIVED.set(t, { src: tex, k });
   return t;
 }
 
@@ -260,6 +266,7 @@ export class MaterialTool {
     this.tinted = new Map();
     this.boxMode = false;
     this.clusters = null;
+    this.shown = []; // 材質清單目前列出的材質（重繪時保留展開狀態）
     this.setupBox();
   }
   reset() {
@@ -295,9 +302,26 @@ export class MaterialTool {
     return [...map.values()];
   }
 
-  // ---------- 復原用：材質參數 ----------
+  // 模型用到的所有材質（含隱藏的節點）＋它們的原材質與已建立的色槽材質（換貼圖時要一起改，之後指定色槽才不會拿到舊圖）
+  allMats() {
+    const out = new Set();
+    if (!this.ed.content) return [];
+    this.ed.content.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of matsArr(o)) {
+        out.add(m);
+        const b = baseOf(m);
+        out.add(b);
+        const c = SLOTS.get(b);
+        if (c) for (const x of Object.values(c)) out.add(x);
+      }
+    });
+    return [...out];
+  }
+
+  // ---------- 復原用：材質參數與貼圖 ----------
   snap() {
-    return this.list().map(({ m }) => [
+    return this.allMats().map((m) => [
       m,
       m.name,
       m.color ? m.color.getHex() : null,
@@ -305,16 +329,18 @@ export class MaterialTool {
       m.metalness,
       m.emissive ? m.emissive.getHex() : null,
       m.emissiveIntensity,
+      TEX_KEYS.map((k) => (k in m ? m[k] : undefined)),
     ]);
   }
   restore(list) {
-    for (const [m, name, col, r, mt, em, ei] of list || []) {
+    for (const [m, name, col, r, mt, em, ei, maps] of list || []) {
       m.name = name;
       if (col !== null && m.color) m.color.setHex(col);
       if (r !== undefined) m.roughness = r;
       if (mt !== undefined) m.metalness = mt;
       if (em !== null && m.emissive) m.emissive.setHex(em);
       if (ei !== undefined) m.emissiveIntensity = ei;
+      if (maps) TEX_KEYS.forEach((k, i) => maps[i] !== undefined && (m[k] = maps[i]));
       m.needsUpdate = true;
     }
     this.tinted.clear();
@@ -648,6 +674,8 @@ export class MaterialTool {
     }
     $('edMatTools').hidden = false;
     const list = this.list();
+    const opened = new Set([...box.querySelectorAll('.edMat[open]')].map((d) => this.shown[+d.dataset.i]));
+    this.shown = list.map((x) => x.m);
     const opts = (cur) =>
       ['', ...PALETTE_SLOTS]
         .map((s) => `<option value="${s}"${s === cur ? ' selected' : ''}>${escHtml(slotLabel(s))}</option>`)
@@ -658,7 +686,7 @@ export class MaterialTool {
           const col = m.color ? '#' + m.color.clone().convertLinearToSRGB().getHexString() : '#888';
           const slot = slotOfName(m.name);
           return (
-            `<details class="edMat" data-i="${i}"><summary><i style="background:${col}"></i>` +
+            `<details class="edMat" data-i="${i}"${opened.has(m) ? ' open' : ''}><summary><i style="background:${col}"></i>` +
             `<span class="nm" title="${escHtml(m.name || '')}">${escHtml(m.name || '（未命名）')}${m.map ? '・貼圖' : ''}</span>` +
             `<span class="dim small">${tris.toLocaleString()}</span></summary>` +
             `<label>色槽 <select data-act="slot">${opts(slot)}</select></label>` +
@@ -673,6 +701,7 @@ export class MaterialTool {
             (m.color && !slot
               ? `<label>顏色 <input type="color" data-act="color" value="${col}"></label>`
               : '') +
+            ed.tex.html(m) +
             `</details>`
           );
         })
@@ -688,6 +717,7 @@ export class MaterialTool {
           this.setParam(m, k, parseFloat(inp.value));
         };
       }
+      ed.tex.bind(d, m);
     }
     // 分群結果
     const C = this.clusters;

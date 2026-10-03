@@ -30,6 +30,7 @@ import {
   weldGeometry,
 } from './editor-opt.js';
 import { SplitTool } from './editor-split.js';
+import { TextureTool, registerOriginals } from './editor-tex.js';
 import { buildAxes, buildConnMarker, buildGrid } from './refs.js';
 import {
   addLights,
@@ -164,9 +165,11 @@ export class GlbEditor {
     this.buildLabels();
     this.split = new SplitTool(this);
     this.mat = new MaterialTool(this);
+    this.tex = new TextureTool(this);
     this.exportOpts = loadExportOpts();
     this.setupUi();
     this.mat.setupUi();
+    this.tex.setupUi();
     this.setupOpt();
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
@@ -457,6 +460,7 @@ export class GlbEditor {
     } catch (err) {
       return this.toast(`無法讀取 ${name}：${err.message || err}`, true);
     }
+    registerOriginals(gltf, buf);
     if (this.split.cutting) {
       this.split.stopCut();
       this.split.render();
@@ -585,11 +589,13 @@ export class GlbEditor {
     if (!this.content) return this.loadFile(f);
     if (!/\.glb$/i.test(f.name)) return this.toast('只接受 .glb 檔（glTF 二進位）', true);
     let gltf;
+    const buf = await f.arrayBuffer();
     try {
-      gltf = await parseGlb(await f.arrayBuffer());
+      gltf = await parseGlb(buf);
     } catch (err) {
       return this.toast(`無法讀取 ${f.name}：${err.message || err}`, true);
     }
+    registerOriginals(gltf, buf);
     this.pushUndo();
     const root = gltf.scene;
     root.name = f.name.replace(/\.glb$/i, '');

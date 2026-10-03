@@ -142,7 +142,7 @@ export function saveExportOpts(o) {
 }
 
 // ---------- GLB 讀寫 ----------
-function readGlb(buf) {
+export function readGlb(buf) {
   const dv = new DataView(buf);
   if (dv.getUint32(0, true) !== 0x46546c67) throw new Error('不是 GLB 檔');
   const jl = dv.getUint32(12, true);
