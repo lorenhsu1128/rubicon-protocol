@@ -210,7 +210,8 @@ export const matsOf = (root) => {
 // ref：同槽位程式模型在「製作尺寸」下的外框（Box3，原點與 GLB 相同的座標系）
 // 回傳 [{ lv: 'error'|'warn'|'ok'|'info', text }]
 // origin：原點應該在哪裡的說明（例：「手肘轉軸」「地面中心」）
-export function checkGlb({ root, info, bytes, spec, ref, origin }) {
+// pivotFree：機甲區塊的原點（旋轉中心）可以在組裝調整頁拖曳關節點設定，原點位置不同只列為說明
+export function checkGlb({ root, info, bytes, spec, ref, origin, pivotFree }) {
   const out = [];
   const add = (lv, text) => out.push({ lv, text });
   const B = budgetFor(spec);
@@ -261,17 +262,27 @@ export function checkGlb({ root, info, bytes, spec, ref, origin }) {
     if (worst > 0.25 && swapped < worst * 0.5) add('warn', '寬與深對調後才接近程式模型：模型可能轉了 90°');
     const off = box.getCenter(new THREE.Vector3()).sub(ref.getCenter(new THREE.Vector3()));
     const span = Math.max(rs.x, rs.y, rs.z, 0.1);
-    add(
-      off.length() / span <= 0.2 ? 'ok' : 'warn',
-      off.length() / span <= 0.2
-        ? '原點位置與程式模型一致'
-        : `外框中心與程式模型差 ${off.length().toFixed(2)} m：原點可能放錯位置${origin ? '（應在' + origin + '）' : ''}`,
-    );
-    if (Math.abs(box.min.y - ref.min.y) > Math.max(0.15, rs.y * 0.08))
+    if (pivotFree) {
+      // 區塊：原點＝旋轉中心，在組裝調整頁拖曳關節點（只動關節）時自動寫回 GLB，不必在這裡對齊
+      if (off.length() / span > 0.2)
+        add(
+          'info',
+          `原點和程式模型不同（外框中心差 ${off.length().toFixed(2)} m）：旋轉中心請在組裝調整頁拖曳關節點設定`,
+        );
+      else add('ok', '原點位置與程式模型一致');
+    } else {
       add(
-        'warn',
-        `底部高度 y = ${box.min.y.toFixed(2)} m，程式模型為 ${ref.min.y.toFixed(2)} m：原點高度可能不對${origin ? '（原點應在' + origin + '）' : ''}`,
+        off.length() / span <= 0.2 ? 'ok' : 'warn',
+        off.length() / span <= 0.2
+          ? '原點位置與程式模型一致'
+          : `外框中心與程式模型差 ${off.length().toFixed(2)} m：原點可能放錯位置${origin ? '（應在' + origin + '）' : ''}`,
       );
+      if (Math.abs(box.min.y - ref.min.y) > Math.max(0.15, rs.y * 0.08))
+        add(
+          'warn',
+          `底部高度 y = ${box.min.y.toFixed(2)} m，程式模型為 ${ref.min.y.toFixed(2)} m：原點高度可能不對${origin ? '（原點應在' + origin + '）' : ''}`,
+        );
+    }
   }
   add('info', '正面朝向請在「並排對照」中確認（GLB 應以 +Z 為正面匯出）');
   return out;

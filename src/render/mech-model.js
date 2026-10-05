@@ -17,7 +17,7 @@ import {
   kitVents,
 } from './geometry.js';
 import { mechMats } from './materials.js';
-import { resolveConn } from './mech-joints.js';
+import { jointSetting, resolveConn } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
@@ -842,7 +842,10 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     // 沒有指定 opts.piece 時問模型來源（遊戲的本地模型庫）；每台機甲各自一份材質（受擊閃光）
     let obj = opts.piece ? opts.piece(info) : providedModel(info.slot, pal, true);
     if (obj && !opts.piece) provided.push(obj);
-    obj = obj || makeProcPiece(info, ctx);
+    if (!obj) {
+      obj = makeProcPiece(info, ctx);
+      obj.userData.proc = true;
+    }
     obj.userData.slot = info.slot;
     parent.add(obj);
     pieces[info.slot] = obj;
@@ -850,7 +853,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   };
   // 連接點群組（位置、旋轉來自父區塊）；子區塊的關節群組掛在它下面，動作只改關節群組的旋轉
   const mountAt = (parent, info, name) => {
-    const c = connOf(info, name);
+    const c = opts.defaultConns ? defaultConn(info, name) : connOf(info, name);
     const g = new THREE.Group();
     g.position.copy(c.p);
     g.rotation.copy(c.r);
@@ -865,8 +868,11 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     return j;
   };
   const root = new THREE.Group();
+  // lift：自動貼地的上下位移（腿部換成 GLB 或改了腿部連接點時，見 refreshGround），腿與上半身都在它底下
+  const lift = new THREE.Group();
+  root.add(lift);
   const legsG = new THREE.Group();
-  root.add(legsG);
+  lift.add(legsG);
   const type = p.legs.type;
   const cls = coreClass(p);
   const hipY = legHipY(type);
@@ -909,7 +915,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     }
   }
   // ===== 軀幹：腰部連接點下的 torso 群組（動作改它的旋轉與上下起伏）=====
-  const torso = joint(mountAt(root, base, 'waist'));
+  const torso = joint(mountAt(lift, base, 'waist'));
   const ci = bySlot((i) => i.cat === 'core');
   place(torso, ci);
   // 背包：噴口是連接點（噴焰為粒子特效，由實體依推力發射）
@@ -946,15 +952,13 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     arms[k] = { mount: shM, up, fore, hand, weapon, back };
   }
   bakeAll(root);
-  root.scale.setScalar(scale);
-  root.traverse((o) => {
-    if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
-  });
+  // 建立時的站姿（腿的關節角度），自動貼地以這個姿勢量測
+  for (const L of legs) L.pose0 = [L.thigh, L.knee, L.foot].map((o) => o.rotation.clone());
   const M = ctx.M;
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun, M.grey];
   if (opts.extraMats) mats.push(...opts.extraMats);
   for (const o of provided) mats.push(...matsOf(o));
-  return {
+  const rig = {
     group: root,
     legsG,
     torso,
@@ -964,6 +968,16 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     nozzles,
     pieces,
     mounts,
+    lift,
+    ground: {
+      legs: asm.legs || START_ASM.legs,
+      pal,
+      base: base.slot,
+      infos: all.filter((i) => i.cat === 'legs'),
+      defaults: !!opts.defaultConns,
+      auto: 0,
+      fine: 0,
+    },
     hipY,
     torsoY: 0,
     type,
@@ -973,6 +987,84 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     mats,
     flashT: 0,
   };
+  if (!opts.noGround) refreshGround(rig);
+  root.scale.setScalar(scale);
+  root.traverse((o) => {
+    if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
+  });
+  return rig;
+}
+
+// 預設連接點（不套用關節設定）
+function defaultConn(info, name) {
+  const c = pieceConns(info)[name];
+  return c ? { p: c.p.clone(), r: c.r.clone() } : { p: new THREE.Vector3(), r: new THREE.Euler() };
+}
+// 物件群的最低點（space 的區域座標；逐頂點計算，不含描邊與輔助物件）
+function lowestY(objs, space) {
+  space.updateMatrixWorld(true);
+  const inv = space.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4(),
+    v = new THREE.Vector3();
+  let min = Infinity;
+  for (const obj of objs)
+    obj.traverse((o) => {
+      if (!o.isMesh || o.material === OUTLINE_MAT || !o.geometry.attributes.position) return;
+      for (let p = o; p && p !== obj; p = p.parent) if (p.userData.helper) return;
+      m.multiplyMatrices(inv, o.matrixWorld);
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++)
+        min = Math.min(min, v.fromBufferAttribute(pos, i).applyMatrix4(m).y);
+    });
+  return min;
+}
+// 程式模型的腿（預設連接點）在站姿下的最低點，依腳部零件快取
+const GROUND_REF = new Map();
+function groundRef(legs, pal) {
+  if (!GROUND_REF.has(legs)) {
+    const ref = buildMech({ ...START_ASM, legs }, pal, 1, {
+      piece: () => null,
+      defaultConns: true,
+      noGround: true,
+    });
+    const g = ref.ground;
+    GROUND_REF.set(legs, lowestY(g.infos.map((i) => ref.pieces[i.slot]).filter(Boolean), ref.lift));
+    ref.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+    });
+  }
+  return GROUND_REF.get(legs);
+}
+// 自動貼地：腿部（襠部／主體、大腿、小腿、腳掌、履帶）有 GLB 或改過連接點時，在站姿下量最低點，
+// 整台機甲上下移動到和程式模型的腿同樣的高度（程式模型＋預設連接點時位移為 0，與原本完全相同）；
+// 另外加上腿部根區塊的「ground」關節設定（離地微調，glTF 的 p[1]）。只影響外觀，判定仍用 hipY 等常數。
+// 組裝調整頁修改腿部連接點或原點後也呼叫它重新計算
+export function refreshGround(rig) {
+  const g = rig.ground;
+  if (!g || !rig.lift) return;
+  const objs = g.infos.map((i) => rig.pieces[i.slot]).filter(Boolean);
+  const custom =
+    !g.defaults &&
+    (objs.some((o) => !o.userData.proc) ||
+      g.infos.some((i) => Object.keys(pieceConns(i)).some((n) => jointSetting(i.slot, n))));
+  g.auto = 0;
+  if (custom) {
+    // 暫時擺回建立時的站姿量測
+    const saved = rig.legs.map((L) => [L.thigh, L.knee, L.foot].map((o) => o.rotation.clone()));
+    const lp = rig.legsG.position.clone(),
+      lr = rig.legsG.rotation.clone();
+    rig.legs.forEach((L) => [L.thigh, L.knee, L.foot].forEach((o, k) => o.rotation.copy(L.pose0[k])));
+    rig.legsG.position.set(0, 0, 0);
+    rig.legsG.rotation.set(0, 0, 0);
+    const low = lowestY(objs, rig.lift);
+    rig.legs.forEach((L, j) => [L.thigh, L.knee, L.foot].forEach((o, k) => o.rotation.copy(saved[j][k])));
+    rig.legsG.position.copy(lp);
+    rig.legsG.rotation.copy(lr);
+    if (Number.isFinite(low)) g.auto = Math.round((groundRef(g.legs, g.pal) - low) * 1000) / 1000;
+  }
+  const fine = g.defaults ? null : jointSetting(g.base, 'ground');
+  g.fine = fine && fine.p ? +fine.p[1] || 0 : 0;
+  rig.lift.position.y = g.auto + g.fine;
 }
 
 export function animateMech(m, dt, st) {

@@ -43,6 +43,7 @@ function checker(id, root, info, bytes) {
     spec: entry.spec,
     ref: referenceBox(entry),
     origin: entry.piece ? PIECE_ORIGIN[entry.piece.kind] : entry.origin || '地面中心（模型底面中心）',
+    pivotFree: !!entry.piece,
   });
 }
 

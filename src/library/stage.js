@@ -123,6 +123,7 @@ export async function prepareGlbModel(entry, palKey, src) {
     spec: entry.spec,
     ref: referenceBox(entry, palKey),
     origin: originText(entry),
+    pivotFree: !!entry.piece,
   });
   if (src.fallback) checks.unshift({ lv: 'info', text: `沒有左側專用的 GLB，暫用右側的檔案（${src.name}）` });
   const obj = new THREE.Group();

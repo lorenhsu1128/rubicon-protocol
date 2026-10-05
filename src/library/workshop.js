@@ -11,10 +11,10 @@ import {
   PIECE_NAMES,
   SIDE_NAMES,
   animateMech,
-  connOf,
   partPieces,
+  pieceConns,
 } from '../render/mech-model.js';
-import { gameToGltf } from '../render/mech-joints.js';
+import { builtinJoints, gameToGltf } from '../render/mech-joints.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { buildGrid } from './refs.js';
 import { WsEditor } from './workshop-edit.js';
@@ -85,10 +85,12 @@ export function restPose(rig) {
 }
 
 export class Workshop {
-  // onJoints(slot)：連接點修改後通知模型庫；toast(text, bad)：提示訊息
-  constructor({ store, onJoints, onClose, toast }) {
+  // onJoints(slot)：連接點修改後通知模型庫；onSaved(slot)：區塊的 GLB 改寫（原點）後通知模型庫；toast(text, bad)：提示訊息
+  constructor({ store, onJoints, onSaved, onClose, toast }) {
     this.store = store;
     this.onJoints = onJoints;
+    this.onSaved = onSaved;
+    this.glbSlots = new Set(); // 目前畫面上用 GLB 的槽位
     this.onClose = onClose;
     this.toast = toast;
     this.asm = { ...START_ASM };
@@ -287,6 +289,7 @@ export class Workshop {
       disposeObject(this.rig.group);
     }
     this.rig = rig;
+    this.glbSlots = new Set(glbSlots);
     this.scene.add(rig.group);
     this.applyPose();
     if (refit || !this.fitted) {
@@ -334,11 +337,13 @@ export class Workshop {
     const p = partById(list, this.asm[f.key]);
     return p ? { part: p.name, cat: name.replace(/（.*）/, '') } : null;
   }
-  // 連接點的內建／預設值（glTF），重設時使用（呼叫前要先移除瀏覽器暫存）
+  // 連接點的內建（joints.json）／程式預設值（glTF），不含瀏覽器暫存；重設與沒有暫存時使用
   defaultConn(slot, name) {
+    const b = builtinJoints()[slot];
+    if (b && b[name]) return { p: [...b[name].p], r: [...(b[name].r || [0, 0, 0])] };
     const f = this.infoOf(slot);
-    const c = connOf(f.info, name);
-    return gameToGltf(c.p, c.r);
+    const c = f && pieceConns(f.info)[name];
+    return c ? gameToGltf(c.p, c.r) : { p: [0, 0, 0], r: [0, 0, 0] };
   }
 
   // ---------- 右側：組裝層級 ----------

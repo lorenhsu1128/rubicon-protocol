@@ -1041,6 +1041,7 @@ export class GlbEditor {
       spec: e.spec,
       ref: this.refGame,
       origin: originText(e),
+      pivotFree: !!e.piece,
     }).filter((c) => !c.text.startsWith('檔案大小') && !c.text.startsWith('正面朝向'));
     ul.innerHTML = list.map((c) => `<li class="${c.lv}">${escHtml(c.text)}</li>`).join('');
   }

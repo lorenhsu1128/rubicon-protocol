@@ -2,8 +2,9 @@
 // 連接點的值一律以 glTF 座標顯示與儲存（Y 朝上、+Z 為正面、角度），內部套到 rig 的連接點群組（遊戲座標）。
 import { escHtml } from '../core/html.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
-import { CONN_NAMES } from '../render/mech-model.js';
+import { CONN_NAMES, refreshGround } from '../render/mech-model.js';
 import { gameToGltf, gltfToGame } from '../render/mech-joints.js';
+import { readOrigin, writeOrigin } from './glb-origin.js';
 import { buildConnMarker } from './refs.js';
 import { GAP_WARN, OVERLAP_WARN, checkRig } from './workshop-check.js';
 
@@ -26,7 +27,9 @@ const round = (v, k) => Math.round(v * k) / k;
 const SETTINGS_KEY = 'rubicon_workshop_steps';
 // 步進：位置以公分、旋轉以角度；吸附預設關閉
 // 顯示方式：高亮選中區塊、其他區塊半透明、隱藏無關區塊、穿幫提示
+// keep：移動連接點時「只動關節」（子區塊不動，改它的原點）；false＝子區塊跟著連接點移動
 const DEFAULT_STEPS = {
+  keep: true,
   move: 1,
   moveBig: 10,
   rot: 1,
@@ -68,6 +71,20 @@ export const mirrorVal = (v) => ({
   p: [round(-v.p[0], 1000) + 0, v.p[1], v.p[2]],
   r: [v.r[0], round(-v.r[1], 100) + 0, round(-v.r[2], 100) + 0],
 });
+// 連接點值（glTF）↔ 遊戲座標的矩陣
+const ONE = new THREE.Vector3(1, 1, 1);
+const FLIP = new THREE.Matrix4().makeRotationY(Math.PI);
+function matOf(v) {
+  const g = gltfToGame(v);
+  return new THREE.Matrix4().compose(g.p, new THREE.Quaternion().setFromEuler(g.r), ONE);
+}
+function valOf(m) {
+  const p = new THREE.Vector3(),
+    q = new THREE.Quaternion(),
+    s = new THREE.Vector3();
+  m.decompose(p, q, s);
+  return gameToGltf(p, new THREE.Euler().setFromQuaternion(q));
+}
 
 export class WsEditor {
   // ws：Workshop（提供 rig、store、infoOf、partNameOf、onJoints）
@@ -80,6 +97,8 @@ export class WsEditor {
     this.undo = [];
     this.redo = [];
     this.sym = false;
+    this.origin0 = {}; // 槽位 → 建立畫面時 GLB 裡的原點節點矩陣（glTF）；即時預覽以它為基準
+    this.savedSlots = new Set(); // 改寫過 GLB（原點）、待通知模型庫的槽位
     this.loadSettings();
     this.flags = new Set(); // 有穿幫提示的連接點（父槽位|連接點）
     this.checkT = 0;
@@ -139,7 +158,7 @@ export class WsEditor {
         PageUp: [2, 1],
         PageDown: [2, -1],
       };
-      if (NUDGE[k] && this.sel && this.sel.name) {
+      if (NUDGE[k] && this.target()) {
         e.preventDefault();
         this.nudge(NUDGE[k][0], NUDGE[k][1], e.shiftKey);
       }
@@ -156,6 +175,9 @@ export class WsEditor {
       `<div class="wsTools btns">` +
       `<button data-m="translate" title="拖曳三軸箭頭移動（W）">移動</button>` +
       `<button data-m="rotate" title="拖曳旋轉環旋轉（E）">旋轉</button></div>` +
+      `<div class="wsTools btns">` +
+      `<button data-keep="1" title="移動關節點時零件不動，只改轉軸（子零件的原點自動寫回 GLB）">只動關節</button>` +
+      `<button data-keep="0" title="移動關節點時，接在上面的零件與下游的零件一起移動">零件跟著動</button></div>` +
       `<div class="wsTools btns">` +
       `<label class="tog" title="改一側時，另一側自動套用鏡像數值"><input type="checkbox" id="wsSym"> 對稱編輯</label>` +
       `<button id="wsCopy" title="把選中連接點的值鏡像後複製到另一側">複製到另一側</button></div>` +
@@ -186,6 +208,14 @@ export class WsEditor {
       num('snapRot', 1, ['吸附 ', '°']) +
       `</div></details>`;
     for (const b of $('wsToolbar').querySelectorAll('[data-m]')) b.onclick = () => this.setMode(b.dataset.m);
+    for (const b of $('wsToolbar').querySelectorAll('[data-keep]'))
+      b.onclick = () => {
+        this.settings.keep = b.dataset.keep === '1';
+        this.saveSettings();
+        this.markKeep();
+        this.renderDetail();
+      };
+    this.markKeep();
     $('wsSym').onchange = () => (this.sym = $('wsSym').checked);
     $('wsCopy').onclick = () => this.copyToOther();
     $('wsUndo').onclick = () => this.step(true);
@@ -205,6 +235,10 @@ export class WsEditor {
     this.applySnap();
     this.renderUndo();
   }
+  markKeep() {
+    for (const b of $('wsToolbar').querySelectorAll('[data-keep]'))
+      b.classList.toggle('sel', (b.dataset.keep === '1') === !!this.settings.keep);
+  }
   setMode(m) {
     this.mode = m;
     if (this.tc) this.tc.setMode(m);
@@ -221,6 +255,8 @@ export class WsEditor {
       m.node.add(mk);
       return { ...m, mk };
     });
+    this.origin0 = {};
+    for (const slot of this.ws.glbSlots) this.origin0[slot] = this.originOf(slot);
     const s = this.sel;
     if (s && !(s.name ? this.mark(s) : rig.pieces[s.slot])) this.sel = null;
     this.apply();
@@ -368,15 +404,24 @@ export class WsEditor {
     }
     const row = s && document.querySelector(`#wsTree .sel`);
     if (row) row.scrollIntoView({ block: 'nearest' });
-    if (s && s.name) this.attachGizmo();
+    if (this.target()) this.attachGizmo();
     else this.detachGizmo();
     if ($('wsCopy')) $('wsCopy').disabled = !(s && s.name && mirrorOf(s));
     this.renderDetail();
     this.ws.updateLabels && this.ws.updateLabels(true);
   }
+  // 拖曳／方向鍵的對象：選中連接點＝該連接點（依「只動關節」設定）；選中區塊＝它接上的連接點，
+  // 一律「零件跟著動」（移動整個零件與下游的零件）；機體根部沒有可移動的連接點
+  target(s = this.sel) {
+    if (!s || !this.rig || s.name === 'ground') return null;
+    if (s.name) return this.mark(s) ? { s, keep: !!this.settings.keep } : null;
+    const pm = this.parentMark(s.slot);
+    return pm ? { s: { slot: pm.slot, name: pm.name }, keep: false } : null;
+  }
   attachGizmo() {
-    const m = this.mark(this.sel);
-    if (!m || !this.tc) return;
+    const t = this.target();
+    const m = t && this.mark(t.s);
+    if (!m || !this.tc) return this.detachGizmo();
     m.node.parent.add(this.frame);
     this.syncProxy();
     this.tc.attach(this.proxy);
@@ -386,7 +431,8 @@ export class WsEditor {
     if (this.frame.parent) this.frame.parent.remove(this.frame);
   }
   syncProxy() {
-    const m = this.sel && this.sel.name && this.mark(this.sel);
+    const t = this.target();
+    const m = t && this.mark(t.s);
     if (!m) return;
     const v = gameToGltf(m.node.position, m.node.rotation);
     this.proxy.position.set(v.p[0], v.p[1], v.p[2]);
@@ -436,15 +482,20 @@ export class WsEditor {
     const j = this.ws.store.joints[s.slot];
     return j && j[s.name] ? { p: [...j[s.name].p], r: [...j[s.name].r] } : null;
   }
-  // 只改畫面上的連接點群組（拖曳中的即時預覽）
+  // 只改畫面上的連接點群組（拖曳中的即時預覽）；ground＝腿部根區塊的離地微調
   setConn(s, val) {
+    if (s.name === 'ground') {
+      refreshGround(this.rig);
+      return;
+    }
     const m = this.mark(s);
     if (m) {
       const g = gltfToGame(val);
       m.node.position.copy(g.p);
       m.node.rotation.copy(g.r);
     }
-    if (same(s, this.sel) && !this.dragging) this.syncProxy();
+    const t = this.target();
+    if (t && same(s, t.s) && !this.dragging) this.syncProxy();
     this.ws.updateConnRow(s.slot, s.name);
     this.dirty();
   }
@@ -457,17 +508,103 @@ export class WsEditor {
   withMirror(list) {
     if (!this.sym) return list;
     const out = [...list];
-    for (const { s, ov } of list) {
+    for (const { s, ov, keep } of list) {
       const t = mirrorOf(s);
-      if (t && !out.some((x) => same(x.s, t))) out.push({ s: t, ov: ov ? mirrorVal(ov) : null });
+      if (t && !out.some((x) => same(x.s, t))) out.push({ s: t, ov: ov ? mirrorVal(ov) : null, keep });
     }
     return out;
   }
-  // 一次修改：list＝[{ s, ov }]；記錄復原（mergeKey 相同且間隔很短的連續修改合併成一步，例如方向鍵、打字）
+
+  // ---------- 只動關節：子區塊不動，改它的原點 ----------
+  // 子區塊有自己的 GLB（不是程式模型、也不是暫用另一側的檔案）才能改原點
+  canKeep(slot) {
+    return this.ws.glbSlots.has(slot) && !this.ws.store.source(slot).fallback;
+  }
+  // 存檔中的連接點值（不含拖曳中的畫面）：瀏覽器暫存＞內建＞預設
+  storedVal(s) {
+    return this.ovOf(s) || this.ws.defaultConn(s.slot, s.name);
+  }
+  // 槽位 GLB 目前的原點節點矩陣（glTF）；沒有原點節點時為單位矩陣
+  originOf(slot) {
+    const src = this.ws.store.source(slot);
+    const a = src.kind === 'glb' ? readOrigin(src.buf) : null;
+    return a ? new THREE.Matrix4().fromArray(a) : new THREE.Matrix4();
+  }
+  // 一次修改要寫入的所有項目：list＝[{ s, ov, keep }]（keep 未指定時依「只動關節」設定）。
+  // 只動關節時，連接點從 v0 改成 v1，子區塊的 D＝M1⁻¹·M0（靜止姿勢下子區塊位置不變）：
+  // 子區塊的原點（GLB 原點節點）與子區塊自己的連接點都套用 D
+  plan(list) {
+    const items = [];
+    for (const { s, ov, keep } of list) {
+      items.push({ s, before: this.ovOf(s), after: ov });
+      if (!(keep === undefined ? this.settings.keep : keep) || s.name === 'ground') continue;
+      const m = this.mark(s);
+      const child = m && this.childSlot(m);
+      if (!child || !this.canKeep(child)) continue;
+      const D = matOf(ov || this.ws.defaultConn(s.slot, s.name))
+        .invert()
+        .multiply(matOf(this.storedVal(s)));
+      for (const cm of this.marks) {
+        if (cm.slot !== child) continue;
+        const cs = { slot: child, name: cm.name };
+        items.push({
+          s: cs,
+          before: this.ovOf(cs),
+          after: valOf(D.clone().multiply(matOf(this.storedVal(cs)))),
+        });
+      }
+      const W0 = this.originOf(child);
+      items.push({
+        pivot: child,
+        before: W0.toArray(),
+        after: FLIP.clone().multiply(D).multiply(FLIP).multiply(W0).toArray(),
+      });
+    }
+    return items;
+  }
+  // 畫面上的區塊換成原點矩陣 W（glTF）：場景根部的變換＝F·W·W0⁻¹·F（W0＝建立畫面時檔案裡的原點）
+  setPivotLive(slot, arr) {
+    const obj = this.rig && this.rig.pieces[slot];
+    if (!obj) return;
+    const W = new THREE.Matrix4().fromArray(arr);
+    const R = FLIP.clone()
+      .multiply(W)
+      .multiply((this.origin0[slot] || new THREE.Matrix4()).clone().invert())
+      .multiply(FLIP);
+    R.decompose(obj.position, obj.quaternion, obj.scale);
+    this.dirty();
+  }
+  // 把原點寫回槽位的 GLB（只改 JSON 區塊；內建 GLB 會存成瀏覽器暫存的複本）
+  async applyPivot(slot, arr) {
+    this.setPivotLive(slot, arr);
+    const store = this.ws.store;
+    const src = store.source(slot);
+    if (src.kind !== 'glb') return;
+    const rec = store.local.get(slot);
+    await store.putBuf(
+      slot,
+      rec ? rec.name : src.name.split('/').pop(),
+      writeOrigin(src.buf, arr),
+      rec && rec.orig ? rec.orig : null,
+    );
+    this.savedSlots.add(slot);
+  }
+  applyItem(i, val) {
+    return i.pivot ? this.applyPivot(i.pivot, val) : this.applyOv(i.s, val);
+  }
+  // 拖曳中的即時預覽（不寫入）
+  preview(list) {
+    for (const i of this.plan(list))
+      if (i.pivot) this.setPivotLive(i.pivot, i.after);
+      else this.setConn(i.s, i.after || this.ws.defaultConn(i.s.slot, i.s.name));
+  }
+  // 一次修改：list＝[{ s, ov, keep }]；記錄復原（mergeKey 相同且間隔很短的連續修改合併成一步，例如方向鍵、打字）
   async commit(list, mergeKey) {
-    const items = list.map(({ s, ov }) => ({ s, before: this.ovOf(s), after: ov }));
+    const items = this.plan(list);
     if (items.every((i) => JSON.stringify(i.before) === JSON.stringify(i.after))) {
-      for (const i of items) this.setConn(i.s, i.after || this.ws.defaultConn(i.s.slot, i.s.name));
+      for (const i of items)
+        if (i.pivot) this.setPivotLive(i.pivot, i.after);
+        else this.setConn(i.s, i.after || this.ws.defaultConn(i.s.slot, i.s.name));
       return;
     }
     const last = this.undo[this.undo.length - 1];
@@ -484,46 +621,53 @@ export class WsEditor {
     } else this.undo.push({ key: mergeKey || null, t: now, items });
     if (this.undo.length > 200) this.undo.shift();
     this.redo = [];
-    for (const i of items) await this.applyOv(i.s, i.after);
+    for (const i of items) await this.applyItem(i, i.after);
     this.changed();
   }
   async step(back) {
     const e = (back ? this.undo : this.redo).pop();
     if (!e) return this.ws.toast(back ? '沒有可以復原的修改' : '沒有可以重做的修改', true);
     (back ? this.redo : this.undo).push(e);
-    for (const i of e.items) await this.applyOv(i.s, back ? i.before : i.after);
+    for (const i of e.items) await this.applyItem(i, back ? i.before : i.after);
     this.changed();
   }
   changed() {
+    refreshGround(this.rig);
     this.writeDetail();
     this.renderUndo();
     clearTimeout(this.timers.notify);
-    this.timers.notify = setTimeout(() => this.ws.onJoints && this.ws.onJoints(), 300);
+    this.timers.notify = setTimeout(() => {
+      if (this.ws.onJoints) this.ws.onJoints();
+      for (const slot of this.savedSlots) if (this.ws.onSaved) this.ws.onSaved(slot);
+      this.savedSlots.clear();
+    }, 300);
   }
   fromProxy() {
-    if (!this.sel || !this.sel.name) return;
+    const t = this.target();
+    if (!t) return;
     const q = this.proxy;
     const val = {
       p: [q.position.x, q.position.y, q.position.z].map((v) => Math.round(v * 1000) / 1000),
       r: [q.rotation.x, q.rotation.y, q.rotation.z].map((v) => Math.round((v / D2R) * 100) / 100),
     };
-    for (const { s, ov } of this.withMirror([{ s: this.sel, ov: val }])) this.setConn(s, ov);
+    this.preview(this.withMirror([{ s: t.s, ov: val, keep: t.keep }]));
     this.writeDetail(val);
   }
   commitDrag() {
-    const s = this.sel;
-    if (!s || !s.name) return;
-    this.commit(this.withMirror([{ s, ov: this.current(s) }]));
+    const t = this.target();
+    if (!t) return;
+    this.commit(this.withMirror([{ s: t.s, ov: this.current(t.s), keep: t.keep }]));
   }
   // 方向鍵微調（glTF 軸）：←→ X、↑↓ Y、PageUp／PageDown Z；旋轉模式改成繞該軸轉
   nudge(axis, dir, big) {
-    const s = this.sel;
-    if (!s || !s.name) return;
+    const t = this.target();
+    if (!t) return;
+    const s = t.s;
     const v = this.valueOf(s);
     const st = this.settings;
     if (this.mode === 'rotate') v.r[axis] = round(v.r[axis] + dir * (big ? st.rotBig : st.rot), 100);
     else v.p[axis] = round(v.p[axis] + (dir * (big ? st.moveBig : st.move)) / 100, 1000);
-    this.commit(this.withMirror([{ s, ov: v }]), 'key|' + s.slot + s.name);
+    this.commit(this.withMirror([{ s, ov: v, keep: t.keep }]), 'key|' + s.slot + s.name);
   }
   // 把目前這一側的值（鏡像後）複製到另一側
   copyToOther() {
@@ -554,22 +698,51 @@ export class WsEditor {
     if (!s.name) {
       const own = this.marks.filter((m) => m.slot === s.slot);
       const parent = this.parentMark(s.slot);
+      const g = this.rig && this.rig.ground;
+      const isBase = g && g.base === s.slot;
       box.innerHTML =
         `<div class="wsDh"><b>${escHtml(label(s.slot))}</b><span class="dim small">${escHtml(s.slot)}</span></div>` +
         (parent
-          ? `<div class="small">接在：<button class="link" data-slot="${parent.slot}" data-n="${parent.name}">${escHtml(label(parent.slot))}的${escHtml(CONN_NAMES[parent.name] || parent.name)}</button></div>`
+          ? `<div class="small">接在：<button class="link" data-slot="${parent.slot}" data-n="${parent.name}">${escHtml(label(parent.slot))}的${escHtml(CONN_NAMES[parent.name] || parent.name)}</button></div>` +
+            `<div class="small dim">拖曳箭頭（或方向鍵）移動整個零件，下游的零件一起移動（改的是${escHtml(CONN_NAMES[parent.name] || parent.name)}連接點）</div>`
           : `<div class="small dim">機體根部（地面）</div>`) +
         (own.length
           ? `<div class="small">此區塊的連接點：${own.map((m) => `<button class="link" data-slot="${m.slot}" data-n="${m.name}">${escHtml(CONN_NAMES[m.name] || m.name)}</button>`).join('')}</div>`
-          : `<div class="small dim">此區塊沒有連接點</div>`);
+          : `<div class="small dim">此區塊沒有連接點</div>`) +
+        (isBase
+          ? `<div class="wsGround"><div class="small">自動貼地：<span class="gAuto"></span></div>` +
+            `<div class="wsDf"><label class="small">離地微調 <input type="number" step="0.5" id="wsGroundFine"> cm</label>` +
+            `<button data-act="greset">重設</button></div></div>`
+          : '');
+      if (isBase) {
+        $('wsGroundFine').onchange = () => {
+          const cm = parseFloat($('wsGroundFine').value);
+          if (!Number.isFinite(cm)) return;
+          const y = Math.round(cm * 10) / 1000;
+          this.commit([
+            { s: { slot: s.slot, name: 'ground' }, ov: y ? { p: [0, y, 0], r: [0, 0, 0] } : null },
+          ]);
+        };
+        box.querySelector('[data-act=greset]').onclick = () =>
+          this.commit([{ s: { slot: s.slot, name: 'ground' }, ov: null }]);
+        this.writeDetail();
+      }
     } else {
       const m = this.mark(s);
       const child = m && this.childSlot(m);
+      const keepNote = !child
+        ? ''
+        : !this.settings.keep
+          ? `零件跟著動：${label(child)}與下游的零件一起移動`
+          : this.canKeep(child)
+            ? `只動關節：${label(child)}不動，只改轉軸（原點自動寫回它的 GLB）`
+            : `${label(child)}是程式模型，不能改原點：關節移動時零件會跟著動`;
       box.innerHTML =
         `<div class="wsDh"><b>${escHtml(CONN_NAMES[s.name] || s.name)}</b><span class="dim small">${escHtml(label(s.slot))}・${escHtml(s.slot)}</span></div>` +
         (child
           ? `<div class="small">接在這裡：<button class="link" data-slot="${child}">${escHtml(label(child))}</button></div>`
           : '') +
+        (keepNote ? `<div class="small keepNote">${escHtml(keepNote)}</div>` : '') +
         `<div class="small warnTxt">${escHtml(this.impactText(s.slot))}</div>` +
         `<div class="jgrid"><span class="dim">位置 m</span>` +
         FIELDS.slice(0, 3)
@@ -593,9 +766,22 @@ export class WsEditor {
   }
   writeDetail() {
     const s = this.sel;
-    if (!s || !s.name) return;
-    const v = this.current(s);
+    if (!s) return;
     const box = $('wsDetail');
+    if (!s.name) {
+      // 腿部根區塊：自動貼地的位移與離地微調
+      const g = this.rig && this.rig.ground;
+      const a = box.querySelector('.gAuto');
+      if (!g || !a) return;
+      a.textContent = g.auto
+        ? `${g.auto > 0 ? '上移' : '下移'} ${Math.abs(g.auto * 100).toFixed(1)} cm（腿的最低點和程式模型同高）`
+        : '不需要位移';
+      const fi = $('wsGroundFine');
+      if (document.activeElement !== fi) fi.value = Math.round(g.fine * 1000) / 10;
+      box.querySelector('[data-act=greset]').disabled = !g.fine;
+      return;
+    }
+    const v = this.current(s);
     for (const inp of box.querySelectorAll('input')) {
       if (document.activeElement === inp || !v) continue;
       inp.value = v[inp.dataset.k][+inp.dataset.i];

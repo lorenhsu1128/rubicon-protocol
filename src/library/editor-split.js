@@ -9,6 +9,7 @@ import { PARTS, START_ASM } from '../data/parts.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { budgetFor } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
+import { gameToGltf } from '../render/mech-joints.js';
 import { CONN_NAMES, PIECE_NAMES, SIDE_NAMES, buildMech, mechPieces } from '../render/mech-model.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { DROP, NONE, buildSoup, centroid, cutSoup, filterSoup, pieceMeshes, triTotal } from './editor-cut.js';
@@ -48,6 +49,8 @@ export class SplitTool {
     this.pose = {}; // 槽位 → [x, y, z]°（加在快速姿勢之上）
     this.boxAdj = {}; // 槽位 → { size: [寬, 高, 深], off: [x, y, z] }（區塊區域座標，相對程式模型外框的中心）
     this.expand = 0; // 所有範圍框放大的比例
+    // 拖曳過的關節點（只動關節：區塊與範圍框不動）：連接點群組的區域位置、區塊在關節群組裡的位移（原點偏移）
+    this.jadj = { mounts: {}, pivots: {} };
     this.rig = null;
     this.list = []; // [{ info, slot, color }]，索引就是三角形湯裡的區塊編號
     this.cur = 0; // 選中的區塊（框選的目標、姿勢數值）
@@ -246,8 +249,9 @@ export class SplitTool {
         const o = this.rig.pieces[x.slot];
         return o && o.parent && o.parent.parent === m.node;
       });
-      return { mk, m, owner, child };
+      return { mk, m, owner, child, key: m.slot + '|' + m.name, p0: m.node.position.clone() };
     });
+    this.jadj = { mounts: {}, pivots: {} };
     this.ed.scene.add(this.rig.group);
     this.applyPose();
   }
@@ -373,7 +377,32 @@ export class SplitTool {
     $('edView').addEventListener(
       'pointerdown',
       (e) => {
-        if (!this.hg.visible || e.button !== 0) return;
+        if (e.button !== 0) return;
+        // 關節點（小菱形）：在面向鏡頭、通過關節的平面上拖曳
+        if (this.active && !this.cutting && this.rig) {
+          const ms = this.jointMarks.filter((j) => j.mk.visible && this.canDragJoint(j));
+          const jh = this.ray(e).intersectObjects(
+            ms.map((j) => j.mk.children[0]),
+            false,
+          )[0];
+          if (jh) {
+            e.stopPropagation();
+            e.preventDefault();
+            const j = ms.find((x) => x.mk.children[0] === jh.object);
+            ed.pushUndo();
+            const P0 = j.m.node.getWorldPosition(new THREE.Vector3());
+            const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+              ed.camera.getWorldDirection(new THREE.Vector3()),
+              P0,
+            );
+            const at = this.ray(e).ray.intersectPlane(plane, new THREE.Vector3()) || P0.clone();
+            this.jdrag = { j, plane, grab: at.sub(P0) };
+            if (this.cur !== j.child) this.select(j.child);
+            ed.controls.enabled = false;
+            return;
+          }
+        }
+        if (!this.hg.visible) return;
         const hit = this.ray(e).intersectObjects(this.hg.children, false)[0];
         if (!hit) return;
         e.stopPropagation();
@@ -401,6 +430,11 @@ export class SplitTool {
       true,
     );
     addEventListener('pointermove', (e) => {
+      if (this.jdrag) {
+        const hitW = this.ray(e).ray.intersectPlane(this.jdrag.plane, new THREE.Vector3());
+        if (hitW) this.moveJoint(this.jdrag.j, hitW.sub(this.jdrag.grab));
+        return;
+      }
       const g = this.drag;
       if (!g) return;
       const ray = this.ray(e).ray;
@@ -434,11 +468,73 @@ export class SplitTool {
       this.setBoxFromEff(g.slot, g.d, box);
     });
     addEventListener('pointerup', () => {
+      if (this.jdrag) {
+        this.jdrag = null;
+        ed.controls.enabled = !this.boxMode && !ed.mat.boxMode;
+        this.renderJoints();
+        return;
+      }
       if (!this.drag) return;
       this.drag = null;
       ed.controls.enabled = !this.boxMode && !ed.mat.boxMode;
       this.renderBoxEdit();
     });
+  }
+  // ---------- 關節點：拖曳時區塊與範圍框不動，只改轉軸 ----------
+  // 子區塊有勾選（會存成 GLB、原點跟著改）才能拖曳
+  canDragJoint(j) {
+    return j.child >= 0 && !this.off.has(this.list[j.child].slot);
+  }
+  // 把關節 j 移到世界座標 P：連接點群組移過去，子區塊與它自己的連接點在關節群組裡反向位移，所以看起來不動
+  moveJoint(j, P) {
+    const node = j.m.node;
+    const old = node.getWorldPosition(new THREE.Vector3());
+    node.position.copy(node.parent.worldToLocal(P.clone()));
+    node.updateMatrixWorld(true);
+    const cslot = this.list[j.child].slot;
+    const obj = this.rig.pieces[cslot];
+    const q = obj.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const dl = P.clone().sub(old).applyQuaternion(q);
+    obj.position.sub(dl);
+    this.jadj.pivots[cslot] = obj.position.toArray();
+    this.jadj.mounts[j.key] = node.position.toArray();
+    for (const x of this.jointMarks)
+      if (x.m.slot === cslot) {
+        x.m.node.position.sub(dl);
+        this.jadj.mounts[x.key] = x.m.node.position.toArray();
+      }
+    this.rig.group.updateMatrixWorld(true);
+    this.pieceData();
+  }
+  // 依 jadj 擺回關節點與區塊位移（復原、重設時）
+  applyJointAdj() {
+    if (!this.rig) return;
+    for (const j of this.jointMarks) {
+      const a = this.jadj.mounts[j.key];
+      if (a) j.m.node.position.fromArray(a);
+      else j.m.node.position.copy(j.p0);
+    }
+    for (const x of this.list) {
+      const obj = this.rig.pieces[x.slot];
+      if (!obj) continue;
+      const a = this.jadj.pivots[x.slot];
+      if (a) obj.position.fromArray(a);
+      else obj.position.set(0, 0, 0);
+    }
+    this.rig.group.updateMatrixWorld(true);
+    this.pieceData();
+    this.renderJoints();
+  }
+  // 位置和建立時不同的連接點（存檔時寫進關節設定）
+  movedJoints() {
+    return this.jointMarks.filter((j) => j.m.node.position.distanceTo(j.p0) > 1e-5);
+  }
+  renderJoints() {
+    const el = $('edJointInfo');
+    if (!el) return;
+    const n = this.movedJoints().length;
+    el.textContent = n ? `已移動 ${n} 個關節點（存檔時一起寫進關節設定）` : '';
+    if ($('edJointReset')) $('edJointReset').disabled = !n;
   }
   // 由範圍框（含全部放大）反推調整值
   setBoxFromEff(slot, d, box) {
@@ -460,14 +556,19 @@ export class SplitTool {
   }
   // 復原（編輯器的快照）：範圍框調整與放大比例
   snapBoxes() {
-    return { adj: JSON.parse(JSON.stringify(this.boxAdj)), expand: this.expand };
+    return {
+      adj: JSON.parse(JSON.stringify(this.boxAdj)),
+      expand: this.expand,
+      jadj: JSON.parse(JSON.stringify(this.jadj)),
+    };
   }
   restoreBoxes(b) {
     if (!b) return;
     this.boxAdj = JSON.parse(JSON.stringify(b.adj));
     this.expand = b.expand;
+    if (b.jadj) this.jadj = JSON.parse(JSON.stringify(b.jadj));
     if (this.rig && !this.cutting) {
-      this.pieceData();
+      this.applyJointAdj();
       this.renderBoxEdit();
       if ($('edExpand')) {
         $('edExpand').value = Math.round(this.expand * 100);
@@ -505,20 +606,23 @@ export class SplitTool {
     for (const i of this.included()) {
       const d = this.data[i];
       if (!d) continue;
-      // 區塊的頂點（區塊區域座標）；頂點可能有數十萬個，用迴圈逐點計算，不展開成函式參數（會堆疊溢位）
+      // 以關節群組（原點＝旋轉中心，拖曳過關節點時與程式模型的原點不同）為座標系
+      const J = d.obj.parent;
+      const Aj = J.matrixWorld.clone().invert().multiply(this.ed.frame.matrixWorld);
+      // 區塊的頂點；頂點可能有數十萬個，用迴圈逐點計算，不展開成函式參數（會堆疊溢位）
       const eachPt = (fn) => {
         for (const s of this.soup) {
           const a = s.attrs.position.arr;
           for (let t = 0; t < s.tri.length; t++)
             if (s.tri[t] === i)
-              for (let q = 0; q < 3; q++) fn(v.fromArray(a, t * 9 + q * 3).applyMatrix4(d.A));
+              for (let q = 0; q < 3; q++) fn(v.fromArray(a, t * 9 + q * 3).applyMatrix4(Aj));
         }
       };
       const gbox = new THREE.Box3();
       eachPt((p) => gbox.expandByPoint(p));
       if (gbox.isEmpty()) continue;
       const name = label(this.list[i].info);
-      const inv = d.obj.matrixWorld.clone().invert();
+      const inv = J.matrixWorld.clone().invert();
       const corners = [];
       for (let k = 0; k < 8; k++)
         corners.push(
@@ -526,7 +630,7 @@ export class SplitTool {
             k & 1 ? d.pbox.max.x : d.pbox.min.x,
             k & 2 ? d.pbox.max.y : d.pbox.min.y,
             k & 4 ? d.pbox.max.z : d.pbox.min.z,
-          ),
+          ).add(d.obj.position),
         );
       const kids = this.jointMarks.filter((j) => j.owner === i && j.child >= 0);
       if (kids.length) {
@@ -623,8 +727,14 @@ export class SplitTool {
     let open = 0;
     idx.forEach((i, k) => {
       const planes = this.framePlanes(i);
+      // 重疊平面只切兩框重疊範圍內的三角形（平面是無限大的，不限範圍時長形的區塊——例如步槍——
+      // 遠端穿過別的框的地方也會被切掉）
       idx.forEach((j, kk) => {
-        if (j !== i && aabb[k].intersectsBox(aabb[kk])) planes.push(this.pairPlane(i, j));
+        if (j !== i && aabb[k].intersectsBox(aabb[kk]))
+          planes.push({
+            ...this.pairPlane(i, j),
+            region: aabb[k].clone().intersect(aabb[kk]).expandByScalar(0.01),
+          });
       });
       let sub = filterSoup(
         soup0,
@@ -638,9 +748,19 @@ export class SplitTool {
       );
       for (const pl of planes) {
         if (!sub.length) break;
+        // 範圍外的三角形標成 2：cutSoup 只切 A（0）、B（1），其他原樣保留
+        if (pl.region)
+          for (const s of sub) {
+            const a = s.attrs.position.arr;
+            for (let t = 0; t < s.tri.length; t++) {
+              tb.makeEmpty();
+              for (let q = 0; q < 3; q++) tb.expandByPoint(v.fromArray(a, t * 9 + q * 3));
+              s.tri[t] = tb.intersectsBox(pl.region) ? 0 : 2;
+            }
+          }
         const res = cutSoup(sub, { p: pl.p, n: pl.n, r: Infinity, A: 0, B: 1 });
         open += res.open;
-        sub = filterSoup(res.soup, (s, t) => s.tri[t] === 0, 0);
+        sub = filterSoup(res.soup, (s, t) => s.tri[t] !== 1, 0);
       }
       for (const s of sub) s.tri.fill(i);
       out.push(...sub);
@@ -904,9 +1024,11 @@ export class SplitTool {
     if (!todo.length) return ed.toast('沒有分配到任何三角形的區塊', true);
     const left = n.get(NONE) || 0;
     const names = todo.map((i) => label(this.list[i].info)).join('、');
+    const moved = this.movedJoints().length;
     if (
       !confirm(
         `將覆寫 ${todo.length} 個槽位的瀏覽器暫存 GLB：\n${names}` +
+          (moved ? `\n\n並把移動過的 ${moved} 個關節點寫進關節設定。` : '') +
           (left ? `\n\n還有 ${left.toLocaleString()} 個三角形未分配，不會存進任何區塊。` : '') +
           '\n\n確定存檔？',
       )
@@ -930,8 +1052,10 @@ export class SplitTool {
       this.saving = `存檔中 ${k + 1}／${todo.length}：${label(this.list[i].info)}…`;
       this.renderSaving();
       await new Promise((r) => setTimeout(r, 0));
+      // 存成關節群組（原點＝旋轉中心）的座標：拖曳過關節點時，原點就是新的關節位置
       const d = this.data[i];
-      const M = FLIP.clone().multiply(d.A);
+      const Aj = d.obj.parent.matrixWorld.clone().invert().multiply(ed.frame.matrixWorld);
+      const M = FLIP.clone().multiply(Aj);
       const root = new THREE.Group();
       root.name = slot.replace(/\//g, '_');
       const parts = pieceMeshes(this.soup, i, M);
@@ -961,7 +1085,16 @@ export class SplitTool {
         for (const pm of parts) pm.geometry.dispose();
       }
     }
-    ed.toast(`已存 ${done} 個區塊到各自的槽位${ed.store.ok ? '' : '（瀏覽器無法保存，重新整理後會消失）'}`);
+    // 移動過的關節點：連接點（父區塊上）寫進關節設定；子區塊的新原點已在上面存進 GLB
+    const moved = this.movedJoints();
+    for (const j of moved)
+      await ed.store.setJoint(j.m.slot, j.m.name, gameToGltf(j.m.node.position, j.m.node.rotation));
+    if (moved.length && ed.onSaved) ed.onSaved(moved[0].m.slot);
+    ed.toast(
+      `已存 ${done} 個區塊到各自的槽位` +
+        (moved.length ? `，關節設定 ${moved.length} 個` : '') +
+        (ed.store.ok ? '' : '（瀏覽器無法保存，重新整理後會消失）'),
+    );
   }
 
   renderSaving() {
@@ -998,9 +1131,12 @@ export class SplitTool {
     if (!this.cutting) {
       R.innerHTML =
         `<h3>拆分：範圍框</h3>` +
-        `<div class="dim small">左側勾選要拆的區塊，用下方的移動、旋轉、尺寸工具把 GLB 的對應部位放進同色的範圍框；框外的模型拆分時會移除。點範圍框或左側清單選取區塊，拖曳框上的白色控制點調整該面、黃色控制點移動整個框；小菱形是關節位置，GLB 的關節請對準它。</div>` +
+        `<div class="dim small">左側勾選要拆的區塊，用下方的移動、旋轉、尺寸工具把 GLB 的對應部位放進同色的範圍框；框外的模型拆分時會移除。點範圍框或左側清單選取區塊，拖曳框上的白色控制點調整該面、黃色控制點移動整個框。</div>` +
         `<label class="edSlider">全部放大<input type="range" min="0" max="100" step="1" id="edExpand" value="${Math.round(this.expand * 100)}"><span>${Math.round(this.expand * 100)}%</span></label>` +
         `<div id="edBoxEdit"></div>` +
+        `<h3>關節點</h3>` +
+        `<div class="dim small">拖曳小菱形，把關節移到 GLB 實際的關節（轉軸）上：區塊與範圍框不動，只改轉軸。存檔時寫進關節設定，之後在組裝調整頁也能再改。</div>` +
+        `<div class="edRow"><span id="edJointInfo" class="small"></span><button id="edJointReset">重設關節</button></div>` +
         `<h3>姿勢</h3>` +
         QUICK.map(
           ([k, n, a, b]) =>
@@ -1024,6 +1160,12 @@ export class SplitTool {
         this.render();
       };
       $('edSpStart').onclick = () => this.start();
+      $('edJointReset').onclick = () => {
+        this.ed.pushUndo();
+        this.jadj = { mounts: {}, pivots: {} };
+        this.applyJointAdj();
+      };
+      this.renderJoints();
       $('edExpand').oninput = () => {
         this.ed.pushUndo('expand');
         this.expand = +$('edExpand').value / 100;
@@ -1051,7 +1193,7 @@ export class SplitTool {
     R.innerHTML =
       `<h3>拆分：微調</h3>` +
       (this.warns.length
-        ? `<div class="edWarnBox">${this.warns.map((w) => `<div class="edWarn">⚠ ${escHtml(w)}</div>`).join('')}<div class="dim small">可回到對齊調整，或拆分後到「組裝調整」移動連接點。</div></div>`
+        ? `<div class="edWarnBox">${this.warns.map((w) => `<div class="edWarn">⚠ ${escHtml(w)}</div>`).join('')}<div class="dim small">可回到對齊拖曳關節點到 GLB 的關節上，或存檔後在「組裝調整」移動關節點。</div></div>`
         : `<div class="small ok">✓ 各區塊沿骨頭方向的長度與程式模型相近</div>`) +
       `<div class="dim small">左側點選區塊（或點畫面上的模型）作為框選目標。要改範圍框或模型位置請按「回到對齊」。</div>` +
       `<div class="btns">` +

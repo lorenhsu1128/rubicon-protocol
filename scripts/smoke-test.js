@@ -900,6 +900,26 @@ async function testEditorSplit(browser, base) {
   check(((await page.textContent('#edBoxEdit')) || '').includes('左上臂'), '點畫面上的範圍框即選取該區塊');
   check((await visibleLabels(page)).includes('手肘'), '顯示選中區塊的關節位置（手肘）');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split-boxes.png') });
+  // 拖曳關節點（左膝）：小腿的範圍框不動；復原；再拖一次留到存檔
+  const KNEE = 'ed.split.jointMarks.find((j) => j.key === "legs/l_bp/l_thigh|knee").mk';
+  const shinBox = () =>
+    page.evaluate(() => {
+      const v = window.__glbEditor.split.list.find((x) => x.slot === 'legs/l_bp/l_shin').vis;
+      return v.getWorldPosition(new THREE.Vector3()).toArray();
+    });
+  const sb0 = await shinBox();
+  await dragFrom(page, await screenOf(page, KNEE), 0, -25);
+  const sb1 = await shinBox();
+  const jinfo = async () => ((await page.textContent('#edJointInfo')) || '').trim();
+  check(
+    (await jinfo()).includes('已移動') && sb0.every((v, k) => Math.abs(v - sb1[k]) < 1e-4),
+    `拖曳關節點：小腿的範圍框不動（${await jinfo()}）`,
+  );
+  await page.click('#edSplitRight h3');
+  await page.keyboard.press('Control+z');
+  await wait(300);
+  check((await jinfo()) === '', '復原關節點的拖曳');
+  await dragFrom(page, await screenOf(page, KNEE), 0, -25);
   await page.click('#edSpStart');
   await wait(2500);
   const t1 = await lastToast();
@@ -975,6 +995,13 @@ async function testEditorSplit(browser, base) {
       { timeout: 30000 },
     )
     .catch(() => {});
+  check(
+    await page.evaluate(() => {
+      const j = window.__glbEditor.store.joints;
+      return !!(j['legs/l_bp/l_thigh'] && j['legs/l_bp/l_thigh'].knee && j['legs/l_bp/l_shin'].ankle);
+    }),
+    '拖曳過的關節點存進關節設定（膝與小腿的腳踝）',
+  );
   await page.goto(base + 'model-library.html#mech/player');
   await page.reload();
   await page.waitForSelector('#inspect:not([hidden])');
@@ -990,7 +1017,79 @@ async function testEditorSplit(browser, base) {
     );
   check(n5, '只存勾選的 5 個區塊，其他區塊維持程式模型');
   await page.screenshot({ path: path.join(SHOT_DIR, 'editor-split-mech.png') });
+  await testWorkshopKeep(page, base);
   await ctx.close();
+}
+
+// 組裝調整的「只動關節」（用拆分存下的 GLB 區塊）：移動手肘時前臂不動、原點寫回 GLB、重建後一致、復原；腿部自動貼地與離地微調
+async function testWorkshopKeep(page, base) {
+  await page.goto(base + 'model-library.html?test');
+  await page.waitForSelector('.cell');
+  await page.click('#tabs button[data-c="workshop"]');
+  await page.waitForSelector('#wsTree .wsConn');
+  await wait(2000);
+  const ELBOW = '#wsTree .wsConn[data-slot="arms/a_std/l_upper"][data-n="elbow"]';
+  const foreAt = () =>
+    page.evaluate(() =>
+      new THREE.Box3()
+        .setFromObject(window.__workshop.rig.pieces['arms/a_std/l_fore'])
+        .getCenter(new THREE.Vector3())
+        .toArray(),
+    );
+  const near = (a, b, tol = 0.005) => a.every((v, k) => Math.abs(v - b[k]) < tol);
+  const hasOrigin = () =>
+    page.evaluate(() => {
+      const src = window.__workshop.store.source('arms/a_std/l_fore');
+      const len = new DataView(src.buf).getUint32(12, true);
+      return new TextDecoder().decode(new Uint8Array(src.buf, 20, len)).includes('rubicon_origin');
+    });
+  await page.click(ELBOW);
+  await wait(300);
+  check(((await page.textContent('#wsDetail')) || '').includes('只動關節'), '關節點預設「只動關節」');
+  const f0 = await foreAt();
+  const y0 = +(await page.inputValue('#wsDetail input[data-k="p"][data-i="1"]'));
+  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', String(+(y0 + 0.1).toFixed(3)));
+  await wait(1200);
+  const f1 = await foreAt();
+  check(
+    near(f0, f1) && (await hasOrigin()),
+    `移動手肘時前臂不動，原點寫回前臂的 GLB（${f0.map((v) => v.toFixed(3))} → ${f1.map((v) => v.toFixed(3))}）`,
+  );
+  check(
+    await page.evaluate(() => !!(window.__workshop.store.joints['arms/a_std/l_fore'] || {}).wrist),
+    '前臂自己的手腕連接點一起調整',
+  );
+  await page.evaluate(() => window.__workshop.rebuild(false));
+  await wait(1500);
+  check(near(f0, await foreAt()), '重新組裝後前臂仍在原位（GLB 原點與連接點一致）');
+  await page.click('#wsRight h3');
+  await page.keyboard.press('Control+z');
+  await wait(1200);
+  check(
+    near(f0, await foreAt()) &&
+      (await page.evaluate(() => !(window.__workshop.store.joints['arms/a_std/l_fore'] || {}).wrist)),
+    '復原只動關節（連接點與原點一起還原）',
+  );
+  // 腿部有 GLB：自動貼地；離地微調
+  await page.click('#wsTree .wsNode[data-slot="legs/l_bp/pelvis"]');
+  await wait(300);
+  check(((await page.textContent('#wsDetail')) || '').includes('自動貼地'), '腿部根區塊顯示自動貼地');
+  const lift0 = await page.evaluate(() => window.__workshop.rig.lift.position.y);
+  await page.fill('#wsGroundFine', '5');
+  await page.press('#wsGroundFine', 'Enter');
+  await wait(600);
+  const lift1 = await page.evaluate(() => window.__workshop.rig.lift.position.y);
+  check(
+    Math.abs(lift1 - lift0 - 0.05) < 1e-3,
+    `離地微調 5 cm（${lift0.toFixed(3)} → ${lift1.toFixed(3)} m）`,
+  );
+  await page.click('#wsDetail [data-act="greset"]');
+  await wait(600);
+  check(
+    Math.abs((await page.evaluate(() => window.__workshop.rig.lift.position.y)) - lift0) < 1e-3,
+    '重設離地微調',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-keep.png') });
 }
 
 // GLB 編輯的材質：AI 風格模型（一個材質、一張多色貼圖）→ 依顏色分群 → 套用色槽 → 框選改色槽 → 復原 → 存檔

@@ -217,11 +217,16 @@ async function main() {
       for (const e of MODEL_CATALOG) if (e.cat === 'mech') grid.refresh(e.id);
       applyFilter();
     },
+    onSaved: (id) => {
+      refreshRelated(id);
+      applyFilter();
+    },
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     },
   });
+  if (/[?&]test\b/.test(location.search)) window.__workshop = workshop;
   $('search').oninput = (e) => {
     state.q = e.target.value;
     applyFilter();
