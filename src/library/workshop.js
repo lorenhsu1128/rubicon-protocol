@@ -125,6 +125,8 @@ export class Workshop {
     this.controls.enableDamping = true;
     this.setupUi();
     this.edit = new WsEditor(this);
+    const set = this.store.curSet();
+    if (set && set.asm) this.asm = sanitizeAsm(set.asm);
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
   }
@@ -140,6 +142,15 @@ export class Workshop {
     $('workshop').hidden = true;
     this.open_ = false;
     if (this.onClose) this.onClose();
+  }
+  // 切換模型組：改用它的零件組合（沒有記錄時沿用目前的），復原紀錄清空（連接點與原點屬於原本的模型組）
+  useSet() {
+    const set = this.store.curSet();
+    if (set && set.asm) this.asm = sanitizeAsm(set.asm);
+    this.edit.undo = [];
+    this.edit.redo = [];
+    this.edit.renderUndo();
+    if (this.open_) this.rebuild(true);
   }
 
   // ---------- 介面 ----------
@@ -276,6 +287,7 @@ export class Workshop {
   async rebuild(refit) {
     const tok = ++this.tok;
     this.renderParts();
+    this.store.setAsm(this.asm); // 模型組記住目前的零件組合
     const { rig, glbSlots, errors } = await buildMechWithGlb(
       this.asm,
       PALETTES.player,
@@ -301,7 +313,7 @@ export class Workshop {
       this.fitted = true;
     }
     $('wsInfo').textContent =
-      `區塊 ${Object.keys(rig.pieces).length} 塊・GLB ${glbSlots.length} 塊・連接點 ${rig.mounts.length} 個` +
+      `模型組「${this.store.curSet().name}」・區塊 ${Object.keys(rig.pieces).length} 塊・GLB ${glbSlots.length} 塊・連接點 ${rig.mounts.length} 個` +
       (errors.length ? `・GLB 讀取失敗 ${errors.length} 塊` : '');
     this.renderTree();
     this.edit.attach(rig);

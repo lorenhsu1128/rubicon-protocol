@@ -136,6 +136,7 @@ Object.assign(Game.prototype, {
           `<label title="${escHtml(g.note)}"><input type="checkbox" data-g="${g.id}"${S.groups[g.id] !== false ? ' checked' : ''}${S.on ? '' : ' disabled'} /> ${g.name}<span class="dim">（${cnt(g.id)}）</span></label>`,
       ).join('') +
       `</div>` +
+      this.lmSetRow() +
       `<div class="krow"><span class="dim" style="font-size:12px">狀態：${escHtml(this.lmSummary())}</span><button id="lmReload"${S.on ? '' : ' disabled'}>重新讀取</button></div>`;
     if (st && st.on && !st.db)
       html += `<p class="dim" style="font-size:11px">遊戲和模型庫要用同一種方式開啟才讀得到：都從同一個伺服器網址（例如 http://主機/ 與 http://主機/models），或都直接開 HTML 檔。</p>`;
@@ -178,5 +179,28 @@ Object.assign(Game.prototype, {
         this.renderLocalModels();
       };
     $('lmReload').onclick = () => this.lmRefresh();
+    $('lmSet').onchange = (e) => {
+      S.set = e.target.value;
+      LocalModels.saveSettings();
+      this.lmRefresh();
+      this.renderLocalModels();
+    };
+  },
+  // 模型組選單：機甲區塊與武器的 GLB、關節設定用哪一組（模型庫的「模型組」）
+  lmSetRow() {
+    const S = LocalModels.settings;
+    const sets = LocalModels.sets.length
+      ? LocalModels.sets
+      : [{ id: S.set, name: S.set === 'default' ? '預設' : S.set }];
+    const missing = LocalModels.status && LocalModels.status.db && !sets.some((x) => x.id === S.set);
+    const opts =
+      (missing ? `<option value="${escHtml(S.set)}">（模型庫已刪除這個模型組，改用預設）</option>` : '') +
+      sets
+        .map(
+          (x) =>
+            `<option value="${escHtml(x.id)}"${x.id === S.set ? ' selected' : ''}>${escHtml(x.name || x.id)}</option>`,
+        )
+        .join('');
+    return `<div class="krow"><span>模型組</span><label><select id="lmSet"${S.on ? '' : ' disabled'}>${opts}</select> <span class="dim" style="font-size:12px">機甲區塊與武器用這一組的 GLB 與關節設定（全部機甲共用；載具與地圖物件不分模型組）</span></label></div>`;
   },
 });

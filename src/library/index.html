@@ -19,6 +19,36 @@
         <span class="dim" id="count"></span>
       </div>
       <div class="tools">
+        <details id="setMenu">
+          <summary title="機甲區塊與武器的 GLB、關節設定各模型組一份；載具與地圖物件所有模型組共用">
+            模型組：<b id="setCur"></b>
+          </summary>
+          <div class="setPanel">
+            <div id="setList"></div>
+            <div class="row">
+              <input id="setName" placeholder="模型組名稱" />
+              <button id="setRename" title="把目前的模型組改成這個名稱">改名</button>
+            </div>
+            <div class="row">
+              <button id="setNew" title="新增空白模型組（名稱用上面的欄位），零件組合沿用目前的">
+                新增空白
+              </button>
+              <button id="setDup" title="複製目前模型組的 GLB、關節設定與零件組合">複製目前</button>
+              <button id="setDel" class="danger">刪除</button>
+            </div>
+            <div class="row">
+              <button id="setExport" title="匯出成單一檔案（.rubicon-set）：備份、分享，或搬到另一種開啟方式">
+                匯出…
+              </button>
+              <button id="setImport" title="匯入 .rubicon-set，新增成一個模型組">匯入…</button>
+              <input id="setImportFile" type="file" accept=".rubicon-set,.zip" hidden />
+            </div>
+            <p class="dim small">
+              GLB
+              編輯器存檔、拆分、組裝調整的關節與原點都存進目前的模型組；遊戲在設定的「本地模型庫」選擇要用哪一組。
+            </p>
+          </div>
+        </details>
         <input id="search" type="search" placeholder="搜尋名稱或編號…" />
         <label
           >配色

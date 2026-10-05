@@ -6,6 +6,7 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { budgetFor, checkGlb, materialSlot, parseGlb } from '../render/glb.js';
 import { CONN_NAMES, connOf, pieceConns } from '../render/mech-model.js';
 import { CATEGORIES, MODEL_CATALOG } from '../render/model-catalog.js';
+import { setScoped } from '../render/local-models.js';
 import {
   AXES,
   about,
@@ -1133,7 +1134,7 @@ export class GlbEditor {
     if (!mirror) this.dirty = false;
     const target = MODEL_CATALOG.find((x) => x.id === id);
     this.toast(
-      `已存到「${target ? target.name : id}」（${(buf.byteLength / 1024).toFixed(0)} KB${this.store.ok ? '' : '，瀏覽器無法保存，重新整理後會消失'}）`,
+      `已存到「${target ? target.name : id}」（${setScoped(id) ? `模型組「${this.store.curSet().name}」，` : ''}${(buf.byteLength / 1024).toFixed(0)} KB${this.store.ok ? '' : '，瀏覽器無法保存，重新整理後會消失'}）`,
     );
     if (this.onSaved) this.onSaved(id);
     this.renderAll();

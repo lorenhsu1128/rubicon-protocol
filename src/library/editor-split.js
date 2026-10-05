@@ -1091,7 +1091,7 @@ export class SplitTool {
       await ed.store.setJoint(j.m.slot, j.m.name, gameToGltf(j.m.node.position, j.m.node.rotation));
     if (moved.length && ed.onSaved) ed.onSaved(moved[0].m.slot);
     ed.toast(
-      `已存 ${done} 個區塊到各自的槽位` +
+      `已存 ${done} 個區塊到模型組「${ed.store.curSet().name}」` +
         (moved.length ? `，關節設定 ${moved.length} 個` : '') +
         (ed.store.ok ? '' : '（瀏覽器無法保存，重新整理後會消失）'),
     );

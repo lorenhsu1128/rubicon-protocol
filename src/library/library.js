@@ -9,6 +9,8 @@ import { COMPOSE_CATS } from './stage.js';
 import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
 import { GlbEditor } from './editor.js';
+import { SetMenu } from './model-sets.js';
+import { setScoped } from '../render/local-models.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { cat: 'all', q: '', src: '' };
@@ -62,7 +64,15 @@ function refreshRelated(id) {
     if (e.cat === 'mech' || (e.parts && e.parts.includes(id))) grid.refresh(e.id);
 }
 
-let grid, inspector, workshop, editor;
+// 切換模型組：重建機甲區塊、武器與完整機甲的格子，檢視窗與組裝調整頁改用新的模型組
+function onSetSwitch() {
+  for (const e of MODEL_CATALOG) if (e.cat === 'mech' || setScoped(e.id)) grid.refresh(e.id);
+  if (inspector.open_) inspector.rebuild();
+  workshop.useSet();
+  applyFilter();
+}
+
+let grid, inspector, workshop, editor, setMenu;
 function openWorkshop() {
   grid.paused = true;
   history.replaceState(null, '', '#workshop');
@@ -118,6 +128,7 @@ function applyFilter() {
   );
   const glb = MODEL_CATALOG.filter((e) => store.source(e.id).kind === 'glb').length;
   const jn = store.jointCount();
+  if (setMenu) setMenu.render();
   $('count').textContent =
     `顯示 ${n} / 共 ${MODEL_CATALOG.length} 個模型槽・已有 GLB ${glb} 個` + (jn ? `・關節修改 ${jn} 個` : '');
 }
@@ -227,6 +238,11 @@ async function main() {
     },
   });
   if (/[?&]test\b/.test(location.search)) window.__workshop = workshop;
+  setMenu = new SetMenu({ store, toast, onSwitch: onSetSwitch });
+  // 點選單外面時收起
+  addEventListener('pointerdown', (e) => {
+    if ($('setMenu').open && !e.target.closest('#setMenu')) $('setMenu').open = false;
+  });
   $('search').oninput = (e) => {
     state.q = e.target.value;
     applyFilter();

@@ -1747,28 +1747,22 @@ const editSave = (page, fn) =>
     new Function('s', src)(s);
     localStorage.setItem('rubicon_save', JSON.stringify(s));
   }, fn);
-// 本地模型庫：在模型庫頁面直接寫入 IndexedDB（GLB 與關節設定），遊戲單人模式讀取並套用
-async function injectLibrary(page, glbs, joints) {
+// 本地模型庫：在模型庫頁面（已開啟過，資料庫是第 4 版）直接寫入 IndexedDB（GLB 與關節設定）；
+// 機甲區塊與武器寫進模型組 set（預設 default），其他分類寫成共用；遊戲單人模式讀取並套用
+async function injectLibrary(page, glbs, joints, set = 'default') {
   await page.evaluate(
-    ({ glbs, joints }) =>
+    ({ glbs, joints, set }) =>
       new Promise((res, rej) => {
-        const r = indexedDB.open('rubicon-model-library', 3);
-        r.onupgradeneeded = () => {
-          const d = r.result;
-          for (const [n, k] of [
-            ['glb', 'id'],
-            ['joints', 'slot'],
-            ['presets', 'name'],
-          ])
-            if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: k });
-        };
+        const r = indexedDB.open('rubicon-model-library');
         r.onerror = () => rej(r.error);
         r.onsuccess = () => {
           const d = r.result;
-          const t = d.transaction(['glb', 'joints'], 'readwrite');
+          const t = d.transaction(['models', 'setJoints'], 'readwrite');
+          const scoped = (id) => /^(head|core|arms|legs|booster|weapon|back)\//.test(id);
           for (const g of glbs) {
             const buf = new Uint8Array(g.bytes).buffer;
-            t.objectStore('glb').put({
+            t.objectStore('models').put({
+              set: scoped(g.id) ? set : '',
               id: g.id,
               name: g.name,
               size: buf.byteLength,
@@ -1777,7 +1771,7 @@ async function injectLibrary(page, glbs, joints) {
             });
           }
           for (const [slot, conns] of Object.entries(joints || {}))
-            t.objectStore('joints').put({ slot, conns });
+            t.objectStore('setJoints').put({ set, slot, conns });
           t.oncomplete = () => {
             d.close();
             res();
@@ -1785,7 +1779,7 @@ async function injectLibrary(page, glbs, joints) {
           t.onerror = () => rej(t.error);
         };
       }),
-    { glbs, joints },
+    { glbs, joints, set },
   );
 }
 const lmOverlay = (page) =>
@@ -1964,6 +1958,237 @@ async function testLocalModels(browser, base) {
   await ctx.close();
 }
 
+// 模型組：舊版資料庫（第 3 版）遷移成「預設」、新增／切換／複製／改名／刪除、匯出匯入、組裝調整記住零件組合、遊戲選模型組
+async function testModelSets(browser, base) {
+  console.log('模型組：遷移、切換、複製、匯出匯入、遊戲選模型組');
+  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'model-sets');
+  page.on('dialog', (d) => d.accept());
+  // 遊戲頁讀取資料庫時不會建立它；在同來源寫入第 3 版（glb／joints）的舊資料
+  await page.goto(base);
+  await waitVisible(page, 'title');
+  await page.evaluate(
+    ({ fore, rifle }) =>
+      new Promise((res, rej) => {
+        const r = indexedDB.open('rubicon-model-library', 3);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          d.createObjectStore('glb', { keyPath: 'id' });
+          d.createObjectStore('joints', { keyPath: 'slot' });
+          d.createObjectStore('presets', { keyPath: 'name' });
+        };
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => {
+          const d = r.result;
+          const t = d.transaction(['glb', 'joints'], 'readwrite');
+          const put = (id, bytes) => {
+            const buf = new Uint8Array(bytes).buffer;
+            t.objectStore('glb').put({
+              id,
+              name: id.split('/').pop() + '.glb',
+              size: buf.byteLength,
+              buf,
+              t: 1,
+            });
+          };
+          put('arms/a_std/r_fore', fore);
+          put('prop/debris', rifle);
+          t.objectStore('joints').put({
+            slot: 'arms/a_std/r_upper',
+            conns: { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } },
+          });
+          t.oncomplete = () => {
+            d.close();
+            res();
+          };
+          t.onerror = () => rej(t.error);
+        };
+      }),
+    { fore: [...fs.readFileSync(fore)], rifle: [...fs.readFileSync(rifle)] },
+  );
+  await page.goto(base + 'model-library.html?test');
+  await page.waitForSelector('.cell');
+  await wait(800);
+  const st = () =>
+    page.evaluate(() => {
+      const s = window.__workshop.store;
+      return {
+        cur: s.curSet().name,
+        sets: s.setList().map((x) => x.name),
+        local: [...s.local.keys()].sort(),
+        joints: s.jointCount(),
+        recs: [...s.recs.values()].map((r) => r.set + ':' + r.id).sort(),
+      };
+    });
+  let s = await st();
+  check(
+    s.cur === '預設' &&
+      s.sets.length === 1 &&
+      s.local.join() === 'arms/a_std/r_fore,prop/debris' &&
+      s.joints === 1 &&
+      s.recs.join() === ':prop/debris,default:arms/a_std/r_fore',
+    `舊版資料遷移成「預設」模型組（機甲區塊進模型組、地圖物件共用、關節 ${s.joints} 個）`,
+  );
+  check(((await page.textContent('#setCur')) || '').trim() === '預設', '上方顯示目前的模型組');
+  // 在「預設」開一次組裝調整頁：模型組記下零件組合（沒有記錄的模型組切換時沿用目前的組合）
+  await page.click('#tabs [data-c="workshop"]');
+  await page.waitForSelector('#workshop:not([hidden])');
+  await wait(1000);
+  await page.click('#wsBack');
+  check(
+    (await page.evaluate(() => window.__workshop.store.curSet().asm.head)) === 'h_std',
+    '模型組記住組裝調整頁的零件組合',
+  );
+  // 新增空白模型組
+  await page.click('#setMenu summary');
+  await page.fill('#setName', '測試B');
+  await page.click('#setNew');
+  await wait(400);
+  s = await st();
+  check(
+    s.cur === '測試B' && s.local.join() === 'prop/debris' && s.joints === 0,
+    '新增空白模型組：沒有機甲 GLB 與關節，地圖物件仍共用',
+  );
+  const kindOf = (id) => page.evaluate((id) => window.__workshop.store.source(id).kind, id);
+  check((await kindOf('arms/a_std/r_fore')) === 'proc', '新模型組的右前臂是程式模型');
+  // 在測試B 存 GLB 與關節（和編輯器、組裝調整頁一樣經過 store）
+  await page.evaluate(
+    async (bytes) => {
+      const s = window.__workshop.store;
+      await s.putBuf('weapon/w_rifle/r', 'rifle.glb', new Uint8Array(bytes).buffer);
+      await s.putBuf('arms/a_std/l_hand', 'hand.glb', new Uint8Array(bytes).buffer);
+      await s.setJoint('arms/a_std/l_upper', 'elbow', { p: [0, -0.8, 0], r: [0, 0, 0] });
+    },
+    [...fs.readFileSync(rifle)],
+  );
+  // 組裝調整頁：模型組記住零件組合
+  await page.click('#tabs [data-c="workshop"]');
+  await page.waitForSelector('#workshop:not([hidden])');
+  await wait(1200);
+  await page.evaluate(() => {
+    const w = window.__workshop;
+    w.asm.head = 'h_hv';
+    return w.rebuild();
+  });
+  await wait(600);
+  check(
+    ((await page.textContent('#wsInfo')) || '').includes('模型組「測試B」'),
+    '組裝調整頁顯示目前的模型組',
+  );
+  await page.click('#wsBack');
+  await wait(300);
+  // 切回預設
+  await page.click('#setMenu summary');
+  await page.click('#setList button:has-text("預設")');
+  await wait(600);
+  s = await st();
+  check(
+    s.cur === '預設' && s.local.join() === 'arms/a_std/r_fore,prop/debris' && s.joints === 1,
+    '切回「預設」：右前臂 GLB 與關節設定回來',
+  );
+  check(
+    (await page.evaluate(() => window.__workshop.asm.head)) !== 'h_hv',
+    '切換模型組後組裝調整改用它的零件組合',
+  );
+  await page.click('#setList button:has-text("測試B")');
+  await wait(600);
+  check(
+    (await page.evaluate(() => window.__workshop.asm.head)) === 'h_hv' &&
+      (await kindOf('arms/a_std/r_fore')) === 'proc',
+    '切到「測試B」：零件組合（重型頭）與槽位跟著換',
+  );
+  // 複製目前、改名
+  await page.fill('#setName', '');
+  await page.click('#setDup');
+  await wait(400);
+  s = await st();
+  check(
+    s.cur === '測試B 複本' &&
+      s.local.join() === 'arms/a_std/l_hand,prop/debris,weapon/w_rifle/r' &&
+      s.joints === 1,
+    '複製目前模型組：GLB 與關節設定一起複製',
+  );
+  await page.fill('#setName', '測試C');
+  await page.click('#setRename');
+  await wait(300);
+  check((await st()).cur === '測試C', '改名');
+  // 匯出 → 刪除 → 匯入
+  const [d] = await Promise.all([page.waitForEvent('download'), page.click('#setExport')]);
+  const file = path.join(SHOT_DIR, d.suggestedFilename());
+  await d.saveAs(file);
+  const zb = fs.readFileSync(file);
+  check(
+    /測試C\.rubicon-set$/.test(file) &&
+      zb.slice(0, 2).toString() === 'PK' &&
+      zb.includes('manifest.json') &&
+      zb.includes('models/weapon/w_rifle/r.glb'),
+    `匯出模型組檔（${path.basename(file)}，${zb.length} bytes）`,
+  );
+  await page.click('#setDel');
+  await wait(400);
+  s = await st();
+  check(!s.sets.includes('測試C') && s.sets.length === 2, `刪除模型組（剩 ${s.sets.join('、')}）`);
+  await page.setInputFiles('#setImportFile', file);
+  await wait(800);
+  s = await st();
+  check(
+    s.cur === '測試C' &&
+      s.local.join() === 'arms/a_std/l_hand,prop/debris,weapon/w_rifle/r' &&
+      s.joints === 1 &&
+      (await page.evaluate(() => window.__workshop.store.curSet().asm.head)) === 'h_hv',
+    '匯入模型組檔：GLB、關節設定、零件組合都還原',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'model-sets-menu.png') });
+  // 重新整理後仍是同一個模型組
+  await page.reload();
+  await page.waitForSelector('.cell');
+  await wait(500);
+  s = await st();
+  check(s.cur === '測試C' && s.sets.length === 3 && s.joints === 1, '重新整理後保留模型組與目前的選擇');
+  // 遊戲：設定選模型組
+  const game = await ctx.newPage();
+  watch(game, 'model-sets-game');
+  await game.goto(base);
+  await waitVisible(game, 'title');
+  await game.click('#btnSettings');
+  await waitVisible(game, 'settings');
+  await game.check('#lmOn');
+  await wait(1500);
+  const box = async () => (await game.textContent('#lmBox')) || '';
+  let t = await box();
+  check(
+    t.includes('套用 GLB 2 個') && t.includes('關節設定 1 個'),
+    `遊戲預設讀「預設」模型組（${(t.match(/狀態：([^重]*)/) || ['', ''])[1].trim()}）`,
+  );
+  const opts = await game.$$eval('#lmSet option', (os) => os.map((o) => o.textContent));
+  check(opts.join() === '預設,測試B,測試C', `模型組選單列出模型庫的模型組（${opts.join('、')}）`);
+  const val = await game.$eval(
+    '#lmSet',
+    (sel) => [...sel.options].find((o) => o.textContent === '測試C').value,
+  );
+  await game.selectOption('#lmSet', val);
+  await wait(1500);
+  t = await box();
+  await game.click('.lmUsed summary');
+  const used = await game.$$eval('.lmUsed [data-slot]', (els) => els.map((e) => e.dataset.slot).sort());
+  check(
+    t.includes('套用 GLB 3 個') && used.join() === 'arms/a_std/l_hand,prop/debris,weapon/w_rifle/r',
+    `切換到「測試C」後套用該組的 GLB（${used.join('、')}）`,
+  );
+  await game.screenshot({ path: path.join(SHOT_DIR, 'model-sets-game.png') });
+  await game.reload();
+  await waitVisible(game, 'title');
+  check(
+    (await game.evaluate(() => JSON.parse(localStorage.getItem('rubicon_localmodels')).set)) === val,
+    '遊戲記住選擇的模型組',
+  );
+  await ctx.close();
+}
+
 async function continueToPilot(page) {
   await page.reload();
   await waitVisible(page, 'title');
@@ -2100,6 +2325,7 @@ async function main() {
     await testEditorFaces(browser, base);
     await testEditorOptimize(browser, base);
     await testLocalModels(browser, base);
+    await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');
