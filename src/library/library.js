@@ -178,7 +178,21 @@ function exportJoints() {
 }
 
 async function main() {
-  await store.load();
+  await store.load({
+    onBlocked: () => {
+      if ($('dbNotice')) return;
+      const el = document.createElement('div');
+      el.id = 'dbNotice';
+      el.innerHTML =
+        '<b>模型庫正在升級資料格式（模型組）</b>' +
+        '<p>還有其他開著的模型庫分頁（舊版頁面）佔住資料，升級無法進行。</p>' +
+        '<p>請<b>關閉或重新整理其他所有模型庫分頁</b>，這一頁會自動繼續載入；原本的 GLB 與關節設定會搬進「預設」模型組，不會遺失。</p>';
+      document.body.appendChild(el);
+    },
+    onReady: () => {
+      if ($('dbNotice')) $('dbNotice').remove();
+    },
+  });
   grid = new ModelGrid($('gridGl'), $('grid'), MODEL_CATALOG, {
     onOpen: (entry) => openEntry(entry),
     onDrop: useFile,

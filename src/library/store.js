@@ -17,6 +17,9 @@ const DB = 'rubicon-model-library',
 const CUR_KEY = 'rubicon_modelset';
 const DEFAULT_NAME = '預設';
 let dbp = null;
+// 升級資料庫時，其他還開著的舊版模型庫分頁不會放開連線（舊版沒有處理 versionchange），升級會一直等待：
+// onBlocked() 通知頁面顯示提示，那些分頁關閉或重新整理後自動繼續；onReady() 收回提示
+let dbHooks = {};
 function db() {
   if (!dbp)
     dbp = new Promise((res, rej) => {
@@ -53,12 +56,17 @@ function db() {
           };
         }
       };
+      r.onblocked = () => dbHooks.onBlocked && dbHooks.onBlocked();
       r.onsuccess = () => {
         const d = r.result;
         d.onversionchange = () => d.close();
+        if (dbHooks.onReady) dbHooks.onReady();
         res(d);
       };
-      r.onerror = () => rej(r.error);
+      r.onerror = () => {
+        if (dbHooks.onReady) dbHooks.onReady();
+        rej(r.error);
+      };
     });
   return dbp;
 }
@@ -88,7 +96,9 @@ export class GlbStore {
     this.presets = new Map(); // 組裝調整頁的預組：名稱 → { name, asm, t }
     this.ok = true;
   }
-  async load() {
+  // hooks：{ onBlocked, onReady }（見 db()）
+  async load(hooks = {}) {
+    dbHooks = hooks;
     try {
       for (const r of (await tx(MODELS, 'readonly', (s) => s.getAll())) || [])
         this.recs.set(keyOf(r.set, r.id), r);

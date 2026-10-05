@@ -1968,10 +1968,12 @@ async function testModelSets(browser, base) {
   const page = await ctx.newPage();
   watch(page, 'model-sets');
   page.on('dialog', (d) => d.accept());
-  // 遊戲頁讀取資料庫時不會建立它；在同來源寫入第 3 版（glb／joints）的舊資料
-  await page.goto(base);
-  await waitVisible(page, 'title');
-  await page.evaluate(
+  // 遊戲頁讀取資料庫時不會建立它；在同來源寫入第 3 版（glb／joints）的舊資料，連線保持開著（模擬舊版模型庫分頁）
+  const old = await ctx.newPage();
+  watch(old, 'model-sets-old');
+  await old.goto(base);
+  await waitVisible(old, 'title');
+  await old.evaluate(
     ({ fore, rifle }) =>
       new Promise((res, rej) => {
         const r = indexedDB.open('rubicon-model-library', 3);
@@ -2002,7 +2004,7 @@ async function testModelSets(browser, base) {
             conns: { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } },
           });
           t.oncomplete = () => {
-            d.close();
+            window.__oldDb = d;
             res();
           };
           t.onerror = () => rej(t.error);
@@ -2010,8 +2012,19 @@ async function testModelSets(browser, base) {
       }),
     { fore: [...fs.readFileSync(fore)], rifle: [...fs.readFileSync(rifle)] },
   );
+  // 舊連線佔住時升級會等待：顯示提示，關閉後自動繼續
   await page.goto(base + 'model-library.html?test');
+  check(
+    await page.waitForSelector('#dbNotice', { timeout: 8000 }).then(
+      () => true,
+      () => false,
+    ),
+    '其他舊版分頁佔住資料庫時，提示關閉那些分頁',
+  );
+  await old.evaluate(() => window.__oldDb.close());
   await page.waitForSelector('.cell');
+  check(!(await page.$('#dbNotice')), '舊連線關閉後自動繼續載入、收回提示');
+  await old.close();
   await wait(800);
   const st = () =>
     page.evaluate(() => {
