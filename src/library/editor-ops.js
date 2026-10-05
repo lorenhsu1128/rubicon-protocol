@@ -182,11 +182,16 @@ export function bakeScene(content, space, name, extra = null) {
 }
 
 // 匯出 GLB（ArrayBuffer）
-export function exportGlb(root) {
+// maxTex：貼圖輸出的最大邊長（0＝不限）；之後的 processGlb 也會縮圖，先在這裡縮小可以少編碼大張的 PNG
+export function exportGlb(root, maxTex = 0) {
   return new Promise((resolve, reject) => {
     if (!THREE.GLTFExporter) return reject(new Error('GLTFExporter 未載入'));
     try {
-      new THREE.GLTFExporter().parse(root, resolve, { binary: true, onlyVisible: true });
+      new THREE.GLTFExporter().parse(root, resolve, {
+        binary: true,
+        onlyVisible: true,
+        maxTextureSize: maxTex > 0 ? maxTex : Infinity,
+      });
     } catch (e) {
       reject(e);
     }

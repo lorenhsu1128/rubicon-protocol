@@ -953,7 +953,21 @@ async function testEditorSplit(browser, base) {
   await page.click('#edSpUndo');
   await wait(800);
   check((await pieces()).includes('排除 0'), '復原框選');
+  check(!(await page.isChecked('#edSpOpt')), '存檔時減面預設不勾選（選用）');
   await page.click('#edSpSave');
+  const saving = await page
+    .waitForFunction(
+      () => (document.getElementById('edSpSaving').textContent || '').includes('存檔中'),
+      null,
+      {
+        timeout: 5000,
+      },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+  check(saving && (await page.isDisabled('#edSpSave')), '存檔中顯示進度並停用存檔按鈕');
   await page
     .waitForFunction(
       () => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已存 5 個區塊')),

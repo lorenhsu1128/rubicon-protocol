@@ -56,6 +56,8 @@ export class SplitTool {
     this.redo = [];
     this.boxMode = false;
     this.colorView = true;
+    this.simplify = false; // 存檔時減面到各區塊的預算（選用）
+    this.saving = null; // 存檔進度文字（存檔中）
     this.view = null;
     this.mats = new Map();
     // 切割平面：區域 +Y 是法線（正面＝子區塊那側）
@@ -503,20 +505,18 @@ export class SplitTool {
     for (const i of this.included()) {
       const d = this.data[i];
       if (!d) continue;
-      const pts = [];
-      for (const s of this.soup) {
-        const a = s.attrs.position.arr;
-        for (let t = 0; t < s.tri.length; t++)
-          if (s.tri[t] === i)
-            for (let q = 0; q < 3; q++)
-              pts.push(
-                v
-                  .fromArray(a, t * 9 + q * 3)
-                  .clone()
-                  .applyMatrix4(d.A),
-              );
-      }
-      if (!pts.length) continue;
+      // 區塊的頂點（區塊區域座標）；頂點可能有數十萬個，用迴圈逐點計算，不展開成函式參數（會堆疊溢位）
+      const eachPt = (fn) => {
+        for (const s of this.soup) {
+          const a = s.attrs.position.arr;
+          for (let t = 0; t < s.tri.length; t++)
+            if (s.tri[t] === i)
+              for (let q = 0; q < 3; q++) fn(v.fromArray(a, t * 9 + q * 3).applyMatrix4(d.A));
+        }
+      };
+      const gbox = new THREE.Box3();
+      eachPt((p) => gbox.expandByPoint(p));
+      if (gbox.isEmpty()) continue;
       const name = label(this.list[i].info);
       const inv = d.obj.matrixWorld.clone().invert();
       const corners = [];
@@ -535,7 +535,8 @@ export class SplitTool {
           const L = c.length();
           if (L < 0.05) continue;
           const dir = c.clone().divideScalar(L);
-          const glb = Math.max(...pts.map((q) => q.dot(dir)));
+          let glb = -Infinity;
+          eachPt((p) => (glb = Math.max(glb, p.dot(dir))));
           const proc = Math.max(...corners.map((q) => q.dot(dir)));
           const conn = CONN_NAMES[j.m.name] || j.m.name;
           if (glb < L * 0.9)
@@ -548,7 +549,7 @@ export class SplitTool {
             );
         }
       } else {
-        const gb = new THREE.Box3().setFromPoints(pts).getSize(new THREE.Vector3());
+        const gb = gbox.getSize(new THREE.Vector3());
         const pb = d.pbox.getSize(new THREE.Vector3());
         const worst = Math.max(
           ...['x', 'y', 'z'].map((k) => (pb[k] > 0.05 ? Math.abs(gb[k] - pb[k]) / pb[k] : 0)),
@@ -897,6 +898,7 @@ export class SplitTool {
   // ---------- 存檔：每個區塊轉成區塊的區域座標（glTF）存進槽位 ----------
   async saveAll() {
     const ed = this.ed;
+    if (this.saving) return;
     const n = this.counts();
     const todo = this.included().filter((i) => n.get(i));
     if (!todo.length) return ed.toast('沒有分配到任何三角形的區塊', true);
@@ -910,11 +912,24 @@ export class SplitTool {
       )
     )
       return;
+    try {
+      await this.saveAllRun(todo);
+    } finally {
+      this.saving = null;
+      this.renderSaving();
+    }
+  }
+  async saveAllRun(todo) {
+    const ed = this.ed;
     ed.frame.updateMatrixWorld(true);
     const base = (ed.orig ? ed.orig.name : ed.fileName || 'model').replace(/\.glb$/i, '');
     let done = 0;
-    for (const i of todo) {
+    for (const [k, i] of todo.entries()) {
       const { slot } = this.list[i];
+      // 每個區塊都要重新編碼貼圖，大模型可能要好一段時間：顯示進度，並讓畫面先更新
+      this.saving = `存檔中 ${k + 1}／${todo.length}：${label(this.list[i].info)}…`;
+      this.renderSaving();
+      await new Promise((r) => setTimeout(r, 0));
       const d = this.data[i];
       const M = FLIP.clone().multiply(d.A);
       const root = new THREE.Group();
@@ -924,7 +939,7 @@ export class SplitTool {
       const spec = entry ? entry.spec : 'piece';
       try {
         // 減到這個區塊的預算
-        if ($('edSpOpt') && $('edSpOpt').checked) {
+        if (this.simplify) {
           const tris = parts.reduce((n, pm) => n + triCountOf(pm.geometry), 0);
           const ratio = (budgetFor(spec).tris * 0.98) / Math.max(1, tris);
           if (ratio < 1)
@@ -935,7 +950,8 @@ export class SplitTool {
             }
         }
         for (const pm of parts) root.add(new THREE.Mesh(pm.geometry, pm.mat));
-        const buf = await processGlb(await exportGlb(root), ed.exportOptsFor(spec));
+        const opts = ed.exportOptsFor(spec);
+        const buf = await processGlb(await exportGlb(root, opts.texMax), opts);
         await ed.store.putBuf(slot, `${base}（拆分）→${slot.split('/').slice(1).join('_')}.glb`, buf);
         done++;
         if (ed.onSaved) ed.onSaved(slot);
@@ -946,6 +962,14 @@ export class SplitTool {
       }
     }
     ed.toast(`已存 ${done} 個區塊到各自的槽位${ed.store.ok ? '' : '（瀏覽器無法保存，重新整理後會消失）'}`);
+  }
+
+  renderSaving() {
+    const b = $('edSpSave');
+    if (!b) return;
+    b.disabled = !!this.saving;
+    b.textContent = this.saving ? '存檔中…' : '全部存到槽位';
+    $('edSpSaving').textContent = this.saving || '';
   }
 
   // ---------- 介面 ----------
@@ -1043,8 +1067,9 @@ export class SplitTool {
       `<button id="edCutShow" title="顯示切割平面並用箭頭（W 移動、E 旋轉）調整">顯示平面</button><button id="edCutGo" class="primary">切開</button></div>` +
       `<div class="dim small">只切分給這兩個區塊、且在半徑範圍內的三角形：平面正面（箭頭方向）分給「正面」的區塊，背面分給「背面」的區塊。</div>` +
       `<h3>存檔</h3>` +
-      `<label class="tog small"><input type="checkbox" id="edSpOpt" checked> 存檔時減面到各區塊的預算</label>` +
+      `<label class="tog small"><input type="checkbox" id="edSpOpt"${this.simplify ? ' checked' : ''}> 存檔時減面到各區塊的預算（選用）</label>` +
       `<div class="btns"><button id="edSpSave" class="primary">全部存到槽位</button><button id="edSpBack">回到對齊</button></div>` +
+      `<div id="edSpSaving" class="small"></div>` +
       `<div class="dim small">每個區塊轉成拉直靜止姿勢下的區塊座標（原點＝關節）存進各自的槽位；之後可在「組裝調整」微調連接點。</div>`;
     $('edSpBox').onclick = () => this.setBox(!this.boxMode);
     $('edSpColor').onchange = () => {
@@ -1060,7 +1085,9 @@ export class SplitTool {
     };
     $('edCutShow').onclick = () => this.showPlane(!this.plane.visible);
     $('edCutGo').onclick = () => this.cut();
+    $('edSpOpt').onchange = () => (this.simplify = $('edSpOpt').checked);
     $('edSpSave').onclick = () => this.saveAll();
+    this.renderSaving();
     $('edSpBack').onclick = () => this.back();
     this.setBox(this.boxMode);
     this.setRadius(this.radius);

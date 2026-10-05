@@ -1106,10 +1106,8 @@ export class GlbEditor {
       mirror ? new THREE.Matrix4().makeScale(-1, 1, 1) : null,
     );
     try {
-      return await processGlb(
-        await exportGlb(root),
-        this.exportOptsFor(this.entry ? this.entry.spec : 'mech'),
-      );
+      const opts = this.exportOptsFor(this.entry ? this.entry.spec : 'mech');
+      return await processGlb(await exportGlb(root, opts.texMax), opts);
     } finally {
       for (const m of root.children) m.geometry.dispose();
     }
