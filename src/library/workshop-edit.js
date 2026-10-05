@@ -124,6 +124,9 @@ export class WsEditor {
       tc.addEventListener('dragging-changed', (e) => {
         ws.controls.enabled = !e.value;
         this.dragging = e.value;
+        // 拖曳腿部根區塊時固定核心在畫面上的位置（放開後再自動貼地）
+        const t = e.value && this.target();
+        this.anchor = t && t.inverse ? this.rig.torso.matrixWorld.clone() : null;
         if (!e.value) this.commitDrag();
       });
       tc.addEventListener('objectChange', () => this.fromProxy());
@@ -412,17 +415,32 @@ export class WsEditor {
   }
   // 拖曳／方向鍵的對象：選中連接點＝該連接點（依「只動關節」設定）；選中區塊＝它接上的連接點，
   // 一律「零件跟著動」（移動整個零件與下游的零件）；機體根部沒有可移動的連接點
+  // 腿部根區塊（襠部／主體）：組裝調整以核心為準，拖曳它＝整組腿相對核心移動（inverse：反向換算成腰的連接點）
   target(s = this.sel) {
     if (!s || !this.rig || s.name === 'ground') return null;
     if (s.name) return this.mark(s) ? { s, keep: !!this.settings.keep } : null;
+    if (this.rig.ground && s.slot === this.rig.ground.base) {
+      const w = this.mark({ slot: s.slot, name: 'waist' });
+      return w ? { s: { slot: s.slot, name: 'waist' }, keep: false, inverse: true } : null;
+    }
     const pm = this.parentMark(s.slot);
     return pm ? { s: { slot: pm.slot, name: pm.name }, keep: false } : null;
+  }
+  // 腿部根區塊在核心（torso 關節群組）座標裡的矩陣 X＝(W·T)⁻¹；W＝腰的連接點、T＝torso 的區域變換
+  legsInCore(W) {
+    this.rig.torso.updateMatrix();
+    return W.clone().multiply(this.rig.torso.matrix).invert();
+  }
+  // 由 X 反推腰的連接點：W＝X⁻¹·T⁻¹
+  waistFromLegs(X) {
+    this.rig.torso.updateMatrix();
+    return X.clone().invert().multiply(this.rig.torso.matrix.clone().invert());
   }
   attachGizmo() {
     const t = this.target();
     const m = t && this.mark(t.s);
     if (!m || !this.tc) return this.detachGizmo();
-    m.node.parent.add(this.frame);
+    (t.inverse ? this.rig.torso : m.node.parent).add(this.frame);
     this.syncProxy();
     this.tc.attach(this.proxy);
   }
@@ -434,7 +452,10 @@ export class WsEditor {
     const t = this.target();
     const m = t && this.mark(t.s);
     if (!m) return;
-    const v = gameToGltf(m.node.position, m.node.rotation);
+    m.node.updateMatrix();
+    const v = t.inverse
+      ? valOf(this.legsInCore(m.node.matrix))
+      : gameToGltf(m.node.position, m.node.rotation);
     this.proxy.position.set(v.p[0], v.p[1], v.p[2]);
     this.proxy.rotation.set(v.r[0] * D2R, v.r[1] * D2R, v.r[2] * D2R);
   }
@@ -646,12 +667,25 @@ export class WsEditor {
     const t = this.target();
     if (!t) return;
     const q = this.proxy;
-    const val = {
+    let val = {
       p: [q.position.x, q.position.y, q.position.z].map((v) => Math.round(v * 1000) / 1000),
       r: [q.rotation.x, q.rotation.y, q.rotation.z].map((v) => Math.round((v / D2R) * 100) / 100),
     };
+    if (t.inverse) val = valOf(this.waistFromLegs(matOf(val)));
     this.preview(this.withMirror([{ s: t.s, ov: val, keep: t.keep }]));
+    if (t.inverse && this.anchor) this.holdCore();
     this.writeDetail(val);
+  }
+  // 拖曳腿部根區塊時：移動 lift，讓核心（torso）的世界矩陣維持拖曳開始時的值
+  holdCore() {
+    const rig = this.rig;
+    rig.group.updateMatrixWorld(true);
+    const delta = this.anchor.clone().multiply(rig.torso.matrixWorld.clone().invert());
+    const liftW = delta.multiply(rig.lift.matrixWorld);
+    const local = rig.lift.parent.matrixWorld.clone().invert().multiply(liftW);
+    local.decompose(rig.lift.position, rig.lift.quaternion, new THREE.Vector3());
+    rig.group.updateMatrixWorld(true);
+    this.dirty();
   }
   commitDrag() {
     const t = this.target();
@@ -663,10 +697,12 @@ export class WsEditor {
     const t = this.target();
     if (!t) return;
     const s = t.s;
-    const v = this.valueOf(s);
+    // 腿部根區塊：微調的是它在核心座標裡的位置，再反算成腰的連接點
+    let v = t.inverse ? valOf(this.legsInCore(matOf(this.valueOf(s)))) : this.valueOf(s);
     const st = this.settings;
     if (this.mode === 'rotate') v.r[axis] = round(v.r[axis] + dir * (big ? st.rotBig : st.rot), 100);
     else v.p[axis] = round(v.p[axis] + (dir * (big ? st.moveBig : st.move)) / 100, 1000);
+    if (t.inverse) v = valOf(this.waistFromLegs(matOf(v)));
     this.commit(this.withMirror([{ s, ov: v, keep: t.keep }]), 'key|' + s.slot + s.name);
   }
   // 把目前這一側的值（鏡像後）複製到另一側
@@ -705,7 +741,10 @@ export class WsEditor {
         (parent
           ? `<div class="small">接在：<button class="link" data-slot="${parent.slot}" data-n="${parent.name}">${escHtml(label(parent.slot))}的${escHtml(CONN_NAMES[parent.name] || parent.name)}</button></div>` +
             `<div class="small dim">拖曳箭頭（或方向鍵）移動整個零件，下游的零件一起移動（改的是${escHtml(CONN_NAMES[parent.name] || parent.name)}連接點）</div>`
-          : `<div class="small dim">機體根部（地面）</div>`) +
+          : isBase && this.target()
+            ? `<div class="small">接在：<button class="link" data-slot="${s.slot}" data-n="waist">核心的${escHtml(CONN_NAMES.waist || 'waist')}</button></div>` +
+              `<div class="small dim">組裝調整以核心為準：拖曳箭頭（或方向鍵）移動整組腿，核心不動（改的是腰的連接點，放開後自動貼地）</div>`
+            : `<div class="small dim">機體根部（地面）</div>`) +
         (own.length
           ? `<div class="small">此區塊的連接點：${own.map((m) => `<button class="link" data-slot="${m.slot}" data-n="${m.name}">${escHtml(CONN_NAMES[m.name] || m.name)}</button>`).join('')}</div>`
           : `<div class="small dim">此區塊沒有連接點</div>`) +

@@ -355,8 +355,14 @@ export class Workshop {
       const mount = obj.parent && obj.parent.parent;
       if (mount && mount.userData.conn) childOf.set(mount, slot);
     }
-    const root = Object.entries(rig.pieces).find(([, o]) => o.parent === rig.legsG)[0];
+    // 以核心為根顯示（組裝時拿著上半身把腿對上去）：核心 →◆腰→ 襠部／主體 →◆髖 → 腿。
+    // 內部仍是腿為根（腰的連接點在襠部上），所以腰這一列列在核心底下、掛的是襠部
+    const base = Object.entries(rig.pieces).find(([, o]) => o.parent === rig.legsG)[0];
+    const core = (Object.entries(rig.pieces).find(([, o]) => o.parent === rig.torso) || [])[0];
     const rows = [];
+    const connRow = (slot, name, depth) =>
+      `<div class="wsConn" data-slot="${slot}" data-n="${name}" style="--d:${depth}">` +
+      `<span class="cn">◆ ${escHtml(CONN_NAMES[name] || name)}</span><span class="cv"></span></div>`;
     const walk = (slot, depth) => {
       const p = this.partNameOf(slot);
       rows.push(
@@ -364,15 +370,17 @@ export class Workshop {
           `<span class="dim small">${escHtml(p ? p.part : '')}・${escHtml(slot)}</span></div>`,
       );
       for (const m of rig.mounts.filter((x) => x.slot === slot)) {
-        rows.push(
-          `<div class="wsConn" data-slot="${slot}" data-n="${m.name}" style="--d:${depth + 1}">` +
-            `<span class="cn">◆ ${escHtml(CONN_NAMES[m.name] || m.name)}</span><span class="cv"></span></div>`,
-        );
+        if (core && slot === base && m.name === 'waist') continue;
+        rows.push(connRow(slot, m.name, depth + 1));
         const child = childOf.get(m.node);
         if (child) walk(child, depth + 2);
       }
+      if (core && slot === core && rig.mounts.some((x) => x.slot === base && x.name === 'waist')) {
+        rows.push(connRow(base, 'waist', depth + 1));
+        walk(base, depth + 2);
+      }
     };
-    walk(root, 0);
+    walk(core || base, 0);
     $('wsTree').innerHTML = rows.join('');
     for (const r of $('wsTree').children) {
       if (r.classList.contains('wsConn')) this.updateConnRow(r.dataset.slot, r.dataset.n);

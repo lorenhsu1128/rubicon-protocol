@@ -500,7 +500,7 @@ async function testWorkshop(browser, base) {
   const page = await ctx.newPage();
   watch(page, 'workshop');
   const tree = async () => (await page.textContent('#wsTree')) || '';
-  await page.goto(base + 'model-library.html');
+  await page.goto(base + 'model-library.html?test');
   await page.waitForSelector('.cell');
   await page.click('#tabs button[data-c="workshop"]');
   check(
@@ -654,6 +654,40 @@ async function testWorkshop(browser, base) {
   await page.keyboard.press('ArrowDown');
   await wait(600);
   check((await cv(elbow)).includes('-1.140'), '步進可以自己改（5 cm）');
+  // 以核心為根：清單從核心開始；選襠部拖曳＝整組腿相對核心移動（拖曳中核心不動，放開後改的是腰的連接點）
+  check(await page.$eval('#wsTree .wsNode', (n) => n.dataset.slot.startsWith('core/')), '組裝層級以核心為根');
+  await page.click('#wsAnims button[data-a="rest"]'); // 拉直靜止姿勢：核心沒有俯仰，位移等於腰的反向
+  await page.click('#wsTree .wsNode[data-slot="legs/l_bp/pelvis"]');
+  await wait(300);
+  check(((await page.textContent('#wsDetail')) || '').includes('以核心為準'), '選襠部時說明以核心為準');
+  const WAIST = '#wsTree .wsConn[data-slot="legs/l_bp/pelvis"][data-n="waist"]';
+  const w0 = await cv(WAIST);
+  const held = await page.evaluate(() => {
+    const e = window.__workshop.edit;
+    const rig = window.__workshop.rig;
+    rig.group.updateMatrixWorld(true);
+    const at = () => new THREE.Vector3().setFromMatrixPosition(rig.torso.matrixWorld);
+    const c0 = at();
+    e.dragging = true;
+    e.anchor = rig.torso.matrixWorld.clone();
+    e.proxy.position.y += 0.1; // 腿往上 10 cm
+    e.fromProxy();
+    const c1 = at();
+    e.dragging = false;
+    e.anchor = null;
+    e.commitDrag();
+    return c0.distanceTo(c1);
+  });
+  await wait(800);
+  const w1 = await cv(WAIST);
+  check(
+    held < 1e-4 && Math.abs(parseFloat(w1.split(',')[1]) - parseFloat(w0.split(',')[1]) + 0.1) < 2e-3,
+    `拖曳襠部時核心不動，放開後腰的連接點下移 10 cm（${w0} → ${w1}）`,
+  );
+  await page.click('#wsRight h3');
+  await page.keyboard.press('Control+z');
+  await wait(600);
+  check((await cv(WAIST)) === w0, '復原襠部的拖曳');
   await page.click('#wsBack');
   check(await page.isHidden('#workshop'), '回模型庫');
   await ctx.close();

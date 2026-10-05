@@ -1064,7 +1064,9 @@ export function refreshGround(rig) {
   }
   const fine = g.defaults ? null : jointSetting(g.base, 'ground');
   g.fine = fine && fine.p ? +fine.p[1] || 0 : 0;
-  rig.lift.position.y = g.auto + g.fine;
+  // 只有上下位移（組裝調整頁拖曳襠部時會暫時移動、旋轉它，這裡一併歸位）
+  rig.lift.position.set(0, g.auto + g.fine, 0);
+  rig.lift.quaternion.identity();
 }
 
 export function animateMech(m, dt, st) {
