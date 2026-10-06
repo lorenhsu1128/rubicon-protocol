@@ -5,6 +5,27 @@
   const $ = (id) => document.getElementById(id);
 
   // ---------- 狀態 ----------
+  // ---------- 介面縮放：以 1400×850 為 100%，依視窗大小自動縮放（也可以在選單固定比例） ----------
+  const UI_KEY = 'rubicon_paint_ui_scale';
+  function uiPref() {
+    try {
+      return localStorage.getItem(UI_KEY) || 'auto';
+    } catch (e) {
+      return 'auto';
+    }
+  }
+  function uiScale() {
+    const pref = uiPref();
+    if (pref !== 'auto') return Number(pref) || 1;
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches; // 觸控裝置不要縮太小
+    const s = Math.min(window.innerWidth / 1400, window.innerHeight / 850);
+    return Math.min(1.6, Math.max(coarse ? 0.85 : 0.7, s));
+  }
+  function applyUIScale() {
+    document.documentElement.style.setProperty('--ui', uiScale().toFixed(3));
+  }
+  applyUIScale();
+
   const S = {
     tool: 'pen',
     size: 24,
@@ -2007,7 +2028,20 @@
     S.altPick = false;
   });
 
-  window.addEventListener('resize', fitUV);
+  window.addEventListener('resize', () => {
+    applyUIScale();
+    fitUV();
+  });
+  $('uiScale').value = uiPref();
+  $('uiScale').onchange = (e) => {
+    try {
+      localStorage.setItem(UI_KEY, e.target.value);
+    } catch (err) {
+      // 不能存設定時只套用這次
+    }
+    applyUIScale();
+    requestAnimationFrame(fitUV);
+  };
 
   // 測試用
   window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene, autosave };

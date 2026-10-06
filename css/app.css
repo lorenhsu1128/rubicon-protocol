@@ -59,6 +59,16 @@ svg {
   vertical-align: middle;
 }
 
+/* 介面縮放：--ui 由 app.js 依視窗大小設定；3D 與 UV 畫面本身不縮放（繪圖座標不受影響） */
+#menubar,
+#leftPanel,
+#rightPanel,
+#status,
+.corner,
+.uvHead {
+  zoom: var(--ui, 1);
+}
+
 #menubar {
   display: flex;
   align-items: center;
