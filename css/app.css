@@ -473,3 +473,39 @@ button.primary {
   transform: translate(-50%, -50%);
   z-index: 1;
 }
+
+/* 筆刷預設 */
+#presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 6px;
+}
+#presets button {
+  padding: 3px 0;
+  font-size: 12px;
+  min-height: 26px;
+}
+#presets button.on {
+  background: var(--accent2);
+  border-color: var(--accent);
+}
+#brushAdv summary {
+  cursor: pointer;
+  color: var(--dim);
+  margin: 6px 0 2px;
+}
+
+/* 零件 */
+#objList {
+  border: 1px solid var(--line);
+  background: #2a2a2d;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+#objList .layerRow {
+  min-height: 28px;
+}
+#objList .layerRow.hidden .name {
+  opacity: 0.45;
+}

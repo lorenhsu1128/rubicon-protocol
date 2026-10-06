@@ -23,6 +23,14 @@
     current: null, // 目前的貼圖組（UV 面板、匯出 PNG）
     fileName: 'model',
     fillMode: 'island',
+    preset: 'round',
+    tip: 'round',
+    grain: 'none',
+    grainAmt: 0.5,
+    scatter: 0,
+    jitter: 0,
+    rotRandom: false,
+    rotFollow: false,
   };
 
   // ---------- three.js ----------
@@ -181,20 +189,64 @@
   // ---------- 載入 ----------
   const loader = new THREE.GLTFLoader();
 
+  // GLB 的 JSON 區塊有沒有用到 Draco 壓縮
+  function glbUsesDraco(buf) {
+    try {
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, true) !== 0x46546c67) return false;
+      const len = dv.getUint32(12, true);
+      return new TextDecoder().decode(new Uint8Array(buf, 20, len)).includes('KHR_draco_mesh_compression');
+    } catch (e) {
+      return false;
+    }
+  }
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('無法載入 ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  // Draco 解碼器只在第一次遇到 Draco 壓縮的 GLB 時載入；解碼器原始碼包成字串（直接開檔時不能 fetch 本地檔案）
+  let dracoReady = null;
+  function ensureDraco() {
+    if (!dracoReady)
+      dracoReady = loadScript('lib/draco/draco_decoder.js')
+        .then(() => loadScript('lib/three/DRACOLoader.js'))
+        .then(() => {
+          const d = new THREE.DRACOLoader();
+          d.setDecoderConfig({ type: 'js' });
+          d._loadLibrary = (url) =>
+            url === 'draco_decoder.js' ? Promise.resolve(window.RP_DRACO_DECODER) : Promise.reject(new Error(url));
+          loader.setDRACOLoader(d);
+        })
+        .catch((err) => {
+          dracoReady = null;
+          throw err;
+        });
+    return dracoReady;
+  }
+
   function loadArrayBuffer(buf, name) {
     setStatus('讀取中…');
-    loader.parse(
-      buf,
-      '',
-      (gltf) => {
-        S.fileName = name.replace(/\.glb$/i, '');
-        setModel(gltf.scene);
-      },
-      (err) => {
-        const msg = String((err && err.message) || err);
-        setStatus(/draco/i.test(msg) ? '這個 GLB 用了 Draco 壓縮，驗證版還不支援（請輸出未壓縮的 GLB）' : '讀取失敗：' + msg, true);
-      },
-    );
+    const parse = () =>
+      loader.parse(
+        buf,
+        '',
+        (gltf) => {
+          S.fileName = name.replace(/\.glb$/i, '');
+          setModel(gltf.scene);
+        },
+        (err) => setStatus('讀取失敗：' + String((err && err.message) || err), true),
+      );
+    if (glbUsesDraco(buf)) {
+      setStatus('讀取中（Draco 解壓縮）…');
+      ensureDraco()
+        .then(parse)
+        .catch((err) => setStatus('Draco 解碼器載入失敗：' + err.message, true));
+    } else parse();
   }
 
   function setModel(root) {
@@ -220,6 +272,7 @@
     persp.far = ortho.far = modelSize * 50;
     persp.updateProjectionMatrix();
     const warnings = painter.build(model, { defaultSize: 1024 });
+    renderObjects();
     buildSetList();
     showSet(painter.sets[0] || null);
     fitUV();
@@ -258,8 +311,63 @@
       const w = new THREE.LineSegments(new THREE.WireframeGeometry(o.geometry), mat);
       w.matrixAutoUpdate = false;
       w.matrix.copy(o.matrixWorld);
+      w.userData.mesh = o;
+      w.visible = o.visible;
       wireGroup.add(w);
     });
+  }
+
+  // ---------- 零件（網格）的顯示／隱藏：隱藏的零件不顯示、不擋住，也不會被畫到 ----------
+  function meshes() {
+    const out = [];
+    if (model) model.traverse((o) => o.isMesh && out.push(o));
+    return out;
+  }
+  function meshLabel(o, i) {
+    return o.name || (o.parent && o.parent !== model && o.parent.name) || `網格 ${i + 1}`;
+  }
+  function setMeshVisible(o, v) {
+    o.visible = v;
+    for (const w of wireGroup.children) if (w.userData.mesh === o) w.visible = v;
+    D.dirty = true;
+  }
+  function renderObjects() {
+    const list = $('objList');
+    list.innerHTML = '';
+    meshes().forEach((o, i) => {
+      const row = document.createElement('div');
+      row.className = 'layerRow' + (o.visible ? '' : ' hidden');
+      const eye = document.createElement('button');
+      eye.className = 'eye' + (o.visible ? '' : ' off');
+      eye.innerHTML = o.visible ? EYE_ON : EYE_OFF;
+      eye.title = o.visible ? '隱藏' : '顯示';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = meshLabel(o, i);
+      const toggle = () => {
+        setMeshVisible(o, !o.visible);
+        renderObjects();
+      };
+      eye.onclick = toggle;
+      row.ondblclick = toggle;
+      row.append(eye, name);
+      list.appendChild(row);
+    });
+  }
+  function showAllMeshes() {
+    for (const o of meshes()) setMeshVisible(o, true);
+    renderObjects();
+  }
+  let lastXY = null;
+  function hideMeshUnderCursor() {
+    if (!lastXY || !model) return;
+    const r = view3d.getBoundingClientRect();
+    raycaster.setFromCamera(new THREE.Vector2((lastXY[0] / r.width) * 2 - 1, -(lastXY[1] / r.height) * 2 + 1), camera);
+    const h = raycaster.intersectObject(model, true).find((x) => x.object.isMesh && x.object.visible);
+    if (!h) return;
+    setMeshVisible(h.object, false);
+    renderObjects();
+    setStatus(`已隱藏「${h.object.name || '網格'}」（Alt+H 全部顯示）`);
   }
 
   // ---------- 相機 ----------
@@ -380,15 +488,34 @@
     return (modelBox.min.x + modelBox.max.x) / 2;
   }
 
-  function placeDab(x, y, p) {
-    const r = brushRadius(p);
+  // 散佈、大小抖動、角度（dir：筆畫方向，左下原點的弧度）
+  function dabVariant(x, y, p, dir) {
+    const r0 = brushRadius(p);
+    let r = r0;
+    if (S.jitter) r *= 1 - S.jitter * Math.random();
+    if (S.scatter) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * S.scatter * r0 * 2;
+      x += Math.cos(a) * d;
+      y += Math.sin(a) * d;
+    }
+    const rot = S.rotRandom ? Math.random() * Math.PI * 2 : S.rotFollow ? dir || 0 : 0;
+    return { x, y, r, rot };
+  }
+
+  function brushTextures() {
+    return { tip: RP.tipTexture(S.tip), grain: RP.grainTexture(S.grain), grainAmt: S.grainAmt, grainScale: 8 };
+  }
+
+  function placeDab(x0, y0, p, dir) {
+    const { x, y, r, rot } = dabVariant(x0, y0, p, dir);
     const a = S.pOpacity ? Math.max(0.02, p) : 1;
     const h = stroke.h;
     let hit = null;
     if (S.backfaces || S.sym) hit = painter.pickWorld(x, y);
     if (S.backfaces) {
       if (hit) pendingDabs.push({ type: 'w', p: hit.p, r: r * hit.perPx, a });
-    } else pendingDabs.push({ type: 's', x, y: h - y, r, a });
+    } else pendingDabs.push({ type: 's', x, y: h - y, r, a, rot });
     if (S.sym && hit) {
       const m = hit.p.clone();
       m.x = 2 * modelCenterX() - m.x;
@@ -407,10 +534,11 @@
       return;
     }
     let t = st.carry;
+    const dir = Math.atan2(-dy, dx);
     while (t <= len) {
       const f = t / len;
       const p = st.lp + (p1 - st.lp) * f;
-      placeDab(st.lx + dx * f, st.ly + dy * f, p);
+      placeDab(st.lx + dx * f, st.ly + dy * f, p, dir);
       t += Math.max(0.5, brushRadius(p) * 2 * S.spacing);
     }
     st.carry = t - len;
@@ -484,6 +612,7 @@
         hardness: S.hardness,
         erase: tool === 'eraser',
         backfaces: S.backfaces,
+        ...brushTextures(),
       },
     );
     const p = pressureOf(e);
@@ -495,10 +624,11 @@
   });
 
   view3d.addEventListener('pointermove', (e) => {
+    lastXY = localXY(e);
     if (e.pointerType !== 'touch') {
       const [x, y] = localXY(e);
       const t = currentTool();
-      const brushTool = (t === 'pen' || t === 'eraser') && !D.active;
+      const brushTool = (t === 'pen' || t === 'eraser') && !D.active && !e.target.closest('button, .corner');
       const d = brushTool ? S.size : 0;
       view3d.style.cursor = D.active ? (D.dragging ? 'grabbing' : 'crosshair') : brushTool ? 'none' : 'crosshair';
       cursor.style.display = d > 2 ? 'block' : 'none';
@@ -560,7 +690,7 @@
     raycaster.setFromCamera(new THREE.Vector2((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1), camera);
     const hits = raycaster.intersectObject(model, true);
     for (const h of hits) {
-      if (!h.uv || !h.object.isMesh) continue;
+      if (!h.uv || !h.object.isMesh || !h.object.visible) continue;
       const mats = h.object.material;
       const m = Array.isArray(mats) ? mats[h.face.materialIndex] : mats;
       const set = painter.matSet.get(m);
@@ -697,10 +827,10 @@
     return { u: p.x / aspect, v: p.y, perPx: 1 / (uvState.zoom * r.height) };
   }
 
-  function uvDab(cx, cy, p) {
+  function uvDab(cx0, cy0, p, dir) {
     const s = S.current;
+    const { x: cx, y: cy, r: rpx, rot } = dabVariant(cx0, cy0, p, dir);
     const { u, v, perPx } = uvTex(cx, cy);
-    const rpx = brushRadius(p);
     const a = S.pOpacity ? Math.max(0.02, p) : 1;
     if (uvStroke.connected) {
       const P = painter.posAt(s, u, v);
@@ -713,7 +843,7 @@
         m.x = 2 * modelCenterX() - m.x;
         pendingDabs.push({ type: 'w', p: m, r, a });
       }
-    } else pendingDabs.push({ type: 's', x: u * s.w, y: v * s.h, r: rpx * perPx * s.h, a });
+    } else pendingDabs.push({ type: 's', x: u * s.w, y: v * s.h, r: rpx * perPx * s.h, a, rot });
   }
   function uvSegment(x1, y1, p1) {
     const st = uvStroke;
@@ -722,10 +852,11 @@
     const len = Math.hypot(dx, dy);
     if (len < 1e-3) return;
     let t = st.carry;
+    const dir = Math.atan2(-dy, dx);
     while (t <= len) {
       const f = t / len;
       const p = st.lp + (p1 - st.lp) * f;
-      uvDab(st.lx + dx * f, st.ly + dy * f, p);
+      uvDab(st.lx + dx * f, st.ly + dy * f, p, dir);
       t += Math.max(0.5, brushRadius(p) * 2 * S.spacing);
     }
     st.carry = t - len;
@@ -768,7 +899,11 @@
         return;
       }
       const connected = $('uvConnect').checked && !!painter.posMap(s);
-      painter.beginUVStroke(s, { color: S.color, opacity: S.opacity, hardness: S.hardness, erase: tool === 'eraser' }, connected);
+      painter.beginUVStroke(
+        s,
+        { color: S.color, opacity: S.opacity, hardness: S.hardness, erase: tool === 'eraser', ...brushTextures() },
+        connected,
+      );
       const p = pressureOf(e);
       uvStroke = { id: e.pointerId, connected, lx: e.clientX, ly: e.clientY, lp: p, carry: 0 };
       uvDab(e.clientX, e.clientY, p);
@@ -886,6 +1021,52 @@
   bindRange('smooth', 'smoothOut', (v) => (S.smooth = v / 100));
   $('pSize').onchange = (e) => (S.pSize = e.target.checked);
   $('pOpacity').onchange = (e) => (S.pOpacity = e.target.checked);
+  for (const [k, name] of RP.TIPS) $('tip').add(new Option(name, k));
+  for (const [k, name] of RP.GRAINS) $('grain').add(new Option(name, k));
+  $('tip').onchange = (e) => (S.tip = e.target.value);
+  $('grain').onchange = (e) => (S.grain = e.target.value);
+  bindRange('grainAmt', 'grainAmtOut', (v) => (S.grainAmt = v / 100));
+  bindRange('scatter', 'scatterOut', (v) => (S.scatter = v / 100));
+  bindRange('jitter', 'jitterOut', (v) => (S.jitter = v / 100));
+  $('rotRandom').onchange = (e) => (S.rotRandom = e.target.checked);
+  $('rotFollow').onchange = (e) => (S.rotFollow = e.target.checked);
+
+  // 把狀態寫回介面（套用預設時）
+  function syncBrushUI() {
+    const setR = (id, v) => {
+      $(id).value = v;
+      const o = $(id + 'Out');
+      if (o) o.textContent = v;
+    };
+    setR('opacity', Math.round(S.opacity * 100));
+    setR('hardness', Math.round(S.hardness * 100));
+    setR('spacing', Math.round(S.spacing * 100));
+    setR('grainAmt', Math.round(S.grainAmt * 100));
+    setR('scatter', Math.round(S.scatter * 100));
+    setR('jitter', Math.round(S.jitter * 100));
+    $('pSize').checked = S.pSize;
+    $('pOpacity').checked = S.pOpacity;
+    $('tip').value = S.tip;
+    $('grain').value = S.grain;
+    $('rotRandom').checked = S.rotRandom;
+    $('rotFollow').checked = S.rotFollow;
+    for (const b of $('presets').children) b.classList.toggle('on', b.dataset.id === S.preset);
+  }
+  function applyPreset(p) {
+    for (const k of ['hardness', 'opacity', 'spacing', 'pSize', 'pOpacity', 'tip', 'grain', 'grainAmt', 'scatter', 'jitter', 'rotRandom', 'rotFollow'])
+      S[k] = p[k];
+    S.preset = p.id;
+    syncBrushUI();
+    if (S.tool !== 'pen' && S.tool !== 'eraser') setTool('pen');
+  }
+  for (const p of RP.BRUSH_PRESETS) {
+    const b = document.createElement('button');
+    b.textContent = p.name;
+    b.dataset.id = p.id;
+    b.onclick = () => applyPreset(p);
+    $('presets').appendChild(b);
+  }
+  applyPreset(RP.BRUSH_PRESETS.find((p) => p.id === 'round'));
   $('fillMode').onchange = (e) => (S.fillMode = e.target.value);
 
   const recent = [];
@@ -942,6 +1123,7 @@
     for (const c of uvGroup.children) if (c.isLineSegments) c.visible = S.uvLines;
   });
   $('btnUvFit').onclick = fitUV;
+  $('objShowAll').onclick = showAllMeshes;
   $('uvSet').onchange = (e) => showSet(painter.sets[Number(e.target.value)]);
   $('btnUvToggle').onclick = () => {
     document.body.classList.toggle('noUV');
@@ -1508,6 +1690,11 @@
       view3d.style.cursor = 'crosshair';
       return;
     }
+    if (e.altKey && e.code === 'KeyH') {
+      showAllMeshes();
+      e.preventDefault();
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       if (k === 'z' && !e.shiftKey) $('btnUndo').click();
       else if (k === 'y' || (k === 'z' && e.shiftKey)) $('btnRedo').click();
@@ -1527,6 +1714,7 @@
     else if (k === 'e') setTool('eraser');
     else if (k === 'i') setTool('picker');
     else if (k === 'g') setTool('fill');
+    else if (k === 'h') hideMeshUnderCursor();
     else if (k === 'u') setTool('gradient');
     else if (k === '[') setSize(S.size / 1.15);
     else if (k === ']') setSize(S.size * 1.15);

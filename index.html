@@ -82,13 +82,24 @@
 
         <section class="panel">
           <h3>筆刷</h3>
+          <div id="presets"></div>
           <label class="row">尺寸 <input id="size" type="range" min="1" max="400" value="24" /><input id="sizeNum" type="number" min="1" max="400" value="24" /></label>
           <label class="row">不透明度 <input id="opacity" type="range" min="1" max="100" value="100" /><output id="opacityOut">100</output></label>
           <label class="row">硬度 <input id="hardness" type="range" min="0" max="100" value="60" /><output id="hardnessOut">60</output></label>
-          <label class="row">間距 <input id="spacing" type="range" min="2" max="100" value="12" /><output id="spacingOut">12</output></label>
+          <label class="row">間距 <input id="spacing" type="range" min="2" max="200" value="12" /><output id="spacingOut">12</output></label>
           <label class="row">手震修正 <input id="smooth" type="range" min="0" max="95" value="30" /><output id="smoothOut">30</output></label>
           <label class="check"><input id="pSize" type="checkbox" checked /> 壓感影響尺寸</label>
           <label class="check"><input id="pOpacity" type="checkbox" /> 壓感影響不透明度</label>
+          <details id="brushAdv">
+            <summary>筆尖與效果</summary>
+            <label class="row">筆尖 <select id="tip" style="grid-column: span 2"></select></label>
+            <label class="row">紙紋 <select id="grain" style="grid-column: span 2"></select></label>
+            <label class="row">紙紋強度 <input id="grainAmt" type="range" min="0" max="100" value="50" /><output id="grainAmtOut">50</output></label>
+            <label class="row">散佈 <input id="scatter" type="range" min="0" max="100" value="0" /><output id="scatterOut">0</output></label>
+            <label class="row">大小抖動 <input id="jitter" type="range" min="0" max="100" value="0" /><output id="jitterOut">0</output></label>
+            <label class="check"><input id="rotRandom" type="checkbox" /> 角度隨機</label>
+            <label class="check"><input id="rotFollow" type="checkbox" /> 沿筆畫方向</label>
+          </details>
           <label class="check" title="在 UV 面板畫的時候，跨過接縫的部分也接著畫（依 3D 位置）"><input id="uvConnect" type="checkbox" checked /> UV 面板跨接縫連續</label>
         </section>
 
@@ -156,6 +167,12 @@
             <button id="lyDel" class="icon" title="刪除圖層"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg></button>
           </div>
         </section>
+
+        <section class="panel" id="objPanel">
+          <h3>零件 <span class="dim">（H 隱藏游標下的零件、Alt+H 全部顯示）</span></h3>
+          <div id="objList"></div>
+          <div class="btnRow"><button id="objShowAll">全部顯示</button></div>
+        </section>
       </aside>
     </main>
 
@@ -166,6 +183,7 @@
     <script src="lib/three/GLTFLoader.js"></script>
     <script src="lib/three/GLTFExporter.js"></script>
     <script src="js/paint-core.js"></script>
+    <script src="js/brushes.js"></script>
     <script src="js/demo-model.js"></script>
     <script src="js/app.js"></script>
   </body>

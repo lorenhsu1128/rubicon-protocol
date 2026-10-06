@@ -87,6 +87,12 @@
     uniform vec4 uW[MAXD];      // 世界座標中心, 半徑
     uniform float uWA[MAXD];    // alpha
     uniform float uHard;
+    uniform float uSR[MAXD];    // 畫面筆刷點的旋轉（弧度）
+    uniform bool uUseTip;       // 用筆尖圖形（否則是圓形＋硬度）
+    uniform sampler2D uTip;
+    uniform float uGrainAmt;    // 紙紋強度（0＝不用）
+    uniform float uGrainScale;
+    uniform sampler2D uGrain;
     uniform bool uUVSpace;      // 在 UV 面板直接畫（不跨接縫）
     uniform vec2 uTexSize;
     varying vec3 vWorld;
@@ -110,7 +116,15 @@
           for (int i = 0; i < MAXD; i++) {
             if (i >= uNS) break;
             vec4 d = uS[i];
-            a = max(a, fall(length(px - d.xy) / d.z) * d.w);
+            vec2 q = (px - d.xy) / d.z;
+            float cov;
+            if (uUseTip) {
+              float c = cos(uSR[i]);
+              float sn = sin(uSR[i]);
+              vec2 r = vec2(c * q.x + sn * q.y, -sn * q.x + c * q.y);
+              cov = abs(r.x) < 1.0 && abs(r.y) < 1.0 ? texture2D(uTip, r * 0.5 + 0.5).r : 0.0;
+            } else cov = fall(length(q));
+            a = max(a, cov * d.w);
           }
         }
       }
@@ -119,6 +133,7 @@
         vec4 d = uW[i];
         a = max(a, fall(length(vWorld - d.xyz) / d.w) * uWA[i]);
       }
+      if (uGrainAmt > 0.0) a *= mix(1.0, texture2D(uGrain, vUv * uGrainScale).r, uGrainAmt);
       if (a <= 0.0) discard;
       gl_FragColor = vec4(a);
     }`;
@@ -565,6 +580,12 @@
           uBias: { value: 0.001 },
           uUVSpace: { value: false },
           uTexSize: { value: new THREE.Vector2(1, 1) },
+          uSR: { value: new Array(MAXD).fill(0) },
+          uUseTip: { value: false },
+          uTip: { value: null },
+          uGrainAmt: { value: 0 },
+          uGrainScale: { value: 8 },
+          uGrain: { value: null },
         },
         side: THREE.DoubleSide,
         depthTest: false,
@@ -823,6 +844,7 @@
       u.uUVSpace.value = false;
 
       this.setBrush(brush);
+      this.applyTip(brush);
       this.stroke = { view: { camera: cam, w, h }, touched: new Set() };
       // 每組貼圖在畫面上的範圍（判斷筆刷點有沒有碰到）
       const v = new THREE.Vector3();
@@ -845,6 +867,16 @@
         }
         s.screenRect = s.box.isEmpty() ? { x0: 1, y0: 1, x1: -1, y1: -1 } : behind ? null : { x0, y0, x1, y1 };
       }
+    }
+
+    // 筆尖與紙紋（beginStroke／beginUVStroke 時套用）
+    applyTip(brush) {
+      const u = this.paintMat.uniforms;
+      u.uUseTip.value = !!brush.tip;
+      u.uTip.value = brush.tip || null;
+      u.uGrainAmt.value = brush.grain ? brush.grainAmt || 0 : 0;
+      u.uGrain.value = brush.grain || null;
+      u.uGrainScale.value = brush.grainScale || 8;
     }
 
     setBrush(brush) {
@@ -890,7 +922,10 @@
         let ns = 0;
         let nw = 0;
         for (const d of batch) {
-          if (d.type === 's') u.uS.value[ns++].set(d.x, d.y, d.r, d.a);
+          if (d.type === 's') {
+            u.uSR.value[ns] = d.rot || 0;
+            u.uS.value[ns++].set(d.x, d.y, d.r, d.a);
+          }
           else {
             u.uW.value[nw].set(d.p.x, d.p.y, d.p.z, d.r);
             u.uWA.value[nw++] = d.a;
@@ -921,6 +956,7 @@
       u.uHard.value = Math.min(0.98, Math.max(0, brush.hardness));
       u.uUVSpace.value = !connected;
       u.uTexSize.value.set(s.w, s.h);
+      this.applyTip(brush);
       s.syncMatrices();
       this.stroke = { view: null, touched: new Set(), only: s };
     }
