@@ -66,12 +66,25 @@ export class ModelGrid {
       { rootMargin: '400px 0px' },
     );
     this.cells = entries.map((e) => this.makeCell(e));
+    // 每行格數（3／5／7）與「全部旋轉」：模型庫的設定（localStorage rubicon_lib_grid）
+    let g = {};
+    try {
+      g = JSON.parse(localStorage.getItem('rubicon_lib_grid') || '{}') || {};
+    } catch (e) {}
+    this.cols = [3, 5, 7].includes(g.cols) ? g.cols : 3;
+    this.spinAll = typeof g.spin === 'boolean' ? g.spin : this.cols === 3;
+    this.hover = null;
+    this.dirty = true;
+    this.sig = '';
+    this.layout();
+    addEventListener('resize', () => this.layout());
     requestAnimationFrame(() => this.loop());
   }
   makeCell(entry) {
     const el = document.createElement('div');
     el.className = 'cell';
     el.dataset.id = entry.id;
+    el.title = `${entry.name}（${entry.id}）`; // 5、7 格時名稱會截斷
     el.innerHTML =
       `<div class="view"><div class="loading">載入中…</div><div class="dropHint">放開以替換此槽位的 GLB</div></div>` +
       `<div class="meta"><div class="t"><b>${escHtml(entry.name)}</b><span class="badge"></span></div>` +
@@ -80,6 +93,14 @@ export class ModelGrid {
     const cell = { entry, el, view: el.querySelector('.view'), near: false, data: null, shown: true };
     el._cell = cell;
     el.onclick = () => this.onOpen(entry);
+    el.onmouseenter = () => {
+      this.hover = cell;
+      this.dirty = true;
+    };
+    el.onmouseleave = () => {
+      if (this.hover === cell) this.hover = null;
+      this.dirty = true;
+    };
     el.ondragover = (e) => {
       e.preventDefault();
       el.classList.add('drop');
@@ -95,6 +116,32 @@ export class ModelGrid {
     this.observer.observe(el);
     this.setBadge(cell);
     return cell;
+  }
+  // 改每行格數時預設：3 個全部旋轉，5、7 個只轉游標停留的格子（之後可再用開關改）
+  setCols(n) {
+    this.cols = n;
+    this.spinAll = n === 3;
+    this.saveCfg();
+    this.layout();
+  }
+  setSpin(on) {
+    this.spinAll = on;
+    this.saveCfg();
+    this.dirty = true;
+  }
+  saveCfg() {
+    try {
+      localStorage.setItem('rubicon_lib_grid', JSON.stringify({ cols: this.cols, spin: this.spinAll }));
+    } catch (e) {}
+  }
+  // 實際每行格數：每格至少 160 px，窄螢幕自動減少（手機寬度一行一格）
+  layout() {
+    const w = this.container.clientWidth || innerWidth;
+    const fit = innerWidth <= 600 ? 1 : Math.max(1, Math.floor((w - 32 + 12) / (160 + 12)));
+    const n = Math.min(this.cols, fit);
+    this.container.style.setProperty('--cols', n);
+    this.container.classList.toggle('dense', n >= 5);
+    this.dirty = true;
   }
   cellOf(id) {
     return this.cells.find((c) => c.entry.id === id);
@@ -113,6 +160,7 @@ export class ModelGrid {
       c.el.style.display = c.shown ? '' : 'none';
       if (c.shown) n++;
     }
+    this.dirty = true;
     return n;
   }
   setPalette(key) {
@@ -130,6 +178,7 @@ export class ModelGrid {
     c.data = null;
     c.view.querySelector('.loading').style.display = '';
     this.setBadge(c);
+    this.dirty = true;
   }
   async build(c) {
     const tok = (c.tok = (c.tok || 0) + 1);
@@ -162,6 +211,7 @@ export class ModelGrid {
     const cam = new THREE.PerspectiveCamera(30, 4 / 3, 0.01, 1000);
     fitCamera(cam, d.size, 4 / 3, 1.05);
     c.data = { ...d, scene, cam };
+    this.dirty = true;
     c.view.querySelector('.loading').style.display = 'none';
     const st = scaleText(d.scale);
     c.el.querySelector('.sz').innerHTML =
@@ -176,7 +226,10 @@ export class ModelGrid {
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
-    if (this.paused) return;
+    if (this.paused) {
+      this.dirty = true; // 回到格狀檢視時重畫
+      return;
+    }
     this.t += dt;
     const r = this.renderer;
     const W = innerWidth,
@@ -192,6 +245,13 @@ export class ModelGrid {
         this.build(todo).finally(() => (this.busy = false));
       }
     }
+    // 沒有捲動、縮放、旋轉或內容變化時不重畫（畫布保留上一格的畫面）
+    const cr = this.container.getBoundingClientRect();
+    const sig = `${W}x${H}:${Math.round(cr.top)}:${Math.round(cr.width)}`;
+    const moving = this.spinAll || (this.hover && this.hover.data && !this.hover.data.pending);
+    if (!moving && !this.dirty && sig === this.sig) return;
+    this.sig = sig;
+    this.dirty = false;
     r.setScissorTest(false);
     r.setClearColor(0x0c1016);
     r.clear();
@@ -201,9 +261,11 @@ export class ModelGrid {
       if (!d || d.pending || !c.shown) continue;
       const rc = c.view.getBoundingClientRect();
       if (rc.bottom < 0 || rc.top > H || rc.width < 2) continue;
-      d.pivot.rotation.y += dt * 0.5;
-      const rig = d.built.rig;
-      if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState('garage', this.t));
+      if (this.spinAll || c === this.hover) {
+        d.pivot.rotation.y += dt * 0.5;
+        const rig = d.built.rig;
+        if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState('garage', this.t));
+      }
       const aspect = rc.width / rc.height;
       if (Math.abs(d.cam.aspect - aspect) > 1e-3) {
         d.cam.aspect = aspect;

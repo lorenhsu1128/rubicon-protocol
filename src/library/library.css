@@ -181,23 +181,39 @@ button.sel {
   color: var(--dim);
   margin-left: 4px;
 }
+/* 每行格數由 grid.js 依設定（3／5／7）與視窗寬度設定 --cols */
 #grid {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
   gap: 12px;
   padding: 12px 16px 40px;
 }
-@media (max-width: 960px) {
-  #grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+#grid.dense {
+  gap: 8px;
 }
-@media (max-width: 600px) {
-  #grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+#grid.dense .cell .meta {
+  padding: 4px 6px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+#grid.dense .cell .meta b {
+  font-size: 11px;
+}
+#grid.dense .cell .meta .dim:not(.sz),
+#grid.dense .size small {
+  display: none;
+}
+#grid.dense .badge {
+  font-size: 9px;
+  padding: 0 4px;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#btnBack {
+  margin-left: auto;
 }
 .cell {
   border: 1px solid var(--line);

@@ -121,6 +121,24 @@ function renderTabs() {
       applyFilter();
     };
 }
+// 回遊戲：從遊戲開的（有 opener）就切回遊戲分頁並關掉這一頁；否則在這一頁開遊戲
+function backToGame() {
+  if (editor && editor.content && editor.dirty && !confirm('GLB 編輯器有尚未存檔的修改，確定要回遊戲？'))
+    return;
+  const url = window.RUBICON_SERVER ? '/' : 'rubicon-protocol.html';
+  const op = window.opener;
+  if (op && !op.closed) {
+    try {
+      op.focus(); // 跨來源也允許（直接開檔時 file:// 各頁是不同來源）
+    } catch (e) {}
+    window.close();
+    // 瀏覽器不讓關（不是由程式開的分頁）時改成在這一頁開遊戲
+    setTimeout(() => {
+      if (!window.closed) location.href = url;
+    }, 300);
+  } else location.href = url;
+}
+
 function applyFilter() {
   const q = state.q.trim().toLowerCase();
   const n = grid.filter(
@@ -204,6 +222,14 @@ async function main() {
     onDrop: useFile,
     store,
   });
+  $('gridCols').value = String(grid.cols);
+  $('gridSpin').checked = grid.spinAll;
+  $('gridCols').onchange = (e) => {
+    grid.setCols(Number(e.target.value) || 3);
+    $('gridSpin').checked = grid.spinAll;
+  };
+  $('gridSpin').onchange = (e) => grid.setSpin(e.target.checked);
+  $('btnBack').onclick = backToGame;
   inspector = new Inspector({
     store,
     onFile: useFile,

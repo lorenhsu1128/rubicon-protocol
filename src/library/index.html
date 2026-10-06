@@ -81,6 +81,18 @@
         <span class="dim hint axes"
           >原點與三軸：<b class="ax-x">X</b>　<b class="ax-y">Y 上</b>　<b class="ax-z">Z 正面</b></span
         >
+        <label title="窄螢幕會自動減少"
+          >每行
+          <select id="gridCols">
+            <option value="3">3 個</option>
+            <option value="5">5 個</option>
+            <option value="7">7 個</option>
+          </select></label
+        >
+        <label title="關閉時只有游標停在上面的格子會旋轉（格子多時比較順）"
+          ><input type="checkbox" id="gridSpin" /> 全部旋轉</label
+        >
+        <button id="btnBack" title="回到遊戲的標題畫面">← 回遊戲</button>
       </div>
       <nav id="tabs"></nav>
     </header>

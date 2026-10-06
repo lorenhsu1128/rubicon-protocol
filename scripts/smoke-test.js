@@ -228,6 +228,12 @@ async function testPaint(browser) {
   );
   check(await tool.isHidden('#libGroup'), '不是從模型庫開啟時不顯示「存回模型庫」');
   await tool.close();
+  // 標題「模型庫」開新分頁 →「回遊戲」關掉模型庫分頁，遊戲仍在標題
+  const [lib] = await Promise.all([game.waitForEvent('popup'), game.click('#btnLibrary')]);
+  watch(lib, 'library-back');
+  await lib.waitForSelector('.cell');
+  await Promise.all([lib.waitForEvent('close', { timeout: 5000 }).catch(() => {}), lib.click('#btnBack')]);
+  check(lib.isClosed() && (await visible(game, 'title')), '模型庫「回遊戲」關掉模型庫分頁、回到遊戲標題');
   await game.close();
 
   const SLOT = 'arms/a_std/r_fore';
@@ -512,6 +518,38 @@ async function testLibrary(browser, base) {
   await page.evaluate(() => scrollTo(0, 0));
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'library.png') });
+  // 每行 7 格（精簡顯示、只轉游標停留的格子）→ 重新整理後保留 → 改回 3 格
+  await page.selectOption('#gridCols', '7');
+  await wait(1200);
+  const g7 = await page.evaluate(() => ({
+    cols: getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length,
+    dense: document.getElementById('grid').classList.contains('dense'),
+    spin: document.getElementById('gridSpin').checked,
+  }));
+  check(
+    g7.cols === 7 && g7.dense && !g7.spin,
+    `每行改成 7 格：精簡顯示、只轉游標停留的格子（${g7.cols} 格）`,
+  );
+  await page.hover('.cell:nth-child(3)');
+  await wait(800);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'library-7cols.png') });
+  await page.reload();
+  await page.waitForSelector('.cell');
+  check(
+    (await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length)) === 7 &&
+      (await page.$eval('#gridCols', (s) => s.value)) === '7',
+    '重新整理後保留每行格數',
+  );
+  await page.check('#gridSpin');
+  await page.selectOption('#gridCols', '5');
+  await wait(500);
+  check(
+    (await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length)) === 5,
+    '每行改成 5 格',
+  );
+  await page.selectOption('#gridCols', '3');
+  await wait(800);
+  check(await page.$eval('#gridSpin', (c) => c.checked), '改回 3 格時預設全部旋轉');
   await page.click('.cell[data-id="mech/boss_juggernaut"]');
   check(
     await page.waitForSelector('#inspect:not([hidden])', { timeout: 10000 }).then(

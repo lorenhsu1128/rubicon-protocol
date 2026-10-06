@@ -467,6 +467,17 @@ Object.assign(Game.prototype, {
       window.open(window.RUBICON_SERVER ? '/paint/' : 'paint/index.html', '_blank');
     document.getElementById('btnLmReload').onclick = () => this.lmRefresh(true);
     document.getElementById('btnStyleLab').onclick = () => this.openLab();
+    // 從模型庫回來（分頁重新取得焦點）：停在標題或車庫時重新讀取本地模型（沒變動就不解析）
+    const back = () => {
+      if (document.hidden || (this.net && this.net.role)) return;
+      if (this.state === 'title') this.lmRefresh().catch(() => {});
+      else if (this.state === 'garage')
+        this.lmRefresh()
+          .then((st) => st && st.on && this.state === 'garage' && this.renderGarage())
+          .catch(() => {});
+    };
+    addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
     document.getElementById('btnStyleLab2').onclick = () => {
       this.closeSettings();
       if (this.state === 'title') this.openLab();
