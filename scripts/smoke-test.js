@@ -5,7 +5,7 @@
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
 'use strict';
-/* global window, document, localStorage, getComputedStyle, scrollTo, indexedDB, THREE -- page.evaluate 的回呼在瀏覽器端執行 */
+/* global window, document, localStorage, location, getComputedStyle, scrollTo, indexedDB, THREE -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -67,11 +67,19 @@ function freePort() {
   });
 }
 
+// 伺服器模型組的資料夾（測試用，每次重來）
+const SERVER_MODELS = path.join(SHOT_DIR, 'server-models');
 async function startGameServer() {
   const [gamePort, controlPort] = [await freePort(), await freePort()];
+  fs.rmSync(SERVER_MODELS, { recursive: true, force: true });
   const proc = spawn(process.execPath, ['-r', './scripts/test-server-preload.js', 'server.js'], {
     cwd: ROOT,
-    env: { ...process.env, TEST_GAME_PORT: gamePort, TEST_CONTROL_PORT: controlPort },
+    env: {
+      ...process.env,
+      TEST_GAME_PORT: gamePort,
+      TEST_CONTROL_PORT: controlPort,
+      RUBICON_MODELS_DIR: SERVER_MODELS,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -87,6 +95,13 @@ async function startGameServer() {
   }
   proc.kill();
   throw new Error('區網伺服器沒有啟動：\n' + log);
+}
+
+// 重新載入到帶 # 的網址：先離開再完整載入（只改 # 再 reload 時，頁面處理 hashchange 會暫時清掉 #，
+// 負載高時 reload 可能剛好拿到沒有 # 的網址）
+async function reopen(page, url) {
+  await page.goto('about:blank');
+  await page.goto(url);
 }
 
 // 程式庫一律從頁面旁的 lib/ 載入：任何頁面向 CDN 要求程式庫都算錯誤
@@ -832,8 +847,7 @@ async function testEditor(browser, base) {
     `鏡像的左前臂載入檢視窗、規格檢查通過${insBad.join('；')}`,
   );
   // 存過的槽位保留原始檔：重新開啟編輯器 → 載入槽位的 GLB → 還原原始檔
-  await page.goto(base + 'model-library.html#editor=arms/a_std/r_fore');
-  await page.reload();
+  await reopen(page, base + 'model-library.html#editor=arms/a_std/r_fore');
   await page.waitForSelector('#editor:not([hidden])');
   await wait(1500);
   check(
@@ -871,8 +885,7 @@ async function testEditorSplit(browser, base) {
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
   const fp = path.join(SHOT_DIR, 'editor-mech.glb');
   await dl.saveAs(fp);
-  await page.goto(base + 'model-library.html?test#editor');
-  await page.reload();
+  await reopen(page, base + 'model-library.html?test#editor');
   await page.waitForSelector('#editor:not([hidden])');
   await page.setInputFiles('#edFile', fp);
   await wait(1500);
@@ -1036,8 +1049,7 @@ async function testEditorSplit(browser, base) {
     }),
     '拖曳過的關節點存進關節設定（膝與小腿的腳踝）',
   );
-  await page.goto(base + 'model-library.html#mech/player');
-  await page.reload();
+  await reopen(page, base + 'model-library.html#mech/player');
   await page.waitForSelector('#inspect:not([hidden])');
   const n5 = await page
     .waitForFunction(
@@ -1210,8 +1222,7 @@ async function testEditorMaterials(browser, base) {
   check(!(await tinted()).includes('acc') && (await matCount()) === '3', '復原框選');
   await page.click('#edSave');
   await wait(1500);
-  await page.goto(base + 'model-library.html#head/h_std');
-  await page.reload();
+  await reopen(page, base + 'model-library.html#head/h_std');
   await page.waitForSelector('#inspect:not([hidden])');
   await wait(2000);
   const ins = (await page.$$eval('#insChecks li', (l) => l.map((x) => x.textContent))).find((t) =>
@@ -1726,9 +1737,27 @@ async function testEditorOptimize(browser, base) {
   await page.waitForFunction(() =>
     [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已存到')),
   );
-  await page.goto(base + 'model-library.html#head/h_std');
-  await page.reload();
-  await page.waitForSelector('#inspect:not([hidden])');
+  await reopen(page, base + 'model-library.html#head/h_std');
+  const opened = await page.waitForSelector('#inspect:not([hidden])').then(
+    () => true,
+    () => false,
+  );
+  if (!opened) {
+    await page.screenshot({ path: path.join(SHOT_DIR, 'editor-opt-fail.png') });
+    console.log(
+      '    頁面狀態：' +
+        JSON.stringify(
+          await page.evaluate(() => ({
+            url: location.href,
+            cells: document.querySelectorAll('.cell').length,
+            notice: !!document.getElementById('dbNotice'),
+            cur: (document.getElementById('setCur') || {}).textContent,
+            count: document.getElementById('count').textContent,
+          })),
+        ),
+    );
+  }
+  check(opened, '存檔後重新整理，網址直接開啟檢視窗');
   await wait(2500);
   const info = (await page.textContent('#insInfo')) || '';
   check(
@@ -1855,8 +1884,7 @@ async function testLocalModels(browser, base) {
   );
   // 模型庫：完整載具／列車以區塊組合預覽
   for (const id of ['vehicle/tank', 'vehicle/transport_train']) {
-    await lib.goto(base + 'model-library.html#' + id);
-    await lib.reload(); // 只改 # 不會重新載入頁面，要重新讀取剛寫入的暫存
+    await reopen(lib, base + 'model-library.html#' + id);
     await lib.waitForSelector('#inspect:not([hidden])');
     await wait(1800);
     const t = (await lib.textContent('#insInfo')) || '';
@@ -2202,6 +2230,266 @@ async function testModelSets(browser, base) {
   await ctx.close();
 }
 
+// 伺服器模型組：模型庫的伺服器預設組（整組發佈、直接編輯）→ 單人（敵人用伺服器組、自己用本地模型組）
+// → 多人（兩個瀏覽器各自上傳模型組，房主與客機看到對方的機甲用對方的模型組，敵人用伺服器組）
+async function testServerModels(browser, url) {
+  console.log('伺服器模型組：伺服器預設組 → 單人套用 → 多人各自上傳模型組');
+  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
+  const foreB = [...fs.readFileSync(fore)],
+    rifleB = [...fs.readFileSync(rifle)];
+  const manifest = () =>
+    JSON.parse(fs.readFileSync(path.join(SERVER_MODELS, 'default', 'manifest.json'), 'utf8'));
+  const ctxA = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+  const lib = await ctxA.newPage();
+  watch(lib, 'srv-lib');
+  lib.on('dialog', (d) => d.accept());
+  await lib.goto(url + 'models?test');
+  await lib.waitForSelector('.cell');
+  await wait(800);
+  const mkBox = (page, w, h, d, name) =>
+    page.evaluate(
+      ([w, h, d, name]) =>
+        new Promise((res) => {
+          const m = new THREE.Mesh(
+            new THREE.BoxGeometry(w, h, d),
+            new THREE.MeshStandardMaterial({ name, color: 0xff00ff }),
+          );
+          m.position.y = h / 2;
+          new THREE.GLTFExporter().parse(m, (b) => res([...new Uint8Array(b)]), { binary: true });
+        }),
+      [w, h, d, name],
+    );
+  const cube = await mkBox(lib, 0.7, 0.7, 0.7, 'acc');
+  const debris = await mkBox(lib, 0.75, 0.35, 0.75, 'main');
+  await lib.click('#setMenu summary');
+  const names = await lib.$$eval('#setList button b', (bs) => bs.map((b) => b.textContent));
+  check(names[0] === '伺服器預設組', `從伺服器開啟時模型組選單多「伺服器預設組」（${names.join('、')}）`);
+  // 整組發佈：本地模型組「發佈測試」（右前臂＋手肘關節）→ 伺服器預設組
+  await lib.evaluate(async (fore) => {
+    const s = window.__workshop.store;
+    const set = await s.createSet('發佈測試', {
+      recs: [{ id: 'arms/a_std/r_fore', name: 'fore.glb', buf: new Uint8Array(fore).buffer }],
+      joints: { 'arms/a_std/r_upper': { elbow: { p: [0, -0.9, 0.05], r: [0, 0, 0] } } },
+    });
+    await s.useSet(set.id);
+  }, foreB);
+  await lib.reload();
+  await lib.waitForSelector('.cell');
+  await lib.click('#setMenu summary');
+  check(await lib.isVisible('#setPublish'), '本地模型組可以「發佈到伺服器預設組」');
+  await lib.click('#setPublish');
+  await lib.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已發佈到伺服器預設組')),
+  );
+  let m = manifest();
+  check(
+    Object.keys(m.models).join() === 'arms/a_std/r_fore' &&
+      m.joints['arms/a_std/r_upper'] &&
+      fs.existsSync(path.join(SERVER_MODELS, 'default', 'glb', 'arms', 'a_std', 'r_fore.glb')),
+    '整組發佈：伺服器的資料夾寫入 GLB 與關節設定',
+  );
+  // 直接編輯伺服器預設組：切換後存檔（和 GLB 編輯器、拖曳替換同一條路徑）一律寫到伺服器
+  await lib.click('#setList button.srv');
+  await lib.waitForFunction(() => window.__workshop.store.isServer());
+  await wait(300);
+  await lib.evaluate(
+    async ({ cube, debris }) => {
+      const s = window.__workshop.store;
+      await s.putBuf('prop/debris', 'debris.glb', new Uint8Array(debris).buffer);
+      await s.putBuf('vehicle/tank/turret', 'turret.glb', new Uint8Array(cube).buffer);
+      await s.setJoint('arms/a_std/r_upper', 'wrist_test', { p: [0, 0, 0], r: [0, 0, 0] });
+      await s.setJoint('arms/a_std/r_upper', 'wrist_test', null);
+    },
+    { cube, debris },
+  );
+  m = manifest();
+  check(
+    Object.keys(m.models).sort().join() === 'arms/a_std/r_fore,prop/debris,vehicle/tank/turret' &&
+      Object.keys(m.joints['arms/a_std/r_upper']).join() === 'elbow',
+    `選伺服器預設組時存檔直接寫到伺服器（GLB ${Object.keys(m.models).length} 個、關節設定、刪除）`,
+  );
+  // 重新讀取伺服器：選單與格子更新（伺服器預設組 3 個 GLB）
+  await lib.click('#setSrvReload');
+  await lib.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('已重新讀取伺服器預設組')),
+  );
+  const srvRow = (await lib.textContent('#setList button.srv')) || '';
+  check(srvRow.includes('GLB 3'), `「重新讀取伺服器」後選單顯示伺服器預設組的內容（${srvRow.trim()}）`);
+  await lib.screenshot({ path: path.join(SHOT_DIR, 'server-models-library.png') });
+  // 重新整理：仍在伺服器預設組，檢視窗標示來源
+  await reopen(lib, url + 'models?test#prop/debris');
+  await lib.waitForSelector('#inspect:not([hidden])');
+  await wait(1500);
+  const info = (await lib.textContent('#insInfo')) || '';
+  check(info.includes('GLB（伺服器預設組）'), '重新整理後仍是伺服器預設組，檢視窗標示「伺服器預設組」');
+  // 玩家 A 的本地模型組（多人時上傳）
+  const idA = await lib.evaluate(
+    async ({ rifle, cube }) => {
+      const s = window.__workshop.store;
+      const set = await s.createSet('玩家A', {
+        recs: [
+          { id: 'weapon/w_rifle/r', name: 'rifle.glb', buf: new Uint8Array(rifle).buffer },
+          { id: 'arms/a_std/l_hand', name: 'hand.glb', buf: new Uint8Array(cube).buffer },
+        ],
+        joints: { 'arms/a_std/l_upper': { elbow: { p: [0, -0.8, 0], r: [0, 0, 0] } } },
+      });
+      return set.id;
+    },
+    { rifle: rifleB, cube },
+  );
+  await lib.close();
+
+  // ---- 單人：敵人與地圖物件用伺服器預設組，自己的機甲用本地模型組 ----
+  const game = await ctxA.newPage();
+  watch(game, 'srv-solo');
+  await game.goto(url + '?test');
+  await waitVisible(game, 'title');
+  await game.click('#btnSettings');
+  await waitVisible(game, 'settings');
+  await wait(1500);
+  let t = (await game.textContent('#lmBox')) || '';
+  check(
+    t.includes('伺服器預設組') && t.includes('GLB 3 個'),
+    `設定畫面顯示伺服器預設組（${(t.match(/伺服器預設組([^重]*)/) || ['', ''])[1].trim()}）`,
+  );
+  await game.$eval('#lmBox', (e) => e.scrollIntoView({ block: 'center' }));
+  await game.screenshot({ path: path.join(SHOT_DIR, 'server-models-settings.png') });
+  await game.click('#btnSettingsBack');
+  await waitVisible(game, 'title');
+  await game.click('#btnNew');
+  check(await waitVisible(game, 'garage'), '車庫畫面顯示');
+  await wait(1500);
+  t = (await game.textContent('#gLocal')) || '';
+  check(t.includes('伺服器預設組：此機'), `沒選本地模型組時，車庫的機甲用伺服器預設組（${t.trim()}）`);
+  await game.waitForSelector('#gModelSetSel');
+  await game.selectOption('#gModelSetSel', idA);
+  await wait(2000);
+  t = (await game.textContent('#gLocal')) || '';
+  check(t.includes('本地模型組「玩家A」'), `車庫選本地模型組後換成它（${t.trim()}）`);
+  await game.screenshot({ path: path.join(SHOT_DIR, 'server-models-garage.png') });
+  await game.click('#btnSortie');
+  check(await waitVisible(game, 'hudWrap', 15000), '單人出擊');
+  await playFor(game, 3000);
+  const solo = await game.evaluate(() => {
+    const g = window.__game;
+    return {
+      me: g.player.modelSrc && g.player.modelSrc.id,
+      enemies: g.enemies.filter((e) => !e.opts.modelKind).map((e) => e.modelSrc && e.modelSrc.id),
+      srvGlb: g.enemies.some((e) => Object.values(e.model.pieces || {}).some((o) => o.userData.localGlb)),
+    };
+  });
+  check(
+    String(solo.me).startsWith('local:') && solo.enemies.length && solo.enemies.every((x) => x === '@server'),
+    `單人：自己的機甲用本地模型組、敵人用伺服器預設組（敵人 ${solo.enemies.length} 台${solo.srvGlb ? '，有區塊換成 GLB' : ''}）`,
+  );
+  await game.screenshot({ path: path.join(SHOT_DIR, 'server-models-solo.png') });
+  await game.keyboard.press('Escape');
+  await wait(400);
+  await game.click('#btnAbort');
+  await waitVisible(game, 'result');
+  await game.close();
+
+  // ---- 多人：另一個瀏覽器（玩家 B）有自己的模型組 ----
+  const ctxB = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const libB = await ctxB.newPage();
+  watch(libB, 'srv-libB');
+  await libB.goto(url + 'models?test');
+  await libB.waitForSelector('.cell');
+  const cubeB = await mkBox(libB, 0.9, 0.9, 0.9, 'main');
+  const idB = await libB.evaluate(async (cube) => {
+    const s = window.__workshop.store;
+    const set = await s.createSet('玩家B', {
+      recs: [{ id: 'head/h_std', name: 'head.glb', buf: new Uint8Array(cube).buffer }],
+    });
+    return set.id;
+  }, cubeB);
+  await libB.close();
+  const host = await ctxA.newPage();
+  const cli = await ctxB.newPage();
+  watch(host, 'srv-mp-host');
+  watch(cli, 'srv-mp-client');
+  await host.goto(url + '?test');
+  await cli.goto(url + '?test');
+  await host.click('#btnMP');
+  await setNick(host, 'HOSTA');
+  await host.click('#btnMPHost');
+  check(await waitVisible(host, 'lobby'), '多人：房主進入大廳');
+  await host.check('#mpAuto');
+  await host.dispatchEvent('#mpAuto', 'change');
+  const tagOk = (page, name) =>
+    page
+      .waitForFunction(
+        (name) =>
+          [...document.querySelectorAll('#lobbySlots .mtag')].some(
+            (e) => e.textContent.includes(name) && e.textContent.includes('✓'),
+          ),
+        name,
+        { timeout: 20000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  check(await tagOk(host, '玩家A'), '房主的模型組「玩家A」上傳完成（大廳顯示 ✓）');
+  await cli.click('#btnMP');
+  await setNick(cli, 'CLIB');
+  await wait(1000);
+  await cli.click('#btnMPList');
+  await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+  await cli.click('#mpRooms .part');
+  check(await waitVisible(cli, 'lobby', 15000), '多人：客機進入大廳');
+  await cli.waitForSelector(`#lobbyModelsSel option[value="${idB}"]`, { state: 'attached', timeout: 10000 });
+  await cli.selectOption('#lobbyModelsSel', idB);
+  check(await tagOk(host, '玩家B'), '客機選「玩家B」後上傳，房主大廳顯示並下載完成');
+  check(await tagOk(cli, '玩家A'), '客機也下載房主的模型組');
+  const ups = fs.readdirSync(path.join(SERVER_MODELS, 'uploads')).filter((f) => f.endsWith('.rubicon-set'));
+  check(ups.length === 2, `伺服器存了 2 個玩家上傳的模型組（${ups.length}）`);
+  await host.screenshot({ path: path.join(SHOT_DIR, 'server-models-lobby-host.png') });
+  await cli.screenshot({ path: path.join(SHOT_DIR, 'server-models-lobby-client.png') });
+  await cli.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbySortie');
+  check(await waitVisible(host, 'hudWrap', 20000), '多人：房主出擊');
+  check(await waitVisible(cli, 'hudWrap', 20000), '多人：客機出擊');
+  await Promise.all([playFor(host, 3000), playFor(cli, 3000)]);
+  const view = (page) =>
+    page.evaluate(() => {
+      const g = window.__game;
+      const out = {};
+      for (const e of g.players) out[e.name] = e.modelSrc ? e.modelSrc.name : null;
+      out.names = g.players.map((e) => e.name + ':' + e.slot + ':' + (e.opts.ms || '').slice(0, 6));
+      out.enemies = g.enemies
+        .filter((e) => !e.opts.modelKind)
+        .every((e) => e.modelSrc && e.modelSrc.id === '@server');
+      out.headGlb = g.players.some(
+        (e) => e.model.pieces['head/h_std'] && e.model.pieces['head/h_std'].userData.localGlb,
+      );
+      return out;
+    });
+  const hv = await view(host);
+  check(
+    hv.HOSTA === '玩家A' && hv.CLIB === '玩家B' && hv.enemies && hv.headGlb,
+    `房主：自己用「${hv.HOSTA}」、客機的機甲用「${hv.CLIB}」（頭換成 GLB）、敵人用伺服器預設組`,
+  );
+  let cv = await view(cli);
+  for (let i = 0; i < 20 && !(cv.HOSTA === '玩家A' && cv.CLIB === '玩家B'); i++) {
+    await wait(500);
+    cv = await view(cli);
+  }
+  check(
+    cv.HOSTA === '玩家A' && cv.CLIB === '玩家B' && cv.enemies,
+    `客機：房主的機甲用「${cv.HOSTA}」、自己用「${cv.CLIB}」、敵人用伺服器預設組（${JSON.stringify(cv)}）`,
+  );
+  await host.screenshot({ path: path.join(SHOT_DIR, 'server-models-mp-host.png') });
+  await cli.screenshot({ path: path.join(SHOT_DIR, 'server-models-mp-client.png') });
+  await ctxA.close();
+  await ctxB.close();
+}
+
 async function continueToPilot(page) {
   await page.reload();
   await waitVisible(page, 'title');
@@ -2359,6 +2647,7 @@ async function main() {
         '標題畫面「模型庫」按鈕開啟模型庫',
       );
       await page.context().close();
+      await testServerModels(browser, game.url);
       await testMultiplayer(browser, game.url, 'server', false);
     }
   } finally {

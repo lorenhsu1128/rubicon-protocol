@@ -23,6 +23,7 @@ Object.assign(Game.prototype, {
         name: pl.nick,
         palKey: PLAYER_PALS[pl.color],
         slot: pl.slot,
+        ms: pl.ms || null,
         pilot: this.pilotModsForPlayer(pl, 'pve'),
       });
       e.slot = pl.slot;
@@ -64,6 +65,7 @@ Object.assign(Game.prototype, {
       pvpTeam: e.pvpTeam,
       pvpAi: !!e.pvpAi,
       pm: e.pm || null, // 駕駛員加成：客機的 HUD 上限與自身移動預測需要
+      ms: o.ms || null, // 玩家機甲的模型組（伺服器上的內容雜湊）
       p: [e.pos.x, e.pos.y, e.pos.z],
     };
     this.net.spawnReg[e.id] = rec;

@@ -410,7 +410,7 @@ export class Inspector {
         : '區塊組合：全部為程式模型'
       : src.kind !== 'glb'
         ? '程式模型（three.js）'
-        : `GLB（${src.origin === 'builtin' ? '內建' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
+        : `GLB（${src.origin === 'builtin' ? '內建' : src.server ? '伺服器預設組' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
       ...(e.piece ? this.pieceRows(e.piece) : e.origin ? [['原點', e.origin]] : []),

@@ -36,7 +36,7 @@ export class MechEntity {
           ? buildHeli(pal, this.scale, this.isBoss ? 'boss_helios' : 'heli')
           : opts.modelKind === 'drone'
             ? buildDrone(pal, this.scale)
-            : buildMech(asm, pal, this.scale);
+            : this.buildRig();
     this.mesh = this.model.group;
     game.scene.add(this.mesh);
     this.pos = new THREE.Vector3();
@@ -109,6 +109,37 @@ export class MechEntity {
       phase: 1,
       stuck: 0,
     };
+  }
+  // 機甲模型：模型組由遊戲決定（伺服器模式依玩家／敵人選伺服器預設組或玩家上傳的模型組，見 game/local-lib.js）
+  buildRig() {
+    const g = this.game;
+    this.modelSrc = g.mechSource ? g.mechSource(this.opts) : null;
+    return buildMech(this.asm, this.pal, this.scale, { source: this.modelSrc });
+  }
+  // 換成新的模型（客機下載完玩家的模型組後）：保留位置、可見度與已丟出的武器，只換外觀
+  swapModel() {
+    if (this.opts.modelKind) return;
+    const g = this.game;
+    const old = this.mesh;
+    const vis = old.visible;
+    g.scene.remove(old);
+    if (this.glare) {
+      this.glare.forEach((m) => g.scene.remove(m));
+      this.glare = null;
+    }
+    this.model = this.buildRig();
+    this.mesh = this.model.group;
+    this.mesh.position.copy(old.position);
+    this.mesh.rotation.copy(old.rotation);
+    this.mesh.visible = vis;
+    for (const k of ['rarm', 'larm']) {
+      const w = this.weapons[k];
+      if (w && w.dropped) {
+        const wm = this.model.arms[w.side > 0 ? 'r' : 'l'].weapon;
+        for (const c of [...wm.children]) wm.remove(c);
+      }
+    }
+    g.scene.add(this.mesh);
   }
   // 駕駛員加成值（沒有時為 0）
   pmv(k) {
@@ -871,7 +902,7 @@ export class MechEntity {
       this.glare.forEach((m) => g.scene.remove(m));
       this.glare = null;
     }
-    this.model = buildMech(this.asm, this.pal, this.scale);
+    this.model = this.buildRig();
     this.mesh = this.model.group;
     g.scene.add(this.mesh);
     this.dead = false;

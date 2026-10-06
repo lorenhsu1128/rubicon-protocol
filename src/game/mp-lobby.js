@@ -83,7 +83,7 @@ Object.assign(Game.prototype, {
       if (this.net.role === 'host') this.renderLobby();
     };
     $('btnLobbySortie').onclick = () => {
-      if (this.net.role === 'host' && this.net.allReady()) this.startMission();
+      if (this.net.role === 'host' && this.net.allReady()) this.mpStartWhenReady();
     };
     $('btnLobbyLeave').onclick = () => {
       this.net.leave(true);
@@ -248,7 +248,7 @@ Object.assign(Game.prototype, {
           S.mode === 'pvp' && S.type === 'team'
             ? `<span style="color:${PVP_TEAM_COLORS[p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam]};font-weight:700">［${(p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam) === 0 ? '藍隊' : '紅隊'}］</span> `
             : '';
-        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${escHtml(p.nick)}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
+        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${escHtml(p.nick)}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${this.mpModelTag(p)}${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
       })
       .join('');
     for (const b of $('lobbySlots').querySelectorAll('.kick')) b.onclick = () => n.kick(+b.dataset.s);
@@ -305,6 +305,13 @@ Object.assign(Game.prototype, {
       }
     }
     const me = n.meP();
+    // 伺服器模型組：每個房間第一次進大廳時讀取、上傳我的模型組
+    const roomKey = n.role + '|' + n.roomName + '|' + n.me;
+    if (this.mpModelsRoom !== roomKey) {
+      this.mpModelsRoom = roomKey;
+      this.mpModelsRefresh();
+    }
+    this.mpModelsUi();
     $('btnLobbyReady').textContent = me && me.ready ? '取消準備' : '準備';
     $('btnLobbyReady').style.display = this.spectator ? 'none' : '';
     $('btnLobbyGarage').style.display = this.spectator ? 'none' : '';

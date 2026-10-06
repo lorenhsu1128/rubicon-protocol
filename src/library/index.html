@@ -43,9 +43,16 @@
               <button id="setImport" title="匯入 .rubicon-set，新增成一個模型組">匯入…</button>
               <input id="setImportFile" type="file" accept=".rubicon-set,.zip" hidden />
             </div>
+            <div class="row">
+              <button id="setPublish" hidden title="把這個模型組的機甲區塊、武器與關節設定取代伺服器預設組的">
+                發佈到伺服器預設組…
+              </button>
+              <button id="setSrvReload" hidden title="讀取其他人對伺服器預設組的修改">重新讀取伺服器</button>
+            </div>
             <p class="dim small">
               GLB
               編輯器存檔、拆分、組裝調整的關節與原點都存進目前的模型組；遊戲在設定的「本地模型庫」選擇要用哪一組。
+              從伺服器開啟時多一個「伺服器預設組」：選它時所有存檔直接寫到伺服器，敵人、地圖物件與沒上傳模型組的玩家都用它。
             </p>
           </div>
         </details>

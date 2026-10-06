@@ -8,6 +8,7 @@ import { Projectile } from '../entities/projectile.js';
 import { applyEnt } from '../net/snapshot.js';
 import { PALETTES } from '../render/materials.js';
 import { mechFlash } from '../render/mech-model.js';
+import { RemoteSets } from '../render/net-models.js';
 import { World } from '../world/world.js';
 import { Game } from './game.js';
 
@@ -100,8 +101,13 @@ Object.assign(Game.prototype, {
       bossKind: r.bossKind,
       flankAngle: r.flankAngle,
       pvpTeam: r.pvpTeam,
+      pvpAi: !!r.pvpAi,
+      slot: r.slot,
+      ms: r.ms || null,
       pilot: r.pm || null,
     };
+    // 玩家的模型組還沒下載好：先用伺服器預設組，下載完再換（mp-models.js）
+    if (r.ms) RemoteSets.load(r.ms);
     const e = new MechEntity(this, r.asm, pal, opts);
     e.id = r.i;
     e.remote = true;

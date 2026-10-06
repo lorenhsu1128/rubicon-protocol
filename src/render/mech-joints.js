@@ -7,16 +7,27 @@
 import BUILTIN_JOINTS from 'virtual:joints';
 
 let overrides = {},
-  gate = null;
+  gate = null,
+  scoped = null; // withJoints 執行期間使用的關節設定（一台機甲指定的模型組），取代全域覆寫
 export const builtinJoints = () => BUILTIN_JOINTS;
 // gate：回傳 false 時暫時不套用覆寫（遊戲的本地模型庫在多人時停用）
 export function setJointOverrides(map, g = null) {
   overrides = map || {};
   gate = g;
 }
-// 某個連接點的設定（glTF 座標），沒有則為 null；瀏覽器暫存＞內建
+// 在 fn 執行期間改用 map 當關節設定的覆寫（模型組的關節設定；null 表示只用內建），回傳 fn 的結果
+export function withJoints(map, fn) {
+  const prev = scoped;
+  scoped = map || {};
+  try {
+    return fn();
+  } finally {
+    scoped = prev;
+  }
+}
+// 某個連接點的設定（glTF 座標），沒有則為 null；模型組（withJoints）或瀏覽器暫存＞內建
 export function jointSetting(slot, name) {
-  const ov = !gate || gate() ? overrides : {};
+  const ov = scoped || (!gate || gate() ? overrides : {});
   return (ov[slot] && ov[slot][name]) || (BUILTIN_JOINTS[slot] && BUILTIN_JOINTS[slot][name]) || null;
 }
 

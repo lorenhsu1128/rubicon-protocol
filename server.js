@@ -39,10 +39,219 @@ function localIPs() {
     for (const a of ifs[k]) if (a.family === 'IPv4' && !a.internal) out.push({ name: k, ip: a.address });
   return out;
 }
-// 模型庫（選用）：與遊戲頁放在同一個資料夾
+// 模型庫（選用）：與遊戲頁放在同一個資料夾；同樣注入 RUBICON_SERVER（模型組選單多「伺服器預設組」）
 function libraryHtml() {
   const p = path.join(WEB_DIR, 'model-library.html');
-  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+  if (!fs.existsSync(p)) return null;
+  return fs
+    .readFileSync(p, 'utf8')
+    .replace('<head>', '<head><script>window.RUBICON_SERVER=' + JSON.stringify(VERSION) + ';</script>');
+}
+
+// ===================== 伺服器模型組 =====================
+// server-models/default：伺服器預設組（所有分類的 GLB＋關節設定＋零件組合，manifest.json 記錄各槽位的雜湊）
+// server-models/uploads/<sha256>.rubicon-set：玩家上傳的模型組（內容雜湊當檔名，30 天沒用到就刪除）
+// 區網內任何人都能讀寫；寫入一律排隊執行，先寫暫存檔再改名
+const MODELS_DIR = process.env.RUBICON_MODELS_DIR || path.join(BASE, 'server-models');
+const DEF_DIR = path.join(MODELS_DIR, 'default');
+const UP_DIR = path.join(MODELS_DIR, 'uploads');
+const MAX_GLB = 64 * 1024 * 1024,
+  MAX_SET = 128 * 1024 * 1024,
+  MAX_JSON = 4 * 1024 * 1024;
+const SLOT_RE = /^[a-z0-9_-]+(\/[a-z0-9_-]+){1,3}$/i;
+const MECH_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+let manifest = null;
+function loadManifest() {
+  if (manifest) return manifest;
+  manifest = { name: '伺服器預設組', rev: 0, asm: null, models: {}, joints: {} };
+  try {
+    Object.assign(manifest, JSON.parse(fs.readFileSync(path.join(DEF_DIR, 'manifest.json'), 'utf8')));
+  } catch (e) {}
+  return manifest;
+}
+function writeAtomic(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp' + process.pid;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, file);
+}
+function saveManifest() {
+  manifest.rev = (manifest.rev || 0) + 1;
+  writeAtomic(path.join(DEF_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+}
+const glbPath = (kind, slot) => path.join(DEF_DIR, kind, ...slot.split('/')) + '.glb';
+function rmQuiet(f) {
+  try {
+    fs.unlinkSync(f);
+  } catch (e) {}
+}
+let writeQueue = Promise.resolve();
+const queued = (fn) => (writeQueue = writeQueue.then(fn, fn));
+// 讀取請求本文（超過 limit 回傳 null）
+function readBody(req, limit) {
+  return new Promise((res) => {
+    const chunks = [];
+    let n = 0,
+      over = false;
+    req.on('data', (c) => {
+      n += c.length;
+      if (n > limit) over = true;
+      else chunks.push(c);
+    });
+    req.on('end', () => res(over ? null : Buffer.concat(chunks)));
+    req.on('error', () => res(null));
+  });
+}
+function cleanUploads() {
+  try {
+    const old = Date.now() - 30 * 86400e3;
+    for (const f of fs.readdirSync(UP_DIR)) {
+      const p = path.join(UP_DIR, f);
+      if (fs.statSync(p).mtimeMs < old) rmQuiet(p);
+    }
+  } catch (e) {}
+}
+function modelsSummary() {
+  const m = loadManifest();
+  let uploads = 0;
+  try {
+    uploads = fs.readdirSync(UP_DIR).filter((f) => f.endsWith('.rubicon-set')).length;
+  } catch (e) {}
+  return {
+    glb: Object.keys(m.models).length,
+    joints: Object.values(m.joints).reduce((n, c) => n + Object.keys(c).length, 0),
+    uploads,
+    dir: MODELS_DIR,
+  };
+}
+// /api/models/… 與 /api/sets/…；處理了回傳 true
+async function modelsApi(req, resp, u, q) {
+  const json = (o, code = 200) => {
+    resp.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    resp.end(JSON.stringify(o));
+    return true;
+  };
+  const bad = (msg, code = 400) => json({ error: msg }, code);
+  const sendFile = (f, type, immutable) => {
+    if (!fs.existsSync(f)) return bad('沒有這個檔案', 404);
+    resp.writeHead(200, {
+      'Content-Type': type,
+      'Content-Length': fs.statSync(f).size,
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
+    });
+    if (req.method === 'HEAD') resp.end();
+    else fs.createReadStream(f).pipe(resp);
+    return true;
+  };
+  const M = req.method;
+  let m;
+  if (u === '/api/models/default') return M === 'GET' ? json(loadManifest()) : bad('不支援的操作', 405);
+  if ((m = /^\/api\/models\/default\/(glb|orig)\/(.+)$/.exec(u))) {
+    const kind = m[1],
+      slot = decodeURIComponent(m[2]);
+    if (!SLOT_RE.test(slot)) return bad('槽位名稱不正確');
+    const man = loadManifest();
+    if (M === 'GET' || M === 'HEAD') {
+      const rec = man.models[slot];
+      if (!rec || (kind === 'orig' && !rec.orig)) return bad('沒有這個檔案', 404);
+      return sendFile(glbPath(kind, slot), 'model/gltf-binary', kind === 'glb' && q.get('h') === rec.h);
+    }
+    if (M === 'PUT') {
+      const body = await readBody(req, MAX_GLB);
+      if (!body) return bad('檔案太大', 413);
+      if (body.length < 12 || body.toString('latin1', 0, 4) !== 'glTF') return bad('不是 GLB 檔');
+      const name = String(q.get('name') || slot.split('/').pop() + '.glb').slice(0, 200);
+      try {
+        await queued(() => {
+          if (kind === 'glb') {
+            writeAtomic(glbPath('glb', slot), body);
+            rmQuiet(glbPath('orig', slot)); // 新檔案：原始檔另外上傳（GLB 編輯器存檔時）
+            man.models[slot] = { name, size: body.length, h: sha256(body), t: Date.now() };
+          } else {
+            if (!man.models[slot]) throw new Error('槽位還沒有 GLB');
+            writeAtomic(glbPath('orig', slot), body);
+            man.models[slot].orig = { name, size: body.length };
+          }
+          saveManifest();
+        });
+      } catch (e) {
+        return bad(e.message);
+      }
+      return json({ ok: true, rev: man.rev, rec: man.models[slot] });
+    }
+    if (M === 'DELETE' && kind === 'glb') {
+      await queued(() => {
+        rmQuiet(glbPath('glb', slot));
+        rmQuiet(glbPath('orig', slot));
+        delete man.models[slot];
+        saveManifest();
+      });
+      return json({ ok: true, rev: man.rev });
+    }
+    return bad('不支援的操作', 405);
+  }
+  if ((m = /^\/api\/models\/default\/(joints|asm|clear)(?:\/(.+))?$/.exec(u))) {
+    if (M !== 'PUT' && M !== 'POST') return bad('不支援的操作', 405);
+    const man = loadManifest();
+    const what = m[1],
+      slot = m[2] ? decodeURIComponent(m[2]) : null;
+    if (slot && !SLOT_RE.test(slot)) return bad('槽位名稱不正確');
+    let data = null;
+    if (what !== 'clear') {
+      const body = await readBody(req, MAX_JSON);
+      if (!body) return bad('內容太大', 413);
+      try {
+        data = JSON.parse(body.toString('utf8') || 'null');
+      } catch (e) {
+        return bad('JSON 格式錯誤');
+      }
+    }
+    await queued(() => {
+      if (what === 'joints' && slot) {
+        if (data && typeof data === 'object' && Object.keys(data).length) man.joints[slot] = data;
+        else delete man.joints[slot];
+      } else if (what === 'joints') man.joints = data && typeof data === 'object' ? data : {};
+      else if (what === 'asm') man.asm = data && typeof data === 'object' ? data : null;
+      else {
+        // clear?scope=mech：清掉機甲區塊與武器和全部關節設定（整組發佈前）；scope=all：全部
+        const all = q.get('scope') === 'all';
+        for (const s of Object.keys(man.models))
+          if (all || MECH_CATS.includes(s.split('/')[0])) {
+            rmQuiet(glbPath('glb', s));
+            rmQuiet(glbPath('orig', s));
+            delete man.models[s];
+          }
+        man.joints = {};
+      }
+      saveManifest();
+    });
+    return json({ ok: true, rev: man.rev });
+  }
+  if ((m = /^\/api\/sets\/([0-9a-f]{64})$/.exec(u))) {
+    const f = path.join(UP_DIR, m[1] + '.rubicon-set');
+    if (M === 'GET' && q.get('check')) return json({ exists: fs.existsSync(f) }); // 上傳前確認（不回 404）
+    if (M === 'GET' || M === 'HEAD') {
+      if (fs.existsSync(f)) {
+        const now = new Date();
+        try {
+          fs.utimesSync(f, now, now); // 有人用到：延後清除
+        } catch (e) {}
+      }
+      return sendFile(f, 'application/zip', true);
+    }
+    if (M === 'PUT') {
+      const body = await readBody(req, MAX_SET);
+      if (!body) return bad('模型組太大', 413);
+      if (sha256(body) !== m[1]) return bad('內容雜湊不符');
+      if (body.toString('latin1', 0, 2) !== 'PK') return bad('不是模型組檔');
+      await queued(() => writeAtomic(f, body));
+      log(`上傳模型組 ${m[1].slice(0, 12)}…（${Math.round(body.length / 1024)} KB）`);
+      return json({ ok: true });
+    }
+    return bad('不支援的操作', 405);
+  }
+  return false;
 }
 function gameHtml() {
   const p = path.join(WEB_DIR, 'rubicon-protocol.html');
@@ -70,8 +279,25 @@ function startGame(port) {
       );
     const peers = new Map(),
       rooms = new Map();
+    cleanUploads();
     const server = http.createServer((req, resp) => {
       const u = req.url.split('?')[0];
+      if (u.startsWith('/api/models/') || u.startsWith('/api/sets/')) {
+        const q = new URL(req.url, 'http://x').searchParams;
+        modelsApi(req, resp, u, q)
+          .then((done) => {
+            if (!done) {
+              resp.writeHead(404);
+              resp.end('not found');
+            }
+          })
+          .catch((e) => {
+            log('模型組 API 錯誤：' + e.message);
+            if (!resp.headersSent) resp.writeHead(500, { 'Content-Type': 'application/json' });
+            resp.end(JSON.stringify({ error: e.message }));
+          });
+        return;
+      }
       if (u === '/' || u === '/index.html' || u === '/rubicon-protocol.html') {
         const h = gameHtml();
         resp.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -251,6 +477,7 @@ function controlPage() {
 <div class="card"><div class="row"><span>狀態：<span id="st" class="st off">停止</span></span><span>遊戲 port <input id="port" type="number" min="1" max="65535"></span><button class="p" id="bStart">啟動</button><button id="bStop">停止</button><button id="bRestart">重啟</button><button class="d" id="bQuit">結束程式</button><span id="err" style="color:#ff8a8a"></span></div>
 <div class="dim" style="margin-top:8px">port 80 被佔用時（IIS／Skype／其他網頁伺服器）請改用 8080 等其他 port。第一次啟動請在 Windows 防火牆詢問時按「允許」。</div></div>
 <h2>玩家連線位址（區網內用瀏覽器開啟即可玩單機或多人）</h2><div class="card qr" id="addrs"></div>
+<h2>伺服器模型組</h2><div class="card" id="models"></div>
 <h2>房間</h2><div class="card"><table><thead><tr><th>房名</th><th>房主</th><th>人數</th><th>關卡</th><th>狀態</th><th>觀戰</th><th></th></tr></thead><tbody id="rooms"></tbody></table><div class="dim" id="peers" style="margin-top:6px"></div></div>
 <h2>日誌</h2><pre id="log"></pre></div>
 <script>
@@ -259,6 +486,7 @@ async function api(p,b){ const r=await fetch(p,{method:b?'POST':'GET',headers:{'
 async function refresh(){ try{ const s=await api('/api/status'); cur=s; $('st').textContent=s.running?'執行中（port '+s.port+'）':'停止'; $('st').className='st '+(s.running?'on':'off'); if(document.activeElement!==$('port')) $('port').value=s.cfgPort; $('bStart').disabled=s.running; $('bStop').disabled=!s.running; $('bRestart').disabled=!s.running;
   $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a>　<a class="dim" href="'+url+'models" target="_blank">模型庫</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
   $('rooms').innerHTML=(s.rooms||[]).map(r=>'<tr><td>'+esc(r.room)+'</td><td>'+esc(r.host)+'</td><td>'+r.n+'/4</td><td>'+r.level+'</td><td>'+(r.state==='play'?'<span class="st on">任務中</span>':'大廳')+'</td><td>'+(r.spectators||0)+'</td><td><button onclick="spectate(\\''+r.peerId+'\\')">觀戰</button></td></tr>').join('')||'<tr><td colspan="7" class="dim">目前沒有房間</td></tr>';
+  const md=s.models||{}; $('models').innerHTML='伺服器預設組：GLB '+(md.glb||0)+' 個・關節設定 '+(md.joints||0)+' 個・玩家上傳的模型組 '+(md.uploads||0)+' 個<div class="dim">在模型庫的「模型組」選單選「伺服器預設組」即可編輯；敵人、AI 機甲、載具、地圖物件與沒上傳模型組的玩家都用這一組。資料夾：<code>'+esc(md.dir||'')+'</code></div>';
   $('peers').textContent='線上連線數：'+(s.peers||0); $('log').textContent=s.logs.join('\\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){ $('st').textContent='控制台連線中斷'; } }
 function esc(s){ return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function spectate(id){ const host=location.hostname; window.open('http://'+host+(cur.port===80?'':':'+cur.port)+'/?spectate='+id,'_blank'); }
@@ -289,6 +517,7 @@ function status() {
       : [],
     logs: logs.slice(-120),
     version: VERSION,
+    models: modelsSummary(),
   };
 }
 const control = http.createServer((req, resp) => {

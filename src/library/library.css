@@ -130,6 +130,15 @@ body {
 .setPanel .danger {
   color: var(--bad);
 }
+#setList button.srv b {
+  color: var(--acc2);
+}
+#setMenu.srvCur > summary {
+  border-color: var(--acc2);
+}
+#setMenu.srvCur b#setCur {
+  color: var(--acc2);
+}
 input,
 select,
 button {
@@ -1271,4 +1280,8 @@ button.primary {
 #edFaceSmallA,
 #edBrushR {
   width: 56px;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

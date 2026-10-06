@@ -3,91 +3,19 @@
 // - 匯出成單一檔案（.rubicon-set，內容是不壓縮的 zip）：manifest.json ＋ joints.json ＋ models/<槽位>.glb
 //   （＋ orig/<槽位>.glb：GLB 編輯器保留的原始檔），可以備份、分享，或在 file:// 與伺服器網址之間搬移
 import { escHtml } from '../core/html.js';
-import { setScoped } from '../render/local-models.js';
-import { makeZip, readZip } from './zip.js';
+import { packSetData, unpackSet } from '../render/set-pack.js';
 
 const $ = (id) => document.getElementById(id);
-export const SET_FORMAT = 'rubicon-model-set';
-const enc = new TextEncoder(),
-  dec = new TextDecoder();
 
 // 打包模型組 → Blob
 export function packSet(store, id) {
   const s = store.sets.get(id);
-  const files = [];
-  const models = [];
-  for (const r of store.setRecs(id).sort((a, b) => a.id.localeCompare(b.id))) {
-    const m = { slot: r.id, name: r.name, file: `models/${r.id}.glb`, t: r.t };
-    files.push({ name: m.file, data: new Uint8Array(r.buf) });
-    if (r.orig) {
-      m.orig = { name: r.orig.name, file: `orig/${r.id}.glb` };
-      files.push({ name: m.orig.file, data: new Uint8Array(r.orig.buf) });
-    }
-    models.push(m);
-  }
-  const manifest = {
-    format: SET_FORMAT,
-    version: 1,
+  return packSetData({
     name: s ? s.name : '模型組',
-    exportedAt: new Date().toISOString(),
     asm: (s && s.asm) || null,
-    models,
-  };
-  files.unshift(
-    { name: 'manifest.json', data: enc.encode(JSON.stringify(manifest, null, 2) + '\n') },
-    { name: 'joints.json', data: enc.encode(JSON.stringify(store.jointsBy[id] || {}, null, 2) + '\n') },
-  );
-  return makeZip(files);
-}
-
-const isGlb = (u8) => u8.length >= 12 && String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) === 'glTF';
-const nums = (a) => Array.isArray(a) && a.length === 3 && a.every((v) => Number.isFinite(+v));
-const bufOf = (u8) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-
-// 解開模型組檔 → { name, asm, recs, joints, skipped }；格式不對時丟出錯誤
-export async function unpackSet(buf) {
-  const files = await readZip(buf);
-  const mf = files.get('manifest.json');
-  let manifest = null;
-  try {
-    manifest = mf && JSON.parse(dec.decode(mf));
-  } catch (e) {}
-  if (!manifest || manifest.format !== SET_FORMAT || !Array.isArray(manifest.models))
-    throw new Error('不是模型組檔（缺少 manifest.json）');
-  const skipped = [];
-  const recs = [];
-  for (const m of manifest.models) {
-    const data = m && files.get(m.file);
-    if (!m || typeof m.slot !== 'string' || !setScoped(m.slot) || !data || !isGlb(data)) {
-      skipped.push((m && m.slot) || '?');
-      continue;
-    }
-    const r = {
-      id: m.slot,
-      name: String(m.name || m.slot + '.glb'),
-      buf: bufOf(data),
-      t: +m.t || Date.now(),
-    };
-    const od = m.orig && files.get(m.orig.file);
-    if (od && isGlb(od)) r.orig = { name: String(m.orig.name || 'original.glb'), buf: bufOf(od) };
-    recs.push(r);
-  }
-  const joints = {};
-  let raw = {};
-  try {
-    raw = files.has('joints.json') ? JSON.parse(dec.decode(files.get('joints.json'))) : {};
-  } catch (e) {
-    skipped.push('joints.json');
-  }
-  for (const [slot, conns] of Object.entries(raw || {})) {
-    if (!conns || typeof conns !== 'object') continue;
-    const ok = {};
-    for (const [name, v] of Object.entries(conns))
-      if (v && nums(v.p) && nums(v.r)) ok[name] = { p: v.p.map(Number), r: v.r.map(Number) };
-    if (Object.keys(ok).length) joints[slot] = ok;
-  }
-  const asm = manifest.asm && typeof manifest.asm === 'object' ? manifest.asm : null;
-  return { name: String(manifest.name || '匯入的模型組'), asm, recs, joints, skipped };
+    recs: store.setRecs(id),
+    joints: store.jointsBy[id] || {},
+  });
 }
 
 const fileName = (name) =>
@@ -116,12 +44,22 @@ export class SetMenu {
     };
     $('setDel').onclick = async () => {
       const s = store.curSet();
-      if (store.sets.size < 2) return this.toast('至少要保留一個模型組', true);
+      if (store.isServer()) return this.toast('伺服器預設組不能刪除', true);
+      if (store.localSetCount() < 2) return this.toast('至少要保留一個模型組', true);
       const st = store.setStats(s.id);
       if (!confirm(`刪除模型組「${s.name}」？（GLB ${st.glb} 個、關節設定 ${st.joints} 個，無法復原）`))
         return;
       await store.deleteSet(s.id);
       this.changed(`已刪除模型組「${s.name}」，目前是「${store.curSet().name}」`);
+    };
+    $('setPublish').onclick = () => this.publish();
+    $('setSrvReload').onclick = async () => {
+      try {
+        await store.loadServer();
+      } catch (e) {
+        return this.toast('讀不到伺服器模型組：' + (e.message || e), true);
+      }
+      this.changed('已重新讀取伺服器預設組');
     };
     $('setExport').onclick = () => this.exportSet();
     $('setImport').onclick = () => $('setImportFile').click();
@@ -140,23 +78,58 @@ export class SetMenu {
       .setList()
       .map((s) => {
         const st = store.setStats(s.id);
+        const srv = store.isServer(s.id);
         return (
-          `<button data-set="${escHtml(s.id)}" class="${s.id === store.cur ? 'sel' : ''}">` +
-          `<b>${escHtml(s.name)}</b><span class="dim">GLB ${st.glb}・關節 ${st.joints}</span></button>`
+          `<button data-set="${escHtml(s.id)}" class="${s.id === store.cur ? 'sel' : ''}${srv ? ' srv' : ''}">` +
+          `<b>${escHtml(s.name)}</b><span class="dim">${
+            srv && !store.serverLoaded ? '在伺服器上（點選讀取）' : `GLB ${st.glb}・關節 ${st.joints}`
+          }</span></button>`
         );
       })
       .join('');
+    const srvCur = store.isServer();
     $('setName').value = cur.name;
-    $('setDel').disabled = store.sets.size < 2;
+    $('setRename').disabled = srvCur;
+    $('setDel').disabled = srvCur || store.localSetCount() < 2;
+    $('setPublish').hidden = !store.server || srvCur;
+    $('setSrvReload').hidden = !srvCur;
+    $('setMenu').classList.toggle('srvCur', srvCur);
   }
   changed(msg) {
     this.render();
     if (this.onSwitch) this.onSwitch();
     if (msg) this.toast(msg);
   }
-  switchTo(id) {
-    this.store.view(id);
-    this.changed(`已切換到模型組「${this.store.curSet().name}」`);
+  async switchTo(id) {
+    try {
+      await this.store.useSet(id);
+    } catch (e) {
+      return this.toast('讀不到伺服器模型組：' + (e.message || e), true);
+    }
+    this.changed(
+      `已切換到模型組「${this.store.curSet().name}」` +
+        (this.store.isServer() ? '：之後的存檔都直接寫到伺服器' : ''),
+    );
+  }
+  // 整組發佈到伺服器預設組（取代伺服器的機甲區塊、武器與關節設定）
+  async publish() {
+    const store = this.store;
+    const s = store.curSet();
+    const st = store.setStats(s.id);
+    if (
+      !confirm(
+        `把模型組「${s.name}」（GLB ${st.glb} 個、關節設定 ${st.joints} 個）發佈到伺服器預設組？\n` +
+          '伺服器預設組原本的機甲區塊、武器與關節設定會被取代（載具、地圖物件、小物件保留）。',
+      )
+    )
+      return;
+    try {
+      const r = await store.publishToServer(s.id);
+      this.render();
+      this.toast(`已發佈到伺服器預設組（GLB ${r.glb} 個、關節設定 ${r.joints} 個）`);
+    } catch (e) {
+      this.toast('發佈失敗：' + (e.message || e), true);
+    }
   }
   async create(copy) {
     const store = this.store;

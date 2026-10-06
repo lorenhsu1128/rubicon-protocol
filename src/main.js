@@ -20,5 +20,6 @@ import './entities/mech-remote.js';
 import './game/map-extras.js';
 import './game/first-person.js';
 import './game/pvp.js';
+import './game/mp-models.js';
 
 new Game();

@@ -341,6 +341,8 @@ export class Net {
       lat: this.lat[p.peerId] || 0,
       pvpTeam: p.pvpTeam,
       plv: this.pilotLv(p),
+      ms: p.ms || null, // 玩家上傳到伺服器的模型組（內容雜湊），沒有時用伺服器預設組
+      msn: p.msn || '',
     }));
     const m = {
       t: 'lobby',
@@ -436,6 +438,13 @@ export class Net {
         p.pvpTeam = p.pvpTeam === 1 ? 0 : 1;
         this.syncLobby();
         this.g.renderLobby();
+        break;
+      case 'mset': // 玩家換了模型組（任務中收到的只影響下次出擊）
+        p.ms = typeof d.ms === 'string' && /^[0-9a-f]{64}$/.test(d.ms) ? d.ms : null;
+        p.msn = p.ms ? String(d.msn || '').slice(0, 40) : '';
+        this.syncLobby();
+        this.g.renderLobby();
+        this.g.mpPrefetch();
         break;
       case 'leave':
         this.hostOnClose(pid);
@@ -602,6 +611,7 @@ export class Net {
         this.hostSlot = d.hostSlot;
         this.hostLevel = d.level;
         this.spectatorCount = d.spectators || 0;
+        g.mpPrefetch();
         if (g.state === 'lobby') g.renderLobby();
         break;
       case 'ping':

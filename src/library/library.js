@@ -10,7 +10,7 @@ import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
 import { GlbEditor } from './editor.js';
 import { SetMenu } from './model-sets.js';
-import { setScoped } from '../render/local-models.js';
+import { SERVER_SET, setScoped } from '../render/local-models.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { cat: 'all', q: '', src: '' };
@@ -65,8 +65,12 @@ function refreshRelated(id) {
 }
 
 // 切換模型組：重建機甲區塊、武器與完整機甲的格子，檢視窗與組裝調整頁改用新的模型組
+// （伺服器預設組涵蓋所有分類：切換到它或從它切走時全部重建）
+let lastSet = null;
 function onSetSwitch() {
-  for (const e of MODEL_CATALOG) if (e.cat === 'mech' || setScoped(e.id)) grid.refresh(e.id);
+  const all = store.isServer() || lastSet === SERVER_SET;
+  lastSet = store.cur;
+  for (const e of MODEL_CATALOG) if (all || e.cat === 'mech' || setScoped(e.id)) grid.refresh(e.id);
   if (inspector.open_) inspector.rebuild();
   workshop.useSet();
   applyFilter();
@@ -252,7 +256,9 @@ async function main() {
     },
   });
   if (/[?&]test\b/.test(location.search)) window.__workshop = workshop;
+  lastSet = store.cur;
   setMenu = new SetMenu({ store, toast, onSwitch: onSetSwitch });
+  store.onError = (msg) => toast(msg, true);
   // 點選單外面時收起
   addEventListener('pointerdown', (e) => {
     if ($('setMenu').open && !e.target.closest('#setMenu')) $('setMenu').open = false;

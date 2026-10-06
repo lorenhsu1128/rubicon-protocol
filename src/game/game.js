@@ -92,6 +92,9 @@ export class Game {
     this.mapExtrasInit();
     this.fpInit();
     this.lmInit();
+    this.mpModelsInit();
+    // 冒煙測試用：網址帶 ?test 時把遊戲實例放在 window.__game（檢查各機甲用的模型組）
+    if (/[?&]test\b/.test(location.search)) window.__game = this;
     const sp = new URLSearchParams(location.search).get('spectate');
     if (sp && window.RUBICON_SERVER) {
       setTimeout(() => {

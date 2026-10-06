@@ -5,9 +5,11 @@
 //   載具、地圖物件、小物件所有模型組共用（記錄的 set 為 ''）
 // 資料庫第 4 版：models（鍵 [set, id]）、setJoints（鍵 [set, slot]）、sets、presets；
 // 第 3 版的 glb／joints 升級時搬進「預設」模型組
+// - 伺服器預設組（從 rubicon-server 的 /models 開啟時）：資料在伺服器（server-models/default），所有分類都有；
+//   選它時所有寫入（存 GLB、刪除、關節設定、零件組合）直接送到伺服器的 /api/models/default/…，不存 IndexedDB
 import BUILTIN_MODELS from 'virtual:models';
 import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
-import { DEFAULT_SET, setOf, setScoped } from '../render/local-models.js';
+import { DEFAULT_SET, SERVER_SET, setOf, setScoped } from '../render/local-models.js';
 
 const DB = 'rubicon-model-library',
   MODELS = 'models',
@@ -84,6 +86,27 @@ const tx = async (stores, mode, fn) => {
 };
 const keyOf = (set, id) => set + '\n' + id;
 const copyRec = (r, set) => ({ ...r, set });
+const SERVER_NAME = '伺服器預設組';
+const slotUrl = (slot) => slot.split('/').map(encodeURIComponent).join('/');
+// 伺服器 API：回傳 JSON；失敗時丟出錯誤（訊息用伺服器回的 error）
+async function api(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    body: body === undefined ? undefined : body instanceof ArrayBuffer ? body : JSON.stringify(body),
+    cache: 'no-store',
+  });
+  let o = null;
+  try {
+    o = await r.json();
+  } catch (e) {}
+  if (!r.ok) throw new Error((o && o.error) || 'HTTP ' + r.status);
+  return o;
+}
+async function fetchBuf(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.arrayBuffer();
+}
 
 export class GlbStore {
   constructor() {
@@ -95,6 +118,9 @@ export class GlbStore {
     this.cur = DEFAULT_SET;
     this.presets = new Map(); // 組裝調整頁的預組：名稱 → { name, asm, t }
     this.ok = true;
+    this.server = typeof window !== 'undefined' && !!window.RUBICON_SERVER; // 從 rubicon-server 開啟
+    this.serverLoaded = false;
+    this.onError = null; // (訊息) → void：伺服器寫入失敗
   }
   // hooks：{ onBlocked, onReady }（見 db()）
   async load(hooks = {}) {
@@ -114,11 +140,56 @@ export class GlbStore {
       console.warn('IndexedDB 無法使用', e);
     }
     if (!this.sets.size) this.sets.set(DEFAULT_SET, { id: DEFAULT_SET, name: DEFAULT_NAME, asm: null, t: 0 });
+    if (this.server)
+      this.sets.set(SERVER_SET, { id: SERVER_SET, name: SERVER_NAME, asm: null, t: 0, server: true });
     let cur = null;
     try {
       cur = localStorage.getItem(CUR_KEY);
     } catch (e) {}
+    if (cur === SERVER_SET && this.server)
+      try {
+        await this.loadServer();
+      } catch (e) {
+        console.warn('伺服器模型組讀取失敗', e);
+        cur = null;
+      }
     this.view(this.sets.has(cur) ? cur : this.sets.has(DEFAULT_SET) ? DEFAULT_SET : this.setList()[0].id);
+  }
+  // 讀取伺服器預設組（全部 GLB 與原始檔、關節設定、零件組合）
+  async loadServer() {
+    const m = await api('GET', '/api/models/default');
+    const recs = [];
+    for (const [id, info] of Object.entries(m.models || {})) {
+      const r = { set: SERVER_SET, id, name: info.name, size: info.size, t: info.t, h: info.h };
+      r.buf = await fetchBuf(`/api/models/default/glb/${slotUrl(id)}?h=${info.h}`);
+      if (info.orig)
+        r.orig = {
+          name: info.orig.name,
+          size: info.orig.size,
+          buf: await fetchBuf(`/api/models/default/orig/${slotUrl(id)}`),
+        };
+      recs.push(r);
+    }
+    for (const k of [...this.recs.keys()]) if (k.startsWith(SERVER_SET + '\n')) this.recs.delete(k);
+    for (const r of recs) this.recs.set(keyOf(SERVER_SET, r.id), r);
+    this.jointsBy[SERVER_SET] = m.joints || {};
+    this.sets.get(SERVER_SET).asm = m.asm || null;
+    this.serverRev = m.rev;
+    this.serverLoaded = true;
+    if (this.cur === SERVER_SET) this.view(SERVER_SET);
+  }
+  // 切換模型組（伺服器預設組第一次切換時先讀取）
+  async useSet(id) {
+    if (id === SERVER_SET && !this.serverLoaded) await this.loadServer();
+    this.view(id);
+  }
+  isServer(id = this.cur) {
+    return id === SERVER_SET;
+  }
+  // 伺服器寫入失敗：通知頁面（記憶體裡的修改保留到重新讀取）
+  srvFail(e) {
+    console.warn('伺服器模型組寫入失敗', e);
+    if (this.onError) this.onError('伺服器模型組寫入失敗：' + (e.message || e));
   }
   // 切換目前模型組：重建看得到的 GLB 與關節設定
   view(id) {
@@ -147,7 +218,16 @@ export class GlbStore {
   ownSource(id) {
     if (id.startsWith('mech/')) return { kind: 'proc' };
     const r = this.local.get(id);
-    if (r) return { kind: 'glb', origin: 'browser', name: r.name, buf: r.buf, size: r.size, t: r.t };
+    if (r)
+      return {
+        kind: 'glb',
+        origin: 'browser',
+        server: r.set === SERVER_SET,
+        name: r.name,
+        buf: r.buf,
+        size: r.size,
+        t: r.t,
+      };
     const b = BUILTIN_MODELS[id];
     if (b)
       return {
@@ -173,7 +253,13 @@ export class GlbStore {
     if (orig) r.orig = { name: orig.name, buf: orig.buf, size: orig.buf.byteLength };
     this.recs.set(keyOf(set, id), r);
     this.local.set(id, r);
-    if (this.ok)
+    if (set === SERVER_SET)
+      try {
+        await this.srvPutGlb(r);
+      } catch (e) {
+        this.srvFail(e);
+      }
+    else if (this.ok)
       try {
         await tx(MODELS, 'readwrite', (s) => s.put(r));
       } catch (e) {
@@ -181,11 +267,24 @@ export class GlbStore {
       }
     return r;
   }
+  // 伺服器：寫入一個槽位的 GLB（有原始檔時另外上傳）
+  async srvPutGlb(r) {
+    const u = slotUrl(r.id);
+    await api('PUT', `/api/models/default/glb/${u}?name=${encodeURIComponent(r.name)}`, r.buf);
+    if (r.orig)
+      await api('PUT', `/api/models/default/orig/${u}?name=${encodeURIComponent(r.orig.name)}`, r.orig.buf);
+  }
   async remove(id) {
     const set = setOf(id, this.cur);
     this.recs.delete(keyOf(set, id));
     this.local.delete(id);
-    if (this.ok)
+    if (set === SERVER_SET)
+      try {
+        await api('DELETE', `/api/models/default/glb/${slotUrl(id)}`);
+      } catch (e) {
+        this.srvFail(e);
+      }
+    else if (this.ok)
       try {
         await tx(MODELS, 'readwrite', (s) => s.delete([set, id]));
       } catch (e) {}
@@ -207,6 +306,8 @@ export class GlbStore {
     if (Object.keys(conns).length) this.joints[slot] = conns;
     else delete this.joints[slot];
     setJointOverrides(this.joints);
+    if (set === SERVER_SET)
+      return api('PUT', `/api/models/default/joints/${slotUrl(slot)}`, conns).catch((e) => this.srvFail(e));
     if (!this.ok) return Promise.resolve();
     return tx(JOINTS, 'readwrite', (s) =>
       Object.keys(conns).length ? s.put({ set, slot, conns }) : s.delete([set, slot]),
@@ -228,17 +329,17 @@ export class GlbStore {
   }
 
   // ---------- 模型組 ----------
+  // 伺服器預設組最前面，再來是預設，其他依名稱
   setList() {
-    return [...this.sets.values()].sort(
-      (a, b) => (b.id === DEFAULT_SET) - (a.id === DEFAULT_SET) || a.name.localeCompare(b.name),
-    );
+    const rank = (s) => (s.id === SERVER_SET ? 2 : s.id === DEFAULT_SET ? 1 : 0);
+    return [...this.sets.values()].sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name));
   }
   curSet() {
     return this.sets.get(this.cur);
   }
-  // 模型組裡的 GLB 紀錄（只有機甲區塊與武器）
+  // 模型組裡的 GLB 紀錄（只有機甲區塊與武器；伺服器預設組是全部分類）
   setRecs(id) {
-    return [...this.recs.values()].filter((r) => r.set === id && setScoped(r.id));
+    return [...this.recs.values()].filter((r) => r.set === id && (id === SERVER_SET || setScoped(r.id)));
   }
   setStats(id) {
     const j = this.jointsBy[id] || {};
@@ -302,7 +403,7 @@ export class GlbStore {
   }
   async renameSet(id, name) {
     const s = this.sets.get(id);
-    if (!s) return null;
+    if (!s || id === SERVER_SET) return null;
     s.name = this.uniqueName(name, id);
     if (this.ok)
       try {
@@ -312,7 +413,7 @@ export class GlbStore {
   }
   // 刪除模型組（至少留一組）；刪掉目前的模型組時切到第一組
   async deleteSet(id) {
-    if (!this.sets.has(id) || this.sets.size < 2) return false;
+    if (!this.sets.has(id) || id === SERVER_SET || this.localSetCount() < 2) return false;
     const recs = [...this.recs.values()].filter((r) => r.set === id);
     const slots = Object.keys(this.jointsBy[id] || {});
     this.sets.delete(id);
@@ -329,14 +430,31 @@ export class GlbStore {
       } catch (e) {
         console.warn('模型組刪除失敗', e);
       }
-    if (this.cur === id) this.view(this.setList()[0].id);
+    if (this.cur === id) this.view(this.setList().find((s) => s.id !== SERVER_SET).id);
     return true;
+  }
+  localSetCount() {
+    return [...this.sets.keys()].filter((k) => k !== SERVER_SET).length;
+  }
+  // 把本地模型組整組發佈到伺服器預設組：清掉伺服器的機甲區塊、武器與關節設定，換成這一組
+  // （載具、地圖物件、小物件保留）；完成後重新讀取伺服器預設組
+  async publishToServer(id) {
+    const s = this.sets.get(id);
+    const recs = this.setRecs(id);
+    await api('POST', '/api/models/default/clear?scope=mech');
+    for (const r of recs) await this.srvPutGlb(r);
+    await api('PUT', '/api/models/default/joints', this.jointsBy[id] || {});
+    await api('PUT', '/api/models/default/asm', (s && s.asm) || null);
+    await this.loadServer();
+    return { glb: recs.length, joints: this.setStats(id).joints };
   }
   // 目前模型組的建議零件組合（組裝調整頁換零件時記下）
   async setAsm(asm) {
     const s = this.curSet();
     if (!s || JSON.stringify(s.asm) === JSON.stringify(asm)) return;
     s.asm = { ...asm };
+    if (s.id === SERVER_SET)
+      return api('PUT', '/api/models/default/asm', s.asm).catch((e) => this.srvFail(e));
     if (this.ok)
       try {
         await tx(SETS, 'readwrite', (os) => os.put(s));

@@ -2,7 +2,8 @@
 // 讀取時機：進車庫、單機出擊前（沒有變動的檔案沿用快取），以及標題畫面的「重新載入本地模型」
 import { Game } from './game.js';
 import { escHtml } from '../core/html.js';
-import { LM_GROUPS, LocalModels } from '../render/local-models.js';
+import { LM_GROUPS, LocalModels, SERVER_SET, setScoped } from '../render/local-models.js';
+import { RemoteSets, ServerModels, onServer } from '../render/net-models.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { checkGlb } from '../render/glb.js';
 import { measureBox } from '../render/measure.js';
@@ -48,37 +49,87 @@ function checker(id, root, info, bytes) {
 }
 
 Object.assign(Game.prototype, {
+  // 模型來源：
+  // - 直接開檔：單人用本地模型庫（所有機甲與物件），多人一律程式模型
+  // - 伺服器網址：機甲依 mechSource 指定模型組；其他物件單人時本地模型庫（載具／地圖物件／小物件）優先，
+  //   再來是伺服器預設組；多人只用伺服器預設組（各端一致）
   lmInit() {
     LocalModels.allow = () => !(this.net && this.net.role);
     LocalModels.applyJoints();
-    setModelProvider((slot, pal, unique) => LocalModels.model(slot, pal, unique));
+    setModelProvider((slot, pal, unique) => {
+      if (!onServer()) return LocalModels.model(slot, pal, unique);
+      if (!setScoped(slot)) {
+        const own = LocalModels.model(slot, pal, unique);
+        if (own) return own;
+      }
+      return ServerModels.model(slot, pal, unique);
+    });
   },
-  // 重新讀取本地模型庫；manual：標題畫面的按鈕（一律顯示進度與結果）
-  // 自動讀取時只有需要解析檔案才顯示進度條
-  async lmRefresh(manual = false) {
-    if (!LocalModels.active()) {
-      if (manual) this.lmShowResult(LocalModels.settings.on ? '多人連線中不使用本地模型' : null);
-      return LocalModels.status;
+  // 機甲用哪一個模型組（buildMech 的 opts.source；null＝全域來源）。o 是 MechEntity 的 opts
+  // 伺服器網址：玩家機甲（單人）本地模型庫選的模型組，沒有就用伺服器預設組；玩家機甲（多人）用該玩家上傳的模型組
+  // （o.ms，還沒下載好或沒上傳時用伺服器預設組）；敵人、友軍、電腦 AC 一律伺服器預設組
+  mechSource(o = {}) {
+    if (!onServer()) return null;
+    const human = o.team === 'player' && o.slot !== undefined && o.slot >= 0 && !o.pvpAi && !o.modelKind;
+    if (human) {
+      if (!(this.net && this.net.role)) return LocalModels.mySource() || ServerModels.source();
+      return RemoteSets.get(o.ms) || ServerModels.source();
     }
+    return ServerModels.source();
+  },
+  // 進度條（只有真的要下載或解析檔案才顯示）
+  lmProgress(title, manual) {
     const box = $('lmLoad');
     let shown = false;
     const show = () => {
       if (shown) return;
       shown = true;
-      $('lmLoadTitle').textContent = '讀取本地模型庫…';
+      $('lmLoadTitle').textContent = title;
       box.classList.add('on');
     };
     if (manual) show();
-    const st = await LocalModels.reload((done, total, id) => {
-      if (id && done < total) show();
-      if (!shown) return;
-      $('lmLoadBar').style.width = (total ? (done / total) * 100 : 100) + '%';
-      $('lmLoadTxt').textContent = total ? `${done}／${total}　${id || ''}` : '';
-    }, checker);
+    return {
+      step: (done, total, id) => {
+        if (id && done < total) show();
+        if (!shown) return;
+        $('lmLoadBar').style.width = (total ? (done / total) * 100 : 100) + '%';
+        $('lmLoadTxt').textContent = total ? `${done}／${total}　${id || ''}` : '';
+      },
+      end: () => {
+        if (!manual) box.classList.remove('on');
+      },
+    };
+  },
+  // 伺服器網址：重新讀取伺服器預設組（沒變動就沿用）
+  async srvRefresh() {
+    if (!onServer()) return null;
+    const p = this.lmProgress('讀取伺服器模型組…', false);
+    const set = await ServerModels.refresh(p.step);
+    p.end();
+    return set;
+  },
+  // 重新讀取本地模型庫（伺服器網址時也讀伺服器預設組）；manual：標題畫面的按鈕（一律顯示進度與結果）
+  // 自動讀取時只有需要解析檔案才顯示進度條
+  async lmRefresh(manual = false) {
+    await this.srvRefresh();
+    if (!LocalModels.active()) {
+      if (manual) this.lmShowResult(LocalModels.settings.on ? '多人連線中不使用本地模型' : null);
+      return LocalModels.status;
+    }
+    const p = this.lmProgress('讀取本地模型庫…', manual);
+    const st = await LocalModels.reload(p.step, checker);
     if (manual) this.lmShowResult();
-    else box.classList.remove('on');
+    else p.end();
     if (this.state === 'settings') this.renderLocalModels();
     return st;
+  },
+  // 伺服器預設組的狀態文字（設定畫面、標題的重新載入）
+  srvSummary() {
+    const set = ServerModels.source();
+    if (ServerModels.error) return '讀不到伺服器模型組（' + ServerModels.error + '）';
+    if (!set) return '尚未讀取';
+    const s = set.stats();
+    return `GLB ${s.glb} 個` + (s.fail ? `、失敗 ${s.fail} 個` : '') + `；關節設定 ${s.joints} 個`;
   },
   lmSummary(st = LocalModels.status) {
     if (!LocalModels.settings.on) return '未開啟';
@@ -99,7 +150,10 @@ Object.assign(Game.prototype, {
     const box = $('lmLoad');
     const st = LocalModels.status;
     let txt = msg;
-    if (txt === null) txt = '本地模型庫沒有開啟：請到「按鍵與操作設定」開啟';
+    if (txt === null)
+      txt = onServer()
+        ? '伺服器預設組：' + this.srvSummary() + '（本地模型庫沒有開啟）'
+        : '本地模型庫沒有開啟：請到「按鍵與操作設定」開啟';
     else if (txt === undefined)
       txt =
         st && !st.db
@@ -113,13 +167,30 @@ Object.assign(Game.prototype, {
     this.lmHideT = setTimeout(() => box.classList.remove('on'), 2500);
     box.onclick = () => box.classList.remove('on');
   },
-  // 車庫：顯示這台機甲有幾個區塊用了本地 GLB
-  lmGarageNote(rig) {
+  // 車庫：顯示這台機甲有幾個區塊用了 GLB（來自哪個模型組）
+  lmGarageNote(rig, src) {
     const el = $('gLocal');
     if (!el) return;
     const n = Object.values(rig.pieces).filter((o) => o.userData.localGlb).length;
-    el.textContent = n ? `本地模型庫：此機 ${n} 個區塊使用 GLB` : '';
+    const from = !src
+      ? '本地模型庫'
+      : src.id === SERVER_SET
+        ? '伺服器預設組'
+        : src.id.startsWith('local:')
+          ? '本地模型組「' + ((LocalModels.setData && LocalModels.setData.name) || '') + '」'
+          : '模型組「' + src.name + '」';
+    el.textContent = n ? `${from}：此機 ${n} 個區塊使用 GLB` : '';
     el.style.display = n ? '' : 'none';
+  },
+  // 車庫預覽用的模型組（和出擊時同一個規則）
+  garageSource() {
+    const n = this.net;
+    const mp = !!(n && n.role);
+    return this.mechSource({
+      team: 'player',
+      slot: mp ? n.me : 0,
+      ms: mp && this.mySet ? this.mySet.hash : null,
+    });
   },
   // 設定畫面的「本地模型庫」區塊
   renderLocalModels() {
@@ -128,8 +199,16 @@ Object.assign(Game.prototype, {
     const S = LocalModels.settings;
     const st = LocalModels.status;
     const cnt = (g) => (st && st.slots ? st.slots.filter((s) => s.group === g).length : 0);
+    const srv = onServer();
+    // 第一次打開設定時還沒讀過伺服器預設組：讀完再重畫
+    if (srv && !ServerModels.source() && !ServerModels.loading && !ServerModels.error)
+      this.srvRefresh().then(() => this.state === 'settings' && this.renderLocalModels());
     let html =
-      `<div class="krow"><span>使用本地模型庫</span><label><input type="checkbox" id="lmOn"${S.on ? ' checked' : ''} /> 單人模式套用模型庫存在這個瀏覽器的 GLB 與關節設定（多人時自動停用）</label></div>` +
+      (srv
+        ? `<div class="krow"><span>伺服器預設組</span><span class="dim" style="font-size:12px">${escHtml(this.srvSummary())}</span><button id="srvReload">重新讀取</button></div>` +
+          `<p class="dim" style="font-size:11px">從伺服器開啟時，敵人、AI 機甲、載具、地圖物件，以及沒選本地模型組時你的機甲，都用伺服器預設組（在 /models 的模型庫選「伺服器預設組」編輯）。</p>`
+        : '') +
+      `<div class="krow"><span>使用本地模型庫</span><label><input type="checkbox" id="lmOn"${S.on ? ' checked' : ''} /> ${srv ? '你的機甲用下面選的本地模型組（多人時上傳給其他玩家）；單人時載具、地圖物件、小物件也優先用本地的' : '單人模式套用模型庫存在這個瀏覽器的 GLB 與關節設定（多人時自動停用）'}</label></div>` +
       `<div class="lmGroups">` +
       LM_GROUPS.map(
         (g) =>
@@ -149,6 +228,17 @@ Object.assign(Game.prototype, {
             s.err
               ? `<div class="lmBad">✗ ${escHtml(s.id)}：${escHtml(s.err)}（改用程式模型）</div>`
               : `<div class="lmWarn">⚠ ${escHtml(s.id)}：${s.checks.map((c) => escHtml(c.text)).join('；')}</div>`,
+          )
+          .join('') +
+        `</details>`;
+    const sset = srv && ServerModels.source();
+    if (sset && sset.tpls.size)
+      html +=
+        `<details class="srvUsed"><summary>伺服器預設組的 GLB（${sset.tpls.size}）</summary>` +
+        [...sset.tpls.entries()]
+          .map(
+            ([id, e]) =>
+              `<div data-slot="${escHtml(id)}">${e.tpl ? '' : '✗ '}${escHtml(id)}<span class="dim">　${escHtml(e.name || '')}　${e.tpl ? '遊戲中已使用 ' + (sset.uses.get(id) || 0) + ' 次' : escHtml(e.err || '')}</span></div>`,
           )
           .join('') +
         `</details>`;
@@ -179,6 +269,7 @@ Object.assign(Game.prototype, {
         this.renderLocalModels();
       };
     $('lmReload').onclick = () => this.lmRefresh();
+    if ($('srvReload')) $('srvReload').onclick = () => this.srvRefresh().then(() => this.renderLocalModels());
     $('lmSet').onchange = (e) => {
       S.set = e.target.value;
       LocalModels.saveSettings();
@@ -192,8 +283,16 @@ Object.assign(Game.prototype, {
     const sets = LocalModels.sets.length
       ? LocalModels.sets
       : [{ id: S.set, name: S.set === 'default' ? '預設' : S.set }];
-    const missing = LocalModels.status && LocalModels.status.db && !sets.some((x) => x.id === S.set);
+    const srv = onServer();
+    const missing =
+      LocalModels.status &&
+      LocalModels.status.db &&
+      !sets.some((x) => x.id === S.set) &&
+      !(srv && S.set === SERVER_SET);
     const opts =
+      (srv
+        ? `<option value="${SERVER_SET}"${S.set === SERVER_SET ? ' selected' : ''}>伺服器預設組（不用本地模型組）</option>`
+        : '') +
       (missing ? `<option value="${escHtml(S.set)}">（模型庫已刪除這個模型組，改用預設）</option>` : '') +
       sets
         .map(
@@ -201,6 +300,6 @@ Object.assign(Game.prototype, {
             `<option value="${escHtml(x.id)}"${x.id === S.set ? ' selected' : ''}>${escHtml(x.name || x.id)}</option>`,
         )
         .join('');
-    return `<div class="krow"><span>模型組</span><label><select id="lmSet"${S.on ? '' : ' disabled'}>${opts}</select> <span class="dim" style="font-size:12px">機甲區塊與武器用這一組的 GLB 與關節設定（全部機甲共用；載具與地圖物件不分模型組）</span></label></div>`;
+    return `<div class="krow"><span>模型組</span><label><select id="lmSet"${S.on ? '' : ' disabled'}>${opts}</select> <span class="dim" style="font-size:12px">${srv ? '你的機甲區塊與武器用這一組的 GLB 與關節設定' : '機甲區塊與武器用這一組的 GLB 與關節設定（全部機甲共用；載具與地圖物件不分模型組）'}</span></label></div>`;
   },
 });

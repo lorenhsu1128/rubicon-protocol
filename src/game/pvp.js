@@ -84,6 +84,7 @@ Object.assign(Game.prototype, {
         palKey: PLAYER_PALS[pl.color],
         slot: pl.slot,
         pvpTeam: pl.pvpTeam,
+        ms: pl.ms || null,
         pilot: this.pilotModsForPlayer(pl, 'pvp'),
       });
       e.slot = pl.slot;

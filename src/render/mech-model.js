@@ -17,7 +17,7 @@ import {
   kitVents,
 } from './geometry.js';
 import { mechMats } from './materials.js';
-import { jointSetting, resolveConn } from './mech-joints.js';
+import { jointSetting, resolveConn, withJoints } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
@@ -829,8 +829,11 @@ export function buildPiece(info, pal, asm) {
 
 // ===== 組裝整台機甲 =====
 // opts.piece(info)：回傳要取代程式模型的物件（GLB），或 null 使用程式模型
+// opts.source：這台機甲用的模型組 { model(slot, pal, unique), joints }（遊戲依機甲指定；沒有時用全域的模型來源與關節覆寫）
 // 回傳的 rig：animateMech 驅動的關節群組（legs／arms／head／torso）＋ mounts（所有連接點，模型庫顯示與即時調整用）
 export function buildMech(asm, pal, scale = 1, opts = {}) {
+  if (opts.source && !opts.inSource)
+    return withJoints(opts.source.joints, () => buildMech(asm, pal, scale, { ...opts, inSource: true }));
   const p = asmParts(asm);
   const ctx = pieceCtx(pal, asm);
   const all = mechPieces(asm);
@@ -840,7 +843,11 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   const provided = [];
   const place = (parent, info) => {
     // 沒有指定 opts.piece 時問模型來源（遊戲的本地模型庫）；每台機甲各自一份材質（受擊閃光）
-    let obj = opts.piece ? opts.piece(info) : providedModel(info.slot, pal, true);
+    let obj = opts.piece
+      ? opts.piece(info)
+      : opts.source
+        ? opts.source.model(info.slot, pal, true)
+        : providedModel(info.slot, pal, true);
     if (obj && !opts.piece) provided.push(obj);
     if (!obj) {
       obj = makeProcPiece(info, ctx);
@@ -975,6 +982,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       base: base.slot,
       infos: all.filter((i) => i.cat === 'legs'),
       defaults: !!opts.defaultConns,
+      joints: opts.source ? opts.source.joints || {} : null, // 模型組的關節設定（重新計算貼地時沿用）
       auto: 0,
       fine: 0,
     },
@@ -1042,6 +1050,11 @@ function groundRef(legs, pal) {
 export function refreshGround(rig) {
   const g = rig.ground;
   if (!g || !rig.lift) return;
+  if (g.joints) return withJoints(g.joints, () => groundNow(rig));
+  groundNow(rig);
+}
+function groundNow(rig) {
+  const g = rig.ground;
   const objs = g.infos.map((i) => rig.pieces[i.slot]).filter(Boolean);
   const custom =
     !g.defaults &&

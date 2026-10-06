@@ -33,8 +33,51 @@ export const groupOf = (id) => {
 export const DEFAULT_SET = 'default';
 export const SET_GROUPS = ['mech', 'weapon'];
 export const setScoped = (id) => SET_GROUPS.includes(groupOf(id));
-// 槽位的紀錄屬於哪個模型組（共用的為 ''）
-export const setOf = (id, set) => (setScoped(id) ? set : '');
+// 伺服器預設組（從伺服器網址開啟時）：涵蓋所有分類
+export const SERVER_SET = '@server';
+// 槽位的紀錄屬於哪個模型組（共用的為 ''；伺服器預設組不分）
+export const setOf = (id, set) => (set === SERVER_SET || setScoped(id) ? set : '');
+
+// 解析 GLB 成範本：{ root, info }；沒有網格或含蒙皮時丟出錯誤
+export async function parseTemplate(buf) {
+  const { root, info } = glbScene(await parseGlb(buf), null);
+  let meshes = 0;
+  root.traverse((o) => {
+    if (o.isMesh && o.material !== OUTLINE_MAT) meshes++;
+  });
+  if (!meshes) throw new Error('模型沒有可見的網格');
+  if (info.skinned) throw new Error('含蒙皮網格（遊戲不使用骨架蒙皮）');
+  return { root, info };
+}
+// 由範本建立一個實例（共用幾何；材質依配色換色）。unique：每個實例各自一份材質（機甲受擊閃光會改材質）
+// tinted：共用材質的換色快取（WeakMap：原材質 → Map(配色 → 材質)）
+export function instanceOf(tpl, slot, pal, unique, tinted) {
+  const obj = tpl.clone(true);
+  obj.traverse((o) => {
+    if (!o.isMesh || o.material === OUTLINE_MAT) return;
+    const one = (m) => {
+      if (unique) {
+        const c = tintMaterial(m, pal);
+        const u = c === m ? m.clone() : c;
+        if (u.emissive) u.userData.emis0 = u.emissive.clone(); // 受擊閃光後還原
+        return u;
+      }
+      if (!pal) return m;
+      let by = tinted.get(m);
+      if (!by) tinted.set(m, (by = new Map()));
+      if (!by.has(pal)) by.set(pal, tintMaterial(m, pal));
+      return by.get(pal);
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+  });
+  obj.userData.localGlb = slot;
+  return obj;
+}
+// 左側武器沒有自己的 GLB 時暫用右側的：回傳要找的槽位清單
+export const slotChain = (id) => {
+  const m = /^((?:weapon|back)\/[^/]+)\/l$/.exec(id);
+  return m ? [id, m[1] + '/r'] : [id];
+};
 
 function loadSettings() {
   const def = { on: false, groups: Object.fromEntries(LM_GROUPS.map((g) => [g.id, true])), set: DEFAULT_SET };
@@ -50,9 +93,10 @@ function loadSettings() {
   return def;
 }
 
-// 讀取模型庫的資料：{ glb: [{ set, id, … }], joints: [{ set, slot, conns }], sets: [{ id, name }] }
+// 讀取模型庫的資料：{ glb: [{ set, id, … }], joints: [{ set, slot, conns }], sets: [{ id, name, asm }] }
 // 資料庫不存在時不建立它（中止升級），回傳 null；模型庫還沒升級的舊版資料（glb／joints）當成預設模型組
-function readDb() {
+// only：只讀這幾類（例如 ['sets'] 只列模型組，不讀 GLB）
+function readDb(only = null) {
   return new Promise((res) => {
     let r;
     try {
@@ -69,7 +113,9 @@ function readDb() {
       const map = v4
         ? { glb: 'models', joints: 'setJoints', sets: 'sets' }
         : { glb: 'glb', joints: 'joints' };
-      const keys = Object.keys(map).filter((k) => d.objectStoreNames.contains(map[k]));
+      const keys = Object.keys(map).filter(
+        (k) => d.objectStoreNames.contains(map[k]) && (!only || only.includes(k)),
+      );
       const out = { glb: [], joints: [], sets: [] };
       if (!keys.length) {
         d.close();
@@ -111,6 +157,7 @@ class LocalModelLib {
     this.jointsBy = {}; // 模型組 → { 槽位 → 連接點 }
     this.sets = []; // 模型庫裡的模型組 [{ id, name }]
     this.set = DEFAULT_SET; // 實際讀取的模型組（設定的模型組不存在時改用預設）
+    this.setData = null; // 讀取的模型組原始資料 { id, name, asm, recs, joints }（多人上傳到伺服器用）
     this.status = null; // 最近一次讀取的結果
     this.loading = null;
     this.tinted = new WeakMap(); // 共用材質的換色快取：原材質 → Map(配色 → 材質)
@@ -162,7 +209,9 @@ class LocalModelLib {
     }
     const data = await readDb();
     st.db = !!data;
-    this.sets = ((data && data.sets) || []).filter((s) => s && s.id).map((s) => ({ id: s.id, name: s.name }));
+    this.sets = ((data && data.sets) || [])
+      .filter((s) => s && s.id)
+      .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null }));
     this.set = this.sets.some((s) => s.id === this.settings.set) ? this.settings.set : DEFAULT_SET;
     st.set = this.set;
     // 只讀這個模型組的機甲區塊與武器，加上共用分類
@@ -175,6 +224,18 @@ class LocalModelLib {
         (this.jointsBy[r.set] = this.jointsBy[r.set] || {})[r.slot] = r.conns;
     st.joints = Object.values(this.jointsOf()).reduce((n, c) => n + Object.keys(c).length, 0);
     this.applyJoints();
+    const meta = this.sets.find((s) => s.id === this.set);
+    this.setData = st.db
+      ? {
+          id: this.set,
+          name: meta ? meta.name : this.set,
+          asm: meta ? meta.asm : null,
+          recs: recs
+            .filter((r) => setScoped(r.id))
+            .map((r) => ({ id: r.id, name: r.name, buf: r.buf, t: r.t })),
+          joints: this.jointsOf(),
+        }
+      : null;
     // 已不存在的槽位移出快取
     const keys = new Set(recs.map((r) => r.set + '|' + r.id));
     for (const k of [...this.cache.keys()]) if (!keys.has(k)) this.cache.delete(k);
@@ -189,13 +250,7 @@ class LocalModelLib {
         await tick(); // 讓進度條有機會重繪
         const e = { t: r.t, size: r.size, name: r.name, tpl: null, info: null, err: null, checks: [] };
         try {
-          const { root, info } = glbScene(await parseGlb(r.buf), null);
-          let meshes = 0;
-          root.traverse((o) => {
-            if (o.isMesh && o.material !== OUTLINE_MAT) meshes++;
-          });
-          if (!meshes) throw new Error('模型沒有可見的網格');
-          if (info.skinned) throw new Error('含蒙皮網格（遊戲不使用骨架蒙皮）');
+          const { root, info } = await parseTemplate(r.buf);
           e.tpl = root;
           e.info = info;
           if (checker)
@@ -229,14 +284,9 @@ class LocalModelLib {
   // set：模型組（預設為目前讀取的模型組；只有讀取過的模型組有範本）
   template(id, set = this.set) {
     if (!this.active() || !this.groupOn(id)) return null;
-    const at = (slot) => this.cache.get(setOf(slot, set) + '|' + slot);
-    const own = at(id);
-    if (own && own.tpl) return own.tpl;
-    if (own) return null;
-    const m = /^((?:weapon|back)\/[^/]+)\/l$/.exec(id);
-    if (m) {
-      const r = at(m[1] + '/r');
-      if (r && r.tpl) return r.tpl;
+    for (const slot of slotChain(id)) {
+      const e = this.cache.get(setOf(slot, set) + '|' + slot);
+      if (e) return e.tpl || null; // 有自己的檔案但失敗時不暫用右側
     }
     return null;
   }
@@ -248,26 +298,26 @@ class LocalModelLib {
     const tpl = this.template(id);
     if (!tpl) return null;
     this.uses.set(id, (this.uses.get(id) || 0) + 1);
-    const obj = tpl.clone(true);
-    obj.traverse((o) => {
-      if (!o.isMesh || o.material === OUTLINE_MAT) return;
-      const one = (m) => {
-        if (unique) {
-          const c = tintMaterial(m, pal);
-          const u = c === m ? m.clone() : c;
-          if (u.emissive) u.userData.emis0 = u.emissive.clone(); // 受擊閃光後還原
-          return u;
-        }
-        if (!pal) return m;
-        let by = this.tinted.get(m);
-        if (!by) this.tinted.set(m, (by = new Map()));
-        if (!by.has(pal)) by.set(pal, tintMaterial(m, pal));
-        return by.get(pal);
-      };
-      o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
-    });
-    obj.userData.localGlb = id;
-    return obj;
+    return instanceOf(tpl, id, pal, unique, this.tinted);
+  }
+  // 自己的機甲用的模型組（buildMech 的 opts.source）：沒開啟、選了伺服器預設組或讀不到時為 null
+  mySource() {
+    const S = this.settings;
+    if (!this.active() || S.set === SERVER_SET || !this.status || !this.status.db) return null;
+    return {
+      id: 'local:' + this.set,
+      model: (slot, pal, unique) => (setScoped(slot) ? this.model(slot, pal, unique) : null),
+      joints: S.groups.mech !== false ? this.jointsOf() : {},
+    };
+  }
+  // 只列出模型庫的模型組（不讀 GLB）
+  async listSets() {
+    const data = await readDb(['sets']);
+    if (data)
+      this.sets = data.sets
+        .filter((s) => s && s.id)
+        .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null }));
+    return this.sets;
   }
 }
 

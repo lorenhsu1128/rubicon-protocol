@@ -35,7 +35,9 @@ export function sourceBadge(d, src, entry, store) {
       : { cls: '', text: '組合', title: '由各區塊組合而成（目前都是程式模型）' };
   if (!src || src.kind !== 'glb')
     return { cls: '', text: '程式模型', title: '尚未提供 GLB，顯示 three.js 程式模型' };
-  const origin = (src.origin === 'builtin' ? '內建' : '瀏覽器') + (src.fallback ? '，暫用右側' : '');
+  const origin =
+    (src.origin === 'builtin' ? '內建' : src.server ? '伺服器' : '瀏覽器') +
+    (src.fallback ? '，暫用右側' : '');
   if (d && d.loadError) return { cls: 'bad', text: 'GLB 無法讀取', title: d.loadError };
   if (!d || !d.summary) return { cls: 'glb', text: `GLB（${origin}）`, title: src.name };
   const { errors, warns } = d.summary;

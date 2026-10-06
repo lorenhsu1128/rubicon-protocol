@@ -6,6 +6,7 @@ import { PARTS, SLOTS, asmStats, partById } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { buildMech } from '../render/mech-model.js';
+import { ServerModels } from '../render/net-models.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -58,11 +59,13 @@ Object.assign(Game.prototype, {
       this.clearMission();
     }
     this.renderGarage();
-    // 單人模式：重新讀取本地模型庫（有變動才解析），讀完再重建預覽
-    if (!(this.net && this.net.role))
-      this.lmRefresh().then((st) => {
-        if (st && st.on && this.state === 'garage') this.renderGarage();
-      });
+    // 單人模式：重新讀取本地模型庫（有變動才解析）；伺服器網址時也讀伺服器預設組；讀完再重建預覽
+    const rev = ServerModels.rev;
+    const again = (st) => {
+      if (this.state === 'garage' && ((st && st.on) || ServerModels.rev !== rev)) this.renderGarage();
+    };
+    if (!(this.net && this.net.role)) this.lmRefresh().then(again);
+    else this.mpModelsRefresh().then(() => again(null));
   },
   randomAsm() {
     const o = this.save.owned;
@@ -257,10 +260,12 @@ Object.assign(Game.prototype, {
     if (this.garageMech) {
       this.garageScene.remove(this.garageMech.group);
     }
-    this.garageMech = buildMech(asm, PALETTES.player, 1);
+    const src = this.garageSource();
+    this.garageMech = buildMech(asm, PALETTES.player, 1, { source: src });
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
-    this.lmGarageNote(this.garageMech);
+    this.lmGarageNote(this.garageMech, src);
+    this.mpModelsUi();
     this.writeSave();
   },
 });

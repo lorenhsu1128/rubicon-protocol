@@ -5,7 +5,7 @@
 import { escHtml } from '../core/html.js';
 import { TEX_KEYS, derivedOf, faceMats, grayTex, slotOfName } from './editor-mat.js';
 import { readGlb } from './editor-opt.js';
-import { makeZip } from './zip.js';
+import { makeZip } from '../core/zip.js';
 
 const $ = (id) => document.getElementById(id);
 const KIND = {

@@ -1231,12 +1231,14 @@ select {
   font-size: 13px;
 }
 .lmIssues,
-.lmUsed {
+.lmUsed,
+.srvUsed {
   font-size: 12px;
   margin: 4px 0;
 }
 .lmIssues > div,
-.lmUsed > div {
+.lmUsed > div,
+.srvUsed > div {
   padding: 2px 0;
   word-break: break-all;
 }
@@ -1245,4 +1247,20 @@ select {
 }
 .lmWarn {
   color: #ffd27a;
+}
+/* 伺服器模型組：我的機甲模型組（大廳、車庫）與玩家的模型組狀態 */
+.mySetBox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.mySetBox select {
+  margin-left: 6px;
+  max-width: 220px;
+}
+.lslot .mtag {
+  font-size: 11px;
+  color: var(--dim, #8a97a6);
 }
