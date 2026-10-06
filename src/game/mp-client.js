@@ -17,6 +17,7 @@ Object.assign(Game.prototype, {
   startMissionClient(d) {
     this.clearMission();
     this.isClient = true;
+    this.lastClientTick = 0; // 開局後第一次更新重新起算房主失聯（clientTick）
     this.hostPace = d.pace || 1;
     if (d.pvp) {
       this.pvp = true;
@@ -348,6 +349,12 @@ Object.assign(Game.prototype, {
         this.player = alive[this.spectateIdx % alive.length];
       }
     }
+    // 本機卡住（開局建地圖與模型、編譯著色器）的時間不算房主失聯：這段期間房主的訊息還排在後面沒處理，
+    // 卡住超過 1 秒（含開局後第一次更新）就重新起算
+    const now = performance.now();
+    if (!this.lastClientTick || now - this.lastClientTick > 1000)
+      n.lastHostMsg = Math.max(n.lastHostMsg, now);
+    this.lastClientTick = now;
     const p = this.player;
     if (!p) return;
     if (this.spectator) {

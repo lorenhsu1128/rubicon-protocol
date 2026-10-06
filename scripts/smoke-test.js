@@ -183,6 +183,7 @@ async function testFile(browser) {
   const { ctx, page } = await newPage(browser, 'file');
   await page.goto('file:///' + HTML.replace(/\\/g, '/'));
   check(await waitVisible(page, 'title'), '標題畫面顯示');
+  check(!(await page.isVisible('#btnApng')), '直接開檔時不顯示「文字動畫」（需要從伺服器開啟）');
   // 本地模型庫：直接開檔時，遊戲也讀得到同樣直接開檔的模型庫存的資料
   if (fs.existsSync(LIBRARY)) {
     const lib = await ctx.newPage();
@@ -2646,6 +2647,27 @@ async function main() {
         ),
         '標題畫面「模型庫」按鈕開啟模型庫',
       );
+      // 文字動畫 APNG 產生器（dist/apng/，原生 ES Modules）
+      const redir = await fetch(game.url + 'apng', { redirect: 'manual' });
+      check(redir.status === 301 && redir.headers.get('location') === '/apng/', '/apng 轉到 /apng/');
+      const js = await fetch(game.url + 'apng/js/app.js');
+      check(
+        js.ok && /javascript/.test(js.headers.get('content-type') || ''),
+        `/apng/ 的 ES Module 以 JavaScript 型別提供（${js.headers.get('content-type')}）`,
+      );
+      const bad = await fetch(game.url + 'apng/..%2f..%2fserver.js');
+      check(bad.status === 404, '/apng/ 不能讀到資料夾外的檔案');
+      const [apng] = await Promise.all([page.waitForEvent('popup'), page.click('#btnApng')]);
+      watch(apng, 'apng');
+      check(
+        await apng.waitForSelector('#templateStrip > *', { timeout: 15000 }).then(
+          () => true,
+          () => false,
+        ),
+        '標題畫面「文字動畫」按鈕開啟文字動畫 APNG 產生器（模板列表顯示）',
+      );
+      await wait(1500);
+      await apng.screenshot({ path: path.join(SHOT_DIR, 'apng-tool.png') });
       await page.context().close();
       await testServerModels(browser, game.url);
       await testMultiplayer(browser, game.url, 'server', false);

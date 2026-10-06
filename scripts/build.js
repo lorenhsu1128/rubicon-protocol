@@ -160,9 +160,23 @@ const options = (page) => ({
   ],
 });
 
+// 文字動畫 APNG 產生器（子專案 rubicon_apng_gen/，自己的 git 版本庫）：純靜態網站，原樣複製到 dist/apng/，
+// 伺服器在 /apng/ 提供。子專案不存在時（只 clone 主專案）保留 dist/apng/ 現有的檔案
+const APNG_SRC = path.join(ROOT, 'rubicon_apng_gen');
+const APNG_OUT = path.join(DIST, 'apng');
+function copyApng() {
+  if (!fs.existsSync(path.join(APNG_SRC, 'index.html'))) return;
+  fs.rmSync(APNG_OUT, { recursive: true, force: true });
+  fs.mkdirSync(APNG_OUT, { recursive: true });
+  fs.copyFileSync(path.join(APNG_SRC, 'index.html'), path.join(APNG_OUT, 'index.html'));
+  for (const d of ['css', 'js'])
+    fs.cpSync(path.join(APNG_SRC, d), path.join(APNG_OUT, d), { recursive: true });
+}
+
 async function main() {
   if (!watch) fs.rmSync(LIB, { recursive: true, force: true }); // 重新複製，移除不再使用的程式庫
   writeDraco();
+  copyApng();
   if (!watch) {
     for (const page of PAGES) {
       const r = await esbuild.build(options(page));

@@ -457,6 +457,10 @@ Object.assign(Game.prototype, {
     };
     // 模型庫：伺服器上是 /model-library.html，直接開檔時是同資料夾的 model-library.html
     document.getElementById('btnLibrary').onclick = () => window.open('model-library.html', '_blank');
+    // 文字動畫 APNG 產生器：原生 ES Modules，只有從伺服器開啟時才能用（/apng/）
+    const apng = document.getElementById('btnApng');
+    if (window.RUBICON_SERVER) apng.style.display = '';
+    apng.onclick = () => window.open('/apng/', '_blank');
     document.getElementById('btnLmReload').onclick = () => this.lmRefresh(true);
     document.getElementById('btnSettingsP').onclick = () => this.openSettings('pause');
     document.getElementById('btnSettingsBack').onclick = () => this.closeSettings();

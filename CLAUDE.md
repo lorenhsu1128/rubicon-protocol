@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概要
 
-瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；外部程式庫放在 HTML 旁的 `lib/` 資料夾。發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html` ＋ `lib/`」（模型庫 `model-library.html` 選用）。
+瀏覽器 3D 機甲動作遊戲（Three.js r128）＋ Windows 區網伺服器。遊戲原始碼是 `src/` 下的 ES modules，由 esbuild 打包成**單一 HTML**（CSS、JS、音效全部內嵌）；外部程式庫放在 HTML 旁的 `lib/` 資料夾。發佈形式是「`rubicon-server.exe` ＋ `rubicon-protocol.html` ＋ `lib/`」（模型庫 `model-library.html`、文字動畫 `apng/` 選用）。
 
 - `src/`：遊戲原始碼（見下方架構）。`src/index.html` 是 HTML 骨架，建置時把 `styles.css` 與打包後的 JS 內嵌進去。
 - `src/library/`：模型庫頁面（見下方「模型庫與 GLB」），建置成 `dist/model-library.html`。
-- `dist/`：建置產物 `rubicon-protocol.html`、`model-library.html`、`lib/`（程式庫）、`rubicon-server.exe`，**全部都要提交進 git**（每次改動 src/ 都要重新建置並一起 commit／push）。**不要手改 dist/**，改 `src/` 後重新建置。
-- `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組，資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
+- `rubicon_apng_gen/`：子專案「文字動畫 APNG 產生器」（TRPG 用的文字動畫素材，純靜態網站、原生 ES Modules，不需建置）。它有**自己的 git 版本庫**（遠端 `lorenhsu1128/rubicon_apng_gen`），主專案的 `.gitignore` 忽略它，修改要在子專案裡提交、推送。`scripts/build.js` 的 `copyApng` 把它的 `index.html`、`css/`、`js/` 原樣複製到 `dist/apng/`（子專案不存在時保留現有的 `dist/apng/`），伺服器在 `/apng/` 提供；因為是 ES Modules，必須透過 HTTP 開啟，標題畫面的「文字動畫」按鈕只在伺服器網址時顯示。
+- `dist/`：建置產物 `rubicon-protocol.html`、`model-library.html`、`lib/`（程式庫）、`apng/`（文字動畫）、`rubicon-server.exe`，**全部都要提交進 git**（每次改動 src/ 都要重新建置並一起 commit／push）。**不要手改 dist/**，改 `src/` 後重新建置。
+- `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/apng/` 文字動畫 APNG 產生器（同資料夾 `apng/`，依副檔名給 Content-Type）、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組，資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - `docs/glb-spec.md`：給美術的 GLB 製作規格。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
@@ -36,7 +37,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、`/apng` 轉址與 ES Module 型別、不能讀到資料夾外、標題畫面「文字動畫」按鈕開啟工具（直接開檔時不顯示）、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -130,6 +131,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 ## 架構陷阱
 
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
+- 客機在任務中 3 秒沒收到房主訊息就判定房主失聯並遷移（`clientTick`）；本機卡住超過 1 秒（開局建地圖與模型、編譯著色器）或開局後第一次更新時重新起算，否則慢的電腦會誤判。
 - 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.0'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`。
