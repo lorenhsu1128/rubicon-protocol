@@ -1590,12 +1590,32 @@
     $('decalPanel').hidden = false;
     $('btnImage').classList.add('on');
     cursor.style.display = 'none';
-    // 沒有透明通道的圖片（截圖、JPG、存成白底的「透明」圖）自動去白底
+    // 沒有透明通道的圖片（截圖、JPG、AI 工具畫成棋盤格的「假透明」）自動去除背景
+    D.srcImg = img;
     const alpha = imageHasAlpha(img);
     $('decalKey').checked = !alpha;
     $('decalKeyRow').hidden = alpha;
     decalHint();
-    if (!alpha) setStatus('這張圖片沒有透明的部分（是白底），已自動開啟「白色轉透明」；不需要的話取消勾選。', true);
+    if (!alpha) updateDecalBackground(true);
+  }
+
+  // 依「去除背景」設定重做圖片貼圖
+  function updateDecalBackground(auto) {
+    if (!D.active) return;
+    let src = D.srcImg;
+    let msg = '';
+    if ($('decalKey').checked) {
+      const res = RP.removeBackground(D.srcImg, Number($('decalKeyTol').value) / 100);
+      if (res.canvas) {
+        src = res.canvas;
+        const what = res.mode === 'checker' ? '假透明的棋盤格背景' : '白色背景';
+        msg = `${auto ? '這張圖片沒有透明通道，' : ''}已去除${what}（${Math.round(res.removed * 100)}%）。不需要的話取消勾選「去除背景」。`;
+      } else msg = '沒有在圖片邊緣找到白底或棋盤格背景，所以沒有去除。';
+    }
+    D.tex.image = src;
+    D.tex.needsUpdate = true;
+    D.dirty = true;
+    if (msg) setStatus(msg, true);
   }
 
   // 圖片有沒有半透明或透明的像素（縮小後檢查）
@@ -1732,8 +1752,6 @@
       opacity: D.opacity,
       through: S.backfaces,
       graze: $('decalGraze').checked,
-      keyWhite: $('decalKey').checked,
-      keyTol: Number($('decalKeyTol').value) / 100,
       sym: S.sym,
       mirrorX: modelCenterX(),
     });
@@ -1861,9 +1879,10 @@
   $('decalGraze').onchange = () => (D.dirty = true);
   $('decalKey').onchange = () => {
     $('decalKeyRow').hidden = !$('decalKey').checked;
-    D.dirty = true;
+    updateDecalBackground(false);
   };
-  bindRange('decalKeyTol', 'decalKeyTolOut', () => (D.dirty = true));
+  bindRange('decalKeyTol', 'decalKeyTolOut', () => {});
+  $('decalKeyTol').addEventListener('change', () => updateDecalBackground(false));
   $('decalFlip').onclick = () => {
     D.flip = !D.flip;
     D.dirty = true;

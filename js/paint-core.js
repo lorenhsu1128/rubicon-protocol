@@ -181,8 +181,6 @@
     uniform mat4 uMirror;
     uniform bool uThrough;
     uniform bool uGraze;
-    uniform bool uKeyWhite;     // 白色轉透明（沒有透明通道的圖片去白底）
-    uniform float uKeyTol;
     varying vec3 vWorld;
     varying vec3 vNrm;
     void main() {
@@ -203,9 +201,7 @@
       // 圖片以預乘 alpha 上傳：縮放取樣時透明像素裡的顏色（常常是白色）不會混進邊緣
       vec4 t = texture2D(uImg, iuv);
       vec3 c = t.a > 0.0 ? t.rgb / t.a : vec3(0.0);
-      float k = 1.0;
-      if (uKeyWhite) k = smoothstep(uKeyTol * 0.4, uKeyTol, 1.0 - min(min(c.r, c.g), c.b));
-      float a = t.a * fade * k;
+      float a = t.a * fade;
       if (a <= 0.0) discard;
       gl_FragColor = vec4(c * a, a);
     }`;
@@ -724,8 +720,6 @@
           uMirror: { value: new THREE.Matrix4() },
           uThrough: { value: false },
           uGraze: { value: true },
-          uKeyWhite: { value: false },
-          uKeyTol: { value: 0.12 },
         },
         side: THREE.DoubleSide,
         depthTest: false,
@@ -1236,8 +1230,6 @@
       u.uFlip.value = !!d.flip;
       u.uThrough.value = !!d.through;
       u.uGraze.value = d.graze !== false;
-      u.uKeyWhite.value = !!d.keyWhite;
-      u.uKeyTol.value = d.keyTol || 0.12;
       const mirror = new THREE.Matrix4().set(-1, 0, 0, 2 * d.mirrorX, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
       const mirrors = d.sym ? [new THREE.Matrix4(), mirror] : [new THREE.Matrix4()];
       // 投影框的外接球（對稱時另一側也算），只處理碰得到的貼圖組
