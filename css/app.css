@@ -511,3 +511,7 @@ button.primary {
 #objList .layerRow.hidden .name {
   opacity: 0.45;
 }
+
+[hidden] {
+  display: none !important;
+}

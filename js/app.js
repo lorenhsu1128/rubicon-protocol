@@ -1580,6 +1580,7 @@
     if (stroke) return;
     if (D.active) cancelDecal();
     const tex = new THREE.Texture(img);
+    tex.premultiplyAlpha = true; // 縮放取樣時不會把透明像素的顏色混進邊緣（白邊）
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     tex.needsUpdate = true;
@@ -1589,7 +1590,29 @@
     $('decalPanel').hidden = false;
     $('btnImage').classList.add('on');
     cursor.style.display = 'none';
+    // 沒有透明通道的圖片（截圖、JPG、存成白底的「透明」圖）自動去白底
+    const alpha = imageHasAlpha(img);
+    $('decalKey').checked = !alpha;
+    $('decalKeyRow').hidden = alpha;
     decalHint();
+    if (!alpha) setStatus('這張圖片沒有透明的部分（是白底），已自動開啟「白色轉透明」；不需要的話取消勾選。', true);
+  }
+
+  // 圖片有沒有半透明或透明的像素（縮小後檢查）
+  function imageHasAlpha(img) {
+    try {
+      const k = Math.min(1, 512 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * k));
+      c.height = Math.max(1, Math.round(img.height * k));
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, c.width, c.height);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] < 250) return true;
+      return false;
+    } catch (e) {
+      return true;
+    }
   }
 
   function decalHint() {
@@ -1709,6 +1732,8 @@
       opacity: D.opacity,
       through: S.backfaces,
       graze: $('decalGraze').checked,
+      keyWhite: $('decalKey').checked,
+      keyTol: Number($('decalKeyTol').value) / 100,
       sym: S.sym,
       mirrorX: modelCenterX(),
     });
@@ -1834,6 +1859,11 @@
     D.dirty = true;
   });
   $('decalGraze').onchange = () => (D.dirty = true);
+  $('decalKey').onchange = () => {
+    $('decalKeyRow').hidden = !$('decalKey').checked;
+    D.dirty = true;
+  };
+  bindRange('decalKeyTol', 'decalKeyTolOut', () => (D.dirty = true));
   $('decalFlip').onclick = () => {
     D.flip = !D.flip;
     D.dirty = true;

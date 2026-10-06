@@ -78,6 +78,8 @@
           <label class="row">角度 <input id="decalRot" type="range" min="-180" max="180" value="0" /><output id="decalRotOut">0</output></label>
           <label class="row">不透明度 <input id="decalOpacity" type="range" min="1" max="100" value="100" /><output id="decalOpacityOut">100</output></label>
           <label class="check" title="和貼上位置角度差很多的面淡出（避免圖片在側面被拉成長條）"><input id="decalGraze" type="checkbox" checked /> 側面淡出</label>
+          <label class="check" title="把接近白色的部分變透明（圖片沒有透明背景時用）"><input id="decalKey" type="checkbox" /> 白色轉透明（去白底）</label>
+          <label class="row" id="decalKeyRow">容許度 <input id="decalKeyTol" type="range" min="1" max="60" value="12" /><output id="decalKeyTolOut">12</output></label>
           <div class="btnRow">
             <button id="decalFlip" title="左右翻轉">左右翻轉</button>
             <button id="decalUpright" title="以目前視角為正上方重新對齊">轉正</button>
