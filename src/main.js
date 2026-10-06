@@ -22,5 +22,6 @@ import './game/first-person.js';
 import './game/pvp.js';
 import './game/mp-models.js';
 import './game/style-lab.js';
+import './game/fullscreen.js';
 
 new Game();

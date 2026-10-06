@@ -452,6 +452,7 @@ Object.assign(Game.prototype, {
     this.down = {};
     this.loadKeys();
     this.setupTouch();
+    this.setupFullscreen();
     document.getElementById('btnSettings').onclick = () => {
       SFX.init();
       this.openSettings('title');

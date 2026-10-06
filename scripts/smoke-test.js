@@ -184,6 +184,25 @@ async function testFile(browser) {
   await page.goto('file:///' + HTML.replace(/\\/g, '/'));
   check(await waitVisible(page, 'title'), '標題畫面顯示');
   check(!(await page.isVisible('#btnApng')), '直接開檔時不顯示「文字動畫」（需要從伺服器開啟）');
+  // 全螢幕：按鈕進入、文字改成「離開全螢幕」，再按一次離開
+  // （fullscreenElement 先變、fullscreenchange 稍後才改按鈕文字，所以兩者一起等）
+  const fsWait = (on) =>
+    page
+      .waitForFunction(
+        (on) =>
+          !!document.fullscreenElement === on &&
+          document.getElementById('btnFullscreen').textContent === (on ? '離開全螢幕' : '全螢幕'),
+        on,
+        { timeout: 5000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  await page.click('#btnFullscreen');
+  check(await fsWait(true), '標題畫面「全螢幕」按鈕進入全螢幕');
+  await page.click('#btnFullscreen');
+  check(await fsWait(false), '再按一次離開全螢幕');
   // 本地模型庫：直接開檔時，遊戲也讀得到同樣直接開檔的模型庫存的資料
   if (fs.existsSync(LIBRARY)) {
     const lib = await ctx.newPage();
