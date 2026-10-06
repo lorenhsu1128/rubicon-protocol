@@ -2834,6 +2834,8 @@ async function testServerModels(browser, url) {
   await playFor(game, 3000);
   const solo = await game.evaluate(() => {
     const g = window.__game;
+    // 第 1 關的編成是隨機的，前半可能全是載具／直升機／無人機（有 modelKind），這時補一台 MT 再檢查
+    if (!g.enemies.some((e) => !e.opts.modelKind)) g.spawnType('mt', 1, 1);
     return {
       me: g.player.modelSrc && g.player.modelSrc.id,
       enemies: g.enemies.filter((e) => !e.opts.modelKind).map((e) => e.modelSrc && e.modelSrc.id),
