@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>RUBICON PROTOCOL 文字動畫 APNG 產生器</title>
+  <meta name="description" content="在瀏覽器內製作 TRPG 用的文字動畫 APNG / WebP 素材：戰鬥開始切入畫面、預告片式文字演出、地點與時間字幕。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5bd3'/%3E%3Ctext x='16' y='22.5' font-size='17' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'%3E文%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="./css/app.css" />
+  <script>
+    // 主題在載入 CSS 前決定，避免閃爍
+    try { const t = JSON.parse(localStorage.getItem('tam.v1') || '{}').theme; if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="title-block">
+        <h1 id="appTitle" data-i18n="title"></h1>
+        <p class="lead" data-i18n="lead"></p>
+      </div>
+      <div class="header-actions">
+        <button class="ghost-button theme-button" type="button" id="themeBtn"><span class="theme-track" aria-hidden="true"><span class="theme-thumb"></span></span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel control-panel" aria-labelledby="appTitle">
+        <div class="mode-tabs" id="modeTabs" role="tablist">
+          <button class="mode-tab" type="button" role="tab" data-mode="message">
+            <span class="mode-head"><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H9l-5 4z" /><path d="M12 8v3M12 13v.1" /></svg><span class="mode-name"></span></span>
+            <span class="mode-desc"></span>
+          </button>
+          <button class="mode-tab" type="button" role="tab" data-mode="trailer">
+            <span class="mode-head"><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5" /><path d="M3 9h18M7 5v4M12 5v4M17 5v4" /></svg><span class="mode-name"></span></span>
+            <span class="mode-desc"></span>
+          </button>
+          <button class="mode-tab" type="button" role="tab" data-mode="caption">
+            <span class="mode-head"><svg class="mode-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0 1 13 0c0 5.3-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.3" /></svg><span class="mode-name"></span></span>
+            <span class="mode-desc"></span>
+          </button>
+        </div>
+
+        <div class="template-block">
+          <div class="template-head">
+            <p class="kicker" data-i18n="templates"></p>
+            <button class="link-button" type="button" id="resetBtn"></button>
+          </div>
+          <p class="template-hint" id="templateHint"></p>
+          <div class="segment-group template-groups" id="templateGroups" hidden></div>
+          <div class="chip-group compact" id="templateSystems" hidden></div>
+          <div class="template-strip" id="templateStrip"></div>
+        </div>
+
+        <div class="settings-tabs" id="settingsTabs" role="tablist">
+          <button class="settings-tab" type="button" role="tab" data-tab="text"></button>
+          <button class="settings-tab" type="button" role="tab" data-tab="font"></button>
+          <button class="settings-tab" type="button" role="tab" data-tab="motion"></button>
+          <button class="settings-tab" type="button" role="tab" data-tab="style"></button>
+          <button class="settings-tab" type="button" role="tab" data-tab="layout"></button>
+        </div>
+        <div class="settings-body" id="settingsBody" role="tabpanel"></div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="preview-head">
+          <h2 class="panel-title" data-i18n="preview"></h2>
+          <span class="font-status" id="fontStatus" role="status" hidden></span>
+          <div class="preview-bg">
+            <span class="muted" data-i18n="previewBg"></span>
+            <div class="chip-group compact" id="previewBgGroup">
+              <button class="chip" type="button" data-bg="checker"></button>
+              <button class="chip" type="button" data-bg="dark"></button>
+              <button class="chip" type="button" data-bg="light"></button>
+              <button class="chip" type="button" data-bg="gray"></button>
+              <button class="chip" type="button" data-bg="image"></button>
+            </div>
+            <input type="file" id="previewBgFile" accept="image/*" class="visually-hidden" tabindex="-1" />
+          </div>
+        </div>
+
+        <div class="preview-stage" id="previewStage" data-bg="checker">
+          <canvas id="previewCanvas" width="1280" height="720"></canvas>
+        </div>
+
+        <div class="transport">
+          <div class="transport-row">
+            <button class="primary-button" type="button" id="playBtn"></button>
+            <button class="icon-button" type="button" id="restartBtn">⟲</button>
+            <label class="toggle"><span class="switch"><input type="checkbox" class="switch-input" id="loopPreview" checked /><span class="switch-track"></span></span><span data-i18n="loopPreview"></span></label>
+            <label class="toggle" id="entryToggle"><span class="switch"><input type="checkbox" class="switch-input" id="entryInput" /><span class="switch-track"></span></span><span data-i18n="entry"></span></label>
+            <label class="toggle" id="exitToggle"><span class="switch"><input type="checkbox" class="switch-input" id="exitInput" /><span class="switch-track"></span></span><span data-i18n="exit"></span></label>
+            <span class="time-label" id="timeLabel"></span>
+          </div>
+          <div class="timeline" id="timeline">
+            <div class="timeline-segments" id="timelineSegments"></div>
+            <span class="playhead" id="playhead"></span>
+            <input type="range" class="scrub" id="scrub" min="0" max="1" step="0.001" value="0" aria-label="Timeline" />
+          </div>
+          <div class="legend">
+            <span class="legend-item legend-in" data-i18n="legend.in"></span>
+            <span class="legend-item legend-hold" data-i18n="legend.hold"></span>
+            <span class="legend-item legend-out" data-i18n="legend.out"></span>
+          </div>
+        </div>
+
+        <div class="export-card" id="exportCard">
+          <div class="export-head">
+            <h2 class="panel-title" data-i18n="exportTitle"></h2>
+            <p class="muted" id="infoLine"></p>
+          </div>
+          <div class="export-grid">
+            <label class="field"><span class="field-label" data-i18n="fps"></span>
+              <select class="select-input" id="fpsSelect">
+                <option>12</option><option>15</option><option>20</option><option>24</option><option>30</option><option>60</option>
+              </select>
+            </label>
+            <label class="field"><span class="field-label" data-i18n="loop"></span>
+              <select class="select-input" id="loopSelect">
+                <option value="once"></option><option value="infinite"></option><option value="count"></option>
+              </select>
+            </label>
+            <label class="field" id="loopCountWrap" hidden><span class="field-label" data-i18n="loopCount"></span>
+              <input class="number-input" type="number" id="loopCountInput" min="1" max="999" step="1" />
+            </label>
+            <label class="field"><span class="field-label" data-i18n="colors"></span>
+              <select class="select-input" id="colorSelect"><option value="palette"></option><option value="full"></option></select>
+            </label>
+            <div class="field wide">
+              <div class="field-head">
+                <label class="field-label" for="fileNameInput" data-i18n="fileName"></label>
+                <span class="badge" id="fileAutoBadge" data-i18n="fileAuto"></span>
+                <button class="link-button" type="button" id="fileAutoBtn" data-i18n="fileAutoReset" hidden></button>
+              </div>
+              <input class="text-input" type="text" id="fileNameInput" spellcheck="false" autocomplete="off" />
+            </div>
+            <label class="toggle wide"><span class="switch"><input type="checkbox" class="switch-input" id="posterInput" /><span class="switch-track"></span></span><span data-i18n="poster"></span></label>
+            <label class="toggle wide"><span class="switch"><input type="checkbox" class="switch-input" id="trimInput" /><span class="switch-track"></span></span><span data-i18n="trim"></span></label>
+          </div>
+          <div class="export-actions">
+            <button class="accent-button" type="button" id="exportApngBtn" data-i18n="exportApng"></button>
+            <button class="accent-button webp" type="button" id="exportWebpBtn" data-i18n="exportWebp"></button>
+            <button class="ghost-button" type="button" id="exportPngBtn" data-i18n="exportPng"></button>
+            <button class="ghost-button" type="button" id="exportZipBtn" data-i18n="exportZip"></button>
+          </div>
+          <p class="note" data-i18n="exportNote"></p>
+          <details class="batch" id="batch">
+            <summary data-i18n="batchSummary"></summary>
+            <div class="batch-body">
+              <label class="field-label" for="batchInput" data-i18n="batchLabel"></label>
+              <textarea class="text-input" id="batchInput" rows="4" spellcheck="false"></textarea>
+              <p class="note" id="batchHint"></p>
+              <div class="batch-actions">
+                <select class="select-input" id="batchFormat"><option value="apng">APNG</option><option value="webp">WebP</option></select>
+                <button class="ghost-button" type="button" id="batchBtn" data-i18n="batchExport"></button>
+              </div>
+            </div>
+          </details>
+          <div class="progress" id="progress" hidden><span class="progress-bar" id="progressBar"></span></div>
+          <div class="status-row">
+            <p class="status" id="status" role="status" aria-live="polite"></p>
+            <button class="ghost-button small" type="button" id="cancelBtn" data-i18n="cancel" hidden></button>
+          </div>
+          <div class="result" id="result" hidden>
+            <h3 data-i18n="resultTitle"></h3>
+            <div class="result-body">
+              <div class="result-preview"><img id="resultImg" alt="" /></div>
+              <div class="result-info">
+                <p class="result-meta" id="resultMeta"></p>
+                <p class="result-note" id="resultNote" hidden></p>
+                <div class="result-actions">
+                  <a class="accent-button" id="downloadLink" data-i18n="download"></a>
+                  <button class="ghost-button" type="button" id="clearResultBtn" data-i18n="clear"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast-host" id="toastHost" aria-live="polite"></div>
+    <footer class="footer"><p data-i18n="footer"></p></footer>
+  </div>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
