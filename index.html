@@ -29,6 +29,12 @@
         <button id="btnExportPsd" title="目前貼圖組的圖層存成 PSD">匯出 PSD</button>
         <button id="btnExportGlb" title="把畫好的貼圖寫回 GLB 並下載">匯出 GLB</button>
       </div>
+      <div class="group" id="libGroup" hidden>
+        <span id="libLabel"></span>
+        <button id="btnLibSave" class="primary" title="把畫好的貼圖寫回 GLB，存進模型庫的這個槽位（圖層記在這個瀏覽器，下次從模型庫開啟會接著畫）">
+          存回模型庫
+        </button>
+      </div>
       <div class="spacer"></div>
       <button id="btnRestore" hidden title="還原上次自動暫存的工作">還原自動暫存</button>
       <button id="btnUvToggle" class="toggle on" title="顯示／隱藏 UV 面板">UV</button>

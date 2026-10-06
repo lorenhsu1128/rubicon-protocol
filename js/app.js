@@ -2039,9 +2039,12 @@
           o.visible = true;
           shown.push(o);
         }
+      // 載入的模型根部是 GLTFLoader 的場景群組：沒有變換時只匯出它的子節點，維持原檔的節點層級
+      // （例如 RUBICON PROTOCOL 模型庫的 rubicon_origin 原點節點必須是場景唯一的根節點）
+      const input = model.matrix.equals(new THREE.Matrix4()) && model.children.length ? model.children : model;
       try {
         new THREE.GLTFExporter().parse(
-          model,
+          input,
           (res) => {
             undo();
             resolve(new Blob([res], { type: 'model/gltf-binary' }));
@@ -2131,8 +2134,101 @@
     requestAnimationFrame(fitUV);
   };
 
+  // ---------- 和 RUBICON PROTOCOL 模型庫連線 ----------
+  // 模型庫的「繪製貼圖」開這個視窗（網址 #lib），以 postMessage 傳來槽位的 GLB（rp-open）；
+  // 「存回模型庫」把畫好的 GLB 傳回去（rp-save），模型庫存進槽位後回覆 rp-saved。
+  // 圖層另外以專案檔存在這個瀏覽器（autosave 表，鍵 lib:模型組\n槽位，記錄存回的 GLB 的雜湊）：
+  // 下次開同一個槽位、模型庫裡還是那個檔案時，直接接著畫原本的圖層。
+  const LIB = { link: null, savedTop: null, seq: 0, waits: new Map() };
+  function libHash(buf) {
+    const u = new Uint8Array(buf);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193);
+    return (h >>> 0).toString(16) + ':' + u.length;
+  }
+  const libKey = (l) => 'lib:' + l.set + '\n' + l.slot;
+  const libTop = () => painter.undoStack[painter.undoStack.length - 1] || null;
+  const libDirty = () => !!LIB.link && libTop() !== LIB.savedTop;
+  function libPost(msg) {
+    if (!window.opener || window.opener.closed) return false;
+    window.opener.postMessage(msg, '*');
+    return true;
+  }
+  async function libOpen(m) {
+    if (!(m.buf instanceof ArrayBuffer) || typeof m.slot !== 'string') return;
+    const same = LIB.link && LIB.link.slot === m.slot && LIB.link.set === m.set;
+    if (libDirty() && !same && !confirm(`「${LIB.link.slotName}」畫的內容還沒存回模型庫，要改開「${m.slotName}」嗎？`))
+      return;
+    if (same && libDirty() && !confirm('要放棄還沒存回的修改，重新讀取模型庫裡的檔案嗎？')) return;
+    LIB.link = { slot: m.slot, set: m.set, setName: m.setName, slotName: m.slotName, name: m.name };
+    $('libGroup').hidden = false;
+    $('libLabel').textContent = `模型庫：${m.slotName}（${m.setName}）`;
+    $('libLabel').title = `${m.slot}／模型組「${m.setName}」`;
+    document.title = `${m.slotName} — Rubicon Paint`;
+    let rec = null;
+    try {
+      rec = await idbDo('readonly', (st) => st.get(libKey(LIB.link)));
+    } catch (err) {
+      rec = null;
+    }
+    if (rec && rec.out === libHash(m.buf)) {
+      await openProject(await rec.blob.arrayBuffer(), m.slot.replace(/\//g, '_') + '.rpaint');
+      S.fileName = m.slot.replace(/\//g, '_');
+      setStatus(`已從模型庫開啟「${m.slotName}」，接著上次的圖層畫`);
+    } else {
+      await loadArrayBuffer(m.buf, m.slot.replace(/\//g, '_') + '.glb');
+      if (rec) setStatus(`已從模型庫開啟「${m.slotName}」（模型庫裡的檔案改過了，從目前的檔案重新開始）`);
+    }
+    LIB.savedTop = libTop();
+  }
+  async function libSave() {
+    const l = LIB.link;
+    if (!l || !model || stroke || D.active || grad || uvStroke || saving) return;
+    if (!window.opener || window.opener.closed)
+      return setStatus('模型庫的視窗已經關閉：請從模型庫重新開啟，或用「匯出 GLB」存成檔案', true);
+    saving = true;
+    $('btnLibSave').disabled = true;
+    try {
+      setStatus('存回模型庫中…');
+      const top = libTop();
+      const blob = await exportGLB();
+      const buf = await blob.arrayBuffer();
+      const project = await buildProject();
+      const id = ++LIB.seq;
+      const reply = new Promise((resolve) => LIB.waits.set(id, resolve));
+      libPost({ t: 'rp-save', id, slot: l.slot, set: l.set, name: l.name, buf });
+      const r = await Promise.race([reply, new Promise((res) => setTimeout(() => res({ ok: false, msg: '模型庫沒有回應' }), 30000))]);
+      LIB.waits.delete(id);
+      if (!r.ok) return setStatus('存回失敗：' + (r.msg || '未知的錯誤'), true);
+      LIB.savedTop = top;
+      try {
+        await idbDo('readwrite', (st) => st.put({ blob: project, out: libHash(buf), time: Date.now(), name: l.slotName }, libKey(l)));
+      } catch (err) {
+        // 圖層記不住時只是下次要從存回的結果重新開始
+      }
+      setStatus(`已存回模型庫「${l.slotName}」（${(buf.byteLength / 1048576).toFixed(1)} MB）`);
+    } catch (err) {
+      setStatus('存回失敗：' + (err && err.message ? err.message : err), true);
+    } finally {
+      saving = false;
+      $('btnLibSave').disabled = false;
+    }
+  }
+  $('btnLibSave').onclick = libSave;
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || typeof d.t !== 'string' || !window.opener || e.source !== window.opener) return;
+    if (d.t === 'rp-ping') libPost({ t: 'rp-ready' });
+    else if (d.t === 'rp-open') libOpen(d).catch((err) => setStatus('開啟失敗：' + err.message, true));
+    else if (d.t === 'rp-saved' && LIB.waits.has(d.id)) LIB.waits.get(d.id)(d);
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (libDirty()) e.preventDefault();
+  });
+  if (window.opener) libPost({ t: 'rp-ready' });
+
   // 測試用
-  window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene, autosave };
+  window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene, autosave, LIB };
 
   requestAnimationFrame(frame);
 })();
