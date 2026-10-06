@@ -84,12 +84,6 @@
           </div>
           <div id="swatches"></div>
         </section>
-
-        <section class="panel">
-          <h3>圖層</h3>
-          <p class="hint">驗證版：每組貼圖有「底圖（原貼圖）」＋「圖層 1」。橡皮擦只擦圖層 1。</p>
-          <button id="btnClearLayer">清除這組的圖層 1</button>
-        </section>
       </aside>
 
       <div id="stage">
@@ -123,6 +117,28 @@
           </div>
         </div>
       </div>
+
+      <aside id="rightPanel">
+        <section class="panel" id="layerPanel">
+          <h3>圖層 <span id="layerSetName" class="dim"></span></h3>
+          <select id="layerBlend" title="混合模式"></select>
+          <label class="row">不透明度 <input id="layerOpacity" type="range" min="0" max="100" value="100" /><output id="layerOpacityOut">100</output></label>
+          <div class="checkRow">
+            <label class="check" title="只改顏色，不改透明度（畫不到透明的地方）"><input id="layerLock" type="checkbox" /> 鎖定透明</label>
+            <label class="check" title="只顯示在下方圖層有畫的地方"><input id="layerClip" type="checkbox" /> 剪裁</label>
+          </div>
+          <div id="layerList"></div>
+          <div class="layerBtns">
+            <button id="lyAdd" class="icon" title="新增圖層"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
+            <button id="lyDup" class="icon" title="複製圖層"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg></button>
+            <button id="lyUp" class="icon" title="上移"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></svg></button>
+            <button id="lyDown" class="icon" title="下移"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg></button>
+            <button id="lyMerge" class="icon" title="向下合併"><svg viewBox="0 0 24 24"><path d="M12 4v10M7 9l5 5 5-5M5 20h14" /></svg></button>
+            <button id="lyClear" class="icon" title="清除圖層內容"><svg viewBox="0 0 24 24"><path d="M8 20h12" /><path d="M5 15 15 5l5 5-8 8H8z" /></svg></button>
+            <button id="lyDel" class="icon" title="刪除圖層"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg></button>
+          </div>
+        </section>
+      </aside>
     </main>
 
     <footer id="status">開啟 GLB 或按「範例模型」開始。滑鼠：左鍵畫、右鍵旋轉、Shift＋右鍵平移、滾輪縮放。平板：筆畫圖、單指旋轉、雙指縮放平移。</footer>

@@ -140,6 +140,7 @@
       uvQuad.material.map = null;
       uvQuad.material.needsUpdate = true;
       $('uvInfo').textContent = '';
+      renderLayers();
       return;
     }
     uvQuad.material.map = set.comp.texture;
@@ -153,6 +154,7 @@
     $('uvInfo').textContent = `${set.w}×${set.h}・${set.triCount.toLocaleString()} 面${lines ? '' : '（面數太多，不畫 UV 線）'}`;
     $('uvSet').value = String(set.id);
     for (const b of $('setList').children) b.classList.toggle('on', b.dataset.id === String(set.id));
+    renderLayers();
   }
 
   function fitUV() {
@@ -457,6 +459,10 @@
       pickColorAt(x, y);
       return;
     }
+    if (S.current && !S.current.activeLayer.visible) {
+      setStatus('目前的圖層是隱藏的，請先顯示它或選別的圖層', true);
+      return;
+    }
     const r = view3d.getBoundingClientRect();
     camera.updateMatrixWorld();
     const tool = eraserButton ? 'eraser' : S.tool;
@@ -495,6 +501,10 @@
       return;
     }
     if (!stroke || e.pointerId !== stroke.id) return;
+    if (e.buttons === 0) {
+      endStroke(e); // 漏接 pointerup（例如筆離開感應範圍）時，不要繼續畫
+      return;
+    }
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ev of evs.length ? evs : [e]) {
       const [x, y] = localXY(ev);
@@ -717,6 +727,7 @@
   function updateUndoButtons() {
     $('btnUndo').disabled = !painter.undoStack.length;
     $('btnRedo').disabled = !painter.redoStack.length;
+    renderLayers();
   }
   $('btnUndo').onclick = () => {
     painter.undo();
@@ -726,11 +737,135 @@
     painter.redo();
     updateUndoButtons();
   };
-  $('btnClearLayer').onclick = () => {
+
+  // ---------- 圖層面板（顯示目前貼圖組的圖層，最上面的圖層排在最上面） ----------
+  const EYE_ON =
+    '<svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 5.4-1.6" /></svg>';
+  const BLEND_NAMES = Object.fromEntries(RP.BLEND_MODES);
+  for (const [k, name] of RP.BLEND_MODES) {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = name;
+    $('layerBlend').appendChild(o);
+  }
+
+  function renderLayers() {
+    const s = S.current;
+    const list = $('layerList');
+    list.innerHTML = '';
+    $('layerSetName').textContent = s ? `— ${s.name}` : '';
+    for (const id of ['layerBlend', 'layerOpacity', 'layerLock', 'layerClip', 'lyAdd', 'lyDup', 'lyUp', 'lyDown', 'lyMerge', 'lyClear', 'lyDel'])
+      $(id).disabled = !s;
+    if (!s) return;
+    for (let i = s.layers.length - 1; i >= 0; i--) {
+      const L = s.layers[i];
+      const row = document.createElement('div');
+      row.className = 'layerRow' + (i === s.active ? ' on' : '') + (L.clip ? ' clip' : '');
+      row.dataset.i = i;
+      const eye = document.createElement('button');
+      eye.className = 'eye' + (L.visible ? '' : ' off');
+      eye.title = L.visible ? '隱藏' : '顯示';
+      eye.innerHTML = L.visible ? EYE_ON : EYE_OFF;
+      eye.onclick = (e) => {
+        e.stopPropagation();
+        painter.editLayers(s, () => {
+          L.visible = !L.visible;
+        });
+        updateUndoButtons();
+      };
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = L.name;
+      name.title = '雙擊改名';
+      name.ondblclick = (e) => {
+        e.stopPropagation();
+        const inp = document.createElement('input');
+        inp.value = L.name;
+        name.textContent = '';
+        name.appendChild(inp);
+        inp.focus();
+        inp.select();
+        const done = (ok) => {
+          const v = inp.value.trim();
+          if (ok && v && v !== L.name)
+            painter.editLayers(s, () => {
+              L.name = v;
+            });
+          updateUndoButtons();
+        };
+        inp.onkeydown = (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter') inp.blur();
+          if (ev.key === 'Escape') {
+            inp.onblur = null;
+            done(false);
+          }
+        };
+        inp.onblur = () => done(true);
+      };
+      const tags = [];
+      if (L.blend !== 'normal') tags.push(BLEND_NAMES[L.blend]);
+      if (L.opacity < 1) tags.push(Math.round(L.opacity * 100) + '%');
+      if (L.lockAlpha) tags.push('🔒');
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = tags.join(' ');
+      row.append(eye, name, tag);
+      row.onclick = () => {
+        s.active = i;
+        renderLayers();
+      };
+      list.appendChild(row);
+    }
+    const L = s.activeLayer;
+    $('layerBlend').value = L.blend;
+    $('layerOpacity').value = Math.round(L.opacity * 100);
+    $('layerOpacityOut').textContent = Math.round(L.opacity * 100);
+    $('layerLock').checked = L.lockAlpha;
+    $('layerClip').checked = L.clip;
+    $('lyMerge').disabled = s.active === 0;
+    $('lyDel').disabled = s.layers.length <= 1;
+  }
+
+  function layerEdit(fn) {
+    const s = S.current;
+    if (!s) return;
+    painter.editLayers(s, () => fn(s, s.activeLayer));
+    updateUndoButtons();
+  }
+  $('layerBlend').onchange = (e) => layerEdit((s, L) => void (L.blend = e.target.value));
+  $('layerLock').onchange = (e) => layerEdit((s, L) => void (L.lockAlpha = e.target.checked));
+  $('layerClip').onchange = (e) => layerEdit((s, L) => void (L.clip = e.target.checked));
+  // 不透明度：拖曳中即時預覽，放開才記一筆復原
+  let opacitySnap = null;
+  $('layerOpacity').addEventListener('input', (e) => {
+    const s = S.current;
+    if (!s) return;
+    if (!opacitySnap) opacitySnap = painter.snapshot(s);
+    s.activeLayer.opacity = Number(e.target.value) / 100;
+    $('layerOpacityOut').textContent = e.target.value;
+    s.dirty = true;
+  });
+  $('layerOpacity').addEventListener('change', () => {
+    const s = S.current;
+    if (!s || !opacitySnap) return;
+    painter.pushHistory([painter.structOp(s, opacitySnap)]);
+    opacitySnap = null;
+    updateUndoButtons();
+  });
+  const withSet = (fn) => () => {
     if (!S.current) return;
-    painter.clearLayer(S.current);
+    fn(S.current);
     updateUndoButtons();
   };
+  $('lyAdd').onclick = withSet((s) => painter.addLayer(s));
+  $('lyDup').onclick = withSet((s) => painter.duplicateLayer(s, s.active));
+  $('lyUp').onclick = withSet((s) => painter.moveLayer(s, s.active, 1));
+  $('lyDown').onclick = withSet((s) => painter.moveLayer(s, s.active, -1));
+  $('lyMerge').onclick = withSet((s) => painter.mergeDown(s, s.active));
+  $('lyClear').onclick = withSet((s) => painter.clearLayer(s));
+  $('lyDel').onclick = withSet((s) => painter.deleteLayer(s, s.active));
   updateUndoButtons();
 
   // 開檔

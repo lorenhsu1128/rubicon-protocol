@@ -1,11 +1,36 @@
 // 繪圖核心：在 UV 空間跑投影繪圖（每個貼圖像素都知道自己在 3D 的位置）。
-// 貼圖組（TexSet）＝一張會被畫的貼圖；每組有 base（原圖）、layer（繪圖圖層，預乘 alpha）、
-// stroke（目前這一筆的覆蓋率，MAX 混合，避免筆刷點重疊變濃）、comp（合成＋接縫外擴，給材質用）、mask（UV 覆蓋範圍）。
+// 貼圖組（TexSet）＝一張會被畫的貼圖，有自己的圖層堆疊（layers，最下面是「底圖」＝原貼圖）。
+// 圖層的像素存成預乘 alpha 的 RenderTarget；stroke 是目前這一筆的覆蓋率（MAX 混合，避免筆刷點重疊變濃），
+// 一筆結束才合進目前的圖層。comp 是所有圖層合成＋接縫外擴的結果，直接當材質的貼圖；mask 是 UV 覆蓋範圍。
 (function () {
   'use strict';
   const RP = (window.RP = window.RP || {});
   const MAXD = 64; // 每次繪製最多幾個筆刷點（uniform 陣列長度）
-  const HISTORY_MAX = 30;
+  const HISTORY_MAX = 40;
+
+  // 混合模式（值是 shader 裡的編號）
+  const BLEND_MODES = [
+    ['normal', '一般'],
+    ['multiply', '色彩增值'],
+    ['screen', '濾色'],
+    ['overlay', '覆蓋'],
+    ['softlight', '柔光'],
+    ['hardlight', '實光'],
+    ['dodge', '加亮顏色'],
+    ['burn', '加深顏色'],
+    ['darken', '變暗'],
+    ['lighten', '變亮'],
+    ['difference', '差異化'],
+    ['exclusion', '排除'],
+    ['add', '相加（線性加亮）'],
+    ['subtract', '減去'],
+    ['linearburn', '線性加深'],
+    ['hue', '色相'],
+    ['saturation', '飽和度'],
+    ['color', '顏色'],
+    ['luminosity', '明度'],
+  ];
+  const BLEND_INDEX = Object.fromEntries(BLEND_MODES.map(([k], i) => [k, i]));
 
   const UV_VERT = /* glsl */ `
     varying vec3 vWorld;
@@ -83,49 +108,6 @@
       gl_FragColor = vec4(a);
     }`;
 
-  const QUAD_VERT = /* glsl */ `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
-
-  const COLOR_FN = /* glsl */ `
-    vec3 s2l(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
-    vec3 l2s(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
-
-  // 原圖 × 材質顏色 → sRGB 底圖
-  const BASE_FRAG = /* glsl */ `
-    ${COLOR_FN}
-    uniform sampler2D uMap;
-    uniform bool uHasMap;
-    uniform bool uMapSRGB;
-    uniform vec3 uColor;
-    varying vec2 vUv;
-    void main() {
-      vec4 t = uHasMap ? texture2D(uMap, vUv) : vec4(1.0);
-      vec3 lin = (uMapSRGB ? s2l(t.rgb) : t.rgb) * uColor;
-      gl_FragColor = vec4(l2s(lin), t.a);
-    }`;
-
-  const LAYER_FN = /* glsl */ `
-    uniform sampler2D uLayer;
-    uniform sampler2D uStroke;
-    uniform bool uStrokeOn;
-    uniform int uMode;          // 0 筆、1 橡皮擦、2 圖片（stroke 存預乘 RGBA）
-    uniform vec3 uColor;
-    uniform float uOpacity;
-    vec4 layerAt(vec2 uv) {
-      vec4 L = texture2D(uLayer, uv);
-      if (uStrokeOn) {
-        if (uMode == 2) {
-          vec4 S = texture2D(uStroke, uv) * uOpacity;
-          L = S + L * (1.0 - S.a);
-        } else {
-          float s = texture2D(uStroke, uv).r * uOpacity;
-          L = uMode == 1 ? L * (1.0 - s) : vec4(uColor * s, s) + L * (1.0 - s);
-        }
-      }
-      return L;
-    }`;
-
   // 圖片貼紙：以表面上的一點 P 與法線 N 建立投影框（T 右、B 上、N 外），沿 −N 方向把圖片貼到框內的面上。
   // 和相機無關，貼上後旋轉視角也不會變。uMirror 是左右對稱用的鏡射：取鏡射點在框內的位置，另一側貼上鏡像的圖。
   const STAMP_FRAG = /* glsl */ `
@@ -163,36 +145,149 @@
       gl_FragColor = vec4(t.rgb * a, a);
     }`;
 
+  const QUAD_VERT = /* glsl */ `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+  const COLOR_FN = /* glsl */ `
+    vec3 s2l(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+    vec3 l2s(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }`;
+
+  // 原圖 × 材質顏色 → 底圖（預乘 alpha）
+  const BASE_FRAG = /* glsl */ `
+    ${COLOR_FN}
+    uniform sampler2D uMap;
+    uniform bool uHasMap;
+    uniform bool uMapSRGB;
+    uniform vec3 uColor;
+    varying vec2 vUv;
+    void main() {
+      vec4 t = uHasMap ? texture2D(uMap, vUv) : vec4(1.0);
+      vec3 lin = (uMapSRGB ? s2l(t.rgb) : t.rgb) * uColor;
+      gl_FragColor = vec4(l2s(lin) * t.a, t.a);
+    }`;
+
+  // 目前圖層＋這一筆
+  const LAYER_FN = /* glsl */ `
+    uniform sampler2D uLayer;
+    uniform sampler2D uStroke;
+    uniform bool uStrokeOn;
+    uniform int uMode;          // 0 筆、1 橡皮擦、2 圖片（stroke 存預乘 RGBA）
+    uniform vec3 uColor;
+    uniform float uOpacity;
+    uniform bool uLockAlpha;    // 鎖定透明：只改顏色，不改 alpha
+    vec4 layerAt(vec2 uv) {
+      vec4 L0 = texture2D(uLayer, uv);
+      vec4 L = L0;
+      if (uStrokeOn) {
+        if (uMode == 2) {
+          vec4 S = texture2D(uStroke, uv) * uOpacity;
+          L = S + L * (1.0 - S.a);
+        } else {
+          float s = texture2D(uStroke, uv).r * uOpacity;
+          L = uMode == 1 ? L * (1.0 - s) : vec4(uColor * s, s) + L * (1.0 - s);
+        }
+        if (uLockAlpha) L = L.a > 0.0 ? vec4(L.rgb / L.a * L0.a, L0.a) : vec4(0.0);
+      }
+      return L;
+    }`;
+
   const MERGE_FRAG = /* glsl */ `
     ${LAYER_FN}
     varying vec2 vUv;
     void main() { gl_FragColor = layerAt(vUv); }`;
 
-  // 合成：底圖（直接 alpha）＋圖層（預乘）；UV 島外的像素往外找最近的島內像素（接縫外擴）
-  const COMP_FRAG = /* glsl */ `
+  // 把一個圖層疊到累積結果上（都是預乘 alpha）。混合公式照 W3C Compositing：
+  // Cr = (1 − αb)·Cs + αb·B(Cb, Cs)，再以來源 alpha 做 source-over。
+  const BLEND_FRAG = /* glsl */ `
     ${LAYER_FN}
+    uniform sampler2D uAcc;
+    uniform int uBlend;
+    uniform float uLayerOpacity;
+    uniform bool uClip;
+    uniform sampler2D uClipBase;
+    uniform float uClipOpacity;
+    varying vec2 vUv;
+
+    float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
+    vec3 clipColor(vec3 c) {
+      float l = lum(c);
+      float n = min(min(c.r, c.g), c.b);
+      float x = max(max(c.r, c.g), c.b);
+      if (n < 0.0) c = l + (c - l) * l / max(l - n, 1e-5);
+      if (x > 1.0) c = l + (c - l) * (1.0 - l) / max(x - l, 1e-5);
+      return c;
+    }
+    vec3 setLum(vec3 c, float l) { return clipColor(c + (l - lum(c))); }
+    float sat(vec3 c) { return max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b); }
+    vec3 setSat(vec3 c, float s) {
+      float mx = max(max(c.r, c.g), c.b);
+      float mn = min(min(c.r, c.g), c.b);
+      return mx > mn ? (c - mn) * s / (mx - mn) : vec3(0.0);
+    }
+    float softLight(float b, float s) {
+      if (s <= 0.5) return b - (1.0 - 2.0 * s) * b * (1.0 - b);
+      float d = b <= 0.25 ? ((16.0 * b - 12.0) * b + 4.0) * b : sqrt(b);
+      return b + (2.0 * s - 1.0) * (d - b);
+    }
+    float hardLight(float b, float s) { return s <= 0.5 ? b * 2.0 * s : 1.0 - (1.0 - b) * (1.0 - (2.0 * s - 1.0)); }
+    float dodge(float b, float s) { return b <= 0.0 ? 0.0 : (s >= 1.0 ? 1.0 : min(1.0, b / (1.0 - s))); }
+    float burn(float b, float s) { return b >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - b) / s)); }
+
+    vec3 blendFn(vec3 b, vec3 s) {
+      if (uBlend == 1) return b * s;
+      if (uBlend == 2) return b + s - b * s;
+      if (uBlend == 3) return vec3(hardLight(s.r, b.r), hardLight(s.g, b.g), hardLight(s.b, b.b));
+      if (uBlend == 4) return vec3(softLight(b.r, s.r), softLight(b.g, s.g), softLight(b.b, s.b));
+      if (uBlend == 5) return vec3(hardLight(b.r, s.r), hardLight(b.g, s.g), hardLight(b.b, s.b));
+      if (uBlend == 6) return vec3(dodge(b.r, s.r), dodge(b.g, s.g), dodge(b.b, s.b));
+      if (uBlend == 7) return vec3(burn(b.r, s.r), burn(b.g, s.g), burn(b.b, s.b));
+      if (uBlend == 8) return min(b, s);
+      if (uBlend == 9) return max(b, s);
+      if (uBlend == 10) return abs(b - s);
+      if (uBlend == 11) return b + s - 2.0 * b * s;
+      if (uBlend == 12) return min(vec3(1.0), b + s);
+      if (uBlend == 13) return max(vec3(0.0), b - s);
+      if (uBlend == 14) return max(vec3(0.0), b + s - 1.0);
+      if (uBlend == 15) return setLum(setSat(s, sat(b)), lum(b));
+      if (uBlend == 16) return setLum(setSat(b, sat(s)), lum(b));
+      if (uBlend == 17) return setLum(s, lum(b));
+      if (uBlend == 18) return setLum(b, lum(s));
+      return s;
+    }
+
+    void main() {
+      vec4 D = texture2D(uAcc, vUv);
+      vec4 S = layerAt(vUv) * uLayerOpacity;
+      if (uClip) S *= texture2D(uClipBase, vUv).a * uClipOpacity;
+      if (S.a <= 0.0) { gl_FragColor = D; return; }
+      vec3 cs = S.rgb / S.a;
+      vec3 cb = D.a > 0.0 ? D.rgb / D.a : vec3(0.0);
+      vec3 mixed = (1.0 - D.a) * cs + D.a * clamp(blendFn(cb, cs), 0.0, 1.0);
+      gl_FragColor = vec4(S.a * mixed + D.rgb * (1.0 - S.a), S.a + D.a * (1.0 - S.a));
+    }`;
+
+  // 最後一步：預乘 → 直接 alpha；UV 島外的像素往外找最近的島內像素（接縫外擴）
+  const FINAL_FRAG = /* glsl */ `
     #define PAD 6
-    uniform sampler2D uBase;
+    uniform sampler2D uAcc;
     uniform sampler2D uMask;
     uniform vec2 uTexel;
     varying vec2 vUv;
-    vec4 compAt(vec2 uv) {
-      vec4 B = texture2D(uBase, uv);
-      vec4 L = layerAt(uv);
-      float a = L.a + B.a * (1.0 - L.a);
-      vec3 rgb = L.rgb + B.rgb * B.a * (1.0 - L.a);
-      return vec4(a > 0.0 ? rgb / a : vec3(0.0), a);
+    vec4 at(vec2 uv) {
+      vec4 c = texture2D(uAcc, uv);
+      return vec4(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), c.a);
     }
     void main() {
-      if (texture2D(uMask, vUv).r > 0.5) { gl_FragColor = compAt(vUv); return; }
+      if (texture2D(uMask, vUv).r > 0.5) { gl_FragColor = at(vUv); return; }
       for (int r = 1; r <= PAD; r++) {
         for (int k = 0; k < 8; k++) {
           float ang = float(k) * 0.78539816;
           vec2 o = vec2(floor(cos(ang) * float(r) + 0.5), floor(sin(ang) * float(r) + 0.5)) * uTexel;
-          if (texture2D(uMask, vUv + o).r > 0.5) { gl_FragColor = compAt(vUv + o); return; }
+          if (texture2D(uMask, vUv + o).r > 0.5) { gl_FragColor = at(vUv + o); return; }
         }
       }
-      gl_FragColor = compAt(vUv);
+      gl_FragColor = at(vUv);
     }`;
 
   const COPY_FRAG = /* glsl */ `
@@ -201,7 +296,7 @@
     void main() { gl_FragColor = texture2D(uTex, vUv); }`;
 
   function makeRT(w, h, mips) {
-    const rt = new THREE.WebGLRenderTarget(w, h, {
+    return new THREE.WebGLRenderTarget(w, h, {
       format: THREE.RGBAFormat,
       type: THREE.UnsignedByteType,
       depthBuffer: false,
@@ -210,7 +305,27 @@
       minFilter: mips ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter,
       generateMipmaps: !!mips,
     });
-    return rt;
+  }
+
+  const LAYER_PROPS = ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip'];
+  let layerSeq = 0;
+
+  class Layer {
+    constructor(rt, name) {
+      this.uid = ++layerSeq;
+      this.rt = rt;
+      this.name = name;
+      this.visible = true;
+      this.opacity = 1;
+      this.blend = 'normal';
+      this.lockAlpha = false;
+      this.clip = false;
+    }
+    props() {
+      const o = {};
+      for (const k of LAYER_PROPS) o[k] = this[k];
+      return o;
+    }
   }
 
   class TexSet {
@@ -220,17 +335,23 @@
       this.name = name;
       this.w = w;
       this.h = h;
-      this.parts = []; // { mesh, start, count }
+      this.parts = []; // { mesh, start, count, proxy }
       this.materials = [];
       this.srcMap = null;
       this.srcColor = new THREE.Color(1, 1, 1);
       this.scene = new THREE.Scene();
       this.scene.autoUpdate = false; // proxy 的 matrixWorld 直接複製原網格的
       this.box = new THREE.Box3();
+      this.layers = [];
+      this.active = 0;
       this.dirty = true;
       this.strokeActive = false;
       this.screenRect = null;
       this.triCount = 0;
+    }
+
+    get activeLayer() {
+      return this.layers[this.active];
     }
 
     addPart(mesh, start, count) {
@@ -249,31 +370,35 @@
       this.triCount += Math.floor(count / 3);
     }
 
+    // 同步網格的位置；隱藏的網格不畫
     syncMatrices() {
       this.box.makeEmpty();
       for (const p of this.parts) {
         p.mesh.updateWorldMatrix(true, false);
         p.proxy.matrixWorld.copy(p.mesh.matrixWorld);
+        let vis = true;
+        for (let o = p.mesh; o; o = o.parent) if (!o.visible) vis = false;
+        p.proxy.visible = vis;
+        if (!vis) continue;
         if (!p.mesh.geometry.boundingBox) p.mesh.geometry.computeBoundingBox();
-        const b = p.mesh.geometry.boundingBox.clone().applyMatrix4(p.mesh.matrixWorld);
-        this.box.union(b);
+        this.box.union(p.mesh.geometry.boundingBox.clone().applyMatrix4(p.mesh.matrixWorld));
       }
     }
 
     init() {
       const P = this.painter;
-      this.base = makeRT(this.w, this.h);
-      this.layer = makeRT(this.w, this.h);
+      const base = P.newLayerRT(this);
       this.stroke = makeRT(this.w, this.h);
       this.mask = makeRT(this.w, this.h);
+      this.accA = makeRT(this.w, this.h);
+      this.accB = makeRT(this.w, this.h);
       this.comp = makeRT(this.w, this.h, true);
-      const wrap = this.srcMap ? this.srcMap : null;
       const t = this.comp.texture;
       t.encoding = THREE.sRGBEncoding;
       t.anisotropy = Math.min(8, P.renderer.capabilities.getMaxAnisotropy());
-      if (wrap) {
-        t.wrapS = wrap.wrapS;
-        t.wrapT = wrap.wrapT;
+      if (this.srcMap) {
+        t.wrapS = this.srcMap.wrapS;
+        t.wrapT = this.srcMap.wrapT;
       }
       // 底圖
       const bm = P.baseMat;
@@ -281,9 +406,10 @@
       bm.uniforms.uMap.value = this.srcMap;
       bm.uniforms.uMapSRGB.value = !!this.srcMap && this.srcMap.encoding === THREE.sRGBEncoding;
       bm.uniforms.uColor.value.copy(this.srcColor);
-      P.quad(bm, this.base);
-      P.clear(this.layer);
+      P.quad(bm, base);
       P.clear(this.stroke);
+      this.layers = [new Layer(base, '底圖'), new Layer(P.newLayerRT(this, true), '圖層 1')];
+      this.active = 1;
       // UV 覆蓋範圍
       this.scene.overrideMaterial = P.maskMat;
       P.clear(this.mask);
@@ -301,7 +427,7 @@
     }
 
     dispose() {
-      for (const k of ['base', 'layer', 'stroke', 'mask', 'comp']) this[k] && this[k].dispose();
+      for (const k of ['stroke', 'mask', 'accA', 'accB', 'comp']) this[k] && this[k].dispose();
       for (const p of this.parts) p.proxy.geometry.dispose();
     }
   }
@@ -313,6 +439,7 @@
       this.matSet = new Map(); // material → TexSet
       this.undoStack = [];
       this.redoStack = [];
+      this.layerRTs = new Set(); // 所有圖層像素的 RenderTarget（沒人用時回收）
       this.uvCam = new THREE.Camera();
       this.quadScene = new THREE.Scene();
       this.quadMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), null);
@@ -327,6 +454,8 @@
         wArr.push(new THREE.Vector4());
         waArr.push(0);
       }
+      const quadMat = (frag, uniforms) =>
+        new THREE.ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: frag, uniforms, depthTest: false, depthWrite: false });
       this.paintMat = new THREE.ShaderMaterial({
         vertexShader: UV_VERT,
         fragmentShader: PAINT_FRAG,
@@ -363,17 +492,11 @@
         depthTest: false,
         depthWrite: false,
       });
-      this.baseMat = new THREE.ShaderMaterial({
-        vertexShader: QUAD_VERT,
-        fragmentShader: BASE_FRAG,
-        uniforms: {
-          uMap: { value: null },
-          uHasMap: { value: false },
-          uMapSRGB: { value: true },
-          uColor: { value: new THREE.Color() },
-        },
-        depthTest: false,
-        depthWrite: false,
+      this.baseMat = quadMat(BASE_FRAG, {
+        uMap: { value: null },
+        uHasMap: { value: false },
+        uMapSRGB: { value: true },
+        uColor: { value: new THREE.Color() },
       });
       const layerUniforms = () => ({
         uLayer: { value: null },
@@ -382,32 +505,26 @@
         uMode: { value: 0 },
         uColor: { value: new THREE.Color() },
         uOpacity: { value: 1 },
+        uLockAlpha: { value: false },
       });
-      this.mergeMat = new THREE.ShaderMaterial({
-        vertexShader: QUAD_VERT,
-        fragmentShader: MERGE_FRAG,
-        uniforms: layerUniforms(),
-        depthTest: false,
-        depthWrite: false,
-      });
-      this.compMat = new THREE.ShaderMaterial({
-        vertexShader: QUAD_VERT,
-        fragmentShader: COMP_FRAG,
-        uniforms: Object.assign(layerUniforms(), {
-          uBase: { value: null },
-          uMask: { value: null },
-          uTexel: { value: new THREE.Vector2() },
+      this.mergeMat = quadMat(MERGE_FRAG, layerUniforms());
+      this.blendMat = quadMat(
+        BLEND_FRAG,
+        Object.assign(layerUniforms(), {
+          uAcc: { value: null },
+          uBlend: { value: 0 },
+          uLayerOpacity: { value: 1 },
+          uClip: { value: false },
+          uClipBase: { value: null },
+          uClipOpacity: { value: 1 },
         }),
-        depthTest: false,
-        depthWrite: false,
+      );
+      this.finalMat = quadMat(FINAL_FRAG, {
+        uAcc: { value: null },
+        uMask: { value: null },
+        uTexel: { value: new THREE.Vector2() },
       });
-      this.copyMat = new THREE.ShaderMaterial({
-        vertexShader: QUAD_VERT,
-        fragmentShader: COPY_FRAG,
-        uniforms: { uTex: { value: null } },
-        depthTest: false,
-        depthWrite: false,
-      });
+      this.copyMat = quadMat(COPY_FRAG, { uTex: { value: null } });
       this.stampMat = new THREE.ShaderMaterial({
         vertexShader: UV_VERT,
         fragmentShader: STAMP_FRAG,
@@ -435,7 +552,7 @@
       this.depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
       this.depthRT = null;
       this.depthBuf = null;
-      this.brush = { color: new THREE.Color(1, 0, 0), opacity: 1, hardness: 0.5, erase: false };
+      this.brush = { color: new THREE.Color(1, 0, 0), opacity: 1, hardness: 0.5, erase: false, mode: 'paint' };
       this.stroke = null;
     }
 
@@ -453,6 +570,18 @@
       r.setClearColor(0x000000, 0);
       r.clear(true, false, false);
       r.setClearColor(prev, prevA);
+    }
+    newLayerRT(s, cleared) {
+      const rt = makeRT(s.w, s.h);
+      this.layerRTs.add(rt);
+      if (cleared) this.clear(rt);
+      return rt;
+    }
+    copyRT(s, src) {
+      const rt = this.newLayerRT(s);
+      this.copyMat.uniforms.uTex.value = src.texture;
+      this.quad(this.copyMat, rt);
+      return rt;
     }
 
     // ---------- 載入 ----------
@@ -516,11 +645,14 @@
       for (const s of this.sets) s.dispose();
       this.sets = [];
       this.matSet.clear();
-      this.clearHistory();
+      this.undoStack = [];
+      this.redoStack = [];
+      for (const rt of this.layerRTs) rt.dispose();
+      this.layerRTs.clear();
     }
 
     // ---------- 一筆 ----------
-    // view: { camera, scene, w, h, hide: [Object3D] }
+    // view: { camera, scene, w, h, hide: [Object3D], modelSize }
     beginStroke(view, brush) {
       const r = this.renderer;
       const cam = view.camera;
@@ -573,9 +705,7 @@
       u.uCull.value = !brush.backfaces;
       u.uBias.value = (view.modelSize || 1) * 0.002;
 
-      Object.assign(this.brush, brush);
-      this.brush.color = new THREE.Color(brush.color);
-      this.brush.mode = brush.mode || 'paint';
+      this.setBrush(brush);
       this.stroke = { view: { camera: cam, w, h }, touched: new Set() };
       // 每組貼圖在畫面上的範圍（判斷筆刷點有沒有碰到）
       const v = new THREE.Vector3();
@@ -596,13 +726,19 @@
           y0 = Math.min(y0, (v.y * 0.5 + 0.5) * h);
           y1 = Math.max(y1, (v.y * 0.5 + 0.5) * h);
         }
-        s.screenRect = behind ? null : { x0, y0, x1, y1 };
+        s.screenRect = s.box.isEmpty() ? { x0: 1, y0: 1, x1: -1, y1: -1 } : behind ? null : { x0, y0, x1, y1 };
       }
+    }
+
+    setBrush(brush) {
+      Object.assign(this.brush, brush);
+      this.brush.color = new THREE.Color(brush.color || '#000000');
+      this.brush.mode = brush.mode || 'paint';
     }
 
     // 畫面座標（左上原點，CSS px）→ 3D 位置與每像素的世界長度；沒打到模型回傳 null
     pickWorld(x, y) {
-      if (!this.stroke) return null;
+      if (!this.stroke || !this.stroke.view) return null;
       const { camera: cam, w, h } = this.stroke.view;
       const px = Math.floor(x);
       const py = h - 1 - Math.floor(y);
@@ -619,6 +755,13 @@
         perPx = (2 * dist * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / cam.zoom / h;
       }
       return { p, perPx };
+    }
+
+    touch(s) {
+      if (s.strokeActive) return;
+      this.clear(s.stroke);
+      s.strokeActive = true;
+      this.stroke.touched.add(s);
     }
 
     // dabs: [{ type: 's', x, y, r, a } | { type: 'w', p: Vector3, r, a }]（s 的 x, y 是左下原點）
@@ -640,11 +783,7 @@
         u.uNW.value = nw;
         for (const s of this.sets) {
           if (!this.batchHits(s, batch)) continue;
-          if (!s.strokeActive) {
-            this.clear(s.stroke);
-            s.strokeActive = true;
-            this.stroke.touched.add(s);
-          }
+          this.touch(s);
           this.renderer.setRenderTarget(s.stroke);
           this.renderer.autoClear = false; // 筆畫緩衝要累積，不能清掉
           this.renderer.render(s.scene, this.uvCam);
@@ -656,6 +795,7 @@
     }
 
     batchHits(s, batch) {
+      if (s.box.isEmpty()) return false;
       for (const d of batch) {
         if (d.type === 's') {
           const R = s.screenRect;
@@ -693,16 +833,14 @@
       const r = this.renderer;
       for (const s of this.sets) {
         s.syncMatrices();
-        if (!spheres.some((sp) => s.box.intersectsSphere(sp))) continue;
-        this.clear(s.stroke);
-        s.strokeActive = true;
+        if (s.box.isEmpty() || !spheres.some((sp) => s.box.intersectsSphere(sp))) continue;
+        this.touch(s);
         s.dirty = true;
-        this.stroke.touched.add(s);
         s.scene.overrideMaterial = this.stampMat;
         r.setRenderTarget(s.stroke);
         r.autoClear = false;
-        for (const m of mirrors) {
-          u.uMirror.value.copy(m);
+        for (const mm of mirrors) {
+          u.uMirror.value.copy(mm);
           r.render(s.scene, this.uvCam);
         }
         r.autoClear = true;
@@ -720,100 +858,248 @@
       this.stroke = null;
     }
 
+    // 一筆結束：合進各組目前的圖層（新的 RenderTarget，舊的留給復原）
     endStroke() {
       if (!this.stroke) return;
       const touched = [...this.stroke.touched];
       this.stroke = null;
       if (!touched.length) return;
-      const entry = [];
+      const ops = [];
       for (const s of touched) {
-        const next = makeRT(s.w, s.h);
-        this.setLayerUniforms(this.mergeMat, s, true);
+        const L = s.activeLayer;
+        const next = this.newLayerRT(s);
+        this.setLayerUniforms(this.mergeMat, s, L, true);
         this.quad(this.mergeMat, next);
-        entry.push({ set: s, rt: s.layer });
-        s.layer = next;
+        ops.push(this.pixelsOp(s, L, next));
         s.strokeActive = false;
         s.dirty = true;
       }
       this.renderer.setRenderTarget(null);
-      this.pushHistory(entry);
+      this.pushHistory(ops);
     }
 
-    setLayerUniforms(mat, s, strokeOn) {
+    setLayerUniforms(mat, s, L, strokeOn) {
       const u = mat.uniforms;
-      u.uLayer.value = s.layer.texture;
+      u.uLayer.value = L.rt.texture;
       u.uStroke.value = s.stroke.texture;
       u.uStrokeOn.value = strokeOn;
       u.uMode.value = this.brush.mode === 'image' ? 2 : this.brush.erase ? 1 : 0;
       u.uColor.value.copy(this.brush.color);
       u.uOpacity.value = this.brush.opacity;
+      u.uLockAlpha.value = !!L.lockAlpha;
     }
 
-    // 每個畫面更新一次：重新合成有變動的貼圖組
+    // 每個畫面更新一次：重新合成有變動的貼圖組（由下往上逐層疊，最後做接縫外擴）
     composite() {
       let any = false;
       for (const s of this.sets) {
         if (!s.dirty) continue;
-        const u = this.compMat.uniforms;
-        this.setLayerUniforms(this.compMat, s, s.strokeActive);
-        u.uBase.value = s.base.texture;
-        u.uMask.value = s.mask.texture;
-        u.uTexel.value.set(1 / s.w, 1 / s.h);
-        this.quad(this.compMat, s.comp);
+        this.compositeSet(s);
         s.dirty = false;
         any = true;
       }
       if (any) this.renderer.setRenderTarget(null);
     }
 
-    // ---------- 復原 ----------
-    pushHistory(entry) {
-      this.undoStack.push(entry);
-      for (const e of this.redoStack) for (const it of e) it.rt.dispose();
-      this.redoStack = [];
-      while (this.undoStack.length > HISTORY_MAX) for (const it of this.undoStack.shift()) it.rt.dispose();
-    }
-    swapEntry(entry) {
-      for (const it of entry) {
-        const cur = it.set.layer;
-        it.set.layer = it.rt;
-        it.rt = cur;
-        it.set.dirty = true;
+    compositeSet(s) {
+      let src = s.accA;
+      let dst = s.accB;
+      this.clear(src);
+      const u = this.blendMat.uniforms;
+      let clipBase = null;
+      for (let i = 0; i < s.layers.length; i++) {
+        const L = s.layers[i];
+        if (!L.clip) clipBase = L;
+        const base = L.clip ? clipBase : L;
+        if (!L.visible || (L.clip && (!base || base === L || !base.visible))) continue;
+        this.setLayerUniforms(this.blendMat, s, L, s.strokeActive && i === s.active);
+        u.uAcc.value = src.texture;
+        u.uBlend.value = BLEND_INDEX[L.blend] || 0;
+        u.uLayerOpacity.value = L.opacity;
+        u.uClip.value = !!L.clip;
+        u.uClipBase.value = L.clip ? base.rt.texture : null;
+        u.uClipOpacity.value = L.clip ? base.opacity : 1;
+        this.quad(this.blendMat, dst);
+        const t = src;
+        src = dst;
+        dst = t;
       }
+      const f = this.finalMat.uniforms;
+      f.uAcc.value = src.texture;
+      f.uMask.value = s.mask.texture;
+      f.uTexel.value.set(1 / s.w, 1 / s.h);
+      this.quad(this.finalMat, s.comp);
+    }
+
+    // ---------- 圖層 ----------
+    snapshot(s) {
+      return { layers: s.layers.map((l) => ({ l, props: l.props() })), active: s.active };
+    }
+    applySnapshot(s, snap) {
+      s.layers = snap.layers.map((x) => Object.assign(x.l, x.props));
+      s.active = Math.min(snap.active, s.layers.length - 1);
+      s.dirty = true;
+    }
+    // 復原項目：每個 op 都是「交換」，所以復原與重做都呼叫同一個 swap
+    structOp(s, before) {
+      const op = {
+        kind: 'struct',
+        set: s,
+        snap: before,
+        swap: () => {
+          const cur = this.snapshot(s);
+          this.applySnapshot(s, op.snap);
+          op.snap = cur;
+        },
+      };
+      return op;
+    }
+    pixelsOp(s, L, nextRT) {
+      const op = {
+        kind: 'pixels',
+        set: s,
+        layer: L,
+        rt: L.rt,
+        swap: () => {
+          const cur = L.rt;
+          L.rt = op.rt;
+          op.rt = cur;
+          s.dirty = true;
+        },
+      };
+      L.rt = nextRT;
+      return op;
+    }
+    // 修改圖層結構或屬性：fn 裡直接改 s.layers／s.active／屬性，結束後記一筆復原
+    editLayers(s, fn) {
+      const before = this.snapshot(s);
+      const extra = fn() || [];
+      this.pushHistory([this.structOp(s, before), ...extra]);
+      s.dirty = true;
+    }
+    addLayer(s, name) {
+      this.editLayers(s, () => {
+        const L = new Layer(this.newLayerRT(s, true), name || this.nextLayerName(s));
+        s.layers.splice(s.active + 1, 0, L);
+        s.active += 1;
+      });
+      this.renderer.setRenderTarget(null);
+    }
+    nextLayerName(s) {
+      let n = 1;
+      while (s.layers.some((l) => l.name === `圖層 ${n}`)) n++;
+      return `圖層 ${n}`;
+    }
+    duplicateLayer(s, i) {
+      const src = s.layers[i];
+      this.editLayers(s, () => {
+        const L = new Layer(this.copyRT(s, src.rt), src.name + ' 複製');
+        Object.assign(L, { visible: src.visible, opacity: src.opacity, blend: src.blend, lockAlpha: src.lockAlpha, clip: src.clip });
+        s.layers.splice(i + 1, 0, L);
+        s.active = i + 1;
+      });
+      this.renderer.setRenderTarget(null);
+    }
+    deleteLayer(s, i) {
+      if (s.layers.length <= 1) return false;
+      this.editLayers(s, () => {
+        s.layers.splice(i, 1);
+        if (s.active >= s.layers.length) s.active = s.layers.length - 1;
+        else if (s.active > i) s.active -= 1;
+      });
+      return true;
+    }
+    moveLayer(s, i, dir) {
+      const j = i + dir;
+      if (j < 0 || j >= s.layers.length) return false;
+      this.editLayers(s, () => {
+        const [L] = s.layers.splice(i, 1);
+        s.layers.splice(j, 0, L);
+        if (s.active === i) s.active = j;
+        else if (s.active === j) s.active = i;
+      });
+      return true;
+    }
+    // 向下合併：把第 i 層（含混合模式、不透明度、剪裁）疊到 i−1 層的像素上
+    mergeDown(s, i) {
+      if (i <= 0) return false;
+      const upper = s.layers[i];
+      const lower = s.layers[i - 1];
+      this.editLayers(s, () => {
+        const next = this.newLayerRT(s);
+        const u = this.blendMat.uniforms;
+        this.setLayerUniforms(this.blendMat, s, upper, false);
+        u.uAcc.value = lower.rt.texture;
+        u.uBlend.value = BLEND_INDEX[upper.blend] || 0;
+        u.uLayerOpacity.value = upper.visible ? upper.opacity : 0;
+        u.uClip.value = !!upper.clip;
+        u.uClipBase.value = upper.clip ? lower.rt.texture : null;
+        u.uClipOpacity.value = 1;
+        this.quad(this.blendMat, next);
+        this.renderer.setRenderTarget(null);
+        const op = this.pixelsOp(s, lower, next);
+        s.layers.splice(i, 1);
+        s.active = i - 1;
+        return [op];
+      });
+      return true;
+    }
+    clearLayer(s, i) {
+      const L = s.layers[i == null ? s.active : i];
+      const next = this.newLayerRT(s, true);
+      this.renderer.setRenderTarget(null);
+      this.pushHistory([this.pixelsOp(s, L, next)]);
+      s.dirty = true;
+    }
+
+    // ---------- 復原 ----------
+    pushHistory(ops) {
+      if (!ops.length) return;
+      this.undoStack.push(ops);
+      this.redoStack = [];
+      while (this.undoStack.length > HISTORY_MAX) this.undoStack.shift();
+      this.gc();
     }
     undo() {
       const e = this.undoStack.pop();
       if (!e) return false;
-      this.swapEntry(e);
+      for (let i = e.length - 1; i >= 0; i--) e[i].swap();
       this.redoStack.push(e);
       return true;
     }
     redo() {
       const e = this.redoStack.pop();
       if (!e) return false;
-      this.swapEntry(e);
+      for (const op of e) op.swap();
       this.undoStack.push(e);
       return true;
     }
-    clearHistory() {
-      for (const e of this.undoStack.concat(this.redoStack)) for (const it of e) it.rt.dispose();
-      this.undoStack = [];
-      this.redoStack = [];
-    }
-    clearLayer(s) {
-      const next = makeRT(s.w, s.h);
-      this.clear(next);
-      this.renderer.setRenderTarget(null);
-      this.pushHistory([{ set: s, rt: s.layer }]);
-      s.layer = next;
-      s.dirty = true;
+    // 回收沒有任何圖層或復原紀錄用到的像素
+    gc() {
+      const used = new Set();
+      for (const s of this.sets) for (const L of s.layers) used.add(L.rt);
+      for (const e of this.undoStack.concat(this.redoStack))
+        for (const op of e) {
+          if (op.kind === 'pixels') {
+            used.add(op.rt);
+            used.add(op.layer.rt);
+          } else for (const x of op.snap.layers) used.add(x.l.rt);
+        }
+      for (const rt of this.layerRTs)
+        if (!used.has(rt)) {
+          rt.dispose();
+          this.layerRTs.delete(rt);
+        }
     }
 
     // ---------- 讀回 ----------
-    readComp(s) {
-      const buf = new Uint8Array(s.w * s.h * 4);
-      this.renderer.readRenderTargetPixels(s.comp, 0, 0, s.w, s.h, buf);
+    readRT(rt, w, h) {
+      const buf = new Uint8Array(w * h * 4);
+      this.renderer.readRenderTargetPixels(rt, 0, 0, w, h, buf);
       return buf;
+    }
+    readComp(s) {
+      return this.readRT(s.comp, s.w, s.h);
     }
     // 讀回的第 0 列是 v=0；glTF 圖片的第 0 列（最上面）也是 v=0，所以直接照順序放進畫布
     toCanvas(s) {
@@ -834,5 +1120,8 @@
   }
 
   RP.Painter = Painter;
+  RP.Layer = Layer;
+  RP.BLEND_MODES = BLEND_MODES;
   RP.MAXD = MAXD;
+  RP.makeRT = makeRT;
 })();

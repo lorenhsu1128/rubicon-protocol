@@ -367,3 +367,83 @@ button.primary {
   background: var(--accent2);
   border-color: var(--accent);
 }
+
+/* 圖層 */
+#rightPanel {
+  width: 220px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+.dim {
+  color: var(--dim);
+  font-weight: 400;
+}
+#layerBlend {
+  width: 100%;
+  margin-bottom: 2px;
+}
+.checkRow {
+  display: flex;
+  gap: 12px;
+}
+#layerList {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  background: #2a2a2d;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.layerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 2px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.layerRow.on {
+  background: var(--accent2);
+}
+.layerRow .eye {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  min-height: 0;
+  opacity: 0.9;
+}
+.layerRow .eye.off {
+  opacity: 0.3;
+}
+.layerRow .name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.layerRow .name input {
+  width: 100%;
+}
+.layerRow .tag {
+  font-size: 11px;
+  color: var(--dim);
+}
+.layerRow.on .tag {
+  color: #cfe0f5;
+}
+.layerRow.clip .name::before {
+  content: '↳ ';
+  color: var(--dim);
+}
+.layerBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+@media (max-width: 1100px) {
+  #rightPanel {
+    width: 180px;
+  }
+}
