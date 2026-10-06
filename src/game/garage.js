@@ -7,6 +7,7 @@ import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { buildMech } from '../render/mech-model.js';
 import { ServerModels } from '../render/net-models.js';
+import { StylePipeline } from '../render/style/pipeline.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -32,20 +33,19 @@ Object.assign(Game.prototype, {
     this.garageScene = s;
     if (this.envTex) s.environment = this.envTex;
     this.garageCam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    this.garageSun = d;
+    this.garageHemi = s.children.find((o) => o.isHemisphereLight);
     if (this.post.ok) {
-      const w = innerWidth,
-        h = innerHeight;
-      const c = new THREE.EffectComposer(this.renderer);
-      c.addPass(new THREE.RenderPass(s, this.garageCam));
-      const ss = new THREE.SSAOPass(s, this.garageCam, w, h);
-      ss.kernelRadius = 0.5;
-      ss.minDistance = 0.001;
-      ss.maxDistance = 0.03;
-      c.addPass(ss);
-      const b = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), 0.4, 0.4, 0.9);
-      c.addPass(b);
-      c.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
-      this.postGarage = { c, ss, b };
+      // 車庫也套用渲染風格（室內：不改霧、天空、太陽方位）
+      this.garagePipe = new StylePipeline(this.renderer, {
+        scene: s,
+        camera: this.garageCam,
+        sun: d,
+        hemi: this.garageHemi,
+        indoor: true,
+        ssaoBase: { kernelRadius: 0.5, minDistance: 0.001, maxDistance: 0.03 },
+      });
+      this.garagePipe.setSize(innerWidth, innerHeight);
     }
     this.garageCam.position.set(3.8, 3.4, 6.2);
     this.garageCam.lookAt(0, 1.9, 0);
@@ -54,6 +54,7 @@ Object.assign(Game.prototype, {
   },
   openGarage() {
     this.state = 'garage';
+    this.styleRefresh();
     this.showScreen('garage');
     if (this.player) {
       this.clearMission();

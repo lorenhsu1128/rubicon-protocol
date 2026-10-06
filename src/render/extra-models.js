@@ -2,6 +2,7 @@
 // 遊戲的本地模型庫可以用 GLB 取代（model-provider.js）：每節車廂、掉落物本體、轟炸機、彈體各自一個槽位
 import { box, cyl } from '../world/prop-models.js';
 import { providedModel } from './model-provider.js';
+import { tagStyle } from './style/shader.js';
 
 // 運輸車輛每一節的槽位：列車第一節是機車頭、其餘是車廂；貨車每節相同
 export const transportSlot = (kind, i) =>
@@ -63,7 +64,7 @@ export function buildTransport(kind, cars, carLen, first = 0) {
         }
     }
   }
-  return g;
+  return tagStyle(g);
 }
 
 // 掉落物：發光方塊＋地面光環。kind：掉落物種類（GLB 槽位 small/pickup_<kind>，只取代方塊，光環維持程式特效）
@@ -110,7 +111,7 @@ export function buildBomberMesh() {
   for (const sx of [-7, -3.5, 3.5, 7]) {
     bm.add(cyl(0.7, 0.7, 3, mm, sx, -0.6, 0.5).rotateX(Math.PI / 2));
   }
-  return bm;
+  return tagStyle(bm);
 }
 
 // ---------- 彈體（子彈、飛彈、砲彈／榴彈）----------

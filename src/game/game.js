@@ -362,9 +362,8 @@ export class Game {
         h = innerHeight;
       this.garageCam.aspect = w / h;
       this.garageCam.updateProjectionMatrix();
-      if (this.post.enabled && this.postGarage) {
-        this.postGarage.c.render();
-      } else this.renderer.render(this.garageScene, this.garageCam);
+      if (this.post.enabled && this.garagePipe) this.garagePipe.render(this.styleP, now / 1000);
+      else this.renderer.render(this.garageScene, this.garageCam);
       this.hctx.clearRect(0, 0, w, h);
       return;
     }
@@ -389,6 +388,10 @@ export class Game {
       return;
     }
     // play
+    if (this.lab) {
+      this.labTick(dt); // 渲染風格實驗室的模擬戰鬥（game/style-lab.js）
+      return;
+    }
     if (this.freezeT > 0) {
       this.freezeT -= dt;
       if (this.pvp && !(this.net && this.net.role === 'client')) this.pvpTick(dt);

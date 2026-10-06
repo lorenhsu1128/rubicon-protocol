@@ -1264,3 +1264,171 @@ select {
   font-size: 11px;
   color: var(--dim, #8a97a6);
 }
+
+/* ---------- 渲染風格實驗室（game/style-lab.js）---------- */
+#labPanel {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  bottom: 96px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+  font-size: 12px;
+  user-select: none;
+}
+#labPanel[hidden],
+#labBar[hidden] {
+  display: none;
+}
+#labPanel.mini {
+  bottom: auto;
+  width: auto;
+}
+#labPanel.mini .lbody {
+  display: none;
+}
+#labPanel .lhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--acc);
+  letter-spacing: 0.08em;
+  gap: 12px;
+}
+#labPanel .lhead button {
+  padding: 2px 8px;
+}
+#labPanel .lbody {
+  overflow-y: auto;
+  padding: 6px 10px 10px;
+}
+#labPanel .lrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+#labPanel .lrow > span:first-child {
+  color: var(--dim);
+  flex: 0 0 auto;
+  max-width: 120px;
+}
+#labPanel .lctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: flex-end;
+}
+#labPanel input[type='range'] {
+  width: 140px;
+  accent-color: var(--acc);
+}
+#labPanel input[type='color'] {
+  width: 48px;
+  height: 20px;
+  border: 1px solid var(--line);
+  background: none;
+  padding: 0;
+}
+#labPanel input[type='text'],
+#labPanel #labName {
+  font: inherit;
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  user-select: text;
+}
+#labPanel select {
+  max-width: 200px;
+  padding: 2px 4px;
+}
+#labPanel .lval {
+  width: 38px;
+  text-align: right;
+  color: var(--acc2);
+  font-variant-numeric: tabular-nums;
+}
+#labPanel .lgrp {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 4px;
+}
+#labPanel .lgrp summary {
+  cursor: pointer;
+  color: var(--acc);
+  padding: 2px 0 4px;
+  letter-spacing: 0.06em;
+}
+#labPanel .lacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+#labPanel .lacts button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+#labPanel .lnote {
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 4px;
+  min-height: 14px;
+}
+#labBar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  pointer-events: auto;
+  font-size: 12px;
+}
+#labBar .lseg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#labBar button {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+#labBar button.on {
+  background: var(--acc);
+  color: #111;
+  border-color: var(--acc);
+}
+#labBar select {
+  padding: 2px 4px;
+}
+#labBar input[type='range'] {
+  width: 90px;
+  accent-color: var(--acc);
+}
+#labStat {
+  font-variant-numeric: tabular-nums;
+}
+#labHelp {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+body.lab #fps {
+  display: none;
+}

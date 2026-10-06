@@ -139,7 +139,7 @@ Object.assign(Game.prototype, {
       const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(this.camZoom);
       this.camera.position.lerp(this.camTarget.clone().add(off), Math.min(1, dt * 10));
       this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
-      this.sun.position.copy(this.camTarget).add(new THREE.Vector3(40, 80, 30));
+      this.sun.position.copy(this.camTarget).add(this.sunOff);
       this.sun.target.position.copy(this.camTarget);
       this.world.updateOcclusion(this.camera.position, this.camTarget, dt);
       this.rangeRing.visible = false;
@@ -164,7 +164,7 @@ Object.assign(Game.prototype, {
         const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(this.camZoom);
         this.camera.position.lerp(this.camTarget.clone().add(off), Math.min(1, dt * 4));
         this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
-        this.sun.position.copy(this.camTarget).add(new THREE.Vector3(40, 80, 30));
+        this.sun.position.copy(this.camTarget).add(this.sunOff);
         this.sun.target.position.copy(this.camTarget);
         this.world.updateOcclusion(this.camera.position, this.camTarget, dt);
         this.rangeRing.visible = false;
@@ -201,7 +201,7 @@ Object.assign(Game.prototype, {
       this.camera.position.y += rnd(-0.3, 0.3) * a;
     }
     this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
-    this.sun.position.copy(this.camTarget).add(new THREE.Vector3(40, 80, 30));
+    this.sun.position.copy(this.camTarget).add(this.sunOff);
     this.sun.target.position.copy(this.camTarget);
     const sc = this.sun.shadow.camera;
     const ext = 70 * Math.max(1, this.camZoom);

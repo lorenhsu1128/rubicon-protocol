@@ -19,6 +19,13 @@ import { buildAxes, buildConnMarker, buildDims, buildGrid, buildHuman, buildRule
 import { ThrusterFx } from '../fx/thruster.js';
 import { JointEditor } from './joint-editor.js';
 import { exportTemplate } from './template.js';
+import { StylePipeline, resetStyleGlobals } from '../render/style/pipeline.js';
+import { installStyleShader, tagStyle } from '../render/style/shader.js';
+import { StyleStore } from '../render/style/store.js';
+
+installStyleShader();
+// 渲染風格的「機體」分類（金屬只套用在這些分類）
+const MECHY = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back', 'mech', 'vehicle'];
 import {
   ANIMS,
   COMPOSE_CATS,
@@ -137,6 +144,64 @@ export class Inspector {
       console.warn('post failed', e);
     }
   }
+  // 渲染風格預覽（遊戲的風格；不選時維持原本的檢視）
+  setupStyle() {
+    const sel = $('insStyle');
+    const fill = () => {
+      const lbl = { builtin: '內建', mine: '我的', server: '伺服器' };
+      const cur = sel.value;
+      sel.innerHTML =
+        '<option value="">不套用（原本的檢視）</option><option value="game">遊戲目前選用的風格</option>' +
+        StyleStore.choices()
+          .map((c) => `<option value="${c.k}:${escHtml(c.id)}">${lbl[c.k]}・${escHtml(c.name)}</option>`)
+          .join('');
+      sel.value = cur;
+    };
+    fill();
+    if (StyleStore.serverOn) StyleStore.fetchServer().then(fill, () => {});
+    sel.onfocus = () => {
+      StyleStore.load(); // 遊戲分頁可能改過
+      fill();
+    };
+    sel.onchange = () => {
+      const v = sel.value;
+      let P = null;
+      if (v === 'game') P = StyleStore.current();
+      else if (v) {
+        const [k, ...rest] = v.split(':');
+        P = StyleStore.paramsOf(k, rest.join(':'));
+        if (P) P.metal = StyleStore.data.metal;
+      }
+      this.setStyle(P);
+    };
+  }
+  setStyle(P) {
+    const R = this.renderer;
+    if (P && !this.stylePipe) {
+      this.stylePipe = new StylePipeline(R, {
+        scene: this.scene,
+        camera: this.camera,
+        sun: this.lights.sun,
+        hemi: this.lights.hemi,
+        indoor: true,
+        ssaoBase: { kernelRadius: 0.5, minDistance: 0.001, maxDistance: 0.03 },
+      });
+      this.stylePipe.setSize(this.w || 16, this.h || 16);
+    }
+    this.styleP = P;
+    if (P) this.stylePipe.applyStructural(P);
+    else {
+      R.toneMapping = THREE.ACESFilmicToneMapping;
+      R.toneMappingExposure = 0.68;
+      R.shadowMap.type = THREE.PCFSoftShadowMap;
+      applyLight(this.scene, this.lights, THEMES[$('insLight').value] || null);
+      if (this.stylePipe) this.stylePipe.rebase();
+    }
+    this.scene.traverse((m) => {
+      if (m.material)
+        for (const x of Array.isArray(m.material) ? m.material : [m.material]) x.needsUpdate = true;
+    });
+  }
   setupUi() {
     $('insToggles').innerHTML = TOGGLES.map(
       ([k, name]) => `<label><input type="checkbox" data-k="${k}"> ${name}</label>`,
@@ -159,7 +224,11 @@ export class Inspector {
       Object.entries(THEMES)
         .map(([k, t]) => `<option value="${k}">${escHtml(t.name)}</option>`)
         .join('');
-    $('insLight').onchange = () => applyLight(this.scene, this.lights, THEMES[$('insLight').value] || null);
+    $('insLight').onchange = () => {
+      applyLight(this.scene, this.lights, THEMES[$('insLight').value] || null);
+      if (this.stylePipe) this.stylePipe.rebase();
+    };
+    this.setupStyle();
     $('insAnims').innerHTML = ANIMS.map(([k, n]) => `<button data-a="${k}">${n}</button>`).join('');
     for (const b of $('insAnims').querySelectorAll('button'))
       b.onclick = () => {
@@ -261,6 +330,7 @@ export class Inspector {
     this.clear();
     this.main = main;
     this.items = [main, ...(ref ? [ref] : [])];
+    if (MECHY.includes(e.cat)) for (const it of this.items) tagStyle(it.pivot, 1);
     // 擺放：並排時 GLB 在左、程式模型在右，整體置中
     let size = main.size.clone();
     if (this.mode === 'side') {
@@ -549,6 +619,7 @@ export class Inspector {
       this.composer.setSize(w, h);
       this.ssao.setSize(w * pr, h * pr);
     }
+    if (this.stylePipe) this.stylePipe.setSize(w, h);
   }
   loop() {
     requestAnimationFrame(() => this.loop());
@@ -574,7 +645,10 @@ export class Inspector {
     }
     this.thruster.update(dt);
     this.controls.update();
-    if (this.opts.post && this.composer) this.composer.render(dt);
+    if (this.opts.post && this.styleP && this.stylePipe) {
+      this.stylePipe.render(this.styleP, now / 1000);
+      resetStyleGlobals();
+    } else if (this.opts.post && this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
     this.updateLabels();
   }

@@ -28,6 +28,7 @@ Object.assign(Game.prototype, {
     }
     this.worldSeed = d.seed;
     this.worldTheme = d.theme;
+    this.styleRefresh();
     this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat);
     const T = this.world.theme;
     this.scene.background = new THREE.Color(T.sky);

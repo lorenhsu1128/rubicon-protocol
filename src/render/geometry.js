@@ -184,11 +184,12 @@ export function mergeGeos(list) {
   g.setAttribute('onormal', new THREE.BufferAttribute(sm, 3));
   return g;
 }
+// 墨線描邊（放大的背面外殼）。alpha 0.5＝機體類（見 render/style/shader.js：後處理的描線以 alpha 分辨機體與地形）
 export const OUTLINE_MAT = new THREE.ShaderMaterial({
   uniforms: { th: { value: 0.012 } },
   vertexShader:
     'attribute vec3 onormal; uniform float th; void main(){ vec4 mv=modelViewMatrix*vec4(position+onormal*th,1.0); gl_Position=projectionMatrix*mv; }',
-  fragmentShader: 'void main(){ gl_FragColor=vec4(0.03,0.035,0.05,1.0); }',
+  fragmentShader: 'void main(){ gl_FragColor=vec4(0.03,0.035,0.05,0.5); }',
   side: THREE.BackSide,
 });
 function bake(node, outline = true) {

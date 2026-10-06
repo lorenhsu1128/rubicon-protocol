@@ -20,6 +20,7 @@ import { mechMats } from './materials.js';
 import { jointSetting, resolveConn, withJoints } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
+import { tagStyle } from './style/shader.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -1000,6 +1001,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   root.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
   });
+  tagStyle(root);
   return rig;
 }
 

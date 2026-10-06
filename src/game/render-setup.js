@@ -1,6 +1,11 @@
-// Game：場景環境、後處理（Bloom／SSAO）與主渲染
+// Game：場景環境、後處理與渲染風格、主渲染
 import { makeStudioEnv } from '../render/environment.js';
+import { StylePipeline } from '../render/style/pipeline.js';
+import { installStyleShader } from '../render/style/shader.js';
+import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
+
+installStyleShader(); // 越早越好：之後建立的標準材質都會用風格著色器
 
 Object.assign(Game.prototype, {
   // ---------- environment map (procedural studio: sky gradient + light panels) ----------
@@ -13,44 +18,52 @@ Object.assign(Game.prototype, {
       console.warn('env failed', e);
     }
   },
-  // ---------- post-processing: bloom + SSAO ----------
+  // ---------- 後處理與渲染風格（render/style/：材質著色、描線、Bloom、SSAO、調色）----------
   setupPost() {
-    if (!this.post.ok) return;
-    const w = innerWidth,
-      h = innerHeight;
-    const mk = (scene, cam, ssao) => {
-      const c = new THREE.EffectComposer(this.renderer);
-      c.addPass(new THREE.RenderPass(scene, cam));
-      let s = null;
-      if (ssao) {
-        s = new THREE.SSAOPass(scene, cam, w, h);
-        s.kernelRadius = 1.6;
-        s.minDistance = 0.0004;
-        s.maxDistance = 0.012;
-        s.output = THREE.SSAOPass.OUTPUT.Default;
-        c.addPass(s);
-      }
-      const b = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), 0.45, 0.4, 0.9);
-      c.addPass(b);
-      c.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
-      return { c, s, b };
-    };
-    this.postMain = mk(this.scene, this.camera, true);
+    this.sunOff = new THREE.Vector3(40, 80, 30); // 太陽相對鏡頭注視點的位置（渲染風格可改方位與高度）
+    this.styleP = StyleStore.current();
+    this.applyRes();
+    this.stylePipe = new StylePipeline(this.renderer, {
+      scene: this.scene,
+      camera: this.camera,
+      sun: this.sun,
+      hemi: this.hemi,
+      sunOff: this.sunOff,
+    });
+    this.stylePipe.applyStructural(this.styleP);
+  },
+  // 渲染解析度（效能設定，不屬於風格）：裝置像素比上限 1.75 再乘上設定值
+  applyRes() {
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75) * StyleStore.data.res);
+  },
+  // 重新讀取選用的渲染風格（任務中不換：只在標題、車庫、出擊前呼叫）
+  styleRefresh() {
+    this.styleP = StyleStore.current();
+    this.styleStructural(this.styleP);
+  },
+  // 色調映射、陰影種類改變時要重新編譯材質
+  styleStructural(P) {
+    const pipes = [this.stylePipe, this.garagePipe].filter(Boolean);
+    let ch = false;
+    for (const p of pipes) ch = p.applyStructural(P) || ch;
+    if (!ch) return;
+    for (const s of [this.scene, this.garageScene])
+      if (s)
+        s.traverse((o) => {
+          const m = o.material;
+          if (m) for (const x of Array.isArray(m) ? m : [m]) x.needsUpdate = true;
+        });
   },
   postResize(w, h) {
-    if (!this.postMain) return;
-    this.postMain.c.setSize(w, h);
-    if (this.postMain.s) this.postMain.s.setSize(w, h);
-    this.postMain.b.setSize(w, h);
-    if (this.postGarage) {
-      this.postGarage.c.setSize(w, h);
-      this.postGarage.b.setSize(w, h);
-    }
+    if (this.stylePipe) this.stylePipe.setSize(w, h);
+    if (this.garagePipe) this.garagePipe.setSize(w, h);
   },
   renderMain() {
-    if (this.post.enabled && this.postMain) {
-      this.postMain.c.render();
-    } else this.renderer.render(this.scene, this.camera);
+    const lab = this.lab;
+    const P = lab ? lab.P : this.styleP;
+    const t = performance.now() / 1000;
+    if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);
+    else this.stylePipe.renderPlain(P, t);
   },
   setPost(on) {
     this.post.enabled = on;

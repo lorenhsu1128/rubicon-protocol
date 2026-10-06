@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `rubicon_apng_gen/`：子專案「文字動畫 APNG 產生器」（TRPG 用的文字動畫素材，純靜態網站、原生 ES Modules，不需建置）。它有**自己的 git 版本庫**（遠端 `lorenhsu1128/rubicon_apng_gen`），主專案的 `.gitignore` 忽略它，修改要在子專案裡提交、推送。`scripts/build.js` 的 `copyApng` 把它的 `index.html`、`css/`、`js/` 原樣複製到 `dist/apng/`（子專案不存在時保留現有的 `dist/apng/`），伺服器在 `/apng/` 提供；因為是 ES Modules，必須透過 HTTP 開啟，標題畫面的「文字動畫」按鈕只在伺服器網址時顯示。
 - `rubicon_paint/`：子專案「貼圖繪製」（Rubicon Paint：直接在 GLB 模型上畫貼圖，圖層、匯出 PNG／PSD／GLB）。和 APNG 產生器一樣有**自己的 git 版本庫**（遠端 `lorenhsu1128/rubicon_paint`，檔案是 CRLF 換行）、主專案忽略它；`copySubprojects` 把 `index.html`、`css/`、`js/`、`lib/`（自帶 three.js r128）複製到 `dist/paint/`，伺服器在 `/paint/` 提供。它是一般 `<script>`（全域 `THREE`、`window.RP`），直接開檔也能用，所以標題畫面與模型庫上方的「貼圖繪製」按鈕一律顯示。和模型庫的連線見下方「模型庫與 GLB」的貼圖繪製。
 - `dist/`：建置產物 `rubicon-protocol.html`、`model-library.html`、`lib/`（程式庫）、`apng/`（文字動畫）、`rubicon-server.exe`，**全部都要提交進 git**（每次改動 src/ 都要重新建置並一起 commit／push）。**不要手改 dist/**，改 `src/` 後重新建置。
-- `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/apng/` 文字動畫 APNG 產生器與 `/paint/` 貼圖繪製（同資料夾的 `apng/`、`paint/`，依副檔名給 Content-Type）、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組，資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
+- `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/apng/` 文字動畫 APNG 產生器與 `/paint/` 貼圖繪製（同資料夾的 `apng/`、`paint/`，依副檔名給 Content-Type）、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組、`/api/styles` 分享的渲染風格（`styles.json`），資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - `docs/glb-spec.md`：給美術的 GLB 製作規格。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
@@ -38,7 +38,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 貼圖繪製（直接開檔：標題畫面按鈕開啟、程式模型時停用、檢視窗「繪製貼圖」開啟槽位的 GLB、畫一筆、存回模型庫（原始檔保留、根節點不變）、再開接著上次的圖層、模型庫換了模型組時拒絕存回）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、`/apng` 轉址與 ES Module 型別、`/paint/`、不能讀到資料夾外、標題畫面「文字動畫」按鈕開啟工具（直接開檔時不顯示）、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（含讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 貼圖繪製（直接開檔：標題畫面按鈕開啟、程式模型時停用、檢視窗「繪製貼圖」開啟槽位的 GLB、畫一筆、存回模型庫（原始檔保留、根節點不變）、再開接著上次的圖層、模型庫換了模型組時拒絕存回）→ 渲染風格實驗室（標題按鈕開啟、兩隊模擬戰鬥、觀看時不顯示 HUD、切換 Gundam 風格＋機體金屬、左右比較、滑桿即時改參數、吉卜力的積雲與水彩、操作模式、存成我的預設並套用、離開後存檔沒變、設定畫面顯示、出擊時使用該風格）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、`/apng` 轉址與 ES Module 型別、`/paint/`、實驗室上傳風格到伺服器／選單顯示／刪除、不能讀到資料夾外、標題畫面「文字動畫」按鈕開啟工具（直接開檔時不顯示）、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -49,6 +49,8 @@ core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/
                      sha256.js（模型組上傳的內容雜湊；區網 http 不是安全環境，不能用 crypto.subtle）
 data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
                      skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）
+render/style/        渲染風格：params.js（參數表、內建預設）、shader.js（標準材質的著色器修改、材質分類 tagStyle）、
+                     pipeline.js（後處理管線）、atmos.js（天空、塵埃）、store.js（選擇、我的預設、伺服器分享）
 render/              materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      vehicle-models.js、extra-models.js（運輸車輛、
@@ -70,7 +72,8 @@ game/game.js         class Game：constructor、主迴圈 loop、敵我判定等
 game/*.js            Game 的 mixin：render-setup、save、input、settings、garage、mission、player、camera、hud、
                      mp-lobby、mp-host、mp-client、map-extras、first-person、pvp、pilot（經驗與熟練度累積、結算）、
                      pilot-ui（駕駛員畫面、預設組）、local-lib（本地模型庫的設定、讀取進度、規格檢查、mechSource）、
-                     mp-models（伺服器模型組：我的機甲模型組上傳、大廳狀態、出擊前備齊、客機換模型）；
+                     mp-models（伺服器模型組：我的機甲模型組上傳、大廳狀態、出擊前備齊、客機換模型）、
+                     style-lab（渲染風格實驗室：模擬戰鬥、鏡頭、調整面板）；
                      constants.js 放 mixin 共用常數
 assets/sfx/*.mp3     音效原始檔（建置時以 base64 內嵌）
 assets/models/       GLB 模型（<槽位 id>.glb，建置時自動內嵌，以 import ... from 'virtual:models' 取得）
@@ -130,13 +133,22 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 模型庫的擺放要和遊戲一致：原點在地面的模型（完整機甲、組合預覽、載具、地圖物件…）以原點貼地（`stage.js` 的 `finalize`），GLB 往下超出時會沉入地面，檢視窗資訊列顯示「最低點（遊戲中離地）」；只有單一區塊（原點是旋轉中心）以最低點貼地。組裝調整頁也以原點貼地。
 - 地圖物件的網格在 `world/prop-models.js`（純函式，不呼叫亂數）；關卡生成照原順序用亂數決定參數後呼叫。改動這裡或 `world.js` 時，亂數呼叫順序不可改變（多人同一 seed 必須產生相同地圖）。
 
+### 渲染風格（render/style/、game/style-lab.js）
+
+- **著色器**：`installStyleShader()` 改 `MeshStandardMaterial.prototype.onBeforeCompile`（遊戲在 `game/render-setup.js`、模型庫在 `library/inspect.js` 載入時呼叫），所有標準材質（含 GLB）共用同一份修改過的著色器：色階光照（攔截 `RE_Direct`，陰影另存 `stSh`）、影色、硬邊高光、邊緣光、動畫金屬反光帶、貼圖細節（高 mip 取平均色）、面板凹凸倍率、環境反射倍率、機體金屬、水彩地形、高度霧。**全部以 uniform（`SU`，全域共用物件）切換，不重新編譯**；參數為預設值時結果和原本的物理渲染相同。只有色調映射與陰影種類需要重新編譯（`applyStructural` 回傳 true 時把場景材質標 `needsUpdate`），所以左右比較時兩邊共用目前的這兩項。
+- **材質分類**：機甲、武器、載具＝1（金屬只套這類），在 `buildMech`／`buildVehicle`／`buildHeli`／`buildDrone`／`buildTransport`／`buildBomberMesh` 結尾呼叫 `tagStyle(root)`；記在 WeakMap（不寫 userData）。不透明材質輸出的 alpha 記分類（環境 1、機體 0.5；`OUTLINE_MAT` 也輸出 0.5），後處理的描線與動態模糊用它分辨；canvas 沒有 alpha，畫面不受影響。
+- **管線**（`StylePipeline`，取代原本的 EffectComposer 組合）：場景畫一次到含深度貼圖的 target →（SSAO：借用 `SSAOPass` 的法線與 AO 計算，不再讓它重畫場景）→ 合成（AO、以上一格 view-projection 重投影的鏡頭動態模糊、以 1/z 的拉普拉斯找輪廓與轉折的螢幕空間描線）→ Bloom → 調色（含 gamma、色溫、暗部／亮部色偏、暗角、色差、顆粒、紙紋）→ FXAA。`applyScene` 每格依參數改霧（以戰區的基準值乘倍率，換新 Fog 物件時重新記錄基準）、天空、太陽色溫與強度、`this.sunOff`（太陽方位，`camera.js`／`first-person.js` 用它擺太陽）、外殼描邊。車庫與模型庫檢視窗用 `indoor`（不改霧與天空）。模型庫同一頁有其他畫面，畫完風格預覽要 `resetStyleGlobals()`。
+- **參數**：`params.js` 的 `STYLE_GROUPS` 同時是調整介面的定義（`when` 決定是否顯示）；內建預設 real（原本的畫面）、ac6、gundam、ghibli；`normalizeStyle` 補齊與限制範圍（讀別人上傳的參數時也用）。新增參數：加到 `STYLE_GROUPS` 與 `REAL`，再到 `setStyleUniforms`／管線使用。
+- **選用與套用**：`StyleStore`（`rubicon_style`）＝選中的風格＋機體金屬開關（獨立於風格）＋解析度。遊戲在 `styleRefresh()` 讀取：標題設定變更、進車庫、`startMission`、客機開局；**任務中不換**（暫停選單的設定停用）。解析度是效能設定，隨時可改。
+- **實驗室**（`game/style-lab.js`）：`this.lab` 存在時 `loop` 改呼叫 `labTick`（`state` 仍是 'play'，暫停選單的「放棄任務」變成離開）。兩隊：藍隊＝玩家的機體＋友軍（`allyDur` 極大）、紅隊＝敵人，具名 AC 與載具／雜兵，死亡 4 秒後重生、彈藥自動補滿；`onEnemyKilled`／`onPlayerDead` 在實驗室直接返回、消耗品停用，所以不寫存檔。觀看模式玩家機體 `ai='ac'`、`isPlayer=false`；操作模式和任務相同。面板的修改要「存成我的預設」或「套用到遊戲」才會留下（套用時有修改會先存成我的預設）。上傳到伺服器用 `PUT /api/styles/<id>`（區網內任何人可新增、刪除）。
+
 ## 架構陷阱
 
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
 - 客機在任務中 3 秒沒收到房主訊息就判定房主失聯並遷移（`clientTick`）；本機卡住超過 1 秒（開局建地圖與模型、編譯著色器）或開局後第一次更新時重新起算，否則慢的電腦會誤判。
 - 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.0'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
-- 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`。
+- 存檔與設定存在 localStorage：`rubicon_save`、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`、`rubicon_style`（渲染風格：選用的風格、機體金屬、解析度、我的預設、伺服器清單快取）。
 - 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。
 - 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接），只有單人模式開啟本地模型庫時才會換成瀏覽器暫存的 GLB。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML，程式庫放 `dist/lib/`。
 

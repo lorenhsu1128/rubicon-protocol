@@ -1,5 +1,9 @@
 // Game：設定畫面與按鍵綁定
+import { escHtml } from '../core/html.js';
+import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
+
+const $ = (id) => document.getElementById(id);
 
 Object.assign(Game.prototype, {
   openSettings(from) {
@@ -54,6 +58,33 @@ Object.assign(Game.prototype, {
     $('ctrlSens').value = this.ctrl.sens || 1;
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
     this.renderLocalModels();
+    this.renderStyleSettings();
+  },
+  // 渲染風格：任務中（從暫停選單開啟）不能換風格，只能改解析度
+  renderStyleSettings() {
+    const d = StyleStore.data;
+    const lbl = { builtin: '內建', mine: '我的', server: '伺服器' };
+    const sel = $('styleSel');
+    sel.innerHTML = StyleStore.choices()
+      .map(
+        (c) =>
+          `<option value="${c.k}:${escHtml(c.id)}">${lbl[c.k]}・${escHtml(c.name)}${c.author ? '（' + escHtml(c.author) + '）' : ''}</option>`,
+      )
+      .join('');
+    sel.value = d.sel.k + ':' + d.sel.id;
+    const inMission = this.settingsFrom === 'pause';
+    sel.disabled = inMission;
+    $('styleMetal').checked = d.metal;
+    $('styleMetal').disabled = inMission;
+    $('styleRes').value = String(d.res);
+    $('btnStyleLab2').disabled = inMission || !!(this.net && this.net.role);
+    $('styleNote').textContent = inMission ? '任務中不能切換風格（回車庫或標題再改）' : '';
+    if (StyleStore.serverOn && !this.styleFetched) {
+      this.styleFetched = true;
+      StyleStore.fetchServer()
+        .then(() => this.state === 'settings' && this.renderStyleSettings())
+        .catch(() => {});
+    }
   },
   captureBinding(code) {
     if (!this.rebinding) return false;

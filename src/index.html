@@ -140,6 +140,12 @@
             </button>
             <button id="btnPaint" title="在 GLB 模型上直接繪製貼圖（Rubicon Paint）">貼圖繪製</button>
             <button
+              id="btnStyleLab"
+              title="切換、調整整體畫面風格（寫實、機戰傭兵 6、Gundam 動畫、吉卜力…），以模擬戰鬥即時預覽"
+            >
+              渲染風格
+            </button>
+            <button
               id="btnLmReload"
               title="單人模式使用模型庫存在這個瀏覽器的 GLB 與關節設定（在按鍵與操作設定開啟）"
             >
@@ -422,6 +428,29 @@
               <span id="vibMsg" class="dim" style="font-size: 11px"></span
             ></span>
           </div>
+          <h3 style="margin: 14px 0 6px; font-size: 15px">渲染風格</h3>
+          <div class="krow">
+            <span>畫面風格</span
+            ><select id="styleSel" style="max-width: 300px"></select>
+          </div>
+          <div class="krow">
+            <span>機體金屬</span
+            ><label><input type="checkbox" id="styleMetal" /> 機甲、武器、載具改成金屬</label>
+          </div>
+          <div class="krow">
+            <span>渲染解析度</span
+            ><select id="styleRes">
+              <option value="1">100%（預設）</option>
+              <option value="0.85">85%</option>
+              <option value="0.7">70%</option>
+              <option value="0.6">60%</option>
+              <option value="0.5">50%（最快）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span id="styleNote" class="dim" style="font-size: 11px"></span
+            ><button id="btnStyleLab2">開啟渲染風格實驗室</button>
+          </div>
           <h3 style="margin: 14px 0 6px; font-size: 15px">本地模型庫與伺服器模型組</h3>
           <div id="lmBox"></div>
           <div class="row" style="margin-top: 14px">
@@ -446,6 +475,10 @@
           <p class="dim" style="font-size: 11px">效能不足時可關閉。</p>
         </div>
       </div>
+
+      <!-- 渲染風格實驗室（game/style-lab.js 產生內容）-->
+      <div id="labPanel" hidden></div>
+      <div id="labBar" hidden></div>
 
       <!-- In-game HUD -->
       <div id="hudWrap" style="display: none; position: absolute; inset: 0">
@@ -473,6 +506,7 @@
     <script src="lib/three/examples/js/shaders/GammaCorrectionShader.js"></script>
     <script src="lib/three/examples/js/shaders/LuminosityHighPassShader.js"></script>
     <script src="lib/three/examples/js/shaders/SSAOShader.js"></script>
+    <script src="lib/three/examples/js/shaders/FXAAShader.js"></script>
     <script src="lib/three/examples/js/math/SimplexNoise.js"></script>
     <script src="lib/three/examples/js/loaders/GLTFLoader.js"></script>
     <script src="lib/three/examples/js/loaders/DRACOLoader.js"></script>

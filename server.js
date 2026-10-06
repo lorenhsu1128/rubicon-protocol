@@ -95,6 +95,17 @@ function saveManifest() {
   manifest.rev = (manifest.rev || 0) + 1;
   writeAtomic(path.join(DEF_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
+const STYLES_PATH = path.join(MODELS_DIR, 'styles.json');
+let styles = null;
+function loadStyles() {
+  if (styles) return styles;
+  styles = {};
+  try {
+    const o = JSON.parse(fs.readFileSync(STYLES_PATH, 'utf8'));
+    if (o && typeof o === 'object') styles = o;
+  } catch (e) {}
+  return styles;
+}
 const glbPath = (kind, slot) => path.join(DEF_DIR, kind, ...slot.split('/')) + '.glb';
 function rmQuiet(f) {
   try {
@@ -140,7 +151,7 @@ function modelsSummary() {
     dir: MODELS_DIR,
   };
 }
-// /api/models/… 與 /api/sets/…；處理了回傳 true
+// /api/models/…、/api/sets/… 與 /api/styles…；處理了回傳 true
 async function modelsApi(req, resp, u, q) {
   const json = (o, code = 200) => {
     resp.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -243,6 +254,43 @@ async function modelsApi(req, resp, u, q) {
     });
     return json({ ok: true, rev: man.rev });
   }
+  // 渲染風格：區網內分享的風格參數（styles.json；任何人都能新增、覆寫、刪除）
+  if (u === '/api/styles') {
+    if (M !== 'GET') return bad('不支援的操作', 405);
+    const st = loadStyles();
+    return json({ styles: Object.keys(st).map((id) => Object.assign({ id }, st[id])) });
+  }
+  if ((m = /^\/api\/styles\/([a-z0-9]{4,40})$/.exec(u))) {
+    const id = m[1];
+    const st = loadStyles();
+    if (M === 'PUT') {
+      const body = await readBody(req, 64 * 1024);
+      if (!body) return bad('內容太大', 413);
+      let o;
+      try {
+        o = JSON.parse(body.toString('utf8'));
+      } catch (e) {
+        return bad('JSON 格式錯誤');
+      }
+      if (!o || typeof o.params !== 'object' || !o.params) return bad('缺少風格參數');
+      const name = String(o.name || '未命名風格').slice(0, 40);
+      await queued(() => {
+        st[id] = { name, author: String(o.author || '').slice(0, 24), t: Date.now(), params: o.params };
+        writeAtomic(STYLES_PATH, JSON.stringify(st, null, 1));
+      });
+      log(`分享渲染風格「${name}」`);
+      return json({ ok: true });
+    }
+    if (M === 'DELETE') {
+      if (!st[id]) return bad('沒有這個風格', 404);
+      await queued(() => {
+        delete st[id];
+        writeAtomic(STYLES_PATH, JSON.stringify(st, null, 1));
+      });
+      return json({ ok: true });
+    }
+    return bad('不支援的操作', 405);
+  }
   if ((m = /^\/api\/sets\/([0-9a-f]{64})$/.exec(u))) {
     const f = path.join(UP_DIR, m[1] + '.rubicon-set');
     if (M === 'GET' && q.get('check')) return json({ exists: fs.existsSync(f) }); // 上傳前確認（不回 404）
@@ -297,7 +345,7 @@ function startGame(port) {
     cleanUploads();
     const server = http.createServer((req, resp) => {
       const u = req.url.split('?')[0];
-      if (u.startsWith('/api/models/') || u.startsWith('/api/sets/')) {
+      if (u.startsWith('/api/models/') || u.startsWith('/api/sets/') || u.startsWith('/api/styles')) {
         const q = new URL(req.url, 'http://x').searchParams;
         modelsApi(req, resp, u, q)
           .then((done) => {

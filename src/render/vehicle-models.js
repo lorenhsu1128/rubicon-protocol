@@ -7,6 +7,7 @@ import { CB, OUTLINE_MAT, P, bakeAll, decal, gBox, gCyl, kitBolts, kitVents } fr
 import { matsOf } from './glb.js';
 import { mechMats } from './materials.js';
 import { providedModel } from './model-provider.js';
+import { tagStyle } from './style/shader.js';
 
 export const VEHICLE_PIECES = {
   tank: ['hull', 'turret'],
@@ -97,6 +98,7 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
     r: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
     l: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
   };
+  tagStyle(root);
   return {
     group: root,
     legsG,
@@ -201,6 +203,7 @@ export function buildHeli(pal, scale = 1, key = 'heli') {
     r: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
     l: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
   };
+  tagStyle(root);
   return {
     group: root,
     legsG,
@@ -270,6 +273,7 @@ export function buildDrone(pal, scale = 1, key = 'swarm') {
     r: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
     l: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
   };
+  tagStyle(root);
   return {
     group: root,
     legsG,

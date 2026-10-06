@@ -34,6 +34,7 @@ Object.assign(Game.prototype, {
     this.flashMsg('修復完成', 0x7ee081, 0.8);
   },
   useConsumable(slot) {
+    if (this.lab) return this.flashMsg('渲染風格實驗室不能使用消耗品', 0xff8a8a, 1);
     const p = this.player;
     if (!p || p.dead || p.downed || this.state !== 'play') return;
     if (this.pvp && this.save.asm[slot] === 'cs_ally') {
@@ -226,6 +227,7 @@ Object.assign(Game.prototype, {
     const seed = Math.floor(Math.random() * 1e9);
     this.worldSeed = seed;
     this.worldTheme = theme;
+    this.styleRefresh(); // 渲染風格只在出擊時套用，任務中不換
     this.world = new World(this.scene, theme, seed, L);
     this.isClient = false;
     const mp = !!(this.net && this.net.role === 'host');
@@ -533,6 +535,7 @@ Object.assign(Game.prototype, {
     return e;
   },
   onEnemyKilled(e, from) {
+    if (this.lab) return; // 渲染風格實驗室的模擬戰鬥：不計入存檔
     this.save.kills++;
     if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
       this.mpStats[from.slot].kills++;
@@ -559,6 +562,7 @@ Object.assign(Game.prototype, {
     this.bountyPops.push({ txt: '+' + bounty.toLocaleString() + ' COAM', life: 2.2, y: 0 });
   },
   onPlayerDead() {
+    if (this.lab) return; // 實驗室：由 labTick 重新空降
     this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
     setTimeout(() => {
       if (this.state === 'play') this.endMission(false, false);

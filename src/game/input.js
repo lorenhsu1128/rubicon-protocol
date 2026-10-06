@@ -1,6 +1,7 @@
 // Game：鍵盤／滑鼠、手把、觸控虛擬搖桿與震動
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -465,6 +466,25 @@ Object.assign(Game.prototype, {
     document.getElementById('btnPaint').onclick = () =>
       window.open(window.RUBICON_SERVER ? '/paint/' : 'paint/index.html', '_blank');
     document.getElementById('btnLmReload').onclick = () => this.lmRefresh(true);
+    document.getElementById('btnStyleLab').onclick = () => this.openLab();
+    document.getElementById('btnStyleLab2').onclick = () => {
+      this.closeSettings();
+      if (this.state === 'title') this.openLab();
+    };
+    document.getElementById('styleSel').onchange = (e) => {
+      const [k, ...rest] = e.target.value.split(':');
+      StyleStore.select(k, rest.join(':'));
+      this.styleRefresh();
+    };
+    document.getElementById('styleMetal').onchange = (e) => {
+      StyleStore.setMetal(e.target.checked);
+      this.styleRefresh();
+    };
+    document.getElementById('styleRes').onchange = (e) => {
+      StyleStore.setRes(Number(e.target.value) || 1);
+      this.applyRes();
+      this.resize();
+    };
     document.getElementById('btnSettingsP').onclick = () => this.openSettings('pause');
     document.getElementById('btnSettingsBack').onclick = () => this.closeSettings();
     document.getElementById('btnKeysReset').onclick = () => {
@@ -538,9 +558,11 @@ Object.assign(Game.prototype, {
         if (e.code === 'Escape') this.closeSettings();
         return;
       }
+      if (this.lab && this.labKey(e)) return;
       this.keys[e.code] = true;
       this.down[e.code] = true;
       const km = this.keymap;
+      if (this.lab && this.lab.mode === 'watch' && e.code !== km.pause) return; // 實驗室觀看模式：WASD 給自由鏡頭
       if (e.code === km.lock || e.code === 'Tab') e.preventDefault();
       if (e.code === 'KeyV' && this.state === 'play') {
         this.setFp(!this.fp);
@@ -604,6 +626,7 @@ Object.assign(Game.prototype, {
       if (e.code === km.cs2 && this.state === 'play') this.useConsumable('c2');
     });
     addEventListener('keyup', (e) => {
+      if (this.lab) this.labKeyUp(e);
       this.keys[e.code] = false;
       this.down[e.code] = false;
     });
@@ -624,6 +647,7 @@ Object.assign(Game.prototype, {
         return;
       }
       if (this.state !== 'play') return;
+      if (this.lab && this.labPointer('down', e)) return;
       if (this.spectator) {
         if (this.specMode === 'free' && e.button === 0) {
           this.specDrag = { x: e.clientX, y: e.clientY };
@@ -657,10 +681,12 @@ Object.assign(Game.prototype, {
       if (code === this.keymap.cs2) this.useConsumable('c2');
     });
     addEventListener('mouseup', (e) => {
+      if (this.lab) this.labPointer('up', e);
       this.down['Mouse' + e.button] = false;
       this.specDrag = null;
     });
     addEventListener('mousemove', (e) => {
+      if (this.lab) this.labPointer('move', e);
       if (this.specDrag && this.specPos) {
         const k = 0.09 * (this.camZoom || 1);
         this.specPos.x -= (e.clientX - this.specDrag.x) * k;
@@ -677,6 +703,7 @@ Object.assign(Game.prototype, {
     addEventListener(
       'wheel',
       (e) => {
+        if (this.lab && this.state === 'play') this.labPointer('wheel', e);
         if (this.spectator && this.state === 'play') {
           this.specZoom = clamp((this.specZoom || 1) * (e.deltaY > 0 ? 1.12 : 0.9), 0.5, 4);
         }
@@ -740,6 +767,7 @@ Object.assign(Game.prototype, {
     $('optPost').checked = this.post.enabled;
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
+      if (this.lab) return this.exitLab();
       if (this.net && this.net.role === 'client') {
         this.net.leave(true);
         this.clearMission();

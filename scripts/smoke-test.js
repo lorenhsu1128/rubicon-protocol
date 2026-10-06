@@ -357,6 +357,109 @@ async function testPaint(browser) {
   await ctx.close();
 }
 
+// 渲染風格實驗室（直接開檔）：開啟 → 模擬戰鬥 → 切換風格、金屬、左右比較 → 調滑桿 → 操作模式
+// → 存成我的預設並套用 → 離開（存檔沒變）→ 設定畫面顯示 → 出擊時用該風格
+async function testStyleLab(browser) {
+  console.log('渲染風格實驗室：模擬戰鬥 → 切換與調整 → 存成預設 → 套用到遊戲');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'style-lab');
+  page.on('dialog', (d) => d.accept());
+  await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
+  await waitVisible(page, 'title');
+  await page.click('#btnNew');
+  await waitVisible(page, 'garage');
+  await page.click('#btnToTitle');
+  await waitVisible(page, 'title');
+  const save0 = await page.evaluate(() => localStorage.getItem('rubicon_save'));
+  await page.click('#btnStyleLab');
+  check(await waitVisible(page, 'labPanel', 15000), '標題「渲染風格」開啟實驗室面板');
+  await wait(2500);
+  const st = await page.evaluate(() => {
+    const g = window.__game;
+    return { lab: !!g.lab, allies: g.allies.length, enemies: g.enemies.length, state: g.state };
+  });
+  check(
+    st.lab && st.state === 'play' && st.allies >= 2 && st.enemies >= 3,
+    `模擬戰鬥：藍隊友軍 ${st.allies} 台、紅隊 ${st.enemies} 台`,
+  );
+  check(!(await visible(page, 'hudWrap')), '觀看模式不顯示 HUD');
+  await page.selectOption('#labStyle', 'builtin:gundam');
+  await page.check('#labMetal');
+  await wait(1500);
+  const P = await page.evaluate(() => window.__game.lab.P);
+  check(P.toon === 1 && P.ink > 0 && P.metal === true, '切換到 Gundam 動畫風格＋機體金屬（色階光照、描線）');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-gundam.png') });
+  await page.selectOption('#labCmp', 'builtin:real');
+  await wait(1500);
+  check(await page.evaluate(() => !!window.__game.lab.cmp), '左右分割比較（左：寫實）');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-compare.png') });
+  await page.selectOption('#labCmp', '');
+  await page.selectOption('#labCam', 'show');
+  await page.evaluate(() => {
+    const el = document.getElementById('lp_rim');
+    el.value = '1.5';
+    el.dispatchEvent(new Event('input'));
+  });
+  const lab1 = await page.evaluate(() => ({ rim: window.__game.lab.P.rim, dirty: window.__game.lab.dirty }));
+  check(lab1.rim === 1.5 && lab1.dirty, '拖曳滑桿即時改參數（邊緣光 1.5，標示已修改）');
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-show.png') });
+  await page.selectOption('#labStyle', 'builtin:ghibli').catch(() => {});
+  await wait(300);
+  check(
+    await page.evaluate(() => window.__game.lab.P.sky === 'cloud' && window.__game.lab.P.water > 0),
+    '切換到吉卜力風格（積雲天空、水彩地形）',
+  );
+  await page.selectOption('#labStyle', 'builtin:ac6');
+  await page.selectOption('#labCam', 'cinema');
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-ac6.png') });
+  await page.click('#labCtrl');
+  await wait(800);
+  check(
+    (await visible(page, 'hudWrap')) && (await page.evaluate(() => window.__game.player.isPlayer)),
+    '操作模式：顯示 HUD、自己駕駛藍隊機體',
+  );
+  await playFor(page, 1500);
+  await page.click('#labWatch');
+  await page.selectOption('#labStyle', 'builtin:gundam');
+  await page.fill('#labName', '測試風格');
+  await page.click('#labSaveNew');
+  await page.click('#labApply');
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('rubicon_style')));
+  check(
+    stored.sel.k === 'mine' &&
+      stored.mine.some((m) => m.name === '測試風格' && m.params.toon === 1) &&
+      stored.metal,
+    '存成「我的預設」並套用到遊戲（記住機體金屬）',
+  );
+  await page.click('#labExit');
+  check(await waitVisible(page, 'title'), '離開實驗室回到標題');
+  check(
+    (await page.evaluate(() => localStorage.getItem('rubicon_save'))) === save0,
+    '模擬戰鬥不改存檔（擊破不入帳）',
+  );
+  await page.click('#btnSettings');
+  await waitVisible(page, 'settings');
+  check(
+    ((await page.$eval('#styleSel', (s) => s.selectedOptions[0].textContent)) || '').includes('測試風格'),
+    '設定畫面的「畫面風格」顯示套用的風格',
+  );
+  await page.click('#btnSettingsBack');
+  await page.click('#btnNew');
+  await waitVisible(page, 'garage');
+  await page.click('#btnSortie');
+  check(await waitVisible(page, 'hudWrap', 15000), '出擊');
+  await playFor(page, 1500);
+  check(
+    await page.evaluate(() => window.__game.styleP.toon === 1 && window.__game.styleP.metal === true),
+    '出擊時使用套用的風格（色階光照＋機體金屬）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-mission.png') });
+  await ctx.close();
+}
+
 async function testSolo(browser, base) {
   console.log('單機：標題 → 車庫 → 出擊');
   const { ctx, page } = await newPage(browser, 'solo');
@@ -2783,6 +2886,7 @@ async function main() {
     await testEditorFaces(browser, base);
     await testEditorOptimize(browser, base);
     await testPaint(browser);
+    await testStyleLab(browser);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
@@ -2836,6 +2940,33 @@ async function main() {
       );
       await wait(1500);
       await apng.screenshot({ path: path.join(SHOT_DIR, 'apng-tool.png') });
+      // 渲染風格：上傳到伺服器 → 清單有它 → 刪除
+      page.on('dialog', (d) => d.accept());
+      await page.click('#btnStyleLab');
+      await waitVisible(page, 'labPanel', 15000);
+      await page.selectOption('#labStyle', 'builtin:ghibli');
+      await page.fill('#labName', '區網分享風格');
+      await page.click('#labUpload');
+      await page
+        .waitForFunction(() => /已上傳/.test(document.getElementById('labMsg').textContent), null, {
+          timeout: 10000,
+        })
+        .catch(() => {});
+      const sl = await (await fetch(game.url + 'api/styles')).json();
+      check(
+        (sl.styles || []).some((x) => x.name === '區網分享風格' && x.params && x.params.toon === 1),
+        '實驗室「上傳到伺服器」：/api/styles 列出分享的風格',
+      );
+      check(
+        (await page.$$eval('#labStyle option', (o) => o.map((x) => x.textContent))).some((t) =>
+          t.includes('伺服器・區網分享風格'),
+        ),
+        '風格選單出現伺服器上的風格',
+      );
+      await page.click('#labSrvDel');
+      await wait(800);
+      const sl2 = await (await fetch(game.url + 'api/styles')).json();
+      check(!(sl2.styles || []).some((x) => x.name === '區網分享風格'), '從伺服器刪除分享的風格');
       await page.context().close();
       await testServerModels(browser, game.url);
       await testMultiplayer(browser, game.url, 'server', false);

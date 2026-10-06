@@ -181,7 +181,7 @@ Object.assign(Game.prototype, {
     this.camera.position.copy(eye);
     this.camera.lookAt(eye.clone().add(look));
     this.camTarget.copy(ent.pos);
-    this.sun.position.copy(ent.pos).add(new THREE.Vector3(40, 80, 30));
+    this.sun.position.copy(ent.pos).add(this.sunOff);
     this.sun.target.position.copy(ent.pos);
     this.fpHide(ent);
     this.rangeRing.visible = false;
