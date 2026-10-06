@@ -1381,12 +1381,9 @@
     return createImageBitmap(new Blob([bytes], { type: 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   }
 
-  async function saveProject() {
-    if (!model) return;
-    if (stroke || D.active) return;
-    setStatus('儲存專案中…');
-    download(await buildProject(), `${safe(S.fileName)}.rpaint`);
-    setStatus('已儲存專案');
+  function saveProject() {
+    if (!model || stroke || D.active) return;
+    saveAs(`${safe(S.fileName)}.rpaint`, 'rpaint', buildProject, '儲存專案中…');
   }
 
   async function buildProject() {
@@ -1507,10 +1504,15 @@
   $('btnExportPsd').onclick = () => {
     const s = S.current;
     if (!s) return;
-    const layers = s.layers.map((L) => Object.assign(L.props(), { pixels: painter.layerPixels(s, L) }));
-    const blob = RP.makePSD(s.w, s.h, layers, painter.readComp(s));
-    download(blob, `${safe(S.fileName)}_${safe(s.name)}.psd`);
-    setStatus(`已匯出 PSD（${s.name}，${layers.length} 個圖層）`);
+    saveAs(
+      `${safe(S.fileName)}_${safe(s.name)}.psd`,
+      'psd',
+      async () => {
+        const layers = s.layers.map((L) => Object.assign(L.props(), { pixels: painter.layerPixels(s, L) }));
+        return RP.makePSD(s.w, s.h, layers, painter.readComp(s));
+      },
+      '匯出 PSD 中…',
+    );
   };
 
   // ---------- AO 烘焙 ----------
@@ -1925,50 +1927,136 @@
       { capture: true },
     );
 
-  // 匯出
+  // ---------- 存檔：先跳出「另存新檔」選位置與檔名，再產生內容寫進去 ----------
+  // showSaveFilePicker 必須在按下按鈕的當下呼叫（瀏覽器要求使用者操作），所以先選檔、後產生內容。
+  // 不支援的瀏覽器（例如 Firefox）改成一般下載，存到瀏覽器的下載資料夾。
+  const FILE_TYPES = {
+    png: { description: 'PNG 圖片', accept: { 'image/png': ['.png'] } },
+    zip: { description: 'ZIP 壓縮檔', accept: { 'application/zip': ['.zip'] } },
+    psd: { description: 'Photoshop 檔', accept: { 'image/vnd.adobe.photoshop': ['.psd'] } },
+    glb: { description: 'GLB 模型', accept: { 'model/gltf-binary': ['.glb'] } },
+    rpaint: { description: 'Rubicon Paint 專案', accept: { 'application/octet-stream': ['.rpaint'] } },
+  };
   function download(blob, name) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
+    document.body.appendChild(a);
     a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+  let saving = false;
+  async function saveAs(name, kind, makeBlob, busyMsg) {
+    if (saving) return false;
+    let handle = null;
+    if (window.showSaveFilePicker) {
+      try {
+        handle = await window.showSaveFilePicker({ suggestedName: name, types: [FILE_TYPES[kind]], id: 'rp-' + kind });
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          setStatus('已取消存檔');
+          return false;
+        }
+        handle = null; // 例如在 iframe 裡不能用：改成一般下載
+      }
+    }
+    saving = true;
+    try {
+      setStatus(busyMsg || '存檔中…');
+      const blob = await makeBlob();
+      if (handle) {
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        setStatus(`已存檔：${handle.name}（${(blob.size / 1048576).toFixed(1)} MB）`);
+      } else {
+        download(blob, name);
+        setStatus(`已下載：${name}（在瀏覽器的下載資料夾）`);
+      }
+      return true;
+    } catch (err) {
+      setStatus('存檔失敗：' + (err && err.message ? err.message : err), true);
+      return false;
+    } finally {
+      saving = false;
+    }
   }
   const safe = (s) => s.replace(/[\\/:*?"<>|]+/g, '_');
-  function exportPng(set) {
-    painter.toCanvas(set).toBlob((b) => download(b, `${safe(S.fileName)}_${safe(set.name)}.png`), 'image/png');
+  const pngBlob = (s) => new Promise((resolve) => painter.toCanvas(s).toBlob(resolve, 'image/png'));
+
+  $('btnExportPng').onclick = () => {
+    const s = S.current;
+    if (s) saveAs(`${safe(S.fileName)}_${safe(s.name)}.png`, 'png', () => pngBlob(s), '匯出 PNG 中…');
+  };
+  // 全部貼圖組：存成一個 zip（避免連續下載好幾個檔）
+  $('btnExportAll').onclick = () => {
+    if (!painter.sets.length) return;
+    saveAs(
+      `${safe(S.fileName)}_textures.zip`,
+      'zip',
+      async () => {
+        const files = [];
+        const used = new Set();
+        for (const s of painter.sets) {
+          let n = safe(s.name);
+          while (used.has(n)) n += '_';
+          used.add(n);
+          files.push({ name: n + '.png', data: new Uint8Array(await (await pngBlob(s)).arrayBuffer()) });
+        }
+        return RP.makeZip(files);
+      },
+      '匯出全部 PNG 中…',
+    );
+  };
+
+  // 把畫好的貼圖寫回模型後匯出 GLB（隱藏的零件也一起匯出：隱藏只是為了方便繪圖）
+  function exportGLB() {
+    return new Promise((resolve, reject) => {
+      const restore = [];
+      const shown = [];
+      const undo = () => {
+        for (const [m, map] of restore) m.map = map;
+        for (const o of shown) o.visible = false;
+      };
+      for (const s of painter.sets) {
+        const t = new THREE.CanvasTexture(painter.toCanvas(s));
+        t.flipY = false;
+        t.encoding = THREE.sRGBEncoding;
+        t.format = THREE.RGBAFormat;
+        if (s.srcMap) {
+          t.wrapS = s.srcMap.wrapS;
+          t.wrapT = s.srcMap.wrapT;
+          t.name = s.srcMap.name;
+        }
+        for (const m of s.materials) {
+          restore.push([m, m.map]);
+          m.map = t;
+        }
+      }
+      for (const o of meshes())
+        if (!o.visible) {
+          o.visible = true;
+          shown.push(o);
+        }
+      try {
+        new THREE.GLTFExporter().parse(
+          model,
+          (res) => {
+            undo();
+            resolve(new Blob([res], { type: 'model/gltf-binary' }));
+          },
+          { binary: true, onlyVisible: false, maxTextureSize: 4096 },
+        );
+      } catch (err) {
+        undo();
+        reject(err);
+      }
+    });
   }
-  $('btnExportPng').onclick = () => S.current && exportPng(S.current);
-  $('btnExportAll').onclick = () => painter.sets.forEach((s, i) => setTimeout(() => exportPng(s), i * 250));
   $('btnExportGlb').onclick = () => {
     if (!model) return;
-    setStatus('匯出中…');
-    const restore = [];
-    for (const s of painter.sets) {
-      const t = new THREE.CanvasTexture(painter.toCanvas(s));
-      t.flipY = false;
-      t.encoding = THREE.sRGBEncoding;
-      t.format = THREE.RGBAFormat;
-      if (s.srcMap) {
-        t.wrapS = s.srcMap.wrapS;
-        t.wrapT = s.srcMap.wrapT;
-        t.name = s.srcMap.name;
-      }
-      for (const m of s.materials) {
-        restore.push([m, m.map]);
-        m.map = t;
-      }
-    }
-    const done = (res) => {
-      for (const [m, map] of restore) m.map = map;
-      download(new Blob([res], { type: 'model/gltf-binary' }), `${safe(S.fileName)}_painted.glb`);
-      setStatus('已匯出 GLB');
-    };
-    try {
-      new THREE.GLTFExporter().parse(model, done, { binary: true, onlyVisible: true, maxTextureSize: 4096 });
-    } catch (err) {
-      for (const [m, map] of restore) m.map = map;
-      setStatus('匯出失敗：' + err.message, true);
-    }
+    saveAs(`${safe(S.fileName)}_painted.glb`, 'glb', exportGLB, '匯出 GLB 中…');
   };
 
   // 鍵盤
