@@ -160,9 +160,8 @@ const options = (page) => ({
   ],
 });
 
-// 子專案（各自的 git 版本庫，都是純靜態網站）原樣複製到 dist/ 底下，伺服器在 /<資料夾>/ 提供：
+// 子專案（納入本版本庫的純靜態網站，不需建置）原樣複製到 dist/ 底下，伺服器在 /<資料夾>/ 提供：
 // 文字動畫 APNG 產生器 rubicon_apng_gen/ → dist/apng/；貼圖繪製 rubicon_paint/ → dist/paint/。
-// 子專案不存在時（只 clone 主專案）保留 dist/ 現有的檔案
 const SUBPROJECTS = [
   { src: 'rubicon_apng_gen', out: 'apng', dirs: ['css', 'js'] },
   { src: 'rubicon_paint', out: 'paint', dirs: ['css', 'js', 'lib'] },
@@ -171,7 +170,6 @@ function copySubprojects() {
   for (const p of SUBPROJECTS) {
     const src = path.join(ROOT, p.src);
     const out = path.join(DIST, p.out);
-    if (!fs.existsSync(path.join(src, 'index.html'))) continue;
     fs.rmSync(out, { recursive: true, force: true });
     fs.mkdirSync(out, { recursive: true });
     fs.copyFileSync(path.join(src, 'index.html'), path.join(out, 'index.html'));
