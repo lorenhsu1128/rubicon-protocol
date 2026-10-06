@@ -130,8 +130,8 @@
             </tr>
           </table>
           <div class="row" style="margin-top: 12px">
-            <button class="primary" id="btnNew">新的傭兵生涯</button>
-            <button id="btnContinue" disabled>繼續存檔</button>
+            <button class="primary" id="btnContinue" disabled>繼續存檔</button>
+            <button id="btnSaves" title="三個存檔槽：繼續、新的傭兵生涯、匯出／匯入、刪除">選擇存檔</button>
             <button id="btnMP">多人連線（區網 2–4 人）</button>
             <button id="btnSettings">按鍵與操作設定</button>
             <button id="btnFullscreen" title="切換全螢幕（平板請用這個按鈕離開；鍵盤長按 Esc 也可離開）">
@@ -335,7 +335,7 @@
         <div class="panel" style="min-width: min(640px, 94vw); max-height: 92vh; overflow: auto">
           <h2 id="lobbyTitle">房間</h2>
           <div class="dim" style="font-size: 12px; margin-bottom: 8px">
-            <span id="lobbyLevel"></span>（使用房主的關卡進度）
+            <span id="lobbyLevel"></span>（使用房主的關卡進度）｜<span id="lobbySave"></span>
           </div>
           <div id="lobbyMode" style="font-size: 13px; margin-bottom: 6px"></div>
           <div id="lobbyModels" class="mySetBox" style="display: none"></div>
@@ -460,6 +460,21 @@
             <button class="primary" id="btnSettingsBack">返回</button
             ><button id="btnKeysReset">恢復預設</button>
           </div>
+        </div>
+      </div>
+      <!-- 存檔（game/save.js）-->
+      <div id="saves" class="screen center">
+        <div class="panel" style="width: min(560px, 94vw); max-height: 92vh; overflow: auto">
+          <h2>存檔</h2>
+          <div id="saveSlots"></div>
+          <p id="savesMsg" style="font-size: 12px; min-height: 1.5em"></p>
+          <input type="file" id="saveImportFile" accept=".json,application/json" hidden />
+          <div class="row">
+            <button id="btnSavesBack">返回標題</button>
+          </div>
+          <p class="dim" style="font-size: 11px">
+            存檔存在這個瀏覽器裡；直接開檔與從伺服器網址開啟是不同的存檔，可用匯出／匯入搬移。
+          </p>
         </div>
       </div>
       <!-- Pause -->

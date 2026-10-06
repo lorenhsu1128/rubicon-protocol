@@ -153,6 +153,18 @@ async function waitVisible(page, id, ms = 10000) {
   return false;
 }
 
+// 標題「選擇存檔」→ 存檔畫面的槽位開新的傭兵生涯（槽位已有存檔時先刪除）→ 車庫
+async function newCareer(page, slot = 1) {
+  await page.click('#btnSaves');
+  await waitVisible(page, 'saves');
+  const card = `#saveSlots [data-slot="${slot}"]`;
+  if (await page.$(`${card} [data-act="del"]`)) {
+    await page.click(`${card} [data-act="del"]`);
+    await page.click(`${card} [data-act="yes"]`);
+  }
+  await page.click(`${card} [data-act="new"]`);
+}
+
 async function playFor(page, ms) {
   // 往前走、射擊，讓遊戲邏輯與渲染實際跑起來
   await page.mouse.move(640, 360);
@@ -392,11 +404,13 @@ async function testStyleLab(browser) {
   page.on('dialog', (d) => d.accept());
   await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
   await waitVisible(page, 'title');
-  await page.click('#btnNew');
+  await newCareer(page);
   await waitVisible(page, 'garage');
   await page.click('#btnToTitle');
   await waitVisible(page, 'title');
-  const save0 = await page.evaluate(() => localStorage.getItem('rubicon_save'));
+  const save0 = await page.evaluate(() =>
+    localStorage.getItem('rubicon_save_' + (localStorage.getItem('rubicon_save_cur') || 1)),
+  );
   await page.click('#btnStyleLab');
   check(await waitVisible(page, 'labPanel', 15000), '標題「渲染風格」開啟實驗室面板');
   await wait(2500);
@@ -462,7 +476,9 @@ async function testStyleLab(browser) {
   await page.click('#labExit');
   check(await waitVisible(page, 'title'), '離開實驗室回到標題');
   check(
-    (await page.evaluate(() => localStorage.getItem('rubicon_save'))) === save0,
+    (await page.evaluate(() =>
+      localStorage.getItem('rubicon_save_' + (localStorage.getItem('rubicon_save_cur') || 1)),
+    )) === save0,
     '模擬戰鬥不改存檔（擊破不入帳）',
   );
   await page.click('#btnSettings');
@@ -472,7 +488,7 @@ async function testStyleLab(browser) {
     '設定畫面的「畫面風格」顯示套用的風格',
   );
   await page.click('#btnSettingsBack');
-  await page.click('#btnNew');
+  await newCareer(page);
   await waitVisible(page, 'garage');
   await page.click('#btnSortie');
   check(await waitVisible(page, 'hudWrap', 15000), '出擊');
@@ -485,6 +501,132 @@ async function testStyleLab(browser) {
   await ctx.close();
 }
 
+// 存檔槽：舊版單一存檔搬進存檔 1 → 三槽獨立 → 匯出 → 匯入（空槽、覆蓋確認、錯誤檔案）→ 刪除 → 從標題選任一槽繼續
+async function testSaves(browser, base) {
+  console.log('存檔槽：舊存檔遷移 → 三槽獨立 → 匯出／匯入 → 刪除 → 繼續');
+  const { ctx, page } = await newPage(browser, 'saves');
+  await page.goto(base);
+  await waitVisible(page, 'title');
+  // 模擬舊版：只有 rubicon_save，沒有 rubicon_save_cur
+  await page.evaluate(() => {
+    for (const k of ['rubicon_save_cur', 'rubicon_save_1', 'rubicon_save_2', 'rubicon_save_3'])
+      localStorage.removeItem(k);
+    localStorage.setItem(
+      'rubicon_save',
+      JSON.stringify({ coam: 123456, owned: ['h_std'], asm: { head: 'h_std' }, level: 5, kills: 42 }),
+    );
+  });
+  await page.reload();
+  await waitVisible(page, 'title');
+  const ls = (k) => page.evaluate((k) => localStorage.getItem(k), k);
+  const lvl = async (i) => {
+    const v = await ls('rubicon_save_' + i);
+    return v ? JSON.parse(v).level : 0;
+  };
+  check(
+    (await lvl(1)) === 5 && !!(await ls('rubicon_save')) && (await ls('rubicon_save_cur')) === '1',
+    '舊版存檔搬進存檔 1（舊鍵保留）',
+  );
+  check(
+    (await page.textContent('#btnContinue')).includes('存檔 1') && !(await page.isDisabled('#btnContinue')),
+    '標題「繼續存檔」顯示目前的槽位（存檔 1）',
+  );
+  await page.click('#btnSaves');
+  check(await waitVisible(page, 'saves'), '「選擇存檔」開啟存檔畫面');
+  const card = (i) => `#saveSlots [data-slot="${i}"]`;
+  const text1 = (await page.textContent(card(1))) || '';
+  check(
+    text1.includes('任務 05') && text1.includes('123,456') && text1.includes('擊破 42'),
+    `存檔 1 顯示摘要（${text1.replace(/\s+/g, ' ').trim().slice(0, 60)}）`,
+  );
+  check(
+    !!(await page.$(`${card(2)} [data-act="new"]`)) && !!(await page.$(`${card(3)} [data-act="new"]`)),
+    '存檔 2、3 是空的（新的傭兵生涯）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'saves.png') });
+  // 存檔 2 開新生涯 → 回標題：目前槽位是 2，存檔 1 不受影響
+  await page.click(`${card(2)} [data-act="new"]`);
+  check(await waitVisible(page, 'garage'), '存檔 2 開新的傭兵生涯進入車庫');
+  await page.click('#btnToTitle');
+  await waitVisible(page, 'title');
+  check(
+    (await ls('rubicon_save_cur')) === '2' &&
+      (await lvl(2)) === 1 &&
+      (await lvl(1)) === 5 &&
+      (await page.textContent('#btnContinue')).includes('存檔 2'),
+    '三槽獨立：目前是存檔 2（任務 01），存檔 1 仍是任務 05',
+  );
+  // 匯出存檔 1
+  await page.click('#btnSaves');
+  await waitVisible(page, 'saves');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click(`${card(1)} [data-act="exp"]`)]);
+  const exported = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
+  check(
+    /^rubicon-save-1-\d{8}\.json$/.test(dl.suggestedFilename()) &&
+      exported.format === 'rubicon-save' &&
+      exported.save.level === 5,
+    `匯出存檔 1（${dl.suggestedFilename()}）`,
+  );
+  const file = {
+    name: 'save.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(exported)),
+  };
+  const importTo = async (i, f) => {
+    const [fc] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.click(`${card(i)} [data-act="imp"]`),
+    ]);
+    await fc.setFiles(f);
+    await wait(400);
+  };
+  // 匯入到空的存檔 3：直接寫入
+  await importTo(3, file);
+  check((await lvl(3)) === 5 && (await page.textContent(card(3))).includes('任務 05'), '匯入到空的存檔 3');
+  // 匯入到有存檔的存檔 2：先確認，取消不變，確定才覆蓋
+  await importTo(2, file);
+  check(!!(await page.$(`${card(2)} [data-act="yes"]`)), '匯入到有存檔的槽位要先確認');
+  await page.click(`${card(2)} [data-act="no"]`);
+  check((await lvl(2)) === 1, '取消覆蓋時存檔 2 不變');
+  await importTo(2, file);
+  await page.click(`${card(2)} [data-act="yes"]`);
+  check((await lvl(2)) === 5, '確定後存檔 2 被匯入的存檔覆蓋');
+  // 錯誤的檔案
+  await importTo(1, { name: 'x.json', mimeType: 'application/json', buffer: Buffer.from('{"a":1}') });
+  check(
+    (await page.textContent('#savesMsg')).includes('不是') && (await lvl(1)) === 5,
+    '匯入不是存檔的檔案時提示錯誤、存檔不變',
+  );
+  // 刪除存檔 3（取消再確定）
+  await page.click(`${card(3)} [data-act="del"]`);
+  await page.click(`${card(3)} [data-act="no"]`);
+  check((await lvl(3)) === 5, '取消刪除時存檔 3 還在');
+  await page.click(`${card(3)} [data-act="del"]`);
+  await page.click(`${card(3)} [data-act="yes"]`);
+  check(
+    !(await ls('rubicon_save_3')) && !!(await page.$(`${card(3)} [data-act="new"]`)),
+    '刪除存檔 3 後變成空槽',
+  );
+  // 刪除目前的存檔 2：改用最近玩過的存檔 1
+  await page.click(`${card(2)} [data-act="del"]`);
+  await page.click(`${card(2)} [data-act="yes"]`);
+  check((await ls('rubicon_save_cur')) === '1', '刪除目前的槽位後改用另一個有存檔的槽位（存檔 1）');
+  // 從存檔畫面繼續存檔 1 → 車庫用的是存檔 1
+  await page.click(`${card(1)} [data-act="cont"]`);
+  check(await waitVisible(page, 'garage'), '存檔畫面「繼續」進入車庫');
+  check(
+    await page.evaluate(() => window.__game.save.level === 5 && window.__game.saveSlot === 1),
+    '繼續的是存檔 1',
+  );
+  // 重新整理後「繼續存檔」接上次的槽位
+  await page.reload();
+  await waitVisible(page, 'title');
+  await page.click('#btnContinue');
+  await waitVisible(page, 'garage');
+  check(await page.evaluate(() => window.__game.save.level === 5), '重新整理後「繼續存檔」接存檔 1');
+  await ctx.close();
+}
+
 async function testSolo(browser, base) {
   console.log('單機：標題 → 車庫 → 出擊');
   const { ctx, page } = await newPage(browser, 'solo');
@@ -492,7 +634,7 @@ async function testSolo(browser, base) {
   check(await waitVisible(page, 'title'), '標題畫面顯示');
   await wait(1000);
   await page.screenshot({ path: path.join(SHOT_DIR, 'title.png') });
-  await page.click('#btnNew');
+  await newCareer(page);
   check(await waitVisible(page, 'garage'), '車庫畫面顯示');
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'garage.png') });
@@ -2232,9 +2374,14 @@ async function testEditorOptimize(browser, base) {
 // 駕駛員：舊存檔遷移、配點、T2 鎖定、車庫顯示加成、預設組
 const editSave = (page, fn) =>
   page.evaluate((src) => {
-    const s = JSON.parse(localStorage.getItem('rubicon_save'));
+    const s = JSON.parse(
+      localStorage.getItem('rubicon_save_' + (localStorage.getItem('rubicon_save_cur') || 1)),
+    );
     new Function('s', src)(s);
-    localStorage.setItem('rubicon_save', JSON.stringify(s));
+    localStorage.setItem(
+      'rubicon_save_' + (localStorage.getItem('rubicon_save_cur') || 1),
+      JSON.stringify(s),
+    );
   }, fn);
 // 本地模型庫：在模型庫頁面（已開啟過，資料庫是第 4 版）直接寫入 IndexedDB（GLB 與關節設定）；
 // 機甲區塊與武器寫進模型組 set（預設 default），其他分類寫成共用；遊戲單人模式讀取並套用
@@ -2386,7 +2533,7 @@ async function testLocalModels(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-reload.png') });
   await page.click('#lmLoad');
   // 車庫與出擊
-  await page.click('#btnNew');
+  await newCareer(page);
   check(await waitVisible(page, 'garage'), '車庫畫面顯示');
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
@@ -2818,7 +2965,7 @@ async function testServerModels(browser, url) {
   await game.screenshot({ path: path.join(SHOT_DIR, 'server-models-settings.png') });
   await game.click('#btnSettingsBack');
   await waitVisible(game, 'title');
-  await game.click('#btnNew');
+  await newCareer(game);
   check(await waitVisible(game, 'garage'), '車庫畫面顯示');
   await wait(1500);
   t = (await game.textContent('#gLocal')) || '';
@@ -2970,7 +3117,7 @@ async function testPilot(browser, base) {
     console.log('  （此版本沒有駕駛員系統，略過）');
     return ctx.close();
   }
-  await page.click('#btnNew');
+  await newCareer(page);
   await waitVisible(page, 'garage');
   await editSave(page, 'delete s.pilot; s.level = 4; s.missionsDone = 3;'); // 模擬舊版存檔
   check(await continueToPilot(page), '舊存檔（沒有 pilot）可開啟駕駛員畫面');
@@ -3074,6 +3221,7 @@ async function main() {
     const base = `http://127.0.0.1:${srv.address().port}/`;
     await testFile(browser);
     await testSolo(browser, base);
+    await testSaves(browser, base + '?test');
     await testPilot(browser, base);
     await testLibrary(browser, base);
     await testLibraryGlb(browser, base);

@@ -78,6 +78,7 @@ export class Game {
     this.mouse = { x: 0, y: 0, l: false, r: false };
     this.mouseWorld = new THREE.Vector3();
     this.playerFiredAt = 0;
+    this.initSaves();
     this.save = this.loadSave() || this.newSave();
     this.time = 0;
     this.lastT = performance.now();
@@ -104,7 +105,6 @@ export class Game {
       }, 600);
     }
     this.showScreen('title');
-    document.getElementById('btnContinue').disabled = !this.loadSave();
     requestAnimationFrame(() => this.loop());
   }
   updateLoops() {
@@ -319,6 +319,7 @@ export class Game {
     for (const s of document.querySelectorAll('#ui .screen')) s.classList.toggle('on', s.id === id);
     document.getElementById('hudWrap').style.display = id === '' ? 'block' : 'none';
     if (this.updateVpad) this.updateVpad();
+    if (id === 'title' && this.renderContinue) this.renderContinue();
   }
   // ---------- loop ----------
   loop() {
@@ -369,6 +370,7 @@ export class Game {
     }
     if (
       this.state === 'title' ||
+      this.state === 'saves' ||
       this.state === 'result' ||
       this.state === 'mp' ||
       this.state === 'lobby' ||

@@ -731,17 +731,7 @@ Object.assign(Game.prototype, {
       this.down = {};
     });
     const $ = (id) => document.getElementById(id);
-    $('btnNew').onclick = () => {
-      SFX.init();
-      this.save = this.newSave();
-      this.writeSave();
-      this.openGarage();
-    };
-    $('btnContinue').onclick = () => {
-      SFX.init();
-      this.save = this.loadSave() || this.newSave();
-      this.openGarage();
-    };
+    this.bindSaves();
     $('btnSortie').onclick = () => {
       // 單機出擊前重新讀取本地模型庫
       if (this.lmBusy) return;

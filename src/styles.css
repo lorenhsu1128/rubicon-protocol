@@ -1432,3 +1432,28 @@ select {
 body.lab #fps {
   display: none;
 }
+/* 存檔畫面（game/save.js） */
+#saveSlots {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.saveCard {
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.saveCard.cur {
+  border-color: var(--acc);
+}
+.saveCard.ask {
+  border-color: var(--danger);
+}
+.saveCard .saveHead {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.saveCard .row button {
+  padding: 6px 12px;
+}

@@ -326,6 +326,7 @@ Object.assign(Game.prototype, {
       $('btnLobbySortie').title =
         !ok && cnt < 2 && S.mode === 'pvp' ? '人數不足：等待玩家加入，或選「電腦 AC 補位」' : '';
     }
+    $('lobbySave').textContent = `我的機體與駕駛員：存檔 ${this.saveSlot}`;
     $('lobbyLevel').textContent =
       '任務 ' +
       String(n.role === 'host' ? this.save.level : n.hostLevel || 1).padStart(2, '0') +
