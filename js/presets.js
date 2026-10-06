@@ -163,6 +163,25 @@ const SAN = {
   inFx: 'glitch', inDur: 0.8, holdFx: 'glitch', holdPower: 1, hold: 2, outFx: 'glitch', outDur: 0.6, subFx: 'fade', loop: 'infinite'
 };
 
+/* ---------- 新世紀福音戰士（EVA）風格 ---------- */
+const EVA_ORANGE = '#ff8a00';
+const EVA_TITLE = {
+  fontId: 'shippori-mincho-b1', weight: 800, fontSize: 112, letterSpacing: 0.06,
+  subFontId: 'cinzel', subWeight: 700, subSize: 0.22, subLetterSpacing: 0.5, subGap: 0.5,
+  fill: { type: 'solid', color: '#ffffff' }, stroke: { on: false }, stroke2: { on: false }, shadow: { on: false }, glow: { on: false },
+  bg: { type: 'solid', color: '#000000', opacity: 1, sync: false },
+  inFx: 'flash', inDur: 0.35, hold: 2, outFx: 'none', outDur: 0.05, subFx: 'fade', subDelay: -0.1, startDelay: 0.3, endDelay: 0.1
+};
+const EVA_MAGI = {
+  ...SYSTEM, fontSize: 72, subFontId: 'share-tech-mono',
+  glow: { on: true, color: EVA_ORANGE, size: 14, strength: 0.6 }, subColor: '#ffc27a',
+  deco: { ...SYSTEM.deco, color: '#1a0c00', color2: EVA_ORANGE, radius: 0 }
+};
+const EVA_ALERT = {
+  ...ALERT, fontId: 'shippori-mincho-b1', weight: 800,
+  deco: { type: 'band', color: '#b00012', opacity: 0.88, pad: 0.35, soft: 0.1, sideFade: 0.2, anim: 'grow', dur: 0.35 }
+};
+
 const msg = (id, group, label, text, subText, patch, extra = {}) => ({ id, group, label, text, subText, patch, ...extra });
 
 export const TEMPLATES = {
@@ -176,6 +195,20 @@ export const TEMPLATES = {
     ...[1, 2, 3, 4, 5].map(n => msg(`round${n}`, 'combat', L(`第${n}回合`, `Round ${n}`), `ROUND ${n}`, `第${['一', '二', '三', '四', '五'][n - 1]}回合`, ROUND)),
     msg('defeat', 'combat', L('敗北', 'Defeat'), '敗北', 'DEFEAT', { ...DICE_BAD, loop: 'once', holdFx: 'none', outFx: 'blurOut' }),
 
+    msg('evaOperation', 'combat', L('EVA・作戰開始', 'EVA: Operation Start'), '作戰開始', 'OPERATION START', {
+      ...BATTLE, fontId: 'shippori-mincho-b1', weight: 800, glow: { on: true, color: EVA_ORANGE, size: 22, strength: 0.6 },
+      deco: { ...BATTLE.deco, color2: EVA_ORANGE }
+    }),
+    msg('evaAtField', 'combat', L('EVA・A.T. 力場', 'EVA: A.T. Field'), 'A.T. 力場全開', 'A.T. FIELD FULL POWER', {
+      ...ROUND, fontId: 'shippori-mincho-b1', weight: 800, fontSize: 110, subFontId: 'oswald',
+      fill: { type: 'gradient', color: '#fff3e0', color2: '#ffae42', dir: 'v' }, stroke: { on: true, width: 3, color: '#2a1000' },
+      glow: { on: true, color: EVA_ORANGE, size: 36, strength: 1 }, deco: { ...ROUND.deco, color2: EVA_ORANGE },
+      inFx: 'pop', inStagger: 0.05, holdFx: 'pulse', holdPower: 1, hold: 1.6, outFx: 'shrink', loop: 'infinite'
+    }),
+    msg('evaBerserk', 'combat', L('EVA・暴走', 'EVA: Berserk'), '暴走', 'BERSERK', {
+      ...DICE_BAD, fontId: 'shippori-mincho-b1', weight: 800, fontSize: 170, subFontId: 'oswald',
+      inFx: 'slam', holdFx: 'shake', holdPower: 1, outFx: 'glitch', outDur: 0.5
+    }),
     msg('explore', 'investigation', L('探索開始', 'Exploration'), '探索開始', 'EXPLORATION', {
       ...CHAPTER, fontSize: 110, letterSpacing: 0.2, subPosition: 'below', inFx: 'rise', inDur: 0.8, inStagger: 0.07, outFx: 'rise'
     }),
@@ -197,6 +230,24 @@ export const TEMPLATES = {
     }),
     msg('missionClear', 'investigation', L('任務完成', 'Mission Clear'), '任務完成', 'MISSION CLEAR', { ...DICE_GOOD, loop: 'once', holdFx: 'none' }),
 
+    msg('evaAngel', 'investigation', L('EVA・使徒襲來', 'EVA: Angel Attack'), '使徒襲來', 'ANGEL ATTACK', EVA_ALERT),
+    msg('evaStations', 'investigation', L('EVA・第一種戰鬥配置', 'EVA: Battle Stations'), '總員第一種戰鬥配置', 'LEVEL-1 BATTLE STATIONS', {
+      ...EVA_ALERT, fontSize: 88, deco: { type: 'tape', pad: 0.35, tapeSize: 36, tapeSpeed: 120, tapeBlink: 0.4, anim: 'grow', dur: 0.45 }
+    }),
+    msg('evaPattern', 'investigation', L('EVA・圖形：藍', 'EVA: Pattern Blue'), '圖形：藍', 'PATTERN BLUE', { ...EVA_MAGI, holdFx: 'blink', holdPower: 0.5 }),
+    msg('evaMagi', 'investigation', L('EVA・MAGI 決議', 'EVA: MAGI Approved'), 'MAGI 全員一致：可決', 'MAGI SYSTEM — APPROVED', { ...EVA_MAGI, fontSize: 64, loop: 'once' }),
+    msg('evaSync', 'investigation', L('EVA・同步率', 'EVA: Sync Ratio'), '同步率 400%', 'SYNCHRONIZATION RATIO', {
+      fontId: 'orbitron', weight: 900, fontSize: 96, letterSpacing: 0.08, subPosition: 'above',
+      subFontId: 'share-tech-mono', subWeight: 400, subSize: 0.3, subLetterSpacing: 0.35, subGap: 0.4, subColorOn: true, subColor: '#a6ffb8',
+      fill: { type: 'solid', color: '#eaffef' }, stroke: { on: false }, shadow: { on: false }, glow: { on: true, color: '#2bff6a', size: 22, strength: 0.8 },
+      inFx: 'flicker', inDur: 0.8, holdFx: 'flicker', holdPower: 0.4, hold: 1.8, outFx: 'flicker', subFx: 'typewriter', loop: 'infinite'
+    }),
+    msg('evaLimit', 'investigation', L('EVA・活動限界', 'EVA: Active Limit'), '活動限界　05:00', 'INTERNAL BATTERY', {
+      fontId: 'orbitron', weight: 700, fontSize: 88, letterSpacing: 0.08, subPosition: 'above',
+      subFontId: 'share-tech-mono', subWeight: 400, subSize: 0.32, subLetterSpacing: 0.35, subGap: 0.4, subColorOn: true, subColor: '#ffb0b0',
+      fill: { type: 'solid', color: '#ffe4e4' }, stroke: { on: false }, shadow: { on: false }, glow: { on: true, color: '#ff2a2a', size: 18, strength: 0.8 },
+      inFx: 'flicker', inDur: 0.6, holdFx: 'blink', holdPower: 0.6, hold: 2, outFx: 'flicker', loop: 'infinite'
+    }),
     msg('secret', 'gm', L('請確認祕匿', 'Check Secrets'), '請確認祕匿資訊', 'SECRET', SYSTEM),
     msg('processing', 'gm', L('祕匿處理中', 'Processing'), '祕匿處理中', 'PROCESSING', { ...SYSTEM, holdFx: 'blink', holdPower: 0.5 }),
     msg('roleplay', 'gm', L('請角色扮演', 'Roleplay'), '請自由角色扮演', 'ROLEPLAY TIME', {
@@ -245,6 +296,13 @@ export const TEMPLATES = {
     }),
     msg('timeSkip', 'scene', L('時間流逝', 'Time Skip'), '數小時後', 'SOME HOURS LATER', { ...CHAPTER, fontSize: 100, subPosition: 'below', inFx: 'flicker', inDur: 0.9, outFx: 'flicker' }),
 
+    msg('evaTitle', 'scene', L('EVA・標題卡', 'EVA: Title Card'), '第壹話　使徒、襲來', 'ANGEL ATTACK', EVA_TITLE),
+    msg('evaNext', 'scene', L('EVA・次回預告', 'EVA: Next Episode'), '次回預告', 'NEXT EPISODE', { ...EVA_TITLE, fontSize: 150, letterSpacing: 0.12 }),
+    msg('evaCongrats', 'scene', L('EVA・恭喜', 'EVA: Congratulations'), '恭喜', 'CONGRATULATIONS', {
+      ...CHAPTER, fontId: 'shippori-mincho-b1', weight: 800, fontSize: 140, subPosition: 'below',
+      fill: { type: 'gradient', color: '#fffbe8', color2: '#e8b54a', dir: 'v' }, glow: { on: true, color: '#ffd77a', size: 30, strength: 0.6 },
+      inFx: 'blurIn', inDur: 1.4, outFx: 'blurOut', outDur: 1.2
+    }),
     msg('coc7Critical', 'dice', L('大成功', 'Critical'), '大成功', 'CRITICAL', DICE_GOOD, { system: 'coc7' }),
     msg('coc7Extreme', 'dice', L('極難成功', 'Extreme'), '極難成功', 'EXTREME SUCCESS', { ...DICE_GOOD, fontSize: 120 }, { system: 'coc7' }),
     msg('coc7Hard', 'dice', L('困難成功', 'Hard'), '困難成功', 'HARD SUCCESS', { ...DICE_GOOD, fontSize: 120, glow: { on: true, color: '#ffd76b', size: 26, strength: 0.6 }, holdFx: 'none' }, { system: 'coc7' }),
