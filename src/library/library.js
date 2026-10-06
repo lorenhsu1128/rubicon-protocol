@@ -10,6 +10,7 @@ import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
 import { GlbEditor } from './editor.js';
 import { SetMenu } from './model-sets.js';
+import { PaintLink } from './paint-link.js';
 import { SERVER_SET, setScoped } from '../render/local-models.js';
 
 const $ = (id) => document.getElementById(id);
@@ -67,6 +68,7 @@ function refreshRelated(id) {
 // 切換模型組：重建機甲區塊、武器與完整機甲的格子，檢視窗與組裝調整頁改用新的模型組
 // （伺服器預設組涵蓋所有分類：切換到它或從它切走時全部重建）
 let lastSet = null;
+let paint = null;
 function onSetSwitch() {
   const all = store.isServer() || lastSet === SERVER_SET;
   lastSet = store.cur;
@@ -212,6 +214,7 @@ async function main() {
       applyFilter();
     },
     onEdit: (id) => openEditor(id),
+    onPaint: (entry) => paint.open(entry),
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -256,6 +259,17 @@ async function main() {
     },
   });
   if (/[?&]test\b/.test(location.search)) window.__workshop = workshop;
+  // 貼圖繪製：存回時和拖曳替換一樣更新格子與檢視窗
+  paint = new PaintLink({
+    store,
+    toast,
+    onSaved: async (entry) => {
+      refreshRelated(entry.id);
+      if (inspector.open_ && inspector.entry === entry) await inspector.rebuild();
+      applyFilter();
+    },
+  });
+  $('btnPaint').onclick = () => paint.openTool();
   lastSet = store.cur;
   setMenu = new SetMenu({ store, toast, onSwitch: onSetSwitch });
   store.onError = (msg) => toast(msg, true);

@@ -68,13 +68,14 @@ const groundText = (y) =>
 
 export class Inspector {
   // store：GlbStore；onFile(entry, file)／onRemove(entry)：由模型庫處理儲存與格子更新
-  constructor({ store, onClose, onFile, onRemove, onJoints, onError, onEdit }) {
+  constructor({ store, onClose, onFile, onRemove, onJoints, onError, onEdit, onPaint }) {
     this.store = store;
     this.onClose = onClose;
     this.onFile = onFile;
     this.onRemove = onRemove;
     this.onError = onError;
     this.onEdit = onEdit;
+    this.onPaint = onPaint;
     this.canvas = $('insGl');
     this.renderer = makeRenderer(this.canvas, true);
     this.scene = new THREE.Scene();
@@ -181,6 +182,7 @@ export class Inspector {
     $('insDownload').onclick = () => this.download();
     $('insTemplate').onclick = () => this.downloadTemplate();
     $('insEdit').onclick = () => this.onEdit && this.onEdit(this.entry.id);
+    $('insPaint').onclick = () => this.onPaint && this.onPaint(this.entry);
   }
   markButtons() {
     for (const b of $('insAnims').querySelectorAll('button'))
@@ -449,7 +451,7 @@ export class Inspector {
     // GLB 工具與檢查報告
     const glb = src.kind === 'glb';
     $('insLoad').disabled = $('insEdit').disabled = !!e.noGlb;
-    $('insDownload').disabled = !glb || !!src.fallback;
+    $('insDownload').disabled = $('insPaint').disabled = !glb || !!src.fallback;
     $('insRemove').disabled = !(glb && src.origin === 'browser' && !src.fallback);
     $('insGlbHint').textContent = e.noGlb
       ? e.cat === 'mech'

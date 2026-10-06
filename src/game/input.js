@@ -461,6 +461,9 @@ Object.assign(Game.prototype, {
     const apng = document.getElementById('btnApng');
     if (window.RUBICON_SERVER) apng.style.display = '';
     apng.onclick = () => window.open('/apng/', '_blank');
+    // 貼圖繪製（Rubicon Paint）：一般 script，直接開檔也能用（同資料夾的 paint/）
+    document.getElementById('btnPaint').onclick = () =>
+      window.open(window.RUBICON_SERVER ? '/paint/' : 'paint/index.html', '_blank');
     document.getElementById('btnLmReload').onclick = () => this.lmRefresh(true);
     document.getElementById('btnSettingsP').onclick = () => this.openSettings('pause');
     document.getElementById('btnSettingsBack').onclick = () => this.closeSettings();

@@ -201,6 +201,162 @@ async function testFile(browser) {
   await ctx.close();
 }
 
+// 貼圖繪製（dist/paint/，子專案 rubicon_paint）：直接開檔的模型庫 → 「繪製貼圖」→ 畫一筆 → 存回模型庫
+// → 槽位換成新 GLB（保留原始檔、根節點不變）→ 重新開啟接著上次的圖層
+async function testPaint(browser) {
+  console.log('貼圖繪製：模型庫開啟 → 畫 → 存回 → 再開接著畫');
+  const PAINT = path.join(path.dirname(HTML), 'paint', 'index.html');
+  if (!fs.existsSync(LIBRARY) || !fs.existsSync(PAINT)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'paint-lib');
+  // 標題畫面的「貼圖繪製」（直接開檔也能用）
+  const game = await ctx.newPage();
+  watch(game, 'paint-title');
+  await game.goto('file:///' + HTML.replace(/\\/g, '/'));
+  await waitVisible(game, 'title');
+  const [tool] = await Promise.all([game.waitForEvent('popup'), game.click('#btnPaint')]);
+  watch(tool, 'paint-tool');
+  check(
+    await tool
+      .waitForFunction(() => window.__rp && !!document.getElementById('btnDemo'), null, { timeout: 15000 })
+      .then(
+        () => true,
+        () => false,
+      ),
+    '標題畫面「貼圖繪製」按鈕開啟 Rubicon Paint（直接開檔）',
+  );
+  check(await tool.isHidden('#libGroup'), '不是從模型庫開啟時不顯示「存回模型庫」');
+  await tool.close();
+  await game.close();
+
+  const SLOT = 'arms/a_std/r_fore';
+  await page.goto('file:///' + LIBRARY.split(path.sep).join('/') + '?test#' + SLOT);
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1200);
+  check(await page.isDisabled('#insPaint'), '程式模型（沒有 GLB）時「繪製貼圖」停用');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+  const fp = path.join(SHOT_DIR, 'paint-fore.glb');
+  await dl.saveAs(fp);
+  await page.setInputFiles('#insFile', fp);
+  await wait(1500);
+  check(!(await page.isDisabled('#insPaint')), '有 GLB 後可以「繪製貼圖」');
+  const readRec = () =>
+    page.evaluate(
+      (slot) =>
+        new Promise((resolve) => {
+          const r = indexedDB.open('rubicon-model-library');
+          r.onsuccess = () => {
+            const q = r.result.transaction('models').objectStore('models').get(['default', slot]);
+            q.onsuccess = () => {
+              const v = q.result;
+              r.result.close();
+              if (!v) return resolve(null);
+              const roots = (buf) => {
+                const dv = new DataView(buf);
+                const j = JSON.parse(
+                  new TextDecoder().decode(new Uint8Array(buf, 20, dv.getUint32(12, true))),
+                );
+                return j.scenes[j.scene || 0].nodes.map((i) => j.nodes[i].name || '');
+              };
+              resolve({ name: v.name, size: v.size, orig: v.orig && v.orig.size, roots: roots(v.buf) });
+            };
+          };
+        }),
+      SLOT,
+    );
+  const before = await readRec();
+  const open = async () => {
+    const [p] = await Promise.all([page.waitForEvent('popup'), page.click('#insPaint')]);
+    watch(p, 'paint');
+    const ok = await p
+      .waitForFunction(
+        () => window.__rp && window.__rp.LIB.link && window.__rp.painter.sets.length > 0,
+        null,
+        {
+          timeout: 20000,
+        },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    await wait(800);
+    return { p, ok };
+  };
+  let { p, ok } = await open();
+  check(ok, '檢視窗「繪製貼圖」在 Rubicon Paint 開啟槽位的 GLB');
+  check(
+    ((await p.textContent('#libLabel')) || '').includes('預設'),
+    `繪圖視窗標示模型庫的槽位與模型組（${await p.textContent('#libLabel')}）`,
+  );
+  // 在 3D 畫面中央畫一筆
+  const box = await p.locator('#view3d').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await p.mouse.move(cx - 40, cy - 30);
+  await p.mouse.down();
+  for (let i = 1; i <= 12; i++) await p.mouse.move(cx - 40 + i * 7, cy - 30 + i * 5);
+  await p.mouse.up();
+  await wait(500);
+  const undo = await p.evaluate(() => window.__rp.painter.undoStack.length);
+  check(undo > 0, `在模型上畫了一筆（復原紀錄 ${undo}）`);
+  const layers = await p.evaluate(() => window.__rp.painter.sets.map((s) => s.layers.length));
+  await p.click('#btnLibSave');
+  check(
+    await p
+      .waitForFunction(() => /已存回模型庫/.test(document.getElementById('status').textContent), null, {
+        timeout: 20000,
+      })
+      .then(
+        () => true,
+        () => false,
+      ),
+    `「存回模型庫」完成（${await p.textContent('#status')}）`,
+  );
+  await wait(500);
+  const after = await readRec();
+  check(
+    !!after && after.size !== before.size && after.orig === before.size,
+    `模型庫的槽位換成畫好的 GLB，繪製前的檔案留作原始檔（${before.size} → ${after && after.size}，原始檔 ${after && after.orig}）`,
+  );
+  check(
+    !!after && JSON.stringify(after.roots) === JSON.stringify(before.roots),
+    `存回的 GLB 根節點維持原樣（${before.roots.join('、')} → ${after && after.roots.join('、')}）`,
+  );
+  await p.screenshot({ path: path.join(SHOT_DIR, 'paint-linked.png') });
+  await p.close();
+  ({ p, ok } = await open());
+  check(ok, '再次從模型庫開啟');
+  check(
+    /接著上次的圖層/.test(await p.textContent('#status')) &&
+      JSON.stringify(await p.evaluate(() => window.__rp.painter.sets.map((s) => s.layers.length))) ===
+        JSON.stringify(layers),
+    `模型庫的檔案沒變時接著上次的圖層畫（${await p.textContent('#status')}）`,
+  );
+  // 模型庫切到別的模型組後，存回會被拒絕（避免存錯組）
+  // （檢視窗蓋住了上方的選單，直接操作元素）
+  await page.evaluate(() => {
+    document.querySelector('#setMenu').open = true;
+    document.getElementById('setName').value = '繪製測試';
+    document.getElementById('setNew').click();
+  });
+  await wait(800);
+  await p.click('#btnLibSave');
+  check(
+    await p
+      .waitForFunction(() => /另一個模型組/.test(document.getElementById('status').textContent), null, {
+        timeout: 15000,
+      })
+      .then(
+        () => true,
+        () => false,
+      ),
+    `模型庫換了模型組時拒絕存回（${await p.textContent('#status')}）`,
+  );
+  await ctx.close();
+}
+
 async function testSolo(browser, base) {
   console.log('單機：標題 → 車庫 → 出擊');
   const { ctx, page } = await newPage(browser, 'solo');
@@ -2626,6 +2782,7 @@ async function main() {
     await testEditorTextures(browser, base);
     await testEditorFaces(browser, base);
     await testEditorOptimize(browser, base);
+    await testPaint(browser);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
@@ -2657,6 +2814,17 @@ async function main() {
       );
       const bad = await fetch(game.url + 'apng/..%2f..%2fserver.js');
       check(bad.status === 404, '/apng/ 不能讀到資料夾外的檔案');
+      // 貼圖繪製（dist/paint/）
+      const pr = await fetch(game.url + 'paint', { redirect: 'manual' });
+      check(pr.status === 301 && pr.headers.get('location') === '/paint/', '/paint 轉到 /paint/');
+      const pj = await fetch(game.url + 'paint/lib/three/three.min.js');
+      const ph = await fetch(game.url + 'paint/');
+      check(
+        pj.ok &&
+          /javascript/.test(pj.headers.get('content-type') || '') &&
+          (await ph.text()).includes('Rubicon Paint'),
+        '/paint/ 提供貼圖繪製與它的程式庫',
+      );
       const [apng] = await Promise.all([page.waitForEvent('popup'), page.click('#btnApng')]);
       watch(apng, 'apng');
       check(

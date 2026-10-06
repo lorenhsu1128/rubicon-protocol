@@ -69,6 +69,7 @@
             <option value="proc">只看程式模型</option>
           </select></label
         >
+        <button id="btnPaint" title="在 GLB 模型上直接繪製貼圖（Rubicon Paint）">貼圖繪製</button>
         <button id="btnManifest" title="匯出所有 GLB 槽位與檢查結果">匯出對照表</button>
         <button
           id="btnJoints"
@@ -423,6 +424,9 @@
           <button id="insRemove">移除瀏覽器暫存</button>
           <button id="insTemplate" title="把程式模型照規格匯出成 GLB，當作建模範本">下載範本 GLB</button>
           <button id="insEdit" title="在 GLB 編輯器修正朝向、尺寸與原點">在 GLB 編輯器開啟</button>
+          <button id="insPaint" title="在貼圖繪製（Rubicon Paint）直接在模型上畫貼圖，畫完按「存回模型庫」">
+            繪製貼圖
+          </button>
           <input id="insFile" type="file" accept=".glb,model/gltf-binary" hidden />
         </div>
         <div class="dim small" id="insGlbHint"></div>

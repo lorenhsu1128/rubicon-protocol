@@ -13,7 +13,11 @@ const CFG_PATH = path.join(BASE, 'rubicon-server.json');
 // 遊戲頁：打包成 exe 時讀同資料夾的 rubicon-protocol.html；開發時讀 npm run build 的產物
 const WEB_DIR = process.pkg ? BASE : path.join(__dirname, 'dist');
 const LIB_DIR = path.join(WEB_DIR, 'lib'); // 程式庫（同資料夾的 lib/）
-const APNG_DIR = path.join(WEB_DIR, 'apng'); // 文字動畫 APNG 產生器（同資料夾的 apng/，/apng/ 提供）
+// 子專案的靜態網站（同資料夾的 apng/、paint/，在 /apng/、/paint/ 提供）
+const TOOL_DIRS = {
+  apng: { dir: path.join(WEB_DIR, 'apng'), name: 'apng' }, // 文字動畫 APNG 產生器
+  paint: { dir: path.join(WEB_DIR, 'paint'), name: 'paint' }, // 貼圖繪製（Rubicon Paint）
+};
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -334,18 +338,26 @@ function startGame(port) {
           });
           fs.createReadStream(f).pipe(resp);
         }
-      } else if (u === '/apng') {
+      } else if (/^\/(apng|paint)$/.test(u)) {
         // 相對路徑（./css、./js）要以 /apng/ 為基準
-        resp.writeHead(301, { Location: '/apng/' });
+        resp.writeHead(301, { Location: u + '/' });
         resp.end();
-      } else if (u.startsWith('/apng/')) {
-        // 文字動畫 APNG 產生器：原生 ES Modules，要用正確的 Content-Type
-        const rel = decodeURIComponent(u.slice(6)) || 'index.html';
-        const f = path.resolve(APNG_DIR, rel);
-        if (!f.startsWith(APNG_DIR + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
+      } else if (/^\/(apng|paint)\//.test(u)) {
+        // 子專案的靜態網站（APNG 產生器是原生 ES Modules）：依副檔名給 Content-Type
+        const tool = TOOL_DIRS[u.split('/')[1]];
+        let rel = '';
+        try {
+          rel = decodeURIComponent(u.slice(tool.name.length + 2));
+        } catch (e) {
+          rel = '\0';
+        }
+        const f = path.resolve(tool.dir, rel || 'index.html');
+        if (!f.startsWith(tool.dir + path.sep) || !fs.existsSync(f) || !fs.statSync(f).isFile()) {
           resp.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
           resp.end(
-            fs.existsSync(APNG_DIR) ? 'not found' : '找不到 apng 資料夾（請放在與遊戲頁相同的資料夾）',
+            fs.existsSync(tool.dir)
+              ? 'not found'
+              : `找不到 ${tool.name} 資料夾（請放在與遊戲頁相同的資料夾）`,
           );
         } else {
           resp.writeHead(200, {
@@ -515,7 +527,7 @@ function controlPage() {
 const $=id=>document.getElementById(id); let cur={};
 async function api(p,b){ const r=await fetch(p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}); return r.json(); }
 async function refresh(){ try{ const s=await api('/api/status'); cur=s; $('st').textContent=s.running?'執行中（port '+s.port+'）':'停止'; $('st').className='st '+(s.running?'on':'off'); if(document.activeElement!==$('port')) $('port').value=s.cfgPort; $('bStart').disabled=s.running; $('bStop').disabled=!s.running; $('bRestart').disabled=!s.running;
-  $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a>　<a class="dim" href="'+url+'models" target="_blank">模型庫</a>　<a class="dim" href="'+url+'apng/" target="_blank">文字動畫</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
+  $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a>　<a class="dim" href="'+url+'models" target="_blank">模型庫</a>　<a class="dim" href="'+url+'apng/" target="_blank">文字動畫</a>　<a class="dim" href="'+url+'paint/" target="_blank">貼圖繪製</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
   $('rooms').innerHTML=(s.rooms||[]).map(r=>'<tr><td>'+esc(r.room)+'</td><td>'+esc(r.host)+'</td><td>'+r.n+'/4</td><td>'+r.level+'</td><td>'+(r.state==='play'?'<span class="st on">任務中</span>':'大廳')+'</td><td>'+(r.spectators||0)+'</td><td><button onclick="spectate(\\''+r.peerId+'\\')">觀戰</button></td></tr>').join('')||'<tr><td colspan="7" class="dim">目前沒有房間</td></tr>';
   const md=s.models||{}; $('models').innerHTML='伺服器預設組：GLB '+(md.glb||0)+' 個・關節設定 '+(md.joints||0)+' 個・玩家上傳的模型組 '+(md.uploads||0)+' 個<div class="dim">在模型庫的「模型組」選單選「伺服器預設組」即可編輯；敵人、AI 機甲、載具、地圖物件與沒上傳模型組的玩家都用這一組。資料夾：<code>'+esc(md.dir||'')+'</code></div>';
   $('peers').textContent='線上連線數：'+(s.peers||0); $('log').textContent=s.logs.join('\\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){ $('st').textContent='控制台連線中斷'; } }
