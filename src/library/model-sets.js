@@ -4,17 +4,19 @@
 //   （＋ orig/<槽位>.glb：GLB 編輯器保留的原始檔），可以備份、分享，或在 file:// 與伺服器網址之間搬移
 import { escHtml } from '../core/html.js';
 import { packSetData, unpackSet } from '../render/set-pack.js';
+import { RefStore } from './ref-tools.js';
 
 const $ = (id) => document.getElementById(id);
 
-// 打包模型組 → Blob
-export function packSet(store, id) {
+// 打包模型組 → Blob（含參考圖）
+export async function packSet(store, id) {
   const s = store.sets.get(id);
   return packSetData({
     name: s ? s.name : '模型組',
     asm: (s && s.asm) || null,
     recs: store.setRecs(id),
     joints: store.jointsBy[id] || {},
+    refs: await RefStore.get(id),
   });
 }
 
@@ -50,6 +52,7 @@ export class SetMenu {
       if (!confirm(`刪除模型組「${s.name}」？（GLB ${st.glb} 個、關節設定 ${st.joints} 個，無法復原）`))
         return;
       await store.deleteSet(s.id);
+      RefStore.remove(s.id);
       this.changed(`已刪除模型組「${s.name}」，目前是「${store.curSet().name}」`);
     };
     $('setPublish').onclick = () => this.publish();
@@ -137,16 +140,17 @@ export class SetMenu {
     const cur = store.curSet();
     const name = typed && typed !== cur.name ? typed : copy ? cur.name + ' 複本' : '新模型組';
     const s = copy ? await store.duplicateSet(cur.id, name) : await store.createSet(name, { asm: cur.asm });
+    if (copy) await RefStore.copy(cur.id, s.id);
     store.view(s.id);
     this.changed(
       copy ? `已複製成模型組「${s.name}」` : `已新增空白模型組「${s.name}」（零件組合沿用目前的）`,
     );
   }
-  exportSet() {
+  async exportSet() {
     const s = this.store.curSet();
     const st = this.store.setStats(s.id);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(packSet(this.store, s.id));
+    a.href = URL.createObjectURL(await packSet(this.store, s.id));
     a.download = fileName(s.name);
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -160,6 +164,7 @@ export class SetMenu {
       return this.toast(`無法匯入 ${file.name}：${e.message || e}`, true);
     }
     const s = await this.store.createSet(data.name, data);
+    if (data.refs) await RefStore.put(s.id, data.refs);
     this.store.view(s.id);
     const nj = Object.values(data.joints).reduce((n, c) => n + Object.keys(c).length, 0);
     this.changed(

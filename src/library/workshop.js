@@ -16,6 +16,8 @@ import {
 } from '../render/mech-model.js';
 import { builtinJoints, gameToGltf } from '../render/mech-joints.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
+import { applyQuick } from './pose.js';
+import { RefTools } from './ref-tools.js';
 import { buildGrid } from './refs.js';
 import { WsEditor } from './workshop-edit.js';
 import {
@@ -125,6 +127,22 @@ export class Workshop {
     this.controls.enableDamping = true;
     this.setupUi();
     this.edit = new WsEditor(this);
+    // 正交視圖、快速姿勢（A pose）、參考圖（ref-tools.js）
+    this.ref = new RefTools({
+      box: $('wsRef'),
+      host: this,
+      canvas: this.canvas,
+      store: this.store,
+      getRig: () => this.rig,
+      tcs: () => [this.edit.tc],
+      onPose: () => {
+        this.anim = 'rest';
+        this.playing = false;
+        this.applyPose();
+        this.markAnim();
+      },
+      toast: this.toast,
+    });
     const set = this.store.curSet();
     if (set && set.asm) this.asm = sanitizeAsm(set.asm);
     this.last = performance.now();
@@ -136,6 +154,7 @@ export class Workshop {
     $('workshop').hidden = false;
     this.open_ = true;
     this.renderPresets();
+    await this.ref.load();
     await this.rebuild(true);
   }
   close() {
@@ -150,7 +169,7 @@ export class Workshop {
     this.edit.undo = [];
     this.edit.redo = [];
     this.edit.renderUndo();
-    if (this.open_) this.rebuild(true);
+    this.ref.load().then(() => this.open_ && this.rebuild(true));
   }
 
   // ---------- 介面 ----------
@@ -304,7 +323,8 @@ export class Workshop {
     this.glbSlots = new Set(glbSlots);
     this.scene.add(rig.group);
     this.applyPose();
-    if (refit || !this.fitted) {
+    this.ref.attach();
+    if ((refit || !this.fitted) && this.ref.view === 'persp') {
       this.resize(true);
       this.controls.target.copy(
         fitCamera(this.camera, new THREE.Vector3(3, 4.2, 3), this.camera.aspect, 1.5),
@@ -323,7 +343,11 @@ export class Workshop {
     const rig = this.rig;
     if (!rig) return;
     restPose(rig);
-    if (this.anim === 'rest') return;
+    if (this.anim === 'rest') {
+      if (this.ref) applyQuick(rig, this.ref.q); // 快速姿勢只在靜止時套用（只影響顯示）
+      if (this.edit) this.edit.dirty();
+      return;
+    }
     const t0 = Math.max(0, this.t - 1.5);
     for (let x = t0; x <= this.t; x += STEP) animateMech(rig, STEP, animState(this.anim, x));
     if (this.edit) this.edit.dirty();
@@ -490,8 +514,10 @@ export class Workshop {
     this.w = w;
     this.h = h;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / Math.max(1, h);
-    this.camera.updateProjectionMatrix();
+    const pc = this.ref ? this.ref.persp.camera : this.camera;
+    pc.aspect = w / Math.max(1, h);
+    pc.updateProjectionMatrix();
+    if (this.ref) this.ref.resize(w, h);
   }
   loop() {
     requestAnimationFrame(() => this.loop());

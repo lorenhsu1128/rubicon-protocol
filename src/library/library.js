@@ -75,6 +75,7 @@ function onSetSwitch() {
   for (const e of MODEL_CATALOG) if (all || e.cat === 'mech' || setScoped(e.id)) grid.refresh(e.id);
   if (inspector.open_) inspector.rebuild();
   workshop.useSet();
+  if (editor.open_) editor.ref.load().then(() => editor.ctx.build());
   applyFilter();
 }
 

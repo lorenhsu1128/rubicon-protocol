@@ -92,6 +92,8 @@ export class WsEditor {
     this.ws = ws;
     this.sel = null; // { slot }＝選中區塊；{ slot, name }＝選中連接點
     this.mode = 'translate';
+    this.editModel = false; // true＝調整區塊的模型（縮放／位移／旋轉，寫回 GLB 的原點節點），false＝連接點
+    this.uniform = true; // 模型縮放維持等比例
     this.marks = [];
     this.timers = {};
     this.undo = [];
@@ -153,6 +155,7 @@ export class WsEditor {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (k === 'w' || k === 'W') return this.setMode('translate');
       if (k === 'e' || k === 'E') return this.setMode('rotate');
+      if ((k === 'r' || k === 'R') && this.editModel) return this.setMode('scale');
       const NUDGE = {
         ArrowLeft: [0, -1],
         ArrowRight: [0, 1],
@@ -177,7 +180,12 @@ export class WsEditor {
     $('wsToolbar').innerHTML =
       `<div class="wsTools btns">` +
       `<button data-m="translate" title="拖曳三軸箭頭移動（W）">移動</button>` +
-      `<button data-m="rotate" title="拖曳旋轉環旋轉（E）">旋轉</button></div>` +
+      `<button data-m="rotate" title="拖曳旋轉環旋轉（E）">旋轉</button>` +
+      `<button data-m="scale" title="拖曳方塊縮放（R，只在調整模型時）">縮放</button></div>` +
+      `<div class="wsTools btns">` +
+      `<button data-edit="0" title="調整連接點（關節的位置與旋轉）">連接點</button>` +
+      `<button data-edit="1" title="調整選中區塊的模型：以原點為中心縮放、位移、旋轉（寫回它的 GLB，原點不變）">模型</button>` +
+      `<label class="tog" title="縮放時三軸一起變"><input type="checkbox" id="wsUniform"> 等比例</label></div>` +
       `<div class="wsTools btns">` +
       `<button data-keep="1" title="移動關節點時零件不動，只改轉軸（子零件的原點自動寫回 GLB）">只動關節</button>` +
       `<button data-keep="0" title="移動關節點時，接在上面的零件與下游的零件一起移動">零件跟著動</button></div>` +
@@ -211,6 +219,11 @@ export class WsEditor {
       num('snapRot', 1, ['吸附 ', '°']) +
       `</div></details>`;
     for (const b of $('wsToolbar').querySelectorAll('[data-m]')) b.onclick = () => this.setMode(b.dataset.m);
+    for (const b of $('wsToolbar').querySelectorAll('[data-edit]'))
+      b.onclick = () => this.setEditModel(b.dataset.edit === '1');
+    $('wsUniform').checked = this.uniform;
+    $('wsUniform').onchange = () => (this.uniform = $('wsUniform').checked);
+    this.markEdit();
     for (const b of $('wsToolbar').querySelectorAll('[data-keep]'))
       b.onclick = () => {
         this.settings.keep = b.dataset.keep === '1';
@@ -242,7 +255,21 @@ export class WsEditor {
     for (const b of $('wsToolbar').querySelectorAll('[data-keep]'))
       b.classList.toggle('sel', (b.dataset.keep === '1') === !!this.settings.keep);
   }
+  setEditModel(on) {
+    this.editModel = on;
+    if (!on && this.mode === 'scale') this.mode = 'translate';
+    this.markEdit();
+    this.setMode(this.mode);
+    this.apply();
+  }
+  markEdit() {
+    for (const b of $('wsToolbar').querySelectorAll('[data-edit]'))
+      b.classList.toggle('sel', (b.dataset.edit === '1') === this.editModel);
+    const sb = $('wsToolbar').querySelector('[data-m=scale]');
+    if (sb) sb.disabled = !this.editModel;
+  }
   setMode(m) {
+    if (m === 'scale' && !this.editModel) m = 'translate';
     this.mode = m;
     if (this.tc) this.tc.setMode(m);
     for (const b of $('wsToolbar').querySelectorAll('[data-m]')) b.classList.toggle('sel', b.dataset.m === m);
@@ -407,7 +434,7 @@ export class WsEditor {
     }
     const row = s && document.querySelector(`#wsTree .sel`);
     if (row) row.scrollIntoView({ block: 'nearest' });
-    if (this.target()) this.attachGizmo();
+    if (this.target() || this.modelSlot()) this.attachGizmo();
     else this.detachGizmo();
     if ($('wsCopy')) $('wsCopy').disabled = !(s && s.name && mirrorOf(s));
     this.renderDetail();
@@ -417,7 +444,7 @@ export class WsEditor {
   // 一律「零件跟著動」（移動整個零件與下游的零件）；機體根部沒有可移動的連接點
   // 腿部根區塊（襠部／主體）：組裝調整以核心為準，拖曳它＝整組腿相對核心移動（inverse：反向換算成腰的連接點）
   target(s = this.sel) {
-    if (!s || !this.rig || s.name === 'ground') return null;
+    if (!s || !this.rig || s.name === 'ground' || this.editModel) return null;
     if (s.name) return this.mark(s) ? { s, keep: !!this.settings.keep } : null;
     if (this.rig.ground && s.slot === this.rig.ground.base) {
       const w = this.mark({ slot: s.slot, name: 'waist' });
@@ -437,6 +464,15 @@ export class WsEditor {
     return X.clone().invert().multiply(this.rig.torso.matrix.clone().invert());
   }
   attachGizmo() {
+    const ms = this.modelSlot();
+    if (ms) {
+      const obj = this.rig.pieces[ms];
+      if (!obj || !this.tc) return this.detachGizmo();
+      obj.parent.add(this.frame);
+      this.resetProxy();
+      this.tc.attach(this.proxy);
+      return;
+    }
     const t = this.target();
     const m = t && this.mark(t.s);
     if (!m || !this.tc) return this.detachGizmo();
@@ -534,6 +570,113 @@ export class WsEditor {
       if (t && !out.some((x) => same(x.s, t))) out.push({ s: t, ov: ov ? mirrorVal(ov) : null, keep });
     }
     return out;
+  }
+
+  // ---------- 調整模型：以原點為中心縮放／位移／旋轉，寫回 GLB 的原點節點 ----------
+  // 原點節點 W（glTF）把模型放到以關節為原點的位置；調整 T（glTF，原點座標）後 W'＝T·W。
+  // 代理物件放在區塊的關節群組裡的 glTF 框，拖曳時它的矩陣就是 T
+  modelSlot(s = this.sel) {
+    if (!this.editModel || !s || s.name || !this.rig || !this.rig.pieces[s.slot]) return null;
+    return this.canKeep(s.slot) ? s.slot : null;
+  }
+  resetProxy() {
+    this.proxy.position.set(0, 0, 0);
+    this.proxy.rotation.set(0, 0, 0);
+    this.proxy.scale.set(1, 1, 1);
+  }
+  proxyMat() {
+    const q = this.proxy;
+    if (this.uniform && this.mode === 'scale') {
+      const s = [q.scale.x, q.scale.y, q.scale.z].reduce(
+        (a, b) => (Math.abs(b - 1) > Math.abs(a - 1) ? b : a),
+        1,
+      );
+      q.scale.setScalar(s);
+    }
+    return new THREE.Matrix4().compose(q.position, q.quaternion, q.scale);
+  }
+  // 對稱編輯：另一側（鏡像 T＝S·T·S，S＝X 取負）
+  modelList(slot, T) {
+    const out = [{ slot, T }];
+    if (this.sym) {
+      const m = mirrorOf({ slot, name: '' });
+      if (m && m.slot !== slot && this.rig.pieces[m.slot] && this.canKeep(m.slot)) {
+        const S = new THREE.Matrix4().makeScale(-1, 1, 1);
+        out.push({ slot: m.slot, T: S.clone().multiply(T).multiply(S) });
+      }
+    }
+    return out;
+  }
+  modelPreview() {
+    const slot = this.modelSlot();
+    if (!slot) return;
+    for (const x of this.modelList(slot, this.proxyMat()))
+      this.setPivotLive(x.slot, x.T.clone().multiply(this.originOf(x.slot)).toArray());
+    this.writeModelDetail();
+  }
+  async commitModel(T, slot = this.modelSlot()) {
+    if (!slot) return;
+    const items = this.modelList(slot, T).map((x) => {
+      const W = this.originOf(x.slot);
+      return { pivot: x.slot, before: W.toArray(), after: x.T.clone().multiply(W).toArray() };
+    });
+    this.resetProxy();
+    if (items.every((i) => i.before.every((v, k) => Math.abs(v - i.after[k]) < 1e-9))) return;
+    this.undo.push({ key: null, t: performance.now(), items });
+    if (this.undo.length > 200) this.undo.shift();
+    this.redo = [];
+    for (const i of items) await this.applyItem(i, i.after);
+    this.changed();
+    this.writeModelDetail();
+  }
+  // 數值輸入（增量）：等比縮放 %、位移 cm、旋轉 °
+  applyModelInputs() {
+    const box = $('wsDetail');
+    const g = (k) => parseFloat((box.querySelector(`[data-mk="${k}"]`) || {}).value) || 0;
+    const s = (box.querySelector('[data-mk="s"]') || {}).value;
+    const k = Number.isFinite(parseFloat(s)) && parseFloat(s) > 0 ? parseFloat(s) / 100 : 1;
+    const T = new THREE.Matrix4().compose(
+      new THREE.Vector3(g('x'), g('y'), g('z')).multiplyScalar(0.01),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(g('rx') * D2R, g('ry') * D2R, g('rz') * D2R)),
+      new THREE.Vector3(k, k, k),
+    );
+    for (const inp of box.querySelectorAll('[data-mk]')) inp.value = inp.dataset.mk === 's' ? 100 : 0;
+    return this.commitModel(T);
+  }
+  writeModelDetail() {
+    const el = $('wsDetail').querySelector('.wsMcur');
+    const slot = this.modelSlot();
+    if (!el || !slot) return;
+    const T = this.dragging ? this.proxyMat() : new THREE.Matrix4();
+    const W = T.multiply(this.originOf(slot));
+    const p = new THREE.Vector3(),
+      q = new THREE.Quaternion(),
+      s = new THREE.Vector3();
+    W.decompose(p, q, s);
+    const r = (v) => Math.round(v * 1000) / 1000;
+    el.textContent =
+      Math.abs(s.x - s.y) < 1e-4 && Math.abs(s.y - s.z) < 1e-4
+        ? `模型目前的縮放 ×${r(s.x)}（相對 GLB 原檔）`
+        : `模型目前的縮放 ×${r(s.x)}／${r(s.y)}／${r(s.z)}（相對 GLB 原檔）`;
+  }
+  modelDetailHtml(slot) {
+    if (!this.canKeep(slot))
+      return `<div class="wsModel small dim">這個區塊是程式模型或暫用另一側的 GLB：先放入它自己的 GLB 才能調整模型</div>`;
+    const f = (k, label, v, step) =>
+      `<label>${label}<input type="number" step="${step}" data-mk="${k}" value="${v}"></label>`;
+    return (
+      `<div class="wsModel"><div class="small"><b>調整模型</b>：拖曳畫面上的箭頭（移動）、旋轉環或方塊（縮放），或輸入增量後套用；以原點（關節）為中心，原點與連接點不變</div>` +
+      `<div class="small wsMcur"></div>` +
+      `<div class="jgrid">` +
+      f('s', '縮放 %', 100, 1) +
+      f('x', 'X cm', 0, 0.5) +
+      f('y', 'Y cm', 0, 0.5) +
+      f('z', 'Z cm', 0, 0.5) +
+      f('rx', '旋轉 X°', 0, 1) +
+      f('ry', 'Y°', 0, 1) +
+      f('rz', 'Z°', 0, 1) +
+      `</div><div class="wsDf"><button data-act="mapply">套用</button><span class="small dim">對稱編輯開啟時另一側一起改；可復原</span></div></div>`
+    );
   }
 
   // ---------- 只動關節：子區塊不動，改它的原點 ----------
@@ -664,6 +807,7 @@ export class WsEditor {
     }, 300);
   }
   fromProxy() {
+    if (this.modelSlot()) return this.modelPreview();
     const t = this.target();
     if (!t) return;
     const q = this.proxy;
@@ -688,6 +832,7 @@ export class WsEditor {
     this.dirty();
   }
   commitDrag() {
+    if (this.modelSlot()) return this.commitModel(this.proxyMat());
     const t = this.target();
     if (!t) return;
     this.commit(this.withMirror([{ s: t.s, ov: this.current(t.s), keep: t.keep }]));
@@ -748,11 +893,15 @@ export class WsEditor {
         (own.length
           ? `<div class="small">此區塊的連接點：${own.map((m) => `<button class="link" data-slot="${m.slot}" data-n="${m.name}">${escHtml(CONN_NAMES[m.name] || m.name)}</button>`).join('')}</div>`
           : `<div class="small dim">此區塊沒有連接點</div>`) +
+        (this.editModel ? this.modelDetailHtml(s.slot) : '') +
         (isBase
           ? `<div class="wsGround"><div class="small">自動貼地：<span class="gAuto"></span></div>` +
             `<div class="wsDf"><label class="small">離地微調 <input type="number" step="0.5" id="wsGroundFine"> cm</label>` +
             `<button data-act="greset">重設</button></div></div>`
           : '');
+      const ma = box.querySelector('[data-act=mapply]');
+      if (ma) ma.onclick = () => this.applyModelInputs();
+      this.writeModelDetail();
       if (isBase) {
         $('wsGroundFine').onchange = () => {
           const cm = parseFloat($('wsGroundFine').value);

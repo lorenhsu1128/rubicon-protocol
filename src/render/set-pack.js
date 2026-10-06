@@ -1,4 +1,5 @@
 // 模型組檔（.rubicon-set，不壓縮的 zip）：manifest.json ＋ joints.json ＋ models/<槽位>.glb（＋ orig/<槽位>.glb）
+// ＋ refs.json、refs/<front|side>.<副檔名>（模型庫的參考圖與校正值，上傳到伺服器時不含）
 // 模型庫匯出／匯入與遊戲上傳到伺服器共用
 import { makeZip, readZip } from '../core/zip.js';
 import { setScoped } from './local-models.js';
@@ -8,7 +9,7 @@ const enc = new TextEncoder(),
   dec = new TextDecoder();
 const FIXED_DATE = new Date(1980, 0, 1);
 
-// data：{ name, asm, recs: [{ id, name, buf, t?, orig? }], joints }
+// data：{ name, asm, recs: [{ id, name, buf, t?, orig? }], joints, refs? }（refs 見 library/ref-tools.js）
 // stable：相同內容產生相同位元組（上傳用：不含時間與原始檔，以內容雜湊當檔名）
 export function packSetData(data, { stable = false } = {}) {
   const files = [];
@@ -32,6 +33,29 @@ export function packSetData(data, { stable = false } = {}) {
       .sort()
       .map((k) => [k, data.joints[k]]),
   );
+  const refs = data.refs;
+  if (refs && refs.views && !stable) {
+    const meta = { height: refs.height || null, opacity: refs.opacity, onTop: !!refs.onTop, views: {} };
+    for (const v of ['front', 'side']) {
+      const iv = refs.views[v];
+      if (!iv || !iv.buf) continue;
+      const ext = (String(iv.type).split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+      const file = `refs/${v}.${ext}`;
+      files.push({ name: file, data: new Uint8Array(iv.buf) });
+      meta.views[v] = {
+        file,
+        type: iv.type,
+        w: iv.w,
+        h: iv.h,
+        top: iv.top,
+        bottom: iv.bottom,
+        cx: iv.cx,
+        flip: !!iv.flip,
+      };
+    }
+    if (Object.keys(meta.views).length)
+      files.push({ name: 'refs.json', data: enc.encode(JSON.stringify(meta, null, 2) + '\n') });
+  }
   files.unshift(
     { name: 'manifest.json', data: enc.encode(JSON.stringify(manifest, null, 2) + '\n') },
     { name: 'joints.json', data: enc.encode(JSON.stringify(joints, null, 2) + '\n') },
@@ -89,5 +113,35 @@ export async function unpackSet(buf, { anySlot = false } = {}) {
     if (Object.keys(ok).length) joints[slot] = ok;
   }
   const asm = manifest.asm && typeof manifest.asm === 'object' ? manifest.asm : null;
-  return { name: String(manifest.name || '匯入的模型組'), asm, recs, joints, skipped };
+  // 參考圖（舊版的檔案沒有）
+  let refs = null;
+  try {
+    const meta = files.has('refs.json') ? JSON.parse(dec.decode(files.get('refs.json'))) : null;
+    const num = (v, d) => (Number.isFinite(+v) ? Math.min(1, Math.max(0, +v)) : d);
+    if (meta && meta.views)
+      for (const v of ['front', 'side']) {
+        const m = meta.views[v];
+        const d = m && files.get(m.file);
+        if (!d || !/^image\//.test(m.type || '')) continue;
+        refs = refs || {
+          views: {},
+          height: +meta.height > 0 ? +meta.height : null,
+          opacity: num(meta.opacity, 0.55),
+          onTop: !!meta.onTop,
+        };
+        refs.views[v] = {
+          buf: bufOf(d),
+          type: m.type,
+          w: +m.w || 1,
+          h: +m.h || 1,
+          top: num(m.top, 0.05),
+          bottom: num(m.bottom, 0.95),
+          cx: num(m.cx, 0.5),
+          flip: !!m.flip,
+        };
+      }
+  } catch (e) {
+    skipped.push('refs.json');
+  }
+  return { name: String(manifest.name || '匯入的模型組'), asm, recs, joints, refs, skipped };
 }

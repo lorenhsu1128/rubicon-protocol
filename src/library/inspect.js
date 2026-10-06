@@ -18,6 +18,9 @@ import { THEMES } from '../world/world.js';
 import { buildAxes, buildConnMarker, buildDims, buildGrid, buildHuman, buildRuler } from './refs.js';
 import { ThrusterFx } from '../fx/thruster.js';
 import { JointEditor } from './joint-editor.js';
+import { applyQuick } from './pose.js';
+import { RefTools } from './ref-tools.js';
+import { restPose } from './workshop.js';
 import { exportTemplate } from './template.js';
 import { StylePipeline, resetStyleGlobals } from '../render/style/pipeline.js';
 import { installStyleShader, tagStyle } from '../render/style/shader.js';
@@ -119,6 +122,20 @@ export class Inspector {
       store,
       onChange: (slot) => onJoints && onJoints(slot),
     });
+    // 正交視圖、快速姿勢、參考圖（整台機甲：組合預覽與完整機甲）
+    this.ref = new RefTools({
+      box: $('insRef'),
+      host: this,
+      canvas: this.canvas,
+      store,
+      getRig: () => this.bodyRig(),
+      tcs: () => [this.joints.tc],
+      onView: (v) => {
+        this.joints.camera = this.camera;
+        if (v !== 'persp') for (const it of this.items) it.pivot.rotation.y = 0; // 對照時不轉
+      },
+      toast: (t, bad) => this.onError && bad && this.onError(t),
+    });
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.open_) this.close();
     });
@@ -145,6 +162,12 @@ export class Inspector {
     }
   }
   // 渲染風格預覽（遊戲的風格；不選時維持原本的檢視）
+  // 整台機甲（組合預覽或完整機甲）：參考圖與正交視圖的對象
+  bodyRig() {
+    const rig = this.main && this.main.built && this.main.built.rig;
+    if (!rig || rig.vehicle || !rig.arms) return null;
+    return this.mode === 'compose' || (this.entry && this.entry.cat === 'mech') ? rig : null;
+  }
   setupStyle() {
     const sel = $('insStyle');
     const fill = () => {
@@ -330,6 +353,8 @@ export class Inspector {
     this.clear();
     this.main = main;
     this.items = [main, ...(ref ? [ref] : [])];
+    await this.ref.load();
+    if (tok !== this.tok) return;
     if (MECHY.includes(e.cat)) for (const it of this.items) tagStyle(it.pivot, 1);
     // 擺放：並排時 GLB 在左、程式模型在右，整體置中
     let size = main.size.clone();
@@ -400,8 +425,13 @@ export class Inspector {
     sc.updateProjectionMatrix();
     this.lights.sun.position.set(r * 0.6, r * 1.4, -r * 0.8);
     this.resize(true);
-    this.controls.target.copy(fitCamera(this.camera, size, this.camera.aspect, 1.6));
-    this.controls.update();
+    const pc = this.ref.persp;
+    pc.controls.target.copy(fitCamera(pc.camera, size, pc.camera.aspect, 1.6));
+    pc.controls.update();
+    this.ref.attach();
+    const body = !!this.bodyRig();
+    $('insRefH').style.display = $('insRef').style.display = body ? '' : 'none';
+    if (!body && this.ref.view !== 'persp') this.ref.setView('persp');
     this.renderInfo(src, ref);
     this.applyOpts();
     $('insPal').disabled = !!e.noPal; // 地圖物件等沒有陣營配色
@@ -612,8 +642,10 @@ export class Inspector {
     this.w = w;
     this.h = h;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / Math.max(1, h);
-    this.camera.updateProjectionMatrix();
+    const pc = this.ref ? this.ref.persp.camera : this.camera;
+    pc.aspect = w / Math.max(1, h);
+    pc.updateProjectionMatrix();
+    if (this.ref) this.ref.resize(w, h);
     if (this.composer) {
       const pr = this.renderer.getPixelRatio();
       this.composer.setSize(w, h);
@@ -629,10 +661,15 @@ export class Inspector {
     if (!this.open_ || !this.items.length) return;
     this.t += dt;
     this.resize(false);
+    const fixed = this.ref.view !== 'persp' || this.ref.poseOn();
     for (const it of this.items) {
-      if (this.opts.rotate) it.pivot.rotation.y += dt * 0.4;
+      if (this.opts.rotate && this.ref.view === 'persp') it.pivot.rotation.y += dt * 0.4;
       const rig = it.built.rig;
-      if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState(this.anim, this.t));
+      if (rig && fixed && rig === this.bodyRig()) {
+        // 對照參考圖：拉直靜止姿勢＋快速姿勢（A pose），不播動作
+        restPose(rig);
+        applyQuick(rig, this.ref.q);
+      } else if (rig) animateMech(rig, dt, rig.vehicle ? { t: this.t } : animState(this.anim, this.t));
     }
     // 噴焰：整台機甲依動作的推力；單獨檢視背包時以中等推力從噴口連接點噴出
     if (this.opts.flame) {
@@ -645,7 +682,9 @@ export class Inspector {
     }
     this.thruster.update(dt);
     this.controls.update();
-    if (this.opts.post && this.styleP && this.stylePipe) {
+    // 正交視圖不做後處理（後處理綁定透視鏡頭）
+    if (this.ref.view !== 'persp') this.renderer.render(this.scene, this.camera);
+    else if (this.opts.post && this.styleP && this.stylePipe) {
       this.stylePipe.render(this.styleP, now / 1000);
       resetStyleGlobals();
     } else if (this.opts.post && this.composer) this.composer.render(dt);

@@ -1301,3 +1301,99 @@ button:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
+/* ---------- 視圖、姿勢與參考圖（ref-tools.js）---------- */
+.refBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.refBox .btns button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.refBox .refSl {
+  display: grid;
+  grid-template-columns: 64px 1fr 40px;
+  align-items: center;
+  gap: 6px;
+}
+.refBox .refSl input[type='range'] {
+  width: 100%;
+  accent-color: var(--acc);
+}
+.refBox .refSl .v {
+  text-align: right;
+  color: var(--acc2);
+  font-variant-numeric: tabular-nums;
+}
+.refBox .refImg {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.refBox .refImg > span {
+  width: 52px;
+  color: var(--dim);
+}
+.refBox .refImg button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+#refCal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#refCal[hidden] {
+  display: none;
+}
+#refCal .refCalBox {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#refCal .refCalHead {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+#refCal canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+#refCal .refCalFoot {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#refCal .refCalFoot .sp {
+  flex: 1;
+}
+#refCal input[type='number'] {
+  font: inherit;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+}
+.wsModel {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

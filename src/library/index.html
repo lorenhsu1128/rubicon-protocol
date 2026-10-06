@@ -124,6 +124,8 @@
           </div>
           <h3>零件</h3>
           <div id="wsParts"></div>
+          <h3>視圖、姿勢與參考圖</h3>
+          <div id="wsRef" class="refBox"></div>
         </aside>
         <div id="wsView">
           <canvas id="wsGl"></canvas>
@@ -173,6 +175,18 @@
             <input id="edFile" type="file" accept=".glb,model/gltf-binary" hidden />
           </div>
           <div class="dim small" id="edSrc"></div>
+          <h3>全身參考</h3>
+          <div class="edRow">
+            <label><input type="checkbox" id="edCtxOn" /> 顯示整台機甲的其他區塊</label>
+            <select id="edCtxLook">
+              <option value="ghost">半透明</option>
+              <option value="wire">線框</option>
+              <option value="solid">實體</option>
+            </select>
+          </div>
+          <div class="dim small" id="edCtxNote"></div>
+          <h3>視圖、姿勢與參考圖</h3>
+          <div id="edRef" class="refBox"></div>
           <h3>拆分</h3>
           <div class="btns">
             <button id="edSplitOn" title="把整台機甲或整隻手臂拆成遊戲的各個區塊">拆分成區塊…</button>
@@ -468,6 +482,8 @@
         </div>
         <h3 id="insAnimH">動作預覽</h3>
         <div class="btns" id="insAnims"></div>
+        <h3 id="insRefH">視圖、姿勢與參考圖</h3>
+        <div id="insRef" class="refBox"></div>
       </aside>
     </div>
 

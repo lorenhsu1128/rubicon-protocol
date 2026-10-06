@@ -31,6 +31,8 @@ import {
   triCountOf,
   weldGeometry,
 } from './editor-opt.js';
+import { BodyContext } from './editor-context.js';
+import { RefTools } from './ref-tools.js';
 import { SplitTool } from './editor-split.js';
 import { TextureTool, registerOriginals } from './editor-tex.js';
 import { buildAxes, buildConnMarker, buildGrid } from './refs.js';
@@ -176,6 +178,34 @@ export class GlbEditor {
     this.tex.setupUi();
     this.faces.setupUi();
     this.setupOpt();
+    // 全身參考（editor-context.js）與正交視圖、快速姿勢、參考圖（ref-tools.js）
+    this.ctx = new BodyContext(this);
+    this.ref = new RefTools({
+      box: $('edRef'),
+      host: this,
+      canvas: this.canvas,
+      store: this.store,
+      getRig: () => (this.ctx.group.visible ? this.ctx.rig : null),
+      tcs: () => [this.tc],
+      onPose: () => {
+        this.ctx.pose();
+        if (this.ref.view !== 'persp') this.ref.fitOrtho(false);
+      },
+      toast: this.toast,
+    });
+    $('edCtxOn').checked = this.ctx.on;
+    $('edCtxLook').value = this.ctx.look;
+    $('edCtxOn').onchange = () => {
+      this.ctx.on = $('edCtxOn').checked;
+      this.ctx.save();
+      if (!this.ctx.on && this.ref.view !== 'persp') this.ref.setView('persp');
+      this.ctx.build();
+    };
+    $('edCtxLook').onchange = () => {
+      this.ctx.look = $('edCtxLook').value;
+      this.ctx.save();
+      this.ctx.applyLook();
+    };
     this.last = performance.now();
     requestAnimationFrame(() => this.loop());
   }
@@ -185,6 +215,8 @@ export class GlbEditor {
     $('editor').hidden = false;
     this.open_ = true;
     this.resize(true);
+    // 其他區塊、關節設定可能在別的頁面改過；沒有模型時取景到全身參考
+    this.ref.load().then(() => this.ctx.build().then(() => !this.content && this.frameView()));
     if (slot && (!this.entry || this.entry.id !== slot)) {
       if (this.content && this.dirty && !confirm('目前的修改尚未存檔，確定要切換到其他槽位？')) return;
       this.setSlot(slot);
@@ -381,6 +413,7 @@ export class GlbEditor {
     $('edSlot').value = this.entry ? this.entry.id : '';
     $('edOptTris').value = budgetFor(this.entry ? this.entry.spec : 'mech').tris;
     this.buildRef();
+    if (this.ctx) this.ctx.build();
     this.renderAll();
   }
   // 參考：程式模型（GLB 製作尺寸 ×1）、外框、連接點；地板放在原點（區塊放在程式模型的最低點）
@@ -427,6 +460,7 @@ export class GlbEditor {
   }
   applyShow() {
     const sp = this.split && this.split.active;
+    if (this.ctx) this.ctx.group.visible = this.ctx.on && !!this.ctx.rig && !sp;
     if (this.refObj) this.refObj.visible = this.show.ref && !sp;
     for (const m of this.connMarks) m.mk.visible = this.show.conns && !sp;
     if (sp && this.split.rig) this.split.rig.group.visible = this.show.ref;
@@ -1159,6 +1193,7 @@ export class GlbEditor {
 
   // ---------- 繪製 ----------
   frameView() {
+    if (this.ref && this.ref.view !== 'persp') return this.ref.fitOrtho(true);
     this.resize(true);
     const b = this.box().clone().applyMatrix4(this.frame.matrixWorld);
     if (this.refObj && !this.split.active) b.union(new THREE.Box3().setFromObject(this.refObj));
@@ -1192,8 +1227,10 @@ export class GlbEditor {
     this.w = w;
     this.h = h;
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / Math.max(1, h);
-    this.camera.updateProjectionMatrix();
+    const pc = this.ref ? this.ref.persp.camera : this.camera;
+    pc.aspect = w / Math.max(1, h);
+    pc.updateProjectionMatrix();
+    if (this.ref) this.ref.resize(w, h);
   }
   render() {
     this.controls.update();

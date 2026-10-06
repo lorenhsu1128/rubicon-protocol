@@ -580,6 +580,149 @@ async function testLibrary(browser, base) {
 
 // 模型庫 GLB 流程：區塊範本 GLB 匯出 → 載入同一槽位 → 規格檢查全部通過 → 並排對照 → 組合預覽 →
 // 左側武器暫用右側 → 錯放偵測 → 移除 → 完整機甲改用區塊組合
+// 視圖、姿勢與參考圖（組裝調整頁、檢視窗、GLB 編輯器）＋組裝調整頁直接調整區塊模型
+async function testRefTools(browser, base) {
+  console.log(
+    '參考圖與正交視圖：A pose → 正視 → 參考圖校正 → 調整區塊模型 → 檢視窗／GLB 編輯器全身參考 → 匯出帶參考圖',
+  );
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'ref-tools');
+  page.on('dialog', (d) => d.accept());
+  const SLOT = 'arms/a_std/r_fore';
+  // 先給右前臂一個 GLB（範本）：組裝調整頁的「模型」只能調整有自己 GLB 的區塊
+  await page.goto(base + 'model-library.html?test#' + SLOT);
+  await page.waitForSelector('#inspect:not([hidden])');
+  await wait(1200);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+  const fp = path.join(SHOT_DIR, 'ref-fore.glb');
+  await dl.saveAs(fp);
+  await page.setInputFiles('#insFile', fp);
+  await wait(1500);
+  // 檢視窗：組合預覽 → A pose → 正視
+  await page.click('#insModes [data-m="compose"]');
+  await wait(2000);
+  check(await visible(page, 'insRef'), '檢視窗的組合預覽顯示「視圖、姿勢與參考圖」');
+  await page.click('#insRef [data-pose="a"]');
+  await page.click('#insRef [data-v="front"]');
+  await wait(1000);
+  check(
+    await page.evaluate(() => {
+      const ins = document.getElementById('insRef');
+      return !!ins && document.querySelector('#insRef [data-v="front"]').classList.contains('sel');
+    }),
+    '檢視窗切到正視（正交鏡頭）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ref-inspect-front.png') });
+  // 組裝調整頁
+  await page.goto(base + 'model-library.html?test=ws#workshop');
+  await page.waitForFunction(() => window.__workshop && window.__workshop.rig, null, { timeout: 15000 });
+  await wait(800);
+  await page.click('#wsRef [data-pose="a"]');
+  await wait(400);
+  const armZ = await page.evaluate(() =>
+    Object.values(window.__workshop.rig.arms).map((a) => Math.round((a.up.rotation.z * 180) / Math.PI)),
+  );
+  check(
+    armZ.every((z) => Math.abs(z) === 40),
+    `A pose：手臂張開 40°（${armZ.join('、')}）`,
+  );
+  const img = path.join(SHOT_DIR, 'library.png');
+  const [fc] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.click('#wsRef [data-load="front"]'),
+  ]);
+  await fc.setFiles(img);
+  await page.waitForSelector('#refCal:not([hidden])', { timeout: 10000 });
+  await page.fill('#refCalH', '5');
+  await page.click('#refCalOk');
+  await wait(1200);
+  const rs = await page.evaluate(() => {
+    const w = window.__workshop;
+    const g = w.ref.planes;
+    return {
+      cam: w.camera.type,
+      planes: g ? g.children.length : 0,
+      vis: g ? g.children.some((h) => h.visible) : false,
+      h: w.ref.targetH(),
+    };
+  });
+  check(
+    rs.cam === 'OrthographicCamera' && rs.planes === 1 && rs.vis && rs.h === 5,
+    `載入正面圖並校正（目標身高 ${rs.h} m）後切到正視、顯示參考圖`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ref-workshop-front.png') });
+  await page.click('#wsRef [data-v="persp"]');
+  // 調整模型：選右前臂 → 模型 → 縮放 120% → 復原
+  await page.evaluate((slot) => window.__workshop.edit.select({ slot }), SLOT);
+  await page.click('#wsToolbar [data-edit="1"]');
+  await wait(300);
+  const scaleOf = () =>
+    page.evaluate((slot) => {
+      const s = new THREE.Vector3();
+      window.__workshop.edit.originOf(slot).decompose(new THREE.Vector3(), new THREE.Quaternion(), s);
+      return Math.round(s.x * 1000) / 1000;
+    }, SLOT);
+  const s0 = await scaleOf();
+  await page.fill('#wsDetail [data-mk="s"]', '120');
+  await page.click('#wsDetail [data-act="mapply"]');
+  await wait(800);
+  const s1 = await scaleOf();
+  check(Math.abs(s1 / s0 - 1.2) < 0.01, `組裝調整頁「模型」縮放 120% 寫回 GLB 的原點節點（×${s0} → ×${s1}）`);
+  await page.click('#wsUndo');
+  await wait(800);
+  check(Math.abs((await scaleOf()) - s0) < 0.001, '復原模型縮放');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ref-workshop-model.png') });
+  // GLB 編輯器：全身參考
+  await page.goto(base + 'model-library.html?test=ed#editor=' + SLOT);
+  await page.waitForFunction(() => window.__glbEditor && window.__glbEditor.ctx.rig, null, {
+    timeout: 15000,
+  });
+  await wait(800);
+  const ed = await page.evaluate((slot) => {
+    const e = window.__glbEditor;
+    return {
+      vis: e.ctx.group.visible,
+      hidden: e.ctx.rig.pieces[slot] && !e.ctx.rig.pieces[slot].visible,
+      n: Object.keys(e.ctx.rig.pieces).length,
+    };
+  }, SLOT);
+  check(ed.vis && ed.hidden && ed.n > 10, `GLB 編輯器顯示整台機甲的其他區塊（${ed.n} 塊，編輯中的區塊隱藏）`);
+  await page.click('#edRef [data-v="front"]');
+  await wait(1000);
+  check(
+    await page.evaluate(() => window.__glbEditor.camera.type === 'OrthographicCamera'),
+    'GLB 編輯器切到正視',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ref-editor-front.png') });
+  // 匯出模型組帶參考圖 → 匯入成新的模型組後參考圖還在
+  await page.goto(base + 'model-library.html?test=set');
+  await page.waitForSelector('.cell');
+  await page.evaluate(() => (document.querySelector('#setMenu').open = true));
+  const [d2] = await Promise.all([page.waitForEvent('download'), page.click('#setExport')]);
+  const sp = path.join(SHOT_DIR, 'ref-set.rubicon-set');
+  await d2.saveAs(sp);
+  const buf = fs.readFileSync(sp);
+  check(
+    buf.includes('refs.json') && buf.includes('refs/front.png'),
+    '匯出的模型組檔包含參考圖（refs.json、refs/front.png）',
+  );
+  await page.setInputFiles('#setImportFile', sp);
+  await wait(1500);
+  await page.goto(base + 'model-library.html?test=ws2#workshop');
+  await page.waitForFunction(() => window.__workshop && window.__workshop.rig, null, { timeout: 15000 });
+  await wait(800);
+  check(
+    await page.evaluate(() => {
+      const w = window.__workshop;
+      return w.store.cur !== 'default' && !!(w.ref.rec && w.ref.rec.views.front);
+    }),
+    '匯入的模型組帶回參考圖',
+  );
+  await ctx.close();
+}
+
 async function testLibraryGlb(browser, base) {
   console.log('模型庫 GLB：區塊範本匯出 → 載入 → 規格檢查 → 組合預覽 → 移除');
   if (!fs.existsSync(LIBRARY)) return;
@@ -2913,6 +3056,7 @@ async function main() {
     await testPilot(browser, base);
     await testLibrary(browser, base);
     await testLibraryGlb(browser, base);
+    await testRefTools(browser, base);
     await testDraco(browser, base + 'model-library.html', 'http');
     await testDraco(browser, 'file:///' + LIBRARY.split(path.sep).join('/'), 'file');
     await testLibraryJoints(browser, base);
