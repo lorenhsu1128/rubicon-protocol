@@ -226,7 +226,8 @@ select {
   touch-action: none;
 }
 body.noUV #viewUV,
-body.noUV #splitter {
+body.noUV #splitter,
+body.noRight #rightPanel {
   display: none;
 }
 .uvHead {
@@ -263,6 +264,7 @@ body.noUV #splitter {
   top: 6px;
   left: 6px;
   flex-wrap: wrap;
+  max-width: 48%;
 }
 .corner.tr {
   top: 6px;

@@ -404,12 +404,12 @@
     const dir = camera.position.clone().sub(controls.target).normalize();
     if (!isFinite(dir.x) || dir.lengthSq() < 0.5) dir.set(0, 0, 1);
     controls.target.copy(c);
-    const dist = r / Math.sin(THREE.MathUtils.degToRad(persp.fov) / 2);
+    const vfov = THREE.MathUtils.degToRad(persp.fov);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * Math.max(0.2, persp.aspect));
+    const dist = r / Math.sin(Math.min(vfov, hfov) / 2);
+    if (camera.isOrthographicCamera) orthoHalf = (r * 1.1) / Math.min(1, persp.aspect);
     camera.position.copy(c).addScaledVector(dir, dist * 1.05);
-    if (camera.isOrthographicCamera) {
-      camera.zoom = 1;
-      orthoHalf = r * 1.1;
-    }
+    if (camera.isOrthographicCamera) camera.zoom = 1;
     camera.lookAt(c);
     controls.update();
   }
@@ -1139,7 +1139,12 @@
     document.body.classList.toggle('noUV');
     $('btnUvToggle').classList.toggle('on', !document.body.classList.contains('noUV'));
   };
-  if (window.innerWidth < 760) $('btnUvToggle').click();
+  $('btnRightToggle').onclick = () => {
+    document.body.classList.toggle('noRight');
+    $('btnRightToggle').classList.toggle('on', !document.body.classList.contains('noRight'));
+  };
+  // 窄螢幕（平板直向）預設收起 UV 面板
+  if (window.innerWidth < 900) $('btnUvToggle').click();
 
   for (const b of document.querySelectorAll('[data-view]'))
     b.onclick = () => {
@@ -1150,6 +1155,7 @@
     };
 
   function updateUndoButtons() {
+    if (painter.undoStack.length || painter.redoStack.length) S.edited = true;
     $('btnUndo').disabled = !painter.undoStack.length;
     $('btnRedo').disabled = !painter.redoStack.length;
     renderLayers();
@@ -1358,6 +1364,11 @@
     if (!model) return;
     if (stroke || D.active) return;
     setStatus('儲存專案中…');
+    download(await buildProject(), `${safe(S.fileName)}.rpaint`);
+    setStatus('已儲存專案');
+  }
+
+  async function buildProject() {
     const files = [];
     const meta = { app: 'rubicon-paint', version: 1, fileName: S.fileName, demo: !S.sourceBuf, sets: [], hidden: meshes().map((o) => !o.visible) };
     if (S.sourceBuf) files.push({ name: 'model.glb', data: new Uint8Array(S.sourceBuf) });
@@ -1373,9 +1384,53 @@
       meta.sets.push({ name: s.name, w: s.w, h: s.h, active: s.active, layers });
     }
     files.unshift({ name: 'project.json', data: new TextEncoder().encode(JSON.stringify(meta, null, 1)) });
-    download(RP.makeZip(files), `${safe(S.fileName)}.rpaint`);
-    setStatus('已儲存專案');
+    return RP.makeZip(files);
   }
+
+  // ---------- 自動暫存（每 5 分鐘，有改動才存；存在這個瀏覽器的 IndexedDB） ----------
+  const AUTOSAVE_MS = 5 * 60 * 1000;
+
+  function idb() {
+    return new Promise((resolve, reject) => {
+      const r = indexedDB.open('rubicon-paint', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('autosave');
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+  }
+  async function idbDo(mode, fn) {
+    const db = await idb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const t = db.transaction('autosave', mode);
+        const req = fn(t.objectStore('autosave'));
+        t.oncomplete = () => resolve(req && req.result);
+        t.onerror = () => reject(t.error);
+      });
+    } finally {
+      db.close();
+    }
+  }
+  async function autosave() {
+    if (!S.edited || !model || stroke || D.active || grad || uvStroke) return false;
+    S.edited = false;
+    const blob = await buildProject();
+    await idbDo('readwrite', (st) => st.put({ blob, time: Date.now(), name: S.fileName }, 'last'));
+    return true;
+  }
+  setInterval(() => autosave().catch(() => {}), AUTOSAVE_MS);
+  idbDo('readonly', (st) => st.get('last'))
+    .then((rec) => {
+      if (!rec) return;
+      const b = $('btnRestore');
+      b.hidden = false;
+      b.title = `還原「${rec.name}」（${new Date(rec.time).toLocaleString()} 自動暫存）`;
+      b.onclick = async () => {
+        b.hidden = true;
+        await openProject(await rec.blob.arrayBuffer(), rec.name + '.rpaint');
+      };
+    })
+    .catch(() => {});
 
   async function openProject(buf, name) {
     try {
@@ -1906,7 +1961,7 @@
   window.addEventListener('resize', fitUV);
 
   // 測試用
-  window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene };
+  window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene, autosave };
 
   requestAnimationFrame(frame);
 })();
