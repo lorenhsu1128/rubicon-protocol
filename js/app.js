@@ -229,24 +229,34 @@
     return dracoReady;
   }
 
+  function parseGLB(buf) {
+    const parse = () =>
+      new Promise((resolve, reject) =>
+        loader.parse(buf, '', (gltf) => resolve(gltf.scene), (err) => reject(new Error(String((err && err.message) || err)))),
+      );
+    if (!glbUsesDraco(buf)) return parse();
+    setStatus('讀取中（Draco 解壓縮）…');
+    return ensureDraco().then(parse);
+  }
+
   function loadArrayBuffer(buf, name) {
     setStatus('讀取中…');
-    const parse = () =>
-      loader.parse(
-        buf,
-        '',
-        (gltf) => {
-          S.fileName = name.replace(/\.glb$/i, '');
-          setModel(gltf.scene);
-        },
-        (err) => setStatus('讀取失敗：' + String((err && err.message) || err), true),
-      );
-    if (glbUsesDraco(buf)) {
-      setStatus('讀取中（Draco 解壓縮）…');
-      ensureDraco()
-        .then(parse)
-        .catch((err) => setStatus('Draco 解碼器載入失敗：' + err.message, true));
-    } else parse();
+    return parseGLB(buf).then(
+      (root) => {
+        S.fileName = name.replace(/\.glb$/i, '');
+        S.sourceBuf = buf;
+        setModel(root);
+      },
+      (err) => setStatus('讀取失敗：' + err.message, true),
+    );
+  }
+
+  // 依副檔名開檔
+  function openFile(f) {
+    if (/\.glb$/i.test(f.name)) f.arrayBuffer().then((b) => loadArrayBuffer(b, f.name));
+    else if (/\.rpaint$/i.test(f.name)) f.arrayBuffer().then((b) => openProject(b, f.name));
+    else if (/^image\//.test(f.type)) openImageFile(f);
+    else setStatus('只支援 .glb、.rpaint 與圖片（PNG／JPG／WebP）', true);
   }
 
   function setModel(root) {
@@ -1287,12 +1297,170 @@
   $('btnOpen').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
     const f = e.target.files[0];
-    if (f) f.arrayBuffer().then((b) => loadArrayBuffer(b, f.name));
+    if (f) openFile(f);
     e.target.value = '';
   };
   $('btnDemo').onclick = () => {
     S.fileName = 'demo_mech';
+    S.sourceBuf = null;
     setModel(RP.buildDemoMech());
+  };
+  $('btnOpenProj').onclick = () => $('projInput').click();
+  $('projInput').onchange = (e) => {
+    const f = e.target.files[0];
+    if (f) openFile(f);
+    e.target.value = '';
+  };
+  $('btnSaveProj').onclick = () => saveProject();
+
+  // ---------- 專案檔（.rpaint）：不壓縮的 zip ＝ project.json ＋ model.glb（原始檔）＋ layers/*.png ----------
+  // PNG 自己編碼（CompressionStream），透明度不會被瀏覽器的預乘處理弄掉精度；不支援時改用畫布
+  async function encodePNG(px, w, h) {
+    if (typeof CompressionStream === 'undefined') {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), w, h), 0, 0);
+      return new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/png'))).arrayBuffer());
+    }
+    const raw = new Uint8Array((w * 4 + 1) * h);
+    for (let y = 0; y < h; y++) raw.set(px.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
+    const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+    const crcT = encodePNG.crc || (encodePNG.crc = Array.from({ length: 256 }, (_, n) => {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      return c >>> 0;
+    }));
+    const chunk = (type, data) => {
+      const out = new Uint8Array(12 + data.length);
+      const dv = new DataView(out.buffer);
+      dv.setUint32(0, data.length);
+      for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+      out.set(data, 8);
+      let c = 0xffffffff;
+      for (let i = 4; i < 8 + data.length; i++) c = crcT[(c ^ out[i]) & 0xff] ^ (c >>> 8);
+      dv.setUint32(8 + data.length, (c ^ 0xffffffff) >>> 0);
+      return out;
+    };
+    const ihdr = new Uint8Array(13);
+    const dv = new DataView(ihdr.buffer);
+    dv.setUint32(0, w);
+    dv.setUint32(4, h);
+    ihdr.set([8, 6, 0, 0, 0], 8);
+    const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', z), chunk('IEND', new Uint8Array(0))];
+    return new Uint8Array(await new Blob(parts).arrayBuffer());
+  }
+  function decodeImage(bytes) {
+    return createImageBitmap(new Blob([bytes], { type: 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  }
+
+  async function saveProject() {
+    if (!model) return;
+    if (stroke || D.active) return;
+    setStatus('儲存專案中…');
+    const files = [];
+    const meta = { app: 'rubicon-paint', version: 1, fileName: S.fileName, demo: !S.sourceBuf, sets: [], hidden: meshes().map((o) => !o.visible) };
+    if (S.sourceBuf) files.push({ name: 'model.glb', data: new Uint8Array(S.sourceBuf) });
+    for (let i = 0; i < painter.sets.length; i++) {
+      const s = painter.sets[i];
+      const layers = [];
+      for (let j = 0; j < s.layers.length; j++) {
+        const L = s.layers[j];
+        const name = `layers/${i}_${j}.png`;
+        files.push({ name, data: await encodePNG(painter.layerPixels(s, L), s.w, s.h) });
+        layers.push(Object.assign(L.props(), { file: name }));
+      }
+      meta.sets.push({ name: s.name, w: s.w, h: s.h, active: s.active, layers });
+    }
+    files.unshift({ name: 'project.json', data: new TextEncoder().encode(JSON.stringify(meta, null, 1)) });
+    download(RP.makeZip(files), `${safe(S.fileName)}.rpaint`);
+    setStatus('已儲存專案');
+  }
+
+  async function openProject(buf, name) {
+    try {
+      setStatus('開啟專案中…');
+      const zip = RP.readZip(buf);
+      const metaBytes = zip.get('project.json');
+      if (!metaBytes) throw new Error('沒有 project.json');
+      const meta = JSON.parse(new TextDecoder().decode(metaBytes));
+      if (meta.demo) {
+        S.sourceBuf = null;
+        S.fileName = meta.fileName || 'demo_mech';
+        setModel(RP.buildDemoMech());
+      } else {
+        const glb = zip.get('model.glb');
+        if (!glb) throw new Error('沒有 model.glb');
+        const ab = glb.slice().buffer;
+        const root = await parseGLB(ab);
+        S.sourceBuf = ab;
+        S.fileName = meta.fileName || name.replace(/\.rpaint$/i, '');
+        setModel(root);
+      }
+      const warn = [];
+      for (let i = 0; i < meta.sets.length; i++) {
+        const ms = meta.sets[i];
+        const s = painter.sets[i];
+        if (!s || s.w !== ms.w || s.h !== ms.h) {
+          warn.push(ms.name);
+          continue;
+        }
+        const list = [];
+        for (const ml of ms.layers) {
+          const img = await decodeImage(zip.get(ml.file));
+          const props = {};
+          for (const k of ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip']) props[k] = ml[k];
+          list.push({ props, rt: painter.rtFromImage(s, img) });
+          img.close();
+        }
+        painter.restoreLayers(s, list, ms.active);
+      }
+      painter.resetHistory();
+      const ms = meshes();
+      (meta.hidden || []).forEach((h, i) => ms[i] && setMeshVisible(ms[i], !h));
+      renderObjects();
+      showSet(painter.sets[0] || null);
+      updateUndoButtons();
+      setStatus(warn.length ? `已開啟專案，但這些貼圖組對不上（略過）：${warn.join('、')}` : `已開啟專案「${S.fileName}」`, !!warn.length);
+    } catch (err) {
+      setStatus('開啟專案失敗：' + err.message, true);
+    }
+  }
+
+  // ---------- PSD ----------
+  $('btnExportPsd').onclick = () => {
+    const s = S.current;
+    if (!s) return;
+    const layers = s.layers.map((L) => Object.assign(L.props(), { pixels: painter.layerPixels(s, L) }));
+    const blob = RP.makePSD(s.w, s.h, layers, painter.readComp(s));
+    download(blob, `${safe(S.fileName)}_${safe(s.name)}.psd`);
+    setStatus(`已匯出 PSD（${s.name}，${layers.length} 個圖層）`);
+  };
+
+  // ---------- AO 烘焙 ----------
+  bindRange('aoStrength', 'aoStrengthOut', () => {});
+  bindRange('aoContrast', 'aoContrastOut', () => {});
+  $('btnAO').onclick = () => {
+    if (!model || !painter.sets.length) return;
+    setStatus('AO 烘焙中…');
+    // 讓狀態列先畫出來
+    setTimeout(() => {
+      try {
+        const t0 = performance.now();
+        const n = painter.bakeAO({
+          scene,
+          hide: [grid, wireGroup, decalOutline],
+          dirs: Number($('aoDirs').value),
+          strength: Number($('aoStrength').value) / 100,
+          contrast: Number($('aoContrast').value) / 100,
+          sets: $('aoOnlyCurrent').checked && S.current ? [S.current] : null,
+        });
+        updateUndoButtons();
+        setStatus(`已烘焙 AO：${n} 組貼圖各加了一個「AO」圖層（色彩增值，${Math.round(performance.now() - t0)} ms）`);
+      } catch (err) {
+        setStatus('AO 烘焙失敗：' + err.message, true);
+      }
+    }, 30);
   };
   window.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -1305,9 +1473,7 @@
     e.preventDefault();
     document.body.classList.remove('dragging');
     const f = e.dataTransfer.files[0];
-    if (f && /\.glb$/i.test(f.name)) f.arrayBuffer().then((b) => loadArrayBuffer(b, f.name));
-    else if (f && /^image\//.test(f.type)) openImageFile(f);
-    else if (f) setStatus('只支援 .glb 與圖片（PNG／JPG／WebP）', true);
+    if (f) openFile(f);
   });
 
   // ---------- 貼上圖片 ----------
@@ -1696,7 +1862,8 @@
       return;
     }
     if (e.ctrlKey || e.metaKey) {
-      if (k === 'z' && !e.shiftKey) $('btnUndo').click();
+      if (k === 's') saveProject();
+      else if (k === 'z' && !e.shiftKey) $('btnUndo').click();
       else if (k === 'y' || (k === 'z' && e.shiftKey)) $('btnRedo').click();
       else if (e.code === 'Numpad1') setView('back');
       else if (e.code === 'Numpad3') setView('left');

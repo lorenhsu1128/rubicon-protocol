@@ -349,6 +349,50 @@
       gl_FragColor = at(vUv);
     }`;
 
+  // 直接 alpha 的圖片 → 預乘的圖層
+  const PREMUL_FRAG = /* glsl */ `
+    uniform sampler2D uTex;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(uTex, vUv);
+      gl_FragColor = vec4(c.rgb * c.a, c.a);
+    }`;
+
+  // AO：從一個方向看過去的深度圖，判斷每個貼圖像素有沒有被擋住。R 累加「看得到 × 權重」，G 累加權重
+  const AO_FRAG = /* glsl */ `
+    #include <packing>
+    uniform mat4 uVP;
+    uniform sampler2D uDepth;
+    uniform vec3 uDir;
+    uniform float uBias;
+    varying vec3 vWorld;
+    varying vec3 vNrm;
+    void main() {
+      vec3 N = normalize(vNrm);
+      float w = dot(N, uDir);
+      if (w <= 0.0) discard;
+      vec4 c = uVP * vec4(vWorld + N * uBias, 1.0);
+      vec3 n = c.xyz / c.w;
+      float d = unpackRGBAToDepth(texture2D(uDepth, n.xy * 0.5 + 0.5));
+      float vis = n.z * 0.5 + 0.5 <= d + 0.002 ? 1.0 : 0.0;
+      gl_FragColor = vec4(vis * w, w, 0.0, 1.0);
+    }`;
+
+  const AO_FINAL_FRAG = /* glsl */ `
+    uniform sampler2D uAcc;
+    uniform sampler2D uMask;
+    uniform float uStrength;
+    uniform float uContrast;
+    varying vec2 vUv;
+    void main() {
+      float m = texture2D(uMask, vUv).r;
+      vec4 a = texture2D(uAcc, vUv);
+      float ao = a.g > 0.0 ? clamp(a.r / a.g, 0.0, 1.0) : 1.0;
+      ao = pow(ao, uContrast);
+      float v = mix(1.0, ao, uStrength);
+      gl_FragColor = vec4(vec3(v) * m, m);
+    }`;
+
   const COPY_FRAG = /* glsl */ `
     uniform sampler2D uTex;
     varying vec2 vUv;
@@ -635,6 +679,30 @@
         uTexel: { value: new THREE.Vector2() },
       });
       this.copyMat = quadMat(COPY_FRAG, { uTex: { value: null } });
+      this.premulMat = quadMat(PREMUL_FRAG, { uTex: { value: null } });
+      this.aoMat = new THREE.ShaderMaterial({
+        vertexShader: UV_VERT,
+        fragmentShader: AO_FRAG,
+        uniforms: {
+          uVP: { value: new THREE.Matrix4() },
+          uDepth: { value: null },
+          uDir: { value: new THREE.Vector3() },
+          uBias: { value: 0.001 },
+        },
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+      });
+      this.aoFinalMat = quadMat(AO_FINAL_FRAG, {
+        uAcc: { value: null },
+        uMask: { value: null },
+        uStrength: { value: 1 },
+        uContrast: { value: 1 },
+      });
       this.stampMat = new THREE.ShaderMaterial({
         vertexShader: UV_VERT,
         fragmentShader: STAMP_FRAG,
@@ -1386,6 +1454,144 @@
       this.renderer.setRenderTarget(null);
       this.pushHistory([this.pixelsOp(s, L, next)]);
       s.dirty = true;
+    }
+
+    // ---------- 圖層像素的讀寫（專案檔、PSD） ----------
+    // 直接 alpha 的 RGBA，第 0 列是 v=0（＝圖片的最上面一列）
+    layerPixels(s, L) {
+      const buf = this.readRT(L.rt, s.w, s.h);
+      for (let i = 0; i < buf.length; i += 4) {
+        const a = buf[i + 3];
+        if (a > 0 && a < 255) {
+          buf[i] = Math.min(255, Math.round((buf[i] * 255) / a));
+          buf[i + 1] = Math.min(255, Math.round((buf[i + 1] * 255) / a));
+          buf[i + 2] = Math.min(255, Math.round((buf[i + 2] * 255) / a));
+        }
+      }
+      return buf;
+    }
+    // 圖片（直接 alpha，最上面一列是 v=0）→ 圖層像素
+    rtFromImage(s, img) {
+      const t = new THREE.Texture(img);
+      t.flipY = false;
+      t.premultiplyAlpha = false;
+      t.generateMipmaps = false;
+      t.minFilter = t.magFilter = THREE.NearestFilter;
+      t.needsUpdate = true;
+      const rt = this.newLayerRT(s);
+      this.premulMat.uniforms.uTex.value = t;
+      this.quad(this.premulMat, rt);
+      this.renderer.setRenderTarget(null);
+      t.dispose();
+      return rt;
+    }
+    // 讀專案檔：整組換成這些圖層（[{ props, rt }]），清掉復原紀錄
+    restoreLayers(s, list, active) {
+      s.layers = list.map(({ props, rt }) => Object.assign(new Layer(rt, props.name), props));
+      s.active = Math.max(0, Math.min(active, s.layers.length - 1));
+      s.dirty = true;
+    }
+    resetHistory() {
+      this.undoStack = [];
+      this.redoStack = [];
+      this.gc();
+    }
+
+    // ---------- AO 烘焙 ----------
+    // 從很多方向（球面上平均分布）各算一張深度圖，統計每個貼圖像素在法線那一側的半球有多少方向看得到天空。
+    // 結果放成每組最上面的「AO」圖層（色彩增值）。opts: { scene, hide, dirs, strength, contrast, sets }
+    bakeAO(opts) {
+      const r = this.renderer;
+      if (!r.capabilities.isWebGL2 || !r.extensions.get('EXT_color_buffer_float')) throw new Error('這個瀏覽器不支援浮點貼圖，不能烘焙 AO');
+      const sets = (opts.sets || this.sets).filter((s) => {
+        s.syncMatrices();
+        return !s.box.isEmpty();
+      });
+      if (!sets.length) return 0;
+      const box = new THREE.Box3();
+      for (const s of this.sets) if (!s.box.isEmpty()) box.union(s.box);
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      const R = sphere.radius;
+      const res = 1024;
+      const depthRT = new THREE.WebGLRenderTarget(res, res, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+      const cam = new THREE.OrthographicCamera(-R, R, R, -R, 0.001, 4 * R);
+      const accs = sets.map(
+        (s) =>
+          new THREE.WebGLRenderTarget(s.w, s.h, {
+            type: THREE.HalfFloatType,
+            format: THREE.RGBAFormat,
+            depthBuffer: false,
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
+          }),
+      );
+      for (const a of accs) this.clear(a);
+      const hidden = [];
+      for (const o of opts.hide || [])
+        if (o.visible) {
+          o.visible = false;
+          hidden.push(o);
+        }
+      const prevBg = opts.scene.background;
+      opts.scene.background = null;
+      const prevC = r.getClearColor(new THREE.Color());
+      const prevA = r.getClearAlpha();
+      const u = this.aoMat.uniforms;
+      u.uDepth.value = depthRT.texture;
+      u.uBias.value = R * 0.004;
+      const n = opts.dirs || 64;
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      for (let i = 0; i < n; i++) {
+        // 斐波那契球面
+        const y = 1 - (2 * (i + 0.5)) / n;
+        const rad = Math.sqrt(1 - y * y);
+        const dir = new THREE.Vector3(Math.cos(golden * i) * rad, y, Math.sin(golden * i) * rad);
+        cam.position.copy(sphere.center).addScaledVector(dir, 2 * R);
+        cam.up.set(Math.abs(dir.y) > 0.99 ? 1 : 0, Math.abs(dir.y) > 0.99 ? 0 : 1, 0);
+        cam.lookAt(sphere.center);
+        cam.updateMatrixWorld();
+        opts.scene.overrideMaterial = this.depthMat;
+        r.setClearColor(0xffffff, 1);
+        r.setRenderTarget(depthRT);
+        r.clear(true, true, false);
+        r.render(opts.scene, cam);
+        opts.scene.overrideMaterial = null;
+        u.uVP.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+        u.uDir.value.copy(dir);
+        sets.forEach((s, k) => {
+          s.scene.overrideMaterial = this.aoMat;
+          r.setRenderTarget(accs[k]);
+          r.autoClear = false;
+          r.render(s.scene, this.uvCam);
+          r.autoClear = true;
+          s.scene.overrideMaterial = null;
+        });
+      }
+      r.setClearColor(prevC, prevA);
+      opts.scene.background = prevBg;
+      for (const o of hidden) o.visible = true;
+      depthRT.dispose();
+      // 每組加一個「AO」圖層（可以復原）
+      const fu = this.aoFinalMat.uniforms;
+      fu.uStrength.value = opts.strength == null ? 1 : opts.strength;
+      fu.uContrast.value = opts.contrast == null ? 1 : opts.contrast;
+      const ops = [];
+      sets.forEach((s, k) => {
+        const before = this.snapshot(s);
+        const rt = this.newLayerRT(s);
+        fu.uAcc.value = accs[k].texture;
+        fu.uMask.value = s.mask.texture;
+        this.quad(this.aoFinalMat, rt);
+        const L = new Layer(rt, 'AO');
+        L.blend = 'multiply';
+        s.layers.push(L);
+        ops.push(this.structOp(s, before));
+        s.dirty = true;
+        accs[k].dispose();
+      });
+      r.setRenderTarget(null);
+      this.pushHistory(ops);
+      return sets.length;
     }
 
     // ---------- 復原 ----------

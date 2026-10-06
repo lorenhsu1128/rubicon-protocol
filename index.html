@@ -12,7 +12,12 @@
       <div class="group">
         <button id="btnOpen" title="開啟 GLB（也可以把檔案拖進視窗）">開啟 GLB</button>
         <button id="btnDemo" title="載入範例機甲">範例模型</button>
-        <input id="fileInput" type="file" accept=".glb,model/gltf-binary" hidden />
+        <input id="fileInput" type="file" accept=".glb,.rpaint,model/gltf-binary" hidden />
+      </div>
+      <div class="group">
+        <button id="btnOpenProj" title="開啟專案檔（.rpaint：模型＋所有圖層）">開啟專案</button>
+        <button id="btnSaveProj" title="儲存專案檔（Ctrl+S）">儲存專案</button>
+        <input id="projInput" type="file" accept=".rpaint" hidden />
       </div>
       <div class="group">
         <button id="btnUndo" class="icon" title="復原（Ctrl+Z）"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg></button>
@@ -21,6 +26,7 @@
       <div class="group">
         <button id="btnExportPng" title="下載目前貼圖組的 PNG">匯出 PNG</button>
         <button id="btnExportAll" title="下載所有貼圖組的 PNG">全部 PNG</button>
+        <button id="btnExportPsd" title="目前貼圖組的圖層存成 PSD">匯出 PSD</button>
         <button id="btnExportGlb" title="把畫好的貼圖寫回 GLB 並下載">匯出 GLB</button>
       </div>
       <div class="spacer"></div>
@@ -168,6 +174,21 @@
           </div>
         </section>
 
+        <section class="panel" id="aoPanel">
+          <h3>AO 烘焙 <span class="dim">（凹處的陰影）</span></h3>
+          <label class="row">強度 <input id="aoStrength" type="range" min="0" max="100" value="80" /><output id="aoStrengthOut">80</output></label>
+          <label class="row">對比 <input id="aoContrast" type="range" min="50" max="300" value="120" /><output id="aoContrastOut">120</output></label>
+          <label class="row">品質
+            <select id="aoDirs" style="grid-column: span 2">
+              <option value="32">快速（32 方向）</option>
+              <option value="96" selected>標準（96 方向）</option>
+              <option value="256">精細（256 方向）</option>
+            </select>
+          </label>
+          <label class="check"><input id="aoOnlyCurrent" type="checkbox" /> 只烘焙目前的貼圖組</label>
+          <div class="btnRow"><button id="btnAO" class="primary">烘焙成 AO 圖層</button></div>
+        </section>
+
         <section class="panel" id="objPanel">
           <h3>零件 <span class="dim">（H 隱藏游標下的零件、Alt+H 全部顯示）</span></h3>
           <div id="objList"></div>
@@ -184,6 +205,7 @@
     <script src="lib/three/GLTFExporter.js"></script>
     <script src="js/paint-core.js"></script>
     <script src="js/brushes.js"></script>
+    <script src="js/fileio.js"></script>
     <script src="js/demo-model.js"></script>
     <script src="js/app.js"></script>
   </body>
