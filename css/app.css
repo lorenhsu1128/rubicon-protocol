@@ -447,3 +447,29 @@ button.primary {
     width: 180px;
   }
 }
+
+/* 漸層導引、UV 面板游標 */
+#guide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: none;
+}
+#guide line {
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 1px #000);
+}
+#uvCursor {
+  position: absolute;
+  border: 1px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  pointer-events: none;
+  display: none;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}

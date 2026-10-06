@@ -22,6 +22,7 @@
     altPick: false,
     current: null, // 目前的貼圖組（UV 面板、匯出 PNG）
     fileName: 'model',
+    fillMode: 'island',
   };
 
   // ---------- three.js ----------
@@ -463,9 +464,18 @@
       setStatus('目前的圖層是隱藏的，請先顯示它或選別的圖層', true);
       return;
     }
+    const tool = eraserButton ? 'eraser' : S.tool;
+    if (tool === 'fill') {
+      fillAt(x, y);
+      return;
+    }
+    if (tool === 'gradient') {
+      startGradient(e, x, y);
+      e.preventDefault();
+      return;
+    }
     const r = view3d.getBoundingClientRect();
     camera.updateMatrixWorld();
-    const tool = eraserButton ? 'eraser' : S.tool;
     painter.beginStroke(
       { camera, scene, w: r.width, h: r.height, hide: [grid, wireGroup], modelSize },
       {
@@ -487,8 +497,10 @@
   view3d.addEventListener('pointermove', (e) => {
     if (e.pointerType !== 'touch') {
       const [x, y] = localXY(e);
-      const d = currentTool() === 'picker' || D.active ? 0 : S.size;
-      view3d.style.cursor = D.active ? (D.dragging ? 'grabbing' : 'crosshair') : currentTool() === 'picker' ? 'crosshair' : 'none';
+      const t = currentTool();
+      const brushTool = (t === 'pen' || t === 'eraser') && !D.active;
+      const d = brushTool ? S.size : 0;
+      view3d.style.cursor = D.active ? (D.dragging ? 'grabbing' : 'crosshair') : brushTool ? 'none' : 'crosshair';
       cursor.style.display = d > 2 ? 'block' : 'none';
       cursor.style.left = x + 'px';
       cursor.style.top = y + 'px';
@@ -498,6 +510,11 @@
     if (D.active) {
       const [x, y] = localXY(e);
       decalPointerMove(e, x, y);
+      return;
+    }
+    if (grad && e.pointerId === grad.id) {
+      if (e.buttons === 0) endGradient();
+      else updateGradient(...localXY(e));
       return;
     }
     if (!stroke || e.pointerId !== stroke.id) return;
@@ -526,8 +543,12 @@
     if (touched.length && !touched.includes(S.current)) showSet(touched[0]);
     updateUndoButtons();
   }
-  view3d.addEventListener('pointerup', endStroke);
-  view3d.addEventListener('pointercancel', endStroke);
+  const up3d = (e) => {
+    if (grad && e.pointerId === grad.id) endGradient();
+    else endStroke(e);
+  };
+  view3d.addEventListener('pointerup', up3d);
+  view3d.addEventListener('pointercancel', up3d);
   view3d.addEventListener('pointerleave', (e) => {
     if (e.pointerType !== 'touch' && !stroke) cursor.style.display = 'none';
   });
@@ -551,25 +572,210 @@
     }
   }
 
+  // ---------- 填色、漸層（3D 視窗） ----------
+  // 點到的網格、三角形與貼圖組
+  function rayHitSet(x, y) {
+    const r = view3d.getBoundingClientRect();
+    raycaster.setFromCamera(new THREE.Vector2((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1), camera);
+    for (const h of raycaster.intersectObject(model, true)) {
+      if (!h.uv || !h.object.isMesh || !h.face || !h.object.visible) continue;
+      const mats = h.object.material;
+      const m = Array.isArray(mats) ? mats[h.face.materialIndex] : mats;
+      const set = painter.matSet.get(m);
+      if (set) return { h, set };
+    }
+    return null;
+  }
+
+  function fillBrush() {
+    return { color: S.color, opacity: S.opacity, hardness: 1, erase: false };
+  }
+
+  function doFill(set, region) {
+    if (!set.activeLayer.visible) {
+      setStatus('目前的圖層是隱藏的，請先顯示它或選別的圖層', true);
+      return;
+    }
+    painter.fill(set, fillBrush(), region);
+    if (set !== S.current) showSet(set);
+    updateUndoButtons();
+    setStatus(region ? `已填滿 UV 島（${set.name}）` : `已填滿整個材質（${set.name}）`);
+  }
+
+  function fillAt(x, y) {
+    const hit = rayHitSet(x, y);
+    if (!hit) return;
+    const region = S.fillMode === 'island' ? painter.island(hit.set, hit.h.object, hit.h.faceIndex) : null;
+    if (S.fillMode === 'island' && !region) return;
+    doFill(hit.set, region);
+  }
+
+  let grad = null;
+  const guide = $('guide');
+  const guideLine = $('guideLine');
+  function startGradient(e, x, y) {
+    const r = view3d.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    painter.beginStroke(
+      { camera, scene, w: r.width, h: r.height, hide: [grid, wireGroup, decalOutline], modelSize },
+      { color: S.color, opacity: S.opacity, hardness: 0.5, erase: false, backfaces: S.backfaces },
+    );
+    let A = null;
+    if (S.backfaces) {
+      const hit = painter.pickWorld(x, y);
+      if (!hit) {
+        painter.cancelStroke();
+        setStatus('「背面也畫」模式的漸層起點要點在模型上', true);
+        return;
+      }
+      A = hit.p;
+    }
+    // 只畫起點所在的那組貼圖（起點不在模型上時全部都畫）
+    const hitSet = rayHitSet(x, y);
+    grad = {
+      only: hitSet ? hitSet.set : null,
+      id: e.pointerId,
+      x0: x,
+      y0: y,
+      h: r.height,
+      A,
+      plane: A ? new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), A) : null,
+    };
+    view3d.setPointerCapture(e.pointerId);
+    guide.style.display = 'block';
+    updateGradient(x, y);
+  }
+  function updateGradient(x, y) {
+    guideLine.setAttribute('x1', grad.x0);
+    guideLine.setAttribute('y1', grad.y0);
+    guideLine.setAttribute('x2', x);
+    guideLine.setAttribute('y2', y);
+    if (grad.A) {
+      const r = view3d.getBoundingClientRect();
+      raycaster.setFromCamera(new THREE.Vector2((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1), camera);
+      const B = raycaster.ray.intersectPlane(grad.plane, new THREE.Vector3()) || grad.A.clone();
+      painter.gradient(grad.A, B, true, grad.only);
+    } else painter.gradient(new THREE.Vector3(grad.x0, grad.h - grad.y0, 0), new THREE.Vector3(x, grad.h - y, 0), false, grad.only);
+  }
+  function endGradient() {
+    if (grad.only && grad.only !== S.current) showSet(grad.only);
+    painter.endStroke();
+    grad = null;
+    guide.style.display = 'none';
+    updateUndoButtons();
+  }
+
   // ---------- UV 面板操作 ----------
+  // 左鍵／筆：依工具畫、填色、取色；中鍵、右鍵拖曳與觸控：平移；滾輪、雙指：縮放
   const uvPtrs = new Map();
   let uvPinch = null;
-  viewUV.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const r = viewUV.getBoundingClientRect();
-    const before = uvAt(e.clientX - r.left, e.clientY - r.top, r);
-    uvState.zoom *= Math.exp(-e.deltaY * 0.0015);
-    uvState.zoom = Math.min(64, Math.max(0.1, uvState.zoom));
-    const after = uvAt(e.clientX - r.left, e.clientY - r.top, r);
-    uvState.cx += before.x - after.x;
-    uvState.cy += before.y - after.y;
-  }, { passive: false });
+  let uvStroke = null;
+  const uvCursor = $('uvCursor');
+  viewUV.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const r = viewUV.getBoundingClientRect();
+      const before = uvAt(e.clientX - r.left, e.clientY - r.top, r);
+      uvState.zoom *= Math.exp(-e.deltaY * 0.0015);
+      uvState.zoom = Math.min(64, Math.max(0.1, uvState.zoom));
+      const after = uvAt(e.clientX - r.left, e.clientY - r.top, r);
+      uvState.cx += before.x - after.x;
+      uvState.cy += before.y - after.y;
+    },
+    { passive: false },
+  );
   function uvAt(x, y, r) {
     const halfH = 0.5 / uvState.zoom;
-    return { x: uvState.cx + (x / r.height - (r.width / r.height) / 2) * 2 * halfH, y: uvState.cy - (y / r.height - 0.5) * 2 * halfH };
+    return { x: uvState.cx + (x / r.height - r.width / r.height / 2) * 2 * halfH, y: uvState.cy - (y / r.height - 0.5) * 2 * halfH };
   }
+  // 畫面座標 → 貼圖 UV；perPx：每個畫面 px 對應的 UV 長度
+  function uvTex(clientX, clientY) {
+    const r = viewUV.getBoundingClientRect();
+    const p = uvAt(clientX - r.left, clientY - r.top, r);
+    const aspect = S.current ? S.current.w / S.current.h : 1;
+    return { u: p.x / aspect, v: p.y, perPx: 1 / (uvState.zoom * r.height) };
+  }
+
+  function uvDab(cx, cy, p) {
+    const s = S.current;
+    const { u, v, perPx } = uvTex(cx, cy);
+    const rpx = brushRadius(p);
+    const a = S.pOpacity ? Math.max(0.02, p) : 1;
+    if (uvStroke.connected) {
+      const P = painter.posAt(s, u, v);
+      const wpu = P && painter.worldPerUV(s, u, v);
+      if (!P || !wpu) return;
+      const r = rpx * perPx * wpu;
+      pendingDabs.push({ type: 'w', p: P, r, a });
+      if (S.sym) {
+        const m = P.clone();
+        m.x = 2 * modelCenterX() - m.x;
+        pendingDabs.push({ type: 'w', p: m, r, a });
+      }
+    } else pendingDabs.push({ type: 's', x: u * s.w, y: v * s.h, r: rpx * perPx * s.h, a });
+  }
+  function uvSegment(x1, y1, p1) {
+    const st = uvStroke;
+    const dx = x1 - st.lx;
+    const dy = y1 - st.ly;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-3) return;
+    let t = st.carry;
+    while (t <= len) {
+      const f = t / len;
+      const p = st.lp + (p1 - st.lp) * f;
+      uvDab(st.lx + dx * f, st.ly + dy * f, p);
+      t += Math.max(0.5, brushRadius(p) * 2 * S.spacing);
+    }
+    st.carry = t - len;
+    st.lx = x1;
+    st.ly = y1;
+    st.lp = p1;
+  }
+  function endUVStroke() {
+    if (!uvStroke) return;
+    if (pendingDabs.length) {
+      painter.paintDabs(pendingDabs);
+      pendingDabs = [];
+    }
+    painter.endStroke();
+    uvStroke = null;
+    updateUndoButtons();
+  }
+
   viewUV.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.uvHead')) return;
+    const s = S.current;
+    const drawBtn = e.pointerType !== 'touch' && (e.button === 0 || e.button === 5);
+    const tool = e.button === 5 ? 'eraser' : e.altKey ? 'picker' : currentTool();
+    if (drawBtn && s && !D.active && ['pen', 'eraser', 'fill', 'picker'].includes(tool)) {
+      const { u, v } = uvTex(e.clientX, e.clientY);
+      e.preventDefault();
+      if (tool === 'picker') {
+        const b = painter.pickColor(s, { x: u, y: v });
+        setColor('#' + [b[0], b[1], b[2]].map((c) => c.toString(16).padStart(2, '0')).join(''));
+        setStatus(`取色：${S.color}（${s.name}）`);
+        return;
+      }
+      if (!s.activeLayer.visible) {
+        setStatus('目前的圖層是隱藏的，請先顯示它或選別的圖層', true);
+        return;
+      }
+      if (tool === 'fill') {
+        const region = S.fillMode === 'island' ? painter.islandAtUV(s, u, v) : null;
+        if (S.fillMode !== 'island' || region) doFill(s, region);
+        return;
+      }
+      const connected = $('uvConnect').checked && !!painter.posMap(s);
+      painter.beginUVStroke(s, { color: S.color, opacity: S.opacity, hardness: S.hardness, erase: tool === 'eraser' }, connected);
+      const p = pressureOf(e);
+      uvStroke = { id: e.pointerId, connected, lx: e.clientX, ly: e.clientY, lp: p, carry: 0 };
+      uvDab(e.clientX, e.clientY, p);
+      uvStroke.carry = Math.max(0.5, brushRadius(p) * 2 * S.spacing);
+      viewUV.setPointerCapture(e.pointerId);
+      return;
+    }
     viewUV.setPointerCapture(e.pointerId);
     uvPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (uvPtrs.size === 2) {
@@ -578,6 +784,25 @@
     }
   });
   viewUV.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'touch') {
+      const r = viewUV.getBoundingClientRect();
+      const t = currentTool();
+      const show = (t === 'pen' || t === 'eraser') && !D.active && !e.target.closest('.uvHead');
+      uvCursor.style.display = show ? 'block' : 'none';
+      uvCursor.style.left = e.clientX - r.left + 'px';
+      uvCursor.style.top = e.clientY - r.top + 'px';
+      uvCursor.style.width = uvCursor.style.height = S.size + 'px';
+      viewUV.style.cursor = show ? 'none' : t === 'picker' || t === 'fill' ? 'crosshair' : '';
+    }
+    if (uvStroke && e.pointerId === uvStroke.id) {
+      if (e.buttons === 0) {
+        endUVStroke();
+        return;
+      }
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (const ev of evs.length ? evs : [e]) uvSegment(ev.clientX, ev.clientY, pressureOf(ev));
+      return;
+    }
     const prev = uvPtrs.get(e.pointerId);
     if (!prev) return;
     const r = viewUV.getBoundingClientRect();
@@ -592,11 +817,16 @@
     uvState.cy += (cur.y - prev.y) * k;
   });
   const uvUp = (e) => {
+    if (uvStroke && e.pointerId === uvStroke.id) {
+      endUVStroke();
+      return;
+    }
     uvPtrs.delete(e.pointerId);
     if (uvPtrs.size < 2) uvPinch = null;
   };
   viewUV.addEventListener('pointerup', uvUp);
   viewUV.addEventListener('pointercancel', uvUp);
+  viewUV.addEventListener('pointerleave', () => (uvCursor.style.display = 'none'));
   viewUV.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // 分隔線
@@ -626,7 +856,9 @@
   function setTool(t) {
     S.tool = t;
     for (const b of document.querySelectorAll('.tool[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
-    view3d.style.cursor = t === 'picker' ? 'crosshair' : 'none';
+    view3d.style.cursor = t === 'pen' || t === 'eraser' ? 'none' : 'crosshair';
+    $('fillOpts').hidden = t !== 'fill';
+    $('gradHint').hidden = t !== 'gradient';
   }
   for (const b of document.querySelectorAll('.tool[data-tool]')) b.onclick = () => setTool(b.dataset.tool);
   setTool('pen');
@@ -654,6 +886,7 @@
   bindRange('smooth', 'smoothOut', (v) => (S.smooth = v / 100));
   $('pSize').onchange = (e) => (S.pSize = e.target.checked);
   $('pOpacity').onchange = (e) => (S.pOpacity = e.target.checked);
+  $('fillMode').onchange = (e) => (S.fillMode = e.target.value);
 
   const recent = [];
   const PRESETS = ['#000000', '#ffffff', '#7f7f7f', '#d23c3c', '#e6893a', '#e8d14a', '#4caf50', '#3a8de6', '#3a4fb0', '#8e4ac4', '#e66fa8', '#6b4a32', '#c9b38f', '#2e3b2e', '#b0b8c0', '#404850'];
@@ -1293,6 +1526,8 @@
     else if (k === 'b') setTool('pen');
     else if (k === 'e') setTool('eraser');
     else if (k === 'i') setTool('picker');
+    else if (k === 'g') setTool('fill');
+    else if (k === 'u') setTool('gradient');
     else if (k === '[') setSize(S.size / 1.15);
     else if (k === ']') setSize(S.size * 1.15);
     else if (k === 'f') fitView();

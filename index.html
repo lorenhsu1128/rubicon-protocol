@@ -41,10 +41,25 @@
             <button class="tool" data-tool="picker" title="滴管（I，按住 Alt 暫時切換）">
               <svg viewBox="0 0 24 24"><path d="M4 20l2-1 9-9-2-2-9 9z" /><path d="m13 6 3-3 5 5-3 3z" /></svg><span>滴管</span>
             </button>
+            <button class="tool" data-tool="fill" title="填色（G）：點一下填滿 UV 島或整個材質">
+              <svg viewBox="0 0 24 24"><path d="m5 11 7-7 7 7-7 7z" /><path d="M19 15s2 2.5 2 4a2 2 0 0 1-4 0c0-1.5 2-4 2-4z" /></svg><span>填色</span>
+            </button>
+            <button class="tool" data-tool="gradient" title="漸層（U）：拖曳畫出目前顏色到透明的漸層">
+              <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 5v14M11 5v14M15 5v14" opacity=".5" /></svg><span>漸層</span>
+            </button>
             <button class="tool" id="btnImage" title="貼圖片（PNG 透明背景可用；也可以直接拖進視窗或 Ctrl+V 貼上）">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></svg><span>圖片</span>
             </button>
           </div>
+          <div id="fillOpts" hidden>
+            <label class="row">範圍
+              <select id="fillMode" style="grid-column: span 2">
+                <option value="island">UV 島（點到的那一塊）</option>
+                <option value="set">整個材質（整組貼圖）</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint" id="gradHint" hidden>拖曳畫出漸層（目前顏色 → 透明）。開「背面也畫」時沿 3D 方向穿透整個模型。</p>
           <input id="imgInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
         </section>
 
@@ -74,6 +89,7 @@
           <label class="row">手震修正 <input id="smooth" type="range" min="0" max="95" value="30" /><output id="smoothOut">30</output></label>
           <label class="check"><input id="pSize" type="checkbox" checked /> 壓感影響尺寸</label>
           <label class="check"><input id="pOpacity" type="checkbox" /> 壓感影響不透明度</label>
+          <label class="check" title="在 UV 面板畫的時候，跨過接縫的部分也接著畫（依 3D 位置）"><input id="uvConnect" type="checkbox" checked /> UV 面板跨接縫連續</label>
         </section>
 
         <section class="panel">
@@ -105,10 +121,12 @@
           </div>
           <div class="corner bl" id="setList"></div>
           <div id="cursor"></div>
+          <svg id="guide"><line id="guideLine" /></svg>
           <div id="dropHint">把 .glb 拖到這裡</div>
         </div>
         <div id="splitter"></div>
         <div id="viewUV">
+          <div id="uvCursor"></div>
           <div class="uvHead">
             <select id="uvSet"></select>
             <span id="uvInfo"></span>

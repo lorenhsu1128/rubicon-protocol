@@ -35,22 +35,18 @@
   const UV_VERT = /* glsl */ `
     varying vec3 vWorld;
     varying vec3 vNrm;
+    varying vec2 vUv;
     void main() {
       vec4 w = modelMatrix * vec4(position, 1.0);
       vWorld = w.xyz;
       vNrm = normalize(mat3(modelMatrix) * normal);
+      vUv = uv;
       gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
     }`;
 
-  const PAINT_FRAG = /* glsl */ `
+  // 從相機看得到這個點嗎（深度＋朝向）；px 是畫面座標（左下原點，CSS px）
+  const VIS_FN = /* glsl */ `
     #include <packing>
-    #define MAXD ${MAXD}
-    uniform int uNS;            // 畫面筆刷點數量
-    uniform vec4 uS[MAXD];      // x, y（畫面 px，左下原點）, 半徑 px, alpha
-    uniform int uNW;            // 球體筆刷點數量
-    uniform vec4 uW[MAXD];      // 世界座標中心, 半徑
-    uniform float uWA[MAXD];    // alpha
-    uniform float uHard;
     uniform mat4 uVP;
     uniform vec2 uView;
     uniform sampler2D uDepth;
@@ -61,36 +57,55 @@
     uniform vec3 uCamDir;
     uniform bool uCull;
     uniform float uBias;
+    float viewDist(float z) {
+      return uOrtho ? -orthographicDepthToViewZ(z, uNear, uFar) : -perspectiveDepthToViewZ(z, uNear, uFar);
+    }
+    bool visibleAt(vec3 P, vec3 N, out vec2 px) {
+      px = vec2(0.0);
+      vec4 c = uVP * vec4(P, 1.0);
+      if (c.w <= 0.0) return false;
+      vec3 n = c.xyz / c.w;
+      if (abs(n.x) >= 1.0 || abs(n.y) >= 1.0) return false;
+      vec2 s = n.xy * 0.5 + 0.5;
+      px = s * uView;
+      float zs = viewDist(unpackRGBAToDepth(texture2D(uDepth, s)));
+      float zm = viewDist(n.z * 0.5 + 0.5);
+      if (zm > zs * 1.002 + uBias) return false;
+      if (uCull) {
+        vec3 V = uOrtho ? -uCamDir : normalize(uCam - P);
+        if (dot(N, V) < 0.0) return false;
+      }
+      return true;
+    }`;
+
+  const PAINT_FRAG = /* glsl */ `
+    ${VIS_FN}
+    #define MAXD ${MAXD}
+    uniform int uNS;            // 畫面筆刷點數量
+    uniform vec4 uS[MAXD];      // x, y（畫面 px，左下原點；UV 模式是貼圖像素）, 半徑, alpha
+    uniform int uNW;            // 球體筆刷點數量
+    uniform vec4 uW[MAXD];      // 世界座標中心, 半徑
+    uniform float uWA[MAXD];    // alpha
+    uniform float uHard;
+    uniform bool uUVSpace;      // 在 UV 面板直接畫（不跨接縫）
+    uniform vec2 uTexSize;
     varying vec3 vWorld;
     varying vec3 vNrm;
+    varying vec2 vUv;
 
     float fall(float d) {
       if (d >= 1.0) return 0.0;
       return 1.0 - smoothstep(uHard, 1.0, d);
     }
-    float viewDist(float z) {
-      return uOrtho ? -orthographicDepthToViewZ(z, uNear, uFar) : -perspectiveDepthToViewZ(z, uNear, uFar);
-    }
     void main() {
       float a = 0.0;
       if (uNS > 0) {
-        vec4 c = uVP * vec4(vWorld, 1.0);
-        bool vis = false;
-        vec2 px = vec2(0.0);
-        if (c.w > 0.0) {
-          vec3 n = c.xyz / c.w;
-          if (abs(n.x) < 1.0 && abs(n.y) < 1.0) {
-            vec2 s = n.xy * 0.5 + 0.5;
-            float zs = viewDist(unpackRGBAToDepth(texture2D(uDepth, s)));
-            float zm = viewDist(n.z * 0.5 + 0.5);
-            vis = zm <= zs * 1.002 + uBias;
-            px = s * uView;
-          }
-        }
-        if (vis && uCull) {
-          vec3 V = uOrtho ? -uCamDir : normalize(uCam - vWorld);
-          if (dot(vNrm, V) < 0.0) vis = false;
-        }
+        vec2 px;
+        bool vis;
+        if (uUVSpace) {
+          px = vUv * uTexSize;
+          vis = true;
+        } else vis = visibleAt(vWorld, vNrm, px);
         if (vis) {
           for (int i = 0; i < MAXD; i++) {
             if (i >= uNS) break;
@@ -107,6 +122,35 @@
       if (a <= 0.0) discard;
       gl_FragColor = vec4(a);
     }`;
+
+  // 漸層：目前顏色 → 透明。畫面模式沿畫面上的 A→B（只畫看得到的面）；穿透模式沿 3D 的 A→B（所有面）
+  const GRAD_FRAG = /* glsl */ `
+    ${VIS_FN}
+    uniform bool uGWorld;
+    uniform vec3 uGA;
+    uniform vec3 uGB;
+    varying vec3 vWorld;
+    varying vec3 vNrm;
+    void main() {
+      float t;
+      if (uGWorld) {
+        vec3 d = uGB - uGA;
+        t = dot(vWorld - uGA, d) / max(dot(d, d), 1e-12);
+      } else {
+        vec2 px;
+        if (!visibleAt(vWorld, vNrm, px)) discard;
+        vec2 d = uGB.xy - uGA.xy;
+        t = dot(px - uGA.xy, d) / max(dot(d, d), 1e-6);
+      }
+      float a = 1.0 - clamp(t, 0.0, 1.0);
+      if (a <= 0.0) discard;
+      gl_FragColor = vec4(a);
+    }`;
+
+  // 位置圖：每個貼圖像素的世界座標（UV 面板繪圖用來換算 3D 位置）
+  const POS_FRAG = /* glsl */ `
+    varying vec3 vWorld;
+    void main() { gl_FragColor = vec4(vWorld, 1.0); }`;
 
   // 圖片貼紙：以表面上的一點 P 與法線 N 建立投影框（T 右、B 上、N 外），沿 −N 方向把圖片貼到框內的面上。
   // 和相機無關，貼上後旋轉視角也不會變。uMirror 是左右對稱用的鏡射：取鏡射點在框內的位置，另一側貼上鏡像的圖。
@@ -307,6 +351,49 @@
     });
   }
 
+  // 三角形的 UV 島編號（union-find；UV 座標相同的頂點視為相連，所以法線分開的頂點也會連在一起）
+  function computeIslands(p) {
+    const g = p.mesh.geometry;
+    const idx = g.index;
+    const uv = g.attributes.uv;
+    const n = Math.floor(p.count / 3);
+    const parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    const find = (x) => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    };
+    const first = new Map();
+    for (let t = 0; t < n; t++)
+      for (let k = 0; k < 3; k++) {
+        const b = p.start + t * 3 + k;
+        const vi = idx ? idx.getX(b) : b;
+        const key = (Math.round(uv.getX(vi) * 1e5) + 1e6) * 1e7 + (Math.round(uv.getY(vi) * 1e5) + 1e6);
+        const f = first.get(key);
+        if (f === undefined) first.set(key, t);
+        else {
+          const a = find(f);
+          const c = find(t);
+          if (a !== c) parent[a] = c;
+        }
+      }
+    const out = new Int32Array(n);
+    for (let t = 0; t < n; t++) out[t] = find(t);
+    return out;
+  }
+
+  function pointInTri(px, py, ax, ay, bx, by, cx, cy) {
+    const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+    const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+    const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+    const neg = d1 < 0 || d2 < 0 || d3 < 0;
+    const pos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(neg && pos);
+  }
+
   const LAYER_PROPS = ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip'];
   let layerSeq = 0;
 
@@ -476,6 +563,8 @@
           uCamDir: { value: new THREE.Vector3() },
           uCull: { value: true },
           uBias: { value: 0.001 },
+          uUVSpace: { value: false },
+          uTexSize: { value: new THREE.Vector2(1, 1) },
         },
         side: THREE.DoubleSide,
         depthTest: false,
@@ -548,6 +637,33 @@
         blendEquation: THREE.AddEquation,
         blendSrc: THREE.OneFactor,
         blendDst: THREE.OneMinusSrcAlphaFactor,
+      });
+      // 漸層：可見性相關的 uniform 和筆共用同一個物件（beginStroke 設定一次即可）
+      const pu = this.paintMat.uniforms;
+      const vis = {};
+      for (const k of ['uVP', 'uView', 'uDepth', 'uNear', 'uFar', 'uOrtho', 'uCam', 'uCamDir', 'uCull', 'uBias']) vis[k] = pu[k];
+      this.gradMat = new THREE.ShaderMaterial({
+        vertexShader: UV_VERT,
+        fragmentShader: GRAD_FRAG,
+        uniforms: Object.assign(vis, {
+          uGWorld: { value: false },
+          uGA: { value: new THREE.Vector3() },
+          uGB: { value: new THREE.Vector3() },
+        }),
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.MaxEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+      });
+      this.posMat = new THREE.ShaderMaterial({
+        vertexShader: UV_VERT,
+        fragmentShader: POS_FRAG,
+        side: THREE.DoubleSide,
+        depthTest: false,
+        depthWrite: false,
       });
       this.depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
       this.depthRT = null;
@@ -704,6 +820,7 @@
       u.uHard.value = Math.min(0.98, Math.max(0, brush.hardness));
       u.uCull.value = !brush.backfaces;
       u.uBias.value = (view.modelSize || 1) * 0.002;
+      u.uUVSpace.value = false;
 
       this.setBrush(brush);
       this.stroke = { view: { camera: cam, w, h }, touched: new Set() };
@@ -781,8 +898,9 @@
         }
         u.uNS.value = ns;
         u.uNW.value = nw;
+        const only = this.stroke.only;
         for (const s of this.sets) {
-          if (!this.batchHits(s, batch)) continue;
+          if (only ? s !== only : !this.batchHits(s, batch)) continue;
           this.touch(s);
           this.renderer.setRenderTarget(s.stroke);
           this.renderer.autoClear = false; // 筆畫緩衝要累積，不能清掉
@@ -792,6 +910,188 @@
         }
       }
       this.renderer.setRenderTarget(null);
+    }
+
+    // ---------- UV 面板繪圖 ----------
+    // connected：跨接縫連續（把 UV 位置換成 3D 位置，用球體筆刷）；否則直接在貼圖平面上畫（只限這組）
+    beginUVStroke(s, brush, connected) {
+      this.cancelStroke();
+      this.setBrush(brush);
+      const u = this.paintMat.uniforms;
+      u.uHard.value = Math.min(0.98, Math.max(0, brush.hardness));
+      u.uUVSpace.value = !connected;
+      u.uTexSize.value.set(s.w, s.h);
+      s.syncMatrices();
+      this.stroke = { view: null, touched: new Set(), only: s };
+    }
+
+    // 位置圖（最多 1024 邊長，讀回 CPU 一次後快取）；不支援浮點貼圖時回傳 null
+    posMap(s) {
+      if (s.pos !== undefined) return s.pos;
+      s.pos = null;
+      const r = this.renderer;
+      if (!r.capabilities.isWebGL2 || !r.extensions.get('EXT_color_buffer_float')) return null;
+      const k = Math.min(1, 1024 / Math.max(s.w, s.h));
+      const w = Math.max(1, Math.round(s.w * k));
+      const h = Math.max(1, Math.round(s.h * k));
+      const rt = new THREE.WebGLRenderTarget(w, h, {
+        type: THREE.FloatType,
+        format: THREE.RGBAFormat,
+        depthBuffer: false,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+      });
+      s.syncMatrices();
+      this.clear(rt);
+      s.scene.overrideMaterial = this.posMat;
+      r.setRenderTarget(rt);
+      r.autoClear = false;
+      r.render(s.scene, this.uvCam);
+      r.autoClear = true;
+      s.scene.overrideMaterial = null;
+      const data = new Float32Array(w * h * 4);
+      r.readRenderTargetPixels(rt, 0, 0, w, h, data);
+      r.setRenderTarget(null);
+      rt.dispose();
+      s.pos = { w, h, data };
+      return s.pos;
+    }
+
+    // UV → 3D 位置（剛好在島外時，往附近兩個像素內找）
+    posAt(s, u, v) {
+      const pm = this.posMap(s);
+      if (!pm) return null;
+      const x0 = Math.floor(u * pm.w);
+      const y0 = Math.floor(v * pm.h);
+      for (let r = 0; r <= 2; r++)
+        for (let dy = -r; dy <= r; dy++)
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = x0 + dx;
+            const y = y0 + dy;
+            if (x < 0 || y < 0 || x >= pm.w || y >= pm.h) continue;
+            const i = (y * pm.w + x) * 4;
+            if (pm.data[i + 3] > 0.5) return new THREE.Vector3(pm.data[i], pm.data[i + 1], pm.data[i + 2]);
+          }
+      return null;
+    }
+
+    // UV 一單位對應的世界長度（取附近最小的，避免跨到別的島）
+    worldPerUV(s, u, v) {
+      const pm = this.posMap(s);
+      const P = this.posAt(s, u, v);
+      if (!P) return null;
+      const d = 3 / Math.max(pm.w, pm.h);
+      let best = Infinity;
+      for (const [du, dv] of [
+        [d, 0],
+        [-d, 0],
+        [0, d],
+        [0, -d],
+      ]) {
+        const Q = this.posAt(s, u + du, v + dv);
+        if (!Q) continue;
+        const l = Q.distanceTo(P);
+        if (l > 1e-9) best = Math.min(best, l / d);
+      }
+      return isFinite(best) ? best : null;
+    }
+
+    // ---------- 填色 ----------
+    // region：{ part, indices }（要填的三角形），null＝整組
+    fill(s, brush, region) {
+      this.cancelStroke();
+      this.setBrush(brush);
+      this.stroke = { view: null, touched: new Set() };
+      s.syncMatrices();
+      this.touch(s);
+      const r = this.renderer;
+      r.setRenderTarget(s.stroke);
+      r.autoClear = false;
+      if (!region) {
+        s.scene.overrideMaterial = this.maskMat;
+        r.render(s.scene, this.uvCam);
+        s.scene.overrideMaterial = null;
+      } else {
+        const src = region.part.proxy;
+        const g = new THREE.BufferGeometry();
+        g.setIndex(region.indices);
+        for (const k of ['position', 'normal', 'uv']) g.setAttribute(k, src.geometry.attributes[k]);
+        const m = new THREE.Mesh(g, this.maskMat);
+        m.frustumCulled = false;
+        m.matrixAutoUpdate = false;
+        m.matrixWorld.copy(src.matrixWorld);
+        const sc = new THREE.Scene();
+        sc.autoUpdate = false;
+        sc.add(m);
+        r.render(sc, this.uvCam);
+        g.dispose();
+      }
+      r.autoClear = true;
+      r.setRenderTarget(null);
+      s.dirty = true;
+      this.endStroke();
+    }
+
+    // 三角形所在的 UV 島（同一個網格片段內，UV 座標相同的頂點視為相連）
+    island(s, mesh, faceIndex) {
+      const p = s.parts.find((q) => q.mesh === mesh && faceIndex * 3 >= q.start && faceIndex * 3 < q.start + q.count);
+      if (!p) return null;
+      return this.islandOf(p, faceIndex - p.start / 3);
+    }
+    islandOf(p, t) {
+      if (!p.islands) p.islands = computeIslands(p);
+      const id = p.islands[t];
+      const idx = p.mesh.geometry.index;
+      const out = [];
+      for (let i = 0; i < p.islands.length; i++) {
+        if (p.islands[i] !== id) continue;
+        const b = p.start + i * 3;
+        for (let k = 0; k < 3; k++) out.push(idx ? idx.getX(b + k) : b + k);
+      }
+      return { part: p, indices: out };
+    }
+    // UV 面板上點到的島
+    islandAtUV(s, u, v) {
+      for (const p of s.parts) {
+        const g = p.mesh.geometry;
+        const idx = g.index;
+        const uv = g.attributes.uv;
+        const n = Math.floor(p.count / 3);
+        for (let t = 0; t < n; t++) {
+          const b = p.start + t * 3;
+          const ia = idx ? idx.getX(b) : b;
+          const ib = idx ? idx.getX(b + 1) : b + 1;
+          const ic = idx ? idx.getX(b + 2) : b + 2;
+          if (pointInTri(u, v, uv.getX(ia), uv.getY(ia), uv.getX(ib), uv.getY(ib), uv.getX(ic), uv.getY(ic)))
+            return this.islandOf(p, t);
+        }
+      }
+      return null;
+    }
+
+    // ---------- 漸層 ----------
+    // beginStroke 之後呼叫，可以重複呼叫更新預覽；a, b：畫面 px（左下原點，放在 x, y）或世界座標；only：只畫這組
+    gradient(a, b, world, only) {
+      if (!this.stroke) return;
+      const u = this.gradMat.uniforms;
+      u.uGWorld.value = !!world;
+      u.uGA.value.copy(a);
+      u.uGB.value.copy(b);
+      const r = this.renderer;
+      for (const s of this.sets) {
+        if (s.box.isEmpty() || (only && s !== only)) continue;
+        this.touch(s);
+        this.clear(s.stroke);
+        s.scene.overrideMaterial = this.gradMat;
+        r.setRenderTarget(s.stroke);
+        r.autoClear = false;
+        r.render(s.scene, this.uvCam);
+        r.autoClear = true;
+        s.scene.overrideMaterial = null;
+        s.dirty = true;
+      }
+      r.setRenderTarget(null);
     }
 
     batchHits(s, batch) {
