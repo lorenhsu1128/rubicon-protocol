@@ -526,7 +526,8 @@ function toast(msg, action) {
 /* ---------- 主題・介面文字 ---------- */
 
 function applyTheme() {
-  const t = app.store.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  // 預設深色（與 RUBICON PROTOCOL 本體一致）
+  const t = app.store.theme || 'dark';
   document.documentElement.dataset.theme = t;
   $('themeBtn').title = t === 'dark' ? str().themeDark : str().themeLight;
   $('themeBtn').setAttribute('aria-label', $('themeBtn').title);
@@ -620,7 +621,6 @@ function bindUI() {
     document.querySelectorAll('#previewBgGroup [data-bg]').forEach(b => b.classList.toggle('is-active', b.dataset.bg === 'image'));
   });
   $('themeBtn').addEventListener('click', toggleTheme);
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!app.store.theme) applyTheme(); });
   bindExportUI();
 }
 

@@ -20,7 +20,7 @@ python -m http.server 8765
 
 ```
 index.html            頁面骨架
-css/app.css           樣式（淺色 / 深色、手機版）
+css/app.css           樣式（比照 RUBICON PROTOCOL 本體；預設深色、可切淺色、手機版）
 js/app.js             應用程式本體：狀態、儲存、模板、預覽、輸出流程
 js/controls.js        設定面板（宣告式 schema → UI）、效果卡片小預覽、字型挑選器
 js/presets.js         初始值、模板、樣式預設、尺寸預設
