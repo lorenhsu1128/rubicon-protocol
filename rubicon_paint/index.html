@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Rubicon Paint</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header id="menubar">
+      <div class="brand">Rubicon Paint <small>機甲 3D 繪圖</small></div>
+      <div class="group">
+        <button id="btnOpen" title="開啟 GLB（也可以把檔案拖進視窗）">開啟 GLB</button>
+        <button id="btnDemo" title="載入範例機甲">範例模型</button>
+        <input id="fileInput" type="file" accept=".glb,.rpaint,model/gltf-binary" hidden />
+      </div>
+      <div class="group">
+        <button id="btnOpenProj" title="開啟專案檔（.rpaint：模型＋所有圖層）">開啟專案</button>
+        <button id="btnSaveProj" title="儲存專案檔（Ctrl+S）">儲存專案</button>
+        <input id="projInput" type="file" accept=".rpaint" hidden />
+      </div>
+      <div class="group">
+        <button id="btnUndo" class="icon" title="復原（Ctrl+Z）"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg></button>
+        <button id="btnRedo" class="icon" title="重做（Ctrl+Y）"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></svg></button>
+      </div>
+      <div class="group">
+        <button id="btnExportPng" title="目前貼圖組的 PNG">匯出 PNG</button>
+        <button id="btnExportAll" title="所有貼圖組的 PNG 存成一個 zip">全部 PNG</button>
+        <button id="btnExportPsd" title="目前貼圖組的圖層存成 PSD">匯出 PSD</button>
+        <button id="btnExportGlb" title="把畫好的貼圖寫回 GLB 並下載">匯出 GLB</button>
+      </div>
+      <div class="group" id="libGroup" hidden>
+        <span id="libLabel"></span>
+        <button id="btnLibSave" class="primary" title="把畫好的貼圖寫回 GLB，存進模型庫的這個槽位（圖層記在這個瀏覽器，下次從模型庫開啟會接著畫）">
+          存回模型庫
+        </button>
+      </div>
+      <div class="spacer"></div>
+      <button id="btnRestore" hidden title="還原上次自動暫存的工作">還原自動暫存</button>
+      <button id="btnUvToggle" class="toggle on" title="顯示／隱藏 UV 面板">UV</button>
+      <button id="btnRightToggle" class="toggle on" title="顯示／隱藏右側的圖層面板">圖層</button>
+      <select id="uiScale" title="介面大小（自動＝依視窗大小縮放）">
+        <option value="auto">介面：自動</option>
+        <option value="0.7">介面 70%</option>
+        <option value="0.85">介面 85%</option>
+        <option value="1">介面 100%</option>
+        <option value="1.2">介面 120%</option>
+        <option value="1.4">介面 140%</option>
+        <option value="1.6">介面 160%</option>
+      </select>
+    </header>
+
+    <main id="app">
+      <aside id="leftPanel">
+        <section class="panel">
+          <h3>工具</h3>
+          <div class="tools">
+            <button class="tool on" data-tool="pen" title="筆（B）">
+              <svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z" /><path d="M14 6l3 3" /></svg><span>筆</span>
+            </button>
+            <button class="tool" data-tool="eraser" title="橡皮擦（E）">
+              <svg viewBox="0 0 24 24"><path d="M8 20h12" /><path d="M5 15 15 5l5 5-8 8H8z" /><path d="m10 10 5 5" /></svg><span>橡皮擦</span>
+            </button>
+            <button class="tool" data-tool="picker" title="滴管（I，按住 Alt 暫時切換）">
+              <svg viewBox="0 0 24 24"><path d="M4 20l2-1 9-9-2-2-9 9z" /><path d="m13 6 3-3 5 5-3 3z" /></svg><span>滴管</span>
+            </button>
+            <button class="tool" data-tool="fill" title="填色（G）：點一下填滿 UV 島或整個材質">
+              <svg viewBox="0 0 24 24"><path d="m5 11 7-7 7 7-7 7z" /><path d="M19 15s2 2.5 2 4a2 2 0 0 1-4 0c0-1.5 2-4 2-4z" /></svg><span>填色</span>
+            </button>
+            <button class="tool" data-tool="gradient" title="漸層（U）：拖曳畫出目前顏色到透明的漸層">
+              <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 5v14M11 5v14M15 5v14" opacity=".5" /></svg><span>漸層</span>
+            </button>
+            <button class="tool" id="btnImage" title="貼圖片（PNG 透明背景可用；也可以直接拖進視窗或 Ctrl+V 貼上）">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></svg><span>圖片</span>
+            </button>
+          </div>
+          <div id="fillOpts" hidden>
+            <label class="row">範圍
+              <select id="fillMode" style="grid-column: span 2">
+                <option value="island">UV 島（點到的那一塊）</option>
+                <option value="set">整個材質（整組貼圖）</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint" id="gradHint" hidden>拖曳畫出漸層（目前顏色 → 透明）。開「背面也畫」時沿 3D 方向穿透整個模型。</p>
+          <input id="imgInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+        </section>
+
+        <section class="panel" id="decalPanel" hidden>
+          <h3>貼上圖片</h3>
+          <p class="hint" id="decalHint">在模型上點一下要貼的位置。</p>
+          <label class="row">大小 <input id="decalSize" type="range" min="1" max="100" step="0.5" value="20" /><output id="decalSizeOut">20</output></label>
+          <label class="row">角度 <input id="decalRot" type="range" min="-180" max="180" value="0" /><output id="decalRotOut">0</output></label>
+          <label class="row">不透明度 <input id="decalOpacity" type="range" min="1" max="100" value="100" /><output id="decalOpacityOut">100</output></label>
+          <label class="check" title="和貼上位置角度差很多的面淡出（避免圖片在側面被拉成長條）"><input id="decalGraze" type="checkbox" checked /> 側面淡出</label>
+          <label class="check" title="去掉白底，或 AI 工具畫進圖裡的「假透明」棋盤格（圖片沒有透明背景時用）"><input id="decalKey" type="checkbox" /> 去除背景（白底／假透明棋盤格）</label>
+          <label class="row" id="decalKeyRow">容許度 <input id="decalKeyTol" type="range" min="0" max="100" value="30" /><output id="decalKeyTolOut">30</output></label>
+          <div class="btnRow">
+            <button id="decalFlip" title="左右翻轉">左右翻轉</button>
+            <button id="decalUpright" title="以目前視角為正上方重新對齊">轉正</button>
+          </div>
+          <div class="btnRow">
+            <button id="decalOk" class="primary" title="Enter">確定</button>
+            <button id="decalCancel" title="Esc">取消</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3>筆刷</h3>
+          <div id="presets"></div>
+          <label class="row">尺寸 <input id="size" type="range" min="1" max="400" value="24" /><input id="sizeNum" type="number" min="1" max="400" value="24" /></label>
+          <label class="row">不透明度 <input id="opacity" type="range" min="1" max="100" value="100" /><output id="opacityOut">100</output></label>
+          <label class="row">硬度 <input id="hardness" type="range" min="0" max="100" value="60" /><output id="hardnessOut">60</output></label>
+          <label class="row">間距 <input id="spacing" type="range" min="2" max="200" value="12" /><output id="spacingOut">12</output></label>
+          <label class="row">手震修正 <input id="smooth" type="range" min="0" max="95" value="30" /><output id="smoothOut">30</output></label>
+          <label class="check"><input id="pSize" type="checkbox" checked /> 壓感影響尺寸</label>
+          <label class="check"><input id="pOpacity" type="checkbox" /> 壓感影響不透明度</label>
+          <details id="brushAdv">
+            <summary>筆尖與效果</summary>
+            <label class="row">筆尖 <select id="tip" style="grid-column: span 2"></select></label>
+            <label class="row">紙紋 <select id="grain" style="grid-column: span 2"></select></label>
+            <label class="row">紙紋強度 <input id="grainAmt" type="range" min="0" max="100" value="50" /><output id="grainAmtOut">50</output></label>
+            <label class="row">散佈 <input id="scatter" type="range" min="0" max="100" value="0" /><output id="scatterOut">0</output></label>
+            <label class="row">大小抖動 <input id="jitter" type="range" min="0" max="100" value="0" /><output id="jitterOut">0</output></label>
+            <label class="check"><input id="rotRandom" type="checkbox" /> 角度隨機</label>
+            <label class="check"><input id="rotFollow" type="checkbox" /> 沿筆畫方向</label>
+          </details>
+          <label class="check" title="在 UV 面板畫的時候，跨過接縫的部分也接著畫（依 3D 位置）"><input id="uvConnect" type="checkbox" checked /> UV 面板跨接縫連續</label>
+        </section>
+
+        <section class="panel">
+          <h3>顏色</h3>
+          <div class="colorRow">
+            <input id="color" type="color" value="#d23c3c" />
+            <input id="hex" type="text" value="#d23c3c" maxlength="7" spellcheck="false" />
+          </div>
+          <div id="swatches"></div>
+        </section>
+      </aside>
+
+      <div id="stage">
+        <canvas id="gl"></canvas>
+        <div id="view3d" tabindex="0">
+          <div class="corner tl">
+            <button id="tgBack" class="toggle" title="背面與被遮住的面也畫（筆刷變成 3D 球體）">背面也畫</button>
+            <button id="tgSym" class="toggle" title="左右對稱（以模型中心 X）">左右對稱</button>
+            <button id="tgWire" class="toggle" title="顯示網格線">網格線</button>
+          </div>
+          <div class="corner tr">
+            <button data-view="front" title="正面（數字鍵 1）">前</button>
+            <button data-view="back" title="背面（Ctrl+1）">後</button>
+            <button data-view="left" title="左（Ctrl+3）">左</button>
+            <button data-view="right" title="右（數字鍵 3）">右</button>
+            <button data-view="top" title="上（數字鍵 7）">上</button>
+            <button data-view="persp" title="透視／平行（數字鍵 5）" id="btnPersp">透視</button>
+            <button data-view="fit" title="全部顯示（F）">全部</button>
+          </div>
+          <div class="corner bl" id="setList"></div>
+          <div id="cursor"></div>
+          <svg id="guide"><line id="guideLine" /></svg>
+          <div id="dropHint">把 .glb 拖到這裡</div>
+        </div>
+        <div id="splitter"></div>
+        <div id="viewUV">
+          <div id="uvCursor"></div>
+          <div class="uvHead">
+            <select id="uvSet"></select>
+            <span id="uvInfo"></span>
+            <button id="tgUvLines" class="toggle on" title="UV 線">線</button>
+            <button id="btnUvFit" title="符合面板">符合</button>
+          </div>
+        </div>
+      </div>
+
+      <aside id="rightPanel">
+        <section class="panel" id="layerPanel">
+          <h3>圖層 <span id="layerSetName" class="dim"></span></h3>
+          <select id="layerBlend" title="混合模式"></select>
+          <label class="row">不透明度 <input id="layerOpacity" type="range" min="0" max="100" value="100" /><output id="layerOpacityOut">100</output></label>
+          <div class="checkRow">
+            <label class="check" title="只改顏色，不改透明度（畫不到透明的地方）"><input id="layerLock" type="checkbox" /> 鎖定透明</label>
+            <label class="check" title="只顯示在下方圖層有畫的地方"><input id="layerClip" type="checkbox" /> 剪裁</label>
+          </div>
+          <div id="layerList"></div>
+          <div class="layerBtns">
+            <button id="lyAdd" class="icon" title="新增圖層"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
+            <button id="lyDup" class="icon" title="複製圖層"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg></button>
+            <button id="lyUp" class="icon" title="上移"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></svg></button>
+            <button id="lyDown" class="icon" title="下移"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg></button>
+            <button id="lyMerge" class="icon" title="向下合併"><svg viewBox="0 0 24 24"><path d="M12 4v10M7 9l5 5 5-5M5 20h14" /></svg></button>
+            <button id="lyClear" class="icon" title="清除圖層內容"><svg viewBox="0 0 24 24"><path d="M8 20h12" /><path d="M5 15 15 5l5 5-8 8H8z" /></svg></button>
+            <button id="lyDel" class="icon" title="刪除圖層"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg></button>
+          </div>
+        </section>
+
+        <section class="panel" id="aoPanel">
+          <h3>AO 烘焙 <span class="dim">（凹處的陰影）</span></h3>
+          <label class="row">強度 <input id="aoStrength" type="range" min="0" max="100" value="80" /><output id="aoStrengthOut">80</output></label>
+          <label class="row">對比 <input id="aoContrast" type="range" min="50" max="300" value="120" /><output id="aoContrastOut">120</output></label>
+          <label class="row">品質
+            <select id="aoDirs" style="grid-column: span 2">
+              <option value="32">快速（32 方向）</option>
+              <option value="96" selected>標準（96 方向）</option>
+              <option value="256">精細（256 方向）</option>
+            </select>
+          </label>
+          <label class="check"><input id="aoOnlyCurrent" type="checkbox" /> 只烘焙目前的貼圖組</label>
+          <div class="btnRow"><button id="btnAO" class="primary">烘焙成 AO 圖層</button></div>
+        </section>
+
+        <section class="panel" id="objPanel">
+          <h3>零件 <span class="dim">（H 隱藏游標下的零件、Alt+H 全部顯示）</span></h3>
+          <div id="objList"></div>
+          <div class="btnRow"><button id="objShowAll">全部顯示</button></div>
+        </section>
+      </aside>
+    </main>
+
+    <footer id="status">開啟 GLB 或按「範例模型」開始。滑鼠：左鍵畫、右鍵旋轉、Shift＋右鍵平移、滾輪縮放。平板：筆畫圖、單指旋轉、雙指縮放平移。</footer>
+
+    <script src="lib/three/three.min.js"></script>
+    <script src="lib/three/OrbitControls.js"></script>
+    <script src="lib/three/GLTFLoader.js"></script>
+    <script src="lib/three/GLTFExporter.js"></script>
+    <script src="js/paint-core.js"></script>
+    <script src="js/brushes.js"></script>
+    <script src="js/fileio.js"></script>
+    <script src="js/bgremove.js"></script>
+    <script src="js/demo-model.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
