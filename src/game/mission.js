@@ -602,6 +602,7 @@ Object.assign(Game.prototype, {
     }
     for (const p of this.projectiles) this.scene.remove(p.mesh);
     this.projectiles = [];
+    this.shocks = [];
     this.fx.clear();
     this.popups = [];
   },

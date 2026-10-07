@@ -256,6 +256,53 @@ export class Effects {
   ring(p, r, color) {
     this.shockwave(p, r, color, 0.5);
   }
+  // 地面衝擊波：中心先閃紅色預警 dl 秒，再以 sp m/s 擴散到半徑 R 的光牆，沿地形起伏（ground(x, z) 回傳地面高度）
+  groundWave(p, R, sp, dl, ground, color = 0xff8a3a) {
+    const warn = new THREE.Mesh(this.discGeo, this.addM(0xff3020, 0.5));
+    warn.rotation.x = -Math.PI / 2;
+    warn.position.copy(p).setY(p.y + 0.15);
+    this.add(warn, dl, (e, t) => {
+      e.mesh.scale.setScalar(3 + t * 5);
+      e.mesh.material.opacity = 0.2 + 0.4 * Math.abs(Math.sin(t * dl * 12));
+    });
+    const N = 72;
+    const pos = new Float32Array((N + 1) * 6);
+    const idx = [];
+    for (let i = 0; i < N; i++) {
+      const a = i * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    const mat = this.addM(color, 0.85);
+    mat.side = THREE.DoubleSide;
+    const m = new THREE.Mesh(geo, mat);
+    m.frustumCulled = false;
+    m.visible = false;
+    const life = dl + R / sp;
+    this.add(m, life, (e, t) => {
+      const el = t * life - dl;
+      if (el < 0) return;
+      if (!m.visible) {
+        m.visible = true;
+        SFX.explode(true, p);
+        this.shockwave(p.clone().setY(p.y + 0.2), 8, 0xffc080, 0.4);
+        this.dust(p.clone(), 4, 14);
+      }
+      const r = Math.max(0.5, el * sp),
+        h = 1.8 * (1 - (0.5 * r) / R);
+      for (let i = 0; i <= N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        const x = p.x + Math.cos(a) * r,
+          z = p.z + Math.sin(a) * r;
+        const y = ground(x, z);
+        pos.set([x, y + 0.05, z, x, y + h, z], i * 6);
+      }
+      geo.attributes.position.needsUpdate = true;
+      mat.opacity = 0.85 * (1 - r / R);
+    });
+  }
   // big additive thruster glare (billboard sphere) — used every frame by mechs, pooled per entity
   glareMesh(color) {
     const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.55));

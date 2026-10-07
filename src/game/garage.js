@@ -2,7 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { pick } from '../core/math.js';
 import { BOSS_DEFS } from '../data/enemies.js';
-import { PARTS, SLOTS, asmStats, partById } from '../data/parts.js';
+import { PARTS, SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { buildMech } from '../render/mech-model.js';
@@ -196,6 +196,9 @@ Object.assign(Game.prototype, {
     const pMode = this.pilotCtxMode();
     const pm = this.pilotLocalMods(pMode);
     const ef = applyPilotStats(st, pm);
+    const JS = jumpSpec(P.legs),
+      JE = jumpSpec(ef.parts.legs),
+      m1 = (v) => v.toFixed(1) + ' m';
     const fx = (base, eff, fmt = (v) => Math.round(v)) =>
       Math.abs(eff - base) > 1e-6
         ? `${fmt(eff)} <span class="up">(${eff > base ? '+' : '−'}${fmt(Math.abs(eff - base))})</span>`
@@ -218,7 +221,8 @@ Object.assign(Game.prototype, {
         'QB 速度 / 消耗',
         `${fx(P.booster.qb, ef.parts.booster.qb)} / ${fx(P.booster.qbCost, ef.parts.booster.qbCost)}`,
       ],
-      ['跳躍力', fx(st.jump, ef.jump, (v) => v.toFixed(1))],
+      ['跳躍高度（地面 / 空中）', `${fx(JS.height, JE.height, m1)} / ${fx(JS.airH, JE.airH, m1)}`],
+      ['空中跳躍 / 懸浮耗能', `${JS.air} 次 / ${JS.canHover ? JS.hover + '/s' : '不能懸浮'}`],
       ['鎖定距離', fx(st.lockRange, ef.lockRange)],
       ['修復套件', fx(3, 3 + ((pm && pm.kits) || 0))],
       ['腳部型式', { biped: '二足', reverse: '逆關節', quad: '四足', tank: '履帶' }[P.legs.type]],

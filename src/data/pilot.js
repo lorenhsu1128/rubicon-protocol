@@ -216,7 +216,7 @@ export function applyPilotStats(st, pm) {
   const P = st.parts;
   const parts = {
     ...P,
-    legs: { ...P.legs, jump: P.legs.jump * upF(pm, 'jump') },
+    legs: { ...P.legs, jumpH: P.legs.jumpH * upF(pm, 'jump'), airH: P.legs.airH * upF(pm, 'jump') },
     booster: { ...P.booster, qb: P.booster.qb * upF(pm, 'qb'), qbCost: P.booster.qbCost * downF(pm, 'qbc') },
     generator: {
       ...P.generator,

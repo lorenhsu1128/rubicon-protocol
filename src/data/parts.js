@@ -150,7 +150,11 @@ export const PARTS = {
       en: 360,
       load: 52000,
       speed: 21,
-      jump: 13,
+      jumpH: 4.5,
+      jumpT: 0.46,
+      airH: 4,
+      airT: 0.4,
+      airN: 2,
       stab: 900,
       price: 0,
       desc: '標準二足',
@@ -164,10 +168,14 @@ export const PARTS = {
       en: 400,
       load: 48000,
       speed: 23,
-      jump: 18,
+      jumpH: 8.5,
+      jumpT: 0.38,
+      airH: 5.5,
+      airT: 0.32,
+      airN: 3,
       stab: 700,
       price: 44000,
-      desc: '跳躍力極高',
+      desc: '跳躍力極高、空中可跳三次',
     },
     {
       id: 'l_qd',
@@ -178,10 +186,14 @@ export const PARTS = {
       en: 480,
       load: 66000,
       speed: 19,
-      jump: 11,
+      jumpH: 3.2,
+      jumpT: 0.55,
+      airH: 3,
+      airT: 0.5,
+      airN: 2,
       stab: 1300,
       price: 67500,
-      desc: '懸浮不耗 EN、高穩定',
+      desc: '懸浮耗能極低（能量用完仍可滯空）、高穩定',
     },
     {
       id: 'l_tk',
@@ -192,10 +204,14 @@ export const PARTS = {
       en: 420,
       load: 82000,
       speed: 16,
-      jump: 6,
+      jumpH: 2,
+      jumpT: 0.6,
+      airH: 2,
+      airT: 0.55,
+      airN: 2,
       stab: 1800,
       price: 80000,
-      desc: '超高負重，不可跳躍',
+      desc: '超高負重，跳得低、不能懸浮',
     },
     {
       id: 'l_bp2',
@@ -206,7 +222,11 @@ export const PARTS = {
       en: 380,
       load: 42000,
       speed: 26,
-      jump: 15,
+      jumpH: 6,
+      jumpT: 0.4,
+      airH: 4.5,
+      airT: 0.35,
+      airN: 2,
       stab: 600,
       price: 55000,
       desc: '高速二足',
@@ -1007,11 +1027,36 @@ export function asmStats(asm) {
     ap,
     stab,
     speed,
-    jump: p.legs.jump,
+    jump: p.legs.jumpH,
     enCap: p.generator.cap,
     overWeight: weight > p.legs.load,
     overEn: enLoad > enOut,
     def: p.core.def,
     lockRange: p.fcs.range * (p.head.id === 'h_scan' ? 1.15 : 1),
+  };
+}
+
+// ---- 跳躍與懸浮（MechEntity.jumpMove、車庫顯示）----
+// 腳部的 jumpH／jumpT：地面跳的高度（m）與到頂時間（s）；airH／airT：空中跳（第 1 次）；airN：空中跳次數。
+// 上升時用各自的重力（2h/t²），過了最高點一律用 GRAVITY 下落；連續的空中跳高度依 AIR_DECAY 遞減
+export const GRAVITY = 42;
+export const JUMP_EN = 40; // 地面跳躍的耗能
+export const AIR_DECAY = [1, 0.75, 0.55];
+export function jumpSpec(legs) {
+  const t = legs.type;
+  let maxH = legs.jumpH;
+  for (let i = 0; i < legs.airN; i++) maxH += legs.airH * AIR_DECAY[Math.min(i, AIR_DECAY.length - 1)];
+  return {
+    v: (2 * legs.jumpH) / legs.jumpT,
+    g: (2 * legs.jumpH) / (legs.jumpT * legs.jumpT),
+    height: legs.jumpH,
+    airH: legs.airH,
+    airG: (2 * legs.airH) / (legs.airT * legs.airT),
+    air: legs.airN,
+    maxH,
+    canHover: t !== 'tank',
+    hover: t === 'quad' ? 50 : 240,
+    climb: t === 'quad' ? 240 : 480,
+    freeHover: t === 'quad',
   };
 }

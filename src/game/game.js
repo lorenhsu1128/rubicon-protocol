@@ -282,7 +282,7 @@ export class Game {
       if (!t || t.dead) continue;
       const d = t.center().distanceTo(p) - t.radius;
       if (d < splash) {
-        let k = clamp(1 - (d / splash) * 0.5, 0.4, 1);
+        let k = clamp(1 - (d / splash) * 0.5, 0.4, 1) * this.groundBlastK(t, p);
         let im = impact * k;
         if (
           t.team === 'player' &&
@@ -458,6 +458,7 @@ export class Game {
       p.update(dt);
       if (p.dead) this.projectiles.splice(i, 1);
     }
+    this.updateShocks(dt);
     this.fx.update(dt);
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const q = this.popups[i];

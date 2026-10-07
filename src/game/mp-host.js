@@ -93,6 +93,7 @@ Object.assign(Game.prototype, {
         if (!e.aiControlled) {
           e.aiControlled = true;
           e.ai = 'ac';
+          e.jumpExt = false;
         }
         continue;
       }
@@ -118,6 +119,10 @@ Object.assign(Game.prototype, {
       e.fpFace = !!inp.fp;
       const qb = !!(b & 32) && !e._qbHeld;
       e._qbHeld = !!(b & 32);
+      // 跳躍的按下以次數判斷（客機每次按下加 1），不從按住狀態推算
+      e.jumpExt = true;
+      if (e._jc !== undefined && inp.jc !== e._jc) e.jumpPressQ = true;
+      e._jc = inp.jc;
       e.move(dt, wish, !!(b & 16), qb, !!(b & 64), e.lock);
       const aimRv = inp.aimR ? new THREE.Vector3(inp.aimR[0], inp.aimR[1], inp.aimR[2]) : null;
       const fs = (slot, held, edgeKey) => {
@@ -326,6 +331,7 @@ Object.assign(Game.prototype, {
     }
     for (const p of this.projectiles) this.scene.remove(p.mesh);
     this.projectiles = [];
+    this.shocks = [];
     const s = this.net.snap;
     if (s) {
       this.waves = s.mis.waveList || [];

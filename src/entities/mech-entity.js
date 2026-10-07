@@ -3,7 +3,7 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
-import { FIST_DEF, asmStats, partById } from '../data/parts.js';
+import { AIR_DECAY, FIST_DEF, GRAVITY, JUMP_EN, asmStats, jumpSpec, partById } from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
@@ -225,8 +225,12 @@ export class MechEntity {
       hmul = clamp(1 - dy * 0.07, 0.55, 1.45);
     }
     this.heightMul = hmul;
+    const steady = this.hoverMode === 1 ? 0.5 : 1; // 懸浮（定高）時瞄準穩定
     const spread =
-      (d.spread || 0) * (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) * hmul +
+      (d.spread || 0) *
+        (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
+        hmul *
+        steady +
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
     const dir = targetPos.clone().sub(muzzle).normalize();
@@ -825,7 +829,9 @@ export class MechEntity {
         g.mpStats[this.slot].taken += eff;
     }
     if (this.staggerT <= 0) {
-      this.acs += impact * (this.shield ? 0.6 : 1);
+      // 高處優勢：攻擊者比自己高 4 m 以上時衝擊 +25%
+      const high = from && from !== this && from.center && from.center().y - this.center().y > 4 ? 1.25 : 1;
+      this.acs += impact * (this.shield ? 0.6 : 1) * high;
       this.acsDecayDelay = 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
@@ -949,6 +955,11 @@ export class MechEntity {
       P = this.stats.parts;
     const spd = this.stats.speed * this.speedMul;
     this.t += dt;
+    // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
+    if (this.aiJumpT > 0) {
+      this.aiJumpT -= dt;
+      if (!wantHover) wantHover = true;
+    }
     // timers
     for (const k in this.weapons) {
       const ww = this.weapons[k];
@@ -1054,24 +1065,24 @@ export class MechEntity {
       }
       this.boost = true;
     } else {
-      target.copy(wish).multiplyScalar(spd * (this.grounded ? 1 : 0.85));
+      // 起跳後一小段時間維持地面的速度與轉向（跳躍要輕快）
+      target.copy(wish).multiplyScalar(spd * (this.grounded || this.jumpT > 0 ? 1 : 0.85));
       this.boost = false;
     }
-    const acc = this.qbT > 0 ? 60 : this.grounded ? 18 : 9;
+    const acc = this.qbT > 0 ? 60 : this.grounded || this.jumpT > 0 ? 18 : 9;
     if (!this.melee.active) {
       this.vel.x = lerp(this.vel.x, target.x, Math.min(1, acc * dt));
       this.vel.z = lerp(this.vel.z, target.z, Math.min(1, acc * dt));
     } else this.updateMelee(dt);
     // vertical
     const ground = w.groundAt(this.pos.x, this.pos.z, this.pos.y);
-    const canFly = P.legs.type !== 'tank';
+    let altCap = false;
     {
       const MAXALT = 22;
       const alt = this.pos.y - ground;
       if (!this.flying && alt > MAXALT) {
         if (this.vel.y > 0) this.vel.y = Math.min(this.vel.y, 0);
-        wantHover = false;
-        this.hover = false;
+        altCap = true;
         if (this.isPlayer && !this.altWarnT) {
           this.altWarnT = 1.5;
           g.flashAlert('已達飛行高度上限');
@@ -1085,21 +1096,12 @@ export class MechEntity {
       this.grounded = false;
       this.hover = true;
     } else {
-      this.hover = false;
-      if (wantHover && canFly && (P.legs.type === 'quad' || this.en > 2)) {
-        const cost = (P.legs.type === 'quad' ? 60 : 240) * (1 - this.pmv('hover'));
-        if (this.grounded) {
-          this.vel.y = P.legs.jump * 1.5;
-          this.grounded = false;
-          g.fx.dust(this.pos.clone(), 2.4, 8);
-          SFX.jump(this.isPlayer ? null : this.center());
-        } else this.vel.y = lerp(this.vel.y, 9, Math.min(1, dt * 6));
-        this.en = Math.max(0, this.en - cost * dt);
-        this.enDelay = 0.5;
-        this.hover = true;
+      this.jumpMove(dt, wish, wantHover, spd, altCap);
+      if (!this.hoverMode) {
+        // 跳躍上升中用該腳部自己的重力（決定到頂時間），過了最高點一律用 GRAVITY
+        this.vel.y -= (this.vel.y > 0 && this.riseG ? this.riseG : GRAVITY) * dt;
+        if (this.vel.y < -36) this.vel.y = -36;
       }
-      this.vel.y -= 42 * dt;
-      if (this.vel.y < -36) this.vel.y = -36;
     }
     // integrate
     this.pos.x += this.vel.x * dt;
@@ -1324,6 +1326,86 @@ export class MechEntity {
     if (this.staggerT > 0 && Math.random() < dt * 20)
       g.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xffb020);
   }
+  // 跳躍與懸浮（同一個鍵分段）：地面按下＝跳躍；空中按下＝空中跳（還有次數時，向上的 QB，高度依次遞減）；
+  // 按住到最高點接懸浮（定高）；懸浮中放開後馬上再按住＝爬升（耗能加倍）。沒有空中跳時空中按住直接懸浮。
+  // 戰車能跳不能懸浮。
+  // want：按住（AI 傳 2 表示要爬升）。jumpExt（房主處理客機輸入）時按下由 jumpPressQ 給，不從按住推算
+  jumpMove(dt, wish, want, spd, altCap) {
+    const g = this.game,
+      P = this.stats.parts,
+      J = jumpSpec(P.legs);
+    const held = !!want;
+    const press = this.jumpExt ? !!this.jumpPressQ : held && !this.jumpPrev;
+    this.jumpPressQ = false;
+    this.jumpPrev = held;
+    if (this.jumpT > 0) this.jumpT -= dt;
+    if (this.hoverEndT > 0) this.hoverEndT -= dt;
+    if (!held) this.jumpHold = false;
+    if (this.grounded || this.vel.y <= 0) this.riseG = 0;
+    if (this.grounded) {
+      this.airJumps = J.air;
+      this.hoverMode = 0;
+    }
+    if (press) {
+      if (this.grounded) {
+        const k = this.en >= JUMP_EN ? 1 : 0.7; // 能量不足時跳得比較低
+        this.en = Math.max(0, this.en - JUMP_EN);
+        this.enDelay = Math.max(this.enDelay, 0.25);
+        this.vel.y = J.v * k;
+        this.riseG = J.g;
+        this.grounded = false;
+        this.jumpT = 0.6;
+        this.jumpHold = true;
+        g.fx.dust(this.pos.clone(), 2.4 * this.scale, 8);
+        SFX.jump(this.isPlayer ? null : this.center());
+      } else if (J.canHover && (this.hoverMode || this.hoverEndT > 0)) {
+        this.hoverMode = 2;
+      } else if (this.airJumps > 0 && this.en >= P.booster.qbCost * 0.7) {
+        this.en -= P.booster.qbCost * 0.7;
+        this.enDelay = P.generator.delay;
+        const f = AIR_DECAY[Math.min(J.air - this.airJumps, AIR_DECAY.length - 1)];
+        this.airJumps--;
+        const v = Math.sqrt(2 * J.airG * J.airH * f);
+        if (this.vel.y < v) {
+          this.vel.y = v;
+          this.riseG = J.airG;
+        }
+        if (wish.lengthSq() > 0.1) {
+          const h = wish
+            .clone()
+            .setY(0)
+            .normalize()
+            .multiplyScalar(spd * 1.35);
+          this.vel.x = h.x;
+          this.vel.z = h.z;
+        }
+        this.iFrames = Math.max(this.iFrames, 0.1);
+        this.jumpT = 0.45;
+        this.jumpHold = true;
+        this.hoverMode = 0;
+        g.fx.chevrons(this.pos.clone(), new THREE.Vector3(0, -1, 0), 0xffffff);
+        SFX.qb(this.isPlayer ? null : this.center());
+        if (this.isPlayer) g.rumble(0.1, 0.3, 70);
+      } else if (held && J.canHover) this.hoverMode = 1;
+    }
+    if (this.hoverMode && !held) {
+      this.hoverMode = 0;
+      this.hoverEndT = 0.25;
+    }
+    if (!this.hoverMode && held && this.jumpHold && !this.grounded && this.vel.y <= 0) this.hoverMode = 1;
+    if (want === 2 && !this.grounded) this.hoverMode = 2;
+    if (!J.canHover) this.hoverMode = 0;
+    if (this.hoverMode === 2 && (altCap || this.en <= 2)) this.hoverMode = 1;
+    if (this.hoverMode === 1 && this.en <= 2 && !J.freeHover) this.hoverMode = 0;
+    if (this.hoverMode) {
+      this.riseG = 0;
+      const climb = this.hoverMode === 2;
+      this.vel.y = lerp(this.vel.y, climb ? 7 : -0.5, Math.min(1, dt * (climb ? 5 : 6)));
+      this.en = Math.max(0, this.en - (climb ? J.climb : J.hover) * (1 - this.pmv('hover')) * dt);
+      this.enDelay = 0.5;
+    }
+    this.hover = this.hoverMode > 0;
+  }
   // 推進器：噴口光暈（加色球體，隨推力縮放）＋噴焰。機甲的噴焰是粒子特效（沿噴口連接點的 −Y 噴出），
   // 載具（直升機、無人機）維持原本的尾焰
   thrusterFx(dt, glareCol, flameCol, jitter) {
@@ -1534,18 +1616,20 @@ export class MechEntity {
       if (s.stuck > 0.4) {
         s.stuck = 0;
         s.jumpT = 0.5;
+        s.climb = true;
       }
       s.jumpT -= dt;
-      if (s.jumpT > 0) hover = true;
+      if (s.jumpT > 0) hover = s.climb ? 2 : true;
     } else if (this.ai === 'rusher' || this.ai === 'kamikaze') {
       wish.copy(dir);
       if (this.ai === 'rusher') {
         if (s.stuck > 0.4) {
           s.stuck = 0;
           s.jumpT = 0.5;
+          s.climb = true;
         }
         s.jumpT -= dt;
-        if (s.jumpT > 0) hover = true;
+        if (s.jumpT > 0) hover = s.climb ? 2 : true;
         if (d > 16 && Math.random() < dt * 1.2) ab = true;
         else if (d > 8 && Math.random() < dt * 0.8) {
           qb = true;
@@ -1608,8 +1692,8 @@ export class MechEntity {
         if (this.pos.y < s.perch.top - 0.5) {
           if (dd > 2) {
             wish.copy(to.normalize());
-            if (dd < 8) hover = true;
-          } else hover = true;
+            if (dd < 8) hover = 2; // 跳起後爬升到台頂
+          } else hover = 2;
         } else {
           wish.copy(perp).multiplyScalar(0.3);
         }
@@ -1648,11 +1732,15 @@ export class MechEntity {
         s.strafe *= -1;
         s.stuck = 0;
         s.jumpT = 0.6;
+        s.climb = true;
         wish.copy(dir);
       }
       s.jumpT -= dt;
-      if (s.jumpT > 0) hover = true;
-      else if (this.ai === 'ac' && Math.random() < dt * 0.25 && this.grounded) s.jumpT = rnd(0.4, 1.0);
+      if (s.jumpT > 0) hover = s.climb ? 2 : true;
+      else if (this.ai === 'ac' && Math.random() < dt * 0.25 && this.grounded) {
+        s.jumpT = rnd(0.4, 1.0);
+        s.climb = false;
+      }
       // dodge: quick boost occasionally / when player fires
       s.qbT -= dt;
       const threat =
@@ -1673,6 +1761,7 @@ export class MechEntity {
       }
       if (this.ai === 'ac' && d > 40 && Math.random() < dt * 0.5) ab = true;
     }
+    this.aiShock(dt, d, wish);
     // boss patterns
     if (this.isBoss && this.opts.bossKind === 'heli') this.heliBossAI(dt, d, dir, perp, wish, pl);
     else if (this.isBoss && !this.opts.bossKind) this.bossAI(dt, d, dir, perp, wish, pl);
@@ -1788,6 +1877,31 @@ export class MechEntity {
     }
     this.move(dt, wish, hover, qb, ab, ab ? pl : null);
     if (this.ai === 'drone' || this.ai === 'heli') this.flying = true;
+  }
+  // Boss（地面型）與重型 AC（bastion）的踏地衝擊波：目標在範圍內且自己貼地時才用，預警期間停下
+  aiShock(dt, d, wish) {
+    const s = this.aiState;
+    const boss = this.isBoss && !this.opts.bossKind;
+    if ((!boss && this.ai !== 'bastion') || this.flying) return;
+    if (s.shockT === undefined) s.shockT = rnd(4, 8);
+    if (s.stompT > 0) {
+      s.stompT -= dt;
+      wish.set(0, 0, 0);
+      return;
+    }
+    s.shockT -= dt;
+    const R = boss ? 30 : 20;
+    if (s.shockT > 0 || !this.grounded || d > R * 0.8 || !this.canAct() || this.melee.active) return;
+    s.shockT = (boss ? rnd(7, 11) : rnd(10, 15)) * (s.phase === 2 ? 0.7 : 1);
+    const dl = boss ? 0.9 : 0.8;
+    s.stompT = dl;
+    this.game.shockStart(this, {
+      R,
+      sp: boss ? 24 : 20,
+      dl,
+      dmg: (boss ? 650 : 380) * this.dmgMul,
+      im: (boss ? 1300 : 800) * this.dmgMul,
+    });
   }
   heliBossAI(dt, d, dir, perp, wish, pl) {
     const s = this.aiState,

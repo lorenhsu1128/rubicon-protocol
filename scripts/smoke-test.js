@@ -507,6 +507,105 @@ async function testStyleLab(browser) {
     '單項開關（關掉腳部貼地）',
   );
   await page.check('#ik_feet');
+  // 跳躍與懸浮、地面衝擊波：以固定 dt 同步模擬輸入序列（不受 SwiftShader 幀率影響）
+  const jumpRes = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      pl = g.player;
+    const foe = g.enemies.find((e) => !e.dead && !e.flying);
+    const ai0 = pl.ai,
+      foe0 = foe.pos.clone();
+    pl.ai = null; // 不讓 AI 自己閃衝擊波
+    const dt = 1 / 60,
+      x0 = pl.pos.x,
+      z0 = pl.pos.z;
+    const hgt = () => pl.pos.y - w.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 0.1);
+    const reset = () => {
+      pl.pos.set(x0, w.groundAt(x0, z0, 99), z0);
+      pl.vel.set(0, 0, 0);
+      Object.assign(pl, { en: pl.enMax, hp: pl.maxHp, acs: 0, staggerT: 0, iFrames: 0, jumpPrev: false });
+      for (let i = 0; i < 30; i++) pl.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    const run = (seq, each) => {
+      reset();
+      let maxH = 0,
+        t = 0;
+      const marks = [];
+      for (const [dur, held] of seq) {
+        for (let k = 0; k < Math.round(dur / dt); k++, t += dt) {
+          pl.move(dt, new THREE.Vector3(), held, false, false, null);
+          if (each) each(t);
+          maxH = Math.max(maxH, hgt());
+        }
+        marks.push({ h: hgt(), m: pl.hoverMode || 0 });
+      }
+      return { maxH, marks };
+    };
+    const tap = run([
+      [0.05, true],
+      [1.5, false],
+    ]);
+    const hold = run([
+      [0.6, true],
+      [1.0, true],
+    ]);
+    const climb = run([
+      [0.7, true],
+      [0.08, false],
+      [0.8, true],
+    ]);
+    const dbl = run([
+      [0.05, true],
+      [0.3, false],
+      [0.05, true],
+      [1.5, false],
+    ]);
+    const shock = (jumpAt) => {
+      g.shocks = [];
+      let hp0 = 0;
+      run([[2.5, false]], (t) => {
+        if (t === 0) {
+          foe.pos.set(pl.pos.x + 12, pl.pos.y, pl.pos.z);
+          hp0 = pl.hp;
+          g.shockStart(foe, { R: 30, sp: 24, dl: 0.9, dmg: 650, im: 1300 });
+        }
+        if (jumpAt !== null && Math.abs(t - jumpAt) < dt / 2) pl.jumpPressQ = pl.jumpExt = true;
+        else pl.jumpExt = false;
+        g.updateShocks(dt);
+      });
+      return hp0 - pl.hp;
+    };
+    const hitGround = shock(null),
+      hitJump = shock(1.2);
+    pl.ai = ai0;
+    foe.pos.copy(foe0);
+    g.shocks = [];
+    return {
+      type: pl.model.type,
+      tap: tap.maxH,
+      tapEnd: tap.marks[1].h,
+      hover:
+        hold.marks[0].m === 1 && Math.abs(hold.marks[1].h - hold.marks[0].h) < 1 && hold.marks[1].h > 1.5,
+      hoverH: hold.marks[1].h,
+      climb: climb.marks[2].m === 2 ? climb.marks[2].h - climb.marks[0].h : -1,
+      dbl: dbl.maxH,
+      hitGround,
+      hitJump,
+    };
+  });
+  check(
+    jumpRes.type === 'tank' ||
+      (jumpRes.tap > 2 &&
+        jumpRes.tapEnd < 0.05 &&
+        jumpRes.hover &&
+        jumpRes.climb > 2 &&
+        jumpRes.dbl > jumpRes.tap + 1.5 &&
+        jumpRes.hitGround > 0 &&
+        jumpRes.hitJump === 0),
+    `跳躍與懸浮（${jumpRes.type}）：短按跳 ${jumpRes.tap.toFixed(1)} m 後落地、按住在最高點定高懸浮（${jumpRes.hoverH.toFixed(1)} m）、` +
+      `放開再按住爬升 ${jumpRes.climb.toFixed(1)} m、二段跳 ${jumpRes.dbl.toFixed(1)} m、` +
+      `衝擊波貼地受傷 ${Math.round(jumpRes.hitGround)}／起跳躲開 ${Math.round(jumpRes.hitJump)}`,
+  );
   await page.click('#labCtrl');
   await wait(800);
   check(

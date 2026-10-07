@@ -141,7 +141,7 @@ export class Projectile {
         if (t.dead) continue;
         const d = t.center().distanceTo(this.pos) - t.radius;
         if (d < this.splash) {
-          let k = clamp(1 - (d / this.splash) * 0.5, 0.4, 1);
+          let k = clamp(1 - (d / this.splash) * 0.5, 0.4, 1) * g.groundBlastK(t, this.pos);
           let im = this.impactV * k;
           if (
             t.team === 'player' &&

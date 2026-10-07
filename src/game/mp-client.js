@@ -316,6 +316,9 @@ Object.assign(Game.prototype, {
         this.writeSave();
         this.bountyPops.push({ txt: '+' + e.v.toLocaleString() + ' COAM', life: 2.2, y: 0 });
         break;
+      case 'shock':
+        this.shockFx(new THREE.Vector3(e.p[0], e.p[1], e.p[2]), e.R, e.sp, e.dl);
+        break;
       case 'stag':
         {
           const t = this.entById(e.i);
@@ -548,7 +551,10 @@ Object.assign(Game.prototype, {
     if (this.act('fireL')) b |= 2;
     if (this.act('backL')) b |= 4;
     if (this.act('backR')) b |= 8;
-    if (this.act('jump')) b |= 16;
+    const jHeld = this.act('jump');
+    if (jHeld) b |= 16;
+    if (jHeld && !this._jPrev) this._jc = ((this._jc || 0) + 1) & 255; // 按下次數：短按不會在兩次輸入之間漏掉
+    this._jPrev = jHeld;
     if (qbHeld) b |= 32;
     if (this.act('ab')) b |= 64;
     const cs = [this.save.asm.c1, this.save.asm.c2].map((id) => ((this.save.items[id] || 0) > 0 ? id : null));
@@ -559,6 +565,7 @@ Object.assign(Game.prototype, {
       aim: [+aimPos.x.toFixed(2), +aimPos.y.toFixed(2), +aimPos.z.toFixed(2)],
       aimR: [+aimR.x.toFixed(2), +aimR.y.toFixed(2), +aimR.z.toFixed(2)],
       b,
+      jc: this._jc || 0,
       lock: p.lock ? p.lock.id : -1,
       kit: this.kitPressed ? 1 : 0,
       cs1: this.cs1Pressed ? 1 : 0,

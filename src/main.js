@@ -18,6 +18,7 @@ import './game/mp-host.js';
 import './game/mp-client.js';
 import './entities/mech-remote.js';
 import './game/map-extras.js';
+import './game/shockwave.js';
 import './game/first-person.js';
 import './game/pvp.js';
 import './game/mp-models.js';
