@@ -9,6 +9,7 @@ import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
 import { animateMech, buildMech } from '../render/mech-model.js';
+import { IK, IK_ITEMS, setIK } from '../render/mech-ik.js';
 import { STYLE_GROUPS, STYLE_ITEMS, normalizeStyle } from '../render/style/params.js';
 import { StyleStore } from '../render/style/store.js';
 import { THEMES, World } from '../world/world.js';
@@ -564,6 +565,10 @@ Object.assign(Game.prototype, {
       return true;
     }
     if (L.mode !== 'watch') return false;
+    if (e.code === 'KeyI') {
+      this.labIkToggle('on', !IK.on);
+      return true;
+    }
     if (e.code === 'Space') {
       L.hold = true;
       this.labHud();
@@ -608,6 +613,14 @@ Object.assign(Game.prototype, {
         <div class="lrow"><span>風格</span><select id="labStyle"></select></div>
         <div class="lrow"><span>機體金屬</span><label><input type="checkbox" id="labMetal" /> 機甲、武器、載具改成金屬</label></div>
         <div class="lnote" id="labSrc"></div>
+        <details class="lgrp" id="labIk"><summary>動作 IK</summary>
+          <div class="lrow"><span>全部</span><label title="I 鍵切換"><input type="checkbox" id="ik_on" /> 啟用 IK（I 鍵切換，比較前後）</label></div>
+          ${IK_ITEMS.map(
+            ([k, name, tip]) =>
+              `<div class="lrow ikrow"><label title="${escHtml(tip)}"><input type="checkbox" id="ik_${k}" /> ${escHtml(name)}</label></div>`,
+          ).join('')}
+          <div class="lnote">開關會記住，也套用到一般任務。手臂瞄準與壓低骨盆會移動子彈發射點（多人以房主的設定為準）。</div>
+        </details>
         ${groups}
         <div class="lacts">
           <button class="primary" id="labApply" title="寫入設定，下次出擊、進車庫時使用">套用到遊戲</button>
@@ -697,6 +710,7 @@ Object.assign(Game.prototype, {
       if (it.t === 'num' || it.t === 'int') $('lp_' + k + '_v').textContent = this.labFmt(it, P[k]);
     }
     $('labMetal').checked = !!P.metal;
+    this.labIkSync();
     this.labVisibility();
     const name = StyleStore.nameOf(L.src.k, L.src.id) || '（已刪除）';
     $('labSrc').textContent = `載入自：${name}${L.dirty ? '（已修改）' : ''}`;
@@ -706,6 +720,19 @@ Object.assign(Game.prototype, {
     const srv = StyleStore.serverOn;
     $('labSrvActs').style.display = srv ? '' : 'none';
     $('labSrvDel').disabled = L.src.k !== 'server';
+  },
+  labIkSync() {
+    $('ik_on').checked = IK.on;
+    for (const [k] of IK_ITEMS) {
+      const el = $('ik_' + k);
+      el.checked = IK[k];
+      el.disabled = !IK.on;
+    }
+  },
+  labIkToggle(k, v) {
+    setIK(k, v);
+    this.labIkSync();
+    if (k === 'on') this.flashMsg(v ? 'IK：開' : 'IK：關', 0x5cc8ff, 1);
   },
   labFmt(it, v) {
     if (it.t === 'int') return String(v);
@@ -770,7 +797,7 @@ Object.assign(Game.prototype, {
       L.mode === 'watch'
         ? L.hold
           ? '顯示載入時的參數（放開空白鍵回到目前）'
-          : '空白鍵：按住看載入時的參數・P 暫停・[ ] 切換目標・H 收合面板・拖曳畫面＝自由鏡頭'
+          : '空白鍵：按住看載入時的參數・I 開關 IK・P 暫停・[ ] 切換目標・H 收合面板・拖曳畫面＝自由鏡頭'
         : '操作模式：和任務相同的按鍵（Esc 暫停選單可離開）・H 收合面板';
   },
   labBindUi() {
@@ -790,6 +817,8 @@ Object.assign(Game.prototype, {
       });
     }
     $('labMetal').onchange = (e) => this.labSetParam('metal', e.target.checked);
+    $('ik_on').onchange = (e) => this.labIkToggle('on', e.target.checked);
+    for (const [k] of IK_ITEMS) $('ik_' + k).onchange = (e) => this.labIkToggle(k, e.target.checked);
     $('labMini').onclick = () => {
       L().panel = !L().panel;
       $('labPanel').classList.toggle('mini', !L().panel);

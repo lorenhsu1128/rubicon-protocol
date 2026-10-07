@@ -2,6 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { animateMech } from '../render/mech-model.js';
+import { applyIK, ikRestore } from '../render/mech-ik.js';
 import { MechEntity } from './mech-entity.js';
 
 Object.assign(MechEntity.prototype, {
@@ -17,6 +18,7 @@ Object.assign(MechEntity.prototype, {
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
     if (this.melee.active) this.melee.t += dt;
     this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5;
+    ikRestore(this.model);
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;
@@ -40,6 +42,7 @@ Object.assign(MechEntity.prototype, {
     const strafe = clamp(this.vel.dot(right) / spd, -1, 1);
     const fwdV = clamp(this.vel.dot(fwd) / spd, -1, 1);
     this.landT = this.landT === undefined ? 9 : this.landT + dt;
+    this.ikGait(dt);
     const ml = this.melee.active
       ? (() => {
           const d = this.weapons[this.melee.slot].def,
@@ -67,6 +70,8 @@ Object.assign(MechEntity.prototype, {
       knockSide: this.knockSide || 1,
       strafe,
       fwd: fwdV,
+      gait: this.gaitPh,
+      amp: this.gaitAmp,
       melee: ml,
       turn: 0,
       landT: this.landT,
@@ -74,6 +79,7 @@ Object.assign(MechEntity.prototype, {
       leanZ: this.leanZ || 0,
       leanX: this.leanX || 0,
     });
+    if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
     // 光暈與噴焰
     this.thrusterFx(
       dt,

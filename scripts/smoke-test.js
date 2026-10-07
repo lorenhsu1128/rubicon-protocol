@@ -454,6 +454,59 @@ async function testStyleLab(browser) {
   await page.selectOption('#labCam', 'cinema');
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-ac6.png') });
+  // 動作 IK：手臂瞄準讓槍管對準瞄準點；關掉後權重淡出到 0；開關記在 rubicon_ik
+  await page.click('#labIk summary');
+  const ikState = () =>
+    page.evaluate(() => {
+      const g = window.__game;
+      const out = { mechs: 0, err: [], w: 0 };
+      const V = () => new THREE.Vector3(),
+        q = new THREE.Quaternion();
+      for (const e of g.labMechs()) {
+        if (e.dead || e.opts.modelKind || !e.model.ik) continue;
+        out.mechs++;
+        for (const k of ['l', 'r']) {
+          out.w = Math.max(out.w, e.model.ik.w.arm[k], e.model.ik.w.feet);
+          const w = e.weapons[k + 'arm'];
+          if (!w || w.dropped || w.def.type === 'melee' || e.melee.active || e.boost || e.staggerT > 0)
+            continue;
+          const a = e.model.arms[k].weapon;
+          const H = a.getWorldPosition(V());
+          const f = new THREE.Vector3(0, 0, -1).applyQuaternion(a.getWorldQuaternion(q));
+          out.err.push(f.angleTo(e.aimPoint().sub(H)));
+        }
+      }
+      out.avg = out.err.length ? out.err.reduce((s, v) => s + v, 0) / out.err.length : 9;
+      return out;
+    });
+  const ik1 = await ikState();
+  check(
+    ik1.mechs >= 3 && ik1.avg < 0.15,
+    `動作 IK：${ik1.mechs} 台機甲套用，槍管對準瞄準點（平均誤差 ${ik1.avg.toFixed(3)} rad）`,
+  );
+  await page.uncheck('#ik_on');
+  // 權重依遊戲時間淡出（每格 dt 上限 0.05 s，SwiftShader 幀率低時要多等）
+  let ik2 = await ikState();
+  for (let i = 0; i < 16 && ik2.w >= 0.01; i++) {
+    await wait(500);
+    ik2 = await ikState();
+  }
+  const ikSaved = await page.evaluate(() => JSON.parse(localStorage.getItem('rubicon_ik')));
+  check(
+    ik2.w < 0.01 && ik2.avg > ik1.avg && ikSaved.on === false && (await page.isDisabled('#ik_arms')),
+    `關掉 IK：權重淡出到 0、槍管回到動作層（平均誤差 ${ik2.avg.toFixed(3)} rad）、開關記住`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-ik-off.png') });
+  await page.check('#ik_on');
+  await page.uncheck('#ik_feet');
+  check(
+    await page.evaluate(() => {
+      const o = JSON.parse(localStorage.getItem('rubicon_ik'));
+      return o.on === true && o.feet === false && o.arms === true;
+    }),
+    '單項開關（關掉腳部貼地）',
+  );
+  await page.check('#ik_feet');
   await page.click('#labCtrl');
   await wait(800);
   check(

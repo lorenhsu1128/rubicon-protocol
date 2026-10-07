@@ -1370,6 +1370,13 @@ select {
   padding: 2px 0 4px;
   letter-spacing: 0.06em;
 }
+#labPanel .ikrow {
+  justify-content: flex-start;
+  padding-left: 14px;
+}
+#labPanel .ikrow label:has(input:disabled) {
+  opacity: 0.5;
+}
 #labPanel .lacts {
   display: flex;
   flex-wrap: wrap;

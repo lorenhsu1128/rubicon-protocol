@@ -6,6 +6,7 @@ import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { FIST_DEF, asmStats, partById } from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
+import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
 import { nozzleWorld } from '../fx/thruster.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { Projectile } from './projectile.js';
@@ -1165,6 +1166,7 @@ export class MechEntity {
       const targetYaw = faceAim ? this.aimYaw : Math.atan2(-this.vel.x, -this.vel.z);
       this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (faceAim ? 10 : 14)));
     }
+    ikRestore(this.model); // IK 改過的關節回到動作層的結果（animateMech 從那裡平滑）
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;
@@ -1214,6 +1216,8 @@ export class MechEntity {
       this.prevYaw = this.yaw;
       this.turnS = lerp(this.turnS || 0, turn, Math.min(1, dt * 8));
       this.landT = this.landT === undefined ? 9 : this.landT + dt;
+      const fwdV = clamp(this.vel.dot(fwd) / spd, -1, 1);
+      this.ikGait(dt);
       animateMech(this.model, dt, {
         moving: this.moving,
         grounded: this.grounded,
@@ -1227,7 +1231,9 @@ export class MechEntity {
         knock: this.staggerT > 0 || this.downed ? 1 : 0,
         knockSide: this.knockSide || 1,
         strafe,
-        fwd: clamp(this.vel.dot(fwd) / spd, -1, 1),
+        fwd: fwdV,
+        gait: this.gaitPh,
+        amp: this.gaitAmp,
         melee: this.melee.active
           ? (() => {
               const d = this.weapons[this.melee.slot].def,
@@ -1247,6 +1253,7 @@ export class MechEntity {
         leanZ: this.leanZ || 0,
         leanX: this.leanX || 0,
       });
+      if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
     }
     // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
     {
@@ -1362,6 +1369,70 @@ export class MechEntity {
       dy = targetPos.y - c.y;
     this.aimYaw = Math.atan2(-dx, -dz);
     this.aimPitch = Math.atan2(dy, Math.hypot(dx, dz));
+    this.aimDist = Math.hypot(dx, dy, dz);
+  }
+  // ---------- IK（render/mech-ik.js）----------
+  // 瞄準點：機體中心沿 aimYaw／aimPitch 的方向；距離用 setAim 記下的（客機上其他機甲沒有，改用鎖定目標或 40 m）
+  aimPoint() {
+    const c = this.center();
+    const lk = this.lock && !this.lock.dead ? this.lock : null;
+    const d = this.aimDist || (lk ? Math.max(5, lk.center().distanceTo(c)) : 40);
+    const cp = Math.cos(this.aimPitch);
+    return c.add(
+      new THREE.Vector3(
+        -Math.sin(this.aimYaw) * cp,
+        Math.sin(this.aimPitch),
+        -Math.cos(this.aimYaw) * cp,
+      ).multiplyScalar(d),
+    );
+  }
+  // 步伐相位：開「步伐依移動距離」時依實際速度推進（一個循環的距離依腳長與擺幅），否則固定步頻 11 rad/s。
+  // 速度太快、步頻到上限時（必然滑步）不做腳步鎖定
+  ikGait(dt) {
+    let rate = 11;
+    this.gaitLockOK = false;
+    this.gaitAmp = undefined;
+    if (ikOn('stride') && this.grounded && this.moving) {
+      // 擺幅依實際速度（10 m/s 擺滿），一個循環的距離＝4 × 腳長 × sin(0.6 × 擺幅)
+      const v = Math.hypot(this.vel.x, this.vel.z);
+      const fa = clamp(v / (10 * this.scale), 0.35, 1);
+      const cyc = Math.max(0.6, 6.5 * Math.sin(0.6 * fa)) * this.scale;
+      const r = (Math.PI * 2 * v) / cyc;
+      rate = Math.min(20, r);
+      this.gaitAmp = fa;
+      this.gaitLockOK = r <= 20 && !this.boost && this.qbT <= 0;
+    }
+    this.gaitPh = ((this.gaitPh || 0) + rate * dt) % (Math.PI * 200);
+  }
+  ikCtx(dt) {
+    const g = this.game;
+    const kind = (s) => {
+      const w = this.weapons[s];
+      if (!w || w.dropped) return 'none';
+      const t = w.def.type;
+      return t === 'none' || t === 'shield' ? 'none' : t === 'melee' ? 'melee' : 'gun';
+    };
+    const mt = this.melee.active && this.melee.target && !this.melee.target.dead ? this.melee.target : null;
+    return {
+      dt,
+      world: g.world,
+      pos: this.pos,
+      scale: this.scale,
+      grounded: this.grounded,
+      moving: this.moving,
+      boost: this.boost || this.qbT > 0,
+      knock: this.staggerT > 0 || this.downed,
+      melee: this.melee.active,
+      meleePt: mt ? mt.center() : null,
+      aim: this.aimPoint(),
+      guns: { l: kind('larm'), r: kind('rarm') },
+      backs: { l: kind('lback') === 'gun', r: kind('rback') === 'gun' },
+      recoil: this.recoil,
+      gait: this.gaitPh,
+      stride: this.gaitAmp !== undefined,
+      lockOK: this.gaitLockOK,
+      near: !g.camera || g.camera.position.distanceToSquared(this.pos) < 160 * 160,
+    };
   }
 
   // ---------- AI ----------

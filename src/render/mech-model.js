@@ -1144,13 +1144,13 @@ export function animateMech(m, dt, st) {
     land = st.landT !== undefined ? st.landT : 9,
     aimRel = st.aimRel || 0,
     ap = clamp(st.aimPitch || 0, -0.6, 0.6);
+  const gp = st.gait !== undefined ? st.gait : t * 11; // 步伐相位（實體開「步伐依移動距離」時依速度推進）
   const fwdV = st.fwd || 0; // 前進速度比例（-1 後退 ~ 1 前進，機體座標）
   const ML = st.melee; // 近戰姿勢 {kind, ph, mirror, side}
   const squat = land < 0.35 ? Math.sin((land / 0.35) * Math.PI) * 0.6 : 0; // 落地蹲踞（0.35 s 內壓下再彈回）
   const idle = !st.moving && st.grounded && !st.boost;
   // ===== 腿：髖三軸（俯仰＝擺動、外展＝側移／落地、偏航＝轉向）＋膝＋踝兩軸 =====
   if (m.type === 'biped' || m.type === 'reverse') {
-    const f = 11;
     const rev = m.type === 'reverse';
     for (const L of m.legs) {
       let th = L.th,
@@ -1160,12 +1160,13 @@ export function animateMech(m, dt, st) {
         hy = 0,
         ftRoll = 0;
       if (st.grounded && st.moving) {
-        const ph = t * f + (L.side > 0 ? 0 : Math.PI);
+        const ph = gp + (L.side > 0 ? 0 : Math.PI);
         const sw = Math.sin(ph);
-        const fa = Math.max(0.35, Math.abs(fwdV));
+        const fa = st.amp !== undefined ? st.amp : Math.max(0.35, Math.abs(fwdV)); // 擺幅（依速度推進步伐時由實體給）
         const sa = Math.abs(strafe);
         th += sw * 0.6 * fa * (fwdV < -0.2 ? -1 : 1);
-        kn += (rev ? -0.5 : 0.55) * Math.max(0, -Math.sin(ph + 0.4));
+        // 抬腳：依速度推進步伐時在腿往前擺的期間（cos(ph) > 0）抬，支撐腳才會往後踩；否則維持原本的節奏
+        kn += (rev ? -0.5 : 0.55) * Math.max(0, st.amp !== undefined ? Math.cos(ph) : -Math.sin(ph + 0.4));
         ft += -sw * 0.25 * fa; // 前後步伐（面向不變，後退時反向擺腿）
         abd = L.side * 0.08 + sa * 0.42 * Math.max(0, -strafe * L.side) + sa * Math.sin(ph) * 0.22 * L.side; // 側步：往側移方向那條腿張開＋交替橫跨
         hy = 0;
@@ -1210,12 +1211,12 @@ export function animateMech(m, dt, st) {
       L.foot.rotation.z = lerp(L.foot.rotation.z, ftRoll, ks);
     }
     // 髖部搖擺（步行時左右交替）與骨盆偏航
-    m.legsG.rotation.z = lerp(m.legsG.rotation.z, st.grounded && st.moving ? Math.sin(t * f) * 0.04 : 0, ks);
+    m.legsG.rotation.z = lerp(m.legsG.rotation.z, st.grounded && st.moving ? Math.sin(gp) * 0.04 : 0, ks);
     m.legsG.rotation.y = 0;
   } else if (m.type === 'quad') {
     for (const L of m.legs) {
       const ph = (L.side > 0 ? 0 : Math.PI) + (L.sz > 0 ? Math.PI / 2 : 0);
-      const sw = st.grounded && st.moving ? Math.sin(t * 10 + ph) * 0.35 : 0;
+      const sw = st.grounded && st.moving ? Math.sin(gp * (10 / 11) + ph) * 0.35 : 0;
       L.thigh.rotation.x = lerp(L.thigh.rotation.x, L.sz * 0.3 + sw, 0.25);
       L.thigh.rotation.z = lerp(
         L.thigh.rotation.z,
@@ -1230,12 +1231,12 @@ export function animateMech(m, dt, st) {
     (m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12) -
     squat * 0.35 +
     (st.grounded && st.moving
-      ? Math.abs(Math.sin(t * 11)) * 0.06
+      ? Math.abs(Math.sin(gp)) * 0.06
       : idle
         ? Math.sin(t * 1.3) * 0.025
         : Math.sin(t * 3) * 0.04);
   let tX = ap * 0.25 + (st.qb ? 0.15 : 0) + squat * 0.25 + fwdV * 0.22 + (st.boost ? 0.15 : 0); // 前進時上身前傾、後退後仰
-  let tZ = -strafe * 0.14 - (st.grounded && st.moving ? Math.sin(t * 11) * 0.03 : 0); // 側移時上身向移動方向傾
+  let tZ = -strafe * 0.14 - (st.grounded && st.moving ? Math.sin(gp) * 0.03 : 0); // 側移時上身向移動方向傾
   let tYoff = 0; // 人形：上半身不與下半身分離扭轉（近戰招式除外）
   if (ML) {
     const ph = ML.ph,
@@ -1283,7 +1284,7 @@ export function animateMech(m, dt, st) {
     let twist = firing
       ? -side * 0.15
       : st.grounded && st.moving
-        ? Math.sin(t * 11 + (side > 0 ? Math.PI : 0)) * 0.08
+        ? Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.08
         : 0;
     let up =
       0.35 +
@@ -1291,7 +1292,7 @@ export function animateMech(m, dt, st) {
       rec * 0.5 +
       sw * 0.9 +
       (st.grounded && st.moving && !firing
-        ? Math.sin(t * 11 + (side > 0 ? Math.PI : 0)) * 0.42 - fwdV * 0.25
+        ? Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.42 - fwdV * 0.25
         : 0) -
       squat * 0.2 +
       (!st.grounded ? -0.15 : 0) +
