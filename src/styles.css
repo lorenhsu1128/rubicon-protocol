@@ -1464,3 +1464,15 @@ body.lab #fps {
 .saveCard .row button {
   padding: 6px 12px;
 }
+
+/* 設定畫面：動作 IK 的各項開關 */
+#ikBox .ikGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+  padding: 4px 0 4px 12px;
+  font-size: 13px;
+}
+#ikBox .ikGrid label:has(input:disabled) {
+  opacity: 0.5;
+}

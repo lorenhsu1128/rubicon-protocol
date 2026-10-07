@@ -540,6 +540,20 @@ async function testStyleLab(browser) {
     ((await page.$eval('#styleSel', (s) => s.selectedOptions[0].textContent)) || '').includes('測試風格'),
     '設定畫面的「畫面風格」顯示套用的風格',
   );
+  // 設定畫面的動作 IK：和實驗室共用開關
+  const ikBoxN = await page.$$eval('#ikBox input[data-ik]', (els) => els.length);
+  await page.uncheck('#ikBox input[data-ik="arms"]');
+  await page.uncheck('#ikBox input[data-ik="on"]');
+  const ikSet1 = await page.evaluate(() => ({
+    o: JSON.parse(localStorage.getItem('rubicon_ik')),
+    dis: document.querySelector('#ikBox input[data-ik="feet"]').disabled,
+  }));
+  check(
+    ikBoxN === 13 && ikSet1.o.arms === false && ikSet1.o.on === false && ikSet1.dis,
+    `設定畫面的動作 IK 開關（總開關＋${ikBoxN - 1} 項，關掉總開關時單項停用）`,
+  );
+  await page.check('#ikBox input[data-ik="on"]');
+  await page.check('#ikBox input[data-ik="arms"]');
   await page.click('#btnSettingsBack');
   await newCareer(page);
   await waitVisible(page, 'garage');

@@ -1,5 +1,6 @@
 // Game：設定畫面與按鍵綁定
 import { escHtml } from '../core/html.js';
+import { IK, IK_ITEMS, setIK } from '../render/mech-ik.js';
 import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
@@ -59,6 +60,24 @@ Object.assign(Game.prototype, {
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
     this.renderLocalModels();
     this.renderStyleSettings();
+    this.renderIkSettings();
+  },
+  // 動作 IK：和渲染風格實驗室的面板共用開關（rubicon_ik），任務中也能改、立即生效
+  renderIkSettings() {
+    const box = $('ikBox');
+    box.innerHTML =
+      `<div class="krow"><span>啟用</span><label><input type="checkbox" data-ik="on" ${IK.on ? 'checked' : ''} /> 機甲動作的 IK 修正（總開關）</label></div>` +
+      `<div class="ikGrid">${IK_ITEMS.map(
+        ([k, name, tip]) =>
+          `<label title="${escHtml(tip)}"><input type="checkbox" data-ik="${k}" ${IK[k] ? 'checked' : ''} ${IK.on ? '' : 'disabled'} /> ${escHtml(name)}</label>`,
+      ).join('')}</div>` +
+      `<p class="dim" style="font-size: 11px">滑鼠停在項目上看說明。手臂瞄準與壓低骨盆會移動子彈發射點（多人以房主的設定為準）；可在渲染風格實驗室按 I 鍵比較前後。</p>`;
+    box.onchange = (e) => {
+      const k = e.target.dataset && e.target.dataset.ik;
+      if (!k) return;
+      setIK(k, e.target.checked);
+      this.renderIkSettings();
+    };
   },
   // 渲染風格：任務中（從暫停選單開啟）不能換風格，只能改解析度
   renderStyleSettings() {
