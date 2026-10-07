@@ -2,3 +2,4 @@
 *.mp3 binary
 *.exe binary
 *.png binary
+dist/rubicon-server.exe filter=lfs diff=lfs merge=lfs -text

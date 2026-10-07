@@ -177,4 +177,4 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 與使用者溝通、註解與 UI 文字一律使用繁體中文。
 - UI 字串中的全形空白（U+3000）是刻意的，不要移除（ESLint 已設定略過字串）。
 - 程式碼風格由 Prettier 統一（`.prettierrc.json`：單引號、寬 110）；ESLint 只開抓錯誤的規則。
-- `dist/` 的檔案都要提交：每次 commit 前先跑 `npm run build`（正式版；`npm run dev` 產生的是含 source map 的開發版，不要提交），確認 `dist/` 的 HTML 已更新再一起 commit。`dist/rubicon-server.exe` 約 55 MB，修改 `server.js` 後要 `npm run build:exe` 並一併提交；exe 執行中時無法覆寫。發佈時提供 dist/ 的 exe、HTML 與 `lib/` 資料夾（加上 `README.txt`；文字動畫 `apng/`、貼圖繪製 `paint/` 選用）。伺服器的 `/lib/…`（以及 `/models/lib/…`）提供同資料夾 `lib/` 裡的檔案。
+- `dist/` 的檔案都要提交：每次 commit 前先跑 `npm run build`（正式版；`npm run dev` 產生的是含 source map 的開發版，不要提交），確認 `dist/` 的 HTML 已更新再一起 commit。`dist/rubicon-server.exe` 約 55 MB，以 Git LFS 存放（`.gitattributes`；clone 前要裝 git-lfs，否則拿到的是指標檔），修改 `server.js` 後要 `npm run build:exe` 並一併提交；exe 執行中時無法覆寫。發佈時提供 dist/ 的 exe、HTML 與 `lib/` 資料夾（加上 `README.txt`；文字動畫 `apng/`、貼圖繪製 `paint/` 選用）。伺服器的 `/lib/…`（以及 `/models/lib/…`）提供同資料夾 `lib/` 裡的檔案。
