@@ -1101,7 +1101,7 @@ export function animateMech(m, dt, st) {
       if (m.flashT <= 0) unflash(m);
     }
     if (m.cls === 'heli') {
-      m.torso.rotation.x = lerp(m.torso.rotation.x, (st.leanX || 0) * 0.6, 0.1);
+      m.torso.rotation.x = lerp(m.torso.rotation.x, -(st.leanX || 0) * 0.6, 0.1); // 加速時機頭下壓（正面 −Z）
       m.torso.rotation.z = lerp(m.torso.rotation.z, (st.leanZ || 0) * 0.8, 0.1);
     }
     return;
