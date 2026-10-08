@@ -23,7 +23,7 @@ Object.assign(MechEntity.prototype, {
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;
     if (this.staggerT <= 0 && !this.downed) {
-      this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanX || 0, Math.min(1, dt * 8));
+      this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanTilt(), Math.min(1, dt * 8));
       this.mesh.rotation.z = lerp(this.mesh.rotation.z, this.leanZ || 0, Math.min(1, dt * 8));
     }
     if (this.model.vehicle) {

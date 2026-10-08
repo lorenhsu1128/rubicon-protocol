@@ -1235,7 +1235,14 @@ export function animateMech(m, dt, st) {
       : idle
         ? Math.sin(t * 1.3) * 0.025
         : Math.sin(t * 3) * 0.04);
-  let tX = ap * 0.25 + (st.qb ? 0.15 : 0) + squat * 0.25 + fwdV * 0.22 + (st.boost ? 0.15 : 0); // 前進時上身前傾、後退後仰
+  // 俯仰正值＝後仰（機體正面是 −Z）：瞄準往上時後仰；移動時微微前傾、前進／QB／推進更前傾、後退後仰、落地蹲踞前傾
+  let tX =
+    ap * 0.25 -
+    (st.grounded && st.moving ? 0.03 : 0) -
+    (st.qb ? 0.12 : 0) -
+    squat * 0.25 -
+    fwdV * 0.08 -
+    (st.boost ? 0.08 : 0);
   let tZ = -strafe * 0.14 - (st.grounded && st.moving ? Math.sin(gp) * 0.03 : 0); // 側移時上身向移動方向傾
   let tYoff = 0; // 人形：上半身不與下半身分離扭轉（近戰招式除外）
   if (ML) {
@@ -1243,15 +1250,15 @@ export function animateMech(m, dt, st) {
       s = ML.mirror ? -1 : 1;
     if (ML.kind === 'spin') {
       tYoff += ph * Math.PI * 2;
-      tX = 0.25;
+      tX = -0.25;
     } else if (ML.kind === 'thrust') {
-      tX = ph < 0.3 ? -0.25 : 0.45;
+      tX = ph < 0.3 ? 0.25 : -0.45; // 蓄力後仰、刺出前傾
       tYoff += s * (ph < 0.3 ? 0.5 : -0.3);
     } else if (ML.kind === 'slam') {
-      tX = ph < 0.4 ? -0.45 : 0.55;
+      tX = ph < 0.4 ? 0.45 : -0.55;
     } else {
       tYoff += s * (ph < 0.3 ? 0.7 : -0.6 * (1 - ph));
-      tX = ph < 0.3 ? -0.1 : 0.3;
+      tX = ph < 0.3 ? 0.1 : -0.3;
     }
   }
   m.torso.rotation.x = lerp(m.torso.rotation.x, tX, ks * 1.5);

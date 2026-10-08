@@ -111,6 +111,12 @@ export class MechEntity {
       stuck: 0,
     };
   }
+  // 整台機體的前後傾（leanX 正值＝加速前傾）：人形機甲正面是 −Z，前傾是負的 x 旋轉，幅度減小（上身的前傾在
+  // animateMech）；載具維持原本的方向
+  leanTilt() {
+    const l = this.leanX || 0;
+    return this.model.vehicle ? l : -l * 0.35;
+  }
   // 機甲模型：模型組由遊戲決定（伺服器模式依玩家／敵人選伺服器預設組或玩家上傳的模型組，見 game/local-lib.js）
   buildRig() {
     const g = this.game;
@@ -1173,7 +1179,7 @@ export class MechEntity {
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;
     if (this.staggerT <= 0 && !this.downed) {
-      this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanX || 0, Math.min(1, dt * 8));
+      this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanTilt(), Math.min(1, dt * 8));
       this.mesh.rotation.z = lerp(this.mesh.rotation.z, this.leanZ || 0, Math.min(1, dt * 8));
     }
     {
@@ -1195,11 +1201,13 @@ export class MechEntity {
       this.staggerT > 0 ? Math.sin(this.t * 30) * 0.08 : 0,
       0.3,
     );
-    this.model.torso.rotation.x = lerp(
-      this.model.torso.rotation.x,
-      this.qbT > 0 ? 0.3 : this.moving ? 0.14 : 0,
-      0.25,
-    );
+    // 載具（砲塔）移動時的俯仰；人形機甲的上身俯仰由 animateMech 處理
+    if (this.model.vehicle)
+      this.model.torso.rotation.x = lerp(
+        this.model.torso.rotation.x,
+        this.qbT > 0 ? 0.3 : this.moving ? 0.14 : 0,
+        0.25,
+      );
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
     {
