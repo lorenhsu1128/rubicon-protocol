@@ -17,6 +17,7 @@ Object.assign(MechEntity.prototype, {
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
     if (this.melee.active) this.melee.t += dt;
+    this.specialFx(dt);
     this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5;
     ikRestore(this.model);
     this.mesh.position.copy(this.pos);
@@ -101,6 +102,7 @@ Object.assign(MechEntity.prototype, {
   dieVisual() {
     if (this.dead) return;
     this.dead = true;
+    this.specialFx(0); // 收起護盾、修理光束與標記
     const g = this.game;
     const c = this.center();
     SFX.explode(true, this.isPlayer ? null : c);

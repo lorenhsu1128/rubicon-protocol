@@ -38,7 +38,7 @@ npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe
 
 ### 冒煙測試（`npm test`）
 
-用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（全螢幕按鈕進出、讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 存檔槽（舊版單一存檔搬進存檔 1、三槽獨立、匯出、匯入到空槽／覆蓋確認／錯誤檔案、刪除與改用另一槽、從存檔畫面與標題「繼續存檔」繼續）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、改成 7／5 格與重新整理後保留、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入（零件組合 JSON）／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 參考圖與正交視圖（檢視窗組合預覽的 A pose 與正視、組裝調整頁載入正面圖校正後正視顯示、「模型」縮放 120% 寫回原點節點與復原、GLB 編輯器的全身參考與正視、匯出／匯入模型組帶參考圖）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB；機體包：預組存進目前模型組的機甲清單、匯出這台機甲（含 GLB）、匯入成新模型組、合併到另一組（列出會改的槽位、沒有 GLB 的改回程式模型、取代關節設定）、車庫列出各模型組的機甲、缺零件不換上、換上零件組合並改用該模型組）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 貼圖繪製（直接開檔：標題畫面按鈕開啟、程式模型時停用、模型庫「回遊戲」關閉分頁、檢視窗「繪製貼圖」開啟槽位的 GLB、畫一筆、存回模型庫（原始檔保留、根節點不變）、再開接著上次的圖層、模型庫換了模型組時拒絕存回）→ 渲染風格實驗室（標題按鈕開啟、兩隊模擬戰鬥、觀看時不顯示 HUD、切換 Gundam 風格＋機體金屬、左右比較、動作 IK（槍管對準瞄準點、關掉後淡出、單項開關記住）、跳躍與懸浮（短按跳、按住定高懸浮、放開再按住爬升、空中跳、衝擊波貼地受傷／起跳躲開）、滑桿即時改參數、吉卜力的積雲與水彩、操作模式、存成我的預設並套用、離開後存檔沒變、設定畫面顯示、出擊時使用該風格）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、`/apng` 轉址與 ES Module 型別、`/paint/`、實驗室上傳風格到伺服器／選單顯示／刪除、不能讀到資料夾外、標題畫面「文字動畫」按鈕開啟工具（直接開檔時不顯示）、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
+用 headless Edge／Chrome（SwiftShader WebGL）跑：file:// 開啟標題畫面（全螢幕按鈕進出、讀取 file:// 模型庫的暫存）→ 單機出擊與放棄（結果畫面的駕駛員經驗）→ 存檔槽（舊版單一存檔搬進存檔 1、三槽獨立、匯出、匯入到空槽／覆蓋確認／錯誤檔案、刪除與改用另一槽、從存檔畫面與標題「繼續存檔」繼續）→ 駕駛員畫面（舊存檔遷移、配點、T2 解鎖、預設組、PvE／PvP 切換、車庫加成顯示）→ 模型庫（所有槽位建立與公尺尺寸、一行三格、改成 7／5 格與重新整理後保留、檢視窗標線、區塊範本 GLB 匯出→載入→規格檢查全通過、組合預覽、左側武器暫用右側、錯放報錯、移除、完整機甲以區塊組合、關節設定修改→保存→匯出→重設、組裝調整頁的零件切換／預組儲存匯出匯入（零件組合 JSON）／動作時間軸／選取與數值／對稱編輯／復原重做／方向鍵微調／穿幫提示與顯示開關、載具區塊範本）→ GLB 編輯（從檢視窗開啟、旋轉／縮放／對齊程式模型／原點、復原、刪除節點、加入 GLB 與合併節點、顯示程式模型原點與拖曳原點、存到槽位與鏡像存到另一側、還原原始檔；材質：AI 風格模型依顏色分群、框選改色槽、復原、存檔後依配色換色；刪除多邊形：矩形只選看得到的與穿透、刪除與復原、套索、筆刷與擦除、點選相連、對稱（點選與矩形）、小碎塊、反選、擴展到相連、整個網格刪除、存檔讀回、拆分模式停用；貼圖：列出共用與種類、下載目前圖／原檔／UV 線框／zip、共用替換與復原、只換這個材質、只換粗糙度通道、灰階換原圖、加入顏色與 AO 貼圖、存檔讀回；拆分整台機甲範本：合併相同材質、只勾選左手臂與左腿、姿勢對照、拖曳控制點拉長範圍框與復原、點範圍框選取、關節標記、拖曳關節點（範圍框不動）與復原、範圍框裁切、長度偏差檢查（框外移除）、調小範圍框重拆、切割補面、框選排除與復原、只存勾選的區塊與拖曳過的關節設定、組裝調整的只動關節（前臂不動、原點寫回 GLB、重建後一致、復原）、以核心為根拖曳襠部（核心不動）與自動貼地／離地微調；最佳化：減到預算、復原、WebP／PNG 與 Draco 輸出、檢視窗讀回）→ 參考圖與正交視圖（檢視窗組合預覽的 A pose 與正視、組裝調整頁載入正面圖校正後正視顯示、「模型」縮放 120% 寫回原點節點與復原、GLB 編輯器的全身參考與正視、匯出／匯入模型組帶參考圖）→ 本地模型庫（模型庫寫入暫存 → 遊戲設定開啟、分類開關、失敗清單、車庫與出擊換上機甲／子彈／轟炸機／地圖物件的 GLB、完整載具組合預覽、多人房間停用）→ 模型組（舊版連線佔住時提示並在關閉後繼續、第 3 版資料遷移成「預設」、組裝調整記住零件組合、新增空白、切換、複製、改名、匯出 → 刪除 → 匯入、重新整理後保留、遊戲設定選模型組並套用該組的 GLB；機體包：預組存進目前模型組的機甲清單、匯出這台機甲（含 GLB）、匯入成新模型組、合併到另一組（列出會改的槽位、沒有 GLB 的改回程式模型、取代關節設定）、車庫列出各模型組的機甲、缺零件不換上、換上零件組合並改用該模型組）→ `?lan=local` 兩分頁多人（建房、加入、出擊、房主離線遷移）→ 貼圖繪製（直接開檔：標題畫面按鈕開啟、程式模型時停用、模型庫「回遊戲」關閉分頁、檢視窗「繪製貼圖」開啟槽位的 GLB、畫一筆、存回模型庫（原始檔保留、根節點不變）、再開接著上次的圖層、模型庫換了模型組時拒絕存回）→ 渲染風格實驗室（標題按鈕開啟、兩隊模擬戰鬥、觀看時不顯示 HUD、切換 Gundam 風格＋機體金屬、左右比較、動作 IK（槍管對準瞄準點、關掉後淡出、單項開關記住）、跳躍與懸浮（短按跳、按住定高懸浮、放開再按住爬升、空中跳、衝擊波貼地受傷／起跳躲開）、特殊敵人（盾牌正面減傷／背面與高處全傷／近戰破盾、迫擊砲站著中彈／看到預警圈走開躲掉、地雷懸浮飛過不觸發／走過觸發、修理回復、護盾外打不進／進去打得到、運輸機投放後離場、指揮官強化與擊破後混亂）、新 Boss（護盾指揮艦的發生器與重建、鑽地蟲地下無敵與五狀態循環、砲兵陣地的地雷與砲台裝甲、多足要塞斷三腳倒下、電磁狩獵機的 EMP 封鎖與牽引、空中要塞引擎全毀後下降，擊破後部位與地雷消失）、滑桿即時改參數、吉卜力的積雲與水彩、操作模式、存成我的預設並套用、離開後存檔沒變、設定畫面顯示、出擊時使用該風格）→ 啟動 server.js 測 `/health`、`RUBICON_SERVER` 注入、`/models` 與標題畫面的模型庫按鈕、`/apng` 轉址與 ES Module 型別、`/paint/`、實驗室上傳風格到伺服器／選單顯示／刪除、不能讀到資料夾外、標題畫面「文字動畫」按鈕開啟工具（直接開檔時不顯示）、伺服器模型組（模型庫的伺服器預設組：整組發佈、直接編輯寫到伺服器資料夾、重新讀取、檢視窗標示；單人：設定顯示、車庫用伺服器組或本地模型組、敵人用伺服器組；多人：兩個瀏覽器各自上傳模型組、大廳顯示 ✓、房主與客機看到對方機甲用對方的模型組、敵人用伺服器組）、WebSocket 中繼多人。收集 pageerror 與 console.error，截圖存到 `test-results/`（gitignore）。沒有單元測試框架；改動遊戲邏輯時看截圖確認畫面。
 
 ## 原始碼架構（src/）
 
@@ -54,7 +54,7 @@ render/style/        渲染風格：params.js（參數表、內建預設）、sh
 render/              materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      mech-ik.js（動作的 IK 修正層與開關 IK／setIK）、
-                     vehicle-models.js、extra-models.js（運輸車輛、
+                     vehicle-models.js、boss-models.js（新 Boss 與附屬部位的程式模型）、extra-models.js（運輸車輛、
                      掉落物、轟炸機、彈體）、environment.js（攝影棚環境貼圖）、measure.js（外框尺寸與統計）、
                      model-catalog.js（模型槽目錄）、glb.js（GLB 載入／換色／描邊／規格檢查）、
                      model-provider.js（模型來源掛勾：建模函式依槽位 id 取得取代程式模型的 GLB）、
@@ -66,12 +66,13 @@ world/               world.js（World：關卡生成、THEMES）、prop-models.j
 audio/               audio.js（SFX）、sfx-data.js（匯入 assets/sfx/*.mp3）
 fx/                  effects.js（Effects 粒子／曳光／碎片）、thruster.js（推進器噴焰粒子：Effects.thruster，
                      從背包噴口連接點沿其 −Y 噴出；模型庫檢視窗共用）
-entities/            projectile.js、mech-entity.js（MechEntity）、mech-remote.js（MechEntity 客機端擴充）
+entities/            projectile.js、mech-entity.js（MechEntity）、mech-remote.js（MechEntity 客機端擴充）、
+                     mech-special.js（MechEntity 擴充：特殊一般敵人的行為與顯示）、mech-boss.js（MechEntity 擴充：新 Boss 與附屬部位）
 net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／WebSocket 傳輸）、net.js（Net）、
                      snapshot.js（serEnt／applyEnt 快照序列化）
 game/game.js         class Game：constructor、主迴圈 loop、敵我判定等核心
 game/*.js            Game 的 mixin：render-setup、save（三個存檔槽與存檔畫面）、input、settings、garage、mission、player、camera、hud、
-                     mp-lobby、mp-host、mp-client、map-extras、shockwave（地面衝擊波、地面爆炸對空中目標減傷）、first-person、pvp、pilot（經驗與熟練度累積、結算）、
+                     mp-lobby、mp-host、mp-client、map-extras、shockwave（地面衝擊波、地面爆炸對空中目標減傷）、support（特殊敵人的地雷、迫擊砲彈、護盾與盾牌擋子彈、運輸機投放）、bosses（新 Boss 的生成、附屬部位、EMP）、first-person、pvp、pilot（經驗與熟練度累積、結算）、
                      pilot-ui（駕駛員畫面、預設組）、local-lib（本地模型庫的設定、讀取進度、規格檢查、mechSource）、
                      mp-models（伺服器模型組：我的機甲模型組上傳、大廳狀態、出擊前備齊、客機換模型）、
                      style-lab（渲染風格實驗室：模擬戰鬥、鏡頭、調整面板）、fullscreen（標題與暫停選單的全螢幕按鈕；
@@ -151,7 +152,20 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 
 - 同一個鍵分段：地面按下＝跳躍（耗能 `JUMP_EN`，起跳後 `jumpT` 期間維持地面的速度與轉向）；空中按下＝空中跳（還有 `airJumps` 時，向上的 QB：耗 QB 的 70%、短暫無敵、可帶水平方向；連續空中跳的高度依 `AIR_DECAY` 遞減）；從跳躍按住到最高點接懸浮（`hoverMode` 1：定高、不爬升）；懸浮中放開後 0.25 秒內再按住＝爬升（`hoverMode` 2，耗能較高）；沒有空中跳時空中按住直接懸浮。上限仍是離地 22 m。腳部零件的 `jumpH`／`jumpT`（地面跳的高度與到頂時間）、`airH`／`airT`（第 1 次空中跳）、`airN`（空中跳次數：逆關節 3、其他 2）決定跳躍：上升時用各自的重力 2h/t²（`riseG`），過了最高點一律用 `GRAVITY` 下落，所以高度與起跳快慢可以分開調；駕駛員的跳躍力加成只放大高度。懸浮／爬升耗能、四足能量用完仍可滯空、戰車能跳不能懸浮，都在 `data/parts.js` 的 `jumpSpec`，車庫也用它顯示。
 - `move` 的第三個參數是「按住」：AI 傳 2 表示要爬升（卡住時、步行砲台上高台）。按下是由按住的變化推算；房主處理客機時改用輸入的按下次數 `jc`（`jumpExt`／`jumpPressQ`），短按不會在兩次輸入之間漏掉。
-- 戰鬥上的價值：懸浮（定高）時武器擴散減半；攻擊者比目標高 4 m 以上時 ACS 衝擊 +25%（`takeDamage`）；地面爆炸對空中目標減傷（`groundBlastK`）；地面衝擊波（`game/shockwave.js`：Boss（地面型）與 bastion 型 AC 的 `aiShock`，預警後沿地面擴散，只打離地 1.2 m 以下的機體，客機收到 `shock` 事件只顯示特效；電腦 AI 依技巧機率起跳閃避，`aiJumpT`）。
+- 戰鬥上的價值：懸浮（定高）時武器擴散減半；攻擊者比目標高 4 m 以上時 ACS 衝擊 +25%（`takeDamage`）；地面爆炸對空中目標減傷（`groundBlastK`）；地面衝擊波（`game/shockwave.js`：Boss（地面型）、bastion 型 AC 與重踏機甲的 `aiShock`，預警後沿地面擴散，只打離地 1.2 m 以下的機體，客機收到 `shock` 事件只顯示特效；電腦 AI 依技巧機率起跳閃避，`aiJumpT`）。
+
+### 特殊一般敵人（entities/mech-special.js、game/support.js）
+
+- 類型定義在 `data/enemies.js` 的 `ENEMY_TYPES`（`ai` 決定行為）：盾牌 MT `shield`、迫擊砲 MT `mortar`、布雷無人機 `minelayer`、重踏機甲 `stomper`、修理無人機 `repair`、護盾產生器 `dome`、運輸機 `dropship`、指揮官 MT `commander`。`intro` 是該類型第一次出現時的提示（`spawnType`，每場任務一次）；`support: true` 的類型要先有其他敵人才會編入。無人機與運輸機的模型槽是 `vehicle/<vehKey>`（`opts.vehKey` 傳給 `buildDrone`／`buildHeli`）。
+- `updateAI` 先問 `aiSpecialMove`（移動，回傳 null 表示不是特殊敵人）與 `aiSpecialFire`（回傳 true 時略過一般武器迴圈）。受傷前 `specialDefense` 修正：在友方護盾裡且攻擊者在護盾外 → 護盾吸收（`domeAbsorb`，打破後產生器硬直、12 秒重新展開）；盾牌 MT 的正面（約 ±70°、攻擊者沒有高 4 m 以上）傷害 12%、衝擊 40%，近戰破盾（全額、衝擊 ×1.6、盾放下 2.5 秒），爆炸看爆炸點在哪一側。子彈與雷射另外在 `projBlock`／`beamStop` 停在護盾球面或盾面上（所以擋得住後面的友軍）。
+- 迫擊砲（`mortarShot`）與地雷（`layMine`／`updateSupport`：貼地（離地 1.5 m 以下）才觸發、子彈經過會引爆、只炸敵人）只在房主計算；客機收到 `warn`／`mine`／`mineX` 事件只顯示，房主遷移時 `promoteSupport` 接手地雷。修理、護盾比例、強化／混亂旗標隨快照的 `sx` 同步，運輸機飛走（`depart`：不算擊破、不給賞金）以 `gn` 同步，客機在 `specialFx` 畫護盾、修理光束與標記。
+- 指揮官 MT 每格把 30 m 內友軍的 `buffT` 設為 0.3 秒（武器擴散 ×0.6、速度 ×1.15），被擊破時 40 m 內的友軍 `confuseT` 4 秒（亂走、不開火）。
+
+### 新 Boss（entities/mech-boss.js、game/bosses.js、render/boss-models.js）
+
+- `BOSS_DEFS` 依任務等級輪替（L/3−1 取餘數，新舊穿插）；`kind` 為 flagship／worm／artillery／spider／hunter／fortress 的由 `spawnBossKind` 生成（`ai` 同 kind），`mech: true` 用機甲模型（列在模型庫的完整機甲），`modelKind: 'boss'`＋`vehKey` 用 `render/boss-models.js` 的程式模型（模型庫只預覽，不接受 GLB）。
+- **附屬部位**是獨立的敵方實體（`ai: 'part'`、`opts.partKind`、`opts.parent`＝Boss 的 id；定義在 `PART_DEFS`）：血量、鎖定、擊破、同步都和一般敵人相同。有 `opts.mount` 的掛在 Boss 模型 `mounts[mount]` 節點上（`partFollow`，房主與客機每格都算，客機不靠快照的位置）；其他固定在生成位置。部位與鑽地蟲不用 `move()`，計時器在 `bossTick`；`noPush` 讓它們不參與 `separateMechs`。Boss 擊破時剩下的部位 `partBreak`（以離場 `gn` 同步、不給賞金），它布的地雷 `removeMinesOf`。房主遷移後 Boss 的狀態機從頭開始，部位一律由 `partsOf()` 從敵人名單找，不存陣列。
+- 各 Boss 的弱點用 `bossDefense`（`specialDefense` 先呼叫）實作：指揮艦在發生器還在時完全擋下（`domeR`／`domeInf` 的護盾也罩住附近友軍，發生器全毀 25 秒後 `spawnPylons` 重建）；鑽地蟲在地下時無敵（`bossVis` 1）、鑽出後頭部 ×1.3，硬直時停留時間不減；砲兵陣地砲台在時 ×0.12（開場在周圍布不會過期的地雷）；多足要塞依斷腳數 0.2＋0.15×n，斷三條倒下（`bossVis` 的低 6 位＝斷掉的腳、64＝倒下）；空中要塞引擎在時 ×0.15，引擎全毀後高度降到 10 m。電磁狩獵機的 EMP（`hunterEmp`）讓目標 `empLockT` 3 秒（`move` 裡停用 QB、突擊推進、跳躍與懸浮，以 sx 旗標 4 同步給客機的移動預測），牽引（`pullT`／`pullSrc`，在 `move` 的目標速度加 16 m/s 往牽引源；客機由連線 `linkKind` 1 自己設定）。
 
 ### 渲染風格（render/style/、game/style-lab.js）
 
@@ -167,7 +181,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
 - 客機在任務中 3 秒沒收到房主訊息就判定房主失聯並遷移（`clientTick`）；本機卡住超過 1 秒（開局建地圖與模型、編譯著色器）或開局後第一次更新時重新起算，否則慢的電腦會誤判。
 - 新增選單畫面（新的 `state`）時，要把它加進 `game/game.js` 的 `loop` 裡只畫背景的選單狀態清單（title、saves、result、mp、lobby…），否則會被當成任務中而讀到空的 `player`。
-- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.1'`），否則新舊版本會互連。
+- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.2'`），否則新舊版本會互連。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save_1`～`rubicon_save_3`（三個存檔槽，各自完整一份，含 PvE／PvP 駕駛員）、`rubicon_save_cur`（目前的槽位；不存在時把舊版單一存檔 `rubicon_save` 搬進存檔 1，舊鍵保留當備份）、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`、`rubicon_ik`（動作 IK 的總開關與各項開關）、`rubicon_style`（渲染風格：選用的風格、機體金屬、解析度、我的預設、伺服器清單快取）。
 - 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。

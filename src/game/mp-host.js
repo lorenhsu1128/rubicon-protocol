@@ -49,6 +49,11 @@ Object.assign(Game.prototype, {
       flying: !!e.flying,
       hoverH: e.hoverH,
       modelKind: o.modelKind || null,
+      vehKey: o.vehKey || null,
+      cargo: o.cargo || null,
+      parent: o.parent !== undefined ? o.parent : null, // Boss 的附屬部位
+      mount: o.mount !== undefined ? o.mount : null,
+      partKind: o.partKind || null,
       radius: o.radius || null,
       turnRate: e.turnRate,
       hpMul: o.hpMul || 1,
@@ -332,6 +337,7 @@ Object.assign(Game.prototype, {
     for (const p of this.projectiles) this.scene.remove(p.mesh);
     this.projectiles = [];
     this.shocks = [];
+    this.promoteSupport();
     const s = this.net.snap;
     if (s) {
       this.waves = s.mis.waveList || [];

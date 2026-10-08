@@ -125,8 +125,10 @@ export class Game {
     );
     for (let i = 0; i < L.length; i++) {
       const a = L[i];
+      if (a.noPush) continue; // Boss 的附屬部位、鑽地蟲
       for (let j = i + 1; j < L.length; j++) {
         const b = L[j];
+        if (b.noPush) continue;
         if (Math.abs(a.pos.y - b.pos.y) > Math.max(3, a.radius + b.radius)) continue;
         const dx = b.pos.x - a.pos.x,
           dz = b.pos.z - a.pos.z;
@@ -406,6 +408,7 @@ export class Game {
       this.missionT += dt;
       this.clientTick(dt);
       this.updateMapExtras(dt);
+      this.updateSupport(dt);
       if (!this.player) {
         this.renderMain();
         return;
@@ -459,6 +462,7 @@ export class Game {
       if (p.dead) this.projectiles.splice(i, 1);
     }
     this.updateShocks(dt);
+    this.updateSupport(dt);
     this.fx.update(dt);
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const q = this.popups[i];

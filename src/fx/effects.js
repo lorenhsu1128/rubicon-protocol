@@ -303,6 +303,24 @@ export class Effects {
       mat.opacity = 0.85 * (1 - r / R);
     });
   }
+  // 落點預警（迫擊砲）：紅色外圈＋由內往外填滿的圓，dl 秒後填滿，接近落地時閃得更快
+  warnCircle(p, R, dl, color = 0xff3020) {
+    const grp = new THREE.Group();
+    grp.position.copy(p).setY(p.y + 0.12);
+    const ring = new THREE.Mesh(this.ringGeo, this.addM(color, 0.8));
+    ring.material.side = THREE.DoubleSide;
+    ring.rotation.x = -Math.PI / 2;
+    ring.scale.setScalar(R);
+    const fill = new THREE.Mesh(this.discGeo, this.addM(color, 0.3));
+    fill.rotation.x = -Math.PI / 2;
+    grp.add(ring, fill);
+    this.add(grp, dl, (e, t) => {
+      fill.scale.setScalar(Math.max(0.01, R * t));
+      const f = 4 + t * 14;
+      ring.material.opacity = 0.3 + 0.3 * Math.abs(Math.sin(t * dl * f));
+      fill.material.opacity = 0.18 + 0.2 * t;
+    });
+  }
   // big additive thruster glare (billboard sphere) — used every frame by mechs, pooled per entity
   glareMesh(color) {
     const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.55));

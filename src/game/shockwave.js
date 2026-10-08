@@ -14,11 +14,11 @@ Object.assign(Game.prototype, {
     const alt = t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y);
     return clamp(1 - (alt - 1) / 4, 0.25, 1);
   },
-  // 發出衝擊波。o：{ R 半徑, sp 擴散速度 m/s, dl 預警秒數, dmg, im 衝擊 }
+  // 發出衝擊波。o：{ R 半徑, sp 擴散速度 m/s, dl 預警秒數, dmg, im 衝擊, at 中心（預設 src 的位置）}
   shockStart(src, o) {
-    const p = src.pos.clone();
+    const p = (o.at || src.pos).clone();
     if (!this.shocks) this.shocks = [];
-    this.shocks.push({ p, owner: src, ...o, t: 0, hit: new Set(), tried: new Set() });
+    this.shocks.push({ ...o, p, owner: src, t: 0, hit: new Set(), tried: new Set() });
     this.shockFx(p, o.R, o.sp, o.dl);
     this.netEv({
       t: 'shock',

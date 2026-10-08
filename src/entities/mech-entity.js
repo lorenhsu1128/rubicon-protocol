@@ -9,6 +9,7 @@ import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
 import { nozzleWorld } from '../fx/thruster.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
+import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
 
 let MECH_ID = 0;
@@ -34,10 +35,12 @@ export class MechEntity {
       opts.modelKind === 'vehicle'
         ? buildVehicle(pal, this.scale)
         : opts.modelKind === 'heli'
-          ? buildHeli(pal, this.scale, this.isBoss ? 'boss_helios' : 'heli')
+          ? buildHeli(pal, this.scale, this.isBoss ? 'boss_helios' : opts.vehKey || 'heli')
           : opts.modelKind === 'drone'
-            ? buildDrone(pal, this.scale)
-            : this.buildRig();
+            ? buildDrone(pal, this.scale, opts.vehKey || 'swarm')
+            : opts.modelKind === 'boss' || opts.modelKind === 'part'
+              ? buildBossModel(opts.vehKey, pal, this.scale) // 新 Boss 與附屬部位（render/boss-models.js）
+              : this.buildRig();
     this.mesh = this.model.group;
     game.scene.add(this.mesh);
     this.pos = new THREE.Vector3();
@@ -110,6 +113,7 @@ export class MechEntity {
       phase: 1,
       stuck: 0,
     };
+    this.specialInit(); // 特殊敵人的附加模型與狀態（mech-special.js）
   }
   // 整台機體的前後傾（leanX 正值＝往前加速）：機甲與載具的正面都是 −Z，前傾是負的 x 旋轉；
   // 人形機甲幅度減小（上身的前傾在 animateMech）；坦克相反：加速時車頭微微抬起、煞車時往前點頭
@@ -232,7 +236,7 @@ export class MechEntity {
       hmul = clamp(1 - dy * 0.07, 0.55, 1.45);
     }
     this.heightMul = hmul;
-    const steady = this.hoverMode === 1 ? 0.5 : 1; // 懸浮（定高）時瞄準穩定
+    const steady = (this.hoverMode === 1 ? 0.5 : 1) * (this.buffT > 0 ? 0.6 : 1); // 懸浮（定高）時瞄準穩定；指揮官 MT 強化
     const spread =
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
@@ -427,6 +431,7 @@ export class MechEntity {
               break;
             }
           }
+          stop = g.beamStop(this, muzzle, bdir, stop, dmg * dtb, 0, d.id, true); // 護盾擋住光束
           const targets = g.hostilesOf(this.team, this).concat(g.destructibles());
           for (const t of targets) {
             if (t.dead) continue;
@@ -477,6 +482,7 @@ export class MechEntity {
               break;
             }
           }
+          stop = g.beamStop(this, muzzle, bdir, stop, ldmg, limp, d.id); // 護盾、盾牌擋住雷射
           const hits = [];
           for (const t of targets) {
             if (t.dead) continue;
@@ -769,6 +775,10 @@ export class MechEntity {
         return;
       }
     }
+    // 護盾產生器的護盾、盾牌 MT 的正面（mech-special.js）：null＝完全擋下
+    const sd = this.specialDefense(dmg, impact, from, at, melee);
+    if (!sd) return;
+    [dmg, impact] = sd;
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
       this.comboT = 1.2;
@@ -876,6 +886,7 @@ export class MechEntity {
     this.dead = true;
     const g = this.game;
     const c = this.center();
+    this.specialDie(from);
     if (this.explodeOnDeath) {
       const E = this.explodeOnDeath;
       g.explodeAt(c, E.dmg, E.impact, E.splash, this, true);
@@ -953,6 +964,7 @@ export class MechEntity {
       this.glare.forEach((m) => this.game.scene.remove(m));
       this.glare = null;
     }
+    this.specialCleanup();
   }
 
   // ---------- physics ----------
@@ -960,12 +972,20 @@ export class MechEntity {
     const g = this.game,
       w = g.world,
       P = this.stats.parts;
-    const spd = this.stats.speed * this.speedMul;
+    if (this.buffT > 0) this.buffT -= dt;
+    const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1); // 指揮官 MT 強化
     this.t += dt;
     // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
     if (this.aiJumpT > 0) {
       this.aiJumpT -= dt;
       if (!wantHover) wantHover = true;
+    }
+    // 電磁狩獵機的 EMP：一段時間內不能 QB、突擊推進、跳躍與懸浮
+    if (this.empLockT > 0) {
+      this.empLockT -= dt;
+      wantQB = false;
+      wantAB = false;
+      wantHover = false;
     }
     // timers
     for (const k in this.weapons) {
@@ -1076,6 +1096,15 @@ export class MechEntity {
       target.copy(wish).multiplyScalar(spd * (this.grounded || this.jumpT > 0 ? 1 : 0.85));
       this.boost = false;
     }
+    // 電磁牽引：往牽引源拉（16 m/s；自己往反方向移動或 QB 可以抵銷）
+    if (this.pullT > 0) {
+      this.pullT -= dt;
+      const src = this.pullSrc;
+      if (src && !src.dead) {
+        const to = src.pos.clone().sub(this.pos).setY(0);
+        if (to.length() > 6) target.addScaledVector(to.normalize(), 16);
+      }
+    }
     const acc = this.qbT > 0 ? 60 : this.grounded || this.jumpT > 0 ? 18 : 9;
     if (!this.melee.active) {
       this.vel.x = lerp(this.vel.x, target.x, Math.min(1, acc * dt));
@@ -1176,7 +1205,7 @@ export class MechEntity {
       const firing = this.recoil.l + this.recoil.r > 0.05 || this.melee.active;
       const faceAim = this.lock || firing || !this.moving || this.ai || this.fpFace; // 人形：有目標時整台機體面向目標，側移用側步
       const targetYaw = faceAim ? this.aimYaw : Math.atan2(-this.vel.x, -this.vel.z);
-      this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (faceAim ? 10 : 14)));
+      this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (this.yawRate || (faceAim ? 10 : 14))));
     }
     ikRestore(this.model); // IK 改過的關節回到動作層的結果（animateMech 從那裡平滑）
     this.mesh.position.copy(this.pos);
@@ -1337,6 +1366,7 @@ export class MechEntity {
     }
     if (this.staggerT > 0 && Math.random() < dt * 20)
       g.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xffb020);
+    this.specialFx(dt);
   }
   // 跳躍與懸浮（同一個鍵分段）：地面按下＝跳躍；空中按下＝空中跳（還有次數時，向上的 QB，高度依次遞減）；
   // 按住到最高點接懸浮（定高）；懸浮中放開後馬上再按住＝爬升（耗能加倍）。沒有空中跳時空中按住直接懸浮。
@@ -1588,6 +1618,14 @@ export class MechEntity {
       s.want = (this.opts.wantDist || 22) * rnd(0.75, 1.25);
     }
     const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(s.strafe);
+    // 指揮官 MT 被擊破後的混亂：亂走、不開火
+    if (this.confuseT > 0) {
+      this.confuseT -= dt;
+      if (!s.wander || Math.random() < dt * 1.5)
+        s.wander = new THREE.Vector3(rnd(-1, 1), 0, rnd(-1, 1)).normalize();
+      this.move(dt, s.wander.clone().multiplyScalar(0.6), false, false, false, null);
+      return;
+    }
     // 反擊：格擋後立即出刀
     if (s.counterT > 0) {
       s.counterT -= dt;
@@ -1599,7 +1637,11 @@ export class MechEntity {
           }
       }
     }
-    if (this.ai === 'turret' || this.ai === 'mt_gren') {
+    const sm = this.aiSpecialMove(dt, d, dir, perp, wish, pl);
+    if (sm) {
+      ({ hover, qb, ab } = sm);
+      if (sm.done) return;
+    } else if (this.ai === 'turret' || this.ai === 'mt_gren') {
       /* stationary */
     } else if (this.ai === 'sniper') {
       // 保持 55 m 以上；太近就 QB 拉開；有射線遮擋時橫移
@@ -1784,6 +1826,11 @@ export class MechEntity {
         this.move(dt, wish, hover, qb, ab, null);
         return;
       }
+      // 特殊敵人自己處理開火（迫擊砲、布雷、修理、護盾、運輸機）
+      if (this.aiSpecialFire(dt, d, aimPos, pl)) {
+        this.move(dt, wish, hover, qb, ab, null);
+        return;
+      }
       if (this.ai === 'sniper') {
         // 蓄力雷射：先 0.8 s 紅色瞄準線，再射
         const w = this.weapons.rarm;
@@ -1894,7 +1941,8 @@ export class MechEntity {
   aiShock(dt, d, wish) {
     const s = this.aiState;
     const boss = this.isBoss && !this.opts.bossKind;
-    if ((!boss && this.ai !== 'bastion') || this.flying) return;
+    const stomp = this.ai === 'stomper'; // 重踏機甲：小範圍、短冷卻
+    if ((!boss && this.ai !== 'bastion' && !stomp) || this.flying) return;
     if (s.shockT === undefined) s.shockT = rnd(4, 8);
     if (s.stompT > 0) {
       s.stompT -= dt;
@@ -1902,17 +1950,17 @@ export class MechEntity {
       return;
     }
     s.shockT -= dt;
-    const R = boss ? 30 : 20;
+    const R = boss ? 30 : stomp ? 12 : 20;
     if (s.shockT > 0 || !this.grounded || d > R * 0.8 || !this.canAct() || this.melee.active) return;
-    s.shockT = (boss ? rnd(7, 11) : rnd(10, 15)) * (s.phase === 2 ? 0.7 : 1);
-    const dl = boss ? 0.9 : 0.8;
+    s.shockT = (boss ? rnd(7, 11) : stomp ? rnd(5, 8) : rnd(10, 15)) * (s.phase === 2 ? 0.7 : 1);
+    const dl = boss ? 0.9 : stomp ? 0.7 : 0.8;
     s.stompT = dl;
     this.game.shockStart(this, {
       R,
-      sp: boss ? 24 : 20,
+      sp: boss ? 24 : stomp ? 16 : 20,
       dl,
-      dmg: (boss ? 650 : 380) * this.dmgMul,
-      im: (boss ? 1300 : 800) * this.dmgMul,
+      dmg: (boss ? 650 : stomp ? 360 : 380) * this.dmgMul,
+      im: (boss ? 1300 : stomp ? 900 : 800) * this.dmgMul,
     });
   }
   heliBossAI(dt, d, dir, perp, wish, pl) {

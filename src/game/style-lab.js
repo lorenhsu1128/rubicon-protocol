@@ -309,6 +309,7 @@ Object.assign(Game.prototype, {
         if (q.dead) this.projectiles.splice(i, 1);
       }
       this.updateShocks(step);
+      this.updateSupport(step);
       this.fx.update(step);
       for (let i = this.popups.length - 1; i >= 0; i--) {
         const q = this.popups[i];

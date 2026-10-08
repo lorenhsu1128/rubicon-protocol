@@ -90,6 +90,8 @@ export class Projectile {
           g.fx.boostFlame(this.pos.clone(), this.vel.clone().normalize().negate(), 0xffb060);
       }
     }
+    // 護盾產生器的護盾、盾牌 MT 的盾（game/support.js）；路徑經過地雷時引爆
+    if (g.projBlock(this, prev)) return;
     // swept hits: closest point on segment prev→pos to target sphere
     const targets = (this.allTeams ? g.everyone(this.owner) : g.hostilesOf(this.team, this.owner)).concat(
       g.destructibles(),

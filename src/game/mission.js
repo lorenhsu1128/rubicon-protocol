@@ -333,6 +333,11 @@ Object.assign(Game.prototype, {
           this.bosses.push(b);
         }
         this.boss = this.bosses[0];
+      } else if (bd.kind) {
+        // 新 Boss（game/bosses.js）
+        const b = this.spawnBossKind(bd, scaleHp, scaleDmg);
+        this.bosses.push(b);
+        this.boss = b;
       } else {
         const b = this.spawnEnemy({
           name: bd.name,
@@ -369,6 +374,7 @@ Object.assign(Game.prototype, {
           (k) =>
             ENEMY_TYPES[k].cost <= pts + 0.5 &&
             (!(k === 'ac' || ENEMY_TYPES[k].roster) || Math.random() < 0.3) &&
+            (!ENEMY_TYPES[k].support || comp.some((c) => !ENEMY_TYPES[c].support)) &&
             !(comp.filter((c) => c === k).length >= 2 && ENEMY_TYPES[k].roster),
         );
         if (!cand.length) break;
@@ -438,8 +444,17 @@ Object.assign(Game.prototype, {
     document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
   },
-  spawnType(t, scaleHp, scaleDmg) {
+  // at：指定生成位置（運輸機投放）；count：覆寫編隊數量
+  spawnType(t, scaleHp, scaleDmg, at, count) {
     const d = ENEMY_TYPES[t];
+    // 新類型第一次出現：提示打法
+    if (d.intro && !d.roster) {
+      if (!this.introSeen) this.introSeen = new Set();
+      if (!this.introSeen.has(t)) {
+        this.introSeen.add(t);
+        this.alertAll(d.intro);
+      }
+    }
     if (d.roster) {
       const r = AC_ROSTER[d.roster];
       const e = this.spawnEnemy({
@@ -459,7 +474,7 @@ Object.assign(Game.prototype, {
       this.flashAlert(r.intro);
       return e;
     }
-    const n = d.group || 1;
+    const n = count || d.group || 1;
     let last = null;
     const a0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < n; i++) {
@@ -476,6 +491,8 @@ Object.assign(Game.prototype, {
         flying: d.flying,
         hoverH: d.hoverH,
         modelKind: d.modelKind,
+        vehKey: d.vehKey,
+        cargo: d.cargo,
         radius: d.radius,
         turnRate: d.turnRate,
         wantDist: d.wantDist,
@@ -484,9 +501,10 @@ Object.assign(Game.prototype, {
         perch: d.perch,
         extraWeapons: d.extraWeapons,
         flankAngle: a0 + i * ((Math.PI * 2) / n),
+        at: at ? at.clone().add(new THREE.Vector3(i * 1.5, 0, 0)) : null,
       });
     }
-    if (n > 1) this.flashAlert(`${d.name} ×${n} 編隊`);
+    if (n > 1 && !at) this.flashAlert(`${d.name} ×${n} 編隊`);
     return last;
   },
   spawnEnemy(o) {
@@ -497,7 +515,10 @@ Object.assign(Game.prototype, {
       this.enemies.map((x) => x.pos),
     );
     let y = this.world.terrainHeight(sp.x, sp.z) + (o.flying ? o.hoverH || 6 : 0);
-    if (o.perch) {
+    if (o.at) {
+      sp = { x: o.at.x, z: o.at.z };
+      y = Math.max(o.at.y, this.world.terrainHeight(sp.x, sp.z));
+    } else if (o.perch) {
       const decks = this.world.obstacles.filter(
         (ob) =>
           ob.kind === 'box' &&
@@ -603,6 +624,8 @@ Object.assign(Game.prototype, {
     for (const p of this.projectiles) this.scene.remove(p.mesh);
     this.projectiles = [];
     this.shocks = [];
+    this.clearSupport();
+    this.introSeen = null;
     this.fx.clear();
     this.popups = [];
   },

@@ -89,6 +89,11 @@ Object.assign(Game.prototype, {
       flying: r.flying,
       hoverH: r.hoverH,
       modelKind: r.modelKind,
+      vehKey: r.vehKey,
+      cargo: r.cargo,
+      parent: r.parent,
+      mount: r.mount,
+      partKind: r.partKind,
       radius: r.radius,
       turnRate: r.turnRate,
       hpMul: r.hpMul,
@@ -151,6 +156,7 @@ Object.assign(Game.prototype, {
     else {
       this.enemies.push(e);
       if (r.isBoss) {
+        if (!this.bosses) this.bosses = []; // 房主在開局訊息之前就廣播了生成紀錄（第一場任務時還沒有 bosses）
         this.bosses.push(e);
         this.boss = e;
       }
@@ -222,6 +228,7 @@ Object.assign(Game.prototype, {
   },
   clientEvent(e) {
     if (this.clientMapEvent(e)) return;
+    if (this.supportEvent(e)) return;
     switch (e.t) {
       case 'ebeam':
         {

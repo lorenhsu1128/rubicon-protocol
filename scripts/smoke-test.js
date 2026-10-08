@@ -606,6 +606,213 @@ async function testStyleLab(browser) {
       `放開再按住爬升 ${jumpRes.climb.toFixed(1)} m、二段跳 ${jumpRes.dbl.toFixed(1)} m、` +
       `衝擊波貼地受傷 ${Math.round(jumpRes.hitGround)}／起跳躲開 ${Math.round(jumpRes.hitJump)}`,
   );
+  // 特殊一般敵人（entities/mech-special.js、game/support.js）：暫時把地形與障礙物的判定攤平、其他機體移到角落，
+  // 以固定 dt 同步模擬，結束後還原
+  const foeRes = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      pl = g.player;
+    const saved = {
+      th: w.terrainHeight,
+      rh: w.rampHeight,
+      obs: w.obstacles,
+      props: (w.props || []).map((p) => p.dead),
+      pl: { pos: pl.pos.clone(), hp: pl.hp, maxHp: pl.maxHp, acsMax: pl.acsMax, ai: pl.ai, yaw: pl.yaw },
+      others: [...g.enemies, ...g.allies].map((e) => [e, e.pos.clone()]),
+    };
+    const n0 = g.enemies.length;
+    w.terrainHeight = () => 0;
+    w.rampHeight = () => -99;
+    w.obstacles = [];
+    for (const p of w.props || []) p.dead = true;
+    saved.others.forEach(([e], i) => e.pos.set(i % 2 ? 60 : -60, 0, e.team === 'enemy' ? -62 : 62));
+    pl.ai = null;
+    const dt = 1 / 60;
+    const mine = [];
+    const reset = () => {
+      for (const e of g.enemies.splice(n0)) e.cleanup();
+      for (const q of g.projectiles) g.scene.remove(q.mesh);
+      g.projectiles.length = 0;
+      g.shocks = [];
+      g.clearSupport();
+      Object.assign(pl, {
+        hp: 1e6,
+        maxHp: 1e6,
+        acs: 0,
+        acsMax: 1e9,
+        staggerT: 0,
+        iFrames: 0,
+        dead: false,
+        yaw: 0,
+      });
+      pl.pos.set(0, 0, 30);
+      pl.vel.set(0, 0, 0);
+    };
+    const spawn = (k, dx, dz) => {
+      const e = g.spawnType(k, 1, 1);
+      e.pos.set(dx, e.flying ? e.hoverH : 0, 30 + dz);
+      e.yaw = e.aimYaw = Math.atan2(dx, -dz);
+      mine.push(e);
+      return e;
+    };
+    const step = (sec, wish, hold) => {
+      for (let i = 0; i < Math.round(sec / dt); i++) {
+        g.time += dt;
+        pl.move(dt, wish ? wish.clone() : new THREE.Vector3(), !!hold, false, false, null);
+        for (const e of g.enemies.slice(n0)) if (!e.dead) e.updateAI(dt);
+        for (let k = g.projectiles.length - 1; k >= 0; k--) {
+          g.projectiles[k].update(dt);
+          if (g.projectiles[k].dead) g.projectiles.splice(k, 1);
+        }
+        g.updateShocks(dt);
+        g.updateSupport(dt);
+      }
+    };
+    const lost = () => 1e6 - pl.hp;
+    const r = {};
+    // 盾牌 MT：正面／背面／高處
+    reset();
+    const sh = spawn('mt_shield', 0, -14);
+    const fwd = new THREE.Vector3(-Math.sin(sh.yaw), 0, -Math.cos(sh.yaw));
+    const hit = (off, melee) => {
+      Object.assign(sh, { hp: sh.maxHp, staggerT: 0, acs: 0, guardBreakT: 0 });
+      const src = sh.pos.clone().add(off);
+      const dir = sh.center().sub(src).normalize();
+      sh.takeDamage(
+        100,
+        50,
+        { pos: src, center: () => src.clone(), team: 'player' },
+        sh.center().addScaledVector(dir, -1.3),
+        dir,
+        melee,
+      );
+      return sh.maxHp - sh.hp;
+    };
+    r.shield = [
+      hit(fwd.clone().multiplyScalar(14)),
+      hit(fwd.clone().multiplyScalar(-14)),
+      hit(fwd.clone().multiplyScalar(6).setY(9)),
+    ];
+    hit(fwd.clone().multiplyScalar(3), { kb: 0 });
+    r.guardBreak = sh.guardBreakT > 0;
+    // 迫擊砲：站著不動會被打中、直線移動躲得掉
+    reset();
+    spawn('mt_mortar', 0, -45);
+    step(8);
+    r.mortarStill = lost();
+    // 一發瞄準腳下的砲彈：站著會中、看到預警圈後直線走開就躲得掉
+    const shell = (move) => {
+      reset();
+      const mo = spawn('mt_mortar', 0, -45);
+      mo.updateAI = function () {};
+      g.mortarShot(mo, pl.pos.clone(), { dmg: 500, im: 500, R: 5.5 });
+      step(3, move ? new THREE.Vector3(1, 0, 0) : null);
+      return lost();
+    };
+    r.mortarShell = [shell(false), shell(true)];
+    // 地雷：懸浮飛過不觸發、走過去觸發
+    reset();
+    g.layMine({ center: () => pl.pos.clone().setY(8), team: 'enemy' }, new THREE.Vector3(0, 0, 24), {
+      dmg: 460,
+      im: 700,
+      R: 4.5,
+    });
+    g.mines[0].owner = null;
+    step(1);
+    step(0.5, null, true);
+    step(1.6, new THREE.Vector3(0, 0, -1), true);
+    r.mineOver = [lost(), g.mines.length];
+    step(4.5, new THREE.Vector3(0, 0, 1));
+    r.mineWalk = [lost(), g.mines.length];
+    // 布雷無人機會撒雷
+    reset();
+    spawn('minelayer', 0, -18);
+    step(6);
+    r.laid = g.mines.length + (lost() > 0 ? 1 : 0);
+    // 修理無人機
+    reset();
+    const hurt = spawn('mt', 6, -25);
+    hurt.updateAI = function () {};
+    hurt.hp = hurt.maxHp * 0.4;
+    const h0 = hurt.hp;
+    spawn('repair', 0, -30);
+    step(4);
+    r.heal = hurt.hp - h0;
+    // 護盾產生器：外面打不進、進到裡面打得到
+    reset();
+    const gen = spawn('mt_dome', 0, -30);
+    gen.updateAI(dt);
+    gen.updateAI = function () {
+      this.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    const tgt = spawn('mt', 3, -28);
+    tgt.updateAI = function () {};
+    const shoot = (n) => {
+      const a = tgt.hp;
+      for (let i = 0; i < n; i++) {
+        Object.assign(pl.weapons.rarm, { cd: 0, reloadT: 0, mag: 99 });
+        pl.fire('rarm', tgt.center(), tgt);
+        step(0.08);
+      }
+      step(0.6);
+      return a - tgt.hp;
+    };
+    const d0 = gen.domeHp;
+    r.domeOut = [shoot(12), d0 - gen.domeHp];
+    pl.pos.set(gen.pos.x + 2, 0, gen.pos.z + 5);
+    r.domeIn = shoot(8);
+    // 運輸機：投放 3 台後飛走
+    reset();
+    const ds = spawn('dropship', 0, -70);
+    const n1 = g.enemies.length;
+    for (let t = 0; t < 25 && !ds.gone; t += 0.5) step(0.5);
+    r.drop = [g.enemies.length - n1, !!ds.gone];
+    // 指揮官：強化周圍、擊破後混亂
+    reset();
+    const cmd = spawn('mt_cmd', 0, -32);
+    const mt = spawn('mt', 6, -26);
+    step(0.1);
+    r.buff = mt.buffT > 0;
+    cmd.takeDamage(1e7, 0, pl, cmd.center());
+    r.confuse = mt.confuseT > 0;
+    // 還原
+    reset();
+    w.terrainHeight = saved.th;
+    w.rampHeight = saved.rh;
+    w.obstacles = saved.obs;
+    (w.props || []).forEach((p, i) => (p.dead = saved.props[i]));
+    for (const [e, p] of saved.others) e.pos.copy(p);
+    Object.assign(pl, saved.pl);
+    pl.pos.copy(saved.pl.pos);
+    pl.vel.set(0, 0, 0);
+    g.introSeen = null;
+    return r;
+  });
+  check(
+    foeRes.shield[0] < foeRes.shield[1] * 0.3 &&
+      foeRes.shield[2] > foeRes.shield[1] * 0.9 &&
+      foeRes.guardBreak &&
+      foeRes.mortarStill > 0 &&
+      foeRes.mortarShell[0] > 0 &&
+      foeRes.mortarShell[1] === 0 &&
+      foeRes.mineOver[0] === 0 &&
+      foeRes.mineOver[1] === 1 &&
+      foeRes.mineWalk[0] > 0 &&
+      foeRes.mineWalk[1] === 0 &&
+      foeRes.laid > 0 &&
+      foeRes.heal > 0 &&
+      foeRes.domeOut[0] === 0 &&
+      foeRes.domeOut[1] > 0 &&
+      foeRes.domeIn > 0 &&
+      foeRes.drop[0] === 3 &&
+      foeRes.drop[1] &&
+      foeRes.buff &&
+      foeRes.confuse,
+    `特殊敵人：盾牌正面 ${Math.round(foeRes.shield[0])}／背面 ${Math.round(foeRes.shield[1])}／高處 ${Math.round(foeRes.shield[2])}、近戰破盾、` +
+      `迫擊砲 ${Math.round(foeRes.mortarStill)}（單發站著 ${Math.round(foeRes.mortarShell[0])}／走開 ${Math.round(foeRes.mortarShell[1])}）、地雷飛過 ${foeRes.mineOver[0]}／走過 ${Math.round(foeRes.mineWalk[0])}、` +
+      `修理 +${Math.round(foeRes.heal)}、護盾外 ${Math.round(foeRes.domeOut[0])}（吸收 ${Math.round(foeRes.domeOut[1])}）／內 ${Math.round(foeRes.domeIn)}、` +
+      `運輸機投放 ${foeRes.drop[0]} 台後離場、指揮官強化與混亂`,
+  );
   await page.click('#labCtrl');
   await wait(800);
   check(
@@ -3462,6 +3669,156 @@ async function testPilot(browser, base) {
 }
 
 // 房主建房 → 客機加入 → 雙方準備 → 出擊；migrate 為 true 時再測房主離線後的遷移
+// 新 Boss（game/bosses.js、entities/mech-boss.js）：以 Boss 關的等級開出每一種，以固定 dt 同步模擬檢查機制
+async function testBosses(browser, base) {
+  console.log('新 Boss：護盾指揮艦、鑽地蟲、砲兵陣地、多足要塞、電磁狩獵機、空中要塞');
+  const { ctx, page } = await newPage(browser, 'boss');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const run = (L, key) =>
+    page.evaluate(
+      ([L, key]) => {
+        const g = window.__game;
+        g.save.level = L;
+        g.startMission();
+        g.state = 'boss-test'; // 停住主迴圈，由這裡推進
+        const pl = g.player;
+        Object.assign(pl, { hp: 1e7, maxHp: 1e7, acsMax: 1e9 });
+        const boss = g.boss;
+        const dt = 1 / 60;
+        const step = (sec, each) => {
+          for (let i = 0; i < Math.round(sec / dt); i++) {
+            g.time += dt;
+            pl.move(dt, new THREE.Vector3(), false, false, false, null);
+            for (const e of g.enemies) if (!e.dead) e.updateAI(dt);
+            g.separateMechs(dt);
+            for (let k = g.projectiles.length - 1; k >= 0; k--) {
+              g.projectiles[k].update(dt);
+              if (g.projectiles[k].dead) g.projectiles.splice(k, 1);
+            }
+            g.updateShocks(dt);
+            g.updateSupport(dt);
+            if (each) each();
+          }
+        };
+        const hit = () => {
+          const h = boss.hp;
+          boss.iFrames = 0;
+          boss.takeDamage(1000, 0, pl, boss.center());
+          return Math.round(h - boss.hp);
+        };
+        const kill = (list) => list.forEach((e) => e.takeDamage(1e9, 0, pl, e.center()));
+        const place = (dist) => {
+          const x = boss.pos.x + (boss.pos.x > 0 ? -dist : dist);
+          pl.pos.set(x, g.world.groundAt(x, boss.pos.z, 99), boss.pos.z);
+        };
+        const r = {
+          name: boss.name,
+          parts: boss
+            .partsOf()
+            .map((e) => e.opts.partKind)
+            .join(','),
+        };
+        if (key === 'aegis') {
+          r.a = hit();
+          kill(boss.partsOf('pylon'));
+          step(0.3);
+          r.b = hit();
+          step(25.5);
+          r.rebuilt = boss.partsOf('pylon').length;
+        } else if (key === 'worm') {
+          place(10);
+          const seen = new Set();
+          r.a = r.b = null;
+          step(28, () => {
+            seen.add(boss.aiState.wm);
+            if (boss.aiState.wm === 'burrow' && r.a === null) r.a = hit();
+            if (boss.aiState.wm === 'up' && r.b === null) r.b = hit();
+          });
+          r.states = seen.size;
+          r.segs = boss.wormSegs ? boss.wormSegs.length : 0;
+        } else if (key === 'bastille') {
+          r.mines = g.mines.length;
+          r.a = hit();
+          place(30);
+          step(14);
+          r.lost = 1e7 - pl.hp;
+          kill(boss.partsOf('cannon'));
+          step(0.2);
+          r.b = hit();
+        } else if (key === 'arachne') {
+          step(0.2);
+          r.follow = boss.partsOf('joint').every((e) => e.pos.y - boss.pos.y > 3);
+          r.a = hit();
+          kill(boss.partsOf('joint').slice(0, 3));
+          step(0.3);
+          r.collapsed = !!boss.aiState.collapsed && boss.staggerT > 0;
+          r.b = hit();
+        } else if (key === 'nullifier') {
+          place(12);
+          boss.aiState.empT = 0;
+          let emp = 0;
+          step(4, () => (emp += pl.empLockT > 0 ? 1 : 0));
+          r.emp = emp;
+          place(30);
+          boss.aiState.pullCd = 0;
+          boss.aiState.empT = 99;
+          let pull = 0;
+          step(1, () => (pull += pl.pullT > 0 ? 1 : 0));
+          r.pull = pull;
+        } else if (key === 'leviathan') {
+          step(1);
+          r.alt = boss.pos.y - g.world.terrainHeight(boss.pos.x, boss.pos.z);
+          r.a = hit();
+          kill(boss.partsOf('engine'));
+          step(5);
+          r.altDown = boss.pos.y - g.world.terrainHeight(boss.pos.x, boss.pos.z);
+          r.b = hit();
+        }
+        // 擊破：部位與地雷一起消失
+        kill(boss.partsOf('pylon'));
+        boss.bossVis = 0;
+        boss.iFrames = 0;
+        boss.takeDamage(1e10, 0, pl, boss.center());
+        step(0.2);
+        r.dead = boss.dead;
+        r.left = boss.partsOf().length + (g.mines || []).filter((m) => m.owner === boss).length;
+        g.clearMission();
+        g.state = 'title';
+        return r;
+      },
+      [L, key],
+    );
+  let r = await run(6, 'aegis');
+  check(
+    r.a === 0 && r.b > 0 && r.rebuilt === 4 && r.dead && r.left === 0,
+    `${r.name}：發生器在時打不動（${r.a}）、拆光後 ${r.b}、25 秒後重建 ${r.rebuilt} 座、擊破後部位消失`,
+  );
+  r = await run(12, 'worm');
+  check(
+    r.a === 0 && r.b > 0 && r.states === 5 && r.segs > 0 && r.dead,
+    `${r.name}：地下打不到（${r.a}）、鑽出後 ${r.b}、五個狀態循環、身體 ${r.segs} 節`,
+  );
+  r = await run(18, 'bastille');
+  check(
+    r.mines >= 20 && r.a < r.b * 0.2 && r.lost > 0 && r.dead && r.left === 0,
+    `${r.name}：地雷 ${r.mines} 顆、砲台在時 ${r.a}／全毀後 ${r.b}、砲擊命中、擊破後部位與地雷消失`,
+  );
+  r = await run(24, 'arachne');
+  check(
+    r.follow && r.a < r.b * 0.3 && r.collapsed && r.dead && r.left === 0,
+    `${r.name}：關節掛在膝上、腳全在時 ${r.a}／斷三條倒下後 ${r.b}`,
+  );
+  r = await run(30, 'nullifier');
+  check(r.emp > 0 && r.pull > 0 && r.dead, `${r.name}：EMP 封鎖 QB 與懸浮、電磁牽引`);
+  r = await run(33, 'leviathan');
+  check(
+    r.alt > 18 && r.a < r.b * 0.2 && r.altDown < r.alt - 5 && r.dead && r.left === 0,
+    `${r.name}：高度 ${r.alt.toFixed(0)} m、引擎在時 ${r.a}／全毀後 ${r.b}、高度降到 ${r.altDown.toFixed(0)} m`,
+  );
+  await ctx.close();
+}
+
 async function testMultiplayer(browser, url, tag, migrate) {
   console.log(`多人（${tag}）：建房 → 加入 → 準備 → 出擊`);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -3546,6 +3903,7 @@ async function main() {
     await testEditorOptimize(browser, base);
     await testPaint(browser);
     await testStyleLab(browser);
+    await testBosses(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

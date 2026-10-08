@@ -514,4 +514,48 @@ export const PALETTES = {
     visor: 0xffb040,
     glow: 0xffa050,
   },
+  // 支援型敵人（修理無人機、護盾產生器）：淺灰＋綠
+  support: {
+    main: 0xb4b8b0,
+    main2: 0x8e948c,
+    main3: 0xc8ccc2,
+    sub: 0x3a403a,
+    acc: 0x3ccf6a,
+    joint: 0x2a2e2a,
+    visor: 0x60ff9a,
+    glow: 0x7dffb0,
+  },
+  // 鑽地蟲：沙土色＋橘色感測器
+  worm: {
+    main: 0x8a7458,
+    main2: 0x5e4c38,
+    main3: 0x9e8668,
+    sub: 0x2e261e,
+    acc: 0xc8743a,
+    joint: 0x2a241e,
+    visor: 0xff8a2a,
+    glow: 0xffa050,
+  },
+  // 電磁狩獵機：黑＋電藍
+  hunter: {
+    main: 0x24282e,
+    main2: 0x181b20,
+    main3: 0x343a42,
+    sub: 0x0e1014,
+    acc: 0x3aa8ff,
+    joint: 0x1a1c20,
+    visor: 0x60c8ff,
+    glow: 0x7fd8ff,
+  },
+  // 指揮官 MT：深藍＋金
+  command: {
+    main: 0x2c3448,
+    main2: 0x1e2434,
+    main3: 0x3c4660,
+    sub: 0x15181f,
+    acc: 0xf0c040,
+    joint: 0x1c1e24,
+    visor: 0xffd060,
+    glow: 0xffc860,
+  },
 };

@@ -39,7 +39,18 @@ export function serEnt(e) {
     kl: e.kills || 0,
     de: e.deaths || 0,
     rs: e.respawnT !== undefined ? +e.respawnT.toFixed(1) : -1,
+    ...serSpecial(e),
   };
+}
+// 特殊敵人與 Boss 的顯示狀態（mech-special.js、mech-boss.js）：
+// sx＝[護盾 %, 連線目標 id, 旗標（1 強化、2 混亂、4 電磁封鎖）, 連線種類, Boss 顯示狀態]；gn＝離場
+function serSpecial(e) {
+  const fl = (e.buffT > 0 ? 1 : 0) | (e.confuseT > 0 ? 2 : 0) | (e.empLockT > 0 ? 4 : 0);
+  const o = {};
+  if (e.domeFrac > 0 || e.linkId >= 0 || fl || e.bossVis)
+    o.sx = [Math.round(e.domeFrac * 100), e.linkId, fl, e.linkKind || 0, e.bossVis || 0];
+  if (e.gone) o.gn = 1;
+  return o;
 }
 export function applyEnt(e, s, g) {
   e.kills = s.kl || 0;
@@ -97,7 +108,15 @@ export function applyEnt(e, s, g) {
   if (!s.dn && e.downed) {
     e.downed = false;
   }
-  if (s.d && !e.dead) {
+  const sx = s.sx || [0, -1, 0, 0, 0];
+  e.domeFrac = sx[0] / 100;
+  e.linkId = sx[1];
+  e.sxFlags = sx[2];
+  e.linkKind = sx[3];
+  e.bossVis = sx[4];
+  if (sx[2] & 4) e.empLockT = Math.max(e.empLockT || 0, 0.25); // 客機自己的機體：移動預測也封鎖 QB 與懸浮
+  if (s.gn && !e.dead) e.depart();
+  else if (s.d && !e.dead) {
     e.dieVisual();
   }
 }

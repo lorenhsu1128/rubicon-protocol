@@ -6,7 +6,8 @@
 //   { obj 加進場景的根物件（單位矩陣）, scaleNode 承載遊戲縮放的節點, scale 遊戲縮放（Vector3）, rig 可給 animateMech 驅動的機體,
 //     piece 區塊資訊（機甲區塊才有） }
 import { withRng } from '../core/math.js';
-import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES } from '../data/enemies.js';
+import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/enemies.js';
+import { buildBossModel } from './boss-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
 import { PIECE_NAMES, SIDE_NAMES, buildMech, buildPiece, partPieces } from './mech-model.js';
@@ -128,9 +129,9 @@ for (const D of DUO_BOSS)
     true,
   );
 BOSS_DEFS.forEach((b) => {
-  if (b.kind) return;
+  if (b.kind && !b.mech) return; // 雙 AC 另外列；直升機與程式模型的 Boss 在「非機甲／載具」
   const key = b.name.split(' ')[0].toLowerCase();
-  addMech('boss_' + key, b.name, b.asm, 'boss', b.scale, 'Boss', true);
+  addMech('boss_' + key, b.name, b.asm, b.pal || 'boss', b.scale, 'Boss', true);
 });
 // 量產敵機：組裝由 gen() 產生（可能含隨機），以固定種子取得代表性的一台
 Object.entries(ENEMY_TYPES).forEach(([key, d], i) => {
@@ -204,27 +205,68 @@ addVeh(
   'vehicle',
   'heli',
 );
+addVeh(
+  'dropship',
+  ENEMY_TYPES.dropship.name,
+  buildHeli,
+  ENEMY_TYPES.dropship.pal,
+  ENEMY_TYPES.dropship.scale,
+  '敵人',
+  'vehicle',
+  'heli',
+);
 {
   const h = BOSS_DEFS.find((b) => b.kind === 'heli');
   if (h) addVeh('boss_helios', h.name, buildHeli, 'helios', h.scale, 'Boss', 'vehicle-boss', 'heli');
 }
 // 無人機只有一塊（尾焰是程式特效）：原點在機身中心
-add({
-  id: 'vehicle/swarm',
-  cat: 'vehicle',
-  name: ENEMY_TYPES.swarm.name,
-  note: '敵人；尾焰是程式特效',
-  pal: ENEMY_TYPES.swarm.pal,
-  gameScale: ENEMY_TYPES.swarm.scale,
-  spec: 'vehicle',
-  origin: VEHICLE_PIECE_ORIGIN.drone,
-  build: (k) => {
-    const b = vehiclePiece(buildDrone(pal(k), 1), 'body');
-    const sc = v3(ENEMY_TYPES.swarm.scale);
-    b.obj.scale.copy(sc);
-    return { ...b, scale: sc };
-  },
-});
+for (const key of ['swarm', 'minelayer', 'repair']) {
+  const d = ENEMY_TYPES[key];
+  add({
+    id: `vehicle/${key}`,
+    cat: 'vehicle',
+    name: d.name,
+    note: '敵人；尾焰是程式特效',
+    pal: d.pal,
+    gameScale: d.scale,
+    spec: 'vehicle',
+    origin: VEHICLE_PIECE_ORIGIN.drone,
+    build: (k) => {
+      const b = vehiclePiece(buildDrone(pal(k), 1, key), 'body');
+      const sc = v3(d.scale);
+      b.obj.scale.copy(sc);
+      return { ...b, scale: sc };
+    },
+  });
+}
+
+// 新 Boss 的程式模型與附屬部位（render/boss-models.js）：目前只預覽，不接受 GLB
+for (const b of BOSS_DEFS) {
+  if (b.modelKind !== 'boss') continue;
+  add({
+    id: `vehicle/boss_${b.vehKey}`,
+    cat: 'vehicle',
+    name: b.name,
+    note: b.vehKey === 'worm' ? 'Boss；身體各節在遊戲中跟著頭部的軌跡排列' : 'Boss',
+    pal: b.pal || 'boss',
+    gameScale: b.scale,
+    spec: 'vehicle-boss',
+    noGlb: true,
+    build: (k) => wholeRig(buildBossModel(b.vehKey, pal(k), 1), b.scale),
+  });
+}
+for (const [key, d] of Object.entries(PART_DEFS))
+  add({
+    id: `vehicle/bosspart_${key}`,
+    cat: 'vehicle',
+    name: `Boss 部位・${d.name}`,
+    note: '附屬部位（獨立血量）',
+    pal: 'boss',
+    gameScale: 1,
+    spec: 'vehicle-boss',
+    noGlb: true,
+    build: (k) => wholeRig(buildBossModel(key, pal(k), 1), 1),
+  });
 
 // 其他載具（不屬於敵人、沒有配色）
 const plain = (obj) => {
