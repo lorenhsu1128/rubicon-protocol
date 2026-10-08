@@ -111,10 +111,11 @@ export class MechEntity {
       stuck: 0,
     };
   }
-  // 整台機體的前後傾（leanX 正值＝加速前傾）：機甲與載具的正面都是 −Z，前傾是負的 x 旋轉；
-  // 人形機甲幅度減小（上身的前傾在 animateMech）
+  // 整台機體的前後傾（leanX 正值＝往前加速）：機甲與載具的正面都是 −Z，前傾是負的 x 旋轉；
+  // 人形機甲幅度減小（上身的前傾在 animateMech）；坦克相反：加速時車頭微微抬起、煞車時往前點頭
   leanTilt() {
     const l = this.leanX || 0;
+    if (this.model.cls === 'vehicle') return l * 0.5;
     return this.model.vehicle ? -l : -l * 0.35;
   }
   // 機甲模型：模型組由遊戲決定（伺服器模式依玩家／敵人選伺服器預設組或玩家上傳的模型組，見 game/local-lib.js）
@@ -1160,7 +1161,10 @@ export class MechEntity {
       const af = this.accS.dot(fwd),
         ar = this.accS.dot(right);
       const vf = this.vel.dot(fwd);
-      this.leanX = clamp(af * 0.012 + vf * 0.004, -0.35, 0.35) + (this.qbT > 0 ? 0.18 : 0); // 加速前傾、減速後仰、QB 更前傾
+      this.leanX =
+        this.model.cls === 'vehicle'
+          ? clamp(af * 0.012, -0.25, 0.25) // 坦克只看加減速（等速時不傾斜）
+          : clamp(af * 0.012 + vf * 0.004, -0.35, 0.35) + (this.qbT > 0 ? 0.18 : 0); // 加速前傾、減速後仰、QB 更前傾
       this.leanZ = clamp(-ar * 0.01, -0.28, 0.28); // 側向加速 → 向內側傾
       if (this.flying) {
         this.leanX *= 0.6;
@@ -1201,8 +1205,8 @@ export class MechEntity {
       this.staggerT > 0 ? Math.sin(this.t * 30) * 0.08 : 0,
       0.3,
     );
-    // 載具（砲塔）移動時微微前傾；人形機甲的上身俯仰由 animateMech 處理
-    if (this.model.vehicle)
+    // 飛行載具移動時微微前傾；坦克的砲塔不另外傾斜（車身已隨加減速俯仰）；人形機甲的上身俯仰由 animateMech 處理
+    if (this.model.vehicle && this.model.cls !== 'vehicle')
       this.model.torso.rotation.x = lerp(
         this.model.torso.rotation.x,
         this.qbT > 0 ? -0.3 : this.moving ? -0.14 : 0,
