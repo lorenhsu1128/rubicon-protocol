@@ -1445,6 +1445,14 @@ async function testWorkshop(browser, base) {
   check(((await page.textContent('#wsDetail')) || '').includes('以核心為準'), '選襠部時說明以核心為準');
   const WAIST = '#wsTree .wsConn[data-slot="legs/l_bp/pelvis"][data-n="waist"]';
   const w0 = await cv(WAIST);
+  const gap = await page.evaluate(() => {
+    const e = window.__workshop.edit;
+    const m = e.mark({ slot: 'legs/l_bp/pelvis', name: 'waist' });
+    window.__workshop.rig.group.updateMatrixWorld(true);
+    const p = new THREE.Vector3().setFromMatrixPosition(e.proxy.matrixWorld);
+    return p.distanceTo(new THREE.Vector3().setFromMatrixPosition(m.node.matrixWorld));
+  });
+  check(gap < 0.01, `選襠部時三軸標示在腰的連接點上（距離 ${gap.toFixed(3)}）`);
   const held = await page.evaluate(() => {
     const e = window.__workshop.edit;
     const rig = window.__workshop.rig;
@@ -3000,7 +3008,141 @@ async function testModelSets(browser, base) {
     (await game.evaluate(() => JSON.parse(localStorage.getItem('rubicon_localmodels')).set)) === val,
     '遊戲記住選擇的模型組',
   );
+  await testMechPack(page, game, base);
   await ctx.close();
+}
+
+// 機體包：組裝調整頁的預組跟著模型組 → 匯出這台機甲（含 GLB）→ 匯入成新模型組 → 合併到另一組 → 車庫選機甲
+async function testMechPack(page, game, base) {
+  const dialogs = [];
+  page.on('dialog', (d) => dialogs.push(d.message()));
+  const lib = () =>
+    page.evaluate(() => {
+      const w = window.__workshop,
+        s = w.store;
+      return {
+        cur: s.curSet().name,
+        sets: s.setList().map((x) => x.name),
+        local: [...s.local.keys()].filter((k) => !k.startsWith('prop/')).sort(),
+        joints: Object.keys(s.joints).sort(),
+        mechs: s.mechsOf().map((m) => m.name),
+        head: w.asm.head,
+      };
+    });
+  await page.click('#tabs [data-c="workshop"]');
+  await page.waitForSelector('#workshop:not([hidden])');
+  await wait(1200);
+  let s = await lib();
+  check(s.cur === '測試C' && s.head === 'h_hv', '組裝調整頁用目前模型組（測試C）的零件組合');
+  await page.fill('#wsPresetName', '機體X');
+  await page.click('#wsSavePreset');
+  await wait(400);
+  s = await lib();
+  check(s.mechs.includes('機體X'), '預組存進目前模型組的機甲清單');
+  check(
+    !(await page.evaluate(() => window.__workshop.store.mechsOf('default').some((m) => m.name === '機體X'))),
+    '其他模型組的機甲清單不受影響',
+  );
+  // 匯出這台機甲：這台用到的槽位裡有 GLB 的都帶上（不含參考圖）
+  const expect = await page.evaluate(() => {
+    const w = window.__workshop;
+    return w.mechSlots().filter((id) => w.store.local.has(id));
+  });
+  const [d] = await Promise.all([page.waitForEvent('download'), page.click('#wsMechExport')]);
+  const file = path.join(SHOT_DIR, 'mech-' + d.suggestedFilename());
+  await d.saveAs(file);
+  const zb = fs.readFileSync(file);
+  check(
+    /機體X\.rubicon-set$/.test(d.suggestedFilename()) &&
+      expect.length >= 2 &&
+      expect.every((id) => zb.includes(`models/${id}.glb`)) &&
+      zb.includes('"mech"') &&
+      !zb.includes('refs.json'),
+    `匯出這台機甲（GLB ${expect.join('、')}，不含參考圖）`,
+  );
+  // 匯入：建立新模型組
+  await page.selectOption('#wsMechMode', 'new');
+  await page.setInputFiles('#wsMechFile', file);
+  await wait(1500);
+  s = await lib();
+  check(
+    s.cur === '機體X' &&
+      expect.every((id) => s.local.includes(id)) &&
+      s.joints.includes('arms/a_std/l_upper') &&
+      s.mechs.join() === '機體X' &&
+      s.head === 'h_hv',
+    `匯入機甲建立新模型組「${s.cur}」（GLB、關節設定、零件組合、機甲清單）`,
+  );
+  // 匯入：合併到「預設」（有右前臂 GLB 與右手肘關節，這台機甲沒有 → 改回程式模型、移除關節設定）
+  await page.click('#wsBack');
+  await page.click('#setMenu summary');
+  await page.click('#setList button:has-text("預設")');
+  await wait(600);
+  await page.click('#tabs [data-c="workshop"]');
+  await page.waitForSelector('#workshop:not([hidden])');
+  await wait(1000);
+  await page.selectOption('#wsMechMode', 'merge');
+  dialogs.length = 0;
+  await page.setInputFiles('#wsMechFile', file);
+  await wait(1500);
+  s = await lib();
+  check(
+    dialogs.some((m) => m.includes('arms/a_std/r_fore') && m.includes('arms/a_std/r_upper')),
+    '合併前列出會改掉的槽位',
+  );
+  check(
+    s.cur === '預設' &&
+      expect.every((id) => s.local.includes(id)) &&
+      !s.local.includes('arms/a_std/r_fore') &&
+      s.joints.join() === 'arms/a_std/l_upper' &&
+      s.mechs.includes('機體X') &&
+      s.head === 'h_hv',
+    `合併到目前模型組（GLB ${s.local.join('、')}；關節 ${s.joints.join('、')}）`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'mech-pack.png') });
+  await page.click('#wsBack');
+  // 車庫：從模型組的機甲清單換上
+  await game.goto(base + '?test');
+  await waitVisible(game, 'title');
+  await newCareer(game);
+  await waitVisible(game, 'garage');
+  await game.waitForSelector('#gMechSel', { timeout: 8000 });
+  const opt = await game.$$eval('#gMechSel optgroup', (gs) =>
+    gs.map((g) => g.label + ':' + [...g.querySelectorAll('option')].map((o) => o.textContent).join('/')),
+  );
+  check(
+    opt.some((o) => o.startsWith('機體X:機體X')) &&
+      opt.some((o) => o.startsWith('預設:') && o.includes('機體X')),
+    `車庫列出各模型組的機甲（${opt.join('、')}）`,
+  );
+  const pickX = () =>
+    game.$eval('#gMechSel', (sel) => {
+      const o = [...sel.querySelectorAll('optgroup')]
+        .find((g) => g.label === '機體X')
+        .querySelector('option');
+      sel.value = o.value;
+      sel.dispatchEvent(new Event('change'));
+    });
+  await pickX();
+  await wait(300);
+  check(
+    (await game.evaluate(() => window.__game.save.asm.head)) !== 'h_hv',
+    '缺少零件時不換上（重型頭還沒擁有）',
+  );
+  await game.evaluate(() => window.__game.save.owned.push('h_hv'));
+  await pickX();
+  await wait(1500);
+  const g = await game.evaluate(() => ({
+    head: window.__game.save.asm.head,
+    set: JSON.parse(localStorage.getItem('rubicon_localmodels')).set,
+    note: document.getElementById('gLocal').textContent,
+  }));
+  const xid = await page.evaluate(() => window.__workshop.store.setList().find((x) => x.name === '機體X').id);
+  check(
+    g.head === 'h_hv' && g.set === xid && /GLB/.test(g.note),
+    `車庫選機甲：換上零件組合並改用它的模型組（${g.note}）`,
+  );
+  await game.screenshot({ path: path.join(SHOT_DIR, 'garage-mechs.png') });
 }
 
 // 伺服器模型組：模型庫的伺服器預設組（整組發佈、直接編輯）→ 單人（敵人用伺服器組、自己用本地模型組）

@@ -19,6 +19,7 @@ import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { applyQuick } from './pose.js';
 import { RefTools } from './ref-tools.js';
 import { buildGrid } from './refs.js';
+import { exportMech, importMech } from './mech-pack.js';
 import { WsEditor } from './workshop-edit.js';
 import {
   ANIMS,
@@ -88,8 +89,10 @@ export function restPose(rig) {
 
 export class Workshop {
   // onJoints(slot)：連接點修改後通知模型庫；onSaved(slot)：區塊的 GLB 改寫（原點）後通知模型庫；toast(text, bad)：提示訊息
-  constructor({ store, onJoints, onSaved, onClose, toast }) {
+  // onSets(text)：匯入機甲新增或改了模型組（模型庫重建相關畫面、模型組選單）
+  constructor({ store, onJoints, onSaved, onClose, onSets, toast }) {
     this.store = store;
+    this.onSets = onSets;
     this.onJoints = onJoints;
     this.onSaved = onSaved;
     this.glbSlots = new Set(); // 目前畫面上用 GLB 的槽位
@@ -166,6 +169,7 @@ export class Workshop {
   useSet() {
     const set = this.store.curSet();
     if (set && set.asm) this.asm = sanitizeAsm(set.asm);
+    this.renderPresets();
     this.edit.undo = [];
     this.edit.redo = [];
     this.edit.renderUndo();
@@ -195,12 +199,12 @@ export class Workshop {
     $('wsSavePreset').onclick = async () => {
       const name = $('wsPresetName').value.trim();
       if (!name) return this.toast('請先輸入預組名稱', true);
-      await this.store.putPreset(name, this.asm);
+      await this.store.putMech(name, this.asm);
       this.renderPresets(name);
-      this.toast(`已儲存預組「${name}」`);
+      this.toast(`已儲存預組「${name}」到模型組「${this.store.curSet().name}」`);
     };
     $('wsLoadPreset').onclick = () => {
-      const p = this.store.presets.get($('wsPresets').value);
+      const p = this.store.mechsOf().find((m) => m.name === $('wsPresets').value);
       if (!p) return;
       this.asm = sanitizeAsm(p.asm);
       $('wsPresetName').value = p.name;
@@ -209,7 +213,7 @@ export class Workshop {
     $('wsDelPreset').onclick = async () => {
       const name = $('wsPresets').value;
       if (!name || !confirm(`刪除預組「${name}」？`)) return;
-      await this.store.removePreset(name);
+      await this.store.removeMech(name);
       this.renderPresets();
     };
     $('wsExport').onclick = () => this.exportPresets();
@@ -218,6 +222,14 @@ export class Workshop {
       const f = $('wsImportFile').files[0];
       $('wsImportFile').value = '';
       if (f) await this.importPresets(f);
+    };
+    // 機體包：畫面上這台機甲含 GLB（mech-pack.js）
+    $('wsMechExport').onclick = () => exportMech(this, $('wsMechRefs').checked);
+    $('wsMechImport').onclick = () => $('wsMechFile').click();
+    $('wsMechFile').onchange = async () => {
+      const f = $('wsMechFile').files[0];
+      $('wsMechFile').value = '';
+      if (f) await importMech(this, f, $('wsMechMode').value);
     };
     // 動作與時間軸
     $('wsAnims').innerHTML = WS_ANIMS.map(([k, n]) => `<button data-a="${k}">${n}</button>`).join('');
@@ -253,7 +265,7 @@ export class Workshop {
     $('wsTimeText').textContent = rest ? '靜止' : `${this.t.toFixed(2)} s`;
   }
   renderPresets(sel) {
-    const list = [...this.store.presets.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const list = this.store.mechsOf();
     $('wsPresets').innerHTML = list.length
       ? list.map((p) => `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`).join('')
       : `<option value="">（尚無預組）</option>`;
@@ -467,9 +479,14 @@ export class Workshop {
     }
   }
 
+  // 畫面上這台機甲用到的所有區塊槽位
+  mechSlots() {
+    return [...new Set(WS_SLOTS.flatMap(([key]) => slotPieces(key, this.asm).map((i) => i.slot)))];
+  }
+
   // ---------- 預組匯出／匯入 ----------
   exportPresets() {
-    const presets = [...this.store.presets.values()].map((p) => ({ name: p.name, asm: p.asm }));
+    const presets = this.store.mechsOf().map((p) => ({ name: p.name, asm: p.asm }));
     if (!presets.length) return this.toast('還沒有儲存任何預組', true);
     const data = {
       format: 'rubicon-mech-presets',
@@ -498,7 +515,7 @@ export class Workshop {
     for (const p of list) {
       const name = String((p && p.name) || '').trim();
       if (!name) continue;
-      await this.store.putPreset(name, sanitizeAsm(p.asm));
+      await this.store.putMech(name, sanitizeAsm(p.asm));
       n++;
     }
     this.renderPresets();

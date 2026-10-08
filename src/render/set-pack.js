@@ -2,14 +2,16 @@
 // ＋ refs.json、refs/<front|side>.<副檔名>（模型庫的參考圖與校正值，上傳到伺服器時不含）
 // 模型庫匯出／匯入與遊戲上傳到伺服器共用
 import { makeZip, readZip } from '../core/zip.js';
-import { setScoped } from './local-models.js';
+import { cleanMechs, setScoped } from './local-models.js';
 
 export const SET_FORMAT = 'rubicon-model-set';
 const enc = new TextEncoder(),
   dec = new TextDecoder();
 const FIXED_DATE = new Date(1980, 0, 1);
 
-// data：{ name, asm, recs: [{ id, name, buf, t?, orig? }], joints, refs? }（refs 見 library/ref-tools.js）
+// data：{ name, asm, recs: [{ id, name, buf, t?, orig? }], joints, refs?, mechs?, mech? }（refs 見 library/ref-tools.js）
+// mechs：機甲清單；mech：單台機甲的機體包 { name, slots }（slots＝這台機甲用到的所有區塊槽位，
+// 沒有 GLB 的是程式模型或內建模型，合併匯入時據此把那些槽位改回來）
 // stable：相同內容產生相同位元組（上傳用：不含時間與原始檔，以內容雜湊當檔名）
 export function packSetData(data, { stable = false } = {}) {
   const files = [];
@@ -27,6 +29,10 @@ export function packSetData(data, { stable = false } = {}) {
   const manifest = { format: SET_FORMAT, version: 1, name: data.name || '模型組' };
   if (!stable) manifest.exportedAt = new Date().toISOString();
   manifest.asm = data.asm || null;
+  if (data.mech) manifest.mech = { name: data.mech.name, slots: [...data.mech.slots].sort() };
+  // 上傳用（stable）不含機甲清單：雜湊只取決於模型與關節設定
+  if (!stable && data.mechs && data.mechs.length)
+    manifest.mechs = cleanMechs(data.mechs).map((m) => ({ name: m.name, asm: m.asm }));
   manifest.models = models;
   const joints = Object.fromEntries(
     Object.keys(data.joints || {})
@@ -67,7 +73,7 @@ const isGlb = (u8) => u8.length >= 12 && String.fromCharCode(u8[0], u8[1], u8[2]
 const nums = (a) => Array.isArray(a) && a.length === 3 && a.every((v) => Number.isFinite(+v));
 const bufOf = (u8) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
 
-// 解開模型組檔 → { name, asm, recs, joints, skipped }；格式不對時丟出錯誤
+// 解開模型組檔 → { name, asm, recs, joints, refs, mechs, mech, skipped }；格式不對時丟出錯誤
 // anySlot：接受所有分類的槽位（伺服器預設組）；否則只接受機甲區塊與武器
 export async function unpackSet(buf, { anySlot = false } = {}) {
   const files = await readZip(buf);
@@ -143,5 +149,22 @@ export async function unpackSet(buf, { anySlot = false } = {}) {
   } catch (e) {
     skipped.push('refs.json');
   }
-  return { name: String(manifest.name || '匯入的模型組'), asm, recs, joints, refs, skipped };
+  const mm = manifest.mech;
+  const mech =
+    mm && typeof mm === 'object' && Array.isArray(mm.slots)
+      ? {
+          name: String(mm.name || manifest.name || '機甲'),
+          slots: mm.slots.filter((s) => typeof s === 'string' && setScoped(s)),
+        }
+      : null;
+  return {
+    name: String(manifest.name || '匯入的模型組'),
+    asm,
+    recs,
+    joints,
+    refs,
+    mechs: cleanMechs(manifest.mechs),
+    mech,
+    skipped,
+  };
 }

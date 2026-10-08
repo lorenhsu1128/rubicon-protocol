@@ -10,9 +10,23 @@ import { measureBox } from '../render/measure.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { PIECE_ORIGIN } from '../render/mech-model.js';
 import { setModelProvider } from '../render/model-provider.js';
+import { SFX } from '../audio/audio.js';
+import { partById } from '../data/parts.js';
 
 const $ = (id) => document.getElementById(id);
 const CATALOG = new Map(MODEL_CATALOG.map((e) => [e.id, e]));
+// 機甲清單換上的部位（組裝鍵、零件分類）；發電機、火控與消耗品保留目前的
+const MECH_KEYS = [
+  ['head', 'head'],
+  ['core', 'core'],
+  ['arms', 'arms'],
+  ['legs', 'legs'],
+  ['booster', 'booster'],
+  ['rarm', 'arm'],
+  ['larm', 'arm'],
+  ['rback', 'back'],
+  ['lback', 'back'],
+];
 
 // 程式模型在 GLB 製作尺寸（×1）下的外框（規格檢查的參考）；建立時暫停套用本地模型，避免拿 GLB 跟自己比
 function referenceBox(entry) {
@@ -181,6 +195,55 @@ Object.assign(Game.prototype, {
           : '模型組「' + src.name + '」';
     el.textContent = n ? `${from}：此機 ${n} 個區塊使用 GLB` : '';
     el.style.display = n ? '' : 'none';
+  },
+  // 車庫：模型庫各模型組的機甲清單（組裝調整頁的預組）；選一台＝換上它的零件組合並改用那個模型組
+  garageMechsUi() {
+    const el = $('gMechs');
+    if (!el) return;
+    const sets = LocalModels.sets.filter((s) => s.mechs && s.mechs.length);
+    el.style.display = sets.length && !this.spectator ? '' : 'none';
+    if (!sets.length) return (el.innerHTML = '');
+    el.innerHTML =
+      `<label>模型組的機甲 <select id="gMechSel"><option value="">選擇要換上的機甲…</option>` +
+      sets
+        .map(
+          (s, i) =>
+            `<optgroup label="${escHtml(s.name || s.id)}">` +
+            s.mechs.map((m, j) => `<option value="${i}/${j}">${escHtml(m.name)}</option>`).join('') +
+            `</optgroup>`,
+        )
+        .join('') +
+      `</select></label><span class="dim" style="font-size:11px">換上零件組合（頭／核心／手臂／腳部／推進器／武器），` +
+      `並改用那個模型組的 GLB；零件要先擁有</span>`;
+    $('gMechSel').onchange = (e) => {
+      const [i, j] = e.target.value.split('/').map(Number);
+      const s = sets[i];
+      if (s && s.mechs[j]) this.garageUseMech(s, s.mechs[j]);
+    };
+  },
+  garageUseMech(set, mech) {
+    const missing = [];
+    const keys = MECH_KEYS.filter(([key]) => mech.asm[key]);
+    for (const [key, cat] of keys) {
+      const id = mech.asm[key];
+      const part = partById(cat, id);
+      if (!part || part.id !== id || !this.save.owned.includes(id)) missing.push((part && part.name) || id);
+    }
+    if (missing.length) {
+      this.flashMsg('無法換上：缺少零件 ' + missing.join('、'), 0xff4d4d, 2.5);
+      return this.garageMechsUi();
+    }
+    for (const [key] of keys) this.save.asm[key] = mech.asm[key];
+    const S = LocalModels.settings;
+    S.set = set.id;
+    S.on = true;
+    LocalModels.saveSettings();
+    this.writeSave();
+    SFX.ui();
+    this.flashMsg(`已換上「${mech.name}」（模型組「${set.name}」）`, 0x7ee081, 1.5);
+    this.renderGarage();
+    if (this.net && this.net.role) this.mpSyncMySet();
+    else this.lmRefresh().then(() => this.state === 'garage' && this.renderGarage());
   },
   // 車庫預覽用的模型組（和出擊時同一個規則）
   garageSource() {

@@ -14,13 +14,14 @@ export async function packSet(store, id) {
   return packSetData({
     name: s ? s.name : '模型組',
     asm: (s && s.asm) || null,
+    mechs: store.mechsOf(id),
     recs: store.setRecs(id),
     joints: store.jointsBy[id] || {},
     refs: await RefStore.get(id),
   });
 }
 
-const fileName = (name) =>
+export const fileName = (name) =>
   (String(name)
     .replace(/[\\/:*?"<>|]+/g, '_')
     .trim() || 'model-set') + '.rubicon-set';

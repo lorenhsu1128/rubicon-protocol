@@ -93,6 +93,15 @@ function loadSettings() {
   return def;
 }
 
+// 機甲清單（組裝調整頁的預組，每個模型組一份）：只留有名稱與零件組合的項目，同名取最後一個
+export function cleanMechs(list) {
+  const out = new Map();
+  for (const m of Array.isArray(list) ? list : [])
+    if (m && typeof m.name === 'string' && m.name.trim() && m.asm && typeof m.asm === 'object')
+      out.set(m.name.trim(), { name: m.name.trim().slice(0, 40), asm: { ...m.asm }, t: +m.t || Date.now() });
+  return [...out.values()];
+}
+
 // 讀取模型庫的資料：{ glb: [{ set, id, … }], joints: [{ set, slot, conns }], sets: [{ id, name, asm }] }
 // 資料庫不存在時不建立它（中止升級），回傳 null；模型庫還沒升級的舊版資料（glb／joints）當成預設模型組
 // only：只讀這幾類（例如 ['sets'] 只列模型組，不讀 GLB）
@@ -211,7 +220,7 @@ class LocalModelLib {
     st.db = !!data;
     this.sets = ((data && data.sets) || [])
       .filter((s) => s && s.id)
-      .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null }));
+      .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null, mechs: cleanMechs(s.mechs) }));
     this.set = this.sets.some((s) => s.id === this.settings.set) ? this.settings.set : DEFAULT_SET;
     st.set = this.set;
     // 只讀這個模型組的機甲區塊與武器，加上共用分類
@@ -316,7 +325,7 @@ class LocalModelLib {
     if (data)
       this.sets = data.sets
         .filter((s) => s && s.id)
-        .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null }));
+        .map((s) => ({ id: s.id, name: s.name, asm: s.asm || null, mechs: cleanMechs(s.mechs) }));
     return this.sets;
   }
 }

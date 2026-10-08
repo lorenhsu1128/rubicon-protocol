@@ -79,7 +79,7 @@ const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 let manifest = null;
 function loadManifest() {
   if (manifest) return manifest;
-  manifest = { name: '伺服器預設組', rev: 0, asm: null, models: {}, joints: {} };
+  manifest = { name: '伺服器預設組', rev: 0, asm: null, mechs: [], models: {}, joints: {} };
   try {
     Object.assign(manifest, JSON.parse(fs.readFileSync(path.join(DEF_DIR, 'manifest.json'), 'utf8')));
   } catch (e) {}
@@ -217,7 +217,7 @@ async function modelsApi(req, resp, u, q) {
     }
     return bad('不支援的操作', 405);
   }
-  if ((m = /^\/api\/models\/default\/(joints|asm|clear)(?:\/(.+))?$/.exec(u))) {
+  if ((m = /^\/api\/models\/default\/(joints|asm|mechs|clear)(?:\/(.+))?$/.exec(u))) {
     if (M !== 'PUT' && M !== 'POST') return bad('不支援的操作', 405);
     const man = loadManifest();
     const what = m[1],
@@ -239,6 +239,8 @@ async function modelsApi(req, resp, u, q) {
         else delete man.joints[slot];
       } else if (what === 'joints') man.joints = data && typeof data === 'object' ? data : {};
       else if (what === 'asm') man.asm = data && typeof data === 'object' ? data : null;
+      else if (what === 'mechs')
+        man.mechs = Array.isArray(data) ? data : []; // 機甲清單（組裝調整頁的預組）
       else {
         // clear?scope=mech：清掉機甲區塊與武器和全部關節設定（整組發佈前）；scope=all：全部
         const all = q.get('scope') === 'all';

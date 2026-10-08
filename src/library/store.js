@@ -9,7 +9,7 @@
 //   選它時所有寫入（存 GLB、刪除、關節設定、零件組合）直接送到伺服器的 /api/models/default/…，不存 IndexedDB
 import BUILTIN_MODELS from 'virtual:models';
 import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
-import { DEFAULT_SET, SERVER_SET, setOf, setScoped } from '../render/local-models.js';
+import { DEFAULT_SET, SERVER_SET, cleanMechs, setOf, setScoped } from '../render/local-models.js';
 
 const DB = 'rubicon-model-library',
   MODELS = 'models',
@@ -116,7 +116,7 @@ export class GlbStore {
     this.joints = {}; // 目前模型組的關節設定（jointsBy[cur] 的參照）
     this.sets = new Map(); // 模型組：id → { id, name, asm, t }
     this.cur = DEFAULT_SET;
-    this.presets = new Map(); // 組裝調整頁的預組：名稱 → { name, asm, t }
+    this.presets = new Map(); // 舊版的共用預組（只用來搬進各模型組的機甲清單）：名稱 → { name, asm, t }
     this.ok = true;
     this.server = typeof window !== 'undefined' && !!window.RUBICON_SERVER; // 從 rubicon-server 開啟
     this.serverLoaded = false;
@@ -139,9 +139,18 @@ export class GlbStore {
       this.ok = false; // 私密瀏覽或停用儲存：仍可在本次瀏覽中使用
       console.warn('IndexedDB 無法使用', e);
     }
-    if (!this.sets.size) this.sets.set(DEFAULT_SET, { id: DEFAULT_SET, name: DEFAULT_NAME, asm: null, t: 0 });
+    if (!this.sets.size)
+      this.sets.set(DEFAULT_SET, { id: DEFAULT_SET, name: DEFAULT_NAME, asm: null, mechs: [], t: 0 });
+    await this.migrateMechs();
     if (this.server)
-      this.sets.set(SERVER_SET, { id: SERVER_SET, name: SERVER_NAME, asm: null, t: 0, server: true });
+      this.sets.set(SERVER_SET, {
+        id: SERVER_SET,
+        name: SERVER_NAME,
+        asm: null,
+        mechs: [],
+        t: 0,
+        server: true,
+      });
     let cur = null;
     try {
       cur = localStorage.getItem(CUR_KEY);
@@ -174,6 +183,7 @@ export class GlbStore {
     for (const r of recs) this.recs.set(keyOf(SERVER_SET, r.id), r);
     this.jointsBy[SERVER_SET] = m.joints || {};
     this.sets.get(SERVER_SET).asm = m.asm || null;
+    this.sets.get(SERVER_SET).mechs = cleanMechs(m.mechs);
     this.serverRev = m.rev;
     this.serverLoaded = true;
     if (this.cur === SERVER_SET) this.view(SERVER_SET);
@@ -359,7 +369,13 @@ export class GlbStore {
   // 新增模型組：data 為 { recs: [{ id, name, buf, orig? }], joints: { 槽位: conns }, asm }（空白時省略）
   async createSet(name, data = {}) {
     const id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const set = { id, name: this.uniqueName(name), asm: data.asm ? { ...data.asm } : null, t: Date.now() };
+    const set = {
+      id,
+      name: this.uniqueName(name),
+      asm: data.asm ? { ...data.asm } : null,
+      mechs: cleanMechs(data.mechs),
+      t: Date.now(),
+    };
     const recs = (data.recs || [])
       .filter((r) => setScoped(r.id))
       .map((r) => {
@@ -399,6 +415,7 @@ export class GlbStore {
       recs: this.setRecs(from).map((r) => copyRec(r, from)),
       joints: this.jointsBy[from] || {},
       asm: s && s.asm,
+      mechs: s && s.mechs,
     });
   }
   async renameSet(id, name) {
@@ -445,6 +462,7 @@ export class GlbStore {
     for (const r of recs) await this.srvPutGlb(r);
     await api('PUT', '/api/models/default/joints', this.jointsBy[id] || {});
     await api('PUT', '/api/models/default/asm', (s && s.asm) || null);
+    await api('PUT', '/api/models/default/mechs', (s && s.mechs) || []);
     await this.loadServer();
     return { glb: recs.length, joints: this.setStats(id).joints };
   }
@@ -461,23 +479,46 @@ export class GlbStore {
       } catch (e) {}
   }
 
-  // ---------- 預組（組裝調整頁）----------
-  async putPreset(name, asm) {
+  // ---------- 機甲清單（組裝調整頁的預組，每個模型組一份）----------
+  // 同一個模型組裡一個零件只有一份 GLB，所以清單裡的機甲是「這一組 GLB 搭配不同零件組合」
+  mechsOf(id = this.cur) {
+    const s = this.sets.get(id);
+    return ((s && s.mechs) || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async putMech(name, asm) {
+    const s = this.curSet();
     const r = { name, asm: { ...asm }, t: Date.now() };
-    this.presets.set(name, r);
-    if (this.ok)
-      try {
-        await tx(PRESETS, 'readwrite', (s) => s.put(r));
-      } catch (e) {
-        console.warn('預組儲存失敗', e);
-      }
+    s.mechs = [...(s.mechs || []).filter((m) => m.name !== name), r];
+    await this.saveMechs(s);
     return r;
   }
-  async removePreset(name) {
-    this.presets.delete(name);
+  async removeMech(name) {
+    const s = this.curSet();
+    s.mechs = (s.mechs || []).filter((m) => m.name !== name);
+    await this.saveMechs(s);
+  }
+  async saveMechs(s) {
+    if (s.id === SERVER_SET)
+      return api('PUT', '/api/models/default/mechs', s.mechs).catch((e) => this.srvFail(e));
     if (this.ok)
       try {
-        await tx(PRESETS, 'readwrite', (s) => s.delete(name));
+        await tx(SETS, 'readwrite', (os) => os.put(s));
+      } catch (e) {
+        console.warn('機甲清單儲存失敗', e);
+      }
+  }
+  // 舊版的預組是所有模型組共用的：還沒有機甲清單的模型組各複製一份（舊資料保留不動）
+  async migrateMechs() {
+    const old = cleanMechs([...this.presets.values()]);
+    const todo = [...this.sets.values()].filter((s) => !Array.isArray(s.mechs));
+    if (!todo.length) return;
+    for (const s of todo) s.mechs = old.map((m) => ({ ...m, asm: { ...m.asm } }));
+    if (this.ok)
+      try {
+        await tx(SETS, 'readwrite', (os) => {
+          for (const s of todo) os.put(s);
+          return null;
+        });
       } catch (e) {}
   }
 }

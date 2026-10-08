@@ -107,7 +107,7 @@
       </header>
       <div class="wsBody">
         <aside id="wsLeft">
-          <h3>預組</h3>
+          <h3 title="每個模型組各有一份機甲清單：同一組 GLB 搭配不同的零件組合">預組（這個模型組的機甲）</h3>
           <select id="wsFrom"></select>
           <div class="wsRow">
             <select id="wsPresets"></select
@@ -119,8 +119,25 @@
             </button>
           </div>
           <div class="wsRow">
-            <button id="wsExport">匯出預組</button><button id="wsImport">匯入預組…</button>
+            <button id="wsExport" title="只有零件組合（JSON），不含 GLB">匯出零件組合</button
+            ><button id="wsImport" title="只有零件組合（JSON），加進這個模型組的機甲清單">
+              匯入零件組合…
+            </button>
             <input id="wsImportFile" type="file" accept=".json,application/json" hidden />
+          </div>
+          <div class="wsRow">
+            <button id="wsMechExport" title="畫面上這台機甲：用到的 GLB、關節設定與零件組合（.rubicon-set）">
+              匯出機甲（含 GLB）
+            </button>
+            <label class="small"><input type="checkbox" id="wsMechRefs" /> 含參考圖</label>
+          </div>
+          <div class="wsRow">
+            <button id="wsMechImport">匯入機甲…</button>
+            <select id="wsMechMode" title="匯入的方式">
+              <option value="new">建立新模型組</option>
+              <option value="merge">合併到目前模型組</option>
+            </select>
+            <input id="wsMechFile" type="file" accept=".rubicon-set,.zip" hidden />
           </div>
           <h3>零件</h3>
           <div id="wsParts"></div>

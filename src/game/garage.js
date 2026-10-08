@@ -5,6 +5,7 @@ import { BOSS_DEFS } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
+import { LocalModels } from '../render/local-models.js';
 import { buildMech } from '../render/mech-model.js';
 import { ServerModels } from '../render/net-models.js';
 import { StylePipeline } from '../render/style/pipeline.js';
@@ -65,6 +66,7 @@ Object.assign(Game.prototype, {
     const again = (st) => {
       if (this.state === 'garage' && ((st && st.on) || ServerModels.rev !== rev)) this.renderGarage();
     };
+    LocalModels.listSets().then(() => this.state === 'garage' && this.garageMechsUi());
     if (!(this.net && this.net.role)) this.lmRefresh().then(again);
     else this.mpModelsRefresh().then(() => again(null));
   },
@@ -270,6 +272,7 @@ Object.assign(Game.prototype, {
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
     this.lmGarageNote(this.garageMech, src);
+    this.garageMechsUi();
     this.mpModelsUi();
     this.writeSave();
   },

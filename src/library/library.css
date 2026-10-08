@@ -693,6 +693,15 @@ button.sel {
   flex: 1;
   min-width: 0;
 }
+.wsRow label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.wsRow label input {
+  flex: none;
+}
 .wsSlot {
   border-top: 1px solid var(--line);
   padding: 6px 0;

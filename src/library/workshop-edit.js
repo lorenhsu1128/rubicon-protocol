@@ -453,15 +453,19 @@ export class WsEditor {
     const pm = this.parentMark(s.slot);
     return pm ? { s: { slot: pm.slot, name: pm.name }, keep: false } : null;
   }
-  // 腿部根區塊在核心（torso 關節群組）座標裡的矩陣 X＝(W·T)⁻¹；W＝腰的連接點、T＝torso 的區域變換
+  // 腿部根區塊在核心（torso 關節群組）座標裡的矩陣 X＝(W·T)⁻¹；W＝腰的連接點、T＝torso 的區域變換。
+  // 把手放在腰（不是腿的原點＝腳底）：回傳 Y＝X·P，P＝平移到腰在腿座標裡的位置（記在 waistPivot，
+  // 拖曳中不變），所以旋轉以腰為中心
   legsInCore(W) {
     this.rig.torso.updateMatrix();
-    return W.clone().multiply(this.rig.torso.matrix).invert();
+    this.waistPivot = new THREE.Matrix4().copyPosition(W);
+    return W.clone().multiply(this.rig.torso.matrix).invert().multiply(this.waistPivot);
   }
-  // 由 X 反推腰的連接點：W＝X⁻¹·T⁻¹
-  waistFromLegs(X) {
+  // 由 Y 反推腰的連接點：X＝Y·P⁻¹、W＝X⁻¹·T⁻¹
+  waistFromLegs(Y) {
     this.rig.torso.updateMatrix();
-    return X.clone().invert().multiply(this.rig.torso.matrix.clone().invert());
+    const X = Y.clone().multiply(this.waistPivot.clone().invert());
+    return X.invert().multiply(this.rig.torso.matrix.clone().invert());
   }
   attachGizmo() {
     const ms = this.modelSlot();

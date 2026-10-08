@@ -242,6 +242,8 @@ async function main() {
     },
     onEdit: (id) => openEditor(id),
     onPaint: (entry) => paint.open(entry),
+    // 匯入機甲：新增或改了模型組（切換到它）→ 和模型組選單的切換相同
+    onSets: (msg) => setMenu.changed(msg),
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -262,6 +264,8 @@ async function main() {
       history.replaceState(null, '', '#' + id);
       inspector.open(entry, grid.palKey, COMPOSE_CATS.includes(entry.cat) ? 'compose' : 'single');
     },
+    // 匯入機甲：新增或改了模型組（切換到它）→ 和模型組選單的切換相同
+    onSets: (msg) => setMenu.changed(msg),
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -280,6 +284,8 @@ async function main() {
       refreshRelated(id);
       applyFilter();
     },
+    // 匯入機甲：新增或改了模型組（切換到它）→ 和模型組選單的切換相同
+    onSets: (msg) => setMenu.changed(msg),
     onClose: () => {
       grid.paused = false;
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
