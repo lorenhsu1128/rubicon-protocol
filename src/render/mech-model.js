@@ -1275,7 +1275,7 @@ export function animateMech(m, dt, st) {
     const sw = (st.swing && st.swing[kk]) || 0;
     const firing = rec > 0.05;
     let abd =
-      0.12 +
+      0.35 +
       (st.boost || !st.grounded ? 0.35 : 0) +
       (st.qb ? 0.25 : 0) +
       (idle ? Math.sin(t * 1.3 + side) * 0.03 : 0) -
@@ -1343,7 +1343,7 @@ export function animateMech(m, dt, st) {
       }
     }
     a.up.rotation.order = 'ZYX'; // 上臂（含肩甲）以肩關節為軸：外展／內收、扭轉、前後擺
-    a.up.rotation.z = lerp(a.up.rotation.z, -side * abd * 0.65, ks);
+    a.up.rotation.z = lerp(a.up.rotation.z, side * abd * 0.65, ks); // 正值＝外展（左臂在 −X）
     a.up.rotation.y = lerp(a.up.rotation.y, twist, ks);
     a.up.rotation.x = lerp(a.up.rotation.x, up, 0.4);
     a.fore.rotation.x = lerp(a.fore.rotation.x, foreT, 0.4);
