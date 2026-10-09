@@ -26,7 +26,7 @@ Object.assign(Game.prototype, {
     return e.name;
   },
   pvpSpawnPoint(i, n) {
-    const R = 52;
+    const R = 52 * this.world.k;
     const angs = [
       Math.PI / 4,
       (Math.PI * 5) / 4,

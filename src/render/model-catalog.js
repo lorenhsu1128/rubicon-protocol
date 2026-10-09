@@ -24,6 +24,32 @@ import {
   buildPillar,
   buildRock,
   buildTunnelPortal,
+  buildDerrick,
+  buildMiningRig,
+  buildPipeSegment,
+  buildPipeSupport,
+  buildWreckArch,
+  buildWreckHull,
+  buildFloodlight,
+  buildMtWreck,
+  buildOreHopper,
+  buildRockSpire,
+  buildSandFence,
+  buildSandstone,
+  buildScrap,
+  buildStorageTank,
+  buildBeacon,
+  buildIceChunk,
+  buildIceShard,
+  buildObsDome,
+  buildQuonset,
+  buildRadarDish,
+  buildThemeDeck,
+  buildThemePillar,
+  buildThemePlatform,
+  buildThemeRamp,
+  buildThemeTunnel,
+  buildThemeWall,
   deckMats,
   mat,
 } from '../world/prop-models.js';
@@ -431,6 +457,131 @@ addPlain(
   },
   COMPOSED,
 );
+addPlain(
+  'prop',
+  'mining_rig',
+  '斗輪採掘機殘骸',
+  '荒涼工業荒野；長約 34 m，斗輪臂朝 −Z；main 材質為機身顏色',
+  () => buildMiningRig(0xc8a040),
+);
+addPlain(
+  'prop',
+  'pipeline',
+  '輸送管線（一段）',
+  '荒涼工業荒野；長 9 m、沿 Z，遊戲中重複排成約 100 m 的高架管線',
+  () => buildPipeSegment(0xb89a5a),
+  { origin: '管子中心' },
+);
+addPlain('prop', 'pipe_support', '管線支架', '高架管線下方，高度依地形' + PROP_SCALED, () =>
+  buildPipeSupport(6, 0x5a4a3a),
+);
+addPlain('prop', 'derrick', '鑽井架', '荒涼工業荒野；高 14–20 m，可破壞' + PROP_SCALED, () =>
+  buildDerrick(18, 0x9a6a3a),
+);
+addPlain('prop', 'wreck_hull', '艦體殘骸', '沙丘地帶；長約 24 m，艦首朝 −Z，遊戲中埋入地面 2.4 m', () =>
+  buildWreckHull(0x7d7466),
+);
+addPlain('prop', 'wreck_arch', '拱形殘骸', '沙丘地帶；跨距 18 m，沿 X', () => buildWreckArch(0x6f675c));
+addPlain(
+  'prop',
+  'ore_hopper',
+  '礦石料斗',
+  '荒涼工業荒野的掩體；5 × 6.2 × 5 m，可破壞；main 材質為機身顏色',
+  () => buildOreHopper(0xb08a3e),
+);
+addPlain(
+  'prop',
+  'storage_tank',
+  '鏽蝕儲槽',
+  '荒涼工業荒野；半徑 2.2–3.4、高 4.5–7.5 m，可破壞' + PROP_SCALED,
+  () => buildStorageTank(3, 6, 0x8a5a3a),
+);
+addPlain(
+  'prop',
+  'rock_spire',
+  '岩柱',
+  '荒涼工業荒野的岩石；半徑 1.6–2.8、高 5–10 m，可破壞' + PROP_SCALED,
+  () => buildRockSpire(2, 7, 0x4e3e33),
+);
+addPlain('prop', 'floodlight', '照明塔', '荒涼工業荒野；高 8–11 m，可破壞' + PROP_SCALED, () =>
+  buildFloodlight(9, 0x4a4540),
+);
+addPlain('prop', 'scrap', '廢鐵板', '荒涼工業荒野與沙丘地帶的裝飾，0.8–2 m' + PROP_SCALED, () =>
+  buildScrap(1.5, 0.8, 1.2, 0x5a4a3e),
+);
+addPlain('prop', 'mt_wreck', 'MT 殘骸', '沙丘地帶的掩體；約 4 × 3 × 4 m，遊戲中埋入 0.6 m，可破壞', () =>
+  buildMtWreck(0x6a6f66),
+);
+addPlain(
+  'prop',
+  'sandstone',
+  '風蝕砂岩',
+  '沙丘地帶的岩石；半徑 2.2–3.6、高 5–8 m，可破壞' + PROP_SCALED,
+  () => buildSandstone(3, 7, 0x7a5a3c),
+);
+addPlain('prop', 'sand_fence', '防風牆', '沙丘地帶的掩體；長 8–16、高 3 m，沿 X，可破壞' + PROP_SCALED, () =>
+  buildSandFence(8, 0x9a8a72),
+);
+addPlain(
+  'prop',
+  'quonset',
+  '半圓拱屋',
+  '冰原的掩體；6 × 3.4 × 9 m，長沿 Z，可破壞；main 材質為外殼顏色',
+  () => buildQuonset(0x8a949e),
+);
+addPlain('prop', 'ice_chunk', '冰塊', '冰原的岩石；半徑 1.6–3 m，可破壞' + PROP_SCALED, () =>
+  buildIceChunk(2.5),
+);
+addPlain('prop', 'beacon', '信號燈桿', '冰原；高 7–9.5 m，可破壞' + PROP_SCALED, () => buildBeacon(8));
+addPlain('prop', 'radar_dish', '雷達天線', '冰原；高約 7 m，可破壞', () => buildRadarDish(0xd8dde2));
+addPlain('prop', 'obs_dome', '舊時代觀測圓頂', '冰原的大型建築；基座半徑 9 m，不可破壞', () =>
+  buildObsDome(0xc8d0d8),
+);
+addPlain('prop', 'ice_shard', '碎冰', '冰原的裝飾，0.6–1.6 m' + PROP_SCALED, () =>
+  buildIceShard(1.2, 0.4, 1),
+);
+// 主題版的地形特徵（荒野／沙丘／冰原的橋面板、支柱、掩體牆、高台、坡道、隧道口；尺寸與原點同程式模型）
+for (const [style, label] of [
+  ['wasteland', '荒野'],
+  ['dunes', '沙丘'],
+  ['snow', '冰原'],
+]) {
+  addPlain(
+    'prop',
+    style + '_deck',
+    `橋面板（${label}）`,
+    '橋梁／高架橋／掩體頂；護欄沿 X' + PROP_SCALED,
+    () => buildThemeDeck(style, 8, 20, 0.7, false),
+    { origin: '橋面板頂面中心' },
+  );
+  addPlain('prop', style + '_pillar', `支柱（${label}）`, '橋梁、高架橋、掩體下方' + PROP_SCALED, () => {
+    const g = buildThemePillar(style, 0.6, 6);
+    g.position.y = 3;
+    return g;
+  });
+  addPlain(
+    'prop',
+    style + '_wall',
+    `掩體牆（${label}）`,
+    '掩體的一面牆；長 7–12、高 4–6 m，沿 X' + PROP_SCALED,
+    () => {
+      const g = buildThemeWall(style, 10, 5, 0.8);
+      g.position.y = 2.5;
+      return g;
+    },
+  );
+  addPlain('prop', style + '_platform', `高台（${label}）`, '寬 10–18、高 4–7 m' + PROP_SCALED, () =>
+    buildThemePlatform(style, 14, 5.5, 14),
+  );
+  addPlain('prop', style + '_ramp', `坡道（${label}）`, '高台的坡道；長沿 X' + PROP_SCALED, () => {
+    const g = buildThemeRamp(style, 12, 6);
+    g.position.y = 0.2;
+    return g;
+  });
+  addPlain('prop', style + '_tunnel', `隧道口（${label}）`, '公路／鐵路兩端；開口朝 −Z', () =>
+    buildThemeTunnel(style),
+  );
+}
 addPlain('prop', 'tunnel_portal', '隧道口', '公路／鐵路兩端；開口朝 −Z；main 材質為主題的岩石色', () =>
   buildTunnelPortal(T.rock),
 );

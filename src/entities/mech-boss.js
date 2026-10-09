@@ -14,7 +14,6 @@ import { MechEntity } from './mech-entity.js';
 
 const BOSS_AI = new Set(['worm', 'spider', 'fortress', 'flagship', 'artillery', 'hunter']);
 const WORM_SEGS = 16;
-const ARENA = 60; // 場地邊界（world.collide 限制在 ±62）
 
 Object.assign(MechEntity.prototype, {
   bossInit() {
@@ -301,8 +300,9 @@ Object.assign(MechEntity.prototype, {
     v.y = (ty - this.pos.y) * vk;
     if (s.wm === 'dive') v.y = Math.min(v.y, -6);
     this.pos.addScaledVector(v, dt);
-    this.pos.x = clamp(this.pos.x, -ARENA, ARENA);
-    this.pos.z = clamp(this.pos.z, -ARENA, ARENA);
+    const lim = this.game.world.lim - 2; // 場地邊界（world.collide 限制在 ±lim）
+    this.pos.x = clamp(this.pos.x, -lim, lim);
+    this.pos.z = clamp(this.pos.z, -lim, lim);
     const hs = Math.hypot(v.x, v.z);
     if (s.wm === 'up') {
       const a = Math.atan2(-(pl.pos.x - this.pos.x), -(pl.pos.z - this.pos.z));

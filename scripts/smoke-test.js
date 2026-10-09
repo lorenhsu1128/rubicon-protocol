@@ -1029,6 +1029,65 @@ async function testSolo(browser, base) {
   await ctx.close();
 }
 
+// 地圖選擇與新主題：車庫選地圖 → 出擊用那張地圖（專屬物件、放大的場地、天氣）→ 放棄；記住選擇
+async function testMaps(browser, base) {
+  console.log('地圖：車庫選地圖 → 新主題出擊');
+  const { ctx, page } = await newPage(browser, 'maps');
+  await page.goto(base);
+  await waitVisible(page, 'title');
+  await newCareer(page);
+  await waitVisible(page, 'garage');
+  const opts = await page.$$eval('#gMapSel option', (os) => os.map((o) => o.value));
+  check(
+    opts[0] === '' && opts.includes('wasteland') && opts.includes('dunes'),
+    `車庫的地圖選單（${opts.length} 項，含隨機）`,
+  );
+  const OLD = ['container', 'truck', 'rock', 'pillar'];
+  for (const [key, want] of [
+    ['wasteland', ['hopper', 'spire']],
+    ['dunes', ['mtwreck', 'sandstone']],
+    ['snow', ['quonset', 'ice']],
+  ]) {
+    await page.selectOption('#gMapSel', key);
+    await page.click('#btnSortie');
+    check(await waitVisible(page, 'hudWrap', 20000), `${key} 出擊`);
+    await playFor(page, 1500);
+    const info = await page.evaluate(() => {
+      const g = window.__game,
+        w = g.world;
+      return {
+        theme: g.worldTheme,
+        size: w.size,
+        lim: w.lim,
+        kinds: [...new Set((w.props || []).map((p) => p.kind))],
+        weather: !!(w.weather && w.weather.points),
+      };
+    });
+    check(
+      info.theme === key && info.size > 150 && info.lim > 62 && info.weather,
+      `${key}：場地 ${info.size} m（活動範圍 ±${info.lim.toFixed(0)}）、天氣粒子`,
+    );
+    check(
+      want.every((k) => info.kinds.includes(k)) && !info.kinds.some((k) => OLD.includes(k)),
+      `${key}：專屬物件（${info.kinds.join('、')}），沒有舊地圖的貨櫃／卡車／岩石／路燈`,
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `map-${key}.png`) });
+    await page.keyboard.press('Escape');
+    await wait(400);
+    await page.click('#btnAbort');
+    await waitVisible(page, 'result');
+    await page.click('#btnResultOk');
+    await waitVisible(page, 'garage');
+  }
+  check(
+    (await page.$eval('#gMapSel', (s) => s.value)) === 'snow' &&
+      (await page.evaluate(() => localStorage.getItem('rubicon_map'))) === 'snow',
+    '車庫記住選的地圖',
+  );
+  await page.selectOption('#gMapSel', '');
+  await ctx.close();
+}
+
 // 模型庫：所有模型槽都能建立並量測尺寸、檢視窗資訊與尺寸標線、動作預覽、窄螢幕
 async function testLibrary(browser, base) {
   console.log('模型庫：格狀檢視 → 量測 → 檢視窗 → 動作預覽');
@@ -1041,9 +1100,14 @@ async function testLibrary(browser, base) {
   const cols = await page.$eval('#grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
   check(cols === 3, `電腦版一行三格（${cols}）`);
   // 捲動到底讓每一格都建立模型
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0, still = 0; i < 120 && still < 3; i++) {
     await page.mouse.wheel(0, 700);
     await wait(250);
+    // 捲到底後再多停幾次（格數變多時不會漏掉最後幾格）
+    const atEnd = await page.evaluate(
+      () => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2,
+    );
+    still = atEnd ? still + 1 : 0;
   }
   await wait(3000);
   const sizes = await page.$$eval('.cell .sz', (x) => x.map((e) => e.textContent));
@@ -2932,6 +2996,7 @@ async function testLocalModels(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
   const note = (await page.textContent('#gLocal')) || '';
   check(note.includes('3 個區塊使用 GLB'), `車庫的機甲換上本地 GLB（${note.trim()}）`);
+  await page.selectOption('#gMapSel', 'industrial'); // 有貨櫃、路燈、碎塊的舊主題
   await page.click('#btnSortie');
   check(await waitVisible(page, 'hudWrap', 15000), '出擊後 HUD 顯示');
   await playFor(page, 3000);
@@ -2955,7 +3020,7 @@ async function testLocalModels(browser, base) {
   check(nf > 0, `機甲區塊換成 GLB（右前臂 ${nf} 次）`);
   const nm = await used('vehicle/bomber');
   check(nm > 0, `空襲轟炸機換成 GLB（${nm} 次）`);
-  // 戰區主題隨機：方格主題只有高柱，其他主題有碎塊、路燈桿、貨櫃
+  // 戰區指定貨運集散場：有碎塊、路燈桿、貨櫃
   const props = {};
   for (const id of ['debris', 'lamp_post', 'container', 'grid_pillar']) props[id] = await used('prop/' + id);
   check(
@@ -4049,7 +4114,8 @@ async function testBosses2(browser, base) {
           step(2.5);
           r.lost = lost();
           // 撞上場地邊界 → 硬直、背後弱點
-          boss.pos.set(48, g.world.groundAt(48, 0, 99), 0);
+          const ex = g.world.lim - 10;
+          boss.pos.set(ex, g.world.groundAt(ex, 0, 99), 0);
           boss.rampartAim(new THREE.Vector3(1, 0, 0));
           step(2.4);
           r.stun = s.rm;
@@ -4461,6 +4527,7 @@ async function main() {
     const base = `http://127.0.0.1:${srv.address().port}/`;
     await testFile(browser);
     await testSolo(browser, base);
+    await testMaps(browser, base + '?test');
     await testSaves(browser, base + '?test');
     await testPilot(browser, base);
     await testLibrary(browser, base);

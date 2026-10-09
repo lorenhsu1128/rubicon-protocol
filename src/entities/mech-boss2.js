@@ -10,7 +10,10 @@ import { partById } from '../data/parts.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { MechEntity } from './mech-entity.js';
 
-const TRACK_S = 64.5; // 鐵路兩端隧道口的位置（World.buildCorridor）
+// 場地依主題縮放（World.k、World.lim）；鐵路兩端隧道口的位置（World.trackS）
+const TRACK = (e) => e.game.world.trackS;
+const LIM = (e) => e.game.world.lim;
+const KS = (e) => e.game.world.k;
 const CAR_SP = 9.6; // 車廂間距
 const CARS = ['car_aa', 'car_ms', 'car_lz', 'car_mine'];
 const PILLAR_R = 3.4; // 衛星砲光柱半徑
@@ -300,15 +303,15 @@ Object.assign(MechEntity.prototype, {
     }
     const lost = CARS.length - this.partsOf().filter((e) => CARS.includes(e.opts.partKind)).length;
     const cruise = (p2 ? 17 : 13) * (1 - 0.08 * lost);
-    const sMax = TRACK_S + CARS.length * CAR_SP + 8,
-      sMin = -TRACK_S - 8;
+    const sMax = TRACK(this) + CARS.length * CAR_SP + 8,
+      sMin = -TRACK(this) - 8;
     let target = cruise,
       accel = 10;
     s.ramCd -= dt;
     switch (s.st) {
       case 'run': {
         // 軌道前方 55 m 內有貼地的目標 → 衝撞預警
-        if (s.ramCd <= 0 && this.canAct() && Math.abs(s.ts) < TRACK_S) {
+        if (s.ramCd <= 0 && this.canAct() && Math.abs(s.ts) < TRACK(this)) {
           for (const h of g.hostilesOfEnt(this)) {
             if (h.dead || !h.pos || altOf(g, h) > 3) continue;
             const lat = h.pos.x * c.perp.x + h.pos.z * c.perp.y - c.off;
@@ -386,7 +389,7 @@ Object.assign(MechEntity.prototype, {
         g.camShake = Math.max(g.camShake, 0.25);
       }
     }
-    this.bossVis = (Math.abs(s.ts) > TRACK_S + 1 ? 1 : 0) | (s.st === 'hot' ? 2 : 0);
+    this.bossVis = (Math.abs(s.ts) > TRACK(this) + 1 ? 1 : 0) | (s.st === 'hot' ? 2 : 0);
     this.bx = [s.st === 'ram' || s.st === 'warn' ? 1 : 0];
     this.bossTick(dt);
     this.vel.set(c.dir.x * s.td * s.spd, 0, c.dir.y * s.td * s.spd);
@@ -408,7 +411,7 @@ Object.assign(MechEntity.prototype, {
     const ts = (ps.ts !== undefined ? ps.ts : 0) - (CARS.indexOf(k) + 1) * CAR_SP;
     this.pos.copy(g.world.corridorPoint(ts));
     this.yaw = par.yaw;
-    const hidden = Math.abs(ts) > TRACK_S + 1;
+    const hidden = Math.abs(ts) > TRACK(this) + 1;
     this.bossVis = hidden ? 1 : 0;
     const p2 = par.phase2 && par.phase2();
     const live = !hidden && this.canAct() && par.canAct();
@@ -458,7 +461,7 @@ Object.assign(MechEntity.prototype, {
         const rel = pl.pos.clone().sub(this.pos);
         const along = rel.x * c.dir.x + rel.z * c.dir.y,
           lat = rel.x * c.perp.x + rel.z * c.perp.y;
-        if (Math.abs(along) < 18 && Math.abs(lat) < 50 && Math.abs(lat) > 3 && altOf(g, pl) < 6) {
+        if (Math.abs(along) < 18 && Math.abs(lat) < 50 * KS(this) && Math.abs(lat) > 3 && altOf(g, pl) < 6) {
           s.lzT = p2 ? 4.5 : 6;
           s.tele = 0.9;
           const side = V(c.perp.x, 0, c.perp.y).multiplyScalar(Math.sign(lat));
@@ -713,8 +716,8 @@ Object.assign(MechEntity.prototype, {
       }
       s.pv.copy(cur).multiplyScalar(sp);
       s.pp.addScaledVector(s.pv, dt);
-      s.pp.x = clamp(s.pp.x, -62, 62);
-      s.pp.z = clamp(s.pp.z, -62, 62);
+      s.pp.x = clamp(s.pp.x, -LIM(this), LIM(this));
+      s.pp.z = clamp(s.pp.z, -LIM(this), LIM(this));
       if ((s.tick -= dt) <= 0) {
         s.tick = 0.2;
         for (const t of g.hostilesOfEnt(this)) {
@@ -749,8 +752,8 @@ Object.assign(MechEntity.prototype, {
     s.om = 'grid';
     s.omT = 4 * 1.5 + 1.6;
     const C = 7;
-    const cx = clamp(pl.pos.x, -48, 48),
-      cz = clamp(pl.pos.z, -48, 48);
+    const cx = clamp(pl.pos.x, -48 * KS(this), 48 * KS(this)),
+      cz = clamp(pl.pos.z, -48 * KS(this), 48 * KS(this));
     let lane = Math.floor(Math.random() * 5);
     g.alertAll('衛星砲格子砲擊 — 待在沒有預警的直行！');
     for (let w = 0; w < 4; w++) {
@@ -899,7 +902,9 @@ Object.assign(MechEntity.prototype, {
     switch (s.vm) {
       case 'loiter': {
         const tan = V(-rr.z, 0, rr.x).divideScalar(dist);
-        want = tan.multiplyScalar(45).addScaledVector(rr.clone().divideScalar(dist), (78 - dist) * 1.5);
+        want = tan
+          .multiplyScalar(45)
+          .addScaledVector(rr.clone().divideScalar(dist), (LIM(this) + 16 - dist) * 1.5);
         s.alt = 26;
         if ((s.vmT -= dt) <= 0 && this.canAct()) {
           s.vm = 'line';
@@ -970,7 +975,7 @@ Object.assign(MechEntity.prototype, {
         }
         const past = this.pos.clone().sub(pl.pos).setY(0).dot(s.runDir);
         const leaving =
-          (Math.abs(this.pos.x) > 66 || Math.abs(this.pos.z) > 66) &&
+          (Math.abs(this.pos.x) > LIM(this) + 4 || Math.abs(this.pos.z) > LIM(this) + 4) &&
           this.pos.x * s.runDir.x + this.pos.z * s.runDir.z > 0;
         if (past > 50 || leaving || (s.vmT -= dt) <= 0) {
           s.vm = 'turn';
@@ -1019,8 +1024,8 @@ Object.assign(MechEntity.prototype, {
       s.v.lerp(want, Math.min(1, dt * k));
       this.pos.addScaledVector(s.v, dt);
     }
-    this.pos.x = clamp(this.pos.x, -95, 95);
-    this.pos.z = clamp(this.pos.z, -95, 95);
+    this.pos.x = clamp(this.pos.x, -LIM(this) - 33, LIM(this) + 33);
+    this.pos.z = clamp(this.pos.z, -LIM(this) - 33, LIM(this) + 33);
     this.pos.y = lerp(this.pos.y, gy + s.alt, Math.min(1, dt * (onLine ? 4 : 2.5)));
     if (s.v.lengthSq() > 1) this.yaw = this.aimYaw = yawOf(s.v);
     const yr = Math.atan2(Math.sin(this.yaw - prevYaw), Math.cos(this.yaw - prevYaw)) / Math.max(dt, 1e-3);
@@ -1079,7 +1084,7 @@ Object.assign(MechEntity.prototype, {
         const step = s.cdir.clone().multiplyScalar(s.v * dt);
         const nx = this.pos.x + step.x,
           nz = this.pos.z + step.z;
-        let crash = Math.abs(nx) > 58 || Math.abs(nz) > 58;
+        let crash = Math.abs(nx) > LIM(this) - 4 || Math.abs(nz) > LIM(this) - 4;
         if (!crash) {
           // 前方的可破壞物件直接撞碎
           const front = V(nx, this.pos.y, nz).addScaledVector(s.cdir, 4.5);
@@ -1169,10 +1174,10 @@ Object.assign(MechEntity.prototype, {
     s.rmT = tele;
     s.cdir = cdir.clone().setY(0).normalize();
     let L = 4;
-    for (; L < 75; L += 2) {
+    for (; L < 75 * KS(this); L += 2) {
       const x = this.pos.x + s.cdir.x * L,
         z = this.pos.z + s.cdir.z * L;
-      if (Math.abs(x) > 58 || Math.abs(z) > 58) break;
+      if (Math.abs(x) > LIM(this) - 4 || Math.abs(z) > LIM(this) - 4) break;
       const [cx, cz] = w.collide(x, z, this.pos.y, this.radius * 0.8);
       if (Math.hypot(cx - x, cz - z) > 0.5) break;
     }
@@ -1285,8 +1290,8 @@ Object.assign(MechEntity.prototype, {
         this.pos.addScaledVector(s.dDir, step);
         const gy = g.world.groundAt(this.pos.x, this.pos.z, this.pos.y);
         if (this.pos.y < gy + 0.5) this.pos.y = gy + 0.5;
-        this.pos.x = clamp(this.pos.x, -62, 62);
-        this.pos.z = clamp(this.pos.z, -62, 62);
+        this.pos.x = clamp(this.pos.x, -LIM(this), LIM(this));
+        this.pos.z = clamp(this.pos.z, -LIM(this), LIM(this));
         s.dGone += step;
         for (const t of g.hostilesOfEnt(this)) {
           if (t.dead || !t.pos || s.hitSet.has(t) || t.center().distanceTo(this.center()) > 3.2 + t.radius)
@@ -1447,7 +1452,7 @@ Object.assign(MechEntity.prototype, {
     const ts = par && par.aiState.ts;
     if (ts === undefined || this.remote) return !!(this.bossVis & 1);
     const k = CARS.indexOf(this.opts.partKind) + 1;
-    return Math.abs(ts - k * CAR_SP) > TRACK_S + 1;
+    return Math.abs(ts - k * CAR_SP) > TRACK(this) + 1;
   },
   // 複製 AC 的適應裝甲：最近常受到的傷害類型抗性提高（最多 70%）
   mirrorDefense(dmg, wid, melee) {

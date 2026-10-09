@@ -1,7 +1,7 @@
 // ============================================================
 //  MULTIPLAYER — 區域網路 2–4 人合作（方式 2：公用信令 + 自動房間名）
 // ============================================================
-export const NET_VERSION = '9.3';
+export const NET_VERSION = '9.4';
 export const PLAYER_PALS = ['player', 'ally', 'p3', 'p4'];
 export const PLAYER_COLORS = ['#5cc8ff', '#80ffb0', '#ffb060', '#d070ff'];
 export const SIGNALS = ['集火！', '救我！', '撤退！', '謝謝', '等等', '出發！'];

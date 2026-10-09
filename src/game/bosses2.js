@@ -7,7 +7,6 @@ import { ENEMY_TYPES } from '../data/enemies.js';
 import { asmStats } from '../data/parts.js';
 import { Game } from './game.js';
 
-const TRACK_S = 64.5; // 鐵路兩端隧道口（與 mech-boss2.js 相同）
 const CAR_SP = 9.6;
 const CARS = ['car_aa', 'car_ms', 'car_lz', 'car_mine'];
 // 三機合體分離後的三台：AP 依比例分配
@@ -67,10 +66,10 @@ Object.assign(Game.prototype, {
         let best = null,
           bd2 = -1;
         for (const [x, z] of [
-          [-46, -46],
-          [46, -46],
-          [-46, 46],
-          [46, 46],
+          [-46 * w.k, -46 * w.k],
+          [46 * w.k, -46 * w.k],
+          [-46 * w.k, 46 * w.k],
+          [46 * w.k, 46 * w.k],
         ]) {
           if (w.onCorridor(x, z, 4)) continue;
           const dd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
@@ -89,7 +88,7 @@ Object.assign(Game.prototype, {
       case 'train': {
         const c = w.corridor;
         if (!c) break;
-        const s0 = -TRACK_S - 8;
+        const s0 = -w.trackS - 8;
         b.pos.copy(w.corridorPoint(s0));
         b.mesh.position.copy(b.pos);
         b.aiState.ts = s0;
@@ -98,7 +97,12 @@ Object.assign(Game.prototype, {
         break;
       }
       case 'orbital': {
-        const [x, z] = w.collide(clamp(b.pos.x, -40, 40), clamp(b.pos.z, -40, 40), 0, 5);
+        const [x, z] = w.collide(
+          clamp(b.pos.x, -40 * w.k, 40 * w.k),
+          clamp(b.pos.z, -40 * w.k, 40 * w.k),
+          0,
+          5,
+        );
         b.pos.set(x, w.terrainHeight(x, z), z);
         b.mesh.position.copy(b.pos);
         break;

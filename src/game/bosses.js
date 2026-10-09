@@ -4,8 +4,6 @@ import { clamp, rnd } from '../core/math.js';
 import { PART_DEFS } from '../data/enemies.js';
 import { Game } from './game.js';
 
-const ARENA = 58;
-
 Object.assign(Game.prototype, {
   // BOSS_DEFS 裡 kind 為新 Boss 的：生成本體與附屬部位
   spawnBossKind(bd, sh, sd) {
@@ -42,8 +40,8 @@ Object.assign(Game.prototype, {
       const a0 = Math.random() * Math.PI * 2;
       for (let i = 0; i < n; i++) {
         const a = a0 + (i / n) * Math.PI * 2;
-        const x = clamp(b.pos.x + Math.cos(a) * R, -ARENA, ARENA),
-          z = clamp(b.pos.z + Math.sin(a) * R, -ARENA, ARENA);
+        const x = clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4, this.world.lim - 4),
+          z = clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4, this.world.lim - 4);
         fn(new THREE.Vector3(x, this.world.groundAt(x, z, 99), z), i);
       }
     };
@@ -103,8 +101,8 @@ Object.assign(Game.prototype, {
     const a0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < 4; i++) {
       const a = a0 + (i / 4) * Math.PI * 2;
-      const x = clamp(b.pos.x + Math.cos(a) * 22, -ARENA, ARENA),
-        z = clamp(b.pos.z + Math.sin(a) * 22, -ARENA, ARENA);
+      const x = clamp(b.pos.x + Math.cos(a) * 22, -this.world.lim + 4, this.world.lim - 4),
+        z = clamp(b.pos.z + Math.sin(a) * 22, -this.world.lim + 4, this.world.lim - 4);
       this.spawnPart(b, 'pylon', { at: new THREE.Vector3(x, this.world.groundAt(x, z, 99), z) });
     }
   },

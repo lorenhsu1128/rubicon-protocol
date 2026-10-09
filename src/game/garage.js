@@ -1,5 +1,6 @@
 // Game：車庫（組裝、展示場景）
 import { SFX } from '../audio/audio.js';
+import { escHtml } from '../core/html.js';
 import { pick } from '../core/math.js';
 import { bossForLevel, isBossLevel } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
@@ -251,6 +252,7 @@ Object.assign(Game.prototype, {
         if (narrow) mm.innerHTML = mc ? mc.innerHTML.replace(/<br\s*\/?>/g, ' ') : '';
       }
     }
+    this.garageMapUi();
     $('gWarn').textContent = warn.join('　');
     $('btnSortie').disabled = warn.length > 0;
     $('btnPilot').onclick = () => {
@@ -275,5 +277,27 @@ Object.assign(Game.prototype, {
     this.garageMechsUi();
     this.mpModelsUi();
     this.writeSave();
+  },
+  // 出擊地圖：單人與房主可選（房主的選擇同步到大廳），客機只顯示房主選的
+  garageMapUi() {
+    const el = document.getElementById('gMap');
+    if (!el) return;
+    const n = this.net;
+    const mp = !!(n && n.role);
+    const host = mp && n.role === 'host';
+    if (mp && !host) {
+      el.innerHTML = `<span>地圖</span><span>${escHtml(this.mapName((n.pvpSet || {}).map))}（房主選擇）</span>`;
+      return;
+    }
+    el.innerHTML = `<span>地圖</span><span><select id="gMapSel">${this.mapOptionsHtml()}</select></span>`;
+    const sel = document.getElementById('gMapSel');
+    sel.value = host ? n.pvpSet.map || '' : this.mapPref();
+    sel.onchange = () => {
+      this.setMapPref(sel.value);
+      if (host) {
+        n.pvpSet.map = sel.value;
+        n.syncLobby();
+      }
+    };
   },
 });

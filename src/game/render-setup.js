@@ -62,6 +62,8 @@ Object.assign(Game.prototype, {
     const lab = this.lab;
     const P = lab ? lab.P : this.styleP;
     const t = performance.now() / 1000;
+    if (this.world && this.world.weather)
+      this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
     if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);
     else this.stylePipe.renderPlain(P, t);
   },

@@ -217,6 +217,32 @@ Object.assign(Game.prototype, {
     this.fx.ring(new THREE.Vector3(cx, this.world.terrainHeight(cx, cz) + 0.1, cz), 6, 0x80ffb0);
   },
 
+  // ---------- 地圖選擇（localStorage rubicon_map：主題 key，空字串＝隨機）----------
+  mapPref() {
+    try {
+      const k = localStorage.getItem('rubicon_map') || '';
+      return THEMES[k] ? k : '';
+    } catch (e) {
+      return '';
+    }
+  },
+  setMapPref(k) {
+    try {
+      localStorage.setItem('rubicon_map', THEMES[k] ? k : '');
+    } catch (e) {}
+  },
+  mapName(k) {
+    return THEMES[k] ? THEMES[k].name : '隨機';
+  },
+  mapOptionsHtml() {
+    return (
+      '<option value="">隨機</option>' +
+      Object.keys(THEMES)
+        .map((k) => `<option value="${k}">${escHtml(THEMES[k].name)}</option>`)
+        .join('')
+    );
+  },
+
   // ---------- mission ----------
   startMission() {
     const S = this.save;
@@ -225,7 +251,9 @@ Object.assign(Game.prototype, {
     const boss = isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
     const bd0 = boss ? bossForLevel(L) : null;
     this.clearMission();
-    const theme = pick(Object.keys(THEMES));
+    // 地圖：單人用車庫選的，多人用房主在大廳選的；沒選（隨機）或不認得時隨機
+    const want = mp0 ? (this.net.pvpSet || {}).map : this.mapPref();
+    const theme = THEMES[want] ? want : pick(Object.keys(THEMES));
     const seed = Math.floor(Math.random() * 1e9);
     this.worldSeed = seed;
     this.worldTheme = theme;

@@ -275,7 +275,9 @@ Object.assign(Game.prototype, {
     {
       const S = n.pvpSet || { mode: 'pve' };
       const host = n.role === 'host';
+      if (host && S.map === undefined) S.map = this.mapPref();
       $('lobbyMode').innerHTML =
+        `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>` +
         `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option></select>` : S.mode === 'pvp' ? 'PVP 對戰' : 'PVE 合作'}</span></div>` +
         (S.mode === 'pvp'
           ? `<div class="krow"><span>對戰型態</span><span>${host ? `<select id="pvType"><option value="ffa">大亂鬥（2–4 人）</option><option value="team">分隊 2v2</option><option value="vsai">玩家 vs 電腦 AC（1v1～4v4）</option></select>` : { ffa: '大亂鬥', team: '分隊 2v2', vsai: '玩家 vs 電腦 AC' }[S.type]}</span></div><div class="krow"><span>勝負規則</span><span>${host ? `<select id="pvRule"><option value="kills">擊破制（重生 5s×死亡次數，目標＝參戰機甲數×5）</option><option value="elim">淘汰制（一條命）</option></select>` : S.rule === 'kills' ? '擊破制' : '淘汰制'}</span></div>` +
@@ -299,6 +301,8 @@ Object.assign(Game.prototype, {
           };
         };
         bind('pvMode', 'mode');
+        bind('pvMap', 'map');
+        $('pvMap').addEventListener('change', (e) => this.setMapPref(e.target.value));
         bind('pvType', 'type');
         bind('pvRule', 'rule');
         bind('pvDiff', 'diff');
