@@ -4,6 +4,57 @@ import { clamp } from '../core/math.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
+  // 鎖定的有效距離：裝備的武器（不含近戰）最遠的射程，上限是火控的鎖定距離；只有近戰武器時用鎖定距離
+  lockReach(p) {
+    let r = 0;
+    for (const k in p.weapons) {
+      const d = p.weapons[k].def;
+      if (d && d.range > 0 && d.type !== 'melee' && d.type !== 'shield' && d.type !== 'none')
+        r = Math.max(r, d.range);
+    }
+    return r ? Math.min(p.stats.lockRange, r) : p.stats.lockRange;
+  },
+  // 在畫面內（鏡頭前方、投影在視窗範圍裡）
+  onScreen(e) {
+    const v = e.center().project(this.camera);
+    return v.z > -1 && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+  },
+  // 可以鎖定的敵人（依鎖定順序）：畫面內、有效距離內；
+  // 第一人稱依離準星的角度，第三人稱只看機甲面向的前方（背後的完全不鎖定）、由近到遠
+  lockCands(p) {
+    const reach = this.lockReach(p);
+    const out = [];
+    if (this.fp) {
+      const look = this.fpLookDir(this.fpYaw, this.fpPitch);
+      const eye = this.fpEye(p);
+      for (const e of this.hostilesOfEnt(p)) {
+        if (e.dead || e.noLock) continue;
+        const d = e.center().sub(eye);
+        const dist = d.length();
+        if (dist > reach || dist < 0.5 || !this.onScreen(e)) continue;
+        out.push({ e, k: Math.acos(clamp(d.normalize().dot(look), -1, 1)) });
+      }
+    } else {
+      const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+      for (const e of this.hostilesOfEnt(p)) {
+        if (e.dead || e.noLock) continue;
+        const dist = e.pos.distanceTo(p.pos);
+        if (dist > reach) continue;
+        const rel = e.pos.clone().sub(p.pos).setY(0);
+        if (rel.lengthSq() > 0.01 && rel.normalize().dot(fwd) < 0) continue;
+        if (!this.onScreen(e)) continue;
+        out.push({ e, k: dist });
+      }
+    }
+    return out.sort((a, b) => a.k - b.k).map((c) => c.e);
+  },
+  // 每格：目標被擊破、不能鎖定或移到攻擊距離外就解除，沒有目標時鎖定第一順位
+  autoLock(p) {
+    if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > this.lockReach(p) * 1.05))
+      p.lock = null;
+    if (!p.lock) p.lock = this.lockCands(p)[0] || null;
+  },
+  // 切換鍵：依 lockCands 的順序換下一個
   cycleLock() {
     if (this.spectator) {
       const L = this.fp ? this.spectateList() : this.players.filter((x) => !x.dead);
@@ -15,9 +66,8 @@ Object.assign(Game.prototype, {
       return;
     }
     const p = this.player;
-    const list = this.hostilesOfEnt(p)
-      .filter((e) => !e.dead && !e.noLock && e.pos.distanceTo(p.pos) < p.stats.lockRange * 1.3)
-      .sort((a, b) => a.pos.distanceTo(p.pos) - b.pos.distanceTo(p.pos));
+    if (!p || p.dead) return;
+    const list = this.lockCands(p);
     if (!list.length) {
       p.lock = null;
       return;
@@ -45,9 +95,7 @@ Object.assign(Game.prototype, {
       }
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
       this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40);
-      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
-        p.lock = null;
-      this.fpPickLock(p, false);
+      this.autoLock(p);
     } else {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(
@@ -57,21 +105,7 @@ Object.assign(Game.prototype, {
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(p.pos.y + p.model.height * 0.5));
       ray.ray.intersectPlane(plane, this.mouseWorld) || this.mouseWorld.set(p.pos.x, p.pos.y, p.pos.z - 10);
       // lock-on
-      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
-        p.lock = null;
-      if (!p.lock) {
-        let best = null,
-          bd = 1e9;
-        for (const e of this.hostilesOfEnt(p)) {
-          if (e.dead || e.noLock) continue;
-          const d = e.pos.distanceTo(p.pos);
-          if (d < p.stats.lockRange && d < bd) {
-            bd = d;
-            best = e;
-          }
-        }
-        p.lock = best;
-      }
+      this.autoLock(p);
     }
     if (this.touchActive) {
       this.padActive = true;

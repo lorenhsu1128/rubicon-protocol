@@ -580,8 +580,7 @@ Object.assign(Game.prototype, {
         this.setFp(!this.fp);
       }
       if (e.code === km.lock && this.state === 'play') {
-        if (this.fp && !this.spectator && this.player) this.fpPickLock(this.player, true);
-        else this.cycleLock();
+        this.cycleLock();
       }
       if (this.spectator && this.state === 'play' && e.code === 'KeyD') {
         this.specDetail = !this.specDetail;

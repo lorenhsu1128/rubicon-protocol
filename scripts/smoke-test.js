@@ -3832,6 +3832,77 @@ async function testBosses(browser, base) {
   await ctx.close();
 }
 
+// 鎖定（player.js 的 lockCands／autoLock／cycleLock）：畫面內、攻擊距離內；第三人稱只看機甲前方、由近到遠，
+// 背後的不鎖定；第一人稱依離準星的角度；目標移到攻擊距離外就改鎖其他近的
+async function testLockOn(browser, base) {
+  console.log('鎖定：機甲前方由近到遠、背後不鎖定、第一人稱依準星角度、超出攻擊距離重新鎖定');
+  const { ctx, page } = await newPage(browser, 'lock');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'lock-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+    pl.yaw = pl.aimYaw = 0; // 面向 −Z
+    const reach = g.lockReach(pl);
+    // 四台：前方近、前方遠、前方偏右、背後最近；其他敵人移走
+    for (const e of g.enemies) e.pos.set(200, -50, 200);
+    const es = g.enemies.slice(0, 4);
+    while (es.length < 4) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
+    const put = (e, x, z) => {
+      e.pos.set(x, g.world.groundAt(x, z, 99), z);
+      e.mesh.position.copy(e.pos);
+    };
+    put(es[0], 0, -8);
+    put(es[1], 0, -14); // 比偏右那台遠，但仍在畫面內
+    put(es[2], 6, -10);
+    put(es[3], 0, 6); // 背後
+    const cam = () => {
+      for (let i = 0; i < 40; i++) g.updateCamera(1 / 60);
+      g.camera.updateMatrixWorld(true);
+    };
+    cam();
+    pl.lock = null;
+    g.autoLock(pl);
+    const first = pl.lock === es[0];
+    const order = [];
+    for (let i = 0; i < 4; i++) {
+      g.cycleLock();
+      order.push(es.indexOf(pl.lock));
+    }
+    const behind = !order.includes(3);
+    // 鎖定中的目標移到攻擊距離外 → 改鎖其他近的
+    pl.lock = es[0];
+    put(es[0], 0, -(reach + 15));
+    g.autoLock(pl);
+    const relock = pl.lock && pl.lock !== es[0] && pl.lock !== es[3];
+    // 第一人稱：依離準星的角度（準星對著偏右那台）
+    put(es[0], 0, -8);
+    g.setFp(true);
+    g.fpYaw = Math.atan2(-6, 10);
+    g.fpPitch = 0;
+    cam();
+    pl.lock = null;
+    g.autoLock(pl);
+    const fp = pl.lock === es[2];
+    g.setFp(false);
+    g.clearMission();
+    g.state = 'title';
+    return { first, order: order.join(','), behind, relock, fp };
+  });
+  check(
+    r.first && r.order === '2,1,0,2' && r.behind,
+    `第三人稱：鎖定機甲前方最近的、切換由近到遠（${r.order}）、背後的不鎖定`,
+  );
+  check(r.relock, '目標移到攻擊距離外時改鎖其他近的敵人');
+  check(r.fp, '第一人稱：鎖定離準星最近的');
+  await ctx.close();
+}
+
 // 第三批 Boss（game/bosses2.js、entities/mech-boss2.js）與出場等級：同樣以固定 dt 同步模擬
 async function testBosses2(browser, base) {
   console.log(
@@ -4407,6 +4478,7 @@ async function main() {
     await testStyleLab(browser);
     await testBosses(browser, base);
     await testBosses2(browser, base);
+    await testLockOn(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

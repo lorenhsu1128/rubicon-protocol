@@ -134,32 +134,6 @@ Object.assign(Game.prototype, {
     this._fpVis = null;
     this.fpHidden = null;
   },
-  // 視錐內離準星最近的敵人；Tab 在錐內循環
-  fpPickLock(p, cycle) {
-    const look = this.fpLookDir(this.fpYaw, this.fpPitch);
-    const eye = this.fpEye(p);
-    const cands = [];
-    for (const e of this.hostilesOfEnt(p)) {
-      if (e.dead || e.noLock) continue;
-      const d = e.center().sub(eye);
-      const dist = d.length();
-      if (dist > p.stats.lockRange * 1.4 || dist < 0.5) continue;
-      const ang = Math.acos(clamp(d.normalize().dot(look), -1, 1));
-      if (ang < FP_CONE) cands.push({ e, ang });
-    }
-    cands.sort((a, b) => a.ang - b.ang);
-    if (!cands.length) {
-      p.lock = null;
-      return;
-    }
-    if (cycle) {
-      const i = cands.findIndex((c) => c.e === p.lock);
-      p.lock = cands[(i + 1) % cands.length].e;
-      return;
-    }
-    if (p.lock && cands.some((c) => c.e === p.lock)) return;
-    p.lock = cands[0].e;
-  },
   fpEye(p) {
     const fwd = new THREE.Vector3(-Math.sin(this.fpYaw), 0, -Math.cos(this.fpYaw));
     return p.pos
@@ -265,7 +239,8 @@ Object.assign(Game.prototype, {
       c.fill();
     };
     for (const e of this.hostilesOfEnt(p)) {
-      if (!e.dead) dot(e.pos, e.isBoss ? '#ff4d4d' : e === p.lock ? '#ffb020' : '#ff7070', e.isBoss ? 5 : 3);
+      if (!e.dead && !e.noLock)
+        dot(e.pos, e.isBoss ? '#ff4d4d' : e === p.lock ? '#ffb020' : '#ff7070', e.isBoss ? 5 : 3);
     }
     for (const a of this.allies) {
       if (!a.dead) dot(a.pos, '#80ffb0');
