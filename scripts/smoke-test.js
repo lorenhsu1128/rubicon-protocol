@@ -3832,10 +3832,10 @@ async function testBosses(browser, base) {
   await ctx.close();
 }
 
-// 鎖定（player.js 的 lockCands／autoLock／cycleLock）：畫面內、攻擊距離內；第三人稱只看機甲前方、由近到遠，
-// 背後的不鎖定；第一人稱依離準星的角度；目標移到攻擊距離外就改鎖其他近的
+// 鎖定（player.js 的 lockCands／autoLock／cycleLock）：攻擊距離內；第三人稱機甲正面 180° 內（含畫面外的側面）由近到遠，
+// 背後的不鎖定；第一人稱畫面內依離準星的角度；目標移到攻擊距離外就改鎖其他近的
 async function testLockOn(browser, base) {
-  console.log('鎖定：機甲前方由近到遠、背後不鎖定、第一人稱依準星角度、超出攻擊距離重新鎖定');
+  console.log('鎖定：機甲正面 180° 由近到遠、背後不鎖定、第一人稱依準星角度、超出攻擊距離重新鎖定');
   const { ctx, page } = await newPage(browser, 'lock');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -3849,10 +3849,10 @@ async function testLockOn(browser, base) {
     pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
     pl.yaw = pl.aimYaw = 0; // 面向 −Z
     const reach = g.lockReach(pl);
-    // 四台：前方近、前方遠、前方偏右、背後最近；其他敵人移走
+    // 五台：前方近、前方遠、前方偏右、背後最近、正側面（畫面外）；其他敵人移走
     for (const e of g.enemies) e.pos.set(200, -50, 200);
-    const es = g.enemies.slice(0, 4);
-    while (es.length < 4) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
+    const es = g.enemies.slice(0, 5);
+    while (es.length < 5) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
     const put = (e, x, z) => {
       e.pos.set(x, g.world.groundAt(x, z, 99), z);
       e.mesh.position.copy(e.pos);
@@ -3861,6 +3861,7 @@ async function testLockOn(browser, base) {
     put(es[1], 0, -14); // 比偏右那台遠，但仍在畫面內
     put(es[2], 6, -10);
     put(es[3], 0, 6); // 背後
+    put(es[4], 30, -1); // 正側面，在第三人稱畫面外
     const cam = () => {
       for (let i = 0; i < 40; i++) g.updateCamera(1 / 60);
       g.camera.updateMatrixWorld(true);
@@ -3870,7 +3871,7 @@ async function testLockOn(browser, base) {
     g.autoLock(pl);
     const first = pl.lock === es[0];
     const order = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       g.cycleLock();
       order.push(es.indexOf(pl.lock));
     }
@@ -3879,6 +3880,7 @@ async function testLockOn(browser, base) {
     pl.lock = es[0];
     put(es[0], 0, -(reach + 15));
     g.autoLock(pl);
+    const side = !g.onScreen(es[4]);
     const relock = pl.lock && pl.lock !== es[0] && pl.lock !== es[3];
     // 第一人稱：依離準星的角度（準星對著偏右那台）
     put(es[0], 0, -8);
@@ -3892,11 +3894,11 @@ async function testLockOn(browser, base) {
     g.setFp(false);
     g.clearMission();
     g.state = 'title';
-    return { first, order: order.join(','), behind, relock, fp };
+    return { first, order: order.join(','), behind, side, relock, fp };
   });
   check(
-    r.first && r.order === '2,1,0,2' && r.behind,
-    `第三人稱：鎖定機甲前方最近的、切換由近到遠（${r.order}）、背後的不鎖定`,
+    r.first && r.order === '2,1,4,0,2' && r.behind && r.side,
+    `第三人稱：鎖定機甲前方最近的、正面 180° 內由近到遠（含畫面外的側面，${r.order}）、背後的不鎖定`,
   );
   check(r.relock, '目標移到攻擊距離外時改鎖其他近的敵人');
   check(r.fp, '第一人稱：鎖定離準星最近的');

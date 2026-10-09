@@ -19,8 +19,8 @@ Object.assign(Game.prototype, {
     const v = e.center().project(this.camera);
     return v.z > -1 && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
   },
-  // 可以鎖定的敵人（依鎖定順序）：畫面內、有效距離內；
-  // 第一人稱依離準星的角度，第三人稱只看機甲面向的前方（背後的完全不鎖定）、由近到遠
+  // 可以鎖定的敵人（依鎖定順序）：有效距離內；
+  // 第一人稱：畫面內、依離準星的角度；第三人稱：機甲面向的正面 180° 內（不論在不在畫面裡）由近到遠，背後的完全不鎖定
   lockCands(p) {
     const reach = this.lockReach(p);
     const out = [];
@@ -42,7 +42,6 @@ Object.assign(Game.prototype, {
         if (dist > reach) continue;
         const rel = e.pos.clone().sub(p.pos).setY(0);
         if (rel.lengthSq() > 0.01 && rel.normalize().dot(fwd) < 0) continue;
-        if (!this.onScreen(e)) continue;
         out.push({ e, k: dist });
       }
     }
