@@ -18,6 +18,7 @@ import { builtinJoints, gameToGltf } from '../render/mech-joints.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { applyQuick } from './pose.js';
 import { RefTools } from './ref-tools.js';
+import { HeightRuler } from './height-ruler.js';
 import { buildGrid } from './refs.js';
 import { exportMech, importMech } from './mech-pack.js';
 import { WsEditor } from './workshop-edit.js';
@@ -130,6 +131,7 @@ export class Workshop {
     this.controls.enableDamping = true;
     this.setupUi();
     this.edit = new WsEditor(this);
+    this.ruler = new HeightRuler(this.scene, $('wsRuler')); // 高度尺：目前身高、標準身高、離地
     // 正交視圖、快速姿勢（A pose）、參考圖（ref-tools.js）
     this.ref = new RefTools({
       box: $('wsRef'),
@@ -553,5 +555,6 @@ export class Workshop {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.updateLabels(false);
+    this.ruler.update(dt, this.rig, this.asm, this.edit.settings.ruler, this.camera, this.w, this.h);
   }
 }

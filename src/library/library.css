@@ -333,6 +333,29 @@ button.sel {
   transform: translate(-100%, -50%);
   padding-right: 6px;
 }
+/* 組裝調整的高度尺 */
+.lbl.hgt {
+  font-size: 11px;
+  transform: translate(0, -50%);
+}
+.lbl.hgt.up {
+  transform: translate(0, -110%);
+}
+.lbl.hgt.down {
+  transform: translate(0, 10%);
+}
+.lbl.hgt.cur {
+  color: #ffb020;
+  border-color: #ffb020;
+}
+.lbl.hgt.std {
+  color: #7ee081;
+  border-color: #7ee081;
+}
+.lbl.hgt.gnd {
+  color: #ff5a4a;
+  border-color: #ff5a4a;
+}
 .lbl.human {
   font-size: 10px;
   color: var(--dim);
@@ -743,6 +766,7 @@ button.sel {
   display: block;
 }
 #wsLabels,
+#wsRuler,
 #edLabels {
   position: absolute;
   inset: 0;

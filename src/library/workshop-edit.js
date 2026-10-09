@@ -41,6 +41,7 @@ const DEFAULT_STEPS = {
   ghost: true,
   hide: false,
   check: true,
+  ruler: true,
 };
 const FLAG = 0xff5a4d;
 const GHOSTS = new Map();
@@ -200,6 +201,7 @@ export class WsEditor {
         ['ghost', '其他半透明'],
         ['hide', '隱藏無關'],
         ['check', '穿幫提示'],
+        ['ruler', '高度尺'],
       ]
         .map(
           ([k, n]) =>

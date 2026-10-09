@@ -1509,6 +1509,18 @@ async function testWorkshop(browser, base) {
   );
   check(((await page.textContent('#wsInfo')) || '').includes('連接點 21 個'), '玩家初始機有 21 個連接點');
   check(((await page.textContent('#wsChecks')) || '').includes('沒有明顯的縫隙'), '玩家初始機沒有穿幫提示');
+  // 高度尺：刻度、目前身高（全是程式模型時等於標準身高）、顯示開關
+  const ruler = async () => page.$$eval('#wsRuler .lbl', (l) => l.map((x) => x.textContent));
+  let rl = await ruler();
+  check(
+    rl.some((t) => t === '1.0 m') && rl.some((t) => /^身高 [\d.]+ m（＝標準）$/.test(t)),
+    `高度尺顯示刻度與身高（${rl.filter((t) => t.includes('身高')).join('、')}）`,
+  );
+  await page.click('#wsToolbar input[data-st="ruler"]');
+  await wait(300);
+  check(!(await visible(page, 'wsRuler')), '關閉高度尺');
+  await page.click('#wsToolbar input[data-st="ruler"]');
+  await wait(300);
   await page.selectOption('#wsParts select[data-k="arms"]', 'a_lt');
   await wait(1500);
   check((await tree()).includes('arms/a_lt/r_upper'), '換手臂零件後重新組裝');
