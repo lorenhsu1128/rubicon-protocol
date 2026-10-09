@@ -1018,7 +1018,7 @@ export const ENEMY_TYPES = {
       head: 'h_hv',
       core: 'c_hv',
       arms: 'a_hv',
-      legs: 'l_bp',
+      legs: 'l_hv',
       booster: 'b_hi',
       generator: 'g_std',
       fcs: 'f_near',
