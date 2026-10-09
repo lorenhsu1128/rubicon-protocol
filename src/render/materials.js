@@ -558,4 +558,81 @@ export const PALETTES = {
     visor: 0xffd060,
     glow: 0xffc860,
   },
+  // 複製 AC：鏡面般的銀灰（適應裝甲依傷害類型發出不同顏色的光）
+  mirror: {
+    main: 0x9aa0aa,
+    main2: 0x6c727c,
+    main3: 0xb4bac4,
+    sub: 0x2a2e34,
+    acc: 0xe8eef8,
+    joint: 0x24272c,
+    visor: 0xffffff,
+    glow: 0xd8e8ff,
+  },
+  // 光學迷彩電戰機：暗紫＋青
+  phantom: {
+    main: 0x3a3448,
+    main2: 0x282334,
+    main3: 0x4a4460,
+    sub: 0x15131c,
+    acc: 0x40f0e0,
+    joint: 0x1c1a22,
+    visor: 0x60fff0,
+    glow: 0x80fff0,
+  },
+  // 浮游砲指揮機：白＋金
+  seraph: {
+    main: 0xd8d4c8,
+    main2: 0xb0aca0,
+    main3: 0xe8e4d8,
+    sub: 0x3a3830,
+    acc: 0xf0b030,
+    joint: 0x2c2a26,
+    visor: 0x60d0ff,
+    glow: 0xffd070,
+  },
+  // 三機合體：紅＋黑
+  trinity: {
+    main: 0x9a2a24,
+    main2: 0x2a2a2e,
+    main3: 0xb83a30,
+    sub: 0x18181a,
+    acc: 0xf0d040,
+    joint: 0x202022,
+    visor: 0x60ff80,
+    glow: 0xff7040,
+  },
+  // 高速突擊機：灰藍迷彩
+  viper: {
+    main: 0x5a6878,
+    main2: 0x3e4a58,
+    main3: 0x6e7e90,
+    sub: 0x1e242c,
+    acc: 0xff4030,
+    joint: 0x22262c,
+    visor: 0xffa040,
+    glow: 0xffa060,
+  },
+  // 脈衝刃翼：深紅＋珊瑚色光
+  ibis: {
+    main: 0x5a1c28,
+    main2: 0x3a121a,
+    main3: 0x702634,
+    sub: 0x140a0e,
+    acc: 0xff5070,
+    joint: 0x1c1014,
+    visor: 0xff3060,
+    glow: 0xff6080,
+  },
+  // 熔爐清掃機：鏽蝕的黃黑工程色
+  furnace: {
+    main: 0x8a6a2a,
+    main2: 0x5a4420,
+    main3: 0xa07e34,
+    sub: 0x241c14,
+    acc: 0x1e1e1e,
+    joint: 0x2a221a,
+    visor: 0xff6a20,
+    glow: 0xff8a30,
+  },
 };

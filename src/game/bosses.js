@@ -11,9 +11,16 @@ Object.assign(Game.prototype, {
   spawnBossKind(bd, sh, sd) {
     this.scaleHp = sh; // 部位與增援用（startMission 之後才會設定）
     this.scaleDmg = sd;
+    // 複製 AC：用玩家（多人時隨機一位）的組裝
+    let asm = bd.asm;
+    if (bd.kind === 'mirror') {
+      const ps = (this.players && this.players.length ? this.players : [this.player]).filter(Boolean);
+      const src = ps[Math.floor(Math.random() * ps.length)];
+      if (src && src.asm) asm = { ...src.asm };
+    }
     const b = this.spawnEnemy({
       name: bd.name,
-      asm: bd.asm,
+      asm,
       pal: bd.pal || 'boss',
       scale: bd.scale,
       hpMul: bd.hpMul * sh,
@@ -59,6 +66,8 @@ Object.assign(Game.prototype, {
         ring(18, 31, (p) => this.layMine(b, p.add(new THREE.Vector3(rnd(-4, 4), 0, rnd(-4, 4))), mine));
         break;
       }
+      default:
+        this.spawnBoss2(bd, b); // 第三批 Boss（bosses2.js）
     }
     if (bd.intro) this.flashAlert(bd.intro);
     return b;

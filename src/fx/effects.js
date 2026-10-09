@@ -321,6 +321,136 @@ export class Effects {
       fill.material.opacity = 0.18 + 0.2 * t;
     });
   }
+  // 瞄準／路徑預警線：a→b 的細光束閃爍 dl 秒（雷射扇形、衝刺路線）
+  warnLine(a, b, dl, color = 0xff2020, width = 0.06) {
+    const d = a.distanceTo(b);
+    if (d < 0.01) return;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(width, width, d, 5), this.addM(color, 0.7));
+    m.position.copy(a).lerp(b, 0.5);
+    m.lookAt(b);
+    m.rotateX(Math.PI / 2);
+    m.renderOrder = 4;
+    this.add(m, dl, (e, t) => {
+      e.mesh.material.opacity = 0.35 + 0.45 * Math.abs(Math.sin(t * dl * (6 + t * 16)));
+      e.mesh.scale.x = e.mesh.scale.z = 1 + t * 1.5;
+    });
+  }
+  // 地面的長方形預警（衝撞路線、進場路線、格子砲擊）：中心 c、朝向 yaw（長邊沿 −Z）、寬 w、長 l
+  warnRect(c, yaw, w, l, dl, color = 0xff3020) {
+    const grp = new THREE.Group();
+    grp.position.copy(c).setY(c.y + 0.14);
+    grp.rotation.y = yaw;
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(w, l), this.addM(color, 0.2));
+    fill.rotation.x = -Math.PI / 2;
+    fill.material.side = THREE.DoubleSide;
+    const edgeM = this.addM(color, 0.8);
+    for (const s of [-1, 1]) {
+      const e1 = new THREE.Mesh(this.boxGeo, edgeM);
+      e1.scale.set(0.18, 0.05, l);
+      e1.position.x = (s * w) / 2;
+      const e2 = new THREE.Mesh(this.boxGeo, edgeM);
+      e2.scale.set(w, 0.05, 0.18);
+      e2.position.z = (s * l) / 2;
+      grp.add(e1, e2);
+    }
+    grp.add(fill);
+    this.add(grp, dl, (e, t) => {
+      fill.material.opacity = 0.12 + 0.22 * t;
+      edgeM.opacity = 0.35 + 0.45 * Math.abs(Math.sin(t * dl * (5 + t * 12)));
+    });
+  }
+  // 擴散的能量球殼（脈衝刃翼）：以 sp m/s 擴散到半徑 R
+  pulseShell(c, R, sp, color = 0xff5070) {
+    const life = R / sp;
+    const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.35));
+    m.material.side = THREE.DoubleSide;
+    m.position.copy(c);
+    m.renderOrder = 4;
+    const ring = new THREE.Mesh(this.ringGeo, this.addM(color, 0.9));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.copy(c);
+    this.add(m, life, (e, t) => {
+      e.mesh.scale.setScalar(Math.max(0.3, R * t));
+      e.mesh.material.opacity = 0.32 * (1 - t * 0.7);
+    });
+    this.add(ring, life, (e, t) => {
+      e.mesh.scale.setScalar(Math.max(0.3, R * t));
+      e.mesh.material.opacity = 0.9 * (1 - t * 0.6);
+    });
+    this.flash(c, 3, color, 0.2);
+  }
+  // 燃燒的地面（熔渣）：半徑 R、持續 life 秒，火苗與煙
+  firePool(p, R, life) {
+    const grp = new THREE.Group();
+    grp.position.copy(p).setY(p.y + 0.1);
+    const disc = new THREE.Mesh(this.discGeo, this.addM(0xff5a10, 0.55));
+    disc.rotation.x = -Math.PI / 2;
+    disc.scale.setScalar(R);
+    const core = new THREE.Mesh(this.discGeo, this.addM(0xffc040, 0.5));
+    core.rotation.x = -Math.PI / 2;
+    core.position.y = 0.02;
+    core.scale.setScalar(R * 0.55);
+    grp.add(disc, core);
+    let acc = 0;
+    this.add(grp, life, (e, t, dt) => {
+      const fade = t < 0.85 ? 1 : (1 - t) / 0.15;
+      disc.material.opacity = (0.4 + 0.15 * Math.sin(t * life * 9)) * fade;
+      core.material.opacity = (0.35 + 0.2 * Math.sin(t * life * 13 + 1)) * fade;
+      acc += dt;
+      if (acc > 0.12 && fade > 0.3) {
+        acc = 0;
+        const a = Math.random() * Math.PI * 2,
+          r = Math.random() * R * 0.85;
+        const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3, Math.sin(a) * r));
+        const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.5 ? 0xff7a20 : 0xffb040, 0.8));
+        f.position.copy(q);
+        const up = rnd(2.5, 4.5);
+        this.add(f, rnd(0.4, 0.7), (e2, t2, dt2) => {
+          e2.mesh.position.y += up * dt2;
+          e2.mesh.scale.setScalar(0.5 * (1 - t2) + 0.1);
+          e2.mesh.material.opacity = 0.8 * (1 - t2);
+        });
+        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + 1), 0.9, 0x3a3430, 1.2, 3);
+      }
+    });
+  }
+  // 火焰噴射：從 p 沿 dir 噴出 len 公尺、半角 ang 的火焰粒子
+  flameCone(p, dir, len, ang, n = 10) {
+    for (let i = 0; i < n; i++) {
+      const v = dir
+        .clone()
+        .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.6, 0.6), rnd(-1, 1)).multiplyScalar(Math.tan(ang)))
+        .normalize()
+        .multiplyScalar(len * rnd(1.6, 2.4));
+      const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.6 ? 0xff6a10 : 0xffc040, 0.8));
+      f.position.copy(p);
+      this.add(f, 0.45, (e, t, dt) => {
+        e.mesh.position.addScaledVector(v, dt);
+        e.mesh.scale.setScalar(0.3 + t * 1.6);
+        e.mesh.material.opacity = 0.8 * (1 - t);
+      });
+    }
+  }
+  // 天上落下的光柱（衛星砲的格子砲擊）：p 是地面點
+  pillarStrike(p, R, color = 0x9fe8ff) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 80, 14, 1, true), this.addM(color, 0.8));
+    m.material.side = THREE.DoubleSide;
+    m.position.copy(p).setY(p.y + 40);
+    this.add(m, 0.5, (e, t) => {
+      e.mesh.scale.x = e.mesh.scale.z = 1 - t * 0.7;
+      e.mesh.material.opacity = 0.8 * (1 - t);
+    });
+    const c = new THREE.Mesh(
+      new THREE.CylinderGeometry(R * 0.4, R * 0.4, 80, 8, 1, true),
+      this.addM(0xffffff, 1),
+    );
+    c.position.copy(m.position);
+    this.add(c, 0.3, (e, t) => {
+      e.mesh.material.opacity = 1 - t;
+    });
+    this.shockwave(p.clone().setY(p.y + 0.2), R * 2.2, color, 0.4);
+    this.flashLight(p.clone().setY(p.y + 3), color, 30);
+  }
   // big additive thruster glare (billboard sphere) — used every frame by mechs, pooled per entity
   glareMesh(color) {
     const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.55));

@@ -1,4 +1,5 @@
 // Game：存檔（三個存檔槽 localStorage rubicon_save_1～3，目前的槽位 rubicon_save_cur）與存檔畫面
+import { isBossLevel } from '../data/enemies.js';
 import { START_ASM, START_OWNED } from '../data/parts.js';
 import { newPilot, normalizePilot, levelOf } from '../data/pilot.js';
 import { escHtml } from '../core/html.js';
@@ -144,7 +145,7 @@ Object.assign(Game.prototype, {
           <button class="primary" data-act="new">新的傭兵生涯</button><button data-act="imp">匯入</button></div></div>`;
       const L = s.level;
       const info = [
-        `任務 ${String(L).padStart(2, '0')}${L % 3 === 0 ? '（決戰）' : ''}`,
+        `任務 ${String(L).padStart(2, '0')}${isBossLevel(L) ? '（決戰）' : ''}`,
         `COAM ${s.coam.toLocaleString()}`,
         `駕駛員 PvE Lv${levelOf(s.pilot.pve.xp)}／PvP Lv${levelOf(s.pilot.pvp.xp)}`,
         `擊破 ${s.kills}${s.bosses ? `（魔王 ${s.bosses}）` : ''}`,

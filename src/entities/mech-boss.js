@@ -4,6 +4,7 @@
 // 部位是獨立的敵方實體（血量、鎖定、擊破、同步都和一般敵人相同），opts.parent＝Boss 的 id；
 // 有 opts.mount 的掛在 Boss 模型的 mounts[mount] 節點上，每格（房主與客機）跟著移動。
 // 行為只在房主／單機執行；客機靠快照的 sx（bossVis：鑽地蟲在地下、多足要塞斷腿與倒下；linkId：牽引／護盾連線）顯示。
+// 第三批 Boss（電磁砲台、浮游砲、武裝列車…）在 mech-boss2.js，這裡的掛勾轉過去（boss2*）。
 import { SFX } from '../audio/audio.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { animateMech } from '../render/mech-model.js';
@@ -16,6 +17,7 @@ const ARENA = 60; // 場地邊界（world.collide 限制在 ±62）
 
 Object.assign(MechEntity.prototype, {
   bossInit() {
+    this.boss2Init();
     if (this.ai === 'part' || this.ai === 'worm') this.noPush = true; // 不參與機體互推
     if (this.ai === 'part' && this.opts.partKind === 'pylon') {
       this.linkKind = 2; // 護盾連線（發生器 → 指揮艦）
@@ -71,8 +73,8 @@ Object.assign(MechEntity.prototype, {
   },
   // ---------- 移動（mech-special.js 的 aiSpecialMove 轉過來）----------
   bossMove(dt, d, dir, perp, wish, pl) {
-    if (this.ai !== 'part' && !BOSS_AI.has(this.ai)) return null;
     const r = { hover: false, qb: false, ab: false, done: false };
+    if (this.ai !== 'part' && !BOSS_AI.has(this.ai)) return this.boss2Move(dt, d, dir, perp, wish, pl, r);
     switch (this.ai) {
       case 'part':
         this.partAI(dt, d, pl);
@@ -100,15 +102,16 @@ Object.assign(MechEntity.prototype, {
     }
     return r;
   },
-  // 開火：一般武器迴圈照常（回傳 false），部位與鑽地蟲在自己的 AI 裡處理
-  bossFire() {
-    return false;
+  // 開火：一般武器迴圈照常（回傳 false），部位與鑽地蟲在自己的 AI 裡處理；第三批 Boss 見 boss2Fire
+  bossFire(dt, d, aimPos, pl) {
+    return this.boss2Fire(dt, d, aimPos, pl);
   },
   phase2() {
     return this.hp < this.maxHp * 0.5;
   },
   // ---------- 附屬部位 ----------
   partAI(dt, d, pl) {
+    if (this.part2AI(dt, d, pl)) return; // 浮游砲、列車車廂
     const g = this.game,
       s = this.aiState;
     const k = this.opts.partKind;
@@ -548,7 +551,7 @@ Object.assign(MechEntity.prototype, {
     if (d > 28 && Math.random() < dt * 0.8) r.ab = true;
   },
   // ---------- 受傷前的修正（specialDefense 先呼叫）：回傳 [傷害, 衝擊]，null＝擋下 ----------
-  bossDefense(dmg, impact, from, at) {
+  bossDefense(dmg, impact, from, at, wid, melee) {
     const g = this.game,
       s = this.aiState;
     let k = 1;
@@ -558,6 +561,9 @@ Object.assign(MechEntity.prototype, {
         g.flashAlert(txt);
       }
     };
+    const k2 = this.boss2Defense(dmg, impact, from, at, wid, melee);
+    if (k2 === null) return null;
+    if (k2 !== undefined) k = k2;
     switch (this.ai) {
       case 'worm':
         if (this.bossVis & 1) return null;
@@ -593,8 +599,9 @@ Object.assign(MechEntity.prototype, {
     if (k < 1 && at && Math.random() < 0.5) g.fx.spark(at, 0xffd080);
     return [dmg * k, impact * k];
   },
-  bossDie() {
+  bossDie(from) {
     const g = this.game;
+    this.boss2Die(from);
     if (!this.isBoss) return;
     for (const p of this.partsOf()) p.partBreak();
     g.removeMinesOf(this);
@@ -604,6 +611,7 @@ Object.assign(MechEntity.prototype, {
     if (this.ai === 'part' && this.remote) this.partFollow();
     if (this.ai === 'worm') this.wormFx();
     if (this.model.legNodes && this.model.legNodes.length) this.spiderFx(dt);
+    this.boss2Fx(dt);
   },
   // 身體各節沿著頭部走過的軌跡排列（入地的部分被地形擋住）
   wormFx() {
@@ -684,6 +692,7 @@ Object.assign(MechEntity.prototype, {
     m.body.rotation.z = lerp(m.body.rotation.z, tiltZ, Math.min(1, dt * 2));
   },
   bossCleanup() {
+    this.boss2Cleanup();
     if (this.wormSegs) {
       for (const m of this.wormSegs) this.game.scene.remove(m);
       this.wormSegs = null;

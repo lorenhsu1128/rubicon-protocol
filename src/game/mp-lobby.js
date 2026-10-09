@@ -1,6 +1,7 @@
 // Game 多人擴充：初始化、建房／搜尋／加入、大廳、訊號
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
+import { isBossLevel } from '../data/enemies.js';
 import { START_ASM, asmStats } from '../data/parts.js';
 import { Net } from '../net/net.js';
 import { SIGNALS, iceDiag, unmaskLocalIp } from '../net/transports.js';
@@ -330,7 +331,7 @@ Object.assign(Game.prototype, {
     $('lobbyLevel').textContent =
       '任務 ' +
       String(n.role === 'host' ? this.save.level : n.hostLevel || 1).padStart(2, '0') +
-      ((n.role === 'host' ? this.save.level : n.hostLevel || 1) % 3 === 0 ? '（決戰）' : '');
+      (isBossLevel(n.role === 'host' ? this.save.level : n.hostLevel || 1) ? '（決戰）' : '');
   },
   netOff() {
     this.netEvents = [];

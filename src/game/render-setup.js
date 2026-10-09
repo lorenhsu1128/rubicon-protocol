@@ -104,6 +104,12 @@ Object.assign(Game.prototype, {
       'shockwave',
       'flash',
       'streaks',
+      'warnLine',
+      'warnRect',
+      'pulseShell',
+      'firePool',
+      'flameCone',
+      'pillarStrike',
     ];
     const fx = this.fx;
     const g = this;

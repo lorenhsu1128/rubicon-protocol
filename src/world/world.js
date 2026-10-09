@@ -86,7 +86,7 @@ export const THEMES = {
 };
 
 export class World {
-  constructor(scene, theme, seed, level, feat) {
+  constructor(scene, theme, seed, level, feat, opt = {}) {
     this.scene = scene;
     this.theme = THEMES[theme];
     this.themeKey = theme;
@@ -135,7 +135,17 @@ export class World {
           this.corridor = { kind: cf.kind, dir: cf.dir, perp: cf.perp, off: cf.off, width: 10, len: cf.len };
           this.featureNames.push(cf.kind === 'road' ? '穿越公路' : '穿越鐵路');
         }
-      } else this.planFeatures();
+      } else {
+        this.planFeatures();
+        if (opt.rail && this.corridor && this.corridor.kind !== 'rail') {
+          // Boss 關（武裝列車）：穿越的通道改成鐵路
+          this.corridor.kind = 'rail';
+          const cf = this.features.find((f) => f.k === 'corridor');
+          if (cf) cf.kind = 'rail';
+          const i = this.featureNames.indexOf('穿越公路');
+          if (i >= 0) this.featureNames[i] = '穿越鐵路';
+        }
+      }
       this.buildTerrain();
       this.buildFeatures();
       this.buildProps();

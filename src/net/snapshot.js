@@ -43,13 +43,15 @@ export function serEnt(e) {
   };
 }
 // 特殊敵人與 Boss 的顯示狀態（mech-special.js、mech-boss.js）：
-// sx＝[護盾 %, 連線目標 id, 旗標（1 強化、2 混亂、4 電磁封鎖）, 連線種類, Boss 顯示狀態]；gn＝離場
+// sx＝[護盾 %, 連線目標 id, 旗標（1 強化、2 混亂、4 電磁封鎖）, 連線種類, Boss 顯示狀態]；gn＝離場；
+// bx＝第三批 Boss 的數值陣列（電磁砲／浮游砲的瞄準點、衛星砲的光柱位置…，mech-boss2.js）
 function serSpecial(e) {
   const fl = (e.buffT > 0 ? 1 : 0) | (e.confuseT > 0 ? 2 : 0) | (e.empLockT > 0 ? 4 : 0);
   const o = {};
   if (e.domeFrac > 0 || e.linkId >= 0 || fl || e.bossVis)
     o.sx = [Math.round(e.domeFrac * 100), e.linkId, fl, e.linkKind || 0, e.bossVis || 0];
   if (e.gone) o.gn = 1;
+  if (e.bx) o.bx = e.bx;
   return o;
 }
 export function applyEnt(e, s, g) {
@@ -114,6 +116,7 @@ export function applyEnt(e, s, g) {
   e.sxFlags = sx[2];
   e.linkKind = sx[3];
   e.bossVis = sx[4];
+  e.bx = s.bx || null;
   if (sx[2] & 4) e.empLockT = Math.max(e.empLockT || 0, 0.25); // 客機自己的機體：移動預測也封鎖 QB 與懸浮
   if (s.gn && !e.dead) e.depart();
   else if (s.d && !e.dead) {

@@ -1,7 +1,7 @@
 // Game：車庫（組裝、展示場景）
 import { SFX } from '../audio/audio.js';
 import { pick } from '../core/math.js';
-import { BOSS_DEFS } from '../data/enemies.js';
+import { bossForLevel, isBossLevel } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
@@ -94,11 +94,11 @@ Object.assign(Game.prototype, {
     const $ = (id) => document.getElementById(id);
     $('gCoam').textContent = S.coam.toLocaleString();
     const L = S.level,
-      boss = L % 3 === 0;
+      boss = isBossLevel(L);
     $('mcTitle').textContent = (boss ? '決戰任務 ' : '任務 ') + String(L).padStart(2, '0');
     $('mcDesc').textContent =
       (boss
-        ? `目標：擊破 ${BOSS_DEFS[Math.floor(L / 3 - 1) % BOSS_DEFS.length].name}`
+        ? `目標：擊破 ${bossForLevel(L).name}`
         : `目標：肅清隨機戰區內所有敵對兵力（預估 ${Math.round(4 + L * 1.5)} 戰力點）`) +
       '　每擊破一台即時入帳 COAM，無修理費';
     const slots = $('slots');

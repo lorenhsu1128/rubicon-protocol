@@ -776,7 +776,7 @@ export class MechEntity {
       }
     }
     // 護盾產生器的護盾、盾牌 MT 的正面（mech-special.js）：null＝完全擋下
-    const sd = this.specialDefense(dmg, impact, from, at, melee);
+    const sd = this.specialDefense(dmg, impact, from, at, melee, wid);
     if (!sd) return;
     [dmg, impact] = sd;
     if (melee) {
@@ -1568,7 +1568,7 @@ export class MechEntity {
     let pl = null,
       bd = 1e9;
     for (const h of g.hostilesOfEnt(this)) {
-      if (h.dead) continue;
+      if (h.dead || h.noLock) continue; // 迷彩中、分離中、在隧道裡的 Boss 不當目標
       const dd = h.pos.distanceToSquared(this.pos);
       if (dd < bd) {
         bd = dd;
@@ -1818,8 +1818,9 @@ export class MechEntity {
     this.aiShock(dt, d, wish);
     // boss patterns
     if (this.isBoss && this.opts.bossKind === 'heli') this.heliBossAI(dt, d, dir, perp, wish, pl);
-    else if (this.isBoss && !this.opts.bossKind) this.bossAI(dt, d, dir, perp, wish, pl);
-    else {
+    else if (this.isBoss && !this.opts.bossKind) {
+      if (this.bossAI(dt, d, dir, perp, wish, pl)) ab = true;
+    } else {
       // firing
       s.fireT -= dt;
       if (this.ai === 'kamikaze' || this.ai === 'swarm') {
@@ -1870,7 +1871,14 @@ export class MechEntity {
               w.reloadT = 4.0;
               g.flashAlert('RAIN 導彈齊射！');
             }
-          }
+          } else if (
+            w.def.type !== 'missile' &&
+            w.def.type !== 'none' &&
+            w.def.type !== 'shield' &&
+            d < w.def.range &&
+            Math.random() < dt * 1.0
+          )
+            this.fire(slot, w.def.type === 'laser' ? pl.center() : aimPos, pl);
         }
         for (const slot of ['rarm', 'larm']) {
           const w = this.weapons[slot];
@@ -2008,6 +2016,9 @@ export class MechEntity {
     }
     this.flying = true;
   }
+  // 一般大型 Boss（JUGGERNAUT、STRIDER、BALTEUS）：依裝備的武器排出攻擊模式輪替（沒有對應武器的模式不排，不會空窗）
+  // 0 機槍／霰彈、1 導彈／榴彈／火箭、2 機槍＋導彈齊射、3 突進（突擊推進衝向目標，近身時近戰／霰彈、撞擊）、
+  // 4 雷射（第一型態：紅線預警後的蓄力射擊；第二型態：橫掃）。回傳 true 表示這一格要突擊推進
   bossAI(dt, d, dir, perp, wish, pl) {
     const s = this.aiState,
       g = this.game;
@@ -2019,49 +2030,93 @@ export class MechEntity {
       g.fx.ring(this.center(), 16, 0xff3020);
       this.iFrames = 0.5;
     }
+    const W = ['rarm', 'larm', 'rback', 'lback']
+      .map((k) => this.weapons[k])
+      .filter((w) => w.def.type !== 'none');
+    if (!s.pats) {
+      const has = (...t) => W.some((w) => t.includes(w.def.type));
+      s.pats = [];
+      if (has('bullet', 'shotgun')) s.pats.push(0);
+      if (has('missile', 'grenade', 'shell')) s.pats.push(1);
+      if (has('bullet') && has('missile')) s.pats.push(2);
+      s.pats.push(3);
+      if (has('laser')) s.pats.push(4);
+      s.pi = -1;
+    }
     s.patT -= dt;
     if (s.patT <= 0) {
-      s.pattern = (s.pattern + 1) % (s.phase === 2 ? 5 : 4);
+      s.pi = (s.pi + 1) % s.pats.length;
+      s.pattern = s.pats[s.pi];
       s.patT = rnd(2.2, 3.6);
       if (s.pattern === 3) {
-        s.patT = 1.4;
-        this.abT = 1.2;
+        s.patT = 1.8;
+        s.rushT = 1.3;
+        s.rammed = false;
       }
       if (s.pattern === 4) {
-        s.patT = 2.6;
+        s.patT = s.phase === 2 ? 2.6 : 2.4;
         s.sweepA = this.aimYaw - 0.9;
       }
     }
-    for (const slot of ['rarm', 'larm', 'rback', 'lback']) {
-      const w = this.weapons[slot];
-      if (w.def.type === 'none') continue;
+    const inR = (w) => d < w.def.range * 1.2 + 2;
+    let rush = false;
+    if (s.pattern === 3 && s.rushT > 0) {
+      // 突進：衝向目標，撞上時造成傷害並撞開
+      s.rushT -= dt;
+      wish.copy(dir);
+      rush = d > 7;
+      if (!s.rammed && d < this.radius + pl.radius + 1.5 && this.canAct()) {
+        s.rammed = true;
+        pl.takeDamage(500 * this.dmgMul, 1100 * this.dmgMul, this, pl.center(), dir.clone());
+        pl.vel.addScaledVector(dir, 14);
+        g.camShake = Math.max(g.camShake, 0.25);
+      }
+    }
+    if (s.pattern === 4 && s.phase === 2) s.sweepA += dt * 0.9; // 橫掃速度與雷射數量無關
+    for (const w of W) {
+      const slot = w.slot,
+        ty = w.def.type;
       switch (s.pattern) {
         case 0:
-          if (w.def.type === 'bullet' || w.def.type === 'shotgun') this.fire(slot, aimPos, pl);
+          if ((ty === 'bullet' || ty === 'shotgun') && inR(w)) this.fire(slot, aimPos, pl);
           break;
         case 1:
-          if (w.def.type === 'missile' || w.def.type === 'grenade' || w.def.type === 'shell')
-            this.fire(slot, aimPos, pl);
+          if ((ty === 'missile' || ty === 'grenade' || ty === 'shell') && inR(w)) this.fire(slot, aimPos, pl);
           break;
         case 2:
-          if (w.def.type === 'bullet' || w.def.type === 'missile') this.fire(slot, aimPos, pl);
+          if ((ty === 'bullet' || ty === 'missile') && inR(w)) this.fire(slot, aimPos, pl);
           break;
         case 3:
-          if (w.def.type === 'melee' && d < 14) this.fire(slot, aimPos, pl);
-          else if (w.def.type === 'shotgun' && d < 20) this.fire(slot, aimPos, pl);
+          if (ty === 'melee' && d < 14) this.fire(slot, aimPos, pl);
+          else if (ty === 'shotgun' && d < 20) this.fire(slot, aimPos, pl);
           break;
         case 4:
-          if (w.def.type === 'laser') {
-            s.sweepA += dt * 0.9;
-            const tp = this.center().add(
-              new THREE.Vector3(-Math.sin(s.sweepA), 0, -Math.cos(s.sweepA)).multiplyScalar(60),
-            );
-            tp.y = pl.center().y;
-            this.aimYaw = s.sweepA;
-            this.fire(slot, tp, pl);
-          } else if (w.def.type === 'bullet') this.fire(slot, aimPos, pl);
+          if (ty === 'laser') {
+            if (s.phase === 2) {
+              const tp = this.center().add(
+                new THREE.Vector3(-Math.sin(s.sweepA), 0, -Math.cos(s.sweepA)).multiplyScalar(60),
+              );
+              tp.y = pl.center().y;
+              this.aimYaw = s.sweepA;
+              this.fire(slot, tp, pl);
+            } else if (inR(w)) {
+              // 第一型態：紅線預警後蓄力射擊（沒有蓄力的雷射直接連射）
+              if (w.def.chargeT > 0) {
+                if (!w.charging && w.cd <= 0 && this.canAct()) {
+                  w.charging = true;
+                  w.charge = 0;
+                  g.fx.warnLine(this.muzzle(slot), pl.center(), w.def.chargeT, 0xff2020, 0.05);
+                }
+                if (w.charging) {
+                  w.charge += dt;
+                  if (w.charge >= w.def.chargeT) this.fire(slot, pl.center(), pl);
+                }
+              } else if (Math.random() < dt * 1.6) this.fire(slot, pl.center(), pl);
+            }
+          } else if (ty === 'bullet' && inR(w)) this.fire(slot, aimPos, pl);
           break;
       }
     }
+    return rush;
   }
 }

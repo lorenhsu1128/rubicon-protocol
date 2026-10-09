@@ -790,7 +790,7 @@ Object.assign(Game.prototype, {
     let best = null,
       bd = 1e9;
     for (const e of this.hostilesOfEnt(p)) {
-      if (e.dead) continue;
+      if (e.dead || e.noLock) continue;
       const s = this.proj(e.center());
       if (!s.in) continue;
       const r = (rad || (e.isBoss ? 70 : 40)) * (e.scale || 1);

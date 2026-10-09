@@ -2,7 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp, pick, rnd } from '../core/math.js';
-import { AC_NAMES, AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES } from '../data/enemies.js';
+import { AC_NAMES, AC_ROSTER, DUO_BOSS, ENEMY_TYPES, bossForLevel, isBossLevel } from '../data/enemies.js';
 import { CONSUMABLES, PARTS, partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
@@ -221,14 +221,17 @@ Object.assign(Game.prototype, {
   startMission() {
     const S = this.save;
     const L = S.level;
-    const boss = L % 3 === 0;
+    const mp0 = !!(this.net && this.net.role === 'host');
+    const boss = isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
+    const bd0 = boss ? bossForLevel(L) : null;
     this.clearMission();
     const theme = pick(Object.keys(THEMES));
     const seed = Math.floor(Math.random() * 1e9);
     this.worldSeed = seed;
     this.worldTheme = theme;
     this.styleRefresh(); // 渲染風格只在出擊時套用，任務中不換
-    this.world = new World(this.scene, theme, seed, L);
+    // 武裝列車：地圖一定有鐵路（客機收到開局訊息的地形特徵，跟著一致）
+    this.world = new World(this.scene, theme, seed, L, null, { rail: !!(bd0 && bd0.rail) });
     this.isClient = false;
     const mp = !!(this.net && this.net.role === 'host');
     this.net.spawnReg = {};
@@ -288,7 +291,7 @@ Object.assign(Game.prototype, {
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
     if (boss) {
-      const bd = BOSS_DEFS[Math.floor(L / 3 - 1) % BOSS_DEFS.length];
+      const bd = bd0;
       this.bossDef = bd;
       this.bosses = [];
       if (bd.kind === 'heli') {
@@ -397,6 +400,7 @@ Object.assign(Game.prototype, {
     this.scaleDmg = scaleDmg;
     this.waveAlerted = false;
     this.planVehicles();
+    if (this.bossDef && this.bossDef.rail && boss) this.vehPlan = []; // 武裝列車佔用鐵路：不開運輸列車
     if (mp) {
       this.net.tr.broadcast({
         t: 'start',
@@ -625,6 +629,7 @@ Object.assign(Game.prototype, {
     this.projectiles = [];
     this.shocks = [];
     this.clearSupport();
+    this.clearHazards();
     this.introSeen = null;
     this.fx.clear();
     this.popups = [];

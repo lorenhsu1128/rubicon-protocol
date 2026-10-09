@@ -2,6 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { angLerp, clamp, lerp } from '../core/math.js';
+import { isBossLevel } from '../data/enemies.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
@@ -48,7 +49,7 @@ Object.assign(Game.prototype, {
     this.pickups = [];
     this.vehPlan = [];
     this.bountyPops = [];
-    this.isBossLevel = !d.pvp && d.level % 3 === 0;
+    this.isBossLevel = !d.pvp && isBossLevel(d.level);
     this.levelName =
       T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
     this.bossDef = { name: d.bossName || '' };
@@ -446,7 +447,8 @@ Object.assign(Game.prototype, {
       }
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
       this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40);
-      if (p.lock && (p.lock.dead || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4)) p.lock = null;
+      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
+        p.lock = null;
       this.fpPickLock(p, false);
       p.fpFace = true;
     } else {
@@ -458,12 +460,13 @@ Object.assign(Game.prototype, {
       );
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(p.pos.y + p.model.height * 0.5));
       ray.ray.intersectPlane(plane, this.mouseWorld) || this.mouseWorld.set(p.pos.x, p.pos.y, p.pos.z - 10);
-      if (p.lock && (p.lock.dead || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4)) p.lock = null;
+      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
+        p.lock = null;
       if (!p.lock) {
         let best = null,
           bd = 1e9;
         for (const e of this.hostilesOfEnt(p)) {
-          if (e.dead) continue;
+          if (e.dead || e.noLock) continue;
           const d = e.pos.distanceTo(p.pos);
           if (d < p.stats.lockRange && d < bd) {
             bd = d;

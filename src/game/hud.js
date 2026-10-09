@@ -26,7 +26,7 @@ Object.assign(Game.prototype, {
           : `${this.specMode === 'director' ? '導演' : this.specMode === 'boss' ? '魔王' : '跟隨'} ▸ ${p.name}`;
     // 敵人血條 / 名牌（沿用）
     for (const e of [...this.enemies, ...this.allies]) {
-      if (e.dead) continue;
+      if (e.dead || e.noLock) continue;
       const s = this.proj(e.center());
       if (!s.in) continue;
       const r = 22 * (e.scale || 1);
@@ -493,7 +493,7 @@ Object.assign(Game.prototype, {
     p.lockT = (p.lockT || 0) + dt;
     const tt = this.time;
     for (const e of this.hostilesOfEnt(p)) {
-      if (e.dead) continue;
+      if (e.dead || e.noLock) continue; // 迷彩中、分離中、在隧道裡的 Boss 不顯示名牌與畫面外指示
       const top = e.center();
       top.y = e.pos.y + e.model.height + 0.6;
       const s = this.proj(top);

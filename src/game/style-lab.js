@@ -310,6 +310,7 @@ Object.assign(Game.prototype, {
       }
       this.updateShocks(step);
       this.updateSupport(step);
+      this.updateHazards(step);
       this.fx.update(step);
       for (let i = this.popups.length - 1; i >= 0; i--) {
         const q = this.popups[i];

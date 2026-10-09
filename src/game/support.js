@@ -9,6 +9,7 @@ import { Game } from './game.js';
 const MORTAR_G = 26; // 迫擊砲彈重力（和榴彈相同）
 const MINE_TRIG = 2.2; // 地雷觸發的水平距離
 const MINE_ALT = 1.5; // 離地高於這個高度不會觸發（跳過去）
+const AIR_TRIG = 3; // 空中地雷的觸發距離（3D）
 
 Object.assign(Game.prototype, {
   // flashMsg／flashAlert 本身就會轉送給客機
@@ -164,10 +165,10 @@ Object.assign(Game.prototype, {
   },
   layMine(src, p, o) {
     if (!this.mines) this.mines = [];
-    p.y = this.world.groundAt(p.x, p.z, p.y + 1.5);
+    if (!o.air) p.y = this.world.groundAt(p.x, p.z, p.y + 1.5);
     this.mineSeq = (this.mineSeq || 0) + 1;
     const m = { i: this.mineSeq, p, owner: src, team: src.team, arm: 0.8, life: 30, trig: -1, t: 0, ...o };
-    m.mesh = this.mineMesh(p);
+    m.mesh = this.mineMesh(p, o.air);
     this.mines.push(m);
     if (!o.quiet) {
       this.fx.beam(src.center(), p.clone().setY(p.y + 0.2), 0xff4030, 0.05);
@@ -178,11 +179,38 @@ Object.assign(Game.prototype, {
       t: 'mine',
       i: m.i,
       p: p.toArray().map((x) => +x.toFixed(2)),
-      o: { dmg: o.dmg, im: o.im, R: o.R },
+      o: { dmg: o.dmg, im: o.im, R: o.R, air: o.air ? 1 : 0 },
     });
   },
-  mineMesh(p) {
+  mineMesh(p, air) {
     const grp = new THREE.Group();
+    if (air) {
+      // 空中地雷：懸浮的發光球＋外圈
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.35, 10, 8),
+        new THREE.MeshBasicMaterial({ color: 0xff4030, transparent: true, blending: THREE.AdditiveBlending }),
+      );
+      const shell = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.6, 0),
+        new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.5, metalness: 0.6, wireframe: true }),
+      );
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(AIR_TRIG, 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xff3020,
+          transparent: true,
+          opacity: 0.12,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      grp.add(core, shell, halo);
+      grp.position.copy(p);
+      grp.userData.light = core;
+      grp.userData.halo = halo;
+      this.scene.add(grp);
+      return grp;
+    }
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(0.45, 0.55, 0.22, 10),
       new THREE.MeshStandardMaterial({ color: 0x3a3e38, roughness: 0.7, metalness: 0.4 }),
@@ -251,7 +279,7 @@ Object.assign(Game.prototype, {
     const L2 = seg.lengthSq();
     for (const m of this.mines) {
       if (m.trig >= 0 || m.vis || m.team === p.team) continue;
-      const c = m.p.clone().setY(m.p.y + 0.2);
+      const c = m.air ? m.p.clone() : m.p.clone().setY(m.p.y + 0.2);
       const t = L2 > 1e-6 ? clamp(c.clone().sub(prev).dot(seg) / L2, 0, 1) : 0;
       if (prev.clone().addScaledVector(seg, t).distanceToSquared(c) < 0.9 * 0.9) m.trig = 0.05;
     }
@@ -283,6 +311,13 @@ Object.assign(Game.prototype, {
       if (m.arm > 0) continue;
       const src = m.owner && !m.owner.dead ? m.owner : null;
       for (const t of src ? this.hostilesOfEnt(src) : this.hostilesOf(m.team, null)) {
+        if (m.air) {
+          if (!t || t.dead || t.isProp || !t.pos || t.center().distanceTo(m.p) > AIR_TRIG + t.radius * 0.5)
+            continue;
+          m.trig = 0.15;
+          SFX.play('ui2', 0.9, 2.2, 0, 0, m.p);
+          break;
+        }
         if (!t || t.dead || t.flying || t.isProp || !t.pos) continue;
         if (Math.hypot(t.pos.x - m.p.x, t.pos.z - m.p.z) > MINE_TRIG + t.radius * 0.4) continue;
         if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > MINE_ALT) continue;
@@ -316,7 +351,7 @@ Object.assign(Game.prototype, {
         if (!this.mines) this.mines = [];
         const p = new THREE.Vector3(e.p[0], e.p[1], e.p[2]);
         const m = { i: e.i, p, vis: true, team: 'enemy', trig: -1, t: 0, arm: 0, life: 30, ...e.o };
-        m.mesh = this.mineMesh(p);
+        m.mesh = this.mineMesh(p, e.o && e.o.air);
         this.mines.push(m);
         return true;
       }

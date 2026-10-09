@@ -135,9 +135,9 @@ Object.assign(MechEntity.prototype, {
     } else this.domeFrac = this.domeHp / this.domeMax;
   },
   // 受傷前的修正：回傳 [傷害, 衝擊]，或 null 表示完全擋下
-  specialDefense(dmg, impact, from, at, melee) {
+  specialDefense(dmg, impact, from, at, melee, wid) {
     const g = this.game;
-    const bd = this.bossDefense(dmg, impact, from, at);
+    const bd = this.bossDefense(dmg, impact, from, at, wid, melee);
     if (!bd) return null;
     [dmg, impact] = bd;
     const src = from && from.pos && from !== this ? from.pos : at;
@@ -436,7 +436,7 @@ Object.assign(MechEntity.prototype, {
       case 'dropship':
         return true;
     }
-    return this.bossFire();
+    return this.bossFire(dt, d, aimPos, pl);
   },
   // 修理無人機：找 AP 比例最低的友軍，躲在它背後（相對玩家）持續回復
   repairAI(dt, d, dir, wish, pl) {
@@ -449,7 +449,8 @@ Object.assign(MechEntity.prototype, {
       let best = null,
         br = 2;
       for (const f of this.friendsOf()) {
-        if (f === this || f.dead || f.ai === 'repair' || f.ai === 'dropship') continue;
+        if (f === this || f.dead || f.noLock || f.ai === 'repair' || f.ai === 'dropship' || f.ai === 'holo')
+          continue;
         if (f.pos.distanceTo(this.pos) > 50) continue;
         const ratio = f.hp / f.maxHp + (f.hp < f.maxHp ? 0 : 1); // 有受傷的優先
         if (ratio < br) {

@@ -463,6 +463,7 @@ export class Game {
     }
     this.updateShocks(dt);
     this.updateSupport(dt);
+    this.updateHazards(dt);
     this.fx.update(dt);
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const q = this.popups[i];

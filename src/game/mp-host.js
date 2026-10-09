@@ -338,6 +338,7 @@ Object.assign(Game.prototype, {
     this.projectiles = [];
     this.shocks = [];
     this.promoteSupport();
+    this.clearHazards(); // 延遲中的攻擊與燃燒地面只在舊房主上，交接後放棄
     const s = this.net.snap;
     if (s) {
       this.waves = s.mis.waveList || [];

@@ -140,7 +140,7 @@ Object.assign(Game.prototype, {
     const eye = this.fpEye(p);
     const cands = [];
     for (const e of this.hostilesOfEnt(p)) {
-      if (e.dead) continue;
+      if (e.dead || e.noLock) continue;
       const d = e.center().sub(eye);
       const dist = d.length();
       if (dist > p.stats.lockRange * 1.4 || dist < 0.5) continue;

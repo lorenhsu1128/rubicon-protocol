@@ -3698,6 +3698,7 @@ async function testBosses(browser, base) {
             }
             g.updateShocks(dt);
             g.updateSupport(dt);
+            g.updateHazards(dt);
             if (each) each();
           }
         };
@@ -3819,6 +3820,352 @@ async function testBosses(browser, base) {
   await ctx.close();
 }
 
+// 第三批 Boss（game/bosses2.js、entities/mech-boss2.js）與出場等級：同樣以固定 dt 同步模擬
+async function testBosses2(browser, base) {
+  console.log(
+    '第三批 Boss：複製 AC、高速突擊機、電磁砲台、浮游砲、熔爐、推土要塞、迷彩機、衛星砲、三機合體、武裝列車、脈衝刃翼',
+  );
+  const { ctx, page } = await newPage(browser, 'boss2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const run = (L, key) =>
+    page.evaluate(
+      ([L, key]) => {
+        const g = window.__game;
+        g.save.level = L;
+        g.startMission();
+        g.state = 'boss-test';
+        const pl = g.player;
+        Object.assign(pl, { hp: 1e7, maxHp: 1e7, acsMax: 1e9 });
+        const boss = g.boss;
+        const s = boss.aiState;
+        const dt = 1 / 60;
+        const step = (sec, each) => {
+          for (let i = 0; i < Math.round(sec / dt); i++) {
+            g.time += dt;
+            pl.move(dt, new THREE.Vector3(), false, false, false, null);
+            for (const e of g.enemies) if (!e.dead) e.updateAI(dt);
+            g.separateMechs(dt);
+            for (let k = g.projectiles.length - 1; k >= 0; k--) {
+              g.projectiles[k].update(dt);
+              if (g.projectiles[k].dead) g.projectiles.splice(k, 1);
+            }
+            g.updateShocks(dt);
+            g.updateSupport(dt);
+            g.updateHazards(dt);
+            if (each) each();
+          }
+        };
+        const hit = (wid, e = boss) => {
+          const h = e.hp;
+          e.iFrames = 0;
+          e.takeDamage(1000, 0, pl, e.center(), null, undefined, wid);
+          return Math.round(h - e.hp);
+        };
+        const kill = (list) => list.forEach((e) => e.takeDamage(1e9, 0, pl, e.center()));
+        const lost = () => Math.round(1e7 - pl.hp);
+        const heal = () => (pl.hp = 1e7);
+        const place = (x, z) => pl.pos.set(x, g.world.groundAt(x, z, 99), z);
+        const near = (dist) => {
+          const x = boss.pos.x + (boss.pos.x > 0 ? -dist : dist);
+          place(x, boss.pos.z);
+        };
+        const r = { name: boss.name };
+        if (key === 'doppel') {
+          r.copy = JSON.stringify(boss.asm) === JSON.stringify(pl.asm);
+          r.a = hit('w_rifle');
+          for (let i = 0; i < 40; i++) hit('w_rifle');
+          r.b = hit('w_rifle');
+          r.c = hit('w_lr');
+          step(0.1);
+          r.glow = boss.bossVis & 7;
+        } else if (key === 'viper') {
+          place(0, 0);
+          const seen = new Set();
+          step(30, () => seen.add(s.vm));
+          r.states = [...seen].join(',');
+          r.lost = lost();
+          s.vm = 'loiter';
+          r.a = hit();
+          s.vm = 'turn';
+          r.b = hit();
+          s.vm = 'run';
+          boss.staggerT = 1;
+          step(0.05);
+          r.stall = s.vm;
+        } else if (key === 'halberd') {
+          r.corner = Math.abs(boss.pos.x) > 30 && Math.abs(boss.pos.z) > 30;
+          near(35);
+          r.a = hit();
+          const los = g.losClear;
+          g.losClear = () => false; // 擋住射線：充能中斷
+          s.rg = 'idle';
+          s.rgT = 0;
+          step(1.2);
+          r.cancel = s.rg;
+          g.losClear = () => true;
+          s.rg = 'idle';
+          s.rgT = 0;
+          let fired = 0;
+          const ba = g.beamAttack;
+          g.beamAttack = function (...a) {
+            fired++;
+            return ba.apply(this, a);
+          };
+          step(3.2);
+          g.beamAttack = ba;
+          g.losClear = los;
+          r.fired = fired;
+          r.vent = s.rg;
+          r.b = hit();
+        } else if (key === 'seraphim') {
+          near(20);
+          step(2.5);
+          r.bits = boss.partsOf('bit').length;
+          step(5);
+          r.lost = lost();
+          r.a = hit();
+          s.fm = 'recall';
+          s.fmT = 3;
+          step(0.05);
+          r.b = hit();
+          boss.partsOf('bit').forEach((b) => (b.staggerT = 1));
+          step(0.1);
+          r.left = boss.partsOf('bit').length;
+        } else if (key === 'cinder') {
+          near(18);
+          s.fcT = 0;
+          s.act = null;
+          const pick = Math.random;
+          Math.random = () => 0.1; // 熔渣
+          step(0.05);
+          Math.random = pick;
+          r.act = s.act;
+          r.open = hit();
+          step(4.5);
+          r.pools = (g.hzPools || []).length;
+          heal();
+          // 站在燃燒的地面上
+          g.addPool(boss, pl.pos.clone(), 4, 5, 400);
+          step(1);
+          r.burn = lost();
+          s.act = null;
+          s.mouthT = 0;
+          s.fcT = 99;
+          step(0.05);
+          r.closed = hit();
+        } else if (key === 'behemoth') {
+          near(25);
+          const dir = pl.pos.clone().sub(boss.pos).setY(0).normalize();
+          boss.yaw = Math.atan2(-dir.x, -dir.z);
+          boss.rampartAim(dir);
+          step(1.6);
+          r.charge = s.rm;
+          step(2.5);
+          r.lost = lost();
+          // 撞上場地邊界 → 硬直、背後弱點
+          boss.pos.set(48, g.world.groundAt(48, 0, 99), 0);
+          boss.rampartAim(new THREE.Vector3(1, 0, 0));
+          step(2.4);
+          r.stun = s.rm;
+          place(boss.pos.x - 15, boss.pos.z); // 背後（boss 面向 +X）
+          r.rear = hit();
+          place(boss.pos.x + 8, boss.pos.z);
+          r.front = hit();
+        } else if (key === 'mirage') {
+          step(1);
+          r.holos = boss.partsOf('holo').length;
+          s.reveal = 0;
+          s.selfRev = 0;
+          step(0.1);
+          r.cloak = !!(boss.bossVis & 1) && boss.noLock;
+          hit();
+          step(0.05);
+          r.reveal = !(boss.bossVis & 1);
+          boss.staggerT = 1;
+          step(0.1);
+          r.after = boss.partsOf('holo').length;
+        } else if (key === 'judgement') {
+          near(20);
+          r.a = hit();
+          s.om = 'idle';
+          s.omT = 0;
+          s.n = 0;
+          step(6);
+          r.track = s.om;
+          r.lost = lost();
+          s.om = 'cool';
+          s.omT = 3;
+          step(0.05);
+          r.b = hit();
+          // 第二型態：格子砲擊
+          boss.hp = boss.maxHp * 0.4;
+          heal();
+          s.om = 'idle';
+          s.omT = 0;
+          s.n = 1;
+          step(8);
+          r.grid = lost();
+        } else if (key === 'cerberus') {
+          near(20);
+          boss.hp = boss.maxHp * 0.55;
+          step(0.1);
+          r.subs = boss.partsOf('sub').length;
+          r.hidden = boss.noLock && !!(boss.bossVis & 1);
+          r.sum = Math.round(boss.hp);
+          // 時間到 → 合體並回復
+          s.splitT = 0;
+          step(2.6);
+          r.merged = !s.split && !boss.dead;
+          r.hpBack = Math.round((boss.hp / boss.maxHp) * 100);
+          boss.hp = s.nextSplit - 1;
+          step(0.1);
+          r.again = boss.partsOf('sub').length;
+          kill(boss.partsOf('sub'));
+          step(0.1);
+          r.dead = boss.dead;
+        } else if (key === 'citadel') {
+          r.rail = g.world.corridor && g.world.corridor.kind;
+          r.cars = boss.partsOf().length;
+          r.tunnel = hit();
+          step(4);
+          const c = g.world.corridor;
+          r.onTrack =
+            Math.abs(boss.pos.x * c.perp.x + boss.pos.z * c.perp.y - c.off) < 0.5 && !(boss.bossVis & 1);
+          r.out = hit();
+          // 站在軌道上、列車前方
+          const p = g.world.corridorPoint(s.ts + 30);
+          place(p.x, p.z);
+          s.ramCd = 0;
+          step(5);
+          r.lost = lost();
+        } else if (key === 'pulsar') {
+          near(15);
+          s.pa = 'pulse';
+          s.paT = 0;
+          s.done = false;
+          step(3);
+          r.lost = lost();
+          heal();
+          // QB 的無敵時間：能量環穿過去
+          s.pa = 'pulse';
+          s.paT = 0;
+          s.done = false;
+          s.overT = 0;
+          step(3, () => (pl.iFrames = 1));
+          r.dodge = lost();
+          s.pa = null;
+          s.overT = 0;
+          s.cdT = 99;
+          step(0.05);
+          r.a = hit();
+          s.overT = 2;
+          step(0.05);
+          r.b = hit();
+        }
+        if (!boss.dead) {
+          if (boss.ai === 'train') boss.aiState.ts = 0; // 列車移出隧道
+          boss.bossVis = 0;
+          boss.iFrames = 0;
+          boss.aiState.split = false;
+          kill(boss.partsOf('sub'));
+          step(0.05);
+          if (!boss.dead) {
+            boss.bossVis = 0;
+            boss.takeDamage(1e10, 0, pl, boss.center());
+          }
+        }
+        step(0.2);
+        r.dead = boss.dead;
+        r.left = boss.partsOf().length;
+        g.clearMission();
+        g.state = 'title';
+        return r;
+      },
+      [L, key],
+    );
+  let r = await run(4, 'doppel');
+  check(
+    r.copy && r.b < r.a * 0.6 && r.c > r.b * 1.4 && r.glow === 1 && r.dead,
+    `${r.name}：複製玩家組裝、實彈抗性 ${r.a}→${r.b}、換雷射 ${r.c}、裝甲發光`,
+  );
+  r = await run(7, 'viper');
+  check(
+    /run/.test(r.states) &&
+      /turn/.test(r.states) &&
+      r.lost > 0 &&
+      r.b > r.a * 1.8 &&
+      r.stall === 'stall' &&
+      r.dead,
+    `${r.name}：${r.states}、掃射命中 ${r.lost}、盤旋 ${r.a}／掉頭 ${r.b}、硬直時失速`,
+  );
+  r = await run(10, 'halberd');
+  check(
+    r.corner && r.cancel === 'idle' && r.fired > 0 && r.vent === 'vent' && r.b > r.a * 4 && r.dead,
+    `${r.name}：在角落、擋住射線中斷充能、砲擊 ${r.fired} 發後散熱、裝甲 ${r.a}／散熱中 ${r.b}`,
+  );
+  r = await run(13, 'seraphim');
+  check(
+    r.bits >= 6 && r.lost > 0 && r.b > r.a * 1.8 && r.left === 0 && r.dead,
+    `${r.name}：浮游砲 ${r.bits} 座、命中 ${r.lost}、平時 ${r.a}／回收充能 ${r.b}、EMP 打落`,
+  );
+  r = await run(16, 'cinder');
+  check(
+    r.act === 'slag' && r.pools > 0 && r.burn > 0 && r.open > r.closed * 3 && r.dead,
+    `${r.name}：熔渣留下 ${r.pools} 處燃燒地面、站在上面受傷 ${r.burn}、爐口開 ${r.open}／關 ${r.closed}`,
+  );
+  r = await run(19, 'behemoth');
+  check(
+    r.charge === 'charge' && r.lost > 0 && r.stun === 'stun' && r.rear > r.front * 2 && r.dead,
+    `${r.name}：衝撞命中 ${r.lost}（${r.charge}）、撞上邊界 ${r.stun}、背後 ${r.rear}／正面 ${r.front}`,
+  );
+  r = await run(22, 'mirage');
+  check(
+    r.holos === 3 && r.cloak && r.reveal && r.after === 0 && r.dead && r.left === 0,
+    `${r.name}：分身 ${r.holos} 台、迷彩中不能鎖定、中彈現形、硬直時分身消失`,
+  );
+  r = await run(25, 'judgement');
+  check(
+    r.track === 'track' && r.lost > 0 && r.b > r.a * 4 && r.grid > 0 && r.dead,
+    `${r.name}：追蹤光柱命中 ${r.lost}、平時 ${r.a}／冷卻 ${r.b}、格子砲擊命中 ${r.grid}`,
+  );
+  r = await run(28, 'cerberus');
+  check(
+    r.subs === 3 && r.hidden && r.merged && r.hpBack > 55 && r.again === 3 && r.dead,
+    `${r.name}：分離 ${r.subs} 台（本體藏起來）、時間到合體回復到 ${r.hpBack}%、再分離後全滅即擊破`,
+  );
+  r = await run(31, 'citadel');
+  check(
+    r.rail === 'rail' &&
+      r.cars === 4 &&
+      r.tunnel === 0 &&
+      r.onTrack &&
+      r.out > 0 &&
+      r.lost > 0 &&
+      r.dead &&
+      r.left === 0,
+    `${r.name}：${r.rail} 地圖、車廂 ${r.cars} 節、隧道裡 ${r.tunnel}／出來 ${r.out}、沿軌道 ${r.onTrack}、撞到軌道上的目標 ${r.lost}、擊破 ${r.dead}／剩 ${r.left}`,
+  );
+  r = await run(34, 'pulsar');
+  check(
+    r.lost > 0 && r.dodge === 0 && r.b > r.a * 1.5 && r.dead,
+    `${r.name}：能量環命中 ${r.lost}、無敵時間穿過 ${r.dodge}、平時 ${r.a}／過熱 ${r.b}`,
+  );
+  // 出場等級：3 起、除以 3 餘 2 以外（每 1～2 級一場）、新舊穿插
+  const lv = await page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    for (const L of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      g.save.level = L;
+      g.renderGarage();
+      out.push(document.getElementById('mcTitle').textContent.includes('決戰') ? 'B' : '.');
+    }
+    return out.join('');
+  });
+  check(lv === '..BB.BB.', `Boss 關的等級（${lv}：任務 3、4、6、7…）`);
+  await ctx.close();
+}
+
 async function testMultiplayer(browser, url, tag, migrate) {
   console.log(`多人（${tag}）：建房 → 加入 → 準備 → 出擊`);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -3904,6 +4251,7 @@ async function main() {
     await testPaint(browser);
     await testStyleLab(browser);
     await testBosses(browser, base);
+    await testBosses2(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

@@ -16,7 +16,7 @@ Object.assign(Game.prototype, {
     }
     const p = this.player;
     const list = this.hostilesOfEnt(p)
-      .filter((e) => !e.dead && e.pos.distanceTo(p.pos) < p.stats.lockRange * 1.3)
+      .filter((e) => !e.dead && !e.noLock && e.pos.distanceTo(p.pos) < p.stats.lockRange * 1.3)
       .sort((a, b) => a.pos.distanceTo(p.pos) - b.pos.distanceTo(p.pos));
     if (!list.length) {
       p.lock = null;
@@ -45,7 +45,8 @@ Object.assign(Game.prototype, {
       }
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
       this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40);
-      if (p.lock && (p.lock.dead || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4)) p.lock = null;
+      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
+        p.lock = null;
       this.fpPickLock(p, false);
     } else {
       const ray = new THREE.Raycaster();
@@ -56,12 +57,13 @@ Object.assign(Game.prototype, {
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(p.pos.y + p.model.height * 0.5));
       ray.ray.intersectPlane(plane, this.mouseWorld) || this.mouseWorld.set(p.pos.x, p.pos.y, p.pos.z - 10);
       // lock-on
-      if (p.lock && (p.lock.dead || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4)) p.lock = null;
+      if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > p.stats.lockRange * 1.4))
+        p.lock = null;
       if (!p.lock) {
         let best = null,
           bd = 1e9;
         for (const e of this.hostilesOfEnt(p)) {
-          if (e.dead) continue;
+          if (e.dead || e.noLock) continue;
           const d = e.pos.distanceTo(p.pos);
           if (d < p.stats.lockRange && d < bd) {
             bd = d;
