@@ -60,8 +60,20 @@ import {
   stripMesh,
 } from './prop-models.js';
 import { Weather } from './weather.js';
+import { DAM } from './themes/dam.js';
+import { FLOODED } from './themes/flooded.js';
+import { GRID086 } from './themes/grid086.js';
+import { INSTITUTE } from './themes/institute.js';
+import { ORBIT } from './themes/orbit.js';
+import { SPACEPORT } from './themes/spaceport.js';
+import { XYLEM } from './themes/xylem.js';
 
 // 網格建造在 prop-models.js（純函式）；這裡只用亂數決定參數與位置，亂數呼叫順序不可改變
+// 主題的公路／鐵路設定：{ p 出現機率, kinds 可出現的種類 }（noCorridor 時沒有）
+export function corridorSpec(T) {
+  if (T.noCorridor) return { p: 0, kinds: [] };
+  return T.corridor || { p: 0.6, kinds: ['road', 'rail'] };
+}
 // 局部座標 (lx, lz) 繞 Y 轉 q×90° 後的位置（與 Object3D.rotation.y = q×π/2 一致）
 const rotQ = (q, lx, lz) =>
   [
@@ -88,6 +100,7 @@ const ARENA = 150,
 export const THEMES = {
   snow: {
     name: '極地封鎖區',
+    corridor: { p: 0.6, kinds: ['road', 'rail'] },
     ground: 0xbfc8d1,
     slope: 0x3a4048,
     rock: 0x2c3238,
@@ -104,6 +117,7 @@ export const THEMES = {
   },
   industrial: {
     name: '貨運集散場',
+    corridor: { p: 0.85, kinds: ['road', 'rail'] },
     ground: 0x5c626a,
     slope: 0x40454c,
     rock: 0x4a4f56,
@@ -117,6 +131,7 @@ export const THEMES = {
   },
   grid: {
     name: '模擬訓練場',
+    corridor: { p: 0.5, kinds: ['road'] },
     ground: 0x9ea6b3,
     slope: 0x7a828e,
     rock: 0x6f757f,
@@ -132,6 +147,7 @@ export const THEMES = {
   },
   desert: {
     name: '礦坑遺跡',
+    corridor: { p: 0.6, kinds: ['road', 'rail'] },
     ground: 0x9c8360,
     slope: 0x5a4636,
     rock: 0x5a4636,
@@ -148,6 +164,7 @@ export const THEMES = {
   // props：專屬的物件組（buildThemeProps）與主題版的地形特徵；size：場地邊長（m，預設 MAP_SIZE）
   wasteland: {
     name: '荒涼工業荒野',
+    corridor: { p: 0.7, kinds: ['rail', 'rail', 'road'] },
     ground: 0x8a6f52,
     slope: 0x5e4a3a,
     rock: 0x4e3e33,
@@ -164,6 +181,7 @@ export const THEMES = {
   },
   dunes: {
     name: '沙丘地帶',
+    corridor: { p: 0.4, kinds: ['road'] },
     ground: 0xc9a06a,
     slope: 0xa77c4c,
     rock: 0x7a5a3c,
@@ -178,11 +196,19 @@ export const THEMES = {
     weather: 'sand',
     props: 'dunes',
   },
+  flooded: FLOODED,
+  dam: DAM,
+  spaceport: SPACEPORT,
+  grid086: GRID086,
+  xylem: XYLEM,
+  orbit: ORBIT,
+  institute: INSTITUTE,
 };
 
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
     this.scene = scene;
+    this.forceRail = !!opt.rail; // 武裝列車的關卡：一定有鐵路（主題允許時）
     this.theme = THEMES[theme];
     this.themeKey = theme;
     this.size = this.theme.size || MAP_SIZE;
@@ -217,6 +243,7 @@ export class World {
           deckH: f.deckH,
           count: f.count,
           len: f.len,
+          bend: f.bend,
         }));
         this.featureNames = this.features
           .filter((f) => f.k !== 'corridor')
@@ -232,19 +259,19 @@ export class World {
           );
         const cf = this.features.find((f) => f.k === 'corridor');
         if (cf) {
-          this.corridor = { kind: cf.kind, dir: cf.dir, perp: cf.perp, off: cf.off, width: 10, len: cf.len };
+          this.corridor = {
+            kind: cf.kind,
+            dir: cf.dir,
+            perp: cf.perp,
+            off: cf.off,
+            width: 10,
+            len: cf.len,
+            bend: cf.bend || null,
+          };
           this.featureNames.push(cf.kind === 'road' ? '穿越公路' : '穿越鐵路');
         }
       } else {
         this.planFeatures();
-        if (opt.rail && this.corridor && this.corridor.kind !== 'rail') {
-          // Boss 關（武裝列車）：穿越的通道改成鐵路
-          this.corridor.kind = 'rail';
-          const cf = this.features.find((f) => f.k === 'corridor');
-          if (cf) cf.kind = 'rail';
-          const i = this.featureNames.indexOf('穿越公路');
-          if (i >= 0) this.featureNames[i] = '穿越鐵路';
-        }
       }
       this.buildTerrain();
       this.buildFeatures();
@@ -276,7 +303,13 @@ export class World {
       n = this.noise,
       n2 = this.noise2;
     // 新主題的地形輪廓（canyon／dunes）取代原本的起伏＋台地＋土丘
-    const prof = T.terrain === 'canyon' ? this.planCanyon() : T.terrain === 'dunes' ? this.planDunes() : null;
+    const prof = T.planTerrain
+      ? T.planTerrain(this)
+      : T.terrain === 'canyon'
+        ? this.planCanyon()
+        : T.terrain === 'dunes'
+          ? this.planDunes()
+          : null;
     const plateaus = [];
     const cliffPts = [];
     if (!prof) {
@@ -382,6 +415,8 @@ export class World {
     this.scene.add(m);
     this.meshes.push(m);
     this.terrainMesh = m;
+    if (T.water) this.addWater(T.water);
+    if (T.roof) this.addRoof(T.roof);
     if (lake) {
       const ice = buildIceSheet(lake.rx, lake.rz, lake.rng);
       ice.position.set(lake.x, lake.level + 0.05, lake.z);
@@ -501,14 +536,39 @@ export class World {
   onCorridor(x, z, margin = 2) {
     const c = this.corridor;
     if (!c) return false;
-    const u = x * c.perp.x + z * c.perp.y - c.off;
-    return Math.abs(u) < c.width / 2 + margin;
+    return Math.abs(this.corridorU(x, z)) < c.width / 2 + margin;
   }
-  corridorPoint(s) {
+  // 通道中心線：沿 dir 的參數 s，橫向偏移 off＋bend(s)。bend＝[幅度, 0 弓形／1 S 形]，null＝直線
+  corridorBend(s) {
+    const b = this.corridor && this.corridor.bend;
+    if (!b) return 0;
+    const t = clamp(s / (this.corridor.len / 2 + 18), -1, 1);
+    return b[1] ? b[0] * Math.sin(Math.PI * t) : b[0] * (1 - t * t);
+  }
+  corridorSlope(s) {
+    const b = this.corridor && this.corridor.bend;
+    const L = this.corridor ? this.corridor.len / 2 + 18 : 1;
+    if (!b || Math.abs(s) > L) return 0;
+    const t = s / L;
+    return b[1] ? ((b[0] * Math.PI) / L) * Math.cos(Math.PI * t) : (-2 * b[0] * t) / L;
+  }
+  // (x, z) 離通道中心線的橫向距離（有正負，沿 perp）
+  corridorU(x, z) {
     const c = this.corridor;
-    const x = c.dir.x * s + c.perp.x * c.off,
-      z = c.dir.y * s + c.perp.y * c.off;
+    return x * c.perp.x + z * c.perp.y - c.off - this.corridorBend(x * c.dir.x + z * c.dir.y);
+  }
+  corridorPoint(s, u = 0) {
+    const c = this.corridor;
+    const o = c.off + this.corridorBend(s) + u;
+    const x = c.dir.x * s + c.perp.x * o,
+      z = c.dir.y * s + c.perp.y * o;
     return new THREE.Vector3(x, this.terrainHeight(x, z), z);
+  }
+  // 參數 s 處的行進方向（單位向量，XZ）
+  corridorDir(s) {
+    const c = this.corridor,
+      k = this.corridorSlope(s);
+    return new THREE.Vector2(c.dir.x + c.perp.x * k, c.dir.y + c.perp.y * k).normalize();
   }
   slopeOK(x, z) {
     const s =
@@ -559,6 +619,7 @@ export class World {
       return;
     }
     // 新主題有自己的一套物件（不用舊主題的貨櫃、卡車、路燈、岩石、碎塊）
+    if (T.buildProps) return T.buildProps(this);
     if (T.props) return this.buildThemeProps(T.props);
     const cMat = [mat(T.container), mat(T.container2), mat(0x8b8f94)],
       frame = mat(0x2a2d31);
@@ -738,6 +799,104 @@ export class World {
     }
   }
 
+  // ---------- 主題機制：虛空、保留區、水面、岩頂、光照 ----------
+  // 虛空（主題的 void：{ y：低於這個地形高度＝虛空, fall：機體低於這個高度時拉回, ref：虛空上方的參考地面 }）
+  get voidY() {
+    return this.theme.void ? this.theme.void.fall : undefined;
+  }
+  // 地形低於 void.y 且上方沒有橋面（平台）的地方
+  isVoid(x, z) {
+    if (!this.theme.void || this.terrainHeight(x, z) >= this.theme.void.y) return false;
+    return !this.obstacles.some((o) => o.deck && Math.abs(x - o.x) < o.w / 2 && Math.abs(z - o.z) < o.d / 2);
+  }
+  // 高度上限、飛行高度用的地面：虛空上方以 void.ref 為準
+  groundRef(x, z, y) {
+    const g = this.groundAt(x, z, y);
+    return this.theme.void ? Math.max(g, this.theme.void.ref) : g;
+  }
+  // 最靠近中心、不是虛空也不在保留區的平地（出生點找不到時、墜落沒有紀錄時用）
+  safePoint() {
+    for (let r = 0; r < 60 * this.k; r += 3)
+      for (let a = 0; a < 12; a++) {
+        const x = Math.cos(a * 0.5236) * r,
+          z = Math.sin(a * 0.5236) * r;
+        if (!this.isVoid(x, z) && !this.isReserved(x, z, 2) && this.slopeOK(x, z))
+          return new THREE.Vector3(x, this.terrainHeight(x, z), z);
+      }
+    return new THREE.Vector3(0, this.terrainHeight(0, 0), 0);
+  }
+  // 從 (x, z) 往外找最近不是虛空的位置（不是虛空地圖時原樣回傳）
+  nearSolid(x, z) {
+    if (!this.isVoid(x, z)) return [x, z];
+    for (let r = 3; r < 80 * this.k; r += 3)
+      for (let a = 0; a < 16; a++) {
+        const px = x + Math.cos(a * 0.3927) * r,
+          pz = z + Math.sin(a * 0.3927) * r;
+        if (Math.abs(px) < this.lim - 2 && Math.abs(pz) < this.lim - 2 && !this.isVoid(px, pz))
+          return [px, pz];
+      }
+    const p = this.safePoint();
+    return [p.x, p.z];
+  }
+  // 保留區：大型結構（壩體…）佔的範圍 [x0, x1, z0, z1]，地形特徵與物件都避開
+  reserve(x0, x1, z0, z1) {
+    (this.reserved = this.reserved || []).push([x0, x1, z0, z1]);
+  }
+  isReserved(x, z, m = 0) {
+    if (!this.reserved) return false;
+    return this.reserved.some((r) => x > r[0] - m && x < r[1] + m && z > r[2] - m && z < r[3] + m);
+  }
+  // 水面（只有外觀）：{ level, color, opacity, rough, wide }
+  addWater(W) {
+    const ext = this.size * (W.wide ? 2.4 : 1); // wide：海面延伸到地圖外（洋上都市、雲海）
+    const geo = new THREE.PlaneGeometry(ext, ext);
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({
+        color: W.color,
+        roughness: W.rough !== undefined ? W.rough : 0.08,
+        metalness: 0.35,
+        transparent: true,
+        opacity: W.opacity || 0.8,
+        depthWrite: false,
+      }),
+    );
+    m.position.y = W.level;
+    m.renderOrder = 2;
+    m.receiveShadow = true;
+    this.scene.add(m);
+    this.meshes.push(m);
+    this.waterMesh = m;
+  }
+  // 岩頂（地下）：朝下的平面，只從下方看得到（俯視的鏡頭看得穿），不擋陰影
+  addRoof(R) {
+    const geo = new THREE.PlaneGeometry(this.size * 1.6, this.size * 1.6, 24, 24);
+    geo.rotateX(Math.PI / 2);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++)
+      pos.setY(i, -this.noise(pos.getX(i) * 0.02 + 9, pos.getZ(i) * 0.02) * (R.bump || 8));
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({ color: R.color, roughness: 1, flatShading: true }),
+    );
+    m.position.y = R.y;
+    this.scene.add(m);
+    this.meshes.push(m);
+  }
+  // 把主題的天空、霧、光源套到遊戲場景（任務、客機開局、實驗室共用）
+  applyLight(g) {
+    const T = this.theme;
+    g.scene.background = new THREE.Color(T.sky);
+    g.scene.fog = new THREE.Fog(T.fog, T.fogNear || 60, T.fogFar || 190);
+    g.sun.color.set(T.sun);
+    g.sun.intensity = T.sunI !== undefined ? T.sunI : 1;
+    g.hemi.color.set(T.sky);
+    g.hemi.groundColor.set(T.amb);
+    g.hemi.intensity = 0.48 * (T.hemiI !== undefined ? T.hemiI : 1);
+  }
+
   // ---------- 新主題的物件 ----------
   // 數量依場地面積放大（k²）
   cnt(a, b) {
@@ -757,8 +916,14 @@ export class World {
         tries < 20 &&
         (Math.hypot(x, z) < 10 ||
           this.onCorridor(x, z, 4) ||
+          this.isVoid(x, z) ||
+          this.isReserved(x, z, 3) ||
           (slope && !this.slopeOK(x, z)) ||
-          this.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < gap))
+          this.obstacles.some((o) =>
+            o.kind === 'box'
+              ? Math.abs(x - o.x) < o.w / 2 + gap / 2 && Math.abs(z - o.z) < o.d / 2 + gap / 2
+              : Math.hypot(o.x - x, o.z - z) < gap + (o.r > 3 ? o.r : 0),
+          ))
       );
       if (tries >= 20) continue;
       place(x, z, this.terrainHeight(x, z));
@@ -801,6 +966,19 @@ export class World {
     if (mats.length) this.occluders.push(ob);
     if (kind) this.regProp(kind, ob, hp, color);
     return ob;
+  }
+  // 純裝飾（不碰撞）：n 個 make() 的網格，避開虛空；sink：往下埋的深度
+  addDecor(n, make, sink = 0) {
+    for (let k = 0; k < n; k++) {
+      const x = rnd(-60 * this.k, 60 * this.k),
+        z = rnd(-60 * this.k, 60 * this.k);
+      const m = make();
+      if (this.isVoid(x, z)) continue;
+      m.position.set(x, this.terrainHeight(x, z) - sink, z);
+      m.rotation.y = rnd(0, 6.28);
+      this.scene.add(m);
+      this.meshes.push(m);
+    }
   }
   // 純裝飾的廢鐵（不碰撞）
   addScrap(n, color) {
@@ -985,7 +1163,7 @@ export class World {
         cnt = 0;
       for (let sx = a[0]; sx <= a[1] + 1e-6 && ok; sx += Math.max(1, (a[1] - a[0]) / 6))
         for (let sz = a[2]; sz <= a[3] + 1e-6; sz += Math.max(1, (a[3] - a[2]) / 6)) {
-          if (this.onCorridor(sx, sz, 3)) {
+          if (this.onCorridor(sx, sz, 3) || this.isVoid(sx, sz) || this.isReserved(sx, sz, 3)) {
             ok = false;
             break;
           }
@@ -1183,23 +1361,29 @@ export class World {
   planFeatures0() {
     this.features = [];
     this.featureNames = [];
-    const kinds = ['river_bridge', 'overpass', 'bunkers', 'trench', 'platforms'];
-    const n = this.theme.flat ? rndi(1, 3) : rndi(2, 4);
+    const kinds = this.theme.featureKinds || ['river_bridge', 'overpass', 'bunkers', 'trench', 'platforms'];
+    const n = Math.min(kinds.length, this.theme.flat ? rndi(1, 3) : rndi(2, 4));
     const chosen = [];
     while (chosen.length < n) {
       const k = pick(kinds);
       if (!chosen.includes(k)) chosen.push(k);
     }
-    {
-      const diag = RNG() < 0.5 ? 1 : -1;
-      const d = new THREE.Vector2(1, diag).normalize();
+    // 穿越的公路／鐵路：主題的 corridor（{ p 出現機率, kinds 可出現的種類 }）；方向斜向或沿 X／Z，偏離中心，一半有緩彎
+    const CO = corridorSpec(this.theme);
+    const force = this.forceRail && CO.kinds.includes('rail');
+    if (force || (CO.kinds.length && RNG() < CO.p)) {
+      const kind = force ? 'rail' : pick(CO.kinds);
+      const a = pick([Math.PI / 4, -Math.PI / 4, 0, Math.PI / 2]);
+      const d = new THREE.Vector2(Math.cos(a), Math.sin(a));
+      const bend = RNG() < 0.5 ? [rnd(8, 14) * this.k * (RNG() < 0.5 ? 1 : -1), RNG() < 0.5 ? 1 : 0] : null;
       this.corridor = {
-        kind: RNG() < 0.5 ? 'road' : 'rail',
+        kind,
         dir: d,
         perp: new THREE.Vector2(-d.y, d.x),
-        off: rnd(-6, 6),
+        off: rnd(-22 * this.k, 22 * this.k),
         width: 10,
         len: this.size * 0.75,
+        bend,
       };
       this.featureNames.push(this.corridor.kind === 'road' ? '穿越公路' : '穿越鐵路');
     }
@@ -1252,15 +1436,17 @@ export class World {
         this.featureNames.push('高台');
       }
     }
-    this.features.push({
-      k: 'corridor',
-      dir: this.corridor.dir,
-      perp: this.corridor.perp,
-      off: this.corridor.off,
-      width: 10,
-      len: this.corridor.len,
-      kind: this.corridor.kind,
-    });
+    if (this.corridor)
+      this.features.push({
+        k: 'corridor',
+        dir: this.corridor.dir,
+        perp: this.corridor.perp,
+        off: this.corridor.off,
+        width: 10,
+        len: this.corridor.len,
+        kind: this.corridor.kind,
+        bend: this.corridor.bend,
+      });
   }
   featureHeight(x, z, h) {
     for (const f of this.features) {
@@ -1288,8 +1474,7 @@ export class World {
     }
     if (this.corridor) {
       const c = this.corridor;
-      const u = x * c.perp.x + z * c.perp.y - c.off;
-      const v = x * c.dir.x + z * c.dir.y;
+      const u = this.corridorU(x, z);
       const inside = clamp(1 - (Math.abs(u) - c.width / 2) / 3.5, 0, 1);
       const edge = Math.max(Math.abs(x), Math.abs(z));
       if (inside > 0 && edge < (this.size / 2) * 0.88) {
@@ -1338,7 +1523,7 @@ export class World {
     c.position.set(x, y0 + h / 2, z);
     this.scene.add(c);
     this.meshes.push(c);
-    this.obstacles.push({ kind: 'circle', x, z, r: r * 1.1, group: c, mats: [], box: null });
+    this.obstacles.push({ kind: 'circle', x, z, r: r * 1.1, group: c, mats: [], box: null, top: y1 });
   }
   regProp(kind, ob, hp, color) {
     this.props = this.props || [];
@@ -1359,25 +1544,26 @@ export class World {
       team: 'prop',
       isProp: true,
       radius: Math.max(1.2, r * 0.85),
-      name: {
-        container: '貨櫃',
-        rock: '岩石',
-        pillar: '柱子',
-        truck: '卡車',
-        pillarBlock: '高柱',
-        derrick: '鑽井架',
-        hopper: '礦石料斗',
-        tank: '儲槽',
-        spire: '岩柱',
-        floodlight: '照明塔',
-        mtwreck: 'MT 殘骸',
-        sandstone: '砂岩',
-        fence: '防風牆',
-        quonset: '拱屋',
-        ice: '冰塊',
-        radar: '雷達天線',
-        beacon: '信號燈桿',
-      }[kind],
+      name:
+        {
+          container: '貨櫃',
+          rock: '岩石',
+          pillar: '柱子',
+          truck: '卡車',
+          pillarBlock: '高柱',
+          derrick: '鑽井架',
+          hopper: '礦石料斗',
+          tank: '儲槽',
+          spire: '岩柱',
+          floodlight: '照明塔',
+          mtwreck: 'MT 殘骸',
+          sandstone: '砂岩',
+          fence: '防風牆',
+          quonset: '拱屋',
+          ice: '冰塊',
+          radar: '雷達天線',
+          beacon: '信號燈桿',
+        }[kind] || (this.theme.propNames || {})[kind],
       pos: c,
       center: () => c.clone(),
       flashT: 0,
@@ -1405,11 +1591,8 @@ export class World {
     const L = [];
     const pts = (u) => {
       const out = [];
-      for (let s = -half; s <= half; s += 2) {
-        const x = c.dir.x * s + c.perp.x * (c.off + u),
-          z = c.dir.y * s + c.perp.y * (c.off + u);
-        out.push(new THREE.Vector3(x, this.terrainHeight(x, z) + 0.06, z));
-      }
+      for (let s = -half; s <= half; s += 2)
+        out.push(this.corridorPoint(s, u).add(new THREE.Vector3(0, 0.06, 0)));
       return out;
     };
     const road = c.kind === 'road';
@@ -1420,23 +1603,25 @@ export class World {
     }
     const P = road ? LANE_MARK : RAIL_TIE; // 公路中線標線／鐵路枕木
     for (let s = -half; s < half; s += P.step) {
-      const x = c.dir.x * s + c.perp.x * c.off,
-        z = c.dir.y * s + c.perp.y * c.off;
+      const p = this.corridorPoint(s),
+        t = this.corridorDir(s);
       const m = corridorPiece(P);
-      m.position.set(x, this.terrainHeight(x, z) + P.y, z);
-      m.rotation.y = Math.atan2(c.dir.x, c.dir.y);
+      m.position.set(p.x, p.y + P.y, p.z);
+      m.rotation.y = Math.atan2(t.x, t.y);
       this.scene.add(m);
       this.meshes.push(m);
     }
     // 隧道口：地圖兩端各一座（拱門＋門柱＋黑洞＋山體）
     for (const sgn of [-1, 1]) {
       const s = sgn * ((this.size / 2) * 0.86);
-      const x = c.dir.x * s + c.perp.x * c.off,
-        z = c.dir.y * s + c.perp.y * c.off;
-      const y = this.terrainHeight(x, z);
+      const p = this.corridorPoint(s),
+        t = this.corridorDir(s);
+      const x = p.x,
+        z = p.z,
+        y = p.y;
       const g = this.theme.props ? buildThemeTunnel(this.theme.props) : buildTunnelPortal(this.theme.rock);
       g.position.set(x, y - 0.1, z);
-      g.rotation.y = Math.atan2(c.dir.x, c.dir.y) + (sgn > 0 ? Math.PI : 0);
+      g.rotation.y = Math.atan2(t.x, t.y) + (sgn > 0 ? Math.PI : 0);
       this.scene.add(g);
       this.meshes.push(g);
     }
@@ -1444,6 +1629,7 @@ export class World {
   }
   buildFeatures() {
     this.buildCorridor();
+    if (this.theme.buildStructures) this.theme.buildStructures(this);
     const T = this.theme;
     const mats = deckMats();
     for (const f of this.features) {
@@ -1521,6 +1707,8 @@ export class World {
               tr++ < 10 &&
               (Math.hypot(x, z) < 10 ||
                 this.onCorridor(x, z, Math.max(w, d) * 0.72 + 2) ||
+                this.isVoid(x, z) ||
+                this.isReserved(x, z, Math.max(w, d) * 0.72) ||
                 !this.slopeOK(x, z))
             ) {
               x = rnd(-48 * this.k, 48 * this.k);
@@ -1581,7 +1769,13 @@ export class World {
             h = rnd(4, 7);
           {
             let tr = 0;
-            while (tr++ < 10 && (Math.hypot(x, z) < 12 || this.onCorridor(x, z, Math.max(w, d) * 0.72 + 8))) {
+            while (
+              tr++ < 10 &&
+              (Math.hypot(x, z) < 12 ||
+                this.onCorridor(x, z, Math.max(w, d) * 0.72 + 8) ||
+                this.isVoid(x, z) ||
+                this.isReserved(x, z, Math.max(w, d) * 0.72 + 4))
+            ) {
               x = rnd(-45 * this.k, 45 * this.k);
               z = rnd(-45 * this.k, 45 * this.k);
             }
@@ -1638,14 +1832,17 @@ export class World {
       }
     }
   }
-  rampHeight(x, z) {
+  // 坡道高度；y 有值時，懸空的坡道（lift：多層地圖從平台接到上一層）只對站在坡面附近的機體算數
+  rampHeight(x, z, y) {
     if (!this.ramps) return -1e9;
     let best = -1e9;
     for (const r of this.ramps) {
       if (Math.abs(x - r.x) > r.w / 2 || Math.abs(z - r.z) > r.d / 2) continue;
       const along = r.side[0] ? (r.x - x) * r.side[0] : (r.z - z) * r.side[1];
       const t = clamp((along + r.len / 2) / r.len, 0, 1);
-      best = Math.max(best, lerp(r.y0, r.y1, t));
+      const h = lerp(r.y0, r.y1, t);
+      if (r.lift && y !== undefined && y < h - 1.2) continue;
+      best = Math.max(best, h);
     }
     return best;
   }
@@ -1660,7 +1857,7 @@ export class World {
   }
   // ground height incl. box tops for an entity at (x,z) currently at height y
   groundAt(x, z, y) {
-    let g = Math.max(this.terrainHeight(x, z), this.rampHeight(x, z));
+    let g = Math.max(this.terrainHeight(x, z), this.rampHeight(x, z, y));
     for (const o of this.obstacles) {
       if (o.kind !== 'box') continue;
       if (
@@ -1691,6 +1888,7 @@ export class World {
           else z = o.z + Math.sign(dz || 1) * hd;
         }
       } else {
+        if (o.top !== undefined && y >= o.top - 0.6) continue;
         const dx = x - o.x,
           dz = z - o.z;
         const d = Math.hypot(dx, dz);
@@ -1710,7 +1908,7 @@ export class World {
   }
   // projectile vs world
   hitsWorld(p) {
-    if (p.y < this.terrainHeight(p.x, p.z) || p.y < this.rampHeight(p.x, p.z)) return true;
+    if (p.y < this.terrainHeight(p.x, p.z) || p.y < this.rampHeight(p.x, p.z, p.y)) return true;
     for (const o of this.obstacles) {
       if (o.kind === 'box') {
         if (Math.abs(p.x - o.x) < o.w / 2 && Math.abs(p.z - o.z) < o.d / 2 && p.y < o.top && p.y > o.y)
@@ -1730,6 +1928,7 @@ export class World {
         z = rnd(-50 * this.k, 50 * this.k);
       if (this.onCorridor(x, z, 2)) continue;
       if (!this.slopeOK(x, z)) continue;
+      if (this.isVoid(x, z) || this.isReserved(x, z, 3)) continue;
       if (Math.hypot(x - minDistFrom.x, z - minDistFrom.z) < 28) continue;
       if (others.some((o) => Math.hypot(o.x - x, o.z - z) < 6)) continue;
       if (
@@ -1742,7 +1941,8 @@ export class World {
         continue;
       return { x, z };
     }
-    return { x: rnd(-40 * this.k, 40 * this.k), z: rnd(-40 * this.k, 40 * this.k) };
+    const sp = this.safePoint();
+    return { x: sp.x, z: sp.z };
   }
   dispose() {
     if (this.weather) this.weather.dispose();

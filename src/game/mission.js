@@ -8,7 +8,7 @@ import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { buildBomberMesh } from '../render/extra-models.js';
 import { PALETTES } from '../render/materials.js';
-import { THEMES, World } from '../world/world.js';
+import { THEMES, World, corridorSpec } from '../world/world.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -253,7 +253,21 @@ Object.assign(Game.prototype, {
     this.clearMission();
     // 地圖：單人用車庫選的，多人用房主在大廳選的；沒選（隨機）或不認得時隨機
     const want = mp0 ? (this.net.pvpSet || {}).map : this.mapPref();
-    const theme = THEMES[want] ? want : pick(Object.keys(THEMES));
+    // 有些 Boss 不能在某些地圖（例：會鑽地、衝撞的 Boss 不排在有虛空的地圖）：主題的 bossBan
+    // 武裝列車只排在允許鐵路的地圖
+    const fits = (k) =>
+      !(bd0 && (THEMES[k].bossBan || []).includes(bd0.kind)) &&
+      !(bd0 && bd0.rail && !corridorSpec(THEMES[k]).kinds.includes('rail'));
+    let theme = THEMES[want] ? want : pick(Object.keys(THEMES).filter(fits));
+    if (!fits(theme)) {
+      const alt = pick(Object.keys(THEMES).filter(fits));
+      this.flashMsg(
+        `${bd0.name} 不適合在「${THEMES[theme].name}」作戰，改到「${THEMES[alt].name}」`,
+        0xffb020,
+        4,
+      );
+      theme = alt;
+    }
     const seed = Math.floor(Math.random() * 1e9);
     this.worldSeed = seed;
     this.worldTheme = theme;
@@ -265,11 +279,7 @@ Object.assign(Game.prototype, {
     this.net.spawnReg = {};
     this.mpStats = {};
     const T = this.world.theme;
-    this.scene.background = new THREE.Color(T.sky);
-    this.scene.fog = new THREE.Fog(T.fog, 60, 190);
-    this.sun.color.set(T.sun);
-    this.hemi.color.set(T.sky);
-    this.hemi.groundColor.set(T.amb);
+    this.world.applyLight(this);
     this.sun.position.set(40, 80, 30);
     if (mp && this.net.pvpSet && this.net.pvpSet.mode === 'pvp') {
       this.pvpSet = this.net.pvpSet;

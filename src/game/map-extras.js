@@ -106,7 +106,8 @@ Object.assign(Game.prototype, {
             if (Math.hypot(e.pos.x - cp.x, e.pos.z - cp.z) < 3.2 + e.radius && Math.abs(e.pos.y - cp.y) < 4) {
               v.hitCd[e.id] = t;
               const c = this.world.corridor;
-              const dir = new THREE.Vector3(c.dir.x * v.dirSign, 0.3, c.dir.y * v.dirSign);
+              const td = this.world.corridorDir(v.s);
+              const dir = new THREE.Vector3(td.x * v.dirSign, 0.3, td.y * v.dirSign);
               const side = new THREE.Vector3(c.perp.x, 0, c.perp.y).multiplyScalar(
                 (e.pos.x - cp.x) * c.perp.x + (e.pos.z - cp.z) * c.perp.y > 0 ? 1 : -1,
               );

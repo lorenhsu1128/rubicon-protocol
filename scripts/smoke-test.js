@@ -1029,6 +1029,88 @@ async function testSolo(browser, base) {
   await ctx.close();
 }
 
+// 各地圖的特殊機制：水壩的閘門與坡道、Grid 086 的懸空坡道、洋上都市的虛空墜落、高空軌道沒有通道、地下的光照
+async function mapMechanics(page, key) {
+  if (key === 'dam') {
+    const r = await page.evaluate(() => {
+      const w = window.__game.world,
+        D = w.dam,
+        gt = D.gates[0];
+      const sx = gt.x + gt.gw / 2 + 4;
+      return {
+        gates: D.gates.length,
+        ramps: (w.ramps || []).filter((q) => q.y1 === 14).length,
+        top: w.groundAt(sx, D.zc, 20),
+        under: w.groundAt(gt.x, D.zc, 0),
+      };
+    });
+    check(
+      r.gates >= 2 && r.ramps >= 1 && Math.abs(r.top - 14) < 0.5 && r.under < 4,
+      `水壩：閘門 ${r.gates} 座（下方地面 ${r.under.toFixed(1)}）、坡道 ${r.ramps} 座、壩頂 ${r.top.toFixed(1)} m`,
+    );
+  } else if (key === 'grid086') {
+    const r = await page.evaluate(() => {
+      const w = window.__game.world;
+      const lift = (w.ramps || []).find((q) => q.lift);
+      const decks = w.obstacles.filter((o) => o.deck);
+      return {
+        l1: decks.filter((o) => Math.abs(o.top - 11) < 0.1).length,
+        l2: decks.filter((o) => Math.abs(o.top - 21) < 0.1).length,
+        lift: !!lift,
+        low: lift ? w.groundAt(lift.x, lift.z, 0.5) : 0,
+        mid: lift ? w.groundAt(lift.x, lift.z, 16) : 0,
+      };
+    });
+    check(
+      r.l1 > 4 && r.l2 > 0 && r.lift && r.low < 12 && r.mid > 14,
+      `Grid 086：第一層 ${r.l1}、第二層 ${r.l2} 塊平台；懸空坡道下方 ${r.low.toFixed(1)}、坡面上 ${r.mid.toFixed(1)}`,
+    );
+  } else if (key === 'xylem') {
+    const r0 = await page.evaluate(() => {
+      const g = window.__game,
+        w = g.world,
+        p = g.player;
+      for (let x = -80; x <= 80; x += 4)
+        for (let z = -80; z <= 80; z += 4)
+          if (w.isVoid(x, z) && Math.hypot(x - p.pos.x, z - p.pos.z) < 60) {
+            p.pos.set(x, 0.6, z);
+            p.vel.set(0, 0, 0);
+            return { hp0: p.hp };
+          }
+      return null;
+    });
+    // headless 的幀率低（遊戲時間比真實時間慢）：等到被拉回（扣 AP）為止，最多 10 秒
+    for (let t = 0; t < 50 && r0; t++) {
+      await wait(200);
+      if ((await page.evaluate(() => window.__game.player.hp)) < r0.hp0) break;
+    }
+    await wait(300);
+    const r = await page.evaluate(() => {
+      const g = window.__game,
+        w = g.world,
+        p = g.player;
+      return {
+        y: p.pos.y,
+        hp: p.hp,
+        solid: !w.isVoid(p.pos.x, p.pos.z),
+        aiInVoid: g.enemies.filter((e) => !e.dead && !e.flying && w.isVoid(e.pos.x, e.pos.z) && e.pos.y < -1)
+          .length,
+      };
+    });
+    check(
+      !!r0 && r.y > -2 && r.solid && r.hp < r0.hp0,
+      `洋上都市：掉進海裡被拉回平台（y ${r.y.toFixed(1)}、AP ${r0 && r0.hp0} → ${r.hp}）`,
+    );
+    check(r.aiInVoid === 0, `洋上都市：沒有敵機掉在虛空裡（${r.aiInVoid}）`);
+  } else if (key === 'orbit') {
+    const r = await page.evaluate(() => ({ corridor: !!window.__game.world.corridor }));
+    check(!r.corridor, '高空軌道：沒有公路／鐵路');
+  } else if (key === 'institute') {
+    const r = await page.evaluate(() => ({ sun: window.__game.sun.intensity }));
+    check(r.sun < 0.6, `地下技研都市：光照較暗（太陽 ${r.sun.toFixed(2)}）`);
+  }
+}
+
 // 地圖選擇與新主題：車庫選地圖 → 出擊用那張地圖（專屬物件、放大的場地、天氣）→ 放棄；記住選擇
 async function testMaps(browser, base) {
   console.log('地圖：車庫選地圖 → 新主題出擊');
@@ -1046,6 +1128,13 @@ async function testMaps(browser, base) {
   for (const [key, want] of [
     ['wasteland', ['hopper', 'spire']],
     ['dunes', ['mtwreck', 'sandstone']],
+    ['flooded', ['car', 'ruinwall']],
+    ['dam', ['control', 'transformer']],
+    ['spaceport', ['fuelsphere', 'blastwall']],
+    ['grid086', ['shack', 'scrapheap']],
+    ['xylem', ['aaturret', 'planter']],
+    ['orbit', ['solar', 'radiator']],
+    ['institute', ['coraltank', 'crystal']],
     ['snow', ['quonset', 'ice']],
   ]) {
     await page.selectOption('#gMapSel', key);
@@ -1060,13 +1149,14 @@ async function testMaps(browser, base) {
         size: w.size,
         lim: w.lim,
         kinds: [...new Set((w.props || []).map((p) => p.kind))],
-        weather: !!(w.weather && w.weather.points),
+        weather: !w.theme.weather || !!(w.weather && w.weather.points),
       };
     });
     check(
-      info.theme === key && info.size > 150 && info.lim > 62 && info.weather,
+      info.theme === key && info.size === 230 && info.lim > 62 && info.weather,
       `${key}：場地 ${info.size} m（活動範圍 ±${info.lim.toFixed(0)}）、天氣粒子`,
     );
+    await mapMechanics(page, key);
     check(
       want.every((k) => info.kinds.includes(k)) && !info.kinds.some((k) => OLD.includes(k)),
       `${key}：專屬物件（${info.kinds.join('、')}），沒有舊地圖的貨櫃／卡車／岩石／路燈`,
@@ -4114,7 +4204,7 @@ async function testBosses2(browser, base) {
           step(2.5);
           r.lost = lost();
           // 撞上場地邊界 → 硬直、背後弱點
-          const ex = g.world.lim - 10;
+          const ex = g.world.lim - 16; // 撞牆點與正前方的測試位置都要在邊緣懸崖之內
           boss.pos.set(ex, g.world.groundAt(ex, 0, 99), 0);
           boss.rampartAim(new THREE.Vector3(1, 0, 0));
           step(2.4);
@@ -4521,6 +4611,20 @@ async function main() {
       '--autoplay-policy=no-user-gesture-required',
     ],
   });
+  // 地圖預設固定為貨運集散場（平坦、沒有虛空與多層），Boss、鎖定、多人等測試的結果才穩定；
+  // 各地圖本身由 testMaps 逐一出擊檢查。測試自己選了地圖（包含選回「隨機」）時不覆蓋
+  const newCtx = browser.newContext.bind(browser);
+  browser.newContext = async (o) => {
+    const c = await newCtx(o);
+    await c.addInitScript(() => {
+      try {
+        if (localStorage.getItem('rubicon_map') === null) localStorage.setItem('rubicon_map', 'industrial');
+      } catch (e) {
+        /* 沒有 localStorage 的頁面 */
+      }
+    });
+    return c;
+  };
   const srv = await serveHtml();
   let game = null;
   try {

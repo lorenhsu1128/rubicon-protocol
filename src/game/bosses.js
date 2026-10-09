@@ -40,8 +40,10 @@ Object.assign(Game.prototype, {
       const a0 = Math.random() * Math.PI * 2;
       for (let i = 0; i < n; i++) {
         const a = a0 + (i / n) * Math.PI * 2;
-        const x = clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4, this.world.lim - 4),
-          z = clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4, this.world.lim - 4);
+        const [x, z] = this.world.nearSolid(
+          clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4, this.world.lim - 4),
+          clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4, this.world.lim - 4),
+        );
         fn(new THREE.Vector3(x, this.world.groundAt(x, z, 99), z), i);
       }
     };
@@ -101,8 +103,10 @@ Object.assign(Game.prototype, {
     const a0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < 4; i++) {
       const a = a0 + (i / 4) * Math.PI * 2;
-      const x = clamp(b.pos.x + Math.cos(a) * 22, -this.world.lim + 4, this.world.lim - 4),
-        z = clamp(b.pos.z + Math.sin(a) * 22, -this.world.lim + 4, this.world.lim - 4);
+      const [x, z] = this.world.nearSolid(
+        clamp(b.pos.x + Math.cos(a) * 22, -this.world.lim + 4, this.world.lim - 4),
+        clamp(b.pos.z + Math.sin(a) * 22, -this.world.lim + 4, this.world.lim - 4),
+      );
       this.spawnPart(b, 'pylon', { at: new THREE.Vector3(x, this.world.groundAt(x, z, 99), z) });
     }
   },

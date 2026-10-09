@@ -226,6 +226,7 @@ Object.assign(Game.prototype, {
             deckH: f.deckH,
             count: f.count,
             len: f.len,
+            bend: f.bend,
           })),
           bossLevel: this.isBossLevel,
           stats: this.mpStats,

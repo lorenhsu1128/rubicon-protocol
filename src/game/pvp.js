@@ -215,6 +215,7 @@ Object.assign(Game.prototype, {
           deckH: f.deckH,
           count: f.count,
           len: f.len,
+          bend: f.bend,
         })),
         level: L,
         players: this.net.players.map((p) => ({ slot: p.slot, nick: p.nick, color: p.color })),

@@ -106,11 +106,7 @@ Object.assign(Game.prototype, {
     const T = this.world.theme;
     this.worldSeed = L.seed;
     this.worldTheme = L.theme;
-    this.scene.background = new THREE.Color(T.sky);
-    this.scene.fog = new THREE.Fog(T.fog, 60, 190);
-    this.sun.color.set(T.sun);
-    this.hemi.color.set(T.sky);
-    this.hemi.groundColor.set(T.amb);
+    this.world.applyLight(this);
     this.isClient = false;
     this.net.spawnReg = {};
     this.mpStats = {};
@@ -171,7 +167,7 @@ Object.assign(Game.prototype, {
       const r = t < 5 ? 0 : 2 + t * 0.4;
       const x = cx + rnd(-r, r),
         z = cz + rnd(-r, r);
-      if (w.onCorridor(x, z, 2) || !w.slopeOK(x, z)) continue;
+      if (w.onCorridor(x, z, 2) || !w.slopeOK(x, z) || w.isVoid(x, z)) continue;
       if (others.some((o) => Math.hypot(o.x - x, o.z - z) < 5)) continue;
       if (
         w.obstacles.some((o) =>
@@ -183,7 +179,8 @@ Object.assign(Game.prototype, {
         continue;
       return { x, z };
     }
-    return { x: cx, z: cz };
+    const [x, z] = w.nearSolid(cx, cz);
+    return { x, z };
   },
   labMechs() {
     return [...(this.players || []), ...this.allies, ...this.enemies];

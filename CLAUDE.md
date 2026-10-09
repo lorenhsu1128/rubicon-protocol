@@ -62,7 +62,8 @@ render/              materials.js（Canvas 貼圖、mechMats、PALETTES、palCol
                      set-pack.js（.rubicon-set 打包／解開）、net-models.js（伺服器預設組 ServerModels、玩家上傳的模型組
                      RemoteSets、uploadSet）
 world/               world.js（World：關卡生成、THEMES）、prop-models.js（地圖物件的網格建造，純函式）、
-                     weather.js（天氣粒子，只有外觀）、map-extras.js（Vehicle、Pickup、PICKUP_DEFS）
+                     weather.js（天氣粒子，只有外觀）、map-extras.js（Vehicle、Pickup、PICKUP_DEFS）、
+                     themes/（AC6 風格主題模組：kit.js 共用工具、flooded、dam、spaceport、grid086、xylem、orbit、institute）
 audio/               audio.js（SFX）、sfx-data.js（匯入 assets/sfx/*.mp3）
 fx/                  effects.js（Effects 粒子／曳光／碎片）、thruster.js（推進器噴焰粒子：Effects.thruster，
                      從背包噴口連接點沿其 −Y 噴出；模型庫檢視窗共用）
@@ -145,10 +146,16 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 
 ### 地圖主題（world/world.js 的 THEMES）
 
-- 正在把《機戰傭兵6》的地圖風格分批加進來（荒涼工業荒野 `wasteland`、沙丘地帶 `dunes`、冰原 `snow`（冰湖、降雪）已完成）。主題除了顏色還有：`terrain`（地形輪廓：`canyon` 峽谷台地、`dunes` 沙丘；沒有時走原本的起伏＋台地）、`weather`（`world/weather.js` 的雪／風沙／塵埃粒子，只有外觀、各端用 Math.random，由 `renderMain` 每格更新）、`props`（專屬物件組 `buildThemeProps`）、`size`（場地邊長，預設 150）、`iceLake`。
-- **新主題一律用自己的物件**，不用舊主題的貨櫃、卡車、路燈、岩石、碎塊（`buildProps` 看到 `props` 就改走 `buildThemeProps`）；地形特徵（橋面板、支柱、掩體牆、高台、坡道、隧道口）也換成主題版（`buildTheme*`，尺寸與原點同程式模型、碰撞不變，GLB 槽位 `prop/<主題>_deck` 等）；新物件都要在 `prop-models.js` 寫成純函式（支援 `propGlb`）並在 `model-catalog.js` 登記。大型物件用 `findSpot`（局部外框＋90° 旋轉、避開出生點／通道／障礙物、限制地面高低差）＋`addBig`，小型的用 `scatter`＋`addSmall`。數量用 `cnt(a, b)`（依面積 k² 放大）。
+- 共 13 種：原有的貨運集散場 `industrial`、模擬訓練場 `grid`、礦坑遺跡 `desert`，以及《機戰傭兵6》風格的冰原 `snow`（冰湖、降雪）、荒涼工業荒野 `wasteland`、沙丘地帶 `dunes`（這三個寫在 world.js），與 `world/themes/*.js` 的汙染水沒市街 `flooded`、多重水壩 `dam`、舊宇宙港 `spaceport`、巨型構造體 Grid 086 `grid086`、洋上都市 Xylem `xylem`、高空軌道 `orbit`、地下技研都市 `institute`。
+- 主題欄位：顏色、`terrain`（`canyon` 峽谷台地、`dunes` 沙丘）或 `planTerrain(w)`（回傳 (x, z) → 高度）、`buildStructures(w)`（在地形特徵之前建大型結構，例如壩體、多層平台、橋，並以 `w.reserve` 登記保留區）、`buildProps(w)`（取代 `buildThemeProps`）、`weather`（`world/weather.js`：snow／sand／dust／rain／ash／coral，只有外觀、各端用 Math.random，由 `renderMain` 每格更新）、`props`（物件組與地形特徵外觀的名稱）、`featureKinds`（可出現的地形特徵，空陣列＝沒有）、`corridor`（穿越的公路／鐵路 `{ p 出現機率, kinds 種類 }`，預設 0.6／兩種；`noCorridor` 時沒有；`corridorSpec(T)`）、`water`（水面 `{ level, color, opacity, rough, wide }`，只有外觀）、`roof`（地下的岩頂，朝下的平面，俯視鏡頭看得穿）、`void`（虛空 `{ y, fall, ref }`）、`sunI`／`hemiI`／`fogNear`／`fogFar`（`World.applyLight` 套用；任務、客機開局、實驗室都經過它）、`bossBan`（不排在這張地圖的 Boss kind，`startMission` 改用別的地圖並提示）、`propNames`（可破壞物件的名稱）、`catalog`（模型庫登記的物件 `[key, 名稱, 備註, build, extra?]`）。
+- 主題模組（`world/themes/*.js`）不可 import world.js（world.js 會 import 它們）；需要 World 時一律用參數 `w`，共用工具在 `themes/kit.js`（`box`、`cyl`、`fadeMat`、`propGlb`、`windowMat`…）。地形特徵的外觀以 `registerFeatureStyle(style, colors, { deck, pillar, wall, platform, ramp, tunnel })` 登記（`prop-models.js` 的 `buildTheme*` 先試 GLB 再分派）。
+- **虛空**（`xylem`、`orbit`）：`World.isVoid`（地形低於 `void.y` 且上方沒有橋面）、`groundRef`（高度上限與飛行高度在虛空上方以 `void.ref` 為準）、`nearSolid`／`safePoint`；`MechEntity.voidCheck`：AI 不走進虛空、機體低於 `void.fall` 時拉回最後站穩的位置（`safePos`）、1.5 秒無敵、扣 10% AP（只在房主／單機）。出生點、散布、大型物件、Boss 部位、實驗室擺放都避開虛空。
+- **公路／鐵路**（`World.corridor`）：方向斜向或沿 X／Z、`off` 偏離中心、`bend`＝[幅度, 0 弓形／1 S 形] 的緩彎（null＝直線）。一律經過 `corridorPoint(s, u)`、`corridorDir(s)`（切線）、`corridorU(x, z)`（橫向距離）、`onCorridor`，不要再直接用 `c.dir`／`c.perp`／`c.off` 算位置或朝向（運輸車、武裝列車、隧道口、水壩閘門都依切線）。武裝列車的關卡以 `opt.rail`（`forceRail`）一定生成鐵路，`startMission` 只挑 `corridorSpec(T).kinds` 含 rail 的地圖。客機由地形特徵的 `bend` 重建，所以 `serEnt` 以外的開局訊息（mp-host、pvp、net 的 feat）都要帶它。
+- **多層**（`grid086`）：平台是 `addDeck` 的 deck 障礙物；坡道 `ramps` 的 `lift: true`（懸空坡道）只對站在坡面附近高度的機體算數（`rampHeight(x, z, y)`）；圓柱障礙物有 `top` 時，站在上面的機體不被擋。
+- **新主題一律用自己的物件**，不用舊主題的貨櫃、卡車、路燈、岩石、碎塊（`buildProps` 看到 `buildProps`／`props` 就改走主題自己的）；地形特徵（橋面板、支柱、掩體牆、高台、坡道、隧道口）也換成主題版（`buildTheme*`，尺寸與原點同程式模型、碰撞不變，GLB 槽位 `prop/<主題>_deck` 等）；新物件都要寫成純函式（支援 `propGlb`）並登記到模型庫（`model-catalog.js`，或主題的 `catalog`）。大型物件用 `findSpot`（局部外框＋90° 旋轉、避開出生點／通道／障礙物、限制地面高低差）＋`addBig`，小型的用 `scatter`＋`addSmall`。數量用 `cnt(a, b)`（依面積 k² 放大）。
 - **場地大小**：所有地圖預設 230 m（`MAP_SIZE`，主題可用 `size` 另訂）；`World.size`、`k`＝size／150（原本的場地）、`lim`＝62k（`collide` 的活動範圍）、`trackS`（公路／鐵路兩端隧道口，武裝列車用）。world.js 裡的位置範圍都乘上 `k`；Boss（`mech-boss.js`、`mech-boss2.js`、`bosses.js`、`bosses2.js`）與 PvP 出生圈讀 `world.lim`／`k`／`trackS`，**不要再寫死 ±62、58 之類的數字**（冒煙測試也一樣，用 `g.world.lim`）。
 - 舊主題要追加內容時用獨立的亂數串（例：冰湖用 `makeRng(seed * 53 + 19)`），或加在既有亂數呼叫之後，不能插在中間。
+- 冒煙測試的每個瀏覽器環境預設 `rubicon_map`＝industrial（平坦、沒有虛空與多層），Boss、鎖定、多人等測試才穩定；各地圖由 `testMaps` 逐一出擊檢查。
 - 選圖：單人在車庫選（`#gMapSel`，localStorage `rubicon_map`，空字串＝隨機）；多人由房主在大廳選（`pvpSet.map`，隨大廳同步，客機的車庫只顯示），`startMission` 依此決定主題。
 
 ### 動作 IK（render/mech-ik.js）
@@ -199,7 +206,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 多人連線是房主權威：邏輯只在房主執行，客機送輸入、收 30 Hz 快照。新增遊戲狀態時要同時處理 `net/snapshot.js` 的 `serEnt`／`applyEnt`、快照欄位（`game/mp-host.js` 的 `hostTick`、`game/mp-client.js` 的 `clientApplySnapshot`）、事件 `netEv`／`clientEvent`，以及房主遷移（`game/mp-host.js` 的 `promoteToHost`）。
 - 客機在任務中 3 秒沒收到房主訊息就判定房主失聯並遷移（`clientTick`）；本機卡住超過 1 秒（開局建地圖與模型、編譯著色器）或開局後第一次更新時重新起算，否則慢的電腦會誤判。
 - 新增選單畫面（新的 `state`）時，要把它加進 `game/game.js` 的 `loop` 裡只畫背景的選單狀態清單（title、saves、result、mp、lobby…），否則會被當成任務中而讀到空的 `player`。
-- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.4'`），否則新舊版本會互連。新增地圖主題也要提高（舊版客機不認得新主題）。
+- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'9.5'`），否則新舊版本會互連。新增地圖主題也要提高（舊版客機不認得新主題）。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save_1`～`rubicon_save_3`（三個存檔槽，各自完整一份，含 PvE／PvP 駕駛員）、`rubicon_save_cur`（目前的槽位；不存在時把舊版單一存檔 `rubicon_save` 搬進存檔 1，舊鍵保留當備份）、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`、`rubicon_ik`（動作 IK 的總開關與各項開關）、`rubicon_map`（出擊地圖）、`rubicon_style`（渲染風格：選用的風格、機體金屬、解析度、我的預設、伺服器清單快取）。
 - 鎖定一律經過 `game/player.js` 的 `lockCands`／`autoLock`／`cycleLock`（單機、房主與客機的輸入、第一人稱共用）：只考慮攻擊距離內（`lockReach`：裝備武器不含近戰的最遠射程，上限是火控的鎖定距離）、不是 `noLock` 的敵人；第三人稱是機甲面向的正面 180° 內（不論在不在畫面裡）由近到遠，背後的不鎖定；第一人稱是畫面內、依離準星的角度。目標被擊破或移到攻擊距離外（×1.05）就改鎖第一順位。滑鼠／觸控點擊敵人（`tryClickLock`）照舊直接鎖定。

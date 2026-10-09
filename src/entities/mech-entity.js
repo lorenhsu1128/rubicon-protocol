@@ -761,6 +761,34 @@ export class MechEntity {
       }
     }
   }
+  // 虛空（洋上都市、高空）：AI 不走進虛空；掉下去扣 10% AP（只在房主／單機）、1.5 秒無敵，拉回最後站穩的位置
+  voidCheck(w, px, pz) {
+    if (
+      this.ai &&
+      !this.flying &&
+      w.isVoid(this.pos.x, this.pos.z) &&
+      !w.isVoid(px, pz) &&
+      this.pos.y - w.terrainHeight(px, pz) < 3
+    ) {
+      this.pos.x = px;
+      this.pos.z = pz;
+      this.vel.x = this.vel.z = 0;
+      this.aiState.stuck += 0.05;
+    }
+    if (this.grounded && !w.isVoid(this.pos.x, this.pos.z)) {
+      if (!this.safePos) this.safePos = new THREE.Vector3();
+      this.safePos.copy(this.pos);
+    }
+    if (this.flying || this.pos.y >= w.voidY) return;
+    const p = this.safePos || w.safePoint();
+    this.pos.set(p.x, w.groundAt(p.x, p.z, p.y + 1), p.z);
+    this.vel.set(0, 0, 0);
+    this.iFrames = Math.max(this.iFrames, 1.5);
+    const g = this.game;
+    if (!g.isClient && !this.dead) this.hp = Math.max(1, this.hp - this.maxHp * 0.1);
+    if (this.isPlayer) g.flashAlert('墜落 — AP −10%，返回平台');
+    g.fx.ring(this.pos.clone().setY(this.pos.y + 0.1), 4, 0x80c8ff);
+  }
   takeDamage(dmg, impact, from, at, dir, melee, wid) {
     if (this.dead) return;
     if (this.iFrames > 0) return;
@@ -1130,8 +1158,8 @@ export class MechEntity {
       this.vel.x = lerp(this.vel.x, target.x, Math.min(1, acc * dt));
       this.vel.z = lerp(this.vel.z, target.z, Math.min(1, acc * dt));
     } else this.updateMelee(dt);
-    // vertical
-    const ground = w.groundAt(this.pos.x, this.pos.z, this.pos.y);
+    // vertical（高度上限與飛行高度：虛空上方以平台高度為準）
+    const ground = w.groundRef(this.pos.x, this.pos.z, this.pos.y);
     let altCap = false;
     {
       const MAXALT = 22;
@@ -1160,6 +1188,8 @@ export class MechEntity {
       }
     }
     // integrate
+    const px0 = this.pos.x,
+      pz0 = this.pos.z;
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
     this.pos.y += this.vel.y * dt;
@@ -1195,6 +1225,7 @@ export class MechEntity {
     if (this.pos.y < tg) {
       this.pos.y = tg;
     }
+    if (w.voidY !== undefined) this.voidCheck(w, px0, pz0);
     // ---- 機體動態：依加速度前傾／後仰／側傾（機體座標系） ----
     if (!this.prevVel) this.prevVel = this.vel.clone();
     const accW = this.vel

@@ -13,7 +13,7 @@ const MatCache = {};
 const PROP_MATS = new WeakMap();
 // 換成 GLB 時的材質清單（遮擋半透明、受擊閃光用）；程式模型為 null
 export const propMats = (obj) => PROP_MATS.get(obj) || null;
-function propGlb(slot, { color, ref, size, rotY = 0, y = 0, fade = false } = {}) {
+export function propGlb(slot, { color, ref, size, rotY = 0, y = 0, fade = false } = {}) {
   const obj = providedModel('prop/' + slot, null, true);
   if (!obj) return null;
   const mats = [],
@@ -278,7 +278,7 @@ export function buildCorridorSegment(kind, len) {
 
 // ---------- 荒涼工業荒野（wasteland）：斗輪採掘機殘骸、輸送管線、鑽井架 ----------
 // 透明材質（擋住鏡頭時半透明）
-const fadeMat = (color, opts) => {
+export const fadeMat = (color, opts) => {
   const m = mat(color, opts).clone();
   m.transparent = true;
   return m;
@@ -763,6 +763,14 @@ export function buildIceShard(w, h, d) {
 // ---------- 主題版的地形特徵（荒野 wasteland／沙丘 dunes／冰原 snow）----------
 // 和程式模型的橋面板、支柱、掩體牆、高台、隧道口同樣的尺寸與原點（碰撞不變，只換外觀）；
 // GLB 槽位 prop/<主題>_deck 等，依尺寸縮放
+// 其他主題（world/themes/*.js）以 registerFeatureStyle 登記自己的顏色與六種外觀（deck／pillar／wall／platform／ramp／tunnel，
+// 參數同下面的函式，最後一個是顏色表）；GLB 槽位仍是 prop/<主題>_deck 等
+const FEATURE_IMPL = {};
+export function registerFeatureStyle(style, colors, impl) {
+  FEATURE_COLORS[style] = colors;
+  FEATURE_IMPL[style] = impl;
+}
+export const featureStyles = () => Object.keys(FEATURE_COLORS);
 const FEATURE_COLORS = {
   wasteland: {
     deck: 0x5e5048,
@@ -786,6 +794,7 @@ export function buildThemeDeck(style, w, d, thick, rotY) {
     fade: true,
   });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].deck(w, d, thick, rotY, C);
   const g = new THREE.Group();
   const dm = fadeMat(C.deck, { roughness: 0.85, metalness: style === 'wasteland' ? 0.5 : 0.1 }),
     tm = fadeMat(C.trim, { roughness: 0.8, metalness: style === 'wasteland' ? 0.5 : 0.05 });
@@ -854,6 +863,7 @@ export function buildThemePillar(style, r, h) {
     y: -h / 2,
   });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].pillar(r, h, C);
   const g = new THREE.Group();
   const m = mat(C.pillar, { roughness: 0.85, metalness: style === 'wasteland' ? 0.5 : 0.05 });
   if (style === 'wasteland') {
@@ -888,6 +898,7 @@ export function buildThemeWall(style, w, h, d) {
     fade: true,
   });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].wall(w, h, d, C);
   const g = new THREE.Group();
   const m = fadeMat(C.wall, { roughness: 0.75, metalness: style === 'wasteland' ? 0.5 : 0.05 });
   const along = w > d;
@@ -932,6 +943,7 @@ export function buildThemePlatform(style, w, h, d) {
     fade: true,
   });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].platform(w, h, d, C);
   const g = new THREE.Group();
   const m = fadeMat(C.plat, { roughness: style === 'snow' ? 0.2 : 0.95, metalness: 0.05 });
   g.add(box(w, h, d, m, 0, h / 2, 0));
@@ -983,6 +995,7 @@ export function buildThemeRamp(style, rw, rd) {
     rotY: alongX ? 0 : Math.PI / 2,
   });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].ramp(rw, rd, C);
   const g = new THREE.Group();
   g.add(box(rw, 0.4, rd, mat(style === 'snow' ? 0xe9eef2 : C.plat, { roughness: 0.95 })));
   const tm = mat(style === 'wasteland' ? 0x5a4030 : C.trim, { roughness: 0.9 });
@@ -999,6 +1012,7 @@ export function buildThemeTunnel(style) {
   const C = FEATURE_COLORS[style];
   const glb = propGlb(style + '_tunnel', { color: C.rock });
   if (glb) return glb;
+  if (FEATURE_IMPL[style]) return FEATURE_IMPL[style].tunnel(C);
   const g = new THREE.Group();
   const rock = mat(C.rock, { roughness: 1 });
   const hole = new THREE.MeshBasicMaterial({ color: 0x07080a });

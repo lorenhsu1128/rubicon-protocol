@@ -314,14 +314,15 @@ Object.assign(MechEntity.prototype, {
         if (s.ramCd <= 0 && this.canAct() && Math.abs(s.ts) < TRACK(this)) {
           for (const h of g.hostilesOfEnt(this)) {
             if (h.dead || !h.pos || altOf(g, h) > 3) continue;
-            const lat = h.pos.x * c.perp.x + h.pos.z * c.perp.y - c.off;
+            const lat = g.world.corridorU(h.pos.x, h.pos.z);
             const a = h.pos.x * c.dir.x + h.pos.z * c.dir.y - s.ts;
             if (Math.abs(lat) < 5 && a * s.td > 0 && Math.abs(a) < 55) {
               s.st = 'warn';
               s.stT = 1.2;
               s.ramCd = p2 ? 7 : 10;
               const mid = g.world.corridorPoint(s.ts + s.td * 30);
-              g.fx.warnRect(mid, Math.atan2(-c.dir.x * s.td, -c.dir.y * s.td), 6, 56, 1.2);
+              const td = g.world.corridorDir(s.ts + s.td * 30);
+              g.fx.warnRect(mid, Math.atan2(-td.x * s.td, -td.y * s.td), 6, 56, 1.2);
               SFX.play('heavy', 1, 0.5, 0.05, 0.05, this.center());
               g.alertAll('武裝列車全速衝撞 — 離開軌道！');
               break;
@@ -367,13 +368,14 @@ Object.assign(MechEntity.prototype, {
       s.spd = 0;
     }
     this.pos.copy(g.world.corridorPoint(s.ts));
-    this.yaw = this.aimYaw = Math.atan2(-c.dir.x, -c.dir.y); // 機車頭固定朝 +dir（往回開時由後方推）
+    const tdir = g.world.corridorDir(s.ts);
+    this.yaw = this.aimYaw = Math.atan2(-tdir.x, -tdir.y); // 機車頭固定朝 +dir（往回開時由後方推）
     // 碰撞：機車頭與各節車廂範圍內、貼近軌道的目標
     if (s.spd > 3) {
       for (const h of g.hostilesOfEnt(this)) {
         if (h.dead || !h.pos || altOf(g, h) > 4.5) continue;
         if ((s.hitCd.get(h) || 0) > g.time) continue;
-        const lat = h.pos.x * c.perp.x + h.pos.z * c.perp.y - c.off;
+        const lat = g.world.corridorU(h.pos.x, h.pos.z);
         if (Math.abs(lat) > 2.6 + h.radius * 0.5) continue;
         const a = h.pos.x * c.dir.x + h.pos.z * c.dir.y;
         let hit = false;
@@ -383,7 +385,7 @@ Object.assign(MechEntity.prototype, {
         const k = clamp(s.spd / 34, 0.35, 1);
         const push = V(c.perp.x, 0, c.perp.y).multiplyScalar(Math.sign(lat || 1));
         h.takeDamage((s.st === 'ram' ? 1100 : 450) * dm * k, 1500 * dm * k, this, h.center(), push);
-        h.vel.addScaledVector(push, 14).add(V(c.dir.x * s.td, 0, c.dir.y * s.td).multiplyScalar(s.spd * 0.5));
+        h.vel.addScaledVector(push, 14).add(V(tdir.x * s.td, 0, tdir.y * s.td).multiplyScalar(s.spd * 0.5));
         h.vel.y = Math.max(h.vel.y, 8);
         h.grounded = false;
         g.camShake = Math.max(g.camShake, 0.25);
@@ -392,7 +394,7 @@ Object.assign(MechEntity.prototype, {
     this.bossVis = (Math.abs(s.ts) > TRACK(this) + 1 ? 1 : 0) | (s.st === 'hot' ? 2 : 0);
     this.bx = [s.st === 'ram' || s.st === 'warn' ? 1 : 0];
     this.bossTick(dt);
-    this.vel.set(c.dir.x * s.td * s.spd, 0, c.dir.y * s.td * s.spd);
+    this.vel.set(tdir.x * s.td * s.spd, 0, tdir.y * s.td * s.spd);
   },
   // 列車車廂：位置由機車頭決定，各自攻擊
   carAI(dt, d, pl) {
@@ -410,7 +412,8 @@ Object.assign(MechEntity.prototype, {
     const ps = par.aiState;
     const ts = (ps.ts !== undefined ? ps.ts : 0) - (CARS.indexOf(k) + 1) * CAR_SP;
     this.pos.copy(g.world.corridorPoint(ts));
-    this.yaw = par.yaw;
+    const tdir = g.world.corridorDir(ts);
+    this.yaw = Math.atan2(-tdir.x, -tdir.y);
     const hidden = Math.abs(ts) > TRACK(this) + 1;
     this.bossVis = hidden ? 1 : 0;
     const p2 = par.phase2 && par.phase2();

@@ -51,6 +51,7 @@ import {
   buildThemeTunnel,
   buildThemeWall,
   deckMats,
+  featureStyles,
   mat,
 } from '../world/prop-models.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
@@ -541,11 +542,16 @@ addPlain('prop', 'ice_shard', '碎冰', '冰原的裝飾，0.6–1.6 m' + PROP_S
   buildIceShard(1.2, 0.4, 1),
 );
 // 主題版的地形特徵（荒野／沙丘／冰原的橋面板、支柱、掩體牆、高台、坡道、隧道口；尺寸與原點同程式模型）
-for (const [style, label] of [
-  ['wasteland', '荒野'],
-  ['dunes', '沙丘'],
-  ['snow', '冰原'],
-]) {
+// 主題模組（world/themes/*.js）登記的物件：theme.catalog＝[[key, 名稱, 備註, build, extra?]]
+for (const T of Object.values(THEMES))
+  for (const [key, name, note, build, extra] of T.catalog || [])
+    addPlain('prop', key, name, note, build, extra);
+const STYLE_LABEL = Object.fromEntries(
+  Object.values(THEMES)
+    .filter((T) => T.props)
+    .map((T) => [T.props, T.name]),
+);
+for (const [style, label] of featureStyles().map((st) => [st, STYLE_LABEL[st] || st])) {
   addPlain(
     'prop',
     style + '_deck',

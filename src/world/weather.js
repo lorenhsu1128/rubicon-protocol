@@ -1,4 +1,4 @@
-// 天氣粒子（雪、風沙、塵埃）：只有外觀，不影響任何判定。粒子放在跟著鏡頭的方盒裡循環，
+// 天氣粒子（雪、風沙、塵埃、雨、灰燼、Coral 光點）：只有外觀，不影響任何判定。粒子放在跟著鏡頭的方盒裡循環，
 // 位置由著色器以時間推算（每格只更新 uniform）；初始位置用 Math.random，各端不必一致。
 const VERT = /* glsl */ `
 uniform vec3 cam, wind;
@@ -33,6 +33,38 @@ const KINDS = {
   snow: { n: 3600, box: 70, size: 0.1, fall: 2.6, wind: [1.8, 0, 0.9], sway: 0.9, opacity: 0.9 },
   sand: { n: 2600, box: 56, size: 0.05, fall: 0.35, wind: [12, 0, 4.5], sway: 0.4, opacity: 0.55 },
   dust: { n: 1400, box: 60, size: 0.07, fall: 0.25, wind: [2.4, 0, 1.1], sway: 1.2, opacity: 0.35 },
+  rain: {
+    n: 4200,
+    box: 50,
+    size: 0.035,
+    fall: 22,
+    wind: [1.2, 0, 0.6],
+    sway: 0.05,
+    opacity: 0.5,
+    color: 0xb8c4cc,
+  },
+  ash: {
+    n: 1800,
+    box: 60,
+    size: 0.07,
+    fall: 0.6,
+    wind: [1.2, 0, 0.6],
+    sway: 1,
+    opacity: 0.5,
+    color: 0x6a625a,
+  },
+  // Coral 的紅色光點：緩緩上升、加色混合
+  coral: {
+    n: 1300,
+    box: 60,
+    size: 0.08,
+    fall: -0.35,
+    wind: [0.3, 0, 0.2],
+    sway: 1.5,
+    opacity: 0.9,
+    color: 0xff3a30,
+    add: true,
+  },
 };
 
 export class Weather {
@@ -53,9 +85,11 @@ export class Weather {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
     const col =
-      kind === 'snow'
-        ? new THREE.Color(0xffffff)
-        : new THREE.Color(theme.ground).lerp(new THREE.Color(theme.fog), kind === 'sand' ? 0.35 : 0.6);
+      K.color !== undefined
+        ? new THREE.Color(K.color)
+        : kind === 'snow'
+          ? new THREE.Color(0xffffff)
+          : new THREE.Color(theme.ground).lerp(new THREE.Color(theme.fog), kind === 'sand' ? 0.35 : 0.6);
     this.mat = new THREE.ShaderMaterial({
       uniforms: {
         cam: { value: new THREE.Vector3() },
@@ -74,6 +108,7 @@ export class Weather {
       transparent: true,
       depthWrite: false,
       fog: false,
+      blending: K.add ? THREE.AdditiveBlending : THREE.NormalBlending,
     });
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;

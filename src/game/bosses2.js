@@ -71,7 +71,7 @@ Object.assign(Game.prototype, {
           [-46 * w.k, 46 * w.k],
           [46 * w.k, 46 * w.k],
         ]) {
-          if (w.onCorridor(x, z, 4)) continue;
+          if (w.onCorridor(x, z, 4) || w.isVoid(x, z)) continue;
           const dd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
           if (dd > bd2) {
             bd2 = dd;

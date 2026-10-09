@@ -86,8 +86,8 @@ export class Vehicle {
     this.s += this.dirSign * this.speed * dt;
     const p = w.corridorPoint(this.s);
     this.mesh.position.set(p.x, p.y - 0.02, p.z);
-    const c = w.corridor;
-    this.mesh.rotation.y = Math.atan2(c.dir.x, c.dir.y) + (this.dirSign > 0 ? 0 : Math.PI);
+    const t = w.corridorDir(this.s);
+    this.mesh.rotation.y = Math.atan2(t.x, t.y) + (this.dirSign > 0 ? 0 : Math.PI);
     if (this.flashT > 0) {
       this.flashT -= dt;
       if (this.flashT <= 0) for (const m of this.mats) m.emissive.copy(m.userData.emis0 || BLACK);

@@ -272,6 +272,7 @@ export class Net {
         deckH: f.deckH,
         count: f.count,
         len: f.len,
+        bend: f.bend,
       })),
       level: g.save.level,
       players: this.players.map((p) => ({ slot: p.slot, nick: p.nick, color: p.color })),

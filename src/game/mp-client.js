@@ -32,11 +32,7 @@ Object.assign(Game.prototype, {
     this.styleRefresh();
     this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat);
     const T = this.world.theme;
-    this.scene.background = new THREE.Color(T.sky);
-    this.scene.fog = new THREE.Fog(T.fog, 60, 190);
-    this.sun.color.set(T.sun);
-    this.hemi.color.set(T.sky);
-    this.hemi.groundColor.set(T.amb);
+    this.world.applyLight(this);
     this.players = [];
     this.enemies = [];
     this.allies = [];
