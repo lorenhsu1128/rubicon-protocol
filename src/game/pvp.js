@@ -40,19 +40,27 @@ Object.assign(Game.prototype, {
     const a = angs[i % angs.length];
     let x = Math.cos(a) * R,
       z = Math.sin(a) * R;
-    for (let t = 0; t < 30; t++) {
-      if (
-        !this.world.onCorridor(x, z, 3) &&
-        this.world.slopeOK(x, z) &&
-        !this.world.obstacles.some(
-          (o) => Math.hypot(o.x - x, o.z - z) < (o.r || Math.max(o.w || 0, o.d || 0) / 2) + 2.5,
-        )
-      )
-        break;
-      x += rnd(-6, 6);
-      z += rnd(-6, 6);
+    const w = this.world;
+    let ok = false;
+    for (let t = 0; t < 40 && !ok; t++) {
+      // 避開通道、斜坡、障礙物（方盒以外框判斷）、虛空與保留區（壩體、機庫…）
+      ok =
+        !w.onCorridor(x, z, 3) &&
+        w.slopeOK(x, z) &&
+        !w.isVoid(x, z) &&
+        !w.isReserved(x, z, 3) &&
+        !w.obstacles.some((o) =>
+          o.kind === 'box'
+            ? Math.abs(x - o.x) < o.w / 2 + 2.5 && Math.abs(z - o.z) < o.d / 2 + 2.5
+            : Math.hypot(o.x - x, o.z - z) < o.r + 2.5,
+        );
+      if (!ok) {
+        x += rnd(-6, 6);
+        z += rnd(-6, 6);
+      }
     }
-    return new THREE.Vector3(x, this.world.terrainHeight(x, z), z);
+    if (!ok) [x, z] = w.nearSolid(x, z);
+    return new THREE.Vector3(x, w.terrainHeight(x, z), z);
   },
   // 房主：PVP 出擊
   startPvp(L) {

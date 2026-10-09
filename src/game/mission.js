@@ -565,6 +565,8 @@ Object.assign(Game.prototype, {
         (ob) =>
           ob.kind === 'box' &&
           ob.top > this.world.terrainHeight(ob.x, ob.z) + 2.5 &&
+          ob.top < this.world.terrainHeight(ob.x, ob.z) + 25 && // 太高的（發射塔、高樓頂）不站
+          !this.world.isVoid(ob.x, ob.z) &&
           Math.hypot(ob.x - this.player.pos.x, ob.z - this.player.pos.z) > 20,
       );
       if (decks.length) {

@@ -780,7 +780,12 @@ export class MechEntity {
       this.safePos.copy(this.pos);
     }
     if (this.flying || this.pos.y >= w.voidY) return;
-    const p = this.safePos || w.safePoint();
+    // 還沒站穩過（例：運輸機投放在海上）：移到最近的實地，不拉回地圖中心
+    let p = this.safePos;
+    if (!p) {
+      const [x, z] = w.nearSolid(this.pos.x, this.pos.z);
+      p = new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    }
     this.pos.set(p.x, w.groundAt(p.x, p.z, p.y + 1), p.z);
     this.vel.set(0, 0, 0);
     this.iFrames = Math.max(this.iFrames, 1.5);

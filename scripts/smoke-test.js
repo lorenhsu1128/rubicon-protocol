@@ -1072,7 +1072,17 @@ async function mapMechanics(page, key) {
         p = g.player;
       for (let x = -80; x <= 80; x += 4)
         for (let z = -80; z <= 80; z += 4)
-          if (w.isVoid(x, z) && Math.hypot(x - p.pos.x, z - p.pos.z) < 60) {
+          if (
+            Math.hypot(x - p.pos.x, z - p.pos.z) < 60 &&
+            // 周圍 8 m 都是虛空（貼著街區邊緣或高樓時會被推回街區上）
+            [
+              [0, 0],
+              [8, 0],
+              [-8, 0],
+              [0, 8],
+              [0, -8],
+            ].every(([dx, dz]) => w.isVoid(x + dx, z + dz))
+          ) {
             p.pos.set(x, 0.6, z);
             p.vel.set(0, 0, 0);
             return { hp0: p.hp };
@@ -1102,6 +1112,13 @@ async function mapMechanics(page, key) {
       `洋上都市：掉進海裡被拉回平台（y ${r.y.toFixed(1)}、AP ${r0 && r0.hp0} → ${r.hp}）`,
     );
     check(r.aiInVoid === 0, `洋上都市：沒有敵機掉在虛空裡（${r.aiInVoid}）`);
+    const pv = await page.evaluate(() => {
+      const g = window.__game,
+        w = g.world;
+      const pts = [0, 1, 2, 3].map((i) => g.pvpSpawnPoint(i, 4));
+      return pts.filter((p) => w.isVoid(p.x, p.z)).length;
+    });
+    check(pv === 0, `洋上都市：PvP 出生點不在虛空（${pv} 個在虛空）`);
   } else if (key === 'orbit') {
     const r = await page.evaluate(() => ({ corridor: !!window.__game.world.corridor }));
     check(!r.corridor, '高空軌道：沒有公路／鐵路');
@@ -4001,15 +4018,16 @@ async function testLockOn(browser, base) {
     g.state = 'lock-test';
     const pl = g.player;
     pl.hp = pl.maxHp = 1e7;
-    pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+    pl.pos.set(0, g.world.terrainHeight(0, 0), 0); // 地面上（中央可能有高架橋）
     pl.yaw = pl.aimYaw = 0; // 面向 −Z
     const reach = g.lockReach(pl);
     // 五台：前方近、前方遠、前方偏右、背後最近、正側面（畫面外）；其他敵人移走
     for (const e of g.enemies) e.pos.set(200, -50, 200);
     const es = g.enemies.slice(0, 5);
     while (es.length < 5) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
+    // 放在地面上（不站到貨櫃、掩體頂，否則高度改變會影響是否在畫面內）
     const put = (e, x, z) => {
-      e.pos.set(x, g.world.groundAt(x, z, 99), z);
+      e.pos.set(x, g.world.terrainHeight(x, z), z);
       e.mesh.position.copy(e.pos);
     };
     put(es[0], 0, -8);
@@ -4271,8 +4289,7 @@ async function testBosses2(browser, base) {
           r.tunnel = hit();
           step(4);
           const c = g.world.corridor;
-          r.onTrack =
-            Math.abs(boss.pos.x * c.perp.x + boss.pos.z * c.perp.y - c.off) < 0.5 && !(boss.bossVis & 1);
+          r.onTrack = !!c && Math.abs(g.world.corridorU(boss.pos.x, boss.pos.z)) < 0.5 && !(boss.bossVis & 1); // 鐵路可能有彎道
           r.out = hit();
           // 站在軌道上、列車前方
           const p = g.world.corridorPoint(s.ts + 30);

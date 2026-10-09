@@ -336,6 +336,7 @@ Object.assign(Game.prototype, {
     list.forEach((t, i) => {
       const a = (i / list.length) * Math.PI * 2;
       const at = ship.pos.clone().add(new THREE.Vector3(Math.cos(a) * 3, -2, Math.sin(a) * 3));
+      [at.x, at.z] = this.world.nearSolid(at.x, at.z); // 運輸機在虛空上方時，投放到最近的實地
       this.spawnType(t, sh, sd, at, 1);
     });
     this.fx.smoke(ship.pos.clone().setY(ship.pos.y - 2), 2, 0x9a9ea6, 1, 2);
