@@ -4166,6 +4166,114 @@ async function testBosses2(browser, base) {
   await ctx.close();
 }
 
+// 多人的第三批 Boss：房主出擊到該 Boss 關，客機看到的顯示狀態（快照的 bossVis／bx、隱藏、不能鎖定、附屬機體）。
+// 同一個 context 的兩個分頁裡房主在背景會被節流，所以房主的 requestAnimationFrame 換成空函式，由這裡推進主迴圈；
+// 客機在前景照常執行，以計時器每 100 ms 記錄看到的狀態。
+async function testMpBosses(browser, url) {
+  console.log('多人 Boss：客機顯示電磁砲台的瞄準線、武裝列車出隧道、迷彩機與分身、三機合體分離');
+  const cases = [
+    { L: 10, key: 'halberd' },
+    { L: 31, key: 'citadel' },
+    { L: 22, key: 'mirage' },
+    { L: 28, key: 'cerberus' },
+  ];
+  for (const { L, key } of cases) {
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
+    const host = await ctx.newPage();
+    const cli = await ctx.newPage();
+    watch(host, `mpboss-${key}:host`);
+    watch(cli, `mpboss-${key}:client`);
+    await host.goto(url);
+    await cli.goto(url);
+    await host.click('#btnMP');
+    await setNick(host, 'HOST');
+    await host.click('#btnMPHost');
+    await waitVisible(host, 'lobby');
+    await host.check('#mpAuto');
+    await host.dispatchEvent('#mpAuto', 'change');
+    await cli.click('#btnMP');
+    await setNick(cli, 'CLIENT');
+    await wait(1000);
+    await cli.click('#btnMPList');
+    await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+    await cli.click('#mpRooms .part');
+    await waitVisible(cli, 'lobby', 15000);
+    await host.evaluate((L) => (window.__game.save.level = L), L);
+    await cli.click('#btnLobbyReady');
+    await wait(500);
+    await host.click('#btnLobbyReady');
+    await wait(500);
+    await host.click('#btnLobbySortie');
+    const ok = (await waitVisible(host, 'hudWrap', 20000)) && (await waitVisible(cli, 'hudWrap', 20000));
+    await host.evaluate((key) => {
+      window.requestAnimationFrame = () => 0;
+      const g = window.__game;
+      const b = g.boss;
+      for (const p of g.players) p.hp = p.maxHp = 1e6;
+      if (key === 'halberd') {
+        // 玩家放在砲台旁邊的空地，馬上開始瞄準
+        const x = b.pos.x + (b.pos.x > 0 ? -16 : 16);
+        g.player.pos.set(x, g.world.groundAt(x, b.pos.z, 99), b.pos.z);
+        b.aiState.rg = 'idle';
+        b.aiState.rgT = 0;
+        g.losClear = () => true;
+      }
+      if (key === 'cerberus') b.hp = b.maxHp * 0.5; // 分離
+    }, key);
+    await cli.evaluate(() => {
+      const seen = (window.__mpSeen = {
+        aim: 0,
+        line: 0,
+        hidden: 0,
+        shown: 0,
+        cars: 0,
+        cloak: 0,
+        holo: 0,
+        split: 0,
+        subs: 0,
+      });
+      setInterval(() => {
+        const g = window.__game;
+        const b = g && g.boss;
+        if (!b || b.dead) return;
+        if (b.bx && b.bx.length === 5) seen.aim++;
+        if (b.sx && b.sx.aimLine && b.sx.aimLine.visible) seen.line++;
+        if (b.bossVis & 1 && !b.mesh.visible) seen.hidden++;
+        if (!(b.bossVis & 1) && b.mesh.visible) seen.shown++;
+        seen.cars = Math.max(seen.cars, g.enemies.filter((e) => /^car_/.test(e.opts.partKind || '')).length);
+        if (b.bossVis & 1 && b.noLock && b.cloakA < 0.5) seen.cloak++;
+        seen.holo = Math.max(seen.holo, g.enemies.filter((e) => !e.dead && e.ai === 'holo').length);
+        if (b.bossVis & 1 && b.noLock && !b.mesh.visible) seen.split++;
+        seen.subs = Math.max(seen.subs, g.enemies.filter((e) => !e.dead && e.opts.partKind === 'sub').length);
+      }, 100);
+    });
+    for (let i = 0; i < 160; i++) {
+      await host.evaluate(() => window.__game.loop());
+      await wait(15);
+    }
+    const r = await cli.evaluate(() => window.__mpSeen);
+    await cli.screenshot({ path: path.join(SHOT_DIR, `mp-boss-${key}-client.png`) });
+    if (key === 'halberd')
+      check(ok && r.aim > 0 && r.line > 0, `多人：客機看到電磁砲台的瞄準線（${r.aim}／${r.line}）`);
+    else if (key === 'citadel')
+      check(
+        ok && r.cars === 4 && r.hidden > 0 && r.shown > 0,
+        `多人：客機的武裝列車有 ${r.cars} 節車廂、在隧道裡隱藏（${r.hidden}）、開出後顯示（${r.shown}）`,
+      );
+    else if (key === 'mirage')
+      check(
+        ok && r.cloak > 0 && r.holo === 3,
+        `多人：客機的迷彩機半透明且不能鎖定（${r.cloak}）、分身 ${r.holo} 台`,
+      );
+    else
+      check(
+        ok && r.split > 0 && r.subs === 3,
+        `多人：客機的三機合體分離時本體隱藏（${r.split}）、分離機體 ${r.subs} 台`,
+      );
+    await ctx.close();
+  }
+}
+
 async function testMultiplayer(browser, url, tag, migrate) {
   console.log(`多人（${tag}）：建房 → 加入 → 準備 → 出擊`);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -4255,6 +4363,7 @@ async function main() {
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
+    await testMpBosses(browser, base + '?lan=local&test');
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');
       game = await startGameServer();
