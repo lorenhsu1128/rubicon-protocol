@@ -1060,6 +1060,10 @@ export function asmStats(asm) {
 export const GRAVITY = 42;
 export const JUMP_EN = 40; // 地面跳躍的耗能
 export const AIR_DECAY = [1, 0.75, 0.55];
+// 失衡後保護：硬直結束後這段時間內 ACS 只累積 STAG_GUARD_K 倍、最多到 STAG_GUARD_CAP，近戰連段與 EMP 也不會再讓它失衡
+export const STAG_GUARD = 2.5;
+export const STAG_GUARD_K = 0.3;
+export const STAG_GUARD_CAP = 0.9;
 export function jumpSpec(legs) {
   const t = legs.type;
   let maxH = legs.jumpH;

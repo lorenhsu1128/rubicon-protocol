@@ -1,6 +1,8 @@
 // ============================================================
 //  狀態序列化（房主 → 客機 快照）
 // ============================================================
+import { STAG_GUARD } from '../data/parts.js';
+
 export function serEnt(e) {
   const w = e.weapons;
   const ws = ['rarm', 'larm', 'rback', 'lback'].map((s) => [
@@ -60,6 +62,7 @@ export function applyEnt(e, s, g) {
   e.respawnT = s.rs !== undefined && s.rs >= 0 ? s.rs : undefined;
   e.hp = s.h;
   e.acs = s.ac;
+  if (e.staggerT > 0 && s.st <= 0) e.stagGuardT = STAG_GUARD;
   e.staggerT = s.st;
   e.grounded = !!s.g;
   e.hover = !!s.hv;

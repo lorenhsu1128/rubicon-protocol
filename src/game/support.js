@@ -24,6 +24,7 @@ Object.assign(Game.prototype, {
     if (!this.enemies) return null;
     const c = e.center();
     for (const g of [...this.enemies, ...this.allies]) {
+      if (e.ai === 'part' && e.opts.parent === g.id) continue; // 護盾指揮艦的護盾不罩自己的發生器（否則走近時拆不掉）
       if (g.team === e.team && g.domeUp() && g.insideDome(c)) return g;
     }
     return null;

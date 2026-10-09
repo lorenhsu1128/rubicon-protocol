@@ -7,6 +7,7 @@
 // 第三批 Boss（電磁砲台、浮游砲、武裝列車…）在 mech-boss2.js，這裡的掛勾轉過去（boss2*）。
 import { SFX } from '../audio/audio.js';
 import { clamp, lerp, rnd } from '../core/math.js';
+import { STAG_GUARD } from '../data/parts.js';
 import { animateMech } from '../render/mech-model.js';
 import { buildWormSegments } from '../render/boss-models.js';
 import { MechEntity } from './mech-entity.js';
@@ -56,9 +57,13 @@ Object.assign(MechEntity.prototype, {
       }
     }
     if (this.iFrames > 0) this.iFrames -= dt;
+    if (this.stagGuardT > 0) this.stagGuardT -= dt;
     if (this.staggerT > 0) {
       this.staggerT -= dt;
-      if (this.staggerT <= 0) this.acs = 0;
+      if (this.staggerT <= 0) {
+        this.acs = 0;
+        this.stagGuardT = STAG_GUARD;
+      }
     } else if (this.acsDecayDelay > 0) this.acsDecayDelay -= dt;
     else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * dt);
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);

@@ -10,6 +10,7 @@ Object.assign(MechEntity.prototype, {
     const g = this.game;
     this.t += dt;
     if (this.staggerT > 0) this.staggerT = Math.max(0, this.staggerT - dt);
+    if (this.stagGuardT > 0) this.stagGuardT -= dt;
     for (const k in this.weapons) {
       const w = this.weapons[k];
       if (w.cd > 0) w.cd -= dt;

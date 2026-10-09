@@ -182,6 +182,11 @@ export class Game {
       if (t.dead || t.isProp) continue;
       const d = t.center().distanceTo(c) - t.radius;
       if (d < radius && Math.abs(t.center().y - c.y) < 9) {
+        if (t.stagGuardT > 0 && t.staggerT <= 0) {
+          this.fx.ring(t.center(), 3, 0x6fb8ff);
+          this.popDamage(t.center(), '抵抗', t.isPlayer, false, false, 0, t.id, 0);
+          continue;
+        }
         const s = stun * (t.isBoss ? 0.4 : 1);
         t.staggerT = Math.max(t.staggerT, s);
         t.acs = t.acsMax;

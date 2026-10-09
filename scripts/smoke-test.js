@@ -4163,6 +4163,41 @@ async function testBosses2(browser, base) {
     return out.join('');
   });
   check(lv === '..BB.BB.', `Boss 關的等級（${lv}：任務 3、4、6、7…）`);
+  // 失衡後保護：硬直結束後 2.5 秒內持續受到衝擊也不會再次失衡（不會被連續硬直鎖死）
+  const sg = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'boss-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const dt = 1 / 60;
+    const step = (sec) => {
+      for (let i = 0; i < Math.round(sec / dt); i++)
+        pl.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    const slam = () => pl.takeDamage(10, pl.acsMax * 2, null, pl.center());
+    slam();
+    const first = pl.staggerT > 0;
+    step(pl.staggerT + 0.05);
+    let chained = 0;
+    for (let i = 0; i < 10; i++) {
+      slam();
+      if (pl.staggerT > 0) chained++;
+      step(0.2);
+    }
+    const capped = pl.acs < pl.acsMax;
+    step(1);
+    slam();
+    const again = pl.staggerT > 0;
+    g.clearMission();
+    g.state = 'title';
+    return { first, chained, capped, again };
+  });
+  check(
+    sg.first && sg.chained === 0 && sg.capped && sg.again,
+    `失衡後保護：硬直結束後持續重擊不會再失衡（${sg.chained}）、保護結束後才會（${sg.again}）`,
+  );
   await ctx.close();
 }
 

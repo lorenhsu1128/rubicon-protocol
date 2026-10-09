@@ -3,7 +3,18 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
-import { AIR_DECAY, FIST_DEF, GRAVITY, JUMP_EN, asmStats, jumpSpec, partById } from '../data/parts.js';
+import {
+  AIR_DECAY,
+  FIST_DEF,
+  GRAVITY,
+  JUMP_EN,
+  STAG_GUARD,
+  STAG_GUARD_CAP,
+  STAG_GUARD_K,
+  asmStats,
+  jumpSpec,
+  partById,
+} from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
@@ -792,7 +803,12 @@ export class MechEntity {
         this.vel.y = Math.max(this.vel.y, melee.lift);
         this.grounded = false;
       }
-      if ((this.comboHits >= 3 || melee.finisher) && this.staggerT <= 0 && !this.isBoss) {
+      if (
+        (this.comboHits >= 3 || melee.finisher) &&
+        this.staggerT <= 0 &&
+        !this.isBoss &&
+        !(this.stagGuardT > 0)
+      ) {
         this.acs = this.acsMax;
         this.staggerT = melee.finisher ? 2.2 : 1.6;
         this.knockSide = Math.random() < 0.5 ? -1 : 1;
@@ -848,7 +864,9 @@ export class MechEntity {
     if (this.staggerT <= 0) {
       // 高處優勢：攻擊者比自己高 4 m 以上時衝擊 +25%
       const high = from && from !== this && from.center && from.center().y - this.center().y > 4 ? 1.25 : 1;
-      this.acs += impact * (this.shield ? 0.6 : 1) * high;
+      const guard = this.stagGuardT > 0; // 失衡後保護：累積變少、不會再次過載
+      this.acs += impact * (this.shield ? 0.6 : 1) * high * (guard ? STAG_GUARD_K : 1);
+      if (guard) this.acs = Math.min(this.acs, this.acsMax * STAG_GUARD_CAP);
       this.acsDecayDelay = 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
@@ -1020,11 +1038,13 @@ export class MechEntity {
         this.swing = { l: 0, r: 0 };
       }
     }
+    if (this.stagGuardT > 0) this.stagGuardT -= dt;
     if (this.staggerT > 0) {
       this.staggerT -= dt;
       if (this.staggerT <= 0) {
         this.acs = 0;
         this.comboHits = 0;
+        this.stagGuardT = STAG_GUARD;
       }
       wish = new THREE.Vector3();
       wantHover = false;

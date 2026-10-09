@@ -191,6 +191,9 @@ table.keys td {
 .bar.acs > i {
   background: var(--acs);
 }
+.bar.acs > i.guard {
+  background: #6fb8ff;
+}
 .bar label {
   position: absolute;
   right: 0;
