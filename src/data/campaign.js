@@ -175,6 +175,18 @@ export const CHOICES = {
       { key: 'aetheric', name: '背叛委託方', sub: '艾瑟立克：把主壩交給研究機構', faction: 'aetheric' },
     ],
   },
+  c4: {
+    name: '抉擇 2：發射設施的去向',
+    opts: [
+      {
+        key: 'veerwell',
+        name: '交給維爾威',
+        sub: '維爾威：重啟發射設施，打開往軌道的路',
+        faction: 'veerwell',
+      },
+      { key: 'sancta', name: '交給聖域', sub: '聖域：封鎖發射設施，保護附近的居民', faction: 'sancta' },
+    ],
+  },
 };
 
 // 出擊：level＝敵人強度的基準（每兩個區段 +1）；segs 依序進行：
@@ -317,6 +329,83 @@ SORTIES.c3s3 = {
     },
     { theme: 'institute', pool: ['supply', 'battle', 'intel'], variants: ['core', 'tanks', 'cavern'] },
     { theme: 'institute', pool: ['boss'], boss: 'ibis', variants: ['cavern', 'core'] },
+  ],
+};
+// ---- 第 4 章：北部構造體（Grid 086 往下、宇宙港先接力再下降；抉擇 2 在 c4s2）----
+SORTIES.c4s1 = {
+  name: '北部構造體 — Grid 086 調查',
+  chapter: 4,
+  level: 10,
+  reward: 124000,
+  segs: [
+    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks'] },
+    {
+      theme: 'grid086',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['scrapyard', 'catwalks', 'foundry'],
+    },
+    { theme: 'grid086', pool: ['supply', 'defend', 'breakthrough'], variants: ['foundry', 'catwalks'] },
+    { theme: 'grid086', pool: ['battle', 'elite', 'destroy'], variants: ['foundry', 'deep'] },
+    { theme: 'grid086', pool: ['supply', 'intel', 'battle'], variants: ['deep'] },
+    { theme: 'grid086', pool: ['boss'], boss: 'spider', variants: ['deep', 'foundry'] },
+  ],
+};
+SORTIES.c4s2 = {
+  name: '舊宇宙港 — 發射設施奪還',
+  chapter: 4,
+  level: 11,
+  reward: 138000,
+  segs: [
+    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['runway', 'ruins'],
+    },
+    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'escort', 'defend'], variants: ['ruins', 'pads'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['elite', 'battle', 'destroy'],
+      variants: ['pads'],
+      choice: 'c4',
+    },
+    { theme: 'spaceport', mode: 'down', pool: ['supply', 'battle', 'intel'], variants: ['hangar'] },
+    { theme: 'spaceport', mode: 'down', pool: ['boss'], boss: 'trinity', variants: ['hangar'] },
+  ],
+};
+SORTIES.c4s3a = {
+  name: '構造體深部 — 維爾威的護衛',
+  chapter: 4,
+  level: 12,
+  reward: 152000,
+  segs: [
+    { theme: 'spaceport', pool: ['battle'], variants: ['pads', 'runway'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['battle', 'destroy', 'escort', 'intel'],
+      variants: ['runway', 'ruins'],
+    },
+    { theme: 'grid086', pool: ['supply', 'defend', 'breakthrough'], variants: ['scrapyard', 'catwalks'] },
+    { theme: 'grid086', pool: ['elite'], ace: 'whiteout', variants: ['foundry', 'catwalks'] },
+    { theme: 'grid086', pool: ['supply', 'battle', 'intel'], variants: ['deep'] },
+    { theme: 'grid086', pool: ['boss'], boss: 'hunter', variants: ['deep'] },
+  ],
+};
+SORTIES.c4s3b = {
+  name: '宇宙港外圍 — 聖域的撤離',
+  chapter: 4,
+  level: 12,
+  reward: 152000,
+  segs: [
+    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks'] },
+    { theme: 'grid086', pool: ['battle', 'destroy', 'defend', 'intel'], variants: ['catwalks', 'foundry'] },
+    { theme: 'spaceport', pool: ['supply', 'escort', 'breakthrough'], variants: ['runway', 'ruins'] },
+    { theme: 'spaceport', mode: 'relay', pool: ['elite'], ace: 'specimen', variants: ['ruins', 'pads'] },
+    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'battle', 'intel'], variants: ['runway', 'ruins'] },
+    { theme: 'spaceport', mode: 'relay', pool: ['boss'], boss: 'orbital', variants: ['runway', 'ruins'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';

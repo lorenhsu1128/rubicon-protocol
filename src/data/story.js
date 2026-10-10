@@ -156,6 +156,53 @@ export const BRIEFINGS = {
     ],
     goal: '深入研究核心，擊破脈衝刃翼 PULSAR',
   },
+  // ---- 第 4 章 ----
+  c4s1: {
+    client: 'veerwell',
+    node: { x: 45, y: 22 },
+    needs: ['c3s3'],
+    lines: [
+      '維爾威動態。北部的巨型構造體 Grid 086 底層傳出了和研究所一樣的 Coral 讀數。',
+      '構造體裡住著拾荒的 Doser，他們把平台改造成了要塞。',
+      '一路往下，找到讀數的來源。底層有一台多足要塞在巡邏。',
+    ],
+    goal: '深入 Grid 086 的底層，擊破多足要塞 ARACHNE',
+  },
+  c4s2: {
+    client: 'sancta',
+    node: { x: 58, y: 15 },
+    needs: ['c4s1'],
+    lines: [
+      '聖域互助同盟。舊宇宙港的發射設施被三機合體的自律兵器佔據了。',
+      '附近有難民聚落，發射設施要是重新啟動，整片區域都會被捲進去。',
+      '維爾威想要那座設施。……拿下它之後，要交給誰，由你決定。',
+    ],
+    goal: '奪回舊宇宙港的發射設施，擊破三機合體 CERBERUS（途中會面臨抉擇）',
+  },
+  c4s3a: {
+    client: 'veerwell',
+    node: { x: 64, y: 23 },
+    needs: ['c4s2'],
+    when: { c4: 'veerwell' },
+    lines: [
+      '發射設施交給我們了，謝謝。重啟需要構造體底層的發電機。',
+      '電磁狩獵機在那裡守著。另外，冰原那個狙擊手也被雇來了。',
+      '護送我們的工程隊到底層，排除狩獵機。',
+    ],
+    goal: '護送工程隊到構造體底層，擊破電磁狩獵機 NULLIFIER',
+  },
+  c4s3b: {
+    client: 'sancta',
+    node: { x: 41, y: 12 },
+    needs: ['c4s2'],
+    when: { c4: 'sancta' },
+    lines: [
+      '你選了我們。聖域會記得的。',
+      '維爾威啟動了舊時代的衛星砲導引塔，想逼我們交出設施。',
+      '掩護難民撤離宇宙港外圍，把導引塔打下來。研究所的強化人間也在他們那邊。',
+    ],
+    goal: '掩護難民撤離，擊破衛星砲導引塔 JUDGEMENT',
+  },
 };
 
 // 通訊：event＝觸發事件；其餘欄位都是條件（沒寫＝不限）；once＝整個存檔只播一次；
@@ -652,6 +699,165 @@ export const COMMS = [
     lines: [['echo', '能量環要用 QB 穿過去。突刺之後它會過熱，那時候反擊。']],
   },
   { event: 'hub', chapter: 3, once: true, lines: [['echo', '西部冰原開放了。聖域和維爾威都有委託。']] },
+  // ---- 第 4 章 ----
+  {
+    event: 'sortieStart',
+    sid: 'c4s1',
+    once: true,
+    lines: [
+      ['veerwell', 'Grid 086 是一層一層的平台。往下走，每一層都更暗。'],
+      ['echo', '平台底下有砲塔，柱子上會有東西爬上來。上下都要注意。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s1',
+    type: 'boss',
+    lines: [
+      ['echo', '多足要塞！打斷它的腳——斷三條就會倒下。'],
+      ['veerwell', 'Coral 的讀數就在它身上。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4s1',
+    lines: [
+      ['veerwell', '多足要塞倒下了。讀數……還在往上傳，是從宇宙港那邊來的。'],
+      ['echo', '聖域也發來了委託，目標是同一個地方。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4s2',
+    once: true,
+    lines: [
+      ['sancta', '先穿過外圍跑道，發射台在跑道盡頭。'],
+      ['echo', '試車台還會噴火。地上出現橘色預警就離開。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c4s2',
+    lines: [
+      ['veerwell', '傭兵，發射設施交給我們。重啟它，就能打開往軌道的路。'],
+      ['sancta', '別讓他們重啟。發射的餘波會毀掉附近的聚落。'],
+      ['echo', '又是只能選一個。這次的選擇會決定最後一章的路線。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s2',
+    seg: 4,
+    pick: 'veerwell',
+    lines: [['veerwell', '很好。地下機庫裡的自律兵器清掉，設施就是我們的了。']],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s2',
+    seg: 4,
+    pick: 'sancta',
+    lines: [
+      ['sancta', '謝謝你。地下機庫的兵器清掉之後，我們會把設施封起來。'],
+      ['veerwell', '……你會後悔的。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s2',
+    type: 'boss',
+    lines: [
+      ['echo', '三機合體！血量降到一定程度會分離成三台——30 秒內全部擊破。'],
+      ['echo', '先打修理的那一台。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4s2',
+    pick: 'veerwell',
+    lines: [
+      ['veerwell', '發射設施交到我們手上了。重啟只是時間問題。'],
+      ['echo', '聖域的頻道沉默了。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4s2',
+    pick: 'sancta',
+    lines: [
+      ['sancta', '設施封住了。聚落的人可以安心了。'],
+      ['echo', '維爾威在調動兵力。他們不打算放棄。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s3a',
+    seg: 3,
+    lines: [
+      ['whiteout', '……又是你。這次是維爾威的敵人雇我。'],
+      ['echo', 'WHITEOUT 換了裝備。構造體裡沒有暴風雪，但它還是會躲。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s3a',
+    type: 'boss',
+    lines: [
+      ['echo', '電磁狩獵機。被 EMP 打中會不能 QB，還會被拉過去。'],
+      ['veerwell', '發電機就在它後面。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4s3a',
+    lines: [
+      ['veerwell', '發電機接上了。發射設施重啟，往軌道的路打開了。'],
+      ['echo', '第 4 章的委託全部完成。東岸的洋上都市也傳來了訊號。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s3b',
+    seg: 3,
+    lines: [
+      ['specimen', '新的測試開始了。這次的對手是你。'],
+      ['echo', 'SPECIMEN 被維爾威帶出來了，比在研究所時更強。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4s3b',
+    type: 'boss',
+    lines: [
+      ['echo', '衛星砲導引塔！光柱會追著你——用 QB 急轉甩開。'],
+      ['sancta', '撤離還差一點，撐住。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4s3b',
+    lines: [
+      ['sancta', '導引塔倒下了，聚落的人都撤出來了。真的謝謝你。'],
+      ['echo', '第 4 章的委託全部完成。東岸的洋上都市也傳來了訊號。'],
+    ],
+  },
+  { event: 'fail', killedBy: 'ARACHNE', lines: [['echo', '多足要塞斷三條腳就會倒下。集中打同一側的腳。']] },
+  {
+    event: 'fail',
+    killedBy: 'CERBERUS',
+    lines: [['echo', '三機合體分離後要在 30 秒內全部擊破，否則會合體回復。']],
+  },
+  { event: 'fail', killedBy: 'NULLIFIER', lines: [['echo', 'EMP 打中就不能 QB。保持距離，躲開它的射線。']] },
+  {
+    event: 'fail',
+    killedBy: 'JUDGEMENT',
+    lines: [['echo', '光柱越追越快，但轉彎有上限。用 QB 急轉甩開它。']],
+  },
+  {
+    event: 'hub',
+    chapter: 4,
+    once: true,
+    lines: [['echo', '北部構造體開放了。維爾威和聖域都盯上了舊宇宙港。']],
+  },
   // ---- 第 4 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

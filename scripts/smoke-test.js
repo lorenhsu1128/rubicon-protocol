@@ -5812,6 +5812,7 @@ async function testChapter3(browser, base) {
       if (e.staggerT > 0 && e.aiState.tired > 0) st = true;
     }
     const h0 = e.hp;
+    e.iFrames = 0; // QB／空中跳的無敵時間
     e.takeDamage(1000, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
     out.tired = {
       st,
@@ -5940,9 +5941,9 @@ async function testChapter3(browser, base) {
 }
 
 // 主線第 4 章：Grid 086（構造體爬行機、平台底部砲塔、SPIRE）、舊宇宙港（推進器試車台、舊式宇宙用 MT、COUNTDOWN）
-// 的專屬敵人、變體與地標
+// 的專屬敵人、變體與地標；第 4 章的出擊、抉擇 2、依抉擇的路線
 async function testChapter4(browser, base) {
-  console.log('第 4 章：Grid 086、舊宇宙港的專屬敵人與 AC、變體與地標');
+  console.log('第 4 章：Grid 086、舊宇宙港的專屬敵人與 AC、變體與地標、出擊、抉擇 2');
   const { ctx, page } = await newPage(browser, 'ch4');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -6110,6 +6111,85 @@ async function testChapter4(browser, base) {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(SHOT_DIR, 'ch4-' + th + '-' + v + '.png') });
   }
+  // 第 4 章的出擊與終點 Boss
+  const c4 = await page.evaluate(() => {
+    const g = window.__game;
+    if (g.camp) g.campEnd(false, true);
+    g.state = 'play';
+    const out = [];
+    for (const sid of ['c4s1', 'c4s2', 'c4s3a', 'c4s3b']) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(sid + ':' + g.worldTheme + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0]);
+      g.campEnd(false, true);
+    }
+    return out;
+  });
+  check(
+    c4.join(',') ===
+      'c4s1:grid086:ARACHNE,c4s2:spaceport:CERBERUS,c4s3a:grid086:NULLIFIER,c4s3b:spaceport:JUDGEMENT',
+    '第 4 章的 4 個出擊與終點 Boss（' + c4.join('、') + '）',
+  );
+  // 抉擇 2：宇宙港的發射台區段清除後出現抉擇出口；之後往地下機庫是下降
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done = { c1s1: 1, c1s2: 1, c2s1: 1, c2s2: 1, c2s3a: 1, c3s1: 1, c3s2: 1, c3s3: 1, c4s1: 1 };
+    g.save.story.choices = { c2: 'castron' };
+    g.campBegin('c4s2');
+    g.camp.seg = 3;
+    g.camp.types[3] = 'supply';
+    g.campEnterSeg();
+  });
+  await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+    timeout: 20000,
+  });
+  const ch4 = await page.evaluate(() => {
+    const g = window.__game;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    return {
+      ex: g.camp.exits.map((e) => e.choice + ':' + e.mode),
+      sp: log.includes('sancta') && log.includes('veerwell'),
+    };
+  });
+  check(
+    ch4.ex.join(',') === 'veerwell:down,sancta:down' && ch4.sp,
+    '抉擇 2：發射台區段清除後出現抉擇出口（往地下機庫是下降）與雙方的通訊（' + ch4.ex.join('、') + '）',
+  );
+  const r4 = await page.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits.find((q) => q.choice === 'sancta');
+    g.campLeave(e);
+    g.campEnterSeg();
+    g.campEnd(true);
+    return {
+      c4: g.save.story.choices.c4,
+      a: g.hubSortieState('c4s3a'),
+      b: g.hubSortieState('c4s3b'),
+      done: g.campChapterCheck(4),
+    };
+  });
+  check(
+    r4.c4 === 'sancta' && r4.a === 'hidden' && r4.b === 'open' && !r4.done,
+    '抉擇 2 寫進存檔：開放聖域的路線、維爾威的不出現（' + JSON.stringify(r4) + '）',
+  );
+  // 依抉擇的路線：精英區段是跨章節再登場的宿敵
+  const rv4 = await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.campBegin('c4s3b');
+    g.camp.seg = 3;
+    g.camp.types[3] = 'elite';
+    g.campEnterSeg();
+    const e = g.bosses[0];
+    const log = (g.save.story.log || []).slice(-3).map((l) => l.sp);
+    const r = { name: e && e.name, sp: log.includes('specimen') };
+    g.campEnd(false, true);
+    return r;
+  });
+  check(rv4.name === 'SPECIMEN' && rv4.sp, '聖域路線的精英區段：SPECIMEN 再登場，有通訊');
   await ctx.close();
 }
 
