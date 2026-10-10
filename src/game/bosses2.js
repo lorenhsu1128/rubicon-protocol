@@ -162,12 +162,13 @@ Object.assign(Game.prototype, {
     return stop;
   },
   // ----- 燃燒的地面：站在裡面（離地 1.2 m 以下）每 0.25 秒受傷 -----
-  addPool(owner, p, R, life, dps) {
+  // acid：汙染噴射 MT 的腐蝕區（綠色；站在裡面 ACS 回復變慢）
+  addPool(owner, p, R, life, dps, acid = false) {
     if (!this.hzPools) this.hzPools = [];
     const q = p.clone();
     q.y = this.world.groundAt(q.x, q.z, q.y + 2);
-    this.hzPools.push({ p: q, R, life, dps, owner, tick: 0 });
-    this.fx.firePool(q, R, life);
+    this.hzPools.push({ p: q, R, life, dps, owner, tick: 0, acid });
+    this.fx.firePool(q, R, life, acid ? 1 : 0);
   },
   // 熔渣：高拋到落點（預警圈），落地爆炸並留下燃燒的地面
   slagShot(src, tp, o) {
@@ -216,6 +217,7 @@ Object.assign(Game.prototype, {
           if (!t || t.dead || t.isProp || !t.pos) continue;
           if (Math.hypot(t.pos.x - P.p.x, t.pos.z - P.p.z) > P.R + t.radius * 0.4) continue;
           if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 1.2) continue;
+          if (P.acid) t.corrodeT = 0.6;
           t.takeDamage(P.dps * 0.25, 40, P.owner, t.center(), null);
         }
       }

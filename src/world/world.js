@@ -905,6 +905,11 @@ export class World {
     this.meshes.push(m);
     this.waterMesh = m;
   }
+  // 水深（主題的水面以下多深；沒有水面時 0）
+  waterDepth(x, z) {
+    const W = this.theme.water;
+    return W ? W.level - this.terrainHeight(x, z) : 0;
+  }
   // 岩頂（地下）：朝下的平面，只從下方看得到（俯視的鏡頭看得穿），不擋陰影
   addRoof(R) {
     const geo = new THREE.PlaneGeometry((FAR_R + 40) * 2, (FAR_R + 40) * 2, 48, 48);

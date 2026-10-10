@@ -10,7 +10,7 @@ import { MechEntity } from './mech-entity.js';
 const DOME_R = 9; // 護盾半徑（以產生器腳底為中心的球）
 const CMD_R = 30; // 指揮官強化範圍（擊破時混亂的範圍是 40 m）
 const HEAL_R = 18; // 修理光束的最遠距離
-const FOE_FX = new Set(['burrow', 'junk', 'crane', 'forklift', 'gategun']); // 主題專屬敵人的顯示（mech-foe.js 的 foeFx）
+const FOE_FX = new Set(['burrow', 'junk', 'crane', 'forklift', 'gategun', 'gunboat', 'marsh']); // 主題專屬敵人的顯示（mech-foe.js 的 foeFx）
 const SHIELD_DOT = 0.35; // 盾牌涵蓋的正面角度（cos，約 ±70°）
 
 // 連線光束的顏色（linkKind）：0 修理、1 電磁牽引、2 護盾發生器 → 指揮艦
@@ -386,6 +386,9 @@ Object.assign(MechEntity.prototype, {
       case 'crane':
       case 'forklift':
       case 'gategun':
+      case 'gunboat':
+      case 'sprayer':
+      case 'marsh':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);

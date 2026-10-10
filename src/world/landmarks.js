@@ -440,6 +440,109 @@ function aqueduct() {
   return g;
 }
 
+// ---------- 汙染水沒市街 ----------
+// 傾倒的摩天樓：斜靠的高樓與成排的窗
+function leaningTower() {
+  const g = new THREE.Group();
+  const t = new THREE.Group();
+  t.add(box(10, 40, 10, M.concrete, 0, 20, 0));
+  for (let y = 4; y < 40; y += 4) for (const s of [-1, 1]) t.add(box(8, 1.2, 0.2, M.window, 0, y, s * 5.05));
+  t.add(box(11, 2, 11, M.hullD, 0, 40.5, 0));
+  rot(t, 0, 0, 0.32);
+  t.position.x = -4;
+  g.add(t);
+  for (let i = 0; i < 5; i++) g.add(rot(box(3, 2, 3, M.concrete, 6 + i * 2, 0.6, -4 + i * 2), i, i, 0.3));
+  return g;
+}
+// 半沉的摩天輪：大圓環＋輻條＋車廂，斜插進水裡
+function ferrisWheel() {
+  const g = new THREE.Group();
+  const w = new THREE.Group();
+  const R = 14;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    w.add(rot(box(0.6, 3.8, 0.6, M.steel, Math.cos(a) * R, Math.sin(a) * R, 0), 0, 0, a));
+    if (i % 2 === 0)
+      w.add(
+        rot(
+          box(0.2, R, 0.2, M.steel, (Math.cos(a) * R) / 2, (Math.sin(a) * R) / 2, 0),
+          0,
+          0,
+          a + Math.PI / 2,
+        ),
+      );
+    if (i % 3 === 0) w.add(box(2, 2, 2, i % 2 ? M.red : M.blue, Math.cos(a) * R, Math.sin(a) * R - 1.6, 0));
+  }
+  w.add(cyl(1.2, 1.2, 1.6, M.hullD, 0, 0, 0, 10));
+  rot(w, 0.25, 0, 0);
+  w.position.y = 10;
+  g.add(w);
+  for (const s of [-1, 1]) g.add(rot(box(1, 14, 1, M.steel, s * 3, 5, 0), 0, 0, s * 0.3));
+  return g;
+}
+// 鐘樓：教堂的方塔與尖頂（下半泡在水裡）
+function bellTower() {
+  const g = new THREE.Group();
+  g.add(box(7, 20, 7, M.concrete, 0, 10, 0));
+  g.add(box(7.6, 1, 7.6, M.hullD, 0, 20.5, 0));
+  for (const s of [-1, 1]) {
+    g.add(box(2.4, 4, 0.3, M.dark, 0, 17, s * 3.55));
+    g.add(box(0.3, 4, 2.4, M.dark, s * 3.55, 17, 0));
+  }
+  g.add(cyl(0.2, 5, 9, M.rustD, 0, 25.5, 0, 4));
+  g.add(cyl(1.6, 1.6, 0.3, M.white, 0, 13, 3.6, 16));
+  g.add(box(10, 6, 14, M.concrete, 0, 3, 10));
+  return g;
+}
+// 體育場殘骸：弧形的看台與燈塔
+function stadium() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 9; i++) {
+    const a = -1.1 + i * 0.275;
+    for (let k = 0; k < 3; k++)
+      g.add(
+        rot(
+          box(
+            7,
+            1.6 + k * 1.6,
+            2.4,
+            M.concrete,
+            Math.sin(a) * (20 + k * 2.4),
+            0.8 + k * 0.8,
+            Math.cos(a) * (20 + k * 2.4) - 20,
+          ),
+          0,
+          a,
+          0,
+        ),
+      );
+  }
+  for (const s of [-1, 1]) {
+    g.add(box(0.8, 22, 0.8, M.steel, s * 18, 11, -8));
+    g.add(box(5, 3, 1, M.white, s * 18, 23, -8));
+  }
+  return g;
+}
+// 巨型廣告看板：兩支柱子撐起的大螢幕（一半碎裂）
+function billboard() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) g.add(box(1, 14, 1, M.steel, s * 7, 7, 0));
+  g.add(box(18, 9, 0.8, M.hullD, 0, 17, 0));
+  g.add(box(8, 8, 0.2, M.window, -4, 17, -0.5));
+  g.add(rot(box(7, 6, 0.2, M.glow, 5, 16, -0.5), 0, 0, 0.1));
+  return g;
+}
+// 沉沒的高架電車：斷掉的高架軌道與栽進水裡的車廂
+function sunkTram() {
+  const g = new THREE.Group();
+  for (const x of [-14, 0]) g.add(box(2, 10, 2, M.concrete, x, 5, 0));
+  g.add(box(22, 1.4, 4, M.concrete, -8, 10.7, 0));
+  g.add(rot(box(14, 3.4, 3.2, M.white, 9, 4.5, 0), 0, 0.15, -0.55));
+  g.add(rot(box(14, 0.6, 3.3, M.blue, 9, 6.4, 0), 0, 0.15, -0.55));
+  g.add(box(13, 3.4, 3.2, M.white, -7, 13.1, 0));
+  return g;
+}
+
 // ---------- 沙丘 ----------
 // 半埋巨艦的艦橋：傾斜的高塔與窗
 function shipBridge() {
@@ -538,6 +641,70 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  flooded: {
+    leaning: {
+      name: '傾倒的摩天樓',
+      build: leaningTower,
+      bx: [-18, 16, -7, 7],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ box: [-7, 3, -5, 5], y: -1, top: 30 }],
+    },
+    ferris: {
+      name: '半沉的摩天輪',
+      build: ferrisWheel,
+      bx: [-16, 16, -6, 6],
+      range: 3,
+      sink: 0.5,
+      shapes: [
+        { c: [-3.5, 0], r: 1.2, h: 14 },
+        { c: [3.5, 0], r: 1.2, h: 14 },
+      ],
+    },
+    bell: {
+      name: '鐘樓',
+      build: bellTower,
+      bx: [-6, 6, -5, 18],
+      range: 3,
+      sink: 0.5,
+      shapes: [
+        { box: [-3.5, 3.5, -3.5, 3.5], y: -1, top: 21 },
+        { box: [-5, 5, 3.5, 17], y: -1, top: 6 },
+      ],
+    },
+    stadium: {
+      name: '體育場殘骸',
+      build: stadium,
+      bx: [-22, 22, -22, 6],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [-19, 19, 0, 5], y: -1, top: 4 }],
+    },
+    billboard: {
+      name: '巨型廣告看板',
+      build: billboard,
+      bx: [-10, 10, -2, 2],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [-7, 0], r: 0.8, h: 22 },
+        { c: [7, 0], r: 0.8, h: 22 },
+      ],
+    },
+    tram: {
+      name: '沉沒的高架電車',
+      build: sunkTram,
+      bx: [-20, 17, -3, 3],
+      range: 4,
+      sink: 0.5,
+      shapes: [
+        { box: [-15, -13, -1, 1], y: -1, top: 10 },
+        { box: [-1, 1, -1, 1], y: -1, top: 10 },
+        { box: [-19, 3, -2, 2], y: 10, top: 14.8, deck: true },
+        { box: [3, 15, -1.6, 1.6], y: -1, top: 7 },
+      ],
+    },
+  },
   dam: {
     runner: {
       name: '巨型水輪機',

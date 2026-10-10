@@ -189,6 +189,35 @@ Object.assign(Game.prototype, {
     this.fx.warnCircle(land, o.R, T);
     this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
   },
+  // 魚雷（潛航砲艇）：貼著水面（或地面）往目標直線前進
+  torpedoShot(src, tgt, o) {
+    const w = this.world;
+    const mz = src.muzzle('rarm');
+    const wl = w.theme.water ? w.theme.water.level : -1e9;
+    const y = Math.max(wl, w.terrainHeight(mz.x, mz.z), tgt.pos.y) + 0.8;
+    const from = new THREE.Vector3(mz.x, y, mz.z);
+    const v = tgt.pos.clone().setY(y).sub(from);
+    v.y = 0;
+    v.normalize()
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * 0.16)
+      .multiplyScalar(26);
+    this.projectiles.push(
+      new Projectile(this, {
+        pos: from,
+        vel: v,
+        kind: 'torpedo',
+        dmg: o.dmg,
+        impactV: o.im,
+        team: src.team,
+        owner: src,
+        color: 0x9aff40,
+        life: 3.2,
+        splash: o.R,
+      }),
+    );
+    SFX.shot('missile', undefined, from);
+    this.fx.dust(from.clone(), 1.2, 4, 0xb8dcf0);
+  },
   // ----- 閘門砲台的開閘水流 -----
   // f：{ x, z 起點, dx, dz 方向（單位向量）, len, hw 半寬, t 秒, dps, team, src }。房主與客機都有一份（推走機體是各自
   // 在 move 裡用自己的位置算），傷害只在房主

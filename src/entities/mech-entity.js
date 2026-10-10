@@ -1041,13 +1041,21 @@ export class MechEntity {
     this.specialCleanup();
   }
 
+  // 涉水：站在 0.6 m 以上的水裡移動變慢（兩棲的 MARSH 反而變快）
+  waterK() {
+    const w = this.game.world;
+    if (this.flying || !w.theme.water) return 1;
+    if (this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) > 0.6) return 1;
+    if (w.waterDepth(this.pos.x, this.pos.z) < 0.6) return 1;
+    return this.opts.amphib ? 1.1 : 0.85;
+  }
   // ---------- physics ----------
   move(dt, wish, wantHover, wantQB, wantAB, targetEnt) {
     const g = this.game,
       w = g.world,
       P = this.stats.parts;
     if (this.buffT > 0) this.buffT -= dt;
-    const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1); // 指揮官 MT 強化
+    const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1) * this.waterK(); // 指揮官 MT 強化、水中
     this.t += dt;
     // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
     if (this.aiJumpT > 0) {
@@ -1122,7 +1130,12 @@ export class MechEntity {
       }
     } else {
       if (this.acsDecayDelay > 0) this.acsDecayDelay -= dt;
-      else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * (1 + this.pmv('acsDec')) * dt);
+      else
+        this.acs = Math.max(
+          0,
+          this.acs - this.acsMax * 0.45 * (1 + this.pmv('acsDec')) * (this.corrodeT > 0 ? 0.3 : 1) * dt, // 腐蝕區裡回復得慢
+        );
+      if (this.corrodeT > 0) this.corrodeT -= dt;
     }
     if (this.iFrames > 0) this.iFrames -= dt;
     if (this.enDelay > 0) this.enDelay -= dt;

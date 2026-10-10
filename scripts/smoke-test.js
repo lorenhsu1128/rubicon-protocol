@@ -4977,9 +4977,10 @@ async function testChapter1(browser, base) {
   await ctx.close();
 }
 
-// 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE）、水壩（閘門砲台、壩頂巡邏砲車、SLUICE）…的專屬敵人、變體與地標
+// 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE）、水壩（閘門砲台、壩頂巡邏砲車、SLUICE）、
+// 水沒市街（潛航砲艇、汙染噴射 MT、MARSH）的專屬敵人、變體與地標
 async function testChapter2(browser, base) {
-  console.log('第 2 章：集散場、水壩的專屬敵人與 AC、變體與地標');
+  console.log('第 2 章：集散場、水壩、水沒市街的專屬敵人與 AC、變體與地標');
   const { ctx, page } = await newPage(browser, 'ch2');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -4988,8 +4989,11 @@ async function testChapter2(browser, base) {
   const ind = await page.evaluate(() => {
     const g = window.__game;
     g.campBegin('c1s1');
+    g.campSortie().segs[0].theme = 'industrial';
+    g.camp.plan[0] = { ...g.camp.plan[0], variant: 'railyard', landmark: '' };
     g.camp.types[0] = 'supply';
-    g.campEnterSeg(); // 沒有敵人的區段
+    g.campEnterSeg(); // 沒有敵人的區段（平坦的調度場，拿掉障礙物，貨櫃的拋物線不會被擋住）
+    g.world.obstacles.length = 0;
     g.state = 'foe-test';
     const p = g.player;
     p.hp = p.maxHp = 1e6;
@@ -5001,6 +5005,7 @@ async function testChapter2(browser, base) {
     const step = (ents, n, stop) => {
       for (let i = 0; i < n; i++) {
         g.time += 1 / 60;
+        p.iFrames = 0; // 主迴圈沒有在跑，玩家的無敵時間不會減少
         for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
         for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
         g.projectiles = g.projectiles.filter((q) => !q.dead);
@@ -5013,11 +5018,19 @@ async function testChapter2(browser, base) {
     const cr = g.spawnType('crane', 1, 1, at(0, -28));
     const h0 = p.hp;
     let crate = false;
-    step([cr], 400, () => {
+    step([cr], 700, () => {
       if (g.projectiles.some((q) => q.kind === 'crate')) crate = true;
       return crate && p.hp < h0;
     });
-    out.crane = { crate, hit: h0 - p.hp, moved: cr.pos.distanceTo(at(0, -28)) };
+    out.crane = {
+      crate,
+      hit: h0 - p.hp,
+      moved: cr.pos.distanceTo(at(0, -28)),
+      d: cr.pos.distanceTo(p.pos),
+      st: cr.aiState.crT,
+      ld: cr.aiState.loaded,
+      n: g.projectiles.length,
+    };
     step([cr], 600, () => !cr.aiState.loaded); // 丟出之後
     step([cr], 600, () => cr.aiState.loaded);
     out.crane.reload = !!(cr.bossVis & 1) || cr.aiState.loaded;
@@ -5045,15 +5058,28 @@ async function testChapter2(browser, base) {
     // 叉架 MT：靠近之後丟出貨櫃
     const fk2 = g.spawnType('forklift', 1, 1, at(0, -14), 1);
     g.projectiles = [];
-    step([fk2], 400, () => !fk2.aiState.hold);
+    step([fk2], 700, () => !fk2.aiState.hold);
     out.thrown = !fk2.aiState.hold && g.projectiles.some((q) => q.kind === 'crate');
+    out.fk2 = {
+      hold: fk2.aiState.hold,
+      thT: fk2.aiState.thT,
+      d: fk2.pos.distanceTo(p.pos),
+      n: g.projectiles.map((q) => q.kind).join(','),
+      st: g.state,
+      ca: fk2.canAct(),
+      dead: fk2.dead,
+    };
     fk2.takeDamage(1e9, 0, p, fk2.center(), new THREE.Vector3(0, 0, 1));
     g.state = 'play';
     return out;
   });
   check(
     ind.crane.crate && ind.crane.hit > 0 && ind.crane.moved < 0.5,
-    '起重機砲台：不移動，把貨櫃砸到目標腳下（' + Math.round(ind.crane.hit) + '）',
+    '起重機砲台：不移動，把貨櫃砸到目標腳下（' +
+      Math.round(ind.crane.hit) +
+      '，' +
+      JSON.stringify(ind.crane) +
+      '）',
   );
   check(ind.crane.reload, '起重機砲台：丟出後重新吊起貨櫃');
   check(
@@ -5061,7 +5087,7 @@ async function testChapter2(browser, base) {
     '叉架 MT：貨櫃盾擋下正面的傷害（正面 ' + Math.round(ind.front) + '、背面 ' + Math.round(ind.back) + '）',
   );
   check(ind.broke, '叉架 MT：近戰打掉貨櫃');
-  check(ind.thrown, '叉架 MT：靠近之後丟出貨櫃');
+  check(ind.thrown, '叉架 MT：靠近之後丟出貨櫃（' + JSON.stringify(ind.fk2) + '）');
   // 集散場的 4 種變體與 6 個地標
   const iv = await page.evaluate(() => {
     const g = window.__game;
@@ -5214,6 +5240,144 @@ async function testChapter2(browser, base) {
     }, v);
     await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-dam-' + v + '.png') });
+  }
+  // 水沒市街：潛航砲艇、汙染噴射 MT、涉水變慢、MARSH 的潛行
+  const fl = await page.evaluate(() => {
+    const g = window.__game;
+    g.campSortie().segs[1].theme = 'flooded';
+    g.camp.plan[1] = { ...g.camp.plan[1], variant: 'canal', landmark: '' };
+    g.camp.types[1] = 'supply';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const w = g.world,
+      p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const out = {};
+    // 玩家附近找一個水深 0.6 m 以上的地方
+    const wetAt = (r0, r1) => {
+      for (let r = r0; r < r1; r += 2)
+        for (let a = 0; a < 6.28; a += 0.2) {
+          const x = p.pos.x + Math.cos(a) * r,
+            z = p.pos.z + Math.sin(a) * r;
+          if (w.waterDepth(x, z) > 0.8 && w.inZone(x, z, 4))
+            return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+        }
+      return null;
+    };
+    const step = (ents, n, stop) => {
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        p.iFrames = 0; // 主迴圈沒有在跑，玩家的無敵時間不會減少
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+        g.projectiles = g.projectiles.filter((q) => !q.dead);
+        g.updateHazards(1 / 60);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+    const wp = wetAt(16, 40);
+    out.water = !!wp;
+    const gb = g.spawnType('gunboat', 1, 1, wp);
+    gb.updateAI(1 / 60);
+    const b0 = gb.hp;
+    gb.takeDamage(5000, 0, p, gb.center(), new THREE.Vector3(0, 0, 1));
+    out.under = { inv: gb.hp === b0, hidden: !gb.mesh.visible, noLock: gb.noLock };
+    let torp = false;
+    step([gb], 900, () => {
+      if (g.projectiles.some((q) => q.kind === 'torpedo')) torp = true;
+      return torp;
+    });
+    out.torp = torp;
+    out.up = gb.aiState.gb === 'up' && gb.mesh.visible;
+    gb.takeDamage(1e9, 0, p, gb.center(), new THREE.Vector3(0, 0, 1));
+    out.killed = gb.dead;
+    // 汙染噴射 MT：腐蝕區（損傷＋ACS 回復變慢）
+    const sp = g.spawnType('sprayer', 1, 1, new THREE.Vector3(p.pos.x + 12, p.pos.y, p.pos.z));
+    const h0 = p.hp;
+    let acid = false;
+    step([sp], 600, () => {
+      if ((g.hzPools || []).some((q) => q.acid)) acid = true;
+      return acid && p.corrodeT > 0;
+    });
+    out.acid = acid;
+    out.corrode = p.corrodeT > 0;
+    out.acidHurt = h0 - p.hp;
+    sp.takeDamage(1e9, 0, p, sp.center(), new THREE.Vector3(0, 0, 1));
+    // 涉水：站在水裡變慢
+    const wq = wetAt(2, 40);
+    p.pos.copy(wq);
+    out.wade = p.waterK();
+    // MARSH：在水裡離目標遠時潛行
+    g.campSortie().segs[1].theme = 'flooded';
+    g.camp.types[1] = 'elite';
+    g.state = 'play';
+    g.campEnterSeg();
+    const m = g.bosses[0];
+    out.marsh = m && m.name;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    out.comm = log.includes('marsh');
+    const p2 = g.player;
+    const far = (() => {
+      for (let r = 30; r < 80; r += 3)
+        for (let a = 0; a < 6.28; a += 0.25) {
+          const x = p2.pos.x + Math.cos(a) * r,
+            z = p2.pos.z + Math.sin(a) * r;
+          if (g.world.waterDepth(x, z) > 0.8 && g.world.inZone(x, z, 4))
+            return new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
+        }
+      return null;
+    })();
+    if (m && far) {
+      g.state = 'foe-test';
+      m.pos.copy(far);
+      m.vel.set(0, 0, 0);
+      m.updateAI(1 / 60);
+      m.specialFx(1 / 60);
+      out.sub = { vis: m.bossVis, noLock: m.noLock, hidden: !m.mesh.visible, k: m.waterK() };
+      g.state = 'play';
+    }
+    return out;
+  });
+  check(fl.water, '水道變體：玩家附近有深水');
+  check(fl.under.inv && fl.under.hidden && fl.under.noLock, '潛航砲艇：潛航時看不到、打不到、不能鎖定');
+  check(fl.torp && fl.up && fl.killed, '潛航砲艇：浮出水面發射魚雷，浮出後打得到');
+  check(
+    fl.acid && fl.corrode && fl.acidHurt > 0,
+    '汙染噴射 MT：腐蝕區造成損傷並讓 ACS 回復變慢（' + Math.round(fl.acidHurt) + '）',
+  );
+  check(fl.wade < 1, '涉水：站在水裡移動變慢（×' + fl.wade + '）');
+  check(fl.marsh === 'MARSH' && fl.comm, '精英區段：水沒市街是 MARSH，有通訊');
+  check(
+    fl.sub && fl.sub.vis === 2 && fl.sub.noLock && fl.sub.hidden && fl.sub.k > 1,
+    'MARSH：在水裡離目標遠時潛行（不能鎖定），水中不減速（×' + (fl.sub && fl.sub.k) + '）',
+  );
+  const fv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['leaning', 'ferris', 'bell', 'stadium', 'billboard', 'tram'];
+    ['highway', 'canal', 'suburb', 'toxic', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'flooded', 900 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push((g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+    });
+    return out;
+  });
+  check(
+    fv.slice(0, 4).every((s, i) => s.startsWith(['highway', 'canal', 'suburb', 'toxic'][i])) &&
+      fv.filter((s) => s.endsWith(':1')).length >= 5,
+    '水沒市街的 4 種變體與地標（' + fv.join('、') + '）',
+  );
+  for (const v of ['highway', 'canal', 'suburb', 'toxic']) {
+    await page.evaluate((v) => {
+      const g = window.__game;
+      g.camp.plan[1] = { ...g.camp.plan[1], variant: v, landmark: '' };
+      g.camp.types[1] = 'supply';
+      g.campEnterSeg();
+    }, v);
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-flooded-' + v + '.png') });
   }
   await ctx.close();
 }

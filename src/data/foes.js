@@ -1,8 +1,8 @@
-// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩…）
+// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩、水沒市街）
 // 專屬敵人的欄位同 ENEMY_TYPES（spawnType 會先查 ENEMY_TYPES 再查這裡），另外：theme＝所屬主題、depth＝礦坑深層才出現、
 // foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊…）、max＝一波最多幾台。主線的區段編成依主題混入；
 // 自由出擊的該主題地圖在主線遇過之後才會出現（save.story.foesSeen）。
-// 專屬 AC 是劇情角色：speaker＝通訊的說話者（data/story.js）、randomAsm＝每次出現的組裝不同。
+// 專屬 AC 是劇情角色：speaker＝通訊的說話者（data/story.js）、randomAsm＝每次出現的組裝不同、amphib＝兩棲（水中不減速）。
 
 const LIGHT = {
   head: 'h_lt',
@@ -145,7 +145,7 @@ export const FOES = {
     dmgMul: 0.6,
     stabMul: 1.2,
     ai: 'strider',
-    perch: true,
+    perch: 'dam', // 水壩時站上壩頂，其他地圖找高處
     modelKind: 'boss',
     vehKey: 'patrol_cart',
     radius: 1.6,
@@ -154,6 +154,47 @@ export const FOES = {
     turnRate: 2,
     intro: '壩頂巡邏砲車：在壩頂居高臨下砲擊，爬上壩頂或躲進壩體的陰影',
     gen: () => ({ ...HEAVY, rarm: 'w_bz', rback: 'bw_gr' }),
+  },
+  // ---- 汙染水沒市街 ----
+  gunboat: {
+    theme: 'flooded',
+    foe: 'gunboat',
+    cost: 2,
+    name: '潛航砲艇',
+    pal: 'toxic',
+    scale: 1,
+    hpMul: 0.5,
+    dmgMul: 0.7,
+    stabMul: 1,
+    ai: 'gunboat',
+    modelKind: 'boss',
+    vehKey: 'gunboat',
+    radius: 1.5,
+    wantDist: 22,
+    speedMul: 1.2,
+    turnRate: 2.5,
+    intro: '潛航砲艇：潛在水下時打不到，浮出水面發射魚雷後才是攻擊的時機',
+    gen: () => ({ ...HEAVY }),
+  },
+  sprayer: {
+    theme: 'flooded',
+    foe: 'sprayer',
+    cost: 2,
+    name: '汙染噴射 MT',
+    pal: 'toxic',
+    scale: 1,
+    hpMul: 0.6,
+    dmgMul: 0.6,
+    stabMul: 1.1,
+    ai: 'sprayer',
+    modelKind: 'boss',
+    vehKey: 'sprayer',
+    radius: 1.6,
+    wantDist: 14,
+    speedMul: 0.85,
+    turnRate: 2.5,
+    intro: '汙染噴射 MT：噴出的汙染液留下腐蝕區，站在裡面會持續損傷、ACS 也回復得很慢',
+    gen: () => ({ ...HEAVY, rarm: 'w_mg' }),
   },
   // ---- 沙丘地帶 ----
   burrow: {
@@ -330,6 +371,34 @@ export const ACES = {
     },
     intro: '水壩的守備隊長 SLUICE — 佔住壩頂，從高處傾瀉重火力',
   },
+  marsh: {
+    theme: 'flooded',
+    name: 'MARSH',
+    speaker: 'marsh',
+    pal: 'marsh',
+    ai: 'marsh',
+    amphib: true,
+    wantDist: 10,
+    hpMul: 2.1,
+    dmgMul: 0.85,
+    stabMul: 1.5,
+    speedMul: 1.1,
+    turnRate: 5,
+    asm: {
+      head: 'h_lt',
+      core: 'c_std',
+      arms: 'a_std',
+      legs: 'l_rj',
+      booster: 'b_hi',
+      generator: 'g_fast',
+      fcs: 'f_near',
+      rarm: 'w_sg',
+      larm: 'w_claw',
+      rback: 'bw_ms',
+      lback: 'bw_none',
+    },
+    intro: '水沒市街的兩棲傭兵 MARSH — 在水裡不減速，潛在水中時無法鎖定',
+  },
   sirocco: {
     theme: 'dunes',
     name: 'SIROCCO',
@@ -390,6 +459,7 @@ export const THEME_ACE = {
   desert: 'prospector',
   industrial: 'stevedore',
   dam: 'sluice',
+  flooded: 'marsh',
 };
 // 主題的專屬敵人（depth：垂直主題的深度）
 export function themeFoes(theme, depth = 0) {

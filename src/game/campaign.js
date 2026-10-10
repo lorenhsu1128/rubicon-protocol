@@ -325,6 +325,7 @@ Object.assign(Game.prototype, {
         wantDist: r.wantDist,
         speedMul: r.speedMul,
         turnRate: r.turnRate,
+        amphib: r.amphib,
       });
       this.bosses = [e];
       ss.elite = e;

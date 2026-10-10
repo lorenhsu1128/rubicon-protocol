@@ -4,6 +4,7 @@
 // 不帶變體時 World 完全照原本生成（現有地圖不變）。本模組不可 import world.js，World 一律用參數 w。
 import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
 import { box, cyl, mat } from './prop-models.js';
+import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
 
 const M = {
   concrete: mat(0x8e8a82, { roughness: 0.95, metalness: 0.02 }),
@@ -213,6 +214,26 @@ export function buildPenstock(len) {
   for (let z = -len / 2 + 2; z < len / 2; z += 8) g.add(box(3.2, 1.6, 1, M.concreteD, 0, 0.8, z));
   return g;
 }
+// 汙染物桶（發光，高 1.2 m）
+export function buildToxicDrum() {
+  const g = new THREE.Group();
+  g.add(cyl(0.45, 0.45, 1.2, mat(0x8a9a2a, { roughness: 0.6 }), 0, 0.6, 0, 10));
+  g.add(cyl(0.47, 0.47, 0.1, M.dark, 0, 0.3, 0, 10));
+  g.add(cyl(0.47, 0.47, 0.1, M.dark, 0, 0.9, 0, 10));
+  g.add(
+    cyl(
+      0.3,
+      0.3,
+      0.05,
+      new THREE.MeshStandardMaterial({ color: 0x9aff40, emissive: 0x6acc20, emissiveIntensity: 1.4 }),
+      0,
+      1.22,
+      0,
+      10,
+    ),
+  );
+  return g;
+}
 // 礦坑坑口：岩壁上的方形入口與照明（寬 12、高 10）
 export function buildMinePortal() {
   const g = new THREE.Group();
@@ -272,6 +293,7 @@ function place(w, g, bx, range, shapes, sink = 0.3) {
   );
 }
 const smooth = (t) => t * t * (3 - 2 * t);
+const lerpH = (a, b, t) => a + (b - a) * t;
 // 集散場：矩形範圍內沒有障礙物
 const free = (w, x, z, hw, hd, m = 1) =>
   !w.obstacles.some((o) =>
@@ -521,6 +543,119 @@ export const VARIANTS = {
       },
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
+  flooded: {
+    highway: {
+      name: '高架道路',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        // 一條橫越市區的高架道路（高 7.5 m，可以站上去），大樓避開它
+        buildProps(w) {
+          const axis = rndi(0, 1);
+          const off = rnd(-30, 30) * w.k;
+          const y = 7.5;
+          const half = w.size / 2;
+          for (let s = -half + 10; s < half - 10; s += 20) {
+            const x = axis ? s : off,
+              z = axis ? off : s;
+            if (Math.abs(x) < 7 && Math.abs(z) < 7) continue; // 出生點留空
+            w.addDeck(x, z, axis ? 20.2 : 11, axis ? 11 : 20.2, y, 0.9, 0);
+            for (const k of [-1, 1]) {
+              const px = x + (axis ? 0 : k * 3.5),
+                pz = z + (axis ? k * 3.5 : 0);
+              w.addPillar(px, pz, 0.9, w.terrainHeight(px, pz) - 0.3, y - 0.9);
+            }
+          }
+          const x0 = axis ? -half : off - 6,
+            x1 = axis ? half : off + 6,
+            z0 = axis ? off - 6 : -half,
+            z1 = axis ? off + 6 : half;
+          w.reserve(x0, x1, z0, z1);
+          FLOODED.buildProps(w);
+        },
+      },
+    },
+    canal: {
+      name: '水道',
+      theme: { featureKinds: ['overpass', 'bunkers'] },
+      // 兩條很深的水道（水深約 2.5 m，涉水更慢；潛航砲艇的地盤）
+      terrain(w) {
+        const r = makeRng(w.seed * 71 + 13);
+        const a = (r() * 2 - 1) * 40 * w.k,
+          b = (r() * 2 - 1) * 40 * w.k;
+        return (x, z, h) => {
+          const t = Math.min(Math.abs(x - a), Math.abs(z - b));
+          return lerpH(h, -2.4, 1 - smooth(clamp((t - 6) / 3, 0, 1)));
+        };
+      },
+    },
+    suburb: {
+      name: '郊區',
+      theme: {
+        featureKinds: ['bunkers', 'overpass'],
+        fogFar: 190,
+        sunI: 0.85,
+        // 低矮的住宅廢墟（4～8 m，屋頂可站）、車輛、路燈；沒有高樓
+        buildProps(w) {
+          w.scatter(w.cnt(16, 22), 7, (x, z, y) => {
+            if (w.terrainHeight(x, z) < 0.3) return;
+            const bw = rnd(6, 10),
+              bd = rnd(6, 9),
+              h = rnd(4, 8);
+            const g = buildRuinTower(bw, h, bd, rnd(0, 1) < 0.4, Math.floor(rnd(0, 1e6)));
+            w.addSmall(g, x, y - 0.3, z, { w: bw, h, d: bd });
+          });
+          w.scatter(
+            w.cnt(8, 12),
+            6,
+            (x, z, y) => {
+              const color = pick([0x7a3a2a, 0x3a4a5a, 0x6a6a5a, 0x8a7a3a]);
+              const g = buildWreckCar(color);
+              w.addSmall(g, x, y - 0.1, z, { w: CAR[0], h: CAR[1], d: CAR[2] }, 'car', 900, color);
+            },
+            false,
+          );
+          w.scatter(
+            w.cnt(6, 10),
+            5,
+            (x, z, y) => {
+              const h = rnd(6, 8);
+              const g = buildBentLamp(h);
+              g.rotation.y = rnd(0, 6.28);
+              w.addSmall(g, x, y - 0.2, z, { r: 0.5, h }, 'streetlamp', 600, 0x4a4f52);
+            },
+            false,
+          );
+        },
+      },
+    },
+    toxic: {
+      name: '汙染沼澤',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        water: { level: 0.2, color: 0x4e5e1e, opacity: 0.93 },
+        fog: 0x8a9a5a,
+        sky: 0x9aa86a,
+        fogNear: 30,
+        fogFar: 140,
+        weather: 'ash',
+        propNames: { drum: '汙染物桶' },
+      },
+      // 整片往下沉，大部分街區泡在水裡
+      terrain: () => (x, z, h) => h - 0.55,
+      build(w) {
+        w.scatter(
+          w.cnt(14, 20),
+          4,
+          (x, z, y) => {
+            const g = buildToxicDrum();
+            g.rotation.set(rnd(-0.3, 0.3), rnd(0, 6), rnd(-0.3, 0.3));
+            w.addSmall(g, x, y - 0.2, z, { r: 0.5, h: 1.2 }, 'drum', 300, 0x8a9a2a);
+          },
+          false,
+        );
+      },
     },
   },
   dam: {
@@ -971,6 +1106,7 @@ export const VARIANT_CATALOG = [
     () => buildQuayCrane(),
   ],
   ['bollard', '繫船柱', '集散場「港灣碼頭」的裝飾', () => buildBollard()],
+  ['toxic_drum', '汙染物桶', '水沒市街「汙染沼澤」；可破壞', () => buildToxicDrum()],
   ['weir', '攔砂壩', '水壩「攔砂壩群」；長 12、高 5–6 m，不可破壞', () => buildWeir(12, 5)],
   ['penstock', '壓力水管', '水壩「水力發電廠」；長 22 m、管徑 2.4 m', () => buildPenstock(22)],
   [

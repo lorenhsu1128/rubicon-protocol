@@ -380,13 +380,18 @@ export class Effects {
     this.flash(c, 3, color, 0.2);
   }
   // 燃燒的地面（熔渣）：半徑 R、持續 life 秒，火苗與煙
-  firePool(p, R, life) {
+  // kind：0 燃燒地面、1 腐蝕區（綠色）
+  firePool(p, R, life, kind = 0) {
+    const C =
+      kind === 1
+        ? [0x6aa820, 0xc8ff50, 0x9aff40, 0x5a8a20, 0x3a4a2a]
+        : [0xff5a10, 0xffc040, 0xff7a20, 0xffb040, 0x3a3430];
     const grp = new THREE.Group();
     grp.position.copy(p).setY(p.y + 0.1);
-    const disc = new THREE.Mesh(this.discGeo, this.addM(0xff5a10, 0.55));
+    const disc = new THREE.Mesh(this.discGeo, this.addM(C[0], 0.55));
     disc.rotation.x = -Math.PI / 2;
     disc.scale.setScalar(R);
-    const core = new THREE.Mesh(this.discGeo, this.addM(0xffc040, 0.5));
+    const core = new THREE.Mesh(this.discGeo, this.addM(C[1], 0.5));
     core.rotation.x = -Math.PI / 2;
     core.position.y = 0.02;
     core.scale.setScalar(R * 0.55);
@@ -402,7 +407,7 @@ export class Effects {
         const a = Math.random() * Math.PI * 2,
           r = Math.random() * R * 0.85;
         const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3, Math.sin(a) * r));
-        const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.5 ? 0xff7a20 : 0xffb040, 0.8));
+        const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.5 ? C[2] : C[3], 0.8));
         f.position.copy(q);
         const up = rnd(2.5, 4.5);
         this.add(f, rnd(0.4, 0.7), (e2, t2, dt2) => {
@@ -410,7 +415,7 @@ export class Effects {
           e2.mesh.scale.setScalar(0.5 * (1 - t2) + 0.1);
           e2.mesh.material.opacity = 0.8 * (1 - t2);
         });
-        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + 1), 0.9, 0x3a3430, 1.2, 3);
+        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + 1), 0.9, C[4], 1.2, 3);
       }
     });
   }

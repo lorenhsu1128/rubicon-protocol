@@ -1,4 +1,4 @@
-// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩…）
+// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩、水沒市街）
 // 介面同 boss-models.js（vehicle: true；animateMech 只處理閃光與噴嘴）；原點在地面（飛行的在機體中心下方），正面 −Z。
 // 會動的節點放在 extra（entities/mech-foe.js 使用）。
 import { CB, P, bakeAll, gBox, gCyl, gSph } from './geometry.js';
@@ -343,7 +343,47 @@ function buildPatrolCart(pal, scale) {
   return rig(root, torso, M, { hand, type: 'patrol_cart', height: 2.6 * scale });
 }
 
+// 潛航砲艇：低矮的艇身、尖艏、小砲塔與潛望鏡、艏部魚雷管（高約 1.8 m；潛航時隱藏）
+function buildGunboat(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 2.4, 0.9, 4.4, M.main, 0, 0.6, 0.4, 0, 0, 0, 0.12);
+  CB(torso, 1.4, 0.7, 1.6, M.main, 0, 0.6, -2.4, 0, Math.PI / 4, 0, 0.08);
+  CB(torso, 1.3, 0.6, 1.6, M.main2, 0, 1.3, 0.6, 0, 0, 0, 0.08);
+  P(torso, gCyl(0.1, 0.1, 1.2, 6), M.joint, 0.3, 2.0, 0.9);
+  for (const s of [-1, 1]) P(torso, gCyl(0.16, 0.16, 1.2, 8), M.gun, s * 0.5, 0.6, -2.6, Math.PI / 2);
+  P(torso, gBox(0.8, 0.18, 0.05), glow(0x9aff40, 1.4), 0, 1.35, -0.22);
+  const hand = new THREE.Group();
+  hand.position.set(0, 0.6, -3.2);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'gunboat', height: 1.8 * scale });
+}
+// 汙染噴射 MT：履帶底盤＋背上的汙染液槽＋前方的噴嘴臂（高約 3.2 m）
+function buildSprayer(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  for (const s of [-1, 1]) CB(torso, 0.8, 0.9, 3.0, M.joint, s * 1.05, 0.45, 0, 0, 0, 0, 0.08);
+  CB(torso, 1.8, 1.0, 2.4, M.main, 0, 1.3, 0.1, 0, 0, 0, 0.1);
+  P(torso, gCyl(0.75, 0.75, 2.2, 12), M.acc, 0, 2.4, 0.6, Math.PI / 2);
+  for (const z of [-0.2, 1.4]) P(torso, gCyl(0.8, 0.8, 0.15, 12), M.main2, 0, 2.4, z, Math.PI / 2);
+  P(torso, gBox(0.3, 0.3, 1.8), M.gun, 0.5, 1.8, -1.4);
+  P(torso, gCyl(0.12, 0.25, 0.5, 8), M.gun, 0.5, 1.8, -2.5, Math.PI / 2);
+  P(torso, gSph(0.25, 8), glow(0x9aff40, 1.8), 0, 3.2, 0.6);
+  const hand = new THREE.Group();
+  hand.position.set(0.5, 1.8, -2.8);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'sprayer', height: 3.2 * scale });
+}
+
 export const FOE_BUILDERS = {
+  gunboat: buildGunboat,
+  sprayer: buildSprayer,
   gate_turret: buildGateTurret,
   patrol_cart: buildPatrolCart,
   crane: buildCrane,
@@ -357,6 +397,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['gunboat', '潛航砲艇', '水沒市街專屬；潛在水下打不到，浮出水面發射魚雷'],
+  ['sprayer', '汙染噴射 MT', '水沒市街專屬；噴出汙染液留下腐蝕區'],
   ['gate_turret', '閘門砲台', '水壩專屬；裝在閘門上，開閘的水流把機體往下游推'],
   ['patrol_cart', '壩頂巡邏砲車', '水壩專屬；佔住壩頂等高處砲擊'],
   ['crane', '起重機砲台', '集散場專屬；不移動，吊起貨櫃往預警圈砸下'],

@@ -628,7 +628,21 @@ Object.assign(Game.prototype, {
     if (o.at) {
       sp = { x: o.at.x, z: o.at.z };
       y = Math.max(o.at.y, this.world.terrainHeight(sp.x, sp.z));
-    } else if (o.perch) {
+    } else if (o.perch === 'dam' && this.world.dam) {
+      // 壩頂巡邏砲車：站上壩頂（找不到時照一般的高處）
+      const W = this.world;
+      for (let t = 0; t < 20; t++) {
+        const x = rnd(-W.lim * 0.8, W.lim * 0.8),
+          z = W.dam.zc;
+        const top = W.groundAt(x, z, 40);
+        if (top > W.terrainHeight(x, z) + 6 && W.inZone(x, z, 3)) {
+          sp = { x, z };
+          y = top;
+          break;
+        }
+      }
+    }
+    if (o.perch && y < this.world.terrainHeight(sp.x, sp.z) + 1 && !o.at) {
       const decks = this.world.obstacles.filter(
         (ob) =>
           ob.kind === 'box' &&

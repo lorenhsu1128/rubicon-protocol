@@ -181,6 +181,17 @@ export function buildProjectileMesh(kind, color, speed) {
     fl.position.y = -0.5;
     mesh.add(body);
     mesh.add(fl);
+  } else if (kind === 'torpedo') {
+    // 潛航砲艇的魚雷：沿水面直線前進（長軸沿 Z）
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 1.8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x3a4a3a, metalness: 0.6, roughness: 0.4 }),
+    );
+    body.rotation.x = Math.PI / 2;
+    const tail = new THREE.Mesh(new THREE.SphereGeometry(0.25, 6, 5), glow(col, 0.9));
+    tail.position.z = -1;
+    mesh.add(body);
+    mesh.add(tail);
   } else if (kind === 'crate') {
     // 起重機砲台／叉架 MT 丟出的貨櫃（長軸沿 X，飛行中不轉向）
     const cm = new THREE.MeshStandardMaterial({

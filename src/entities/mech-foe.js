@@ -3,6 +3,8 @@
 // 拾荒 MT（opts.foe 'scav'）撿同伴零件強化的處理在 game/mission.js 的 onEnemyKilled（foeScavenge）。
 // crane 起重機砲台（不移動，丟貨櫃到預警圈）、forklift 叉架 MT（舉貨櫃當盾、靠近丟出）：吊著／舉著貨櫃＝bossVis 1。
 // gategun 閘門砲台：站上水壩的閘門，預警後開閘，下游的水流把機體往下游推（game/support.js 的 addFlow）。
+// gunboat 潛航砲艇（潛航＝bossVis 1：隱藏、打不到，浮出後發射魚雷）、sprayer 汙染噴射 MT（腐蝕區）、
+// marsh 專屬 AC MARSH（在水中離目標遠時潛行＝bossVis 2：隱藏、不能鎖定）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
@@ -42,6 +44,9 @@ Object.assign(MechEntity.prototype, {
     }
     if (this.ai === 'forklift') return this.foeForklift(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'gategun') return this.foeGate(dt, d, dir, wish, pl, r);
+    if (this.ai === 'gunboat') return this.foeGunboat(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'sprayer') return this.foeSprayer(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'marsh') return this.foeMarsh(dt, d, dir, perp, wish, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -156,7 +161,7 @@ Object.assign(MechEntity.prototype, {
     } else if (d < 22) wish.copy(dir).multiplyScalar(-0.7).addScaledVector(perp, 0.5);
     else wish.copy(perp).multiplyScalar(0.6);
     s.thT -= dt;
-    if (s.hold && s.thT <= 0 && d < 20 && d > 5 && this.canAct()) {
+    if (s.hold && s.thT <= 0 && d < 20 && d > 3 && this.canAct()) {
       const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
       if (lead.length() > 4) lead.setLength(4);
       this.game.crateShot(this, pl.pos.clone().add(lead), {
@@ -224,10 +229,102 @@ Object.assign(MechEntity.prototype, {
     this.bossVis = s.warn ? 1 : 0;
     return r;
   },
+  // 潛航砲艇：under（潛航：打不到、看不到，只在水裡移動，保持 16～26 m）→ up（浮出 5 秒，發射 3 枚魚雷）→ 再潛下去
+  foeGunboat(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game,
+      w = g.world;
+    if (!s.gb) {
+      s.gb = 'under';
+      s.gbT = rnd(2, 4);
+    }
+    s.gbT -= dt;
+    const wet = (x, z) => !w.theme.water || w.waterDepth(x, z) > 0.25;
+    if (s.gb === 'under') {
+      this.bossVis = 1;
+      this.noLock = true;
+      if (d > 26) wish.copy(dir);
+      else if (d < 16) wish.copy(dir).negate();
+      else wish.copy(perp);
+      // 在水裡時只往水裡走（上了岸就照常移動，回到水道為止）
+      if (wet(this.pos.x, this.pos.z) && !wet(this.pos.x + wish.x * 3, this.pos.z + wish.z * 3)) {
+        const alt = wish.clone().set(-wish.z, 0, wish.x);
+        if (!wet(this.pos.x + alt.x * 3, this.pos.z + alt.z * 3)) alt.negate();
+        wish.copy(wet(this.pos.x + alt.x * 3, this.pos.z + alt.z * 3) ? alt : alt.set(0, 0, 0));
+      }
+      if (Math.random() < dt * 6) g.fx.dust(this.pos.clone(), 1.2, 2, 0x9fb8a8);
+      if ((s.gbT <= 0 && d < 40 && wet(this.pos.x, this.pos.z)) || s.gbT < -6) {
+        s.gb = 'up';
+        s.gbT = 5;
+        s.shots = 3;
+        s.shT = 0.8;
+        this.bossVis = 0;
+        this.noLock = false;
+        g.fx.dust(this.pos.clone(), 3, 10, 0xb8dcf0);
+      }
+    } else {
+      wish.copy(perp).multiplyScalar(0.3);
+      s.shT -= dt;
+      if (s.shots > 0 && s.shT <= 0 && this.canAct()) {
+        s.shots--;
+        s.shT = 0.45;
+        g.torpedoShot(this, pl, { dmg: 420 * this.dmgMul, im: 700 * this.dmgMul, R: 3.5 });
+      }
+      if (s.gbT <= 0) {
+        s.gb = 'under';
+        s.gbT = rnd(3, 5);
+        g.fx.dust(this.pos.clone(), 3, 10, 0xb8dcf0);
+      }
+    }
+    return r;
+  },
+  // 汙染噴射 MT：保持 9～16 m，每 4～5.5 秒往目標噴汙染液，1 秒後落地成腐蝕區（10 秒）
+  foeSprayer(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    if (d > 16) wish.copy(dir).multiplyScalar(0.8);
+    else if (d < 9) wish.copy(dir).multiplyScalar(-0.6);
+    else wish.copy(perp).multiplyScalar(0.5);
+    s.spT = (s.spT === undefined ? rnd(2, 3) : s.spT) - dt;
+    if (s.spT <= 0 && d < 26 && this.canAct()) {
+      s.spT = rnd(4, 5.5);
+      const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
+      if (lead.length() > 4) lead.setLength(4);
+      const at = pl.pos.clone().add(lead);
+      at.y = g.world.groundAt(at.x, at.z, at.y + 1.5);
+      const mz = this.muzzle('rarm');
+      g.fx.streaks(mz, 12, 0x9aff40, 18, 0.5, 14, at.clone().sub(mz).normalize(), 0.35);
+      g.fx.warnCircle(at, 4.5, 1, 0x9aff40);
+      g.netEv({ t: 'warn', p: at.toArray().map((x) => +x.toFixed(2)), R: 4.5, dl: 1, c: 0x9aff40 });
+      g.later(1, () => g.addPool(this, at, 4.5, 10, 50 * this.dmgMul, true));
+    }
+    this.stuckJump(dt, r);
+    return r;
+  },
+  // MARSH：在水裡、離目標 14 m 以上時潛行（隱藏、不能鎖定），靠近後從水裡 QB 突襲；近身時橫移
+  foeMarsh(dt, d, dir, perp, wish, r) {
+    const s = this.aiState,
+      w = this.game.world;
+    const wet =
+      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 0.8 &&
+      w.waterDepth(this.pos.x, this.pos.z) > 0.3;
+    const sub = wet && d > 14;
+    this.bossVis = sub ? 2 : 0;
+    if (d > s.want + 4) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
+    else wish.copy(perp);
+    if (sub && d < 26 && Math.random() < dt * 1.5) {
+      r.qb = true;
+      wish.copy(dir);
+    } else if (!sub && Math.random() < dt * 0.8) r.qb = true;
+    if (sub && Math.random() < dt * 5) this.game.fx.dust(this.pos.clone(), 1.4, 2, 0x9fb8a8);
+    this.stuckJump(dt, r);
+    return r;
+  },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
   foeFx() {
-    if (this.ai === 'burrow') {
-      const under = !!(this.bossVis & 1) && !this.dead;
+    if (this.ai === 'burrow' || this.ai === 'gunboat' || this.ai === 'marsh') {
+      // 沙下／水下（MARSH 的潛行是 bossVis 2）
+      const under = !!(this.bossVis & (this.ai === 'marsh' ? 2 : 1)) && !this.dead;
       this.mesh.visible = !under;
       this.noLock = under;
     }
@@ -258,7 +355,7 @@ Object.assign(MechEntity.prototype, {
   },
   // specialDefense 先呼叫：外殼還在時吸收大部分傷害
   foeDefense(dmg, impact, from, at, melee) {
-    if (this.ai === 'burrow' && this.bossVis & 1) return [0, 0]; // 在沙下
+    if ((this.ai === 'burrow' || this.ai === 'gunboat') && this.bossVis & 1) return [0, 0]; // 在沙下／潛航中
     if (this.ai === 'forklift') return this.foeCrateGuard(dmg, impact, from, at, melee);
     if (this.ai !== 'junk') return [dmg, impact];
     this.foeShellInit();

@@ -21,6 +21,7 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  marsh: { name: 'MARSH', color: '#40d0a0', mark: 'M', note: '水沒市街的兩棲傭兵（第 2 章的宿敵）' },
   sluice: { name: 'SLUICE', color: '#60c8ff', mark: 'L', note: '水壩的守備隊長（第 2 章的宿敵）' },
   stevedore: { name: 'STEVEDORE', color: '#e0b020', mark: 'D', note: '集散場的砲擊手（第 2 章的宿敵）' },
   prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
@@ -363,6 +364,50 @@ export const COMMS = [
     event: 'fail',
     killedBy: '閘門',
     lines: [['echo', '開閘的水流會把你往下游沖。看到藍色預警就跳起來，或往水道兩側移開。']],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'marsh',
+    once: true,
+    lines: [
+      ['marsh', '……水很冷吧？我一直都待在這裡面。'],
+      ['echo', '具名 AC「MARSH」。兩棲型，在水裡會潛行，鎖定不到。'],
+      ['echo', '站到高處，等它從水裡出來。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'marsh',
+    lines: [
+      ['marsh', '又來泡水了？'],
+      ['echo', 'MARSH 靠近時才會浮出來。離開水道，逼它上岸。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'MARSH',
+    lines: [
+      ['marsh', '沉到底吧。'],
+      ['echo', '在水裡你會變慢，MARSH 不會。站上屋頂或高架道路再打。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'flooded',
+    once: true,
+    lines: [['echo', '水沒市街。水裡移動會變慢，水下還有砲艇——看到水花就是它要浮上來了。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '潛航',
+    lines: [['echo', '潛航砲艇只在浮出水面時打得到。注意魚雷的來向，橫向閃開。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '汙染',
+    lines: [['echo', '腐蝕區會持續損傷、讓 ACS 回復變慢。別在綠色的地面上停留。']],
   },
   // ---- 失敗 ----
   { event: 'fail', fails: 3, lines: [['echo', '已經第三次了。換個裝備試試看？重量和射程都會影響打法。']] },
