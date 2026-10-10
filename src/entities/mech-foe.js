@@ -12,6 +12,7 @@
 // crawler 構造體爬行機（目標在高處時沿柱子爬上去）、underturret 平台底部砲塔（吊在平台底面）、
 // spire 專屬 AC SPIRE（佔高處）、testrig 推進器試車台（預警後噴火橫掃）、hopper 舊式宇宙用 MT（長時間滯空）。
 // rammer 衝撞無人機（預警後衝撞、往外推）、flak 艦載防空砲（專打空中）、undertow 專屬 AC UNDERTOW（貼身往外推）。
+// vacuum 真空作業機（懸浮、改變高度閃避）、marker 軌道標定衛星（標定目標＝markT，受傷 ×1.3）、zenith 專屬 AC ZENITH（空戰）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
@@ -80,6 +81,9 @@ Object.assign(MechEntity.prototype, {
       return r;
     }
     if (this.ai === 'undertow') return this.foeUndertow(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'vacuum') return this.foeVacuum(dt, d, dir, perp, wish, r);
+    if (this.ai === 'marker') return this.foeMarker(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'zenith') return this.foeZenith(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -772,6 +776,7 @@ Object.assign(MechEntity.prototype, {
     s.fkT = (s.fkT || 0) - dt;
     if (air && s.fkT <= 0 && d < 80 && this.canAct()) {
       s.fkT = 0.35;
+      s.fkN = (s.fkN || 0) + 1; // 射出的空炸彈數
       const mz = this.muzzle('rarm');
       const tgt = pl.center().addScaledVector(pl.vel, d / 70);
       const v = tgt.sub(mz).normalize().multiplyScalar(70);
@@ -809,6 +814,52 @@ Object.assign(MechEntity.prototype, {
       g.fx.meleeHit(pl.center(), 0x40c0e0, true, dir.clone());
     }
     this.stuckJump(dt, r);
+    return r;
+  },
+  // 真空作業機：在目標周圍懸浮繞行，每 2 秒換一個高度（4～12 m）
+  foeVacuum(dt, d, dir, perp, wish, r) {
+    const s = this.aiState;
+    this.flying = true;
+    s.hT = (s.hT || 0) - dt;
+    if (s.hT <= 0) {
+      s.hT = rnd(1.5, 2.5);
+      this.hoverH = rnd(4, 12);
+    }
+    wish
+      .copy(perp)
+      .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+      .normalize();
+    return r;
+  },
+  // 軌道標定衛星：高空保持距離；每 6 秒用光束標定目標 5 秒（被標定的受傷 ×1.3，game/support.js 的 markT）
+  foeMarker(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    this.flying = true;
+    wish.copy(perp).multiplyScalar(0.6);
+    if (d < s.want - 6) wish.addScaledVector(dir, -0.6);
+    else if (d > s.want + 10) wish.addScaledVector(dir, 0.6);
+    s.mkT = (s.mkT === undefined ? rnd(2, 3) : s.mkT) - dt;
+    if (s.mkT <= 0 && d < 70 && this.canAct()) {
+      s.mkT = 6;
+      pl.markT = 5;
+      g.fx.beam(this.muzzle('rarm'), pl.center(), 0xff5050, 0.12);
+      g.fx.ring(pl.center(), 3, 0xff5050);
+      if (pl.isPlayer || pl.slot !== undefined) g.alertAll('被軌道衛星標定 — 受到的傷害增加');
+    }
+    return r;
+  },
+  // ZENITH：幾乎不落地——離地 10 m 以下就爬升，空中橫移與 QB，偶爾俯衝接近
+  foeZenith(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      w = this.game.world;
+    const alt = this.pos.y - w.groundRef(this.pos.x, this.pos.z, this.pos.y);
+    if (d > s.want + 8) wish.copy(dir).addScaledVector(perp, 0.5).normalize();
+    else if (d < s.want - 8) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
+    else wish.copy(perp);
+    r.hover = alt < 10 ? 2 : true;
+    if (Math.random() < dt * 1.2) r.qb = true;
+    if (d > 45 && Math.random() < dt * 0.6) r.ab = true;
     return r;
   },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小

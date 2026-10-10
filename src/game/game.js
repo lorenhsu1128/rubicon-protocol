@@ -394,6 +394,7 @@ export class Game {
       this.state === 'brief' ||
       this.state === 'sim' ||
       this.state === 'record' ||
+      this.state === 'epilogue' ||
       this.state === 'campfail' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {

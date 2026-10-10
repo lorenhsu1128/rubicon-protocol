@@ -1820,6 +1820,26 @@ body.lab #fps {
   font-size: 12px;
 }
 
+/* 主線：結局（game/hub.js 的 openEpilogue） */
+#epilogue {
+  background: radial-gradient(ellipse at 50% 30%, #1a2840, #04060a 80%);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+}
+#epTitle {
+  font-size: 28px;
+  letter-spacing: 0.12em;
+  margin: 8px 0 14px;
+}
+#epLines p {
+  line-height: 1.9;
+  margin: 6px 0;
+}
+#epSeen {
+  margin: 12px 0;
+}
 /* 主線：模擬器、作戰紀錄（game/sim.js） */
 #simMenu,
 #record {

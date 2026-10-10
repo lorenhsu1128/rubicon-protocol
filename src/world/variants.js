@@ -619,6 +619,33 @@ export const VARIANTS = {
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
     },
   },
+  orbit: {
+    cluster: {
+      name: '密集模組區',
+      theme: {
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -40, central: 36, n: [10, 14], size: [20, 30], span: 30, gap: 10 }),
+      },
+    },
+    span: {
+      name: '長距桁架',
+      theme: {
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -40, central: 44, n: [4, 6], size: [26, 40], span: 60, gap: 18 }),
+      },
+    },
+    dock: {
+      name: '對接港',
+      theme: {
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -40, central: 84, n: [3, 5], size: [22, 30], span: 40, gap: 12 }),
+      },
+    },
+    nightside: {
+      name: '軌道夜側',
+      theme: { sky: 0x0a1428, fog: 0x1a2a48, sun: 0x8ab0ff, sunI: 0.5, hemiI: 0.6, fogFar: 220 },
+    },
+  },
   xylem: {
     dense: {
       name: '密集街區',

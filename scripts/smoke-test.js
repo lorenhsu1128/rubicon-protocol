@@ -6256,13 +6256,13 @@ async function testChapter5(browser, base) {
     const fk = g.spawnType('flak', 1, 1, at(0, -25), 1);
     g.projectiles = [];
     window.__step([fk], 90);
-    out.flakGround = g.projectiles.filter((q) => q.kind === 'shell').length;
+    out.flakGround = fk.aiState.fkN || 0;
     p.pos.y += 10;
     window.__step([fk], 90, () => {
       p.pos.y = w.terrainHeight(p.pos.x, p.pos.z) + 10;
       return false;
     });
-    out.flakAir = g.projectiles.filter((q) => q.kind === 'shell').length;
+    out.flakAir = fk.aiState.fkN || 0;
     p.pos.y = w.terrainHeight(p.pos.x, p.pos.z);
     fk.takeDamage(1e9, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
     return out;
@@ -6346,6 +6346,220 @@ async function testChapter5(browser, base) {
   check(
     c5.join(',') === 'c5s1:AEGIS,c5s2a:LEVIATHAN,c5s2b:VIPER,c5s3:IGUAZU,route:done/hidden/open/locked',
     '第 5 章的出擊與終點 Boss、依抉擇 2 的路線（' + c5.join('、') + '）',
+  );
+  await ctx.close();
+}
+
+// 主線第 6 章：高空軌道（真空作業機、軌道標定衛星、ZENITH）、出擊、最後的抉擇、結局與周目
+async function testChapter6(browser, base) {
+  console.log('第 6 章：高空軌道的專屬敵人與 AC、變體與地標、出擊、結局與周目');
+  const { ctx, page } = await newPage(browser, 'ch6');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        g.player.hp = g.player.maxHp = 1e6;
+        window.__step = (ents, n, stop) => {
+          const p = g.player;
+          for (let i = 0; i < n; i++) {
+            g.time += 1 / 60;
+            p.iFrames = 0;
+            for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+            if (stop && stop()) return i;
+          }
+          return n;
+        };
+      },
+      [theme, variant],
+    );
+  await enter('orbit', 'dock');
+  const ob = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    };
+    const out = {};
+    // 真空作業機：一直懸浮、改變高度
+    const vc = g.spawnType('vacuum', 1, 1, at(0, -20), 1);
+    const hs = new Set();
+    let minAlt = 1e9,
+      tick = 0;
+    window.__step([vc], 400, () => {
+      const a = vc.pos.y - w.groundRef(vc.pos.x, vc.pos.z, vc.pos.y);
+      if (++tick > 120) minAlt = Math.min(minAlt, a); // 起飛之後
+      hs.add(Math.round(vc.hoverH));
+      return false;
+    });
+    out.vac = { fly: vc.flying, minAlt, heights: hs.size };
+    vc.takeDamage(1e9, 0, p, vc.center(), new THREE.Vector3(0, 0, 1));
+    // 軌道標定衛星：標定後受傷變重
+    const h0 = p.hp;
+    p.takeDamage(1000, 0, null, p.center(), null);
+    const base = h0 - p.hp;
+    const mk = g.spawnType('marker', 1, 1, at(0, -25), 1);
+    window.__step([mk], 300, () => p.markT > 0);
+    out.marked = p.markT > 0;
+    const h1 = p.hp;
+    p.takeDamage(1000, 0, null, p.center(), null);
+    out.mult = (h1 - p.hp) / base;
+    mk.takeDamage(1e9, 0, p, mk.center(), new THREE.Vector3(0, 0, 1));
+    // ZENITH：精英區段，幾乎不落地
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const z = g.bosses[0];
+    g.player.hp = g.player.maxHp = 1e6;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    let maxAlt = 0;
+    window.__step([z], 300, () => {
+      maxAlt = Math.max(maxAlt, z.pos.y - g.world.groundRef(z.pos.x, z.pos.z, z.pos.y));
+      return false;
+    });
+    out.zen = { name: z && z.name, comm: log.includes('zenith'), maxAlt };
+    return out;
+  });
+  check(
+    ob.vac.fly && ob.vac.minAlt > 1 && ob.vac.heights >= 2,
+    '真空作業機：一直懸浮、改變高度（' + JSON.stringify(ob.vac) + '）',
+  );
+  check(ob.marked && ob.mult > 1.2, '軌道標定衛星：標定後受到的傷害變重（×' + ob.mult.toFixed(2) + '）');
+  check(
+    ob.zen.name === 'ZENITH' && ob.zen.comm && ob.zen.maxAlt > 6,
+    '精英區段：高空軌道是 ZENITH（空戰，最高離地 ' + ob.zen.maxAlt.toFixed(1) + ' m），有通訊',
+  );
+  const ov = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['tether', 'solar', 'freighter', 'antenna', 'ring', 'hab'];
+    ['cluster', 'span', 'dock', 'nightside', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'orbit', 1400 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push((g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+    });
+    return out;
+  });
+  check(
+    ov.slice(0, 4).every((s, i) => s.startsWith(['cluster', 'span', 'dock', 'nightside'][i])) &&
+      ov.filter((s) => s.endsWith(':1')).length >= 5,
+    '高空軌道的 4 種變體與地標（' + ov.join('、') + '）',
+  );
+  for (const v of ['cluster', 'nightside']) {
+    await enter('orbit', v);
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch6-orbit-' + v + '.png') });
+  }
+  // 第 6 章的出擊：宇宙港 → 軌道（上升）、終點 Boss
+  const c6 = await page.evaluate(() => {
+    const g = window.__game;
+    if (g.camp) g.campEnd(false, true);
+    g.state = 'play';
+    const out = [];
+    for (const sid of ['c6s1', 'c6s2', 'c6s3']) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(sid + ':' + n + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0]);
+      g.campEnd(false, true);
+    }
+    return out;
+  });
+  check(
+    c6.join(',') === 'c6s1:7:SERAPHIM,c6s2:7:DOPPEL,c6s3:7:BALTEUS',
+    '第 6 章的 3 個出擊（各 7 段）與終點 Boss（' + c6.join('、') + '）',
+  );
+  // 最後的抉擇：第 1 周目兩個出口，第 3 周目多一個（真結局）
+  const finalExits = async (cycle) => {
+    await page.evaluate((cycle) => {
+      const g = window.__game;
+      if (g.camp) g.campEnd(false, true);
+      g.state = 'play';
+      g.save.story.cycle = cycle;
+      g.campBegin('c6s3');
+      g.camp.seg = 5;
+      g.camp.types[5] = 'supply';
+      g.campEnterSeg();
+    }, cycle);
+    await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+      timeout: 20000,
+    });
+    return page.evaluate(() => window.__game.camp.exits.map((e) => e.choice));
+  };
+  const e1 = await finalExits(1);
+  const e3 = await finalExits(3);
+  check(
+    e1.join(',') === 'open,seal' && e3.join(',') === 'open,seal,beyond',
+    '最後的抉擇：第 1 周目 ' + e1.length + ' 個出口、第 3 周目多出真結局的出口（' + e3.join('、') + '）',
+  );
+  // 選真結局 → 完成 → 結果畫面 → 結局畫面
+  await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.camp.exits.find((q) => q.choice === 'beyond');
+    g.campLeave(e);
+    g.campEnterSeg();
+    g.campEnd(true);
+  });
+  await waitVisible(page, 'result');
+  await page.click('#btnResultOk');
+  check(await waitVisible(page, 'epilogue'), '終章完成：結果畫面之後顯示結局');
+  const ep = await page.evaluate(() => ({
+    title: document.getElementById('epTitle').textContent,
+    next: getComputedStyle(document.getElementById('btnEpNext')).display,
+    endings: Object.keys(window.__game.save.story.endings || {}),
+  }));
+  check(
+    ep.title.includes('彼岸') && ep.endings.includes('beyond') && ep.next === 'none',
+    '真結局「彼岸」，第 3 周目後不再有下一周目（' + ep.title + '）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ch6-ending.png') });
+  // 第 1 周目的結局 → 開始第 2 周目：委託重來、抉擇清空、紀錄留在 history
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.cycle = 1;
+    g.save.story.done = { c1s1: 1, c6s3: 1 };
+    g.save.story.choices = { c2: 'castron', c4: 'sancta' };
+    g.openEpilogue('seal');
+  });
+  const ep2 = await page.evaluate(() => getComputedStyle(document.getElementById('btnEpNext')).display);
+  await page.click('#btnEpNext');
+  check(await waitVisible(page, 'hub'), '開始下一周目：回到機庫');
+  const cy = await page.evaluate(() => {
+    const st = window.__game.save.story;
+    return {
+      cycle: st.cycle,
+      done: Object.keys(st.done).length,
+      choices: Object.keys(st.choices).length,
+      hist: (st.history || []).length,
+      label: document.getElementById('hubChapter').textContent,
+    };
+  });
+  check(
+    ep2 !== 'none' &&
+      cy.cycle === 2 &&
+      cy.done === 0 &&
+      cy.choices === 0 &&
+      cy.hist === 1 &&
+      cy.label.includes('第 2 周目'),
+    '第 2 周目：委託與抉擇重來、上一周目的紀錄保留（' + JSON.stringify(cy) + '）',
   );
   await ctx.close();
 }
@@ -7277,6 +7491,7 @@ async function main() {
     await testChapter3(browser, base);
     await testChapter4(browser, base);
     await testChapter5(browser, base);
+    await testChapter6(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

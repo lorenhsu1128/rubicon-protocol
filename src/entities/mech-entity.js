@@ -846,6 +846,7 @@ export class MechEntity {
     const sd = this.specialDefense(dmg, impact, from, at, melee, wid);
     if (!sd) return;
     [dmg, impact] = sd;
+    if (this.markT > 0) dmg *= 1.3; // 被軌道標定衛星標定（mech-foe.js）
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
       this.comboT = 1.2;
@@ -1136,6 +1137,7 @@ export class MechEntity {
           this.acs - this.acsMax * 0.45 * (1 + this.pmv('acsDec')) * (this.corrodeT > 0 ? 0.3 : 1) * dt, // 腐蝕區裡回復得慢
         );
       if (this.corrodeT > 0) this.corrodeT -= dt;
+      if (this.markT > 0) this.markT -= dt;
     }
     if (this.iFrames > 0) this.iFrames -= dt;
     if (this.enDelay > 0) this.enDelay -= dt;

@@ -63,6 +63,7 @@ const INTEL = {
   desert: ['礦坑結構圖：深層有大型空洞', '砲兵陣地的配置：砲台由周圍的發電機供電'],
   snow: ['冰原基地的巡邏表：暴風雪時哨兵會撤回室內', '舊觀測站的紀錄：冰層下有大型的熱源'],
   institute: ['研究紀錄：強化人間計畫的第 7 號受試者還在運作', 'Coral 收容槽的讀數：濃度正在上升'],
+  orbit: ['軌道站的日誌：「它」還在等待命令', '舊時代的設計圖：最上層有一台艦載機動兵器'],
   xylem: ['都市的管理日誌：最後一位居民在 30 年前離開', '海底電纜的配置：都市的電力來自軌道'],
   grid086: ['Doser 的物資清單：他們在囤積燃料', '構造體的結構圖：底層有一座沒有登記的發電機'],
   spaceport: ['發射排程：最後一班火箭在 20 年前', '軌道站的座標：它還在上面'],
@@ -709,10 +710,13 @@ Object.assign(Game.prototype, {
     // 陣營抉擇：這一段的出口換成互斥的抉擇出口（每個選項一個，獎勵是該委託方的模組）
     const CH = cur.choice && CHOICES[cur.choice];
     if (CH) {
-      const spots = this.campSpots(CH.opts.length, mode === 'relay' ? 'edge' : 'inner');
+      // 周目限定的選項（真結局）
+      const cyc = this.campStory().cycle || 1;
+      const opts = CH.opts.filter((o) => !o.cycle || cyc >= o.cycle);
+      const spots = this.campSpots(opts.length, mode === 'relay' ? 'edge' : 'inner');
       const trs = transList(next.theme, mode).slice();
       c.exits = spots.map((pos, i) => {
-        const o = CH.opts[i],
+        const o = opts[i],
           type = types[i % types.length],
           tr = trs[i % trs.length];
         const L = this.campExitLabel('mod_' + o.faction, type, tr.title, o.key, cur.choice);
@@ -1175,6 +1179,13 @@ Object.assign(Game.prototype, {
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       if (c.choice && !c.replay) st.choices[c.choice.id] = c.choice.key; // 陣營抉擇（重打不改）
+      // 終章：依最後的抉擇進入結局（結果畫面按確定之後）
+      if (so.final && !c.replay && !mp) {
+        const key = (c.choice && c.choice.key) || 'open';
+        st.endings = st.endings || {};
+        st.endings[key] = (st.endings[key] || 0) + 1;
+        this.campEnding = key;
+      }
       this.campComm('sortieEnd', this.campCtx());
       // 整章都完成時戰術模組清空（重打不影響）
       if (!c.replay && this.campChapterCheck(so.chapter)) {

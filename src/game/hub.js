@@ -3,7 +3,15 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { SEG_TYPES, SORTIES } from '../data/campaign.js';
-import { BRIEFINGS, CHAPTER_NAMES, FACTIONS, REGIONS, SPEAKERS, speakerBadge } from '../data/story.js';
+import {
+  BRIEFINGS,
+  CHAPTER_NAMES,
+  ENDINGS,
+  FACTIONS,
+  REGIONS,
+  SPEAKERS,
+  speakerBadge,
+} from '../data/story.js';
 import { THEMES } from '../world/world.js';
 import { Game } from './game.js';
 
@@ -39,7 +47,8 @@ Object.assign(Game.prototype, {
     const $ = (id) => document.getElementById(id);
     const st = this.campStory();
     const ch = this.hubChapter();
-    $('hubChapter').textContent = CHAPTER_NAMES[ch] || '';
+    const cyc = st.cycle || 1;
+    $('hubChapter').textContent = (cyc > 1 ? `第 ${cyc} 周目　` : '') + (CHAPTER_NAMES[ch] || '');
     $('hubCoam').textContent = this.save.coam.toLocaleString();
     $('hubMods').innerHTML = this.campModsHtml();
     // 進行中的出擊
@@ -126,6 +135,39 @@ Object.assign(Game.prototype, {
     SFX.ui();
     this.fromHub = true;
     this.openGarage();
+  },
+  // ---------- 結局與周目 ----------
+  // 結局畫面（第 6 章完成、結果畫面按確定之後）：標題、台詞、進入下一周目（最多 3 周目）或回機庫
+  openEpilogue(key) {
+    SFX.ui();
+    const $ = (id) => document.getElementById(id);
+    const E = ENDINGS[key] || ENDINGS.open;
+    const st = this.campStory();
+    const cyc = st.cycle || 1;
+    this.commClear(); // 結果畫面時還在排隊的通訊不要蓋在結局上
+    this.state = 'epilogue';
+    this.showScreen('epilogue');
+    $('epCycle').textContent = `第 ${cyc} 周目　完成`;
+    $('epTitle').textContent = E.title;
+    $('epLines').innerHTML = E.lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    const seen = Object.keys(st.endings || {}).length;
+    $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
+    $('btnEpNext').style.display = cyc < 3 ? '' : 'none';
+    $('btnEpNext').textContent = `開始第 ${cyc + 1} 周目`;
+  },
+  // 下一周目：委託與抉擇重來（這一周目的紀錄存進 history），戰術模組清空；結局與通訊紀錄保留
+  campNextCycle() {
+    const st = this.campStory();
+    const cyc = st.cycle || 1;
+    st.history = (st.history || []).concat([{ cycle: cyc, done: st.done, choices: st.choices }]);
+    st.cycle = Math.min(3, cyc + 1);
+    st.done = {};
+    st.choices = {};
+    st.sortie = null;
+    st.mods = { chapter: 1, list: [] };
+    st.mpMods = null;
+    this.writeSave();
+    this.openHub();
   },
   // 通訊紀錄：最近的在上面
   hubLog(open) {

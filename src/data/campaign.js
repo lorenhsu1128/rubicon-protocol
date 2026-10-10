@@ -43,6 +43,14 @@ export const TRANSITIONS = {
       T('運輸機吊掛移動', '前往下一個堆場', 'lz'),
     ],
   },
+  orbit: {
+    relay: [T('沿桁架推進', '在軌道站的桁架之間前進')],
+    up: [
+      T('軌道電梯上升', '搭乘軌道電梯往高空', 'lift'),
+      T('推進升空', '全力推進往上一層的平台'),
+      T('搭乘貨物艙彈射', '被貨物彈射器打上軌道'),
+    ],
+  },
   xylem: {
     relay: [T('沿海上橋梁推進', '跨過街區之間的長橋'), T('運輸機吊掛移動', '飛越洋上都市', 'lz')],
     down: [
@@ -195,12 +203,27 @@ export const CHOICES = {
       { key: 'sancta', name: '交給聖域', sub: '聖域：封鎖發射設施，保護附近的居民', faction: 'sancta' },
     ],
   },
+  // 終局的抉擇（決定結局；cycle＝第幾周目起才出現的選項）
+  c6: {
+    name: '最後的抉擇：軌道站',
+    opts: [
+      { key: 'open', name: '交出軌道站', sub: '委託方：把軌道站交給付錢的人', faction: 'castron' },
+      { key: 'seal', name: '讓軌道站墜落', sub: '聖域：讓它墜進雲海，天空恢復寂靜', faction: 'sancta' },
+      {
+        key: 'beyond',
+        name: '拒絕所有委託方',
+        sub: '？？？：駕駛軌道站離開這顆星球',
+        faction: 'aetheric',
+        cycle: 3,
+      },
+    ],
+  },
 };
 
 // 出擊：level＝敵人強度的基準（每兩個區段 +1）；segs 依序進行：
 // pool＝這一段可能的區段類型（出口各自預告一種；只有一種時各出口類型相同、獎勵不同）、border＝主題交界的區段、
 // variants＝限定的主題變體（Boss 要開闊的場地）、choice＝陣營抉擇（見 CHOICES）、
-// ace＝精英區段的專屬 AC（不寫時用主題的；{ 選項: AC } 依這一章之前的抉擇；別的主題的 AC＝跨章節再登場，會強化）
+// final＝終章（完成時進入結局，CHOICES 的 c6 決定是哪一個）、ace＝精英區段的專屬 AC（不寫時用主題的；{ 選項: AC } 依這一章之前的抉擇；別的主題的 AC＝跨章節再登場，會強化）
 export const SORTIES = {
   c1s1: {
     name: '南部荒野 — 礦坑突破',
@@ -476,6 +499,74 @@ SORTIES.c5s3 = {
     },
     { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['dense', 'harbor'] },
     { theme: 'xylem', pool: ['boss'], boss: 'duo', variants: ['harbor', 'open'] },
+  ],
+};
+// ---- 第 6 章：上空（宇宙港 → 高空軌道，上升；終局的抉擇決定結局）----
+SORTIES.c6s1 = {
+  name: '上空 — 最後的發射',
+  chapter: 6,
+  level: 16,
+  reward: 220000,
+  segs: [
+    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['runway', 'ruins'],
+    },
+    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'escort', 'defend'], variants: ['ruins', 'pads'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['elite'],
+      ace: { castron: 'prospector', aetheric: 'rust' },
+      variants: ['pads'],
+    },
+    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['cluster', 'span'] },
+    { theme: 'orbit', pool: ['supply', 'battle', 'breakthrough'], variants: ['span', 'dock'] },
+    { theme: 'orbit', pool: ['boss'], boss: 'funnel', variants: ['dock', 'cluster'] },
+  ],
+};
+SORTIES.c6s2 = {
+  name: '高空軌道 — 軌道站外環',
+  chapter: 6,
+  level: 17,
+  reward: 240000,
+  segs: [
+    { theme: 'orbit', pool: ['battle'], variants: ['cluster', 'dock'] },
+    { theme: 'orbit', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['cluster', 'span'] },
+    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'nightside'] },
+    {
+      theme: 'orbit',
+      pool: ['elite'],
+      ace: { veerwell: 'undertow', sancta: 'sluice' },
+      variants: ['dock', 'nightside'],
+    },
+    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['nightside', 'cluster'] },
+    { theme: 'orbit', pool: ['supply', 'battle', 'intel'], variants: ['span', 'dock'] },
+    { theme: 'orbit', pool: ['boss'], boss: 'mirror', variants: ['dock', 'nightside'] },
+  ],
+};
+SORTIES.c6s3 = {
+  name: '軌道站中樞 — 終局',
+  chapter: 6,
+  level: 18,
+  reward: 300000,
+  final: true,
+  segs: [
+    { theme: 'orbit', pool: ['battle'], variants: ['dock', 'cluster'] },
+    { theme: 'orbit', pool: ['battle', 'elite', 'destroy', 'intel'], variants: ['cluster', 'span'] },
+    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'dock'] },
+    {
+      theme: 'orbit',
+      pool: ['elite'],
+      ace: { veerwell: 'specimen', sancta: 'whiteout' },
+      variants: ['nightside', 'dock'],
+    },
+    { theme: 'orbit', pool: ['battle', 'destroy'], variants: ['nightside', 'cluster'] },
+    { theme: 'orbit', pool: ['elite', 'battle'], choice: 'c6', variants: ['dock', 'span'] },
+    { theme: 'orbit', pool: ['boss'], boss: 'BALTEUS', variants: ['dock'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';

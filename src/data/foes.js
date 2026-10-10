@@ -1,5 +1,5 @@
 // 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩、水沒市街；
-// 第 3 章：冰原、地下技研都市；第 4 章：Grid 086、舊宇宙港；第 5 章：洋上都市）
+// 第 3 章：冰原、地下技研都市；第 4 章：Grid 086、舊宇宙港；第 5 章：洋上都市；第 6 章：高空軌道）
 // 專屬敵人的欄位同 ENEMY_TYPES（spawnType 會先查 ENEMY_TYPES 再查這裡），另外：theme＝所屬主題、depth＝礦坑深層才出現、
 // foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊…）、max＝一波最多幾台、
 // spawnOnly＝不編進一般編成（由其他敵人產生，例如實驗體融合的大型個體）。主線的區段編成依主題混入；
@@ -436,6 +436,53 @@ export const FOES = {
     intro: '艦載防空砲：專打空中的目標，飛起來會被打成蜂窩——貼地接近',
     gen: () => ({ ...HEAVY, rarm: 'w_mg' }),
   },
+  // ---- 高空軌道 ----
+  vacuum: {
+    theme: 'orbit',
+    foe: 'vacuum',
+    cost: 1.5,
+    name: '真空作業機',
+    pal: 'orbitbot',
+    scale: 1,
+    hpMul: 0.4,
+    dmgMul: 0.6,
+    stabMul: 0.6,
+    ai: 'vacuum',
+    flying: true,
+    hoverH: 7,
+    modelKind: 'boss',
+    vehKey: 'vacuum',
+    radius: 1.2,
+    wantDist: 20,
+    group: 2,
+    speedMul: 1.1,
+    turnRate: 4,
+    intro: '真空作業機：全程懸浮，會忽高忽低地閃避——往它的移動方向預判',
+    gen: () => ({ ...LIGHT, rarm: 'w_lr' }),
+  },
+  marker: {
+    theme: 'orbit',
+    foe: 'marker',
+    cost: 2,
+    max: 2,
+    name: '軌道標定衛星',
+    pal: 'orbitbot',
+    scale: 1,
+    hpMul: 0.35,
+    dmgMul: 0.5,
+    stabMul: 0.5,
+    ai: 'marker',
+    flying: true,
+    hoverH: 14,
+    modelKind: 'boss',
+    vehKey: 'marker',
+    radius: 1.2,
+    wantDist: 30,
+    speedMul: 0.8,
+    turnRate: 3,
+    intro: '軌道標定衛星：用光束標定你，被標定時受到的傷害變重——先把它打下來',
+    gen: () => ({ ...LIGHT, rarm: 'w_none' }),
+  },
   // ---- 沙丘地帶 ----
   burrow: {
     theme: 'dunes',
@@ -772,6 +819,33 @@ export const ACES = {
     },
     intro: '洋上都市的擊退專家 UNDERTOW — 貼身把你往甲板邊緣推',
   },
+  zenith: {
+    theme: 'orbit',
+    name: 'ZENITH',
+    speaker: 'zenith',
+    pal: 'zenith',
+    ai: 'zenith',
+    wantDist: 24,
+    hpMul: 2.4,
+    dmgMul: 0.9,
+    stabMul: 1.5,
+    speedMul: 1.15,
+    turnRate: 6,
+    asm: {
+      head: 'h_lt',
+      core: 'c_lt',
+      arms: 'a_lt',
+      legs: 'l_bp2',
+      booster: 'b_hi',
+      generator: 'g_hi',
+      fcs: 'f_std',
+      rarm: 'w_lr',
+      larm: 'w_hg',
+      rback: 'bw_ms',
+      lback: 'bw_ms',
+    },
+    intro: '軌道的空戰專家 ZENITH — 幾乎不落地，從空中壓制',
+  },
   sirocco: {
     theme: 'dunes',
     name: 'SIROCCO',
@@ -838,6 +912,7 @@ export const THEME_ACE = {
   grid086: 'spire',
   spaceport: 'countdown',
   xylem: 'undertow',
+  orbit: 'zenith',
 };
 // 主題的專屬敵人（depth：垂直主題的深度）
 export function themeFoes(theme, depth = 0) {

@@ -762,6 +762,8 @@ Object.assign(Game.prototype, {
     $('btnHubRecord').onclick = () => this.openRecord();
     $('btnSimBack').onclick = () => this.openHub();
     $('btnRecBack').onclick = () => this.openHub();
+    $('btnEpNext').onclick = () => this.campNextCycle();
+    $('btnEpHub').onclick = () => this.openHub();
     $('btnRecGo').onclick = () => this.recordGo();
     $('btnHubLogClose').onclick = () => this.hubLog(false);
     $('btnHubBack').onclick = () => this.openGarage();
@@ -787,6 +789,13 @@ Object.assign(Game.prototype, {
       this.showScreen('title');
     };
     $('btnResultOk').onclick = () => {
+      // 終章完成：先看結局
+      if (this.campEnding) {
+        const k = this.campEnding;
+        this.campEnding = null;
+        this.campResultHub = false;
+        return this.openEpilogue(k);
+      }
       if (this.campResultHub) {
         this.campResultHub = false;
         return this.openHub();

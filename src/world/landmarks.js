@@ -440,6 +440,61 @@ function aqueduct() {
   return g;
 }
 
+// ---------- 高空軌道 ----------
+// 軌道電梯纜索：粗大的纜索往上延伸到看不見的地方
+function elevatorTether() {
+  const g = new THREE.Group();
+  g.add(box(10, 3, 10, M.hullD, 0, 1.5, 0));
+  g.add(cyl(1.6, 1.6, 120, M.steel, 0, 60, 0, 10));
+  for (const y of [20, 45, 70]) g.add(box(5, 4, 5, M.yellow, 0, y, 0));
+  return g;
+}
+// 巨型太陽能陣列：一排傾斜的大型面板
+function solarField() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    g.add(box(0.6, 6, 0.6, M.steel, -12 + i * 8, 3, 0));
+    g.add(rot(box(7, 0.3, 10, M.blue, -12 + i * 8, 6.4, 0), 0.5, 0, 0));
+  }
+  return g;
+}
+// 失事的運輸艦：斷成兩截的艦體
+function brokenFreighter() {
+  const g = new THREE.Group();
+  g.add(rot(box(8, 6, 18, M.hull, -2, 3, -8), 0.05, 0.1, 0.1));
+  g.add(rot(box(8, 6, 14, M.hullD, 3, 2.5, 10), -0.1, -0.3, -0.15));
+  g.add(cyl(2, 2.5, 4, M.dark, -2, 3, -18, 10));
+  return g;
+}
+// 深空天線：高桅杆＋大碟朝上
+function deepAntenna() {
+  const g = new THREE.Group();
+  g.add(box(6, 4, 6, M.concrete, 0, 2, 0));
+  g.add(cyl(0.8, 1, 16, M.steel, 0, 12, 0, 8));
+  const d = new THREE.Mesh(new THREE.SphereGeometry(8, 16, 8, 0, Math.PI * 2, 0, 0.7), M.dish);
+  d.rotation.x = Math.PI;
+  d.position.y = 26;
+  g.add(d);
+  return g;
+}
+// 斷裂的環形結構：巨大圓環的一段立在平台上
+function brokenRing() {
+  const g = new THREE.Group();
+  const r = new THREE.Mesh(new THREE.TorusGeometry(14, 1.6, 8, 24, Math.PI * 0.8), M.hull);
+  r.rotation.y = 0.3;
+  r.position.y = -2;
+  g.add(r);
+  return g;
+}
+// 居住艙模組：圓筒艙橫放、連接通道
+function habModule() {
+  const g = new THREE.Group();
+  for (const x of [-7, 7]) g.add(rot(cyl(3, 3, 12, M.white, x, 3, 0, 14), Math.PI / 2, 0, 0));
+  g.add(rot(cyl(1.4, 1.4, 8, M.steel, 0, 3, 0, 10), 0, 0, Math.PI / 2));
+  for (const x of [-7, 7]) g.add(box(4, 1, 0.2, M.window, x, 4, -6.05));
+  return g;
+}
+
 // ---------- 洋上都市 ----------
 // 巨型風力發電機：高柱＋三片長葉片
 function seaTurbine() {
@@ -1002,6 +1057,68 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  orbit: {
+    tether: {
+      name: '軌道電梯纜索',
+      build: elevatorTether,
+      bx: [-6, 6, -6, 6],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [
+        { box: [-5, 5, -5, 5], y: -1, top: 3 },
+        { c: [0, 0], r: 2, h: 120 },
+      ],
+    },
+    solar: {
+      name: '巨型太陽能陣列',
+      build: solarField,
+      bx: [-16, 16, -6, 6],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [{ box: [-13, 13, -0.5, 0.5], y: -1, top: 6 }],
+    },
+    freighter: {
+      name: '失事的運輸艦',
+      build: brokenFreighter,
+      bx: [-8, 9, -19, 18],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { box: [-6, 6, -17, 1], y: -1, top: 6 },
+        { box: [-1, 7, 3, 17], y: -1, top: 6 },
+      ],
+    },
+    antenna: {
+      name: '深空天線',
+      build: deepAntenna,
+      bx: [-9, 9, -9, 9],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [{ box: [-3, 3, -3, 3], y: -1, top: 20 }],
+    },
+    ring: {
+      name: '斷裂的環形結構',
+      build: brokenRing,
+      bx: [-16, 16, -16, 16],
+      range: 3,
+      sink: 0.2,
+      shapes: [
+        { box: [-15, -12, -2, 2], y: -1, top: 12 },
+        { box: [12, 15, -2, 2], y: -1, top: 12 },
+      ],
+    },
+    hab: {
+      name: '居住艙模組',
+      build: habModule,
+      bx: [-11, 11, -7, 7],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [
+        { box: [-10, -4, -6, 6], y: -1, top: 6 },
+        { box: [4, 10, -6, 6], y: -1, top: 6 },
+      ],
+    },
+  },
   xylem: {
     turbine: {
       name: '巨型風力發電機',

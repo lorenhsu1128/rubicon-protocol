@@ -21,6 +21,7 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  zenith: { name: 'ZENITH', color: '#ffd060', mark: 'Z', note: '軌道的空戰專家（第 6 章的宿敵）' },
   undertow: { name: 'UNDERTOW', color: '#40c0e0', mark: 'U', note: '洋上都市的擊退專家（第 5 章的宿敵）' },
   spire: { name: 'SPIRE', color: '#e0b040', mark: 'P', note: '構造體的跳躍者（第 4 章的宿敵）' },
   countdown: { name: 'COUNTDOWN', color: '#ff6a20', mark: 'C', note: '宇宙港的飛彈手（第 4 章的宿敵）' },
@@ -252,6 +253,69 @@ export const BRIEFINGS = {
       '拿下電纜塔。之後……就是軌道了。',
     ],
     goal: '奪取海底電纜塔，擊破 IGUAZU & VOLTA 雙 AC 小隊',
+  },
+  // ---- 第 6 章 ----
+  c6s1: {
+    client: 'aetheric',
+    node: { x: 72, y: 13 },
+    needs: ['c5s3'],
+    lines: [
+      '艾瑟立克研究機構。所有 Coral 的訊號，最後都指向軌道上的一座舊時代的站。',
+      '電纜塔拿下之後，宇宙港可以發射最後一次。請你搭上去。',
+      '軌道上的自律兵器還在運作。浮游砲指揮機守著第一層的平台。',
+    ],
+    goal: '從宇宙港升空，擊破浮游砲指揮機 SERAPHIM',
+  },
+  c6s2: {
+    client: 'veerwell',
+    node: { x: 82, y: 7 },
+    needs: ['c6s1'],
+    lines: [
+      '維爾威動態。軌道站外環的防衛系統讀取了你的戰鬥紀錄。',
+      '它做出了一台和你一模一樣的機體。',
+      '突破外環，打倒那台複製品。',
+    ],
+    goal: '突破軌道站外環，擊破複製 AC DOPPEL',
+  },
+  c6s3: {
+    client: 'castron',
+    node: { x: 90, y: 14 },
+    needs: ['c6s2'],
+    lines: [
+      '卡斯特隆重工。軌道站的中樞就在前面，所有委託方都在等你的結果。',
+      '中樞裡守著舊時代的艦載機動兵器。打倒它，軌道站就是你的了——或者說，是付錢的人的。',
+      '……最後要怎麼做，你自己決定吧，傭兵。',
+    ],
+    goal: '進入軌道站中樞，擊破 BALTEUS（途中會面臨最後的抉擇）',
+  },
+};
+
+// 結局（第 6 章完成時依最後的抉擇決定；beyond 從第 3 周目起才能選）
+export const ENDINGS = {
+  open: {
+    title: '結局：軌道的主人',
+    lines: [
+      '軌道站交到了委託方的手上。Coral 的訊號被重新接通，地面的工廠又開始運轉。',
+      '你的帳戶多了一筆很大的數字。委託方說，以後還會有工作。',
+      'ECHO：「……這樣就好了嗎？算了，傭兵就是這樣。」',
+    ],
+  },
+  seal: {
+    title: '結局：沉默的天空',
+    lines: [
+      '軌道站拖著長長的火光墜進雲海。Coral 的訊號一個接一個地消失。',
+      '委託方們沉默了很久，最後還是付了錢——付給一個讓他們什麼都拿不到的傭兵。',
+      'ECHO：「天空很安靜。我第一次聽到這麼安靜的天空。」',
+    ],
+  },
+  beyond: {
+    title: '真結局：彼岸',
+    lines: [
+      '你切斷了所有委託方的頻道。軌道站的推進器一個接一個地點亮。',
+      'ECHO：「……我一直在等這一天。我的意識原本就在這座站裡。」',
+      '星球在背後慢慢變小。沒有人再付錢給你，也沒有人能再命令你。',
+      '這是一個傭兵的最後一份工作，也是第一次為自己而戰。',
+    ],
   },
 };
 
@@ -1032,6 +1096,173 @@ export const COMMS = [
     lines: [['echo', '兩台 AC 會互相掩護。拉開距離，讓它們分開再各個擊破。']],
   },
   { event: 'hub', chapter: 5, once: true, lines: [['echo', '東岸的洋上都市開放了。往軌道的路就在那裡。']] },
+  // ---- 第 6 章 ----
+  {
+    event: 'sortieStart',
+    sid: 'c6s1',
+    once: true,
+    lines: [
+      ['aetheric', '發射設施準備好了。穿過宇宙港，搭上最後一班火箭。'],
+      ['echo', '……軌道。我們終於要上去了。'],
+    ],
+  },
+  {
+    event: 'trans',
+    sid: 'c6s1',
+    seg: 4,
+    lines: [['echo', '升空完成。從這裡開始是高空軌道，平台外面就是雲海。']],
+  },
+  {
+    event: 'segStart',
+    sid: 'c6s1',
+    type: 'boss',
+    lines: [
+      ['echo', '浮游砲指揮機。浮游砲會包圍你，打中 EMP 會讓它們墜落。'],
+      ['aetheric', '它回收浮游砲的時候最脆弱。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c6s1',
+    lines: [
+      ['aetheric', '第一層平台確保了。軌道站的外環就在上面。'],
+      ['echo', '外環的防衛系統在讀取我們的資料……不太妙。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c6s2',
+    type: 'boss',
+    lines: [
+      ['echo', '那是……你的機體。複製 AC！它會適應你常用的武器。'],
+      ['veerwell', '換著武器打，別讓它的裝甲適應。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c6s2',
+    lines: [
+      ['veerwell', '複製品倒下了。中樞的門打開了。'],
+      ['echo', '最後一段了。……傭兵，到時候你要怎麼做？'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6s3',
+    once: true,
+    lines: [
+      ['castron', '中樞的訊號很強。所有委託方都在監聽這個頻道。'],
+      ['echo', '一路往上。最上層就是中樞。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c6s3',
+    lines: [
+      ['castron', '把軌道站交給我們。這是合約。'],
+      ['sancta', '讓它墜落吧。只要它還在天上，戰爭就不會結束。'],
+      ['echo', '……兩個出口。選了之後，就只剩 BALTEUS 了。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c6s3',
+    cycle: 3,
+    lines: [
+      ['castron', '把軌道站交給我們。這是合約。'],
+      ['sancta', '讓它墜落吧。只要它還在天上，戰爭就不會結束。'],
+      ['echo', '……還有第三個出口。我一直沒有告訴你。'],
+      ['echo', '如果你願意相信我——拒絕所有人，跟我一起走。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c6s3',
+    type: 'boss',
+    lines: [
+      ['echo', 'BALTEUS。舊時代的艦載機動兵器，軌道站最後的守衛。'],
+      ['echo', '這是最後一戰了。'],
+    ],
+  },
+  { event: 'bossHalf', sid: 'c6s3', lines: [['echo', '它的裝甲在崩落！再一下就好！']] },
+  {
+    event: 'sortieEnd',
+    sid: 'c6s3',
+    lines: [['echo', 'BALTEUS 沉默了。……結束了，傭兵。']],
+  },
+  { event: 'fail', killedBy: 'SERAPHIM', lines: [['echo', '浮游砲包圍時往外衝，別待在包圍圈中央。']] },
+  { event: 'fail', killedBy: 'DOPPEL', lines: [['echo', '複製 AC 會適應你常用的武器。換武器打。']] },
+  { event: 'fail', killedBy: 'BALTEUS', lines: [['echo', '最後一戰了，別放棄。換個裝備再試一次。']] },
+  { event: 'hub', chapter: 6, once: true, lines: [['echo', '高空軌道開放了。這是最後的戰場。']] },
+  // ---- 第 2 周目以後 ----
+  {
+    event: 'hub',
+    chapter: 1,
+    cycle: 2,
+    once: true,
+    lines: [['echo', '……又回到這裡了。這一次，你會選另一邊嗎？']],
+  },
+  {
+    event: 'hub',
+    chapter: 1,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '第三次了。這一次，我想告訴你一件事——到了軌道站你就會知道。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c1s1',
+    cycle: 2,
+    once: true,
+    lines: [
+      ['echo', '同樣的荒野，同樣的委託。但你已經知道最後會發生什麼了。'],
+      ['castron', '……傭兵，我們以前合作過嗎？'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2s2',
+    cycle: 2,
+    once: true,
+    lines: [['echo', '主壩的抉擇又要來了。上一次的選擇，記得嗎？']],
+  },
+  // ---- 第 6 章的宿敵與專屬敵人 ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'zenith',
+    once: true,
+    lines: [
+      ['zenith', '地面是給弱者站的。'],
+      ['echo', '具名 AC「ZENITH」。純空戰型，幾乎不落地。'],
+      ['echo', '它在空中換位置時最好打。注意它的飛彈。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'zenith',
+    lines: [
+      ['zenith', '再飛高一點。'],
+      ['echo', 'ZENITH 能量用完時會落地，那是機會。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'ZENITH',
+    lines: [
+      ['zenith', '你看不到天空。'],
+      ['echo', '別一直在地面跟它對射。跳起來，逼它換位置。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'orbit',
+    once: true,
+    lines: [['echo', '高空軌道。標定衛星會用光束標記你，被標定時受到的傷害會變重——先打掉它。']],
+  },
+  { event: 'fail', killedBy: '標定', lines: [['echo', '被標定之後所有攻擊都會更痛。優先擊落標定衛星。']] },
+  { event: 'fail', killedBy: '作業機', lines: [['echo', '真空作業機會忽高忽低。用飛彈或預判射擊。']] },
   // ---- 第 5 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

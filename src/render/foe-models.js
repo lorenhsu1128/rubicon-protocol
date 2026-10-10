@@ -599,7 +599,52 @@ function buildFlak(pal, scale) {
   return rig(root, torso, M, { hand, type: 'flak', height: 3.4 * scale });
 }
 
+// 真空作業機：箱形機身＋兩隻作業臂＋四個姿勢控制噴嘴（飛行，高約 1.8 m）
+function buildVacuum(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  torso.position.y = 0.9;
+  root.add(torso);
+  CB(torso, 1.4, 1.0, 1.4, M.main, 0, 0, 0, 0, 0, 0, 0.1);
+  for (const s of [-1, 1]) {
+    P(torso, gBox(0.2, 0.2, 1.2), M.joint, s * 0.7, -0.2, -0.8);
+    P(torso, gBox(0.3, 0.3, 0.3), M.main2, s * 0.7, -0.2, -1.45);
+  }
+  for (const [x, z] of [
+    [-0.8, -0.8],
+    [0.8, -0.8],
+    [-0.8, 0.8],
+    [0.8, 0.8],
+  ])
+    P(torso, gCyl(0.15, 0.2, 0.3, 8), M.sub, x, 0.4, z);
+  P(torso, gBox(0.8, 0.2, 0.05), glow(0x9fe8ff, 1.6), 0, 0.15, -0.72);
+  const hand = new THREE.Group();
+  hand.position.set(0.7, -0.2, -1.7);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'vacuum', height: 1.8 * scale });
+}
+// 軌道標定衛星：圓筒本體＋兩片太陽能板＋往下的標定透鏡（飛行，高約 1.6 m）
+function buildMarker(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  torso.position.y = 0.8;
+  root.add(torso);
+  P(torso, gCyl(0.5, 0.5, 1.4, 12), M.main, 0, 0, 0);
+  for (const s of [-1, 1]) CB(torso, 2.2, 0.05, 0.9, M.acc, s * 1.7, 0, 0, 0, 0, 0, 0.01);
+  P(torso, gSph(0.3, 10), glow(0xff5050, 2.2), 0, -0.8, 0);
+  const hand = new THREE.Group();
+  hand.position.set(0, -0.9, 0);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'marker', height: 1.6 * scale });
+}
+
 export const FOE_BUILDERS = {
+  vacuum: buildVacuum,
+  marker: buildMarker,
   rammer: buildRammer,
   flak: buildFlak,
   crawler: buildCrawler,
@@ -626,6 +671,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['vacuum', '真空作業機', '高空軌道專屬；全程懸浮、忽高忽低'],
+  ['marker', '軌道標定衛星', '高空軌道專屬；標定目標，被標定時受傷變重'],
   ['rammer', '衝撞無人機', '洋上都市專屬；高速撞擊，把機體往甲板邊緣推'],
   ['flak', '艦載防空砲', '洋上都市專屬；專打空中的目標'],
   ['crawler', '構造體爬行機', 'Grid 086 專屬；沿柱子爬上平台'],
