@@ -167,6 +167,33 @@
         </div>
       </div>
 
+      <!-- 主線：轉場（game/campaign.js） -->
+      <div id="campTrans" class="screen">
+        <div class="ctBox">
+          <div id="ctTitle">運輸機空降</div>
+          <div id="ctSub" class="dim"></div>
+          <div class="ctBarW"><i id="ctBar"></i></div>
+          <div id="ctNext"></div>
+          <div id="ctReward" class="dim"></div>
+          <div id="ctBtns">
+            <button class="primary" id="btnCampGo">直接出擊</button>
+            <button id="btnCampGarage">進車庫整備</button>
+          </div>
+        </div>
+      </div>
+      <!-- 主線：失敗 -->
+      <div id="campFail" class="screen">
+        <div class="ctBox">
+          <div id="cfTitle">AC 已被擊破</div>
+          <div id="cfInfo" class="dim"></div>
+          <div id="ctBtns2">
+            <button class="primary" id="btnCampRetry">從紀錄點繼續</button>
+            <button id="btnCampFailGarage">進車庫整備後繼續</button>
+            <button id="btnCampQuit">放棄出擊</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Garage -->
       <div id="garage" class="screen">
         <div id="garageLeft">
@@ -197,7 +224,15 @@
           <div id="gMechs" class="mySetBox" style="display: none"></div>
           <div id="gModelSet" class="mySetBox" style="display: none"></div>
           <div id="gActions">
+            <div id="gCamp" class="mySetBox" style="display: none">
+              <div id="gCampInfo"></div>
+              <button id="btnCampRepair">修理 AP</button>
+              <button id="btnCampAmmo">補充彈藥</button>
+              <button class="primary" id="btnCampGo2">繼續作戰</button>
+            </div>
             <button class="primary" id="btnSortie">出擊</button>
+            <button class="primary" id="btnCamp">主線出擊</button>
+            <button id="btnCampDrop" style="display: none">放棄主線紀錄點</button>
             <button id="btnPilot">駕駛員（技能／預設組）</button>
             <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
             <button id="btnToTitle">回標題</button>

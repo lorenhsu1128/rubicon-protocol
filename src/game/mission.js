@@ -328,112 +328,8 @@ Object.assign(Game.prototype, {
     this.enemyPointsTotal = 0;
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
-    if (boss) {
-      const bd = bd0;
-      this.bossDef = bd;
-      this.bosses = [];
-      if (bd.kind === 'heli') {
-        const b = this.spawnEnemy({
-          name: bd.name,
-          asm: bd.asm,
-          pal: 'helios',
-          scale: bd.scale,
-          hpMul: bd.hpMul * scaleHp,
-          dmgMul: bd.dmgMul * scaleDmg,
-          stabMul: bd.stabMul,
-          ai: 'heli',
-          flying: true,
-          hoverH: 10,
-          modelKind: 'heli',
-          radius: 2.2,
-          wantDist: bd.wantDist,
-          speedMul: bd.speedMul,
-          isBoss: true,
-          extraWeapons: { larm: 'w_bz' },
-          bossKind: 'heli',
-        });
-        this.bosses.push(b);
-        this.boss = b;
-      } else if (bd.kind === 'duo') {
-        for (const D of DUO_BOSS) {
-          const b = this.spawnEnemy({
-            name: D.name,
-            asm: D.asm,
-            pal: D.pal,
-            scale: bd.scale,
-            hpMul: bd.hpMul * scaleHp,
-            dmgMul: bd.dmgMul * scaleDmg,
-            stabMul: bd.stabMul,
-            ai: D.ai,
-            wantDist: D.wantDist,
-            speedMul: D.speedMul,
-            isBoss: true,
-            bossKind: 'duo',
-          });
-          b.kits = 0;
-          this.bosses.push(b);
-        }
-        this.boss = this.bosses[0];
-      } else if (bd.kind) {
-        // 新 Boss（game/bosses.js）
-        const b = this.spawnBossKind(bd, scaleHp, scaleDmg);
-        this.bosses.push(b);
-        this.boss = b;
-      } else {
-        const b = this.spawnEnemy({
-          name: bd.name,
-          asm: bd.asm,
-          pal: 'boss',
-          scale: bd.scale,
-          hpMul: bd.hpMul * scaleHp,
-          dmgMul: bd.dmgMul * scaleDmg,
-          stabMul: bd.stabMul,
-          ai: 'ac',
-          wantDist: bd.wantDist,
-          speedMul: bd.speedMul,
-          isBoss: true,
-        });
-        b.kits = 0;
-        this.bosses.push(b);
-        this.boss = b;
-      }
-      this.waves = [
-        ['mt', 'mt'],
-        ['drone', 'drone', 'mth'],
-      ];
-    } else {
-      let pts = (4 + L * 1.5) * np;
-      const comp = [];
-      const types = Object.keys(ENEMY_TYPES);
-      if (L >= 2) {
-        comp.push('ac');
-        pts -= 3.5;
-      }
-      let guard = 0;
-      while (pts > 0.9 && guard++ < 30) {
-        const cand = types.filter(
-          (k) =>
-            ENEMY_TYPES[k].cost <= pts + 0.5 &&
-            (!(k === 'ac' || ENEMY_TYPES[k].roster) || Math.random() < 0.3) &&
-            (!ENEMY_TYPES[k].support || comp.some((c) => !ENEMY_TYPES[c].support)) &&
-            !(comp.filter((c) => c === k).length >= 2 && ENEMY_TYPES[k].roster),
-        );
-        if (!cand.length) break;
-        const t = pick(cand);
-        comp.push(t);
-        pts -= ENEMY_TYPES[t].cost;
-      }
-      comp.sort(() => Math.random() - 0.5);
-      if (np > 1) {
-        const third = Math.ceil(comp.length / 3);
-        this.waves = [comp.slice(third, third * 2), comp.slice(third * 2)].filter((w) => w.length);
-        for (const t of comp.slice(0, third)) this.spawnType(t, scaleHp, scaleDmg);
-      } else {
-        const half = Math.ceil(comp.length / 2);
-        this.waves = [comp.slice(half)];
-        for (const t of comp.slice(0, half)) this.spawnType(t, scaleHp, scaleDmg);
-      }
-    }
+    if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg);
+    else this.spawnComp(this.rollComp(L, np), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
     this.waveAlerted = false;
@@ -485,6 +381,118 @@ Object.assign(Game.prototype, {
     );
     document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
+  },
+  // Boss 關：生成 Boss（新 Boss 交給 spawnBossKind）與兩波增援（主線的 Boss 區段共用）
+  spawnBossDef(bd, scaleHp, scaleDmg) {
+    this.bossDef = bd;
+    this.bosses = [];
+    if (bd.kind === 'heli') {
+      const b = this.spawnEnemy({
+        name: bd.name,
+        asm: bd.asm,
+        pal: 'helios',
+        scale: bd.scale,
+        hpMul: bd.hpMul * scaleHp,
+        dmgMul: bd.dmgMul * scaleDmg,
+        stabMul: bd.stabMul,
+        ai: 'heli',
+        flying: true,
+        hoverH: 10,
+        modelKind: 'heli',
+        radius: 2.2,
+        wantDist: bd.wantDist,
+        speedMul: bd.speedMul,
+        isBoss: true,
+        extraWeapons: { larm: 'w_bz' },
+        bossKind: 'heli',
+      });
+      this.bosses.push(b);
+      this.boss = b;
+    } else if (bd.kind === 'duo') {
+      for (const D of DUO_BOSS) {
+        const b = this.spawnEnemy({
+          name: D.name,
+          asm: D.asm,
+          pal: D.pal,
+          scale: bd.scale,
+          hpMul: bd.hpMul * scaleHp,
+          dmgMul: bd.dmgMul * scaleDmg,
+          stabMul: bd.stabMul,
+          ai: D.ai,
+          wantDist: D.wantDist,
+          speedMul: D.speedMul,
+          isBoss: true,
+          bossKind: 'duo',
+        });
+        b.kits = 0;
+        this.bosses.push(b);
+      }
+      this.boss = this.bosses[0];
+    } else if (bd.kind) {
+      // 新 Boss（game/bosses.js）
+      const b = this.spawnBossKind(bd, scaleHp, scaleDmg);
+      this.bosses.push(b);
+      this.boss = b;
+    } else {
+      const b = this.spawnEnemy({
+        name: bd.name,
+        asm: bd.asm,
+        pal: 'boss',
+        scale: bd.scale,
+        hpMul: bd.hpMul * scaleHp,
+        dmgMul: bd.dmgMul * scaleDmg,
+        stabMul: bd.stabMul,
+        ai: 'ac',
+        wantDist: bd.wantDist,
+        speedMul: bd.speedMul,
+        isBoss: true,
+      });
+      b.kits = 0;
+      this.bosses.push(b);
+      this.boss = b;
+    }
+    this.waves = [
+      ['mt', 'mt'],
+      ['drone', 'drone', 'mth'],
+    ];
+  },
+  // 一般關卡的敵人編成（依等級的點數與人數）
+  rollComp(L, np) {
+    let pts = (4 + L * 1.5) * np;
+    const comp = [];
+    const types = Object.keys(ENEMY_TYPES);
+    if (L >= 2) {
+      comp.push('ac');
+      pts -= 3.5;
+    }
+    let guard = 0;
+    while (pts > 0.9 && guard++ < 30) {
+      const cand = types.filter(
+        (k) =>
+          ENEMY_TYPES[k].cost <= pts + 0.5 &&
+          (!(k === 'ac' || ENEMY_TYPES[k].roster) || Math.random() < 0.3) &&
+          (!ENEMY_TYPES[k].support || comp.some((c) => !ENEMY_TYPES[c].support)) &&
+          !(comp.filter((c) => c === k).length >= 2 && ENEMY_TYPES[k].roster),
+      );
+      if (!cand.length) break;
+      const t = pick(cand);
+      comp.push(t);
+      pts -= ENEMY_TYPES[t].cost;
+    }
+    comp.sort(() => Math.random() - 0.5);
+    return comp;
+  },
+  // 先生成一部分，其餘當增援波次
+  spawnComp(comp, np, scaleHp, scaleDmg) {
+    if (np > 1) {
+      const third = Math.ceil(comp.length / 3);
+      this.waves = [comp.slice(third, third * 2), comp.slice(third * 2)].filter((w) => w.length);
+      for (const t of comp.slice(0, third)) this.spawnType(t, scaleHp, scaleDmg);
+    } else {
+      const half = Math.ceil(comp.length / 2);
+      this.waves = [comp.slice(half)];
+      for (const t of comp.slice(0, half)) this.spawnType(t, scaleHp, scaleDmg);
+    }
   },
   // at：指定生成位置（運輸機投放）；count：覆寫編隊數量
   spawnType(t, scaleHp, scaleDmg, at, count) {
@@ -628,6 +636,10 @@ Object.assign(Game.prototype, {
   },
   onPlayerDead() {
     if (this.lab) return; // 實驗室：由 labTick 重新空降
+    if (this.camp) {
+      this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
+      return this.campDead(); // 主線：回機庫，從紀錄點重來
+    }
     this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
     setTimeout(() => {
       if (this.state === 'play') this.endMission(false, false);
@@ -635,6 +647,7 @@ Object.assign(Game.prototype, {
   },
   clearMission() {
     this.rangeRing.visible = false;
+    this.campClearExits();
     SFX.stopLoops();
     this.pvp = false;
     this.pvpOver = false;

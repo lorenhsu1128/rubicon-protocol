@@ -265,6 +265,7 @@ Object.assign(Game.prototype, {
     $('btnGarageLobby').style.display = mp ? '' : 'none';
     if (mp && warn.length) $('btnGarageLobby').disabled = true;
     else $('btnGarageLobby').disabled = false;
+    this.campGarageUi(warn);
     // preview mech
     if (this.garageMech) {
       this.garageScene.remove(this.garageMech.group);

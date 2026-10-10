@@ -742,6 +742,17 @@ Object.assign(Game.prototype, {
           if (this.state === 'garage') this.startMission();
         });
     };
+    // 主線任務模式（game/campaign.js）
+    $('btnCamp').onclick = () => this.state === 'garage' && this.campStartOrResume();
+    $('btnCampDrop').onclick = () => this.campDrop();
+    $('btnCampGo').onclick = () => this.campGo();
+    $('btnCampGarage').onclick = () => this.campGarage();
+    $('btnCampGo2').onclick = () => this.campGarageGo();
+    $('btnCampRepair').onclick = () => this.campRepair();
+    $('btnCampAmmo').onclick = () => this.campAmmo();
+    $('btnCampRetry').onclick = () => this.campRetry(false);
+    $('btnCampFailGarage').onclick = () => this.campRetry(true);
+    $('btnCampQuit').onclick = () => this.campEnd(false, true);
     $('btnRandomAsm').onclick = () => {
       this.randomAsm();
       this.renderGarage();
@@ -769,6 +780,7 @@ Object.assign(Game.prototype, {
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
       if (this.lab) return this.exitLab();
+      if (this.camp) return this.campEnd(false, true);
       if (this.net && this.net.role === 'client') {
         this.net.leave(true);
         this.clearMission();

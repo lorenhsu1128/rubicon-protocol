@@ -1513,3 +1513,52 @@ body.lab #fps {
 #ikBox .ikGrid label:has(input:disabled) {
   opacity: 0.5;
 }
+
+/* 主線：轉場與失敗畫面（game/campaign.js） */
+#campTrans,
+#campFail {
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(12, 18, 26, 0.86), rgba(4, 6, 10, 0.97));
+}
+.ctBox {
+  width: min(560px, calc(100vw - 32px));
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#ctTitle,
+#cfTitle {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--acc);
+}
+#cfTitle {
+  color: #ff6b6b;
+}
+.ctBarW {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+#ctBar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--acc);
+}
+#ctBtns,
+#ctBtns2 {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+#gCamp button {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}

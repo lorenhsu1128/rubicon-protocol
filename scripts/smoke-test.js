@@ -4162,6 +4162,182 @@ async function testBoundary(browser, base) {
   await ctx.close();
 }
 
+// 主線任務模式第 1 期（game/campaign.js）：區段鏈、地圖上的出口、轉場、轉場整備、紀錄點、狀態延續、失敗重試、結束
+async function testCampaign(browser, base) {
+  console.log('主線出擊：區段、出口、轉場、整備、紀錄點、失敗重試、完成');
+  const { ctx, page } = await newPage(browser, 'camp');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => window.__game.openGarage());
+  await waitVisible(page, 'garage');
+  check(
+    await page.evaluate(() => getComputedStyle(document.getElementById('btnCamp')).display !== 'none'),
+    '車庫有「主線出擊」按鈕',
+  );
+  await page.click('#btnCamp');
+  check(await waitVisible(page, 'campTrans'), '開始出擊：顯示空降轉場');
+  await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await page.click('#btnCampGo');
+  // 清除目前區段：敵人全滅、沒有增援
+  const clear = () =>
+    page.evaluate(() => {
+      const g = window.__game;
+      g.waves = [];
+      for (const e of g.enemies)
+        if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    });
+  const s0 = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      st: g.state,
+      theme: g.world.theme.key || g.worldTheme,
+      seg: g.camp.seg,
+      ck: g.save.story.sortie.seg,
+    };
+  });
+  check(
+    s0.st === 'play' && s0.theme === 'wasteland' && s0.seg === 0 && s0.ck === 0,
+    `進入區段 1（${s0.theme}），紀錄點已存`,
+  );
+  await page.evaluate(() => (window.__game.player.hp = window.__game.player.maxHp * 0.5));
+  await clear();
+  await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+    timeout: 8000,
+  });
+  const ex = await page.evaluate(() => {
+    const g = window.__game;
+    return g.camp.exits.map((e) => ({ r: e.reward, mode: e.mode, x: e.pos.x, z: e.pos.z, lim: g.world.lim }));
+  });
+  check(
+    ex.length >= 2 &&
+      new Set(ex.map((e) => e.r)).size === ex.length &&
+      ex.every((e) => e.mode === 'relay' && Math.max(Math.abs(e.x), Math.abs(e.z)) < e.lim),
+    `區段清除後出現 ${ex.length} 個出口（獎勵各不同：${ex.map((e) => e.r).join('、')}，接力型、在作戰區域內）`,
+  );
+  // 截圖：玩家走到兩個出口之間、面向第一個出口
+  await page.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits[0];
+    const p = g.player.pos;
+    const L = Math.hypot(e.pos.x, e.pos.z) || 1;
+    const dx = e.pos.x - (e.pos.x / L) * 14,
+      dz = e.pos.z - (e.pos.z / L) * 14;
+    p.set(dx, g.world.terrainHeight(dx, dz), dz);
+    g.player.yaw = g.player.aimYaw = Math.atan2(-(e.pos.x - dx), -(e.pos.z - dz));
+  });
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-exits.png') });
+  // 走進第一個出口
+  await page.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits[0];
+    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+    g.player.vel.set(0, 0, 0);
+  });
+  check(await waitVisible(page, 'campTrans', 20000), '站進出口：出發並顯示轉場');
+  const s1 = await page.evaluate(() => {
+    const g = window.__game;
+    return { seg: g.camp.seg, ck: g.save.story.sortie.seg, pend: g.camp.pending, hp: g.camp.carry.hp };
+  });
+  check(
+    s1.seg === 1 && s1.ck === 1 && s1.pend === ex[0].r && Math.abs(s1.hp - 0.5) < 0.05,
+    `紀錄點＝轉場起點（區段 ${s1.seg + 1}、出口獎勵 ${s1.pend}、AP ${Math.round(s1.hp * 100)}%）`,
+  );
+  // 進車庫整備：修理後繼續作戰
+  await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-trans.png') });
+  await page.click('#btnCampGarage');
+  await waitVisible(page, 'garage');
+  await wait(500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-garage.png') });
+  const gUi = await page.evaluate(() => {
+    const d = (id) => getComputedStyle(document.getElementById(id)).display;
+    return {
+      camp: d('gCamp'),
+      sortie: d('btnSortie'),
+      rep: document.getElementById('btnCampRepair').disabled,
+    };
+  });
+  check(
+    gUi.camp !== 'none' && gUi.sortie === 'none' && !gUi.rep,
+    '轉場整備：車庫顯示整備面板（可修理），一般出擊按鈕隱藏',
+  );
+  const coam0 = await page.evaluate(() => window.__game.save.coam);
+  await page.click('#btnCampRepair');
+  const rep = await page.evaluate(() => ({ hp: window.__game.camp.carry.hp, coam: window.__game.save.coam }));
+  check(rep.hp === 1 && rep.coam < coam0, `修理 AP（花費 ${(coam0 - rep.coam).toLocaleString()} COAM）`);
+  await page.click('#btnCampGo2');
+  const s2 = await page.evaluate(() => {
+    const g = window.__game;
+    return { st: g.state, seg: g.camp.seg, hp: g.player.hp / g.player.maxHp };
+  });
+  check(s2.st === 'play' && s2.seg === 1 && s2.hp > 0.99, '整備後進入區段 2，AP 已修好');
+  // 陣亡 → 失敗畫面 → 從紀錄點繼續
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.takeDamage(1e9, 0, null, g.player.center(), new THREE.Vector3(0, 0, 1));
+  });
+  check(await waitVisible(page, 'campFail', 8000), 'AC 被擊破：回到失敗畫面');
+  await page.click('#btnCampRetry');
+  await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await page.click('#btnCampGo');
+  const s3 = await page.evaluate(() => {
+    const g = window.__game;
+    return { st: g.state, seg: g.camp.seg, fails: g.camp.fails, alive: !g.player.dead };
+  });
+  check(s3.st === 'play' && s3.seg === 1 && s3.fails === 1 && s3.alive, '從紀錄點繼續：回到區段 2 的起點');
+  // 第 3 段往礦坑：垂直下降型出口（在場內）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.camp.seg = 2;
+    g.campEnterSeg();
+  });
+  await clear();
+  await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+    timeout: 8000,
+  });
+  const down = await page.evaluate(() => window.__game.camp.exits.every((e) => e.mode === 'down'));
+  check(down, '荒野 → 礦坑的出口是垂直下降型');
+  // 重新整理：車庫顯示「繼續主線出擊」並能從紀錄點接回
+  await page.reload();
+  await waitVisible(page, 'title');
+  await page.evaluate(() => window.__game.openGarage());
+  await waitVisible(page, 'garage');
+  check(
+    (await page.textContent('#btnCamp')) === '繼續主線出擊',
+    '重新整理後車庫顯示「繼續主線出擊」（紀錄點存在存檔裡）',
+  );
+  // 最後一段：Boss 擊破 → 出擊完成
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campRestore();
+    g.camp.seg = 4;
+    g.campCheckpoint();
+    g.campEnterSeg();
+  });
+  const boss = await page.evaluate(() => ({ boss: !!window.__game.boss, theme: window.__game.worldTheme }));
+  check(boss.boss && boss.theme === 'desert', '最後一段是礦坑的 Boss 區段');
+  await clear();
+  check(await waitVisible(page, 'result', 10000), 'Boss 擊破：出擊完成並顯示結果');
+  const fin = await page.evaluate(() => ({
+    t: document.getElementById('rTitle').textContent,
+    done: window.__game.save.story.done.c1s1,
+    ck: window.__game.save.story.sortie,
+    camp: window.__game.camp,
+  }));
+  check(
+    fin.t === '主線出擊 完成' && fin.done === 1 && !fin.ck && !fin.camp,
+    '結果：完成紀錄寫入存檔、紀錄點清除',
+  );
+  await ctx.close();
+}
+
 // 第三批 Boss（game/bosses2.js、entities/mech-boss2.js）與出場等級：同樣以固定 dt 同步模擬
 async function testBosses2(browser, base) {
   console.log(
@@ -4762,6 +4938,7 @@ async function main() {
     await testBosses2(browser, base);
     await testLockOn(browser, base);
     await testBoundary(browser, base);
+    await testCampaign(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

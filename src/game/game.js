@@ -325,6 +325,13 @@ export class Game {
   showScreen(id) {
     for (const s of document.querySelectorAll('#ui .screen')) s.classList.toggle('on', s.id === id);
     document.getElementById('hudWrap').style.display = id === '' ? 'block' : 'none';
+    if (id !== '' && this.hudC) {
+      // 換到選單畫面：重設 HUD 畫布（清掉任務 HUD 的殘影與繪圖狀態）
+      const w = this.hudC.width;
+      this.hudC.width = 0;
+      this.hudC.width = w;
+      this.hctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
     if (this.updateVpad) this.updateVpad();
     if (id === 'title' && this.renderContinue) this.renderContinue();
   }
@@ -381,6 +388,8 @@ export class Game {
       this.state === 'result' ||
       this.state === 'mp' ||
       this.state === 'lobby' ||
+      this.state === 'camptrans' ||
+      this.state === 'campfail' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
       if (this.world) {
@@ -502,9 +511,17 @@ export class Game {
       this.playersAlive().length &&
       this.state === 'play'
     ) {
-      this.state = 'ending';
-      this.flashMsg('任務完成', 0x7ee081, 2);
-      setTimeout(() => this.endMission(true, false), 1800);
+      if (this.camp) {
+        if (!this.camp.cleared) this.campCleared(); // 主線：開出口，最後一段才結束
+      } else {
+        this.state = 'ending';
+        this.flashMsg('任務完成', 0x7ee081, 2);
+        setTimeout(() => this.endMission(true, false), 1800);
+      }
+    }
+    if (this.camp) {
+      this.campTick(dt);
+      if (!this.player) return; // 走進出口：已經轉場
     }
     this.updateCamera(dt);
     SFX.setListener((this.camFocus || this.player).center());
