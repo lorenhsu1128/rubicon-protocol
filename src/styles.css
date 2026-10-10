@@ -1562,3 +1562,198 @@ body.lab #fps {
   width: 100%;
   margin-top: 6px;
 }
+
+/* 主線：機庫據點、簡報、通訊（game/hub.js、game/comms.js） */
+#hub,
+#brief {
+  background: radial-gradient(ellipse at 30% 20%, #142030, #070a0e 75%);
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  overflow: auto;
+}
+#hubHead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+#hubHead h2 {
+  margin: 0;
+}
+#hubHead .coam {
+  margin-left: auto;
+  color: var(--acc);
+}
+#hubBody {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  flex-wrap: wrap;
+}
+#hubMapWrap {
+  flex: 3 1 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+}
+.hubCap {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+#hubMap {
+  flex: 1;
+  border: 1px solid #22303c;
+  min-height: 280px;
+  position: relative;
+}
+#hubMap svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hubNode {
+  cursor: pointer;
+}
+.hubNode.locked {
+  cursor: not-allowed;
+}
+.hubNode:hover circle {
+  stroke-width: 1.2;
+}
+#hubSide {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 340px;
+}
+#hubActive button {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+#hubLogBox {
+  position: absolute;
+  inset: 40px max(16px, calc(50% - 320px));
+  background: rgba(8, 12, 18, 0.97);
+  border: 1px solid #2a3946;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hubLogHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#hubLogList {
+  overflow: auto;
+  flex: 1;
+}
+.hubLogRow,
+#comm,
+#cfComm .cLine {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.hubLogRow {
+  padding: 6px 0;
+  border-bottom: 1px solid #16212b;
+}
+.hubLogRow b,
+#comm b,
+#cfComm b {
+  display: block;
+  font-size: 12px;
+}
+.hubLogRow span,
+#comm span,
+#cfComm span {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cBadge {
+  flex: none;
+}
+#brief {
+  align-items: center;
+  justify-content: center;
+}
+.brBox {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#brClient {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+#brClient b {
+  display: block;
+  font-size: 16px;
+}
+#brTitle {
+  margin: 0;
+  color: var(--acc);
+}
+#brLines p {
+  margin: 0 0 8px;
+  line-height: 1.7;
+}
+#brGoal {
+  font-weight: 700;
+}
+#brRoute {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.brSeg {
+  border: 1px solid #2a3946;
+  padding: 3px 6px;
+}
+.brSeg.boss {
+  border-color: #ff6b6b;
+  color: #ff9a9a;
+}
+#brRoute i {
+  color: #4a5a68;
+  font-style: normal;
+}
+/* 任務中的通訊（右下角，不擋操作） */
+#comm {
+  position: absolute;
+  right: 16px;
+  bottom: 196px;
+  width: min(420px, calc(100vw - 32px));
+  background: rgba(8, 12, 18, 0.86);
+  border-left: 3px solid var(--acc);
+  padding: 8px 10px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(12px);
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  z-index: 30;
+}
+#comm.on {
+  opacity: 1;
+  transform: none;
+}
+#cfComm {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

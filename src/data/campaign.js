@@ -89,6 +89,19 @@ export const SORTIES = {
     ],
   },
 };
+SORTIES.c1s2 = {
+  name: '礦坑深部 — 震動源調查',
+  chapter: 1,
+  level: 3,
+  reward: 42000,
+  segs: [
+    { theme: 'desert', border: true, pool: ['battle', 'supply'] },
+    { theme: 'desert', pool: ['battle', 'destroy', 'intel'], variants: ['tunnels', 'vein', 'openpit'] },
+    { theme: 'desert', pool: ['elite', 'defend', 'breakthrough'], variants: ['tunnels', 'vein', 'shaft'] },
+    { theme: 'desert', pool: ['supply', 'battle', 'intel'], variants: ['vein', 'tunnels', 'shaft'] },
+    { theme: 'desert', pool: ['boss'], boss: 'worm', variants: ['openpit', 'shaft'] },
+  ],
+};
 export const SORTIE_DEFAULT = 'c1s1';
 
 export function sortieBoss(seg, type) {

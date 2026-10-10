@@ -389,6 +389,8 @@ export class Game {
       this.state === 'mp' ||
       this.state === 'lobby' ||
       this.state === 'camptrans' ||
+      this.state === 'hub' ||
+      this.state === 'brief' ||
       this.state === 'campfail' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {

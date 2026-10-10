@@ -86,6 +86,7 @@
     </div>
 
     <div id="ui">
+      <div id="comm"></div>
       <!-- Title -->
       <div id="title" class="screen center">
         <div class="panel" style="max-width: 640px">
@@ -131,6 +132,7 @@
           </table>
           <div class="row" style="margin-top: 12px">
             <button class="primary" id="btnContinue" disabled>繼續存檔</button>
+            <button id="btnStory" title="主線任務：機庫、戰區總覽圖與委託">主線</button>
             <button id="btnSaves" title="三個存檔槽：繼續、新的傭兵生涯、匯出／匯入、刪除">選擇存檔</button>
             <button id="btnMP">多人連線（區網 2–4 人）</button>
             <button id="btnSettings">按鍵與操作設定</button>
@@ -167,6 +169,54 @@
         </div>
       </div>
 
+      <!-- 主線：機庫據點（game/hub.js） -->
+      <div id="hub" class="screen">
+        <div id="hubHead">
+          <h2>機庫</h2>
+          <span id="hubChapter" class="dim"></span>
+          <span class="coam">COAM <span id="hubCoam">0</span></span>
+        </div>
+        <div id="hubBody">
+          <div id="hubMapWrap">
+            <div class="dim hubCap">戰區總覽圖：點選委託查看簡報</div>
+            <div id="hubMap"></div>
+          </div>
+          <div id="hubSide">
+            <div id="hubActive" class="mySetBox" style="display: none">
+              <div id="hubActiveTxt"></div>
+              <button class="primary" id="btnHubResume">繼續出擊</button>
+              <button id="btnHubDrop">放棄紀錄點</button>
+            </div>
+            <button id="btnHubGarage">車庫（組裝）</button>
+            <button id="btnHubPilot">駕駛員（技能）</button>
+            <button id="btnHubLog">通訊紀錄</button>
+            <button id="btnHubSim" disabled title="第 6 期開放">模擬器（尚未開放）</button>
+            <button id="btnHubRecord" disabled title="第 6 期開放">作戰紀錄（尚未開放）</button>
+            <button id="btnHubBack">回車庫</button>
+          </div>
+        </div>
+        <div id="hubLogBox" style="display: none">
+          <div class="hubLogHead"><b>通訊紀錄</b><button id="btnHubLogClose">關閉</button></div>
+          <div id="hubLogList"></div>
+        </div>
+      </div>
+      <!-- 主線：簡報 -->
+      <div id="brief" class="screen">
+        <div class="brBox">
+          <div id="brClient"></div>
+          <h2 id="brTitle"></h2>
+          <div id="brLines"></div>
+          <div id="brGoal"></div>
+          <div id="brRoute"></div>
+          <div id="brReward" class="dim"></div>
+          <div class="row">
+            <button class="primary" id="btnBriefGo">出擊</button>
+            <button id="btnBriefGarage">先去車庫整備</button>
+            <button id="btnBriefBack">返回機庫</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 主線：轉場（game/campaign.js） -->
       <div id="campTrans" class="screen">
         <div class="ctBox">
@@ -186,6 +236,7 @@
         <div class="ctBox">
           <div id="cfTitle">AC 已被擊破</div>
           <div id="cfInfo" class="dim"></div>
+          <div id="cfComm"></div>
           <div id="ctBtns2">
             <button class="primary" id="btnCampRetry">從紀錄點繼續</button>
             <button id="btnCampFailGarage">進車庫整備後繼續</button>
@@ -231,8 +282,7 @@
               <button class="primary" id="btnCampGo2">繼續作戰</button>
             </div>
             <button class="primary" id="btnSortie">出擊</button>
-            <button class="primary" id="btnCamp">主線出擊</button>
-            <button id="btnCampDrop" style="display: none">放棄主線紀錄點</button>
+            <button class="primary" id="btnCamp">主線（機庫）</button>
             <button id="btnPilot">駕駛員（技能／預設組）</button>
             <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
             <button id="btnToTitle">回標題</button>

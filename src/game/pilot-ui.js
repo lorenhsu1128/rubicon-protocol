@@ -30,6 +30,10 @@ Object.assign(Game.prototype, {
     this.renderPilot();
   },
   closePilot() {
+    if (this.pilotFromHub) {
+      this.pilotFromHub = false;
+      return this.openHub(); // 從主線機庫開的
+    }
     this.showScreen('garage');
     this.renderGarage();
   },

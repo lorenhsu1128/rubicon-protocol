@@ -818,6 +818,7 @@ export class MechEntity {
   }
   takeDamage(dmg, impact, from, at, dir, melee, wid) {
     if (this.dead) return;
+    if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
     if (this.iFrames > 0) return;
     // DUELIST 格擋：未在連段中、未硬直、面向攻擊者時 55% 擋下近戰第 1 段並反擊
     if (

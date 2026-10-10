@@ -743,8 +743,26 @@ Object.assign(Game.prototype, {
         });
     };
     // 主線任務模式（game/campaign.js）
-    $('btnCamp').onclick = () => this.state === 'garage' && this.campStartOrResume();
-    $('btnCampDrop').onclick = () => this.campDrop();
+    $('btnCamp').onclick = () => this.state === 'garage' && this.openHub();
+    $('btnStory').onclick = () => {
+      SFX.init();
+      this.useSlot(this.saveSlot);
+      this.openHub();
+    };
+    // 機庫據點與簡報（game/hub.js）
+    $('btnHubResume').onclick = () => this.campResume();
+    $('btnHubDrop').onclick = () => this.campDrop();
+    $('btnHubGarage').onclick = () => this.hubGarage();
+    $('btnHubPilot').onclick = () => {
+      this.pilotFromHub = true;
+      this.openPilot();
+    };
+    $('btnHubLog').onclick = () => this.hubLog(true);
+    $('btnHubLogClose').onclick = () => this.hubLog(false);
+    $('btnHubBack').onclick = () => this.openGarage();
+    $('btnBriefGo').onclick = () => this.briefGo();
+    $('btnBriefGarage').onclick = () => this.hubGarage();
+    $('btnBriefBack').onclick = () => this.openHub();
     $('btnCampGo').onclick = () => this.campGo();
     $('btnCampGarage').onclick = () => this.campGarage();
     $('btnCampGo2').onclick = () => this.campGarageGo();
@@ -758,10 +776,15 @@ Object.assign(Game.prototype, {
       this.renderGarage();
     };
     $('btnToTitle').onclick = () => {
+      if (this.fromHub) return this.openHub();
       this.state = 'title';
       this.showScreen('title');
     };
     $('btnResultOk').onclick = () => {
+      if (this.campResultHub) {
+        this.campResultHub = false;
+        return this.openHub();
+      }
       if (this.net && this.net.role) {
         this.clearMission();
         this.state = 'lobby';

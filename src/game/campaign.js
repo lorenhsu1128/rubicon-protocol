@@ -16,6 +16,7 @@ import {
 } from '../data/campaign.js';
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
 import { AC_ROSTER, PART_DEFS } from '../data/enemies.js';
+import { SPEAKERS, speakerBadge } from '../data/story.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
@@ -65,6 +66,21 @@ Object.assign(Game.prototype, {
   },
   campSortie() {
     return SORTIES[this.camp.sid];
+  },
+  // 通訊的條件（data/story.js 的 COMMS）
+  campCtx(extra = {}) {
+    const c = this.camp,
+      so = this.campSortie();
+    return {
+      sid: c.sid,
+      seg: c.seg,
+      type: this.campSegType(),
+      theme: so.segs[c.seg].theme,
+      chapter: so.chapter,
+      fails: c.fails,
+      cycle: this.campStory().cycle || 1,
+      ...extra,
+    };
   },
   campLevel() {
     return this.campSortie().level + Math.floor(this.camp.seg / 2);
@@ -221,8 +237,15 @@ Object.assign(Game.prototype, {
       0xffb020,
       2.6,
     );
-    if (this.world.landmark)
-      setTimeout(() => this.camp && this.flashAlert(`地標：${this.world.landmark.name}`), 2800);
+    const lm = this.world.landmark && this.world.landmark.name;
+    if (lm) setTimeout(() => this.camp && this.state === 'play' && this.flashAlert(`地標：${lm}`), 2800);
+    // 通訊（data/story.js）
+    const ctx = this.campCtx();
+    if (c.seg === 0 && !c.started) {
+      c.started = true;
+      this.campComm('sortieStart', ctx);
+    }
+    this.campComm('segStart', ctx);
   },
   // 依區段類型生成敵人與目標物
   campSpawnType(type, L, bd) {
@@ -433,6 +456,7 @@ Object.assign(Game.prototype, {
     if (!c.exits.length) this.campSpawnExits();
     this.flashMsg('區段清除 — 選擇出口前往下一區', 0x7ee081, 2.4);
     SFX.ui();
+    this.campComm('exitsOpen', this.campCtx());
   },
   campGrant(k) {
     const p = this.player,
@@ -636,6 +660,15 @@ Object.assign(Game.prototype, {
     const p = this.player;
     if (!p) return;
     w.tickZone(dt);
+    // Boss 剩一半時的通訊
+    if (this.bosses && this.bosses.length && this.isBossLevel && !ss.half) {
+      const hp = this.bosses.reduce((a, b) => a + Math.max(0, b.hp), 0),
+        mx = this.bosses.reduce((a, b) => a + b.maxHp, 0);
+      if (hp < mx * 0.5) {
+        ss.half = true;
+        this.campComm('bossHalf', this.campCtx());
+      }
+    }
     // 分段開放：擊破一半的敵人後擴大作戰區域
     if (w.zoneShape === 'staged' && !ss.expanded) {
       const dead = this.enemies.filter((e) => e.dead).length;
@@ -790,6 +823,7 @@ Object.assign(Game.prototype, {
     this.campTransTo = setTimeout(() => {
       if (this.state === 'camptrans') $('ctBtns').style.visibility = 'visible';
     }, T * 1000);
+    if (first !== 'resume' && c.seg > 0) this.campComm('trans', this.campCtx());
   },
   campGo() {
     if (!this.camp) return;
@@ -810,11 +844,9 @@ Object.assign(Game.prototype, {
     const box = $('gCamp');
     if (!box) return;
     const mp = !!(this.net && this.net.role);
-    const st = this.campStory();
     const inG = !!(this.camp && this.camp.inGarage);
     $('btnCamp').style.display = mp || inG ? 'none' : '';
-    $('btnCamp').textContent = st.sortie ? '繼續主線出擊' : '主線出擊';
-    $('btnCampDrop').style.display = !mp && !inG && st.sortie ? '' : 'none';
+    $('btnToTitle').textContent = this.fromHub ? '返回機庫' : '回標題';
     if (inG) {
       $('btnSortie').style.display = 'none';
       $('btnToTitle').style.display = 'none';
@@ -886,6 +918,7 @@ Object.assign(Game.prototype, {
   // ---------- 失敗／結束 ----------
   // 陣亡或目標失敗（obj：防衛目標被毀、車隊全滅，這時 state 已是 ending）
   campDead(obj) {
+    this.campKilledBy = obj ? '' : (this.player && this.player.lastHitBy) || '';
     setTimeout(() => {
       if ((this.state === 'play' || (obj && this.state === 'ending')) && this.camp) this.campFail();
     }, 2600);
@@ -901,6 +934,17 @@ Object.assign(Game.prototype, {
       ck = this.campStory().sortie;
     document.getElementById('cfInfo').textContent =
       `${so.name}　紀錄點：區段 ${ck.seg + 1}／${so.segs.length} 的轉場起點（失敗 ${c.fails} 次）`;
+    // 失敗的通訊（依擊破你的敵人、失敗次數）直接顯示在失敗畫面
+    this.commClear();
+    const e = this.campComm('fail', this.campCtx({ killedBy: this.campKilledBy }), false);
+    document.getElementById('cfComm').innerHTML = e
+      ? e.lines
+          .map(([sp, text]) => {
+            const S = SPEAKERS[sp] || SPEAKERS.echo;
+            return `<div class="cLine">${speakerBadge(sp)}<div><b style="color:${S.color}">${escHtml(S.name)}</b><span>${escHtml(text)}</span></div></div>`;
+          })
+          .join('')
+      : '';
   },
   campRetry(toGarage) {
     SFX.ui();
@@ -908,12 +952,11 @@ Object.assign(Game.prototype, {
     if (toGarage) return this.campGarage();
     this.campShowTrans(this.camp.trans[this.camp.seg] || TRANSITIONS.drop, 'resume');
   },
-  // 車庫的「繼續主線出擊」：沒有紀錄點時開始新的出擊
-  campStartOrResume() {
+  // 機庫的「繼續出擊」：從存檔的紀錄點接回
+  campResume() {
     SFX.ui();
     if (this.campStory().sortie && this.campRestore())
       this.campShowTrans(this.camp.trans[this.camp.seg] || TRANSITIONS.drop, 'resume');
-    else this.campBegin();
   },
   // 放棄存檔裡的紀錄點（車庫）
   campDrop() {
@@ -923,7 +966,8 @@ Object.assign(Game.prototype, {
     st.sortie = null;
     this.camp = null;
     this.writeSave();
-    this.renderGarage();
+    if (this.state === 'hub') this.renderHub();
+    else this.renderGarage();
   },
   campEnd(success, aborted) {
     const c = this.camp,
@@ -948,7 +992,9 @@ Object.assign(Game.prototype, {
       bonus = so.reward;
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
+      this.campComm('sortieEnd', this.campCtx());
     }
+    this.campResultHub = true; // 結果畫面的「確定」回到機庫
     st.sortie = null;
     this.writeSave();
     const segsDone = success ? so.segs.length : c.seg;
@@ -976,7 +1022,7 @@ Object.assign(Game.prototype, {
     $('resultGrid').innerHTML = rows
       .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
       .join('');
-    $('btnResultOk').textContent = '返回車庫';
+    $('btnResultOk').textContent = '返回機庫';
     this.showScreen('result');
   },
 

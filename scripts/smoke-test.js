@@ -4172,9 +4172,29 @@ async function testCampaign(browser, base) {
   await waitVisible(page, 'garage');
   check(
     await page.evaluate(() => getComputedStyle(document.getElementById('btnCamp')).display !== 'none'),
-    '車庫有「主線出擊」按鈕',
+    '車庫有「主線（機庫）」按鈕',
   );
+  // 機庫 → 總覽圖 → 簡報 → 出擊
   await page.click('#btnCamp');
+  check(await waitVisible(page, 'hub'), '進入主線機庫');
+  const nodes = await page.$$eval('.hubNode', (l) => l.map((n) => n.dataset.sid + ':' + n.classList[1]));
+  check(
+    nodes.includes('c1s1:open') && nodes.includes('c1s2:locked'),
+    '總覽圖：第 1 個委託可以接、第 2 個要先完成前一個（' + nodes.join('、') + '）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-hub.png') });
+  await page.click('.hubNode[data-sid="c1s2"]');
+  check(!(await visible(page, 'brief')), '鎖住的委託不能開簡報');
+  await page.click('.hubNode[data-sid="c1s1"]');
+  check(await waitVisible(page, 'brief'), '點委託開啟簡報');
+  const br = await page.evaluate(() => ({
+    t: document.getElementById('brTitle').textContent,
+    lines: document.querySelectorAll('#brLines p').length,
+    route: document.querySelectorAll('#brRoute .brSeg').length,
+  }));
+  check(br.t.includes('礦坑突破') && br.lines >= 2 && br.route === 5, '簡報：委託方、內容與 5 段預定路線');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-brief.png') });
+  await page.click('#btnBriefGo');
   check(await waitVisible(page, 'campTrans'), '開始出擊：顯示空降轉場');
   await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
     timeout: 8000,
@@ -4200,6 +4220,22 @@ async function testCampaign(browser, base) {
   check(
     s0.st === 'play' && s0.theme === 'wasteland' && s0.seg === 0 && s0.ck === 0,
     `進入區段 1（${s0.theme}），紀錄點已存`,
+  );
+  // 通訊：出擊開始時右下角播放，並寫進通訊紀錄
+  check(
+    await page
+      .waitForFunction(() => document.getElementById('comm').classList.contains('on'), null, {
+        timeout: 5000,
+      })
+      .then(
+        () => true,
+        () => false,
+      ),
+    '出擊開始的通訊顯示在右下角',
+  );
+  check(
+    await page.evaluate(() => (window.__game.save.story.log || []).some((l) => l.sp === 'echo')),
+    '通訊寫進存檔的通訊紀錄',
   );
   await page.evaluate(() => (window.__game.player.hp = window.__game.player.maxHp * 0.5));
   await clear();
@@ -4282,6 +4318,10 @@ async function testCampaign(browser, base) {
     g.player.takeDamage(1e9, 0, null, g.player.center(), new THREE.Vector3(0, 0, 1));
   });
   check(await waitVisible(page, 'campFail', 8000), 'AC 被擊破：回到失敗畫面');
+  check(
+    await page.evaluate(() => document.querySelectorAll('#cfComm .cLine').length > 0),
+    '失敗畫面顯示管制官的通訊',
+  );
   await page.click('#btnCampRetry');
   await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
     timeout: 8000,
@@ -4305,15 +4345,18 @@ async function testCampaign(browser, base) {
   });
   const down = await page.evaluate(() => window.__game.camp.exits.every((e) => e.mode === 'down'));
   check(down, '礦場外圍 → 礦坑深處的出口是垂直下降型');
-  // 重新整理：車庫顯示「繼續主線出擊」並能從紀錄點接回
+  // 重新整理：從標題的「主線」進機庫，顯示進行中的出擊（紀錄點存在存檔裡）
   await page.reload();
   await waitVisible(page, 'title');
-  await page.evaluate(() => window.__game.openGarage());
-  await waitVisible(page, 'garage');
+  await page.click('#btnStory');
+  await waitVisible(page, 'hub');
+  check(await visible(page, 'hubActive'), '重新整理後機庫顯示進行中的出擊（紀錄點存在存檔裡）');
+  await page.click('#btnHubLog');
   check(
-    (await page.textContent('#btnCamp')) === '繼續主線出擊',
-    '重新整理後車庫顯示「繼續主線出擊」（紀錄點存在存檔裡）',
+    await page.evaluate(() => document.querySelectorAll('#hubLogList .hubLogRow').length > 0),
+    '機庫的通訊紀錄列出播過的通訊',
   );
+  await page.click('#btnHubLogClose');
   // 最後一段：Boss 擊破 → 出擊完成
   await page.evaluate(() => {
     const g = window.__game;
@@ -4336,6 +4379,19 @@ async function testCampaign(browser, base) {
     fin.t === '主線出擊 完成' && fin.done === 1 && !fin.ck && !fin.camp,
     '結果：完成紀錄寫入存檔、紀錄點清除',
   );
+  await page.click('#btnResultOk');
+  check(await waitVisible(page, 'hub'), '結果畫面「返回機庫」');
+  const nodes2 = await page.$$eval('.hubNode', (l) => l.map((n) => n.dataset.sid + ':' + n.classList[1]));
+  check(
+    nodes2.includes('c1s1:done') && nodes2.includes('c1s2:open'),
+    '完成後第 2 個委託開放（' + nodes2.join('、') + '）',
+  );
+  // 車庫：從機庫進入時左下是「返回機庫」
+  await page.click('#btnHubGarage');
+  await waitVisible(page, 'garage');
+  check((await page.textContent('#btnToTitle')) === '返回機庫', '從機庫進車庫：按鈕變成「返回機庫」');
+  await page.click('#btnToTitle');
+  check(await waitVisible(page, 'hub'), '車庫返回機庫');
   await ctx.close();
 }
 
