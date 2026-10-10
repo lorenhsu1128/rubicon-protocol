@@ -21,6 +21,8 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  specimen: { name: 'SPECIMEN', color: '#ff5a50', mark: 'X', note: '技研都市的強化人間（第 3 章的宿敵）' },
+  whiteout: { name: 'WHITEOUT', color: '#9fd8ff', mark: 'W', note: '暴風雪裡的狙擊手（第 3 章的宿敵）' },
   marsh: { name: 'MARSH', color: '#40d0a0', mark: 'M', note: '水沒市街的兩棲傭兵（第 2 章的宿敵）' },
   sluice: { name: 'SLUICE', color: '#60c8ff', mark: 'L', note: '水壩的守備隊長（第 2 章的宿敵）' },
   stevedore: { name: 'STEVEDORE', color: '#e0b020', mark: 'D', note: '集散場的砲擊手（第 2 章的宿敵）' },
@@ -494,6 +496,95 @@ export const COMMS = [
     chapter: 2,
     once: true,
     lines: [['echo', '中部工業帶開放了。卡斯特隆和艾瑟立克都在找傭兵——這次要小心選邊。']],
+  },
+  // ---- 第 3 章的宿敵與專屬敵人 ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'whiteout',
+    once: true,
+    lines: [
+      ['whiteout', '……看不見我吧。我也不打算讓你看見。'],
+      ['echo', '具名 AC「WHITEOUT」。在暴風雪裡鎖定不到，只有開火的瞬間會暴露位置。'],
+      ['echo', '看到槍口的閃光就衝過去，貼近之後它躲不掉。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'whiteout',
+    lines: [
+      ['whiteout', '雪又變大了。'],
+      ['echo', 'WHITEOUT 在遠距離最危險。拉近距離，別在空曠的雪原上停下來。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'WHITEOUT',
+    lines: [
+      ['whiteout', '一發就夠了。'],
+      ['echo', 'WHITEOUT 開火後會現身 2 秒多。抓住那個時機，或是貼近到 14 m 內。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'snow',
+    once: true,
+    lines: [['echo', '西部冰原。雪裡藏著東西——看到地上冒白煙就是潛伏的 MT。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '潛伏',
+    lines: [['echo', '雪中潛伏 MT 靠近才會現身。注意地上的白煙，先開火逼它出來。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '滑行',
+    lines: [['echo', '滑行砲車繞著你轉。往它的前進方向預判射擊，或離開冰面。']],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'specimen',
+    once: true,
+    lines: [
+      ['specimen', '……誰？又是測試嗎？好，我會表現得很好。'],
+      ['echo', '具名 AC「SPECIMEN」。研究所的強化人間，會定期過載。'],
+      ['echo', '過載時別硬碰，撐過去之後它會硬直——那時候集中火力。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'specimen',
+    lines: [
+      ['specimen', '這次的數值一定會更好。'],
+      ['echo', 'SPECIMEN 過載結束後有 3 秒的硬直。等它。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'SPECIMEN',
+    lines: [
+      ['specimen', '測試結束。'],
+      ['echo', 'SPECIMEN 過載時保持距離，結束後的硬直才是攻擊的時機。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'institute',
+    once: true,
+    lines: [['echo', '地下技研都市。紅色的雷射柵欄會觸發警報，實驗體聚在一起會融合——先處理它們。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '實驗體',
+    lines: [['echo', '實驗體聚在一起會融合變大。在它們聚集之前分散擊破。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '雷射網',
+    lines: [['echo', '雷射柵欄會一直轉。看準它掃過去之後再穿過，或先打掉柵欄柱。']],
   },
   // ---- 第 2 章的宿敵與專屬敵人 ----
   {

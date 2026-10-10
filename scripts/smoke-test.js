@@ -4780,6 +4780,7 @@ async function testChapter1(browser, base) {
       dr.updateAI(1 / 60);
     }
     out.drill = h0 - p.hp;
+    out.drillVel = Number.isFinite(p.vel.x + p.vel.y + p.vel.z); // 近戰命中的擊退不能是 NaN
     dr.takeDamage(1e9, 0, p, dr.center(), new THREE.Vector3(0, 0, 1));
     // 廢鐵合成體：外殼吸收傷害
     const jk = g.spawnType('junk', 1, 1, at(-20, 0));
@@ -4798,7 +4799,10 @@ async function testChapter1(browser, base) {
     g.state = 'play';
     return out;
   });
-  check(fx.drill > 0, '鑽頭採礦機：貼身鑽擊造成傷害（' + Math.round(fx.drill) + '）');
+  check(
+    fx.drill > 0 && fx.drillVel,
+    '鑽頭採礦機：貼身鑽擊造成傷害（' + Math.round(fx.drill) + '），擊退正常',
+  );
   check(
     fx.junk.hurt <= 250 && fx.junk.shell < fx.junk.max,
     '廢鐵合成體：外殼吸收大部分傷害（1000 → ' + Math.round(fx.junk.hurt) + '）',
@@ -5523,6 +5527,323 @@ async function testChapter2(browser, base) {
     return g.campChapterCheck(2);
   });
   check(done, '依抉擇的路線完成就算整章完成（另一條不用打）');
+  await ctx.close();
+}
+
+// 主線第 3 章：冰原（雪中潛伏 MT、冰面滑行砲車、WHITEOUT）、地下技研都市（實驗體、保全雷射網、SPECIMEN）的
+// 專屬敵人、變體與地標
+async function testChapter3(browser, base) {
+  console.log('第 3 章：冰原、地下技研都市的專屬敵人與 AC、變體與地標');
+  const { ctx, page } = await newPage(browser, 'ch3');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  // 進入指定主題的沒有敵人的區段（第 1 段），測試時主迴圈不跑 AI
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        g.player.hp = g.player.maxHp = 1e6;
+      },
+      [theme, variant],
+    );
+  await enter('snow', 'icefield');
+  const sn = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    };
+    const step = (ents, n, stop) => {
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        p.iFrames = 0;
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+        g.projectiles = g.projectiles.filter((q) => !q.dead);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+    const out = {};
+    // 雪中潛伏 MT：遠的時候隱藏、靠近現身
+    const lk = g.spawnType('lurker', 1, 1, at(0, -40), 1);
+    step([lk], 2);
+    out.hide = { vis: lk.mesh.visible, noLock: lk.noLock };
+    lk.pos.copy(at(0, -10));
+    step([lk], 2);
+    out.rise = { vis: lk.mesh.visible, noLock: lk.noLock, st: lk.aiState.lk };
+    lk.takeDamage(1e9, 0, p, lk.center(), new THREE.Vector3(0, 0, 1));
+    // 被打中也會現身
+    const lk2 = g.spawnType('lurker', 1, 1, at(0, -40), 1);
+    step([lk2], 2);
+    lk2.takeDamage(10, 0, p, lk2.center(), new THREE.Vector3(0, 0, 1));
+    step([lk2], 2);
+    out.hitRise = lk2.aiState.lk === 'up' && !lk2.noLock;
+    lk2.takeDamage(1e9, 0, p, lk2.center(), new THREE.Vector3(0, 0, 1));
+    // 冰面滑行砲車：繞著目標轉，冰面上更快
+    const sk = g.spawnType('skater', 1, 1, at(24, 0));
+    const a0 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
+    step([sk], 40);
+    const a1 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
+    let da = Math.abs(a1 - a0);
+    if (da > Math.PI) da = Math.PI * 2 - da;
+    out.orbit = {
+      da,
+      d: sk.pos.distanceTo(p.pos),
+      v: sk.vel.length(),
+      sp: sk.stats.speed,
+      k: sk.speedMul,
+      st: sk.staggerT,
+      ai: sk.ai,
+      dead: sk.dead,
+    };
+    const L = w.iceBig;
+    sk.pos.set(L.x, w.terrainHeight(L.x, L.z), L.z);
+    step([sk], 2);
+    out.ice = { on: w.onIce(L.x, L.z), k: sk.speedMul / sk.aiState.sp0 };
+    sk.takeDamage(1e9, 0, p, sk.center(), new THREE.Vector3(0, 0, 1));
+    return out;
+  });
+  check(!sn.hide.vis && sn.hide.noLock, '雪中潛伏 MT：遠的時候埋在雪裡（看不到、不能鎖定）');
+  check(sn.rise.vis && !sn.rise.noLock && sn.rise.st === 'up', '雪中潛伏 MT：靠近 16 m 內現身');
+  check(sn.hitRise, '雪中潛伏 MT：被打中也會現身');
+  check(
+    sn.orbit.da > 0.3 && sn.orbit.d > 12 && sn.orbit.d < 40,
+    '冰面滑行砲車：繞著目標轉（' +
+      sn.orbit.da.toFixed(2) +
+      ' rad、' +
+      sn.orbit.d.toFixed(1) +
+      ' m，' +
+      JSON.stringify(sn.orbit) +
+      '）',
+  );
+  check(sn.ice.on && sn.ice.k > 1.3, '冰面滑行砲車：冰面上更快（×' + sn.ice.k.toFixed(2) + '）');
+  // WHITEOUT：精英區段的專屬 AC，沒開火時隱藏、開火後現身
+  const wo = await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const e = g.bosses[0],
+      p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    const out = { name: e && e.name, comm: log.includes('whiteout') };
+    const far = p.pos.clone().add(new THREE.Vector3(0, 0, -50));
+    far.y = g.world.terrainHeight(far.x, far.z);
+    e.pos.copy(far);
+    e.recoil.r = e.recoil.l = 0;
+    e.updateAI(1 / 60);
+    e.specialFx(1 / 60);
+    out.hidden = { vis: e.mesh.visible, noLock: e.noLock };
+    e.recoil.r = 0.5;
+    e.updateAI(1 / 60);
+    e.specialFx(1 / 60);
+    out.shown = { vis: e.mesh.visible, noLock: e.noLock };
+    g.state = 'play';
+    return out;
+  });
+  check(wo.name === 'WHITEOUT' && wo.comm, '精英區段：冰原是 WHITEOUT，有通訊');
+  check(!wo.hidden.vis && wo.hidden.noLock, 'WHITEOUT：沒開火時隱藏、鎖定不到');
+  check(wo.shown.vis && !wo.shown.noLock, 'WHITEOUT：開火後現身');
+  const sv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['icebreaker', 'radome', 'plane', 'pipebridge', 'capsule', 'giant'];
+    ['blizzard', 'crevasse', 'outpost', 'icefield', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'snow', 1000 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      const w = g.world;
+      const n = (k) => (w.props || []).filter((q) => q.kind === k).length;
+      out.push(
+        (w.variantKey || '-') +
+          ':' +
+          (w.landmark ? 1 : 0) +
+          ':' +
+          ({
+            blizzard: 1,
+            crevasse: w.terrainHeight(0, 0) > -3 ? 1 : 0,
+            outpost: n('snowwall'),
+            icefield: w.iceBig ? 1 : 0,
+          }[v] || 0),
+      );
+    });
+    return out;
+  });
+  check(
+    sv
+      .slice(0, 4)
+      .every(
+        (s, i) => s.startsWith(['blizzard', 'crevasse', 'outpost', 'icefield'][i]) && !s.endsWith(':0'),
+      ) && sv.filter((s) => s.split(':')[1] === '1').length >= 5,
+    '冰原的 4 種變體與地標（' + sv.join('、') + '）',
+  );
+  for (const v of ['blizzard', 'crevasse', 'outpost', 'icefield']) {
+    await enter('snow', v);
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch3-snow-' + v + '.png') });
+  }
+  // 地下技研都市：實驗體融合、保全雷射網的警報、SPECIMEN 的過載與硬直
+  await enter('institute', 'tanks');
+  const ins = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    };
+    const step = (ents, n, stop) => {
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        p.iFrames = 0;
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+    const out = {};
+    // 實驗體：四隻聚在一起 → 融合成一隻大型個體
+    g.spawnType('blob', 1, 1, at(0, -30), 4);
+    const bl = g.enemies.filter((e) => !e.dead && e.opts.vehKey === 'blob');
+    for (const [i, e] of bl.entries()) e.pos.copy(at(i * 1.2, -30));
+    out.blobs = bl.length;
+    step(bl, 200, () => g.enemies.some((e) => !e.dead && e.opts.vehKey === 'chimera'));
+    const ch = g.enemies.find((e) => !e.dead && e.opts.vehKey === 'chimera');
+    out.merged = { chimera: !!ch, left: bl.filter((e) => !e.dead).length, gone: bl.every((e) => e.dead) };
+    // 融合實驗體：貼身啃咬
+    if (ch) {
+      ch.pos.copy(at(0, -3));
+      const h0 = p.hp;
+      step([ch], 200, () => p.hp < h0);
+      out.bite = h0 - p.hp;
+      out.vel = Number.isFinite(p.vel.x + p.vel.y + p.vel.z);
+      ch.takeDamage(1e9, 0, p, ch.center(), new THREE.Vector3(0, 0, 1));
+    }
+    // 保全雷射網：柵欄掃過玩家時受傷並叫增援
+    const lp = g.spawnType('laserpost', 1, 1, at(0, -8), 1);
+    const n0 = g.enemies.filter((e) => !e.dead).length;
+    const h1 = p.hp;
+    step([lp], 900, () => p.hp < h1 && g.enemies.filter((e) => !e.dead).length > n0);
+    out.laser = { hurt: h1 - p.hp, extra: g.enemies.filter((e) => !e.dead).length - n0 };
+    for (const e of g.enemies) if (!e.dead) e.takeDamage(1e9, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
+    return out;
+  });
+  check(
+    ins.blobs === 4 && ins.merged.chimera && ins.merged.gone,
+    '實驗體：聚在一起融合成大型個體（' + ins.blobs + ' 隻 → 1）',
+  );
+  check(ins.bite > 0 && ins.vel, '融合實驗體：貼身啃咬（' + Math.round(ins.bite || 0) + '），擊退正常');
+  check(
+    ins.laser.hurt > 0 && ins.laser.extra >= 2,
+    '保全雷射網：柵欄掃過時受傷並觸發警報叫增援（+' + ins.laser.extra + ' 台）',
+  );
+  const sp = await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const e = g.bosses[0],
+      p = g.player;
+    p.hp = p.maxHp = 1e6; // 測試中被打倒的話 AI 就沒有目標
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    const out = { name: e && e.name, comm: log.includes('specimen') };
+    const sp0 = e.speedMul;
+    let ov = false,
+      k = 0;
+    for (let i = 0; i < 60 * 14 && !ov; i++) {
+      g.time += 1 / 60;
+      p.iFrames = 0;
+      e.updateAI(1 / 60);
+      if (e.bossVis & 4) {
+        ov = true;
+        k = e.speedMul / sp0;
+      }
+    }
+    out.ov = {
+      ov,
+      k,
+      ovT: e.aiState.ovT,
+      ai: e.ai,
+      st: e.staggerT,
+      dead: e.dead,
+      conf: e.confuseT,
+      hp: e.hp,
+      d: e.pos.distanceTo(p.pos),
+      pnl: p.noLock,
+      pd: p.dead,
+    };
+    let st = false;
+    for (let i = 0; i < 60 * 6 && !st; i++) {
+      g.time += 1 / 60;
+      e.updateAI(1 / 60);
+      if (e.staggerT > 0 && e.aiState.tired > 0) st = true;
+    }
+    const h0 = e.hp;
+    e.takeDamage(1000, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
+    out.tired = {
+      st,
+      dmg: h0 - e.hp,
+      ovT: e.aiState.ovT,
+      ov: e.aiState.ov,
+      tired: e.aiState.tired,
+      sT: e.staggerT,
+    };
+    g.state = 'play';
+    return out;
+  });
+  check(sp.name === 'SPECIMEN' && sp.comm, '精英區段：技研都市是 SPECIMEN，有通訊');
+  check(
+    sp.ov.ov && sp.ov.k > 1.4,
+    'SPECIMEN：定期過載（速度 ×' + sp.ov.k.toFixed(2) + '，' + JSON.stringify(sp.ov) + '）',
+  );
+  check(
+    sp.tired.st && sp.tired.dmg > 1200,
+    'SPECIMEN：過載結束後硬直、受傷變重（1000 → ' +
+      Math.round(sp.tired.dmg) +
+      '，' +
+      JSON.stringify(sp.tired) +
+      '）',
+  );
+  const iv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['reactor', 'spire', 'lift', 'cage', 'tube', 'monument'];
+    ['core', 'cavern', 'tanks', 'entrance', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'institute', 1100 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push((g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+    });
+    return out;
+  });
+  check(
+    iv.slice(0, 4).every((s, i) => s.startsWith(['core', 'cavern', 'tanks', 'entrance'][i])) &&
+      iv.filter((s) => s.endsWith(':1')).length >= 5,
+    '地下技研都市的 4 種變體與地標（' + iv.join('、') + '）',
+  );
+  for (const v of ['core', 'cavern', 'tanks', 'entrance']) {
+    await enter('institute', v);
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch3-institute-' + v + '.png') });
+  }
   await ctx.close();
 }
 
@@ -6450,6 +6771,7 @@ async function main() {
     await testModules(browser, base);
     await testChapter1(browser, base);
     await testChapter2(browser, base);
+    await testChapter3(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

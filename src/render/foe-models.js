@@ -381,7 +381,119 @@ function buildSprayer(pal, scale) {
   return rig(root, torso, M, { hand, type: 'sprayer', height: 3.2 * scale });
 }
 
+// 雪中潛伏 MT：伏低的四腳機身＋雪地偽裝布＋雙管機砲（高約 2.2 m；埋在雪裡時隱藏）
+function buildLurker(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1])
+      P(torso, gBox(0.35, 1.2, 0.35), M.joint, sx * 1.1, 0.6, sz * 1.0, sz * 0.4, 0, sx * 0.3);
+  CB(torso, 2.0, 0.9, 2.6, M.main, 0, 1.4, 0, 0, 0, 0, 0.12);
+  CB(torso, 2.4, 0.15, 2.9, M.main3, 0, 1.92, 0.1, 0.05, 0, 0, 0.04);
+  for (const s of [-1, 1]) P(torso, gCyl(0.1, 0.12, 1.4, 8), M.gun, s * 0.35, 1.5, -1.8, Math.PI / 2);
+  P(torso, gBox(0.6, 0.15, 0.05), glow(0xff6040, 1.4), 0, 1.55, -1.32);
+  const hand = new THREE.Group();
+  hand.position.set(0, 1.5, -2.6);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'lurker', height: 2.2 * scale });
+}
+// 冰面滑行砲車：雪橇板＋後方的推進風扇＋機砲塔（高約 2.4 m）
+function buildSkater(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  for (const s of [-1, 1]) CB(torso, 0.3, 0.2, 4.2, M.joint, s * 1.0, 0.15, 0, 0, 0, 0, 0.04);
+  CB(torso, 1.9, 0.8, 3.2, M.main, 0, 0.75, 0.1, 0, 0, 0, 0.12);
+  const fan = new THREE.Group();
+  fan.position.set(0, 1.5, 1.7);
+  torso.add(fan);
+  P(fan, gCyl(0.9, 0.9, 0.3, 14), M.main2, 0, 0, 0, Math.PI / 2);
+  for (let i = 0; i < 4; i++) P(fan, gBox(1.6, 0.18, 0.06), M.sub, 0, 0, 0, 0, 0, (i * Math.PI) / 4);
+  CB(torso, 1.0, 0.6, 1.0, M.main2, 0, 1.5, -0.5, 0, 0, 0, 0.06);
+  P(torso, gCyl(0.1, 0.12, 1.4, 8), M.gun, 0, 1.55, -1.5, Math.PI / 2);
+  P(torso, gBox(0.6, 0.15, 0.05), glow(0xffa060, 1.4), 0, 1.0, -1.52);
+  const hand = new THREE.Group();
+  hand.position.set(0, 1.55, -2.3);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'skater', height: 2.4 * scale, extra: { fan } });
+}
+
+// 實驗體：發光的肉塊＋四隻爪腳（小型高約 1.3 m；融合實驗體 big 高約 3.6 m、更多瘤與爪）
+function buildBlob(pal, scale, big = false) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  const k = big ? 2.6 : 1;
+  P(torso, gSph(0.7 * k, 10), M.main, 0, 0.75 * k, 0);
+  for (let i = 0; i < (big ? 7 : 3); i++) {
+    const a = i * 2.39996;
+    P(
+      torso,
+      gSph((0.25 + (i % 3) * 0.08) * k, 8),
+      M.main3,
+      Math.cos(a) * 0.5 * k,
+      (0.9 + (i % 2) * 0.3) * k,
+      Math.sin(a) * 0.5 * k,
+    );
+  }
+  for (let i = 0; i < (big ? 6 : 4); i++) {
+    const a = (i / (big ? 6 : 4)) * Math.PI * 2 + 0.4;
+    P(
+      torso,
+      gBox(0.14 * k, 0.9 * k, 0.14 * k),
+      M.joint,
+      Math.cos(a) * 0.7 * k,
+      0.35 * k,
+      Math.sin(a) * 0.7 * k,
+      Math.sin(a) * 0.6,
+      0,
+      -Math.cos(a) * 0.6,
+    );
+  }
+  P(torso, gSph(0.18 * k, 8), glow(0xff3a30, 2.2), 0, 0.85 * k, -0.62 * k);
+  const hand = new THREE.Group();
+  hand.position.set(0, 0.8 * k, -0.8 * k);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: big ? 'chimera' : 'blob', height: (big ? 3.6 : 1.3) * scale });
+}
+// 保全雷射網：柵欄柱＋往前伸出 16 m 的雷射柵欄（bar，紅色發光；柱子轉動時跟著掃）
+function buildLaserPost(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 1.6, 0.6, 1.6, M.joint, 0, 0.3, 0, 0, 0, 0, 0.06);
+  CB(torso, 0.8, 3.6, 0.8, M.main2, 0, 2.2, 0, 0, 0, 0, 0.06);
+  P(torso, gBox(1.1, 0.3, 1.1), M.main, 0, 4.1, 0);
+  for (const y of [1.2, 2.2, 3.2]) P(torso, gBox(0.3, 0.2, 0.3), glow(0xff3a30, 2), 0, y, -0.45);
+  const bar = new THREE.Group();
+  torso.add(bar);
+  const lm = new THREE.MeshBasicMaterial({ color: 0xff3a30, transparent: true, opacity: 0.75 });
+  for (const y of [1.2, 2.2, 3.2]) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 16), lm);
+    m.position.set(0, y, -8.4);
+    bar.add(m);
+  }
+  const hand = new THREE.Group();
+  hand.position.set(0, 2.2, -0.6);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'laserpost', height: 4.3 * scale, extra: { bar } });
+}
+
 export const FOE_BUILDERS = {
+  blob: (pal, scale) => buildBlob(pal, scale),
+  chimera: (pal, scale) => buildBlob(pal, scale, true),
+  laserpost: buildLaserPost,
+  lurker: buildLurker,
+  skater: buildSkater,
   gunboat: buildGunboat,
   sprayer: buildSprayer,
   gate_turret: buildGateTurret,
@@ -397,6 +509,11 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['blob', '實驗體', '技研都市專屬；成群撲咬，三隻以上聚集會融合'],
+  ['chimera', '融合實驗體', '技研都市專屬；實驗體融合而成的大型個體'],
+  ['laserpost', '保全雷射網', '技研都市專屬；旋轉的雷射柵欄，碰到會觸發警報叫增援'],
+  ['lurker', '雪中潛伏 MT', '冰原專屬；埋在雪裡隱藏，靠近才現身'],
+  ['skater', '冰面滑行砲車', '冰原專屬；高速繞圈掃射，冰面上更快'],
   ['gunboat', '潛航砲艇', '水沒市街專屬；潛在水下打不到，浮出水面發射魚雷'],
   ['sprayer', '汙染噴射 MT', '水沒市街專屬；噴出汙染液留下腐蝕區'],
   ['gate_turret', '閘門砲台', '水壩專屬；裝在閘門上，開閘的水流把機體往下游推'],

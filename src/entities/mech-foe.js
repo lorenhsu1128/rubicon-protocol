@@ -5,13 +5,22 @@
 // gategun 閘門砲台：站上水壩的閘門，預警後開閘，下游的水流把機體往下游推（game/support.js 的 addFlow）。
 // gunboat 潛航砲艇（潛航＝bossVis 1：隱藏、打不到，浮出後發射魚雷）、sprayer 汙染噴射 MT（腐蝕區）、
 // marsh 專屬 AC MARSH（在水中離目標遠時潛行＝bossVis 2：隱藏、不能鎖定）。
+// lurker 雪中潛伏 MT（埋在雪裡＝bossVis 1：隱藏、不能鎖定，靠近才現身）、skater 冰面滑行砲車（繞圈、冰面加速）、
+// whiteout 專屬 AC WHITEOUT（沒開火時隱藏＝bossVis 2）。
+// blob 實驗體（撲咬；三隻以上聚集時融合成 chimera）、laserpost 保全雷射網（旋轉的柵欄，碰到受傷並叫增援）、
+// specimen 專屬 AC SPECIMEN（定期過載＝bossVis 4，之後硬直）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
 
 const SHELL_K = 0.8; // 外殼吸收的比例
+const HIDE_AI = new Set(['burrow', 'gunboat', 'marsh', 'lurker', 'whiteout']); // 會隱藏（不能鎖定）的
 const DRILL_R = 3.6; // 鑽擊距離
+// 近戰命中的參數（takeDamage 的 melee：kb＝擊退速度；不能只傳 true，否則擊退是 NaN）
+const DRILL_HIT = { kb: 9 },
+  BITE = { kb: 4 },
+  BITE_BIG = { kb: 12 };
 
 Object.assign(MechEntity.prototype, {
   // aiSpecialMove 轉過來：回傳 null＝不是這裡的
@@ -26,7 +35,7 @@ Object.assign(MechEntity.prototype, {
       if (d < DRILL_R && s.drillT <= 0 && this.canAct()) {
         s.drillT = 1.6;
         const at = pl.center();
-        pl.takeDamage(420 * this.dmgMul, 1500 * this.dmgMul, this, at, dir.clone(), true);
+        pl.takeDamage(420 * this.dmgMul, 1500 * this.dmgMul, this, at, dir.clone(), DRILL_HIT);
         this.game.fx.meleeHit(at, 0xffc070, true, dir.clone());
         SFX.meleeHit(true, at);
         s.spin = 0.6;
@@ -47,6 +56,12 @@ Object.assign(MechEntity.prototype, {
     if (this.ai === 'gunboat') return this.foeGunboat(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'sprayer') return this.foeSprayer(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'marsh') return this.foeMarsh(dt, d, dir, perp, wish, r);
+    if (this.ai === 'lurker') return this.foeLurker(dt, d, dir, perp, wish, r);
+    if (this.ai === 'skater') return this.foeSkater(dt, d, dir, perp, wish, r);
+    if (this.ai === 'whiteout') return this.foeWhiteout(dt, d, dir, perp, wish, r);
+    if (this.ai === 'blob') return this.foeBlob(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'laserpost') return this.foeLaserPost(dt, wish, r);
+    if (this.ai === 'specimen') return this.foeSpecimen(dt, d, dir, perp, wish, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -320,16 +335,225 @@ Object.assign(MechEntity.prototype, {
     this.stuckJump(dt, r);
     return r;
   },
+  // 雪中潛伏 MT：hide（埋在雪裡：隱藏、不能鎖定，慢慢爬近，冒出熱源的白煙）→ 16 m 內或被打中時現身；
+  // 現身 10 秒後目標在 32 m 外就再埋回去
+  foeLurker(dt, d, dir, perp, wish, r) {
+    const s = this.aiState,
+      g = this.game;
+    if (!s.lk) s.lk = 'hide';
+    if (s.lk === 'hide') {
+      this.bossVis = 1;
+      this.noLock = true;
+      if (d > 20) wish.copy(dir).multiplyScalar(0.35);
+      if (Math.random() < dt * 2) g.fx.dust(this.pos.clone().setY(this.pos.y + 0.5), 0.8, 2, 0xffffff);
+      if (d < 16 || s.hit) this.foeLurkerRise();
+    } else {
+      s.upT = (s.upT || 0) + dt;
+      if (d > s.want + 4) wish.copy(dir);
+      else wish.copy(perp).multiplyScalar(0.6);
+      if (s.upT > 10 && d > 32) {
+        s.lk = 'hide';
+        s.hit = false;
+        g.fx.dust(this.pos.clone(), 3, 10, 0xf0f4f8);
+      }
+    }
+    this.stuckJump(dt, r);
+    return r;
+  },
+  foeLurkerRise() {
+    const s = this.aiState;
+    s.lk = 'up';
+    s.upT = 0;
+    this.bossVis = 0;
+    this.noLock = false;
+    this.game.fx.dust(this.pos.clone(), 4, 14, 0xf0f4f8);
+  },
+  // 冰面滑行砲車：在 24 m 左右繞著目標高速滑行（冰面上 ×1.4），機砲照常開火
+  foeSkater(dt, d, dir, perp, wish, r) {
+    const s = this.aiState,
+      w = this.game.world;
+    if (s.sp0 === undefined) s.sp0 = this.speedMul;
+    const ice = w.onIce(this.pos.x, this.pos.z);
+    this.speedMul = s.sp0 * (ice ? 1.4 : 1);
+    // 繞圈的方向固定（一般 AI 的橫移會定時換邊），卡住時才反向
+    if (!s.skDir) s.skDir = Math.random() < 0.5 ? 1 : -1;
+    if (s.stuck > 0.4) {
+      s.skDir *= -1;
+      s.stuck = 0;
+    }
+    wish
+      .set(-dir.z * s.skDir, 0, dir.x * s.skDir)
+      .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+      .normalize();
+    if (this.model.fan) this.model.fan.rotation.z += dt * 25;
+    if (ice && Math.random() < dt * 8) this.game.fx.dust(this.pos.clone(), 1, 2, 0xe8f0f8);
+    return r;
+  },
+  // WHITEOUT：保持 55 m 狙擊；開火後 2.5 秒內與 14 m 內看得到，其他時候隱藏（不能鎖定）
+  foeWhiteout(dt, d, dir, perp, wish, r) {
+    const s = this.aiState;
+    if (d < s.want - 8) {
+      wish.copy(dir).negate();
+      if (Math.random() < dt * 2) r.qb = true;
+    } else if (d > s.want + 10) wish.copy(dir);
+    else wish.copy(perp).multiplyScalar(0.6);
+    wish.normalize();
+    if (s.stuck > 0.4) {
+      s.strafe *= -1;
+      s.stuck = 0;
+      s.jumpT = 0.5;
+    }
+    s.jumpT = (s.jumpT || 0) - dt;
+    if (s.jumpT > 0) r.hover = 2;
+    s.seenT = Math.max(0, (s.seenT || 0) - dt);
+    if (this.recoil.r + this.recoil.l > 0.05) s.seenT = 2.5;
+    const hidden = s.seenT <= 0 && d > 14;
+    this.bossVis = hidden ? 2 : 0;
+    if (hidden && Math.random() < dt * 3) this.game.fx.dust(this.pos.clone(), 1.5, 3, 0xf4f8fc);
+    return r;
+  },
+  // 實驗體：撲向目標，貼身啃咬；每 1.5 秒檢查附近的同類，三隻以上聚在 7 m 內時由編號最小的一隻融合成大型個體
+  foeBlob(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    const big = this.opts.vehKey === 'chimera';
+    if (d > 1.5 + this.radius) wish.copy(dir);
+    else wish.copy(perp).multiplyScalar(0.3);
+    if (!big && d > 10 && Math.random() < dt * 0.8) r.qb = true;
+    s.biteT = (s.biteT === undefined ? 0.8 : s.biteT) - dt;
+    if (d < 1.6 + this.radius + pl.radius && s.biteT <= 0 && this.canAct()) {
+      s.biteT = big ? 1.4 : 1;
+      const at = pl.center();
+      pl.takeDamage(
+        (big ? 480 : 160) * this.dmgMul,
+        (big ? 1400 : 380) * this.dmgMul,
+        this,
+        at,
+        dir.clone(),
+        big ? BITE_BIG : BITE,
+      );
+      g.fx.meleeHit(at, 0xff3a30, big, dir.clone());
+    }
+    if (!big) {
+      s.mergeT = (s.mergeT === undefined ? 1.5 : s.mergeT) - dt;
+      if (s.mergeT <= 0) {
+        s.mergeT = 1.5;
+        const near = this.friendsOf().filter(
+          (f) => !f.dead && f.ai === 'blob' && f.opts.vehKey !== 'chimera' && f.pos.distanceTo(this.pos) < 7,
+        );
+        if (near.length >= 3 && near.every((f) => f.id >= this.id)) this.foeMerge(near);
+      }
+    }
+    this.stuckJump(dt, r);
+    return r;
+  },
+  foeMerge(list) {
+    const g = this.game;
+    const at = this.pos.clone();
+    for (const f of list) {
+      g.fx.explosion(f.center(), 1.4, 0xff3a30);
+      f.depart();
+    }
+    const e = g.spawnType('chimera', g.scaleHp || 1, g.scaleDmg || 1, at, 1);
+    g.fx.shockwave(at.clone().setY(at.y + 1), 6, 0xff3a30, 0.5);
+    g.alertAll(`實驗體 ×${list.length} 融合成大型個體`);
+    return e;
+  },
+  // 保全雷射網：柱子慢慢轉，雷射柵欄（往前 16 m、高 3.6 m 以下）碰到的敵人受傷；有人碰到時發出警報叫增援（15 秒一次）
+  foeLaserPost(dt, wish, r) {
+    const s = this.aiState,
+      g = this.game;
+    this.noPush = true;
+    wish.set(0, 0, 0);
+    if (s.ang === undefined) {
+      s.ang = Math.random() * Math.PI * 2;
+      s.alarmT = 0;
+      s.tick = 0;
+    }
+    s.ang += dt * 0.45;
+    this.aimYaw = s.ang;
+    s.alarmT -= dt;
+    s.tick -= dt;
+    if (s.tick > 0 || !this.canAct()) return r;
+    s.tick = 0.2;
+    const fx = -Math.sin(this.yaw),
+      fz = -Math.cos(this.yaw);
+    for (const t of g.hostilesOfEnt(this)) {
+      if (t.dead || t.noLock) continue;
+      const rx = t.pos.x - this.pos.x,
+        rz = t.pos.z - this.pos.z;
+      const u = rx * fx + rz * fz,
+        v = Math.abs(-rx * fz + rz * fx);
+      if (u < 0.5 || u > 16.5 || v > t.radius + 0.4 || t.pos.y - this.pos.y > 3.6) continue;
+      t.takeDamage(90 * 0.2 * this.dmgMul, 120 * this.dmgMul, this, t.center(), null);
+      g.fx.spark(t.center(), 0xff3a30);
+      if (s.alarmT <= 0) {
+        s.alarmT = 15;
+        g.alertAll('保全警報：增援接近');
+        SFX.play('ui2', 1, 0.5, 0.05, 0.05, this.center());
+        for (let i = 0; i < 2; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const p = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * 8, 0, Math.sin(a) * 8));
+          const [x, z] = g.world.collide(p.x, p.z, p.y, 2);
+          g.spawnType(
+            'mt',
+            g.scaleHp || 1,
+            g.scaleDmg || 1,
+            new THREE.Vector3(x, g.world.groundAt(x, z, p.y + 2), z),
+            1,
+          );
+        }
+      }
+    }
+    return r;
+  },
+  // SPECIMEN：一般的接近與橫移；每 12 秒過載 5 秒（速度 ×1.5、擴散減小、bossVis 4），之後硬直 3 秒（受傷 ×1.3）
+  foeSpecimen(dt, d, dir, perp, wish, r) {
+    const s = this.aiState,
+      g = this.game;
+    if (s.ovT === undefined) {
+      s.ovT = 12;
+      s.ov = false;
+      s.sp0 = this.speedMul;
+    }
+    s.ovT -= dt;
+    if (!s.ov && s.ovT <= 0) {
+      s.ov = true;
+      s.ovT = 5;
+      g.alertAll('SPECIMEN 過載');
+      g.fx.shockwave(this.center(), 5, 0xff3a30, 0.4);
+    } else if (s.ov && s.ovT <= 0) {
+      s.ov = false;
+      s.ovT = 12;
+      this.staggerT = Math.max(this.staggerT, 3);
+      s.tired = 3;
+      g.alertAll('SPECIMEN 過載結束 — 硬直');
+    }
+    s.tired = Math.max(0, (s.tired || 0) - dt);
+    this.speedMul = s.sp0 * (s.ov ? 1.5 : 1);
+    if (s.ov) this.buffT = 0.3;
+    this.bossVis = s.ov ? 4 : 0;
+    if (d > s.want + 5) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
+    else if (d < s.want - 6) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
+    else wish.copy(perp);
+    if (Math.random() < dt * (s.ov ? 1.6 : 0.5)) r.qb = true;
+    if (s.ov && d > 20 && Math.random() < dt) r.ab = true;
+    this.stuckJump(dt, r);
+    return r;
+  },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
   foeFx() {
-    if (this.ai === 'burrow' || this.ai === 'gunboat' || this.ai === 'marsh') {
-      // 沙下／水下（MARSH 的潛行是 bossVis 2）
-      const under = !!(this.bossVis & (this.ai === 'marsh' ? 2 : 1)) && !this.dead;
+    if (HIDE_AI.has(this.ai)) {
+      // 沙下／水下／雪裡（MARSH 的潛行、WHITEOUT 的隱形是 bossVis 2）
+      const under = !!(this.bossVis & (this.ai === 'marsh' || this.ai === 'whiteout' ? 2 : 1)) && !this.dead;
       this.mesh.visible = !under;
       this.noLock = under;
     }
     if (this.ai === 'junk') this.foeShellFx();
     if (this.model.dish) this.model.dish.rotation.y += 0.08; // 沙暴干擾機的天線
+    if (this.model.bar) this.model.bar.visible = !this.dead && Math.sin(this.t * 30) > -0.7; // 雷射柵欄（閃爍）
+    if (this.ai === 'specimen' && this.bossVis & 4 && Math.random() < 0.3)
+      this.game.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xff3a30);
     if (this.model.wheel && this.bossVis & 1) this.model.wheel.rotation.x += 0.15; // 閘門砲台開閘前轉動捲揚輪
     if (this.model.crate) this.model.crate.visible = !!(this.bossVis & 1) && !this.dead; // 吊著／舉著的貨櫃
   },
@@ -357,6 +581,8 @@ Object.assign(MechEntity.prototype, {
   foeDefense(dmg, impact, from, at, melee) {
     if ((this.ai === 'burrow' || this.ai === 'gunboat') && this.bossVis & 1) return [0, 0]; // 在沙下／潛航中
     if (this.ai === 'forklift') return this.foeCrateGuard(dmg, impact, from, at, melee);
+    if (this.ai === 'lurker' && this.aiState.lk === 'hide') this.aiState.hit = true; // 被打中就現身
+    if (this.ai === 'specimen' && this.aiState.tired > 0) return [dmg * 1.3, impact * 1.3]; // 過載後的硬直
     if (this.ai !== 'junk') return [dmg, impact];
     this.foeShellInit();
     if (!(this.shell > 0)) return [dmg, impact];

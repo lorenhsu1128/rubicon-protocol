@@ -3,8 +3,9 @@
 // 參數用自己的亂數串 makeRng）、build(w)（在一般物件之後加的結構，於關卡生成的 withRng 內呼叫）。
 // 不帶變體時 World 完全照原本生成（現有地圖不變）。本模組不可 import world.js，World 一律用參數 w。
 import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
-import { box, cyl, mat } from './prop-models.js';
+import { box, buildIceSheet, cyl, mat } from './prop-models.js';
 import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
+import { buildCavePillar, buildCoralTank, buildLab } from './themes/institute.js';
 
 const M = {
   concrete: mat(0x8e8a82, { roughness: 0.95, metalness: 0.02 }),
@@ -230,6 +231,45 @@ export function buildToxicDrum() {
       1.22,
       0,
       10,
+    ),
+  );
+  return g;
+}
+// 防爆牆（冰原「前線基地」）：長 len、高 4.5 m，頂部積雪
+export function buildSnowWall(len) {
+  const g = new THREE.Group();
+  g.add(box(len, 4.5, 1.4, M.concrete, 0, 2.25, 0));
+  g.add(box(len + 0.1, 0.35, 1.6, mat(0xf2f6fa, { roughness: 1, metalness: 0 }), 0, 4.6, 0));
+  for (let x = -len / 2 + 1.5; x < len / 2; x += 3) g.add(box(0.15, 4.4, 1.45, M.concreteD, x, 2.2, 0));
+  return g;
+}
+// 瞭望塔：四支腳＋小屋（高約 10 m）
+export function buildWatchtower() {
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(0.3, 8, 0.3, M.steel, sx * 1.4, 4, sz * 1.4));
+  g.add(box(4, 0.4, 4, M.concreteD, 0, 8, 0));
+  g.add(box(3.4, 2, 3.4, M.concrete, 0, 9.2, 0));
+  g.add(box(3.8, 0.3, 3.8, mat(0xf2f6fa, { roughness: 1, metalness: 0 }), 0, 10.35, 0));
+  g.add(box(0.6, 0.4, 0.6, M.lamp, 1.6, 9.6, 1.6));
+  return g;
+}
+// 研究所的地表入口：斜坡往下的大型閘門框（寬 24、高 14；技研都市「地表入口」）
+export function buildFacilityGate() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) g.add(box(4, 14, 8, M.concreteD, s * 12, 7, 0));
+  g.add(box(28, 3, 8, M.concreteD, 0, 15.5, 0));
+  g.add(box(20, 11, 0.4, M.dark, 0, 5.5, 2));
+  for (const s of [-1, 1]) g.add(box(0.5, 12, 0.5, M.yellow, s * 10, 6, -4.2));
+  g.add(box(21, 0.6, 0.6, M.yellow, 0, 12.2, -4.2));
+  g.add(
+    box(
+      6,
+      1.2,
+      0.3,
+      new THREE.MeshStandardMaterial({ color: 0xff3a30, emissive: 0xff2010, emissiveIntensity: 1.6 }),
+      0,
+      13.6,
+      -4.3,
     ),
   );
   return g;
@@ -543,6 +583,209 @@ export const VARIANTS = {
       },
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
+  institute: {
+    core: {
+      name: '研究核心',
+      theme: { featureKinds: ['platforms'], fog: 0x3a1418, fogFar: 120, sunI: 0.35 },
+      // 研究棟更多、更高
+      build(w) {
+        for (let k = w.cnt(3, 5); k > 0; k--) {
+          const bw = rnd(12, 20),
+            bd = rnd(10, 16),
+            h = rnd(16, 26);
+          place(w, buildLab(bw, h, bd, Math.floor(rnd(0, 1e6))), [-bw / 2, bw / 2, -bd / 2, bd / 2], 2.5, [
+            { box: [-bw / 2, bw / 2, -bd / 2, bd / 2], y: 0, top: h },
+          ]);
+        }
+      },
+    },
+    cavern: {
+      name: '巨大空洞',
+      theme: {
+        featureKinds: ['trench'],
+        roof: { y: 60, color: 0x221c1c, bump: 18 },
+        fogFar: 190,
+        // 沒有研究棟：粗大的岩柱與起伏的地面
+        buildStructures(w) {
+          for (let k = w.cnt(6, 9); k > 0; k--) {
+            const r = rnd(5, 9);
+            const spot = w.findSpot([-r, r, -r, r], 5, 30);
+            if (!spot) continue;
+            const g = buildCavePillar(r, 64 - spot.lo);
+            g.position.y = spot.lo - 0.5;
+            w.addBig(g, spot, [{ c: [0, 0], r: r * 0.9, h: 60 }], false);
+          }
+        },
+      },
+      terrain: () => (x, z, h) => h * 2.4,
+    },
+    tanks: {
+      name: '收容區',
+      theme: { featureKinds: ['bunkers'] },
+      // 成排的 Coral 收容槽
+      build(w) {
+        const axis = rndi(0, 1);
+        for (let off = -40 * w.k; off <= 40 * w.k; off += rnd(12, 16)) {
+          if (Math.abs(off) < 8) continue;
+          for (let v = -44 * w.k; v < 44 * w.k; v += 7) {
+            const x = axis ? v : off,
+              z = axis ? off : v;
+            if (Math.hypot(x, z) < 10 || w.onCorridor(x, z, 4) || !free(w, x, z, 2, 2, 0.5)) continue;
+            w.addSmall(
+              buildCoralTank(),
+              x,
+              w.terrainHeight(x, z) - 0.1,
+              z,
+              { r: 2, h: 5.6 },
+              'coraltank',
+              2000,
+              0xff3a30,
+            );
+          }
+        }
+      },
+    },
+    entrance: {
+      name: '地表入口',
+      border: true, // 交界區段：冰原往地下技研都市過渡
+      theme: {
+        roof: null,
+        weather: 'snow',
+        ground: 0x9aa4ae,
+        slope: 0x4a5058,
+        sky: 0xa8b4c0,
+        fog: 0xa8b4c0,
+        sunI: 0.8,
+        hemiI: 0.9,
+        fogFar: 170,
+      },
+      // 地面往一側下陷，盡頭是研究所的大型閘門
+      terrain(w) {
+        const r = makeRng(w.seed * 71 + 13);
+        const a = r() * Math.PI * 2;
+        w.sinkDir = [Math.cos(a), Math.sin(a)];
+        const [c, s] = w.sinkDir;
+        return (x, z, h) => h - 10 * smooth(clamp((x * c + z * s - 12) / (45 * w.k), 0, 1));
+      },
+      build(w) {
+        const [c, s] = w.sinkDir;
+        const d = 48 * w.k,
+          x = c * d,
+          z = s * d;
+        const g = buildFacilityGate();
+        g.rotation.y = Math.atan2(-c, -s);
+        const ob = w.addSmall(g, x, w.terrainHeight(x, z) - 0.5, z, { w: 10, h: 16, d: 10 });
+        ob.mats = [];
+      },
+    },
+  },
+  snow: {
+    blizzard: {
+      name: '暴風雪',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        fogNear: 10,
+        fogFar: 72,
+        fog: 0xdfe6ec,
+        sky: 0xdfe6ec,
+        sunI: 0.5,
+        hemiI: 1.05,
+      },
+    },
+    crevasse: {
+      name: '冰河裂谷',
+      theme: { featureKinds: ['platforms'], corridor: { p: 0.3, kinds: ['road'] }, slope: 0x7a96b0 },
+      // 三道深 9 m 的冰河裂縫（避開出生點附近）
+      terrain(w) {
+        const r = makeRng(w.seed * 71 + 13);
+        const cuts = [];
+        for (let i = 0; i < 3; i++) {
+          const a = r() * Math.PI,
+            off = (r() * 2 - 1) * 45 * w.k;
+          if (Math.abs(off) < 12) continue;
+          cuts.push({ c: Math.cos(a), s: Math.sin(a), off, wd: 4 + r() * 3 });
+        }
+        return (x, z, h) => {
+          let k = 0;
+          for (const q of cuts) {
+            const u = Math.abs(-x * q.s + z * q.c - q.off);
+            k = Math.max(k, 1 - smooth(clamp((u - q.wd) / 3, 0, 1)));
+          }
+          return h - 9 * k;
+        };
+      },
+      offLimits: (w, x, z) => w.terrainHeight(x, z) < -3,
+    },
+    outpost: {
+      name: '前線基地',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.7, kinds: ['road'] } },
+      // 圍住中央的防爆牆（留缺口）與四角的瞭望塔
+      build(w) {
+        const R = rnd(26, 34) * w.k;
+        for (const [ax, sgn] of [
+          [0, 1],
+          [0, -1],
+          [1, 1],
+          [1, -1],
+        ]) {
+          for (let v = -R; v < R; v += 10) {
+            if (Math.abs(v + 5) < 7) continue; // 正中央的缺口
+            const x = ax ? sgn * R : v + 5,
+              z = ax ? v + 5 : sgn * R;
+            if (w.onCorridor(x, z, 6) || w.isReserved(x, z, 2) || !free(w, x, z, ax ? 1 : 5, ax ? 5 : 1, 0.5))
+              continue;
+            const g = buildSnowWall(9.6);
+            if (ax) g.rotation.y = Math.PI / 2;
+            w.addSmall(
+              g,
+              x,
+              w.terrainHeight(x, z) - 0.3,
+              z,
+              { w: ax ? 1.4 : 9.6, h: 4.8, d: ax ? 9.6 : 1.4 },
+              'snowwall',
+              5000,
+              0x8e8a82,
+            );
+          }
+          const tx = sgn * (R + 6) * (ax ? 1 : -1),
+            tz = sgn * (R + 6);
+          if (!w.onCorridor(tx, tz, 4) && free(w, tx, tz, 2, 2, 0.5))
+            w.addSmall(
+              buildWatchtower(),
+              tx,
+              w.terrainHeight(tx, tz) - 0.2,
+              tz,
+              { r: 2, h: 10.5 },
+              'tower',
+              3000,
+              0x9aa0a6,
+            );
+        }
+      },
+    },
+    icefield: {
+      name: '大冰湖',
+      theme: { featureKinds: ['bunkers', 'platforms'], corridor: { p: 0.2, kinds: ['road'] } },
+      // 地圖的一大片是結冰的湖面（冰面上滑行砲車更快）
+      terrain(w) {
+        const r = makeRng(w.seed * 71 + 13);
+        const a = r() * Math.PI * 2;
+        w.iceBig = { x: Math.cos(a) * 30 * w.k, z: Math.sin(a) * 30 * w.k, r: (34 + r() * 10) * w.k };
+        const L = w.iceBig;
+        return (x, z, h) => {
+          const t = clamp((L.r - Math.hypot(x - L.x, z - L.z)) / 8, 0, 1);
+          return h + (-0.7 - h) * smooth(t);
+        };
+      },
+      build(w) {
+        const L = w.iceBig;
+        const ice = buildIceSheet(L.r, L.r, makeRng(w.seed * 71 + 29));
+        ice.position.set(L.x, -0.65, L.z);
+        w.scene.add(ice);
+        w.meshes.push(ice);
+      },
     },
   },
   flooded: {
@@ -1106,6 +1349,9 @@ export const VARIANT_CATALOG = [
     () => buildQuayCrane(),
   ],
   ['bollard', '繫船柱', '集散場「港灣碼頭」的裝飾', () => buildBollard()],
+  ['facility_gate', '研究所閘門', '技研都市「地表入口」；寬 28、高 17 m', () => buildFacilityGate()],
+  ['snow_wall', '防爆牆', '冰原「前線基地」；長 9.6、高 4.8 m，可破壞', () => buildSnowWall(9.6)],
+  ['watchtower', '瞭望塔', '冰原「前線基地」；高約 10.5 m，可破壞', () => buildWatchtower()],
   ['toxic_drum', '汙染物桶', '水沒市街「汙染沼澤」；可破壞', () => buildToxicDrum()],
   ['weir', '攔砂壩', '水壩「攔砂壩群」；長 12、高 5–6 m，不可破壞', () => buildWeir(12, 5)],
   ['penstock', '壓力水管', '水壩「水力發電廠」；長 22 m、管徑 2.4 m', () => buildPenstock(22)],

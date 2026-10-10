@@ -440,6 +440,161 @@ function aqueduct() {
   return g;
 }
 
+// ---------- 地下技研都市 ----------
+const CORAL = new THREE.MeshStandardMaterial({
+  color: 0xff3a30,
+  emissive: 0xff2010,
+  emissiveIntensity: 1.4,
+  roughness: 0.3,
+});
+// Coral 反應爐：圓筒爐心＋四根冷卻柱＋發光的爐口
+function coralReactor() {
+  const g = new THREE.Group();
+  g.add(cyl(6, 7, 12, M.hullD, 0, 6, 0, 18));
+  g.add(cyl(3, 3, 1, CORAL, 0, 12.5, 0, 16));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    g.add(cyl(1.2, 1.2, 18, M.steel, Math.cos(a) * 9, 9, Math.sin(a) * 9, 10));
+    g.add(rot(box(0.6, 0.6, 9, M.steel, Math.cos(a) * 5, 15, Math.sin(a) * 5), 0, -a + Math.PI / 2, 0));
+  }
+  return g;
+}
+// 巨大結晶柱：從地面長到很高的 Coral 結晶
+function coralSpire() {
+  const g = new THREE.Group();
+  for (const [x, z, h, r, tx, tz] of [
+    [0, 0, 28, 3, 0.05, 0],
+    [3, 2, 16, 1.8, 0.3, 0.2],
+    [-3, 1, 12, 1.5, -0.3, 0.1],
+    [1, -3, 10, 1.3, 0.1, -0.35],
+  ]) {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), CORAL);
+    m.position.set(x, h / 2 - 0.5, z);
+    m.rotation.set(tx, 0, tz);
+    g.add(m);
+  }
+  return g;
+}
+// 大型貨運升降梯：四角的導軌塔與停在中間的平台
+function freightLift() {
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(1.4, 26, 1.4, M.yellow, sx * 9, 13, sz * 7));
+  g.add(box(18, 1.2, 14, M.hullD, 0, 4, 0));
+  for (const sz of [-1, 1]) g.add(box(20, 1.2, 1.2, M.yellow, 0, 26.5, sz * 7));
+  g.add(box(4, 3, 3, M.hull, 0, 28, 0));
+  return g;
+}
+// 實驗體收容籠：格子籠與破掉的一面
+function specimenCage() {
+  const g = new THREE.Group();
+  g.add(box(14, 0.6, 10, M.hullD, 0, 0.3, 0));
+  g.add(box(14, 0.6, 10, M.hullD, 0, 9.7, 0));
+  for (let x = -7; x <= 7; x += 1.75)
+    for (const z of [-5, 5]) if (!(z === 5 && x > -2 && x < 3)) g.add(box(0.25, 9.4, 0.25, M.steel, x, 5, z));
+  for (let z = -5; z <= 5; z += 1.75) for (const x of [-7, 7]) g.add(box(0.25, 9.4, 0.25, M.steel, x, 5, z));
+  g.add(rot(box(5, 0.25, 0.25, M.steel, 0.5, 1.2, 6.5), 0, 0.3, 0.2));
+  g.add(cyl(1.6, 2.2, 3, CORAL, 0, 1.5, 0, 8));
+  return g;
+}
+// 斷裂的輸送管：粗大的管線從高處斷開，一截倒在地上
+function brokenTube() {
+  const g = new THREE.Group();
+  g.add(box(3, 16, 3, M.concrete, -12, 8, 0));
+  g.add(rot(cyl(2.2, 2.2, 14, M.steel, -5, 15, 0, 14), 0, 0, Math.PI / 2));
+  g.add(rot(cyl(2.2, 2.2, 14, M.steel, 7, 6, 0, 14), 0, 0.2, Math.PI / 2 + 0.7));
+  g.add(cyl(1.4, 1.4, 0.3, CORAL, 2, 11.2, 0, 12));
+  return g;
+}
+// 研究所紀念碑：台座上的環形雕塑
+function monument() {
+  const g = new THREE.Group();
+  g.add(box(10, 2, 10, M.concrete, 0, 1, 0));
+  g.add(box(6, 2, 6, M.concrete, 0, 3, 0));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(5, 0.7, 8, 24), M.steel);
+  ring.position.y = 10;
+  g.add(ring);
+  g.add(cyl(0.6, 0.6, 5, M.steel, 0, 6.5, 0, 8));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1.4, 12, 8), CORAL));
+  g.children[g.children.length - 1].position.y = 10;
+  return g;
+}
+
+// ---------- 冰原 ----------
+const SNOW = mat(0xf2f6fa, { roughness: 1, metalness: 0 });
+// 凍結的破冰船：船身斜埋在冰裡、艦橋與煙囪
+function icebreaker() {
+  const g = new THREE.Group();
+  const h = new THREE.Group();
+  h.add(box(10, 6, 30, M.red, 0, 3, 0));
+  h.add(rot(box(8, 5, 6, M.red, 0, 3, -17), 0.4, 0, 0));
+  h.add(box(10.4, 0.6, 30, SNOW, 0, 6.2, 0));
+  h.add(box(7, 6, 7, M.white, 0, 9, 6));
+  h.add(box(7.4, 1.4, 0.3, M.window, 0, 10.5, 2.4));
+  h.add(cyl(1.4, 1.6, 6, M.dark, 0, 14, 10, 10));
+  rot(h, 0.06, 0.3, 0.14);
+  h.position.y = -2;
+  g.add(h);
+  return g;
+}
+// 巨型雷達罩：球形雷達罩＋底座
+function radome() {
+  const g = new THREE.Group();
+  g.add(cyl(7, 8, 6, M.concrete, 0, 3, 0, 16));
+  const s = new THREE.Mesh(new THREE.SphereGeometry(9, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), M.white);
+  s.position.y = 6;
+  g.add(s);
+  g.add(box(3, 4, 0.4, M.dark, 0, 2, 8));
+  return g;
+}
+// 冰封的運輸機：機身、主翼與尾翼，一半被雪埋住
+function frozenPlane() {
+  const g = new THREE.Group();
+  const p = new THREE.Group();
+  p.add(rot(cyl(2.6, 2.2, 26, M.hull, 0, 0, 0, 12), Math.PI / 2, 0, 0));
+  p.add(box(34, 0.6, 5, M.hull, 0, 0.6, 2));
+  p.add(box(10, 0.4, 3, M.hull, 0, 1.6, 12));
+  p.add(box(0.4, 6, 4, M.hull, 0, 4, 12));
+  p.add(box(30, 0.5, 4, SNOW, 0, 1.1, 2));
+  rot(p, 0.05, 0.4, 0.1);
+  p.position.y = 1.2;
+  g.add(p);
+  return g;
+}
+// 凍結的輸送管橋：兩座橋墩撐起的大管線
+function pipeBridge() {
+  const g = new THREE.Group();
+  for (const x of [-12, 12]) g.add(box(2, 10, 3, M.concrete, x, 5, 0));
+  g.add(rot(cyl(1.6, 1.6, 36, M.pipe || M.steel, 0, 11.4, 0, 12), 0, 0, Math.PI / 2));
+  g.add(rot(box(36, 0.5, 2.2, SNOW, 0, 13.1, 0), 0, 0, 0));
+  for (let i = 0; i < 6; i++)
+    g.add(box(0.3, rnd0(i) * 3 + 1, 0.3, M.crystal, -14 + i * 5.5, 9.6 - rnd0(i) * 1.5, 1.2));
+  return g;
+}
+const rnd0 = (i) => ((i * 7919) % 13) / 13; // 固定的「亂數」（地標是純函式）
+// 墜毀的軌道艙：圓錐形的返回艙斜插在雪裡，旁邊是降落傘
+function capsule() {
+  const g = new THREE.Group();
+  const c = cyl(1.5, 4.5, 6, M.hullD, 0, 0, 0, 14);
+  rot(c, 0.7, 0, 0.2);
+  c.position.set(0, 2.6, 0);
+  g.add(c);
+  g.add(rot(box(9, 0.2, 6, M.orange, 0, 0.3, 8), 0.05, 0.3, 0.04));
+  for (let i = 0; i < 4; i++) g.add(rot(box(3, 1.5, 2, SNOW, -6 + i * 3.5, 0.5, -5), 0, i, 0.2));
+  return g;
+}
+// 冰封的巨型 AC：埋到胸口的巨大機甲頭部與肩甲
+function frozenGiant() {
+  const g = new THREE.Group();
+  g.add(box(14, 10, 8, M.hullD, 0, 3, 0));
+  for (const s of [-1, 1]) g.add(rot(box(6, 5, 9, M.hull, s * 9, 6, 0), 0, 0, s * 0.3));
+  g.add(box(5, 4, 5, M.hull, 0, 10, -1));
+  g.add(box(3.6, 0.6, 0.3, M.glow, 0, 10.4, -3.6));
+  g.add(box(16, 1, 9, SNOW, 0, 8.4, 0));
+  for (let i = 0; i < 5; i++)
+    g.add(rot(box(0.6, 3 + i, 0.6, M.crystal, -6 + i * 3, 1.5, 5), 0.2, 0, -0.3 + i * 0.15));
+  return g;
+}
+
 // ---------- 汙染水沒市街 ----------
 // 傾倒的摩天樓：斜靠的高樓與成排的窗
 function leaningTower() {
@@ -641,6 +796,129 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  institute: {
+    reactor: {
+      name: 'Coral 反應爐',
+      build: coralReactor,
+      bx: [-11, 11, -11, 11],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [0, 0], r: 7, h: 13 },
+        { c: [8.3, 3.5], r: 1.3, h: 18 },
+        { c: [-3.5, 8.3], r: 1.3, h: 18 },
+        { c: [-8.3, -3.5], r: 1.3, h: 18 },
+        { c: [3.5, -8.3], r: 1.3, h: 18 },
+      ],
+    },
+    spire: {
+      name: '巨大結晶柱',
+      build: coralSpire,
+      bx: [-6, 6, -6, 6],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ c: [0, 0], r: 4, h: 26 }],
+    },
+    lift: {
+      name: '大型貨運升降梯',
+      build: freightLift,
+      bx: [-10, 10, -8, 8],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [
+        { c: [-9, -7], r: 1, h: 26 },
+        { c: [9, -7], r: 1, h: 26 },
+        { c: [-9, 7], r: 1, h: 26 },
+        { c: [9, 7], r: 1, h: 26 },
+        { box: [-9, 9, -7, 7], y: 3.4, top: 4.6, deck: true },
+      ],
+    },
+    cage: {
+      name: '實驗體收容籠',
+      build: specimenCage,
+      bx: [-8, 8, -6, 7],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [
+        { box: [-7.3, 7.3, -5.3, -4.7], y: -1, top: 10 },
+        { box: [-7.3, -6.7, -5, 5], y: -1, top: 10 },
+        { box: [6.7, 7.3, -5, 5], y: -1, top: 10 },
+        { box: [-7, 7, -5, 5], y: 9.4, top: 10, deck: true },
+      ],
+    },
+    tube: {
+      name: '斷裂的輸送管',
+      build: brokenTube,
+      bx: [-14, 14, -3, 3],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { box: [-13.5, -10.5, -1.5, 1.5], y: -1, top: 16 },
+        { box: [2, 13, -2, 2], y: -1, top: 6 },
+      ],
+    },
+    monument: {
+      name: '研究所紀念碑',
+      build: monument,
+      bx: [-6, 6, -6, 6],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [{ box: [-5, 5, -5, 5], y: -1, top: 4 }],
+    },
+  },
+  snow: {
+    icebreaker: {
+      name: '凍結的破冰船',
+      build: icebreaker,
+      bx: [-12, 12, -20, 18],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [-6, 6, -16, 16], y: -1, top: 10 }],
+    },
+    radome: {
+      name: '巨型雷達罩',
+      build: radome,
+      bx: [-10, 10, -10, 10],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 8.5, h: 14 }],
+    },
+    plane: {
+      name: '冰封的運輸機',
+      build: frozenPlane,
+      bx: [-19, 19, -15, 15],
+      range: 4,
+      sink: 0.3,
+      shapes: [{ box: [-4, 4, -13, 13], y: -1, top: 4 }],
+    },
+    pipebridge: {
+      name: '凍結的輸送管橋',
+      build: pipeBridge,
+      bx: [-19, 19, -3, 3],
+      range: 4,
+      sink: 0.3,
+      shapes: [
+        { box: [-13, -11, -1.5, 1.5], y: -1, top: 10 },
+        { box: [11, 13, -1.5, 1.5], y: -1, top: 10 },
+      ],
+    },
+    capsule: {
+      name: '墜毀的軌道艙',
+      build: capsule,
+      bx: [-9, 8, -7, 12],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 4, h: 7 }],
+    },
+    giant: {
+      name: '冰封的巨型 AC',
+      build: frozenGiant,
+      bx: [-13, 13, -6, 7],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ box: [-12, 12, -4.5, 4.5], y: -1, top: 9 }],
+    },
+  },
   flooded: {
     leaning: {
       name: '傾倒的摩天樓',

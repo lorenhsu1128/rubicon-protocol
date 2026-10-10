@@ -905,6 +905,10 @@ export class World {
     this.meshes.push(m);
     this.waterMesh = m;
   }
+  // 冰原的冰面（冰湖：地形在冰面高度 −0.7 附近）
+  onIce(x, z) {
+    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) + 0.7) < 0.25;
+  }
   // 水深（主題的水面以下多深；沒有水面時 0）
   waterDepth(x, z) {
     const W = this.theme.water;
