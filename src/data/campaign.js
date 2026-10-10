@@ -1,4 +1,4 @@
-// 主線任務模式的資料（設計見 docs/campaign-design.md）：出擊、主題的轉場方式、轉場演出、區段類型、出口獎勵
+// 主線任務模式的資料（設計見 docs/campaign-design.md）：出擊、主題的轉場方式、轉場演出、區段類型、出口獎勵、陣營抉擇
 import { BOSS_DEFS } from './enemies.js';
 
 // 主題的區段串接方式：relay 橫向接力、down 垂直下降、up 垂直上升、mixed 先接力再下降、sim 只當模擬器
@@ -130,6 +130,18 @@ export const SEG_TYPES = {
 
 const bossOf = (kind) => BOSS_DEFS.find((b) => b.kind === kind) || BOSS_DEFS[0];
 
+// 陣營抉擇（docs/campaign-design.md 第 2 節）：區段的 choice＝這一段清除後出現的是互斥的抉擇出口（每個選項一個），
+// 走進去就決定；出擊完成時寫進 save.story.choices[id]，之後的出擊節點（BRIEFINGS 的 when）與通訊（條件 pick）跟著改變
+export const CHOICES = {
+  c2: {
+    name: '抉擇 1：主壩的歸屬',
+    opts: [
+      { key: 'castron', name: '依約完成委託', sub: '卡斯特隆：照合約拿下主壩', faction: 'castron' },
+      { key: 'aetheric', name: '背叛委託方', sub: '艾瑟立克：把主壩交給研究機構', faction: 'aetheric' },
+    ],
+  },
+};
+
 // 出擊：level＝敵人強度的基準（每兩個區段 +1）；segs 依序進行：
 // pool＝這一段可能的區段類型（出口各自預告一種；只有一種時各出口類型相同、獎勵不同）、border＝主題交界的區段、
 // variants＝限定的主題變體（Boss 要開闊的場地）
@@ -159,6 +171,63 @@ SORTIES.c1s2 = {
     { theme: 'desert', pool: ['elite', 'defend', 'breakthrough'], variants: ['tunnels', 'vein', 'shaft'] },
     { theme: 'desert', pool: ['supply', 'battle', 'intel'], variants: ['vein', 'tunnels', 'shaft'] },
     { theme: 'desert', pool: ['boss'], boss: 'worm', variants: ['openpit', 'shaft'] },
+  ],
+};
+// ---- 第 2 章：中部工業帶（抉擇 1 在 c2s2；c2s3a／c2s3b 依抉擇開放其中一個）----
+SORTIES.c2s1 = {
+  name: '中部工業帶 — 集散場封鎖突破',
+  chapter: 2,
+  level: 4,
+  reward: 52000,
+  segs: [
+    { theme: 'industrial', pool: ['battle'] },
+    { theme: 'industrial', pool: ['battle', 'destroy', 'defend', 'intel', 'elite'] },
+    { theme: 'industrial', pool: ['supply', 'escort', 'breakthrough', 'elite'] },
+    { theme: 'dam', pool: ['battle', 'destroy', 'intel'] },
+    { theme: 'dam', pool: ['supply', 'defend', 'elite', 'breakthrough'] },
+    { theme: 'dam', pool: ['boss'], boss: 'railgun', variants: ['plant', 'weirs', 'storm'] },
+  ],
+};
+SORTIES.c2s2 = {
+  name: '多重水壩 — 主壩爭奪',
+  chapter: 2,
+  level: 5,
+  reward: 64000,
+  segs: [
+    { theme: 'dam', pool: ['battle'] },
+    { theme: 'dam', pool: ['battle', 'destroy', 'elite', 'intel'] },
+    { theme: 'dam', pool: ['supply', 'defend', 'breakthrough'] },
+    { theme: 'dam', pool: ['elite', 'battle', 'destroy'], choice: 'c2' },
+    { theme: 'flooded', pool: ['battle', 'supply', 'defend', 'intel'] },
+    { theme: 'flooded', pool: ['boss'], boss: 'heli', variants: ['suburb', 'highway', 'toxic'] },
+  ],
+};
+SORTIES.c2s3a = {
+  name: '水沒市街 — 研究機構掃蕩',
+  chapter: 2,
+  level: 6,
+  reward: 76000,
+  segs: [
+    { theme: 'flooded', pool: ['battle'] },
+    { theme: 'flooded', pool: ['battle', 'destroy', 'elite', 'intel'] },
+    { theme: 'flooded', pool: ['supply', 'defend', 'breakthrough'] },
+    { theme: 'industrial', pool: ['battle', 'destroy', 'defend'] },
+    { theme: 'industrial', pool: ['supply', 'elite', 'breakthrough', 'escort'] },
+    { theme: 'industrial', pool: ['boss'], boss: 'rampart', variants: ['warehouse', 'docks', 'stacks'] },
+  ],
+};
+SORTIES.c2s3b = {
+  name: '集散場 — 卡斯特隆補給線破壞',
+  chapter: 2,
+  level: 6,
+  reward: 76000,
+  segs: [
+    { theme: 'industrial', pool: ['battle'] },
+    { theme: 'industrial', pool: ['destroy', 'battle', 'intel', 'elite'] },
+    { theme: 'industrial', pool: ['supply', 'escort', 'defend'] },
+    { theme: 'flooded', pool: ['battle', 'destroy', 'breakthrough'] },
+    { theme: 'flooded', pool: ['supply', 'elite', 'intel'] },
+    { theme: 'industrial', pool: ['boss'], boss: 'train', variants: ['railyard', 'stacks'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';

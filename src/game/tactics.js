@@ -36,7 +36,10 @@ Object.assign(Game.prototype, {
   // 整章的出擊都完成時清空模組
   campChapterCheck(chapter) {
     const st = this.campStory();
-    const all = Object.keys(SORTIES).filter((sid) => SORTIES[sid].chapter === chapter);
+    // 依陣營抉擇不會出現的出擊不算
+    const all = Object.keys(SORTIES).filter(
+      (sid) => SORTIES[sid].chapter === chapter && this.hubSortieState(sid) !== 'hidden',
+    );
     if (all.every((sid) => st.done[sid])) {
       st.mods = { chapter: chapter + 1, list: [] };
       return true;

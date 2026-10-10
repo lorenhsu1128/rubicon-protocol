@@ -4978,9 +4978,9 @@ async function testChapter1(browser, base) {
 }
 
 // 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE）、水壩（閘門砲台、壩頂巡邏砲車、SLUICE）、
-// 水沒市街（潛航砲艇、汙染噴射 MT、MARSH）的專屬敵人、變體與地標
+// 水沒市街（潛航砲艇、汙染噴射 MT、MARSH）的專屬敵人、變體與地標；第 2 章的出擊、陣營抉擇出口與總覽圖的分歧
 async function testChapter2(browser, base) {
-  console.log('第 2 章：集散場、水壩、水沒市街的專屬敵人與 AC、變體與地標');
+  console.log('第 2 章：集散場、水壩、水沒市街的專屬敵人與 AC、變體與地標、出擊、陣營抉擇');
   const { ctx, page } = await newPage(browser, 'ch2');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -4994,6 +4994,13 @@ async function testChapter2(browser, base) {
     g.camp.types[0] = 'supply';
     g.campEnterSeg(); // 沒有敵人的區段（平坦的調度場，拿掉障礙物，貨櫃的拋物線不會被擋住）
     g.world.obstacles.length = 0;
+    g.world.props = [];
+    let nCrate = 0;
+    const cs0 = g.crateShot;
+    g.crateShot = function (...a) {
+      nCrate++;
+      return cs0.apply(this, a);
+    };
     g.state = 'foe-test';
     const p = g.player;
     p.hp = p.maxHp = 1e6;
@@ -5057,9 +5064,10 @@ async function testChapter2(browser, base) {
     fk.takeDamage(1e9, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
     // 叉架 MT：靠近之後丟出貨櫃
     const fk2 = g.spawnType('forklift', 1, 1, at(0, -14), 1);
+    nCrate = 0;
     g.projectiles = [];
     step([fk2], 700, () => !fk2.aiState.hold);
-    out.thrown = !fk2.aiState.hold && g.projectiles.some((q) => q.kind === 'crate');
+    out.thrown = !fk2.aiState.hold && nCrate > 0;
     out.fk2 = {
       hold: fk2.aiState.hold,
       thT: fk2.aiState.thT,
@@ -5070,6 +5078,7 @@ async function testChapter2(browser, base) {
       dead: fk2.dead,
     };
     fk2.takeDamage(1e9, 0, p, fk2.center(), new THREE.Vector3(0, 0, 1));
+    g.crateShot = cs0;
     g.state = 'play';
     return out;
   });
@@ -5379,6 +5388,141 @@ async function testChapter2(browser, base) {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-flooded-' + v + '.png') });
   }
+  // 第 2 章的出擊：各自的 Boss 與主題
+  const bs = await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+    const out = [];
+    for (const sid of ['c2s1', 'c2s2', 'c2s3a', 'c2s3b']) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(
+        sid + ':' + n + ':' + g.worldTheme + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0],
+      );
+      g.campEnd(false, true);
+    }
+    return out;
+  });
+  check(
+    bs.join(',') ===
+      'c2s1:6:dam:HALBERD,c2s2:6:flooded:HELIOS,c2s3a:6:industrial:BEHEMOTH,c2s3b:6:industrial:IRON',
+    '第 2 章的 4 個出擊（各 6 段）與終點 Boss（' + bs.join('、') + '）',
+  );
+  // 總覽圖：第 1 章完成後開放第 2 章；依抉擇的出擊在抉擇前不出現
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done = { c1s1: 1, c1s2: 1 };
+    g.save.story.choices = {};
+    g.openHub();
+  });
+  await waitVisible(page, 'hub');
+  const hub0 = await page.evaluate(() => ({
+    nodes: [...document.querySelectorAll('#hubMap .hubNode')].map(
+      (n) => n.dataset.sid + ':' + n.classList[1],
+    ),
+    ch: window.__game.hubChapter(),
+  }));
+  check(
+    hub0.ch === 2 &&
+      hub0.nodes.includes('c2s1:open') &&
+      hub0.nodes.includes('c2s2:locked') &&
+      !hub0.nodes.some((n) => n.startsWith('c2s3')),
+    '總覽圖：第 2 章開放，依抉擇的出擊在抉擇前不出現（' + hub0.nodes.join('、') + '）',
+  );
+  // 陣營抉擇：抉擇區段清除後出現互斥的抉擇出口與通訊
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done.c2s1 = 1;
+    g.campBegin('c2s2');
+    g.camp.seg = 3;
+    g.camp.types[3] = 'battle';
+    g.camp.plan[3] = { ...g.camp.plan[3], variant: '', landmark: '' };
+    g.campEnterSeg();
+  });
+  await page.waitForFunction(
+    () => {
+      const g = window.__game;
+      g.waves = [];
+      for (const e of g.enemies)
+        if (!e.dead) {
+          e.bossVis = 0;
+          e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        }
+      return g.camp && g.camp.exits.length >= 2;
+    },
+    null,
+    { timeout: 30000, polling: 300 },
+  );
+  const ch = await page.evaluate(() => {
+    const g = window.__game;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    return { ex: g.camp.exits.map((e) => e.choice + ':' + e.reward), aet: log.includes('aetheric') };
+  });
+  check(
+    ch.ex.length === 2 &&
+      ch.ex.includes('castron:mod_castron') &&
+      ch.ex.includes('aetheric:mod_aetheric') &&
+      ch.aet,
+    '抉擇區段：清除後出現兩個抉擇出口與雙方的通訊（' + ch.ex.join('、') + '）',
+  );
+  await page.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits.find((q) => q.choice === 'aetheric');
+    const p = g.player;
+    p.pos.set(p.pos.x, p.pos.y, p.pos.z);
+    const L = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z) || 1;
+    const dx = e.pos.x - ((e.pos.x - p.pos.x) / L) * 12,
+      dz = e.pos.z - ((e.pos.z - p.pos.z) / L) * 12;
+    p.pos.set(dx, g.world.terrainHeight(dx, dz), dz);
+    p.yaw = p.aimYaw = Math.atan2(-(e.pos.x - dx), -(e.pos.z - dz));
+  });
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-choice.png') });
+  await page.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits.find((q) => q.choice === 'aetheric');
+    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+    g.player.vel.set(0, 0, 0);
+  });
+  check(await waitVisible(page, 'campTrans', 20000), '走進抉擇出口：出發');
+  const pk = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      key: g.camp.choice && g.camp.choice.key,
+      ck: g.save.story.sortie.choice && g.save.story.sortie.choice.key,
+      saved: g.save.story.choices.c2 || '',
+    };
+  });
+  check(
+    pk.key === 'aetheric' && pk.ck === 'aetheric' && !pk.saved,
+    '抉擇記在出擊與紀錄點（出擊完成前不寫進存檔）',
+  );
+  // 出擊完成：抉擇寫進存檔，總覽圖開放對應的出擊
+  const fin = await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnterSeg();
+    g.campEnd(true);
+    const log = (g.save.story.log || []).map((l) => l.text);
+    return {
+      c2: g.save.story.choices.c2,
+      a: g.hubSortieState('c2s3a'),
+      b: g.hubSortieState('c2s3b'),
+      comm: log.some((t) => t.includes('主壩的電力接上了')),
+    };
+  });
+  check(
+    fin.c2 === 'aetheric' && fin.a === 'hidden' && fin.b === 'open' && fin.comm,
+    '出擊完成：抉擇寫進存檔，開放「' + fin.b + '」的路線、另一條不出現，通訊依抉擇',
+  );
+  const done = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done.c2s3b = 1;
+    return g.campChapterCheck(2);
+  });
+  check(done, '依抉擇的路線完成就算整章完成（另一條不用打）');
   await ctx.close();
 }
 

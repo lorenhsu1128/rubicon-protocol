@@ -4,7 +4,7 @@ import { COMMS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { escHtml } from '../core/html.js';
 import { Game } from './game.js';
 
-const COND = ['sid', 'seg', 'type', 'theme', 'chapter', 'fails', 'killedBy', 'cycle', 'ace'];
+const COND = ['sid', 'seg', 'type', 'theme', 'chapter', 'fails', 'killedBy', 'cycle', 'ace', 'pick'];
 const keyOf = (e) => e.event + '|' + e.lines[0][1];
 
 Object.assign(Game.prototype, {

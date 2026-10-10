@@ -8,18 +8,19 @@ import { THEMES } from '../world/world.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
-  // 出擊的狀態：done 完成過、open 可以接、locked 前置還沒完成
+  // 出擊的狀態：done 完成過、open 可以接、locked 前置還沒完成、hidden 陣營抉擇不符（總覽圖上不出現）
   hubSortieState(sid) {
     const st = this.campStory();
-    if (st.done[sid]) return 'done';
     const B = BRIEFINGS[sid];
+    if (B && B.when && Object.keys(B.when).some((k) => st.choices[k] !== B.when[k])) return 'hidden';
+    if (st.done[sid]) return 'done';
     return !B || B.needs.every((n) => st.done[n]) ? 'open' : 'locked';
   },
   // 已開放的章節：有可以接（或完成過）的出擊的最大章節
   hubChapter() {
     let ch = 1;
     for (const sid in SORTIES)
-      if (this.hubSortieState(sid) !== 'locked') ch = Math.max(ch, SORTIES[sid].chapter);
+      if (!['locked', 'hidden'].includes(this.hubSortieState(sid))) ch = Math.max(ch, SORTIES[sid].chapter);
     return ch;
   },
   openHub() {
@@ -67,6 +68,7 @@ Object.assign(Game.prototype, {
       const B = BRIEFINGS[sid];
       if (!B) continue;
       const s = this.hubSortieState(sid);
+      if (s === 'hidden') continue;
       const col = s === 'done' ? '#7ee081' : s === 'open' ? '#ffb020' : '#3a4a58';
       svg += `<g class="hubNode ${s}" data-sid="${sid}"><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
       svg += `<text x="${B.node.x}" y="${B.node.y + 1}" text-anchor="middle" font-size="2.6" fill="${col}">${s === 'done' ? '✓' : s === 'open' ? '!' : '×'}</text>`;

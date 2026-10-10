@@ -107,7 +107,8 @@ Object.assign(Game.prototype, {
       ss = c.ss || {};
     const alive = this.enemies.filter((e) => !e.dead).length;
     const P = (v) => [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
-    const ex = (c.exits || []).map((e) => [...P(e.pos), e.reward, e.type, e.tr.title]);
+    const chId = c.exits && c.exits.some((e) => e.choice) ? so.segs[c.seg].choice : '';
+    const ex = (c.exits || []).map((e) => [...P(e.pos), e.reward, e.type, e.tr.title, e.choice || '', chId]);
     const pad = ss.pad && ss.pad.group ? P(ss.pad.pos) : 0;
     const intel = ss.intel && ss.intel.group ? P(ss.intel.pos) : 0;
     return {
@@ -142,7 +143,7 @@ Object.assign(Game.prototype, {
       return;
     }
     const all = cnt.findIndex((k) => k === alive.length);
-    if (!c.vote) c.vote = { t: VOTE_T, hold: 0 };
+    if (!c.vote) c.vote = { t: c.exits.some((e) => e.choice) ? VOTE_T * 2 : VOTE_T, hold: 0 }; // 抉擇出口 20 秒
     if (all >= 0) {
       c.vote.hold += dt;
       if (c.vote.hold >= 0.8) return this.campLeave(c.exits[all]);
@@ -431,19 +432,9 @@ Object.assign(Game.prototype, {
     const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
     C.vis = { exits: [], pad: null, intel: null };
     for (const e of v.ex || []) {
-      const R = EXIT_REWARDS[e[3]] || EXIT_REWARDS.coam;
       const pos = V(e);
-      C.vis.exits.push({
-        pos,
-        reward: e[3],
-        group: this.campRing(
-          pos,
-          R.color,
-          `${R.icon} ${R.name}`,
-          `${(SEG_TYPES[e[4]] || SEG_TYPES.battle).name}・${e[5]}`,
-          EXIT_R,
-        ),
-      });
+      const L = this.campExitLabel(e[3], e[4], e[5], e[6], e[7]);
+      C.vis.exits.push({ pos, reward: e[3], group: this.campRing(pos, L.color, L.label, L.sub, EXIT_R) });
     }
     if (v.pad) C.vis.pad = { pos: V(v.pad), group: this.campRing(V(v.pad), 0x7ee081, '補給') };
     if (v.intel) C.vis.intel = { pos: V(v.intel), group: this.campRing(V(v.intel), 0x7fc8ff, '資料終端') };

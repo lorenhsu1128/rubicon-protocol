@@ -46,7 +46,7 @@ export const CHAPTER_NAMES = {
 };
 
 // 出擊的簡報（data/campaign.js 的 SORTIES 以同樣的 key 對應）：client＝委託方、node＝總覽圖上的位置、
-// needs＝先完成哪些出擊才開放
+// needs＝先完成哪些出擊才開放、when＝陣營抉擇的條件（{ 抉擇 id: 選項 }，不符合時總覽圖上不出現）
 export const BRIEFINGS = {
   c1s1: {
     client: 'castron',
@@ -70,13 +70,62 @@ export const BRIEFINGS = {
     ],
     goal: '深入坑道，查明並排除震動源',
   },
+  // ---- 第 2 章 ----
+  c2s1: {
+    client: 'aetheric',
+    node: { x: 42, y: 56 },
+    needs: ['c1s2'],
+    lines: [
+      '這裡是艾瑟立克研究機構。中部工業帶的貨運集散場被武裝勢力封鎖了。',
+      '我們的研究設備卡在封鎖線後面，而水壩那一側還有一座超長程電磁砲台在守著河谷。',
+      '突破集散場，沿河谷前進，把那座砲台拆掉。卡斯特隆也在找傭兵，動作要快。',
+    ],
+    goal: '突破集散場的封鎖，擊破水壩的電磁砲台 HALBERD',
+  },
+  c2s2: {
+    client: 'castron',
+    node: { x: 56, y: 44 },
+    needs: ['c2s1'],
+    lines: [
+      '卡斯特隆重工。你在南部荒野的表現我們記得。',
+      '多重水壩的主壩控制著整個工業帶的電力。艾瑟立克想拿它去餵他們的實驗設施。',
+      '照合約，替我們拿下主壩。……我們知道艾瑟立克也雇過你，希望你分得清楚誰付的錢比較多。',
+    ],
+    goal: '沿水壩推進，奪取主壩（途中會面臨抉擇）',
+  },
+  c2s3a: {
+    client: 'castron',
+    node: { x: 62, y: 56 },
+    needs: ['c2s2'],
+    when: { c2: 'castron' },
+    lines: [
+      '主壩到手了，做得好。艾瑟立克撤進了水沒市街的舊研究所。',
+      '把他們清乾淨。研究所的出口在集散場那一側，他們的推土要塞會試著衝出包圍。',
+      '這一仗打完，中部工業帶就是卡斯特隆的了。',
+    ],
+    goal: '掃蕩水沒市街的艾瑟立克據點，擊破推土要塞 BEHEMOTH',
+  },
+  c2s3b: {
+    client: 'aetheric',
+    node: { x: 38, y: 44 },
+    needs: ['c2s2'],
+    when: { c2: 'aetheric' },
+    lines: [
+      '……謝謝你的選擇，傭兵。主壩的電力已經接進我們的設施。',
+      '卡斯特隆不會善罷甘休。他們的武裝列車正從集散場運送部隊過來。',
+      '穿過水沒市街，切斷補給線，讓那輛列車停下來。',
+    ],
+    goal: '切斷卡斯特隆的補給線，擊破武裝列車 IRON CITADEL',
+  },
 };
 
 // 通訊：event＝觸發事件；其餘欄位都是條件（沒寫＝不限）；once＝整個存檔只播一次；
 // lines＝[說話者, 台詞] 依序播放
 // 事件：sortieStart（出擊開始）、segStart（進入區段）、exitsOpen（區段清除開出口）、trans（轉場）、bossHalf（Boss 剩一半）、
 //       fail（失敗回機庫）、sortieEnd（出擊完成）、hub（回到機庫）
-// 條件：sid、seg（區段編號）、type（區段類型）、theme、chapter、fails（失敗次數 ≥）、killedBy（擊破你的敵人名稱包含）、cycle（周目）
+// 條件：sid、seg（區段編號）、type（區段類型）、theme、chapter、fails（失敗次數 ≥）、killedBy（擊破你的敵人名稱包含）、cycle（周目）、
+//       ace（精英區段的專屬 AC）、pick（這一章的陣營抉擇：出擊中選的或存檔裡的）
+// 事件另有 choice（抉擇出口出現時）
 export const COMMS = [
   // ---- 第 1 章：第 1 次出擊 ----
   {
@@ -280,6 +329,171 @@ export const COMMS = [
     theme: 'dunes',
     once: true,
     lines: [['echo', '沙丘地帶。沙下有東西在動——腳下出現沙塵就馬上移開。']],
+  },
+  // ---- 第 2 章：第 1 次出擊 ----
+  {
+    event: 'sortieStart',
+    sid: 'c2s1',
+    once: true,
+    lines: [
+      ['echo', '中部工業帶。集散場的貨櫃堆會擋住視線，敵人也會躲在後面。'],
+      ['aetheric', '封鎖線的另一側就是河谷。我們的人在那裡等你。'],
+    ],
+  },
+  { event: 'sortieStart', sid: 'c2s1', lines: [['echo', '重新投放到集散場。這次走別的路線試試看。']] },
+  {
+    event: 'trans',
+    sid: 'c2s1',
+    seg: 3,
+    lines: [['echo', '前方是多重水壩的下游。河谷很長，電磁砲台的射程涵蓋整條河道。']],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s1',
+    type: 'boss',
+    lines: [
+      ['echo', '超長程電磁砲台確認。它充能時會鎖定你——躲到壩體或建築物後面打斷它。'],
+      ['aetheric', '散熱片打開的時候最脆弱。抓住那個時機。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2s1',
+    lines: [
+      ['aetheric', '砲台沉默了，研究設備可以通過了。報酬已經匯入。'],
+      ['echo', '卡斯特隆發來了委託。他們想要的是主壩。'],
+    ],
+  },
+  // ---- 第 2 章：第 2 次出擊（抉擇 1）----
+  {
+    event: 'sortieStart',
+    sid: 'c2s2',
+    once: true,
+    lines: [
+      ['castron', '主壩在最上游。沿著水壩一座一座往上打。'],
+      ['echo', '……艾瑟立克的頻道也在監聽這次作戰。小心。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c2s2',
+    lines: [
+      ['aetheric', '傭兵，聽我說。主壩落到卡斯特隆手上，他們會把整個工業帶的電切斷。'],
+      ['aetheric', '標著「背叛委託方」的出口通往我們的接應點。走過去，報酬是他們的兩倍。'],
+      ['castron', '別聽他們的。合約就是合約——走「依約完成委託」的出口，把主壩拿下來。'],
+      ['echo', '兩個出口只能選一個。選了就回不了頭，之後的委託也會跟著改變。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s2',
+    seg: 4,
+    pick: 'castron',
+    lines: [['castron', '很好。主壩下游的水沒市街有艾瑟立克的殘兵，順路清掉。']],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s2',
+    seg: 4,
+    pick: 'aetheric',
+    lines: [
+      ['aetheric', '歡迎過來這一邊。卡斯特隆的追兵在水沒市街，撐過去就是我們的地盤。'],
+      ['castron', '……背叛的代價，你會付的。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s2',
+    type: 'boss',
+    lines: [
+      ['echo', '重武裝母艦直升機。它會從空中投放部隊，先打掉它的武裝。'],
+      ['echo', '高架道路和屋頂能讓你接近它的高度。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2s2',
+    pick: 'castron',
+    lines: [
+      ['castron', '主壩是我們的了。合約完成，下一份委託也準備好了。'],
+      ['echo', '艾瑟立克撤進了水沒市街。他們不會就這樣結束的。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2s2',
+    pick: 'aetheric',
+    lines: [
+      ['aetheric', '主壩的電力接上了。你做了正確的選擇。'],
+      ['echo', '卡斯特隆把你列進了黑名單。他們的列車正在往這裡開。'],
+    ],
+  },
+  // ---- 第 2 章：第 3 次出擊（依抉擇）----
+  {
+    event: 'sortieStart',
+    sid: 'c2s3a',
+    once: true,
+    lines: [
+      ['castron', '研究所在水沒市街的中心。別留活口給他們的研究資料。'],
+      ['echo', '水道很深，涉水會變慢。盡量走屋頂和高架道路。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s3a',
+    type: 'boss',
+    lines: [
+      ['echo', '推土要塞衝出來了！正面的裝甲擋得住所有東西。'],
+      ['castron', '讓它撞牆。撞上之後它會停住，繞到背後打。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2s3a',
+    lines: [
+      ['castron', '中部工業帶清乾淨了。卡斯特隆不會忘記忠誠的傭兵。'],
+      ['echo', '第 2 章的委託全部完成。西部冰原那邊傳來了奇怪的訊號。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2s3b',
+    once: true,
+    lines: [
+      ['aetheric', '卡斯特隆的補給線經過水沒市街，終點是集散場的調度場。'],
+      ['echo', '武裝列車在調度場整備。在它開出去之前攔下它。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2s3b',
+    type: 'boss',
+    lines: [
+      ['echo', '武裝列車！它會躲進隧道，出來時才打得到。'],
+      ['aetheric', '先打掉車廂上的砲台，機車頭的裝甲很厚。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2s3b',
+    lines: [
+      ['aetheric', '列車停下來了。中部工業帶的電力會留給研究用。謝謝你，傭兵。'],
+      ['echo', '第 2 章的委託全部完成。西部冰原那邊傳來了奇怪的訊號。'],
+    ],
+  },
+  { event: 'fail', killedBy: 'HALBERD', lines: [['echo', '電磁砲台的射線被擋住就會中斷充能。先找掩體。']] },
+  { event: 'fail', killedBy: 'HELIOS', lines: [['echo', '母艦直升機在高處。站上屋頂或高架道路再打。']] },
+  {
+    event: 'fail',
+    killedBy: 'BEHEMOTH',
+    lines: [['echo', '推土要塞正面打不動。引它撞牆，硬直時繞到背後。']],
+  },
+  { event: 'fail', killedBy: 'IRON CITADEL', lines: [['echo', '列車進隧道時打不到。守在隧道口等它出來。']] },
+  {
+    event: 'hub',
+    chapter: 2,
+    once: true,
+    lines: [['echo', '中部工業帶開放了。卡斯特隆和艾瑟立克都在找傭兵——這次要小心選邊。']],
   },
   // ---- 第 2 章的宿敵與專屬敵人 ----
   {

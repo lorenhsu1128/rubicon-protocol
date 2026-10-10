@@ -5,6 +5,7 @@ import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp, pick, rnd } from '../core/math.js';
 import {
+  CHOICES,
   EXIT_REWARDS,
   SEG_TYPES,
   SORTIES,
@@ -17,7 +18,7 @@ import {
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
 import { AC_ROSTER, PART_DEFS } from '../data/enemies.js';
 import { ACES, THEME_ACE } from '../data/foes.js';
-import { SPEAKERS, speakerBadge } from '../data/story.js';
+import { FACTIONS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
@@ -54,11 +55,15 @@ const CK_KEYS = [
   'replay',
   'heat',
   'rmods',
+  'choice',
 ];
 // 情報區段下載到的內容（第 3 期換成劇情資料表）
 const INTEL = {
   wasteland: ['補給線的排程表：礦坑方面每 6 小時有一批運輸車', '舊企業的通訊紀錄：礦坑深處有東西被封存'],
   desert: ['礦坑結構圖：深層有大型空洞', '砲兵陣地的配置：砲台由周圍的發電機供電'],
+  industrial: ['集散場的貨運排程：武裝列車每天經過調度場兩次', '卡斯特隆的出貨清單：大量的重型榴彈'],
+  dam: ['水壩的閘門控制碼：主壩的閘門可以從下游開啟', '艾瑟立克的電力需求表：數字大得不像是研究用的'],
+  flooded: ['舊研究所的平面圖：地下有一層沒有登記的實驗室', '水質報告：汙染源在研究所的排水口'],
 };
 
 Object.assign(Game.prototype, {
@@ -67,6 +72,7 @@ Object.assign(Game.prototype, {
     if (!S.story || typeof S.story !== 'object') S.story = {};
     if (!S.story.done || typeof S.story.done !== 'object') S.story.done = {};
     if (!Array.isArray(S.story.recent)) S.story.recent = [];
+    if (!S.story.choices || typeof S.story.choices !== 'object') S.story.choices = {}; // 陣營抉擇（data/campaign.js 的 CHOICES）
     const ck = S.story.sortie;
     if (ck && (!SORTIES[ck.sid] || !Array.isArray(ck.plan) || !Array.isArray(ck.types)))
       S.story.sortie = null; // 舊版紀錄點
@@ -88,6 +94,7 @@ Object.assign(Game.prototype, {
       fails: c.fails,
       ace: (c.ss && c.ss.ace) || '',
       cycle: this.campStory().cycle || 1,
+      pick: (c.choice && c.choice.key) || this.campStory().choices['c' + so.chapter] || '',
       ...extra,
     };
   },
@@ -685,6 +692,24 @@ Object.assign(Game.prototype, {
       .sort(() => Math.random() - 0.5);
     const rewards = [mods[0], ...[mods[1], plain[0], plain[1], mods[2]].sort(() => Math.random() - 0.5)];
     const n = Math.min(3, Math.max(2, types.length), rewards.length);
+    // 陣營抉擇：這一段的出口換成互斥的抉擇出口（每個選項一個，獎勵是該委託方的模組）
+    const CH = cur.choice && CHOICES[cur.choice];
+    if (CH) {
+      const spots = this.campSpots(CH.opts.length, mode === 'relay' ? 'edge' : 'inner');
+      const trs = transList(next.theme, mode).slice();
+      c.exits = spots.map((pos, i) => {
+        const o = CH.opts[i],
+          type = types[i % types.length],
+          tr = trs[i % trs.length];
+        const L = this.campExitLabel('mod_' + o.faction, type, tr.title, o.key, cur.choice);
+        const group = this.campRing(pos, L.color, L.label, L.sub, EXIT_R);
+        this.fx.ring(pos.clone().setY(pos.y + 0.2), 6, 0xff5050);
+        return { pos, reward: 'mod_' + o.faction, type, mode, tr, t: 0, group, choice: o.key };
+      });
+      this.flashMsg(CH.name, 0xff8a50, 3);
+      this.campComm('choice', this.campCtx());
+      return;
+    }
     const spots = this.campSpots(n, mode === 'relay' ? 'edge' : 'inner');
     // 轉場演出：同一次出擊盡量不重複
     let trs = transList(next.theme, mode).filter((t) => !c.usedTrans.includes(t.title));
@@ -694,17 +719,22 @@ Object.assign(Game.prototype, {
       const reward = rewards[i % rewards.length],
         type = types[i % types.length],
         tr = trs[i % trs.length];
-      const R = EXIT_REWARDS[reward];
-      const group = this.campRing(
-        pos,
-        R.color,
-        `${R.icon} ${R.name}`,
-        `${SEG_TYPES[type].name}・${tr.title}`,
-        EXIT_R,
-      );
+      const L = this.campExitLabel(reward, type, tr.title);
+      const group = this.campRing(pos, L.color, L.label, L.sub, EXIT_R);
       this.fx.ring(pos.clone().setY(pos.y + 0.2), 6, 0xffb020);
       return { pos, reward, type, mode, tr, t: 0, group };
     });
+  },
+  // 出口光環的顏色與文字（房主與客機共用）：抉擇出口顯示選項與後果
+  campExitLabel(reward, type, trTitle, choice, chId) {
+    const R = EXIT_REWARDS[reward] || EXIT_REWARDS.coam;
+    const o = choice && chId && CHOICES[chId] ? CHOICES[chId].opts.find((q) => q.key === choice) : null;
+    if (o) return { color: FACTIONS[o.faction].color, label: `⚑ ${o.name}`, sub: o.sub };
+    return {
+      color: R.color,
+      label: `${R.icon} ${R.name}`,
+      sub: `${(SEG_TYPES[type] || SEG_TYPES.battle).name}・${trTitle}`,
+    };
   },
   campClearExits() {
     const c = this.camp;
@@ -888,6 +918,12 @@ Object.assign(Game.prototype, {
     else this.campCapture();
     c.earned += this.missionEarned || 0;
     c.pending = ex.reward;
+    if (ex.choice) {
+      // 陣營抉擇：出擊完成時寫進存檔（紀錄點也記著）
+      c.choice = { id: this.campSortie().segs[c.seg].choice, key: ex.choice };
+      const o = CHOICES[c.choice.id].opts.find((q) => q.key === ex.choice);
+      this.flashMsg(`抉擇：${o.name}（${FACTIONS[o.faction].name}）`, 0xff8a50, 3);
+    }
     c.seg++;
     c.types[c.seg] = ex.type;
     c.trans[c.seg] = ex.tr;
@@ -1124,6 +1160,7 @@ Object.assign(Game.prototype, {
       bonus = Math.round((so.reward * this.heatMul(c.heat)) / 100) * 100; // 危險條款的報酬加成
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
+      if (c.choice && !c.replay) st.choices[c.choice.id] = c.choice.key; // 陣營抉擇（重打不改）
       this.campComm('sortieEnd', this.campCtx());
       // 整章都完成時戰術模組清空（重打不影響）
       if (!c.replay && this.campChapterCheck(so.chapter)) {
