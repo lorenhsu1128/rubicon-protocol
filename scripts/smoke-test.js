@@ -4269,14 +4269,27 @@ async function testCampaign(browser, base) {
   });
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-exits.png') });
-  // 走進第一個出口
-  await page.evaluate(() => {
-    const g = window.__game,
-      e = g.camp.exits[0];
-    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
-    g.player.vel.set(0, 0, 0);
-  });
-  check(await waitVisible(page, 'campTrans', 20000), '站進出口：出發並顯示轉場');
+  // 走進第一個出口（等待中一直放回出口上：被敵人或推回作戰區域推開時不會失敗）
+  const left0 = await page
+    .waitForFunction(
+      () => {
+        const g = window.__game;
+        if (g.state === 'camptrans') return true;
+        const e = g.camp && g.camp.exits[0];
+        if (e) {
+          g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+          g.player.vel.set(0, 0, 0);
+        }
+        return false;
+      },
+      null,
+      { timeout: 20000, polling: 200 },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+  check(left0 && (await waitVisible(page, 'campTrans', 5000)), '站進出口：出發並顯示轉場');
   const s1 = await page.evaluate(() => {
     const g = window.__game;
     return { seg: g.camp.seg, ck: g.save.story.sortie.seg, pend: g.camp.pending, hp: g.camp.carry.hp };
@@ -5610,7 +5623,7 @@ async function testChapter3(browser, base) {
     // 冰面滑行砲車：繞著目標轉，冰面上更快
     const sk = g.spawnType('skater', 1, 1, at(24, 0));
     const a0 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
-    step([sk], 40);
+    step([sk], 70);
     const a1 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
     let da = Math.abs(a1 - a0);
     if (da > Math.PI) da = Math.PI * 2 - da;
@@ -5635,7 +5648,7 @@ async function testChapter3(browser, base) {
   check(sn.rise.vis && !sn.rise.noLock && sn.rise.st === 'up', '雪中潛伏 MT：靠近 16 m 內現身');
   check(sn.hitRise, '雪中潛伏 MT：被打中也會現身');
   check(
-    sn.orbit.da > 0.3 && sn.orbit.d > 12 && sn.orbit.d < 40,
+    sn.orbit.da > 0.35 && sn.orbit.d > 12 && sn.orbit.d < 40,
     '冰面滑行砲車：繞著目標轉（' +
       sn.orbit.da.toFixed(2) +
       ' rad、' +
