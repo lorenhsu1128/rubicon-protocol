@@ -49,6 +49,7 @@ const CK_KEYS = [
   'mods',
   'mods0',
   'modNext',
+  'carryBy',
 ];
 // 情報區段下載到的內容（第 3 期換成劇情資料表）
 const INTEL = {
@@ -154,6 +155,8 @@ Object.assign(Game.prototype, {
     for (const k of CK_KEYS) ck[k] = this.camp[k];
     this.campStory().sortie = clone(ck);
     this.writeSave();
+    // 多人：紀錄點也給客機一份（房主遷移時由新房主接手）
+    if (this.campMp()) this.net.tr.broadcast({ t: 'cck', ck: clone(ck) });
   },
 
   // ---------- 區段 ----------
@@ -195,16 +198,22 @@ Object.assign(Game.prototype, {
     this.mpStats = c.stats;
     this.world.applyLight(this);
     this.sun.position.set(40, 80, 30);
-    this.player = new MechEntity(this, S.asm, PALETTES.player, {
-      team: 'player',
-      name: 'RAVEN',
-      palKey: 'player',
-      slot: 0,
-      pilot: this.campPilotPm(), // 駕駛員（PvE）＋戰術模組
-    });
-    this.player.pos.set(0, this.world.terrainHeight(0, 0), 0);
-    this.players = [this.player];
-    this.campApplyCarry(this.player);
+    const mp = this.campMp();
+    if (mp)
+      this.campMpSpawn(); // 多人：每位玩家各自的模組與上一段的狀態（campaign-mp.js）
+    else {
+      this.player = new MechEntity(this, S.asm, PALETTES.player, {
+        team: 'player',
+        name: 'RAVEN',
+        palKey: 'player',
+        slot: 0,
+        pilot: this.campPilotPm(), // 駕駛員（PvE）＋戰術模組
+      });
+      this.player.pos.set(0, this.world.terrainHeight(0, 0), 0);
+      this.players = [this.player];
+      this.campApplyCarry(this.player);
+    }
+    const np = mp ? this.players.length : 1;
     this.enemies = [];
     this.waves = [];
     this.missionT = 0;
@@ -216,20 +225,26 @@ Object.assign(Game.prototype, {
     this.levelName = this.campSegName();
     this.isBossLevel = !!bd;
     this.enemyPointsTotal = 0;
-    const scaleHp = 1 + (L - 1) * 0.09,
+    const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
     c.cleared = false;
     c.exits = [];
     c.hint = '';
-    c.ss = { type }; // 這個區段執行中的狀態（不進紀錄點）
+    c.vote = null;
+    c.ss = { type, np }; // 這個區段執行中的狀態（不進紀錄點）
     document.getElementById('bossBar').style.display = 'none';
     this.campSpawnType(type, L, bd);
     c.ss.n0 = this.enemies.length;
     this.waveAlerted = false;
     this.planVehicles();
     if ((bd && bd.rail) || type === 'escort') this.vehPlan = [];
+    if (mp) {
+      this.net.tr.broadcast(this.campStartMsg());
+      this.netEvents = [];
+      this.snapAcc = 0;
+    }
     this.state = 'play';
     this.showScreen('');
     this.lastT = performance.now();
@@ -266,7 +281,7 @@ Object.assign(Game.prototype, {
       ss = c.ss,
       sh = this.scaleHp,
       sd = this.scaleDmg;
-    const comp = (lv) => this.rollComp(Math.max(1, lv), 1);
+    const comp = (lv) => this.rollComp(Math.max(1, lv), ss.np || 1);
     if (type === 'boss') {
       this.spawnBossDef(bd, sh, sd);
       document.getElementById('bossBar').style.display = 'block';
@@ -418,19 +433,20 @@ Object.assign(Game.prototype, {
     this.flashAlert('護送任務：保護車隊抵達公路的另一端');
   },
   // 帶進下一段的狀態：AP 比例、修復套件、各武器槽的彈藥比例（換武器時沿用被換下那把的比例）
-  campCapture() {
-    const p = this.player,
-      cy = this.camp.carry;
-    if (!p) return;
-    cy.hp = p.dead ? 0 : clamp(p.hp / p.maxHp, 0, 1);
+  campCaptureEnt(p, prev) {
+    const cy = { hp: 1, kits: null, ammo: { ...((prev && prev.ammo) || {}) } };
+    cy.hp = p.dead ? 0.01 : clamp(p.hp / p.maxHp, 0.01, 1);
     cy.kits = p.kits;
     for (const s of WSLOTS) {
       const w = p.weapons[s];
       if (w && !w.dropped && w.def.ammo > 0) cy.ammo[s] = clamp(w.ammo / w.def.ammo, 0, 1);
     }
+    return cy;
   },
-  campApplyCarry(p) {
-    const cy = this.camp.carry;
+  campCapture() {
+    if (this.player) this.camp.carry = this.campCaptureEnt(this.player, this.camp.carry);
+  },
+  campApplyCarry(p, cy = this.camp.carry) {
     p.hp = Math.max(1, Math.round(p.maxHp * clamp(cy.hp == null ? 1 : cy.hp, 0, 1)));
     if (cy.kits != null) p.kits = clamp(cy.kits, 0, p.kitsMax);
     for (const s of WSLOTS) {
@@ -484,23 +500,29 @@ Object.assign(Game.prototype, {
       this.bountyPops.push({ txt: '+' + v.toLocaleString() + ' COAM', life: 2.2, y: 0 });
       this.writeSave();
       this.flashMsg(`出口獎勵：資金 +${v.toLocaleString()}`, 0xffc040, 2);
+      if (this.campMp()) this.campMpCoam(v); // 每位玩家各自入帳
     } else if (k === 'repair' && p) {
-      p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.35));
-      for (const s of WSLOTS) {
-        const w = p.weapons[s];
-        if (w && !w.dropped && w.def.ammo > 0)
-          w.ammo = Math.min(w.def.ammo, w.ammo + Math.ceil(w.def.ammo * 0.35));
+      for (const q of this.campMp() ? this.players : [p]) {
+        if (q.dead) continue;
+        q.hp = Math.min(q.maxHp, q.hp + Math.round(q.maxHp * 0.35));
+        for (const s of WSLOTS) {
+          const w = q.weapons[s];
+          if (w && !w.dropped && w.def.ammo > 0)
+            w.ammo = Math.min(w.def.ammo, w.ammo + Math.ceil(w.def.ammo * 0.35));
+        }
+        this.fx.ring(q.center(), 5, 0x7ee081);
       }
-      this.fx.ring(p.center(), 5, 0x7ee081);
       this.flashMsg('出口獎勵：修理與補給', 0x7ee081, 2);
     } else if (k === 'xp') {
       const v = 120 + L * 30;
       this.camp.xpBonus += v;
       this.flashMsg(`出口獎勵：駕駛員經驗 +${v}`, 0x7fc8ff, 2);
     } else if (EXIT_REWARDS[k] && EXIT_REWARDS[k].faction) {
-      // 戰術模組：三選一（暫停遊戲）
-      if (this.state === 'play') this.campOpenPick(EXIT_REWARDS[k].faction);
-      else this.camp.modNext = EXIT_REWARDS[k].faction;
+      // 戰術模組：三選一（單人暫停遊戲；多人每人各自選、不暫停）
+      if (this.state === 'play') {
+        this.campOpenPick(EXIT_REWARDS[k].faction);
+        if (this.campMp()) this.campMpPick(EXIT_REWARDS[k].faction);
+      } else this.camp.modNext = EXIT_REWARDS[k].faction;
     }
   },
 
@@ -714,10 +736,17 @@ Object.assign(Game.prototype, {
     }
     if (ss.convoy) this.campConvoyTick(dt);
     if (this.state !== 'play') return;
-    if (ss.pad && !ss.pad.used && !p.dead) {
-      if (this.campStand(ss.pad, dt, PAD_R)) c.hint = '補給中…';
-      if (ss.pad.t >= 1.5) {
+    const mp = this.campMp();
+    if (ss.pad && !ss.pad.used) {
+      const who = mp
+        ? this.campStandAny(ss.pad, dt, PAD_R)
+        : !p.dead && this.campStand(ss.pad, dt, PAD_R)
+          ? p
+          : null;
+      if (who && who === p) c.hint = '補給中…';
+      if (ss.pad.t >= 1.5 && who) {
         ss.pad.used = true;
+        const p = who;
         p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.5));
         p.kits = Math.min(p.kitsMax, p.kits + 1);
         for (const s of WSLOTS) {
@@ -730,11 +759,17 @@ Object.assign(Game.prototype, {
         this.flashMsg('補給完成：AP 50%、彈藥 50%、修復套件 +1', 0x7ee081, 2.4);
         this.campDisposeGroup(ss.pad.group);
         ss.pad.group = null;
-        setTimeout(() => this.camp && this.state === 'play' && this.campOpenShop(), 900);
+        if (who === this.player)
+          setTimeout(() => this.camp && this.state === 'play' && this.campOpenShop(), 900);
+        else if (mp) this.campMpShop(who);
       }
     }
-    if (ss.intel && !ss.intel.done && !p.dead) {
-      if (this.campStand(ss.intel, dt, PAD_R, false))
+    if (ss.intel && !ss.intel.done) {
+      if (
+        mp
+          ? this.campStandAny(ss.intel, dt, PAD_R, false)
+          : !p.dead && this.campStand(ss.intel, dt, PAD_R, false)
+      )
         c.hint = `下載情報… ${Math.min(100, Math.round((ss.intel.t / 4) * 100))}%`;
       if (ss.intel.t >= 4) {
         ss.intel.done = true;
@@ -752,12 +787,14 @@ Object.assign(Game.prototype, {
       ss.brk.waveT -= dt;
       if (ss.brk.waveT <= 0) {
         ss.brk.waveT = ss.brk.t > 0 ? 14 : 7;
-        for (const t of this.rollComp(Math.max(1, this.campLevel() - 1), 1).slice(0, 3))
+        for (const t of this.rollComp(Math.max(1, this.campLevel() - 1), ss.np || 1).slice(0, 3))
           this.spawnType(t, this.scaleHp, this.scaleDmg);
         this.flashAlert(ss.brk.t > 0 ? '敵方增援抵達' : '時間超過 — 增援加劇');
       }
     }
-    if (!c.exits || !c.exits.length || p.dead) return;
+    if (!c.exits || !c.exits.length) return;
+    if (mp) return this.campVoteTick(dt); // 多人：出口投票（campaign-mp.js）
+    if (p.dead) return;
     for (const ex of c.exits) {
       ex.group.userData.ring.rotation.z += dt * 0.8;
       if (this.campStand(ex, dt, EXIT_R)) {
@@ -815,7 +852,8 @@ Object.assign(Game.prototype, {
       this.state = 'play';
       c.pending = null;
     }
-    this.campCapture();
+    if (this.campMp()) this.campCaptureAll();
+    else this.campCapture();
     c.earned += this.missionEarned || 0;
     c.pending = ex.reward;
     c.seg++;
@@ -855,15 +893,28 @@ Object.assign(Game.prototype, {
       if (this.state === 'camptrans') $('ctBtns').style.visibility = 'visible';
     }, T * 1000);
     if (first !== 'resume' && c.seg > 0) this.campComm('trans', this.campCtx());
+    $('ctWait').textContent = '';
+    if (this.campMp()) this.campMpTrans(tr, first);
   },
   campGo() {
+    if (this.campIsClient()) return this.campClientReady();
     if (!this.camp) return;
     SFX.ui();
+    if (this.campMp()) {
+      // 多人：等全員準備（campaign-mp.js 的 campWaitCheck 開始下一段）
+      document.getElementById('ctBtns').style.visibility = 'hidden';
+      if (this.state === 'garage') {
+        this.state = 'camptrans';
+        this.showScreen('campTrans');
+      }
+      return this.campMarkReady(this.net.me);
+    }
     this.campCheckpoint();
     this.campEnterSeg();
   },
   // 進車庫整備：沿用車庫畫面，按鈕換成「繼續作戰」
   campGarage() {
+    if (this.campIsClient()) return this.campClientGarage();
     if (!this.camp) return;
     SFX.ui();
     this.camp.inGarage = true;
@@ -875,7 +926,7 @@ Object.assign(Game.prototype, {
     const box = $('gCamp');
     if (!box) return;
     const mp = !!(this.net && this.net.role);
-    const inG = !!(this.camp && this.camp.inGarage);
+    const inG = !!((this.camp && this.camp.inGarage) || (this.campC && this.campC.inGarage));
     $('btnCamp').style.display = mp || inG ? 'none' : '';
     $('btnToTitle').textContent = this.fromHub ? '返回機庫' : '回標題';
     if (inG) {
@@ -885,15 +936,15 @@ Object.assign(Game.prototype, {
     $('gMap').style.display = inG ? 'none' : ''; // 主線的地圖由出擊決定
     box.style.display = inG ? '' : 'none';
     if (!inG) return;
-    const c = this.camp,
-      so = this.campSortie();
-    $('mcTitle').textContent = `主線出擊｜${so.name}`;
+    const cl = this.campIsClient();
+    const T = cl ? this.campC.trans || {} : null;
+    $('mcTitle').textContent = `主線出擊｜${cl ? T.so || '' : this.campSortie().name}`;
     $('mcDesc').textContent =
-      `轉場整備中：下一個是區段 ${c.seg + 1}／${so.segs.length}【${SEG_TYPES[this.campSegType()].name}】${this.campSegName()}。換裝時 AP 依比例換算，換上的武器沿用該武器槽的剩餘彈藥比例。`;
+      `轉場整備中：${cl ? T.next || '' : `下一個是區段 ${this.camp.seg + 1}／${this.campSortie().segs.length}【${SEG_TYPES[this.campSegType()].name}】${this.campSegName()}`}。換裝時 AP 依比例換算，換上的武器沿用該武器槽的剩餘彈藥比例。`;
     const cost = this.campCosts();
-    const cy = c.carry;
+    const cy = this.campCarry();
     $('gCampInfo').innerHTML =
-      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b><div class="gCampMods">${this.campModsHtml()}</div>`;
+      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b><div class="gCampMods">${cl ? '' : this.campModsHtml()}</div>`;
     $('btnCampRepair').textContent = cost.repair
       ? `修理 AP（${cost.repair.toLocaleString()} COAM）`
       : 'AP 已滿';
@@ -903,9 +954,14 @@ Object.assign(Game.prototype, {
     $('btnCampGo2').disabled = warn.length > 0;
   },
   // 整備的花費：修理到滿、補彈到滿（以目前裝備的實彈武器平均缺少比例計）
+  // 整備用的「自己的狀態」：房主／單人在 camp.carry，客機在 campC.carry
+  campCarry() {
+    if (this.campIsClient()) return (this.campC.carry = this.campC.carry || { hp: 1, kits: null, ammo: {} });
+    return this.camp.carry;
+  },
   campCosts() {
-    const cy = this.camp.carry,
-      L = this.campLevel();
+    const cy = this.campCarry(),
+      L = this.campIsClient() ? 3 : this.campLevel();
     const miss = 1 - (cy.hp == null ? 1 : cy.hp);
     const rows = WSLOTS.filter((s) => {
       const d = this.campWeaponDef(s);
@@ -926,8 +982,9 @@ Object.assign(Game.prototype, {
     const k = this.campCosts().repair;
     if (!k || this.save.coam < k) return;
     this.save.coam -= k;
-    this.camp.carry.hp = 1;
-    this.campCheckpoint();
+    this.campCarry().hp = 1;
+    if (!this.campIsClient()) this.campCheckpoint();
+    else this.writeSave();
     SFX.ui();
     this.renderGarage();
   },
@@ -935,12 +992,14 @@ Object.assign(Game.prototype, {
     const k = this.campCosts().ammo;
     if (!k || this.save.coam < k) return;
     this.save.coam -= k;
-    for (const s of WSLOTS) this.camp.carry.ammo[s] = 1;
-    this.campCheckpoint();
+    for (const s of WSLOTS) this.campCarry().ammo[s] = 1;
+    if (!this.campIsClient()) this.campCheckpoint();
+    else this.writeSave();
     SFX.ui();
     this.renderGarage();
   },
   campGarageGo() {
+    if (this.campIsClient()) return this.campClientReady();
     if (!this.camp) return;
     this.camp.inGarage = false;
     this.campGo();
@@ -965,6 +1024,7 @@ Object.assign(Game.prototype, {
       ck = this.campStory().sortie;
     document.getElementById('cfInfo').textContent =
       `${so.name}　紀錄點：區段 ${ck.seg + 1}／${so.segs.length} 的轉場起點（失敗 ${c.fails} 次）`;
+    document.getElementById('ctBtns2').style.display = '';
     // 失敗的通訊（依擊破你的敵人、失敗次數）直接顯示在失敗畫面
     this.commClear();
     const e = this.campComm('fail', this.campCtx({ killedBy: this.campKilledBy }), false);
@@ -976,6 +1036,14 @@ Object.assign(Game.prototype, {
           })
           .join('')
       : '';
+    if (this.campMp()) {
+      c.lastFail = {
+        t: 'cfail',
+        info: document.getElementById('cfInfo').textContent,
+        lines: e ? e.lines : [],
+      };
+      this.net.tr.broadcast(c.lastFail);
+    }
   },
   campRetry(toGarage) {
     SFX.ui();
@@ -1012,12 +1080,13 @@ Object.assign(Game.prototype, {
     this.mpStats = c.stats;
     this.missionT = c.time;
     this.isBossLevel = true; // 經驗基準以決戰計
+    const mp = this.campMp();
     const xpAll = this.pilotEndXpPve(success, aborted);
-    const e = xpAll[0];
-    if (e) {
-      e.x += c.xpBonus;
-      e.m += c.xpBonus;
+    for (const k in xpAll) {
+      xpAll[k].x += c.xpBonus;
+      xpAll[k].m += c.xpBonus;
     }
+    const e = xpAll[mp ? this.net.me : 0];
     let bonus = 0;
     if (success) {
       bonus = so.reward;
@@ -1030,7 +1099,7 @@ Object.assign(Game.prototype, {
         this.flashMsg('章節完成：戰術模組重置', 0xffd060, 3);
       }
     } else if (c.mods0) this.campSetMods(c.mods0); // 失敗／放棄：退回出擊開始時的模組
-    this.campResultHub = true; // 結果畫面的「確定」回到機庫
+    this.campResultHub = !mp; // 結果畫面的「確定」回到機庫（多人回大廳）
     st.sortie = null;
     this.writeSave();
     const segsDone = success ? so.segs.length : c.seg;
@@ -1058,15 +1127,37 @@ Object.assign(Game.prototype, {
     $('resultGrid').innerHTML = rows
       .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
       .join('');
-    $('btnResultOk').textContent = '返回機庫';
+    $('btnResultOk').textContent = mp ? '返回大廳' : '返回機庫';
     this.showScreen('result');
+    if (mp) {
+      // 多人：經驗依每位玩家、作戰完成報酬各自入帳（clientEnd）
+      clearInterval(this.campWaitIv);
+      if (aborted) this.net.tr.broadcast({ t: 'abort', pvp: false, xpBySlot: xpAll });
+      else
+        this.net.tr.broadcast({
+          t: 'end',
+          success,
+          title: $('rTitle').textContent,
+          rank,
+          bonus: success ? so.reward : 0,
+          xpBySlot: xpAll,
+          rows: rows.filter((r) => r[0] !== 'COAM 結餘'),
+        });
+      for (const x of this.net.players) x.ready = false;
+    }
     if (success && c.endPick) this.campOpenPick(c.endPick);
   },
 
   // ---------- HUD ----------
-  campHudTop(alive, wavesLeft) {
+  campHudTop() {
+    return this.campHudHtml(this.campView());
+  },
+  // HUD 上方的作戰資訊（房主與單人由 campView 產生，客機用快照帶來的同一份資料）
+  campHudHtml(v) {
+    return `<b>主線｜${escHtml(v.so)}</b> ｜ 區段 ${v.seg + 1}／${v.n}【${escHtml((SEG_TYPES[v.type] || SEG_TYPES.battle).name)}】${escHtml(v.name)}<div id="objective">${escHtml(v.goal)} ｜ ${Math.floor(v.time / 60)} 分</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()}${v.pend ? ` <span class="dim">（清除後：${escHtml(v.pend)}）</span>` : ''}</div>`;
+  },
+  campGoal(alive, wavesLeft) {
     const c = this.camp,
-      so = this.campSortie(),
       ss = c.ss || {};
     let goal;
     if (c.cleared) goal = c.hint || '前往出口（站進光環）';
@@ -1084,21 +1175,30 @@ Object.assign(Game.prototype, {
     else if (ss.intel && !ss.intel.done) goal = `前往資料終端下載情報 ｜ 殘存敵軍 ${alive}`;
     else
       goal = `${SEG_TYPES[ss.type || 'battle'].goal} ｜ 殘存敵軍 ${alive}${wavesLeft ? '（尚有增援）' : ''}`;
-    const mm = Math.floor(c.time / 60);
-    return `<b>主線｜${escHtml(so.name)}</b> ｜ 區段 ${c.seg + 1}／${so.segs.length}【${escHtml(SEG_TYPES[ss.type || 'battle'].name)}】${escHtml(this.levelName)}<div id="objective">${escHtml(goal)} ｜ ${mm} 分</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()}${c.pending ? ` <span class="dim">（清除後：${EXIT_REWARDS[c.pending].name}）</span>` : ''}</div>`;
+    return goal;
   },
   // 出口、補給台、資料終端的標記：畫面內畫在上方，畫面外貼在畫面邊緣
   campDrawHud(ctx) {
     const c = this.camp;
-    if (!c || !this.player) return;
-    const ss = c.ss || {};
-    const marks = (c.exits || []).map((ex) => ({
-      pos: ex.pos,
-      color: EXIT_REWARDS[ex.reward].color,
-      icon: EXIT_REWARDS[ex.reward].icon,
-    }));
-    if (ss.pad && ss.pad.group) marks.push({ pos: ss.pad.pos, color: '#7ee081', icon: '補' });
-    if (ss.intel && ss.intel.group) marks.push({ pos: ss.intel.pos, color: '#7fc8ff', icon: '情' });
+    if (!this.player) return;
+    const marks = [];
+    const mk = (pos, reward, color, icon) =>
+      marks.push({
+        pos,
+        color: reward ? EXIT_REWARDS[reward].color : color,
+        icon: reward ? EXIT_REWARDS[reward].icon : icon,
+      });
+    if (c) {
+      const ss = c.ss || {};
+      for (const ex of c.exits || []) mk(ex.pos, ex.reward);
+      if (ss.pad && ss.pad.group) mk(ss.pad.pos, null, '#7ee081', '補');
+      if (ss.intel && ss.intel.group) mk(ss.intel.pos, null, '#7fc8ff', '情');
+    } else if (this.campC && this.campC.vis) {
+      const V = this.campC.vis;
+      for (const ex of V.exits || []) mk(ex.pos, ex.reward);
+      if (V.pad) mk(V.pad.pos, null, '#7ee081', '補');
+      if (V.intel) mk(V.intel.pos, null, '#7fc8ff', '情');
+    }
     if (!marks.length) return;
     const W = innerWidth,
       H = innerHeight;

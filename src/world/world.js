@@ -213,6 +213,7 @@ export class World {
     this.scene = scene;
     this.forceRail = !!opt.rail; // 武裝列車的關卡：一定有鐵路（主題允許時）
     this.forceRoad = !!opt.road; // 主線的護送區段：一定有公路（主題允許時）
+    this.opt = opt;
     // 主題變體（world/variants.js）：覆寫主題欄位、改地形、加結構；沒有變體時完全照原本生成
     this.variant = variantOf(theme, opt.variant);
     this.variantKey = this.variant ? opt.variant : '';
@@ -964,6 +965,45 @@ export class World {
       g.hemi.color.copy(sky);
       g.hemi.intensity = hi;
     }
+  }
+  // 多人開局訊息：客機以同樣的參數生成（主線的變體、地標、時間…）與地形特徵
+  netOpt() {
+    const o = this.opt || {};
+    const out = {};
+    for (const k of [
+      'rail',
+      'road',
+      'variant',
+      'landmark',
+      'tod',
+      'weather',
+      'depth',
+      'zone',
+      'zoneAxis',
+      'entry',
+    ])
+      if (o[k] !== undefined && o[k] !== null && o[k] !== '') out[k] = o[k];
+    return out;
+  }
+  netFeat() {
+    return this.features.map((f) => ({
+      k: f.k,
+      kind: f.kind,
+      dir: f.dir ? [f.dir.x, f.dir.y] : 0,
+      perp: f.perp ? [f.perp.x, f.perp.y] : 0,
+      off: f.off,
+      width: f.width,
+      depth: f.depth,
+      bridges: f.bridges,
+      deckW: f.deckW,
+      center: f.center,
+      span: f.span,
+      rampL: f.rampL,
+      deckH: f.deckH,
+      count: f.count,
+      len: f.len,
+      bend: f.bend,
+    }));
   }
   // ---------- 作戰區域（主線可以是狹長、小型或分段開放的矩形；一般任務是 ±lim） ----------
   setZone(shape = 'full', axis = 0) {

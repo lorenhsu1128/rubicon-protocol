@@ -222,6 +222,7 @@ export class Net {
       setTimeout(() => this.tr.close(pid), 300);
       return;
     }
+    if (this.playerByPeer(pid) && this.g.campOnRejoin(this.playerByPeer(pid))) return; // 主線轉場中重新連上
     if (this.playerByPeer(pid)) {
       this.tr.send(pid, {
         t: 'welcome',
@@ -257,6 +258,8 @@ export class Net {
       seed: g.worldSeed,
       theme: g.worldTheme,
       variant: g.world.variantKey,
+      wopt: g.world.netOpt(),
+      camp: g.camp ? g.campView() : null,
       feat: g.world.features.map((f) => ({
         k: f.k,
         kind: f.kind,
@@ -314,6 +317,10 @@ export class Net {
     this.acceptPlayer(pl, false);
   }
   acceptPlayer(pl, rejoin) {
+    if (rejoin && this.g.campOnRejoin(pl)) {
+      this.syncLobby();
+      return;
+    }
     this.tr.send(pl.peerId, {
       t: 'welcome',
       slot: pl.slot,
@@ -451,6 +458,12 @@ export class Net {
       case 'leave':
         this.hostOnClose(pid);
         break;
+      case 'cready': // 主線：轉場準備好了（campaign-mp.js）
+        this.g.campOnReady(p, d);
+        break;
+      case 'cpicked': // 主線：戰術模組選好了
+        this.g.campOnPicked(p, d);
+        break;
     }
   }
   // ===== 加入 =====
@@ -579,6 +592,7 @@ export class Net {
     if (pid !== this.hostPeer && d.t !== 'pong' && d.t !== 'ping') return;
     this.lastHostMsg = performance.now();
     const g = this.g;
+    if (g.campClientMsg(d)) return; // 主線的轉場、紀錄點、失敗、三選一（campaign-mp.js）
     switch (d.t) {
       case 'wait':
         this.log('等待房主同意…');
@@ -655,6 +669,8 @@ export class Net {
           if (rep && rep.x) g.flashMsg(`駕駛員經驗 +${rep.x.toLocaleString()}`, 0x5cc8ff, 2.5);
         }
         g.flashMsg('房主結束了任務', 0xff4d4d, 2.5);
+        g.campC = null;
+        g.campCk = null;
         g.clearMission();
         g.state = 'lobby';
         g.showScreen('lobby');
@@ -679,7 +695,9 @@ export class Net {
     }
     this.migrating = true;
     const g = this.g;
-    if (g.state !== 'play' && g.state !== 'ending') {
+    // 主線：轉場、失敗畫面、整備中也能遷移（新房主從紀錄點接手）
+    const inCamp = g.campCk && ['camptrans', 'campfail', 'garage', 'modpick'].includes(g.state);
+    if (g.state !== 'play' && g.state !== 'ending' && !inCamp) {
       this.leave(false);
       g.flashMsg('房主已離線，房間關閉', 0xff4d4d, 2.5);
       return;
@@ -716,6 +734,7 @@ export class Net {
     this.tr.onMsg = (pid, d) => this.hostOnMsg(pid, d);
     this.tr.onClose = (pid) => this.hostOnClose(pid);
     g.promoteToHost(oldHostSlot);
+    g.campPromote(); // 主線：從紀錄點接手（campaign-mp.js）
     this.migrating = false;
     this.syncLobby();
   }

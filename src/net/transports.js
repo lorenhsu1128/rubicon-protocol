@@ -1,7 +1,7 @@
 // ============================================================
 //  MULTIPLAYER — 區域網路 2–4 人合作（方式 2：公用信令 + 自動房間名）
 // ============================================================
-export const NET_VERSION = '9.7';
+export const NET_VERSION = '9.8';
 export const PLAYER_PALS = ['player', 'ally', 'p3', 'p4'];
 export const PLAYER_COLORS = ['#5cc8ff', '#80ffb0', '#ffb060', '#d070ff'];
 export const SIGNALS = ['集火！', '救我！', '撤退！', '謝謝', '等等', '出發！'];
@@ -200,7 +200,8 @@ export class LocalTransport {
     this.alive = new Map();
     this.hb = setInterval(() => {
       for (const [pid, t] of this.alive) {
-        if (performance.now() - t > 3000) {
+        // 同一台電腦的分頁：生成地圖時可能卡住好幾秒（SwiftShader），不要太快判定斷線
+        if (performance.now() - t > 8000) {
           this.alive.delete(pid);
           if (this.conns.has(pid)) {
             this.conns.delete(pid);

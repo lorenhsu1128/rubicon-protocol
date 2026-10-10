@@ -1,6 +1,7 @@
 // Game 多人擴充：初始化、建房／搜尋／加入、大廳、訊號
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
+import { SORTIES } from '../data/campaign.js';
 import { isBossLevel } from '../data/enemies.js';
 import { START_ASM, asmStats } from '../data/parts.js';
 import { Net } from '../net/net.js';
@@ -276,9 +277,20 @@ Object.assign(Game.prototype, {
       const S = n.pvpSet || { mode: 'pve' };
       const host = n.role === 'host';
       if (host && S.map === undefined) S.map = this.mapPref();
+      // 主線合作：房主的主線進度（可以接的委託）
+      const story = S.mode === 'story';
+      const sorties = host ? Object.keys(SORTIES).filter((sid) => this.hubSortieState(sid) !== 'locked') : [];
+      if (host && story && !sorties.includes(S.sid)) S.sid = sorties[0] || 'c1s1';
+      const modeName =
+        { pve: 'PVE 合作', pvp: 'PVP 對戰', story: '主線合作（房主的進度）' }[S.mode] || 'PVE 合作';
       $('lobbyMode').innerHTML =
-        `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>` +
-        `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option></select>` : S.mode === 'pvp' ? 'PVP 對戰' : 'PVE 合作'}</span></div>` +
+        (story
+          ? `<div class="krow"><span>委託</span><span>${host ? `<select id="pvSid">${sorties.map((sid) => `<option value="${sid}">${escHtml(SORTIES[sid].name)}</option>`).join('')}</select>` : escHtml((SORTIES[S.sid] || {}).name || '')}</span></div>`
+          : `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>`) +
+        `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option><option value="story">主線合作（房主的進度）</option></select>` : modeName}</span></div>` +
+        (story
+          ? '<div class="dim" style="font-size:11px">主線合作：進度記在房主的存檔；每個人的經驗、資金、戰術模組各自取得。轉場時可以各自進車庫整備，最多等 90 秒。</div>'
+          : '') +
         (S.mode === 'pvp'
           ? `<div class="krow"><span>對戰型態</span><span>${host ? `<select id="pvType"><option value="ffa">大亂鬥（2–4 人）</option><option value="team">分隊 2v2</option><option value="vsai">玩家 vs 電腦 AC（1v1～4v4）</option></select>` : { ffa: '大亂鬥', team: '分隊 2v2', vsai: '玩家 vs 電腦 AC' }[S.type]}</span></div><div class="krow"><span>勝負規則</span><span>${host ? `<select id="pvRule"><option value="kills">擊破制（重生 5s×死亡次數，目標＝參戰機甲數×5）</option><option value="elim">淘汰制（一條命）</option></select>` : S.rule === 'kills' ? '擊破制' : '淘汰制'}</span></div>` +
             (S.type !== 'vsai'
@@ -302,7 +314,8 @@ Object.assign(Game.prototype, {
         };
         bind('pvMode', 'mode');
         bind('pvMap', 'map');
-        $('pvMap').addEventListener('change', (e) => this.setMapPref(e.target.value));
+        bind('pvSid', 'sid');
+        if ($('pvMap')) $('pvMap').addEventListener('change', (e) => this.setMapPref(e.target.value));
         bind('pvType', 'type');
         bind('pvRule', 'rule');
         bind('pvDiff', 'diff');
@@ -332,6 +345,10 @@ Object.assign(Game.prototype, {
         !ok && cnt < 2 && S.mode === 'pvp' ? '人數不足：等待玩家加入，或選「電腦 AC 補位」' : '';
     }
     $('lobbySave').textContent = `我的機體與駕駛員：存檔 ${this.saveSlot}`;
+    if ((n.pvpSet || {}).mode === 'story') {
+      $('lobbyLevel').textContent = '主線：' + ((SORTIES[n.pvpSet.sid] || {}).name || '');
+      return;
+    }
     $('lobbyLevel').textContent =
       '任務 ' +
       String(n.role === 'host' ? this.save.level : n.hostLevel || 1).padStart(2, '0') +

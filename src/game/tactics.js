@@ -44,8 +44,11 @@ Object.assign(Game.prototype, {
     const opts = modOffer(this.campMods(), faction, Math.random);
     if (this.autoPickMod) return opts.length && this.campTakeMod(opts[0]); // 冒煙測試：直接選第一個
     if (!opts.length) return this.flashMsg('沒有可以選的模組（全部已滿級）', 0x8a97a6, 2);
-    this.modPrev = this.state;
-    this.state = 'modpick';
+    if (!(this.net && this.net.role)) {
+      // 單人暫停；多人不暫停（其他玩家還在打）
+      this.modPrev = this.state;
+      this.state = 'modpick';
+    }
     this.modOpts = opts;
     const $ = (id) => document.getElementById(id);
     const F = FACTIONS[faction];
@@ -88,8 +91,11 @@ Object.assign(Game.prototype, {
     const price = Math.round((7000 + L * 1500) / 100) * 100;
     const opts = modOffer(this.campMods(), null, Math.random, 2);
     if (!opts.length || this.autoPickMod) return;
-    this.modPrev = this.state;
-    this.state = 'modpick';
+    if (!(this.net && this.net.role)) {
+      // 單人暫停；多人不暫停（其他玩家還在打）
+      this.modPrev = this.state;
+      this.state = 'modpick';
+    }
     this.modOpts = opts;
     const $ = (id) => document.getElementById(id);
     $('mpTitle').textContent = '補給站的商店';
@@ -102,6 +108,32 @@ Object.assign(Game.prototype, {
         if (this.save.coam < price) return;
         this.save.coam -= price;
         this.campTakeMod(this.modOpts[Number(b.dataset.i)]);
+      };
+  },
+  // 客機：房主送來的選項（自己選、回報房主；price＝商店價格，自己付 COAM）
+  campShowPick(opts, title, onPick, price) {
+    if (!opts.length) return;
+    if (this.autoPickMod) return onPick(opts[0]);
+    const $ = (id) => document.getElementById(id);
+    this.modOpts = opts;
+    $('mpTitle').textContent = title;
+    $('mpSub').textContent = price
+      ? `用 COAM 購買（持有 ${this.save.coam.toLocaleString()} COAM）`
+      : '選一個（從下一個區段開始生效，延續到這一章結束）';
+    $('mpCards').innerHTML = opts
+      .map((o, i) => this.modCardHtml(o, i, price ? '購買' : '選擇', price))
+      .join('');
+    $('modPick').classList.add('on');
+    for (const b of $('mpCards').querySelectorAll('button[data-i]'))
+      b.onclick = () => {
+        if (price) {
+          if (this.save.coam < price) return;
+          this.save.coam -= price;
+          this.writeSave();
+        }
+        SFX.ui();
+        onPick(this.modOpts[Number(b.dataset.i)]);
+        this.campClosePick();
       };
   },
   // 持有模組的一覽（轉場畫面、車庫整備、機庫）

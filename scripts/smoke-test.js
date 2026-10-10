@@ -5352,6 +5352,177 @@ async function testMpBosses(browser, url) {
   }
 }
 
+// 主線第 5 期：多人合作推主線（房主的進度、出口投票、轉場等待與整備、各自三選一、紀錄點同步、全滅失敗、房主遷移）
+async function testMpCampaign(browser, url) {
+  console.log('多人主線：出擊、出口投票、轉場整備、各自選模組、紀錄點同步、失敗、房主遷移');
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
+  const host = await ctx.newPage();
+  const cli = await ctx.newPage();
+  watch(host, 'mpcamp:host');
+  watch(cli, 'mpcamp:client');
+  await host.goto(url);
+  await cli.goto(url);
+  await host.click('#btnMP');
+  await setNick(host, 'HOST');
+  await host.click('#btnMPHost');
+  await waitVisible(host, 'lobby');
+  await host.check('#mpAuto');
+  await host.dispatchEvent('#mpAuto', 'change');
+  await cli.click('#btnMP');
+  await setNick(cli, 'CLIENT');
+  await wait(1000);
+  await cli.click('#btnMPList');
+  await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+  await cli.click('#mpRooms .part');
+  await waitVisible(cli, 'lobby', 15000);
+  // 房間模式：主線合作
+  await host.selectOption('#pvMode', 'story');
+  await wait(500);
+  check(
+    (await host.$('#pvSid')) !== null && /主線/.test((await cli.textContent('#lobbyMode')) || ''),
+    '大廳的「主線合作」模式（房主選委託，客機看得到）',
+  );
+  for (const p of [host, cli]) await p.evaluate(() => (window.__game.autoPickMod = true));
+  await cli.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbySortie');
+  // 房主分頁在背景會被節流：停用它自己的 requestAnimationFrame，測試期間另開一條迴圈持續推進房主的主迴圈
+  await cli.bringToFront();
+  await host.evaluate(() => (window.requestAnimationFrame = () => 0));
+  let pumping = true;
+  const pumpLoop = (async () => {
+    while (pumping) {
+      await host.evaluate(() => window.__game.loop()).catch(() => {});
+      await wait(20);
+    }
+  })();
+  const pump = async (n, f) => {
+    for (let i = 0; i < n; i++) {
+      if (f && (await f())) return true;
+      await wait(30);
+    }
+    return false;
+  };
+  const started = (await waitVisible(host, 'hudWrap', 25000)) && (await waitVisible(cli, 'hudWrap', 25000));
+  check(started, '主線合作：空降後雙方進入區段 1');
+  await pump(40);
+  const v0 = await cli.evaluate(() => ({
+    view: !!(window.__game.campC && window.__game.campC.view),
+    top: document.getElementById('hudTop').textContent,
+    ck: !!window.__game.campCk,
+  }));
+  check(v0.view && v0.top.includes('主線') && v0.ck, '客機：HUD 顯示主線資訊、收到紀錄點');
+  // 清除區段 → 客機看到出口
+  await host.evaluate(() => {
+    const g = window.__game;
+    for (const p of g.players) p.hp = p.maxHp = 1e7;
+    g.waves = [];
+    for (const e of g.enemies)
+      if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  await pump(30, () => host.evaluate(() => window.__game.camp.exits.length >= 2));
+  const cliEx = await (async () => {
+    for (let i = 0; i < 200; i++) {
+      const n = await cli.evaluate(() => {
+        const C = window.__game.campC;
+        return C && C.vis ? C.vis.exits.length : 0;
+      });
+      if (n >= 2) return n;
+      await wait(30);
+    }
+    return 0;
+  })();
+  check(cliEx >= 2, '客機看到出口的光環（' + cliEx + ' 個）');
+  // 投票：一人站進出口開始倒數
+  await host.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits[0];
+    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+  });
+  await pump(10);
+  const vote = await host.evaluate(() => !!window.__game.camp.vote && window.__game.camp.hint);
+  check(!!vote && vote.includes('投票'), '有人站進出口：開始投票倒數（' + vote + '）');
+  // 全員站同一個出口：立刻出發，雙方都進入轉場
+  await host.evaluate(() => {
+    const g = window.__game,
+      e = g.camp.exits[0];
+    for (const p of g.players) {
+      p.pos.set(e.pos.x, e.pos.y, e.pos.z);
+      p.vel.set(0, 0, 0);
+    }
+  });
+  await pump(150, () => host.evaluate(() => window.__game.state === 'camptrans'));
+  check(
+    (await waitVisible(host, 'campTrans', 8000)) && (await waitVisible(cli, 'campTrans', 8000)),
+    '全員站同一個出口：雙方進入轉場',
+  );
+  // 客機進車庫整備 → 繼續作戰；房主直接出擊 → 開始下一段
+  await cli.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await cli.click('#btnCampGarage');
+  check(
+    (await waitVisible(cli, 'garage', 8000)) &&
+      (await cli.evaluate(() => getComputedStyle(document.getElementById('gCamp')).display !== 'none')),
+    '客機：轉場時進車庫整備（整備面板）',
+  );
+  await host.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await host.click('#btnCampGo');
+  await wait(800);
+  const waiting = await host.evaluate(() => document.getElementById('ctWait').textContent);
+  check(/1／2/.test(waiting), '房主：等待隊友準備（' + waiting + '）');
+  await cli.click('#btnCampGo2');
+  const seg2 = (await waitVisible(host, 'hudWrap', 15000)) && (await waitVisible(cli, 'hudWrap', 15000));
+  const s2 = await host.evaluate(() => window.__game.camp && window.__game.camp.seg);
+  check(seg2 && s2 === 1, '全員準備後：雙方進入區段 2');
+  // 各自三選一：客機選的模組記在房主存檔
+  await host.evaluate(() => window.__game.campMpPick('castron'));
+  await wait(1500);
+  const mm = await host.evaluate(() => {
+    const st = window.__game.save.story;
+    return st.mpMods && st.mpMods.by && st.mpMods.by.CLIENT ? st.mpMods.by.CLIENT.length : 0;
+  });
+  check(mm === 1, '客機自己選的戰術模組記在房主存檔（以暱稱對應）');
+  // 全滅 → 失敗畫面（客機沒有按鈕、等房主）
+  await host.evaluate(() => {
+    const g = window.__game;
+    for (const p of g.players) {
+      p.hp = 1;
+      p.takeDamage(1e9, 0, null, p.center(), new THREE.Vector3(0, 0, 1));
+      p.dead = true;
+    }
+  });
+  await pump(20);
+  const failed = (await waitVisible(host, 'campFail', 10000)) && (await waitVisible(cli, 'campFail', 10000));
+  check(
+    failed &&
+      (await cli.evaluate(() => getComputedStyle(document.getElementById('ctBtns2')).display === 'none')),
+    '全員倒下：雙方回到失敗畫面，客機等房主決定',
+  );
+  await host.click('#btnCampRetry');
+  check(await waitVisible(cli, 'campTrans', 8000), '房主選「從紀錄點繼續」：客機也回到轉場');
+  // 房主遷移：房主離線 → 客機從紀錄點接手
+  pumping = false;
+  await pumpLoop;
+  await host.close();
+  const mig = await cli
+    .waitForFunction(() => window.__game.camp && window.__game.net.role === 'host', null, { timeout: 20000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  const st3 = await cli.evaluate(() => ({
+    st: window.__game.state,
+    seg: window.__game.camp && window.__game.camp.seg,
+  }));
+  check(mig && st3.st === 'camptrans' && st3.seg === 1, '房主離線：客機成為房主、從紀錄點（區段 2）接手');
+  await ctx.close();
+}
+
 async function testMultiplayer(browser, url, tag, migrate) {
   console.log(`多人（${tag}）：建房 → 加入 → 準備 → 出擊`);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -5463,6 +5634,7 @@ async function main() {
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
     await testMpBosses(browser, base + '?lan=local&test');
+    await testMpCampaign(browser, base + '?lan=local&test');
     if (WITH_SERVER) {
       console.log('區網伺服器：啟動 server.js');
       game = await startGameServer();

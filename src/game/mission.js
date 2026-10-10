@@ -271,6 +271,9 @@ Object.assign(Game.prototype, {
     const S = this.save;
     const L = S.level;
     const mp0 = !!(this.net && this.net.role === 'host');
+    // 多人主線：房主的進度（campaign-mp.js）
+    if (mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'story')
+      return this.campBeginMp(this.net.pvpSet.sid);
     const boss = isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
     const bd0 = boss ? bossForLevel(L) : null;
     this.clearMission();
@@ -669,6 +672,7 @@ Object.assign(Game.prototype, {
     if (this.lab) return; // 實驗室：由 labTick 重新空降
     if (this.camp) {
       this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
+      if (this.campMp()) return; // 多人：全員倒下才算失敗（game.js 的主迴圈）
       return this.campDead(); // 主線：回機庫，從紀錄點重來
     }
     this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
@@ -679,6 +683,7 @@ Object.assign(Game.prototype, {
   clearMission() {
     this.rangeRing.visible = false;
     this.campClearExits();
+    this.campClearClientVis();
     SFX.stopLoops();
     this.pvp = false;
     this.pvpOver = false;

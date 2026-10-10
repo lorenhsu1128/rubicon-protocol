@@ -34,6 +34,7 @@ import './game/campaign.js';
 import './game/comms.js';
 import './game/hub.js';
 import './game/tactics.js';
+import './game/campaign-mp.js';
 import './entities/mech-objective.js';
 
 new Game();

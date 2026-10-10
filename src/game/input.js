@@ -804,7 +804,7 @@ Object.assign(Game.prototype, {
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
       if (this.lab) return this.exitLab();
-      if (this.camp) return this.campEnd(false, true);
+      if (this.camp) return this.campEnd(false, true); // 多人時 campEnd 會通知客機
       if (this.net && this.net.role === 'client') {
         this.net.leave(true);
         this.clearMission();

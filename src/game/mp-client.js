@@ -30,7 +30,13 @@ Object.assign(Game.prototype, {
     this.worldSeed = d.seed;
     this.worldTheme = d.theme;
     this.styleRefresh();
-    this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat, { variant: d.variant });
+    this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat, d.wopt || { variant: d.variant });
+    // 主線（campaign-mp.js）：區段資訊由房主帶來
+    if (d.camp) {
+      this.campC = this.campC || {};
+      this.campC.inGarage = false;
+      this.campC.vk = null;
+    } else this.campC = null;
     const T = this.world.theme;
     this.world.applyLight(this);
     this.players = [];
@@ -45,13 +51,15 @@ Object.assign(Game.prototype, {
     this.pickups = [];
     this.vehPlan = [];
     this.bountyPops = [];
-    this.isBossLevel = !d.pvp && isBossLevel(d.level);
-    this.levelName =
-      T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
+    this.isBossLevel = d.camp ? !!d.camp.boss : !d.pvp && isBossLevel(d.level);
+    this.levelName = d.camp
+      ? d.camp.name
+      : T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
     this.bossDef = { name: d.bossName || '' };
     this.mpStats = {};
     this.net.spawnReg = {};
     for (const rec of d.spawns || []) this.clientSpawn({ e: rec });
+    if (d.camp) this.campClientView(d.camp);
     if (this.spectator) {
       this.player = this.players[0] || null;
       this.spectateIdx = 0;
@@ -65,7 +73,9 @@ Object.assign(Game.prototype, {
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
     this.flashMsg(
-      (this.isBossLevel ? '決戰任務 ' : '任務 ') + String(d.level).padStart(2, '0') + ' — ' + T.name,
+      d.camp
+        ? `區段 ${d.camp.seg + 1}／${d.camp.n} — ${d.camp.name}`
+        : (this.isBossLevel ? '決戰任務 ' : '任務 ') + String(d.level).padStart(2, '0') + ' — ' + T.name,
       0xffb020,
       2.2,
     );
@@ -221,10 +231,12 @@ Object.assign(Game.prototype, {
     this.clientAlive = m.alive;
     this.clientWaves = m.waves;
     this.clientBoss = m.boss;
+    if (m.camp && this.campC) this.campClientView(m.camp);
     for (const ev of s.ev) this.clientEvent(ev);
   },
   clientEvent(e) {
     if (this.clientMapEvent(e)) return;
+    if (this.campClientEvent(e)) return;
     if (this.supportEvent(e)) return;
     switch (e.t) {
       case 'ebeam':
@@ -564,6 +576,8 @@ Object.assign(Game.prototype, {
     };
   },
   clientEnd(d) {
+    this.campC = null;
+    this.campCk = null;
     this.state = 'result';
     const $ = (id) => document.getElementById(id);
     // 駕駛員經驗與熟練度由房主計算，各自寫入自己的存檔

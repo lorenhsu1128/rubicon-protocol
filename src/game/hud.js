@@ -254,8 +254,10 @@ Object.assign(Game.prototype, {
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML = this.camp
       ? this.campHudTop(alive, wavesLeft)
-      : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
-    if (this.camp) this.campDrawHud(c);
+      : this.campC && this.campC.view
+        ? this.campHudHtml(this.campC.view)
+        : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
+    if (this.camp || this.campC) this.campDrawHud(c);
     if (this.bountyPops.length) {
       c.textAlign = 'left';
       c.font = (innerHeight < 540 ? 'bold 11px' : 'bold 16px') + ' Chakra Petch';

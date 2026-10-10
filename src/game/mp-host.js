@@ -211,6 +211,8 @@ Object.assign(Game.prototype, {
           seed: this.worldSeed,
           theme: this.worldTheme,
           variant: this.world.variantKey,
+          wopt: this.world.netOpt(),
+          camp: this.camp ? this.campView() : null,
           feat: this.world.features.map((f) => ({
             k: f.k,
             kind: f.kind,

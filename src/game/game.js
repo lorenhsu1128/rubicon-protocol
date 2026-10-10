@@ -460,7 +460,9 @@ export class Game {
       if (!this.pvp && this.players.every((p) => p.dead || p.downed) && this.state === 'play') {
         this.state = 'ending';
         this.flashMsg('全員倒下 — 任務失敗', 0xff4d4d, 2.5);
-        setTimeout(() => this.endMission(false, false), 2500);
+        if (this.camp)
+          this.campDead(true); // 主線：回到紀錄點
+        else setTimeout(() => this.endMission(false, false), 2500);
       }
     }
     this.updateMapExtras(dt);
