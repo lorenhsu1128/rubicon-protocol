@@ -25,6 +25,10 @@ const M = {
   }),
   dish: new THREE.MeshStandardMaterial({ color: 0x6c7176, side: THREE.DoubleSide, flatShading: true }),
   window: new THREE.MeshStandardMaterial({ color: 0x9fd4ff, emissive: 0x4080b0, emissiveIntensity: 0.5 }),
+  blue: mat(0x2b4fb0, { roughness: 0.7 }),
+  red: mat(0xb83a2a, { roughness: 0.7 }),
+  green: mat(0x3a7a4a, { roughness: 0.7 }),
+  white: mat(0xd8d8d0, { roughness: 0.6 }),
 };
 
 const group = (...ch) => {
@@ -267,6 +271,95 @@ function headframe() {
   return g;
 }
 
+// ---------- 貨運集散場 ----------
+// 一個貨櫃（長軸沿 X）
+const ctr = (m, x, y, z, ry = 0, rz = 0) => rot(box(7, 2.6, 2.6, m, x, y, z), 0, ry, rz);
+// 巨型門式起重機：四支腳跨過貨櫃列，頂部大梁與台車，吊著一個貨櫃
+function gantryCrane() {
+  const g = new THREE.Group();
+  for (const x of [-12, 12]) for (const z of [-5, 5]) g.add(box(1.3, 24, 1.3, M.yellow, x, 12, z));
+  for (const z of [-5, 5]) g.add(box(28, 2.2, 1.6, M.yellow, 0, 24.6, z));
+  for (const x of [-12, 12]) g.add(box(1.2, 1.2, 11, M.yellow, x, 2, 0));
+  g.add(box(5, 3, 12, M.hullD, 4, 26.8, 0));
+  g.add(box(0.1, 10, 0.1, M.dark, 4, 20, 0));
+  g.add(ctr(M.red, 4, 13.8, 0));
+  g.add(ctr(M.blue, -4, 1.3, 0));
+  g.add(ctr(M.green, -4, 3.9, 0));
+  return g;
+}
+// 調度管制塔：高塔＋玻璃管制室＋天線
+function controlTower() {
+  const g = new THREE.Group();
+  g.add(cyl(2.2, 2.8, 26, M.concrete, 0, 13, 0, 12));
+  g.add(box(9, 4, 9, M.window, 0, 28, 0));
+  g.add(box(10, 1, 10, M.hullD, 0, 25.6, 0));
+  g.add(box(10, 0.8, 10, M.hullD, 0, 30.4, 0));
+  g.add(box(0.4, 7, 0.4, M.steel, 2, 34, 1));
+  g.add(cyl(1.6, 1.6, 0.3, M.steel, -2, 31.2, -2, 10));
+  g.add(box(6, 4, 6, M.concrete, 0, 2, 0));
+  return g;
+}
+// 倒塌的貨櫃塔：疊到很高的貨櫃倒成一堆
+function fallenStack() {
+  const g = new THREE.Group();
+  const C = [M.red, M.blue, M.yellow, M.green, M.white];
+  for (let i = 0; i < 3; i++) g.add(ctr(C[i], -4 + i * 0.4, 1.3 + i * 2.6, -2));
+  for (let i = 0; i < 3; i++) g.add(ctr(C[(i + 1) % 5], 3.5, 1.3 + i * 2.6, 2.4, 0.2));
+  g.add(ctr(C[3], 8, 2.2, -3, 0.6, 0.35));
+  g.add(ctr(C[4], -9, 1.6, 3, -0.9, -0.2));
+  g.add(ctr(C[0], 1, 8.6, 0.4, 1.2, 0.4));
+  g.add(ctr(C[2], 6, 0.9, 6, 1.5, 1.3));
+  g.add(ctr(C[1], -6, 1.2, -6, 0.3, 1.5));
+  return g;
+}
+// 翻覆的油罐列車：三節油罐車倒在地上，一節起火
+function tankerTrain() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const t = new THREE.Group();
+    const x = -13 + i * 13;
+    const c = cyl(1.7, 1.7, 11, i === 1 ? M.rustD : M.white, 0, 0, 0, 14);
+    c.rotation.z = Math.PI / 2;
+    t.add(c);
+    for (const s of [-1, 1]) t.add(box(2.4, 1, 2.4, M.dark, s * 3.6, 1.8, 0));
+    t.position.set(x, 1.7, (i % 2) * 1.6);
+    t.rotation.set(1.2 * (i === 2 ? -1 : 1), 0.12 * (i - 1), 0);
+    g.add(t);
+  }
+  g.add(cyl(0.6, 2.2, 6, M.glow, 0, 4, 0.8, 8));
+  return g;
+}
+// 穀倉群：四座圓筒穀倉＋高處的輸送橋
+function silos() {
+  const g = new THREE.Group();
+  for (const [x, z] of [
+    [-4, -4],
+    [4, -4],
+    [-4, 4],
+    [4, 4],
+  ]) {
+    g.add(cyl(3, 3, 20, M.white, x, 10, z, 14));
+    g.add(cyl(0.5, 3, 2, M.steel, x, 21, z, 14));
+  }
+  g.add(box(3, 24, 3, M.hullD, 0, 12, 13));
+  g.add(rot(box(2, 1.6, 12, M.steel, 0, 22, 7), -0.15, 0, 0));
+  return g;
+}
+// 墜落的貨運飛船：半洩氣的長圓艇身、吊艙與尾翼
+function cargoAirship() {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), M.white);
+  hull.scale.set(16, 5, 5.5);
+  hull.position.set(0, 4, 0);
+  hull.rotation.set(0, 0, 0.08);
+  g.add(hull);
+  g.add(rot(box(10, 3, 4, M.hullD, -2, 1.2, 0), 0, 0, 0.05));
+  for (const s of [-1, 1]) g.add(rot(box(4, 0.4, 5, M.red, 14, 5, s * 3.5), s * 0.5, 0, 0));
+  g.add(box(4, 5, 0.4, M.red, 14.5, 8, 0));
+  for (let i = 0; i < 4; i++) g.add(rot(ctr(M.blue, -12 + i * 7, 1.1, 7 - (i % 2) * 2), 0, i * 0.7, 0));
+  return g;
+}
+
 // ---------- 沙丘 ----------
 // 半埋巨艦的艦橋：傾斜的高塔與窗
 function shipBridge() {
@@ -365,6 +458,71 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  industrial: {
+    gantry: {
+      name: '巨型門式起重機',
+      build: gantryCrane,
+      bx: [-13, 13, -6, 6],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [-12, -5], r: 1, h: 24 },
+        { c: [-12, 5], r: 1, h: 24 },
+        { c: [12, -5], r: 1, h: 24 },
+        { c: [12, 5], r: 1, h: 24 },
+        { box: [-7.5, -0.5, -1.3, 1.3], y: 0, top: 5.2 },
+      ],
+    },
+    tower: {
+      name: '調度管制塔',
+      build: controlTower,
+      bx: [-5, 5, -5, 5],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-3, 3, -3, 3], y: -1, top: 31 }],
+    },
+    stack: {
+      name: '倒塌的貨櫃塔',
+      build: fallenStack,
+      bx: [-12, 12, -9, 9],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { box: [-7.5, 7.5, -3.5, 3.8], y: -1, top: 8 },
+        { box: [-12, -6, 1, 5], y: -1, top: 3 },
+      ],
+    },
+    tanker: {
+      name: '翻覆的油罐列車',
+      build: tankerTrain,
+      bx: [-20, 20, -4, 5],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-19, 19, -2.5, 4], y: -1, top: 4 }],
+    },
+    silos: {
+      name: '穀倉群',
+      build: silos,
+      bx: [-8, 8, -8, 15],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [-4, -4], r: 3, h: 22 },
+        { c: [4, -4], r: 3, h: 22 },
+        { c: [-4, 4], r: 3, h: 22 },
+        { c: [4, 4], r: 3, h: 22 },
+        { box: [-1.5, 1.5, 11.5, 14.5], y: -1, top: 24 },
+      ],
+    },
+    airship: {
+      name: '墜落的貨運飛船',
+      build: cargoAirship,
+      bx: [-17, 17, -6, 9],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [-15, 15, -5, 5], y: -1, top: 8 }],
+    },
+  },
   dunes: {
     bridge: {
       name: '半埋巨艦的艦橋',

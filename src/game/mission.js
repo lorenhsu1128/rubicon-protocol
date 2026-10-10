@@ -537,9 +537,19 @@ Object.assign(Game.prototype, {
     const out = comp.slice();
     const idx = out.map((t, i) => i).filter((i) => !(out[i] === 'ac' || (ENEMY_TYPES[out[i]] || {}).roster));
     const n = Math.min(idx.length, Math.round(out.length * 0.35) + 1);
+    const cnt = {};
+    const ok = (k) => !FOES[k].max || (cnt[k] || 0) < FOES[k].max; // 一波最多幾台（起重機砲台…）
     for (let k = 0; k < n; k++) {
       const j = idx.splice(Math.floor(Math.random() * idx.length), 1)[0];
-      if (j !== undefined) out[j] = pick(foes);
+      if (j === undefined) continue;
+      let f = pick(foes);
+      if (!ok(f)) {
+        const alt = foes.filter(ok);
+        if (!alt.length) continue;
+        f = pick(alt);
+      }
+      cnt[f] = (cnt[f] || 0) + 1;
+      out[j] = f;
     }
     return out;
   },

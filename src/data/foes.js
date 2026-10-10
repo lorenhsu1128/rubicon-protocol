@@ -1,6 +1,6 @@
-// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；目前做到第 1 章：荒野、礦坑）
+// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場…）
 // 專屬敵人的欄位同 ENEMY_TYPES（spawnType 會先查 ENEMY_TYPES 再查這裡），另外：theme＝所屬主題、depth＝礦坑深層才出現、
-// foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊）。主線的區段編成依主題混入；
+// foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊…）、max＝一波最多幾台。主線的區段編成依主題混入；
 // 自由出擊的該主題地圖在主線遇過之後才會出現（save.story.foesSeen）。
 // 專屬 AC 是劇情角色：speaker＝通訊的說話者（data/story.js）、randomAsm＝每次出現的組裝不同。
 
@@ -69,6 +69,49 @@ export const FOES = {
     turnRate: 2,
     intro: '廢鐵合成體：外殼擋下大部分傷害，還會吸附附近的可破壞物件補外殼——先把周圍的物件打掉',
     gen: () => ({ ...HEAVY, rarm: 'w_mg', rback: 'bw_gr' }),
+  },
+  // ---- 貨運集散場 ----
+  crane: {
+    theme: 'industrial',
+    foe: 'crane',
+    cost: 3,
+    max: 2,
+    name: '起重機砲台',
+    pal: 'yard',
+    scale: 1,
+    hpMul: 1.3,
+    dmgMul: 0.8,
+    stabMul: 3,
+    ai: 'crane',
+    modelKind: 'boss',
+    vehKey: 'crane',
+    radius: 2.2,
+    wantDist: 0,
+    speedMul: 0.2,
+    turnRate: 1.2,
+    intro: '起重機砲台：吊起貨櫃往預警圈砸下來——看到紅圈就離開，貼近打它的塔身',
+    gen: () => ({ ...HEAVY }),
+  },
+  forklift: {
+    theme: 'industrial',
+    foe: 'forklift',
+    cost: 2,
+    name: '叉架 MT',
+    pal: 'yard',
+    scale: 1,
+    hpMul: 0.6,
+    dmgMul: 0.6,
+    stabMul: 1.2,
+    ai: 'forklift',
+    modelKind: 'boss',
+    vehKey: 'forklift',
+    radius: 1.8,
+    wantDist: 10,
+    group: 2,
+    speedMul: 0.9,
+    turnRate: 2.5,
+    intro: '叉架 MT：舉著貨櫃當盾牌，正面打不太動——繞到側面、用近戰打掉貨櫃，或等它把貨櫃丟出來',
+    gen: () => ({ ...HEAVY, rarm: 'w_mg' }),
   },
   // ---- 沙丘地帶 ----
   burrow: {
@@ -193,6 +236,32 @@ export const ACES = {
     randomAsm: true,
     intro: '拾荒傭兵 RUST — 每次遇到的組裝都不一樣',
   },
+  stevedore: {
+    theme: 'industrial',
+    name: 'STEVEDORE',
+    speaker: 'stevedore',
+    pal: 'stevedore',
+    ai: 'bastion',
+    wantDist: 34,
+    hpMul: 2.3,
+    dmgMul: 0.85,
+    stabMul: 1.8,
+    speedMul: 0.9,
+    asm: {
+      head: 'h_hv',
+      core: 'c_hv',
+      arms: 'a_hv',
+      legs: 'l_hv',
+      booster: 'b_std',
+      generator: 'g_hi',
+      fcs: 'f_far',
+      rarm: 'w_bz',
+      larm: 'w_mg',
+      rback: 'bw_gr',
+      lback: 'bw_gr',
+    },
+    intro: '集散場的砲擊手 STEVEDORE — 雙肩榴彈，躲在貨櫃堆後面砲擊',
+  },
   sirocco: {
     theme: 'dunes',
     name: 'SIROCCO',
@@ -247,7 +316,12 @@ export const ACES = {
     intro: '礦坑的重裝傭兵 PROSPECTOR — 打樁加霰彈，在窄坑道裡最危險',
   },
 };
-export const THEME_ACE = { wasteland: 'rust', dunes: 'sirocco', desert: 'prospector' };
+export const THEME_ACE = {
+  wasteland: 'rust',
+  dunes: 'sirocco',
+  desert: 'prospector',
+  industrial: 'stevedore',
+};
 // 主題的專屬敵人（depth：垂直主題的深度）
 export function themeFoes(theme, depth = 0) {
   return Object.keys(FOES).filter((k) => FOES[k].theme === theme && (FOES[k].depth || 0) <= depth);

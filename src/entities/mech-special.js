@@ -10,6 +10,7 @@ import { MechEntity } from './mech-entity.js';
 const DOME_R = 9; // 護盾半徑（以產生器腳底為中心的球）
 const CMD_R = 30; // 指揮官強化範圍（擊破時混亂的範圍是 40 m）
 const HEAL_R = 18; // 修理光束的最遠距離
+const FOE_FX = new Set(['burrow', 'junk', 'crane', 'forklift']); // 主題專屬敵人的顯示（mech-foe.js 的 foeFx）
 const SHIELD_DOT = 0.35; // 盾牌涵蓋的正面角度（cos，約 ±70°）
 
 // 連線光束的顏色（linkKind）：0 修理、1 電磁牽引、2 護盾發生器 → 指揮艦
@@ -137,7 +138,7 @@ Object.assign(MechEntity.prototype, {
   // 受傷前的修正：回傳 [傷害, 衝擊]，或 null 表示完全擋下
   specialDefense(dmg, impact, from, at, melee, wid) {
     const g = this.game;
-    [dmg, impact] = this.foeDefense(dmg, impact); // 廢鐵合成體的外殼（mech-foe.js）
+    [dmg, impact] = this.foeDefense(dmg, impact, from, at, melee); // 主題專屬敵人的外殼、貨櫃盾（mech-foe.js）
     const bd = this.bossDefense(dmg, impact, from, at, wid, melee);
     if (!bd) return null;
     [dmg, impact] = bd;
@@ -219,8 +220,7 @@ Object.assign(MechEntity.prototype, {
   // 顯示：護盾、修理光束、強化／混亂標記（房主與客機每格呼叫）
   specialFx(dt) {
     const g = this.game;
-    if (this.ai === 'burrow' || this.ai === 'junk' || (this.opts && this.opts.vehKey === 'jammer'))
-      this.foeFx(); // 主題專屬敵人的顯示（mech-foe.js）
+    if (FOE_FX.has(this.ai) || (this.opts && this.opts.vehKey === 'jammer')) this.foeFx(); // 主題專屬敵人的顯示（mech-foe.js）
     const host = !this.remote;
     const sx = this.sx || (this.sx = {});
     if (this.guardBreakT > 0) this.guardBreakT -= dt;
@@ -383,6 +383,8 @@ Object.assign(MechEntity.prototype, {
       case 'drill':
       case 'junk':
       case 'burrow':
+      case 'crane':
+      case 'forklift':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);
@@ -442,6 +444,8 @@ Object.assign(MechEntity.prototype, {
       case 'dome':
       case 'dropship':
         return true;
+      case 'crane':
+        return this.foeFire(dt, d, aimPos, pl); // 起重機砲台（mech-foe.js）
     }
     return this.bossFire(dt, d, aimPos, pl);
   },

@@ -21,6 +21,7 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  stevedore: { name: 'STEVEDORE', color: '#e0b020', mark: 'D', note: '集散場的砲擊手（第 2 章的宿敵）' },
   prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
 };
 
@@ -277,6 +278,51 @@ export const COMMS = [
     theme: 'dunes',
     once: true,
     lines: [['echo', '沙丘地帶。沙下有東西在動——腳下出現沙塵就馬上移開。']],
+  },
+  // ---- 第 2 章的宿敵與專屬敵人 ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'stevedore',
+    once: true,
+    lines: [
+      ['stevedore', '貨到了。簽收吧——用你的裝甲。'],
+      ['echo', '具名 AC「STEVEDORE」。雙肩榴彈，會躲在貨櫃堆後面砲擊。'],
+      ['echo', '從側面繞過去，別在空曠的地方停下來。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'stevedore',
+    lines: [
+      ['stevedore', '又一筆退貨。這次換更重的砲彈。'],
+      ['echo', 'STEVEDORE 的榴彈落地前有預警，橫向移動。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'STEVEDORE',
+    lines: [
+      ['stevedore', '簽收完成。'],
+      ['echo', 'STEVEDORE 怕近身。貼著貨櫃堆接近，再一口氣衝過去。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'industrial',
+    once: true,
+    lines: [['echo', '貨運集散場。起重機還在運轉——看到地上的紅圈就是貨櫃要砸下來了。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '起重機',
+    lines: [['echo', '起重機砲台不會移動。貼近打塔身，它的貨櫃砸不到腳下。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '叉架',
+    lines: [['echo', '叉架 MT 的正面有貨櫃擋著。繞到側面，或用近戰把貨櫃打掉。']],
   },
   // ---- 失敗 ----
   { event: 'fail', fails: 3, lines: [['echo', '已經第三次了。換個裝備試試看？重量和射程都會影響打法。']] },

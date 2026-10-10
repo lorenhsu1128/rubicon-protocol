@@ -1,4 +1,4 @@
-// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、礦坑）
+// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場…）
 // 介面同 boss-models.js（vehicle: true；animateMech 只處理閃光與噴嘴）；原點在地面（飛行的在機體中心下方），正面 −Z。
 // 會動的節點放在 extra（entities/mech-foe.js 使用）。
 import { CB, P, bakeAll, gBox, gCyl, gSph } from './geometry.js';
@@ -226,7 +226,82 @@ function buildJammer(pal, scale) {
   return rig(root, torso, M, { hand, type: 'jammer', height: 1.6 * scale, extra: { dish } });
 }
 
+// 起重機砲台：格子塔＋旋轉的吊臂，吊臂前端吊著貨櫃（crate：吊著時顯示；高約 13 m，不移動）
+function buildCrane(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 3.4, 1.0, 3.4, M.joint, 0, 0.5, 0, 0, 0, 0, 0.08);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) P(torso, gBox(0.24, 9.2, 0.24), M.main, sx * 0.7, 5.4, sz * 0.7);
+  for (let y = 1.8; y < 10; y += 1.6)
+    for (const s of [-1, 1]) {
+      P(torso, gBox(1.6, 0.14, 0.14), M.main, 0, y, s * 0.7);
+      P(torso, gBox(0.14, 0.14, 1.6), M.main, s * 0.7, y, 0);
+    }
+  CB(torso, 2.0, 1.4, 2.4, M.main2, 0, 10.6, 0.4, 0, 0, 0, 0.08);
+  P(torso, gBox(1.3, 0.55, 0.05), glow(0xffd060, 1.2), 0, 10.8, -0.82);
+  P(torso, gBox(0.8, 0.8, 9.4), M.main, 0, 11.7, -4.8);
+  P(torso, gBox(0.7, 0.6, 4), M.main, 0, 11.7, 2.6);
+  CB(torso, 1.6, 1.4, 1.4, M.sub, 0, 11.2, 4.2, 0, 0, 0, 0.06);
+  P(torso, gBox(0.3, 2.4, 0.3), M.main, 0, 13.2, 0);
+  P(torso, gBox(0.6, 0.5, 0.9), M.joint, 0, 11.1, -8.9);
+  const crate = new THREE.Group();
+  crate.position.set(0, 0, -8.9);
+  torso.add(crate);
+  P(crate, gBox(0.06, 3.4, 0.06), M.joint, 0, 9.2, 0);
+  CB(crate, 4.6, 2.3, 2.4, M.acc, 0, 6.4, 0, 0, 0, 0, 0.04);
+  for (const s of [-1, 1]) P(crate, gBox(0.2, 2.4, 2.5), M.joint, s * 2.2, 6.4, 0);
+  const hand = new THREE.Group();
+  hand.position.set(0, 6.4, -8.9);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'crane', height: 13 * scale, extra: { crate } });
+}
+// 叉架 MT：堆高機的車身與護頂架，前方的貨叉舉著貨櫃當盾牌（crate：舉著時顯示；高約 3.4 m）
+function buildForklift(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 2.0, 1.2, 3.0, M.main, 0, 1.1, 0.3, 0, 0, 0, 0.08);
+  CB(torso, 1.9, 0.8, 1.0, M.sub, 0, 1.9, 1.4, 0, 0, 0, 0.06);
+  for (const [x, z] of [
+    [-0.85, -0.2],
+    [0.85, -0.2],
+    [-0.85, 0.9],
+    [0.85, 0.9],
+  ])
+    P(torso, gBox(0.1, 1.6, 0.1), M.joint, x, 2.5, z);
+  CB(torso, 1.9, 0.12, 1.4, M.main2, 0, 3.3, 0.35, 0, 0, 0, 0.02);
+  P(torso, gBox(0.8, 0.25, 0.05), glow(0xffb040, 1.4), 0, 2.2, -0.24);
+  for (const [x, z] of [
+    [-1.05, -0.7],
+    [1.05, -0.7],
+    [-1.05, 1.2],
+    [1.05, 1.2],
+  ])
+    P(torso, gCyl(0.45, 0.45, 0.35, 10), M.gun, x, 0.45, z, 0, 0, Math.PI / 2);
+  for (const s of [-1, 1]) {
+    P(torso, gBox(0.15, 3.4, 0.15), M.joint, s * 0.6, 1.9, -1.3);
+    P(torso, gBox(0.2, 0.1, 1.6), M.gun, s * 0.5, 0.55, -2.1);
+  }
+  const crate = new THREE.Group();
+  crate.position.set(0, 0, -2.3);
+  torso.add(crate);
+  CB(crate, 3.0, 2.4, 1.5, M.acc, 0, 1.85, 0, 0, 0, 0, 0.04);
+  for (const s of [-1, 1]) P(crate, gBox(0.2, 2.5, 1.56), M.joint, s * 1.4, 1.85, 0);
+  const hand = new THREE.Group();
+  hand.position.set(0, 2.4, -1.4);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'forklift', height: 3.4 * scale, extra: { crate } });
+}
+
 export const FOE_BUILDERS = {
+  crane: buildCrane,
+  forklift: buildForklift,
   burrower: buildBurrower,
   jammer: buildJammer,
   cart: buildCart,
@@ -236,6 +311,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['crane', '起重機砲台', '集散場專屬；不移動，吊起貨櫃往預警圈砸下'],
+  ['forklift', '叉架 MT', '集散場專屬；舉著貨櫃當盾牌，靠近時丟出'],
   ['burrower', '沙中伏擊者', '沙丘專屬；在沙下移動，從腳下鑽出攻擊'],
   ['jammer', '沙暴干擾機', '沙丘專屬；附近的鎖定距離縮短'],
   ['cart', '炸藥礦車', '礦坑專屬；衝向目標自爆（敵我不分）'],

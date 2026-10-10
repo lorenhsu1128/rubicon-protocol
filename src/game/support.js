@@ -160,6 +160,35 @@ Object.assign(Game.prototype, {
     this.fx.warnCircle(land, o.R, T);
     this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
   },
+  // 丟貨櫃（起重機砲台、叉架 MT）：從 src 的手部拋到 tp，o：{ dmg, im, R, T 飛行時間, G 重力, color }
+  crateShot(src, tp, o) {
+    const w = this.world;
+    const mz = src.muzzle('rarm');
+    const land = tp.clone();
+    land.y = w.groundAt(land.x, land.z, tp.y + 1.5);
+    const T = o.T,
+      G = o.G || 22;
+    const v = land.clone().sub(mz).divideScalar(T);
+    v.y = (land.y + 1 - mz.y + 0.5 * G * T * T) / T;
+    this.projectiles.push(
+      new Projectile(this, {
+        pos: mz.clone(),
+        vel: v,
+        kind: 'crate',
+        dmg: o.dmg,
+        impactV: o.im,
+        team: src.team,
+        owner: src,
+        color: o.color || 0x2b4fb0,
+        life: T + 1.5,
+        splash: o.R,
+        gravity: G,
+      }),
+    );
+    SFX.shot('grenade', undefined, mz);
+    this.fx.warnCircle(land, o.R, T);
+    this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
+  },
   // ----- 地雷 -----
   minesOf(src) {
     return (this.mines || []).filter((m) => m.owner === src).length;

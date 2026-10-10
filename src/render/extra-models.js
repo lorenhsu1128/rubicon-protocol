@@ -181,6 +181,21 @@ export function buildProjectileMesh(kind, color, speed) {
     fl.position.y = -0.5;
     mesh.add(body);
     mesh.add(fl);
+  } else if (kind === 'crate') {
+    // 起重機砲台／叉架 MT 丟出的貨櫃（長軸沿 X，飛行中不轉向）
+    const cm = new THREE.MeshStandardMaterial({
+      color: col,
+      roughness: 0.7,
+      metalness: 0.3,
+      flatShading: true,
+    });
+    const fm = new THREE.MeshStandardMaterial({ color: 0x26282c, roughness: 0.6, metalness: 0.5 });
+    mesh.add(new THREE.Mesh(new THREE.BoxGeometry(4.4, 2.2, 2.3), cm));
+    for (const s of [-1, 1]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.3, 2.4), fm);
+      f.position.x = s * 2.1;
+      mesh.add(f);
+    }
   } else {
     const geo = kind === 'shell' || kind === 'grenade' ? ShellGeo : ProjGeo;
     const b = new THREE.Mesh(geo, glow(col, 0.95));

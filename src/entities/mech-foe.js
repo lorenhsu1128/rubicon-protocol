@@ -1,9 +1,10 @@
 // ---------- MechEntity 擴充：主題專屬敵人（data/foes.js） ----------
 // drill 鑽頭採礦機（衝向目標、貼身鑽擊）、junk 廢鐵合成體（外殼吸收傷害、吸附可破壞物件補外殼）；
 // 拾荒 MT（opts.foe 'scav'）撿同伴零件強化的處理在 game/mission.js 的 onEnemyKilled（foeScavenge）。
+// crane 起重機砲台（不移動，丟貨櫃到預警圈）、forklift 叉架 MT（舉貨櫃當盾、靠近丟出）：吊著／舉著貨櫃＝bossVis 1。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
-import { clamp } from '../core/math.js';
+import { clamp, rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
 
 const SHELL_K = 0.8; // 外殼吸收的比例
@@ -33,6 +34,12 @@ Object.assign(MechEntity.prototype, {
       return r;
     }
     if (this.ai === 'burrow') return this.foeBurrow(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'crane') {
+      this.noPush = true;
+      wish.set(0, 0, 0);
+      return r;
+    }
+    if (this.ai === 'forklift') return this.foeForklift(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -106,6 +113,65 @@ Object.assign(MechEntity.prototype, {
     }
     return r;
   },
+  // 起重機砲台的開火（aiSpecialFire 轉過來）：每 5～6.5 秒把吊著的貨櫃拋到目標的預判位置，之後重新吊起
+  foeFire(dt, d, aimPos, pl) {
+    const s = this.aiState;
+    if (s.crT === undefined) {
+      s.crT = rnd(1.5, 3);
+      s.loaded = true;
+    }
+    s.crT -= dt;
+    if (s.crT <= 0 && s.loaded && d < 70 && this.canAct()) {
+      const lead = pl.vel.clone().setY(0).multiplyScalar(0.7);
+      if (lead.length() > 7) lead.setLength(7);
+      this.game.crateShot(this, pl.pos.clone().add(lead), {
+        dmg: 700 * this.dmgMul,
+        im: 1300 * this.dmgMul,
+        R: 4.5,
+        T: clamp(1.4 + d / 45, 1.6, 2.6),
+      });
+      s.crT = rnd(5, 6.5);
+      s.loaded = false;
+    }
+    if (!s.loaded && s.crT < 2.5) s.loaded = true;
+    this.bossVis = s.loaded ? 1 : 0;
+    return true;
+  },
+  // 叉架 MT：舉著貨櫃時往前推進，到 20 m 內丟出；7 秒後再舉起一個（沒有貨櫃時保持距離）
+  foeForklift(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState;
+    if (s.hold === undefined) {
+      s.hold = true;
+      s.thT = rnd(1.5, 3);
+    }
+    if (!s.hold && (s.reT -= dt) <= 0) {
+      s.hold = true;
+      this.game.fx.dust(this.pos.clone(), 2, 6);
+    }
+    if (s.hold) {
+      if (d > 9) wish.copy(dir).multiplyScalar(0.9);
+      else wish.copy(perp).multiplyScalar(0.4);
+    } else if (d < 22) wish.copy(dir).multiplyScalar(-0.7).addScaledVector(perp, 0.5);
+    else wish.copy(perp).multiplyScalar(0.6);
+    s.thT -= dt;
+    if (s.hold && s.thT <= 0 && d < 20 && d > 5 && this.canAct()) {
+      const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
+      if (lead.length() > 4) lead.setLength(4);
+      this.game.crateShot(this, pl.pos.clone().add(lead), {
+        dmg: 520 * this.dmgMul,
+        im: 1000 * this.dmgMul,
+        R: 3.5,
+        T: 0.9,
+        G: 26,
+      });
+      s.hold = false;
+      s.reT = 7;
+      s.thT = 3;
+    }
+    this.bossVis = s.hold ? 1 : 0;
+    this.stuckJump(dt, r);
+    return r;
+  },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
   foeFx() {
     if (this.ai === 'burrow') {
@@ -115,6 +181,7 @@ Object.assign(MechEntity.prototype, {
     }
     if (this.ai === 'junk') this.foeShellFx();
     if (this.model.dish) this.model.dish.rotation.y += 0.08; // 沙暴干擾機的天線
+    if (this.model.crate) this.model.crate.visible = !!(this.bossVis & 1) && !this.dead; // 吊著／舉著的貨櫃
   },
   foeShellInit() {
     if (this.shell !== undefined) return;
@@ -137,8 +204,9 @@ Object.assign(MechEntity.prototype, {
     sh.scale.setScalar(0.5 + 0.5 * k);
   },
   // specialDefense 先呼叫：外殼還在時吸收大部分傷害
-  foeDefense(dmg, impact) {
+  foeDefense(dmg, impact, from, at, melee) {
     if (this.ai === 'burrow' && this.bossVis & 1) return [0, 0]; // 在沙下
+    if (this.ai === 'forklift') return this.foeCrateGuard(dmg, impact, from, at, melee);
     if (this.ai !== 'junk') return [dmg, impact];
     this.foeShellInit();
     if (!(this.shell > 0)) return [dmg, impact];
@@ -150,5 +218,26 @@ Object.assign(MechEntity.prototype, {
       this.game.fx.explosion(this.center(), 3, 0xc07040);
     }
     return [dmg * (1 - SHELL_K), impact * 0.5];
+  },
+  // 叉架 MT 舉著的貨櫃：正面（約 ±65°）的傷害 15%；近戰打掉貨櫃（全額、衝擊 ×1.5，6 秒後才再舉起）
+  foeCrateGuard(dmg, impact, from, at, melee) {
+    const s = this.aiState;
+    if (!s.hold || this.staggerT > 0) return [dmg, impact];
+    const src = from && from.pos && from !== this ? from.pos : at;
+    if (!src) return [dmg, impact];
+    const to = src.clone().sub(this.pos).setY(0);
+    const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    if (to.lengthSq() < 0.01 || to.normalize().dot(fwd) < 0.42) return [dmg, impact];
+    const p = at || this.center();
+    if (melee) {
+      s.hold = false;
+      s.reT = 6;
+      this.bossVis = 0;
+      this.game.fx.flash(p, 1.6, 0xffb020, 0.18);
+      this.game.popDamage(p, 'GUARD BREAK', false, true, false, 0);
+      return [dmg, impact * 1.5];
+    }
+    this.game.fx.spark(p, 0xffd080);
+    return [dmg * 0.15, impact * 0.4];
   },
 });

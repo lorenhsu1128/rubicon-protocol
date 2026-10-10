@@ -4977,6 +4977,159 @@ async function testChapter1(browser, base) {
   await ctx.close();
 }
 
+// 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE、變體與地標）…
+async function testChapter2(browser, base) {
+  console.log('第 2 章：集散場的專屬敵人與 AC、變體與地標');
+  const { ctx, page } = await newPage(browser, 'ch2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  // 集散場的專屬敵人：起重機砲台丟貨櫃、叉架 MT 的貨櫃盾與投擲
+  const ind = await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1s1');
+    g.camp.types[0] = 'supply';
+    g.campEnterSeg(); // 沒有敵人的區段
+    g.state = 'foe-test';
+    const p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
+    };
+    const step = (ents, n, stop) => {
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+        g.projectiles = g.projectiles.filter((q) => !q.dead);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+    const out = {};
+    // 起重機砲台
+    const cr = g.spawnType('crane', 1, 1, at(0, -28));
+    const h0 = p.hp;
+    let crate = false;
+    step([cr], 400, () => {
+      if (g.projectiles.some((q) => q.kind === 'crate')) crate = true;
+      return crate && p.hp < h0;
+    });
+    out.crane = { crate, hit: h0 - p.hp, moved: cr.pos.distanceTo(at(0, -28)) };
+    step([cr], 600, () => !cr.aiState.loaded); // 丟出之後
+    step([cr], 600, () => cr.aiState.loaded);
+    out.crane.reload = !!(cr.bossVis & 1) || cr.aiState.loaded;
+    cr.takeDamage(1e9, 0, p, cr.center(), new THREE.Vector3(0, 0, 1));
+    // 叉架 MT：面向玩家時正面的傷害大減；近戰打掉貨櫃
+    const fk = g.spawnType('forklift', 1, 1, at(0, -30), 1);
+    fk.updateAI(1 / 60);
+    const face = () => {
+      const d = p.pos.clone().sub(fk.pos);
+      fk.yaw = Math.atan2(-d.x, -d.z);
+    };
+    face();
+    fk.hp = fk.maxHp = 1e6;
+    const f0 = fk.hp;
+    fk.takeDamage(1000, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
+    out.front = f0 - fk.hp;
+    fk.yaw += Math.PI;
+    const f1 = fk.hp;
+    fk.takeDamage(1000, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
+    out.back = f1 - fk.hp;
+    face();
+    fk.takeDamage(100, 0, p, fk.center(), new THREE.Vector3(0, 0, 1), true);
+    out.broke = !fk.aiState.hold && !(fk.bossVis & 1);
+    fk.takeDamage(1e9, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
+    // 叉架 MT：靠近之後丟出貨櫃
+    const fk2 = g.spawnType('forklift', 1, 1, at(0, -14), 1);
+    g.projectiles = [];
+    step([fk2], 400, () => !fk2.aiState.hold);
+    out.thrown = !fk2.aiState.hold && g.projectiles.some((q) => q.kind === 'crate');
+    fk2.takeDamage(1e9, 0, p, fk2.center(), new THREE.Vector3(0, 0, 1));
+    g.state = 'play';
+    return out;
+  });
+  check(
+    ind.crane.crate && ind.crane.hit > 0 && ind.crane.moved < 0.5,
+    '起重機砲台：不移動，把貨櫃砸到目標腳下（' + Math.round(ind.crane.hit) + '）',
+  );
+  check(ind.crane.reload, '起重機砲台：丟出後重新吊起貨櫃');
+  check(
+    ind.front < ind.back * 0.3,
+    '叉架 MT：貨櫃盾擋下正面的傷害（正面 ' + Math.round(ind.front) + '、背面 ' + Math.round(ind.back) + '）',
+  );
+  check(ind.broke, '叉架 MT：近戰打掉貨櫃');
+  check(ind.thrown, '叉架 MT：靠近之後丟出貨櫃');
+  // 集散場的 4 種變體與 6 個地標
+  const iv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['gantry', 'tower', 'stack', 'tanker', 'silos', 'airship'];
+    ['stacks', 'warehouse', 'railyard', 'docks', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'industrial', 700 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      const w = g.world;
+      const n = (k) => (w.props || []).filter((q) => q.kind === k).length;
+      out.push(
+        (w.variantKey || '-') +
+          ':' +
+          (w.landmark ? 1 : 0) +
+          ':' +
+          ({
+            stacks: n('stack'),
+            warehouse: w.obstacles.length,
+            railyard: n('boxcar'),
+            docks: w.waterMesh ? 1 : 0,
+          }[v] || 0),
+      );
+    });
+    return out;
+  });
+  check(
+    iv
+      .slice(0, 4)
+      .every((s, i) => s.startsWith(['stacks', 'warehouse', 'railyard', 'docks'][i]) && !s.endsWith(':0')) &&
+      iv.filter((s) => s.split(':')[1] === '1').length >= 5,
+    '集散場的 4 種變體與地標（' + iv.join('、') + '）',
+  );
+  // 變體的畫面（截圖確認外觀）與精英區段的 STEVEDORE
+  const st = await page.evaluate(() => {
+    const g = window.__game;
+    g.campSortie().segs[1].theme = 'industrial';
+    g.camp.seg = 1;
+    g.camp.plan[1] = {
+      ...g.camp.plan[1],
+      variant: 'stacks',
+      landmark: 'gantry',
+      tod: '',
+      weather: '',
+      zone: 'full',
+    };
+    g.camp.types[1] = 'elite';
+    g.campEnterSeg();
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    return { name: g.bosses[0] && g.bosses[0].name, comm: log.includes('stevedore'), theme: g.worldTheme };
+  });
+  check(
+    st.name === 'STEVEDORE' && st.comm && st.theme === 'industrial',
+    '精英區段：集散場是 STEVEDORE，有通訊（' + st.name + '）',
+  );
+  for (const v of ['stacks', 'warehouse', 'railyard', 'docks']) {
+    await page.evaluate((v) => {
+      const g = window.__game;
+      g.camp.plan[1] = { ...g.camp.plan[1], variant: v, landmark: '' };
+      g.camp.types[1] = 'supply';
+      g.campEnterSeg();
+    }, v);
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-industrial-' + v + '.png') });
+  }
+  await ctx.close();
+}
+
 // 主線第 4 期：戰術模組（三選一、效果、升級、雙重模組、商店、紀錄點還原、放棄退回、整章完成清空）
 async function testModules(browser, base) {
   console.log('主線的戰術模組：三選一、效果、升級、雙重模組、商店、還原與清空');
@@ -5900,6 +6053,7 @@ async function main() {
     await testCampaign2(browser, base);
     await testModules(browser, base);
     await testChapter1(browser, base);
+    await testChapter2(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

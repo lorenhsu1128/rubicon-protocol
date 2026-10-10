@@ -33,6 +33,10 @@ export class Projectile {
     }
   }
   orient() {
+    if (this.kind === 'crate') {
+      this.mesh.rotation.x += 0.025; // 貨櫃：慢慢翻滾，不朝速度方向
+      return;
+    }
     const v = this.vel;
     if (v.lengthSq() > 0.01) {
       this.mesh.lookAt(this.pos.x + v.x, this.pos.y + v.y, this.pos.z + v.z);

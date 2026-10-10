@@ -2,7 +2,7 @@
 // 欄位：name、theme（覆寫主題欄位：地形特徵、公路、岩頂、光線、顏色…）、terrain(w)（回傳 (x, z, h) → h 的地形修改，
 // 參數用自己的亂數串 makeRng）、build(w)（在一般物件之後加的結構，於關卡生成的 withRng 內呼叫）。
 // 不帶變體時 World 完全照原本生成（現有地圖不變）。本模組不可 import world.js，World 一律用參數 w。
-import { clamp, makeRng, rnd, rndi } from '../core/math.js';
+import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
 import { box, cyl, mat } from './prop-models.js';
 
 const M = {
@@ -118,6 +118,84 @@ export function buildSaltPillar(h) {
   g.add(cyl(0.35, 0.55, h * 0.4, m, 0.5, h * 0.2, 0.3, 5));
   return g;
 }
+// 貨櫃堆：n 層、長 len（沿 X）、寬 2.6、每層高 2.6；colors＝各層顏色（材質可透明，鏡頭遮擋時淡出）
+export function buildContainerStack(len, n, colors) {
+  const g = new THREE.Group();
+  const fm = new THREE.MeshStandardMaterial({
+    color: 0x26282c,
+    roughness: 0.6,
+    metalness: 0.5,
+    transparent: true,
+  });
+  for (let i = 0; i < n; i++) {
+    const cm = new THREE.MeshStandardMaterial({
+      color: colors[i % colors.length],
+      roughness: 0.7,
+      metalness: 0.3,
+      flatShading: true,
+      transparent: true,
+    });
+    const y = i * 2.6,
+      off = (i % 2) * 0.3;
+    g.add(box(len, 2.5, 2.5, cm, off, y + 1.25, 0));
+    for (const s of [-1, 1]) g.add(box(0.25, 2.5, 2.6, fm, off + (s * len) / 2, y + 1.25, 0));
+    g.add(box(len, 0.15, 2.6, fm, off, y + 2.5, 0));
+  }
+  return g;
+}
+// 倉庫：w×d、高 h；長邊兩面各一個 8 m 寬、6 m 高的大門，屋頂只有桁架（俯視鏡頭看得進去）
+export function buildWarehouse(w, d, h, color) {
+  const g = new THREE.Group();
+  const m = mat(color, { roughness: 0.8, metalness: 0.3 });
+  const t = 0.6,
+    gw = 8;
+  for (const s of [-1, 1]) {
+    for (const k of [-1, 1])
+      g.add(box((w - gw) / 2, h, t, m, k * (gw / 2 + (w - gw) / 4), h / 2, (s * d) / 2));
+    g.add(box(gw, h - 6, t, m, 0, 6 + (h - 6) / 2, (s * d) / 2));
+    g.add(box(t, h, d, m, (s * w) / 2, h / 2, 0));
+    g.add(box(w + 0.2, 0.5, 0.2, M.yellow, 0, 0.9, (s * (d + t)) / 2));
+  }
+  for (let x = -w / 2 + 2; x < w / 2; x += 4) g.add(box(0.4, 0.8, d, M.steel, x, h + 0.4, 0));
+  g.add(box(w, 0.5, 1.2, M.dark, 0, h + 0.25, 0));
+  return g;
+}
+// 有蓋貨車：長 len、寬 3、高 4（含台車）
+export function buildBoxcar(len, color) {
+  const g = new THREE.Group();
+  g.add(box(3, 3.2, len, mat(color, { roughness: 0.75 }), 0, 2.6, 0));
+  g.add(box(3.2, 0.3, len + 0.2, M.dark, 0, 4.3, 0));
+  g.add(box(3.05, 2.4, 2.4, M.rustD, 0, 2.5, 0));
+  for (const s of [-1, 1]) g.add(box(2.4, 0.8, 2.6, M.dark, 0, 0.6, s * len * 0.32));
+  return g;
+}
+// 軌道（裝飾，長 len 沿 Z）
+export function buildTrack(len) {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) g.add(box(0.15, 0.15, len, M.steel, s * 0.75, 0.12, 0));
+  for (let z = -len / 2 + 0.6; z < len / 2; z += 1.2) g.add(box(2.4, 0.1, 0.35, M.rustD, 0, 0.03, z));
+  return g;
+}
+// 岸壁起重機：四支腳（沿 Z 相距 16、沿 X 相距 12），吊臂沿 +X 伸向海面（高約 30 m）
+export function buildQuayCrane() {
+  const g = new THREE.Group();
+  for (const x of [-6, 6]) for (const z of [-8, 8]) g.add(box(1.2, 24, 1.2, M.yellow, x, 12, z));
+  for (const z of [-8, 8]) g.add(box(14, 1.6, 1.4, M.yellow, 0, 24.5, z));
+  g.add(box(46, 1.8, 3, M.yellow, 14, 27, 0));
+  g.add(box(6, 4, 6, M.concrete, -4, 28, 0));
+  g.add(box(0.6, 8, 0.6, M.steel, -4, 33, 0));
+  g.add(box(4, 1.2, 3, M.dark, 18, 25.4, 0));
+  g.add(box(0.08, 12, 0.08, M.dark, 18, 19, 0));
+  for (const s of [-1, 1]) g.add(box(0.5, 0.5, 18, M.steel, s * 6, 12, 0));
+  return g;
+}
+// 繫船柱（裝飾）
+export function buildBollard() {
+  const g = new THREE.Group();
+  g.add(cyl(0.35, 0.45, 0.9, M.dark, 0, 0.45, 0, 8));
+  g.add(cyl(0.5, 0.5, 0.15, M.dark, 0, 0.95, 0, 8));
+  return g;
+}
 // 礦坑坑口：岩壁上的方形入口與照明（寬 12、高 10）
 export function buildMinePortal() {
   const g = new THREE.Group();
@@ -177,9 +255,257 @@ function place(w, g, bx, range, shapes, sink = 0.3) {
   );
 }
 const smooth = (t) => t * t * (3 - 2 * t);
+// 集散場：矩形範圍內沒有障礙物
+const free = (w, x, z, hw, hd, m = 1) =>
+  !w.obstacles.some((o) =>
+    o.kind === 'box'
+      ? Math.abs(o.x - x) < o.w / 2 + hw + m && Math.abs(o.z - z) < o.d / 2 + hd + m
+      : Math.abs(o.x - x) < o.r + hw + m && Math.abs(o.z - z) < o.r + hd + m,
+  );
+const YARD_COLS = [0xe0a020, 0x2b4fb0, 0xb83a2a, 0x3a7a4a, 0x8b8f94, 0xd8d8d8];
+// 一個單層貨櫃（集散場變體的散布物件）
+function looseContainers(w, n) {
+  w.scatter(n, 6, (x, z, y) => {
+    const rot = rndi(0, 1),
+      long = rnd(6, 9);
+    const c = pick(YARD_COLS);
+    const g = buildContainerStack(long, 1, [c]);
+    if (rot) g.rotation.y = Math.PI / 2;
+    w.addSmall(g, x, y - 0.15, z, { w: rot ? 2.6 : long, h: 2.6, d: rot ? long : 2.6 }, 'container', 3000, c);
+  });
+}
+// 沿 axis（0＝列沿 Z、1＝列沿 X）排一列一列的貨櫃堆，each(x, z, len) 決定要不要放
+function containerRows(w, axis, span, gap, levels, ok = () => true) {
+  for (let off = -span; off <= span; off += rnd(gap[0], gap[1])) {
+    if (Math.abs(off) < 7) continue;
+    let s = -span;
+    while (s < span) {
+      const len = rnd(12, 24);
+      const c = s + len / 2;
+      const x = axis ? c : off,
+        z = axis ? off : c;
+      const hw = axis ? len / 2 : 1.3,
+        hd = axis ? 1.3 : len / 2;
+      if (
+        Math.hypot(x, z) > 11 &&
+        ok(x, z) &&
+        !w.offLimits(x, z) &&
+        !w.isReserved(x, z, 3) &&
+        free(w, x, z, hw, hd) &&
+        ![-1, 0, 1].some((k) =>
+          w.onCorridor(x + (axis ? (k * len) / 2 : 0), z + (axis ? 0 : (k * len) / 2), 5),
+        )
+      ) {
+        const n = rndi(levels[0], levels[1]);
+        const cols = [pick(YARD_COLS), pick(YARD_COLS), pick(YARD_COLS), pick(YARD_COLS)];
+        const g = buildContainerStack(len, n, cols);
+        g.rotation.y = axis ? 0 : Math.PI / 2;
+        w.addSmall(
+          g,
+          x,
+          w.terrainHeight(x, z) - 0.15,
+          z,
+          { w: hw * 2, h: n * 2.6, d: hd * 2 },
+          'stack',
+          2500 * n,
+          cols[0],
+        );
+      }
+      s += len + rnd(6, 10);
+    }
+  }
+}
 
 // ---------- 變體 ----------
 export const VARIANTS = {
+  industrial: {
+    stacks: {
+      name: '貨櫃迷宮',
+      theme: {
+        featureKinds: ['platforms'],
+        corridor: { p: 0.5, kinds: ['road', 'rail'] },
+        propNames: { stack: '貨櫃堆' },
+        // 沿一個方向排的高貨櫃堆（2～4 層），之間是走道
+        buildProps(w) {
+          containerRows(w, rndi(0, 1), 52 * w.k, [11, 15], [2, 4]);
+          looseContainers(w, w.cnt(4, 7));
+        },
+      },
+      terrain: () => (x, z, h) => h * 0.2,
+    },
+    warehouse: {
+      name: '倉庫區',
+      theme: {
+        featureKinds: ['bunkers'],
+        corridor: { p: 0.6, kinds: ['road'] },
+        ground: 0x60646a,
+        buildProps(w) {
+          for (let k = w.cnt(4, 6); k > 0; k--) {
+            const hw = rndi(9, 13),
+              hd = rndi(7, 9),
+              hh = rnd(9, 12);
+            place(
+              w,
+              buildWarehouse(hw * 2, hd * 2, hh, pick([0x7a8894, 0x8e8a7e, 0x5e7488, 0xa09078])),
+              [-hw - 1, hw + 1, -hd - 1, hd + 1],
+              2,
+              [
+                { box: [-hw, -4, -hd - 0.3, -hd + 0.3], top: hh },
+                { box: [4, hw, -hd - 0.3, -hd + 0.3], top: hh },
+                { box: [-hw, -4, hd - 0.3, hd + 0.3], top: hh },
+                { box: [4, hw, hd - 0.3, hd + 0.3], top: hh },
+                { box: [-4, 4, -hd - 0.3, -hd + 0.3], y: 6, top: hh },
+                { box: [-4, 4, hd - 0.3, hd + 0.3], y: 6, top: hh },
+                { box: [-hw - 0.3, -hw + 0.3, -hd, hd], top: hh },
+                { box: [hw - 0.3, hw + 0.3, -hd, hd], top: hh },
+              ],
+              0.2,
+            );
+          }
+          looseContainers(w, w.cnt(10, 14));
+        },
+      },
+      terrain: () => (x, z, h) => h * 0.15,
+    },
+    railyard: {
+      name: '貨運調度場',
+      theme: {
+        featureKinds: ['overpass'],
+        corridor: { p: 1, kinds: ['rail'] },
+        propNames: { boxcar: '有蓋貨車' },
+        // 平行的側線，停著一列一列的有蓋貨車
+        buildProps(w) {
+          const axis = rndi(0, 1);
+          const span = 54 * w.k;
+          for (let off = -span * 0.85; off <= span * 0.85; off += rnd(9, 12)) {
+            if (Math.abs(off) < 6) continue;
+            // 側線（裝飾）：整條鋪過去，經過公路／鐵路的地方略過
+            for (let s = -span; s < span; s += 12) {
+              const x = axis ? s + 6 : off,
+                z = axis ? off : s + 6;
+              if (w.onCorridor(x, z, 3) || w.offLimits(x, z)) continue;
+              const t = buildTrack(12);
+              t.position.set(x, w.terrainHeight(x, z), z);
+              if (axis) t.rotation.y = Math.PI / 2;
+              w.scene.add(t);
+              w.meshes.push(t);
+            }
+            let s = -span + rnd(0, 10);
+            while (s < span) {
+              const n = rndi(1, 3),
+                len = 12;
+              const L = n * (len + 1);
+              const c = s + L / 2;
+              const x = axis ? c : off,
+                z = axis ? off : c;
+              const hw = axis ? L / 2 : 1.6,
+                hd = axis ? 1.6 : L / 2;
+              if (Math.hypot(x, z) > 11 && free(w, x, z, hw, hd, 0.5) && !w.isReserved(x, z, 2)) {
+                let hit = false;
+                for (let q = -L / 2; q <= L / 2; q += 3)
+                  if (w.onCorridor(x + (axis ? q : 0), z + (axis ? 0 : q), 3)) hit = true;
+                if (!hit)
+                  for (let i = 0; i < n; i++) {
+                    const p = -L / 2 + (len + 1) * (i + 0.5);
+                    const cx = x + (axis ? p : 0),
+                      cz = z + (axis ? 0 : p);
+                    const color = pick([0x8a3a2a, 0x3a5a7a, 0x5a5a52, 0x7a6a3a]);
+                    const g = buildBoxcar(len, color);
+                    if (axis) g.rotation.y = Math.PI / 2;
+                    w.addSmall(
+                      g,
+                      cx,
+                      w.terrainHeight(cx, cz),
+                      cz,
+                      { w: axis ? len : 3, h: 4.4, d: axis ? 3 : len },
+                      'boxcar',
+                      3500,
+                      color,
+                    );
+                  }
+              }
+              s += L + rnd(8, 16);
+            }
+          }
+          looseContainers(w, w.cnt(3, 5));
+        },
+      },
+      terrain: () => (x, z, h) => h * 0.1,
+    },
+    docks: {
+      name: '港灣碼頭',
+      theme: {
+        featureKinds: ['bunkers'],
+        corridor: { p: 0.4, kinds: ['road'] },
+        water: { level: -1.6, color: 0x22394a, opacity: 0.86 },
+        fog: 0x9aa8b4,
+        sky: 0xb0bcc6,
+        propNames: { stack: '貨櫃堆' },
+        buildProps(w) {
+          const [c, s] = w.sea;
+          const u0 = w.seaU;
+          // 岸壁起重機：沿岸壁排列，吊臂伸向海面
+          const ry = Math.atan2(-s, c);
+          const cr = Math.cos(ry),
+            sr = Math.sin(ry);
+          for (let v = -48 * w.k + rnd(0, 12); v < 48 * w.k; v += rnd(30, 40)) {
+            const cx = c * (u0 - 9) - s * v,
+              cz = s * (u0 - 9) + c * v;
+            if (w.onCorridor(cx, cz, 10) || Math.hypot(cx, cz) < 18) continue;
+            const g = buildQuayCrane();
+            g.position.set(cx, w.terrainHeight(cx, cz) - 0.1, cz);
+            g.rotation.y = ry;
+            w.scene.add(g);
+            w.meshes.push(g);
+            for (const lx of [-6, 6])
+              for (const lz of [-8, 8])
+                w.obstacles.push({
+                  kind: 'circle',
+                  x: cx + lx * cr + lz * sr,
+                  z: cz - lx * sr + lz * cr,
+                  r: 0.9,
+                  group: g,
+                  mats: [],
+                  box: null,
+                  h: 24,
+                });
+          }
+          // 岸上的貨櫃堆（離岸壁 14 m 以上）、散落的貨櫃與繫船柱
+          containerRows(
+            w,
+            Math.abs(c) > Math.abs(s) ? 0 : 1,
+            50 * w.k,
+            [12, 16],
+            [2, 3],
+            (x, z) => x * c + z * s < u0 - 16,
+          );
+          looseContainers(w, w.cnt(4, 6));
+          for (let v = -55 * w.k; v < 55 * w.k; v += 9) {
+            const x = c * (u0 - 1.2) - s * v,
+              z = s * (u0 - 1.2) + c * v;
+            const b = buildBollard();
+            b.position.set(x, w.terrainHeight(x, z), z);
+            w.scene.add(b);
+            w.meshes.push(b);
+          }
+        },
+      },
+      // 地圖的一側是海：岸壁往下 7 m
+      terrain(w) {
+        const r = makeRng(w.seed * 71 + 13);
+        const a = r() * Math.PI * 2;
+        w.sea = [Math.cos(a), Math.sin(a)];
+        w.seaU = (24 + r() * 10) * w.k;
+        const [c, s] = w.sea;
+        return (x, z, h) => {
+          const u = x * c + z * s;
+          return h * 0.25 - 7.5 * smooth(clamp((u - w.seaU) / 3, 0, 1));
+        };
+      },
+      // 海裡不放東西、不生成
+      offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
   wasteland: {
     factory: {
       name: '廢工廠群',
@@ -509,6 +835,27 @@ export const variantKeys = (theme) => Object.keys(VARIANTS[theme] || {});
 export const variantOf = (theme, key) => (VARIANTS[theme] || {})[key] || null;
 // 模型庫登記：[key, 名稱, 備註, build]
 export const VARIANT_CATALOG = [
+  [
+    'container_stack',
+    '貨櫃堆',
+    '集散場「貨櫃迷宮」等；2–4 層、長 12–24 m，可破壞',
+    () => buildContainerStack(14, 3, YARD_COLS),
+  ],
+  [
+    'warehouse',
+    '倉庫',
+    '集散場「倉庫區」；寬 18–26、深 14–18、高 9–12 m，大門下 6 m 可通行',
+    () => buildWarehouse(22, 16, 10, 0x7a8894),
+  ],
+  ['boxcar', '有蓋貨車', '集散場「貨運調度場」；長 12 m，可破壞', () => buildBoxcar(12, 0x8a3a2a)],
+  ['rail_track', '側線軌道', '集散場「貨運調度場」的裝飾；長 12 m', () => buildTrack(12)],
+  [
+    'quay_crane',
+    '岸壁起重機',
+    '集散場「港灣碼頭」；高約 30 m，吊臂伸向海面，四支腳有碰撞',
+    () => buildQuayCrane(),
+  ],
+  ['bollard', '繫船柱', '集散場「港灣碼頭」的裝飾', () => buildBollard()],
   [
     'factory_hall',
     '廢工廠廠房',
