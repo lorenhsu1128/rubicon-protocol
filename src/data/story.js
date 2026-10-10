@@ -21,6 +21,7 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  undertow: { name: 'UNDERTOW', color: '#40c0e0', mark: 'U', note: '洋上都市的擊退專家（第 5 章的宿敵）' },
   spire: { name: 'SPIRE', color: '#e0b040', mark: 'P', note: '構造體的跳躍者（第 4 章的宿敵）' },
   countdown: { name: 'COUNTDOWN', color: '#ff6a20', mark: 'C', note: '宇宙港的飛彈手（第 4 章的宿敵）' },
   specimen: { name: 'SPECIMEN', color: '#ff5a50', mark: 'X', note: '技研都市的強化人間（第 3 章的宿敵）' },
@@ -202,6 +203,55 @@ export const BRIEFINGS = {
       '掩護難民撤離宇宙港外圍，把導引塔打下來。研究所的強化人間也在他們那邊。',
     ],
     goal: '掩護難民撤離，擊破衛星砲導引塔 JUDGEMENT',
+  },
+  // ---- 第 5 章 ----
+  c5s1: {
+    client: 'castron',
+    node: { x: 80, y: 52 },
+    needs: [],
+    needsAny: ['c4s3a', 'c4s3b'],
+    lines: [
+      '卡斯特隆重工。好久不見了，傭兵。',
+      '東岸的洋上都市 Xylem 裡有一條通往軌道的電纜，所有人都在搶。',
+      '我們要先在都市上陸。護盾指揮艦在港區守著，打下它。',
+    ],
+    goal: '在洋上都市上陸，擊破護盾指揮艦 AEGIS',
+  },
+  c5s2a: {
+    client: 'veerwell',
+    node: { x: 88, y: 42 },
+    needs: ['c5s1'],
+    when: { c4: 'veerwell' },
+    lines: [
+      '維爾威動態。發射設施已經重啟，我們需要洋上都市的軌道電纜來校準軌道。',
+      '空中要塞在電纜上方盤旋。另外，構造體那個跳躍者被聖域雇了。',
+      '確保電纜，打下空中要塞。',
+    ],
+    goal: '確保軌道電纜，擊破空中要塞 LEVIATHAN',
+  },
+  c5s2b: {
+    client: 'sancta',
+    node: { x: 88, y: 56 },
+    needs: ['c5s1'],
+    when: { c4: 'sancta' },
+    lines: [
+      '聖域互助同盟。洋上都市還有一批居民，我們安排了避難船。',
+      '維爾威派了高速突擊機獵殺避難船，宇宙港那個飛彈手也在。',
+      '護衛避難船離開都市，擊落突擊機。',
+    ],
+    goal: '護衛避難船，擊落高速突擊機 VIPER',
+  },
+  c5s3: {
+    client: 'castron',
+    node: { x: 82, y: 38 },
+    needs: [],
+    needsAny: ['c5s2a', 'c5s2b'],
+    lines: [
+      '電纜塔在都市的最深處。所有勢力的傭兵都往那裡去了。',
+      '我們收到情報：那兩台獨立傭兵的 AC 小隊也接了委託。',
+      '拿下電纜塔。之後……就是軌道了。',
+    ],
+    goal: '奪取海底電纜塔，擊破 IGUAZU & VOLTA 雙 AC 小隊',
   },
 };
 
@@ -858,6 +908,171 @@ export const COMMS = [
     once: true,
     lines: [['echo', '北部構造體開放了。維爾威和聖域都盯上了舊宇宙港。']],
   },
+  // ---- 第 5 章 ----
+  {
+    event: 'sortieStart',
+    sid: 'c5s1',
+    once: true,
+    lines: [
+      ['castron', '洋上都市的街區之間只有橋。掉進海裡會被拉回來，但機體會受損。'],
+      ['echo', '衝撞無人機會把你往邊緣推。待在街區中央。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s1',
+    type: 'boss',
+    lines: [
+      ['echo', '護盾指揮艦。先打掉護盾發生器，否則打不進去。'],
+      ['castron', '發生器毀了之後過一陣子會重建，抓緊時間。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5s1',
+    pick: 'veerwell',
+    lines: [
+      ['castron', '上陸成功。維爾威也到了，他們想要電纜。'],
+      ['echo', '維爾威發來了委託。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5s1',
+    pick: 'sancta',
+    lines: [
+      ['castron', '上陸成功。聖域的避難船也進港了。'],
+      ['echo', '聖域發來了委託。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s2a',
+    seg: 3,
+    lines: [
+      ['spire', '這裡的高樓很高。我喜歡。'],
+      ['echo', 'SPIRE 被聖域雇了。洋上都市的高樓屋頂是它的地盤。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s2a',
+    type: 'boss',
+    lines: [
+      ['echo', '空中要塞！先打掉引擎，它就會降下來。'],
+      ['veerwell', '電纜就在它下面，小心別打斷。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5s2a',
+    lines: [
+      ['veerwell', '電纜確保了。軌道的校準開始了。'],
+      ['echo', '電纜塔在都市的最深處。所有人都往那裡去了。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s2b',
+    seg: 3,
+    lines: [
+      ['countdown', '目標：避難船。倒數開始。'],
+      ['echo', 'COUNTDOWN 被維爾威雇了。它的飛彈會瞄準避難船，先處理它。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s2b',
+    type: 'boss',
+    lines: [
+      ['echo', '高速突擊機！它會沿著警示線掃射，往側面閃。'],
+      ['sancta', '避難船快出港了，拜託撐住。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5s2b',
+    lines: [
+      ['sancta', '避難船出港了。所有人都安全。謝謝你。'],
+      ['echo', '電纜塔在都市的最深處。所有人都往那裡去了。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5s3',
+    once: true,
+    lines: [
+      ['castron', '電纜塔是最後的關口。拿下它，軌道就是我們的了。'],
+      ['echo', '……卡斯特隆、維爾威、聖域、艾瑟立克。四家的人都在這裡。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5s3',
+    type: 'boss',
+    lines: [
+      ['enemy', '傭兵，這座塔我們收下了。'],
+      ['echo', 'IGUAZU 與 VOLTA！兩台 AC 會互相掩護，先集中打一台。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5s3',
+    lines: [
+      ['castron', '電纜塔拿下了。……軌道上的東西開始動了。'],
+      ['echo', '第 5 章的委託全部完成。最後的戰場在上空。'],
+    ],
+  },
+  { event: 'fail', killedBy: 'AEGIS', lines: [['echo', '護盾指揮艦的發生器在時打不進去。先拆發生器。']] },
+  { event: 'fail', killedBy: 'LEVIATHAN', lines: [['echo', '空中要塞的引擎全毀後才會降下來。集中打引擎。']] },
+  { event: 'fail', killedBy: 'VIPER', lines: [['echo', '突擊機掃射前會有警示線。掉頭減速時是攻擊的機會。']] },
+  {
+    event: 'fail',
+    killedBy: 'IGUAZU',
+    lines: [['echo', '兩台 AC 會互相掩護。拉開距離，讓它們分開再各個擊破。']],
+  },
+  { event: 'hub', chapter: 5, once: true, lines: [['echo', '東岸的洋上都市開放了。往軌道的路就在那裡。']] },
+  // ---- 第 5 章的宿敵與專屬敵人 ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'undertow',
+    once: true,
+    lines: [
+      ['undertow', '這裡的海很深。掉下去就不用回來了。'],
+      ['echo', '具名 AC「UNDERTOW」。貼身之後會把你往甲板邊緣推。'],
+      ['echo', '待在街區中央，別背對虛空跟它近戰。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'undertow',
+    lines: [
+      ['undertow', '潮水又來了。'],
+      ['echo', 'UNDERTOW 推擊之後有 3 秒的空檔，那時候反擊。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'UNDERTOW',
+    lines: [
+      ['undertow', '沉下去吧。'],
+      ['echo', '被推到邊緣時用 QB 往內拉回來。和它保持中距離。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'xylem',
+    once: true,
+    lines: [['echo', '洋上都市 Xylem。街區外是海，掉下去會被拉回來但會受損。小心衝撞無人機。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '衝撞',
+    lines: [['echo', '衝撞無人機撞之前會有預警線。橫向閃開，別站在它和虛空之間。']],
+  },
+  { event: 'fail', killedBy: '防空', lines: [['echo', '防空砲只打空中的目標。貼地接近，別在它附近跳。']] },
   // ---- 第 4 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

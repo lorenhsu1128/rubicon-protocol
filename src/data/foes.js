@@ -1,5 +1,5 @@
 // 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩、水沒市街；
-// 第 3 章：冰原、地下技研都市；第 4 章：Grid 086、舊宇宙港）
+// 第 3 章：冰原、地下技研都市；第 4 章：Grid 086、舊宇宙港；第 5 章：洋上都市）
 // 專屬敵人的欄位同 ENEMY_TYPES（spawnType 會先查 ENEMY_TYPES 再查這裡），另外：theme＝所屬主題、depth＝礦坑深層才出現、
 // foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊…）、max＝一波最多幾台、
 // spawnOnly＝不編進一般編成（由其他敵人產生，例如實驗體融合的大型個體）。主線的區段編成依主題混入；
@@ -391,6 +391,51 @@ export const FOES = {
     intro: '舊式宇宙用 MT：為低重力設計，跳得高、滯空久，打的時候注意它的落點',
     gen: () => ({ ...LIGHT, rarm: 'w_rifle' }),
   },
+  // ---- 洋上都市 ----
+  rammer: {
+    theme: 'xylem',
+    foe: 'rammer',
+    cost: 1.5,
+    name: '衝撞無人機',
+    pal: 'xylemdrone',
+    scale: 1,
+    hpMul: 0.3,
+    dmgMul: 0.6,
+    stabMul: 0.6,
+    ai: 'rammer',
+    flying: true,
+    hoverH: 3,
+    modelKind: 'boss',
+    vehKey: 'rammer',
+    radius: 1.1,
+    wantDist: 18,
+    group: 2,
+    speedMul: 1.2,
+    turnRate: 4,
+    intro: '衝撞無人機：預警線之後高速撞過來，會把你往甲板邊緣推——別背對虛空',
+    gen: () => ({ ...LIGHT, rarm: 'w_none' }),
+  },
+  flak: {
+    theme: 'xylem',
+    foe: 'flak',
+    cost: 2,
+    max: 2,
+    name: '艦載防空砲',
+    pal: 'xylemdrone',
+    scale: 1,
+    hpMul: 0.8,
+    dmgMul: 0.8,
+    stabMul: 3,
+    ai: 'flak',
+    modelKind: 'boss',
+    vehKey: 'flak',
+    radius: 2,
+    wantDist: 0,
+    speedMul: 0.2,
+    turnRate: 2,
+    intro: '艦載防空砲：專打空中的目標，飛起來會被打成蜂窩——貼地接近',
+    gen: () => ({ ...HEAVY, rarm: 'w_mg' }),
+  },
   // ---- 沙丘地帶 ----
   burrow: {
     theme: 'dunes',
@@ -700,6 +745,33 @@ export const ACES = {
     },
     intro: '宇宙港的飛彈手 COUNTDOWN — 大量飛彈齊射，聽到鎖定警告就找掩體',
   },
+  undertow: {
+    theme: 'xylem',
+    name: 'UNDERTOW',
+    speaker: 'undertow',
+    pal: 'undertow',
+    ai: 'undertow',
+    wantDist: 6,
+    hpMul: 2.4,
+    dmgMul: 0.85,
+    stabMul: 1.8,
+    speedMul: 1.05,
+    turnRate: 4,
+    asm: {
+      head: 'h_hv',
+      core: 'c_hv',
+      arms: 'a_hv',
+      legs: 'l_bp',
+      booster: 'b_hi',
+      generator: 'g_hi',
+      fcs: 'f_near',
+      rarm: 'w_sg',
+      larm: 'w_pile',
+      rback: 'bw_gr',
+      lback: 'bw_none',
+    },
+    intro: '洋上都市的擊退專家 UNDERTOW — 貼身把你往甲板邊緣推',
+  },
   sirocco: {
     theme: 'dunes',
     name: 'SIROCCO',
@@ -765,6 +837,7 @@ export const THEME_ACE = {
   institute: 'specimen',
   grid086: 'spire',
   spaceport: 'countdown',
+  xylem: 'undertow',
 };
 // 主題的專屬敵人（depth：垂直主題的深度）
 export function themeFoes(theme, depth = 0) {

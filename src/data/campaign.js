@@ -43,6 +43,14 @@ export const TRANSITIONS = {
       T('運輸機吊掛移動', '前往下一個堆場', 'lz'),
     ],
   },
+  xylem: {
+    relay: [T('沿海上橋梁推進', '跨過街區之間的長橋'), T('運輸機吊掛移動', '飛越洋上都市', 'lz')],
+    down: [
+      T('從甲板邊緣跳下', '跳到下一層的甲板'),
+      T('貨物升降機下降', '搭乘都市的貨物升降機', 'lift'),
+      T('沿排水管滑下', '順著巨大的排水管往下'),
+    ],
+  },
   grid086: {
     relay: [T('運輸機吊掛移動', '飛越構造體的外壁', 'lz'), T('沿構造體的鐵路移動', '搭乘構造體內的貨運列車')],
     down: [
@@ -406,6 +414,68 @@ SORTIES.c4s3b = {
     { theme: 'spaceport', mode: 'relay', pool: ['elite'], ace: 'specimen', variants: ['ruins', 'pads'] },
     { theme: 'spaceport', mode: 'relay', pool: ['supply', 'battle', 'intel'], variants: ['runway', 'ruins'] },
     { theme: 'spaceport', mode: 'relay', pool: ['boss'], boss: 'orbital', variants: ['runway', 'ruins'] },
+  ],
+};
+// ---- 第 5 章：東岸洋上都市（往下；第 2 次出擊依抉擇 2 分成兩條路線）----
+SORTIES.c5s1 = {
+  name: '東岸洋上都市 — 上陸作戰',
+  chapter: 5,
+  level: 13,
+  reward: 168000,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense'] },
+    { theme: 'xylem', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['dense', 'harbor', 'open'] },
+    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['open', 'dense'] },
+    { theme: 'xylem', pool: ['battle', 'elite', 'destroy'], variants: ['squall', 'dense'] },
+    { theme: 'xylem', pool: ['supply', 'intel', 'battle'], variants: ['open', 'harbor'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'flagship', variants: ['harbor', 'open'] },
+  ],
+};
+SORTIES.c5s2a = {
+  name: '洋上都市 — 軌道電纜確保',
+  chapter: 5,
+  level: 14,
+  reward: 184000,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['dense', 'harbor'] },
+    { theme: 'xylem', pool: ['battle', 'destroy', 'defend', 'intel'], variants: ['dense', 'open'] },
+    { theme: 'xylem', pool: ['supply', 'breakthrough', 'escort'], variants: ['harbor', 'open'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'spire', variants: ['dense', 'squall'] },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['open', 'squall'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'fortress', variants: ['open', 'harbor'] },
+  ],
+};
+SORTIES.c5s2b = {
+  name: '洋上都市 — 避難船護衛',
+  chapter: 5,
+  level: 14,
+  reward: 184000,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense'] },
+    { theme: 'xylem', pool: ['defend', 'battle', 'destroy', 'intel'], variants: ['dense', 'harbor'] },
+    { theme: 'xylem', pool: ['supply', 'escort', 'defend'], variants: ['harbor', 'open'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'countdown', variants: ['open', 'squall'] },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['squall', 'dense'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'interceptor', variants: ['open', 'harbor'] },
+  ],
+};
+SORTIES.c5s3 = {
+  name: '洋上都市深層 — 海底電纜塔',
+  chapter: 5,
+  level: 15,
+  reward: 200000,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['squall', 'dense'] },
+    { theme: 'xylem', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['dense', 'open', 'squall'] },
+    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['harbor', 'dense'] },
+    {
+      theme: 'xylem',
+      pool: ['elite'],
+      ace: { veerwell: 'undertow', sancta: 'undertow' },
+      variants: ['open', 'squall'],
+    },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['dense', 'harbor'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'duo', variants: ['harbor', 'open'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';

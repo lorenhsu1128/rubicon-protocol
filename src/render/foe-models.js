@@ -563,7 +563,45 @@ function buildSpaceMt(pal, scale) {
   return rig(root, torso, M, { hand, type: 'spacemt', height: 3 * scale });
 }
 
+// 衝撞無人機：前端是撞角的流線形機體＋兩側的推進器（飛行，高約 1.2 m）
+function buildRammer(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  torso.position.y = 0.6;
+  root.add(torso);
+  P(torso, gCyl(0.1, 0.6, 2.2, 10), M.main, 0, 0, -0.4, -Math.PI / 2);
+  P(torso, gCyl(0.6, 0.5, 0.8, 10), M.main2, 0, 0, 1.0, Math.PI / 2);
+  for (const s of [-1, 1]) P(torso, gCyl(0.25, 0.3, 0.9, 8), M.joint, s * 0.8, 0, 0.8, Math.PI / 2);
+  P(torso, gSph(0.15, 8), glow(0x60e0ff, 2), 0, 0.3, -0.2);
+  const hand = new THREE.Group();
+  hand.position.set(0, 0, -1.6);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'rammer', height: 1.2 * scale });
+}
+// 艦載防空砲：圓形砲座＋朝上的四連裝砲管（高約 3.4 m，不移動）
+function buildFlak(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  P(torso, gCyl(1.8, 2.0, 0.8, 14), M.joint, 0, 0.4, 0);
+  CB(torso, 2.2, 1.4, 2.2, M.main, 0, 1.5, 0, 0, 0, 0, 0.12);
+  for (const sx of [-1, 1])
+    for (const sy of [0, 1])
+      P(torso, gCyl(0.12, 0.14, 2.4, 8), M.gun, sx * 0.45, 2.1 + sy * 0.4, -1.0, Math.PI / 2 - 0.6);
+  P(torso, gBox(1.0, 0.25, 0.05), glow(0x60e0ff, 1.4), 0, 1.7, -1.12);
+  const hand = new THREE.Group();
+  hand.position.set(0, 2.9, -1.9);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'flak', height: 3.4 * scale });
+}
+
 export const FOE_BUILDERS = {
+  rammer: buildRammer,
+  flak: buildFlak,
   crawler: buildCrawler,
   underturret: buildUnderTurret,
   testrig: buildTestRig,
@@ -588,6 +626,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['rammer', '衝撞無人機', '洋上都市專屬；高速撞擊，把機體往甲板邊緣推'],
+  ['flak', '艦載防空砲', '洋上都市專屬；專打空中的目標'],
   ['crawler', '構造體爬行機', 'Grid 086 專屬；沿柱子爬上平台'],
   ['underturret', '平台底部砲塔', 'Grid 086 專屬；吊在上層平台的底面往下射'],
   ['testrig', '推進器試車台', '舊宇宙港專屬；噴口定期噴火橫掃'],

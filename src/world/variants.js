@@ -5,6 +5,7 @@
 import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
 import { box, buildIceSheet, cyl, mat } from './prop-models.js';
 import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
+import { planIslands } from './themes/xylem.js';
 import { buildCavePillar, buildCoralTank, buildLab } from './themes/institute.js';
 import { buildChimney, buildScrapHeap, buildShack } from './themes/grid086.js';
 import {
@@ -616,6 +617,46 @@ export const VARIANTS = {
       },
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
+  xylem: {
+    dense: {
+      name: '密集街區',
+      theme: {
+        // 小而多的街區、短橋
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -30, central: 40, n: [9, 13], size: [22, 34], span: 30, gap: 10 }),
+      },
+    },
+    open: {
+      name: '外海',
+      theme: {
+        fogFar: 260,
+        // 少數大街區、長橋
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -30, central: 50, n: [3, 5], size: [40, 64], span: 56, gap: 16 }),
+      },
+    },
+    harbor: {
+      name: '中央港區',
+      theme: {
+        // 很大的中央街區＋周圍幾個小街區
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -30, central: 80, n: [4, 6], size: [24, 36], span: 40, gap: 12 }),
+      },
+    },
+    squall: {
+      name: '海上暴風',
+      theme: {
+        weather: 'rain',
+        fog: 0x7a8a96,
+        sky: 0x6a7a88,
+        fogNear: 30,
+        fogFar: 130,
+        sunI: 0.55,
+        hemiI: 0.8,
+        water: { level: -2.2, color: 0x1a3444, opacity: 0.95, wide: true },
+      },
     },
   },
   grid086: {

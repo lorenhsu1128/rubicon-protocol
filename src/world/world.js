@@ -1071,9 +1071,11 @@ export class World {
     let big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 : o.r > 3);
     const all = this.obstacles;
     let spot = null;
-    for (const strict of [true, false]) {
+    // 再找不到（洋上都市的街區被高樓佔滿）時，佔到位置的大型物件也移除
+    for (const level of [0, 1, 2]) {
       if (spot) break;
-      if (!strict) big = (o) => (o.kind === 'box' ? !o.deck && o.w * o.d > 60 : o.r > 3);
+      if (level === 1) big = (o) => (o.kind === 'box' ? !o.deck && o.w * o.d > 60 : o.r > 3);
+      if (level === 2) big = () => false;
       this.obstacles = all.filter(big);
       for (const k of [1, 1.8, 3]) if (!spot) spot = this.findSpot(L.bx, L.range * k, 90);
     }

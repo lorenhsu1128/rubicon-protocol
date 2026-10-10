@@ -11,16 +11,20 @@
 // specimen 專屬 AC SPECIMEN（定期過載＝bossVis 4，之後硬直）。
 // crawler 構造體爬行機（目標在高處時沿柱子爬上去）、underturret 平台底部砲塔（吊在平台底面）、
 // spire 專屬 AC SPIRE（佔高處）、testrig 推進器試車台（預警後噴火橫掃）、hopper 舊式宇宙用 MT（長時間滯空）。
+// rammer 衝撞無人機（預警後衝撞、往外推）、flak 艦載防空砲（專打空中）、undertow 專屬 AC UNDERTOW（貼身往外推）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
+import { Projectile } from './projectile.js';
 
 const SHELL_K = 0.8; // 外殼吸收的比例
 const HIDE_AI = new Set(['burrow', 'gunboat', 'marsh', 'lurker', 'whiteout']); // 會隱藏（不能鎖定）的
 const DRILL_R = 3.6; // 鑽擊距離
 // 近戰命中的參數（takeDamage 的 melee：kb＝擊退速度；不能只傳 true，否則擊退是 NaN）
 const DRILL_HIT = { kb: 9 },
+  RAM_HIT = { kb: 20 },
+  SHOVE_HIT = { kb: 26 },
   BITE = { kb: 4 },
   BITE_BIG = { kb: 12 };
 
@@ -69,6 +73,13 @@ Object.assign(MechEntity.prototype, {
     if (this.ai === 'spire') return this.foeSpire(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'testrig') return this.foeTestRig(dt, d, wish, pl, r);
     if (this.ai === 'hopper') return this.foeHopper(dt, d, dir, perp, wish, r);
+    if (this.ai === 'rammer') return this.foeRammer(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'flak') {
+      this.noPush = true;
+      wish.set(0, 0, 0);
+      return r;
+    }
+    if (this.ai === 'undertow') return this.foeUndertow(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -699,6 +710,104 @@ Object.assign(MechEntity.prototype, {
     }
     s.airT = (s.airT || 0) - dt;
     if (s.airT > 0) r.hover = s.airT > 1.2 ? 2 : true;
+    this.stuckJump(dt, r);
+    return r;
+  },
+  // 把目標往「外」推的方向：地圖中心往外（洋上都市的街區外是虛空）
+  foeOutward(t) {
+    const v = new THREE.Vector3(t.pos.x, 0, t.pos.z);
+    if (v.lengthSq() < 1) v.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+    return v.normalize();
+  },
+  // 衝撞無人機：繞著目標飛；每 4～5 秒預警線 0.8 秒後高速衝撞（擊中時往外推，之後減速）
+  foeRammer(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    this.flying = true;
+    if (s.rmT === undefined) {
+      s.rmT = rnd(2, 4);
+      s.ph = 0;
+    }
+    s.rmT -= dt;
+    if (s.ph === 0) {
+      wish
+        .copy(perp)
+        .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+        .normalize();
+      if (s.rmT <= 0 && d < 34 && this.canAct()) {
+        s.ph = 1;
+        s.rmT = 0.8;
+        s.at = pl.pos.clone();
+        g.fx.warnLine(this.center(), pl.center(), 0.8, 0x60e0ff);
+      }
+    } else if (s.ph === 1) {
+      wish.set(0, 0, 0);
+      if (s.rmT <= 0) {
+        s.ph = 2;
+        s.rmT = 1.2;
+        s.dv = s.at.clone().sub(this.pos).setY(0).normalize();
+        s.hit = false;
+      }
+    } else {
+      this.vel.x = s.dv.x * 42;
+      this.vel.z = s.dv.z * 42;
+      wish.copy(s.dv);
+      if (!s.hit && d < this.radius + pl.radius + 1.2) {
+        s.hit = true;
+        pl.takeDamage(260 * this.dmgMul, 900 * this.dmgMul, this, pl.center(), this.foeOutward(pl), RAM_HIT);
+        g.fx.meleeHit(pl.center(), 0x60e0ff, true, s.dv.clone());
+      }
+      if (s.rmT <= 0 || s.hit) {
+        s.ph = 0;
+        s.rmT = rnd(4, 5);
+      }
+    }
+    return r;
+  },
+  // 艦載防空砲：目標在空中（離地 3 m 以上）時每 0.35 秒射出空炸彈（高速榴彈），在地面時只用機砲
+  foeFlakFire(dt, d, aimPos, pl) {
+    const s = this.aiState,
+      g = this.game;
+    const air = pl.pos.y - g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 0.5) > 3;
+    s.fkT = (s.fkT || 0) - dt;
+    if (air && s.fkT <= 0 && d < 80 && this.canAct()) {
+      s.fkT = 0.35;
+      const mz = this.muzzle('rarm');
+      const tgt = pl.center().addScaledVector(pl.vel, d / 70);
+      const v = tgt.sub(mz).normalize().multiplyScalar(70);
+      g.projectiles.push(
+        new Projectile(g, {
+          pos: mz.clone(),
+          vel: v,
+          kind: 'shell',
+          dmg: 120 * this.dmgMul,
+          impactV: 260 * this.dmgMul,
+          team: this.team,
+          owner: this,
+          color: 0x60e0ff,
+          life: d / 70 + 0.15,
+          splash: 3.2,
+        }),
+      );
+      g.fx.muzzle(mz, v.clone().normalize(), 0x60e0ff, 1.6);
+      return true;
+    }
+    return air; // 空中的目標只用空炸彈；地面的照常用機砲
+  },
+  // UNDERTOW：一般的接近；貼身（6 m 內）每 3 秒一次推擊，大幅往外推
+  foeUndertow(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    if (d > s.want + 2) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
+    else wish.copy(perp);
+    if (d > 14 && Math.random() < dt * 1.2) r.qb = true;
+    s.shT = (s.shT === undefined ? 2 : s.shT) - dt;
+    if (d < 6 && s.shT <= 0 && this.canAct()) {
+      s.shT = 3;
+      pl.takeDamage(320 * this.dmgMul, 1100 * this.dmgMul, this, pl.center(), this.foeOutward(pl), SHOVE_HIT);
+      g.fx.shockwave(pl.center(), 4, 0x40c0e0, 0.3);
+      g.fx.meleeHit(pl.center(), 0x40c0e0, true, dir.clone());
+    }
     this.stuckJump(dt, r);
     return r;
   },

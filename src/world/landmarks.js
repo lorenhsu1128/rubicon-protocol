@@ -440,6 +440,72 @@ function aqueduct() {
   return g;
 }
 
+// ---------- 洋上都市 ----------
+// 巨型風力發電機：高柱＋三片長葉片
+function seaTurbine() {
+  const g = new THREE.Group();
+  g.add(cyl(1.4, 2.2, 36, M.white, 0, 18, 0, 12));
+  g.add(box(3, 3, 6, M.white, 0, 36, 1));
+  const hub = new THREE.Group();
+  hub.position.set(0, 36, -2.4);
+  g.add(hub);
+  for (let i = 0; i < 3; i++) hub.add(rot(box(1.2, 16, 0.3, M.white, 0, 8, 0), 0, 0, (i * Math.PI * 2) / 3));
+  rot(hub, 0, 0, 0.3);
+  return g;
+}
+// 玻璃穹頂：半球形的植物園
+function glassDome() {
+  const g = new THREE.Group();
+  const d = new THREE.Mesh(new THREE.SphereGeometry(10, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.window);
+  g.add(d);
+  g.add(cyl(10.4, 10.4, 1, M.white, 0, 0.5, 0, 24));
+  for (let i = 0; i < 6; i++) g.add(cyl(0.6, 0.4, 5, M.green, Math.cos(i) * 5, 2.5, Math.sin(i) * 5, 6));
+  return g;
+}
+// 斷裂的高架單軌：橋墩與掉下去的車廂
+function brokenMonorail() {
+  const g = new THREE.Group();
+  for (const x of [-14, 0]) g.add(box(2, 12, 2, M.white, x, 6, 0));
+  g.add(box(24, 1.2, 3, M.white, -8, 12.6, 0));
+  g.add(rot(box(12, 3, 3, M.blue, 9, 4, 0), 0, 0.2, -0.7));
+  return g;
+}
+// 海上鑽油平台：四支腳撐起的平台與吊臂
+function oilRig() {
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(cyl(1, 1.2, 14, M.yellow, sx * 7, 7, sz * 7, 10));
+  g.add(box(18, 1.4, 18, M.hullD, 0, 14, 0));
+  g.add(box(6, 6, 6, M.white, -4, 18, -4));
+  g.add(rot(box(1, 1, 18, M.yellow, 5, 20, 2), 0.5, 0, 0));
+  return g;
+}
+// 擱淺的貨櫃船：傾斜的船身與成堆的貨櫃
+function containerShip() {
+  const g = new THREE.Group();
+  const h = new THREE.Group();
+  h.add(box(10, 6, 34, M.red, 0, 3, 0));
+  for (let i = 0; i < 4; i++)
+    for (let k = 0; k < 2; k++)
+      h.add(ctr(i % 2 ? M.blue : M.green, 0, 7.3 + k * 2.6, -12 + i * 6, Math.PI / 2));
+  h.add(box(8, 8, 5, M.white, 0, 10, 14));
+  rot(h, 0, 0.2, 0.12);
+  g.add(h);
+  return g;
+}
+// 都市的紀念塔：細長的尖塔與環
+function citySpire() {
+  const g = new THREE.Group();
+  g.add(cyl(0.5, 3, 40, M.steel, 0, 20, 0, 8));
+  for (const y of [14, 26]) {
+    const r = new THREE.Mesh(new THREE.TorusGeometry(4, 0.4, 6, 16), M.window);
+    r.rotation.x = Math.PI / 2;
+    r.position.y = y;
+    g.add(r);
+  }
+  g.add(box(8, 2, 8, M.concrete, 0, 1, 0));
+  return g;
+}
+
 // ---------- Grid 086 ----------
 // 斷裂的主樑：巨大的鋼樑從高處斜插到地面
 function brokenGirder() {
@@ -936,6 +1002,69 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  xylem: {
+    turbine: {
+      name: '巨型風力發電機',
+      build: seaTurbine,
+      bx: [-4, 4, -10, 4],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [{ c: [0, 0], r: 2.4, h: 38 }],
+    },
+    dome: {
+      name: '玻璃穹頂植物園',
+      build: glassDome,
+      bx: [-11, 11, -11, 11],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [{ c: [0, 0], r: 10, h: 10 }],
+    },
+    monorail: {
+      name: '斷裂的高架單軌',
+      build: brokenMonorail,
+      bx: [-15, 15, -2, 2],
+      range: 3,
+      sink: 0.2,
+      shapes: [
+        { box: [-15, -13, -1, 1], y: -1, top: 12 },
+        { box: [-1, 1, -1, 1], y: -1, top: 12 },
+        { box: [-20, 4, -1.5, 1.5], y: 12, top: 13.2, deck: true },
+      ],
+    },
+    rig: {
+      name: '海上鑽油平台',
+      build: oilRig,
+      bx: [-9, 9, -9, 9],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [
+        { c: [-7, -7], r: 1.2, h: 14 },
+        { c: [7, -7], r: 1.2, h: 14 },
+        { c: [-7, 7], r: 1.2, h: 14 },
+        { c: [7, 7], r: 1.2, h: 14 },
+        { box: [-9, 9, -9, 9], y: 13.3, top: 14.7, deck: true },
+      ],
+    },
+    ship: {
+      name: '擱淺的貨櫃船',
+      build: containerShip,
+      bx: [-7, 7, -18, 18],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ box: [-5, 5, -17, 17], y: -1, top: 12 }],
+    },
+    spire: {
+      name: '都市紀念塔',
+      build: citySpire,
+      bx: [-5, 5, -5, 5],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [
+        { box: [-4, 4, -4, 4], y: -1, top: 2 },
+        { c: [0, 0], r: 2, h: 40 },
+      ],
+    },
+  },
   grid086: {
     girder: {
       name: '斷裂的主樑',

@@ -412,6 +412,9 @@ Object.assign(MechEntity.prototype, {
       case 'spire':
       case 'testrig':
       case 'hopper':
+      case 'rammer':
+      case 'flak':
+      case 'undertow':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);
@@ -473,6 +476,10 @@ Object.assign(MechEntity.prototype, {
         return true;
       case 'crane':
         return this.foeFire(dt, d, aimPos, pl); // 起重機砲台（mech-foe.js）
+      case 'flak':
+        return this.foeFlakFire(dt, d, aimPos, pl);
+      case 'rammer':
+        return true;
       case 'blob':
       case 'laserpost':
       case 'testrig':

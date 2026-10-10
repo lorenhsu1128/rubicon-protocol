@@ -6193,6 +6193,163 @@ async function testChapter4(browser, base) {
   await ctx.close();
 }
 
+// 主線第 5 章：洋上都市（衝撞無人機、艦載防空砲、UNDERTOW）的專屬敵人、變體與地標；出擊依抉擇 2 分成兩條路線
+async function testChapter5(browser, base) {
+  console.log('第 5 章：洋上都市的專屬敵人與 AC、變體與地標、出擊');
+  const { ctx, page } = await newPage(browser, 'ch5');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        g.player.hp = g.player.maxHp = 1e6;
+        window.__step = (ents, n, stop) => {
+          const p = g.player;
+          for (let i = 0; i < n; i++) {
+            g.time += 1 / 60;
+            p.iFrames = 0;
+            for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+            for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+            g.projectiles = g.projectiles.filter((q) => !q.dead);
+            if (stop && stop()) return i;
+          }
+          return n;
+        };
+      },
+      [theme, variant],
+    );
+  await enter('xylem', 'harbor');
+  const xy = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    };
+    const out = {};
+    // 衝撞無人機：預警後衝撞，把目標往外推
+    p.pos.set(10, w.terrainHeight(10, 0), 0);
+    p.vel.set(0, 0, 0);
+    const rm = g.spawnType('rammer', 1, 1, at(0, -20), 1);
+    const h0 = p.hp;
+    let warned = false;
+    window.__step([rm], 600, () => {
+      if (rm.aiState.ph === 1) warned = true;
+      return rm.aiState.hit;
+    });
+    out.ram = { warned, hit: !!rm.aiState.hit, hurt: h0 - p.hp, out: p.vel.x };
+    rm.takeDamage(1e9, 0, p, rm.center(), new THREE.Vector3(0, 0, 1));
+    // 艦載防空砲：目標在地面時不射空炸彈，在空中時射
+    p.vel.set(0, 0, 0);
+    const fk = g.spawnType('flak', 1, 1, at(0, -25), 1);
+    g.projectiles = [];
+    window.__step([fk], 90);
+    out.flakGround = g.projectiles.filter((q) => q.kind === 'shell').length;
+    p.pos.y += 10;
+    window.__step([fk], 90, () => {
+      p.pos.y = w.terrainHeight(p.pos.x, p.pos.z) + 10;
+      return false;
+    });
+    out.flakAir = g.projectiles.filter((q) => q.kind === 'shell').length;
+    p.pos.y = w.terrainHeight(p.pos.x, p.pos.z);
+    fk.takeDamage(1e9, 0, p, fk.center(), new THREE.Vector3(0, 0, 1));
+    return out;
+  });
+  check(
+    xy.ram.warned && xy.ram.hit && xy.ram.hurt > 0 && xy.ram.out > 5,
+    '衝撞無人機：預警後衝撞，把目標往外推（' + JSON.stringify(xy.ram) + '）',
+  );
+  check(
+    xy.flakGround === 0 && xy.flakAir > 0,
+    '艦載防空砲：只對空中的目標射空炸彈（地面 ' + xy.flakGround + '、空中 ' + xy.flakAir + '）',
+  );
+  const ut = await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const e = g.bosses[0],
+      p = g.player,
+      w = g.world;
+    p.hp = p.maxHp = 1e6;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    p.pos.set(8, w.terrainHeight(8, 0), 0);
+    p.vel.set(0, 0, 0);
+    e.pos.set(4, w.terrainHeight(4, 0), 0);
+    e.aiState.shT = 0;
+    window.__step([e], 30, () => p.vel.x > 5);
+    return { name: e && e.name, comm: log.includes('undertow'), out: p.vel.x };
+  });
+  check(
+    ut.name === 'UNDERTOW' && ut.comm && ut.out > 5,
+    '精英區段：洋上都市是 UNDERTOW（貼身往外推），有通訊（' + ut.out.toFixed(1) + ' m/s）',
+  );
+  const xv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['turbine', 'dome', 'monorail', 'rig', 'ship', 'spire'];
+    ['dense', 'open', 'harbor', 'squall', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'xylem', 1300 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push(
+        (g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0) + ':' + g.world.islands.blocks.length,
+      );
+    });
+    return out;
+  });
+  check(
+    xv.slice(0, 4).every((s, i) => s.startsWith(['dense', 'open', 'harbor', 'squall'][i])) &&
+      xv.filter((s) => s.split(':')[1] === '1').length >= 5 &&
+      +xv[0].split(':')[2] > +xv[1].split(':')[2],
+    '洋上都市的 4 種變體（街區數不同）與地標（' + xv.join('、') + '）',
+  );
+  for (const v of ['dense', 'open', 'harbor', 'squall']) {
+    await enter('xylem', v);
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch5-xylem-' + v + '.png') });
+  }
+  // 第 5 章的出擊：終點 Boss、依抉擇 2 的路線
+  const c5 = await page.evaluate(() => {
+    const g = window.__game;
+    if (g.camp) g.campEnd(false, true);
+    g.state = 'play';
+    const out = [];
+    for (const sid of ['c5s1', 'c5s2a', 'c5s2b', 'c5s3']) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(sid + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0]);
+      g.campEnd(false, true);
+    }
+    g.save.story.done = { c4s3b: 1, c5s1: 1 };
+    g.save.story.choices = { c2: 'castron', c4: 'sancta' };
+    out.push('route:' + ['c5s1', 'c5s2a', 'c5s2b', 'c5s3'].map((s) => g.hubSortieState(s)).join('/'));
+    return out;
+  });
+  check(
+    c5.join(',') === 'c5s1:AEGIS,c5s2a:LEVIATHAN,c5s2b:VIPER,c5s3:IGUAZU,route:done/hidden/open/locked',
+    '第 5 章的出擊與終點 Boss、依抉擇 2 的路線（' + c5.join('、') + '）',
+  );
+  await ctx.close();
+}
+
 // 主線第 4 期：戰術模組（三選一、效果、升級、雙重模組、商店、紀錄點還原、放棄退回、整章完成清空）
 async function testModules(browser, base) {
   console.log('主線的戰術模組：三選一、效果、升級、雙重模組、商店、還原與清空');
@@ -7119,6 +7276,7 @@ async function main() {
     await testChapter2(browser, base);
     await testChapter3(browser, base);
     await testChapter4(browser, base);
+    await testChapter5(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
