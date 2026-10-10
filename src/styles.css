@@ -1819,3 +1819,41 @@ body.lab #fps {
 #hubMods {
   font-size: 12px;
 }
+
+/* 主線：模擬器、作戰紀錄（game/sim.js） */
+#simMenu,
+#record {
+  background: radial-gradient(ellipse at 30% 20%, #142030, #070a0e 75%);
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+}
+#simList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60vh;
+  overflow: auto;
+}
+#simList h3,
+#record h3 {
+  margin: 10px 0 2px;
+  font-size: 13px;
+  color: var(--acc);
+}
+.simItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 2px;
+}
+.simItem span {
+  font-size: 11px;
+}
+.recRow {
+  display: block;
+  padding: 4px 0;
+  font-size: 13px;
+}

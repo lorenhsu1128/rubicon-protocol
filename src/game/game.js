@@ -391,6 +391,8 @@ export class Game {
       this.state === 'camptrans' ||
       this.state === 'hub' ||
       this.state === 'brief' ||
+      this.state === 'sim' ||
+      this.state === 'record' ||
       this.state === 'campfail' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
@@ -522,6 +524,10 @@ export class Game {
     ) {
       if (this.camp) {
         if (!this.camp.cleared) this.campCleared(); // 主線：開出口，最後一段才結束
+      } else if (this.sim) {
+        this.state = 'ending';
+        this.flashMsg('模擬目標全滅', 0x7ee081, 2);
+        setTimeout(() => this.sim && this.simEnd(true), 1500);
       } else {
         this.state = 'ending';
         this.flashMsg('任務完成', 0x7ee081, 2);

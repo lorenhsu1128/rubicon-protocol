@@ -8,6 +8,7 @@ import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { buildBomberMesh } from '../render/extra-models.js';
 import { PALETTES } from '../render/materials.js';
+import { FOES, themeFoes } from '../data/foes.js';
 import { VARIANTS, variantKeys } from '../world/variants.js';
 import { THEMES, World, corridorSpec } from '../world/world.js';
 import { Game } from './game.js';
@@ -358,7 +359,7 @@ Object.assign(Game.prototype, {
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
       scaleDmg = 1 + (L - 1) * 0.06;
     if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg);
-    else this.spawnComp(this.rollComp(L, np), np, scaleHp, scaleDmg);
+    else this.spawnComp(this.foeMix(this.rollComp(L, np), theme, 0, true), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
     this.waveAlerted = false;
@@ -525,8 +526,26 @@ Object.assign(Game.prototype, {
     }
   },
   // at：指定生成位置（運輸機投放）；count：覆寫編隊數量
+  // 主題專屬敵人混進編成（約 35%）：主線依主題與深度；自由出擊只放主線遇過的（onlySeen）
+  foeMix(comp, theme, depth = 0, onlySeen = false) {
+    let foes = themeFoes(theme, depth);
+    if (onlySeen) {
+      const seen = ((this.save.story || {}).seen2 || {}).foes || {};
+      foes = foes.filter((k) => seen[k]);
+    }
+    if (!foes.length || !comp.length) return comp;
+    const out = comp.slice();
+    const idx = out.map((t, i) => i).filter((i) => !(out[i] === 'ac' || (ENEMY_TYPES[out[i]] || {}).roster));
+    const n = Math.min(idx.length, Math.round(out.length * 0.35) + 1);
+    for (let k = 0; k < n; k++) {
+      const j = idx.splice(Math.floor(Math.random() * idx.length), 1)[0];
+      if (j !== undefined) out[j] = pick(foes);
+    }
+    return out;
+  },
   spawnType(t, scaleHp, scaleDmg, at, count) {
-    const d = ENEMY_TYPES[t];
+    const d = ENEMY_TYPES[t] || FOES[t];
+    if (FOES[t] && this.simMark && !this.sim) this.simMark('foes', t); // 遇過的專屬敵人（模擬器、自由出擊）
     // 新類型第一次出現：提示打法
     if (d.intro && !d.roster) {
       if (!this.introSeen) this.introSeen = new Set();
@@ -578,6 +597,7 @@ Object.assign(Game.prototype, {
         wantDist: d.wantDist,
         speedMul: d.speedMul,
         explodeOnDeath: d.explodeOnDeath,
+        foe: d.foe,
         perch: d.perch,
         extraWeapons: d.extraWeapons,
         flankAngle: a0 + i * ((Math.PI * 2) / n),
@@ -640,6 +660,7 @@ Object.assign(Game.prototype, {
   },
   onEnemyKilled(e, from) {
     if (this.lab) return; // 渲染風格實驗室的模擬戰鬥：不計入存檔
+    this.foeScavenge(e);
     // 主線的戰術模組「回收迴路」：擊破時回復 AP
     if (from && from.pmv && !from.dead && from.pmv('killHeal') > 0)
       from.hp = Math.min(from.maxHp, from.hp + from.maxHp * from.pmv('killHeal'));
@@ -668,8 +689,29 @@ Object.assign(Game.prototype, {
     this.netEv({ t: 'bounty', v: bounty });
     this.bountyPops.push({ txt: '+' + bounty.toLocaleString() + ' COAM', life: 2.2, y: 0 });
   },
+  // 拾荒 MT：附近的同伴被擊破時撿零件強化（最多 3 次）
+  foeScavenge(dead) {
+    for (const s of this.enemies) {
+      if (s.dead || s === dead || s.opts.foe !== 'scav' || (s.scavN || 0) >= 3) continue;
+      if (s.pos.distanceTo(dead.pos) > 18) continue;
+      s.scavN = (s.scavN || 0) + 1;
+      s.maxHp = Math.round(s.maxHp * 1.25);
+      s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.3);
+      s.dmgMul *= 1.12;
+      this.fx.ring(s.center(), 3, 0xc8702a);
+      if (!this.scavTold) {
+        this.scavTold = true;
+        this.flashAlert('拾荒 MT 撿起零件強化了');
+      }
+      break;
+    }
+  },
   onPlayerDead() {
     if (this.lab) return; // 實驗室：由 labTick 重新空降
+    if (this.sim) {
+      this.flashMsg('AC 已被擊破', 0xff4d4d, 2);
+      return setTimeout(() => this.sim && this.simEnd(false), 1800); // 模擬戰
+    }
     if (this.camp) {
       this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
       if (this.campMp()) return; // 多人：全員倒下才算失敗（game.js 的主迴圈）

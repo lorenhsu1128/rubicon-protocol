@@ -198,14 +198,38 @@
             <button id="btnHubGarage">車庫（組裝）</button>
             <button id="btnHubPilot">駕駛員（技能）</button>
             <button id="btnHubLog">通訊紀錄</button>
-            <button id="btnHubSim" disabled title="第 6 期開放">模擬器（尚未開放）</button>
-            <button id="btnHubRecord" disabled title="第 6 期開放">作戰紀錄（尚未開放）</button>
+            <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">模擬器</button>
+            <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">作戰紀錄</button>
             <button id="btnHubBack">回車庫</button>
           </div>
         </div>
         <div id="hubLogBox" style="display: none">
           <div class="hubLogHead"><b>通訊紀錄</b><button id="btnHubLogClose">關閉</button></div>
           <div id="hubLogList"></div>
+        </div>
+      </div>
+      <!-- 主線：模擬器、作戰紀錄（game/sim.js） -->
+      <div id="simMenu" class="screen">
+        <div class="brBox">
+          <h2>模擬器 — 模擬訓練場</h2>
+          <div class="dim">模擬戰不消耗、不記錄進度；教官考核通過時解鎖零件。</div>
+          <div id="simList"></div>
+          <div class="row"><button id="btnSimBack">返回機庫</button></div>
+        </div>
+      </div>
+      <div id="record" class="screen">
+        <div class="brBox">
+          <h2>作戰紀錄</h2>
+          <div class="dim">
+            重打完成過的委託；戰術模組從零開始，不影響這一章持有的。危險條款越多，報酬越高。
+          </div>
+          <div id="recList"></div>
+          <h3>危險條款</h3>
+          <div id="recHeat"></div>
+          <div class="row">
+            <button class="primary" id="btnRecGo">出擊</button>
+            <button id="btnRecBack">返回機庫</button>
+          </div>
         </div>
       </div>
       <!-- 主線：簡報 -->

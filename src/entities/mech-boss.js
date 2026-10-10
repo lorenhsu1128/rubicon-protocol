@@ -106,7 +106,7 @@ Object.assign(MechEntity.prototype, {
     return this.boss2Fire(dt, d, aimPos, pl);
   },
   phase2() {
-    return this.hp < this.maxHp * 0.5;
+    return this.forceP2 || this.hp < this.maxHp * 0.5; // forceP2：主線的危險條款「Boss 第二型態」
   },
   // ---------- 附屬部位 ----------
   partAI(dt, d, pl) {

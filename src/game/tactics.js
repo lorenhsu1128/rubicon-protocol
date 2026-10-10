@@ -10,6 +10,7 @@ import { Game } from './game.js';
 Object.assign(Game.prototype, {
   // 目前這一章持有的模組（換章時清空）
   campMods(chapter) {
+    if (this.camp && this.camp.replay) return (this.camp.rmods = this.camp.rmods || []); // 作戰紀錄的重打
     const st = this.campStory();
     if (!st.mods || typeof st.mods !== 'object' || !Array.isArray(st.mods.list))
       st.mods = { chapter: 0, list: [] };
@@ -18,6 +19,10 @@ Object.assign(Game.prototype, {
     return st.mods.list;
   },
   campSetMods(list) {
+    if (this.camp && this.camp.replay) {
+      this.camp.rmods = list.map((m) => ({ ...m }));
+      return;
+    }
     const st = this.campStory();
     st.mods = { chapter: (st.mods && st.mods.chapter) || 0, list: list.map((m) => ({ ...m })) };
   },

@@ -20,6 +20,7 @@ export const SPEAKERS = {
   sancta: { name: '聖域 協調人', color: '#e0d070', mark: 'S', faction: 'sancta' },
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
+  prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
 };
 
 // 戰區總覽圖的區域：x, y 是 0～100 的相對座標；章節依序開放
@@ -167,7 +168,80 @@ export const COMMS = [
   {
     event: 'sortieEnd',
     sid: 'c1s2',
-    lines: [['veerwell', '震動停止了。探勘隊的殘骸……我們會去回收。謝謝你，傭兵。']],
+    lines: [
+      ['veerwell', '震動停止了。探勘隊的殘骸……我們會去回收。謝謝你，傭兵。'],
+      ['echo', '南部荒野的委託全部完成。中部工業帶的委託方已經在找你了。'],
+    ],
+  },
+  // ---- 第 1 章的宿敵（data/foes.js 的專屬 AC） ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'rust',
+    once: true,
+    lines: [
+      ['rust', '喲，新來的？這片荒野的廢鐵都是我的。'],
+      ['echo', '具名 AC「RUST」。拾荒傭兵，每次遇到的裝備都不一樣。'],
+      ['rust', '你那台機體的零件……看起來挺值錢的。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'rust',
+    lines: [
+      ['rust', '又是你！上次的帳還沒算完。'],
+      ['echo', 'RUST 換了一套裝備，注意它的武器。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'prospector',
+    once: true,
+    lines: [
+      ['prospector', '這條礦脈我先佔了。滾出去，或是埋在這裡。'],
+      ['echo', '具名 AC「PROSPECTOR」。重裝、打樁機加霰彈，別讓它貼近。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'prospector',
+    lines: [
+      ['prospector', '還敢下來？坑道裡沒有地方讓你跑。'],
+      ['echo', '保持距離，用 QB 甩開它的打樁。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'RUST',
+    lines: [
+      ['rust', '哈！你的零件我收下了。'],
+      ['echo', 'RUST 的裝備每次都不同，先看清楚它拿什麼再決定距離。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'PROSPECTOR',
+    lines: [
+      ['prospector', '礦坑不歡迎外人。'],
+      ['echo', 'PROSPECTOR 的打樁打中就會失衡。不要在它正面停下來。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'wasteland',
+    type: 'battle',
+    once: true,
+    lines: [['echo', '拾荒 MT 的反應。它們會撿同伴的零件變強，先打落單的。']],
+  },
+  {
+    event: 'segStart',
+    theme: 'desert',
+    type: 'destroy',
+    once: true,
+    lines: [['echo', '小心礦車，它們裝滿了炸藥。等它們靠近其他敵人再引爆。']],
   },
   // ---- 失敗 ----
   { event: 'fail', fails: 3, lines: [['echo', '已經第三次了。換個裝備試試看？重量和射程都會影響打法。']] },

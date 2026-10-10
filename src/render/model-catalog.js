@@ -8,6 +8,7 @@
 import { withRng } from '../core/math.js';
 import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/enemies.js';
 import { buildBossModel } from './boss-models.js';
+import { FOE_CATALOG } from './foe-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
 import { PIECE_NAMES, SIDE_NAMES, buildMech, buildPiece, partPieces } from './mech-model.js';
@@ -291,6 +292,20 @@ for (const [key, d] of Object.entries(PART_DEFS))
     name: `Boss 部位・${d.name}`,
     note: '附屬部位（獨立血量）',
     pal: 'boss',
+    gameScale: 1,
+    spec: 'vehicle-boss',
+    noGlb: true,
+    build: (k) => wholeRig(buildBossModel(key, pal(k), 1), 1),
+  });
+
+// 主題專屬敵人的程式模型（render/foe-models.js）：目前只預覽，不接受 GLB
+for (const [key, name, note] of FOE_CATALOG)
+  add({
+    id: `vehicle/foe_${key}`,
+    cat: 'vehicle',
+    name,
+    note,
+    pal: 'enemy',
     gameScale: 1,
     spec: 'vehicle-boss',
     noGlb: true,

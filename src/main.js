@@ -36,5 +36,7 @@ import './game/hub.js';
 import './game/tactics.js';
 import './game/campaign-mp.js';
 import './entities/mech-objective.js';
+import './entities/mech-foe.js';
+import './game/sim.js';
 
 new Game();

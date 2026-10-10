@@ -16,6 +16,7 @@ import {
 } from '../data/campaign.js';
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
 import { AC_ROSTER, PART_DEFS } from '../data/enemies.js';
+import { ACES, THEME_ACE } from '../data/foes.js';
 import { SPEAKERS, speakerBadge } from '../data/story.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
@@ -50,6 +51,9 @@ const CK_KEYS = [
   'mods0',
   'modNext',
   'carryBy',
+  'replay',
+  'heat',
+  'rmods',
 ];
 // 情報區段下載到的內容（第 3 期換成劇情資料表）
 const INTEL = {
@@ -82,6 +86,7 @@ Object.assign(Game.prototype, {
       theme: so.segs[c.seg].theme,
       chapter: so.chapter,
       fails: c.fails,
+      ace: (c.ss && c.ss.ace) || '',
       cycle: this.campStory().cycle || 1,
       ...extra,
     };
@@ -111,7 +116,8 @@ Object.assign(Game.prototype, {
   },
 
   // ---------- 出擊開始／紀錄點 ----------
-  campBegin(sid = SORTIE_DEFAULT) {
+  // o.replay＝從作戰紀錄重打（模組從零開始、不影響這一章持有的）、o.heat＝危險條款
+  campBegin(sid = SORTIE_DEFAULT, o = {}) {
     const so = SORTIES[sid],
       st = this.campStory();
     const plan = planSortie(so, Math.random, st.recent);
@@ -131,10 +137,15 @@ Object.assign(Game.prototype, {
       earned: 0,
       time: 0,
       fails: 0,
+      replay: !!o.replay,
+      heat: o.heat || {},
+      rmods: [],
     };
     // 戰術模組：這一章持有的（換章時清空）；放棄出擊時退回出擊開始時的狀態
     this.camp.mods0 = this.campMods(so.chapter).map((m) => ({ ...m }));
-    const pool0 = so.segs[0].pool.filter((t) => this.campTypeOk(t, 0));
+    const pool0 = so.segs[0].pool.filter(
+      (t) => this.campTypeOk(t, 0) && !(o.heat && o.heat.nosupply && t === 'supply'),
+    );
     this.camp.types[0] = pick(pool0.length ? pool0 : ['battle']);
     this.campCheckpoint();
     this.campShowTrans(TRANSITIONS.drop, true);
@@ -225,7 +236,7 @@ Object.assign(Game.prototype, {
     this.levelName = this.campSegName();
     this.isBossLevel = !!bd;
     this.enemyPointsTotal = 0;
-    const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
+    const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)) * (c.heat && c.heat.shield ? 1.35 : 1),
       scaleDmg = 1 + (L - 1) * 0.06;
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
@@ -281,18 +292,30 @@ Object.assign(Game.prototype, {
       ss = c.ss,
       sh = this.scaleHp,
       sd = this.scaleDmg;
-    const comp = (lv) => this.rollComp(Math.max(1, lv), ss.np || 1);
+    const seg = this.campSortie().segs[c.seg],
+      p = c.plan[c.seg] || {};
+    // 一般敵人＋主題專屬敵人（data/foes.js）
+    const comp = (lv) => this.foeMix(this.rollComp(Math.max(1, lv), ss.np || 1), seg.theme, p.depth || 0);
     if (type === 'boss') {
       this.spawnBossDef(bd, sh, sd);
+      if (bd.kind) this.simMark('bosses', bd.kind);
+      // 危險條款：Boss 一開始就是第二型態
+      if (c.heat && c.heat.p2) for (const b of this.bosses) b.forceP2 = true;
       document.getElementById('bossBar').style.display = 'block';
       document.getElementById('bossName').textContent = bd.name;
     } else if (type === 'elite') {
       // 具名 AC（強化）＋少數護衛
-      const key = pick(Object.keys(AC_ROSTER));
-      const r = AC_ROSTER[key];
+      // 主題的專屬 AC（劇情角色）；沒有時用一般的具名 AC
+      const ace = THEME_ACE[seg.theme];
+      const key = ace || pick(Object.keys(AC_ROSTER));
+      const r = ace ? ACES[ace] : AC_ROSTER[key];
+      if (ace) {
+        ss.ace = ace;
+        this.simMark('aces', ace);
+      }
       const e = this.spawnEnemy({
         name: r.name,
-        asm: r.asm,
+        asm: r.randomAsm ? this.foeRandomAsm() : r.asm,
         pal: r.pal,
         scale: 1,
         hpMul: r.hpMul * sh * 1.6,
@@ -647,7 +670,9 @@ Object.assign(Game.prototype, {
       next = so.segs[ni];
     if (!next) return;
     const mode = transMode(cur, next);
-    let types = next.pool.filter((t) => this.campTypeOk(t, ni));
+    let types = next.pool.filter(
+      (t) => this.campTypeOk(t, ni) && !(c.heat && c.heat.nosupply && t === 'supply'),
+    );
     if (!types.length) types = ['battle'];
     types = types.sort(() => Math.random() - 0.5);
     // 獎勵：一般獎勵與委託方的戰術模組混合，至少一個出口是模組
@@ -709,6 +734,12 @@ Object.assign(Game.prototype, {
     const p = this.player;
     if (!p) return;
     w.tickZone(dt);
+    // 危險條款：限時 25 分鐘
+    if (c.heat && c.heat.timed && c.time > 1500 && this.state === 'play') {
+      this.flashMsg('超過作戰時限', 0xff4d4d, 3);
+      this.state = 'ending';
+      return this.campDead(true);
+    }
     // Boss 剩一半時的通訊
     if (this.bosses && this.bosses.length && this.isBossLevel && !ss.half) {
       const hp = this.bosses.reduce((a, b) => a + Math.max(0, b.hp), 0),
@@ -1089,12 +1120,12 @@ Object.assign(Game.prototype, {
     const e = xpAll[mp ? this.net.me : 0];
     let bonus = 0;
     if (success) {
-      bonus = so.reward;
+      bonus = Math.round((so.reward * this.heatMul(c.heat)) / 100) * 100; // 危險條款的報酬加成
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       this.campComm('sortieEnd', this.campCtx());
-      // 整章都完成時戰術模組清空
-      if (this.campChapterCheck(so.chapter)) {
+      // 整章都完成時戰術模組清空（重打不影響）
+      if (!c.replay && this.campChapterCheck(so.chapter)) {
         c.endPick = null; // 整章完成：模組重置，不再選
         this.flashMsg('章節完成：戰術模組重置', 0xffd060, 3);
       }
@@ -1119,6 +1150,7 @@ Object.assign(Game.prototype, {
       ['完成區段', `${segsDone} / ${so.segs.length}`],
       ['作戰時間', `${mm} 分 ${String(ss).padStart(2, '0')} 秒`],
       ['重試次數', String(c.fails)],
+      ...(c.replay ? [['作戰紀錄', this.heatNames(c.heat).join('、') || '無危險條款']] : []),
       ['擊破數', String(c.stats[0] ? c.stats[0].kills : 0)],
       ['報酬（已即時入帳）', '+' + c.earned.toLocaleString()],
       ['作戰完成報酬', '+' + bonus.toLocaleString()],

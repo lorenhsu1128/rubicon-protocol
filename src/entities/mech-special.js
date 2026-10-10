@@ -137,6 +137,7 @@ Object.assign(MechEntity.prototype, {
   // 受傷前的修正：回傳 [傷害, 衝擊]，或 null 表示完全擋下
   specialDefense(dmg, impact, from, at, melee, wid) {
     const g = this.game;
+    [dmg, impact] = this.foeDefense(dmg, impact); // 廢鐵合成體的外殼（mech-foe.js）
     const bd = this.bossDefense(dmg, impact, from, at, wid, melee);
     if (!bd) return null;
     [dmg, impact] = bd;
@@ -377,6 +378,9 @@ Object.assign(MechEntity.prototype, {
         this.dropshipAI(dt, dir, wish, pl);
         if (this.gone) r.done = true;
         return r;
+      case 'drill':
+      case 'junk':
+        return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);
   },

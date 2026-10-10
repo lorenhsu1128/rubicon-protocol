@@ -6,6 +6,7 @@
 import { CB, P, bakeAll, gBox, gCyl, gSph, kitVents } from './geometry.js';
 import { mechMats } from './materials.js';
 import { tagStyle } from './style/shader.js';
+import { FOE_BUILDERS } from './foe-models.js';
 
 const glow = (color, k = 1.6) =>
   new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: k, roughness: 0.4 });
@@ -756,6 +757,7 @@ const BUILDERS = {
   jet: buildJet,
   dozer: buildDozer,
   ibis: buildIbis,
+  ...FOE_BUILDERS, // 主題專屬敵人（foe-models.js）
 };
 export const BOSS_MODEL_KEYS = Object.keys(BUILDERS);
 export function buildBossModel(key, pal, scale = 1) {

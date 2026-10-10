@@ -4725,6 +4725,177 @@ async function testCampaign2(browser, base) {
   await ctx.close();
 }
 
+// 主線第 6 期：第 1 章內容（荒野、礦坑的專屬敵人、專屬 AC 與通訊）、模擬器與教官考核、作戰紀錄與危險條款
+async function testChapter1(browser, base) {
+  console.log('第 1 章：專屬敵人與 AC、模擬器、教官考核、作戰紀錄與危險條款');
+  const { ctx, page } = await newPage(browser, 'ch1');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  // 區段的編成混進主題專屬敵人；礦坑深層才有結晶無人機
+  const mix = await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1s2');
+    const names = new Set();
+    for (let i = 0; i < 6; i++) {
+      g.camp.seg = 3;
+      g.camp.types[3] = 'battle';
+      g.camp.plan[3].depth = 2;
+      g.campEnterSeg();
+      for (const e of g.enemies) names.add(e.name);
+      g.waves.flat().forEach((t) => names.add(t));
+    }
+    return [...names];
+  });
+  check(
+    mix.some((n) => ['鑽頭採礦機', '炸藥礦車', '結晶寄生無人機', 'drill', 'cart', 'crystal'].includes(n)),
+    '礦坑的區段混進專屬敵人（' + mix.slice(0, 8).join('、') + '）',
+  );
+  // 各專屬敵人的行為
+  const fx = await page.evaluate(() => {
+    const g = window.__game;
+    g.camp.types[3] = 'supply';
+    g.campEnterSeg(); // 沒有敵人的區段
+    g.state = 'foe-test';
+    const p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const at = (x, z) => new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
+    const out = {};
+    // 鑽頭採礦機：貼身鑽擊
+    const dr = g.spawnType('drill', 1, 1, at(2, 0));
+    const h0 = p.hp;
+    for (let i = 0; i < 120; i++) {
+      g.time += 1 / 60;
+      dr.updateAI(1 / 60);
+    }
+    out.drill = h0 - p.hp;
+    dr.takeDamage(1e9, 0, p, dr.center(), new THREE.Vector3(0, 0, 1));
+    // 廢鐵合成體：外殼吸收傷害
+    const jk = g.spawnType('junk', 1, 1, at(-20, 0));
+    jk.updateAI(1 / 60);
+    const j0 = jk.hp;
+    jk.takeDamage(1000, 0, p, jk.center(), new THREE.Vector3(0, 0, 1));
+    out.junk = { hurt: j0 - jk.hp, shell: jk.shell, max: jk.shellMax };
+    jk.takeDamage(1e9, 0, p, jk.center(), new THREE.Vector3(0, 0, 1));
+    // 拾荒 MT：同伴被擊破時撿零件強化
+    const s1 = g.spawnType('scav', 1, 1, at(30, 0), 2);
+    const sc = g.enemies.filter((e) => !e.dead && e.opts.foe === 'scav');
+    const m0 = sc[1].maxHp;
+    sc[0].takeDamage(1e9, 0, p, sc[0].center(), new THREE.Vector3(0, 0, 1));
+    out.scav = { n: sc[1].scavN || 0, up: sc[1].maxHp > m0 };
+    void s1;
+    g.state = 'play';
+    return out;
+  });
+  check(fx.drill > 0, '鑽頭採礦機：貼身鑽擊造成傷害（' + Math.round(fx.drill) + '）');
+  check(
+    fx.junk.hurt <= 250 && fx.junk.shell < fx.junk.max,
+    '廢鐵合成體：外殼吸收大部分傷害（1000 → ' + Math.round(fx.junk.hurt) + '）',
+  );
+  check(fx.scav.n === 1 && fx.scav.up, '拾荒 MT：同伴被擊破時撿零件強化');
+  // 精英區段：荒野是 RUST（劇情通訊）、礦坑是 PROSPECTOR
+  const el = await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+    g.campBegin('c1s1');
+    const r = [];
+    for (const [seg, th] of [
+      [1, 'wasteland'],
+      [3, 'desert'],
+    ]) {
+      g.camp.seg = seg;
+      g.camp.types[seg] = 'elite';
+      g.campEnterSeg();
+      r.push(g.bosses[0].name + ':' + th);
+    }
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    return { r, rust: log.includes('rust'), pro: log.includes('prospector') };
+  });
+  check(
+    el.r[0].startsWith('RUST') && el.r[1].startsWith('PROSPECTOR') && el.rust && el.pro,
+    '精英區段：荒野是 RUST、礦坑是 PROSPECTOR，各自有通訊（' + el.r.join('、') + '）',
+  );
+  // 模擬器：列出遇過的敵人與宿敵；模擬戰清除後回機庫
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+    g.openHub();
+  });
+  await waitVisible(page, 'hub');
+  await page.click('#btnHubSim');
+  check(await waitVisible(page, 'simMenu'), '機庫的模擬器');
+  const items = await page.$$eval('.simItem', (l) => l.map((b) => b.dataset.k + ':' + b.dataset.key));
+  check(
+    items.includes('ace:rust') &&
+      items.includes('ace:prospector') &&
+      items.some((i) => i.startsWith('foe:drill')),
+    '模擬器列出遇過的專屬敵人與宿敵（' + items.length + ' 項）',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-sim.png') });
+  await page.click('.simItem[data-k="foe"][data-key="drill"]');
+  const sim = await page.evaluate(() => ({
+    st: window.__game.state,
+    theme: window.__game.worldTheme,
+    n: window.__game.enemies.length,
+  }));
+  check(sim.st === 'play' && sim.theme === 'grid' && sim.n >= 2, '模擬戰：在模擬訓練場重現遇過的敵人');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.waves = [];
+    for (const e of g.enemies)
+      if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  check(await waitVisible(page, 'result', 8000), '模擬戰清除後顯示結果');
+  await page.click('#btnResultOk');
+  check(await waitVisible(page, 'hub'), '模擬戰結果返回機庫');
+  // 教官考核：通過解鎖零件
+  const ins = await page.evaluate(async () => {
+    const g = window.__game;
+    const had = g.save.owned.includes('w_saber');
+    g.simStart('instructor', 'instructor');
+    g.waves = [];
+    for (const e of g.enemies) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    await new Promise((r) => setTimeout(r, 2500));
+    return { had, now: g.save.owned.includes('w_saber'), passed: !!g.save.story.instructor };
+  });
+  check(!ins.had && ins.now && ins.passed, '教官考核通過：解鎖 LS-70 光束大劍');
+  // 作戰紀錄：重打完成過的委託＋危險條款（敵人強化、補給中斷），模組從零開始
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done.c1s1 = 1;
+    g.campSetMods([{ id: 'c_power', lv: 2 }]);
+    g.openHub();
+  });
+  await waitVisible(page, 'hub');
+  await page.click('#btnHubRecord');
+  check(await waitVisible(page, 'record'), '機庫的作戰紀錄');
+  await page.check('#recHeat input[data-h="shield"]');
+  await page.check('#recHeat input[data-h="nosupply"]');
+  await page.click('#btnRecGo');
+  const rec = await page.evaluate(() => {
+    const g = window.__game,
+      c = g.camp;
+    return {
+      replay: c.replay,
+      heat: Object.keys(c.heat).sort().join(','),
+      mods: g.campMods().length,
+      kept: g.save.story.mods.list.length,
+    };
+  });
+  check(
+    rec.replay && rec.heat === 'nosupply,shield' && rec.mods === 0 && rec.kept === 1,
+    '作戰紀錄：重打帶著危險條款、模組從零開始（這一章持有的保留）',
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.camp.types[0] = 'battle';
+    g.campEnterSeg();
+  });
+  const sh = await page.evaluate(() => window.__game.scaleHp);
+  check(sh > 1.3, '危險條款「敵人強化」：敵人 AP 倍率提高（×' + sh.toFixed(2) + '）');
+  await ctx.close();
+}
+
 // 主線第 4 期：戰術模組（三選一、效果、升級、雙重模組、商店、紀錄點還原、放棄退回、整章完成清空）
 async function testModules(browser, base) {
   console.log('主線的戰術模組：三選一、效果、升級、雙重模組、商店、還原與清空');
@@ -5630,6 +5801,7 @@ async function main() {
     await testCampaign(browser, base);
     await testCampaign2(browser, base);
     await testModules(browser, base);
+    await testChapter1(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

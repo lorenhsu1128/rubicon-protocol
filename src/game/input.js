@@ -758,6 +758,11 @@ Object.assign(Game.prototype, {
       this.openPilot();
     };
     $('btnHubLog').onclick = () => this.hubLog(true);
+    $('btnHubSim').onclick = () => this.openSim();
+    $('btnHubRecord').onclick = () => this.openRecord();
+    $('btnSimBack').onclick = () => this.openHub();
+    $('btnRecBack').onclick = () => this.openHub();
+    $('btnRecGo').onclick = () => this.recordGo();
     $('btnHubLogClose').onclick = () => this.hubLog(false);
     $('btnHubBack').onclick = () => this.openGarage();
     $('btnBriefGo').onclick = () => this.briefGo();
@@ -805,6 +810,7 @@ Object.assign(Game.prototype, {
     $('btnAbort').onclick = () => {
       if (this.lab) return this.exitLab();
       if (this.camp) return this.campEnd(false, true); // 多人時 campEnd 會通知客機
+      if (this.sim) return this.simEnd(false);
       if (this.net && this.net.role === 'client') {
         this.net.leave(true);
         this.clearMission();
