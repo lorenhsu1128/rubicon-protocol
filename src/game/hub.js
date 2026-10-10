@@ -37,6 +37,7 @@ Object.assign(Game.prototype, {
     const ch = this.hubChapter();
     $('hubChapter').textContent = CHAPTER_NAMES[ch] || '';
     $('hubCoam').textContent = this.save.coam.toLocaleString();
+    $('hubMods').innerHTML = this.campModsHtml();
     // 進行中的出擊
     const ck = st.sortie;
     const so = ck && SORTIES[ck.sid];

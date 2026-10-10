@@ -87,6 +87,13 @@
 
     <div id="ui">
       <div id="comm"></div>
+      <!-- 主線：戰術模組的三選一與商店（game/tactics.js），遊戲暫停 -->
+      <div id="modPick">
+        <h2 id="mpTitle"></h2>
+        <div id="mpSub" class="dim"></div>
+        <div id="mpCards"></div>
+        <button id="mpSkip">略過</button>
+      </div>
       <!-- Title -->
       <div id="title" class="screen center">
         <div class="panel" style="max-width: 640px">
@@ -187,6 +194,7 @@
               <button class="primary" id="btnHubResume">繼續出擊</button>
               <button id="btnHubDrop">放棄紀錄點</button>
             </div>
+            <div id="hubMods" class="mySetBox"></div>
             <button id="btnHubGarage">車庫（組裝）</button>
             <button id="btnHubPilot">駕駛員（技能）</button>
             <button id="btnHubLog">通訊紀錄</button>
@@ -225,6 +233,7 @@
           <div class="ctBarW"><i id="ctBar"></i></div>
           <div id="ctNext"></div>
           <div id="ctReward" class="dim"></div>
+          <div id="ctMods"></div>
           <div id="ctBtns">
             <button class="primary" id="btnCampGo">直接出擊</button>
             <button id="btnCampGarage">進車庫整備</button>

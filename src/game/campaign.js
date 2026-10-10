@@ -46,6 +46,9 @@ const CK_KEYS = [
   'earned',
   'time',
   'fails',
+  'mods',
+  'mods0',
+  'modNext',
 ];
 // 情報區段下載到的內容（第 3 期換成劇情資料表）
 const INTEL = {
@@ -128,6 +131,8 @@ Object.assign(Game.prototype, {
       time: 0,
       fails: 0,
     };
+    // 戰術模組：這一章持有的（換章時清空）；放棄出擊時退回出擊開始時的狀態
+    this.camp.mods0 = this.campMods(so.chapter).map((m) => ({ ...m }));
     const pool0 = so.segs[0].pool.filter((t) => this.campTypeOk(t, 0));
     this.camp.types[0] = pick(pool0.length ? pool0 : ['battle']);
     this.campCheckpoint();
@@ -140,9 +145,11 @@ Object.assign(Game.prototype, {
     const fails = this.camp ? this.camp.fails : ck.fails || 0;
     this.camp = clone(ck);
     this.camp.fails = fails;
+    if (ck.mods) this.campSetMods(ck.mods); // 紀錄點之後拿到的模組不算
     return true;
   },
   campCheckpoint() {
+    this.camp.mods = this.campMods().map((m) => ({ ...m }));
     const ck = {};
     for (const k of CK_KEYS) ck[k] = this.camp[k];
     this.campStory().sortie = clone(ck);
@@ -193,7 +200,7 @@ Object.assign(Game.prototype, {
       name: 'RAVEN',
       palKey: 'player',
       slot: 0,
-      pilot: this.pilotLocalMods('pve'),
+      pilot: this.campPilotPm(), // 駕駛員（PvE）＋戰術模組
     });
     this.player.pos.set(0, this.world.terrainHeight(0, 0), 0);
     this.players = [this.player];
@@ -246,6 +253,12 @@ Object.assign(Game.prototype, {
       this.campComm('sortieStart', ctx);
     }
     this.campComm('segStart', ctx);
+    // 突破區段沒清除就離開時，選模組延到這一段開始
+    if (c.modNext) {
+      const f = c.modNext;
+      c.modNext = null;
+      setTimeout(() => this.camp && this.state === 'play' && this.campOpenPick(f), 600);
+    }
   },
   // 依區段類型生成敵人與目標物
   campSpawnType(type, L, bd) {
@@ -441,9 +454,12 @@ Object.assign(Game.prototype, {
       so = this.campSortie();
     if (this.campBlockClear()) return;
     c.cleared = true;
-    if (c.pending) this.campGrant(c.pending);
+    const last = c.seg >= so.segs.length - 1;
+    // 最後一段的模組獎勵在結果畫面選
+    if (c.pending && last && EXIT_REWARDS[c.pending].faction) c.endPick = EXIT_REWARDS[c.pending].faction;
+    else if (c.pending) this.campGrant(c.pending);
     c.pending = null;
-    if (c.seg >= so.segs.length - 1) {
+    if (last) {
       this.state = 'ending';
       this.flashMsg('作戰目標達成', 0x7ee081, 2);
       setTimeout(() => this.state === 'ending' && this.campEnd(true, false), 1800);
@@ -481,6 +497,10 @@ Object.assign(Game.prototype, {
       const v = 120 + L * 30;
       this.camp.xpBonus += v;
       this.flashMsg(`出口獎勵：駕駛員經驗 +${v}`, 0x7fc8ff, 2);
+    } else if (EXIT_REWARDS[k] && EXIT_REWARDS[k].faction) {
+      // 戰術模組：三選一（暫停遊戲）
+      if (this.state === 'play') this.campOpenPick(EXIT_REWARDS[k].faction);
+      else this.camp.modNext = EXIT_REWARDS[k].faction;
     }
   },
 
@@ -608,7 +628,14 @@ Object.assign(Game.prototype, {
     let types = next.pool.filter((t) => this.campTypeOk(t, ni));
     if (!types.length) types = ['battle'];
     types = types.sort(() => Math.random() - 0.5);
-    const rewards = Object.keys(EXIT_REWARDS).sort(() => Math.random() - 0.5);
+    // 獎勵：一般獎勵與委託方的戰術模組混合，至少一個出口是模組
+    const mods = Object.keys(EXIT_REWARDS)
+      .filter((k) => EXIT_REWARDS[k].faction)
+      .sort(() => Math.random() - 0.5);
+    const plain = Object.keys(EXIT_REWARDS)
+      .filter((k) => !EXIT_REWARDS[k].faction)
+      .sort(() => Math.random() - 0.5);
+    const rewards = [mods[0], ...[mods[1], plain[0], plain[1], mods[2]].sort(() => Math.random() - 0.5)];
     const n = Math.min(3, Math.max(2, types.length), rewards.length);
     const spots = this.campSpots(n, mode === 'relay' ? 'edge' : 'inner');
     // 轉場演出：同一次出擊盡量不重複
@@ -703,6 +730,7 @@ Object.assign(Game.prototype, {
         this.flashMsg('補給完成：AP 50%、彈藥 50%、修復套件 +1', 0x7ee081, 2.4);
         this.campDisposeGroup(ss.pad.group);
         ss.pad.group = null;
+        setTimeout(() => this.camp && this.state === 'play' && this.campOpenShop(), 900);
       }
     }
     if (ss.intel && !ss.intel.done && !p.dead) {
@@ -782,7 +810,9 @@ Object.assign(Game.prototype, {
     const c = this.camp;
     SFX.ui();
     if (!c.cleared && c.pending) {
-      this.campGrant(c.pending); // 突破：沒有全滅也發放
+      this.state = 'leaving';
+      this.campGrant(c.pending); // 突破：沒有全滅也發放（模組延到下一段選）
+      this.state = 'play';
       c.pending = null;
     }
     this.campCapture();
@@ -811,6 +841,7 @@ Object.assign(Game.prototype, {
     $('ctReward').textContent = c.pending
       ? `本區段清除後獲得：${EXIT_REWARDS[c.pending].name}（${EXIT_REWARDS[c.pending].desc}）`
       : '';
+    $('ctMods').innerHTML = this.campModsHtml();
     $('ctBtns').style.visibility = 'hidden';
     const bar = $('ctBar');
     bar.style.transition = 'none';
@@ -862,7 +893,7 @@ Object.assign(Game.prototype, {
     const cost = this.campCosts();
     const cy = c.carry;
     $('gCampInfo').innerHTML =
-      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b>`;
+      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b><div class="gCampMods">${this.campModsHtml()}</div>`;
     $('btnCampRepair').textContent = cost.repair
       ? `修理 AP（${cost.repair.toLocaleString()} COAM）`
       : 'AP 已滿';
@@ -993,7 +1024,12 @@ Object.assign(Game.prototype, {
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       this.campComm('sortieEnd', this.campCtx());
-    }
+      // 整章都完成時戰術模組清空
+      if (this.campChapterCheck(so.chapter)) {
+        c.endPick = null; // 整章完成：模組重置，不再選
+        this.flashMsg('章節完成：戰術模組重置', 0xffd060, 3);
+      }
+    } else if (c.mods0) this.campSetMods(c.mods0); // 失敗／放棄：退回出擊開始時的模組
     this.campResultHub = true; // 結果畫面的「確定」回到機庫
     st.sortie = null;
     this.writeSave();
@@ -1024,6 +1060,7 @@ Object.assign(Game.prototype, {
       .join('');
     $('btnResultOk').textContent = '返回機庫';
     this.showScreen('result');
+    if (success && c.endPick) this.campOpenPick(c.endPick);
   },
 
   // ---------- HUD ----------

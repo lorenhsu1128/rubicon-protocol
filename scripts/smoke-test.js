@@ -4168,6 +4168,7 @@ async function testCampaign(browser, base) {
   const { ctx, page } = await newPage(browser, 'camp');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true)); // 戰術模組直接選第一個（testModules 另外測）
   await page.evaluate(() => window.__game.openGarage());
   await waitVisible(page, 'garage');
   check(
@@ -4348,6 +4349,7 @@ async function testCampaign(browser, base) {
   // 重新整理：從標題的「主線」進機庫，顯示進行中的出擊（紀錄點存在存檔裡）
   await page.reload();
   await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
   await page.click('#btnStory');
   await waitVisible(page, 'hub');
   check(await visible(page, 'hubActive'), '重新整理後機庫顯示進行中的出擊（紀錄點存在存檔裡）');
@@ -4401,6 +4403,7 @@ async function testCampaign2(browser, base) {
   const { ctx, page } = await newPage(browser, 'camp2');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
   // 排程：同一次出擊的「變體＋地標」不重複，最後一段 Boss 用限定的開闊變體
   const plan = await page.evaluate(() => {
     const g = window.__game;
@@ -4719,6 +4722,136 @@ async function testCampaign2(browser, base) {
     '車庫的變體選單（' + opts.join('、') + '）',
   );
   await page.selectOption('#gMapSel', 'industrial');
+  await ctx.close();
+}
+
+// 主線第 4 期：戰術模組（三選一、效果、升級、雙重模組、商店、紀錄點還原、放棄退回、整章完成清空）
+async function testModules(browser, base) {
+  console.log('主線的戰術模組：三選一、效果、升級、雙重模組、商店、還原與清空');
+  const { ctx, page } = await newPage(browser, 'mods');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 三選一：暫停、三張卡片、選了寫進存檔
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1s1');
+    g.camp.types[0] = 'battle';
+    g.campEnterSeg();
+    g.campOpenPick('castron');
+  });
+  const pk = await page.evaluate(() => ({
+    st: window.__game.state,
+    on: document.getElementById('modPick').classList.contains('on'),
+    n: document.querySelectorAll('#mpCards .mpCard').length,
+  }));
+  check(pk.st === 'modpick' && pk.on && pk.n === 3, '模組三選一：暫停並顯示三張卡片');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'campaign-modpick.png') });
+  await page.click('#mpCards .mpCard button');
+  const got = await page.evaluate(() => ({
+    st: window.__game.state,
+    list: window.__game.save.story.mods.list.map((m) => m.id + ':' + m.lv),
+  }));
+  check(
+    got.st === 'play' && got.list.length === 1,
+    '選擇後寫進存檔並回到遊戲（' + got.list.join('、') + '）',
+  );
+  // 效果：AP、擊破回復、空中跳次數（從下一個區段生效）
+  const fx = await page.evaluate(() => {
+    const g = window.__game;
+    const base = { hp: g.player.maxHp, air: g.player.stats.parts.legs.airN };
+    g.campSetMods([
+      { id: 's_ap', lv: 2 },
+      { id: 's_heal', lv: 1 },
+      { id: 'v_air', lv: 1 },
+    ]);
+    g.campEnterSeg();
+    const p = g.player;
+    const after = { hp: p.maxHp, air: p.stats.parts.legs.airN };
+    p.hp = p.maxHp * 0.5;
+    const h0 = p.hp;
+    const e = g.enemies.find((x) => !x.dead);
+    e.takeDamage(1e9, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
+    return { base, after, heal: p.hp - h0, max: p.maxHp };
+  });
+  check(fx.after.hp > fx.base.hp, 'AP 模組：最大 AP 增加（' + fx.base.hp + ' → ' + fx.after.hp + '）');
+  check(
+    fx.after.air === fx.base.air + 1,
+    '空中機動：空中跳次數 +1（' + fx.base.air + ' → ' + fx.after.air + '）',
+  );
+  check(fx.heal > fx.max * 0.02, '回收迴路：擊破敵人時回復 AP（+' + Math.round(fx.heal) + '）');
+  // 升級：已持有的模組在選項裡以下一級出現；雙重模組在持有兩家時出現
+  const up = await page.evaluate(() => {
+    const g = window.__game;
+    g.autoPickMod = false;
+    let lv2 = false,
+      duo = false;
+    for (let i = 0; i < 30; i++) {
+      g.campOpenPick('sancta');
+      if (g.modOpts.some((o) => o.id === 's_ap' && o.lv === 3)) lv2 = true;
+      if (g.modOpts.some((o) => o.id.startsWith('d_'))) duo = true;
+      g.campClosePick();
+    }
+    return { lv2, duo };
+  });
+  check(up.lv2, '已持有的模組以下一級出現在選項（升級）');
+  check(up.duo, '持有兩家委託方的模組時出現雙重模組');
+  // 紀錄點：之後拿到的模組在重試時還原
+  const ck = await page.evaluate(() => {
+    const g = window.__game;
+    g.campCheckpoint();
+    const n0 = g.campMods().length;
+    g.campTakeMod({ id: 'c_power', lv: 1 });
+    const n1 = g.campMods().length;
+    g.campRestore();
+    return { n0, n1, n2: g.campMods().length };
+  });
+  check(
+    ck.n1 === ck.n0 + 1 && ck.n2 === ck.n0,
+    '從紀錄點重試：之後拿到的模組不算（' + ck.n0 + ' → ' + ck.n1 + ' → ' + ck.n2 + '）',
+  );
+  // 商店：補給台用完後出現，用 COAM 購買
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.coam = 1e6;
+    g.camp.seg = 2;
+    g.camp.types[2] = 'supply';
+    g.campEnterSeg();
+    const ss = g.camp.ss;
+    for (let i = 0; i < 40 && !ss.pad.used; i++) {
+      g.player.pos.set(ss.pad.pos.x, ss.pad.pos.y, ss.pad.pos.z);
+      g.campTick(0.05);
+    }
+  });
+  const shop = await page
+    .waitForFunction(() => window.__game.state === 'modpick', null, { timeout: 5000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  check(shop && (await page.textContent('#mpTitle')) === '補給站的商店', '補給台用完後打開商店');
+  const buy = await page.evaluate(() => {
+    const g = window.__game;
+    const c0 = g.save.coam,
+      n0 = g.campMods().length;
+    document.querySelector('#mpCards .mpCard button').click();
+    return { paid: c0 - g.save.coam, n: g.campMods().length - n0, st: g.state };
+  });
+  check(buy.paid > 0 && buy.st === 'play', '商店：花 ' + buy.paid.toLocaleString() + ' COAM 購買模組');
+  // 放棄出擊：退回出擊開始時（空）；整章完成：清空
+  const end = await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+    const ab = g.campMods().length;
+    g.campBegin('c1s1');
+    g.campSetMods([{ id: 'c_power', lv: 1 }]);
+    const st = g.campStory();
+    st.done.c1s2 = 1;
+    st.done.c1s1 = 1;
+    const reset = g.campChapterCheck(1);
+    return { ab, reset, after: g.campMods().length };
+  });
+  check(end.ab === 0, '放棄出擊：模組退回出擊開始時的狀態');
+  check(end.reset && end.after === 0, '第 1 章的委託全部完成：模組清空');
   await ctx.close();
 }
 
@@ -5325,6 +5458,7 @@ async function main() {
     await testBoundary(browser, base);
     await testCampaign(browser, base);
     await testCampaign2(browser, base);
+    await testModules(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

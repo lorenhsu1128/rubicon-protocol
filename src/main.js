@@ -33,6 +33,7 @@ import './game/fullscreen.js';
 import './game/campaign.js';
 import './game/comms.js';
 import './game/hub.js';
+import './game/tactics.js';
 import './entities/mech-objective.js';
 
 new Game();

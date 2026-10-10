@@ -1757,3 +1757,65 @@ body.lab #fps {
   flex-direction: column;
   gap: 8px;
 }
+
+/* 主線：戰術模組（game/tactics.js） */
+#modPick {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(4, 6, 10, 0.82);
+  padding: 16px;
+  z-index: 40;
+  pointer-events: auto;
+}
+#modPick.on {
+  display: flex;
+}
+#modPick h2 {
+  margin: 0;
+  color: var(--acc);
+}
+#mpCards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 6px 0;
+}
+.mpCard {
+  width: min(240px, calc(100vw - 32px));
+  border: 2px solid;
+  background: #0c1218;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mpCard b {
+  font-size: 17px;
+}
+.mpTag {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.mpCard .dim {
+  font-size: 12px;
+  line-height: 1.5;
+  flex: 1;
+}
+.modChip {
+  display: inline-block;
+  border: 1px solid;
+  padding: 1px 6px;
+  margin: 2px 4px 2px 0;
+  font-size: 11px;
+}
+#ctMods,
+.gCampMods,
+#hubMods {
+  font-size: 12px;
+}

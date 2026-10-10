@@ -403,7 +403,12 @@ export class Game {
       this.hctx.clearRect(0, 0, innerWidth, innerHeight);
       return;
     }
-    if (this.state === 'pause' || this.state === 'settings') {
+    if (this.state === 'modpick' && !this.world) {
+      this.renderer.setClearColor(0x0c1016);
+      this.renderer.clear();
+      return;
+    }
+    if (this.state === 'pause' || this.state === 'settings' || this.state === 'modpick') {
       this.renderMain();
       return;
     }

@@ -763,6 +763,7 @@ Object.assign(Game.prototype, {
     $('btnBriefGo').onclick = () => this.briefGo();
     $('btnBriefGarage').onclick = () => this.hubGarage();
     $('btnBriefBack').onclick = () => this.openHub();
+    $('mpSkip').onclick = () => this.campClosePick();
     $('btnCampGo').onclick = () => this.campGo();
     $('btnCampGarage').onclick = () => this.campGarage();
     $('btnCampGo2').onclick = () => this.campGarageGo();

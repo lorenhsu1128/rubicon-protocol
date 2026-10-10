@@ -216,7 +216,12 @@ export function applyPilotStats(st, pm) {
   const P = st.parts;
   const parts = {
     ...P,
-    legs: { ...P.legs, jumpH: P.legs.jumpH * upF(pm, 'jump'), airH: P.legs.airH * upF(pm, 'jump') },
+    legs: {
+      ...P.legs,
+      jumpH: P.legs.jumpH * upF(pm, 'jump'),
+      airH: P.legs.airH * upF(pm, 'jump'),
+      airN: P.legs.airN + Math.round(pm.airN || 0), // 主線的戰術模組
+    },
     booster: { ...P.booster, qb: P.booster.qb * upF(pm, 'qb'), qbCost: P.booster.qbCost * downF(pm, 'qbc') },
     generator: {
       ...P.generator,
@@ -253,6 +258,8 @@ const WEAPON_KEYS = [
   'mRch',
   'chg',
   'enWpn',
+  'imp',
+  'range',
 ];
 // 武器熟練度 lv 級的累積加成
 export function profBonus(type, lv) {

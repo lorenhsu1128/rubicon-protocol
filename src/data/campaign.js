@@ -54,6 +54,35 @@ export const EXIT_REWARDS = {
   coam: { name: '資金', icon: '¥', color: '#ffc040', desc: 'COAM 報酬' },
   repair: { name: '修理', icon: '✚', color: '#7ee081', desc: '回復 AP 35%、補給彈藥 35%' },
   xp: { name: '經驗', icon: '★', color: '#7fc8ff', desc: '駕駛員經驗' },
+  // 戰術模組（data/modules.js）：清除後從該委託方的模組三選一
+  mod_castron: {
+    name: '卡斯特隆模組',
+    icon: '◆',
+    color: '#d8903a',
+    desc: '實彈與衝擊的戰術模組',
+    faction: 'castron',
+  },
+  mod_aetheric: {
+    name: '艾瑟立克模組',
+    icon: '◆',
+    color: '#5ab8ff',
+    desc: '能量武器的戰術模組',
+    faction: 'aetheric',
+  },
+  mod_veerwell: {
+    name: '維爾威模組',
+    icon: '◆',
+    color: '#9be070',
+    desc: '機動的戰術模組',
+    faction: 'veerwell',
+  },
+  mod_sancta: {
+    name: '聖域模組',
+    icon: '◆',
+    color: '#e0d070',
+    desc: '防禦與修理的戰術模組',
+    faction: 'sancta',
+  },
 };
 
 // 區段類型（出口上預告）：goal＝HUD 的目標說明
