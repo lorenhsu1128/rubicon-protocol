@@ -1092,7 +1092,12 @@ async function mapMechanics(page, key) {
     // headless 的幀率低（遊戲時間比真實時間慢）：等到被拉回（扣 AP）為止，最多 10 秒
     for (let t = 0; t < 50 && r0; t++) {
       await wait(200);
-      if ((await page.evaluate(() => window.__game.player.hp)) < r0.hp0) break;
+      // 被拉回＝扣 AP 而且站回實地（敵機的子彈也會扣 AP，所以兩個都要看）
+      const st = await page.evaluate(() => {
+        const g = window.__game;
+        return { hp: g.player.hp, solid: !g.world.isVoid(g.player.pos.x, g.player.pos.z) };
+      });
+      if (st.hp < r0.hp0 && st.solid) break;
     }
     await wait(300);
     const r = await page.evaluate(() => {
@@ -1103,8 +1108,10 @@ async function mapMechanics(page, key) {
         y: p.pos.y,
         hp: p.hp,
         solid: !w.isVoid(p.pos.x, p.pos.z),
-        aiInVoid: g.enemies.filter((e) => !e.dead && !e.flying && w.isVoid(e.pos.x, e.pos.z) && e.pos.y < -1)
-          .length,
+        // 掉進虛空、已經低於拉回高度還沒被拉回的（正在往下掉的不算）
+        aiInVoid: g.enemies.filter(
+          (e) => !e.dead && !e.flying && w.isVoid(e.pos.x, e.pos.z) && e.pos.y < w.voidY - 1,
+        ).length,
       };
     });
     check(
@@ -1174,6 +1181,34 @@ async function testMaps(browser, base) {
       `${key}：場地 ${info.size} m（活動範圍 ±${info.lim.toFixed(0)}）、天氣粒子`,
     );
     await mapMechanics(page, key);
+    // 邊界（world/edges.js）：分段處理至少兩種、不是整圈隆起、有遠景地形；虛空地圖不改地形
+    const eg = await page.evaluate(() => {
+      const w = window.__game.world,
+        E = w.edges;
+      const far = w.meshes.some((m) => m.userData.farTerrain);
+      if (E.none) return { none: true, far };
+      let up = 0,
+        flat = 0;
+      const N = 72;
+      for (let i = 0; i < N; i++) {
+        const th = (i / N) * Math.PI * 2,
+          c = Math.cos(th),
+          s = Math.sin(th);
+        const k = (E.e0 + 30) / Math.max(Math.abs(c), Math.abs(s));
+        const x = c * k,
+          z = s * k;
+        const d = w.farHeight(x, z) - w.featureHeight(x, z, w.baseH(x, z));
+        if (d > 4) up++;
+        else if (d < 1.5) flat++;
+      }
+      return { kinds: new Set(E.arcs.map((a) => a.kind)).size, up, flat, N, far };
+    });
+    check(
+      eg.none ? !eg.far : eg.kinds >= 2 && eg.flat >= 4 && eg.up < eg.N * 0.8 && eg.far,
+      eg.none
+        ? `${key}：邊界是虛空（不改地形、沒有遠景地形）`
+        : `${key}：邊界分段 ${eg.kinds} 種處理、隆起 ${eg.up}／平地或往下 ${eg.flat}（共 ${eg.N} 個方向）、有遠景地形`,
+    );
     check(
       want.every((k) => info.kinds.includes(k)) && !info.kinds.some((k) => OLD.includes(k)),
       `${key}：專屬物件（${info.kinds.join('、')}），沒有舊地圖的貨櫃／卡車／岩石／路燈`,
@@ -4078,6 +4113,55 @@ async function testLockOn(browser, base) {
   await ctx.close();
 }
 
+// 作戰區域邊界：玩家超出 ±lim 時警告並推回（最遠到 limOut），電腦機體停在 ±lim
+async function testBoundary(browser, base) {
+  console.log('作戰區域邊界：警告、推回、電腦機體不出界');
+  const { ctx, page } = await newPage(browser, 'bound');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'bound-test';
+    const w = g.world,
+      pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const dt = 1 / 60;
+    const x0 = w.lim + 8;
+    pl.pos.set(x0, w.groundAt(x0, 0, 99) + 0.1, 0);
+    pl.vel.set(0, 0, 0);
+    g.drawHud(dt);
+    const warn = document.getElementById('oob').classList.contains('on');
+    // 一直往外推（按著往外走）：不會超過 limOut，最後被推回
+    let maxX = 0;
+    for (let i = 0; i < 240; i++) {
+      pl.move(dt, new THREE.Vector3(1, 0, 0), false, false, false, null);
+      maxX = Math.max(maxX, pl.pos.x);
+    }
+    const held = pl.pos.x;
+    for (let i = 0; i < 240; i++) pl.move(dt, new THREE.Vector3(), false, false, false, null);
+    const back = pl.pos.x;
+    g.drawHud(dt);
+    const off = !document.getElementById('oob').classList.contains('on');
+    // 電腦機體：停在 ±lim
+    const e = g.enemies.find((x) => !x.dead && !x.isBoss && x.move);
+    e.pos.set(w.lim + 6, w.groundAt(w.lim, 5, 99), 5);
+    e.move(dt, new THREE.Vector3(1, 0, 0), false, false, false, null);
+    const ai = e.pos.x <= w.lim + 1e-6;
+    g.clearMission();
+    g.state = 'title';
+    return { warn, maxX, held, back, off, ai, lim: w.lim, out: w.limOut };
+  });
+  check(r.warn, '超出作戰區域時顯示警告');
+  check(
+    r.maxX <= r.out + 1e-6 && r.held < r.lim + 8 && r.back <= r.lim + 0.5 && r.off,
+    `按著往外走也被推回（最遠 ${r.maxX.toFixed(1)}／上限 ${r.out.toFixed(0)}、按住時 ${r.held.toFixed(1)}、放開後 ${r.back.toFixed(1)}，作戰區域 ±${r.lim.toFixed(0)}）、回到場內警告消失`,
+  );
+  check(r.ai, '電腦機體停在作戰區域邊界');
+  await ctx.close();
+}
+
 // 第三批 Boss（game/bosses2.js、entities/mech-boss2.js）與出場等級：同樣以固定 dt 同步模擬
 async function testBosses2(browser, base) {
   console.log(
@@ -4677,6 +4761,7 @@ async function main() {
     await testBosses(browser, base);
     await testBosses2(browser, base);
     await testLockOn(browser, base);
+    await testBoundary(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

@@ -263,7 +263,8 @@ function planTerrain(w) {
   const half = w.size / 2;
   return (x, z) => {
     const e = Math.max(Math.abs(x), Math.abs(z)) / half;
-    const t = clamp((e - 0.62) / 0.2, 0, 1);
+    // 地圖外（e＞1，遠景地形）慢慢回到平地，不圍成一圈高台
+    const t = clamp((e - 0.62) / 0.2, 0, 1) * (1 - clamp((e - 1.1) / 0.35, 0, 1));
     return (n2(x * 0.1, z * 0.1) - 0.5) * 0.12 + t * t * (n(x * 0.03, z * 0.03) * 4 + 1);
   };
 }

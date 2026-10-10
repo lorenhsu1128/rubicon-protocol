@@ -244,6 +244,10 @@ Object.assign(Game.prototype, {
     const acsBar = document.getElementById('acsBar');
     acsBar.style.width = clamp((p.acs / p.acsMax) * 100, 0, 100) + '%';
     acsBar.classList.toggle('guard', p.stagGuardT > 0); // 失衡後保護中
+    // 離開作戰區域：警告（機體會被推回場內）
+    const oob = this.world ? Math.max(Math.abs(p.pos.x), Math.abs(p.pos.z)) - this.world.lim : 0;
+    const ob = document.getElementById('oob');
+    if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
     document.getElementById('kits').innerHTML =
       `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(Math.max(0, (p.kitsMax || 3) - p.kits))}</b>　<span class="dim">[R]</span>`;
     const alive = this.isClient ? this.clientAlive || 0 : this.enemies.filter((e) => !e.dead).length;

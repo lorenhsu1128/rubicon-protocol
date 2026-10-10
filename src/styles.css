@@ -312,6 +312,40 @@ table.keys td {
 #alert.on {
   opacity: 1;
 }
+/* 離開作戰區域的警告（畫面四周紅框閃爍） */
+#oob {
+  display: none;
+  position: absolute;
+  inset: 0;
+  padding-top: 30vh;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--danger);
+  text-shadow: 0 0 12px rgba(255, 80, 40, 0.6);
+  box-shadow: inset 0 0 110px rgba(255, 50, 20, 0.45);
+  pointer-events: none;
+  animation: oobBlink 0.9s ease-in-out infinite alternate;
+}
+#oob small {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: #ffd0c0;
+}
+#oob.on {
+  display: block;
+}
+@keyframes oobBlink {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
 #fps {
   position: absolute;
   right: 12px;

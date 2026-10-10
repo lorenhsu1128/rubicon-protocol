@@ -198,6 +198,21 @@ export class MechEntity {
   pilotEnt() {
     return this.team === 'player' && typeof this.slot === 'number' && !this.pvpAi;
   }
+  // 超出作戰區域（±lim）：往場內推回；最外到 limOut（collide 的 soft）。oob＝超出的距離
+  oobPush(w, dt) {
+    let ex = 0;
+    for (const a of ['x', 'z']) {
+      const p = this.pos[a],
+        e = Math.abs(p) - w.lim;
+      if (e <= 0) continue;
+      ex = Math.max(ex, e);
+      // 往外的速度上限越外面越低，超出 4 m 後只能往內；另外一直往內加速（放開按鍵也會慢慢回到場內）
+      const sg = Math.sign(p);
+      const v = Math.min(this.vel[a] * sg, 16 * (1 - e / 4)) - (16 + e * 3) * dt;
+      this.vel[a] = sg * v;
+    }
+    this.oob = ex;
+  }
   center() {
     return new THREE.Vector3(this.pos.x, this.pos.y + this.model.height * 0.5, this.pos.z);
   }
@@ -1196,6 +1211,7 @@ export class MechEntity {
         if (this.vel.y < -36) this.vel.y = -36;
       }
     }
+    if (this.pilotEnt()) this.oobPush(w, dt);
     // integrate
     const px0 = this.pos.x,
       pz0 = this.pos.z;
@@ -1224,7 +1240,7 @@ export class MechEntity {
       this.vel.y = Math.max(0, this.vel.y);
       this.grounded = true;
     } else if (this.pos.y > g2 + 0.15) this.grounded = false;
-    const [nx, nz] = w.collide(this.pos.x, this.pos.z, this.pos.y, this.radius * 0.8);
+    const [nx, nz] = w.collide(this.pos.x, this.pos.z, this.pos.y, this.radius * 0.8, this.pilotEnt());
     this.aiState.stuck =
       Math.abs(nx - this.pos.x) + Math.abs(nz - this.pos.z) > 0.05 ? this.aiState.stuck + dt : 0;
     this.pos.x = nx;

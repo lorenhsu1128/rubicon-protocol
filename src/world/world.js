@@ -60,6 +60,7 @@ import {
   stripMesh,
 } from './prop-models.js';
 import { Weather } from './weather.js';
+import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 import { DAM } from './themes/dam.js';
 import { FLOODED } from './themes/flooded.js';
 import { GRID086 } from './themes/grid086.js';
@@ -214,7 +215,8 @@ export class World {
     this.size = this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
     this.cells = Math.round(this.size / CELL);
-    this.lim = 62 * this.k; // 可活動範圍（collide 限制在 ±lim）
+    this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
+    this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
     this.trackS = (this.size / 2) * 0.86; // 公路／鐵路兩端隧道口
     this.level = level;
     this.seed = seed;
@@ -277,6 +279,14 @@ export class World {
       this.buildFeatures();
       this.buildProps();
     });
+    // 邊界外的遠景地形與剪影物件（edges.js，獨立的亂數串，不影響上面的生成）
+    withRng(seed * 97 + 41, () => {
+      for (const o of buildBackdrop(this) || []) {
+        scene.add(o);
+        this.meshes.push(o);
+      }
+    });
+    this.buildBoundary();
     // 天氣粒子：只有外觀，各端各自用 Math.random（不影響地圖）
     this.weather = this.theme.weather ? new Weather(scene, this.theme.weather, this.theme) : null;
   }
@@ -332,11 +342,15 @@ export class World {
         });
     }
     const lake = T.iceLake ? this.planIceLake() : null;
+    // 基本輪廓（地圖外的遠景地形也用它往外延伸，farHeight）
+    this.baseH = (x, z) =>
+      prof ? prof(x, z) : T.flat ? 0 : n(x * 0.03, z * 0.03) * 1.2 + n2(x * 0.1, z * 0.1) * 0.3;
+    this.edges = planEdges(this);
     for (let j = 0; j <= this.cells; j++)
       for (let i = 0; i <= this.cells; i++) {
         const x = i * CELL - this.size / 2,
           z = j * CELL - this.size / 2;
-        let h = prof ? prof(x, z) : T.flat ? 0 : n(x * 0.03, z * 0.03) * 1.2 + n2(x * 0.1, z * 0.1) * 0.3;
+        let h = this.baseH(x, z);
         for (const p of plateaus) {
           const dx = Math.max(Math.abs(x - p.x) - p.w / 2, 0),
             dz = Math.max(Math.abs(z - p.z) - p.d / 2, 0);
@@ -350,9 +364,7 @@ export class World {
           h += c.h * t * t;
         }
         if (lake) h = lake.apply(x, z, h);
-        const edge = Math.max(Math.abs(x), Math.abs(z)) / (this.size / 2);
-        const et = clamp((edge - 0.78) / 0.22, 0, 1);
-        h += et * et * 16 + n(x * 0.2, z * 0.2) * et * 4; // enclosing cliffs
+        h += edgeDelta(this, x, z); // 邊界外：依段落隆起、下降或延伸（edges.js）
         h = this.featureHeight(x, z, h);
         this.h[j * (this.cells + 1) + i] = h;
       }
@@ -425,7 +437,7 @@ export class World {
       this.meshes.push(ice);
     }
     if (T.grid) {
-      const gh = new THREE.GridHelper(this.size, this.size / 2.5, 0x6b7280, 0x8b93a0);
+      const gh = new THREE.GridHelper(this.size * 3, (this.size * 3) / 2.5, 0x6b7280, 0x8b93a0);
       gh.position.y = 0.04;
       gh.material.transparent = true;
       gh.material.opacity = 0.35;
@@ -532,6 +544,12 @@ export class World {
       return lerp(h, L.level, t * t * (3 - 2 * t));
     };
     return L;
+  }
+  // 地圖外（遠景地形）的高度：同樣的輪廓＋邊界處理＋地形特徵；地圖裡就是 terrainHeight
+  farHeight(x, z) {
+    const S = this.size / 2;
+    if (Math.abs(x) <= S && Math.abs(z) <= S) return this.terrainHeight(x, z);
+    return this.featureHeight(x, z, this.baseH(x, z) + edgeDelta(this, x, z));
   }
   onCorridor(x, z, margin = 2) {
     const c = this.corridor;
@@ -848,7 +866,7 @@ export class World {
   }
   // 水面（只有外觀）：{ level, color, opacity, rough, wide }
   addWater(W) {
-    const ext = this.size * (W.wide ? 2.4 : 1); // wide：海面延伸到地圖外（洋上都市、雲海）
+    const ext = (FAR_R + 40) * 2; // 一律延伸到遠景地形外（wide 的海面、雲海也是）
     const geo = new THREE.PlaneGeometry(ext, ext);
     geo.rotateX(-Math.PI / 2);
     const m = new THREE.Mesh(
@@ -871,7 +889,7 @@ export class World {
   }
   // 岩頂（地下）：朝下的平面，只從下方看得到（俯視的鏡頭看得穿），不擋陰影
   addRoof(R) {
-    const geo = new THREE.PlaneGeometry(this.size * 1.6, this.size * 1.6, 24, 24);
+    const geo = new THREE.PlaneGeometry((FAR_R + 40) * 2, (FAR_R + 40) * 2, 48, 48);
     geo.rotateX(Math.PI / 2);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++)
@@ -1871,7 +1889,8 @@ export class World {
     return g;
   }
   // horizontal collision push-out; returns [x,z]
-  collide(x, z, y, r) {
+  // soft：玩家機體可以超出作戰區域到 limOut（MechEntity.oobPush 推回）
+  collide(x, z, y, r, soft = false) {
     for (const o of this.obstacles) {
       if (o.kind === 'box') {
         if (y >= o.top - 0.6) continue;
@@ -1900,15 +1919,19 @@ export class World {
         }
       }
     }
-    // arena bounds + steep walls: keep inside lim（62 × k）
-    const lim = this.lim;
+    // 場地邊界：電腦機體 ±lim、玩家 ±limOut
+    const lim = soft ? this.limOut : this.lim;
     x = clamp(x, -lim, lim);
     z = clamp(z, -lim, lim);
     return [x, z];
   }
   // projectile vs world
   hitsWorld(p) {
-    if (p.y < this.terrainHeight(p.x, p.z) || p.y < this.rampHeight(p.x, p.z, p.y)) return true;
+    // 地圖外用遠景地形的高度（山脊、斷崖）
+    const S = this.size / 2;
+    const th =
+      Math.abs(p.x) > S || Math.abs(p.z) > S ? this.farHeight(p.x, p.z) : this.terrainHeight(p.x, p.z);
+    if (p.y < th || p.y < this.rampHeight(p.x, p.z, p.y)) return true;
     for (const o of this.obstacles) {
       if (o.kind === 'box') {
         if (Math.abs(p.x - o.x) < o.w / 2 && Math.abs(p.z - o.z) < o.d / 2 && p.y < o.top && p.y > o.y)
@@ -1953,8 +1976,69 @@ export class World {
       });
     }
   }
+  // 作戰區域邊界的警示光幕：機體靠近 ±lim 時在邊界上浮現（跟著機體在邊界上的投影位置，兩個方向各一片）
+  buildBoundary() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 128;
+    const c = cv.getContext('2d');
+    c.fillStyle = 'rgba(255,90,30,0.18)';
+    c.fillRect(0, 0, 128, 128);
+    c.strokeStyle = 'rgba(255,120,30,0.95)';
+    c.lineWidth = 9;
+    for (let k = -128; k < 256; k += 32) {
+      c.beginPath();
+      c.moveTo(k, 128);
+      c.lineTo(k + 128, 0);
+      c.stroke();
+    }
+    // 中央濃、四周淡出
+    c.globalCompositeOperation = 'destination-in';
+    const g = c.createRadialGradient(64, 64, 8, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    this.bWall = [0, 1].map(() => {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(46, 24),
+        new THREE.MeshBasicMaterial({
+          map: tex,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      m.visible = false;
+      m.renderOrder = 3;
+      this.scene.add(m);
+      this.meshes.push(m);
+      return m;
+    });
+  }
+  updateBoundary(p) {
+    if (!this.bWall || !p) return;
+    const L = this.lim;
+    for (let k = 0; k < 2; k++) {
+      const m = this.bWall[k];
+      const v = k ? p.z : p.x,
+        o = k ? p.x : p.z;
+      const t = clamp(1 - (L - Math.abs(v)) / 22, 0, 1);
+      const op = t * t * (3 - 2 * t) * 0.85;
+      m.visible = op > 0.01;
+      if (!m.visible) continue;
+      m.material.opacity = op;
+      const a = clamp(o, -this.limOut, this.limOut);
+      const x = k ? a : Math.sign(v) * L,
+        z = k ? Math.sign(v) * L : a;
+      m.position.set(x, Math.max(this.terrainHeight(x, z), p.y - 6) + 10, z);
+      m.rotation.y = k ? 0 : Math.PI / 2;
+    }
+  }
   // fade objects between camera and player
   updateOcclusion(camPos, playerPos, dt) {
+    this.updateBoundary(playerPos);
     const ray = new THREE.Ray(camPos.clone(), playerPos.clone().sub(camPos).normalize());
     const dist = camPos.distanceTo(playerPos);
     for (const o of this.occluders) {

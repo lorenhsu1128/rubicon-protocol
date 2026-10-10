@@ -266,9 +266,30 @@ function buildStructures(w) {
     }
   }
   if (!gates.some((g) => Math.abs(g.x - D.xr) < 30)) gates.push({ x: D.xr, gw: 16 });
+  // 坡道可放的位置（壩體下游側 zs＝dn 或上游側 −dn）：避開閘門、已有的坡道與公路／鐵路
+  const rl = 32,
+    rw = 6;
+  const rampZ = (zs) => zc + zs * (THICK / 2 + rw / 2);
+  const rampCands = (gs, zs) => {
+    const rz = rampZ(zs);
+    const ok = (rx) => {
+      if (gs.some((g) => Math.abs(g.x - rx) < g.gw / 2 + rl / 2 + 3)) return false;
+      if ((w.ramps || []).some((q) => Math.abs(q.x - rx) < rl + 10)) return false;
+      for (let q = -rl / 2; q <= rl / 2; q += 4) if (w.onCorridor(rx + q, rz, 2)) return false;
+      return true;
+    };
+    const out = [];
+    for (let rx = Math.ceil(-w.lim + rl / 2 + 4); rx <= w.lim - rl / 2 - 4; rx++) if (ok(rx)) out.push(rx);
+    return out;
+  };
+  // 多一座閘門：要留得下至少一座坡道
   for (let t = 0; t < 10; t++) {
     const x = rnd(-w.lim + 15, w.lim - 15);
-    if (gates.every((g) => Math.abs(g.x - x) > 34)) {
+    const gs = gates.concat([{ x, gw: 16 }]);
+    if (
+      gates.every((g) => Math.abs(g.x - x) > 34) &&
+      (rampCands(gs, dn).length || rampCands(gs, -dn).length)
+    ) {
       gates.push({ x, gw: 16 });
       break;
     }
@@ -337,44 +358,44 @@ function buildStructures(w) {
     w.occluders.push(ob);
   }
   w.reserve(-half, half, zc - THICK / 2 - 2, zc + THICK / 2 + 2);
-  // 坡道：沿壩體的下游側，往 −X 或 +X 爬升到壩頂
-  const rl = 32,
-    rw = 6;
-  const rz = zc + dn * (THICK / 2 + rw / 2);
+  // 坡道：沿壩體的下游側，往 −X 或 +X 爬升到壩頂。可放的位置逐一掃過再隨機挑（閘門多時空隙很窄，
+  // 隨機試幾次會挑不到）；下游側被閘門或沿著壩體的公路／鐵路佔滿時，改放在上游側（從水庫底爬上去）
   let made = 0;
-  for (let t = 0; t < 30 && made < 2; t++) {
-    const rx = rnd(-w.lim + rl / 2 + 4, w.lim - rl / 2 - 4);
-    if (gates.some((g) => Math.abs(g.x - rx) < g.gw / 2 + rl / 2 + 3)) continue;
-    if ((w.ramps || []).some((r) => Math.abs(r.x - rx) < rl + 10)) continue;
-    let bad = false;
-    for (let q = -rl / 2; q <= rl / 2; q += 4) if (w.onCorridor(rx + q, rz, 2)) bad = true;
-    if (bad) continue;
-    const side = [RNG() < 0.5 ? 1 : -1, 0];
-    const lowX = rx + side[0] * (rl / 2);
-    const ylow = w.terrainHeight(lowX, rz) - 0.3;
-    const rg = buildRampMesh(rl, rw);
-    rg.position.set(rx, (ylow + TOP) / 2 - 0.2, rz);
-    rg.rotation.z = -side[0] * Math.atan2(TOP - ylow, rl);
-    w.scene.add(rg);
-    w.meshes.push(rg);
-    // 坡道下方的擋牆（外觀）
-    const wall = box(
-      rl,
-      (TOP - ylow) / 2,
-      0.6,
-      mat(0x7d7b75, { roughness: 1 }),
-      rx - side[0] * (rl / 4),
-      ylow + (TOP - ylow) / 4,
-      rz + dn * (rw / 2),
-    );
-    w.scene.add(wall);
-    w.meshes.push(wall);
-    w.ramps = w.ramps || [];
-    w.ramps.push({ x: rx, z: rz, w: rl, d: rw, side, y0: ylow, y1: TOP, len: rl });
-    w.reserve(rx - rl / 2, rx + rl / 2, rz - rw / 2, rz + rw / 2);
-    made++;
+  for (const zs of [dn, -dn]) {
+    for (; made < 2; made++) {
+      const cand = rampCands(gates, zs);
+      if (!cand.length) break;
+      placeRamp(w, cand[Math.floor(RNG() * cand.length)], rampZ(zs), zs, rl, rw);
+    }
+    if (made) break;
   }
 }
+function placeRamp(w, rx, rz, zs, rl, rw) {
+  const side = [RNG() < 0.5 ? 1 : -1, 0];
+  const lowX = rx + side[0] * (rl / 2);
+  const ylow = w.terrainHeight(lowX, rz) - 0.3;
+  const rg = buildRampMesh(rl, rw);
+  rg.position.set(rx, (ylow + TOP) / 2 - 0.2, rz);
+  rg.rotation.z = -side[0] * Math.atan2(TOP - ylow, rl);
+  w.scene.add(rg);
+  w.meshes.push(rg);
+  // 坡道下方的擋牆（外觀）
+  const wall = box(
+    rl,
+    (TOP - ylow) / 2,
+    0.6,
+    mat(0x7d7b75, { roughness: 1 }),
+    rx - side[0] * (rl / 4),
+    ylow + (TOP - ylow) / 4,
+    rz + zs * (rw / 2),
+  );
+  w.scene.add(wall);
+  w.meshes.push(wall);
+  w.ramps = w.ramps || [];
+  w.ramps.push({ x: rx, z: rz, w: rl, d: rw, side, y0: ylow, y1: TOP, len: rl });
+  w.reserve(rx - rl / 2, rx + rl / 2, rz - rw / 2, rz + rw / 2);
+}
+
 function buildRampMesh(rl, rw) {
   const g = new THREE.Group();
   g.add(box(rl, 0.6, rw, mat(0x8a8882, { roughness: 0.95 })));
