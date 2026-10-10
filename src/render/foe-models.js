@@ -488,7 +488,86 @@ function buildLaserPost(pal, scale) {
   return rig(root, torso, M, { hand, type: 'laserpost', height: 4.3 * scale, extra: { bar } });
 }
 
+// 構造體爬行機：扁平的身體＋六隻多關節腳（高約 1.6 m）
+function buildCrawler(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 1.6, 0.6, 2.2, M.main, 0, 1.0, 0, 0, 0, 0, 0.1);
+  for (const z of [-0.8, 0, 0.8])
+    for (const s of [-1, 1]) {
+      P(torso, gBox(1.1, 0.14, 0.14), M.joint, s * 1.2, 1.15, z, 0, 0, s * -0.4);
+      P(torso, gBox(0.14, 1.2, 0.14), M.joint, s * 1.75, 0.6, z, 0, 0, s * 0.25);
+    }
+  P(torso, gCyl(0.08, 0.1, 1.0, 8), M.gun, 0, 1.1, -1.4, Math.PI / 2);
+  for (const s of [-1, 1]) P(torso, gSph(0.12, 8), glow(0xffa040, 1.8), s * 0.35, 1.2, -1.12);
+  const hand = new THREE.Group();
+  hand.position.set(0, 1.1, -1.9);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'crawler', height: 1.6 * scale });
+}
+// 平台底部砲塔：頂部的吊掛座＋倒吊的砲塔與雙管（原點在底部；吊在平台底面，高約 2 m）
+function buildUnderTurret(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 2.2, 0.3, 2.2, M.joint, 0, 2.0, 0, 0, 0, 0, 0.04);
+  P(torso, gCyl(0.25, 0.25, 0.6, 8), M.main2, 0, 1.6, 0);
+  P(torso, gSph(0.9, 12), M.main, 0, 0.9, 0);
+  for (const s of [-1, 1]) P(torso, gCyl(0.08, 0.1, 1.3, 8), M.gun, s * 0.25, 0.7, -0.95, Math.PI / 2 + 0.3);
+  P(torso, gSph(0.15, 8), glow(0xffa040, 2), 0, 0.6, -0.8);
+  const hand = new THREE.Group();
+  hand.position.set(0, 0.5, -1.5);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'underturret', height: 2 * scale });
+}
+// 推進器試車台：台座＋大型噴口（朝 −Z）＋控制台（高約 4 m，不移動）
+function buildTestRig(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 3.6, 1.2, 4, M.joint, 0, 0.6, 0.4, 0, 0, 0, 0.08);
+  P(torso, gCyl(1.0, 1.6, 3.2, 14), M.gun, 0, 2.4, -0.8, Math.PI / 2);
+  P(torso, gCyl(1.1, 1.1, 0.2, 14), glow(0xff8a30, 1.2), 0, 2.4, -2.45, Math.PI / 2);
+  CB(torso, 1.6, 2.2, 1.4, M.main, 0, 2.2, 1.9, 0, 0, 0, 0.08);
+  P(torso, gBox(1.2, 0.5, 0.05), glow(0x60c0ff, 1.4), 0, 2.8, 1.18);
+  const hand = new THREE.Group();
+  hand.position.set(0, 2.4, -2.6);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'testrig', height: 4 * scale });
+}
+// 舊式宇宙用 MT：圓胖的機身、背上的姿勢控制推進器、短腳（高約 3 m）
+function buildSpaceMt(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  for (const s of [-1, 1]) {
+    CB(torso, 0.6, 1.2, 0.7, M.joint, s * 0.6, 0.6, 0, 0, 0, 0, 0.06);
+    CB(torso, 0.8, 0.3, 1.1, M.main2, s * 0.6, 0.15, -0.1, 0, 0, 0, 0.04);
+  }
+  P(torso, gSph(1.1, 12), M.main, 0, 1.9, 0);
+  P(torso, gBox(1.0, 0.5, 0.1), glow(0x60c0ff, 1.4), 0, 2.1, -1.0);
+  for (const s of [-1, 1]) P(torso, gCyl(0.25, 0.3, 0.8, 8), M.main2, s * 0.8, 2.1, 0.9, 0.4);
+  P(torso, gCyl(0.08, 0.1, 1.2, 8), M.gun, 0.9, 1.7, -0.8, Math.PI / 2);
+  const hand = new THREE.Group();
+  hand.position.set(0.9, 1.7, -1.5);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'spacemt', height: 3 * scale });
+}
+
 export const FOE_BUILDERS = {
+  crawler: buildCrawler,
+  underturret: buildUnderTurret,
+  testrig: buildTestRig,
+  spacemt: buildSpaceMt,
   blob: (pal, scale) => buildBlob(pal, scale),
   chimera: (pal, scale) => buildBlob(pal, scale, true),
   laserpost: buildLaserPost,
@@ -509,6 +588,10 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['crawler', '構造體爬行機', 'Grid 086 專屬；沿柱子爬上平台'],
+  ['underturret', '平台底部砲塔', 'Grid 086 專屬；吊在上層平台的底面往下射'],
+  ['testrig', '推進器試車台', '舊宇宙港專屬；噴口定期噴火橫掃'],
+  ['spacemt', '舊式宇宙用 MT', '舊宇宙港專屬；低重力設計，跳得高、滯空久'],
   ['blob', '實驗體', '技研都市專屬；成群撲咬，三隻以上聚集會融合'],
   ['chimera', '融合實驗體', '技研都市專屬；實驗體融合而成的大型個體'],
   ['laserpost', '保全雷射網', '技研都市專屬；旋轉的雷射柵欄，碰到會觸發警報叫增援'],

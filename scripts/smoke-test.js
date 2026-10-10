@@ -5939,6 +5939,180 @@ async function testChapter3(browser, base) {
   await ctx.close();
 }
 
+// 主線第 4 章：Grid 086（構造體爬行機、平台底部砲塔、SPIRE）、舊宇宙港（推進器試車台、舊式宇宙用 MT、COUNTDOWN）
+// 的專屬敵人、變體與地標
+async function testChapter4(browser, base) {
+  console.log('第 4 章：Grid 086、舊宇宙港的專屬敵人與 AC、變體與地標');
+  const { ctx, page } = await newPage(browser, 'ch4');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        g.player.hp = g.player.maxHp = 1e6;
+      },
+      [theme, variant],
+    );
+  // 共用：主迴圈不跑 AI，逐格推進
+  await page.evaluate(() => {
+    window.__step = (ents, n, stop) => {
+      const g = window.__game,
+        p = g.player;
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        p.iFrames = 0;
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+        g.projectiles = g.projectiles.filter((q) => !q.dead);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+  });
+  await enter('grid086', '');
+  const gr = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const out = {};
+    // 玩家站上第一層平台，爬行機從地面爬上來
+    const deck = w.obstacles.find(
+      (o) => o.kind === 'box' && o.deck && Math.abs(o.top - 11) < 0.5 && Math.hypot(o.x, o.z) > 20,
+    );
+    out.deck = !!deck;
+    if (deck) {
+      p.pos.set(deck.x, deck.top, deck.z);
+      p.vel.set(0, 0, 0);
+      const ex = deck.x + deck.w / 2 + 6,
+        ez = deck.z;
+      const cr = g.spawnType('crawler', 1, 1, new THREE.Vector3(ex, w.terrainHeight(ex, ez), ez), 1);
+      let top = 0;
+      window.__step([cr], 900, () => {
+        top = Math.max(top, cr.pos.y);
+        return cr.pos.y > deck.top - 1;
+      });
+      out.climb = { top, deck: deck.top };
+      cr.takeDamage(1e9, 0, p, cr.center(), new THREE.Vector3(0, 0, 1));
+    }
+    // 平台底部砲塔：吊到平台的底面
+    const ut = g.spawnType('underturret', 1, 1);
+    window.__step([ut], 30);
+    out.hang = { dy: ut.pos.y - w.terrainHeight(ut.pos.x, ut.pos.z), fly: ut.flying, hang: ut.aiState.hang };
+    ut.takeDamage(1e9, 0, p, ut.center(), new THREE.Vector3(0, 0, 1));
+    return out;
+  });
+  check(
+    gr.deck && gr.climb && gr.climb.top > gr.climb.deck - 1,
+    '構造體爬行機：沿柱子爬上平台（' + JSON.stringify(gr.climb) + '）',
+  );
+  check(
+    gr.hang.fly && gr.hang.dy > 5,
+    '平台底部砲塔：吊在平台的底面（離地 ' + gr.hang.dy.toFixed(1) + ' m）',
+  );
+  const sp = await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const e = g.bosses[0];
+    g.player.hp = g.player.maxHp = 1e6;
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    window.__step([e], 120);
+    return { name: e && e.name, comm: log.includes('spire'), perch: !!e.aiState.perch };
+  });
+  check(sp.name === 'SPIRE' && sp.comm && sp.perch, '精英區段：Grid 086 是 SPIRE（找高處的平台），有通訊');
+  // 舊宇宙港：推進器試車台、舊式宇宙用 MT
+  await enter('spaceport', 'runway');
+  const spc = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    const at = (dx, dz) => {
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+    };
+    const out = {};
+    const tr = g.spawnType('testrig', 1, 1, at(0, -12), 1);
+    const h0 = p.hp;
+    let warn = false;
+    window.__step([tr], 900, () => {
+      if (tr.bossVis === 1) warn = true;
+      return warn && p.hp < h0;
+    });
+    out.rig = { warn, hurt: h0 - p.hp };
+    tr.takeDamage(1e9, 0, p, tr.center(), new THREE.Vector3(0, 0, 1));
+    const hm = g.spawnType('spacemt', 1, 1, at(0, -20), 1);
+    let alt = 0;
+    window.__step([hm], 400, () => {
+      alt = Math.max(alt, hm.pos.y - w.terrainHeight(hm.pos.x, hm.pos.z));
+      return false;
+    });
+    out.hop = alt;
+    hm.takeDamage(1e9, 0, p, hm.center(), new THREE.Vector3(0, 0, 1));
+    g.state = 'play';
+    g.camp.types[0] = 'elite';
+    g.campEnterSeg();
+    const e = g.bosses[0];
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    out.ace = { name: e && e.name, comm: log.includes('countdown') };
+    return out;
+  });
+  check(spc.rig.warn && spc.rig.hurt > 0, '推進器試車台：預警後噴火橫掃（' + Math.round(spc.rig.hurt) + '）');
+  check(spc.hop > 3, '舊式宇宙用 MT：跳得高、滯空久（最高離地 ' + spc.hop.toFixed(1) + ' m）');
+  check(spc.ace.name === 'COUNTDOWN' && spc.ace.comm, '精英區段：舊宇宙港是 COUNTDOWN，有通訊');
+  const vv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    for (const [th, vs, lms] of [
+      [
+        'grid086',
+        ['foundry', 'scrapyard', 'deep', 'catwalks'],
+        ['girder', 'doser', 'shaft', 'walker', 'column', 'furnace'],
+      ],
+      [
+        'spaceport',
+        ['runway', 'pads', 'hangar', 'ruins'],
+        ['rocket', 'dish', 'shuttle', 'fuel', 'assembly', 'station'],
+      ],
+    ])
+      [...vs, '', ''].forEach((v, i) => {
+        g.world.dispose();
+        g.world = new W(g.scene, th, 1200 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+        out.push(th + '/' + (g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+      });
+    return out;
+  });
+  check(
+    vv.filter((s) => !s.includes('/-')).length === 8 && vv.filter((s) => s.endsWith(':1')).length >= 10,
+    'Grid 086 與舊宇宙港的各 4 種變體與地標（' + vv.join('、') + '）',
+  );
+  for (const [th, v] of [
+    ['grid086', 'foundry'],
+    ['grid086', 'catwalks'],
+    ['spaceport', 'pads'],
+    ['spaceport', 'hangar'],
+  ]) {
+    await enter(th, v);
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch4-' + th + '-' + v + '.png') });
+  }
+  await ctx.close();
+}
+
 // 主線第 4 期：戰術模組（三選一、效果、升級、雙重模組、商店、紀錄點還原、放棄退回、整章完成清空）
 async function testModules(browser, base) {
   console.log('主線的戰術模組：三選一、效果、升級、雙重模組、商店、還原與清空');
@@ -6864,6 +7038,7 @@ async function main() {
     await testChapter1(browser, base);
     await testChapter2(browser, base);
     await testChapter3(browser, base);
+    await testChapter4(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

@@ -6,6 +6,14 @@ import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
 import { box, buildIceSheet, cyl, mat } from './prop-models.js';
 import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
 import { buildCavePillar, buildCoralTank, buildLab } from './themes/institute.js';
+import { buildChimney, buildScrapHeap, buildShack } from './themes/grid086.js';
+import {
+  BLAST_WALL,
+  CARGO_POD,
+  buildBlastWall,
+  buildCargoPod,
+  buildLaunchTower,
+} from './themes/spaceport.js';
 
 const M = {
   concrete: mat(0x8e8a82, { roughness: 0.95, metalness: 0.02 }),
@@ -272,6 +280,31 @@ export function buildFacilityGate() {
       -4.3,
     ),
   );
+  return g;
+}
+// 熔渣坑（Grid 086「熔爐區」的裝飾）：發光的圓形坑
+export function buildSlagPit(r) {
+  const g = new THREE.Group();
+  g.add(cyl(r, r * 1.1, 0.3, M.dark, 0, 0.1, 0, 16));
+  g.add(
+    cyl(
+      r * 0.8,
+      r * 0.8,
+      0.12,
+      new THREE.MeshStandardMaterial({ color: 0xff7a20, emissive: 0xff5010, emissiveIntensity: 1.6 }),
+      0,
+      0.22,
+      0,
+      16,
+    ),
+  );
+  return g;
+}
+// 宇宙港的殘骸：斷掉的機翼或船殼板（「廢墟港」）
+export function buildHullPlate(w, d) {
+  const g = new THREE.Group();
+  g.add(box(w, 0.5, d, M.concreteD, 0, 0.6, 0));
+  g.add(box(w * 0.3, 1.2, d * 0.9, M.rustD, w * 0.3, 0.9, 0));
   return g;
 }
 // 礦坑坑口：岩壁上的方形入口與照明（寬 12、高 10）
@@ -583,6 +616,202 @@ export const VARIANTS = {
       },
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
+  grid086: {
+    foundry: {
+      name: '熔爐區',
+      theme: { sky: 0x8a5a3a, fog: 0x7a4a32, sun: 0xffa060, weather: 'ash' },
+      // 高大的排氣煙囪與地上的熔渣坑
+      build(w) {
+        for (let k = w.cnt(3, 5); k > 0; k--) {
+          const r = rnd(1.6, 2.4),
+            h = rnd(30, 40);
+          w.scatter(
+            1,
+            10,
+            (x, z, y) => w.addSmall(buildChimney(r, h), x, y - 0.3, z, { r: r * 1.1, h }),
+            false,
+          );
+        }
+        w.addDecor(w.cnt(6, 9), () => buildSlagPit(rnd(2, 3.5)), 0.05);
+      },
+    },
+    scrapyard: {
+      name: '廢料場',
+      theme: { featureKinds: [] },
+      // 大量的廢料堆與 Doser 棚屋
+      build(w) {
+        w.scatter(w.cnt(10, 14), 6, (x, z, y) => {
+          const s = rnd(0.9, 1.6);
+          w.addSmall(
+            buildScrapHeap(s),
+            x,
+            y - 0.2,
+            z,
+            { r: 2.4 * s, h: 2.6 * s },
+            'scrapheap',
+            2200,
+            0x6a5a4a,
+          );
+        });
+        w.scatter(w.cnt(5, 8), 7, (x, z, y) => {
+          w.addSmall(
+            buildShack(pick([0x6a6a5a, 0x7a5a4a, 0x5a6a6a])),
+            x,
+            y - 0.2,
+            z,
+            { w: 5, h: 3.6, d: 4 },
+            'shack',
+            1500,
+            0x6a6a5a,
+          );
+        });
+      },
+    },
+    deep: {
+      name: '構造體底層',
+      theme: {
+        roof: { y: 30, color: 0x2a2622, bump: 4 },
+        sunI: 0.35,
+        hemiI: 0.6,
+        fog: 0x2a2420,
+        sky: 0x1a1612,
+        fogNear: 25,
+        fogFar: 130,
+        weather: 'ash',
+      },
+    },
+    catwalks: {
+      name: '吊橋區',
+      theme: { featureKinds: [] },
+      // 第一層平台之間多了細長的吊橋（寬 4 m），可以走上去
+      build(w) {
+        const G = w.grid086;
+        if (!G) return;
+        const T = 24;
+        const done = new Set();
+        for (const k of G.L1) {
+          const [i, j] = k.split(',').map(Number);
+          for (const [di, dj] of [
+            [2, 0],
+            [0, 2],
+          ]) {
+            const nk = G.key(i + di, j + dj);
+            if (!G.L1.has(nk) || G.L1.has(G.key(i + di / 2, j + dj / 2)) || done.has(nk + k)) continue;
+            done.add(nk + k);
+            const x = G.off + (i + di / 2) * T,
+              z = G.off + (j + dj / 2) * T;
+            if (Math.hypot(x, z) < 14) continue;
+            w.addDeck(x, z, di ? T + 0.4 : 4, dj ? T + 0.4 : 4, 11, 0.6, false, null);
+          }
+        }
+      },
+    },
+  },
+  spaceport: {
+    runway: {
+      name: '外圍跑道',
+      theme: {
+        featureKinds: ['bunkers'],
+        corridor: { p: 0.3, kinds: ['road'] },
+        // 沒有發射塔與機庫，只有跑道標線與防爆牆
+        buildStructures(w) {
+          const white = mat(0xe8e8e0, { roughness: 0.8 });
+          for (const zr of [-18 * w.k, 18 * w.k])
+            for (const s of [-1, 1]) {
+              const m = box(w.size * 0.55, 0.04, 0.5, white, 0, 0.1, zr + s * 12);
+              w.scene.add(m);
+              w.meshes.push(m);
+            }
+        },
+      },
+      build(w) {
+        w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
+          const rot = rndi(0, 1);
+          const g = buildBlastWall();
+          if (rot) g.rotation.y = Math.PI / 2;
+          const [a, h, b] = BLAST_WALL;
+          w.addSmall(g, x, y - 0.1, z, { w: rot ? b : a, h, d: rot ? a : b }, 'blastwall', 2400, 0x9a9c9e);
+        });
+      },
+    },
+    pads: {
+      name: '發射台群',
+      theme: { featureKinds: ['platforms', 'trench'] },
+      // 再多兩座發射塔
+      build(w) {
+        for (let k = 0; k < 2; k++)
+          place(w, buildLaunchTower(), [-12, 12, -12, 12], 1.5, [
+            { box: [-10, -4, -3, 3], top: 46 },
+            { c: [0, 0], r: 3.5, h: 36 },
+          ]);
+      },
+    },
+    hangar: {
+      name: '地下機庫',
+      theme: {
+        roof: { y: 20, color: 0x3a3c40, bump: 2 },
+        sunI: 0.45,
+        hemiI: 0.75,
+        fog: 0x3a3e44,
+        sky: 0x22262a,
+        fogNear: 30,
+        fogFar: 140,
+        ground: 0x5a5c60,
+        corridor: { p: 0.5, kinds: ['rail'] },
+        // 地下：沒有發射塔，成排的貨艙與防爆牆
+        buildStructures() {},
+      },
+      build(w) {
+        const axis = rndi(0, 1);
+        for (let off = -40 * w.k; off <= 40 * w.k; off += rnd(10, 14)) {
+          if (Math.abs(off) < 8) continue;
+          for (let v = -44 * w.k; v < 44 * w.k; v += rnd(8, 12)) {
+            const x = axis ? v : off,
+              z = axis ? off : v;
+            if (Math.hypot(x, z) < 10 || w.onCorridor(x, z, 4) || !free(w, x, z, 3.5, 3.5, 0.5)) continue;
+            const color = pick([0xe6e8ea, 0xb04a2a, 0x4a6a8a]);
+            const g = buildCargoPod(color);
+            if (axis) g.rotation.y = Math.PI / 2;
+            const [a, h, b] = CARGO_POD;
+            w.addSmall(
+              g,
+              x,
+              w.terrainHeight(x, z),
+              z,
+              { w: axis ? b : a, h, d: axis ? a : b },
+              'cargopod',
+              1800,
+              color,
+            );
+          }
+        }
+      },
+    },
+    ruins: {
+      name: '廢墟港',
+      theme: { weather: 'dust', fog: 0xb0a898, sky: 0xbab2a2, ground: 0x7a7468 },
+      // 散落的船殼板與殘骸
+      build(w) {
+        w.scatter(w.cnt(10, 14), 8, (x, z, y) => {
+          const pw = rnd(4, 9),
+            pd = rnd(3, 6);
+          const g = buildHullPlate(pw, pd);
+          const rot = rndi(0, 1);
+          if (rot) g.rotation.y = Math.PI / 2;
+          w.addSmall(
+            g,
+            x,
+            y - 0.2,
+            z,
+            { w: rot ? pd : pw, h: 1.6, d: rot ? pw : pd },
+            'hullplate',
+            2000,
+            0x6a665f,
+          );
+        });
+      },
     },
   },
   institute: {
@@ -1349,6 +1578,8 @@ export const VARIANT_CATALOG = [
     () => buildQuayCrane(),
   ],
   ['bollard', '繫船柱', '集散場「港灣碼頭」的裝飾', () => buildBollard()],
+  ['slag_pit', '熔渣坑', 'Grid 086「熔爐區」的裝飾，發光的圓坑', () => buildSlagPit(3)],
+  ['hull_plate', '船殼板殘骸', '舊宇宙港「廢墟港」；寬 4–9 m，可破壞', () => buildHullPlate(6, 4)],
   ['facility_gate', '研究所閘門', '技研都市「地表入口」；寬 28、高 17 m', () => buildFacilityGate()],
   ['snow_wall', '防爆牆', '冰原「前線基地」；長 9.6、高 4.8 m，可破壞', () => buildSnowWall(9.6)],
   ['watchtower', '瞭望塔', '冰原「前線基地」；高約 10.5 m，可破壞', () => buildWatchtower()],

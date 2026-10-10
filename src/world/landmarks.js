@@ -440,6 +440,146 @@ function aqueduct() {
   return g;
 }
 
+// ---------- Grid 086 ----------
+// 斷裂的主樑：巨大的鋼樑從高處斜插到地面
+function brokenGirder() {
+  const g = new THREE.Group();
+  g.add(box(4, 30, 4, M.hullD, -10, 15, 0));
+  g.add(rot(box(34, 3, 3, M.rust, 4, 12, 0), 0, 0, -0.65));
+  for (let i = 0; i < 5; i++)
+    g.add(rot(box(2, 0.6, 3.4, M.steel, -4 + i * 4.4, 15 - i * 3.4, 0), 0, 0, -0.65));
+  return g;
+}
+// Doser 聚落：棚屋圍成一圈，中間有篝火與旗桿
+function doserCamp() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    g.add(rot(box(5, 3.6, 4, i % 2 ? M.rustD : M.hull, Math.cos(a) * 9, 1.8, Math.sin(a) * 9), 0, -a, 0));
+  }
+  g.add(cyl(1, 1.2, 0.5, M.dark, 0, 0.25, 0, 10));
+  g.add(cyl(0.3, 0.8, 1.6, M.glow, 0, 1.2, 0, 8));
+  g.add(box(0.2, 10, 0.2, M.steel, 3, 5, 3));
+  g.add(box(2.4, 1.4, 0.1, M.red, 4.2, 9.2, 3));
+  return g;
+}
+// 貨運升降井：方形的豎井框架與停在中間的貨台
+function cargoShaft() {
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(1.6, 34, 1.6, M.hullD, sx * 7, 17, sz * 7));
+  for (let y = 6; y < 34; y += 7)
+    for (const s of [-1, 1]) {
+      g.add(box(14, 0.6, 0.6, M.rust, 0, y, s * 7));
+      g.add(box(0.6, 0.6, 14, M.rust, s * 7, y, 0));
+    }
+  g.add(box(12, 1, 12, M.steel, 0, 14, 0));
+  return g;
+}
+// 停機的巨型步行機：四隻長腳的巨大機體，關節彎曲
+function giantWalker() {
+  const g = new THREE.Group();
+  g.add(box(14, 6, 10, M.hullD, 0, 16, 0));
+  g.add(box(6, 4, 4, M.hull, 0, 17, -7));
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) {
+      g.add(rot(box(1.6, 12, 1.6, M.hull, sx * 9, 13, sz * 6), sz * 0.5, 0, sx * -0.5));
+      g.add(box(1.4, 9, 1.4, M.hullD, sx * 12, 4.5, sz * 9));
+    }
+  g.add(box(3, 0.6, 0.3, M.glow, 0, 17.6, -9.1));
+  return g;
+}
+// 構造體核心柱：一根粗大的柱子貫穿上下，表面有發光的管線
+function coreColumn() {
+  const g = new THREE.Group();
+  g.add(cyl(6, 7, 40, M.hullD, 0, 20, 0, 12));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    g.add(box(0.5, 36, 0.5, M.glow, Math.cos(a) * 6.6, 18, Math.sin(a) * 6.6));
+  }
+  for (const y of [11, 21, 31]) g.add(cyl(8, 8, 0.8, M.rust, 0, y, 0, 12));
+  return g;
+}
+// 巨型熔爐：方形的爐體、發光的爐口與傾倒的熔渣
+function bigFurnace() {
+  const g = new THREE.Group();
+  g.add(box(14, 16, 12, M.rustD, 0, 8, 0));
+  g.add(box(6, 5, 0.4, M.glow, 0, 4, -6.2));
+  g.add(cyl(2, 2.4, 10, M.dark, 4, 21, 2, 10));
+  g.add(rot(box(5, 0.4, 10, M.glow, 0, 0.3, -11), 0.05, 0, 0));
+  return g;
+}
+
+// ---------- 舊宇宙港 ----------
+// 倒下的火箭：長長的箭體倒在地上，引擎噴口朝外
+function fallenRocket() {
+  const g = new THREE.Group();
+  g.add(rot(cyl(3.2, 3.2, 34, M.white, 0, 3.2, 0, 16), 0, 0, Math.PI / 2));
+  g.add(rot(cyl(0.3, 3.2, 6, M.white, -20, 3.2, 0, 16), 0, 0, Math.PI / 2));
+  for (const s of [-1, 1])
+    g.add(rot(cyl(1.4, 2, 3, M.dark, 18.5, 3.2 + s * 1.5, s * 1.2, 10), 0, 0, Math.PI / 2));
+  g.add(rot(box(4, 0.4, 3, M.red, 14, 6.6, 0), 0.3, 0, 0));
+  return g;
+}
+// 巨型通訊天線：台座＋傾斜的大碟
+function bigDish() {
+  const g = new THREE.Group();
+  g.add(box(8, 6, 8, M.concrete, 0, 3, 0));
+  g.add(cyl(1, 1.2, 6, M.steel, 0, 9, 0, 10));
+  const d = new THREE.Mesh(new THREE.SphereGeometry(10, 18, 8, 0, Math.PI * 2, 0, 0.7), M.dish);
+  d.rotation.x = -0.9;
+  d.position.set(0, 14, 2);
+  g.add(d);
+  return g;
+}
+// 太空梭殘骸：機身、三角翼、垂直尾翼，翼端斷掉
+function shuttleWreck() {
+  const g = new THREE.Group();
+  g.add(rot(cyl(3, 3, 28, M.white, 0, 3.2, 0, 14), Math.PI / 2, 0, 0));
+  g.add(rot(cyl(0.4, 3, 5, M.white, 0, 3.2, -16.5, 14), -Math.PI / 2, 0, 0));
+  g.add(box(22, 0.8, 14, M.white, 0, 1.6, 4));
+  g.add(box(0.8, 9, 6, M.white, 0, 9, 11));
+  g.add(box(20, 0.9, 12, M.dark, 0, 1.0, 4.5));
+  return g;
+}
+// 液態燃料大槽：三座球形燃料槽與連接管
+function fuelFarm() {
+  const g = new THREE.Group();
+  for (const [x, z] of [
+    [-8, 0],
+    [8, 0],
+    [0, 10],
+  ]) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 12), M.white);
+    s.position.set(x, 8, z);
+    g.add(s);
+    for (let i = 0; i < 4; i++)
+      g.add(box(0.6, 6, 0.6, M.steel, x + (i % 2 ? 4 : -4), 3, z + (i < 2 ? 4 : -4)));
+  }
+  g.add(rot(cyl(0.6, 0.6, 16, M.steel, 0, 3, 0, 8), 0, 0, Math.PI / 2));
+  return g;
+}
+// 組裝塔：高大的格子塔與懸臂
+function assemblyTower() {
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(0.8, 44, 0.8, M.red, sx * 3, 22, sz * 3));
+  for (let y = 4; y < 44; y += 6) {
+    g.add(box(7, 0.4, 7, M.steel, 0, y, 0));
+  }
+  for (const y of [20, 34]) g.add(box(12, 1, 1.4, M.red, 8, y, 0));
+  return g;
+}
+// 墜落的軌道站碎片：環形的站體碎塊插在地上
+function stationChunk() {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(10, 2, 8, 20, Math.PI * 0.9), M.hull);
+  ring.rotation.set(0.3, 0.4, 0);
+  ring.position.y = 3;
+  g.add(ring);
+  g.add(rot(box(8, 3, 6, M.hullD, 4, 1.5, -2), 0.2, 0.5, 0.3));
+  for (let i = 0; i < 5; i++) g.add(rot(box(1.5, 0.5, 3, M.steel, -8 + i * 4, 0.3, 8), 0, i, 0));
+  return g;
+}
+
 // ---------- 地下技研都市 ----------
 const CORAL = new THREE.MeshStandardMaterial({
   color: 0xff3a30,
@@ -796,6 +936,125 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  grid086: {
+    girder: {
+      name: '斷裂的主樑',
+      build: brokenGirder,
+      bx: [-13, 19, -3, 3],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-12, -8, -2, 2], y: -1, top: 30 }],
+    },
+    doser: {
+      name: 'Doser 聚落',
+      build: doserCamp,
+      bx: [-12, 12, -12, 12],
+      range: 3,
+      sink: 0.2,
+      shapes: [
+        { box: [-11.5, -6.5, -2, 2], y: -1, top: 3.6 },
+        { box: [6.5, 11.5, -2, 2], y: -1, top: 3.6 },
+      ],
+    },
+    shaft: {
+      name: '貨運升降井',
+      build: cargoShaft,
+      bx: [-8, 8, -8, 8],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [
+        { c: [-7, -7], r: 1, h: 34 },
+        { c: [7, -7], r: 1, h: 34 },
+        { c: [-7, 7], r: 1, h: 34 },
+        { c: [7, 7], r: 1, h: 34 },
+        { box: [-6, 6, -6, 6], y: 13.5, top: 14.5, deck: true },
+      ],
+    },
+    walker: {
+      name: '停機的巨型步行機',
+      build: giantWalker,
+      bx: [-13, 13, -10, 10],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [-12, -9], r: 1, h: 9 },
+        { c: [12, -9], r: 1, h: 9 },
+        { c: [-12, 9], r: 1, h: 9 },
+        { c: [12, 9], r: 1, h: 9 },
+        { box: [-7, 7, -5, 5], y: 13, top: 19, deck: true },
+      ],
+    },
+    column: {
+      name: '構造體核心柱',
+      build: coreColumn,
+      bx: [-8, 8, -8, 8],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 7, h: 40 }],
+    },
+    furnace: {
+      name: '巨型熔爐',
+      build: bigFurnace,
+      bx: [-8, 8, -16, 7],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-7, 7, -6, 6], y: -1, top: 16 }],
+    },
+  },
+  spaceport: {
+    rocket: {
+      name: '倒下的火箭',
+      build: fallenRocket,
+      bx: [-24, 21, -4, 4],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-22, 20, -3.2, 3.2], y: -1, top: 6.4 }],
+    },
+    dish: {
+      name: '巨型通訊天線',
+      build: bigDish,
+      bx: [-10, 10, -8, 12],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-4, 4, -4, 4], y: -1, top: 12 }],
+    },
+    shuttle: {
+      name: '太空梭殘骸',
+      build: shuttleWreck,
+      bx: [-12, 12, -19, 15],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-3, 3, -16, 14], y: -1, top: 6 }],
+    },
+    fuel: {
+      name: '液態燃料大槽',
+      build: fuelFarm,
+      bx: [-15, 15, -7, 17],
+      range: 3,
+      sink: 0.3,
+      shapes: [
+        { c: [-8, 0], r: 6, h: 14 },
+        { c: [8, 0], r: 6, h: 14 },
+        { c: [0, 10], r: 6, h: 14 },
+      ],
+    },
+    assembly: {
+      name: '組裝塔',
+      build: assemblyTower,
+      bx: [-4, 14, -4, 4],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [{ box: [-3.4, 3.4, -3.4, 3.4], y: -1, top: 44 }],
+    },
+    station: {
+      name: '墜落的軌道站碎片',
+      build: stationChunk,
+      bx: [-13, 13, -10, 10],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [0, 8, -5, 1], y: -1, top: 4 }],
+    },
+  },
   institute: {
     reactor: {
       name: 'Coral 反應爐',

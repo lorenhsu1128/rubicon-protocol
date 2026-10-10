@@ -1067,11 +1067,16 @@ export class World {
     const L = (LANDMARKS[this.themeKey] || {})[key];
     if (!L) return null;
     // 只避開大型障礙物（找不到時放寬地面高低差，大型地標可以部分埋進地面）；佔到位置的小物件移除
-    const big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 : o.r > 3);
+    // 平台很密的地圖（Grid 086）找不到時，佔到位置的平台也移除
+    let big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 : o.r > 3);
     const all = this.obstacles;
-    this.obstacles = all.filter(big);
     let spot = null;
-    for (const k of [1, 1.8, 3]) if (!spot) spot = this.findSpot(L.bx, L.range * k, 90);
+    for (const strict of [true, false]) {
+      if (spot) break;
+      if (!strict) big = (o) => (o.kind === 'box' ? !o.deck && o.w * o.d > 60 : o.r > 3);
+      this.obstacles = all.filter(big);
+      for (const k of [1, 1.8, 3]) if (!spot) spot = this.findSpot(L.bx, L.range * k, 90);
+    }
     this.obstacles = all;
     if (!spot) return null;
     const [x0, x1, z0, z1] = spot.aabb;

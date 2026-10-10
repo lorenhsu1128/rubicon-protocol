@@ -43,6 +43,25 @@ export const TRANSITIONS = {
       T('運輸機吊掛移動', '前往下一個堆場', 'lz'),
     ],
   },
+  grid086: {
+    relay: [T('運輸機吊掛移動', '飛越構造體的外壁', 'lz'), T('沿構造體的鐵路移動', '搭乘構造體內的貨運列車')],
+    down: [
+      T('構造體豎井跳降', '從平台邊緣跳進豎井'),
+      T('貨運升降井下降', '搭乘構造體的貨運升降機', 'lift'),
+      T('沿外牆垂降', '沿著構造體的外牆往下'),
+    ],
+  },
+  spaceport: {
+    relay: [
+      T('沿跑道推進', '在廢棄的跑道上前進'),
+      T('搭乘地勤車', '跳上自動行駛的地勤車'),
+      T('運輸機吊掛移動', '前往發射台', 'lz'),
+    ],
+    down: [
+      T('機庫升降梯下降', '搭乘機體升降梯進入地下機庫', 'lift'),
+      T('沿燃料管道下降', '順著燃料輸送管道往下'),
+    ],
+  },
   institute: {
     relay: [T('沿維修通道推進', '在研究棟之間的通道前進'), T('搭乘輸送軌道', '沿貨物輸送軌道移動')],
     down: [
@@ -308,6 +327,7 @@ export function sortieBoss(seg, type) {
 // 兩個區段之間的轉場方式：往交界區段一律接力；同一個垂直主題往下一段用下降
 export function transMode(fromSeg, toSeg) {
   const m = THEME_MODE[toSeg.theme] || 'relay';
+  if (toSeg.mode) return toSeg.mode; // 區段指定（宇宙港：外圍接力、地下機庫下降）
   if (toSeg.border) return 'relay';
   if (m === 'mixed') return fromSeg.theme === toSeg.theme ? 'down' : 'relay';
   if (m === 'down' || m === 'up') return m;

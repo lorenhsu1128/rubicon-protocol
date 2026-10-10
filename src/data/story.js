@@ -21,6 +21,8 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  spire: { name: 'SPIRE', color: '#e0b040', mark: 'P', note: '構造體的跳躍者（第 4 章的宿敵）' },
+  countdown: { name: 'COUNTDOWN', color: '#ff6a20', mark: 'C', note: '宇宙港的飛彈手（第 4 章的宿敵）' },
   specimen: { name: 'SPECIMEN', color: '#ff5a50', mark: 'X', note: '技研都市的強化人間（第 3 章的宿敵）' },
   whiteout: { name: 'WHITEOUT', color: '#9fd8ff', mark: 'W', note: '暴風雪裡的狙擊手（第 3 章的宿敵）' },
   marsh: { name: 'MARSH', color: '#40d0a0', mark: 'M', note: '水沒市街的兩棲傭兵（第 2 章的宿敵）' },
@@ -650,6 +652,84 @@ export const COMMS = [
     lines: [['echo', '能量環要用 QB 穿過去。突刺之後它會過熱，那時候反擊。']],
   },
   { event: 'hub', chapter: 3, once: true, lines: [['echo', '西部冰原開放了。聖域和維爾威都有委託。']] },
+  // ---- 第 4 章的宿敵與專屬敵人 ----
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'spire',
+    once: true,
+    lines: [
+      ['spire', '往上看。我一直在你頭上。'],
+      ['echo', '具名 AC「SPIRE」。會跳到高處的平台往下打——高處的攻擊衝擊更大。'],
+      ['echo', '爬上同一層平台，別讓它一直佔著高處。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'spire',
+    lines: [
+      ['spire', '你還在下面嗎？'],
+      ['echo', 'SPIRE 換平台的時候會跳起來，那時候最好打。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'SPIRE',
+    lines: [
+      ['spire', '高度就是一切。'],
+      ['echo', '別在 SPIRE 的正下方停留。找坡道上去和它平視。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'countdown',
+    once: true,
+    lines: [
+      ['countdown', '十、九、八……你還有幾秒？'],
+      ['echo', '具名 AC「COUNTDOWN」。大量飛彈齊射，聽到鎖定警告就找掩體。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'countdown',
+    lines: [
+      ['countdown', '倒數重新開始。'],
+      ['echo', 'COUNTDOWN 的飛彈追得很緊，用 QB 在最後一刻橫向閃開。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'COUNTDOWN',
+    lines: [
+      ['countdown', '零。'],
+      ['echo', '飛彈齊射時躲到防爆牆或建築物後面，等它換彈再衝。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'grid086',
+    once: true,
+    lines: [['echo', 'Grid 086。平台底下吊著砲塔，柱子上會有東西爬上來——上下都要注意。']],
+  },
+  {
+    event: 'segStart',
+    theme: 'spaceport',
+    once: true,
+    lines: [['echo', '舊宇宙港。推進器試車台還會噴火，看到地上的橘色預警就離開。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '爬行機',
+    lines: [['echo', '爬行機會沿著柱子爬上平台。站在平台邊緣時注意下方。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '試車台',
+    lines: [['echo', '試車台的噴火方向在預警時就決定了。往側面閃，或擊破控制台讓它停下來。']],
+  },
   // ---- 第 3 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

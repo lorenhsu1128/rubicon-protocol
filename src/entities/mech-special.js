@@ -407,6 +407,11 @@ Object.assign(MechEntity.prototype, {
       case 'blob':
       case 'laserpost':
       case 'specimen':
+      case 'crawler':
+      case 'underturret':
+      case 'spire':
+      case 'testrig':
+      case 'hopper':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);
@@ -470,6 +475,7 @@ Object.assign(MechEntity.prototype, {
         return this.foeFire(dt, d, aimPos, pl); // 起重機砲台（mech-foe.js）
       case 'blob':
       case 'laserpost':
+      case 'testrig':
         return true; // 實驗體只會咬、雷射網只有柵欄
     }
     return this.bossFire(dt, d, aimPos, pl);

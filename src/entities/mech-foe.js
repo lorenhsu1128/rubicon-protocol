@@ -9,6 +9,8 @@
 // whiteout 專屬 AC WHITEOUT（沒開火時隱藏＝bossVis 2）。
 // blob 實驗體（撲咬；三隻以上聚集時融合成 chimera）、laserpost 保全雷射網（旋轉的柵欄，碰到受傷並叫增援）、
 // specimen 專屬 AC SPECIMEN（定期過載＝bossVis 4，之後硬直）。
+// crawler 構造體爬行機（目標在高處時沿柱子爬上去）、underturret 平台底部砲塔（吊在平台底面）、
+// spire 專屬 AC SPIRE（佔高處）、testrig 推進器試車台（預警後噴火橫掃）、hopper 舊式宇宙用 MT（長時間滯空）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
@@ -62,6 +64,11 @@ Object.assign(MechEntity.prototype, {
     if (this.ai === 'blob') return this.foeBlob(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'laserpost') return this.foeLaserPost(dt, wish, r);
     if (this.ai === 'specimen') return this.foeSpecimen(dt, d, dir, perp, wish, r);
+    if (this.ai === 'crawler') return this.foeCrawler(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'underturret') return this.foeUnderTurret(wish, r);
+    if (this.ai === 'spire') return this.foeSpire(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'testrig') return this.foeTestRig(dt, d, wish, pl, r);
+    if (this.ai === 'hopper') return this.foeHopper(dt, d, dir, perp, wish, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -538,6 +545,160 @@ Object.assign(MechEntity.prototype, {
     else wish.copy(perp);
     if (Math.random() < dt * (s.ov ? 1.6 : 0.5)) r.qb = true;
     if (s.ov && d > 20 && Math.random() < dt) r.ab = true;
+    this.stuckJump(dt, r);
+    return r;
+  },
+  // 構造體爬行機：接近；目標在 4 m 以上的高處、水平 16 m 內時沿柱子／牆面爬上去（垂直上升，不耗能量）
+  foeCrawler(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState;
+    const up = pl.pos.y - this.pos.y;
+    if (d > s.want) wish.copy(dir);
+    else wish.copy(perp).multiplyScalar(0.5);
+    s.climb = up > 4 && d < 16 && !this.flying ? true : up < 0.5 ? false : s.climb;
+    // 頭上有平台時先橫移出來（沿平台邊緣、柱子爬）
+    const w = this.game.world;
+    if (s.climb && w.groundAt(this.pos.x, this.pos.z, pl.pos.y + 2) > this.pos.y + 3) {
+      wish.copy(perp);
+    } else if (s.climb) {
+      // 貼著邊緣垂直爬，高過目標的高度之後才往內走
+      this.vel.y = Math.max(this.vel.y, 9);
+      if (this.pos.y < pl.pos.y + 0.5) wish.set(0, 0, 0);
+      else wish.copy(dir).multiplyScalar(0.6);
+      if (Math.random() < dt * 10) this.game.fx.spark(this.pos.clone().setY(this.pos.y + 0.5), 0xffa040);
+    }
+    this.stuckJump(dt, r);
+    return r;
+  },
+  // 平台底部砲塔：第一次時吊到附近平台的底面（找不到就待在原地），之後不移動
+  foeUnderTurret(wish, r) {
+    const s = this.aiState,
+      w = this.game.world;
+    this.noPush = true;
+    wish.set(0, 0, 0);
+    if (s.hang === undefined) {
+      s.hang = null;
+      const decks = w.obstacles.filter(
+        (o) => o.kind === 'box' && o.deck && o.y - w.terrainHeight(o.x, o.z) > 5 && w.inZone(o.x, o.z, 3),
+      );
+      decks.sort(
+        (a, b) =>
+          Math.hypot(a.x - this.pos.x, a.z - this.pos.z) - Math.hypot(b.x - this.pos.x, b.z - this.pos.z),
+      );
+      const o = decks[0];
+      if (o) {
+        const x = o.x + rnd(-o.w * 0.3, o.w * 0.3),
+          z = o.z + rnd(-o.d * 0.3, o.d * 0.3);
+        s.hang = o.y - 2.1;
+        this.pos.set(x, s.hang, z);
+        this.vel.set(0, 0, 0);
+      }
+    }
+    if (s.hang !== null) {
+      this.flying = true;
+      this.hoverH = s.hang - w.terrainHeight(this.pos.x, this.pos.z);
+    } else this.flying = false;
+    return r;
+  },
+  // SPIRE：找 50 m 內最高的平台頂爬上去，從高處打；常常 QB 換位置
+  foeSpire(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      w = this.game.world;
+    s.perT = (s.perT || 0) - dt;
+    if (s.perT <= 0) {
+      s.perT = rnd(5, 8);
+      let best = null;
+      for (const o of w.obstacles) {
+        if (o.kind !== 'box' || !o.deck) continue;
+        const dd = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
+        if (dd > 50 || o.top < pl.pos.y + 3) continue;
+        if (!best || o.top > best.top + 1 || (Math.abs(o.top - best.top) < 1 && dd < best.dd))
+          best = { ...o, dd };
+      }
+      s.perch = best;
+    }
+    const P = s.perch;
+    if (P && this.pos.y < P.top - 0.5) {
+      const to = new THREE.Vector3(P.x - this.pos.x, 0, P.z - this.pos.z);
+      wish.copy(to.normalize());
+      if (to.length() < 14 || s.stuck > 0.3) r.hover = 2;
+    } else if (d > s.want + 8) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
+    else wish.copy(perp);
+    if (Math.random() < dt * 0.9) r.qb = true;
+    return r;
+  },
+  // 推進器試車台：慢慢轉向目標；每 7 秒預警 1.5 秒（地上的長方形）→ 噴火 2.5 秒（前方 26 m、寬 8 m）
+  foeTestRig(dt, d, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    this.noPush = true;
+    wish.set(0, 0, 0);
+    if (s.trT === undefined) {
+      s.trT = rnd(3, 5);
+      s.ph = 0;
+    }
+    s.trT -= dt;
+    const fx = -Math.sin(this.yaw),
+      fz = -Math.cos(this.yaw);
+    if (s.ph === 0 && s.trT <= 0 && d < 40 && this.canAct()) {
+      s.ph = 1;
+      s.trT = 1.5;
+      s.dir = [fx, fz];
+      const c = this.pos.clone().add(new THREE.Vector3(fx * 15, 0, fz * 15));
+      c.y = g.world.terrainHeight(c.x, c.z);
+      g.fx.warnRect(c, Math.atan2(fx, fz), 8, 26, 1.5, 0xff8a30);
+    } else if (s.ph === 1 && s.trT <= 0) {
+      s.ph = 2;
+      s.trT = 2.5;
+      s.tick = 0;
+      SFX.play('overload', 0.8, 0.6, 0.05, 0.05, this.center());
+    } else if (s.ph === 2) {
+      // 噴火中：方向固定在預警時的方向
+      const [ax, az] = s.dir;
+      s.fxT = (s.fxT || 0) - dt;
+      if (s.fxT <= 0) {
+        s.fxT = 0.15;
+        g.fx.flameCone(this.muzzle('rarm'), new THREE.Vector3(ax, 0, az), 26, 0.16, 8);
+      }
+      s.tick -= dt;
+      if (s.tick <= 0) {
+        s.tick = 0.25;
+        for (const t of g.hostilesOfEnt(this)) {
+          if (t.dead) continue;
+          const rx = t.pos.x - this.pos.x,
+            rz = t.pos.z - this.pos.z;
+          const u = rx * ax + rz * az,
+            v = Math.abs(-rx * az + rz * ax);
+          if (u < 1 || u > 28 || v > 4 + t.radius || t.pos.y - this.pos.y > 6) continue;
+          t.takeDamage(
+            140 * 0.25 * this.dmgMul,
+            260 * this.dmgMul,
+            this,
+            t.center(),
+            new THREE.Vector3(ax, 0, az),
+          );
+        }
+      }
+      if (s.trT <= 0) {
+        s.ph = 0;
+        s.trT = 7;
+      }
+    }
+    this.bossVis = s.ph;
+    return r;
+  },
+  // 舊式宇宙用 MT：保持距離橫移，常常跳起來長時間滯空（低重力設計）
+  foeHopper(dt, d, dir, perp, wish, r) {
+    const s = this.aiState;
+    if (d > s.want + 6) wish.copy(dir);
+    else if (d < s.want - 6) wish.copy(dir).negate();
+    else wish.copy(perp);
+    s.hopT = (s.hopT === undefined ? rnd(1, 3) : s.hopT) - dt;
+    if (s.hopT <= 0) {
+      s.hopT = rnd(3, 5);
+      s.airT = rnd(1.6, 2.4);
+    }
+    s.airT = (s.airT || 0) - dt;
+    if (s.airT > 0) r.hover = s.airT > 1.2 ? 2 : true;
     this.stuckJump(dt, r);
     return r;
   },
