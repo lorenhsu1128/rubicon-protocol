@@ -8,6 +8,7 @@ import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { LocalModels } from '../render/local-models.js';
 import { buildMech } from '../render/mech-model.js';
+import { VARIANTS, variantKeys } from '../world/variants.js';
 import { ServerModels } from '../render/net-models.js';
 import { StylePipeline } from '../render/style/pipeline.js';
 import { Game } from './game.js';
@@ -286,19 +287,45 @@ Object.assign(Game.prototype, {
     const n = this.net;
     const mp = !!(n && n.role);
     const host = mp && n.role === 'host';
+    const vName = (map, v) =>
+      v === 'base' ? '標準' : (map && this.variantName(map, v)) || (v ? '' : '隨機');
     if (mp && !host) {
-      el.innerHTML = `<span>地圖</span><span>${escHtml(this.mapName((n.pvpSet || {}).map))}（房主選擇）</span>`;
+      const ps = n.pvpSet || {};
+      el.innerHTML = `<span>地圖</span><span>${escHtml(this.mapName(ps.map))}・${escHtml(vName(ps.map, ps.variant) || '隨機')}（房主選擇）</span>`;
       return;
     }
-    el.innerHTML = `<span>地圖</span><span><select id="gMapSel">${this.mapOptionsHtml()}</select></span>`;
+    el.innerHTML = `<span>地圖</span><span><select id="gMapSel">${this.mapOptionsHtml()}</select><select id="gVarSel" title="主題變體"></select></span>`;
     const sel = document.getElementById('gMapSel');
+    const vs = document.getElementById('gVarSel');
     sel.value = host ? n.pvpSet.map || '' : this.mapPref();
-    sel.onchange = () => {
-      this.setMapPref(sel.value);
+    // 主題變體：隨機／標準／該主題的變體（隨機地圖時只能選隨機或標準）
+    const fillVar = () => {
+      const map = sel.value;
+      const ks = map ? variantKeys(map).filter((k) => !VARIANTS[map][k].border) : [];
+      vs.innerHTML =
+        '<option value="">隨機</option><option value="base">標準</option>' +
+        ks.map((k) => `<option value="${k}">${escHtml(VARIANTS[map][k].name)}</option>`).join('');
+      const cur = host ? n.pvpSet.variant || '' : this.variantPref();
+      vs.value = cur === 'base' || ks.includes(cur) ? cur : '';
+      vs.style.display = map && !ks.length ? 'none' : '';
+    };
+    fillVar();
+    const sync = () => {
       if (host) {
         n.pvpSet.map = sel.value;
+        n.pvpSet.variant = vs.value;
         n.syncLobby();
       }
+    };
+    sel.onchange = () => {
+      this.setMapPref(sel.value);
+      fillVar();
+      this.setVariantPref(vs.value);
+      sync();
+    };
+    vs.onchange = () => {
+      this.setVariantPref(vs.value);
+      sync();
     };
   },
 });

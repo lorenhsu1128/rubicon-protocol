@@ -30,7 +30,7 @@ Object.assign(Game.prototype, {
     this.worldSeed = d.seed;
     this.worldTheme = d.theme;
     this.styleRefresh();
-    this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat);
+    this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat, { variant: d.variant });
     const T = this.world.theme;
     this.world.applyLight(this);
     this.players = [];

@@ -8,6 +8,7 @@ import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { buildBomberMesh } from '../render/extra-models.js';
 import { PALETTES } from '../render/materials.js';
+import { VARIANTS, variantKeys } from '../world/variants.js';
 import { THEMES, World, corridorSpec } from '../world/world.js';
 import { Game } from './game.js';
 
@@ -234,6 +235,28 @@ Object.assign(Game.prototype, {
   mapName(k) {
     return THEMES[k] ? THEMES[k].name : '隨機';
   },
+  // 主題變體（localStorage rubicon_variant：''＝隨機、'base'＝標準、其餘＝變體 key）
+  variantPref() {
+    try {
+      return localStorage.getItem('rubicon_variant') || '';
+    } catch (e) {
+      return '';
+    }
+  },
+  setVariantPref(k) {
+    try {
+      localStorage.setItem('rubicon_variant', k || '');
+    } catch (e) {}
+  },
+  // 依選擇決定這次的變體：隨機時一半標準、一半隨機變體；選的變體不屬於這個主題時用標準
+  resolveVariant(theme, want) {
+    const ks = variantKeys(theme).filter((k) => !VARIANTS[theme][k].border);
+    if (!want) return ks.length && Math.random() < 0.5 ? pick(ks) : '';
+    return ks.includes(want) ? want : '';
+  },
+  variantName(theme, k) {
+    return (VARIANTS[theme] && VARIANTS[theme][k] && VARIANTS[theme][k].name) || '';
+  },
   mapOptionsHtml() {
     return (
       '<option value="">隨機</option>' +
@@ -272,8 +295,9 @@ Object.assign(Game.prototype, {
     this.worldSeed = seed;
     this.worldTheme = theme;
     this.styleRefresh(); // 渲染風格只在出擊時套用，任務中不換
+    const variant = this.resolveVariant(theme, mp0 ? (this.net.pvpSet || {}).variant : this.variantPref());
     // 武裝列車：地圖一定有鐵路（客機收到開局訊息的地形特徵，跟著一致）
-    this.world = new World(this.scene, theme, seed, L, null, { rail: !!(bd0 && bd0.rail) });
+    this.world = new World(this.scene, theme, seed, L, null, { rail: !!(bd0 && bd0.rail), variant });
     this.isClient = false;
     const mp = !!(this.net && this.net.role === 'host');
     this.net.spawnReg = {};
@@ -323,7 +347,9 @@ Object.assign(Game.prototype, {
     this.missionEarned = 0;
     this.bountyPops = [];
     this.levelName =
-      T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
+      T.name +
+      (variant ? '・' + this.variantName(theme, variant) : '') +
+      (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
     this.isBossLevel = boss;
     this.enemyPointsTotal = 0;
     const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
@@ -341,6 +367,7 @@ Object.assign(Game.prototype, {
         pace: this.ctrl.pace || 1,
         seed,
         theme,
+        variant: this.world.variantKey,
         feat: this.world.features.map((f) => ({
           k: f.k,
           kind: f.kind,
@@ -572,6 +599,7 @@ Object.assign(Game.prototype, {
       const decks = this.world.obstacles.filter(
         (ob) =>
           ob.kind === 'box' &&
+          this.world.inZone(ob.x, ob.z, 3) &&
           ob.top > this.world.terrainHeight(ob.x, ob.z) + 2.5 &&
           ob.top < this.world.terrainHeight(ob.x, ob.z) + 25 && // 太高的（發射塔、高樓頂）不站
           !this.world.isVoid(ob.x, ob.z) &&

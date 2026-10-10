@@ -207,6 +207,7 @@ Object.assign(Game.prototype, {
         },
         seed: this.worldSeed,
         theme: this.worldTheme,
+        variant: this.world.variantKey,
         feat: this.world.features.map((f) => ({
           k: f.k,
           kind: f.kind,

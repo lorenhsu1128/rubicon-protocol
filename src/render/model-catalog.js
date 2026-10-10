@@ -12,6 +12,8 @@ import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
 import { PIECE_NAMES, SIDE_NAMES, buildMech, buildPiece, partPieces } from './mech-model.js';
 import { THEMES } from '../world/world.js';
+import { LANDMARKS } from '../world/landmarks.js';
+import { VARIANT_CATALOG } from '../world/variants.js';
 import {
   box,
   buildContainer,
@@ -546,6 +548,19 @@ addPlain('prop', 'ice_shard', '碎冰', '冰原的裝飾，0.6–1.6 m' + PROP_S
 for (const T of Object.values(THEMES))
   for (const [key, name, note, build, extra] of T.catalog || [])
     addPlain('prop', key, name, note, build, extra);
+// 主題變體的物件與主線的入口結構（world/variants.js）、地標（world/landmarks.js）
+for (const [key, name, note, build] of VARIANT_CATALOG) addPlain('prop', key, name, note, build);
+for (const th in LANDMARKS)
+  for (const key in LANDMARKS[th]) {
+    const L = LANDMARKS[th][key];
+    addPlain(
+      'prop',
+      `lm_${th}_${key}`,
+      `地標：${L.name}`,
+      `${THEMES[th].name}；主線區段的大型地標，不可破壞`,
+      L.build,
+    );
+  }
 const STYLE_LABEL = Object.fromEntries(
   Object.values(THEMES)
     .filter((T) => T.props)

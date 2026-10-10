@@ -256,6 +256,7 @@ export class Net {
       rejoin: !!rejoin,
       seed: g.worldSeed,
       theme: g.worldTheme,
+      variant: g.world.variantKey,
       feat: g.world.features.map((f) => ({
         k: f.k,
         kind: f.kind,

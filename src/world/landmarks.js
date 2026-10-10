@@ -1,0 +1,393 @@
+// 地標：每個區段放一個只出現一次的大型物件，讓區段之間好認（主線的排程保證同一章不重複；自由出擊不放）。
+// 網格建造是純函式（不呼叫亂數，尺寸固定）；原點在地面中心，+Z 為正面。放置由 World.addLandmark 處理。
+// 欄位：name、build()、bx＝局部外框 [x0, x1, z0, z1]（findSpot 用）、range＝容許的地面高低差、
+//       sink＝往地面下沉的深度、shapes＝局部碰撞形狀（box 的 y／top 相對原點；circle 的 h）
+import { box, cyl, mat } from './prop-models.js';
+
+const M = {
+  hull: mat(0x6c7176),
+  hullD: mat(0x4a4e52),
+  rust: mat(0x8a5a36, { roughness: 0.85 }),
+  rustD: mat(0x5e3e28, { roughness: 0.9 }),
+  steel: mat(0x9aa0a6, { metalness: 0.5 }),
+  yellow: mat(0xc8a040),
+  orange: mat(0xc06a30),
+  concrete: mat(0x9a948a, { roughness: 0.95, metalness: 0.02 }),
+  dark: mat(0x2a2c2e),
+  glow: new THREE.MeshStandardMaterial({ color: 0xff8a30, emissive: 0xff6a10, emissiveIntensity: 1.6 }),
+  crystal: new THREE.MeshStandardMaterial({
+    color: 0x7fe0ff,
+    emissive: 0x3aa8ff,
+    emissiveIntensity: 1.2,
+    roughness: 0.2,
+    metalness: 0.1,
+    flatShading: true,
+  }),
+  dish: new THREE.MeshStandardMaterial({ color: 0x6c7176, side: THREE.DoubleSide, flatShading: true }),
+  window: new THREE.MeshStandardMaterial({ color: 0x9fd4ff, emissive: 0x4080b0, emissiveIntensity: 0.5 }),
+};
+
+const group = (...ch) => {
+  const g = new THREE.Group();
+  for (const c of ch) g.add(c);
+  return g;
+};
+const rot = (o, x = 0, y = 0, z = 0) => {
+  o.rotation.set(x, y, z);
+  return o;
+};
+
+// ---------- 荒野 ----------
+// 墜毀運輸艦：長 34 m 的艦體斜插地面，機翼折斷
+function crashedShip() {
+  const g = new THREE.Group();
+  const hull = new THREE.Group();
+  hull.add(box(8, 6, 30, M.hull, 0, 3, 0));
+  hull.add(box(6, 3, 8, M.hullD, 0, 6.5, -6));
+  hull.add(box(5, 4, 4, M.window, 0, 4, 15.5));
+  hull.add(box(9, 1.2, 26, M.rustD, 0, 0.4, 0));
+  for (const s of [-1, 1]) hull.add(cyl(1.6, 1.8, 5, M.dark, s * 3, 3, -16.5, 10));
+  hull.add(rot(box(12, 0.8, 6, M.hull, -9, 3.5, 2), 0, 0, 0.25));
+  hull.add(rot(box(7, 0.8, 5, M.rust, 8, 1.2, 5), 0, 0.3, -0.5));
+  rot(hull, -0.12, 0.35, 0.08);
+  hull.position.y = -1.2;
+  g.add(hull);
+  for (let i = 0; i < 5; i++) g.add(rot(box(2.5, 1.2, 2, M.rustD, -8 + i * 4, 0.4, 12 - i * 5), 0, i, 0.2));
+  return g;
+}
+// 倒塌的雷達塔：橫躺的格子塔＋碟形天線
+function fallenRadar() {
+  const g = new THREE.Group();
+  const tower = new THREE.Group();
+  for (let i = 0; i < 6; i++) {
+    const z = -14 + i * 5;
+    for (const [x, y] of [
+      [-1.5, 0],
+      [1.5, 0],
+      [-1.5, 3],
+      [1.5, 3],
+    ])
+      tower.add(box(0.4, 0.4, 5, M.steel, x, y + 0.6, z + 2.5));
+    tower.add(rot(box(0.25, 4.2, 0.25, M.steel, 0, 2.1, z), 0, 0, 0.8));
+  }
+  g.add(tower);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 8, 0, Math.PI * 2, 0, 0.9), M.dish);
+  rot(dish, 1.2, 0, 0.3);
+  dish.position.set(2, 3.2, 20);
+  dish.castShadow = true;
+  g.add(dish);
+  g.add(box(5, 2, 5, M.concrete, 0, 1, -17));
+  return g;
+}
+// 燃燒中的油井：井架＋火炬（發光）＋儲槽
+function burningWell() {
+  const g = new THREE.Group();
+  for (const [x, z] of [
+    [-2.5, -2.5],
+    [2.5, -2.5],
+    [-2.5, 2.5],
+    [2.5, 2.5],
+  ])
+    g.add(rot(box(0.5, 22, 0.5, M.rust, x * 0.6, 11, z * 0.6), x * 0.012, 0, z * 0.012));
+  for (let i = 1; i < 6; i++) g.add(box(4.5 - i * 0.4, 0.3, 4.5 - i * 0.4, M.rust, 0, i * 4, 0));
+  g.add(box(6, 1, 6, M.concrete, 0, 0.5, 0));
+  const fire = cyl(0.2, 2.2, 7, M.glow, 0, 25, 0, 8);
+  fire.castShadow = false;
+  g.add(fire);
+  for (const [x, z, r] of [
+    [9, 3, 3.5],
+    [9, -5, 3],
+    [-8, 6, 2.6],
+  ]) {
+    g.add(cyl(r, r, 5, M.hull, x, 2.5, z, 14));
+    g.add(cyl(r * 0.9, r, 0.6, M.rustD, x, 5.2, z, 14));
+  }
+  return g;
+}
+// 半埋的舊 AC 殘骸：巨大頭部與伸出地面的手臂（舊時代的大型機體）
+function buriedAc() {
+  const g = new THREE.Group();
+  const head = group(
+    box(7, 5, 7, M.hullD, 0, 2.5, 0),
+    box(5.5, 1.2, 0.6, M.glow, 0, 3.2, 3.6),
+    box(1.2, 4, 1.2, M.hull, 2.8, 6, -1.5),
+    box(8, 1, 3, M.hull, 0, 5.2, -2),
+  );
+  rot(head, 0.25, 0.6, -0.3);
+  head.position.set(-3, -1.2, 0);
+  g.add(head);
+  const arm = group(
+    box(2.6, 12, 2.6, M.hull, 0, 6, 0),
+    box(3.2, 3, 3.2, M.hullD, 0, 12, 0),
+    box(2.2, 9, 2.2, M.hull, 0, 16.5, 0),
+    box(3, 3, 2, M.hullD, 0, 22, 0),
+  );
+  rot(arm, 0.3, 0, 0.45);
+  arm.position.set(7, -2, 4);
+  g.add(arm);
+  for (let i = 0; i < 6; i++)
+    g.add(rot(box(3, 1.5, 2, M.rustD, -9 + i * 3.5, 0.3, -6 + (i % 3) * 3), 0, i, 0.3));
+  return g;
+}
+// 巨型隔牆的破口：兩段高牆夾著塌落的缺口
+function breachedWall() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) {
+    g.add(box(14, 20, 4, M.concrete, s * 13, 10, 0));
+    g.add(box(14, 1.5, 4.6, M.hullD, s * 13, 18, 0));
+    for (let i = 0; i < 3; i++) g.add(box(0.8, 20, 0.6, M.dark, s * (8 + i * 4), 10, 2.3));
+  }
+  for (let i = 0; i < 7; i++)
+    g.add(
+      rot(
+        box(3 + (i % 3), 2 + (i % 2) * 2, 3, M.concrete, -5 + i * 1.7, 1, -3 + (i % 4) * 2),
+        i,
+        i * 0.7,
+        0.3,
+      ),
+    );
+  return g;
+}
+// 廢棄的煉油塔群：三座高塔與連接管
+function crackingTowers() {
+  const g = new THREE.Group();
+  const T = [
+    [-5, 0, 2.2, 24],
+    [2, -3, 1.8, 30],
+    [4, 4, 2.6, 20],
+  ];
+  for (const [x, z, r, h] of T) {
+    g.add(cyl(r, r * 1.1, h, M.steel, x, h / 2, z, 12));
+    for (let y = 4; y < h; y += 5) g.add(cyl(r * 1.25, r * 1.25, 0.5, M.rust, x, y, z, 12));
+  }
+  g.add(rot(cyl(0.6, 0.6, 9, M.rust, -1.5, 14, -1.5, 8), 0, 0.7, Math.PI / 2));
+  g.add(rot(cyl(0.6, 0.6, 8, M.rust, 3, 12, 0.5, 8), Math.PI / 2, 0, 0));
+  g.add(box(16, 1, 14, M.concrete, 0, 0.5, 0));
+  return g;
+}
+
+// ---------- 礦坑 ----------
+// 巨型鑽機：履帶底盤＋直立鑽桿
+function giantDrill() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) g.add(box(3, 3, 16, M.dark, s * 5, 1.5, 0));
+  g.add(box(9, 6, 12, M.yellow, 0, 6, 0));
+  g.add(box(6, 4, 5, M.window, 0, 10, 4));
+  g.add(box(2.6, 34, 2.6, M.steel, 0, 20, -5));
+  g.add(cyl(1.4, 0.2, 6, M.dark, 0, 1.5, -5, 8));
+  for (let y = 8; y < 36; y += 6) g.add(box(4, 0.4, 4, M.orange, 0, y, -5));
+  return g;
+}
+// 斗輪採掘機：巨大斗輪＋吊臂＋車體
+function bucketWheel() {
+  const g = new THREE.Group();
+  g.add(box(12, 7, 14, M.yellow, 0, 4, 4));
+  g.add(box(14, 2.5, 16, M.dark, 0, 1.2, 4));
+  g.add(rot(box(3, 3, 26, M.yellow, 0, 9, -10), 0.25, 0, 0));
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(7, 1.2, 8, 24), M.orange);
+  wheel.rotation.y = Math.PI / 2;
+  wheel.position.set(0, 9, -24);
+  wheel.castShadow = true;
+  g.add(wheel);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    g.add(box(2, 2, 2, M.dark, 0, 9 + Math.sin(a) * 7.5, -24 + Math.cos(a) * 7.5));
+  }
+  return g;
+}
+// 礦石運輸車殘骸：巨大的翻倒卡車
+function haulTruck() {
+  const g = new THREE.Group();
+  const t = group(
+    box(9, 5, 16, M.yellow, 0, 4, 0),
+    box(10, 6, 9, M.orange, 0, 8, -3),
+    box(6, 3, 3, M.window, 0, 8, 6),
+  );
+  for (const [x, z] of [
+    [-5, -5],
+    [5, -5],
+    [-5, 5],
+    [5, 5],
+  ])
+    t.add(rot(cyl(2.6, 2.6, 2, M.dark, x, 2.6, z, 12), 0, 0, Math.PI / 2));
+  rot(t, 0, 0.4, 1.35);
+  t.position.set(-2, 3, 0);
+  g.add(t);
+  for (let i = 0; i < 6; i++)
+    g.add(rot(box(2, 1.5, 2, M.rustD, 6 + (i % 3) * 2, 0.5, -6 + i * 2.5), i, i, 0));
+  return g;
+}
+// 選礦廠塔：多層廠房＋斜向輸送帶
+function processingTower() {
+  const g = new THREE.Group();
+  g.add(box(10, 26, 10, M.rust, 0, 13, 0));
+  g.add(box(12, 1, 12, M.dark, 0, 18, 0));
+  g.add(box(8, 6, 8, M.hull, 0, 29, 0));
+  g.add(rot(box(2.5, 1.2, 30, M.steel, 0, 12, 16), -0.6, 0, 0));
+  for (let i = 0; i < 4; i++) g.add(box(0.6, 12 - i * 3, 0.6, M.rust, 0, (12 - i * 3) / 2, 6 + i * 6));
+  return g;
+}
+// 巨大結晶簇（發光）
+function crystalCluster() {
+  const g = new THREE.Group();
+  const C = [
+    [0, 0, 2.2, 16, 0, 0],
+    [3, 2, 1.6, 11, 0.3, 0.2],
+    [-3, 1, 1.4, 9, -0.35, 0.1],
+    [1, -3, 1.2, 8, 0.2, -0.4],
+    [-2, -2.5, 1, 6, -0.2, -0.3],
+    [4, -1, 0.9, 5, 0.5, -0.1],
+  ];
+  for (const [x, z, r, h, rx, rz] of C) {
+    const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), M.crystal);
+    m.position.set(x, h / 2 - 0.5, z);
+    m.rotation.set(rx, 0, rz);
+    g.add(m);
+  }
+  g.add(box(9, 1, 9, M.rustD, 0, 0, 0));
+  return g;
+}
+// 坍塌的礦井升降塔：歪斜的頭架與滑輪
+function headframe() {
+  const g = new THREE.Group();
+  const f = new THREE.Group();
+  for (const [x, z] of [
+    [-3, -3],
+    [3, -3],
+    [-3, 3],
+    [3, 3],
+  ])
+    f.add(box(0.7, 24, 0.7, M.steel, x, 12, z));
+  for (let y = 4; y < 24; y += 5) f.add(box(6.6, 0.4, 6.6, M.steel, 0, y, 0));
+  f.add(rot(cyl(3, 3, 0.8, M.dark, 0, 25, 0, 16), Math.PI / 2, 0, 0));
+  f.add(rot(box(0.6, 26, 0.6, M.steel, 0, 12, 9), -0.4, 0, 0));
+  rot(f, 0.18, 0, -0.12);
+  g.add(f);
+  g.add(box(10, 3, 10, M.concrete, 0, 1.5, 0));
+  return g;
+}
+
+export const LANDMARKS = {
+  wasteland: {
+    ship: {
+      name: '墜毀運輸艦',
+      build: crashedShip,
+      bx: [-11, 11, -18, 18],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [-5, 5, -16, 16], y: -1, top: 8 }],
+    },
+    radar: {
+      name: '倒塌的雷達塔',
+      build: fallenRadar,
+      bx: [-7, 7, -19, 25],
+      range: 4,
+      sink: 0.3,
+      shapes: [
+        { box: [-2, 2, -19, 15], y: 0, top: 4 },
+        { c: [2, 20], r: 5, h: 8 },
+      ],
+    },
+    well: {
+      name: '燃燒中的油井',
+      build: burningWell,
+      bx: [-12, 13, -9, 10],
+      range: 3,
+      sink: 0.2,
+      shapes: [
+        { c: [0, 0], r: 3.5, h: 24 },
+        { c: [9, 3], r: 3.5, h: 5 },
+        { c: [9, -5], r: 3, h: 5 },
+        { c: [-8, 6], r: 2.6, h: 5 },
+      ],
+    },
+    ac: {
+      name: '半埋的舊 AC 殘骸',
+      build: buriedAc,
+      bx: [-11, 14, -8, 10],
+      range: 4,
+      sink: 0.5,
+      shapes: [
+        { box: [-7, 1, -4, 4], y: -1, top: 6 },
+        { c: [9, 5], r: 2.5, h: 18 },
+      ],
+    },
+    wall: {
+      name: '巨型隔牆的破口',
+      build: breachedWall,
+      bx: [-21, 21, -5, 5],
+      range: 3,
+      sink: 0.5,
+      shapes: [
+        { box: [-20, -6, -2, 2], y: -1, top: 20 },
+        { box: [6, 20, -2, 2], y: -1, top: 20 },
+      ],
+    },
+    towers: {
+      name: '廢棄的煉油塔群',
+      build: crackingTowers,
+      bx: [-9, 9, -8, 8],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [
+        { c: [-5, 0], r: 2.5, h: 24 },
+        { c: [2, -3], r: 2.1, h: 30 },
+        { c: [4, 4], r: 2.9, h: 20 },
+      ],
+    },
+  },
+  desert: {
+    drill: {
+      name: '巨型鑽機',
+      build: giantDrill,
+      bx: [-7, 7, -9, 9],
+      range: 3,
+      sink: 0.2,
+      shapes: [{ box: [-6.5, 6.5, -8, 8], y: 0, top: 9 }],
+    },
+    wheel: {
+      name: '斗輪採掘機',
+      build: bucketWheel,
+      bx: [-8, 8, -33, 13],
+      range: 4,
+      sink: 0.3,
+      shapes: [
+        { box: [-7, 7, -4, 12], y: 0, top: 8 },
+        { c: [0, -24], r: 6, h: 17 },
+      ],
+    },
+    truck: {
+      name: '翻倒的礦石運輸車',
+      build: haulTruck,
+      bx: [-10, 11, -10, 10],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-9, 5, -9, 9], y: 0, top: 9 }],
+    },
+    plant: {
+      name: '選礦廠塔',
+      build: processingTower,
+      bx: [-7, 7, -7, 30],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ box: [-5, 5, -5, 5], y: 0, top: 32 }],
+    },
+    crystal: {
+      name: '巨大結晶簇',
+      build: crystalCluster,
+      bx: [-6, 6, -6, 6],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 4.5, h: 16 }],
+    },
+    headframe: {
+      name: '坍塌的礦井升降塔',
+      build: headframe,
+      bx: [-6, 6, -6, 15],
+      range: 2.5,
+      sink: 0.3,
+      shapes: [{ box: [-5, 5, -5, 5], y: 0, top: 25 }],
+    },
+  },
+};
+export const landmarkKeys = (theme) => Object.keys(LANDMARKS[theme] || {});

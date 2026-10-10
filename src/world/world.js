@@ -61,6 +61,8 @@ import {
 } from './prop-models.js';
 import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
+import { LANDMARKS } from './landmarks.js';
+import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
 import { FLOODED } from './themes/flooded.js';
 import { GRID086 } from './themes/grid086.js';
@@ -210,13 +212,21 @@ export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
     this.scene = scene;
     this.forceRail = !!opt.rail; // 武裝列車的關卡：一定有鐵路（主題允許時）
-    this.theme = THEMES[theme];
+    this.forceRoad = !!opt.road; // 主線的護送區段：一定有公路（主題允許時）
+    // 主題變體（world/variants.js）：覆寫主題欄位、改地形、加結構；沒有變體時完全照原本生成
+    this.variant = variantOf(theme, opt.variant);
+    this.variantKey = this.variant ? opt.variant : '';
+    this.theme =
+      this.variant && this.variant.theme ? { ...THEMES[theme], ...this.variant.theme } : THEMES[theme];
+    this.tod = opt.tod || ''; // 時間（主線）：'' 或 day／dusk／night／dawn
+    this.depth = opt.depth || 0; // 垂直下降的深度（主線）：越深越暗
     this.themeKey = theme;
     this.size = this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
     this.cells = Math.round(this.size / CELL);
     this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
     this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
+    this.setZone(opt.zone, opt.zoneAxis);
     this.trackS = (this.size / 2) * 0.86; // 公路／鐵路兩端隧道口
     this.level = level;
     this.seed = seed;
@@ -278,6 +288,10 @@ export class World {
       this.buildTerrain();
       this.buildFeatures();
       this.buildProps();
+      // 以下只在主線（或選了變體）時有：接在原本的亂數呼叫之後，不影響一般地圖
+      if (this.variant && this.variant.build) this.variant.build(this);
+      if (opt.landmark) this.addLandmark(opt.landmark);
+      if (opt.entry) this.addEntry(opt.entry);
     });
     // 邊界外的遠景地形與剪影物件（edges.js，獨立的亂數串，不影響上面的生成）
     withRng(seed * 97 + 41, () => {
@@ -288,7 +302,8 @@ export class World {
     });
     this.buildBoundary();
     // 天氣粒子：只有外觀，各端各自用 Math.random（不影響地圖）
-    this.weather = this.theme.weather ? new Weather(scene, this.theme.weather, this.theme) : null;
+    const wk = opt.weather || this.theme.weather;
+    this.weather = wk ? new Weather(scene, wk, this.theme) : null;
   }
   hAt(i, j) {
     i = clamp(i, 0, this.cells);
@@ -346,6 +361,7 @@ export class World {
     this.baseH = (x, z) =>
       prof ? prof(x, z) : T.flat ? 0 : n(x * 0.03, z * 0.03) * 1.2 + n2(x * 0.1, z * 0.1) * 0.3;
     this.edges = planEdges(this);
+    const vt = this.variant && this.variant.terrain ? this.variant.terrain(this) : null;
     for (let j = 0; j <= this.cells; j++)
       for (let i = 0; i <= this.cells; i++) {
         const x = i * CELL - this.size / 2,
@@ -364,6 +380,7 @@ export class World {
           h += c.h * t * t;
         }
         if (lake) h = lake.apply(x, z, h);
+        if (vt) h = vt(x, z, h);
         h += edgeDelta(this, x, z); // 邊界外：依段落隆起、下降或延伸（edges.js）
         h = this.featureHeight(x, z, h);
         this.h[j * (this.cells + 1) + i] = h;
@@ -838,7 +855,7 @@ export class World {
       for (let a = 0; a < 12; a++) {
         const x = Math.cos(a * 0.5236) * r,
           z = Math.sin(a * 0.5236) * r;
-        if (!this.isVoid(x, z) && !this.isReserved(x, z, 2) && this.slopeOK(x, z))
+        if (!this.isVoid(x, z) && !this.isReserved(x, z, 2) && this.slopeOK(x, z) && !this.offLimits(x, z))
           return new THREE.Vector3(x, this.terrainHeight(x, z), z);
       }
     return new THREE.Vector3(0, this.terrainHeight(0, 0), 0);
@@ -913,6 +930,129 @@ export class World {
     g.hemi.color.set(T.sky);
     g.hemi.groundColor.set(T.amb);
     g.hemi.intensity = 0.48 * (T.hemiI !== undefined ? T.hemiI : 1);
+    // 主線：時間與深度（有岩頂的地下不受時間影響）
+    const TOD = {
+      dusk: { sun: 0xffa060, sky: 0xc8805a, k: 0.45, si: 0.8, hi: 0.85, ff: 0.9 },
+      night: { sun: 0x8090c8, sky: 0x141a28, k: 0.8, si: 0.3, hi: 0.5, ff: 0.75 },
+      dawn: { sun: 0xffc8a0, sky: 0xd8a8a0, k: 0.35, si: 0.75, hi: 0.85, ff: 0.95 },
+    }[T.roof ? '' : this.tod];
+    const dk = clamp(this.depth * 0.18, 0, 0.6);
+    if (TOD || dk) {
+      const sky = new THREE.Color(T.sky),
+        fog = new THREE.Color(T.fog);
+      let si = g.sun.intensity,
+        hi = g.hemi.intensity,
+        ff = T.fogFar || 190;
+      if (TOD) {
+        sky.lerp(new THREE.Color(TOD.sky), TOD.k);
+        fog.lerp(new THREE.Color(TOD.sky), TOD.k * 0.85);
+        g.sun.color.lerp(new THREE.Color(TOD.sun), 0.7);
+        si *= TOD.si;
+        hi *= TOD.hi;
+        ff *= TOD.ff;
+      }
+      if (dk) {
+        sky.lerp(new THREE.Color(0x000000), dk);
+        fog.lerp(new THREE.Color(0x000000), dk * 0.8);
+        si *= 1 - dk;
+        hi *= 1 - dk * 0.6;
+        ff *= 1 - dk * 0.5;
+      }
+      g.scene.background = sky;
+      g.scene.fog = new THREE.Fog(fog, Math.min(T.fogNear || 60, ff * 0.4), ff);
+      g.sun.intensity = si;
+      g.hemi.color.copy(sky);
+      g.hemi.intensity = hi;
+    }
+  }
+  // ---------- 作戰區域（主線可以是狹長、小型或分段開放的矩形；一般任務是 ±lim） ----------
+  setZone(shape = 'full', axis = 0) {
+    const L = this.lim;
+    let z = [-L, L, -L, L];
+    if (shape === 'long') {
+      const n = L * 0.42;
+      z = axis ? [-L, L, -n, n] : [-n, n, -L, L];
+    } else if (shape === 'arena') {
+      const n = L * 0.55;
+      z = [-n, n, -n, n];
+    } else if (shape === 'staged') {
+      // 先開出生點這一半，之後 expandZone 擴大到全區
+      z = axis ? [-L, L, -L, L * 0.2] : [-L, L * 0.2, -L, L];
+    }
+    this.zoneShape = shape || 'full';
+    this.zone = z;
+    this.zoneGoal = null;
+  }
+  expandZone() {
+    const L = this.lim;
+    this.zoneGoal = [-L, L, -L, L];
+  }
+  // 分段開放：作戰區域慢慢擴大（每秒 30 m）
+  tickZone(dt) {
+    if (!this.zoneGoal) return;
+    let done = true;
+    for (let i = 0; i < 4; i++) {
+      const d = this.zoneGoal[i] - this.zone[i];
+      if (Math.abs(d) > 0.01) {
+        done = false;
+        this.zone[i] += Math.sign(d) * Math.min(Math.abs(d), 30 * dt);
+      }
+    }
+    if (done) this.zoneGoal = null;
+  }
+  inZone(x, z, m = 0) {
+    const Z = this.zone;
+    return x > Z[0] + m && x < Z[1] - m && z > Z[2] + m && z < Z[3] - m;
+  }
+  // 超出作戰區域的距離（場內為 0）
+  zoneExcess(x, z) {
+    const Z = this.zone;
+    return Math.max(0, Z[0] - x, x - Z[1], Z[2] - z, z - Z[3]);
+  }
+  // 變體不能放東西的地方（坑道網的岩壁…）
+  offLimits(x, z) {
+    return !!(this.variant && this.variant.offLimits && this.variant.offLimits(this, x, z));
+  }
+  // 地標（world/landmarks.js）：找一塊夠平的地方放大型物件
+  addLandmark(key) {
+    const L = (LANDMARKS[this.themeKey] || {})[key];
+    if (!L) return null;
+    // 只避開大型障礙物（找不到時放寬地面高低差，大型地標可以部分埋進地面）；佔到位置的小物件移除
+    const big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 : o.r > 3);
+    const all = this.obstacles;
+    this.obstacles = all.filter(big);
+    let spot = null;
+    for (const k of [1, 1.8, 3]) if (!spot) spot = this.findSpot(L.bx, L.range * k, 90);
+    this.obstacles = all;
+    if (!spot) return null;
+    const [x0, x1, z0, z1] = spot.aabb;
+    const hit = (o) =>
+      o.kind === 'box'
+        ? o.x + o.w / 2 > x0 - 1 && o.x - o.w / 2 < x1 + 1 && o.z + o.d / 2 > z0 - 1 && o.z - o.d / 2 < z1 + 1
+        : o.x + o.r > x0 - 1 && o.x - o.r < x1 + 1 && o.z + o.r > z0 - 1 && o.z - o.r < z1 + 1;
+    const gone = new Set(all.filter((o) => !big(o) && hit(o)));
+    for (const o of gone) if (o.group) this.scene.remove(o.group);
+    this.obstacles = all.filter((o) => !gone.has(o));
+    this.occluders = this.occluders.filter((o) => !gone.has(o));
+    for (const p of this.props || []) if (gone.has(p.ob)) p.dead = true;
+    const g = L.build();
+    const y = spot.lo - (L.sink || 0);
+    g.position.y = y;
+    this.addBig(
+      g,
+      spot,
+      L.shapes.map((sh) => (sh.box ? { ...sh, y: y + sh.y, top: y + sh.top } : { ...sh })),
+    );
+    this.landmark = { key, name: L.name, x: spot.x, z: spot.z };
+    return this.landmark;
+  }
+  // 主線的入口結構（出生點）：lift 升降梯平台、lz 降落區標示；不碰撞
+  addEntry(kind) {
+    const g = kind === 'lift' ? buildLiftPad() : kind === 'lz' ? buildLandingZone() : null;
+    if (!g) return;
+    g.position.set(0, this.terrainHeight(0, 0), 0);
+    this.scene.add(g);
+    this.meshes.push(g);
   }
 
   // ---------- 新主題的物件 ----------
@@ -934,6 +1074,7 @@ export class World {
         tries < 20 &&
         (Math.hypot(x, z) < 10 ||
           this.onCorridor(x, z, 4) ||
+          this.offLimits(x, z) ||
           this.isVoid(x, z) ||
           this.isReserved(x, z, 3) ||
           (slope && !this.slopeOK(x, z)) ||
@@ -1181,7 +1322,12 @@ export class World {
         cnt = 0;
       for (let sx = a[0]; sx <= a[1] + 1e-6 && ok; sx += Math.max(1, (a[1] - a[0]) / 6))
         for (let sz = a[2]; sz <= a[3] + 1e-6; sz += Math.max(1, (a[3] - a[2]) / 6)) {
-          if (this.onCorridor(sx, sz, 3) || this.isVoid(sx, sz) || this.isReserved(sx, sz, 3)) {
+          if (
+            this.onCorridor(sx, sz, 3) ||
+            this.isVoid(sx, sz) ||
+            this.isReserved(sx, sz, 3) ||
+            this.offLimits(sx, sz)
+          ) {
             ok = false;
             break;
           }
@@ -1389,8 +1535,9 @@ export class World {
     // 穿越的公路／鐵路：主題的 corridor（{ p 出現機率, kinds 可出現的種類 }）；方向斜向或沿 X／Z，偏離中心，一半有緩彎
     const CO = corridorSpec(this.theme);
     const force = this.forceRail && CO.kinds.includes('rail');
-    if (force || (CO.kinds.length && RNG() < CO.p)) {
-      const kind = force ? 'rail' : pick(CO.kinds);
+    const forceR = !force && this.forceRoad && CO.kinds.includes('road');
+    if (force || forceR || (CO.kinds.length && RNG() < CO.p)) {
+      const kind = force ? 'rail' : forceR ? 'road' : pick(CO.kinds);
       const a = pick([Math.PI / 4, -Math.PI / 4, 0, Math.PI / 2]);
       const d = new THREE.Vector2(Math.cos(a), Math.sin(a));
       const bend = RNG() < 0.5 ? [rnd(8, 14) * this.k * (RNG() < 0.5 ? 1 : -1), RNG() < 0.5 ? 1 : 0] : null;
@@ -1511,7 +1658,7 @@ export class World {
       rm,
     } = fs
       ? { group: buildThemeDeck(fs, w, d, thick, rotY), dm: null, rm: null }
-      : buildDeck(w, d, thick, rotY, mats);
+      : buildDeck(w, d, thick, rotY, mats || deckMats());
     g.position.set(x, y, z);
     this.scene.add(g);
     this.meshes.push(g);
@@ -1919,10 +2066,11 @@ export class World {
         }
       }
     }
-    // 場地邊界：電腦機體 ±lim、玩家 ±limOut
-    const lim = soft ? this.limOut : this.lim;
-    x = clamp(x, -lim, lim);
-    z = clamp(z, -lim, lim);
+    // 場地邊界：電腦機體限制在作戰區域（一般任務 ±lim）、玩家可以再往外 OOB_BUF（±limOut）
+    const Z = this.zone,
+      b = soft ? OOB_BUF : 0;
+    x = clamp(x, Math.max(Z[0] - b, -this.limOut), Math.min(Z[1] + b, this.limOut));
+    z = clamp(z, Math.max(Z[2] - b, -this.limOut), Math.min(Z[3] + b, this.limOut));
     return [x, z];
   }
   // projectile vs world
@@ -1946,10 +2094,12 @@ export class World {
     return false;
   }
   spawnPoint(minDistFrom, others) {
+    const Z = this.zone,
+      R = 50 * this.k;
     for (let t = 0; t < 40; t++) {
-      const x = rnd(-50 * this.k, 50 * this.k),
-        z = rnd(-50 * this.k, 50 * this.k);
-      if (this.onCorridor(x, z, 2)) continue;
+      const x = rnd(Math.max(-R, Z[0] + 4), Math.min(R, Z[1] - 4)),
+        z = rnd(Math.max(-R, Z[2] + 4), Math.min(R, Z[3] - 4));
+      if (this.onCorridor(x, z, 2) || this.offLimits(x, z)) continue;
       if (!this.slopeOK(x, z)) continue;
       if (this.isVoid(x, z) || this.isReserved(x, z, 3)) continue;
       if (Math.hypot(x - minDistFrom.x, z - minDistFrom.z) < 28) continue;
@@ -2019,19 +2169,22 @@ export class World {
   }
   updateBoundary(p) {
     if (!this.bWall || !p) return;
-    const L = this.lim;
+    const Z = this.zone;
     for (let k = 0; k < 2; k++) {
       const m = this.bWall[k];
       const v = k ? p.z : p.x,
         o = k ? p.x : p.z;
-      const t = clamp(1 - (L - Math.abs(v)) / 22, 0, 1);
+      const lo = Z[k * 2],
+        hi = Z[k * 2 + 1];
+      const edge = v - lo < hi - v ? lo : hi;
+      const t = clamp(1 - Math.min(v - lo, hi - v) / 22, 0, 1);
       const op = t * t * (3 - 2 * t) * 0.85;
       m.visible = op > 0.01;
       if (!m.visible) continue;
       m.material.opacity = op;
-      const a = clamp(o, -this.limOut, this.limOut);
-      const x = k ? a : Math.sign(v) * L,
-        z = k ? Math.sign(v) * L : a;
+      const a = clamp(o, Z[(1 - k) * 2] - OOB_BUF, Z[(1 - k) * 2 + 1] + OOB_BUF);
+      const x = k ? a : edge,
+        z = k ? edge : a;
       m.position.set(x, Math.max(this.terrainHeight(x, z), p.y - 6) + 10, z);
       m.rotation.y = k ? 0 : Math.PI / 2;
     }

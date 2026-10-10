@@ -4292,10 +4292,11 @@ async function testCampaign(browser, base) {
     return { st: g.state, seg: g.camp.seg, fails: g.camp.fails, alive: !g.player.dead };
   });
   check(s3.st === 'play' && s3.seg === 1 && s3.fails === 1 && s3.alive, '從紀錄點繼續：回到區段 2 的起點');
-  // 第 3 段往礦坑：垂直下降型出口（在場內）
+  // 第 4 段（礦場外圍）往礦坑深處：垂直下降型出口（在場內）
   await page.evaluate(() => {
     const g = window.__game;
-    g.camp.seg = 2;
+    g.camp.seg = 3;
+    g.camp.types[3] = 'battle';
     g.campEnterSeg();
   });
   await clear();
@@ -4303,7 +4304,7 @@ async function testCampaign(browser, base) {
     timeout: 8000,
   });
   const down = await page.evaluate(() => window.__game.camp.exits.every((e) => e.mode === 'down'));
-  check(down, '荒野 → 礦坑的出口是垂直下降型');
+  check(down, '礦場外圍 → 礦坑深處的出口是垂直下降型');
   // 重新整理：車庫顯示「繼續主線出擊」並能從紀錄點接回
   await page.reload();
   await waitVisible(page, 'title');
@@ -4335,6 +4336,333 @@ async function testCampaign(browser, base) {
     fin.t === '主線出擊 完成' && fin.done === 1 && !fin.ck && !fin.camp,
     '結果：完成紀錄寫入存檔、紀錄點清除',
   );
+  await ctx.close();
+}
+
+// 主線第 2 期：區段類型、主題變體、地標、入口結構、時間與深度、作戰區域形狀、排程不重複、自由出擊的變體選單
+async function testCampaign2(browser, base) {
+  console.log('主線區段類型與地圖多樣化：破壞、防衛、護送、突破、補給、情報、精英、變體、地標、作戰區域');
+  const { ctx, page } = await newPage(browser, 'camp2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 排程：同一次出擊的「變體＋地標」不重複，最後一段 Boss 用限定的開闊變體
+  const plan = await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin();
+    const c = g.camp;
+    const keys = [];
+    c.plan.forEach((p, i) => {
+      const th = g.campSortie().segs[i].theme;
+      if (p.variant) keys.push(th + '|' + p.variant);
+      if (p.landmark) keys.push(th + '|' + p.landmark);
+    });
+    return {
+      dup: keys.length !== new Set(keys).size,
+      boss: c.plan[4].variant,
+      border: c.plan[3].variant,
+      depth: c.plan.map((p) => p.depth),
+    };
+  });
+  check(
+    !plan.dup && ['openpit', 'shaft'].includes(plan.boss) && plan.border === 'outskirts',
+    '排程：變體與地標不重複、交界區段是礦場外圍、Boss 區段用開闊變體（' + plan.boss + '）',
+  );
+  check(plan.depth[4] === 1 && plan.depth[3] === 0, '深度：礦坑往下一段 +1（' + plan.depth.join(',') + '）');
+  // 進入指定類型的區段（直接設定，不經過轉場）
+  const enter = (type, seg = 1, extra = {}) =>
+    page.evaluate(
+      ([type, seg, extra]) => {
+        const g = window.__game,
+          c = g.camp;
+        c.seg = seg;
+        c.types[seg] = type;
+        Object.assign(c.plan[seg], extra);
+        g.campEnterSeg();
+        g.player.hp = g.player.maxHp = 1e7;
+        return {
+          st: g.state,
+          type: c.ss.type,
+          enemies: g.enemies.filter((e) => !e.dead).length,
+          allies: g.allies.length,
+          exits: c.exits.length,
+          zone: g.world.zone.slice(),
+          lim: g.world.lim,
+        };
+      },
+      [type, seg, extra],
+    );
+  const killAll = () =>
+    page.evaluate(() => {
+      const g = window.__game;
+      g.waves = [];
+      for (const e of g.enemies)
+        if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    });
+  // 等出口出現（等待中持續清掉運輸機投放的增援；kill＝false 時不動敵人）
+  const exitsUp = (ms = 8000, kill = true) =>
+    page
+      .waitForFunction(
+        (kill) => {
+          const g = window.__game;
+          if (kill && g.camp && !g.camp.exits.length) {
+            g.waves = [];
+            for (const e of g.enemies)
+              if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+          }
+          return g.camp && g.camp.exits.length >= 2;
+        },
+        kill,
+        { timeout: ms, polling: 300 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  // 破壞
+  const d = await enter('destroy', 1, { zone: 'full' });
+  const tg = await page.evaluate(() => window.__game.camp.ss.targets.map((e) => e.ai + ':' + e.team));
+  check(
+    d.st === 'play' && tg.length >= 3 && tg.every((t) => t === 'objective:enemy'),
+    '破壞：' + tg.length + ' 個目標設施（不動、可擊破）＋護衛',
+  );
+  await killAll();
+  check(await exitsUp(), '破壞：目標與敵軍全滅後開出口');
+  const exT = await page.evaluate(() => window.__game.camp.exits.map((e) => e.type));
+  check(
+    exT.every((t) => ['supply', 'escort', 'breakthrough'].includes(t)),
+    '出口預告下一段的類型（' + exT.join('、') + '）',
+  );
+  // 補給：站上補給台回復
+  await enter('supply', 2);
+  const sup = await page.evaluate(() => {
+    const g = window.__game,
+      ss = g.camp.ss;
+    g.player.hp = g.player.maxHp * 0.3;
+    const h0 = g.player.hp;
+    for (let i = 0; i < 40 && !ss.pad.used; i++) {
+      g.player.pos.set(ss.pad.pos.x, ss.pad.pos.y, ss.pad.pos.z);
+      g.campTick(0.05);
+    }
+    return { used: ss.pad.used, up: g.player.hp > h0 };
+  });
+  check(sup.used && sup.up, '補給：站上補給台回復 AP、彈藥與修復套件');
+  check(await exitsUp(), '補給：沒有敵人，直接開出口');
+  // 情報：敵人全滅後還要下載完才算清除
+  await enter('intel', 1, { zone: 'full' });
+  await killAll();
+  await wait(800);
+  const in0 = await page.evaluate(() => ({
+    cleared: window.__game.camp.cleared,
+    ex: window.__game.camp.exits.length,
+  }));
+  await page.evaluate(() => {
+    const g = window.__game,
+      it = g.camp.ss.intel;
+    for (let i = 0; i < 100 && !it.done; i++) {
+      g.player.pos.set(it.pos.x, it.pos.y, it.pos.z);
+      g.campTick(0.05);
+    }
+  });
+  check(!in0.cleared && !in0.ex && (await exitsUp()), '情報：敵人全滅後還要下載情報才開出口');
+  // 防衛：防衛目標被毀 → 失敗
+  const df = await enter('defend', 1);
+  check(df.allies === 1 && df.enemies > 0, '防衛：友方防衛目標＋來襲敵軍');
+  await page.evaluate(() => {
+    const g = window.__game,
+      t = g.camp.ss.defend;
+    t.takeDamage(1e9, 0, g.enemies[0], t.center(), new THREE.Vector3(0, 0, 1));
+  });
+  check(await waitVisible(page, 'campFail', 10000), '防衛目標被摧毀：任務失敗、回到失敗畫面');
+  await page.evaluate(() => window.__game.campRestore());
+  // 護送：一定有公路、三台車；全部抵達後清除
+  const es = await enter('escort', 2, { variant: 'junction' });
+  const cv = await page.evaluate(() => {
+    const g = window.__game;
+    return { road: g.world.corridor && g.world.corridor.kind, n: g.camp.ss.convoy.length };
+  });
+  check(cv.road === 'road' && cv.n === 3 && es.allies === 3, '護送：地圖一定有公路，三台護送車輛');
+  const moved = await page.evaluate(async () => {
+    const g = window.__game,
+      a = g.camp.ss.convoy[0];
+    const p0 = a.pos.clone();
+    await new Promise((r) => setTimeout(r, 2000));
+    return a.pos.distanceTo(p0);
+  });
+  check(moved > 0.5, '護送：車隊沿公路前進（' + moved.toFixed(1) + ' m）');
+  await page.evaluate(() => {
+    const g = window.__game;
+    for (const a of g.camp.ss.convoy) {
+      const P = a.opts.path;
+      const q = P[P.length - 1];
+      a.pos.set(q.x, q.y, q.z);
+      a.pathI = P.length;
+    }
+  });
+  check(await exitsUp(10000, false), '護送：車隊全部抵達後清除並開出口');
+  // 突破：一開始就有出口，不必全滅
+  const br = await enter('breakthrough', 2);
+  check(br.exits >= 2 && br.enemies > 0, '突破：一開始就開出口，敵人還在');
+  // 精英：具名 AC＋血條；小型戰場
+  const el = await enter('elite', 3);
+  const elb = await page.evaluate(() => ({
+    n: window.__game.bosses.length,
+    bar: getComputedStyle(document.getElementById('bossBar')).display,
+  }));
+  check(elb.n === 1 && elb.bar !== 'none', '精英：具名 AC 與血條');
+  check(
+    el.zone[1] - el.zone[0] < el.lim * 1.2,
+    '精英：小型戰場（作戰區域 ' + Math.round(el.zone[1] - el.zone[0]) + ' m）',
+  );
+  // 作戰區域：狹長（超出被推回）、分段開放（擊破一半後擴大）
+  const lg = await enter('battle', 1, { zone: 'long', zoneAxis: 0 });
+  check(lg.zone[1] - lg.zone[0] < lg.lim && lg.zone[3] - lg.zone[2] > lg.lim * 1.9, '狹長地帶的作戰區域');
+  const oob = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      p = g.player;
+    g.state = 'zone-test';
+    // 找一條邊界外 8 m 到邊界內 6 m 之間沒有障礙物的路線
+    const ex = w.zone[1];
+    let zz = 0;
+    for (let z = -60; z <= 60; z += 3) {
+      const blocked = w.obstacles.some((o) =>
+        o.kind === 'box'
+          ? o.x + o.w / 2 > ex - 6 && o.x - o.w / 2 < ex + 8 && Math.abs(o.z - z) < o.d / 2 + 3
+          : Math.abs(o.x - ex) < o.r + 8 && Math.abs(o.z - z) < o.r + 3,
+      );
+      if (!blocked) {
+        zz = z;
+        break;
+      }
+    }
+    p.pos.set(ex + 6, w.groundAt(ex + 6, zz, 99) + 0.1, zz);
+    p.vel.set(0, 0, 0);
+    for (let i = 0; i < 240; i++) p.move(1 / 60, new THREE.Vector3(), false, false, false, null);
+    g.state = 'play';
+    return { x: p.pos.x, edge: w.zone[1] };
+  });
+  check(oob.x <= oob.edge + 0.5, '狹長地帶：超出作戰區域被推回');
+  await enter('battle', 1, { zone: 'staged', zoneAxis: 1 });
+  const stg = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world;
+    g.state = 'zone-test';
+    const z0 = w.zone[3];
+    const al = g.enemies.filter((e) => !e.dead);
+    for (const e of al.slice(0, Math.ceil(al.length / 2) + 1))
+      e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    for (let i = 0; i < 200; i++) g.campTick(0.05);
+    g.state = 'play';
+    return { z0, z1: w.zone[3], lim: w.lim };
+  });
+  check(
+    stg.z0 < stg.lim * 0.5 && stg.z1 > stg.lim - 1,
+    '分段開放：擊破一半後作戰區域擴大（' + Math.round(stg.z0) + ' → ' + Math.round(stg.z1) + '）',
+  );
+  // 主題變體與地標：每種都能生成；坑道網有岩頂、生成點不在岩壁上；夜間變暗
+  const vs = await page.evaluate(() => {
+    const g = window.__game;
+    g.campClearExits();
+    g.camp = null;
+    g.clearMission();
+    g.state = 'variant-test';
+    const out = [];
+    let W = null;
+    for (const [th, v] of [
+      ['wasteland', 'factory'],
+      ['wasteland', 'pipeline'],
+      ['wasteland', 'slag'],
+      ['wasteland', 'junction'],
+      ['desert', 'openpit'],
+      ['desert', 'tunnels'],
+      ['desert', 'shaft'],
+      ['desert', 'vein'],
+      ['desert', 'outskirts'],
+    ]) {
+      if (g.world) g.world.dispose();
+      g.world = null;
+      if (!W) {
+        g.save.level = 1;
+        g.startMission();
+        W = g.world.constructor;
+        g.clearMission();
+        g.state = 'variant-test';
+      }
+      const lmk = th === 'wasteland' ? 'radar' : 'crystal';
+      const w = new W(g.scene, th, 1234 + out.length, 3, null, {
+        variant: v,
+        landmark: lmk,
+        entry: 'lift',
+        tod: 'night',
+      });
+      g.world = w;
+      const sp = w.spawnPoint(new THREE.Vector3(), []);
+      out.push({
+        v,
+        key: w.variantKey,
+        lm: !!w.landmark,
+        roof: !!w.theme.roof,
+        off: w.offLimits(sp.x, sp.z),
+      });
+    }
+    const w0 = new W(g.scene, 'wasteland', 77, 3, null, { tod: 'night' });
+    g.world.dispose();
+    g.world = w0;
+    w0.applyLight(g);
+    const night = g.sun.intensity;
+    g.world.dispose();
+    g.world = null;
+    g.state = 'title';
+    return { out, night };
+  });
+  check(
+    vs.out.every((o) => o.key === o.v),
+    '主題變體都能生成（' + vs.out.map((o) => o.v).join('、') + '）',
+  );
+  check(
+    vs.out.filter((o) => o.lm).length >= 7,
+    '地標放得下（' + vs.out.filter((o) => o.lm).length + '／' + vs.out.length + '）',
+  );
+  const tun = vs.out.find((o) => o.v === 'tunnels');
+  check(tun.roof && !tun.off, '坑道網：有岩頂、生成點不在岩壁上');
+  check(vs.night < 0.5, '夜間的光線變暗（太陽強度 ' + vs.night.toFixed(2) + '）');
+  // 自由出擊：車庫選的主題變體（截圖：廢工廠群、坑道網）
+  for (const [th, v, tod] of [
+    ['wasteland', 'factory', 'dusk'],
+    ['desert', 'tunnels', ''],
+  ]) {
+    await page.evaluate(
+      ([th, v, tod]) => {
+        const g = window.__game;
+        localStorage.setItem('rubicon_map', th);
+        localStorage.setItem('rubicon_variant', v);
+        g.save.level = 1;
+        g.startMission();
+        g.world.tod = tod;
+        g.world.applyLight(g);
+      },
+      [th, v, tod],
+    );
+    await wait(1500);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'variant-' + v + '.png') });
+  }
+  const fv = await page.evaluate(() => window.__game.world.variantKey);
+  check(fv === 'tunnels', '自由出擊：車庫選的主題變體套用到出擊');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    localStorage.setItem('rubicon_map', 'industrial');
+    localStorage.setItem('rubicon_variant', 'base');
+    g.openGarage();
+  });
+  await waitVisible(page, 'garage');
+  await page.selectOption('#gMapSel', 'desert');
+  const opts = await page.$$eval('#gVarSel option', (l) => l.map((o) => o.textContent));
+  check(
+    opts.includes('坑道網') && opts.includes('標準') && !opts.includes('礦場外圍'),
+    '車庫的變體選單（' + opts.join('、') + '）',
+  );
+  await page.selectOption('#gMapSel', 'industrial');
   await ctx.close();
 }
 
@@ -4904,6 +5232,7 @@ async function main() {
     await c.addInitScript(() => {
       try {
         if (localStorage.getItem('rubicon_map') === null) localStorage.setItem('rubicon_map', 'industrial');
+        if (localStorage.getItem('rubicon_variant') === null) localStorage.setItem('rubicon_variant', 'base');
       } catch (e) {
         /* 沒有 localStorage 的頁面 */
       }
@@ -4939,6 +5268,7 @@ async function main() {
     await testLockOn(browser, base);
     await testBoundary(browser, base);
     await testCampaign(browser, base);
+    await testCampaign2(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

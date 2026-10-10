@@ -31,5 +31,6 @@ import './game/mp-models.js';
 import './game/style-lab.js';
 import './game/fullscreen.js';
 import './game/campaign.js';
+import './entities/mech-objective.js';
 
 new Game();

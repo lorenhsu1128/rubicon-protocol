@@ -201,13 +201,16 @@ export class MechEntity {
   // 超出作戰區域（±lim）：往場內推回；最外到 limOut（collide 的 soft）。oob＝超出的距離
   oobPush(w, dt) {
     let ex = 0;
+    const Z = w.zone;
     for (const a of ['x', 'z']) {
       const p = this.pos[a],
-        e = Math.abs(p) - w.lim;
+        lo = Z[a === 'x' ? 0 : 2],
+        hi = Z[a === 'x' ? 1 : 3];
+      const e = p > hi ? p - hi : p < lo ? lo - p : 0;
       if (e <= 0) continue;
       ex = Math.max(ex, e);
       // 往外的速度上限越外面越低，超出 4 m 後只能往內；另外一直往內加速（放開按鍵也會慢慢回到場內）
-      const sg = Math.sign(p);
+      const sg = p > hi ? 1 : -1;
       const v = Math.min(this.vel[a] * sg, 16 * (1 - e / 4)) - (16 + e * 3) * dt;
       this.vel[a] = sg * v;
     }
@@ -1640,6 +1643,7 @@ export class MechEntity {
     const g = this.game,
       s = this.aiState;
     if (this.dead) return;
+    if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
     // pick nearest hostile
     let pl = null,
       bd = 1e9;

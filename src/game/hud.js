@@ -245,7 +245,7 @@ Object.assign(Game.prototype, {
     acsBar.style.width = clamp((p.acs / p.acsMax) * 100, 0, 100) + '%';
     acsBar.classList.toggle('guard', p.stagGuardT > 0); // 失衡後保護中
     // 離開作戰區域：警告（機體會被推回場內）
-    const oob = this.world ? Math.max(Math.abs(p.pos.x), Math.abs(p.pos.z)) - this.world.lim : 0;
+    const oob = this.world ? this.world.zoneExcess(p.pos.x, p.pos.z) : 0;
     const ob = document.getElementById('oob');
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
     document.getElementById('kits').innerHTML =
