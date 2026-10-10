@@ -381,7 +381,9 @@ Object.assign(Game.prototype, {
       if (performance.now() - n.lastHostMsg > 4000 && !n.migrating) n.hostLost();
     }
     // 房主失聯偵測
-    if (!this.spectator && performance.now() - n.lastHostMsg > 3000 && !n.migrating) n.hostLost();
+    // hostLostMs：冒煙測試在負載很重時放寬（預設 3 秒）
+    if (!this.spectator && performance.now() - n.lastHostMsg > (this.hostLostMs || 3000) && !n.migrating)
+      n.hostLost();
     // 本地輸入 → 送出 + 預測
     if (this.spectator) {
       /* 觀戰：不送輸入 */

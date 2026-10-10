@@ -4207,7 +4207,10 @@ async function testCampaign(browser, base) {
       const g = window.__game;
       g.waves = [];
       for (const e of g.enemies)
-        if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        if (!e.dead) {
+          if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+          e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        }
     });
   const s0 = await page.evaluate(() => {
     const g = window.__game;
@@ -4455,7 +4458,10 @@ async function testCampaign2(browser, base) {
       const g = window.__game;
       g.waves = [];
       for (const e of g.enemies)
-        if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        if (!e.dead) {
+          if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+          e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        }
     });
   // 等出口出現（等待中持續清掉運輸機投放的增援；kill＝false 時不動敵人）
   const exitsUp = (ms = 8000, kill = true) =>
@@ -4466,7 +4472,10 @@ async function testCampaign2(browser, base) {
           if (kill && g.camp && !g.camp.exits.length) {
             g.waves = [];
             for (const e of g.enemies)
-              if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+              if (!e.dead) {
+                if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+                e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+              }
           }
           return g.camp && g.camp.exits.length >= 2;
         },
@@ -4488,7 +4497,7 @@ async function testCampaign2(browser, base) {
   check(await exitsUp(), '破壞：目標與敵軍全滅後開出口');
   const exT = await page.evaluate(() => window.__game.camp.exits.map((e) => e.type));
   check(
-    exT.every((t) => ['supply', 'escort', 'breakthrough'].includes(t)),
+    exT.every((t) => ['supply', 'escort', 'breakthrough', 'elite'].includes(t)),
     '出口預告下一段的類型（' + exT.join('、') + '）',
   );
   // 補給：站上補給台回復
@@ -4608,8 +4617,10 @@ async function testCampaign2(browser, base) {
     g.state = 'zone-test';
     const z0 = w.zone[3];
     const al = g.enemies.filter((e) => !e.dead);
-    for (const e of al.slice(0, Math.ceil(al.length / 2) + 1))
+    for (const e of al.slice(0, Math.ceil(al.length / 2) + 1)) {
+      if (e.ai === 'burrow') e.bossVis = 0;
       e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    }
     for (let i = 0; i < 200; i++) g.campTick(0.05);
     g.state = 'play';
     return { z0, z1: w.zone[3], lim: w.lim };
@@ -4793,6 +4804,67 @@ async function testChapter1(browser, base) {
     '廢鐵合成體：外殼吸收大部分傷害（1000 → ' + Math.round(fx.junk.hurt) + '）',
   );
   check(fx.scav.n === 1 && fx.scav.up, '拾荒 MT：同伴被擊破時撿零件強化');
+  // 沙丘：沙中伏擊者（地下打不到、鑽出攻擊）、沙暴干擾機（鎖定距離減半）
+  const du = await page.evaluate(() => {
+    const g = window.__game;
+    g.camp.types[3] = 'supply';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const at = (x, z) => new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
+    const out = {};
+    const bw = g.spawnType('burrow', 1, 1, at(12, 0));
+    bw.updateAI(1 / 60);
+    const h0 = bw.hp;
+    bw.takeDamage(5000, 0, p, bw.center(), new THREE.Vector3(0, 0, 1));
+    out.under = { inv: bw.hp === h0, hidden: !bw.mesh.visible, noLock: bw.noLock };
+    const p0 = p.hp;
+    let rose = false;
+    for (let i = 0; i < 900 && !rose; i++) {
+      g.time += 1 / 60;
+      bw.updateAI(1 / 60);
+      if (bw.aiState.bw === 'up') rose = true;
+    }
+    out.rose = rose;
+    out.hit = p0 - p.hp;
+    out.visible = bw.mesh.visible;
+    bw.takeDamage(1e9, 0, p, bw.center(), new THREE.Vector3(0, 0, 1));
+    out.killed = bw.dead;
+    const r0 = g.lockReach(p);
+    const jm = g.spawnType('jammer', 1, 1, at(8, 8));
+    const r1 = g.lockReach(p);
+    jm.takeDamage(1e9, 0, p, jm.center(), new THREE.Vector3(0, 0, 1));
+    out.jam = [r0, r1];
+    g.state = 'play';
+    return out;
+  });
+  check(du.under.inv && du.under.hidden && du.under.noLock, '沙中伏擊者：在沙下時看不到、打不到、不能鎖定');
+  check(
+    du.rose && du.hit > 0 && du.visible && du.killed,
+    '沙中伏擊者：從腳下鑽出攻擊（' + Math.round(du.hit) + '），露出後打得到',
+  );
+  check(
+    du.jam[1] < du.jam[0] * 0.6,
+    '沙暴干擾機：附近的鎖定距離減半（' + du.jam.map(Math.round).join(' → ') + ' m）',
+  );
+  const dv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['bridge', 'turbine', 'colossus', 'array', 'gate', 'scorpion'];
+    ['ridges', 'flats', 'wrecks', 'storm', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'dunes', 500 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push((g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+    });
+    return out;
+  });
+  check(
+    dv.slice(0, 4).every((s, i) => s.startsWith(['ridges', 'flats', 'wrecks', 'storm'][i])) &&
+      dv.filter((s) => s.endsWith(':1')).length >= 5,
+    '沙丘的 4 種變體與地標（' + dv.join('、') + '）',
+  );
   // 精英區段：荒野是 RUST（劇情通訊）、礦坑是 PROSPECTOR
   const el = await page.evaluate(() => {
     const g = window.__game;
@@ -4800,7 +4872,8 @@ async function testChapter1(browser, base) {
     g.campBegin('c1s1');
     const r = [];
     for (const [seg, th] of [
-      [1, 'wasteland'],
+      [1, 'dunes'],
+      [2, 'wasteland'],
       [3, 'desert'],
     ]) {
       g.camp.seg = seg;
@@ -4809,11 +4882,16 @@ async function testChapter1(browser, base) {
       r.push(g.bosses[0].name + ':' + th);
     }
     const log = (g.save.story.log || []).map((l) => l.sp);
-    return { r, rust: log.includes('rust'), pro: log.includes('prospector') };
+    return { r, rust: log.includes('rust'), pro: log.includes('prospector'), sir: log.includes('sirocco') };
   });
   check(
-    el.r[0].startsWith('RUST') && el.r[1].startsWith('PROSPECTOR') && el.rust && el.pro,
-    '精英區段：荒野是 RUST、礦坑是 PROSPECTOR，各自有通訊（' + el.r.join('、') + '）',
+    el.r[0].startsWith('SIROCCO') &&
+      el.r[1].startsWith('RUST') &&
+      el.r[2].startsWith('PROSPECTOR') &&
+      el.rust &&
+      el.pro &&
+      el.sir,
+    '精英區段：沙丘是 SIROCCO、荒野是 RUST、礦坑是 PROSPECTOR，各自有通訊（' + el.r.join('、') + '）',
   );
   // 模擬器：列出遇過的敵人與宿敵；模擬戰清除後回機庫
   await page.evaluate(() => {
@@ -4843,7 +4921,10 @@ async function testChapter1(browser, base) {
     const g = window.__game;
     g.waves = [];
     for (const e of g.enemies)
-      if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+      if (!e.dead) {
+        if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+        e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+      }
   });
   check(await waitVisible(page, 'result', 8000), '模擬戰清除後顯示結果');
   await page.click('#btnResultOk');
@@ -5554,6 +5635,8 @@ async function testMpCampaign(browser, url) {
     '大廳的「主線合作」模式（房主選委託，客機看得到）',
   );
   for (const p of [host, cli]) await p.evaluate(() => (window.__game.autoPickMod = true));
+  // 完整測試的負載很重時房主分頁偶爾卡住超過 3 秒：放寬客機判定房主失聯的時間（遷移那一步另外測）
+  await cli.evaluate(() => (window.__game.hostLostMs = 15000));
   await cli.click('#btnLobbyReady');
   await wait(500);
   await host.click('#btnLobbyReady');
@@ -5591,9 +5674,24 @@ async function testMpCampaign(browser, url) {
     for (const p of g.players) p.hp = p.maxHp = 1e7;
     g.waves = [];
     for (const e of g.enemies)
-      if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+      if (!e.dead) {
+        if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+        e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+      }
   });
-  await pump(30, () => host.evaluate(() => window.__game.camp.exits.length >= 2));
+  // 等出口出現（期間持續清掉運輸機投放的增援）
+  await pump(300, () =>
+    host.evaluate(() => {
+      const g = window.__game;
+      g.waves = [];
+      for (const e of g.enemies)
+        if (!e.dead) {
+          if (e.ai === 'burrow') e.bossVis = 0;
+          e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        }
+      return g.camp.exits.length >= 2;
+    }),
+  );
   const cliEx = await (async () => {
     for (let i = 0; i < 200; i++) {
       const n = await cli.evaluate(() => {

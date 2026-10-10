@@ -415,6 +415,16 @@ export const PALETTES = {
     visor: 0xff8040,
     glow: 0xff7a30,
   },
+  sirocco: {
+    main: 0xd8c09a,
+    main2: 0x9c7c50,
+    main3: 0xe8d4b0,
+    sub: 0x3a3028,
+    acc: 0xc83a2a,
+    joint: 0x2a2620,
+    visor: 0xff5040,
+    glow: 0xff5a40,
+  },
   prospector: {
     main: 0xb89838,
     main2: 0x6e5c28,

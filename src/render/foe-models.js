@@ -169,7 +169,66 @@ function buildJunk(pal, scale) {
   return rig(root, torso, M, { hand, type: 'junk', height: 4.5 * scale, extra: { shell } });
 }
 
+// 沙中伏擊者：從沙裡鑽出的鑽頭頭部＋一圈鉗爪（高約 2.6 m；在地下時整個隱藏）
+function buildBurrower(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  P(torso, gCyl(1.1, 1.3, 1.6, 10), M.main, 0, 0.8, 0);
+  for (let i = 0; i < 3; i++)
+    P(torso, gCyl(1.15 - i * 0.12, 1.15 - i * 0.12, 0.2, 10), M.main2, 0, 0.3 + i * 0.5, 0);
+  const head = new THREE.Group();
+  head.position.set(0, 1.6, 0);
+  torso.add(head);
+  P(head, gCyl(0.1, 1.0, 1.2, 10), M.gun, 0, 0.6, 0);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    P(
+      head,
+      gBox(0.25, 1.1, 0.3),
+      M.acc,
+      Math.cos(a) * 0.95,
+      0.3,
+      Math.sin(a) * 0.95,
+      Math.sin(a) * 0.5,
+      0,
+      -Math.cos(a) * 0.5,
+    );
+  }
+  P(torso, gBox(0.9, 0.18, 0.05), glow(0xffd060, 1.4), 0, 1.2, -1.2);
+  const hand = new THREE.Group();
+  hand.position.set(0, 1.4, -1.1);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'burrower', height: 2.6 * scale, extra: { head } });
+}
+// 沙暴干擾機：機身＋旋轉的干擾天線（飛行，高約 1.6 m）
+function buildJammer(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  torso.position.y = 0.8;
+  root.add(torso);
+  CB(torso, 1.1, 0.5, 1.4, M.main, 0, 0, 0, 0, 0, 0, 0.08);
+  for (const s of [-1, 1]) CB(torso, 0.9, 0.08, 0.6, M.main2, s * 0.85, 0.05, 0, 0, 0, s * 0.15, 0.03);
+  const dish = new THREE.Group();
+  dish.position.set(0, 0.45, 0);
+  torso.add(dish);
+  P(dish, gCyl(0.06, 0.06, 0.6, 6), M.joint, 0, 0.3, 0);
+  for (let i = 0; i < 3; i++)
+    P(dish, gBox(1.2, 0.05, 0.12), M.acc, 0, 0.55 + i * 0.1, 0, 0, (i * Math.PI) / 3, 0);
+  P(dish, gSph(0.12, 8), glow(0xffa030, 2), 0, 0.85, 0);
+  const hand = new THREE.Group();
+  hand.position.set(0, 0, -0.8);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'jammer', height: 1.6 * scale, extra: { dish } });
+}
+
 export const FOE_BUILDERS = {
+  burrower: buildBurrower,
+  jammer: buildJammer,
   cart: buildCart,
   crystal_drone: buildCrystalDrone,
   driller: buildDriller,
@@ -177,6 +236,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['burrower', '沙中伏擊者', '沙丘專屬；在沙下移動，從腳下鑽出攻擊'],
+  ['jammer', '沙暴干擾機', '沙丘專屬；附近的鎖定距離縮短'],
   ['cart', '炸藥礦車', '礦坑專屬；衝向目標自爆（敵我不分）'],
   ['crystal_drone', '結晶寄生無人機', '礦坑深層專屬；擊破時碎裂四射'],
   ['driller', '鑽頭採礦機', '礦坑專屬；近戰鑽頭，衝擊大'],

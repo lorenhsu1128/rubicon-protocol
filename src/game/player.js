@@ -12,7 +12,12 @@ Object.assign(Game.prototype, {
       if (d && d.range > 0 && d.type !== 'melee' && d.type !== 'shield' && d.type !== 'none')
         r = Math.max(r, d.range);
     }
-    return r ? Math.min(p.stats.lockRange, r) : p.stats.lockRange;
+    const base = r ? Math.min(p.stats.lockRange, r) : p.stats.lockRange;
+    // 沙暴干擾機（data/foes.js）25 m 內：鎖定距離減半
+    const jam = (this.enemies || []).some(
+      (e) => !e.dead && e.opts && e.opts.vehKey === 'jammer' && e.pos.distanceTo(p.pos) < 25,
+    );
+    return jam ? base * 0.5 : base;
   },
   // 在畫面內（鏡頭前方、投影在視窗範圍裡）
   onScreen(e) {

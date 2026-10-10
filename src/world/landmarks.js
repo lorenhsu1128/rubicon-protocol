@@ -267,7 +267,161 @@ function headframe() {
   return g;
 }
 
+// ---------- 沙丘 ----------
+// 半埋巨艦的艦橋：傾斜的高塔與窗
+function shipBridge() {
+  const g = new THREE.Group();
+  const t = group(
+    box(10, 18, 8, M.hull, 0, 9, 0),
+    box(11, 2.5, 9, M.hullD, 0, 15, 0),
+    box(9, 1.6, 0.4, M.window, 0, 15, -4.6),
+    box(3, 8, 3, M.hull, 2, 22, 1),
+    box(0.6, 6, 0.6, M.steel, -2, 25, 0),
+  );
+  rot(t, 0.12, 0.4, -0.18);
+  t.position.y = -3;
+  g.add(t);
+  for (let i = 0; i < 5; i++)
+    g.add(rot(box(4, 1.5, 3, M.rustD, -8 + i * 4, 0.3, 7 - (i % 2) * 3), 0, i, 0.2));
+  return g;
+}
+// 古代風力塔：高柱＋三片葉片
+function windTower() {
+  const g = new THREE.Group();
+  g.add(cyl(1.2, 2, 30, M.concrete, 0, 15, 0, 10));
+  g.add(box(3, 3, 5, M.hull, 0, 30, 0.5));
+  const hub = new THREE.Group();
+  hub.position.set(0, 30, -2.4);
+  g.add(hub);
+  for (let i = 0; i < 3; i++) hub.add(rot(box(1.2, 14, 0.3, M.steel, 0, 7, 0), 0, 0, (i * Math.PI * 2) / 3));
+  rot(hub, 0, 0, 0.4);
+  g.add(box(6, 1, 6, M.concrete, 0, 0.5, 0));
+  return g;
+}
+// 沙中巨像：半埋的巨大石像頭部
+function colossus() {
+  const g = new THREE.Group();
+  const head = group(
+    box(12, 14, 11, M.concrete, 0, 7, 0),
+    box(9, 2, 1, M.dark, 0, 9, -5.6),
+    box(2, 4, 2, M.concrete, 0, 6, -6),
+    box(13, 3, 12, M.rust, 0, 15, 0),
+  );
+  rot(head, -0.15, 0.5, 0.12);
+  head.position.y = -4;
+  g.add(head);
+  return g;
+}
+// 倒塌的天線陣：幾支高桅杆，一支倒下
+function antennaArray() {
+  const g = new THREE.Group();
+  for (const [x, z, h] of [
+    [-8, -6, 22],
+    [6, -4, 26],
+    [-2, 8, 18],
+  ]) {
+    g.add(box(0.8, h, 0.8, M.steel, x, h / 2, z));
+    for (let y = 4; y < h; y += 6) g.add(box(3, 0.3, 0.3, M.steel, x, y, z));
+    g.add(box(2.4, 2.4, 2.4, M.concrete, x, 1.2, z));
+  }
+  g.add(rot(box(0.8, 24, 0.8, M.steel, 10, 0.8, 8), Math.PI / 2 - 0.05, 0.6, 0));
+  return g;
+}
+// 沙漠要塞門：兩座塔＋拱門
+function fortressGate() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) {
+    g.add(box(7, 18, 7, M.concrete, s * 8, 9, 0));
+    g.add(box(8, 1.5, 8, M.rust, s * 8, 18.5, 0));
+  }
+  g.add(box(9, 4, 6, M.concrete, 0, 15, 0));
+  g.add(box(4, 1, 0.4, M.glow, 0, 13, -3.2));
+  for (let i = 0; i < 4; i++) g.add(rot(box(3, 2, 2.5, M.concrete, -6 + i * 4, 0.6, 5), i, i * 0.6, 0.2));
+  return g;
+}
+// 機械蠍殘骸：身體、彎曲的尾巴、兩隻鉗子
+function scorpionWreck() {
+  const g = new THREE.Group();
+  g.add(rot(box(8, 3, 12, M.hullD, 0, 2, 0), 0, 0, 0.12));
+  for (let i = 0; i < 5; i++) {
+    const a = i * 0.35;
+    g.add(rot(box(2.2, 2.2, 3, M.hull, 0, 4 + Math.sin(a) * 6, 7 + Math.cos(a) * 3 - i * 0.6), -a, 0, 0));
+  }
+  g.add(cyl(0.2, 0.8, 3, M.glow, 0, 13, 4, 6));
+  for (const s of [-1, 1]) {
+    g.add(rot(box(1.6, 1.6, 7, M.hull, s * 4.5, 1.6, -8), 0, s * 0.4, 0));
+    g.add(rot(box(3, 1.2, 3, M.hullD, s * 6, 1.4, -12), 0, s * 0.8, 0));
+  }
+  for (let i = 0; i < 6; i++)
+    g.add(
+      rot(
+        box(0.6, 3, 0.6, M.hull, (i < 3 ? -1 : 1) * 4.5, 1.2, -3 + (i % 3) * 3),
+        0,
+        0,
+        (i < 3 ? 1 : -1) * 0.8,
+      ),
+    );
+  return g;
+}
+
 export const LANDMARKS = {
+  dunes: {
+    bridge: {
+      name: '半埋巨艦的艦橋',
+      build: shipBridge,
+      bx: [-12, 12, -8, 10],
+      range: 5,
+      sink: 1,
+      shapes: [{ box: [-6, 6, -5, 5], y: -1, top: 20 }],
+    },
+    turbine: {
+      name: '古代風力塔',
+      build: windTower,
+      bx: [-4, 4, -10, 4],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 2.4, h: 32 }],
+    },
+    colossus: {
+      name: '沙中巨像',
+      build: colossus,
+      bx: [-9, 9, -9, 9],
+      range: 5,
+      sink: 1,
+      shapes: [{ box: [-7, 7, -7, 7], y: -1, top: 12 }],
+    },
+    array: {
+      name: '倒塌的天線陣',
+      build: antennaArray,
+      bx: [-11, 22, -8, 11],
+      range: 4,
+      sink: 0.3,
+      shapes: [
+        { c: [-8, -6], r: 1.6, h: 22 },
+        { c: [6, -4], r: 1.6, h: 26 },
+        { c: [-2, 8], r: 1.6, h: 18 },
+      ],
+    },
+    gate: {
+      name: '沙漠要塞門',
+      build: fortressGate,
+      bx: [-12, 12, -5, 7],
+      range: 3,
+      sink: 0.5,
+      shapes: [
+        { box: [-11.5, -4.5, -3.5, 3.5], y: -1, top: 19 },
+        { box: [4.5, 11.5, -3.5, 3.5], y: -1, top: 19 },
+      ],
+    },
+    scorpion: {
+      name: '機械蠍殘骸',
+      build: scorpionWreck,
+      bx: [-8, 8, -14, 11],
+      range: 4,
+      sink: 0.5,
+      shapes: [{ box: [-4, 4, -6, 6], y: -1, top: 5 }],
+    },
+  },
   wasteland: {
     ship: {
       name: '墜毀運輸艦',

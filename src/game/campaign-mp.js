@@ -209,6 +209,13 @@ Object.assign(Game.prototype, {
     this.campWaitIv = setInterval(() => this.campWaitCheck(), 500);
     this.campWaitCheck();
   },
+  // 主迴圈每格呼叫（轉場等待中）：每 0.5 秒檢查一次、順便讓客機知道房主還在（背景分頁的計時器會被節流）
+  campWaitTick() {
+    const now = performance.now();
+    if (now - (this.campWaitLast || 0) < 500) return;
+    this.campWaitLast = now;
+    this.campWaitCheck();
+  },
   campMarkReady(slot) {
     const c = this.camp;
     if (!c || !c.wait) return;

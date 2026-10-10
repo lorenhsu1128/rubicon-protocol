@@ -20,6 +20,7 @@ export const SPEAKERS = {
   sancta: { name: '聖域 協調人', color: '#e0d070', mark: 'S', faction: 'sancta' },
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
+  sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
   prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
 };
 
@@ -242,6 +243,40 @@ export const COMMS = [
     type: 'destroy',
     once: true,
     lines: [['echo', '小心礦車，它們裝滿了炸藥。等它們靠近其他敵人再引爆。']],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sirocco',
+    once: true,
+    lines: [
+      ['sirocco', '……沙暴裡，看得見我嗎？'],
+      ['echo', '具名 AC「SIROCCO」。高速近戰型，會從視野外突進。'],
+      ['echo', '別在原地等它，保持移動。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sirocco',
+    lines: [
+      ['sirocco', '又見面了。這次你的刀快一點了嗎？'],
+      ['echo', 'SIROCCO 的格擋很準，近戰不要正面硬拼。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'SIROCCO',
+    lines: [
+      ['sirocco', '太慢了。'],
+      ['echo', 'SIROCCO 會格擋正面的近戰。用射擊逼它，或是繞到側面。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'dunes',
+    once: true,
+    lines: [['echo', '沙丘地帶。沙下有東西在動——腳下出現沙塵就馬上移開。']],
   },
   // ---- 失敗 ----
   { event: 'fail', fails: 3, lines: [['echo', '已經第三次了。換個裝備試試看？重量和射程都會影響打法。']] },

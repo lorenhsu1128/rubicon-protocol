@@ -32,6 +32,7 @@ Object.assign(MechEntity.prototype, {
       this.stuckJump(dt, r);
       return r;
     }
+    if (this.ai === 'burrow') return this.foeBurrow(dt, d, dir, perp, wish, pl, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -56,6 +57,65 @@ Object.assign(MechEntity.prototype, {
     }
     return null;
   },
+  // 沙中伏擊者：under（地下：打不到、看不到，快速接近）→ rise（預警沙塵）→ 鑽出攻擊 → up（露出 4 秒）→ 再鑽回去
+  foeBurrow(dt, d, dir, perp, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game;
+    if (!s.bw) {
+      s.bw = 'under';
+      s.bwT = 2 + Math.random() * 2;
+    }
+    s.bwT -= dt;
+    if (s.bw === 'under') {
+      this.bossVis = 1;
+      this.noLock = true;
+      wish.copy(dir).multiplyScalar(d > 4 ? 1.2 : 0.2);
+      if (Math.random() < dt * 8) g.fx.dust(this.pos.clone(), 1.6, 3, 0xc9a06a);
+      if ((d < 5 && s.bwT <= 0) || s.bwT < -6) {
+        s.bw = 'rise';
+        s.bwT = 0.9;
+        s.at = pl.pos.clone();
+        g.fx.warnCircle(s.at, 4, 0.9);
+      }
+    } else if (s.bw === 'rise') {
+      wish.set(0, 0, 0);
+      if (Math.random() < dt * 20) g.fx.dust(s.at.clone(), 3, 6, 0xc9a06a);
+      if (s.bwT <= 0) {
+        // 從腳下鑽出：預警圈內的目標受傷並被頂起
+        this.pos.x = s.at.x;
+        this.pos.z = s.at.z;
+        this.bossVis = 0;
+        this.noLock = false;
+        g.fx.dust(this.pos.clone(), 5, 14, 0xc9a06a);
+        for (const t of g.hostilesOfEnt(this))
+          if (!t.dead && Math.hypot(t.pos.x - s.at.x, t.pos.z - s.at.z) < 4 && t.pos.y - s.at.y < 3) {
+            t.takeDamage(520 * this.dmgMul, 1100 * this.dmgMul, this, t.center(), new THREE.Vector3(0, 1, 0));
+            t.vel.y = Math.max(t.vel.y, 9);
+          }
+        s.bw = 'up';
+        s.bwT = 4;
+      }
+    } else if (s.bw === 'up') {
+      if (d < 8) wish.copy(dir).negate().multiplyScalar(0.4);
+      else wish.copy(perp).multiplyScalar(0.3);
+      if (s.bwT <= 0) {
+        s.bw = 'under';
+        s.bwT = 2.5 + Math.random() * 2;
+        g.fx.dust(this.pos.clone(), 3, 10, 0xc9a06a);
+      }
+    }
+    return r;
+  },
+  // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
+  foeFx() {
+    if (this.ai === 'burrow') {
+      const under = !!(this.bossVis & 1) && !this.dead;
+      this.mesh.visible = !under;
+      this.noLock = under;
+    }
+    if (this.ai === 'junk') this.foeShellFx();
+    if (this.model.dish) this.model.dish.rotation.y += 0.08; // 沙暴干擾機的天線
+  },
   foeShellInit() {
     if (this.shell !== undefined) return;
     this.shellMax = this.maxHp * 0.8;
@@ -65,12 +125,20 @@ Object.assign(MechEntity.prototype, {
   foeShellFx() {
     const sh = this.model.shell;
     if (!sh) return;
-    const k = this.shellMax ? clamp(this.shell / this.shellMax, 0, 1) : this.shellK || 0;
+    // 房主依外殼量（同步給客機的 bossVis＝0～15），客機依 bossVis
+    if (!this.remote && this.shellMax)
+      this.bossVis = Math.round(clamp(this.shell / this.shellMax, 0, 1) * 15);
+    const k = this.remote
+      ? (this.bossVis || 0) / 15
+      : this.shellMax
+        ? clamp(this.shell / this.shellMax, 0, 1)
+        : 1;
     sh.visible = k > 0.02;
     sh.scale.setScalar(0.5 + 0.5 * k);
   },
   // specialDefense 先呼叫：外殼還在時吸收大部分傷害
   foeDefense(dmg, impact) {
+    if (this.ai === 'burrow' && this.bossVis & 1) return [0, 0]; // 在沙下
     if (this.ai !== 'junk') return [dmg, impact];
     this.foeShellInit();
     if (!(this.shell > 0)) return [dmg, impact];

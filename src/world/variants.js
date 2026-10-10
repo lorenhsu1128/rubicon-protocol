@@ -110,6 +110,14 @@ export function buildCrystal(h) {
   }
   return g;
 }
+// 鹽柱（沙丘「鹽灘平原」；高 h）
+export function buildSaltPillar(h) {
+  const g = new THREE.Group();
+  const m = mat(0xe8e2d0, { roughness: 0.9, metalness: 0 });
+  g.add(cyl(0.6, 0.9, h, m, 0, h / 2, 0, 6));
+  g.add(cyl(0.35, 0.55, h * 0.4, m, 0.5, h * 0.2, 0.3, 5));
+  return g;
+}
 // 礦坑坑口：岩壁上的方形入口與照明（寬 12、高 10）
 export function buildMinePortal() {
   const g = new THREE.Group();
@@ -293,6 +301,55 @@ export const VARIANTS = {
       },
     },
   },
+  dunes: {
+    ridges: {
+      name: '巨大沙丘脊',
+      theme: { featureKinds: ['platforms'], corridor: { p: 0.25, kinds: ['road'] } },
+      // 沙丘的起伏放大：高低差大、視線常被擋住
+      terrain: () => (x, z, h) => h * 1.8,
+    },
+    flats: {
+      name: '鹽灘平原',
+      theme: {
+        featureKinds: ['bunkers', 'trench'],
+        corridor: { p: 0.6, kinds: ['road'] },
+        ground: 0xd8ceb4,
+        slope: 0xb8aa8a,
+        fog: 0xe8e0cc,
+        sky: 0xf0e8d8,
+      },
+      terrain: () => (x, z, h) => h * 0.2,
+      build(w) {
+        // 鹽柱（可破壞）
+        w.scatter(w.cnt(14, 20), 8, (x, z, y) => {
+          const h = rnd(2.5, 6);
+          const g = buildSaltPillar(h);
+          g.rotation.y = rnd(0, 6.28);
+          w.addSmall(g, x, y - 0.2, z, { r: 0.9, h }, 'salt', 500, 0xe8e2d0);
+        });
+      },
+    },
+    wrecks: {
+      name: '艦體墓場',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.3, kinds: ['road'] } },
+      build(w) {
+        for (let i = 0; i < 2; i++) w.buildWrecks();
+      },
+    },
+    storm: {
+      name: '沙暴區',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        fogNear: 14,
+        fogFar: 85,
+        fog: 0xc8a878,
+        sky: 0xc8a878,
+        sunI: 0.55,
+        hemiI: 0.85,
+        weather: 'sand',
+      },
+    },
+  },
   desert: {
     openpit: {
       name: '露天礦場',
@@ -463,6 +520,7 @@ export const VARIANT_CATALOG = [
   ['barrier', '紐澤西護欄', '荒野「公路交流道」；長 4 m', () => buildBarrier()],
   ['car_wreck', '燒毀的車輛', '荒野「公路交流道」；可破壞', () => buildCarWreck()],
   ['crystal_s', '結晶簇', '礦坑「地下礦脈」；高 2–4.5 m，可破壞', () => buildCrystal(3)],
+  ['salt_pillar', '鹽柱', '沙丘「鹽灘平原」；高 2.5–6 m，可破壞', () => buildSaltPillar(4)],
   ['mine_portal', '礦坑坑口', '礦坑「礦場外圍」；寬 20、高 13 m', () => buildMinePortal()],
   ['lift_pad', '升降梯平台', '主線：下降後的入口結構（不碰撞）', () => buildLiftPad()],
   ['landing_zone', '降落區標示', '主線：空降的入口標示（不碰撞）', () => buildLandingZone()],

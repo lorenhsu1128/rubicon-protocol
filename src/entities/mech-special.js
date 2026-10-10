@@ -219,6 +219,8 @@ Object.assign(MechEntity.prototype, {
   // 顯示：護盾、修理光束、強化／混亂標記（房主與客機每格呼叫）
   specialFx(dt) {
     const g = this.game;
+    if (this.ai === 'burrow' || this.ai === 'junk' || (this.opts && this.opts.vehKey === 'jammer'))
+      this.foeFx(); // 主題專屬敵人的顯示（mech-foe.js）
     const host = !this.remote;
     const sx = this.sx || (this.sx = {});
     if (this.guardBreakT > 0) this.guardBreakT -= dt;
@@ -380,6 +382,7 @@ Object.assign(MechEntity.prototype, {
         return r;
       case 'drill':
       case 'junk':
+      case 'burrow':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
     return this.bossMove(dt, d, dir, perp, wish, pl);

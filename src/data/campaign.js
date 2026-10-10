@@ -35,6 +35,13 @@ export const TRANSITIONS = {
       T('從高架橋跳下', '捷徑：直接切入下一區'),
     ],
   },
+  dunes: {
+    relay: [
+      T('運輸機吊掛移動', '越過沙丘', 'lz'),
+      T('沙暴中行軍', '在沙暴的掩護下推進'),
+      T('沿沙丘公路推進', '跟著半埋的公路前進'),
+    ],
+  },
   desert: {
     relay: [T('運輸機吊掛移動', '前往礦場外圍', 'lz'), T('沿礦車軌道推進', '跟著廢棄的礦車軌道前進')],
     down: [
@@ -111,8 +118,8 @@ export const SORTIES = {
     reward: 30000,
     segs: [
       { theme: 'wasteland', pool: ['battle'] },
-      { theme: 'wasteland', pool: ['battle', 'destroy', 'defend', 'intel'] },
-      { theme: 'wasteland', pool: ['supply', 'escort', 'breakthrough'] },
+      { theme: 'dunes', pool: ['battle', 'destroy', 'defend', 'intel', 'elite'] },
+      { theme: 'wasteland', pool: ['supply', 'escort', 'breakthrough', 'elite'] },
       { theme: 'desert', border: true, pool: ['elite', 'destroy', 'battle'] },
       { theme: 'desert', pool: ['boss'], boss: 'artillery', variants: ['openpit', 'shaft'] },
     ],

@@ -198,7 +198,12 @@ export class LocalTransport {
     this.ch = new BroadcastChannel('rubicon-lan');
     this.ch.onmessage = (e) => this.recv(e.data);
     this.alive = new Map();
+    this.hbLast = performance.now();
     this.hb = setInterval(() => {
+      // 自己的分頁剛才卡住（建模型、編譯著色器）：排隊中的訊息還沒處理，重新起算，不要誤判對方斷線
+      const now = performance.now();
+      if (now - this.hbLast > 2000) for (const pid of this.alive.keys()) this.alive.set(pid, now);
+      this.hbLast = now;
       for (const [pid, t] of this.alive) {
         // 同一台電腦的分頁：生成地圖時可能卡住好幾秒（SwiftShader），不要太快判定斷線
         if (performance.now() - t > 8000) {

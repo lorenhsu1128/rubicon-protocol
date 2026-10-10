@@ -343,6 +343,7 @@ export class Game {
     this.lastT = now;
     this.lastDt = dt;
     this.pollGamepad(dt);
+    if (this.camp && this.camp.wait) this.campWaitTick(); // 主線多人：轉場中等待隊友（不靠會被節流的計時器）
     if ((this.frames & 15) === 0) this.updateVpad();
     if (this.state === 'play' || this.state === 'ending') {
       const pace = this.net && this.net.role === 'client' ? this.hostPace || 1 : this.ctrl.pace || 1;
