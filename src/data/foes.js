@@ -1,4 +1,4 @@
-// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場…）
+// 主題專屬敵人與專屬 AC（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩…）
 // 專屬敵人的欄位同 ENEMY_TYPES（spawnType 會先查 ENEMY_TYPES 再查這裡），另外：theme＝所屬主題、depth＝礦坑深層才出現、
 // foe＝行為（entities/mech-foe.js：scav 撿零件強化、junk 外殼、drill 鑽擊…）、max＝一波最多幾台。主線的區段編成依主題混入；
 // 自由出擊的該主題地圖在主線遇過之後才會出現（save.story.foesSeen）。
@@ -112,6 +112,48 @@ export const FOES = {
     turnRate: 2.5,
     intro: '叉架 MT：舉著貨櫃當盾牌，正面打不太動——繞到側面、用近戰打掉貨櫃，或等它把貨櫃丟出來',
     gen: () => ({ ...HEAVY, rarm: 'w_mg' }),
+  },
+  // ---- 多重水壩 ----
+  gategun: {
+    theme: 'dam',
+    foe: 'gategun',
+    cost: 3,
+    max: 2,
+    name: '閘門砲台',
+    pal: 'yard',
+    scale: 1,
+    hpMul: 1.2,
+    dmgMul: 0.7,
+    stabMul: 3,
+    ai: 'gategun',
+    modelKind: 'boss',
+    vehKey: 'gate_turret',
+    radius: 2,
+    wantDist: 0,
+    speedMul: 0.2,
+    turnRate: 1.5,
+    intro: '閘門砲台：開閘前地面出現藍色預警，水流會把機體往下游沖走——離開水道，或跳起來躲開',
+    gen: () => ({ ...HEAVY, rarm: 'w_bz' }),
+  },
+  patrol: {
+    theme: 'dam',
+    cost: 1.5,
+    name: '壩頂巡邏砲車',
+    pal: 'mt',
+    scale: 1,
+    hpMul: 0.5,
+    dmgMul: 0.6,
+    stabMul: 1.2,
+    ai: 'strider',
+    perch: true,
+    modelKind: 'boss',
+    vehKey: 'patrol_cart',
+    radius: 1.6,
+    wantDist: 40,
+    speedMul: 0.8,
+    turnRate: 2,
+    intro: '壩頂巡邏砲車：在壩頂居高臨下砲擊，爬上壩頂或躲進壩體的陰影',
+    gen: () => ({ ...HEAVY, rarm: 'w_bz', rback: 'bw_gr' }),
   },
   // ---- 沙丘地帶 ----
   burrow: {
@@ -262,6 +304,32 @@ export const ACES = {
     },
     intro: '集散場的砲擊手 STEVEDORE — 雙肩榴彈，躲在貨櫃堆後面砲擊',
   },
+  sluice: {
+    theme: 'dam',
+    name: 'SLUICE',
+    speaker: 'sluice',
+    pal: 'sluice',
+    ai: 'strider',
+    wantDist: 40,
+    hpMul: 2.4,
+    dmgMul: 0.85,
+    stabMul: 2,
+    speedMul: 0.9,
+    asm: {
+      head: 'h_scan',
+      core: 'c_hv',
+      arms: 'a_std',
+      legs: 'l_qd',
+      booster: 'b_std',
+      generator: 'g_hi',
+      fcs: 'f_far',
+      rarm: 'w_lc',
+      larm: 'w_bz',
+      rback: 'bw_gat',
+      lback: 'bw_ms8',
+    },
+    intro: '水壩的守備隊長 SLUICE — 佔住壩頂，從高處傾瀉重火力',
+  },
   sirocco: {
     theme: 'dunes',
     name: 'SIROCCO',
@@ -321,6 +389,7 @@ export const THEME_ACE = {
   dunes: 'sirocco',
   desert: 'prospector',
   industrial: 'stevedore',
+  dam: 'sluice',
 };
 // 主題的專屬敵人（depth：垂直主題的深度）
 export function themeFoes(theme, depth = 0) {

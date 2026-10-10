@@ -189,6 +189,75 @@ Object.assign(Game.prototype, {
     this.fx.warnCircle(land, o.R, T);
     this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
   },
+  // ----- 閘門砲台的開閘水流 -----
+  // f：{ x, z 起點, dx, dz 方向（單位向量）, len, hw 半寬, t 秒, dps, team, src }。房主與客機都有一份（推走機體是各自
+  // 在 move 裡用自己的位置算），傷害只在房主
+  addFlow(f) {
+    if (!this.flows) this.flows = [];
+    this.flows.push({ ...f, dmgT: 0 });
+    if (!this.isClient)
+      this.netEv({
+        t: 'flow',
+        f: {
+          x: +f.x.toFixed(2),
+          z: +f.z.toFixed(2),
+          dx: +f.dx.toFixed(3),
+          dz: +f.dz.toFixed(3),
+          len: f.len,
+          hw: f.hw,
+          t: f.t,
+        },
+      });
+  },
+  // 機體所在的水流（貼地時才算）
+  flowAt(e) {
+    for (const f of this.flows || []) {
+      const rx = e.pos.x - f.x,
+        rz = e.pos.z - f.z;
+      const u = rx * f.dx + rz * f.dz,
+        v = -rx * f.dz + rz * f.dx;
+      if (u > -1 && u < f.len && Math.abs(v) < f.hw) return f;
+    }
+    return null;
+  },
+  updateFlows(dt) {
+    if (!this.flows || !this.flows.length) return;
+    const host = !this.isClient,
+      w = this.world;
+    const wl = w.theme.water ? w.theme.water.level : -1e9;
+    for (let k = this.flows.length - 1; k >= 0; k--) {
+      const f = this.flows[k];
+      f.t -= dt;
+      if (f.t <= 0) {
+        this.flows.splice(k, 1);
+        continue;
+      }
+      // 水花（各端自己畫，不轉送給客機）
+      const nest = this.fx._nested;
+      this.fx._nested = true;
+      for (let i = 0; i < 3; i++) {
+        const u = Math.random() * f.len,
+          v = (Math.random() * 2 - 1) * f.hw;
+        const x = f.x + f.dx * u - f.dz * v,
+          z = f.z + f.dz * u + f.dx * v;
+        const p = new THREE.Vector3(x, Math.max(w.terrainHeight(x, z), wl) + 0.3, z);
+        this.fx.dust(p, 1.5, 2, 0xb8dcf0);
+        if (Math.random() < 0.25)
+          this.fx.streaks(p, 2, 0xd8f0ff, 12, 0.35, 8, new THREE.Vector3(f.dx, 0.4, f.dz), 0.4);
+      }
+      this.fx._nested = nest;
+      if (!host) continue;
+      f.dmgT -= dt;
+      if (f.dmgT > 0) continue;
+      f.dmgT = 0.25;
+      const dir = new THREE.Vector3(f.dx, 0, f.dz);
+      for (const t of this.hostilesOf(f.team, f.src)) {
+        if (t.dead || t.flying || t.pos.y - w.terrainHeight(t.pos.x, t.pos.z) > 3 || this.flowAt(t) !== f)
+          continue;
+        t.takeDamage(f.dps * 0.25, f.dps * 0.6, f.src, t.center(), dir.clone());
+      }
+    }
+  },
   // ----- 地雷 -----
   minesOf(src) {
     return (this.mines || []).filter((m) => m.owner === src).length;
@@ -316,6 +385,7 @@ Object.assign(Game.prototype, {
   },
   // 每格：地雷（房主判定觸發；客機只閃燈）
   updateSupport(dt) {
+    this.updateFlows(dt);
     if (!this.mines || !this.mines.length) return;
     const host = !(this.net && this.net.role === 'client');
     const w = this.world;
@@ -378,6 +448,9 @@ Object.assign(Game.prototype, {
       case 'warn':
         this.fx.warnCircle(new THREE.Vector3(e.p[0], e.p[1], e.p[2]), e.R, e.dl, e.c);
         return true;
+      case 'flow':
+        this.addFlow({ ...e.f });
+        return true;
       case 'mine': {
         if (!this.mines) this.mines = [];
         const p = new THREE.Vector3(e.p[0], e.p[1], e.p[2]);
@@ -415,5 +488,6 @@ Object.assign(Game.prototype, {
   clearSupport() {
     for (const m of this.mines || []) this.scene.remove(m.mesh);
     this.mines = [];
+    this.flows = [];
   },
 });

@@ -425,6 +425,16 @@ export const PALETTES = {
     visor: 0xffb040,
     glow: 0xffc060,
   },
+  sluice: {
+    main: 0x5a6a74,
+    main2: 0x2e3a42,
+    main3: 0x8a9aa4,
+    sub: 0x1c2228,
+    acc: 0x40a0d8,
+    joint: 0x22282e,
+    visor: 0x60c8ff,
+    glow: 0x60c8ff,
+  },
   stevedore: {
     main: 0xc89a2a,
     main2: 0x2e3034,

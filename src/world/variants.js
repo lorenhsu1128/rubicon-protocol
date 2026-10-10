@@ -196,6 +196,23 @@ export function buildBollard() {
   g.add(cyl(0.5, 0.5, 0.15, M.dark, 0, 0.95, 0, 8));
   return g;
 }
+// 攔砂壩一段：長 len（沿 X）、高 h、厚 3（原點在底面中心）
+export function buildWeir(len, h) {
+  const g = new THREE.Group();
+  g.add(box(len, h, 3, M.concrete, 0, h / 2, 0));
+  g.add(box(len, 0.3, 3.3, M.concreteD, 0, h + 0.15, 0));
+  for (let x = -len / 2 + 2; x < len / 2; x += 4) g.add(box(0.6, 0.8, 0.4, M.dark, x, 0.8, 1.6));
+  return g;
+}
+// 壓力水管：沿 Z 的粗水管一段（長 len、管徑 2.4），每 8 m 一個鞍座
+export function buildPenstock(len) {
+  const g = new THREE.Group();
+  const p = cyl(1.2, 1.2, len, M.steel, 0, 2, 0, 14);
+  p.rotation.x = Math.PI / 2;
+  g.add(p);
+  for (let z = -len / 2 + 2; z < len / 2; z += 8) g.add(box(3.2, 1.6, 1, M.concreteD, 0, 0.8, z));
+  return g;
+}
 // 礦坑坑口：岩壁上的方形入口與照明（寬 12、高 10）
 export function buildMinePortal() {
   const g = new THREE.Group();
@@ -504,6 +521,104 @@ export const VARIANTS = {
       },
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
+    },
+  },
+  dam: {
+    gorge: {
+      name: '峽谷段',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        corridor: { p: 0.3, kinds: ['road'] },
+        rock: 0x3e3c36,
+      },
+      // 洩洪河道兩側（離河道 40 m 外）是陡峭的岩壁，壩體兩端埋進岩壁裡
+      terrain: (w) => (x, z, h) => h + 17 * smooth(clamp((Math.abs(x - w.dam.xr) - 40 * w.k) / 9, 0, 1)),
+      offLimits: (w, x, z) => w.terrainHeight(x, z) > 8,
+    },
+    weirs: {
+      name: '攔砂壩群',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.4, kinds: ['road', 'rail'] } },
+      // 下游兩道低矮的攔砂壩（高 4～5 m，跳得過去），河道與公路處留缺口
+      build(w) {
+        const D = w.dam,
+          dn = -D.up;
+        const half = w.size / 2;
+        for (const off of [26 * w.k, 52 * w.k]) {
+          const z = D.zc + dn * (off + rnd(-4, 4));
+          const gx = rnd(-w.lim * 0.7, w.lim * 0.7);
+          for (let x = -half + 6; x < half - 6; x += 12) {
+            if (
+              Math.abs(x - D.xr) < 10 ||
+              Math.abs(x - gx) < 8 ||
+              w.onCorridor(x, z, 7) ||
+              w.isReserved(x, z, 2)
+            )
+              continue;
+            if (Math.abs(x) > w.limOut) continue;
+            const h = rnd(4, 5);
+            const y = w.terrainHeight(x, z) - 1;
+            w.addSmall(buildWeir(12, h + 1), x, y, z, { w: 12, h: h + 1, d: 3 });
+          }
+        }
+      },
+    },
+    plant: {
+      name: '水力發電廠',
+      theme: { featureKinds: ['bunkers', 'trench'], corridor: { p: 0.5, kinds: ['road'] } },
+      // 壩體下游的發電廠房、從壩體往下游的壓力水管
+      build(w) {
+        const D = w.dam,
+          dn = -D.up;
+        for (let k = 0; k < 2; k++) {
+          const x = rnd(-w.lim * 0.6, w.lim * 0.6);
+          if (Math.abs(x - D.xr) < 16) continue;
+          const z = D.zc + dn * (18 + k * 6);
+          const len = 22;
+          const cz = z + (dn * len) / 2;
+          if (w.onCorridor(x, cz, 6) || !free(w, x, cz, 2, len / 2)) continue;
+          for (const s of [-1, 1]) {
+            const g = buildPenstock(len);
+            const px = x + s * 3;
+            w.addSmall(g, px, w.terrainHeight(px, cz) - 0.3, cz, { w: 3, h: 3.4, d: len });
+          }
+        }
+        for (let k = w.cnt(1, 2); k > 0; k--) {
+          const hw = 14,
+            hd = 8,
+            hh = 11;
+          place(w, buildWarehouse(hw * 2, hd * 2, hh, 0xa8a49a), [-hw - 1, hw + 1, -hd - 1, hd + 1], 2.5, [
+            { box: [-hw, -4, -hd - 0.3, -hd + 0.3], top: hh },
+            { box: [4, hw, -hd - 0.3, -hd + 0.3], top: hh },
+            { box: [-hw, -4, hd - 0.3, hd + 0.3], top: hh },
+            { box: [4, hw, hd - 0.3, hd + 0.3], top: hh },
+            { box: [-4, 4, -hd - 0.3, -hd + 0.3], y: 6, top: hh },
+            { box: [-4, 4, hd - 0.3, hd + 0.3], y: 6, top: hh },
+            { box: [-hw - 0.3, -hw + 0.3, -hd, hd], top: hh },
+            { box: [hw - 0.3, hw + 0.3, -hd, hd], top: hh },
+          ]);
+        }
+      },
+    },
+    storm: {
+      name: '暴雨洩洪',
+      theme: {
+        featureKinds: ['platforms', 'trench'],
+        weather: 'rain',
+        fogNear: 22,
+        fogFar: 115,
+        fog: 0x7a8488,
+        sky: 0x6a7478,
+        sunI: 0.5,
+        hemiI: 0.75,
+      },
+      // 下游的河道變寬變深
+      terrain: (w) => (x, z, h) => {
+        const D = w.dam;
+        const u = (z - D.zc) * D.up;
+        if (u > 0) return h;
+        const c = clamp(1 - (Math.abs(x - D.xr) - 12) / 8, 0, 1);
+        return h - 2.2 * smooth(c) * clamp(-u / 12, 0, 1);
+      },
     },
   },
   wasteland: {
@@ -856,6 +971,8 @@ export const VARIANT_CATALOG = [
     () => buildQuayCrane(),
   ],
   ['bollard', '繫船柱', '集散場「港灣碼頭」的裝飾', () => buildBollard()],
+  ['weir', '攔砂壩', '水壩「攔砂壩群」；長 12、高 5–6 m，不可破壞', () => buildWeir(12, 5)],
+  ['penstock', '壓力水管', '水壩「水力發電廠」；長 22 m、管徑 2.4 m', () => buildPenstock(22)],
   [
     'factory_hall',
     '廢工廠廠房',

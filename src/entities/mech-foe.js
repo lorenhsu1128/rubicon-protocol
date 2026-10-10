@@ -2,6 +2,7 @@
 // drill 鑽頭採礦機（衝向目標、貼身鑽擊）、junk 廢鐵合成體（外殼吸收傷害、吸附可破壞物件補外殼）；
 // 拾荒 MT（opts.foe 'scav'）撿同伴零件強化的處理在 game/mission.js 的 onEnemyKilled（foeScavenge）。
 // crane 起重機砲台（不移動，丟貨櫃到預警圈）、forklift 叉架 MT（舉貨櫃當盾、靠近丟出）：吊著／舉著貨櫃＝bossVis 1。
+// gategun 閘門砲台：站上水壩的閘門，預警後開閘，下游的水流把機體往下游推（game/support.js 的 addFlow）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
@@ -40,6 +41,7 @@ Object.assign(MechEntity.prototype, {
       return r;
     }
     if (this.ai === 'forklift') return this.foeForklift(dt, d, dir, perp, wish, pl, r);
+    if (this.ai === 'gategun') return this.foeGate(dt, d, dir, wish, pl, r);
     if (this.ai === 'junk') {
       this.foeShellInit();
       if (d > s.want) wish.copy(dir).multiplyScalar(0.8);
@@ -172,6 +174,56 @@ Object.assign(MechEntity.prototype, {
     this.stuckJump(dt, r);
     return r;
   },
+  // 閘門砲台：在水壩時站到沒人用的閘門上（下游方向固定）；其他地圖原地朝目標開閘
+  // 循環：倒數 → 藍色預警 2 秒（bossVis 1）→ 水流 4.5 秒 → 9～12 秒後再來
+  foeGate(dt, d, dir, wish, pl, r) {
+    const s = this.aiState,
+      g = this.game,
+      w = g.world;
+    this.noPush = true;
+    wish.set(0, 0, 0);
+    if (!s.gInit) {
+      s.gInit = true;
+      s.gT = rnd(3, 6);
+      const D = w.dam;
+      if (D && D.gates && D.gates.length) {
+        w.gateUsed = w.gateUsed || new Set();
+        const free = D.gates.filter((q) => !w.gateUsed.has(q) && Math.abs(q.x) < w.lim);
+        if (free.length) {
+          const q = free.reduce((a, b) => (Math.abs(a.x - this.pos.x) < Math.abs(b.x - this.pos.x) ? a : b));
+          w.gateUsed.add(q);
+          s.gate = q;
+          this.pos.set(q.x, w.groundAt(q.x, D.zc, 40), D.zc);
+          this.vel.set(0, 0, 0);
+        }
+      }
+    }
+    s.gT -= dt;
+    if (!s.warn && s.gT <= 0 && d < 95 && this.canAct()) {
+      let fl;
+      if (s.gate) {
+        const D = w.dam,
+          dn = -D.up;
+        fl = { x: s.gate.x, z: D.zc + dn * 5.5, dx: 0, dz: dn, hw: s.gate.gw / 2 - 0.5, len: 48 * w.k };
+      } else {
+        const to = pl.pos.clone().sub(this.pos).setY(0).normalize();
+        fl = { x: this.pos.x, z: this.pos.z, dx: to.x, dz: to.z, hw: 5, len: 42 };
+      }
+      s.warn = fl;
+      s.gT = 2;
+      const c = new THREE.Vector3(fl.x + (fl.dx * fl.len) / 2, 0, fl.z + (fl.dz * fl.len) / 2);
+      c.y = w.terrainHeight(c.x, c.z);
+      g.fx.warnRect(c, Math.atan2(fl.dx, fl.dz), fl.hw * 2, fl.len, 2, 0x40a0ff);
+      SFX.play('ui2', 0.7, 0.6, 0.05, 0.05, this.center());
+    } else if (s.warn && s.gT <= 0) {
+      g.addFlow({ ...s.warn, t: 4.5, dps: 110 * this.dmgMul, team: this.team, src: this });
+      SFX.play('door', 1, 0.6, 0.05, 0.05, this.center());
+      s.warn = null;
+      s.gT = rnd(9, 12);
+    }
+    this.bossVis = s.warn ? 1 : 0;
+    return r;
+  },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
   foeFx() {
     if (this.ai === 'burrow') {
@@ -181,6 +233,7 @@ Object.assign(MechEntity.prototype, {
     }
     if (this.ai === 'junk') this.foeShellFx();
     if (this.model.dish) this.model.dish.rotation.y += 0.08; // 沙暴干擾機的天線
+    if (this.model.wheel && this.bossVis & 1) this.model.wheel.rotation.x += 0.15; // 閘門砲台開閘前轉動捲揚輪
     if (this.model.crate) this.model.crate.visible = !!(this.bossVis & 1) && !this.dead; // 吊著／舉著的貨櫃
   },
   foeShellInit() {

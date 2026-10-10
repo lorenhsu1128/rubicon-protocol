@@ -4977,9 +4977,9 @@ async function testChapter1(browser, base) {
   await ctx.close();
 }
 
-// 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE、變體與地標）…
+// 主線第 2 章：集散場（起重機砲台、叉架 MT、STEVEDORE）、水壩（閘門砲台、壩頂巡邏砲車、SLUICE）…的專屬敵人、變體與地標
 async function testChapter2(browser, base) {
-  console.log('第 2 章：集散場的專屬敵人與 AC、變體與地標');
+  console.log('第 2 章：集散場、水壩的專屬敵人與 AC、變體與地標');
   const { ctx, page } = await newPage(browser, 'ch2');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -5126,6 +5126,94 @@ async function testChapter2(browser, base) {
     }, v);
     await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-industrial-' + v + '.png') });
+  }
+  // 水壩：閘門砲台站上閘門、開閘的水流把機體往下游推；巡邏砲車在壩頂
+  const dm = await page.evaluate(() => {
+    const g = window.__game;
+    g.campSortie().segs[1].theme = 'dam';
+    g.camp.plan[1] = { ...g.camp.plan[1], variant: '', landmark: '' };
+    g.camp.types[1] = 'supply';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const w = g.world,
+      D = w.dam,
+      p = g.player;
+    p.hp = p.maxHp = 1e6;
+    const out = { gates: D.gates.length };
+    const gg = g.spawnType('gategun', 1, 1);
+    gg.updateAI(1 / 60);
+    const q = gg.aiState.gate;
+    out.onGate = !!q && Math.abs(gg.pos.z - D.zc) < 1 && gg.pos.y > 10;
+    // 玩家站在閘門下游的水道裡
+    const dn = -D.up;
+    const z0 = D.zc + dn * 14;
+    p.pos.set(q.x, w.terrainHeight(q.x, z0), z0);
+    p.vel.set(0, 0, 0);
+    const h0 = p.hp;
+    let warned = false;
+    for (let i = 0; i < 900 && !(g.flows || []).length; i++) {
+      g.time += 1 / 60;
+      gg.updateAI(1 / 60);
+      if (gg.bossVis & 1) warned = true;
+    }
+    out.warned = warned;
+    out.flow = (g.flows || []).length;
+    const u0 = (p.pos.z - D.zc) * dn;
+    for (let i = 0; i < 90; i++) {
+      g.time += 1 / 60;
+      p.move(1 / 60, new THREE.Vector3(), false, false, false, null);
+      g.updateSupport(1 / 60);
+    }
+    out.pushed = (p.pos.z - D.zc) * dn - u0;
+    out.hurt = h0 - p.hp;
+    gg.takeDamage(1e9, 0, p, gg.center(), new THREE.Vector3(0, 0, 1));
+    const pc = g.spawnType('patrol', 1, 1);
+    out.perch = pc.pos.y - w.terrainHeight(pc.pos.x, pc.pos.z);
+    pc.takeDamage(1e9, 0, p, pc.center(), new THREE.Vector3(0, 0, 1));
+    g.state = 'play';
+    return out;
+  });
+  check(dm.onGate, '閘門砲台：站上水壩的閘門（' + dm.gates + ' 座閘門）');
+  check(dm.warned && dm.flow > 0, '閘門砲台：預警後開閘');
+  check(
+    dm.pushed > 3 && dm.hurt > 0,
+    '開閘的水流把機體往下游推（' + dm.pushed.toFixed(1) + ' m）並造成傷害（' + Math.round(dm.hurt) + '）',
+  );
+  check(dm.perch > 5, '壩頂巡邏砲車：生成在高處（離地 ' + dm.perch.toFixed(1) + ' m）');
+  const dv = await page.evaluate(() => {
+    const g = window.__game;
+    const W = g.world.constructor;
+    const out = [];
+    const lms = ['runner', 'radial', 'intake', 'gauge', 'barge', 'aqueduct'];
+    ['gorge', 'weirs', 'plant', 'storm', '', ''].forEach((v, i) => {
+      g.world.dispose();
+      g.world = new W(g.scene, 'dam', 800 + i, 3, null, { variant: v || undefined, landmark: lms[i] });
+      out.push((g.world.variantKey || '-') + ':' + (g.world.landmark ? 1 : 0));
+    });
+    return out;
+  });
+  check(
+    dv.slice(0, 4).every((s, i) => s.startsWith(['gorge', 'weirs', 'plant', 'storm'][i])) &&
+      dv.filter((s) => s.endsWith(':1')).length >= 5,
+    '水壩的 4 種變體與地標（' + dv.join('、') + '）',
+  );
+  const sl = await page.evaluate(() => {
+    const g = window.__game;
+    g.camp.types[1] = 'elite';
+    g.campEnterSeg();
+    const log = (g.save.story.log || []).map((l) => l.sp);
+    return { name: g.bosses[0] && g.bosses[0].name, comm: log.includes('sluice') };
+  });
+  check(sl.name === 'SLUICE' && sl.comm, '精英區段：水壩是 SLUICE，有通訊');
+  for (const v of ['gorge', 'weirs', 'plant', 'storm']) {
+    await page.evaluate((v) => {
+      const g = window.__game;
+      g.camp.plan[1] = { ...g.camp.plan[1], variant: v, landmark: '' };
+      g.camp.types[1] = 'supply';
+      g.campEnterSeg();
+    }, v);
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-dam-' + v + '.png') });
   }
   await ctx.close();
 }

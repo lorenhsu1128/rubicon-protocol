@@ -1,4 +1,4 @@
-// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場…）
+// 主題專屬敵人的程式模型（docs/campaign-design.md 第 6 節；第 1 章：荒野、沙丘、礦坑；第 2 章：集散場、水壩…）
 // 介面同 boss-models.js（vehicle: true；animateMech 只處理閃光與噴嘴）；原點在地面（飛行的在機體中心下方），正面 −Z。
 // 會動的節點放在 extra（entities/mech-foe.js 使用）。
 import { CB, P, bakeAll, gBox, gCyl, gSph } from './geometry.js';
@@ -299,7 +299,53 @@ function buildForklift(pal, scale) {
   return rig(root, torso, M, { hand, type: 'forklift', height: 3.4 * scale, extra: { crate } });
 }
 
+// 閘門砲台：裝在閘門上的方形砲塔＋雙砲管＋開閘的捲揚輪（高約 3.2 m，不移動）
+function buildGateTurret(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 3.2, 0.8, 3.2, M.joint, 0, 0.4, 0, 0, 0, 0, 0.06);
+  CB(torso, 2.6, 1.6, 2.8, M.main, 0, 1.6, 0, 0, 0, 0, 0.12);
+  for (const s of [-1, 1]) {
+    P(torso, gCyl(0.18, 0.22, 2.6, 8), M.gun, s * 0.55, 1.9, -2.2, Math.PI / 2);
+    P(torso, gBox(0.3, 1.6, 0.3), M.acc, s * 1.45, 1.6, 0.6);
+  }
+  const wheel = new THREE.Group();
+  wheel.position.set(0, 2.9, 0.6);
+  torso.add(wheel);
+  P(wheel, gCyl(0.8, 0.8, 0.12, 12), M.main2, 0, 0, 0, Math.PI / 2);
+  for (let i = 0; i < 3; i++) P(wheel, gBox(1.5, 0.1, 0.1), M.main2, 0, 0, 0, 0, 0, (i * Math.PI) / 3);
+  P(torso, gBox(1.2, 0.25, 0.05), glow(0x60c8ff, 1.6), 0, 2.0, -1.42);
+  const hand = new THREE.Group();
+  hand.position.set(0, 1.9, -3.4);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'gate_turret', height: 3.2 * scale, extra: { wheel } });
+}
+// 壩頂巡邏砲車：六輪裝甲車＋長砲管的砲塔（高約 2.6 m）
+function buildPatrolCart(pal, scale) {
+  const M = mechMats(pal);
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  root.add(torso);
+  CB(torso, 2.2, 1.0, 4.0, M.main, 0, 1.1, 0, 0, 0, 0, 0.1);
+  for (const z of [-1.4, 0, 1.4])
+    for (const s of [-1, 1])
+      P(torso, gCyl(0.45, 0.45, 0.35, 10), M.gun, s * 1.15, 0.45, z, 0, 0, Math.PI / 2);
+  CB(torso, 1.5, 0.7, 1.7, M.main2, 0, 1.95, 0.3, 0, 0, 0, 0.08);
+  P(torso, gCyl(0.12, 0.15, 2.8, 8), M.gun, 0, 2.0, -1.6, Math.PI / 2);
+  P(torso, gBox(0.7, 0.2, 0.05), glow(0xffb040, 1.4), 0, 1.4, -2.02);
+  const hand = new THREE.Group();
+  hand.position.set(0, 2.0, -3.0);
+  torso.add(hand);
+  finish(root, scale);
+  return rig(root, torso, M, { hand, type: 'patrol_cart', height: 2.6 * scale });
+}
+
 export const FOE_BUILDERS = {
+  gate_turret: buildGateTurret,
+  patrol_cart: buildPatrolCart,
   crane: buildCrane,
   forklift: buildForklift,
   burrower: buildBurrower,
@@ -311,6 +357,8 @@ export const FOE_BUILDERS = {
 };
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
+  ['gate_turret', '閘門砲台', '水壩專屬；裝在閘門上，開閘的水流把機體往下游推'],
+  ['patrol_cart', '壩頂巡邏砲車', '水壩專屬；佔住壩頂等高處砲擊'],
   ['crane', '起重機砲台', '集散場專屬；不移動，吊起貨櫃往預警圈砸下'],
   ['forklift', '叉架 MT', '集散場專屬；舉著貨櫃當盾牌，靠近時丟出'],
   ['burrower', '沙中伏擊者', '沙丘專屬；在沙下移動，從腳下鑽出攻擊'],

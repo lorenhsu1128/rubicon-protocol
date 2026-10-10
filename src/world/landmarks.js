@@ -360,6 +360,86 @@ function cargoAirship() {
   return g;
 }
 
+// ---------- 多重水壩 ----------
+// 巨型水輪機：橫倒的轉輪＋葉片＋主軸
+function turbineRunner() {
+  const g = new THREE.Group();
+  const r = new THREE.Group();
+  r.add(cyl(2.2, 2.2, 3, M.steel, 0, 0, 0, 16));
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    r.add(rot(box(5, 2.6, 0.4, M.hull, Math.cos(a) * 4, 0, Math.sin(a) * 4), 0.4, -a, 0));
+  }
+  r.add(cyl(6.4, 6.4, 0.6, M.hullD, 0, -1.5, 0, 24));
+  rot(r, Math.PI / 2 - 0.25, 0, 0);
+  r.position.set(0, 5.6, 0);
+  g.add(r);
+  g.add(rot(cyl(0.9, 0.9, 10, M.steel, 0, 1, 7, 10), Math.PI / 2 - 0.1, 0, 0));
+  return g;
+}
+// 弧形閘門殘骸：彎曲的門板＋兩支轉臂，斜倒在地上
+function radialGate() {
+  const g = new THREE.Group();
+  const t = new THREE.Group();
+  for (let i = 0; i < 7; i++) {
+    const a = -0.6 + i * 0.2;
+    t.add(rot(box(16, 0.6, 2.4, M.hull, 0, Math.sin(a) * 8, -Math.cos(a) * 8 + 8), a, 0, 0));
+  }
+  for (const s of [-1, 1]) t.add(rot(box(0.8, 0.8, 8, M.yellow, s * 7.6, 0, 4), 0.2, 0, 0));
+  rot(t, 0, 0.3, 0.25);
+  t.position.y = 3;
+  g.add(t);
+  return g;
+}
+// 取水塔：高塔＋環狀平台＋斷掉的連絡橋
+function intakeTower() {
+  const g = new THREE.Group();
+  g.add(cyl(4, 4.6, 22, M.concrete, 0, 11, 0, 16));
+  for (const y of [8, 16, 22]) g.add(cyl(5, 5, 0.6, M.hullD, 0, y, 0, 16));
+  g.add(box(3, 3, 3, M.hull, 0, 23.5, 0));
+  g.add(rot(box(3, 1, 12, M.concrete, 0, 18, 10), -0.25, 0, 0));
+  return g;
+}
+// 水文觀測站：小屋＋格子天線桅杆＋碟形天線
+function gaugeStation() {
+  const g = new THREE.Group();
+  g.add(box(8, 4, 6, M.white, 0, 2, 0));
+  g.add(box(8.6, 0.5, 6.6, M.hullD, 0, 4.2, 0));
+  for (let y = 0; y < 18; y += 3) g.add(box(1.2, 0.2, 1.2, M.steel, 7, y + 1.5, 0));
+  for (const [x, z] of [
+    [6.4, -0.6],
+    [7.6, -0.6],
+    [6.4, 0.6],
+    [7.6, 0.6],
+  ])
+    g.add(box(0.15, 18, 0.15, M.steel, x, 9, z));
+  g.add(rot(cyl(2, 0.3, 0.6, M.dish, -2, 5.2, 0, 14), -0.6, 0, 0));
+  return g;
+}
+// 擱淺的駁船：傾斜的平底船身與散落的貨櫃
+function strandedBarge() {
+  const g = new THREE.Group();
+  const h = new THREE.Group();
+  h.add(box(26, 4, 9, M.rustD, 0, 2, 0));
+  h.add(box(5, 4, 7, M.hull, 10, 6, 0));
+  h.add(ctr(M.blue, -6, 5.3, -2));
+  h.add(ctr(M.red, -6, 5.3, 2));
+  h.add(ctr(M.green, 1, 5.3, 0));
+  rot(h, 0.18, 0.2, 0.06);
+  h.position.y = -0.6;
+  g.add(h);
+  g.add(rot(ctr(M.yellow, -4, 1.2, 8), 0, 0.8, 0.3));
+  return g;
+}
+// 倒塌的輸水橋：三座拱腳＋斷成兩截的渠道，一截落在地上
+function aqueduct() {
+  const g = new THREE.Group();
+  for (const x of [-14, 0, 14]) g.add(box(3, 14, 4, M.concrete, x, 7, 0));
+  g.add(box(16, 2.4, 4.6, M.concreteD, -7, 15, 0));
+  g.add(rot(box(15, 2.4, 4.6, M.concreteD, 9, 7.5, 0.5), 0, 0.1, 0.9));
+  return g;
+}
+
 // ---------- 沙丘 ----------
 // 半埋巨艦的艦橋：傾斜的高塔與窗
 function shipBridge() {
@@ -458,6 +538,64 @@ function scorpionWreck() {
 }
 
 export const LANDMARKS = {
+  dam: {
+    runner: {
+      name: '巨型水輪機',
+      build: turbineRunner,
+      bx: [-8, 8, -8, 13],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 6.5, h: 12 }],
+    },
+    radial: {
+      name: '弧形閘門殘骸',
+      build: radialGate,
+      bx: [-10, 10, -6, 12],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ box: [-8, 8, -1, 9], y: -1, top: 8 }],
+    },
+    intake: {
+      name: '取水塔',
+      build: intakeTower,
+      bx: [-6, 6, -6, 16],
+      range: 3,
+      sink: 0.3,
+      shapes: [{ c: [0, 0], r: 4.8, h: 25 }],
+    },
+    gauge: {
+      name: '水文觀測站',
+      build: gaugeStation,
+      bx: [-5, 9, -4, 4],
+      range: 2.5,
+      sink: 0.2,
+      shapes: [
+        { box: [-4, 4, -3, 3], y: -1, top: 4.5 },
+        { c: [7, 0], r: 1, h: 18 },
+      ],
+    },
+    barge: {
+      name: '擱淺的駁船',
+      build: strandedBarge,
+      bx: [-14, 14, -6, 11],
+      range: 3,
+      sink: 0.5,
+      shapes: [{ box: [-13, 13, -4.5, 4.5], y: -1, top: 6 }],
+    },
+    aqueduct: {
+      name: '倒塌的輸水橋',
+      build: aqueduct,
+      bx: [-16, 17, -4, 4],
+      range: 4,
+      sink: 0.3,
+      shapes: [
+        { box: [-15.5, -12.5, -2, 2], y: -1, top: 16 },
+        { box: [-1.5, 1.5, -2, 2], y: -1, top: 16 },
+        { box: [12.5, 15.5, -2, 2], y: -1, top: 14 },
+        { box: [-15, 1, -2.3, 2.3], y: 13.8, top: 16.2, deck: true },
+      ],
+    },
+  },
   industrial: {
     gantry: {
       name: '巨型門式起重機',

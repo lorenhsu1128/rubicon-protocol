@@ -21,6 +21,7 @@ export const SPEAKERS = {
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
+  sluice: { name: 'SLUICE', color: '#60c8ff', mark: 'L', note: '水壩的守備隊長（第 2 章的宿敵）' },
   stevedore: { name: 'STEVEDORE', color: '#e0b020', mark: 'D', note: '集散場的砲擊手（第 2 章的宿敵）' },
   prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
 };
@@ -323,6 +324,45 @@ export const COMMS = [
     event: 'fail',
     killedBy: '叉架',
     lines: [['echo', '叉架 MT 的正面有貨櫃擋著。繞到側面，或用近戰把貨櫃打掉。']],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sluice',
+    once: true,
+    lines: [
+      ['sluice', '這座壩由我守著。往上游一步，就沖你下去。'],
+      ['echo', '具名 AC「SLUICE」。會佔住壩頂的高處，用重火力壓制。'],
+      ['echo', '利用壩體的陰影接近，或是爬上壩頂跟它平視。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sluice',
+    lines: [
+      ['sluice', '又回來了？水位已經漲上來了。'],
+      ['echo', 'SLUICE 在高處的火力最強。別在下面跟它對射。'],
+    ],
+  },
+  {
+    event: 'fail',
+    killedBy: 'SLUICE',
+    lines: [
+      ['sluice', '沉下去吧。'],
+      ['echo', 'SLUICE 喜歡站在壩頂。從坡道或閘門上方繞上去，近身打它。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    theme: 'dam',
+    once: true,
+    lines: [['echo', '多重水壩。閘門上有砲台——地面出現藍色預警就是要開閘了，別待在水道裡。']],
+  },
+  {
+    event: 'fail',
+    killedBy: '閘門',
+    lines: [['echo', '開閘的水流會把你往下游沖。看到藍色預警就跳起來，或往水道兩側移開。']],
   },
   // ---- 失敗 ----
   { event: 'fail', fails: 3, lines: [['echo', '已經第三次了。換個裝備試試看？重量和射程都會影響打法。']] },

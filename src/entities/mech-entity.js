@@ -1181,6 +1181,20 @@ export class MechEntity {
         if (to.length() > 6) target.addScaledVector(to.normalize(), 16);
       }
     }
+    // 閘門砲台的開閘水流（game/support.js）：貼地時往下游推（16 m/s；客機的自身預測也一樣算）
+    if (
+      g.flows &&
+      g.flows.length &&
+      !this.flying &&
+      !this.noPush &&
+      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 3
+    ) {
+      const f = g.flowAt(this);
+      if (f) {
+        target.x += f.dx * 16;
+        target.z += f.dz * 16;
+      }
+    }
     const acc = this.qbT > 0 ? 60 : this.grounded || this.jumpT > 0 ? 18 : 9;
     if (!this.melee.active) {
       this.vel.x = lerp(this.vel.x, target.x, Math.min(1, acc * dt));
