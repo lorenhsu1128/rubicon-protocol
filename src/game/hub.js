@@ -14,7 +14,10 @@ Object.assign(Game.prototype, {
     const B = BRIEFINGS[sid];
     if (B && B.when && Object.keys(B.when).some((k) => st.choices[k] !== B.when[k])) return 'hidden';
     if (st.done[sid]) return 'done';
-    return !B || B.needs.every((n) => st.done[n]) ? 'open' : 'locked';
+    // needs 全部完成、needsAny 其中一個完成（依抉擇的路線）
+    const ok =
+      !B || (B.needs.every((n) => st.done[n]) && (!B.needsAny || B.needsAny.some((n) => st.done[n])));
+    return ok ? 'open' : 'locked';
   },
   // 已開放的章節：有可以接（或完成過）的出擊的最大章節
   hubChapter() {

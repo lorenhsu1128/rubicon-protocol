@@ -96,9 +96,15 @@ Object.assign(Game.prototype, {
       fails: c.fails,
       ace: (c.ss && c.ss.ace) || '',
       cycle: this.campStory().cycle || 1,
-      pick: (c.choice && c.choice.key) || this.campStory().choices['c' + so.chapter] || '',
+      pick: (c.choice && c.choice.key) || this.campLastPick(so.chapter),
       ...extra,
     };
+  },
+  // 到這一章為止最近的陣營抉擇（第 3 章看第 2 章的抉擇 1）
+  campLastPick(chapter) {
+    const ch = this.campStory().choices;
+    for (let k = chapter; k >= 1; k--) if (ch['c' + k]) return ch['c' + k];
+    return '';
   },
   campLevel() {
     return this.campSortie().level + Math.floor(this.camp.seg / 2);
@@ -315,9 +321,12 @@ Object.assign(Game.prototype, {
     } else if (type === 'elite') {
       // 具名 AC（強化）＋少數護衛
       // 主題的專屬 AC（劇情角色）；沒有時用一般的具名 AC
-      const ace = THEME_ACE[seg.theme];
+      // 區段指定的（依抉擇）＞主題的；別的主題的專屬 AC 是跨章節再登場（強化）
+      const pk = this.campCtx().pick;
+      const ace = (seg.ace && (typeof seg.ace === 'string' ? seg.ace : seg.ace[pk])) || THEME_ACE[seg.theme];
       const key = ace || pick(Object.keys(AC_ROSTER));
       const r = ace ? ACES[ace] : AC_ROSTER[key];
+      const up = ace && ACES[ace].theme !== seg.theme ? 1.3 : 1;
       if (ace) {
         ss.ace = ace;
         this.simMark('aces', ace);
@@ -327,8 +336,8 @@ Object.assign(Game.prototype, {
         asm: r.randomAsm ? this.foeRandomAsm() : r.asm,
         pal: r.pal,
         scale: 1,
-        hpMul: r.hpMul * sh * 1.6,
-        dmgMul: r.dmgMul * sd,
+        hpMul: r.hpMul * sh * 1.6 * up,
+        dmgMul: r.dmgMul * sd * (up > 1 ? 1.15 : 1),
         stabMul: r.stabMul * 1.3,
         ai: r.ai,
         wantDist: r.wantDist,

@@ -5183,7 +5183,8 @@ async function testChapter2(browser, base) {
     gg.updateAI(1 / 60);
     const q = gg.aiState.gate;
     out.onGate = !!q && Math.abs(gg.pos.z - D.zc) < 1 && gg.pos.y > 10;
-    // 玩家站在閘門下游的水道裡
+    // 玩家站在閘門下游的水道裡（拿掉壩體以外的障礙物，推動的距離不會被物件擋住）
+    w.obstacles = w.obstacles.filter((o) => Math.abs(o.z - D.zc) < 8);
     const dn = -D.up;
     const z0 = D.zc + dn * 14;
     p.pos.set(q.x, w.terrainHeight(q.x, z0), z0);
@@ -5485,13 +5486,28 @@ async function testChapter2(browser, base) {
   });
   await page.waitForTimeout(1200);
   await page.screenshot({ path: path.join(SHOT_DIR, 'ch2-choice.png') });
-  await page.evaluate(() => {
-    const g = window.__game,
-      e = g.camp.exits.find((q) => q.choice === 'aetheric');
-    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
-    g.player.vel.set(0, 0, 0);
-  });
-  check(await waitVisible(page, 'campTrans', 20000), '走進抉擇出口：出發');
+  // 站進出口（殘留的開閘水流之類會把機體推走，所以等待中一直放回出口上）
+  const left = await page
+    .waitForFunction(
+      () => {
+        const g = window.__game;
+        if (g.state === 'camptrans') return true;
+        const e = g.camp && g.camp.exits.find((q) => q.choice === 'aetheric');
+        if (e) {
+          g.flows = [];
+          g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+          g.player.vel.set(0, 0, 0);
+        }
+        return false;
+      },
+      null,
+      { timeout: 20000, polling: 200 },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+  check(left && (await waitVisible(page, 'campTrans', 5000)), '走進抉擇出口：出發');
   const pk = await page.evaluate(() => {
     const g = window.__game;
     return {
@@ -5531,9 +5547,9 @@ async function testChapter2(browser, base) {
 }
 
 // 主線第 3 章：冰原（雪中潛伏 MT、冰面滑行砲車、WHITEOUT）、地下技研都市（實驗體、保全雷射網、SPECIMEN）的
-// 專屬敵人、變體與地標
+// 專屬敵人、變體與地標；第 3 章的出擊、跨主題下降、宿敵依抉擇再登場
 async function testChapter3(browser, base) {
-  console.log('第 3 章：冰原、地下技研都市的專屬敵人與 AC、變體與地標');
+  console.log('第 3 章：冰原、地下技研都市的專屬敵人與 AC、變體與地標、出擊、宿敵再登場');
   const { ctx, page } = await newPage(browser, 'ch3');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -5844,6 +5860,82 @@ async function testChapter3(browser, base) {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: path.join(SHOT_DIR, 'ch3-institute-' + v + '.png') });
   }
+  // 第 3 章的出擊：終點 Boss、冰原 → 技研都市的轉場（交界接力、之後下降）
+  const c3 = await page.evaluate(() => {
+    const g = window.__game;
+    if (g.camp) g.campEnd(false, true);
+    g.state = 'play';
+    const out = [];
+    for (const sid of ['c3s1', 'c3s2', 'c3s3']) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(sid + ':' + g.worldTheme + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0]);
+      g.campEnd(false, true);
+    }
+    return out;
+  });
+  // c3s2：區段 3 → 4（交界）接力、4 → 5 下降（補給區段沒有敵人，清除後馬上出現出口）
+  const modes = [];
+  for (const seg of [2, 3]) {
+    await page.evaluate((seg) => {
+      const g = window.__game;
+      if (!g.camp || g.camp.sid !== 'c3s2') {
+        if (g.camp) g.campEnd(false, true);
+        g.campBegin('c3s2');
+      }
+      g.camp.seg = seg;
+      g.camp.types[seg] = 'supply';
+      g.campEnterSeg();
+    }, seg);
+    await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+      timeout: 15000,
+    });
+    modes.push(await page.evaluate(() => window.__game.camp.exits[0].mode));
+  }
+  await page.evaluate(() => window.__game.campEnd(false, true));
+  c3.push('mode:' + modes.join(','));
+  check(
+    c3.join(',') === 'c3s1:snow:STRIDER,c3s2:institute:MIRAGE,c3s3:institute:PULSAR,mode:relay,down',
+    '第 3 章的 3 個出擊與終點 Boss、冰原 → 技研都市（交界接力、之後下降）（' + c3.join('、') + '）',
+  );
+  // 總覽圖：第 2 章任一路線完成後開放第 3 章
+  const h3 = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.story.done = { c1s1: 1, c1s2: 1, c2s1: 1, c2s2: 1, c2s3a: 1 };
+    g.save.story.choices = { c2: 'castron' };
+    return { s1: g.hubSortieState('c3s1'), s2: g.hubSortieState('c3s2'), ch: g.hubChapter() };
+  });
+  check(
+    h3.s1 === 'open' && h3.s2 === 'locked' && h3.ch === 3,
+    '第 2 章的路線完成後開放第 3 章（' + JSON.stringify(h3) + '）',
+  );
+  // 宿敵再登場：依第 2 章的抉擇，對立陣營的專屬 AC（強化）與通訊
+  const rv = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    for (const pk of ['castron', 'aetheric']) {
+      g.save.story.choices = { c2: pk };
+      g.campBegin('c3s3');
+      g.camp.seg = 3;
+      g.camp.types[3] = 'elite';
+      g.campEnterSeg();
+      const e = g.bosses[0];
+      const log = (g.save.story.log || []).slice(-3).map((l) => l.sp);
+      out[pk] = { name: e && e.name, hp: e && e.maxHp, sp: log };
+      g.campEnd(false, true);
+    }
+    return out;
+  });
+  check(
+    rv.castron.name === 'MARSH' &&
+      rv.aetheric.name === 'STEVEDORE' &&
+      rv.castron.sp.includes('marsh') &&
+      rv.aetheric.sp.includes('stevedore'),
+    '宿敵再登場：依第 2 章的抉擇（卡斯特隆 → MARSH、艾瑟立克 → STEVEDORE），有各自的通訊',
+  );
   await ctx.close();
 }
 

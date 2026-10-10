@@ -48,7 +48,7 @@ export const CHAPTER_NAMES = {
 };
 
 // 出擊的簡報（data/campaign.js 的 SORTIES 以同樣的 key 對應）：client＝委託方、node＝總覽圖上的位置、
-// needs＝先完成哪些出擊才開放、when＝陣營抉擇的條件（{ 抉擇 id: 選項 }，不符合時總覽圖上不出現）
+// needs＝先完成哪些出擊才開放、needsAny＝其中一個完成就開放、when＝陣營抉擇的條件（{ 抉擇 id: 選項 }，不符合時總覽圖上不出現）
 export const BRIEFINGS = {
   c1s1: {
     client: 'castron',
@@ -118,6 +118,41 @@ export const BRIEFINGS = {
       '穿過水沒市街，切斷補給線，讓那輛列車停下來。',
     ],
     goal: '切斷卡斯特隆的補給線，擊破武裝列車 IRON CITADEL',
+  },
+  // ---- 第 3 章 ----
+  c3s1: {
+    client: 'sancta',
+    node: { x: 13, y: 48 },
+    needs: [],
+    needsAny: ['c2s3a', 'c2s3b'],
+    lines: [
+      '聖域互助同盟。西部冰原的難民營失去了聯絡。',
+      '我們的偵察隊發現冰原基地有大型兵器在巡邏，還有……暴風雪裡的狙擊手。',
+      '請替我們確認冰原基地的狀況，排除那台巡邏兵器。',
+    ],
+    goal: '偵察冰原基地，擊破巡邏用超大型四足 STRIDER',
+  },
+  c3s2: {
+    client: 'veerwell',
+    node: { x: 24, y: 38 },
+    needs: ['c3s1'],
+    lines: [
+      '維爾威動態。冰原底下有一座沒有登記的研究所，入口就在冰原基地後方。',
+      '我們的探測器在那裡失聯，回傳的最後畫面是一台會消失的機體。',
+      '找到研究所的入口，打通往下的路。',
+    ],
+    goal: '找到研究所的地表入口，擊破光學迷彩電戰機 MIRAGE',
+  },
+  c3s3: {
+    client: 'veerwell',
+    node: { x: 14, y: 33 },
+    needs: ['c3s2'],
+    lines: [
+      '研究所的深處有 Coral 的讀數，濃度高得不正常。',
+      '那裡守著一台脈衝刃翼，還有研究所自己的強化人間。',
+      '……另外，你在中部得罪的那一方雇了傭兵追過來了。小心背後。',
+    ],
+    goal: '深入研究核心，擊破脈衝刃翼 PULSAR',
   },
 };
 
@@ -497,6 +532,124 @@ export const COMMS = [
     once: true,
     lines: [['echo', '中部工業帶開放了。卡斯特隆和艾瑟立克都在找傭兵——這次要小心選邊。']],
   },
+  // ---- 第 3 章 ----
+  {
+    event: 'sortieStart',
+    sid: 'c3s1',
+    once: true,
+    lines: [
+      ['sancta', '冰原很冷，機體的散熱會變好，但視野會被暴風雪吃掉。'],
+      ['echo', '雪地裡有東西在等你。注意地上冒出的白煙。'],
+    ],
+  },
+  { event: 'sortieStart', sid: 'c3s1', lines: [['echo', '重新投放到冰原。暴風雪的位置每次都不一樣。']] },
+  {
+    event: 'segStart',
+    sid: 'c3s1',
+    type: 'boss',
+    lines: [
+      ['echo', '巡邏用超大型四足確認。腳下是死角，但它的砲台會往下打。'],
+      ['sancta', '它就是讓難民營失聯的原因。拜託了。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c3s1',
+    lines: [
+      ['sancta', '巡邏兵器倒下了。難民營的人可以撤離了……謝謝你。'],
+      ['echo', '冰原基地後方有一條往地下的通道。維爾威想知道那裡有什麼。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3s2',
+    once: true,
+    lines: [
+      ['veerwell', '研究所的入口在冰原基地的後方。往下走，訊號會變差。'],
+      ['echo', '交界區段之後就是地下了。升降梯和豎坑是往下的路。'],
+    ],
+  },
+  {
+    event: 'trans',
+    sid: 'c3s2',
+    seg: 3,
+    lines: [['echo', '前方的地面在往下陷。研究所的閘門應該就在那裡。']],
+  },
+  {
+    event: 'segStart',
+    sid: 'c3s2',
+    type: 'boss',
+    lines: [
+      ['echo', '光學迷彩電戰機。它會消失，還會放出分身——分身打中會爆炸。'],
+      ['veerwell', '它開火的時候會現形。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c3s2',
+    lines: [
+      ['veerwell', '入口打通了。研究所比我們想的還要深。'],
+      ['echo', '最深處有 Coral 的讀數。下一次出擊要一路下去。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3s3',
+    once: true,
+    lines: [
+      ['veerwell', '研究核心在最底層。中途會有人攔你。'],
+      ['echo', '收到。這次的區段都在地下，光線很暗。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c3s3',
+    seg: 3,
+    pick: 'castron',
+    lines: [
+      ['marsh', '……又見面了。這次艾瑟立克付了我很多錢。'],
+      ['echo', 'MARSH 換了裝備，比在水沒市街的時候更強。這裡沒有水，它沒地方躲。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c3s3',
+    seg: 3,
+    pick: 'aetheric',
+    lines: [
+      ['stevedore', '背叛者的貨，我親自來收。'],
+      ['echo', 'STEVEDORE 換了更重的砲。研究棟之間的通道很窄，貼近它。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c3s3',
+    type: 'boss',
+    lines: [
+      ['echo', '脈衝刃翼。能量環擴散時用 QB 的無敵時間穿過去。'],
+      ['veerwell', '它突刺之後會過熱，那是機會。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c3s3',
+    lines: [
+      ['veerwell', '研究核心安靜下來了。我們會派人回收資料。'],
+      ['echo', '第 3 章的委託全部完成。北部的構造體開始有動靜了。'],
+    ],
+  },
+  { event: 'fail', killedBy: 'STRIDER', lines: [['echo', '四足的腳下是死角，但它會跳起來踩你。保持移動。']] },
+  {
+    event: 'fail',
+    killedBy: 'MIRAGE',
+    lines: [['echo', '迷彩機開火時會現形。分身打中會爆炸，先確認哪一台是本體。']],
+  },
+  {
+    event: 'fail',
+    killedBy: 'PULSAR',
+    lines: [['echo', '能量環要用 QB 穿過去。突刺之後它會過熱，那時候反擊。']],
+  },
+  { event: 'hub', chapter: 3, once: true, lines: [['echo', '西部冰原開放了。聖域和維爾威都有委託。']] },
   // ---- 第 3 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

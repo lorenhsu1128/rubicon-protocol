@@ -143,7 +143,8 @@ export const SEG_TYPES = {
   boss: { name: 'Boss', goal: '擊破 Boss' },
 };
 
-const bossOf = (kind) => BOSS_DEFS.find((b) => b.kind === kind) || BOSS_DEFS[0];
+// boss：kind（新 Boss）或名稱開頭（JUGGERNAUT、STRIDER 這類沒有 kind 的）
+const bossOf = (key) => BOSS_DEFS.find((b) => b.kind === key || b.name.startsWith(key + ' ')) || BOSS_DEFS[0];
 
 // 陣營抉擇（docs/campaign-design.md 第 2 節）：區段的 choice＝這一段清除後出現的是互斥的抉擇出口（每個選項一個），
 // 走進去就決定；出擊完成時寫進 save.story.choices[id]，之後的出擊節點（BRIEFINGS 的 when）與通訊（條件 pick）跟著改變
@@ -159,7 +160,8 @@ export const CHOICES = {
 
 // 出擊：level＝敵人強度的基準（每兩個區段 +1）；segs 依序進行：
 // pool＝這一段可能的區段類型（出口各自預告一種；只有一種時各出口類型相同、獎勵不同）、border＝主題交界的區段、
-// variants＝限定的主題變體（Boss 要開闊的場地）
+// variants＝限定的主題變體（Boss 要開闊的場地）、choice＝陣營抉擇（見 CHOICES）、
+// ace＝精英區段的專屬 AC（不寫時用主題的；{ 選項: AC } 依這一章之前的抉擇；別的主題的 AC＝跨章節再登場，會強化）
 export const SORTIES = {
   c1s1: {
     name: '南部荒野 — 礦坑突破',
@@ -243,6 +245,59 @@ SORTIES.c2s3b = {
     { theme: 'flooded', pool: ['battle', 'destroy', 'breakthrough'] },
     { theme: 'flooded', pool: ['supply', 'elite', 'intel'] },
     { theme: 'industrial', pool: ['boss'], boss: 'train', variants: ['railyard', 'stacks'] },
+  ],
+};
+// ---- 第 3 章：西部冰原與地下（冰原 → 技研都市，跨主題下降；宿敵再登場）----
+SORTIES.c3s1 = {
+  name: '西部冰原 — 冰原基地偵察',
+  chapter: 3,
+  level: 7,
+  reward: 88000,
+  segs: [
+    { theme: 'snow', pool: ['battle'] },
+    { theme: 'snow', pool: ['battle', 'destroy', 'defend', 'intel', 'elite'] },
+    { theme: 'snow', pool: ['supply', 'escort', 'breakthrough'] },
+    { theme: 'snow', pool: ['battle', 'elite', 'destroy'] },
+    { theme: 'snow', pool: ['supply', 'defend', 'intel'] },
+    { theme: 'snow', pool: ['boss'], boss: 'STRIDER', variants: ['icefield', 'outpost', 'blizzard'] },
+  ],
+};
+SORTIES.c3s2 = {
+  name: '冰原之下 — 研究所入口',
+  chapter: 3,
+  level: 8,
+  reward: 98000,
+  segs: [
+    { theme: 'snow', pool: ['battle'] },
+    { theme: 'snow', pool: ['battle', 'destroy', 'elite', 'intel'] },
+    { theme: 'snow', pool: ['supply', 'breakthrough', 'defend'] },
+    { theme: 'institute', border: true, pool: ['battle', 'destroy', 'elite'] },
+    { theme: 'institute', pool: ['supply', 'battle', 'intel'], variants: ['tanks', 'core', 'cavern'] },
+    { theme: 'institute', pool: ['boss'], boss: 'phantom', variants: ['core', 'tanks'] },
+  ],
+};
+SORTIES.c3s3 = {
+  name: '地下技研都市 — 研究核心',
+  chapter: 3,
+  level: 9,
+  reward: 110000,
+  segs: [
+    { theme: 'institute', pool: ['battle'], variants: ['tanks', 'core'] },
+    {
+      theme: 'institute',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['core', 'cavern', 'tanks'],
+    },
+    { theme: 'institute', pool: ['supply', 'defend', 'breakthrough'], variants: ['tanks', 'core', 'cavern'] },
+    // 宿敵再登場：依第 2 章的抉擇，對立陣營雇用的傭兵
+    {
+      theme: 'institute',
+      pool: ['elite'],
+      ace: { castron: 'marsh', aetheric: 'stevedore' },
+      variants: ['cavern', 'core'],
+    },
+    { theme: 'institute', pool: ['supply', 'battle', 'intel'], variants: ['core', 'tanks', 'cavern'] },
+    { theme: 'institute', pool: ['boss'], boss: 'ibis', variants: ['cavern', 'core'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';
