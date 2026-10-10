@@ -279,7 +279,9 @@ Object.assign(Game.prototype, {
       if (host && S.map === undefined) S.map = this.mapPref();
       // 主線合作：房主的主線進度（可以接的委託）
       const story = S.mode === 'story';
-      const sorties = host ? Object.keys(SORTIES).filter((sid) => this.hubSortieState(sid) !== 'locked') : [];
+      const sorties = host
+        ? Object.keys(SORTIES).filter((sid) => !['locked', 'hidden'].includes(this.hubSortieState(sid)))
+        : [];
       if (host && story && !sorties.includes(S.sid)) S.sid = sorties[0] || 'c1s1';
       const modeName =
         { pve: 'PVE 合作', pvp: 'PVP 對戰', story: '主線合作（房主的進度）' }[S.mode] || 'PVE 合作';

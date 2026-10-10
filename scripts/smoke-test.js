@@ -5620,8 +5620,10 @@ async function testChapter3(browser, base) {
     step([lk2], 2);
     out.hitRise = lk2.aiState.lk === 'up' && !lk2.noLock;
     lk2.takeDamage(1e9, 0, p, lk2.center(), new THREE.Vector3(0, 0, 1));
-    // 冰面滑行砲車：繞著目標轉，冰面上更快
-    const sk = g.spawnType('skater', 1, 1, at(24, 0));
+    // 冰面滑行砲車：繞著目標轉，冰面上更快（繞圈的測試生成在冰面外，冰上會打滑）
+    let sa = 0;
+    while (sa < 6.28 && w.onIce(p.pos.x + Math.cos(sa) * 24, p.pos.z + Math.sin(sa) * 24)) sa += 0.3;
+    const sk = g.spawnType('skater', 1, 1, at(Math.cos(sa) * 24, Math.sin(sa) * 24));
     const a0 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
     step([sk], 70);
     const a1 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
@@ -5638,9 +5640,23 @@ async function testChapter3(browser, base) {
       dead: sk.dead,
     };
     const L = w.iceBig;
-    sk.pos.set(L.x, w.terrainHeight(L.x, L.z), L.z);
-    step([sk], 2);
-    out.ice = { on: w.onIce(L.x, L.z), k: sk.speedMul / sk.aiState.sp0 };
+    // 放在冰湖中央（每格放回去，不受推擠與硬直影響），取冰面上的最大倍率
+    let kMax = 0;
+    for (let i = 0; i < 30; i++) {
+      sk.pos.set(L.x, w.terrainHeight(L.x, L.z), L.z);
+      sk.staggerT = 0;
+      step([sk], 1);
+      if (sk.aiState.sp0) kMax = Math.max(kMax, sk.speedMul / sk.aiState.sp0);
+    }
+    out.ice = {
+      on: w.onIce(L.x, L.z),
+      k: kMax,
+      dead: sk.dead,
+      th: w.terrainHeight(L.x, L.z),
+      sp0: sk.aiState.sp0,
+      m: sk.speedMul,
+      y: sk.pos.y,
+    };
     sk.takeDamage(1e9, 0, p, sk.center(), new THREE.Vector3(0, 0, 1));
     return out;
   });
@@ -5657,7 +5673,10 @@ async function testChapter3(browser, base) {
       JSON.stringify(sn.orbit) +
       '）',
   );
-  check(sn.ice.on && sn.ice.k > 1.3, '冰面滑行砲車：冰面上更快（×' + sn.ice.k.toFixed(2) + '）');
+  check(
+    sn.ice.on && sn.ice.k > 1.3,
+    '冰面滑行砲車：冰面上更快（×' + sn.ice.k.toFixed(2) + '，' + JSON.stringify(sn.ice) + '）',
+  );
   // WHITEOUT：精英區段的專屬 AC，沒開火時隱藏、開火後現身
   const wo = await page.evaluate(() => {
     const g = window.__game;
@@ -5752,7 +5771,11 @@ async function testChapter3(browser, base) {
     const bl = g.enemies.filter((e) => !e.dead && e.opts.vehKey === 'blob');
     for (const [i, e] of bl.entries()) e.pos.copy(at(i * 1.2, -30));
     out.blobs = bl.length;
-    step(bl, 200, () => g.enemies.some((e) => !e.dead && e.opts.vehKey === 'chimera'));
+    // 每格把牠們擺回同一處（不受追擊時分散的影響），等編號最小的那隻判定融合
+    step(bl, 300, () => {
+      for (const [i, e] of bl.entries()) if (!e.dead) e.pos.copy(at(i * 1.2, -30));
+      return g.enemies.some((e) => !e.dead && e.opts.vehKey === 'chimera');
+    });
     const ch = g.enemies.find((e) => !e.dead && e.opts.vehKey === 'chimera');
     out.merged = { chimera: !!ch, left: bl.filter((e) => !e.dead).length, gone: bl.every((e) => e.dead) };
     // 融合實驗體：貼身啃咬
@@ -6363,6 +6386,206 @@ async function testChapter5(browser, base) {
   await ctx.close();
 }
 
+// 第 2 周目以後的委託：第 1 周目不出現、第 2 周目依前置開放（紫色節點）、不算進整章完成、終點 Boss 與通訊
+async function testCycle2(browser, base) {
+  console.log('第 2 周目：新增的委託');
+  const { ctx, page } = await newPage(browser, 'cycle2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const X = ['c1x', 'c2x', 'c3x', 'c4x', 'c5x', 'c6x'];
+  const st1 = await page.evaluate((X) => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.cycle = 1;
+    st.done = { c1s1: 1, c1s2: 1, c2s2: 1, c3s2: 1, c4s2: 1, c5s1: 1, c6s1: 1 };
+    const c1 = X.map((s) => g.hubSortieState(s)).join('/');
+    st.cycle = 2;
+    st.done = { c1s1: 1 };
+    const c2a = X.map((s) => g.hubSortieState(s)).join('/');
+    // 第 1 章的必要委託都完成：整章完成不需要周目限定的 c1x
+    st.done = { c1s1: 1, c1s2: 1 };
+    const chap = g.campChapterCheck(1);
+    g.openHub();
+    const node = document.querySelector('#hubMap .hubNode[data-sid="c1x"] circle');
+    return { c1, c2a, chap, stroke: node && node.getAttribute('stroke') };
+  }, X);
+  check(
+    st1.c1 === 'hidden/hidden/hidden/hidden/hidden/hidden' &&
+      st1.c2a === 'open/locked/locked/locked/locked/locked' &&
+      st1.chap &&
+      st1.stroke === '#c090ff',
+    '周目限定的委託：第 1 周目不出現、第 2 周目依前置開放（紫色）、不算進整章完成（' +
+      JSON.stringify(st1) +
+      '）',
+  );
+  await page.click('#hubMap .hubNode[data-sid="c1x"]');
+  check(await waitVisible(page, 'brief'), '點紫色節點：顯示簡報');
+  const bs = await page.evaluate((X) => {
+    const g = window.__game;
+    g.state = 'play';
+    const out = [];
+    for (const sid of X) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      out.push(sid + ':' + ((g.bossDef && g.bossDef.name) || '').split(' ')[0]);
+      g.campEnd(false, true);
+      g.state = 'play';
+    }
+    // 出擊開始的通訊
+    g.campBegin('c1x');
+    g.campEnterSeg();
+    const log = (g.save.story.log || []).map((l) => l.text).join(' ');
+    g.campEnd(false, true);
+    return { out, log: log.includes('埋沒都市') };
+  }, X);
+  check(
+    bs.out.join(',') === 'c1x:JUGGERNAUT,c2x:CINDER,c3x:HELIOS,c4x:HALBERD,c5x:NULLIFIER,c6x:PULSAR' &&
+      bs.log,
+    '6 個周目限定委託的終點 Boss 與通訊（' + bs.out.join('、') + '）',
+  );
+  await ctx.close();
+}
+
+// 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
+async function testVariants6(browser, base) {
+  console.log('主題變體：各主題補到 6 種');
+  const { ctx, page } = await newPage(browser, 'var6');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const NEW = {
+    industrial: ['tankfarm', 'conveyor'],
+    dam: ['night', 'quarry'],
+    flooded: ['stilts', 'mist'],
+    snow: ['forest', 'polar'],
+    institute: ['flooded', 'blackout'],
+    grid086: ['pillars', 'rust'],
+    spaceport: ['crash', 'launchnight'],
+    xylem: ['bridges', 'night'],
+    orbit: ['debris', 'sunlit'],
+    wasteland: ['craters', 'town'],
+    dunes: ['buried', 'night'],
+    desert: ['drowned', 'collapse'],
+  };
+  const res = await page.evaluate((NEW) => {
+    const g = window.__game;
+    g.state = 'play';
+    g.campBegin('c1s1');
+    g.camp.types[0] = 'supply';
+    g.campEnterSeg();
+    g.state = 'foe-test';
+    const W = g.world.constructor;
+    const out = { bad: [], feat: {} };
+    let seed = 1500;
+    for (const th in NEW) {
+      for (const v of NEW[th]) {
+        g.world.dispose();
+        g.world = new W(g.scene, th, seed++, 3, null, { variant: v, landmark: '', tod: 'night' });
+        const w = g.world;
+        if (w.variantKey !== v) out.bad.push(th + ':' + v);
+        const kinds = {};
+        for (const p of w.props || []) kinds[p.kind] = (kinds[p.kind] || 0) + 1;
+        out.feat[th + ':' + v] = {
+          kinds,
+          decks: w.obstacles.filter((o) => o.deck).length,
+          // 中央出生點附近是整平的，量周圍幾個點的中位數
+          wade: [0, 1, 2, 3, 4, 5, 6, 7]
+            .map((i) => w.waterDepth(Math.cos(i * 0.785) * 30 * w.k, Math.sin(i * 0.785) * 30 * w.k))
+            .sort((a, b) => a - b)[4],
+          noTod: !!w.theme.noTod,
+          ok: Number.isFinite(w.terrainHeight(20, 20)),
+        };
+      }
+    }
+    return out;
+  }, NEW);
+  const F = res.feat;
+  check(
+    res.bad.length === 0 && Object.values(F).every((f) => f.ok),
+    '12 個主題的新變體都能生成（' + (res.bad.join('、') || '全部') + '）',
+  );
+  check(
+    (F['industrial:tankfarm'].kinds.container || 0) > 0 &&
+      F['industrial:conveyor'].decks >= 6 &&
+      F['snow:forest'].kinds.pine >= 15 &&
+      F['dam:quarry'].kinds.rockpile > 0 &&
+      F['desert:collapse'].kinds.rockpile > 0 &&
+      F['institute:blackout'].kinds.lamppost > 0 &&
+      F['flooded:stilts'].decks >= 4 &&
+      F['wasteland:town'].kinds.car > 0,
+    '新變體的物件（儲油槽區的貨櫃、輸送帶 ' +
+      F['industrial:conveyor'].decks +
+      ' 段、針葉樹 ' +
+      F['snow:forest'].kinds.pine +
+      ' 棵、落石、緊急照明、高腳平台 ' +
+      F['flooded:stilts'].decks +
+      ' 座）',
+  );
+  check(
+    F['institute:flooded'].wade > 0.6 && F['desert:drowned'].wade > 0.6,
+    '浸水的變體要涉水（技研都市 ' +
+      F['institute:flooded'].wade.toFixed(2) +
+      ' m、礦坑 ' +
+      F['desert:drowned'].wade.toFixed(2) +
+      ' m）',
+  );
+  check(
+    ['dam:night', 'snow:polar', 'xylem:night', 'dunes:night', 'spaceport:launchnight', 'orbit:sunlit'].every(
+      (k) => F[k].noTod,
+    ),
+    '夜間與日照面的變體不再疊加主線的時間',
+  );
+  // 主線排程與自由出擊的選單用得到新變體
+  const plan = await page.evaluate(() => {
+    const g = window.__game;
+    const seen = new Set();
+    if (g.camp) g.campEnd(false, true);
+    for (let i = 0; i < 30; i++) {
+      g.save.story.recent = [];
+      for (const sid of ['c2s1', 'c3s1', 'c5s1', 'c6s1']) {
+        g.state = 'play';
+        g.campBegin(sid);
+        for (const p of g.camp.plan) seen.add(p.variant);
+        g.campEnd(false, true);
+      }
+    }
+    return [...seen];
+  });
+  check(
+    ['tankfarm', 'conveyor', 'forest', 'polar', 'bridges', 'sunlit'].filter((k) => plan.includes(k)).length >=
+      4,
+    '主線排程會排到新變體（' + plan.length + ' 種）',
+  );
+  for (const [th, v] of [
+    ['industrial', 'tankfarm'],
+    ['industrial', 'conveyor'],
+    ['snow', 'forest'],
+    ['institute', 'blackout'],
+    ['spaceport', 'crash'],
+    ['wasteland', 'town'],
+  ]) {
+    await page.evaluate(
+      ([th, v]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = th;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant: v, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+      },
+      [th, v],
+    );
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'var6-' + th + '-' + v + '.png') });
+  }
+  await ctx.close();
+}
+
 // 主線第 6 章：高空軌道（真空作業機、軌道標定衛星、ZENITH）、出擊、最後的抉擇、結局與周目
 async function testChapter6(browser, base) {
   console.log('第 6 章：高空軌道的專屬敵人與 AC、變體與地標、出擊、結局與周目');
@@ -6410,15 +6633,16 @@ async function testChapter6(browser, base) {
     // 真空作業機：一直懸浮、改變高度
     const vc = g.spawnType('vacuum', 1, 1, at(0, -20), 1);
     const hs = new Set();
-    let minAlt = 1e9,
+    // 起飛之後離地 2 m 以上的比例（飛過模組邊緣時地面高度會突然變高，所以不看最低值）
+    let up = 0,
       tick = 0;
     window.__step([vc], 400, () => {
       const a = vc.pos.y - w.groundRef(vc.pos.x, vc.pos.z, vc.pos.y);
-      if (++tick > 120) minAlt = Math.min(minAlt, a); // 起飛之後
+      if (++tick > 120 && a > 2) up++;
       hs.add(Math.round(vc.hoverH));
       return false;
     });
-    out.vac = { fly: vc.flying, minAlt, heights: hs.size };
+    out.vac = { fly: vc.flying, up: up / (tick - 120), heights: hs.size };
     vc.takeDamage(1e9, 0, p, vc.center(), new THREE.Vector3(0, 0, 1));
     // 軌道標定衛星：標定後受傷變重
     const h0 = p.hp;
@@ -6448,7 +6672,7 @@ async function testChapter6(browser, base) {
     return out;
   });
   check(
-    ob.vac.fly && ob.vac.minAlt > 1 && ob.vac.heights >= 2,
+    ob.vac.fly && ob.vac.up > 0.85 && ob.vac.heights >= 2,
     '真空作業機：一直懸浮、改變高度（' + JSON.stringify(ob.vac) + '）',
   );
   check(ob.marked && ob.mult > 1.2, '軌道標定衛星：標定後受到的傷害變重（×' + ob.mult.toFixed(2) + '）');
@@ -7389,6 +7613,52 @@ async function testMpCampaign(browser, url) {
     seg: window.__game.camp && window.__game.camp.seg,
   }));
   check(mig && st3.st === 'camptrans' && st3.seg === 1, '房主離線：客機成為房主、從紀錄點（區段 2）接手');
+  // 多人的終章：結果畫面之後房主與隊友都看結局，不能進下一周目，回大廳
+  const epOf = () =>
+    cli.evaluate(() => ({
+      title: document.getElementById('epTitle').textContent,
+      cyc: document.getElementById('epCycle').textContent,
+      next: getComputedStyle(document.getElementById('btnEpNext')).display,
+      back: document.getElementById('btnEpHub').textContent,
+      endings: Object.keys(window.__game.save.story.endings || {}),
+    }));
+  await cli.evaluate(() => {
+    const g = window.__game;
+    g.camp.sid = 'c6s3';
+    g.camp.choice = { id: 'c6', key: 'seal' };
+    g.campEnd(true);
+  });
+  await waitVisible(cli, 'result');
+  await cli.click('#btnResultOk');
+  const epH = (await waitVisible(cli, 'epilogue')) && (await epOf());
+  check(
+    epH && epH.endings.includes('seal') && epH.next === 'none' && epH.back === '返回大廳',
+    '多人終章（房主）：結果畫面之後顯示結局、沒有下一周目（' + JSON.stringify(epH) + '）',
+  );
+  await cli.click('#btnEpHub');
+  const lob = await waitVisible(cli, 'lobby');
+  await cli.evaluate(() =>
+    window.__game.clientEnd({
+      success: true,
+      title: '主線出擊 完成',
+      rank: 'A',
+      bonus: 0,
+      rows: [],
+      ending: 'beyond',
+      cycle: 3,
+    }),
+  );
+  await cli.click('#btnResultOk');
+  const epC = (await waitVisible(cli, 'epilogue')) && (await epOf());
+  check(
+    lob &&
+      epC &&
+      epC.title.includes('彼岸') &&
+      epC.cyc.includes('第 3 周目') &&
+      epC.endings.includes('beyond') &&
+      epC.next === 'none',
+    '多人終章（隊友）：房主的結局與周目、記進自己的存檔（' + JSON.stringify(epC) + '）',
+  );
   await ctx.close();
 }
 
@@ -7505,6 +7775,8 @@ async function main() {
     await testChapter4(browser, base);
     await testChapter5(browser, base);
     await testChapter6(browser, base);
+    await testVariants6(browser, base);
+    await testCycle2(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

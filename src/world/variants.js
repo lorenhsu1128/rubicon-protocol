@@ -352,6 +352,61 @@ export function buildLandingZone() {
   return g;
 }
 
+// 儲油槽：半徑 r、高 h，頂部的走道與梯子
+export function buildStorageTank(r, h) {
+  const g = new THREE.Group();
+  g.add(cyl(r, r, h, mat(0xc8c4b8, { roughness: 0.7, metalness: 0.3 }), 0, h / 2, 0, 20));
+  g.add(cyl(r * 1.02, r * 1.02, 0.6, M.rustD, 0, h * 0.3, 0, 20));
+  g.add(cyl(r * 0.9, r, 0.8, M.steel, 0, h + 0.4, 0, 20));
+  g.add(box(0.5, h, 0.5, M.yellow, r + 0.3, h / 2, 0));
+  g.add(box(r * 0.8, 0.2, 1.2, M.yellow, r * 0.5, h + 0.9, 0));
+  return g;
+}
+// 針葉樹（冰原「針葉林」；高 h，枝頭積雪）
+export function buildPine(h) {
+  const g = new THREE.Group();
+  g.add(cyl(0.25, 0.35, h * 0.35, mat(0x4a3a2a, { roughness: 1 }), 0, h * 0.17, 0, 6));
+  const leaf = mat(0x2a4a3a, { roughness: 1, metalness: 0 }),
+    snow = mat(0xf2f6fa, { roughness: 1, metalness: 0 });
+  for (let i = 0; i < 3; i++) {
+    const r = h * (0.3 - i * 0.07),
+      y = h * (0.3 + i * 0.22);
+    const c = new THREE.Mesh(new THREE.ConeGeometry(r, h * 0.38, 7), leaf);
+    c.position.y = y + h * 0.19;
+    g.add(c);
+    const s = new THREE.Mesh(new THREE.ConeGeometry(r * 0.55, h * 0.12, 7), snow);
+    s.position.y = y + h * 0.33;
+    g.add(s);
+  }
+  return g;
+}
+// 落石堆（尺寸倍率 s，直徑約 4s）
+export function buildRockPile(s, color = 0x5a524a) {
+  const g = new THREE.Group();
+  const m = mat(color, { roughness: 1, metalness: 0 });
+  for (const [x, z, r] of [
+    [0, 0, 1.5],
+    [1.2, 0.6, 1],
+    [-1.1, 0.5, 0.9],
+    [0.3, -1.2, 0.8],
+  ]) {
+    const q = new THREE.Mesh(new THREE.DodecahedronGeometry(r * s, 0), m);
+    q.position.set(x * s, r * s * 0.6, z * s);
+    q.rotation.set(x, z, r);
+    g.add(q);
+  }
+  return g;
+}
+// 照明柱（高 h；color＝燈的顏色，停電區用紅色緊急照明）
+export function buildLampPost(h, color = 0xffe0a0) {
+  const g = new THREE.Group();
+  g.add(cyl(0.18, 0.25, h, M.dark, 0, h / 2, 0, 6));
+  g.add(box(1.4, 0.3, 0.5, M.dark, 0.5, h, 0));
+  const lm = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6 });
+  g.add(box(1, 0.25, 0.4, lm, 0.7, h - 0.2, 0));
+  return g;
+}
+
 // ---------- 放置工具 ----------
 // 在 World 上放一個大型結構（findSpot＋addBig），回傳是否成功
 function place(w, g, bx, range, shapes, sink = 0.3) {
@@ -368,6 +423,54 @@ function place(w, g, bx, range, shapes, sink = 0.3) {
 }
 const smooth = (t) => t * t * (3 - 2 * t);
 const lerpH = (a, b, t) => a + (b - a) * t;
+// 隕坑／彈坑的地形：n 個碗形下陷（邊緣隆起），避開中央出生點
+function craterTerrain(w, n, rr, dep) {
+  const r = makeRng(w.seed * 71 + 13);
+  const L = 52 * w.k;
+  const cs = [];
+  for (let t = 0; t < 80 && cs.length < n; t++) {
+    const x = (r() * 2 - 1) * L,
+      z = (r() * 2 - 1) * L,
+      R = rr[0] + r() * (rr[1] - rr[0]);
+    if (Math.hypot(x, z) < R + 12 || cs.some((q) => Math.hypot(q.x - x, q.z - z) < (q.R + R) * 0.8)) continue;
+    cs.push({ x, z, R, D: dep[0] + r() * (dep[1] - dep[0]) });
+  }
+  return (x, z, h) => {
+    let d = 0;
+    for (const q of cs) {
+      const t = Math.hypot(x - q.x, z - q.z) / q.R;
+      if (t < 1) d -= q.D * smooth(1 - t);
+      else if (t < 1.4) d += q.D * 0.25 * Math.sin(((t - 1) / 0.4) * Math.PI);
+    }
+    return h + d;
+  };
+}
+// 照明柱散布（可破壞）
+function lampPosts(w, n, color) {
+  w.scatter(n, 8, (x, z, y) => {
+    const h = rnd(6, 8);
+    const g = buildLampPost(h, color);
+    g.rotation.y = rnd(0, 6.28);
+    w.addSmall(g, x, y - 0.2, z, { r: 0.4, h }, 'lamppost', 600, 0x2a2c2e);
+  });
+}
+// 落石堆散布（可破壞）
+function rockPiles(w, n, color = 0x5a524a) {
+  w.scatter(n, 7, (x, z, y) => {
+    const s = rnd(0.9, 1.6);
+    w.addSmall(buildRockPile(s, color), x, y - 0.3, z, { r: 2 * s, h: 2.6 * s }, 'rockpile', 3000, color);
+  });
+}
+// 夜間的變體共用的光線（noTod：主線的時間不再疊加上去）
+const NIGHT = {
+  noTod: true,
+  sky: 0x0c1220,
+  fog: 0x18202e,
+  sun: 0x8aa0d8,
+  sunI: 0.38,
+  hemiI: 0.6,
+  fogFar: 160,
+};
 // 集散場：矩形範圍內沒有障礙物
 const free = (w, x, z, hw, hd, m = 1) =>
   !w.obstacles.some((o) =>
@@ -618,6 +721,49 @@ export const VARIANTS = {
       // 海裡不放東西、不生成
       offLimits: (w, x, z) => w.terrainHeight(x, z) < -1,
     },
+    tankfarm: {
+      name: '儲油槽區',
+      theme: {
+        featureKinds: ['bunkers'],
+        corridor: { p: 0.5, kinds: ['road'] },
+        // 大型儲油槽（不可破壞）之間散落貨櫃
+        buildProps(w) {
+          for (let k = w.cnt(6, 9); k > 0; k--) {
+            const r = rnd(5, 8),
+              h = rnd(8, 13);
+            place(w, buildStorageTank(r, h), [-r - 1, r + 1, -r - 1, r + 1], 2, [{ c: [0, 0], r, h }]);
+          }
+          looseContainers(w, w.cnt(6, 9));
+        },
+      },
+      terrain: () => (x, z, h) => h * 0.2,
+    },
+    conveyor: {
+      name: '高架輸送帶',
+      theme: {
+        featureKinds: [],
+        corridor: { p: 0.4, kinds: ['rail'] },
+        // 兩條平行的高架輸送帶（高 6.5 m，可以站上去、從底下穿過）
+        buildProps(w) {
+          const axis = rndi(0, 1);
+          const half = w.size / 2;
+          const o0 = rnd(14, 22) * w.k;
+          for (const off of [-o0, o0 + rnd(-4, 4) * w.k]) {
+            for (let s = -half + 10; s < half - 10; s += 16) {
+              const x = axis ? s : off,
+                z = axis ? off : s;
+              if (w.onCorridor(x, z, 5)) continue;
+              w.addDeck(x, z, axis ? 16.2 : 5, axis ? 5 : 16.2, 6.5, 0.7, 0);
+              w.addPillar(x, z, 0.6, w.terrainHeight(x, z) - 0.3, 5.8);
+            }
+            if (axis) w.reserve(-half, half, off - 4, off + 4);
+            else w.reserve(off - 4, off + 4, -half, half);
+          }
+          looseContainers(w, w.cnt(10, 14));
+        },
+      },
+      terrain: () => (x, z, h) => h * 0.15,
+    },
   },
   orbit: {
     cluster: {
@@ -644,6 +790,26 @@ export const VARIANTS = {
     nightside: {
       name: '軌道夜側',
       theme: { sky: 0x0a1428, fog: 0x1a2a48, sun: 0x8ab0ff, sunI: 0.5, hemiI: 0.6, fogFar: 220 },
+    },
+    debris: {
+      name: '殘骸帶',
+      theme: {
+        // 很多小模組、間隔較大
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -40, central: 30, n: [12, 16], size: [14, 20], span: 46, gap: 9 }),
+      },
+    },
+    sunlit: {
+      name: '日照面',
+      theme: {
+        noTod: true,
+        sky: 0x6a90c8,
+        fog: 0x8ab0e0,
+        sun: 0xfff4e0,
+        sunI: 1.25,
+        hemiI: 1.05,
+        fogFar: 320,
+      },
     },
   },
   xylem: {
@@ -685,6 +851,15 @@ export const VARIANTS = {
         water: { level: -2.2, color: 0x1a3444, opacity: 0.95, wide: true },
       },
     },
+    bridges: {
+      name: '橋梁群',
+      theme: {
+        // 中小街區、長橋多
+        planTerrain: (w) =>
+          planIslands(w, { h: 0.5, deep: -30, central: 34, n: [8, 12], size: [16, 22], span: 50, gap: 16 }),
+      },
+    },
+    night: { name: '夜景', theme: { ...NIGHT, sky: 0x0a1428, fog: 0x18243a, fogFar: 180 } },
   },
   grid086: {
     foundry: {
@@ -774,6 +949,34 @@ export const VARIANTS = {
             w.addDeck(x, z, di ? T + 0.4 : 4, dj ? T + 0.4 : 4, 11, 0.6, false, null);
           }
         }
+      },
+    },
+    pillars: {
+      name: '支柱林',
+      theme: { featureKinds: [], fog: 0x3a3632, fogFar: 150 },
+      // 粗大的支柱密集排列（避開平台）
+      build(w) {
+        w.scatter(w.cnt(14, 20), 9, (x, z, y) => w.addPillar(x, z, rnd(1.4, 2.4), y - 0.3, y + rnd(22, 38)));
+      },
+    },
+    rust: {
+      name: '鏽蝕區',
+      theme: { weather: 'dust', sky: 0x9a7a5a, fog: 0x8a6a4a, sun: 0xffc890, fogNear: 30, fogFar: 140 },
+      build(w) {
+        w.scatter(w.cnt(5, 8), 7, (x, z, y) => {
+          const s = rnd(1, 1.8);
+          w.addSmall(
+            buildScrapHeap(s),
+            x,
+            y - 0.2,
+            z,
+            { r: 2.4 * s, h: 2.6 * s },
+            'scrapheap',
+            2200,
+            0x7a4a2a,
+          );
+        });
+        rockPiles(w, w.cnt(4, 6), 0x6a4a32);
       },
     },
   },
@@ -881,6 +1084,42 @@ export const VARIANTS = {
         });
       },
     },
+    crash: {
+      name: '墜落現場',
+      theme: { featureKinds: ['bunkers'], weather: 'ash', fog: 0x8a8070, sky: 0x9a9080, ground: 0x6a645a },
+      // 墜落的船體留下的彈坑與大片殘骸
+      terrain: (w) => craterTerrain(w, Math.round(7 * w.k), [9, 15], [3, 5]),
+      build(w) {
+        w.scatter(w.cnt(8, 12), 8, (x, z, y) => {
+          const pw = rnd(6, 12),
+            pd = rnd(4, 7);
+          const g = buildHullPlate(pw, pd);
+          const rot = rndi(0, 1);
+          if (rot) g.rotation.y = Math.PI / 2;
+          w.addSmall(
+            g,
+            x,
+            y - 0.2,
+            z,
+            { w: rot ? pd : pw, h: 1.6, d: rot ? pw : pd },
+            'hullplate',
+            2000,
+            0x6a665f,
+          );
+        });
+      },
+    },
+    launchnight: {
+      name: '夜間發射',
+      theme: { ...NIGHT },
+      build(w) {
+        place(w, buildLaunchTower(), [-12, 12, -12, 12], 1.5, [
+          { box: [-10, -4, -3, 3], top: 46 },
+          { c: [0, 0], r: 3.5, h: 36 },
+        ]);
+        lampPosts(w, w.cnt(10, 14));
+      },
+    },
   },
   institute: {
     core: {
@@ -975,6 +1214,24 @@ export const VARIANTS = {
         g.rotation.y = Math.atan2(-c, -s);
         const ob = w.addSmall(g, x, w.terrainHeight(x, z) - 0.5, z, { w: 10, h: 16, d: 10 });
         ob.mats = [];
+      },
+    },
+    flooded: {
+      name: '浸水區',
+      theme: {
+        featureKinds: ['platforms', 'bunkers'],
+        water: { level: 0.3, color: 0x3a1e22, opacity: 0.9 },
+        fog: 0x2a1418,
+      },
+      // 整片泡在水裡（水深約 1 m，涉水變慢；平台上是乾的）
+      terrain: () => (x, z, h) => h * 0.4 - 1.1,
+    },
+    blackout: {
+      name: '停電區',
+      theme: { featureKinds: ['bunkers', 'platforms'], sunI: 0.15, hemiI: 0.4, fog: 0x140606, fogFar: 100 },
+      // 只剩紅色的緊急照明
+      build(w) {
+        lampPosts(w, w.cnt(12, 16), 0xff3020);
       },
     },
   },
@@ -1082,6 +1339,35 @@ export const VARIANTS = {
         ice.position.set(L.x, -0.65, L.z);
         w.scene.add(ice);
         w.meshes.push(ice);
+      },
+    },
+    forest: {
+      name: '針葉林',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.4, kinds: ['road'] } },
+      // 成片的針葉樹（可破壞），視線常被擋住
+      build(w) {
+        w.scatter(w.cnt(26, 34), 5, (x, z, y) => {
+          const h = rnd(7, 12);
+          const g = buildPine(h);
+          g.rotation.y = rnd(0, 6.28);
+          w.addSmall(g, x, y - 0.2, z, { r: 0.9, h }, 'pine', 800, 0x2a4a3a);
+        });
+      },
+    },
+    polar: {
+      name: '極夜',
+      theme: {
+        ...NIGHT,
+        featureKinds: ['bunkers', 'platforms'],
+        sky: 0x081020,
+        fog: 0x1a2840,
+        weather: 'snow',
+      },
+      build(w) {
+        lampPosts(w, w.cnt(6, 9));
+        w.scatter(w.cnt(2, 3), 12, (x, z, y) =>
+          w.addSmall(buildWatchtower(), x, y - 0.2, z, { r: 2, h: 10.5 }, 'tower', 3000, 0x9aa0a6),
+        );
       },
     },
   },
@@ -1197,6 +1483,32 @@ export const VARIANTS = {
         );
       },
     },
+    stilts: {
+      name: '高腳屋區',
+      theme: { featureKinds: ['bunkers'] },
+      // 水面上的高腳平台（高 3.5 m，可以站上去、從底下涉水穿過）
+      build(w) {
+        w.scatter(w.cnt(8, 12), 6, (x, z, y) => {
+          const s = rnd(7, 10);
+          const top = Math.max(y, 0) + 3.5;
+          w.addDeck(x, z, s, s, top, 0.5, 0);
+          for (const [dx, dz] of [
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ]) {
+            const px = x + dx * (s / 2 - 0.6),
+              pz = z + dz * (s / 2 - 0.6);
+            w.addPillar(px, pz, 0.3, w.terrainHeight(px, pz) - 0.3, top - 0.5);
+          }
+        });
+      },
+    },
+    mist: {
+      name: '濃霧街區',
+      theme: { fogNear: 8, fogFar: 62, fog: 0xa8b0a0, sky: 0xa8b0a0, sunI: 0.5, hemiI: 1, weather: 'rain' },
+    },
   },
   dam: {
     gorge: {
@@ -1293,6 +1605,21 @@ export const VARIANTS = {
         if (u > 0) return h;
         const c = clamp(1 - (Math.abs(x - D.xr) - 12) / 8, 0, 1);
         return h - 2.2 * smooth(c) * clamp(-u / 12, 0, 1);
+      },
+    },
+    night: {
+      name: '夜間檢修',
+      theme: { ...NIGHT, featureKinds: ['bunkers', 'platforms'] },
+      build(w) {
+        lampPosts(w, w.cnt(10, 14));
+      },
+    },
+    quarry: {
+      name: '採石場',
+      theme: { featureKinds: ['platforms'], corridor: { p: 0.6, kinds: ['road'] }, ground: 0x8a8478 },
+      // 落石堆（可破壞）
+      build(w) {
+        rockPiles(w, w.cnt(10, 14), 0x7a7468);
       },
     },
   },
@@ -1416,6 +1743,29 @@ export const VARIANTS = {
         });
       },
     },
+    craters: {
+      name: '隕坑地帶',
+      theme: { featureKinds: ['platforms'], corridor: { p: 0.3, kinds: ['road'] } },
+      terrain: (w) => craterTerrain(w, Math.round(9 * w.k), [10, 18], [4, 8]),
+    },
+    town: {
+      name: '廢棄城鎮',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.8, kinds: ['road'] } },
+      terrain: () => (x, z, h) => h * 0.35,
+      // 低矮的建築廢墟（屋頂可站）與燒毀的車輛
+      build(w) {
+        w.scatter(w.cnt(10, 14), 8, (x, z, y) => {
+          const bw = rnd(7, 12),
+            bd = rnd(7, 10),
+            h = rnd(5, 10);
+          const g = buildRuinTower(bw, h, bd, rnd(0, 1) < 0.5, Math.floor(rnd(0, 1e6)));
+          w.addSmall(g, x, y - 0.3, z, { w: bw, h, d: bd });
+        });
+        w.scatter(w.cnt(5, 8), 8, (x, z, y) =>
+          w.addSmall(buildCarWreck(), x, y, z, { r: 1.6, h: 1.8 }, 'car', 600, 0x5e3e28),
+        );
+      },
+    },
   },
   dunes: {
     ridges: {
@@ -1465,6 +1815,22 @@ export const VARIANTS = {
         weather: 'sand',
       },
     },
+    buried: {
+      name: '埋沒都市',
+      theme: { featureKinds: ['bunkers'], corridor: { p: 0.3, kinds: ['road'] } },
+      // 半埋在沙裡的大樓廢墟
+      build(w) {
+        w.scatter(w.cnt(8, 12), 9, (x, z, y) => {
+          const bw = rnd(8, 14),
+            bd = rnd(8, 12),
+            h = rnd(8, 16),
+            sink = rnd(2, 5);
+          const g = buildRuinTower(bw, h, bd, true, Math.floor(rnd(0, 1e6)));
+          w.addSmall(g, x, y - sink, z, { w: bw, h, d: bd });
+        });
+      },
+    },
+    night: { name: '沙漠之夜', theme: { ...NIGHT, sky: 0x101428, fog: 0x2a2838, fogFar: 170 } },
   },
   desert: {
     openpit: {
@@ -1619,6 +1985,43 @@ export const VARIANTS = {
         }
       },
     },
+    drowned: {
+      name: '浸水坑道',
+      theme: {
+        featureKinds: ['bunkers', 'platforms'],
+        corridor: { p: 0, kinds: [] },
+        roof: { y: 19, color: 0x26221e, bump: 6 },
+        water: { level: 0.2, color: 0x2a3a3a, opacity: 0.9 },
+        sunI: 0.4,
+        hemiI: 0.65,
+        fogNear: 22,
+        fogFar: 125,
+        fog: 0x2e3634,
+        sky: 0x1a1e1e,
+      },
+      // 湧水淹過的坑道（水深約 1 m，涉水變慢）
+      terrain: () => (x, z, h) => h * 0.3 - 0.8,
+    },
+    collapse: {
+      name: '崩落區',
+      theme: {
+        featureKinds: ['bunkers'],
+        corridor: { p: 0, kinds: [] },
+        roof: { y: 15, color: 0x2e2620, bump: 6 },
+        sunI: 0.4,
+        hemiI: 0.65,
+        fogNear: 20,
+        fogFar: 115,
+        fog: 0x3e3228,
+        sky: 0x241c16,
+        weather: 'dust',
+      },
+      terrain: () => (x, z, h) => h * 0.5,
+      // 岩頂崩落的落石堆（可破壞）
+      build(w) {
+        rockPiles(w, w.cnt(14, 20), 0x5a4a3a);
+      },
+    },
   },
 };
 export const variantKeys = (theme) => Object.keys(VARIANTS[theme] || {});
@@ -1667,6 +2070,15 @@ export const VARIANT_CATALOG = [
   ['crystal_s', '結晶簇', '礦坑「地下礦脈」；高 2–4.5 m，可破壞', () => buildCrystal(3)],
   ['salt_pillar', '鹽柱', '沙丘「鹽灘平原」；高 2.5–6 m，可破壞', () => buildSaltPillar(4)],
   ['mine_portal', '礦坑坑口', '礦坑「礦場外圍」；寬 20、高 13 m', () => buildMinePortal()],
+  [
+    'storage_tank',
+    '儲油槽',
+    '集散場「儲油槽區」；半徑 5–8、高 8–13 m，不可破壞',
+    () => buildStorageTank(6, 10),
+  ],
+  ['pine', '針葉樹', '冰原「針葉林」；高 7–12 m，可破壞', () => buildPine(9)],
+  ['rock_pile', '落石堆', '水壩「採石場」、礦坑「崩落區」等；可破壞', () => buildRockPile(1.2)],
+  ['lamp_post', '照明柱', '夜間的變體、技研都市「停電區」（紅色）；高 6–8 m，可破壞', () => buildLampPost(7)],
   ['lift_pad', '升降梯平台', '主線：下降後的入口結構（不碰撞）', () => buildLiftPad()],
   ['landing_zone', '降落區標示', '主線：空降的入口標示（不碰撞）', () => buildLandingZone()],
 ];

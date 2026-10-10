@@ -945,7 +945,7 @@ export class World {
       dusk: { sun: 0xffa060, sky: 0xc8805a, k: 0.45, si: 0.8, hi: 0.85, ff: 0.9 },
       night: { sun: 0x8090c8, sky: 0x141a28, k: 0.8, si: 0.3, hi: 0.5, ff: 0.75 },
       dawn: { sun: 0xffc8a0, sky: 0xd8a8a0, k: 0.35, si: 0.75, hi: 0.85, ff: 0.95 },
-    }[T.roof ? '' : this.tod];
+    }[T.roof || T.noTod ? '' : this.tod]; // noTod：本身就是夜間的變體
     const dk = clamp(this.depth * 0.18, 0, 0.6);
     if (TOD || dk) {
       const sky = new THREE.Color(T.sky),
@@ -1740,7 +1740,9 @@ export class World {
   }
   addPillar(x, z, r, y0, y1, m) {
     const h = y1 - y0;
-    const c = this.theme.props ? buildThemePillar(this.theme.props, r, h) : buildPillar(r, h, m);
+    const c = this.theme.props
+      ? buildThemePillar(this.theme.props, r, h)
+      : buildPillar(r, h, m || deckMats().pillar);
     c.position.set(x, y0 + h / 2, z);
     this.scene.add(c);
     this.meshes.push(c);
@@ -1784,6 +1786,9 @@ export class World {
           ice: '冰塊',
           radar: '雷達天線',
           beacon: '信號燈桿',
+          lamppost: '照明柱',
+          rockpile: '落石堆',
+          pine: '針葉樹',
         }[kind] || (this.theme.propNames || {})[kind],
       pos: c,
       center: () => c.clone(),

@@ -277,6 +277,79 @@ export const BRIEFINGS = {
     ],
     goal: '突破軌道站外環，擊破複製 AC DOPPEL',
   },
+  // ---- 第 2 周目以後（cycle：從那個周目起出現；不算進整章完成）----
+  c1x: {
+    client: 'aetheric',
+    node: { x: 50, y: 88 },
+    needs: ['c1s1'],
+    cycle: 2,
+    lines: [
+      '艾瑟立克研究所。我們有一支調查隊在沙丘失去聯絡——就在你第一次接到訊號的那天。',
+      '他們最後傳回的資料提到「同樣的訊號又出現了一次」。',
+      '找到調查隊的紀錄。荒野裡有一台不該存在的移動要塞在遊蕩。',
+    ],
+    goal: '回收調查隊的紀錄，擊破移動要塞 JUGGERNAUT',
+  },
+  c2x: {
+    client: 'sancta',
+    node: { x: 50, y: 62 },
+    needs: ['c2s2'],
+    cycle: 2,
+    lines: [
+      '聖域互助同盟。這是我們第一次直接委託你。',
+      '工業帶的熔爐清掃機把整片廠區燒成焦土，裡面還有沒逃出來的工人。',
+      '上一次……你站在別人那邊。這一次，請聽聽我們的說法。',
+    ],
+    goal: '救出困在廠區的工人，擊破熔爐清掃機 CINDER',
+  },
+  c3x: {
+    client: 'aetheric',
+    node: { x: 6, y: 40 },
+    needs: ['c3s2'],
+    cycle: 2,
+    lines: [
+      '艾瑟立克研究所。地下技研都市的實驗紀錄裡有你的名字。',
+      '日期是……你第一次出擊之前。我們也不明白。',
+      '紀錄的副本在冰原的觀測站。重武裝母艦直升機在守著它。',
+    ],
+    goal: '奪回實驗紀錄的副本，擊落母艦直升機 HELIOS',
+  },
+  c4x: {
+    client: 'veerwell',
+    node: { x: 52, y: 30 },
+    needs: ['c4s2'],
+    cycle: 2,
+    lines: [
+      '維爾威動態。宇宙港還有一座被封鎖的發射台，連我們的紀錄都沒有。',
+      '超長程電磁砲台一直對著那座發射台——不是防守，是封印。',
+      '打掉砲台。我們想知道是誰把它封起來的。',
+    ],
+    goal: '解除發射台的封鎖，擊破電磁砲台 HALBERD',
+  },
+  c5x: {
+    client: 'castron',
+    node: { x: 95, y: 48 },
+    needs: ['c5s1'],
+    cycle: 2,
+    lines: [
+      '卡斯特隆重工。洋上都市的海底有一座停擺的通訊局。',
+      '它每隔一段時間就會廣播一段訊號——和你在荒野收到的一模一樣。',
+      '電磁狩獵機在附近巡邏。進去之前，先處理它。',
+    ],
+    goal: '調查海底通訊局，擊破電磁狩獵機 NULLIFIER',
+  },
+  c6x: {
+    client: 'aetheric',
+    node: { x: 64, y: 5 },
+    needs: ['c6s1'],
+    cycle: 2,
+    lines: [
+      '艾瑟立克研究所。所有的紀錄都指向同一個座標：軌道站的日照面。',
+      '訊號的源頭就在那裡。脈衝刃翼守著它。',
+      '……傭兵。你一直在重複這場戰爭，對吧？',
+    ],
+    goal: '抵達訊號的源頭，擊破脈衝刃翼 PULSAR',
+  },
   c6s3: {
     client: 'castron',
     node: { x: 90, y: 14 },
@@ -1226,6 +1299,169 @@ export const COMMS = [
     once: true,
     lines: [['echo', '主壩的抉擇又要來了。上一次的選擇，記得嗎？']],
   },
+  // ---- 第 2 周目以後的委託 ----
+  {
+    event: 'sortieStart',
+    sid: 'c1x',
+    lines: [
+      ['aetheric', '調查隊最後的位置在沙丘的埋沒都市。'],
+      ['echo', '……這個訊號。我好像在哪裡聽過。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c1x',
+    type: 'boss',
+    lines: [
+      ['enemy', '——識別碼不符。排除。'],
+      ['echo', 'JUGGERNAUT！它的裝甲很厚，從側面和背後打。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c1x',
+    lines: [
+      ['aetheric', '調查隊的紀錄回收了。最後一句是：「它在等待同一個傭兵回來。」'],
+      ['echo', '……先回去吧。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2x',
+    lines: [
+      ['sancta', '工人們躲在儲油槽區的地下室。熔爐清掃機正往那裡去。'],
+      ['echo', '濃霧和水道會擋住視線，小心潛航砲艇。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c2x',
+    type: 'boss',
+    lines: [
+      ['echo', 'CINDER！熔渣落下的地方會燒起來，別站在火裡。'],
+      ['sancta', '爐口打開的時候最脆弱——工人們是這樣說的。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2x',
+    lines: [
+      ['sancta', '工人們都出來了。謝謝你，傭兵。'],
+      ['sancta', '上一次，我們以為你只是一把槍。原來不是。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3x',
+    lines: [
+      ['aetheric', '觀測站在冰原的針葉林裡。極夜之下很難看見。'],
+      ['echo', '紀錄裡如果真的有你的名字……那我又是誰？'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c3x',
+    type: 'boss',
+    lines: [
+      ['echo', 'HELIOS！母艦直升機會放出無人機，先打掉護衛。'],
+      ['aetheric', '副本就在它的貨艙裡。打下來就好，別讓它飛走。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c3x',
+    lines: [
+      ['aetheric', '紀錄寫著：「第 1 次觀測，傭兵抵達軌道。重置。第 2 次觀測……」'],
+      ['echo', '……我們不是第一次走這條路。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4x',
+    lines: [
+      ['veerwell', '構造體的支柱林裡有一條通往發射台的舊通道。'],
+      ['echo', '發射台的識別碼……和軌道站是同一個系列。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c4x',
+    type: 'boss',
+    lines: [
+      ['echo', 'HALBERD！它充能時找掩體擋住射線，充能就會中斷。'],
+      ['veerwell', '砲擊後散熱片會打開，那時候打。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4x',
+    lines: [
+      ['veerwell', '發射台的紀錄寫著：「為了讓傭兵抵達軌道，保留此台。」'],
+      ['echo', '有人在幫你鋪路。……或者，有人在等你。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5x',
+    lines: [
+      ['castron', '海底通訊局的入口在夜裡的橋梁群下面。'],
+      ['echo', '訊號越來越清楚了。……那是我的聲音。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c5x',
+    type: 'boss',
+    lines: [
+      ['echo', 'NULLIFIER！它的 EMP 會封鎖推進器，被打中前先拉開距離。'],
+      ['castron', '別被牽引過去。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5x',
+    lines: [
+      ['castron', '通訊局的廣播停了。最後一段是：「ECHO，回到起點。」'],
+      ['echo', '……傭兵。等到了軌道站，我會告訴你一切。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6x',
+    lines: [
+      ['aetheric', '日照面沒有遮蔽物。直接暴露在陽光下的裝甲會過熱，速戰速決。'],
+      ['echo', '這裡是訊號的源頭。也是我……第一次醒來的地方。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    sid: 'c6x',
+    type: 'boss',
+    lines: [
+      ['echo', 'PULSAR！能量環擴散時用快速推進的無敵時間穿過去。'],
+      ['echo', '打倒它，訊號就會停下來。'],
+    ],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c6x',
+    lines: [
+      ['echo', '訊號停了。……我想起來了。每一次你抵達軌道，世界就重來一次。'],
+      ['echo', '第三次的時候，選擇不屬於任何人的那條路。我會在那裡等你。'],
+    ],
+  },
+  {
+    event: 'hub',
+    chapter: 1,
+    cycle: 2,
+    lines: [['echo', '總覽圖上多了幾個紫色的節點。上一次沒有的委託。']],
+  },
+  { event: 'fail', killedBy: 'JUGGERNAUT', lines: [['echo', 'JUGGERNAUT 的正面太硬了。繞到側面。']] },
+  { event: 'fail', killedBy: 'CINDER', lines: [['echo', '燃燒的地面會一直扣血。別在火裡跟它對射。']] },
+  { event: 'fail', killedBy: 'HELIOS', lines: [['echo', '先清掉它放出來的無人機，再打本體。']] },
+  { event: 'fail', killedBy: 'HALBERD', lines: [['echo', '電磁砲充能時一定要躲到掩體後面。']] },
+  { event: 'fail', killedBy: 'NULLIFIER', lines: [['echo', 'EMP 封鎖時沒辦法閃，看到預警就先跑。']] },
+  { event: 'fail', killedBy: 'PULSAR', lines: [['echo', '能量環的波面要用快速推進穿過，不要往後退。']] },
   // ---- 第 6 章的宿敵與專屬敵人 ----
   {
     event: 'segStart',

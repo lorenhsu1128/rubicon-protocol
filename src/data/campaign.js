@@ -246,9 +246,21 @@ SORTIES.c1s2 = {
   reward: 42000,
   segs: [
     { theme: 'desert', border: true, pool: ['battle', 'supply'] },
-    { theme: 'desert', pool: ['battle', 'destroy', 'intel'], variants: ['tunnels', 'vein', 'openpit'] },
-    { theme: 'desert', pool: ['elite', 'defend', 'breakthrough'], variants: ['tunnels', 'vein', 'shaft'] },
-    { theme: 'desert', pool: ['supply', 'battle', 'intel'], variants: ['vein', 'tunnels', 'shaft'] },
+    {
+      theme: 'desert',
+      pool: ['battle', 'destroy', 'intel'],
+      variants: ['tunnels', 'vein', 'openpit', 'drowned'],
+    },
+    {
+      theme: 'desert',
+      pool: ['elite', 'defend', 'breakthrough'],
+      variants: ['tunnels', 'vein', 'shaft', 'collapse'],
+    },
+    {
+      theme: 'desert',
+      pool: ['supply', 'battle', 'intel'],
+      variants: ['vein', 'tunnels', 'shaft', 'drowned'],
+    },
     { theme: 'desert', pool: ['boss'], boss: 'worm', variants: ['openpit', 'shaft'] },
   ],
 };
@@ -334,7 +346,11 @@ SORTIES.c3s2 = {
     { theme: 'snow', pool: ['battle', 'destroy', 'elite', 'intel'] },
     { theme: 'snow', pool: ['supply', 'breakthrough', 'defend'] },
     { theme: 'institute', border: true, pool: ['battle', 'destroy', 'elite'] },
-    { theme: 'institute', pool: ['supply', 'battle', 'intel'], variants: ['tanks', 'core', 'cavern'] },
+    {
+      theme: 'institute',
+      pool: ['supply', 'battle', 'intel'],
+      variants: ['tanks', 'core', 'cavern', 'flooded'],
+    },
     { theme: 'institute', pool: ['boss'], boss: 'phantom', variants: ['core', 'tanks'] },
   ],
 };
@@ -344,13 +360,17 @@ SORTIES.c3s3 = {
   level: 9,
   reward: 110000,
   segs: [
-    { theme: 'institute', pool: ['battle'], variants: ['tanks', 'core'] },
+    { theme: 'institute', pool: ['battle'], variants: ['tanks', 'core', 'blackout'] },
     {
       theme: 'institute',
       pool: ['battle', 'destroy', 'elite', 'intel'],
       variants: ['core', 'cavern', 'tanks'],
     },
-    { theme: 'institute', pool: ['supply', 'defend', 'breakthrough'], variants: ['tanks', 'core', 'cavern'] },
+    {
+      theme: 'institute',
+      pool: ['supply', 'defend', 'breakthrough'],
+      variants: ['tanks', 'core', 'cavern', 'flooded'],
+    },
     // 宿敵再登場：依第 2 章的抉擇，對立陣營雇用的傭兵
     {
       theme: 'institute',
@@ -358,7 +378,11 @@ SORTIES.c3s3 = {
       ace: { castron: 'marsh', aetheric: 'stevedore' },
       variants: ['cavern', 'core'],
     },
-    { theme: 'institute', pool: ['supply', 'battle', 'intel'], variants: ['core', 'tanks', 'cavern'] },
+    {
+      theme: 'institute',
+      pool: ['supply', 'battle', 'intel'],
+      variants: ['core', 'tanks', 'cavern', 'blackout'],
+    },
     { theme: 'institute', pool: ['boss'], boss: 'ibis', variants: ['cavern', 'core'] },
   ],
 };
@@ -369,15 +393,19 @@ SORTIES.c4s1 = {
   level: 10,
   reward: 124000,
   segs: [
-    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks'] },
+    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks', 'pillars'] },
     {
       theme: 'grid086',
       pool: ['battle', 'destroy', 'elite', 'intel'],
       variants: ['scrapyard', 'catwalks', 'foundry'],
     },
-    { theme: 'grid086', pool: ['supply', 'defend', 'breakthrough'], variants: ['foundry', 'catwalks'] },
-    { theme: 'grid086', pool: ['battle', 'elite', 'destroy'], variants: ['foundry', 'deep'] },
-    { theme: 'grid086', pool: ['supply', 'intel', 'battle'], variants: ['deep'] },
+    {
+      theme: 'grid086',
+      pool: ['supply', 'defend', 'breakthrough'],
+      variants: ['foundry', 'catwalks', 'rust'],
+    },
+    { theme: 'grid086', pool: ['battle', 'elite', 'destroy'], variants: ['foundry', 'deep', 'pillars'] },
+    { theme: 'grid086', pool: ['supply', 'intel', 'battle'], variants: ['deep', 'rust'] },
     { theme: 'grid086', pool: ['boss'], boss: 'spider', variants: ['deep', 'foundry'] },
   ],
 };
@@ -387,14 +415,19 @@ SORTIES.c4s2 = {
   level: 11,
   reward: 138000,
   segs: [
-    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins'] },
+    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins', 'crash'] },
     {
       theme: 'spaceport',
       mode: 'relay',
       pool: ['battle', 'destroy', 'elite', 'intel'],
       variants: ['runway', 'ruins'],
     },
-    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'escort', 'defend'], variants: ['ruins', 'pads'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['supply', 'escort', 'defend'],
+      variants: ['ruins', 'pads', 'launchnight'],
+    },
     {
       theme: 'spaceport',
       mode: 'relay',
@@ -402,7 +435,7 @@ SORTIES.c4s2 = {
       variants: ['pads'],
       choice: 'c4',
     },
-    { theme: 'spaceport', mode: 'down', pool: ['supply', 'battle', 'intel'], variants: ['hangar'] },
+    { theme: 'spaceport', mode: 'down', pool: ['supply', 'battle', 'intel'], variants: ['hangar', 'crash'] },
     { theme: 'spaceport', mode: 'down', pool: ['boss'], boss: 'trinity', variants: ['hangar'] },
   ],
 };
@@ -412,16 +445,20 @@ SORTIES.c4s3a = {
   level: 12,
   reward: 152000,
   segs: [
-    { theme: 'spaceport', pool: ['battle'], variants: ['pads', 'runway'] },
+    { theme: 'spaceport', pool: ['battle'], variants: ['pads', 'runway', 'launchnight'] },
     {
       theme: 'spaceport',
       mode: 'relay',
       pool: ['battle', 'destroy', 'escort', 'intel'],
       variants: ['runway', 'ruins'],
     },
-    { theme: 'grid086', pool: ['supply', 'defend', 'breakthrough'], variants: ['scrapyard', 'catwalks'] },
-    { theme: 'grid086', pool: ['elite'], ace: 'whiteout', variants: ['foundry', 'catwalks'] },
-    { theme: 'grid086', pool: ['supply', 'battle', 'intel'], variants: ['deep'] },
+    {
+      theme: 'grid086',
+      pool: ['supply', 'defend', 'breakthrough'],
+      variants: ['scrapyard', 'catwalks', 'pillars'],
+    },
+    { theme: 'grid086', pool: ['elite'], ace: 'whiteout', variants: ['foundry', 'catwalks', 'rust'] },
+    { theme: 'grid086', pool: ['supply', 'battle', 'intel'], variants: ['deep', 'pillars'] },
     { theme: 'grid086', pool: ['boss'], boss: 'hunter', variants: ['deep'] },
   ],
 };
@@ -431,11 +468,30 @@ SORTIES.c4s3b = {
   level: 12,
   reward: 152000,
   segs: [
-    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks'] },
-    { theme: 'grid086', pool: ['battle', 'destroy', 'defend', 'intel'], variants: ['catwalks', 'foundry'] },
-    { theme: 'spaceport', pool: ['supply', 'escort', 'breakthrough'], variants: ['runway', 'ruins'] },
-    { theme: 'spaceport', mode: 'relay', pool: ['elite'], ace: 'specimen', variants: ['ruins', 'pads'] },
-    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'battle', 'intel'], variants: ['runway', 'ruins'] },
+    { theme: 'grid086', pool: ['battle'], variants: ['scrapyard', 'catwalks', 'rust'] },
+    {
+      theme: 'grid086',
+      pool: ['battle', 'destroy', 'defend', 'intel'],
+      variants: ['catwalks', 'foundry', 'pillars'],
+    },
+    {
+      theme: 'spaceport',
+      pool: ['supply', 'escort', 'breakthrough'],
+      variants: ['runway', 'ruins', 'crash'],
+    },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['elite'],
+      ace: 'specimen',
+      variants: ['ruins', 'pads', 'launchnight'],
+    },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['supply', 'battle', 'intel'],
+      variants: ['runway', 'ruins', 'crash'],
+    },
     { theme: 'spaceport', mode: 'relay', pool: ['boss'], boss: 'orbital', variants: ['runway', 'ruins'] },
   ],
 };
@@ -446,11 +502,15 @@ SORTIES.c5s1 = {
   level: 13,
   reward: 168000,
   segs: [
-    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense'] },
-    { theme: 'xylem', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['dense', 'harbor', 'open'] },
-    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['open', 'dense'] },
-    { theme: 'xylem', pool: ['battle', 'elite', 'destroy'], variants: ['squall', 'dense'] },
-    { theme: 'xylem', pool: ['supply', 'intel', 'battle'], variants: ['open', 'harbor'] },
+    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense', 'bridges'] },
+    {
+      theme: 'xylem',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['dense', 'harbor', 'open', 'night'],
+    },
+    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['open', 'dense', 'bridges'] },
+    { theme: 'xylem', pool: ['battle', 'elite', 'destroy'], variants: ['squall', 'dense', 'night'] },
+    { theme: 'xylem', pool: ['supply', 'intel', 'battle'], variants: ['open', 'harbor', 'bridges'] },
     { theme: 'xylem', pool: ['boss'], boss: 'flagship', variants: ['harbor', 'open'] },
   ],
 };
@@ -460,11 +520,15 @@ SORTIES.c5s2a = {
   level: 14,
   reward: 184000,
   segs: [
-    { theme: 'xylem', pool: ['battle'], variants: ['dense', 'harbor'] },
-    { theme: 'xylem', pool: ['battle', 'destroy', 'defend', 'intel'], variants: ['dense', 'open'] },
-    { theme: 'xylem', pool: ['supply', 'breakthrough', 'escort'], variants: ['harbor', 'open'] },
-    { theme: 'xylem', pool: ['elite'], ace: 'spire', variants: ['dense', 'squall'] },
-    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['open', 'squall'] },
+    { theme: 'xylem', pool: ['battle'], variants: ['dense', 'harbor', 'night'] },
+    {
+      theme: 'xylem',
+      pool: ['battle', 'destroy', 'defend', 'intel'],
+      variants: ['dense', 'open', 'bridges'],
+    },
+    { theme: 'xylem', pool: ['supply', 'breakthrough', 'escort'], variants: ['harbor', 'open', 'night'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'spire', variants: ['dense', 'squall', 'bridges'] },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['open', 'squall', 'night'] },
     { theme: 'xylem', pool: ['boss'], boss: 'fortress', variants: ['open', 'harbor'] },
   ],
 };
@@ -474,11 +538,15 @@ SORTIES.c5s2b = {
   level: 14,
   reward: 184000,
   segs: [
-    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense'] },
-    { theme: 'xylem', pool: ['defend', 'battle', 'destroy', 'intel'], variants: ['dense', 'harbor'] },
-    { theme: 'xylem', pool: ['supply', 'escort', 'defend'], variants: ['harbor', 'open'] },
-    { theme: 'xylem', pool: ['elite'], ace: 'countdown', variants: ['open', 'squall'] },
-    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['squall', 'dense'] },
+    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense', 'bridges'] },
+    {
+      theme: 'xylem',
+      pool: ['defend', 'battle', 'destroy', 'intel'],
+      variants: ['dense', 'harbor', 'night'],
+    },
+    { theme: 'xylem', pool: ['supply', 'escort', 'defend'], variants: ['harbor', 'open', 'bridges'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'countdown', variants: ['open', 'squall', 'night'] },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['squall', 'dense', 'bridges'] },
     { theme: 'xylem', pool: ['boss'], boss: 'interceptor', variants: ['open', 'harbor'] },
   ],
 };
@@ -488,16 +556,20 @@ SORTIES.c5s3 = {
   level: 15,
   reward: 200000,
   segs: [
-    { theme: 'xylem', pool: ['battle'], variants: ['squall', 'dense'] },
-    { theme: 'xylem', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['dense', 'open', 'squall'] },
-    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['harbor', 'dense'] },
+    { theme: 'xylem', pool: ['battle'], variants: ['squall', 'dense', 'night'] },
+    {
+      theme: 'xylem',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['dense', 'open', 'squall', 'bridges'],
+    },
+    { theme: 'xylem', pool: ['supply', 'defend', 'breakthrough'], variants: ['harbor', 'dense', 'night'] },
     {
       theme: 'xylem',
       pool: ['elite'],
       ace: { veerwell: 'undertow', sancta: 'undertow' },
       variants: ['open', 'squall'],
     },
-    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['dense', 'harbor'] },
+    { theme: 'xylem', pool: ['supply', 'battle', 'intel'], variants: ['dense', 'harbor', 'bridges'] },
     { theme: 'xylem', pool: ['boss'], boss: 'duo', variants: ['harbor', 'open'] },
   ],
 };
@@ -508,14 +580,19 @@ SORTIES.c6s1 = {
   level: 16,
   reward: 220000,
   segs: [
-    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins'] },
+    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins', 'launchnight'] },
     {
       theme: 'spaceport',
       mode: 'relay',
       pool: ['battle', 'destroy', 'elite', 'intel'],
       variants: ['runway', 'ruins'],
     },
-    { theme: 'spaceport', mode: 'relay', pool: ['supply', 'escort', 'defend'], variants: ['ruins', 'pads'] },
+    {
+      theme: 'spaceport',
+      mode: 'relay',
+      pool: ['supply', 'escort', 'defend'],
+      variants: ['ruins', 'pads', 'crash'],
+    },
     {
       theme: 'spaceport',
       mode: 'relay',
@@ -523,8 +600,8 @@ SORTIES.c6s1 = {
       ace: { castron: 'prospector', aetheric: 'rust' },
       variants: ['pads'],
     },
-    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['cluster', 'span'] },
-    { theme: 'orbit', pool: ['supply', 'battle', 'breakthrough'], variants: ['span', 'dock'] },
+    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['cluster', 'span', 'debris'] },
+    { theme: 'orbit', pool: ['supply', 'battle', 'breakthrough'], variants: ['span', 'dock', 'sunlit'] },
     { theme: 'orbit', pool: ['boss'], boss: 'funnel', variants: ['dock', 'cluster'] },
   ],
 };
@@ -534,17 +611,21 @@ SORTIES.c6s2 = {
   level: 17,
   reward: 240000,
   segs: [
-    { theme: 'orbit', pool: ['battle'], variants: ['cluster', 'dock'] },
-    { theme: 'orbit', pool: ['battle', 'destroy', 'elite', 'intel'], variants: ['cluster', 'span'] },
-    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'nightside'] },
+    { theme: 'orbit', pool: ['battle'], variants: ['cluster', 'dock', 'debris'] },
+    {
+      theme: 'orbit',
+      pool: ['battle', 'destroy', 'elite', 'intel'],
+      variants: ['cluster', 'span', 'sunlit'],
+    },
+    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'nightside', 'debris'] },
     {
       theme: 'orbit',
       pool: ['elite'],
       ace: { veerwell: 'undertow', sancta: 'sluice' },
       variants: ['dock', 'nightside'],
     },
-    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['nightside', 'cluster'] },
-    { theme: 'orbit', pool: ['supply', 'battle', 'intel'], variants: ['span', 'dock'] },
+    { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['nightside', 'cluster', 'sunlit'] },
+    { theme: 'orbit', pool: ['supply', 'battle', 'intel'], variants: ['span', 'dock', 'debris'] },
     { theme: 'orbit', pool: ['boss'], boss: 'mirror', variants: ['dock', 'nightside'] },
   ],
 };
@@ -555,18 +636,106 @@ SORTIES.c6s3 = {
   reward: 300000,
   final: true,
   segs: [
-    { theme: 'orbit', pool: ['battle'], variants: ['dock', 'cluster'] },
-    { theme: 'orbit', pool: ['battle', 'elite', 'destroy', 'intel'], variants: ['cluster', 'span'] },
-    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'dock'] },
+    { theme: 'orbit', pool: ['battle'], variants: ['dock', 'cluster', 'sunlit'] },
+    {
+      theme: 'orbit',
+      pool: ['battle', 'elite', 'destroy', 'intel'],
+      variants: ['cluster', 'span', 'debris'],
+    },
+    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['span', 'dock', 'sunlit'] },
     {
       theme: 'orbit',
       pool: ['elite'],
       ace: { veerwell: 'specimen', sancta: 'whiteout' },
       variants: ['nightside', 'dock'],
     },
-    { theme: 'orbit', pool: ['battle', 'destroy'], variants: ['nightside', 'cluster'] },
-    { theme: 'orbit', pool: ['elite', 'battle'], choice: 'c6', variants: ['dock', 'span'] },
+    { theme: 'orbit', pool: ['battle', 'destroy'], variants: ['nightside', 'cluster', 'debris'] },
+    { theme: 'orbit', pool: ['elite', 'battle'], choice: 'c6', variants: ['dock', 'span', 'sunlit'] },
     { theme: 'orbit', pool: ['boss'], boss: 'BALTEUS', variants: ['dock'] },
+  ],
+};
+// ---- 第 2 周目以後的委託（每章一個，BRIEFINGS 的 cycle；不算進整章完成）----
+SORTIES.c1x = {
+  name: '南部荒野 — 消失的調查隊',
+  chapter: 1,
+  level: 4,
+  reward: 52000,
+  segs: [
+    { theme: 'dunes', pool: ['battle'], variants: ['buried', 'storm', 'wrecks'] },
+    { theme: 'dunes', pool: ['intel', 'battle', 'destroy'], variants: ['buried', 'night'] },
+    { theme: 'wasteland', pool: ['supply', 'defend', 'breakthrough'], variants: ['town', 'craters'] },
+    { theme: 'wasteland', pool: ['elite'], ace: 'sirocco', variants: ['craters', 'junction'] },
+    { theme: 'wasteland', pool: ['boss'], boss: 'JUGGERNAUT', variants: ['craters', 'factory'] },
+  ],
+};
+SORTIES.c2x = {
+  name: '中部工業帶 — 熔爐的紀錄',
+  chapter: 2,
+  level: 7,
+  reward: 98000,
+  segs: [
+    { theme: 'flooded', pool: ['battle'], variants: ['mist', 'stilts'] },
+    { theme: 'flooded', pool: ['intel', 'destroy', 'battle'], variants: ['stilts', 'canal'] },
+    { theme: 'dam', pool: ['supply', 'escort', 'defend'], variants: ['night', 'quarry'] },
+    { theme: 'industrial', pool: ['elite'], ace: 'marsh', variants: ['tankfarm', 'conveyor'] },
+    { theme: 'industrial', pool: ['battle', 'intel', 'supply'], variants: ['conveyor', 'stacks'] },
+    { theme: 'industrial', pool: ['boss'], boss: 'furnace', variants: ['tankfarm', 'warehouse'] },
+  ],
+};
+SORTIES.c3x = {
+  name: '西部冰原 — 凍結的實驗',
+  chapter: 3,
+  level: 9,
+  reward: 124000,
+  segs: [
+    { theme: 'snow', pool: ['battle'], variants: ['polar', 'forest'] },
+    { theme: 'snow', pool: ['destroy', 'intel', 'battle'], variants: ['forest', 'crevasse'] },
+    { theme: 'snow', pool: ['supply', 'defend', 'breakthrough'], variants: ['polar', 'outpost'] },
+    { theme: 'institute', border: true, pool: ['battle', 'intel'] },
+    { theme: 'institute', pool: ['elite'], ace: 'specimen', variants: ['blackout', 'flooded'] },
+    { theme: 'snow', mode: 'relay', pool: ['boss'], boss: 'HELIOS', variants: ['icefield', 'forest'] },
+  ],
+};
+SORTIES.c4x = {
+  name: '北部構造體 — 被封鎖的發射台',
+  chapter: 4,
+  level: 12,
+  reward: 160000,
+  segs: [
+    { theme: 'grid086', pool: ['battle'], variants: ['pillars', 'rust'] },
+    { theme: 'grid086', pool: ['destroy', 'intel', 'elite'], variants: ['rust', 'scrapyard'] },
+    { theme: 'grid086', pool: ['supply', 'defend', 'breakthrough'], variants: ['pillars', 'catwalks'] },
+    { theme: 'spaceport', pool: ['battle', 'escort', 'intel'], variants: ['crash', 'launchnight'] },
+    { theme: 'spaceport', pool: ['elite'], ace: 'countdown', variants: ['launchnight', 'pads'] },
+    { theme: 'spaceport', pool: ['boss'], boss: 'HALBERD', variants: ['crash', 'runway'] },
+  ],
+};
+SORTIES.c5x = {
+  name: '洋上都市 — 沉默的海底局',
+  chapter: 5,
+  level: 15,
+  reward: 196000,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['night', 'bridges'] },
+    { theme: 'xylem', pool: ['destroy', 'intel', 'battle'], variants: ['bridges', 'dense'] },
+    { theme: 'xylem', pool: ['supply', 'defend', 'escort'], variants: ['night', 'harbor'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'undertow', variants: ['bridges', 'squall'] },
+    { theme: 'xylem', pool: ['battle', 'supply', 'intel'], variants: ['night', 'open'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'hunter', variants: ['harbor', 'open'] },
+  ],
+};
+SORTIES.c6x = {
+  name: '高空軌道 — 彼岸的座標',
+  chapter: 6,
+  level: 18,
+  reward: 240000,
+  segs: [
+    { theme: 'orbit', pool: ['battle'], variants: ['sunlit', 'debris'] },
+    { theme: 'orbit', pool: ['intel', 'destroy', 'battle'], variants: ['debris', 'span'] },
+    { theme: 'orbit', pool: ['supply', 'defend', 'breakthrough'], variants: ['sunlit', 'cluster'] },
+    { theme: 'orbit', pool: ['elite'], ace: 'zenith', variants: ['sunlit', 'nightside'] },
+    { theme: 'orbit', pool: ['battle', 'supply', 'intel'], variants: ['debris', 'dock'] },
+    { theme: 'orbit', pool: ['boss'], boss: 'ibis', variants: ['dock', 'sunlit'] },
   ],
 };
 export const SORTIE_DEFAULT = 'c1s1';

@@ -21,6 +21,7 @@ Object.assign(Game.prototype, {
     const st = this.campStory();
     const B = BRIEFINGS[sid];
     if (B && B.when && Object.keys(B.when).some((k) => st.choices[k] !== B.when[k])) return 'hidden';
+    if (B && B.cycle && (st.cycle || 1) < B.cycle) return 'hidden'; // 周目限定的委託
     if (st.done[sid]) return 'done';
     // needs 全部完成、needsAny 其中一個完成（依抉擇的路線）
     const ok =
@@ -81,7 +82,7 @@ Object.assign(Game.prototype, {
       if (!B) continue;
       const s = this.hubSortieState(sid);
       if (s === 'hidden') continue;
-      const col = s === 'done' ? '#7ee081' : s === 'open' ? '#ffb020' : '#3a4a58';
+      const col = s === 'done' ? '#7ee081' : s !== 'open' ? '#3a4a58' : B.cycle ? '#c090ff' : '#ffb020'; // 周目限定的是紫色
       svg += `<g class="hubNode ${s}" data-sid="${sid}"><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
       svg += `<text x="${B.node.x}" y="${B.node.y + 1}" text-anchor="middle" font-size="2.6" fill="${col}">${s === 'done' ? '✓' : s === 'open' ? '!' : '×'}</text>`;
       svg += `<text x="${B.node.x}" y="${B.node.y + 5.6}" text-anchor="middle" font-size="2.2" fill="${col}">${escHtml(SORTIES[sid].name.split(' — ')[1] || SORTIES[sid].name)}</text></g>`;
@@ -138,12 +139,15 @@ Object.assign(Game.prototype, {
   },
   // ---------- 結局與周目 ----------
   // 結局畫面（第 6 章完成、結果畫面按確定之後）：標題、台詞、進入下一周目（最多 3 周目）或回機庫
+  // 多人時（房主與隊友都看）：周目是房主的，不能進下一周目，按鈕回大廳
   openEpilogue(key) {
     SFX.ui();
     const $ = (id) => document.getElementById(id);
     const E = ENDINGS[key] || ENDINGS.open;
     const st = this.campStory();
-    const cyc = st.cycle || 1;
+    const mp = !!(this.net && this.net.role);
+    const cyc = (mp && this.campEndingCycle) || st.cycle || 1;
+    this.campEndingCycle = null;
     this.commClear(); // 結果畫面時還在排隊的通訊不要蓋在結局上
     this.state = 'epilogue';
     this.showScreen('epilogue');
@@ -152,8 +156,21 @@ Object.assign(Game.prototype, {
     $('epLines').innerHTML = E.lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
     const seen = Object.keys(st.endings || {}).length;
     $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
-    $('btnEpNext').style.display = cyc < 3 ? '' : 'none';
+    $('btnEpNext').style.display = cyc < 3 && !mp ? '' : 'none';
     $('btnEpNext').textContent = `開始第 ${cyc + 1} 周目`;
+    $('btnEpHub').textContent = mp ? '返回大廳' : '回到機庫';
+  },
+  // 結局畫面的「回到機庫」：多人時回大廳
+  epilogueBack() {
+    if (this.net && this.net.role) return this.mpBackToLobby();
+    this.openHub();
+  },
+  mpBackToLobby() {
+    this.clearMission();
+    this.state = 'lobby';
+    this.showScreen('lobby');
+    if (this.net.role === 'host') this.net.syncLobby();
+    this.renderLobby();
   },
   // 下一周目：委託與抉擇重來（這一周目的紀錄存進 history），戰術模組清空；結局與通訊紀錄保留
   campNextCycle() {

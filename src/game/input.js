@@ -763,7 +763,7 @@ Object.assign(Game.prototype, {
     $('btnSimBack').onclick = () => this.openHub();
     $('btnRecBack').onclick = () => this.openHub();
     $('btnEpNext').onclick = () => this.campNextCycle();
-    $('btnEpHub').onclick = () => this.openHub();
+    $('btnEpHub').onclick = () => this.epilogueBack();
     $('btnRecGo').onclick = () => this.recordGo();
     $('btnHubLogClose').onclick = () => this.hubLog(false);
     $('btnHubBack').onclick = () => this.openGarage();
@@ -800,13 +800,8 @@ Object.assign(Game.prototype, {
         this.campResultHub = false;
         return this.openHub();
       }
-      if (this.net && this.net.role) {
-        this.clearMission();
-        this.state = 'lobby';
-        this.showScreen('lobby');
-        if (this.net.role === 'host') this.net.syncLobby();
-        this.renderLobby();
-      } else this.openGarage();
+      if (this.net && this.net.role) this.mpBackToLobby();
+      else this.openGarage();
     };
     $('btnResume').onclick = () => {
       if (this.net && this.net.role && this.state === 'play') {

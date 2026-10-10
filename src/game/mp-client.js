@@ -4,6 +4,7 @@ import { escHtml } from '../core/html.js';
 import { angLerp, clamp, lerp } from '../core/math.js';
 import { isBossLevel } from '../data/enemies.js';
 import { partById } from '../data/parts.js';
+import { ENDINGS } from '../data/story.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { applyEnt } from '../net/snapshot.js';
@@ -600,6 +601,14 @@ Object.assign(Game.prototype, {
     }
     $('rTitle').textContent = d.title;
     $('rRank').textContent = d.rank;
+    // 終章：房主的結局也記進自己的存檔（看過的結局），結果畫面之後一起看
+    if (d.success && typeof d.ending === 'string' && ENDINGS[d.ending]) {
+      const st = this.campStory();
+      st.endings = st.endings || {};
+      st.endings[d.ending] = (st.endings[d.ending] || 0) + 1;
+      this.campEnding = d.ending;
+      this.campEndingCycle = Math.max(1, Math.min(3, d.cycle | 0));
+    }
     if (d.success) {
       d.bonus = Math.round(d.bonus * (1 + (this.player ? this.player.pmv('coam') : 0))); // 自己的「報酬交涉」
       this.save.coam += d.bonus;

@@ -4,7 +4,7 @@ import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { SORTIES } from '../data/campaign.js';
 import { MODULES, modLabel, modOffer, modsPm } from '../data/modules.js';
-import { FACTIONS } from '../data/story.js';
+import { BRIEFINGS, FACTIONS } from '../data/story.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -36,9 +36,12 @@ Object.assign(Game.prototype, {
   // 整章的出擊都完成時清空模組
   campChapterCheck(chapter) {
     const st = this.campStory();
-    // 依陣營抉擇不會出現的出擊不算
+    // 依陣營抉擇不會出現的出擊、周目限定的委託（BRIEFINGS 的 cycle）不算
     const all = Object.keys(SORTIES).filter(
-      (sid) => SORTIES[sid].chapter === chapter && this.hubSortieState(sid) !== 'hidden',
+      (sid) =>
+        SORTIES[sid].chapter === chapter &&
+        this.hubSortieState(sid) !== 'hidden' &&
+        !(BRIEFINGS[sid] && BRIEFINGS[sid].cycle),
     );
     if (all.every((sid) => st.done[sid])) {
       st.mods = { chapter: chapter + 1, list: [] };

@@ -1179,12 +1179,13 @@ Object.assign(Game.prototype, {
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       if (c.choice && !c.replay) st.choices[c.choice.id] = c.choice.key; // 陣營抉擇（重打不改）
-      // 終章：依最後的抉擇進入結局（結果畫面按確定之後）
-      if (so.final && !c.replay && !mp) {
+      // 終章：依最後的抉擇進入結局（結果畫面按確定之後；多人時隊友也看，見 clientEnd）
+      if (so.final && !c.replay) {
         const key = (c.choice && c.choice.key) || 'open';
         st.endings = st.endings || {};
         st.endings[key] = (st.endings[key] || 0) + 1;
         this.campEnding = key;
+        this.campEndingCycle = st.cycle || 1;
       }
       this.campComm('sortieEnd', this.campCtx());
       // 整章都完成時戰術模組清空（重打不影響）
@@ -1235,6 +1236,8 @@ Object.assign(Game.prototype, {
           title: $('rTitle').textContent,
           rank,
           bonus: success ? so.reward : 0,
+          ending: (success && this.campEnding) || null,
+          cycle: this.campEndingCycle || 1,
           xpBySlot: xpAll,
           rows: rows.filter((r) => r[0] !== 'COAM 結餘'),
         });

@@ -30,7 +30,7 @@ Object.assign(Game.prototype, {
   },
   // 大廳出擊（房間模式「主線合作」）：房主的進度、房主選的委託
   campBeginMp(sid) {
-    if (!SORTIES[sid] || this.hubSortieState(sid) === 'locked') sid = 'c1s1';
+    if (!SORTIES[sid] || ['locked', 'hidden'].includes(this.hubSortieState(sid))) sid = 'c1s1';
     this.campStory().sortie = null;
     this.campBegin(sid);
   },
