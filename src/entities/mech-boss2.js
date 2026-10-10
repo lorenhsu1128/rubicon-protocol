@@ -184,8 +184,8 @@ Object.assign(MechEntity.prototype, {
           const dirv = s.tp.clone().sub(mz).normalize();
           g.beamAttack(this, mz, dirv, {
             range: 180,
-            dmg: 3600 * dm,
-            im: 2600 * dm,
+            dmg: (s.burst ? 1500 : 2600) * dm, // 第二型態的連射第二發較弱
+            im: (s.burst ? 1100 : 1800) * dm,
             w: 1.0,
             color: 0x9fe8ff,
             width: 0.9,
@@ -381,10 +381,11 @@ Object.assign(MechEntity.prototype, {
         let hit = false;
         for (let k = 0; k <= CARS.length && !hit; k++) hit = Math.abs(a - (s.ts - k * CAR_SP)) < 4.7;
         if (!hit) continue;
-        s.hitCd.set(h, g.time + 1.2);
+        s.hitCd.set(h, g.time + 2.0); // 撞開後不會被後面的車廂再撞一次
         const k = clamp(s.spd / 34, 0.35, 1);
         const push = V(c.perp.x, 0, c.perp.y).multiplyScalar(Math.sign(lat || 1));
-        h.takeDamage((s.st === 'ram' ? 1100 : 450) * dm * k, 1500 * dm * k, this, h.center(), push);
+        const ram = s.st === 'ram';
+        h.takeDamage((ram ? 850 : 280) * dm * k, (ram ? 1400 : 800) * dm * k, this, h.center(), push);
         h.vel.addScaledVector(push, 14).add(V(tdir.x * s.td, 0, tdir.y * s.td).multiplyScalar(s.spd * 0.5));
         h.vel.y = Math.max(h.vel.y, 8);
         h.grounded = false;
@@ -708,13 +709,14 @@ Object.assign(MechEntity.prototype, {
       }
     } else if (s.om === 'track') {
       s.el += dt;
-      const sp = lerp(5, p2 ? 20 : 17, clamp(s.el / 4, 0, 1));
+      // 光柱越追越快；最高速與轉向都壓低，不用 QB 也有機會跑開
+      const sp = lerp(4, p2 ? 14 : 12, clamp(s.el / 5, 0, 1));
       const want = V(pl.pos.x - s.pp.x, 0, pl.pos.z - s.pp.z);
       const cur = s.pv.clone().normalize();
       if (want.lengthSq() > 0.01) {
         want.normalize();
         const da = Math.atan2(cur.x * want.z - cur.z * want.x, cur.dot(want));
-        const turn = (p2 ? 1.9 : 1.5) * dt;
+        const turn = (p2 ? 1.6 : 1.3) * dt;
         cur.applyAxisAngle(V(0, 1, 0), -clamp(da, -turn, turn));
       }
       s.pv.copy(cur).multiplyScalar(sp);
@@ -726,7 +728,7 @@ Object.assign(MechEntity.prototype, {
         for (const t of g.hostilesOfEnt(this)) {
           if (t.dead || !t.pos || Math.hypot(t.pos.x - s.pp.x, t.pos.z - s.pp.z) > PILLAR_R + t.radius * 0.5)
             continue;
-          t.takeDamage(150 * dm, 240 * dm, this, t.center(), V(0, -1, 0));
+          t.takeDamage(110 * dm, 200 * dm, this, t.center(), V(0, -1, 0));
         }
       }
       this.bx = [1, +s.pp.x.toFixed(2), +s.pp.z.toFixed(2)];

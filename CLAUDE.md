@@ -210,6 +210,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save_1`～`rubicon_save_3`（三個存檔槽，各自完整一份，含 PvE／PvP 駕駛員）、`rubicon_save_cur`（目前的槽位；不存在時把舊版單一存檔 `rubicon_save` 搬進存檔 1，舊鍵保留當備份）、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`、`rubicon_ik`（動作 IK 的總開關與各項開關）、`rubicon_map`（出擊地圖）、`rubicon_style`（渲染風格：選用的風格、機體金屬、解析度、我的預設、伺服器清單快取）。
 - 鎖定一律經過 `game/player.js` 的 `lockCands`／`autoLock`／`cycleLock`（單機、房主與客機的輸入、第一人稱共用）：只考慮攻擊距離內（`lockReach`：裝備武器不含近戰的最遠射程，上限是火控的鎖定距離）、不是 `noLock` 的敵人；第三人稱是機甲面向的正面 180° 內（不論在不在畫面裡）由近到遠，背後的不鎖定；第一人稱是畫面內、依離準星的角度。目標被擊破或移到攻擊距離外（×1.05）就改鎖第一順位。滑鼠／觸控點擊敵人（`tryClickLock`）照舊直接鎖定。
+- 失衡後保護（`data/parts.js` 的 `STAG_GUARD*`）只給玩家操作的機體（`MechEntity.pilotEnt()`：`team` 為 player、有 `slot`、不是 PvP 電腦）：硬直結束後 2.5 秒內 ACS 累積變少、不會再次失衡；敵人、Boss、友軍沒有，可以連續打出硬直。
 - 顯示暱稱、房名、房主送來的結果欄位等遠端資料時，放進 `innerHTML` 前一律用 `core/html.js` 的 `escHtml` 跳脫（或改用 `textContent`）。
 - 目前所有模型、貼圖都是程式即時產生（Canvas 貼圖＋幾何拼接），只有單人模式開啟本地模型庫時才會換成瀏覽器暫存的 GLB。執行時不能依賴外部資源檔：新的素材（音效、GLB）必須在建置時內嵌進單一 HTML，程式庫放 `dist/lib/`。
 

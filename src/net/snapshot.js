@@ -62,7 +62,7 @@ export function applyEnt(e, s, g) {
   e.respawnT = s.rs !== undefined && s.rs >= 0 ? s.rs : undefined;
   e.hp = s.h;
   e.acs = s.ac;
-  if (e.staggerT > 0 && s.st <= 0) e.stagGuardT = STAG_GUARD;
+  if (e.staggerT > 0 && s.st <= 0 && e.pilotEnt()) e.stagGuardT = STAG_GUARD;
   e.staggerT = s.st;
   e.grounded = !!s.g;
   e.hover = !!s.hv;

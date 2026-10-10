@@ -194,6 +194,10 @@ export class MechEntity {
         ? Math.max(this.weapons.rback.def.absorb || 0, this.weapons.lback.def.absorb || 0)
         : 0;
   }
+  // 玩家操作的機體（單機與多人的玩家，不含友軍、敵人與 PvP 電腦）：失衡後保護只給它們
+  pilotEnt() {
+    return this.team === 'player' && typeof this.slot === 'number' && !this.pvpAi;
+  }
   center() {
     return new THREE.Vector3(this.pos.x, this.pos.y + this.model.height * 0.5, this.pos.z);
   }
@@ -1077,7 +1081,7 @@ export class MechEntity {
       if (this.staggerT <= 0) {
         this.acs = 0;
         this.comboHits = 0;
-        this.stagGuardT = STAG_GUARD;
+        if (this.pilotEnt()) this.stagGuardT = STAG_GUARD;
       }
       wish = new THREE.Vector3();
       wantHover = false;
