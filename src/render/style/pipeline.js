@@ -271,7 +271,8 @@ export class StylePipeline {
     const R = this.R,
       s = this.scene,
       c = this.ctx;
-    R.toneMappingExposure = P.exposure;
+    // 線性色調映射不壓高光：依場景補正曝光（白色場景調暗、暗的場景調亮；World 主題的 linExp）
+    R.toneMappingExposure = P.exposure * (P.toneMap === 'linear' && c.sceneExp ? c.sceneExp() : 1);
     const B = this.captureBase();
     const out = !c.indoor;
     if (out && s.fog && B.fog) {

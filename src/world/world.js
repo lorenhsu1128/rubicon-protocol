@@ -207,6 +207,21 @@ export const THEMES = {
   orbit: ORBIT,
   institute: INSTITUTE,
 };
+// 線性色調映射（賽璐璐類渲染風格）時的曝光補正：線性不壓高光，白色的場景容易爆白、暗的場景補亮一點
+// （render/style/pipeline.js 的 applyScene；ACES 等會壓高光的不套用）。變體可以用 theme.linExp 覆寫
+const LIN_EXP = {
+  snow: 0.7,
+  grid: 0.86,
+  dunes: 0.88,
+  xylem: 0.82,
+  orbit: 0.82,
+  industrial: 0.94,
+  spaceport: 0.9,
+  flooded: 1.15,
+  grid086: 1.2,
+  institute: 1.15,
+};
+for (const k in LIN_EXP) THEMES[k].linExp = LIN_EXP[k];
 
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {

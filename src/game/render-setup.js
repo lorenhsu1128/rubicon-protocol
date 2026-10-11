@@ -29,6 +29,7 @@ Object.assign(Game.prototype, {
       sun: this.sun,
       hemi: this.hemi,
       sunOff: this.sunOff,
+      sceneExp: () => (this.world && this.world.theme && this.world.theme.linExp) || 1, // 依場景的曝光補正
     });
     this.stylePipe.applyStructural(this.styleP);
   },

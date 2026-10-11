@@ -396,6 +396,91 @@ async function testPaint(browser) {
 
 // 渲染風格實驗室（直接開檔）：開啟 → 模擬戰鬥 → 切換風格、金屬、左右比較 → 調滑桿 → 操作模式
 // → 存成我的預設並套用 → 離開（存檔沒變）→ 設定畫面顯示 → 出擊時用該風格
+// 每個內建渲染風格 × 每個地圖主題：截圖（test-results/style-<風格>-<主題>.png）並量亮度，過曝或過暗就失敗。
+// 新增或修改內建風格時要逐張看這些截圖
+async function testStyleThemes(browser) {
+  console.log('渲染風格：每個內建風格在每個地圖主題的亮度');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const page = await ctx.newPage();
+  watch(page, 'style-themes');
+  await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
+  await waitVisible(page, 'title');
+  await page.click('#btnStyleLab');
+  await waitVisible(page, 'labPanel', 15000);
+  // 固定的地形種子與鏡頭、暫停模擬，每次量到的畫面相同
+  await page.selectOption('#labCam', 'free');
+  await page.evaluate(() => (window.__game.lab.seed = 4242));
+  const themes = await page.$$eval('#labTheme option', (os) => os.map((o) => o.value));
+  const styles = await page.$$eval('#labStyle option', (os) =>
+    os.map((o) => o.value).filter((v) => v.startsWith('builtin:')),
+  );
+  // 畫面左側（避開右邊的面板與下方的工具列）縮成 96×64 量亮度
+  const measure = async () => {
+    const b64 = (await page.screenshot({ clip: { x: 0, y: 0, width: 900, height: 620 } })).toString('base64');
+    return page.evaluate(async (b64) => {
+      const img = new window.Image();
+      img.src = 'data:image/png;base64,' + b64;
+      await img.decode();
+      const cv = document.createElement('canvas');
+      cv.width = 96;
+      cv.height = 64;
+      const c = cv.getContext('2d');
+      c.drawImage(img, 0, 0, 96, 64);
+      const d = c.getImageData(0, 0, 96, 64).data;
+      let sum = 0,
+        hi = 0,
+        lo = 0;
+      const n = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+        sum += y;
+        if (y > 0.96) hi++;
+        if (y < 0.04) lo++;
+      }
+      return { mean: sum / n, hi: hi / n, lo: lo / n };
+    }, b64);
+  };
+  const bad = [];
+  const rows = [];
+  for (const th of themes) {
+    await page.selectOption('#labTheme', th);
+    await page.waitForFunction((th) => window.__game.worldTheme === th && window.__game.world, th, {
+      timeout: 30000,
+    });
+    await page.evaluate(() => {
+      const L = window.__game.lab;
+      L.paused = true;
+      L.cam = 'free';
+      Object.assign(L.free, { yaw: 0.6, pitch: 0.42, dist: 38 });
+    });
+    await wait(1500);
+    const row = [];
+    for (const st of styles) {
+      await page.selectOption('#labStyle', st);
+      await wait(1200);
+      const m = await measure();
+      const id = st.slice(8);
+      await page.screenshot({
+        path: path.join(SHOT_DIR, `style-${id}-${th}.png`),
+        clip: { x: 0, y: 0, width: 900, height: 620 },
+      });
+      row.push(`${id} ${m.mean.toFixed(2)}`);
+      if (m.mean > 0.82 || m.hi > 0.25 || m.mean < 0.08 || m.lo > 0.45)
+        bad.push(
+          `${id}@${th}（平均 ${m.mean.toFixed(2)}、過曝 ${Math.round(m.hi * 100)}%、死黑 ${Math.round(m.lo * 100)}%）`,
+        );
+    }
+    rows.push(`${th}：${row.join('、')}`);
+  }
+  console.log('    ' + rows.join('\n    '));
+  check(
+    bad.length === 0,
+    `${styles.length} 個內建風格 × ${themes.length} 個主題的畫面亮度都在範圍內` +
+      (bad.length ? '：' + bad.join('；') : ''),
+  );
+  await ctx.close();
+}
+
 async function testStyleLab(browser) {
   console.log('渲染風格實驗室：模擬戰鬥 → 切換與調整 → 存成預設 → 套用到遊戲');
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 }, acceptDownloads: true });
@@ -8059,6 +8144,7 @@ async function main() {
     await testEditorOptimize(browser, base);
     await testPaint(browser);
     await testStyleLab(browser);
+    await testStyleThemes(browser);
     await testBosses(browser, base);
     await testBosses2(browser, base);
     await testLockOn(browser, base);
