@@ -76,7 +76,7 @@
 **Boss 戰（第 14 期，試玩回饋「平均三分鐘就打完」後加強；只加強 Boss，玩家的增益不變）**：目標一場 6～8 分鐘。
 
 - 14.1：Boss 本體血量 ×1.8、火力 ×1.4（隨等級的成長維持每級 5%）；失衡結束後 8 秒保護，不能一直壓著打（失衡中受傷 ×1.5 照舊，打出失衡仍是懲罰時機）；三個型態（AP 70%、35%），換型態時短暫無敵、放地面衝擊波、空降一批雜兵（不派 AC），型態越後面節奏越快（AI、冷卻、預警）；開打 6 分鐘後狂暴（火力 ×1.3、節奏再快）。
-- 14.2：22 隻 Boss 各加專屬的新招與連段（第三型態解鎖）。
+- 14.2：22 隻 Boss 各加一招最終型態（AP 35% 以下）的專屬連段：JUGGERNAUT 砲擊連段、DOPPEL 適應過載、AEGIS 艦砲齊射、VIPER 空雷封鎖、STRIDER 十字雷射、HALBERD 散射砲、SANDWORM 地表崩塌、SERAPHIM 光束牢籠、HELIOS 地毯轟炸、CINDER 火海、BASTILLE 飽和砲擊、BEHEMOTH 碎石雨、IGUAZU & VOLTA 連攜齊射（一台倒下時另一台狂暴）、MIRAGE 分身突襲、ARACHNE 震地、JUDGEMENT 雙重光柱、BALTEUS 導彈牆、CERBERUS 三重衝擊、NULLIFIER 電磁風暴、IRON CITADEL 全車廂砲擊、LEVIATHAN 全彈發射、PULSAR 雙環；全部有預警。
 
 ### 3.2 出口與轉場
 
