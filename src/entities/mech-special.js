@@ -127,6 +127,7 @@ Object.assign(MechEntity.prototype, {
   domeAbsorb(dmg, at) {
     const g = this.game;
     this.domeHitT = 0.25;
+    if (at) SFX.hitDome(at);
     if (this.domeInf) {
       if (at) g.fx.spark(at, 0x80e0ff);
       return;
@@ -180,11 +181,13 @@ Object.assign(MechEntity.prototype, {
           g.fx.flash(p, 1.6, 0xffb020, 0.18);
           g.fx.streaks(p, 12, 0xffd080, 16, 0.35, 20);
           SFX.play('shield', 1, 0.7, 0.05, 0.03, p);
+          SFX.hitShield(p, true);
           g.popDamage(p, 'GUARD BREAK', false, true, false, 0);
           return [dmg, impact * 1.6];
         }
         g.fx.spark(p, 0xffd080);
         SFX.play('shield', 0.5, 1.3, 0.1, 0.06, p);
+        SFX.hitShield(p);
         return [dmg * 0.12, impact * 0.4];
       }
     }

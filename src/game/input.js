@@ -791,6 +791,29 @@ Object.assign(Game.prototype, {
     $('btnCampRepair').onclick = () => this.campRepair();
     $('btnCampAmmo').onclick = () => this.campAmmo();
     $('btnCampKits').onclick = () => this.campKits();
+    // 介面音：按鈕依種類（返回／確定／一般）換聲音，滑過時輕輕一聲
+    const btnKind = (b) =>
+      /返回|回標題|取消|關閉|離開|放棄/.test(b.textContent || '')
+        ? 'back'
+        : b.classList.contains('primary')
+          ? 'ok'
+          : 'click';
+    document.addEventListener(
+      'click',
+      (e) => {
+        const b = e.target.closest && e.target.closest('button');
+        if (b && !b.disabled) SFX.uiBtn(btnKind(b));
+      },
+      true,
+    );
+    let hoverB = null;
+    document.addEventListener('mouseover', (e) => {
+      const b = e.target.closest && e.target.closest('button');
+      if (b !== hoverB) {
+        hoverB = b;
+        if (b && !b.disabled && this.state !== 'play') SFX.ui('hover');
+      }
+    });
     $('btnCampRetry').onclick = () => this.campRetry(false);
     $('btnCampFailGarage').onclick = () => this.campRetry(true);
     $('btnCampQuit').onclick = () => this.campEnd(false, true);

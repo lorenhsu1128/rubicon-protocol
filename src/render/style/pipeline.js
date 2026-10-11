@@ -397,7 +397,8 @@ export class StylePipeline {
       th = srgb(P.tintHi);
     g.gL.value.set(tl.r, tl.g, tl.b, P.tintLoK);
     g.gH.value.set(th.r, th.g, th.b, P.tintHiK);
-    g.gB.value.set(P.vignette, P.chroma, P.grain, P.paper);
+    const cp = this.ctx && this.ctx.chromaPush ? this.ctx.chromaPush() : 0; // 受到重擊時的色差
+    g.gB.value.set(P.vignette, Math.min(1, P.chroma + cp), P.grain, P.paper);
     if (this.fxaa && P.fxaa) {
       this.draw(this.grade, this.rtB);
       const f = this.fxaa.m.uniforms;

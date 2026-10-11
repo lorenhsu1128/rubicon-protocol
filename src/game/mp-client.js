@@ -314,8 +314,12 @@ Object.assign(Game.prototype, {
             e.s,
             e.m,
             e.c,
+            undefined,
+            0,
+            e.i,
           );
           if (tgt && tgt.isPlayer) {
+            if (e.im >= 500) this.screenHit(clamp(e.im / 1500, 0.25, 1));
             this.camShake = Math.max(this.camShake, clamp(e.im / 1500, 0.06, 0.3));
             this.rumble(clamp(e.im / 700, 0.2, 1), clamp(e.im / 400, 0.3, 1), clamp(e.im / 4, 60, 260));
           }
@@ -330,6 +334,13 @@ Object.assign(Game.prototype, {
         break;
       case 'wave':
         this.waveShow(e); // 增援波次的預告（方向依自己的鏡頭）
+        break;
+      case 'fb':
+        this.fbEvent(e);
+        break;
+      case 'bossDown':
+        this.fx.hitStop = Math.max(this.fx.hitStop, 0.5);
+        this.showBanner('TARGET DESTROYED', `${e.n} 擊破`, '#ffb020', 3);
         break;
       case 'bounty':
         this.save.coam += e.v;

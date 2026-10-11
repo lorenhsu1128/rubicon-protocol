@@ -129,7 +129,7 @@ Object.assign(Game.prototype, {
     this.netEv({ t: 'cacheX', i: c.id });
     const d = CACHE_KINDS[c.kind];
     const L = this.camp ? this.campLevel() : this.save.level || 1;
-    SFX.kit();
+    SFX.cue('cache');
     let txt = d.name;
     if (c.kind === 'coam') {
       const v = 150 + L * 40;

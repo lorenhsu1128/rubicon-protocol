@@ -1,6 +1,7 @@
 // Game：一般戰鬥的增援波次——編成分成 3～5 波，場上的敵人剩下少數時派出下一波：
 // 從作戰區域邊緣進入，或由運輸機空降到玩家附近；出現前 ECHO 預告方向（依各自的鏡頭換算成幾點鐘方向）、
 // 地點立起紅色光柱、畫面邊緣顯示指示。派出與生成只在房主／單機，客機收到 'wave' 事件只做顯示。
+import { SFX } from '../audio/audio.js';
 import { clamp, pick, rnd } from '../core/math.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { Game } from './game.js';
@@ -146,6 +147,7 @@ Object.assign(Game.prototype, {
       : `${head}敵方增援 ${ev.n} 機從 ${clock} 點鐘方向接近，距離 ${dist} m。`;
     if (ev.a) text += '敵對 AC 也在裡面。';
     if (ev.i >= ev.N) text += '這是最後一波。';
+    SFX.waveAlert(Math.sin(ang), ev.i >= ev.N); // 從預告的方向（左右聲道）響起
     this.commSay('echo', text);
   },
   // HUD：增援地點的指示（畫面外是邊緣的箭頭，畫面內是菱形標記）

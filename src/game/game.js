@@ -95,7 +95,10 @@ export class Game {
     this.lmInit();
     this.mpModelsInit();
     // 冒煙測試用：網址帶 ?test 時把遊戲實例放在 window.__game（檢查各機甲用的模型組）
-    if (/[?&]test\b/.test(location.search)) window.__game = this;
+    if (/[?&]test\b/.test(location.search)) {
+      window.__game = this;
+      window.__sfx = SFX; // 冒煙測試檢查混音與回饋音
+    }
     const sp = new URLSearchParams(location.search).get('spectate');
     if (sp && window.RUBICON_SERVER) {
       setTimeout(() => {
@@ -108,6 +111,9 @@ export class Game {
     requestAnimationFrame(() => this.loop());
   }
   updateLoops() {
+    const now = performance.now();
+    this.audioTick(Math.min(0.1, (now - (this.audioT || now)) / 1000)); // 環境音、低 AP 心跳（game/feedback.js）
+    this.audioT = now;
     const p = this.player;
     if (!p || p.dead || p.downed) {
       SFX.loopSet('thrust', 'thrustLoop', 0);
@@ -439,12 +445,7 @@ export class Game {
         return;
       }
       this.fx.update(dt);
-      for (let i = this.popups.length - 1; i >= 0; i--) {
-        const q = this.popups[i];
-        q.life -= dt;
-        q.pos.y += dt * 2.5;
-        if (q.life <= 0) this.popups.splice(i, 1);
-      }
+      this.tickPopups(dt);
       if (this.csCd) for (const k in this.csCd) if (this.csCd[k] > 0) this.csCd[k] -= dt;
       this.updateCamera(dt);
       SFX.setListener((this.camFocus || this.player).center());
@@ -492,12 +493,7 @@ export class Game {
     this.updateSupport(dt);
     this.updateHazards(dt);
     this.fx.update(dt);
-    for (let i = this.popups.length - 1; i >= 0; i--) {
-      const q = this.popups[i];
-      q.life -= dt;
-      q.pos.y += dt * 2.5;
-      if (q.life <= 0) this.popups.splice(i, 1);
-    }
+    this.tickPopups(dt);
     // waves
     const alive = this.enemies.filter((e) => !e.dead && !e.guardOf).length; // 據點的守衛不算
     this.cacheTick(dt);

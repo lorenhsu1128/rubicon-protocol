@@ -168,10 +168,11 @@ export class Projectile {
       if (direct.isProp) g.damageProp(direct, this.dmg, this.impactV, this.pos);
       else direct.takeDamage(this.dmg, this.impactV, this.owner, this.pos, dir, undefined, this.wid);
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
-      SFX.hit(direct.isPlayer ? null : this.pos);
+      SFX.hit(direct.isPlayer ? null : this.pos, direct);
       if (this.owner && this.owner.isPlayer && !direct.isPlayer) g.rumble(0.05, 0.25, 40);
     } else {
       g.fx.spark(this.pos, 0xfff0d0, this.vel.clone().normalize());
+      SFX.hitWorld(this.pos);
     }
   }
 }

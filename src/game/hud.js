@@ -105,18 +105,7 @@ Object.assign(Game.prototype, {
         c.textAlign = 'left';
       }
     }
-    // 傷害數字
-    for (const q of this.popups) {
-      const s = this.proj(q.pos);
-      if (!s.in) continue;
-      c.font = (q.melee ? 'bold 22px' : q.val >= 400 ? 'bold 16px' : 'bold 12px') + ' Chakra Petch';
-      c.textAlign = 'center';
-      c.lineWidth = 3;
-      c.strokeStyle = 'rgba(0,0,0,.7)';
-      c.strokeText(String(q.val), s.x, s.y);
-      c.fillStyle = q.onPlayer ? '#ff5a5a' : q.melee ? '#ff9a3c' : q.val >= 400 ? '#ffb020' : '#fff';
-      c.fillText(String(q.val), s.x, s.y);
-    }
+    this.drawPopups(c); // 傷害數字（game/juice.js）
     if (this.bosses && this.bosses.length) {
       const hp = this.bosses.reduce((a, b) => a + Math.max(0, b.hp), 0),
         mx = this.bosses.reduce((a, b) => a + b.maxHp, 0);
@@ -141,8 +130,9 @@ Object.assign(Game.prototype, {
     clearTimeout(this._at);
     this._at = setTimeout(() => a.classList.remove('on'), 1500);
   },
-  popDamage(pos, val, onPlayer, stag, melee, combo, targetId, impact) {
-    this.popups.push({ pos: pos.clone(), val, life: melee ? 1.0 : 0.8, onPlayer, stag, melee, combo });
+  // key：合併連續命中用的目標（房主是 targetId，客機收到的事件另外帶）
+  popDamage(pos, val, onPlayer, stag, melee, combo, targetId, impact, key) {
+    this.pushPopup(pos, val, onPlayer, stag, melee, combo, targetId !== undefined ? targetId : key);
     if (targetId !== undefined)
       this.netEv({
         t: 'pop',
@@ -229,7 +219,12 @@ Object.assign(Game.prototype, {
   },
   proj(v) {
     const p = v.clone().project(this.camera);
-    return { x: ((p.x + 1) / 2) * innerWidth, y: ((-p.y + 1) / 2) * innerHeight, in: p.z < 1 && p.z > -1 };
+    return {
+      x: ((p.x + 1) / 2) * innerWidth,
+      y: ((-p.y + 1) / 2) * innerHeight,
+      in: p.z < 1 && p.z > -1,
+      behind: p.z > 1,
+    };
   },
   drawHud(dt) {
     const p = this.player,
@@ -649,52 +644,13 @@ Object.assign(Game.prototype, {
         c.restore();
       }
     }
-    // damage popups
-    c.textAlign = 'center';
-    for (const q of this.popups) {
-      const s = this.proj(q.pos);
-      if (!s.in) continue;
-      const big = q.val >= 400 || q.melee;
-      const ph = innerHeight < 540;
-      c.font =
-        (q.melee
-          ? ph
-            ? 'bold 16px'
-            : 'bold 26px'
-          : big
-            ? ph
-              ? 'bold 13px'
-              : 'bold 20px'
-            : ph
-              ? 'bold 9px'
-              : 'bold 13px') + ' Chakra Petch';
-      c.globalAlpha = clamp(q.life / 0.4, 0, 1);
-      c.lineWidth = 3;
-      c.strokeStyle = 'rgba(0,0,0,.6)';
-      c.strokeText(q.val, s.x, s.y);
-      c.fillStyle = q.onPlayer
-        ? '#ff6060'
-        : q.melee
-          ? '#ff7a30'
-          : q.stag
-            ? '#ffd060'
-            : big
-              ? '#ffb020'
-              : '#ffffff';
-      c.fillText(q.val, s.x, s.y);
-      if (q.melee && !q.onPlayer && q.combo > 0) {
-        c.font = 'bold 14px Chakra Petch';
-        c.strokeText('HIT ×' + q.combo, s.x, s.y + 18);
-        c.fillStyle = '#ffe0a0';
-        c.fillText('HIT ×' + q.combo, s.x, s.y + 18);
-      }
-    }
-    c.globalAlpha = 1;
+    this.drawPopups(c); // 傷害數字（game/juice.js）
     if (this.meleeHitFlash > 0) {
       this.meleeHitFlash -= dt;
       c.fillStyle = 'rgba(255,140,60,' + this.meleeHitFlash * 1.2 + ')';
       c.fillRect(0, 0, W, H);
     }
+    this.drawJuice(c, W, H, p, dt); // 速度線、受擊閃光、低 AP 邊框、連殺、橫幅（game/juice.js）
     // player stagger warning
     if (p.staggerT > 0) {
       c.fillStyle = 'rgba(255,40,40,.12)';

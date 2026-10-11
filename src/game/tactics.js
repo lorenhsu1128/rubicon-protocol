@@ -82,6 +82,7 @@ Object.assign(Game.prototype, {
       this.state = 'modpick';
     }
     this.modOpts = opts;
+    SFX.cue('mod');
     const $ = (id) => document.getElementById(id);
     const F = FACTIONS[faction];
     $('mpTitle').textContent = title || (F ? `${F.name} 提供的戰術模組` : '戰術模組');
@@ -129,6 +130,7 @@ Object.assign(Game.prototype, {
       this.state = 'modpick';
     }
     this.modOpts = opts;
+    SFX.cue('mod');
     const $ = (id) => document.getElementById(id);
     $('mpTitle').textContent = '補給站的商店';
     $('mpSub').textContent = `用 COAM 購買戰術模組（持有 ${this.save.coam.toLocaleString()} COAM）`;

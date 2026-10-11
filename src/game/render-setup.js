@@ -31,6 +31,7 @@ Object.assign(Game.prototype, {
       sunOff: this.sunOff,
       sceneExp: () => (this.world && this.world.theme && this.world.theme.linExp) || 1, // 依場景的曝光補正
       fogPush: () => this.camExtra || 0, // 鏡頭拉遠時霧往外推，機體附近保持清楚
+      chromaPush: () => (this.chromaK || 0) * 0.7, // 受到重擊時的色差（game/juice.js）
     });
     this.stylePipe.applyStructural(this.styleP);
   },

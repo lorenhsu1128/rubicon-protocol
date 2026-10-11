@@ -83,7 +83,8 @@ Object.assign(Game.prototype, {
         this.renderWeaponHud(true);
       }
     }
-    SFX.kit();
+    if (ent.isPlayer) SFX.cue('pickup');
+    else SFX.kit();
     this.flashMsg(`${ent.name} 取得 ${d.name}`, d.color, 1.5);
     if (this.net.role === 'host') {
       this.netEv({ t: 'pkr', i: pk.id });

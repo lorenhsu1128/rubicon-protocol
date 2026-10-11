@@ -7069,6 +7069,181 @@ async function testModFx(browser, base) {
 }
 
 // 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testAudio(browser, base) {
+  console.log('聲音：混音、環境音、命中分類、回饋音、腳步');
+  const { ctx, page } = await newPage(browser, 'audio');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => window.__sfx.init());
+  await page.waitForFunction(() => window.__sfx.ready, null, { timeout: 30000 });
+  const r = await page.evaluate(() => {
+    const g = window.__game,
+      S = window.__sfx;
+    const out = { n: Object.keys(S.buf).length };
+    // 呼叫紀錄：攔截 play 與 tone
+    const log = [];
+    const play0 = S.play.bind(S),
+      tone0 = S.tone.bind(S);
+    S.play = (k, ...a) => (log.push(k), play0(k, ...a));
+    S.tone = (...a) => (log.push('tone'), tone0(...a));
+    const wa0 = S.waveAlert.bind(S);
+    S.waveAlert = (pan, last) => (log.push(last ? 'alarmBig' : 'alarm'), wa0(pan, last));
+    const took = (f) => {
+      log.length = 0;
+      f();
+      return log.slice();
+    };
+    localStorage.setItem('rubicon_map', 'snow');
+    g.startMission();
+    g.state = 'audio-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    g.audioTick(0.016);
+    out.amb = S.ambNodes.length;
+    out.ambKey = S.ambKey;
+    out.rev = S.revDecay;
+    const e = g.spawnType('mt', 1, 1);
+    e.pos.copy(pl.pos).add(new THREE.Vector3(6, 0, 0));
+    out.hitE = took(() => S.hit(e.center(), e));
+    out.hitP = took(() => S.hit(null, pl));
+    // 擊破：確認音與連殺
+    out.k1 = took(() => e.takeDamage(1e9, 0, pl, e.center()));
+    const e2 = g.spawnType('mt', 1, 1);
+    e2.takeDamage(1e9, 0, pl, e2.center());
+    out.streak = g.killStreak && g.killStreak.n;
+    // 打出失衡
+    const e3 = g.spawnType('mt', 1, 1);
+    e3.hp = e3.maxHp = 1e8;
+    out.brk = took(() => e3.takeDamage(10, e3.acsMax * 10, pl, e3.center()));
+    // 腳步（雪地）
+    pl.grounded = true;
+    pl.moving = true;
+    out.step = took(() => g.mechStep(pl));
+    // 低 AP：心跳與變悶
+    pl.hp = pl.maxHp * 0.05;
+    out.hb = took(() => g.audioTick(0.016));
+    out.muf = S.mufF;
+    pl.hp = pl.maxHp;
+    g.audioTick(0.016);
+    out.muf2 = S.mufF;
+    // 增援預告與通訊
+    out.wave = took(() => g.waveShow({ p: [pl.pos.x + 40, pl.pos.z], i: 3, N: 3, n: 4 }));
+    // 按鈕的聲音不重複
+    out.btn = took(() => {
+      S.uiBtn('back');
+      S.ui();
+    });
+    g.clearMission();
+    out.ambAfter = S.ambNodes.length;
+    localStorage.setItem('rubicon_map', 'industrial');
+    g.state = 'title';
+    return out;
+  });
+  check(r.n >= 70, `音效全部解碼（${r.n} 個）`);
+  check(r.amb >= 2 && /^snow/.test(r.ambKey) && r.rev < 1, `冰原的環境音 ${r.amb} 層、殘響 ${r.rev} 秒`);
+  check(
+    r.hitE.some((k) => /^armor/.test(k)) && r.hitP.some((k) => /^punch/.test(k)),
+    `命中依目標分類（敵人 ${r.hitE.join('+')}／自己 ${r.hitP.join('+')}）`,
+  );
+  check(
+    r.k1.includes('tone') && r.k1.includes('debris') && r.streak === 2,
+    `擊破確認音、殘骸聲、連殺 ×${r.streak}`,
+  );
+  check(r.brk.includes('bell') && r.brk.includes('glass'), `打出失衡的回饋音（${r.brk.join('+')}）`);
+  check(
+    r.step.some((k) => /^stepSnow/.test(k)),
+    `雪地的腳步聲（${r.step.join('+')}）`,
+  );
+  check(
+    r.hb.includes('tone') && r.muf < 5000 && r.muf2 === 20000,
+    `低 AP 心跳與變悶（${Math.round(r.muf)} Hz → 恢復）`,
+  );
+  check(
+    r.wave.includes('alarmBig') && r.wave.includes('glitch'),
+    `最後一波的警報與 ECHO 的無線電聲（${r.wave.join('+')}）`,
+  );
+  check(r.btn.length === 1, '按鈕的介面音不重複');
+  check(r.ambAfter === 0, '離開戰區時環境音停止');
+  await ctx.close();
+}
+
+async function testJuice(browser, base) {
+  console.log('打擊回饋：傷害數字、連殺、BREAK、重擊閃光、擊破演出、Boss 橫幅');
+  const { ctx, page } = await newPage(browser, 'juice');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    g.startMission();
+    g.state = 'juice-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const e = g.spawnType('mt', 1, 1);
+    e.hp = e.maxHp = 1e8;
+    e.pos.copy(pl.pos).add(new THREE.Vector3(0, 0, -10));
+    g.popups.length = 0;
+    // 連續命中合併成一個數字
+    for (let i = 0; i < 4; i++) e.takeDamage(100, 0, pl, e.center(), undefined, undefined, 'w_rifle');
+    const nums = g.popups.filter((q) => q.num);
+    out.pops = nums.length;
+    out.sum = nums[0] && Math.round(nums[0].val);
+    // 打出失衡：BREAK
+    e.takeDamage(10, e.acsMax * 10, pl, e.center());
+    out.brk = g.popups.some((q) => q.val === 'BREAK');
+    // 擊破兩台：連殺 ×2，擊破演出（延遲爆炸、冒煙、焦痕）
+    const n0 = g.fx.list.length;
+    e.takeDamage(1e9, 0, pl, e.center());
+    out.burst = g.fx.list.length - n0;
+    out.tasks = g.fx.list.filter((x) => !x.mesh).length;
+    const e2 = g.spawnType('mt', 1, 1);
+    e2.pos.copy(pl.pos).add(new THREE.Vector3(5, 0, -12));
+    e2.takeDamage(1e9, 0, pl, e2.center());
+    out.streak = g.killStreak && g.killStreak.n;
+    // 自己受到重擊：閃光與色差
+    pl.takeDamage(10, 1200, e2, pl.center());
+    out.flash = g.hitFlashK;
+    out.chroma = g.chromaK;
+    // Boss 登場的橫幅
+    g.bosses = [g.spawnType('ac', 1, 1)];
+    g.bosses[0].isBoss = true;
+    g.bosses[0].name = 'TEST BOSS';
+    g.drawHud(0.016);
+    out.banner = g.banner && g.banner.txt;
+    out.bannerSub = g.banner && g.banner.sub;
+    return out;
+  });
+  check(r.pops === 1 && r.sum > 300, `連續命中合併成一個傷害數字（${r.pops} 個、${r.sum}）`);
+  check(r.brk, '打出失衡時跳出 BREAK');
+  check(r.burst >= 4 && r.tasks >= 2, `擊破演出：二次爆炸、殘骸冒煙、焦痕（+${r.burst} 個特效）`);
+  check(r.streak === 2, `連殺計數 ×${r.streak}`);
+  check(r.flash > 0.5 && r.chroma > 0.5, `受到重擊時畫面閃光與色差（${r.flash.toFixed(2)}）`);
+  check(r.banner === 'WARNING' && r.bannerSub === 'TEST BOSS', `Boss 登場的 WARNING 橫幅（${r.bannerSub}）`);
+  // 畫面：連殺、傷害數字、橫幅
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'play';
+    g.player.hp = g.player.maxHp * 0.1;
+    g.killStreak = { n: 5, t: 3, pop: 0.5 };
+    for (let i = 0; i < 6; i++) {
+      const p = g.player.center().add(new THREE.Vector3((i - 3) * 2, 2, -8));
+      g.pushPopup(p, 80 + i * 260, false, i === 4, i === 5, i === 5 ? 3 : 0, 'k' + i);
+    }
+  });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'juice-hud.png') });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+  });
+  await ctx.close();
+}
+
 async function testSupply(browser, base) {
   console.log('補給：攜彈量、彈藥箱、修復套件');
   const { ctx, page } = await newPage(browser, 'supply');
@@ -8538,6 +8713,8 @@ async function main() {
     await testOutposts(browser, base);
     await testModFx(browser, base);
     await testSupply(browser, base);
+    await testAudio(browser, base);
+    await testJuice(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

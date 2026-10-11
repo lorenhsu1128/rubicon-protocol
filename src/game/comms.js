@@ -1,5 +1,6 @@
 // Game：主線的通訊（data/story.js 的 COMMS）——依事件與條件挑一則，台詞依序顯示在右下角（不暫停遊戲），
 // 播過的寫進存檔的通訊紀錄。也用在失敗畫面與機庫。
+import { SFX } from '../audio/audio.js';
 import { COMMS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { escHtml } from '../core/html.js';
 import { Game } from './game.js';
@@ -67,6 +68,7 @@ Object.assign(Game.prototype, {
     const S = SPEAKERS[sp] || SPEAKERS.echo;
     el.innerHTML = `${speakerBadge(sp)}<div><b style="color:${S.color}">${escHtml(S.name)}</b><span>${escHtml(text)}</span></div>`;
     el.classList.add('on');
+    SFX.radio();
     clearTimeout(this.commTo);
     this.commTo = setTimeout(() => this.commNext(), (1.8 + text.length * 0.09) * 1000);
   },

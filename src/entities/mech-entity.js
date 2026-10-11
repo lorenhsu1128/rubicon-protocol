@@ -317,12 +317,15 @@ export class MechEntity {
         SFX.shot('bullet', d.id, SP);
         w.cd = d.rof;
         this.recoil[w.side > 0 ? 'r' : 'l'] = 0.35;
-        if (this.isPlayer)
+        if (this.isPlayer) {
           g.rumble(
             d.id === 'w_mg' || d.id === 'bw_gat' ? 0.15 : 0.25,
             0.5,
             d.id === 'w_mg' || d.id === 'bw_gat' ? 40 : 70,
           );
+          // 武器的鏡頭後座：機槍細碎、步槍明顯一點
+          g.camShake = Math.max(g.camShake, d.id === 'w_mg' || d.id === 'bw_gat' ? 0.012 : 0.03);
+        }
         break;
       case 'shotgun':
         for (let i = 0; i < d.pellets; i++) shoot(jitter(dir), 'bullet');
@@ -537,7 +540,7 @@ export class MechEntity {
             if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt);
             else h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
             g.fx.spark(pt, d.color, bdir);
-            SFX.hit(h.t.isPlayer ? null : pt);
+            SFX.hit(h.t.isPlayer ? null : pt, h.t);
             n++;
           }
           const end = muzzle.clone().addScaledVector(bdir, stop);
@@ -875,6 +878,7 @@ export class MechEntity {
         this.game.fx.ring(this.center(), 4, 0xff6040);
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.team === 'enemy') this.game.flashMsg('失衡！', 0xff6a2a, 0.7);
+        this.game.fbBreak(this, from);
       }
       dir = null;
     }
@@ -885,6 +889,7 @@ export class MechEntity {
       this.vel.z += dir.z * kb * 6;
     }
     if (this.isPlayer) {
+      if (impact >= 500) this.game.screenHit(clamp(impact / 1500, 0.25, 1)); // 重擊：閃光與色差
       this.game.camShake = Math.max(this.game.camShake, clamp(impact / 1500, 0.06, 0.3));
       this.game.rumble(clamp(impact / 700, 0.2, 1), clamp(impact / 400, 0.3, 1), clamp(impact / 4, 60, 260));
     } else if (impact >= 500) {
@@ -955,6 +960,7 @@ export class MechEntity {
           this.game.fx.shockwave(this.center(), 4, 0xffb020, 0.3);
           if (!this.isBoss) this.game.flashMsg('失衡！', 0xff6a2a, 0.7);
         }
+        this.game.fbBreak(this, from);
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.isPlayer) {
           this.game.flashAlert('ACS 過載 — 姿態崩潰');
@@ -991,7 +997,8 @@ export class MechEntity {
       const E = this.explodeOnDeath;
       g.explodeAt(c, E.dmg, E.impact, E.splash, this, true);
     }
-    SFX.explode(true, this.isPlayer ? null : c);
+    SFX.explode(this.isBoss ? 'huge' : true, this.isPlayer ? null : c);
+    SFX.wreck(this.isPlayer ? null : c);
     g.rumbleAt(
       c,
       this.isBoss ? 1.0 : 0.8,
@@ -1005,8 +1012,20 @@ export class MechEntity {
       this.glare = null;
     }
     g.fx.shatter(this, g.world);
+    if (!this.isProp) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
     this.mesh.visible = false;
     g.camShake = Math.max(g.camShake, this.isBoss ? 0.5 : 0.2);
+    // 最後一個 Boss 擊破：慢動作與橫幅
+    if (
+      this.isBoss &&
+      this.team === 'enemy' &&
+      !g.pvp &&
+      (g.bosses || []).every((b) => b.dead || b === this)
+    ) {
+      g.fx.hitStop = Math.max(g.fx.hitStop, 0.5);
+      g.showBanner('TARGET DESTROYED', `${this.name} 擊破`, '#ffb020', 3);
+      g.netEv({ t: 'bossDown', n: this.name });
+    }
     // 自己擊破敵人：頓格與衝擊環（擊破的回饋）
     if (this.team === 'enemy' && from && from.isPlayer && !g.pvp) {
       g.fx.hitStop = Math.max(g.fx.hitStop, this.isBoss ? 0.18 : 0.045);
@@ -1320,7 +1339,7 @@ export class MechEntity {
       if (!this.grounded && this.vel.y < -6) this.landT = 0;
       if (!this.grounded && this.vel.y < -12) {
         g.fx.dust(this.pos.clone().setY(g2 + 0.05), 2.6 * this.scale, 9);
-        SFX.land(this.isPlayer ? null : this.center());
+        SFX.land(this.isPlayer ? null : this.center(), clamp((-this.vel.y - 12) / 18, 0, 1));
         if (this.isPlayer) {
           g.camShake = Math.max(g.camShake, 0.06);
           g.rumble(0.35, 0.2, 110);
@@ -1693,6 +1712,12 @@ export class MechEntity {
       this.gaitLockOK = r <= 20 && !this.boost && this.qbT <= 0;
     }
     this.gaitPh = ((this.gaitPh || 0) + rate * dt) % (Math.PI * 200);
+    // 腳步聲：每半個步伐（腳落地）一次
+    const sk = Math.floor(this.gaitPh / Math.PI);
+    if (sk !== this.stepK) {
+      this.stepK = sk;
+      if (this.grounded && this.moving && this.game && this.game.mechStep) this.game.mechStep(this);
+    }
   }
   ikCtx(dt) {
     const g = this.game;

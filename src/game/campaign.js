@@ -518,6 +518,7 @@ Object.assign(Game.prototype, {
       so = this.campSortie();
     if (this.campBlockClear()) return;
     c.cleared = true;
+    SFX.cue('clear');
     const last = c.seg >= so.segs.length - 1;
     // 最後一段的模組獎勵在結果畫面選
     if (c.pending && last && EXIT_REWARDS[c.pending].faction) c.endPick = EXIT_REWARDS[c.pending].faction;

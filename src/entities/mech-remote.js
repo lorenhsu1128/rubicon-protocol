@@ -106,7 +106,8 @@ Object.assign(MechEntity.prototype, {
     this.specialFx(0); // 收起護盾、修理光束與標記
     const g = this.game;
     const c = this.center();
-    SFX.explode(true, this.isPlayer ? null : c);
+    SFX.explode(this.isBoss ? 'huge' : true, this.isPlayer ? null : c);
+    if (g.world) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
     g.rumbleAt(
       c,
       this.isBoss ? 1.0 : 0.8,

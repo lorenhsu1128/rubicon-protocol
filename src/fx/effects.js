@@ -79,6 +79,61 @@ export class Effects {
       e.mesh.material.opacity = 0.28 * (1 - t) * (1 - t);
     });
   }
+  // 沒有網格的計時工作（延遲爆炸、持續冒煙）：fn(e, t, dt) 每格呼叫
+  task(life, fn) {
+    this.list.push({ mesh: null, life, max: life, fn });
+  }
+  // 擊破的追加演出（房主與客機各自呼叫，不轉送）：連續的二次爆炸、殘骸冒煙、地面焦痕、強光
+  killBurst(p, sc = 1, big = false, groundY = null) {
+    const n = big ? 4 : 2;
+    let k = 0;
+    this.task(big ? 0.9 : 0.45, (e, t) => {
+      if (t * n < k) return;
+      k++;
+      const q = p
+        .clone()
+        .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).multiplyScalar(1.6 * sc));
+      this.explosion(q, rnd(2.2, 3.4) * sc, 0xff8030, big);
+    });
+    this.flashLight(p, 0xffb060, big ? 90 : 45);
+    this.lightT = big ? 0.25 : 0.14;
+    const gy = groundY == null ? p.y - 2 : groundY;
+    this.shockwave(
+      new THREE.Vector3(p.x, gy + 0.15, p.z),
+      9 * sc * (big ? 1.8 : 1),
+      0xffd8a0,
+      big ? 0.7 : 0.45,
+    );
+    // 殘骸冒煙：慢慢升起的黑煙柱，幾秒後停
+    let acc = 0;
+    this.task(big ? 7 : 4.5, (e, t, dt) => {
+      acc += dt;
+      if (acc < 0.16) return;
+      acc = 0;
+      const q = new THREE.Vector3(p.x + rnd(-0.6, 0.6) * sc, gy + 0.6, p.z + rnd(-0.6, 0.6) * sc);
+      this.smoke(q, (1.4 + t) * sc, t < 0.2 ? 0x3a3530 : 0x24262a, 2.6, 3.2);
+      if (t < 0.4 && Math.random() < 0.35) this.flash(q, 0.7 * sc, 0xff7a20, 0.15);
+    });
+    // 地面焦痕
+    const d = new THREE.Mesh(
+      this.discGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x0c0a08,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      }),
+    );
+    d.position.set(p.x, gy + 0.06, p.z);
+    d.rotation.x = -Math.PI / 2;
+    d.scale.setScalar(3.2 * sc * (big ? 1.6 : 1));
+    d.userData.noFade = true;
+    this.add(d, 12, (e, t) => {
+      e.mesh.material.opacity = 0.55 * (t < 0.7 ? 1 : (1 - t) / 0.3);
+    });
+  }
   shockwave(p, r, color = 0xffd090, life = 0.4) {
     const g = new THREE.Mesh(this.ringGeo, this.addM(color, 1));
     g.position.copy(p);
