@@ -4210,6 +4210,159 @@ async function testLockOn(browser, base) {
   await ctx.close();
 }
 
+// 第三人稱鏡頭的遮擋：地形擋住時鏡頭往上轉、物件淡出、還是被擋住時顯示機體的透視輪廓
+async function testCamOcclusion(browser, base) {
+  console.log('鏡頭遮擋：地形抬高鏡頭、物件淡出、透視輪廓');
+  const { ctx, page } = await newPage(browser, 'camocc');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    localStorage.setItem('rubicon_map', 'industrial'); // 集散場的起重機沒有登記成遮擋物
+    localStorage.setItem('rubicon_variant', 'base');
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'cam-test';
+    const w = g.world,
+      pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const dt = 1 / 60;
+    const xray = () => {
+      let op = 0;
+      pl.mesh.traverse((o) => {
+        if (o.userData.xray) op = o.material.visible ? o.material.opacity : 0;
+      });
+      return op;
+    };
+    const put = (x, z) => {
+      pl.pos.set(x, w.groundAt(x, z, 99), z);
+      pl.vel.set(0, 0, 0);
+      pl.mesh.position.copy(pl.pos);
+      g.camTarget.set(x, pl.pos.y + 1.5, z);
+      g.camera.position.copy(g.camTarget).add(new THREE.Vector3(0, 30, 17.5));
+      g.camPitch = 0;
+    };
+    const run = (n) => {
+      for (let i = 0; i < n; i++) g.updateCamera(dt);
+    };
+    const base = Math.atan2(30, 17.5);
+    const out = {};
+    const L = w.lim * 0.9;
+    // 地形：在機體南邊（鏡頭那一側）暫時立一道 20 m 高的地形牆
+    const sp0 = w.safePoint();
+    put(sp0.x, sp0.z);
+    const th0 = w.terrainHeight.bind(w);
+    const wallZ = [sp0.z + 3, sp0.z + 9],
+      y0 = pl.pos.y;
+    w.terrainHeight = (x, z) => (z > wallZ[0] && z < wallZ[1] ? y0 + 20 : th0(x, z));
+    run(180);
+    out.spot = true;
+    out.pitch = g.camPitch - base;
+    out.clear = !w.terrainBlocks(g.camera.position, pl.center());
+    w.terrainHeight = th0;
+    // 物件：機體放在大型物件的北邊（鏡頭在南邊 +Z）
+    // 登記成遮擋物的物件：在機體南邊放一個 10 m 高的方塊（addSmall 會登記成 occluder）
+    const g0 = new THREE.Group();
+    const bx = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 10, 4),
+      new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true }),
+    );
+    bx.position.y = 5;
+    g0.add(bx);
+    const ob = w.addSmall(g0, sp0.x, w.groundAt(sp0.x, sp0.z + 6, 99), sp0.z + 6, { w: 6, h: 10, d: 4 });
+    out.ob = !!ob;
+    if (ob) {
+      put(sp0.x, sp0.z);
+      run(120);
+      out.fade = +ob.mats[0].opacity.toFixed(2);
+      out.xray = +xray().toFixed(2);
+    }
+    // 空曠的地方：輪廓消失、鏡頭轉回原本的角度
+    const sp = w.safePoint();
+    let open = null;
+    for (let k = 0; k < 200 && !open; k++) {
+      const x = sp.x + (k % 15) * 4 - 28,
+        z = sp.z + Math.floor(k / 15) * 4 - 28;
+      const t = new THREE.Vector3(x, w.terrainHeight(x, z) + 1.5, z);
+      const c = t.clone().add(new THREE.Vector3(0, 30, 17.5));
+      const ray = new THREE.Ray(c, t.clone().sub(c).normalize());
+      if (
+        !w.terrainBlocks(c, t) &&
+        !w.occluders.some((o) => o.box && ray.intersectBox(o.box, new THREE.Vector3()))
+      )
+        open = [x, z];
+    }
+    // 沒有登記成遮擋物的網格（大型結構等）：在空曠處的南邊放一個只加進 meshes 的方塊
+    const um = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 10, 4),
+      new THREE.MeshStandardMaterial({ color: 0x8a6a4a }),
+    );
+    um.position.set(open[0], w.groundAt(open[0], open[1] + 6, 99) + 5, open[1] + 6);
+    g.scene.add(um);
+    um.updateMatrixWorld(); // 測試不經過繪製，自己更新世界矩陣
+    w.meshes.push(um);
+    const mesh = [um, open[0], open[1]];
+    window.__camOpen = open;
+    out.mesh = !!mesh;
+    if (mesh) {
+      const orig = mesh[0].material;
+      put(mesh[1], mesh[2]);
+      run(60);
+      out.meshFade = mesh[0].material !== orig && mesh[0].material.opacity < 0.4;
+      out.meshXray = +xray().toFixed(2);
+      um.visible = false;
+      run(120);
+      out.meshBack = mesh[0].material === orig;
+    }
+    put(open[0], open[1]);
+    run(240);
+    out.back = +(g.camPitch - base).toFixed(3);
+    out.xray2 = +xray().toFixed(2);
+    return out;
+  });
+  check(
+    r.spot && r.pitch > 0.05 && r.clear,
+    `地形擋住時鏡頭往上轉（+${(r.pitch || 0).toFixed(2)} rad），轉完看得到機體`,
+  );
+  check(
+    r.ob && r.fade < 0.4 && r.xray > 0.3,
+    `機體在大型物件後面：物件淡出（${r.fade}）、顯示透視輪廓（${r.xray}）`,
+  );
+  check(
+    r.mesh && r.meshFade && r.meshXray > 0.3 && r.meshBack,
+    `沒有登記的大型結構擋住時也會淡出（${r.meshFade}）、顯示輪廓（${r.meshXray}），離開後還原材質（${r.meshBack}）`,
+  );
+  check(
+    Math.abs(r.back) < 0.02 && r.xray2 < 0.05,
+    `回到空曠的地方：鏡頭轉回原本的角度（${r.back}）、輪廓消失（${r.xray2}）`,
+  );
+  // 截圖：機體在方塊後面（透視輪廓）
+  await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      pl = g.player;
+    for (const e of g.enemies) e.takeDamage(1e9, 0, null, e.center());
+    g.waves = [];
+    g.wavePend = null;
+    const [ox, oz] = window.__camOpen;
+    const sp = { x: ox, z: oz };
+    pl.pos.set(sp.x, w.groundAt(sp.x, sp.z, 99), sp.z);
+    g.camPitch = 0;
+    const gr = new THREE.Group();
+    const bx = new THREE.Mesh(
+      new THREE.BoxGeometry(8, 9, 3),
+      new THREE.MeshStandardMaterial({ color: 0x777777 }),
+    );
+    bx.position.set(sp.x + 1.5, w.groundAt(sp.x, sp.z + 4.5, 99) + 4.5, sp.z + 4.5);
+    g.scene.add(bx);
+    w.meshes.push(bx);
+    g.state = 'play';
+  });
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cam-occlusion.png') });
+  await ctx.close();
+}
+
 // 作戰區域邊界：玩家超出 ±lim 時警告並推回（最遠到 limOut），電腦機體停在 ±lim
 async function testBoundary(browser, base) {
   console.log('作戰區域邊界：警告、推回、電腦機體不出界');
@@ -8148,6 +8301,7 @@ async function main() {
     await testBosses(browser, base);
     await testBosses2(browser, base);
     await testLockOn(browser, base);
+    await testCamOcclusion(browser, base);
     await testBoundary(browser, base);
     await testCampaign(browser, base);
     await testCampaign2(browser, base);

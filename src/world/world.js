@@ -312,6 +312,7 @@ export class World {
     // 邊界外的遠景地形與剪影物件（edges.js，獨立的亂數串，不影響上面的生成）
     withRng(seed * 97 + 41, () => {
       for (const o of buildBackdrop(this) || []) {
+        o.userData.noFade = true; // 鏡頭遮擋不淡出（fadeMeshes）
         scene.add(o);
         this.meshes.push(o);
       }
@@ -466,6 +467,7 @@ export class World {
       const ice = buildIceSheet(lake.rx, lake.rz, lake.rng);
       ice.position.set(lake.x, lake.level + 0.05, lake.z);
       ice.rotation.y = lake.rot;
+      ice.userData.noFade = true;
       this.scene.add(ice);
       this.meshes.push(ice);
     }
@@ -942,6 +944,7 @@ export class World {
       new THREE.MeshStandardMaterial({ color: R.color, roughness: 1, flatShading: true }),
     );
     m.position.y = R.y;
+    m.userData.noFade = true; // 岩頂：俯視鏡頭本來就看得穿
     this.scene.add(m);
     this.meshes.push(m);
   }
@@ -2203,6 +2206,7 @@ export class World {
   }
   dispose() {
     if (this.weather) this.weather.dispose();
+    if (this._fading) for (const f of this._fading.values()) f.m.dispose();
     for (const m of this.meshes) {
       this.scene.remove(m);
       m.traverse((o) => {
@@ -2274,20 +2278,95 @@ export class World {
     }
   }
   // fade objects between camera and player
-  updateOcclusion(camPos, playerPos, dt) {
+  // 鏡頭和機體之間的物件淡出；pts＝機體上要看得到的點（頭、中心、腳，沒給時只用 playerPos）。
+  // 回傳有沒有物件擋住（給機體的透視輪廓用）
+  updateOcclusion(camPos, playerPos, dt, pts) {
     this.updateBoundary(playerPos);
-    const ray = new THREE.Ray(camPos.clone(), playerPos.clone().sub(camPos).normalize());
-    const dist = camPos.distanceTo(playerPos);
+    const rays = (pts || [playerPos]).map((p) => ({
+      ray: new THREE.Ray(camPos.clone(), p.clone().sub(camPos).normalize()),
+      dist: camPos.distanceTo(p),
+    }));
+    const tmp = new THREE.Vector3();
+    let any = false;
     for (const o of this.occluders) {
       if (!o.box) continue;
       let hit = false;
-      const r = ray.intersectBox(o.box, new THREE.Vector3());
-      if (r && r.distanceTo(camPos) < dist - 1) hit = true;
-      const target = hit ? 0.22 : 1;
+      for (const R of rays) {
+        const r = R.ray.intersectBox(o.box, tmp);
+        if (r && r.distanceTo(camPos) < R.dist - 1) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) any = true;
+      const target = hit ? 0.15 : 1;
       for (const m of o.mats) {
         m.opacity = lerp(m.opacity, target, Math.min(1, dt * 10));
         m.depthWrite = m.opacity > 0.9;
       }
     }
+    return any;
+  }
+  // 沒有登記成 occluders 的網格（大型結構、地標、起重機、支柱…）擋住機體時，各自換成可以淡出的材質副本，
+  // 不再擋住、淡回不透明後還原原本的材質。射線每 3 格打一次；地形、水面、岩頂、遠景、半透明與 InstancedMesh 略過。
+  // 回傳有沒有網格擋住
+  fadeMeshes(camPos, pts, dt) {
+    const rc = this._rc || (this._rc = new THREE.Raycaster());
+    if (!this._occCands || this._occN !== this.meshes.length) {
+      this._occN = this.meshes.length; // 之後加進來的網格（地標等）也算
+      this._occCands = this.meshes.filter(
+        (m) => m !== this.terrainMesh && m !== this.waterMesh && !m.userData.noFade,
+      );
+    }
+    this._fadeN = (this._fadeN || 0) + 1;
+    if (!this._fadeHit || this._fadeN % 3 === 0) {
+      const hit = new Set();
+      const dir = new THREE.Vector3();
+      for (const p of pts) {
+        dir.copy(p).sub(camPos);
+        const dist = dir.length();
+        rc.set(camPos, dir.normalize());
+        rc.far = dist - 0.8;
+        for (const h of rc.intersectObjects(this._occCands, true)) {
+          const o = h.object;
+          if (!o.isMesh || o.isInstancedMesh || !o.visible) continue;
+          const f = this._fading && this._fading.get(o);
+          const m = o.material;
+          if (!f && (!m || Array.isArray(m) || m.transparent)) continue; // 已經是半透明（含 occluders 的淡出材質）
+          hit.add(o);
+        }
+      }
+      this._fadeHit = hit;
+    }
+    const act = this._fading || (this._fading = new Map());
+    for (const o of this._fadeHit)
+      if (!act.has(o)) {
+        const m = o.material.clone();
+        m.transparent = true;
+        act.set(o, { orig: o.material, m });
+        o.material = m;
+      }
+    for (const [o, f] of act) {
+      const on = this._fadeHit.has(o);
+      f.m.opacity = lerp(f.m.opacity, on ? 0.18 : 1, Math.min(1, dt * 10));
+      f.m.depthWrite = f.m.opacity > 0.9;
+      if (!on && f.m.opacity > 0.98) {
+        o.material = f.orig;
+        f.m.dispose();
+        act.delete(o);
+      }
+    }
+    return this._fadeHit.size > 0;
+  }
+  // 線段 a→b 是否被地形擋住（鏡頭用；取樣檢查）
+  terrainBlocks(a, b, n = 16) {
+    for (let i = 1; i < n; i++) {
+      const t = i / n;
+      const x = a.x + (b.x - a.x) * t,
+        y = a.y + (b.y - a.y) * t,
+        z = a.z + (b.z - a.z) * t;
+      if (this.terrainHeight(x, z) > y - 0.3) return true;
+    }
+    return false;
   }
 }

@@ -1,6 +1,20 @@
 // Game：攝影機與觀戰目標
 import { clamp, lerp, rnd } from '../core/math.js';
+import { OUTLINE_MAT } from '../render/geometry.js';
 import { Game } from './game.js';
+
+const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
+const CAM_DIST = Math.hypot(30, 17.5);
+const CAM_PITCH_MAX = 1.5; // 地形擋住時最多轉到接近正上方
+// 機體被擋住時的透視輪廓：只畫在被擋住的地方（深度比遮擋物遠）
+const XRAY_MAT = new THREE.MeshBasicMaterial({
+  color: 0x8fdcff,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  depthFunc: THREE.GreaterDepth,
+  fog: false,
+});
 
 Object.assign(Game.prototype, {
   spectateList() {
@@ -29,6 +43,37 @@ Object.assign(Game.prototype, {
       if (this.fitsAt(target, z, pts)) return z;
     }
     return maxZ;
+  },
+  // 機體的透視輪廓：每個網格掛一個共用幾何的子網格（XRAY_MAT，只畫在被擋住的地方），換模型時重建
+  camXray(ent, on, dt) {
+    if (ent.xrayFor !== ent.mesh) {
+      ent.xrayFor = ent.mesh;
+      const list = [];
+      ent.mesh.traverse((o) => {
+        if (!o.isMesh || o.userData.xray || !o.geometry) return;
+        const m = o.material;
+        if (
+          !m ||
+          Array.isArray(m) ||
+          m.transparent ||
+          m === OUTLINE_MAT ||
+          m.blending === THREE.AdditiveBlending
+        )
+          return;
+        list.push(o);
+      });
+      for (const o of list) {
+        const x = new THREE.Mesh(o.geometry, XRAY_MAT);
+        x.userData.xray = true;
+        x.userData.helper = true;
+        x.renderOrder = 20;
+        x.castShadow = x.receiveShadow = false;
+        x.raycast = () => {};
+        o.add(x);
+      }
+    }
+    XRAY_MAT.opacity = lerp(XRAY_MAT.opacity, on && !this.fp ? 0.5 : 0, Math.min(1, dt * 8));
+    XRAY_MAT.visible = XRAY_MAT.opacity > 0.01;
   },
   updateCamera(dt) {
     if (this.fp) {
@@ -190,7 +235,18 @@ Object.assign(Game.prototype, {
     const tgt = focus;
     tgt.y = p.pos.y + p.model.height * 0.35; // 以機體中段為中心
     this.camTarget.lerp(tgt, Math.min(1, dt * 12));
-    const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(this.camZoom);
+    // 地形（山脊、峽谷壁、台地）擋在鏡頭和機體之間時，鏡頭往正上方轉到看得到為止；之後慢慢轉回來
+    const L0 = CAM_DIST * this.camZoom;
+    const offAt = (a) => new THREE.Vector3(0, Math.sin(a) * L0, Math.cos(a) * L0);
+    let want = CAM_PITCH;
+    while (
+      want < CAM_PITCH_MAX &&
+      this.world.terrainBlocks(this.camTarget.clone().add(offAt(want)), this.camTarget)
+    )
+      want = Math.min(CAM_PITCH_MAX, want + 0.08);
+    const cur = this.camPitch || CAM_PITCH;
+    this.camPitch = lerp(cur, want, Math.min(1, dt * (want > cur ? 7 : 1.5)));
+    const off = offAt(this.camPitch);
     const desired = this.camTarget.clone().add(off);
     this.camera.position.lerp(desired, Math.min(1, dt * 8));
     if (this.camShake > 0) {
@@ -212,7 +268,14 @@ Object.assign(Game.prototype, {
       sc.bottom = -ext;
       sc.updateProjectionMatrix();
     }
-    this.world.updateOcclusion(this.camera.position, p.center(), dt);
+    // 頭、中心、腳都檢查；還是被擋住（物件或地形）時顯示機體的透視輪廓
+    const c = p.center(),
+      h = p.model.height || 4;
+    const pts = [c, c.clone().setY(p.pos.y + h * 0.95), c.clone().setY(p.pos.y + 0.4)];
+    const occ = this.world.updateOcclusion(this.camera.position, c, dt, pts);
+    const fade = this.world.fadeMeshes(this.camera.position, pts, dt);
+    const hid = occ || fade || pts.some((q) => this.world.terrainBlocks(this.camera.position, q));
+    this.camXray(p, hid && !p.dead, dt);
     this.rangeRing.visible = true;
     this.rangeRing.position.set(p.pos.x, this.world.terrainHeight(p.pos.x, p.pos.z) + 0.12, p.pos.z);
     this.rangeRing.scale.setScalar(p.stats.lockRange);
