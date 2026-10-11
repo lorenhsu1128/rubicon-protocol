@@ -20,6 +20,7 @@ import './entities/mech-remote.js';
 import './entities/mech-special.js';
 import './entities/mech-boss.js';
 import './entities/mech-boss2.js';
+import './entities/mech-boss3.js';
 import './game/map-extras.js';
 import './game/shockwave.js';
 import './game/support.js';

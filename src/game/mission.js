@@ -5,6 +5,8 @@ import { clamp, pick, rnd } from '../core/math.js';
 import {
   AC_NAMES,
   AC_ROSTER,
+  BOSS_DMG_K,
+  BOSS_HP_K,
   DUO_BOSS,
   ENEMY_TYPES,
   FOE_HP_K,
@@ -425,9 +427,14 @@ Object.assign(Game.prototype, {
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
   },
   // Boss 關：生成 Boss（新 Boss 交給 spawnBossKind）與兩波增援（主線的 Boss 區段共用）
-  spawnBossDef(bd, scaleHp, scaleDmg) {
-    this.bossDef = bd;
+  spawnBossDef(bd0, scaleHp, scaleDmg) {
+    this.bossDef = bd0;
     this.bosses = [];
+    this.bossFightT = 0;
+    this.bossEnraged = false;
+    this.bossAdds = {};
+    // Boss 本體的血量與火力加強（部位與增援用原本的 scaleHp）
+    const bd = { ...bd0, hpMul: bd0.hpMul * BOSS_HP_K, dmgMul: bd0.dmgMul * BOSS_DMG_K };
     if (bd.kind === 'heli') {
       const b = this.spawnEnemy({
         name: bd.name,
@@ -493,10 +500,7 @@ Object.assign(Game.prototype, {
       this.bosses.push(b);
       this.boss = b;
     }
-    this.waves = [
-      ['mt', 'mt'],
-      ['drone', 'drone', 'mth'],
-    ];
+    this.waves = []; // Boss 關的增援改在換型態時派出（bosses.js 的 bossPhaseTick）
   },
   // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
   // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js

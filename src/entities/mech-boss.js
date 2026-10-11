@@ -10,6 +10,7 @@ import { clamp, lerp, rnd } from '../core/math.js';
 import { animateMech } from '../render/mech-model.js';
 import { buildWormSegments } from '../render/boss-models.js';
 import { MechEntity } from './mech-entity.js';
+import { BOSS_ENRAGE_TEMPO, BOSS_PHASES, BOSS_STAG_GUARD, BOSS_TEMPO } from '../data/enemies.js';
 
 const BOSS_AI = new Set(['worm', 'spider', 'fortress', 'flagship', 'artillery', 'hunter']);
 const WORM_SEGS = 16;
@@ -46,6 +47,7 @@ Object.assign(MechEntity.prototype, {
   // 不用 move() 的實體（部位、鑽地蟲）每格要做的事：計時器、ACS 回復、模型位置與閃光
   bossTick(dt) {
     this.t += dt;
+    if (this.stagGuardT > 0) this.stagGuardT -= dt;
     for (const k in this.weapons) {
       const w = this.weapons[k];
       if (w.cd > 0) w.cd -= dt;
@@ -57,7 +59,10 @@ Object.assign(MechEntity.prototype, {
     if (this.iFrames > 0) this.iFrames -= dt;
     if (this.staggerT > 0) {
       this.staggerT -= dt;
-      if (this.staggerT <= 0) this.acs = 0;
+      if (this.staggerT <= 0) {
+        this.acs = 0;
+        if (this.isBoss) this.stagGuardT = BOSS_STAG_GUARD; // 失衡後保護：不能一直壓著打
+      }
     } else if (this.acsDecayDelay > 0) this.acsDecayDelay -= dt;
     else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * dt);
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
@@ -106,7 +111,22 @@ Object.assign(MechEntity.prototype, {
     return this.boss2Fire(dt, d, aimPos, pl);
   },
   phase2() {
-    return this.forceP2 || this.hp < this.maxHp * 0.5; // forceP2：主線的危險條款「Boss 第二型態」
+    return this.bossPhase() >= 2; // forceP2：主線的危險條款「Boss 第二型態」
+  },
+  // 第幾型態（1～3）：AP 比例降到 BOSS_PHASES 的門檻時換；部位跟著本體
+  bossPhase() {
+    const par = this.ai === 'part' || this.ai === 'holo' ? this.parentEnt && this.parentEnt() : null;
+    if (par && par !== this && par.bossPhase) return par.bossPhase();
+    const r = this.hp / this.maxHp;
+    const ph = r <= BOSS_PHASES[1] ? 3 : r <= BOSS_PHASES[0] ? 2 : 1;
+    return this.forceP2 ? Math.max(2, ph) : ph;
+  },
+  // 節奏倍率（房主的 updateAI 把 dt 乘上它）：型態越後面越快，狂暴再加快
+  bossTempo() {
+    if (!this.isBoss && !(this.ai === 'part' && this.opts.parent)) return 1;
+    const b = this.isBoss ? this : this.parentEnt && this.parentEnt();
+    if (!b || !b.bossPhase) return 1;
+    return BOSS_TEMPO[b.bossPhase() - 1] + (b.enraged ? BOSS_ENRAGE_TEMPO : 0);
   },
   // ---------- 附屬部位 ----------
   partAI(dt, d, pl) {

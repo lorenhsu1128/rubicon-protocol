@@ -18,6 +18,7 @@ import {
   jumpSpec,
   partById,
 } from '../data/parts.js';
+import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
@@ -1160,6 +1161,7 @@ export class MechEntity {
         this.acs = 0;
         this.comboHits = 0;
         if (this.pilotEnt()) this.stagGuardT = STAG_GUARD;
+        else if (this.isBoss) this.stagGuardT = BOSS_STAG_GUARD; // Boss：失衡後保護（不能一直壓著打）
       }
       wish = new THREE.Vector3();
       wantHover = false;
@@ -1755,6 +1757,7 @@ export class MechEntity {
     const g = this.game,
       s = this.aiState;
     if (this.dead) return;
+    dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
     // 據點的守衛：還沒出動時守在原地（game/outposts.js）
     if (this.guardOf && g.guardIdle(this)) {
@@ -1772,6 +1775,7 @@ export class MechEntity {
         pl = h;
       }
     }
+    if (this.isBoss && pl) this.boss3Tick(dt, pl); // 第三型態的專屬招式（mech-boss3.js）
     if (this.team === 'ally') {
       this.allyT -= dt;
       if (this.allyT <= 0) {
@@ -2157,7 +2161,7 @@ export class MechEntity {
     s.shockT -= dt;
     const R = boss ? 30 : stomp ? 12 : 20;
     if (s.shockT > 0 || !this.grounded || d > R * 0.8 || !this.canAct() || this.melee.active) return;
-    s.shockT = (boss ? rnd(7, 11) : stomp ? rnd(5, 8) : rnd(10, 15)) * (s.phase === 2 ? 0.7 : 1);
+    s.shockT = (boss ? rnd(7, 11) : stomp ? rnd(5, 8) : rnd(10, 15)) * (s.phase >= 2 ? 0.7 : 1);
     const dl = boss ? 0.9 : stomp ? 0.7 : 0.8;
     s.stompT = dl;
     this.game.shockStart(this, {
@@ -2220,12 +2224,11 @@ export class MechEntity {
     const s = this.aiState,
       g = this.game;
     const aimPos = pl.center().addScaledVector(pl.vel, 0.35);
-    if (this.hp < this.maxHp * 0.5 && s.phase === 1) {
-      s.phase = 2;
-      this.speedMul *= 1.35;
-      g.flashMsg('第二型態', 0xff4040);
-      g.fx.ring(this.center(), 16, 0xff3020);
-      this.iFrames = 0.5;
+    const ph = this.bossPhase();
+    if (ph > (s.phase || 1)) {
+      // 第二型態加快移動；第三型態再快一點（換型態的演出與增援在 bosses.js 的 bossPhaseTick）
+      this.speedMul *= s.phase === 1 && ph >= 2 ? 1.35 : 1.15;
+      s.phase = ph;
     }
     const W = ['rarm', 'larm', 'rback', 'lback']
       .map((k) => this.weapons[k])
@@ -2251,7 +2254,7 @@ export class MechEntity {
         s.rammed = false;
       }
       if (s.pattern === 4) {
-        s.patT = s.phase === 2 ? 2.6 : 2.4;
+        s.patT = s.phase >= 2 ? 2.6 : 2.4;
         s.sweepA = this.aimYaw - 0.9;
       }
     }

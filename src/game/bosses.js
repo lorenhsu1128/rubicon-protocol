@@ -1,7 +1,13 @@
 // Game：新 Boss 的生成、附屬部位、電磁狩獵機的 EMP、鑽地蟲擊破（行為在 entities/mech-boss.js）
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
-import { PART_DEFS } from '../data/enemies.js';
+import {
+  BOSS_ENRAGE_DMG,
+  BOSS_ENRAGE_T,
+  BOSS_PHASE_ADDS,
+  BOSS_STAG_GUARD,
+  PART_DEFS,
+} from '../data/enemies.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -147,5 +153,71 @@ Object.assign(Game.prototype, {
         this.scene.remove(m);
       }, i * 70);
     });
+  },
+  // ---------- 三個型態與狂暴（第 14 期，房主／單機每格）----------
+  // 換型態：短暫無敵、解除失衡、地面衝擊波、空降一批雜兵（不派 AC）；開打 BOSS_ENRAGE_T 秒後狂暴
+  bossPhaseTick(dt) {
+    if (!this.bosses || !this.bosses.length || this.pvp || this.lab) return;
+    const live = this.bosses.filter((b) => !b.dead);
+    if (!live.length) return;
+    this.bossFightT = (this.bossFightT || 0) + dt;
+    if (!this.bossEnraged && this.bossFightT >= BOSS_ENRAGE_T) {
+      this.bossEnraged = true;
+      for (const b of live) {
+        b.enraged = true;
+        b.dmgMul *= BOSS_ENRAGE_DMG;
+      }
+      this.flashMsg('Boss 狂暴化 — 火力與速度上升', 0xff3020, 3);
+      for (const b of live) this.fx.shockwave(b.center(), 22, 0xff2010, 0.8);
+    }
+    // 雙 AC：一台倒下時另一台狂暴（回復 25%、火力 ×1.3、節奏加快）
+    if (this.bosses.length > 1 && live.length === 1 && !live[0].duoRage) {
+      const b = live[0];
+      b.duoRage = true;
+      b.enraged = true;
+      b.dmgMul *= BOSS_ENRAGE_DMG;
+      b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.25);
+      this.fx.shockwave(b.center(), 18, 0xff2010, 0.7);
+      this.flashMsg(`${b.name.split(' ')[0]} 狂暴化 — 僚機被擊破`, 0xff3020, 2.5);
+    }
+    for (const b of live) {
+      const ph = b.bossPhase();
+      if (b.phDone === undefined) b.phDone = b.forceP2 ? 2 : 1; // 一開始就是第二型態（危險條款）不演出
+      if (ph <= b.phDone) continue;
+      b.phDone = ph;
+      this.bossPhaseShift(b, ph);
+    }
+  },
+  bossPhaseShift(b, ph) {
+    b.iFrames = Math.max(b.iFrames || 0, 1.5);
+    b.staggerT = 0;
+    b.acs = 0;
+    b.stagGuardT = BOSS_STAG_GUARD;
+    const c = b.center();
+    this.fx.shockwave(c, 20, 0xff3020, 0.7);
+    this.fx.flash(c, 5, 0xff6040, 0.25);
+    this.camShake = Math.max(this.camShake, 0.3);
+    if (!b.flying && b.ai !== 'part') {
+      const gy = this.world.groundAt(b.pos.x, b.pos.z, b.pos.y + 1);
+      this.shockStart(b, {
+        at: new THREE.Vector3(b.pos.x, gy, b.pos.z),
+        R: 26,
+        sp: 22,
+        dl: 1.0,
+        dmg: 380 * b.dmgMul,
+        im: 1100 * b.dmgMul,
+      });
+    }
+    // 增援：每個型態一次（雙 AC 的 Boss 也只派一次），多人時每多一人加一台
+    this.bossAdds = this.bossAdds || {};
+    if (this.bossAdds[ph]) return;
+    this.bossAdds[ph] = true;
+    const list = (BOSS_PHASE_ADDS[ph - 2] || []).slice();
+    const np = this.playersAlive ? this.playersAlive().length : 1;
+    for (let i = 1; i < np; i++) list.push('mt');
+    this.waveAt = { pos: b.pos.clone(), drop: true };
+    for (const t of list) this.spawnType(t, this.scaleHp, this.scaleDmg);
+    this.waveAt = null;
+    this.flashAlert(`第 ${ph} 型態 — 敵方增援空降`);
   },
 });

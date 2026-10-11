@@ -115,17 +115,19 @@ Object.assign(Game.prototype, {
   },
   // 主迴圈（任務中）每格：環境音、低 AP 心跳、Boss 第二型態
   audioTick(dt) {
-    if (!SFX.ctx) return;
     this.audioScene();
     const p = this.player;
     const k = p && !p.dead && !this.lab ? clamp((0.3 - p.hp / p.maxHp) / 0.3, 0, 1) : 0;
     SFX.heartbeat(k, dt);
     for (const b of this.bosses || []) {
-      if (b.dead || b.p2Cue || !b.phase2 || !b.phase2()) continue;
-      b.p2Cue = true;
-      if (b.forceP2) continue; // 一開始就是第二型態
+      if (b.dead || !b.bossPhase) continue;
+      const ph = b.bossPhase();
+      if (b.phCue === undefined) b.phCue = b.forceP2 ? 2 : 1; // 一開始就是第二型態（危險條款）不提示
+      if (ph <= b.phCue) continue;
+      b.phCue = ph;
       SFX.cue('phase');
       this.camShake = Math.max(this.camShake, 0.25);
+      this.showBanner(ph >= 3 ? '最終型態' : '第二型態', b.name, '#ff4030', 2.2);
     }
   },
   // 腳步（MechEntity.ikGait 每半個步伐呼叫）：玩家與聽得到的距離內的機體

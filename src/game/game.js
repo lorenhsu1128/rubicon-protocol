@@ -503,19 +503,8 @@ export class Game {
       const w = this.waves.shift();
       this.flashAlert('敵方增援抵達');
       for (const t of w) this.spawnType(t, this.scaleHp, this.scaleDmg);
-    } else if (
-      this.isBossLevel &&
-      this.bosses &&
-      this.bosses.some((b) => !b.dead) &&
-      this.bosses.reduce((a, b) => a + Math.max(0, b.hp), 0) <
-        this.bosses.reduce((a, b) => a + b.maxHp, 0) * 0.5 &&
-      this.waves.length &&
-      !this.waveAlerted
-    ) {
-      this.waveAlerted = true;
-      const w = this.waves.shift();
-      this.flashAlert('敵方增援抵達');
-      for (const t of w) this.spawnType(t, this.scaleHp, this.scaleDmg);
+    } else if (this.isBossLevel && this.bosses && this.bosses.some((b) => !b.dead)) {
+      this.bossPhaseTick(dt); // Boss 的三個型態、換型態的增援、狂暴（bosses.js）
     } else if (
       !this.pvp &&
       alive === 0 &&

@@ -618,6 +618,23 @@ const B_PULSAR = {
   speedMul: 1.5,
   intro: '脈衝刃翼 — 擴散的能量環跳不過去：碰到的瞬間用 QB 的無敵時間穿過；雷射扇形看紅線找空隙',
 };
+// Boss 的強度（第 14 期）：血量與火力在定義的倍率之外再乘這兩個；隨等級的成長和一般敵人相同（enemyScale）
+export const BOSS_HP_K = 1.8;
+export const BOSS_DMG_K = 1.4;
+// 三個型態：AP 比例降到這兩個門檻時換型態；型態越後面整體節奏越快（BOSS_TEMPO：AI、武器冷卻、預警都依它加速）
+export const BOSS_PHASES = [0.7, 0.35];
+export const BOSS_TEMPO = [1, 1.12, 1.28];
+// 狂暴：開打這麼多秒後火力 ×BOSS_ENRAGE_DMG、節奏再快 BOSS_ENRAGE_TEMPO
+export const BOSS_ENRAGE_T = 360;
+export const BOSS_ENRAGE_DMG = 1.3;
+export const BOSS_ENRAGE_TEMPO = 0.15;
+// 失衡後保護：Boss 失衡結束後這麼多秒內不會再失衡（ACS 累積變少）
+export const BOSS_STAG_GUARD = 8;
+// 換型態時的增援（只有雜兵，不派 AC）
+export const BOSS_PHASE_ADDS = [
+  ['mt', 'mt', 'drone'],
+  ['mth', 'mt', 'drone', 'drone'],
+];
 // 新舊穿插：Boss 關是等級 3 起、除以 3 餘 2 以外的等級（3、4、6、7、9、10…，每 1～2 級一場）
 export const BOSS_DEFS = [
   B_JUGGERNAUT,

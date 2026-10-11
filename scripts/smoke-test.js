@@ -7244,6 +7244,129 @@ async function testJuice(browser, base) {
   await ctx.close();
 }
 
+async function testBossPower(browser, base) {
+  console.log('Boss 強度：血量與火力、三個型態、換型態的增援、失衡後保護、狂暴');
+  const { ctx, page } = await newPage(browser, 'bosspower');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    g.save.level = 3;
+    g.startMission();
+    g.state = 'bp-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    pl.iFrames = 1e9;
+    const b = g.boss;
+    g.drawHud(0.016); // Boss 登場的橫幅先顯示過
+    g.bossPhaseTick(0.016);
+    g.updateLoops();
+    out.name = b.name;
+    out.hpK = +(b.opts.hpMul / g.bossDef.hpMul / g.scaleHp).toFixed(2);
+    out.dmgK = +(b.opts.dmgMul / g.bossDef.dmgMul / g.scaleDmg).toFixed(2);
+    out.ph1 = b.bossPhase();
+    out.tempo1 = b.bossTempo();
+    // 失衡後保護：失衡結束後不會馬上再失衡
+    b.staggerT = 0.01;
+    b.updateAI(0.05);
+    out.guard = b.stagGuardT;
+    b.takeDamage(1, b.acsMax * 5, pl, b.center());
+    out.restag = b.staggerT > 0;
+    // 打到 AP 65%：第二型態、無敵、增援空降（只有雜兵）
+    const n0 = g.enemies.filter((e) => !e.dead).length;
+    b.iFrames = 0;
+    b.hp = b.maxHp * 0.65;
+    g.bossPhaseTick(0.016);
+    out.ph2 = b.bossPhase();
+    out.iF = b.iFrames;
+    const adds = g.enemies.filter((e) => !e.dead && e !== b);
+    out.adds = adds.length - (n0 - 1);
+    out.addAc = adds.some((e) => e.ai === 'ac' || e.isBoss);
+    out.tempo2 = b.bossTempo();
+    g.updateLoops(); // 換型態的提示與橫幅（feedback.js）
+    out.banner = g.banner && g.banner.txt;
+    out.shocks = (g.shocks || []).length;
+    // 同一個型態不會再派一次
+    g.bossPhaseTick(0.016);
+    out.adds2 = g.enemies.filter((e) => !e.dead && e !== b).length - (n0 - 1);
+    // AP 30%：最終型態
+    b.hp = b.maxHp * 0.3;
+    g.bossPhaseTick(0.016);
+    out.ph3 = b.bossPhase();
+    out.tempo3 = b.bossTempo();
+    // 狂暴
+    const d0 = b.dmgMul;
+    g.bossFightT = 400;
+    g.bossPhaseTick(0.016);
+    out.enraged = b.enraged;
+    out.enDmg = +(b.dmgMul / d0).toFixed(2);
+    out.tempoE = b.bossTempo();
+    g.clearMission();
+    g.state = 'title';
+    return out;
+  });
+  check(r.hpK === 1.8 && r.dmgK === 1.4, `Boss 血量 ×${r.hpK}、火力 ×${r.dmgK}（${r.name}）`);
+  check(r.guard > 7 && !r.restag, `失衡結束後 ${r.guard.toFixed(1)} 秒內不會再失衡`);
+  check(r.ph1 === 1 && r.ph2 === 2 && r.ph3 === 3, '三個型態（70%、35%）');
+  check(r.iF >= 1.4 && r.shocks >= 1, '換型態時短暫無敵並放出地面衝擊波');
+  check(
+    r.adds >= 3 && !r.addAc && r.adds2 === r.adds,
+    `換型態時空降 ${r.adds} 台雜兵（沒有 AC，同一型態只派一次）`,
+  );
+  check(
+    r.tempo1 === 1 && r.tempo2 > 1 && r.tempo3 > r.tempo2 && r.tempoE > r.tempo3,
+    `節奏 ${r.tempo1} → ${r.tempo2} → ${r.tempo3} → 狂暴 ${r.tempoE.toFixed(2)}`,
+  );
+  check(r.enraged && r.enDmg === 1.3, `開打 6 分鐘後狂暴（火力 ×${r.enDmg}）`);
+  check(/型態/.test(r.banner || ''), `換型態的橫幅（${r.banner}）`);
+  await ctx.close();
+}
+
+async function testBoss3(browser, base) {
+  console.log('Boss 最終型態的專屬招式（22 隻）');
+  const { ctx, page } = await newPage(browser, 'boss3');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    for (let i = 0; i < 22; i++) {
+      const L = 3 * (Math.floor(i / 2) + 1) + (i % 2);
+      g.save.level = L;
+      g.startMission();
+      g.state = 'b3-test';
+      const pl = g.player;
+      pl.hp = pl.maxHp = 1e8;
+      const b = g.boss;
+      const cnt = () =>
+        (g.hzLater || []).length +
+        (g.shocks || []).length +
+        (g.hzRings || []).length +
+        (g.mines || []).length +
+        g.projectiles.length +
+        g.enemies.filter((e) => !e.dead && e.ai === 'holo').length;
+      b.hp = b.maxHp * 0.3;
+      b.staggerT = 0;
+      b.noLock = false;
+      const ph = b.bossPhase();
+      const c0 = cnt();
+      b.aiState.b3T = 0;
+      b.boss3Tick(0.016, pl);
+      out.push({ n: b.name.split(' ')[0], k: b.boss3Key(), ph, d: cnt() - c0 });
+      g.clearMission();
+    }
+    g.state = 'title';
+    return out;
+  });
+  const miss = r.filter((x) => !(x.ph === 3 && x.k && x.d > 0));
+  check(
+    r.length === 22 && !miss.length,
+    `22 隻 Boss 在第三型態都會放專屬招式${miss.length ? '（沒有：' + miss.map((x) => x.n + '/' + x.k).join('、') + '）' : ''}`,
+  );
+  await ctx.close();
+}
+
 async function testSupply(browser, base) {
   console.log('補給：攜彈量、彈藥箱、修復套件');
   const { ctx, page } = await newPage(browser, 'supply');
@@ -8715,6 +8838,8 @@ async function main() {
     await testSupply(browser, base);
     await testAudio(browser, base);
     await testJuice(browser, base);
+    await testBossPower(browser, base);
+    await testBoss3(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);
