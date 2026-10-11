@@ -450,6 +450,17 @@ async function testStyleLab(browser) {
     await page.evaluate(() => window.__game.lab.P.sky === 'cloud' && window.__game.lab.P.water > 0),
     '切換到吉卜力風格（積雲天空、水彩地形）',
   );
+  await page.selectOption('#labStyle', 'builtin:sandland');
+  await wait(300);
+  check(
+    await page.evaluate(() => {
+      const P = window.__game.lab.P;
+      return P.toon === 1 && P.shadowType === 'hard' && P.ink === 1 && P.inkOuter > 2;
+    }),
+    '切換到鳥山明 SAND LAND 風格（賽璐璐、硬邊陰影、粗外輪廓）',
+  );
+  await wait(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'style-lab-sandland.png') });
   await page.selectOption('#labStyle', 'builtin:ac6');
   await page.selectOption('#labCam', 'cinema');
   await wait(1500);
