@@ -30,6 +30,7 @@ Object.assign(Game.prototype, {
       hemi: this.hemi,
       sunOff: this.sunOff,
       sceneExp: () => (this.world && this.world.theme && this.world.theme.linExp) || 1, // 依場景的曝光補正
+      fogPush: () => this.camExtra || 0, // 鏡頭拉遠時霧往外推，機體附近保持清楚
     });
     this.stylePipe.applyStructural(this.styleP);
   },

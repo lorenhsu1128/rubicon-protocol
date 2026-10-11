@@ -1877,3 +1877,23 @@ body.lab #fps {
   padding: 4px 0;
   font-size: 13px;
 }
+
+/* 畫面的情境標籤：機甲庫是從哪裡進來的（自由出擊／主線整備／多人），作戰室標示主線 */
+.gCtx {
+  display: inline-block;
+  font-size: 12px;
+  letter-spacing: 0;
+  padding: 2px 8px;
+  margin-left: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+  color: #0b0f14;
+  background: #7fc8ff;
+}
+.gCtx.hub,
+.gCtx.trans {
+  background: #ffb020;
+}
+.gCtx.mp {
+  background: #7ee081;
+}

@@ -868,7 +868,7 @@ Object.assign(Game.prototype, {
         rows: [...rows.filter((r) => r[0] !== 'COAM 結餘'), ...mprows],
       });
       for (const x of this.net.players) x.ready = false;
-    } else $('btnResultOk').textContent = '返回車庫';
+    } else $('btnResultOk').textContent = '返回機甲庫';
     this.showScreen('result');
   },
 });

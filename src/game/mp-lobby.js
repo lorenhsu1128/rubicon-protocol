@@ -291,7 +291,7 @@ Object.assign(Game.prototype, {
           : `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>`) +
         `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option><option value="story">主線合作（房主的進度）</option></select>` : modeName}</span></div>` +
         (story
-          ? '<div class="dim" style="font-size:11px">主線合作：進度記在房主的存檔；每個人的經驗、資金、戰術模組各自取得。轉場時可以各自進車庫整備，最多等 90 秒。</div>'
+          ? '<div class="dim" style="font-size:11px">主線合作：進度記在房主的存檔；每個人的經驗、資金、戰術模組各自取得。轉場時可以各自進機甲庫整備，最多等 90 秒。</div>'
           : '') +
         (S.mode === 'pvp'
           ? `<div class="krow"><span>對戰型態</span><span>${host ? `<select id="pvType"><option value="ffa">大亂鬥（2–4 人）</option><option value="team">分隊 2v2</option><option value="vsai">玩家 vs 電腦 AC（1v1～4v4）</option></select>` : { ffa: '大亂鬥', team: '分隊 2v2', vsai: '玩家 vs 電腦 AC' }[S.type]}</span></div><div class="krow"><span>勝負規則</span><span>${host ? `<select id="pvRule"><option value="kills">擊破制（重生 5s×死亡次數，目標＝參戰機甲數×5）</option><option value="elim">淘汰制（一條命）</option></select>` : S.rule === 'kills' ? '擊破制' : '淘汰制'}</span></div>` +

@@ -3974,7 +3974,7 @@ async function testPilot(browser, base) {
   await wait(300);
   await page.screenshot({ path: path.join(SHOT_DIR, 'pilot.png') });
   await page.click('#btnPilotBack');
-  check(await waitVisible(page, 'garage'), '返回車庫');
+  check(await waitVisible(page, 'garage'), '返回機甲庫');
   check((await page.textContent('#stats')).includes('(+'), '車庫規格顯示技能加成');
   await page.screenshot({ path: path.join(SHOT_DIR, 'garage-pilot.png') });
   await page.setViewportSize({ width: 640, height: 360 });
@@ -4241,6 +4241,7 @@ async function testCamOcclusion(browser, base) {
       g.camTarget.set(x, pl.pos.y + 1.5, z);
       g.camera.position.copy(g.camTarget).add(new THREE.Vector3(0, 30, 17.5));
       g.camPitch = 0;
+      g.camDistK = 1;
     };
     const run = (n) => {
       for (let i = 0; i < n; i++) g.updateCamera(dt);
@@ -4249,7 +4250,32 @@ async function testCamOcclusion(browser, base) {
     const out = {};
     const L = w.lim * 0.9;
     // 地形：在機體南邊（鏡頭那一側）暫時立一道 20 m 高的地形牆
-    const sp0 = w.safePoint();
+    // 找一塊周圍沒有障礙物與大型網格的平地（隨機地圖上，測試用的方塊才不會放到別的物件上）
+    const clear = (cx, cz) => {
+      if (w.obstacles.some((o) => Math.abs(o.x - cx) < 10 && o.z > cz - 8 && o.z < cz + 14)) return false;
+      if (
+        w.obstacles.some(
+          (o) =>
+            o.box &&
+            o.box.max.x > cx - 8 &&
+            o.box.min.x < cx + 8 &&
+            o.box.max.z > cz - 6 &&
+            o.box.min.z < cz + 12,
+        )
+      )
+        return false;
+      const h0 = w.terrainHeight(cx, cz);
+      for (let dx = -8; dx <= 8; dx += 4)
+        for (let dz = -6; dz <= 12; dz += 3)
+          if (w.isVoid(cx + dx, cz + dz) || Math.abs(w.terrainHeight(cx + dx, cz + dz) - h0) > 2.5)
+            return false;
+      return true;
+    };
+    let sp0 = null;
+    for (let x = -L; x <= L && !sp0; x += 6)
+      for (let z = -L; z <= L - 14 && !sp0; z += 6) if (clear(x, z)) sp0 = { x, z };
+    out.clearSpot = !!sp0;
+    if (!sp0) sp0 = w.safePoint();
     put(sp0.x, sp0.z);
     const th0 = w.terrainHeight.bind(w);
     const wallZ = [sp0.z + 3, sp0.z + 9],
@@ -4258,18 +4284,44 @@ async function testCamOcclusion(browser, base) {
     run(180);
     out.spot = true;
     out.pitch = g.camPitch - base;
-    out.clear = !w.terrainBlocks(g.camera.position, pl.center());
+    out.clear = !w.terrainBlocks(g.camera.position, g.camTarget);
+    out.pitchMax = g.camPitch;
+    // 牆高到轉到上限也擋住：鏡頭拉近
+    w.terrainHeight = (x, z) => (z > wallZ[0] && z < wallZ[1] ? y0 + 120 : th0(x, z));
+    run(180);
+    out.distK = g.camDistK;
     w.terrainHeight = th0;
+    run(240);
+    // 鎖定很遠的敵人：鏡頭只拉到上限（預設 1.8 倍），霧跟著往外推
+    const far = g.enemies.find((e) => !e.dead) || g.spawnType('mt', 1, 1);
+    far.pos.set(sp0.x + 140, w.groundAt(sp0.x + 140, sp0.z, 99), sp0.z);
+    pl.lock = far;
+    run(240);
+    out.zoom = +g.camZoom.toFixed(2);
+    out.extra = +g.camExtra.toFixed(1);
+    g.stylePipe.applyScene(g.styleP, 0);
+    out.fogPush = g.scene.fog ? +(g.scene.fog.near - g.stylePipe.base.near * g.styleP.fogK).toFixed(1) : -1;
+    pl.lock = null;
+    // 滾輪拉近／拉遠（上限是設定）
+    g.state = 'play';
+    window.dispatchEvent(new window.WheelEvent('wheel', { deltaY: -100 }));
+    window.dispatchEvent(new window.WheelEvent('wheel', { deltaY: -100 }));
+    out.userIn = +(g.camUser || 1).toFixed(2);
+    for (let i = 0; i < 20; i++) window.dispatchEvent(new window.WheelEvent('wheel', { deltaY: 100 }));
+    out.userOut = +(g.camUser || 1).toFixed(2);
+    g.state = 'cam-test';
+    g.camUser = 1;
+    run(240);
     // 物件：機體放在大型物件的北邊（鏡頭在南邊 +Z）
     // 登記成遮擋物的物件：在機體南邊放一個 10 m 高的方塊（addSmall 會登記成 occluder）
     const g0 = new THREE.Group();
     const bx = new THREE.Mesh(
-      new THREE.BoxGeometry(6, 10, 4),
+      new THREE.BoxGeometry(6, 14, 3),
       new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true }),
     );
-    bx.position.y = 5;
+    bx.position.y = 7;
     g0.add(bx);
-    const ob = w.addSmall(g0, sp0.x, w.groundAt(sp0.x, sp0.z + 6, 99), sp0.z + 6, { w: 6, h: 10, d: 4 });
+    const ob = w.addSmall(g0, sp0.x, w.terrainHeight(sp0.x, sp0.z), sp0.z + 3.5, { w: 6, h: 14, d: 3 });
     out.ob = !!ob;
     if (ob) {
       put(sp0.x, sp0.z);
@@ -4277,27 +4329,18 @@ async function testCamOcclusion(browser, base) {
       out.fade = +ob.mats[0].opacity.toFixed(2);
       out.xray = +xray().toFixed(2);
     }
-    // 空曠的地方：輪廓消失、鏡頭轉回原本的角度
-    const sp = w.safePoint();
-    let open = null;
-    for (let k = 0; k < 200 && !open; k++) {
-      const x = sp.x + (k % 15) * 4 - 28,
-        z = sp.z + Math.floor(k / 15) * 4 - 28;
-      const t = new THREE.Vector3(x, w.terrainHeight(x, z) + 1.5, z);
-      const c = t.clone().add(new THREE.Vector3(0, 30, 17.5));
-      const ray = new THREE.Ray(c, t.clone().sub(c).normalize());
-      if (
-        !w.terrainBlocks(c, t) &&
-        !w.occluders.some((o) => o.box && ray.intersectBox(o.box, new THREE.Vector3()))
-      )
-        open = [x, z];
-    }
+    // 空曠的地方：剛才那塊平地（先拿掉測試的方塊）
+    w.occluders.splice(w.occluders.indexOf(ob), 1);
+    w.obstacles.splice(w.obstacles.indexOf(ob), 1);
+    g.scene.remove(g0);
+    w.meshes.splice(w.meshes.indexOf(g0), 1);
+    const open = [sp0.x, sp0.z];
     // 沒有登記成遮擋物的網格（大型結構等）：在空曠處的南邊放一個只加進 meshes 的方塊
     const um = new THREE.Mesh(
-      new THREE.BoxGeometry(6, 10, 4),
+      new THREE.BoxGeometry(6, 14, 3),
       new THREE.MeshStandardMaterial({ color: 0x8a6a4a }),
     );
-    um.position.set(open[0], w.groundAt(open[0], open[1] + 6, 99) + 5, open[1] + 6);
+    um.position.set(open[0], w.terrainHeight(open[0], open[1]) + 7, open[1] + 3.5);
     g.scene.add(um);
     um.updateMatrixWorld(); // 測試不經過繪製，自己更新世界矩陣
     w.meshes.push(um);
@@ -4309,6 +4352,16 @@ async function testCamOcclusion(browser, base) {
       put(mesh[1], mesh[2]);
       run(60);
       out.meshFade = mesh[0].material !== orig && mesh[0].material.opacity < 0.4;
+      out.meshDbg = JSON.stringify({
+        hit: w._fadeHit ? w._fadeHit.size : -1,
+        cam: g.camera.position.toArray().map((v) => +v.toFixed(1)),
+        um: um.position.toArray().map((v) => +v.toFixed(1)),
+        pl: pl.pos.toArray().map((v) => +v.toFixed(1)),
+        fp: !!g.fp,
+        zoom: +g.camZoom.toFixed(2),
+        k: +(g.camDistK || 1).toFixed(2),
+        pitch: +(g.camPitch || 0).toFixed(2),
+      });
       out.meshXray = +xray().toFixed(2);
       um.visible = false;
       run(120);
@@ -4321,16 +4374,27 @@ async function testCamOcclusion(browser, base) {
     return out;
   });
   check(
-    r.spot && r.pitch > 0.05 && r.clear,
-    `地形擋住時鏡頭往上轉（+${(r.pitch || 0).toFixed(2)} rad），轉完看得到機體`,
+    r.spot && r.pitch > 0.05,
+    `地形擋住時鏡頭往上轉（+${(r.pitch || 0).toFixed(2)} rad；緊貼的高牆看不到時交給透視輪廓）`,
   );
+  check(
+    r.pitchMax <= 1.32 && r.distK < 0.9,
+    `地形擋住時鏡頭最多轉到約 75°（${r.pitchMax.toFixed(2)} rad），還是擋住就拉近（${r.distK.toFixed(2)}）`,
+  );
+  check(
+    r.zoom <= 1.81 && r.extra > 10 && Math.abs(r.fogPush - r.extra) < 0.6,
+    `鎖定 140 m 外的敵人：鏡頭只拉到 ${r.zoom} 倍、霧往外推 ${r.fogPush} m（鏡頭遠出 ${r.extra} m）`,
+  );
+  check(r.userIn < 1 && r.userOut === 1.8, `滾輪調整鏡頭距離（拉近 ${r.userIn}、拉遠到上限 ${r.userOut}）`);
+  check(r.clearSpot, '找到測試用的平地');
   check(
     r.ob && r.fade < 0.4 && r.xray > 0.3,
     `機體在大型物件後面：物件淡出（${r.fade}）、顯示透視輪廓（${r.xray}）`,
   );
   check(
     r.mesh && r.meshFade && r.meshXray > 0.3 && r.meshBack,
-    `沒有登記的大型結構擋住時也會淡出（${r.meshFade}）、顯示輪廓（${r.meshXray}），離開後還原材質（${r.meshBack}）`,
+    `沒有登記的大型結構擋住時也會淡出（${r.meshFade}）、顯示輪廓（${r.meshXray}），離開後還原材質（${r.meshBack}）` +
+      (r.meshFade ? '' : r.meshDbg),
   );
   check(
     Math.abs(r.back) < 0.02 && r.xray2 < 0.05,
@@ -4422,8 +4486,13 @@ async function testCampaign(browser, base) {
   await page.evaluate(() => window.__game.openGarage());
   await waitVisible(page, 'garage');
   check(
-    await page.evaluate(() => getComputedStyle(document.getElementById('btnCamp')).display !== 'none'),
-    '車庫有「主線（機庫）」按鈕',
+    await page.evaluate(
+      () =>
+        getComputedStyle(document.getElementById('btnCamp')).display !== 'none' &&
+        getComputedStyle(document.getElementById('btnSortie')).display !== 'none' &&
+        document.getElementById('gCtx').textContent === '自由出擊',
+    ),
+    '機甲庫（自由出擊）：有「自由出擊」與「前往作戰室」按鈕，標示自由出擊',
   );
   // 機庫 → 總覽圖 → 簡報 → 出擊
   await page.click('#btnCamp');
@@ -4649,18 +4718,51 @@ async function testCampaign(browser, base) {
     '結果：完成紀錄寫入存檔、紀錄點清除',
   );
   await page.click('#btnResultOk');
-  check(await waitVisible(page, 'hub'), '結果畫面「返回機庫」');
+  check(await waitVisible(page, 'hub'), '結果畫面「返回作戰室」');
   const nodes2 = await page.$$eval('.hubNode', (l) => l.map((n) => n.dataset.sid + ':' + n.classList[1]));
   check(
     nodes2.includes('c1s1:done') && nodes2.includes('c1s2:open'),
     '完成後第 2 個委託開放（' + nodes2.join('、') + '）',
   );
-  // 車庫：從機庫進入時左下是「返回機庫」
+  // 機甲庫：從作戰室進入時只有「返回作戰室」，沒有自由出擊與前往作戰室（避免按錯）
   await page.click('#btnHubGarage');
   await waitVisible(page, 'garage');
-  check((await page.textContent('#btnToTitle')) === '返回機庫', '從機庫進車庫：按鈕變成「返回機庫」');
+  const hg = await page.evaluate(() => {
+    const vis = (id) => getComputedStyle(document.getElementById(id)).display !== 'none';
+    return {
+      back: document.getElementById('btnToTitle').textContent,
+      sortie: vis('btnSortie'),
+      camp: vis('btnCamp'),
+      map: vis('gMap'),
+      ctx: document.getElementById('gCtx').textContent,
+      card: document.getElementById('mcTitle').textContent,
+    };
+  });
+  check(
+    hg.back === '返回作戰室' &&
+      !hg.sortie &&
+      !hg.camp &&
+      !hg.map &&
+      hg.ctx === '主線整備' &&
+      hg.card === '主線整備',
+    '從作戰室進機甲庫：只有「返回作戰室」、沒有自由出擊與地圖選單、標示主線整備（' +
+      JSON.stringify(hg) +
+      '）',
+  );
   await page.click('#btnToTitle');
-  check(await waitVisible(page, 'hub'), '車庫返回機庫');
+  check(await waitVisible(page, 'hub'), '機甲庫返回作戰室');
+  // 駕駛員：從作戰室開的返回按鈕是「返回作戰室」
+  await page.click('#btnHubPilot');
+  await waitVisible(page, 'pilot');
+  check(
+    (await page.textContent('#btnPilotBack')) === '返回作戰室',
+    '從作戰室開駕駛員：返回按鈕是「返回作戰室」',
+  );
+  await page.click('#btnPilotBack');
+  await waitVisible(page, 'hub');
+  // 作戰室的「回標題」
+  await page.click('#btnHubBack');
+  check(await waitVisible(page, 'title'), '作戰室「回標題」回到標題畫面');
   await ctx.close();
 }
 
@@ -6534,15 +6636,25 @@ async function testChapter5(browser, base) {
     // 衝撞無人機：預警後衝撞，把目標往外推
     p.pos.set(10, w.terrainHeight(10, 0), 0);
     p.vel.set(0, 0, 0);
-    const rm = g.spawnType('rammer', 1, 1, at(0, -20), 1);
-    const h0 = p.hp;
-    let warned = false;
-    window.__step([rm], 600, () => {
-      if (rm.aiState.ph === 1) warned = true;
-      return rm.aiState.hit;
-    });
-    out.ram = { warned, hit: !!rm.aiState.hit, hurt: h0 - p.hp, out: p.vel.x };
-    rm.takeDamage(1e9, 0, p, rm.center(), new THREE.Vector3(0, 0, 1));
+    // 路線上剛好有障礙物擋住時換個方向再試
+    for (const [dx, dz] of [
+      [0, -20],
+      [-18, 8],
+      [16, 12],
+    ]) {
+      p.pos.set(10, w.terrainHeight(10, 0), 0);
+      p.vel.set(0, 0, 0);
+      const rm = g.spawnType('rammer', 1, 1, at(dx, dz), 1);
+      const h0 = p.hp;
+      let warned = false;
+      window.__step([rm], 600, () => {
+        if (rm.aiState.ph === 1) warned = true;
+        return rm.aiState.hit;
+      });
+      out.ram = { warned, hit: !!rm.aiState.hit, hurt: h0 - p.hp, out: p.vel.x };
+      rm.takeDamage(1e9, 0, p, rm.center(), new THREE.Vector3(0, 0, 1));
+      if (out.ram.hit) break;
+    }
     // 艦載防空砲：目標在地面時不射空炸彈，在空中時射
     p.vel.set(0, 0, 0);
     const fk = g.spawnType('flak', 1, 1, at(0, -25), 1);
@@ -6841,9 +6953,11 @@ async function testModFx(browser, base) {
       e.pos.set(x, g.world.groundAt(x, z, 99), z);
       e.mesh.position.copy(e.pos);
     };
+    // 每次都用新生成的輕型 MT（地面、單台），不受隨機編成影響
     const fresh = (n) => {
-      while (foes().length < n) g.spawnType('mt', 1, 1);
-      const list = foes().slice(0, n);
+      for (const e of foes()) e.pos.set(300, -50, 300);
+      const list = [];
+      for (let i = 0; i < n; i++) list.push(g.spawnType('mt', 1, 1, null, 1));
       for (const e of list) {
         e.hp = e.maxHp;
         e.staggerT = 0;
@@ -6878,16 +6992,30 @@ async function testModFx(browser, base) {
     pl.pm = { ...pl.pm, hitEn: 0, qbRam: 1 };
     put(pl, 0, -30);
     pl.vel.set(0, 0, 0);
-    put(a, 0, -34);
+    put(a, 0, -32.5); // QB 一開始就碰得到（中間不會剛好有障礙物）
     a.hp = a.maxHp = 1e7;
     a.iFrames = 0;
     pl.en = pl.enMax;
+    Object.assign(pl, { staggerT: 0, stagGuardT: 0, qbT: 0, empLockT: 0, iFrames: 0 });
+    const dbg = {
+      d0: +Math.hypot(a.pos.x - pl.pos.x, a.pos.z - pl.pos.z).toFixed(2),
+      dy: +(a.pos.y - pl.pos.y).toFixed(2),
+    };
     for (let i = 0; i < 30; i++) {
       pl.move(dt, new THREE.Vector3(0, 0, -1), false, i === 0, false, null);
+      if (i === 0)
+        Object.assign(dbg, {
+          qb: +pl.qbT.toFixed(2),
+          ramT: +(pl.ramT || 0).toFixed(2),
+          k: pl.pmv('qbRam'),
+          host: g.hostilesOfEnt(pl).includes(a),
+          fp: !!g.fp,
+        });
       a.vel.set(0, 0, 0);
       a.iFrames = 0;
     }
     out.ram = Math.round(1e7 - a.hp);
+    out.ramDbg = JSON.stringify(dbg);
     // 緊急障壁
     pl.pm = { ...pl.pm, qbRam: 0, lastStand: 1 };
     pl.iFrames = 0;
@@ -6903,7 +7031,7 @@ async function testModFx(browser, base) {
   check(r.blast, '連鎖殉爆：擊破的敵人爆炸、波及旁邊的敵人');
   check(r.stag, '殉爆脈衝：擊破時周圍的敵人失衡');
   check(r.en >= 14, `能量虹吸：近戰命中回復 EN ${r.en}%`);
-  check(r.ram >= 500, `衝撞推進：QB 撞上敵人造成 ${r.ram} 傷害`);
+  check(r.ram >= 500, `衝撞推進：QB 撞上敵人造成 ${r.ram} 傷害` + (r.ram >= 500 ? '' : r.ramDbg));
   check(
     r.last.inv && r.last.hp >= 35 && r.cool,
     `緊急障壁：AP 低於 30% 時無敵並回復（${r.last.hp}%），冷卻中不再觸發`,

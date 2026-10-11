@@ -243,7 +243,7 @@ export class Inspector {
         .join('');
     $('insPal').onchange = () => this.rebuild();
     $('insLight').innerHTML =
-      `<option value="">車庫</option>` +
+      `<option value="">機甲庫</option>` +
       Object.entries(THEMES)
         .map(([k, t]) => `<option value="${k}">${escHtml(t.name)}</option>`)
         .join('');

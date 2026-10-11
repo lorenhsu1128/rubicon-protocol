@@ -557,6 +557,11 @@ Object.assign(Game.prototype, {
       this.ctrl.sens = clamp(parseFloat(e.target.value) || 1, 0.2, 4);
       this.saveKeys();
     };
+    document.getElementById('ctrlCamMax').onchange = (e) => {
+      this.ctrl.camMax = parseFloat(e.target.value) || 1.8;
+      this.camUser = Math.min(this.camUser || 1, this.ctrl.camMax);
+      this.saveKeys();
+    };
     document.getElementById('ctrlPace').onchange = (e) => {
       this.ctrl.pace = parseFloat(e.target.value) || 0.85;
       this.saveKeys();
@@ -717,6 +722,10 @@ Object.assign(Game.prototype, {
         if (this.lab && this.state === 'play') this.labPointer('wheel', e);
         if (this.spectator && this.state === 'play') {
           this.specZoom = clamp((this.specZoom || 1) * (e.deltaY > 0 ? 1.12 : 0.9), 0.5, 4);
+        } else if (this.state === 'play' && !this.lab && !this.fp && this.player) {
+          // 第三人稱：滾輪調整鏡頭距離（上限是設定的「鏡頭最遠距離」）
+          const mx = this.ctrl.camMax || 1.8;
+          this.camUser = clamp((this.camUser || 1) * (e.deltaY > 0 ? 1.1 : 0.91), 0.65, mx);
         }
       },
       { passive: true },
@@ -766,7 +775,12 @@ Object.assign(Game.prototype, {
     $('btnEpHub').onclick = () => this.epilogueBack();
     $('btnRecGo').onclick = () => this.recordGo();
     $('btnHubLogClose').onclick = () => this.hubLog(false);
-    $('btnHubBack').onclick = () => this.openGarage();
+    $('btnHubBack').onclick = () => {
+      // 作戰室的「回標題」（自由出擊從標題進機甲庫，兩邊不再互相繞）
+      SFX.ui();
+      this.state = 'title';
+      this.showScreen('title');
+    };
     $('btnBriefGo').onclick = () => this.briefGo();
     $('btnBriefGarage').onclick = () => this.hubGarage();
     $('btnBriefBack').onclick = () => this.openHub();

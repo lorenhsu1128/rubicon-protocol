@@ -101,7 +101,7 @@ Object.assign(Game.prototype, {
     $('mcDesc').textContent =
       (boss
         ? `目標：擊破 ${bossForLevel(L).name}`
-        : `目標：肅清隨機戰區內所有敵對兵力（預估 ${Math.round(4 + L * 1.5)} 戰力點）`) +
+        : `目標：肅清隨機戰區內所有敵對兵力（預估 ${Math.round(6 + L * 2.2)} 戰力點，分波來襲）`) +
       '　每擊破一台即時入帳 COAM，無修理費';
     const slots = $('slots');
     slots.innerHTML = '';

@@ -210,7 +210,7 @@ Object.assign(Game.prototype, {
     $('resultGrid').innerHTML = rows
       .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
       .join('');
-    $('btnResultOk').textContent = '返回機庫';
+    $('btnResultOk').textContent = '返回作戰室';
     this.campResultHub = true;
     this.showScreen('result');
   },

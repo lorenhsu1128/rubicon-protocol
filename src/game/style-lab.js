@@ -623,7 +623,7 @@ Object.assign(Game.prototype, {
         </details>
         ${groups}
         <div class="lacts">
-          <button class="primary" id="labApply" title="寫入設定，下次出擊、進車庫時使用">套用到遊戲</button>
+          <button class="primary" id="labApply" title="寫入設定，下次出擊、進機甲庫時使用">套用到遊戲</button>
           <button id="labReset" title="回到載入時的參數">還原</button>
         </div>
         <div class="lrow"><span>名稱</span><input id="labName" maxlength="40" placeholder="我的風格" /></div>
@@ -847,7 +847,7 @@ Object.assign(Game.prototype, {
       StyleStore.setMetal(lab.P.metal);
       this.labSyncUi();
       this.labMsg(
-        `已套用「${StyleStore.nameOf(lab.src.k, lab.src.id)}」${lab.P.metal ? '＋機體金屬' : ''}：下次出擊或進車庫時使用`,
+        `已套用「${StyleStore.nameOf(lab.src.k, lab.src.id)}」${lab.P.metal ? '＋機體金屬' : ''}：下次出擊或進機甲庫時使用`,
       );
     };
     $('labReset').onclick = () => {

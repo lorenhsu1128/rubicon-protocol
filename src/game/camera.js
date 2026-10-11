@@ -5,7 +5,9 @@ import { Game } from './game.js';
 
 const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
 const CAM_DIST = Math.hypot(30, 17.5);
-const CAM_PITCH_MAX = 1.5; // 地形擋住時最多轉到接近正上方
+const CAM_PITCH_MAX = 1.31; // 地形擋住時最多轉到約 75°，還是擋住就把鏡頭拉近
+// 鏡頭拉遠的上限（倍率）：設定的「鏡頭最遠距離」，預設 1.8（約 55 m 高，一定在霧的範圍內）
+const CAM_MAX_DEF = 1.8;
 // 機體被擋住時的透視輪廓：只畫在被擋住的地方（深度比遮擋物遠）
 const XRAY_MAT = new THREE.MeshBasicMaterial({
   color: 0x8fdcff,
@@ -76,6 +78,7 @@ Object.assign(Game.prototype, {
     XRAY_MAT.visible = XRAY_MAT.opacity > 0.01;
   },
   updateCamera(dt) {
+    this.camExtra = 0; // 鏡頭比預設距離遠出多少公尺（霧往外推，render/style/pipeline.js）
     if (this.fp) {
       let ent = this.player;
       if (this.spectator) {
@@ -153,8 +156,8 @@ Object.assign(Game.prototype, {
     this.camScratch.aspect = this.camera.aspect;
     this.camScratch.fov = this.camera.fov;
     this.camScratch.updateProjectionMatrix();
-    const ZMAX = 8,
-      ZMELEE = 0.65; // 不限制拉遠倍率
+    const ZMAX = this.ctrl.camMax || CAM_MAX_DEF,
+      ZMELEE = 0.65; // 拉遠只到設定的上限；更遠的敵人看畫面邊緣的箭頭
     // 近戰對象：玩家在連段中砍的目標，或正在砍玩家的敵人
     let meleeFoe = null;
     if (p.melee.active && p.melee.target && !p.melee.target.dead) meleeFoe = p.melee.target;
@@ -231,22 +234,27 @@ Object.assign(Game.prototype, {
       this.camMode = 'default';
     }
     if (this.spectator) zoomT *= this.specZoom || 1;
+    else zoomT = clamp(zoomT * (this.camUser || 1), ZMELEE, ZMAX); // 滾輪手動調整的距離
     this.camZoom = lerp(this.camZoom || 1, zoomT, Math.min(1, dt * (zoomT < (this.camZoom || 1) ? 5 : 3.5)));
     const tgt = focus;
     tgt.y = p.pos.y + p.model.height * 0.35; // 以機體中段為中心
     this.camTarget.lerp(tgt, Math.min(1, dt * 12));
     // 地形（山脊、峽谷壁、台地）擋在鏡頭和機體之間時，鏡頭往正上方轉到看得到為止；之後慢慢轉回來
     const L0 = CAM_DIST * this.camZoom;
-    const offAt = (a) => new THREE.Vector3(0, Math.sin(a) * L0, Math.cos(a) * L0);
-    let want = CAM_PITCH;
-    while (
-      want < CAM_PITCH_MAX &&
-      this.world.terrainBlocks(this.camTarget.clone().add(offAt(want)), this.camTarget)
-    )
-      want = Math.min(CAM_PITCH_MAX, want + 0.08);
-    const cur = this.camPitch || CAM_PITCH;
+    const offAt = (a, L) => new THREE.Vector3(0, Math.sin(a) * L, Math.cos(a) * L);
+    const blocked = (a, L) =>
+      this.world.terrainBlocks(this.camTarget.clone().add(offAt(a, L)), this.camTarget);
+    let want = CAM_PITCH,
+      wantK = 1;
+    while (want < CAM_PITCH_MAX && blocked(want, L0)) want = Math.min(CAM_PITCH_MAX, want + 0.08);
+    while (wantK > 0.45 && blocked(want, L0 * wantK)) wantK -= 0.1; // 轉到上限還是擋住：拉近
+    const cur = this.camPitch || CAM_PITCH,
+      curK = this.camDistK || 1;
     this.camPitch = lerp(cur, want, Math.min(1, dt * (want > cur ? 7 : 1.5)));
-    const off = offAt(this.camPitch);
+    this.camDistK = lerp(curK, wantK, Math.min(1, dt * (wantK < curK ? 7 : 1.5)));
+    const L = L0 * this.camDistK;
+    this.camExtra = Math.max(0, L - CAM_DIST);
+    const off = offAt(this.camPitch, L);
     const desired = this.camTarget.clone().add(off);
     this.camera.position.lerp(desired, Math.min(1, dt * 8));
     if (this.camShake > 0) {

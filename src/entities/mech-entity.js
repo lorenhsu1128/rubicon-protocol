@@ -1201,7 +1201,8 @@ export class MechEntity {
           if (
             h.dead ||
             this.ramHit.has(h) ||
-            h.pos.distanceTo(this.pos) > this.radius + (h.radius || 1.5) + 1.2
+            Math.hypot(h.pos.x - this.pos.x, h.pos.z - this.pos.z) > this.radius + (h.radius || 1.5) + 1.2 ||
+            Math.abs(h.pos.y - this.pos.y) > 4
           )
             continue;
           this.ramHit.add(h);

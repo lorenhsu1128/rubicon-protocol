@@ -58,6 +58,7 @@ Object.assign(Game.prototype, {
     $('ctrlView').value = this.ctrl.view || 'tps';
     $('ctrlSens').value = this.ctrl.sens || 1;
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
+    $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
     this.renderLocalModels();
     this.renderStyleSettings();
     this.renderIkSettings();
@@ -97,7 +98,7 @@ Object.assign(Game.prototype, {
     $('styleMetal').disabled = inMission;
     $('styleRes').value = String(d.res);
     $('btnStyleLab2').disabled = inMission || !!(this.net && this.net.role);
-    $('styleNote').textContent = inMission ? '任務中不能切換風格（回車庫或標題再改）' : '';
+    $('styleNote').textContent = inMission ? '任務中不能切換風格（回機甲庫或標題再改）' : '';
     if (StyleStore.serverOn && !this.styleFetched) {
       this.styleFetched = true;
       StyleStore.fetchServer()

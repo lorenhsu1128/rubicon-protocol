@@ -36,12 +36,13 @@ Object.assign(Game.prototype, {
     if (this.camp && !mp && !this.camp.replay) kinds.push('mod');
     const n = Math.random() < 0.5 ? 3 : 2;
     const pts = [];
-    for (let i = 0; i < n && kinds.length; i++) {
+    // 彼此至少 30 m（離太近就重找，最多試 n×6 次；空間不夠時距離條件慢慢放寬）
+    for (let t = 0; t < n * 6 && pts.length < n && kinds.length; t++) {
       const sp = W.spawnPoint(this.player.pos, pts, null, 45);
-      if (pts.some((q) => Math.hypot(q.x - sp.x, q.z - sp.z) < 30)) continue;
+      if (pts.some((q) => Math.hypot(q.x - sp.x, q.z - sp.z) < 30 - t)) continue;
       pts.push(sp);
       const kind = kinds.splice(Math.floor(Math.random() * kinds.length), 1)[0];
-      const id = i + 1;
+      const id = pts.length;
       this.cacheAdd({ i: id, k: kind, p: [+sp.x.toFixed(1), +sp.z.toFixed(1)] });
       // 守衛：低一級的小隊（主題專屬敵人照樣混進來）
       const comp = this.foeMix(

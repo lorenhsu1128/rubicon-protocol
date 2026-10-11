@@ -316,7 +316,7 @@ Object.assign(Game.prototype, {
           })
           .join('') +
         `</details>`;
-    html += `<p class="dim" style="font-size:11px">在模型庫拖進 GLB 或調整連接點後，回到遊戲進車庫或出擊時會自動重新讀取。碰撞與判定維持程式模型的數值。</p>`;
+    html += `<p class="dim" style="font-size:11px">在模型庫拖進 GLB 或調整連接點後，回到遊戲進機甲庫或出擊時會自動重新讀取。碰撞與判定維持程式模型的數值。</p>`;
     el.innerHTML = html;
     $('lmOn').onchange = (e) => {
       S.on = e.target.checked;

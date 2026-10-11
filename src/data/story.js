@@ -418,7 +418,7 @@ export const COMMS = [
     once: true,
     lines: [
       ['echo', '區段清除。出口上方的標示是下一段的內容和報酬。'],
-      ['echo', '走進光環就會出發。轉場時可以先回車庫整備。'],
+      ['echo', '走進光環就會出發。轉場時可以先進機甲庫整備。'],
     ],
   },
   { event: 'segStart', type: 'destroy', lines: [['castron', '那些發電設施在替陣地供電。全部炸掉。']] },
@@ -1846,7 +1846,7 @@ export const COMMS = [
   { event: 'fail', killedBy: 'MT', lines: [['echo', '被雜兵圍住了。用 QB 拉開距離，別停在原地。']] },
   { event: 'fail', lines: [['echo', 'AC 回收完成。從紀錄點重新開始吧。']] },
   // ---- 機庫 ----
-  { event: 'hub', chapter: 1, once: true, lines: [['echo', '歡迎來到機庫。總覽圖上會標出可以接的委託。']] },
+  { event: 'hub', chapter: 1, once: true, lines: [['echo', '歡迎來到作戰室。總覽圖上會標出可以接的委託。']] },
 ];
 
 // 說話者的頭像徽章（程式產生的 SVG）

@@ -1008,20 +1008,32 @@ Object.assign(Game.prototype, {
     this.camp.inGarage = true;
     this.openGarage();
   },
-  // 車庫：主線相關的按鈕與整備面板（renderGarage 結尾呼叫）
+  // 機甲庫：依從哪裡進來切換按鈕與整備面板（renderGarage 結尾呼叫）。
+  // 自由出擊（標題／結果畫面進來）：「自由出擊」「前往作戰室」「回標題」；
+  // 主線整備（從作戰室進來）：只有「返回作戰室」，沒有自由出擊（避免按錯）；轉場整備：只有「繼續作戰」；多人：「返回大廳」
   campGarageUi(warn) {
     const $ = (id) => document.getElementById(id);
     const box = $('gCamp');
     if (!box) return;
     const mp = !!(this.net && this.net.role);
     const inG = !!((this.camp && this.camp.inGarage) || (this.campC && this.campC.inGarage));
-    $('btnCamp').style.display = mp || inG ? 'none' : '';
-    $('btnToTitle').textContent = this.fromHub ? '返回機庫' : '回標題';
-    if (inG) {
-      $('btnSortie').style.display = 'none';
-      $('btnToTitle').style.display = 'none';
+    const hub = !mp && !inG && this.fromHub;
+    const mode = mp ? 'mp' : inG ? 'trans' : hub ? 'hub' : 'free';
+    const ctx = $('gCtx');
+    if (ctx) {
+      ctx.textContent = { mp: '多人', trans: '主線・轉場整備', hub: '主線整備', free: '自由出擊' }[mode];
+      ctx.className = 'gCtx ' + mode;
     }
-    $('gMap').style.display = inG ? 'none' : ''; // 主線的地圖由出擊決定
+    $('btnCamp').style.display = mode === 'free' ? '' : 'none';
+    $('btnToTitle').textContent = hub ? '返回作戰室' : '回標題';
+    $('btnToTitle').classList.toggle('primary', hub);
+    if (inG || hub) $('btnSortie').style.display = 'none';
+    if (inG) $('btnToTitle').style.display = 'none';
+    $('gMap').style.display = inG || hub ? 'none' : ''; // 主線的地圖由出擊決定
+    if (hub) {
+      $('mcTitle').textContent = '主線整備';
+      $('mcDesc').textContent = '在這裡組裝與換裝。完成後按「返回作戰室」，從戰區總覽圖選委託出擊。';
+    }
     box.style.display = inG ? '' : 'none';
     if (!inG) return;
     const cl = this.campIsClient();
@@ -1225,7 +1237,7 @@ Object.assign(Game.prototype, {
     $('resultGrid').innerHTML = rows
       .map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`)
       .join('');
-    $('btnResultOk').textContent = mp ? '返回大廳' : '返回機庫';
+    $('btnResultOk').textContent = mp ? '返回大廳' : '返回作戰室';
     this.showScreen('result');
     if (mp) {
       // 多人：經驗依每位玩家、作戰完成報酬各自入帳（clientEnd）

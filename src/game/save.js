@@ -109,7 +109,7 @@ Object.assign(Game.prototype, {
     if (!b) return;
     const has = !!this.readSlot(this.saveSlot);
     b.disabled = !has;
-    b.textContent = has ? `繼續存檔（存檔 ${this.saveSlot}）` : '繼續存檔';
+    b.textContent = has ? `自由出擊（機甲庫・存檔 ${this.saveSlot}）` : '自由出擊（機甲庫）';
   },
 
   // ---------- 存檔畫面：三個槽位的繼續／新的傭兵生涯／匯出／匯入／刪除 ----------

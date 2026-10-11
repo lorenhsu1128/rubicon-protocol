@@ -138,8 +138,12 @@
             </tr>
           </table>
           <div class="row" style="margin-top: 12px">
-            <button class="primary" id="btnContinue" disabled>繼續存檔</button>
-            <button id="btnStory" title="主線任務：機庫、戰區總覽圖與委託">主線</button>
+            <button id="btnContinue" disabled title="不走主線，在機甲庫組裝後直接出擊隨機戰區">
+              自由出擊（機甲庫）
+            </button>
+            <button class="primary" id="btnStory" title="主線任務：作戰室（戰區總覽圖、委託、模擬器）">
+              主線（作戰室）
+            </button>
             <button id="btnSaves" title="三個存檔槽：繼續、新的傭兵生涯、匯出／匯入、刪除">選擇存檔</button>
             <button id="btnMP">多人連線（區網 2–4 人）</button>
             <button id="btnSettings">按鍵與操作設定</button>
@@ -167,7 +171,7 @@
           <p class="dim" style="font-size: 11px; margin-top: 12px">
             音效：The Free Firearm Sound Library（CC0）、Kenney.nl（CC0）、JC Sounds Sci-Fi Pack Vol 1（CC-BY
             4.0）、elnineo／NenadSimic 爆炸（CC0）、dklon Big Explosion（CC-BY 3.0）、EZduzziteh
-            推進器（CC0）。操作說明：先在車庫組裝，再按「出擊」。近戰武器：連點攻擊鍵接續連段，連擊三次或終結技會讓敵人失衡。手部沒裝武器或子彈打光時自動改用拳擊（三段、出招瞬間前衝）。敵人姿態計（橙色弧）填滿會硬直，硬直中受到
+            推進器（CC0）。操作說明：主線從「作戰室」接委託；自由出擊在「機甲庫」組裝後按「自由出擊」。近戰武器：連點攻擊鍵接續連段，連擊三次或終結技會讓敵人失衡。手部沒裝武器或子彈打光時自動改用拳擊（三段、出招瞬間前衝）。敵人姿態計（橙色弧）填滿會硬直，硬直中受到
             1.5 倍傷害。站得比目標高命中率上升、比目標低則下降（每公尺 ±7%）；飛行高度上限離地 22
             m；機體之間會互相碰撞推開（無傷害）；子彈有飛行時間，高機動機體可用 QB
             側閃躲開。每擊破一台敵機即時入帳 COAM，沒有修理費。敵軍含 5 種具名 AC、突擊／榴彈／自爆
@@ -176,10 +180,10 @@
         </div>
       </div>
 
-      <!-- 主線：機庫據點（game/hub.js） -->
+      <!-- 主線：作戰室（game/hub.js） -->
       <div id="hub" class="screen">
         <div id="hubHead">
-          <h2>機庫</h2>
+          <h2>作戰室 <span class="gCtx hub">主線</span></h2>
           <span id="hubChapter" class="dim"></span>
           <span class="coam">COAM <span id="hubCoam">0</span></span>
         </div>
@@ -195,12 +199,12 @@
               <button id="btnHubDrop">放棄紀錄點</button>
             </div>
             <div id="hubMods" class="mySetBox"></div>
-            <button id="btnHubGarage">車庫（組裝）</button>
+            <button id="btnHubGarage">機甲庫（組裝）</button>
             <button id="btnHubPilot">駕駛員（技能）</button>
             <button id="btnHubLog">通訊紀錄</button>
             <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">模擬器</button>
             <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">作戰紀錄</button>
-            <button id="btnHubBack">回車庫</button>
+            <button id="btnHubBack">回標題</button>
           </div>
         </div>
         <div id="hubLogBox" style="display: none">
@@ -214,7 +218,7 @@
           <h2>模擬器 — 模擬訓練場</h2>
           <div class="dim">模擬戰不消耗、不記錄進度；教官考核通過時解鎖零件。</div>
           <div id="simList"></div>
-          <div class="row"><button id="btnSimBack">返回機庫</button></div>
+          <div class="row"><button id="btnSimBack">返回作戰室</button></div>
         </div>
       </div>
       <div id="epilogue" class="screen">
@@ -225,7 +229,7 @@
           <div id="epSeen" class="dim"></div>
           <div class="row">
             <button class="primary" id="btnEpNext">開始下一周目</button>
-            <button id="btnEpHub">回到機庫</button>
+            <button id="btnEpHub">回到作戰室</button>
           </div>
         </div>
       </div>
@@ -240,7 +244,7 @@
           <div id="recHeat"></div>
           <div class="row">
             <button class="primary" id="btnRecGo">出擊</button>
-            <button id="btnRecBack">返回機庫</button>
+            <button id="btnRecBack">返回作戰室</button>
           </div>
         </div>
       </div>
@@ -255,8 +259,8 @@
           <div id="brReward" class="dim"></div>
           <div class="row">
             <button class="primary" id="btnBriefGo">出擊</button>
-            <button id="btnBriefGarage">先去車庫整備</button>
-            <button id="btnBriefBack">返回機庫</button>
+            <button id="btnBriefGarage">先去機甲庫整備</button>
+            <button id="btnBriefBack">返回作戰室</button>
           </div>
         </div>
       </div>
@@ -273,7 +277,7 @@
           <div id="ctWait" class="dim"></div>
           <div id="ctBtns">
             <button class="primary" id="btnCampGo">直接出擊</button>
-            <button id="btnCampGarage">進車庫整備</button>
+            <button id="btnCampGarage">進機甲庫整備</button>
           </div>
         </div>
       </div>
@@ -285,7 +289,7 @@
           <div id="cfComm"></div>
           <div id="ctBtns2">
             <button class="primary" id="btnCampRetry">從紀錄點繼續</button>
-            <button id="btnCampFailGarage">進車庫整備後繼續</button>
+            <button id="btnCampFailGarage">進機甲庫整備後繼續</button>
             <button id="btnCampQuit">放棄出擊</button>
           </div>
         </div>
@@ -295,7 +299,7 @@
       <div id="garage" class="screen">
         <div id="garageLeft">
           <div id="gTitle">
-            <h2>車庫 — 組裝</h2>
+            <h2>機甲庫 <span id="gCtx" class="gCtx"></span></h2>
             <div class="coam">COAM <span id="gCoam">0</span></div>
           </div>
           <div id="slots"></div>
@@ -327,8 +331,8 @@
               <button id="btnCampAmmo">補充彈藥</button>
               <button class="primary" id="btnCampGo2">繼續作戰</button>
             </div>
-            <button class="primary" id="btnSortie">出擊</button>
-            <button class="primary" id="btnCamp">主線（機庫）</button>
+            <button class="primary" id="btnSortie">自由出擊</button>
+            <button id="btnCamp">前往作戰室（主線）</button>
             <button id="btnPilot">駕駛員（技能／預設組）</button>
             <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
             <button id="btnToTitle">回標題</button>
@@ -351,7 +355,7 @@
           <div id="pLevel"></div>
           <div class="row">
             <button id="btnPilotReset">全部重置（免費）</button>
-            <button class="primary" id="btnPilotBack">返回車庫</button>
+            <button class="primary" id="btnPilotBack">返回機甲庫</button>
           </div>
         </div>
         <div id="pilotBody">
@@ -372,7 +376,7 @@
           <div class="rank" id="rRank">A</div>
           <div id="resultGrid"></div>
           <div id="rPilot"></div>
-          <div class="row"><button class="primary" id="btnResultOk">返回車庫</button></div>
+          <div class="row"><button class="primary" id="btnResultOk">返回機甲庫</button></div>
         </div>
       </div>
 
@@ -478,7 +482,7 @@
             <label><input type="checkbox" id="mpAuto" /> 自動同意加入請求</label>
           </div>
           <div class="row" style="margin-top: 14px">
-            <button id="btnLobbyGarage">車庫組裝</button
+            <button id="btnLobbyGarage">機甲庫（組裝）</button
             ><button class="primary" id="btnLobbyReady">準備</button
             ><button class="primary" id="btnLobbySortie" disabled>出擊</button
             ><button id="btnLobbyLeave">離開房間</button>
@@ -530,6 +534,14 @@
             ><select id="ctrlView">
               <option value="tps">第三人稱俯視（預設）</option>
               <option value="fps">第一人稱（V 鍵可隨時切換）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>鏡頭最遠距離（第三人稱）</span
+            ><select id="ctrlCamMax" title="鎖定遠方敵人或滾輪拉遠時的上限；太遠會被霧蓋住">
+              <option value="1.4">近（1.4 倍）</option>
+              <option value="1.8">標準（1.8 倍，預設）</option>
+              <option value="2.4">遠（2.4 倍）</option>
             </select>
           </div>
           <div class="krow">

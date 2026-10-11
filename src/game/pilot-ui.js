@@ -25,6 +25,7 @@ const MODE_NAME = { pve: 'PvE', pvp: 'PvP' };
 Object.assign(Game.prototype, {
   openPilot() {
     this.pilotMode = this.pilotCtxMode();
+    document.getElementById('btnPilotBack').textContent = this.pilotFromHub ? '返回作戰室' : '返回機甲庫';
     this.pilotBindUi();
     this.showScreen('pilot');
     this.renderPilot();

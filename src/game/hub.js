@@ -158,7 +158,7 @@ Object.assign(Game.prototype, {
     $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
     $('btnEpNext').style.display = cyc < 3 && !mp ? '' : 'none';
     $('btnEpNext').textContent = `開始第 ${cyc + 1} 周目`;
-    $('btnEpHub').textContent = mp ? '返回大廳' : '回到機庫';
+    $('btnEpHub').textContent = mp ? '返回大廳' : '回到作戰室';
   },
   // 結局畫面的「回到機庫」：多人時回大廳
   epilogueBack() {

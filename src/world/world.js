@@ -2312,8 +2312,10 @@ export class World {
   // 回傳有沒有網格擋住
   fadeMeshes(camPos, pts, dt) {
     const rc = this._rc || (this._rc = new THREE.Raycaster());
-    if (!this._occCands || this._occN !== this.meshes.length) {
-      this._occN = this.meshes.length; // 之後加進來的網格（地標等）也算
+    const last = this.meshes[this.meshes.length - 1];
+    const key = this.meshes.length + ':' + (last ? last.id : 0);
+    if (!this._occCands || this._occN !== key) {
+      this._occN = key; // 之後加進來的網格（地標等）也算
       this._occCands = this.meshes.filter(
         (m) => m !== this.terrainMesh && m !== this.waterMesh && !m.userData.noFade,
       );
@@ -2322,6 +2324,7 @@ export class World {
     if (!this._fadeHit || this._fadeN % 3 === 0) {
       const hit = new Set();
       const dir = new THREE.Vector3();
+      const floor = Math.min(...pts.map((p) => p.y)) - 0.1; // 比腳底低的命中是地面上的東西（道路、貼花），不淡出
       for (const p of pts) {
         dir.copy(p).sub(camPos);
         const dist = dir.length();
@@ -2329,7 +2332,7 @@ export class World {
         rc.far = dist - 0.8;
         for (const h of rc.intersectObjects(this._occCands, true)) {
           const o = h.object;
-          if (!o.isMesh || o.isInstancedMesh || !o.visible) continue;
+          if (!o.isMesh || o.isInstancedMesh || !o.visible || h.point.y < floor) continue;
           const f = this._fading && this._fading.get(o);
           const m = o.material;
           if (!f && (!m || Array.isArray(m) || m.transparent)) continue; // 已經是半透明（含 occluders 的淡出材質）

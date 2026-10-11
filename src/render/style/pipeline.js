@@ -276,8 +276,10 @@ export class StylePipeline {
     const B = this.captureBase();
     const out = !c.indoor;
     if (out && s.fog && B.fog) {
-      s.fog.near = B.near * P.fogK;
-      s.fog.far = B.far * P.fogK;
+      // 鏡頭拉遠多少，霧就往外推多少（機體附近保持清楚；遠景照樣有霧）
+      const push = c.fogPush ? c.fogPush() : 0;
+      s.fog.near = B.near * P.fogK + push;
+      s.fog.far = B.far * P.fogK + push;
       s.fog.color.copy(B.fogColor).lerp(lin(P.fogColor), P.fogColorK);
     }
     if (out && B.bg && s.background && s.background.isColor) {
