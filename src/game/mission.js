@@ -693,6 +693,7 @@ Object.assign(Game.prototype, {
     // 主線的戰術模組「回收迴路」：擊破時回復 AP
     if (from && from.pmv && !from.dead && from.pmv('killHeal') > 0)
       from.hp = Math.min(from.maxHp, from.hp + from.maxHp * from.pmv('killHeal'));
+    if (from && from.pmv && from.team === 'player') this.modKillFx(e, from);
     this.save.kills++;
     if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
       this.mpStats[from.slot].kills++;

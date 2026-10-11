@@ -33,6 +33,27 @@ Object.assign(Game.prototype, {
     for (const k in mp) pm[k] = (pm[k] || 0) + mp[k];
     return pm;
   },
+  // 改變打法的模組：擊破時（mission.js 的 onEnemyKilled，房主／單機）
+  modKillFx(e, from) {
+    const kb = from.pmv('killBlast');
+    if (kb > 0) {
+      // 連鎖殉爆：爆炸再擊破的敵人也會爆炸
+      const c = e.center();
+      this.explodeAt(c, Math.min(e.maxHp * 0.35, 2600) * kb, 700 * kb, 6 + kb * 2, from, false);
+      this.fx.shockwave(c, 6 + kb * 2, 0xff8030, 0.35);
+    }
+    const ks = from.pmv('killStag');
+    if (ks > 0) {
+      const R = 8 + ks * 2;
+      this.fx.shockwave(e.center(), R, 0x9fd8ff, 0.4);
+      for (const h of this.enemies) {
+        if (h.dead || h === e || h.isBoss || h.ai === 'objective' || h.pos.distanceTo(e.pos) > R) continue;
+        h.acs = h.acsMax;
+        h.staggerT = Math.max(h.staggerT, 1.6);
+        this.netEv({ t: 'stag', i: h.id });
+      }
+    }
+  },
   // 整章的出擊都完成時清空模組
   campChapterCheck(chapter) {
     const st = this.campStory();

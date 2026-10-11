@@ -6572,6 +6572,96 @@ async function testOutposts(browser, base) {
   await ctx.close();
 }
 
+// 改變打法的戰術模組：連鎖殉爆、殉爆脈衝、能量虹吸、衝撞推進、緊急障壁
+async function testModFx(browser, base) {
+  console.log('戰術模組：改變打法的效果');
+  const { ctx, page } = await newPage(browser, 'modfx');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 5;
+    g.startMission();
+    g.state = 'modfx-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e6;
+    const dt = 1 / 60;
+    const out = {};
+    const foes = () => g.enemies.filter((e) => !e.dead && !e.isBoss && e.ai !== 'objective');
+    const put = (e, x, z) => {
+      e.pos.set(x, g.world.groundAt(x, z, 99), z);
+      e.mesh.position.copy(e.pos);
+    };
+    const fresh = (n) => {
+      while (foes().length < n) g.spawnType('mt', 1, 1);
+      const list = foes().slice(0, n);
+      for (const e of list) {
+        e.hp = e.maxHp;
+        e.staggerT = 0;
+        e.acs = 0;
+        e.iFrames = 0;
+      }
+      return list;
+    };
+    // 連鎖殉爆
+    pl.pm = { ...(pl.pm || {}), killBlast: 1 };
+    let [a, b] = fresh(2);
+    put(a, 20, 20);
+    put(b, 22, 20);
+    a.takeDamage(1e9, 0, pl, a.center());
+    out.blast = b.hp < b.maxHp;
+    // 殉爆脈衝
+    pl.pm = { ...pl.pm, killBlast: 0, killStag: 1 };
+    [a, b] = fresh(2);
+    put(a, -20, 20);
+    put(b, -24, 20);
+    a.takeDamage(1e9, 0, pl, a.center());
+    out.stag = b.staggerT > 0;
+    // 能量虹吸
+    pl.pm = { ...pl.pm, killStag: 0, hitEn: 1 };
+    [a] = fresh(1);
+    a.hp = a.maxHp = 1e7;
+    pl.en = 0;
+    pl.enDelay = 9;
+    a.takeDamage(10, 0, pl, a.center(), null, { kb: 0 });
+    out.en = Math.round((pl.en / pl.enMax) * 100);
+    // 衝撞推進
+    pl.pm = { ...pl.pm, hitEn: 0, qbRam: 1 };
+    put(pl, 0, -30);
+    pl.vel.set(0, 0, 0);
+    put(a, 0, -34);
+    a.hp = a.maxHp = 1e7;
+    a.iFrames = 0;
+    pl.en = pl.enMax;
+    for (let i = 0; i < 30; i++) {
+      pl.move(dt, new THREE.Vector3(0, 0, -1), false, i === 0, false, null);
+      a.vel.set(0, 0, 0);
+      a.iFrames = 0;
+    }
+    out.ram = Math.round(1e7 - a.hp);
+    // 緊急障壁
+    pl.pm = { ...pl.pm, qbRam: 0, lastStand: 1 };
+    pl.iFrames = 0;
+    pl.hp = pl.maxHp * 0.35;
+    pl.takeDamage(pl.maxHp * 0.1, 0, a, pl.center());
+    out.last = { hp: Math.round((pl.hp / pl.maxHp) * 100), inv: pl.iFrames > 2 };
+    pl.iFrames = 0;
+    pl.hp = pl.maxHp * 0.25;
+    pl.takeDamage(pl.maxHp * 0.01, 0, a, pl.center());
+    out.cool = pl.iFrames <= 0;
+    return out;
+  });
+  check(r.blast, '連鎖殉爆：擊破的敵人爆炸、波及旁邊的敵人');
+  check(r.stag, '殉爆脈衝：擊破時周圍的敵人失衡');
+  check(r.en >= 14, `能量虹吸：近戰命中回復 EN ${r.en}%`);
+  check(r.ram >= 500, `衝撞推進：QB 撞上敵人造成 ${r.ram} 傷害`);
+  check(
+    r.last.inv && r.last.hp >= 35 && r.cool,
+    `緊急障壁：AP 低於 30% 時無敵並回復（${r.last.hp}%），冷卻中不再觸發`,
+  );
+  await ctx.close();
+}
+
 // 第 2 周目以後的委託：第 1 周目不出現、第 2 周目依前置開放（紫色節點）、不算進整章完成、終點 Boss 與通訊
 async function testCycle2(browser, base) {
   console.log('第 2 周目：新增的委託');
@@ -7975,6 +8065,7 @@ async function main() {
     await testCycle2(browser, base);
     await testWaves(browser, base);
     await testOutposts(browser, base);
+    await testModFx(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

@@ -913,6 +913,18 @@ export class MechEntity {
     const hpBefore = Math.max(0, this.hp);
     if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, hpBefore));
     this.hp -= real;
+    // 戰術模組「能量虹吸」：命中回復 EN（近戰多）
+    if (from && from !== this && from.pm && real > 0 && from.pmv('hitEn') > 0)
+      from.en = Math.min(from.enMax, from.en + from.enMax * from.pmv('hitEn') * (melee ? 0.15 : 0.004));
+    // 戰術模組「緊急障壁」：AP 低於 30% 時無敵並回復
+    const ls = this.pmv('lastStand');
+    if (ls > 0 && this.hp > 0 && this.hp < this.maxHp * 0.3 && !(this.lastStandT > 0)) {
+      this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.15 * ls);
+      this.iFrames = Math.max(this.iFrames, 3);
+      this.lastStandT = 60 / ls;
+      g.fx.shockwave(this.center(), 6, 0x7ee081, 0.5);
+      if (this.isPlayer) g.flashMsg('緊急障壁展開', 0x7ee081, 1.6);
+    }
     this.dmgTaken += real;
     if (mp && g.mpStats) {
       const eff = Math.min(real, hpBefore); // 不計入超過剩餘 AP 的溢出傷害
@@ -1159,6 +1171,7 @@ export class MechEntity {
       if (this.markT > 0) this.markT -= dt;
     }
     if (this.iFrames > 0) this.iFrames -= dt;
+    if (this.lastStandT > 0) this.lastStandT -= dt;
     if (this.enDelay > 0) this.enDelay -= dt;
     else
       this.en = Math.min(
@@ -1174,6 +1187,30 @@ export class MechEntity {
       g.fx.chevrons(this.pos.clone(), this.qbDir.clone().negate(), 0xffffff);
       if (this.grounded) g.fx.dust(this.pos.clone(), 2.2, 7);
       this.iFrames = 0.14 + this.pmv('qbIF');
+      if (this.pmv('qbRam') > 0) {
+        this.ramT = 0.35;
+        this.ramHit = new Set();
+      }
+    }
+    // 戰術模組「衝撞推進」：QB 撞上敵人（房主／單機）
+    if (this.ramT > 0) {
+      this.ramT -= dt;
+      if (!(g.net && g.net.role === 'client')) {
+        const k = this.pmv('qbRam');
+        for (const h of g.hostilesOfEnt(this)) {
+          if (
+            h.dead ||
+            this.ramHit.has(h) ||
+            h.pos.distanceTo(this.pos) > this.radius + (h.radius || 1.5) + 1.2
+          )
+            continue;
+          this.ramHit.add(h);
+          const dir = h.pos.clone().sub(this.pos).setY(0).normalize();
+          h.takeDamage(600 * k, 1100 * k, this, h.center(), dir);
+          g.fx.meleeHit(h.center(), 0xffd090);
+          g.fx.hitStop = Math.max(g.fx.hitStop, 0.06);
+        }
+      }
     }
     // assault boost
     if (wantAB && targetEnt && this.en > 5) {
