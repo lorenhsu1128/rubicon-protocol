@@ -69,6 +69,13 @@ Object.assign(Game.prototype, {
     if (pk.kind === 'repair') {
       ent.hp = Math.min(ent.maxHp, ent.hp + Math.round(ent.maxHp * 0.4));
       this.fx.ring(ent.center(), 5, 0x7ee081);
+    } else if (pk.kind === 'ammo') {
+      // 彈藥箱：每個實彈武器補充總彈數的 35%（彈數隨快照同步給客機）
+      for (const w of Object.values(ent.weapons || {}))
+        if (w && w.def && w.def.ammo > 0)
+          w.ammo = Math.min(w.def.ammo, w.ammo + Math.ceil(w.def.ammo * 0.35));
+      this.fx.ring(ent.center(), 5, 0xffc040);
+      if (ent.isPlayer) this.renderWeaponHud(true);
     } else {
       if (ent.isPlayer) {
         this.save.items[pk.kind] = (this.save.items[pk.kind] || 0) + 1;
@@ -82,6 +89,19 @@ Object.assign(Game.prototype, {
       this.netEv({ t: 'pkr', i: pk.id });
       if (!ent.isPlayer && ent.slot !== undefined) this.netEv({ t: 'pkGot', slot: ent.slot, k: pk.kind });
     }
+  },
+  // 擊破敵人時掉落彈藥箱（房主／單機）：敵對 AC 一定掉，其他 18%；有玩家彈藥剩不到三成時機率加倍
+  dropAmmo(e) {
+    if (this.pvp || this.lab || !this.world || e.isBoss) return;
+    if (['objective', 'part', 'holo', 'convoy'].includes(e.ai)) return;
+    const low = this.playersAlive().some((p) => {
+      const ws = Object.values(p.weapons || {}).filter((w) => w && w.def && w.def.ammo > 0);
+      return ws.length && ws.reduce((a, w) => a + w.ammo / w.def.ammo, 0) / ws.length < 0.3;
+    });
+    const ace = e.ai === 'ac' || (this.bosses || []).includes(e); // 敵對 AC、精英區段的專屬 AC
+    if (!ace && Math.random() > (low ? 0.36 : 0.18)) return;
+    const [x, z] = this.world.nearSolid ? this.world.nearSolid(e.pos.x, e.pos.z) : [e.pos.x, e.pos.z];
+    this.spawnPickup('ammo', new THREE.Vector3(x, this.world.groundAt(x, z, e.pos.y + 1) + 0.6, z));
   },
   updateMapExtras(dt) {
     const isHost = !(this.net && this.net.role === 'client');

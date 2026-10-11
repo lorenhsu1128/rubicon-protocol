@@ -1044,13 +1044,17 @@ Object.assign(Game.prototype, {
     const cost = this.campCosts();
     const cy = this.campCarry();
     $('gCampInfo').innerHTML =
-      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b><div class="gCampMods">${cl ? '' : this.campModsHtml()}</div>`;
+      `AP <b>${Math.round((cy.hp == null ? 1 : cy.hp) * 100)}%</b>　彈藥 <b>${Math.round(cost.ammoPct * 100)}%</b>　修復套件 <b>${cost.kitsN}／${cost.kitsMax}</b><div class="gCampMods">${cl ? '' : this.campModsHtml()}</div>`;
     $('btnCampRepair').textContent = cost.repair
       ? `修理 AP（${cost.repair.toLocaleString()} COAM）`
       : 'AP 已滿';
     $('btnCampRepair').disabled = !cost.repair || this.save.coam < cost.repair;
     $('btnCampAmmo').textContent = cost.ammo ? `補充彈藥（${cost.ammo.toLocaleString()} COAM）` : '彈藥已滿';
     $('btnCampAmmo').disabled = !cost.ammo || this.save.coam < cost.ammo;
+    $('btnCampKits').textContent = cost.kits
+      ? `補充修復套件（${cost.kits.toLocaleString()} COAM）`
+      : '修復套件已滿';
+    $('btnCampKits').disabled = !cost.kits || this.save.coam < cost.kits;
     $('btnCampGo2').disabled = warn.length > 0;
   },
   // 整備的花費：修理到滿、補彈到滿（以目前裝備的實彈武器平均缺少比例計）
@@ -1069,11 +1073,31 @@ Object.assign(Game.prototype, {
     }).map((s) => (cy.ammo[s] == null ? 1 : cy.ammo[s]));
     const ammoPct = rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : 1;
     const r100 = (v) => Math.round(v / 100) * 100;
+    const kMax = this.campKitsMax(),
+      kits = cy.kits == null ? kMax : Math.min(cy.kits, kMax);
     return {
       repair: miss > 0.005 ? Math.max(100, r100(miss * (9000 + L * 1500))) : 0,
       ammo: ammoPct < 0.995 ? Math.max(100, r100((1 - ammoPct) * (6000 + L * 1000))) : 0,
       ammoPct,
+      kits: kits < kMax ? r100((kMax - kits) * (1500 + L * 250)) : 0,
+      kitsN: kits,
+      kitsMax: kMax,
     };
+  },
+  // 修復套件的上限：3＋駕駛員技能與戰術模組（MechEntity 的 kitsMax 同一個算法）
+  campKitsMax() {
+    const pm = this.campIsClient() ? this.pilotLocalMods('pve') || {} : this.campPilotPm();
+    return 3 + Math.round(pm.kits || 0);
+  },
+  campKits() {
+    const c = this.campCosts();
+    if (!c.kits || this.save.coam < c.kits) return;
+    this.save.coam -= c.kits;
+    this.campCarry().kits = c.kitsMax;
+    if (!this.campIsClient()) this.campCheckpoint();
+    else this.writeSave();
+    SFX.ui();
+    this.renderGarage();
   },
   campWeaponDef(s) {
     return partById(s.endsWith('arm') ? 'arm' : 'back', this.save.asm[s]);

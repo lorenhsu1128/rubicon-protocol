@@ -790,6 +790,7 @@ Object.assign(Game.prototype, {
     $('btnCampGo2').onclick = () => this.campGarageGo();
     $('btnCampRepair').onclick = () => this.campRepair();
     $('btnCampAmmo').onclick = () => this.campAmmo();
+    $('btnCampKits').onclick = () => this.campKits();
     $('btnCampRetry').onclick = () => this.campRetry(false);
     $('btnCampFailGarage').onclick = () => this.campRetry(true);
     $('btnCampQuit').onclick = () => this.campEnd(false, true);

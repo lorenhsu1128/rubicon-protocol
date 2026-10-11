@@ -11,6 +11,7 @@ export const PICKUP_DEFS = {
   repair: { name: '修補包', color: 0x7ee081 },
   cs_bomber: { name: 'AIRSTRIKE 空襲 +1', color: 0x5cc8ff },
   cs_ally: { name: 'ALLY-AC 友軍 +1', color: 0xffb060 },
+  ammo: { name: '彈藥箱', color: 0xffc040 },
 };
 let VEH_ID = 1,
   PICK_ID = 1;
@@ -121,7 +122,7 @@ export class Vehicle {
       }, i * 120);
       const pkt = this.kind === 'truck' || Math.random() < 0.6;
       if (pkt && g.net.role !== 'client') {
-        const kinds = ['repair', 'repair', 'cs_bomber', 'cs_ally'];
+        const kinds = ['repair', 'repair', 'ammo', 'ammo', 'cs_bomber', 'cs_ally'];
         const n = this.kind === 'truck' ? rndi(1, 2) : 1;
         for (let k = 0; k < n; k++)
           g.spawnPickup(pick(kinds), cp.clone().add(new THREE.Vector3(rnd(-3, 3), 0.6, rnd(-3, 3))));

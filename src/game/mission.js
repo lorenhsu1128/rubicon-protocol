@@ -694,6 +694,7 @@ Object.assign(Game.prototype, {
     if (from && from.pmv && !from.dead && from.pmv('killHeal') > 0)
       from.hp = Math.min(from.maxHp, from.hp + from.maxHp * from.pmv('killHeal'));
     if (from && from.pmv && from.team === 'player') this.modKillFx(e, from);
+    if (!this.isClient) this.dropAmmo(e); // 彈藥箱（map-extras.js）
     this.save.kills++;
     if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
       this.mpStats[from.slot].kills++;

@@ -362,6 +362,35 @@ async function testPaint(browser) {
     `存回的 GLB 根節點維持原樣（${before.roots.join('、')} → ${after && after.roots.join('、')}）`,
   );
   await p.screenshot({ path: path.join(SHOT_DIR, 'paint-linked.png') });
+  // 繪圖視窗把圖層寫進自己的 IndexedDB 之後才關（電腦忙的時候寫入比較慢）
+  await p
+    .waitForFunction(
+      () =>
+        new Promise((res) => {
+          const rq = indexedDB.open('rubicon-paint', 1);
+          rq.onerror = () => res(false);
+          rq.onsuccess = () => {
+            const db = rq.result;
+            try {
+              const q = db.transaction('autosave', 'readonly').objectStore('autosave').getAllKeys();
+              q.onsuccess = () => {
+                db.close();
+                res(q.result.some((k) => String(k).startsWith('lib:')));
+              };
+              q.onerror = () => {
+                db.close();
+                res(false);
+              };
+            } catch (e) {
+              db.close();
+              res(false);
+            }
+          };
+        }),
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {});
   await p.close();
   ({ p, ok } = await open());
   check(ok, '再次從模型庫開啟');
@@ -7039,6 +7068,69 @@ async function testModFx(browser, base) {
   await ctx.close();
 }
 
+// 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testSupply(browser, base) {
+  console.log('補給：攜彈量、彈藥箱、修復套件');
+  const { ctx, page } = await newPage(browser, 'supply');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 3;
+    g.startMission();
+    g.state = 'supply-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const out = {};
+    const w = Object.values(pl.weapons).find((x) => x && x.def && x.def.ammo > 0);
+    // 同樣組裝的敵人（沒有駕駛員加成）＝原本的彈數
+    const ref = g.spawnEnemy({ name: 'REF', asm: g.save.asm, pal: 'enemy', ai: 'mt' });
+    out.ammoK = +(w.def.ammo / ref.weapons[w.slot].def.ammo).toFixed(2);
+    ref.takeDamage(1e9, 0, null, ref.center());
+    // 敵對 AC 擊破一定掉彈藥箱
+    const ac = g.spawnType('ac', 1, 1);
+    const n0 = g.pickups.length;
+    ac.takeDamage(1e9, 0, pl, ac.center());
+    const pk = g.pickups.slice(n0).find((p) => p.kind === 'ammo');
+    out.drop = !!pk;
+    if (pk) {
+      w.ammo = Math.round(w.def.ammo * 0.1);
+      const a0 = w.ammo;
+      pl.pos.copy(pk.pos);
+      g.updateMapExtras(1 / 60);
+      out.refill = w.ammo - a0;
+      out.gone = pk.dead;
+    }
+    g.clearMission();
+    // 轉場整備：修復套件
+    g.state = 'play';
+    g.campBegin('c1s1');
+    g.campEnterSeg();
+    g.camp.carry.kits = 1;
+    g.save.coam = 1e6;
+    g.camp.inGarage = true;
+    g.clearMission();
+    g.openGarage();
+    const btn = document.getElementById('btnCampKits');
+    out.btn = btn.textContent;
+    const c0 = g.save.coam;
+    btn.click();
+    out.kits = g.camp.carry.kits;
+    out.kMax = g.campKitsMax();
+    out.paid = c0 - g.save.coam;
+    out.btn2 = btn.textContent;
+    g.campEnd(false, true);
+    return out;
+  });
+  check(r.ammoK >= 1.35, `PvE 的實彈武器總彈數增加（×${r.ammoK}）`);
+  check(r.drop && r.refill > 0 && r.gone, `擊破敵對 AC 掉落彈藥箱，撿起後補彈 ${r.refill} 發`);
+  check(
+    /補充修復套件/.test(r.btn) && r.kits === r.kMax && r.paid > 0 && /已滿/.test(r.btn2),
+    `轉場整備可以補充修復套件（${r.btn} → ${r.kits}／${r.kMax}）`,
+  );
+  await ctx.close();
+}
+
 // 第 2 周目以後的委託：第 1 周目不出現、第 2 周目依前置開放（紫色節點）、不算進整章完成、終點 Boss 與通訊
 async function testCycle2(browser, base) {
   console.log('第 2 周目：新增的委託');
@@ -8445,6 +8537,7 @@ async function main() {
     await testWaves(browser, base);
     await testOutposts(browser, base);
     await testModFx(browser, base);
+    await testSupply(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

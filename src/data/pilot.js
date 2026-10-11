@@ -196,9 +196,12 @@ export function sanitizePayload(p) {
 
 // ---------- 加成 ----------
 // 把配點展開成扁平的增量表 pm（例如 { dmg: 0.06, kits: 1, pf: { w_rifle: 2 } }）
+// PvE 的攜彈量加成（敵人分波、數量多，第 13 期起）：所有實彈武器的總彈數 +40%（彈匣不變）
+export const PVE_AMMO_K = 0.4;
 export function computePilotMods(mp, mode) {
   if (!mp) return null;
   const pm = { pf: { ...(mp.pf || {}) } };
+  if (mode === 'pve') pm.ammo = PVE_AMMO_K;
   for (const id in mp.s || {}) {
     const s = SKILL_BY_ID[id];
     if (!s) continue;
