@@ -268,6 +268,7 @@ Object.assign(Game.prototype, {
     document.getElementById('bossBar').style.display = 'none';
     this.campSpawnType(type, L, bd);
     c.ss.n0 = this.enemies.length;
+    if (['battle', 'destroy', 'intel', 'breakthrough'].includes(c.ss.type || type)) this.outpostsPlan(L); // 據點與補給箱
     this.waveAlerted = false;
     this.planVehicles();
     if ((bd && bd.rail) || type === 'escort') this.vehPlan = [];

@@ -372,6 +372,7 @@ Object.assign(Game.prototype, {
     else this.spawnComp(this.foeMix(this.rollComp(L, np), theme, 0, true), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
+    if (!boss) this.outpostsPlan(L); // 據點與補給箱
     this.waveAlerted = false;
     this.planVehicles();
     if (this.bossDef && this.bossDef.rail && boss) this.vehPlan = []; // 武裝列車佔用鐵路：不開運輸列車
@@ -497,23 +498,18 @@ Object.assign(Game.prototype, {
       ['drone', 'drone', 'mth'],
     ];
   },
-  // 一般關卡的敵人編成（依等級的點數與人數）
+  // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
+  // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js
   rollComp(L, np) {
-    let pts = (4 + L * 1.5) * np;
+    let pts = (6 + L * 2.2) * np;
     const comp = [];
-    const types = Object.keys(ENEMY_TYPES);
-    if (L >= 2) {
-      comp.push('ac');
-      pts -= 3.5;
-    }
+    const types = Object.keys(ENEMY_TYPES).filter((k) => !(k === 'ac' || ENEMY_TYPES[k].roster));
     let guard = 0;
-    while (pts > 0.9 && guard++ < 30) {
+    while (pts > 0.9 && guard++ < 80) {
       const cand = types.filter(
         (k) =>
           ENEMY_TYPES[k].cost <= pts + 0.5 &&
-          (!(k === 'ac' || ENEMY_TYPES[k].roster) || Math.random() < 0.3) &&
-          (!ENEMY_TYPES[k].support || comp.some((c) => !ENEMY_TYPES[c].support)) &&
-          !(comp.filter((c) => c === k).length >= 2 && ENEMY_TYPES[k].roster),
+          (!ENEMY_TYPES[k].support || comp.some((c) => !ENEMY_TYPES[c].support)),
       );
       if (!cand.length) break;
       const t = pick(cand);
@@ -521,19 +517,12 @@ Object.assign(Game.prototype, {
       pts -= ENEMY_TYPES[t].cost;
     }
     comp.sort(() => Math.random() - 0.5);
-    return comp;
-  },
-  // 先生成一部分，其餘當增援波次
-  spawnComp(comp, np, scaleHp, scaleDmg) {
-    if (np > 1) {
-      const third = Math.ceil(comp.length / 3);
-      this.waves = [comp.slice(third, third * 2), comp.slice(third * 2)].filter((w) => w.length);
-      for (const t of comp.slice(0, third)) this.spawnType(t, scaleHp, scaleDmg);
-    } else {
-      const half = Math.ceil(comp.length / 2);
-      this.waves = [comp.slice(half)];
-      for (const t of comp.slice(0, half)) this.spawnType(t, scaleHp, scaleDmg);
+    if (L >= 2) {
+      const ros = Object.keys(ENEMY_TYPES).filter((k) => ENEMY_TYPES[k].roster);
+      comp.push(L >= 4 && ros.length && Math.random() < 0.3 ? pick(ros) : 'ac');
+      if (np > 1 && L >= 8) comp.push('ac');
     }
+    return comp;
   },
   // at：指定生成位置（運輸機投放）；count：覆寫編隊數量
   // 主題專屬敵人混進編成（約 35%）：主線依主題與深度；自由出擊只放主線遇過的（onlySeen）
@@ -624,17 +613,21 @@ Object.assign(Game.prototype, {
         at: at ? at.clone().add(new THREE.Vector3(i * 1.5, 0, 0)) : null,
       });
     }
-    if (n > 1 && !at) this.flashAlert(`${d.name} ×${n} 編隊`);
+    if (n > 1 && !at && !this.guardAt) this.flashAlert(`${d.name} ×${n} 編隊`);
     return last;
   },
   spawnEnemy(o) {
     o.palKey = o.pal;
     const e = new MechEntity(this, o.asm, PALETTES[o.pal], o);
+    // 增援波次：在預告的地點附近（空降的從上空落下）
+    const wv = !o.at && !o.perch && this.waveAt;
     let sp = this.world.spawnPoint(
       this.player.pos,
       this.enemies.map((x) => x.pos),
+      wv ? wv.pos : null,
+      wv && wv.drop ? 14 : 28,
     );
-    let y = this.world.terrainHeight(sp.x, sp.z) + (o.flying ? o.hoverH || 6 : 0);
+    let y = this.world.terrainHeight(sp.x, sp.z) + (o.flying ? o.hoverH || 6 : 0) + (wv && wv.drop ? 16 : 0);
     if (o.at) {
       sp = { x: o.at.x, z: o.at.z };
       y = Math.max(o.at.y, this.world.terrainHeight(sp.x, sp.z));
@@ -685,6 +678,8 @@ Object.assign(Game.prototype, {
       }
     }
     e.pos.set(sp.x, y, sp.z);
+    // 據點的守衛（game/outposts.js）：不算主要戰力
+    if (this.guardAt) e.guardOf = o.guardOf = this.guardAt;
     this.registerSpawn(e);
     e.yaw = e.aimYaw = Math.atan2(-(0 - sp.x), -(0 - sp.z));
     e.mesh.position.copy(e.pos);
@@ -795,6 +790,10 @@ Object.assign(Game.prototype, {
     this.shocks = [];
     this.clearSupport();
     this.clearHazards();
+    this.wavePend = null;
+    this.waveMarks = [];
+    this.clearCaches();
+    this.waveN = 0;
     this.introSeen = null;
     this.fx.clear();
     this.popups = [];

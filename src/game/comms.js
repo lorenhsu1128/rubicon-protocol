@@ -70,6 +70,11 @@ Object.assign(Game.prototype, {
     clearTimeout(this.commTo);
     this.commTo = setTimeout(() => this.commNext(), (1.8 + text.length * 0.09) * 1000);
   },
+  // 即時的一句（增援預告等）：插到最前面立刻顯示，不寫進通訊紀錄
+  commSay(sp, text) {
+    this.commQ = [[sp, text]].concat(this.commQ || []);
+    this.commNext();
+  },
   commClear() {
     clearTimeout(this.commTo);
     this.commQ = [];

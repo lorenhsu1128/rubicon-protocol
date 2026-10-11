@@ -2154,16 +2154,24 @@ export class World {
     }
     return false;
   }
-  spawnPoint(minDistFrom, others) {
+  // near：在這一點附近找（增援波次的進入地點，找不到時範圍慢慢放大）；minD：離 minDistFrom 至少幾公尺
+  spawnPoint(minDistFrom, others, near = null, minD = 28) {
     const Z = this.zone,
       R = 50 * this.k;
-    for (let t = 0; t < 40; t++) {
-      const x = rnd(Math.max(-R, Z[0] + 4), Math.min(R, Z[1] - 4)),
+    for (let t = 0; t < (near ? 60 : 40); t++) {
+      let x, z;
+      if (near) {
+        const r = 6 + t * 0.6;
+        x = clamp(near.x + rnd(-r, r), Z[0] + 4, Z[1] - 4);
+        z = clamp(near.z + rnd(-r, r), Z[2] + 4, Z[3] - 4);
+      } else {
+        x = rnd(Math.max(-R, Z[0] + 4), Math.min(R, Z[1] - 4));
         z = rnd(Math.max(-R, Z[2] + 4), Math.min(R, Z[3] - 4));
+      }
       if (this.onCorridor(x, z, 2) || this.offLimits(x, z)) continue;
       if (!this.slopeOK(x, z)) continue;
       if (this.isVoid(x, z) || this.isReserved(x, z, 3)) continue;
-      if (Math.hypot(x - minDistFrom.x, z - minDistFrom.z) < 28) continue;
+      if (Math.hypot(x - minDistFrom.x, z - minDistFrom.z) < minD) continue;
       if (others.some((o) => Math.hypot(o.x - x, o.z - z) < 6)) continue;
       if (
         this.obstacles.some((o) =>

@@ -71,6 +71,7 @@ Object.assign(Game.prototype, {
       pvpAi: !!e.pvpAi,
       pm: e.pm || null, // 駕駛員加成：客機的 HUD 上限與自身移動預測需要
       ms: o.ms || null, // 玩家機甲的模型組（伺服器上的內容雜湊）
+      guard: o.guardOf || 0, // 據點的守衛
       p: [e.pos.x, e.pos.y, e.pos.z],
     };
     this.net.spawnReg[e.id] = rec;
@@ -195,7 +196,7 @@ Object.assign(Game.prototype, {
         ents,
         veh: this.serVehicles(),
         mis: {
-          alive: this.enemies.filter((e) => !e.dead).length,
+          alive: this.enemies.filter((e) => !e.dead && !e.guardOf).length,
           waves: this.waves.length,
           mt: +this.missionT.toFixed(1),
           level: this.save.level,

@@ -92,6 +92,41 @@ export function buildPickupMesh(color, kind, ring = true) {
   return g;
 }
 
+// 據點的補給箱：原點在底面中心；color 是獎勵種類的顏色（發光條與光柱，glow 材質）
+export function buildCacheMesh(color, beam = true) {
+  const g = new THREE.Group();
+  const glb = providedModel('small/cache');
+  if (glb) g.add(glb);
+  else {
+    const body = new THREE.MeshStandardMaterial({ color: 0x4a5560, roughness: 0.6, metalness: 0.4 });
+    const glow = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1,
+      roughness: 0.4,
+    });
+    g.add(box(1.8, 1.1, 1.2, body, 0, 0.55, 0));
+    g.add(box(1.9, 0.18, 1.3, body, 0, 1.15, 0));
+    g.add(box(1.82, 0.12, 1.22, glow, 0, 0.75, 0));
+    g.add(box(0.5, 0.08, 0.5, glow, 0, 1.28, 0));
+  }
+  if (!beam) return g;
+  const bm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.25, 0.25, 30, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false }),
+  );
+  bm.position.y = 15;
+  g.add(bm);
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(2.6, 3.0, 32),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.08;
+  g.add(halo);
+  return g;
+}
+
 // 空襲轟炸機：機身沿 Z 軸、機頭朝 −Z
 export function buildBomberMesh() {
   const bm = new THREE.Group();

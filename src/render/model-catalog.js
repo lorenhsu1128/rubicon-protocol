@@ -58,7 +58,13 @@ import {
   mat,
 } from '../world/prop-models.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
-import { buildBomberMesh, buildPickupMesh, buildProjectileMesh, buildTransport } from './extra-models.js';
+import {
+  buildBomberMesh,
+  buildCacheMesh,
+  buildPickupMesh,
+  buildProjectileMesh,
+  buildTransport,
+} from './extra-models.js';
 import {
   VEHICLE_PIECES,
   VEHICLE_PIECE_NAMES,
@@ -649,6 +655,13 @@ for (const [k, d] of Object.entries(PICKUP_DEFS))
     () => buildPickupMesh(d.color, null, false),
     { origin: CENTER },
   );
+addPlain(
+  'small',
+  'cache',
+  '據點的補給箱',
+  '寬 1.8 m；命名為 glow 的材質改成獎勵種類的顏色，光柱與光環是程式特效',
+  () => buildCacheMesh(0xffd060, false),
+);
 const proj = (kind) => {
   const m = buildProjectileMesh(kind, 0xffd080, 95);
   if (kind === 'missile') m.rotation.x = -Math.PI / 2; // 彈頭朝 −Z

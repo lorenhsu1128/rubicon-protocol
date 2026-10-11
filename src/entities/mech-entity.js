@@ -1693,6 +1693,11 @@ export class MechEntity {
       s = this.aiState;
     if (this.dead) return;
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
+    // 據點的守衛：還沒出動時守在原地（game/outposts.js）
+    if (this.guardOf && g.guardIdle(this)) {
+      this.move(dt, new THREE.Vector3(), false, false, false, null);
+      return;
+    }
     // pick nearest hostile
     let pl = null,
       bd = 1e9;

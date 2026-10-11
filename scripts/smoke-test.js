@@ -1162,6 +1162,7 @@ async function testMaps(browser, base) {
     ['snow', ['quonset', 'ice']],
   ]) {
     await page.selectOption('#gMapSel', key);
+    await page.evaluate(() => localStorage.setItem('rubicon_variant', 'base')); // 標準變體（隨機的變體物件組不同）
     await page.click('#btnSortie');
     check(await waitVisible(page, 'hudWrap', 20000), `${key} 出擊`);
     await playFor(page, 1500);
@@ -4206,6 +4207,7 @@ async function testCampaign(browser, base) {
     page.evaluate(() => {
       const g = window.__game;
       g.waves = [];
+      g.wavePend = null; // 已預告、還沒出現的增援也取消
       for (const e of g.enemies)
         if (!e.dead) {
           if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
@@ -4470,6 +4472,7 @@ async function testCampaign2(browser, base) {
     page.evaluate(() => {
       const g = window.__game;
       g.waves = [];
+      g.wavePend = null; // 已預告、還沒出現的增援也取消
       for (const e of g.enemies)
         if (!e.dead) {
           if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
@@ -4484,6 +4487,7 @@ async function testCampaign2(browser, base) {
           const g = window.__game;
           if (kill && g.camp && !g.camp.exits.length) {
             g.waves = [];
+            g.wavePend = null; // 已預告、還沒出現的增援也取消
             for (const e of g.enemies)
               if (!e.dead) {
                 if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
@@ -4937,6 +4941,7 @@ async function testChapter1(browser, base) {
   await page.evaluate(() => {
     const g = window.__game;
     g.waves = [];
+    g.wavePend = null; // 已預告、還沒出現的增援也取消
     for (const e of g.enemies)
       if (!e.dead) {
         if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
@@ -4952,6 +4957,7 @@ async function testChapter1(browser, base) {
     const had = g.save.owned.includes('w_saber');
     g.simStart('instructor', 'instructor');
     g.waves = [];
+    g.wavePend = null; // 已預告、還沒出現的增援也取消
     for (const e of g.enemies) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
     await new Promise((r) => setTimeout(r, 2500));
     return { had, now: g.save.owned.includes('w_saber'), passed: !!g.save.story.instructor };
@@ -5464,6 +5470,7 @@ async function testChapter2(browser, base) {
     () => {
       const g = window.__game;
       g.waves = [];
+      g.wavePend = null; // 已預告、還沒出現的增援也取消
       for (const e of g.enemies)
         if (!e.dead) {
           e.bossVis = 0;
@@ -6383,6 +6390,185 @@ async function testChapter5(browser, base) {
     c5.join(',') === 'c5s1:AEGIS,c5s2a:LEVIATHAN,c5s2b:VIPER,c5s3:IGUAZU,route:done/hidden/open/locked',
     '第 5 章的出擊與終點 Boss、依抉擇 2 的路線（' + c5.join('、') + '）',
   );
+  await ctx.close();
+}
+
+// 增援波次：編成分成 3～5 波、敵對 AC 在最後一波、剩下少數時預告方向（ECHO、光柱、畫面指示）後在預告地點出現
+async function testWaves(browser, base) {
+  console.log('增援波次：分波、預告方向、在預告的地點出現');
+  const { ctx, page } = await newPage(browser, 'waves');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 5;
+    g.startMission();
+    g.state = 'wave-test';
+    g.player.hp = g.player.maxHp = 1e7;
+    const dt = 1 / 60;
+    const live = () => g.enemies.filter((e) => !e.dead);
+    const out = {
+      N: g.waveN,
+      first: live().length,
+      lastAce: g.waves[g.waves.length - 1].some((t) => t === 'ac' || /^ac_/.test(t)),
+      waves: [],
+    };
+    out.lastList = g.waves[g.waves.length - 1].join(',');
+    for (let k = 0; k < 6 && (g.waves.length || g.wavePend); k++) {
+      for (const e of live()) e.takeDamage(1e9, 0, g.player, e.center());
+      let t = 0;
+      while (!g.wavePend && t < 10) {
+        g.waveTick(dt);
+        t += dt;
+      }
+      const pend = g.wavePend;
+      if (!pend) break;
+      const say = document.getElementById('comm').textContent;
+      const marks = (g.waveMarks || []).length;
+      g.drawHud(dt);
+      const n0 = g.enemies.length;
+      while (g.wavePend) g.waveTick(dt);
+      const fresh = g.enemies.slice(n0);
+      // 站上高處的（perch）照自己的規則找位置
+      const near = fresh.filter(
+        (e) => e.opts.perch || Math.hypot(e.pos.x - pend.pos.x, e.pos.z - pend.pos.z) < 45,
+      ).length;
+      out.waves.push({
+        t: +t.toFixed(1),
+        say,
+        marks,
+        drop: pend.drop,
+        n: fresh.length,
+        near,
+        names: fresh.map((e) => e.name).join('/'),
+      });
+    }
+    out.end = !g.waves.length && !g.wavePend;
+    return out;
+  });
+  const W = r.waves;
+  check(r.N >= 3 && r.N <= 5 && r.first >= 2, `編成分成 ${r.N} 波、第一波 ${r.first} 台`);
+  check(
+    W.length === r.N - 1 &&
+      W.every((w) => /點鐘方向/.test(w.say) && /第 \d\/\d 波/.test(w.say) && w.marks > 0) &&
+      /最後一波/.test(W[W.length - 1].say),
+    '每一波出現前 ECHO 預告幾點鐘方向與第幾波、畫面上有增援指示（' +
+      W.map((w) => w.say.replace(/^.*?ECHO/, '')).join('｜') +
+      '）',
+  );
+  check(
+    W.every((w) => w.n > 0 && w.near === w.n),
+    '增援出現在預告的地點附近（' + W.map((w) => `${w.near}/${w.n}${w.drop ? '空降' : ''}`).join('、') + '）',
+  );
+  check(r.lastAce, '敵對 AC 在最後一波（' + r.lastList + '）');
+  check(r.end, '派完所有波次');
+  // 截圖：預告中的光柱與指示
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.save.level = 5;
+    g.startMission();
+    for (const e of g.enemies) e.takeDamage(1e9, 0, g.player, e.center());
+    g.player.hp = g.player.maxHp = 1e7;
+    g.waveGap = 0;
+    g.waveLaunch();
+  });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'waves-warn.png') });
+  await ctx.close();
+}
+
+// 據點：補給箱與守衛（守在原地、靠近才出動、不算主要戰力）、開箱獎勵、自由出擊的撤離時間、主線區段也有
+async function testOutposts(browser, base) {
+  console.log('據點：補給箱、守衛、撤離');
+  const { ctx, page } = await newPage(browser, 'outposts');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 5;
+    g.startMission();
+    g.state = 'cache-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const dt = 1 / 60;
+    const out = { n: g.caches.length, kinds: g.caches.map((c) => c.kind).join(',') };
+    out.guards = g.caches.map((c) => g.enemies.filter((e) => e.guardOf === c.id).length);
+    out.far = Math.min(...g.caches.map((c) => Math.hypot(c.pos.x - pl.pos.x, c.pos.z - pl.pos.z)));
+    // 守衛守在原地
+    const gs = g.enemies.filter((e) => e.guardOf);
+    const p0 = gs.map((e) => e.pos.clone());
+    for (let i = 0; i < 120; i++) for (const e of g.enemies) if (!e.dead) e.updateAI(dt);
+    out.idle = Math.max(...gs.map((e, i) => (e.dead ? 0 : Math.hypot(e.pos.x - p0[i].x, e.pos.z - p0[i].z))));
+    // 主要戰力全滅（守衛還在）：自由出擊給撤離時間
+    g.waves = [];
+    g.wavePend = null; // 已預告、還沒出現的增援也取消
+    for (const e of g.enemies) if (!e.guardOf) e.takeDamage(1e9, 0, pl, e.center());
+    out.mainLeft = g.enemies.filter((e) => !e.dead && !e.guardOf).length;
+    out.extract = g.extractStart() && g.extract;
+    // 走到第一個箱子旁：守衛出動、站 1.2 秒打開
+    const c = g.caches[0];
+    pl.pos.set(c.pos.x + 1, c.pos.y, c.pos.z);
+    for (const e of g.enemies) if (!e.dead && e.guardOf === c.id) e.updateAI(dt);
+    out.alert = g.enemies.filter((e) => e.guardOf === c.id).every((e) => e.guardAlert);
+    const coam0 = g.save.coam;
+    pl.hp = pl.maxHp * 0.5;
+    const hp0 = pl.hp;
+    for (let i = 0; i < 90; i++) g.cacheTick(dt);
+    out.opened = c.opened;
+    out.reward = c.kind + ':' + (g.save.coam - coam0) + '/' + Math.round(pl.hp - hp0);
+    // 剩下的也打開：提早撤離
+    for (const k of g.caches.slice(1)) {
+      pl.pos.set(k.pos.x, k.pos.y, k.pos.z);
+      for (let i = 0; i < 90; i++) g.cacheTick(dt);
+    }
+    g.state = 'play';
+    g.cacheTick(dt);
+    out.ended = g.state;
+    return out;
+  });
+  check(
+    r.n >= 2 && r.n <= 3 && r.guards.every((n) => n >= 1) && r.far >= 40,
+    `據點 ${r.n} 個（${r.kinds}）、各有守衛 ${r.guards.join('/')} 台、離出生點 ${Math.round(r.far)} m 以上`,
+  );
+  check(r.idle < 1.5, `守衛還沒出動時守在原地（移動 ${r.idle.toFixed(2)} m）`);
+  check(r.mainLeft === 0 && r.extract === 30, `主要戰力全滅、守衛還在：自由出擊給 ${r.extract} 秒撤離時間`);
+  check(r.alert, '玩家靠近時整隊守衛出動');
+  check(r.opened && !/^coam:0|^repair:\d+\/0$/.test(r.reward), `站在箱子旁打開、拿到獎勵（${r.reward}）`);
+  check(r.ended === 'ending', `補給箱全部打開就提早撤離（${r.ended}）`);
+  // 主線的一般戰鬥區段也有據點；守衛不擋區段清除
+  const camp = await page.evaluate(async () => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'play';
+    g.campBegin('c1s2');
+    g.camp.types[0] = 'battle';
+    g.campEnterSeg();
+    g.player.hp = g.player.maxHp = 1e7;
+    const n = g.caches.length;
+    g.waves = [];
+    g.wavePend = null; // 已預告、還沒出現的增援也取消
+    for (const e of g.enemies) if (!e.guardOf) e.takeDamage(1e9, 0, g.player, e.center());
+    for (let i = 0; i < 30 && !g.camp.cleared; i++) await new Promise((res) => setTimeout(res, 100));
+    const out = { n, cleared: g.camp.cleared, guards: g.enemies.filter((e) => !e.dead && e.guardOf).length };
+    g.campEnd(false, true);
+    return out;
+  });
+  check(
+    camp.n >= 2 && camp.cleared && camp.guards > 0,
+    `主線區段也有據點 ${camp.n} 個，守衛還在（${camp.guards}）也能清除區段`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.save.level = 5;
+    g.startMission();
+    const c = g.caches[0];
+    g.player.pos.set(c.pos.x + 9, c.pos.y, c.pos.z + 9);
+    g.player.hp = g.player.maxHp = 1e7;
+  });
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'outpost-cache.png') });
   await ctx.close();
 }
 
@@ -7505,6 +7691,7 @@ async function testMpCampaign(browser, url) {
     const g = window.__game;
     for (const p of g.players) p.hp = p.maxHp = 1e7;
     g.waves = [];
+    g.wavePend = null; // 已預告、還沒出現的增援也取消
     for (const e of g.enemies)
       if (!e.dead) {
         if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
@@ -7516,6 +7703,7 @@ async function testMpCampaign(browser, url) {
     host.evaluate(() => {
       const g = window.__game;
       g.waves = [];
+      g.wavePend = null; // 已預告、還沒出現的增援也取消
       for (const e of g.enemies)
         if (!e.dead) {
           if (e.ai === 'burrow') e.bossVis = 0;
@@ -7542,7 +7730,7 @@ async function testMpCampaign(browser, url) {
       e = g.camp.exits[0];
     g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
   });
-  await pump(10);
+  await pump(60, () => host.evaluate(() => !!window.__game.camp.vote));
   const vote = await host.evaluate(() => !!window.__game.camp.vote && window.__game.camp.hint);
   check(!!vote && vote.includes('投票'), '有人站進出口：開始投票倒數（' + vote + '）');
   // 全員站同一個出口：立刻出發，雙方都進入轉場
@@ -7785,6 +7973,8 @@ async function main() {
     await testChapter6(browser, base);
     await testVariants6(browser, base);
     await testCycle2(browser, base);
+    await testWaves(browser, base);
+    await testOutposts(browser, base);
     await testLocalModels(browser, base);
     await testModelSets(browser, base);
     await testMultiplayer(browser, base + '?lan=local', 'local', true);

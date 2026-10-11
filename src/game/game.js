@@ -499,8 +499,11 @@ export class Game {
       if (q.life <= 0) this.popups.splice(i, 1);
     }
     // waves
-    const alive = this.enemies.filter((e) => !e.dead).length;
-    if (alive === 0 && this.waves.length) {
+    const alive = this.enemies.filter((e) => !e.dead && !e.guardOf).length; // 據點的守衛不算
+    this.cacheTick(dt);
+    if (!this.isBossLevel && (this.waves.length || this.wavePend)) {
+      this.waveTick(dt); // 一般戰鬥：剩下少數時派出下一波（game/waves.js）
+    } else if (alive === 0 && this.waves.length) {
       const w = this.waves.shift();
       this.flashAlert('敵方增援抵達');
       for (const t of w) this.spawnType(t, this.scaleHp, this.scaleDmg);
@@ -530,7 +533,8 @@ export class Game {
         this.state = 'ending';
         this.flashMsg('模擬目標全滅', 0x7ee081, 2);
         setTimeout(() => this.sim && this.simEnd(true), 1500);
-      } else {
+      } else if (!this.extractStart()) {
+        // 自由出擊：還有補給箱時先給撤離時間（game/outposts.js）
         this.state = 'ending';
         this.flashMsg('任務完成', 0x7ee081, 2);
         setTimeout(() => this.endMission(true, false), 1800);

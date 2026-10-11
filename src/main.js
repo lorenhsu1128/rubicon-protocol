@@ -38,5 +38,7 @@ import './game/campaign-mp.js';
 import './entities/mech-objective.js';
 import './entities/mech-foe.js';
 import './game/sim.js';
+import './game/waves.js';
+import './game/outposts.js';
 
 new Game();

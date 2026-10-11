@@ -250,13 +250,15 @@ Object.assign(Game.prototype, {
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
     document.getElementById('kits').innerHTML =
       `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(Math.max(0, (p.kitsMax || 3) - p.kits))}</b>　<span class="dim">[R]</span>`;
-    const alive = this.isClient ? this.clientAlive || 0 : this.enemies.filter((e) => !e.dead).length;
+    const alive = this.isClient
+      ? this.clientAlive || 0
+      : this.enemies.filter((e) => !e.dead && !e.guardOf).length;
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML = this.camp
       ? this.campHudTop(alive, wavesLeft)
       : this.campC && this.campC.view
         ? this.campHudHtml(this.campC.view)
-        : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
+        : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">${this.extract > 0 ? `撤離倒數 ${Math.ceil(this.extract)} 秒（回收補給箱）` : `殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''}`} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
     if (this.camp || this.campC) this.campDrawHud(c);
     if (this.bountyPops.length) {
       c.textAlign = 'left';
@@ -453,6 +455,8 @@ Object.assign(Game.prototype, {
       c.fillStyle = '#ff7a30';
       c.fillText(txt, W / 2, H * 0.68);
     }
+    this.drawCacheMarks(c, W, H, p);
+    this.drawWaveMarks(c, W, H, p, dt);
     // reticle at mouse
     if (this.pvp) this.drawPvpHud(c, W, H, p);
     if (this.fp) {

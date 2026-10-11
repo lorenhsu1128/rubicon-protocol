@@ -128,6 +128,7 @@ Object.assign(Game.prototype, {
     e.remote = true;
     e.slot = r.slot;
     e.pvpAi = !!r.pvpAi;
+    if (r.guard) e.guardOf = r.guard;
     if (r.pvpTeam !== undefined && r.pvpTeam !== null) e.pvpTeam = r.pvpTeam;
     e.kills = 0;
     e.deaths = 0;
@@ -237,6 +238,7 @@ Object.assign(Game.prototype, {
   },
   clientEvent(e) {
     if (this.clientMapEvent(e)) return;
+    if (this.clientCacheEvent(e)) return;
     if (this.campClientEvent(e)) return;
     if (this.supportEvent(e)) return;
     switch (e.t) {
@@ -325,6 +327,9 @@ Object.assign(Game.prototype, {
         break;
       case 'alert':
         this.flashAlert(e.txt);
+        break;
+      case 'wave':
+        this.waveShow(e); // 增援波次的預告（方向依自己的鏡頭）
         break;
       case 'bounty':
         this.save.coam += e.v;
