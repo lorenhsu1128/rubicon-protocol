@@ -2,8 +2,17 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp, pick, rnd } from '../core/math.js';
-import { AC_NAMES, AC_ROSTER, DUO_BOSS, ENEMY_TYPES, bossForLevel, isBossLevel } from '../data/enemies.js';
-import { CONSUMABLES, PARTS, partById } from '../data/parts.js';
+import {
+  AC_NAMES,
+  AC_ROSTER,
+  DUO_BOSS,
+  ENEMY_TYPES,
+  FOE_HP_K,
+  bossForLevel,
+  enemyScale,
+  isBossLevel,
+} from '../data/enemies.js';
+import { CONSUMABLES, FOE_STAB_K, PARTS, partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { buildBomberMesh } from '../render/extra-models.js';
@@ -356,8 +365,9 @@ Object.assign(Game.prototype, {
       (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
     this.isBossLevel = boss;
     this.enemyPointsTotal = 0;
-    const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)),
-      scaleDmg = 1 + (L - 1) * 0.06;
+    const sc = enemyScale(L, np),
+      scaleHp = sc.hp,
+      scaleDmg = sc.dmg;
     if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg);
     else this.spawnComp(this.foeMix(this.rollComp(L, np), theme, 0, true), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
@@ -571,9 +581,9 @@ Object.assign(Game.prototype, {
         asm: r.asm,
         pal: r.pal,
         scale: d.scale,
-        hpMul: r.hpMul * scaleHp,
+        hpMul: r.hpMul * scaleHp * 0.85,
         dmgMul: r.dmgMul * scaleDmg,
-        stabMul: r.stabMul,
+        stabMul: r.stabMul * FOE_STAB_K,
         ai: r.ai,
         wantDist: r.wantDist,
         speedMul: r.speedMul,
@@ -593,9 +603,9 @@ Object.assign(Game.prototype, {
         asm,
         pal: d.pal,
         scale: d.scale,
-        hpMul: d.hpMul * scaleHp,
+        hpMul: d.hpMul * scaleHp * FOE_HP_K,
         dmgMul: d.dmgMul * scaleDmg,
-        stabMul: d.stabMul,
+        stabMul: d.stabMul * FOE_STAB_K,
         ai: d.ai,
         flying: d.flying,
         hoverH: d.hoverH,

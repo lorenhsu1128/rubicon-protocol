@@ -7066,20 +7066,28 @@ async function testBosses2(browser, base) {
           step(0.05);
           r.closed = hit();
         } else if (key === 'behemoth') {
-          near(25);
-          const dir = pl.pos.clone().sub(boss.pos).setY(0).normalize();
-          boss.yaw = Math.atan2(-dir.x, -dir.z);
-          boss.rampartAim(dir);
-          step(1.6);
-          r.charge = s.rm;
-          step(2.5);
-          r.lost = lost();
+          // 路線上剛好有障礙物時會先撞上：換個位置再試
+          for (let k = 0; k < 4 && !r.lost; k++) {
+            heal();
+            s.rm = 'walk';
+            boss.staggerT = 0;
+            boss.pos.set(k * 9 - 12, g.world.groundAt(k * 9 - 12, k * 7 - 10, 99), k * 7 - 10);
+            near(25);
+            const dir = pl.pos.clone().sub(boss.pos).setY(0).normalize();
+            boss.yaw = Math.atan2(-dir.x, -dir.z);
+            boss.rampartAim(dir);
+            step(1.6);
+            r.charge = s.rm;
+            step(2.5);
+            r.lost = lost();
+          }
           // 撞上場地邊界 → 硬直、背後弱點
           const ex = g.world.lim - 16; // 撞牆點與正前方的測試位置都要在邊緣懸崖之內
           boss.pos.set(ex, g.world.groundAt(ex, 0, 99), 0);
           boss.rampartAim(new THREE.Vector3(1, 0, 0));
           step(2.4);
           r.stun = s.rm;
+          boss.yaw = boss.aimYaw = -Math.PI / 2; // 面向 +X
           place(boss.pos.x - 15, boss.pos.z); // 背後（boss 面向 +X）
           r.rear = hit();
           place(boss.pos.x + 8, boss.pos.z);
@@ -7274,7 +7282,7 @@ async function testBosses2(browser, base) {
     return out.join('');
   });
   check(lv === '..BB.BB.', `Boss 關的等級（${lv}：任務 3、4、6、7…）`);
-  // 失衡後保護（只給玩家）：硬直結束後 2.5 秒內持續受到衝擊也不會再次失衡（不會被連續硬直鎖死）；敵人沒有保護
+  // 失衡後保護（只給玩家）：硬直結束後 3.5 秒內持續受到衝擊也不會再次失衡（不會被連續硬直鎖死）；敵人沒有保護
   const sg = await page.evaluate(() => {
     const g = window.__game;
     g.save.level = 1;
@@ -7298,7 +7306,7 @@ async function testBosses2(browser, base) {
       step(0.2);
     }
     const capped = pl.acs < pl.acsMax;
-    step(1);
+    step(2); // 保護 3.5 秒
     slam();
     const again = pl.staggerT > 0;
     // 敵人：硬直結束後馬上再重擊就會再次失衡

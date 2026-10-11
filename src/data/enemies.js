@@ -993,6 +993,12 @@ export const DUO_BOSS = [
     speedMul: 1.0,
   },
 ];
+// 敵人強度依等級與人數放大（自由出擊與主線共用）
+export function enemyScale(L, np = 1) {
+  return { hp: (1 + (L - 1) * 0.05) * (1 + 0.4 * (np - 1)), dmg: 1 + (L - 1) * 0.035 };
+}
+// 一般敵人（不是具名 AC）的 AP 倍率
+export const FOE_HP_K = 0.8;
 export const ENEMY_TYPES = {
   mt: {
     cost: 1,
@@ -1524,7 +1530,7 @@ export const ENEMY_TYPES = {
     name: '敵對 AC',
     pal: 'ac',
     scale: 1.0,
-    hpMul: 1.1,
+    hpMul: 0.85,
     dmgMul: 0.55,
     stabMul: 1.0,
     ai: 'ac',

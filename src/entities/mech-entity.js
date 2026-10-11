@@ -11,6 +11,9 @@ import {
   STAG_GUARD,
   STAG_GUARD_CAP,
   STAG_GUARD_K,
+  PVE_IMP_K,
+  PVE_ACS_DELAY,
+  FOE_STAG_T,
   asmStats,
   jumpSpec,
   partById,
@@ -922,14 +925,24 @@ export class MechEntity {
       // 高處優勢：攻擊者比自己高 4 m 以上時衝擊 +25%
       const high = from && from !== this && from.center && from.center().y - this.center().y > 4 ? 1.25 : 1;
       const guard = this.stagGuardT > 0; // 失衡後保護：累積變少、不會再次過載
-      this.acs += impact * (this.shield ? 0.6 : 1) * high * (guard ? STAG_GUARD_K : 1);
+      const pve = this.pilotEnt() && !this.game.pvp; // PvE 的玩家：衝擊較小、ACS 較快開始回復
+      this.acs +=
+        impact * (this.shield ? 0.6 : 1) * high * (guard ? STAG_GUARD_K : 1) * (pve ? PVE_IMP_K : 1);
       if (guard) this.acs = Math.min(this.acs, this.acsMax * STAG_GUARD_CAP);
-      this.acsDecayDelay = 1.2;
+      this.acsDecayDelay = pve ? PVE_ACS_DELAY : 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
         // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）
-        this.staggerT = (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : 2.0) * (1 - this.pmv('stagT'));
+        this.staggerT =
+          (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
+          (1 - this.pmv('stagT'));
         this.game.fx.ring(this.center(), 4, 0xffb020);
+        // 打出敵人的失衡：短暫頓格與提示
+        if (this.team === 'enemy' && from && from.isPlayer) {
+          this.game.fx.hitStop = Math.max(this.game.fx.hitStop, 0.07);
+          this.game.fx.shockwave(this.center(), 4, 0xffb020, 0.3);
+          if (!this.isBoss) this.game.flashMsg('失衡！', 0xff6a2a, 0.7);
+        }
         SFX.stagger(this.isPlayer ? null : this.center());
         if (this.isPlayer) {
           this.game.flashAlert('ACS 過載 — 姿態崩潰');
@@ -982,6 +995,12 @@ export class MechEntity {
     g.fx.shatter(this, g.world);
     this.mesh.visible = false;
     g.camShake = Math.max(g.camShake, this.isBoss ? 0.5 : 0.2);
+    // 自己擊破敵人：頓格與衝擊環（擊破的回饋）
+    if (this.team === 'enemy' && from && from.isPlayer && !g.pvp) {
+      g.fx.hitStop = Math.max(g.fx.hitStop, this.isBoss ? 0.18 : 0.045);
+      g.fx.shockwave(c, this.isBoss ? 10 : 5, 0xffa040, this.isBoss ? 0.6 : 0.35);
+      g.fx.flash(c, this.isBoss ? 4 : 2, 0xffc080, 0.12);
+    }
     if (g.pvp && g.onPvpDeath) {
       g.onPvpDeath(this, from);
     } else if (this.team === 'enemy') {

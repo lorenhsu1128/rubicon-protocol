@@ -16,7 +16,7 @@ import {
   transMode,
 } from '../data/campaign.js';
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
-import { AC_ROSTER, PART_DEFS } from '../data/enemies.js';
+import { AC_ROSTER, PART_DEFS, enemyScale } from '../data/enemies.js';
 import { ACES, THEME_ACE } from '../data/foes.js';
 import { FACTIONS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { partById } from '../data/parts.js';
@@ -255,8 +255,9 @@ Object.assign(Game.prototype, {
     this.levelName = this.campSegName();
     this.isBossLevel = !!bd;
     this.enemyPointsTotal = 0;
-    const scaleHp = (1 + (L - 1) * 0.09) * (1 + 0.6 * (np - 1)) * (c.heat && c.heat.shield ? 1.35 : 1),
-      scaleDmg = 1 + (L - 1) * 0.06;
+    const sc = enemyScale(L, np),
+      scaleHp = sc.hp * (c.heat && c.heat.shield ? 1.35 : 1),
+      scaleDmg = sc.dmg;
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
     c.cleared = false;
@@ -330,7 +331,7 @@ Object.assign(Game.prototype, {
       const ace = (seg.ace && (typeof seg.ace === 'string' ? seg.ace : seg.ace[pk])) || THEME_ACE[seg.theme];
       const key = ace || pick(Object.keys(AC_ROSTER));
       const r = ace ? ACES[ace] : AC_ROSTER[key];
-      const up = ace && ACES[ace].theme !== seg.theme ? 1.3 : 1;
+      const up = ace && ACES[ace].theme !== seg.theme ? 1.15 : 1;
       if (ace) {
         ss.ace = ace;
         this.simMark('aces', ace);
@@ -340,8 +341,8 @@ Object.assign(Game.prototype, {
         asm: r.randomAsm ? this.foeRandomAsm() : r.asm,
         pal: r.pal,
         scale: 1,
-        hpMul: r.hpMul * sh * 1.6 * up,
-        dmgMul: r.dmgMul * sd * (up > 1 ? 1.15 : 1),
+        hpMul: r.hpMul * sh * 1.3 * up,
+        dmgMul: r.dmgMul * sd * (up > 1 ? 1.1 : 1),
         stabMul: r.stabMul * 1.3,
         ai: r.ai,
         wantDist: r.wantDist,

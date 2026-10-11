@@ -1061,9 +1061,15 @@ export const GRAVITY = 42;
 export const JUMP_EN = 40; // 地面跳躍的耗能
 export const AIR_DECAY = [1, 0.75, 0.55];
 // 失衡後保護（只給玩家，MechEntity.pilotEnt）：硬直結束後這段時間內 ACS 只累積 STAG_GUARD_K 倍、最多到 STAG_GUARD_CAP，近戰連段與 EMP 也不會再讓它失衡
-export const STAG_GUARD = 2.5;
+export const STAG_GUARD = 3.5;
 export const STAG_GUARD_K = 0.3;
 export const STAG_GUARD_CAP = 0.9;
+// PvE 的玩家機體（pilotEnt、不是 PvP）：承受的衝擊倍率、ACS 開始回復前的等待（秒）
+export const PVE_IMP_K = 0.65;
+export const PVE_ACS_DELAY = 0.6;
+// 一般敵人（不是 Boss）：失衡門檻倍率、硬直時間
+export const FOE_STAB_K = 0.75;
+export const FOE_STAG_T = 2.6;
 export function jumpSpec(legs) {
   const t = legs.type;
   let maxH = legs.jumpH;
