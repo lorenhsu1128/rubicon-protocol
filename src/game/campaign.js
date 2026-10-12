@@ -18,7 +18,7 @@ import {
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
 import { AC_ROSTER, PART_DEFS, enemyScale } from '../data/enemies.js';
 import { ACES, THEME_ACE } from '../data/foes.js';
-import { FACTIONS, SPEAKERS, speakerBadge } from '../data/story.js';
+import { FACTIONS, MEMORIES, speakerBadge, SPEAKERS } from '../data/story.js';
 import { partById } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
@@ -101,6 +101,8 @@ Object.assign(Game.prototype, {
       ace: (c.ss && c.ss.ace) || '',
       cycle: this.campStory().cycle || 1,
       pick: (c.choice && c.choice.key) || this.campLastPick(so.chapter),
+      ...this.campPrevCtx(),
+      truth: this.campTruth().ok,
       ...extra,
     };
   },
@@ -321,7 +323,8 @@ Object.assign(Game.prototype, {
       this.spawnBossDef(bd, sh, sd);
       if (bd.kind) this.simMark('bosses', bd.kind);
       // 危險條款：Boss 一開始就是第二型態
-      if (c.heat && c.heat.p2) for (const b of this.bosses) b.forceP2 = true;
+      // 殘響化的 Boss（第 3 周目的 ECHO 委託，data/campaign.js 的 echoBoss）也是
+      if ((c.heat && c.heat.p2) || bd.echo) for (const b of this.bosses) b.forceP2 = true;
       document.getElementById('bossBar').style.display = 'block';
       document.getElementById('bossName').textContent = bd.name;
     } else if (type === 'elite') {
@@ -723,7 +726,9 @@ Object.assign(Game.prototype, {
     if (CH) {
       // 周目限定的選項（真結局）
       const cyc = this.campStory().cycle || 1;
-      const opts = CH.opts.filter((o) => !o.cycle || cyc >= o.cycle);
+      // 周目限定的選項（真結局）；need: 'truth' 另外要完成全部的紫色委託
+      const truth = this.campTruth().ok;
+      const opts = CH.opts.filter((o) => (!o.cycle || cyc >= o.cycle) && (o.need !== 'truth' || truth));
       const spots = this.campSpots(opts.length, mode === 'relay' ? 'edge' : 'inner');
       const trs = transList(next.theme, mode).slice();
       c.exits = spots.map((pos, i) => {
@@ -1258,6 +1263,13 @@ Object.assign(Game.prototype, {
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       if (c.choice && !c.replay) st.choices[c.choice.id] = c.choice.key; // 陣營抉擇（重打不改）
+      // 第 3 周目的 ECHO 委託：回收記憶片段（作戰室的「ECHO 的紀錄」）
+      if (so.memory) {
+        st.memories = st.memories || {};
+        if (!st.memories[so.memory])
+          this.flashMsg(`記憶片段 ${so.memory}／6「${MEMORIES[so.memory].title}」回收`, 0xffd060, 4);
+        st.memories[so.memory] = 1;
+      }
       // 終章：依最後的抉擇進入結局（結果畫面按確定之後；多人時隊友也看，見 clientEnd）
       if (so.final && !c.replay) {
         const key = (c.choice && c.choice.key) || 'open';

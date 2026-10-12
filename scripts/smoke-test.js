@@ -8070,6 +8070,215 @@ async function testCycle2(browser, base) {
   await ctx.close();
 }
 
+// 第 3 周目：ECHO 的委託（金色節點、殘響 Boss、記憶片段、ECHO 的紀錄）、真結局的條件（紫色委託）、
+// 依上一周目的抉擇改變的通訊與簡報
+async function testCycle3(browser, base) {
+  console.log('第 3 周目：ECHO 的委託、記憶片段、真結局的條件、依上一周目的抉擇');
+  const { ctx, page } = await newPage(browser, 'cycle3');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const Y = ['c1y', 'c2y', 'c3y', 'c4y', 'c5y', 'c6y'];
+  const s1 = await page.evaluate((Y) => {
+    const g = window.__game;
+    const st = g.campStory();
+    const all = { c1s2: 1, c2s3b: 1, c3s3: 1, c4s3a: 1, c5s3: 1, c6s2: 1 };
+    st.cycle = 2;
+    st.done = { ...all };
+    const c2 = Y.map((s) => g.hubSortieState(s)).join('/');
+    st.cycle = 3;
+    const c3 = Y.map((s) => g.hubSortieState(s)).join('/');
+    st.done = { c1s2: 1 };
+    const c3a = Y.map((s) => g.hubSortieState(s)).join('/');
+    st.done = { c1s1: 1, c1s2: 1 };
+    const chap = g.campChapterCheck(1);
+    st.memories = {};
+    g.openHub();
+    const node = document.querySelector('#hubMap .hubNode[data-sid="c1y"] circle');
+    return {
+      c2,
+      c3,
+      c3a,
+      chap,
+      stroke: node && node.getAttribute('stroke'),
+      btn: getComputedStyle(document.getElementById('btnHubEcho')).display,
+    };
+  }, Y);
+  check(
+    s1.c2 === 'hidden/hidden/hidden/hidden/hidden/hidden' &&
+      s1.c3 === 'open/open/open/open/open/open' &&
+      s1.c3a === 'open/locked/locked/locked/locked/locked' &&
+      s1.chap &&
+      s1.stroke === '#ffd060' &&
+      s1.btn !== 'none',
+    'ECHO 的委託：第 2 周目不出現、第 3 周目依前置開放（金色）、不算進整章完成、作戰室有 ECHO 的紀錄（' +
+      JSON.stringify(s1) +
+      '）',
+  );
+  await page.click('#hubMap .hubNode[data-sid="c1y"]');
+  check(await waitVisible(page, 'brief'), '點金色節點：顯示 ECHO 的簡報');
+  const br = await page.evaluate(() => ({
+    client: document.getElementById('brClient').textContent,
+    info: document.getElementById('brInfo').textContent,
+  }));
+  check(
+    br.client.includes('ECHO') && br.info.includes('記憶片段'),
+    'ECHO 的簡報：私人頻道、記憶片段（' + br.client + '）',
+  );
+  // 6 個委託的終點：殘響化的 Boss（ECHO-、一開始就是第二型態、能量減傷較高）
+  const bs = await page.evaluate((Y) => {
+    const g = window.__game;
+    g.state = 'play';
+    const out = [];
+    for (const sid of Y) {
+      g.campBegin(sid);
+      const n = g.campSortie().segs.length;
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      g.campEnterSeg();
+      const b = g.bosses[0];
+      out.push({
+        name: ((g.bossDef && g.bossDef.name) || '').split(' ')[0],
+        p2: !!(b && b.forceP2 && b.phase2()),
+        en: b && b.res ? b.res[2] : null,
+        echo: !!(g.bossDef && g.bossDef.echo),
+      });
+      g.campEnd(false, true);
+      g.state = 'play';
+    }
+    g.state = 'hub';
+    return out;
+  }, Y);
+  check(
+    bs.map((b) => b.name).join(',') ===
+      'ECHO-BASTILLE,ECHO-HALBERD,ECHO-MIRAGE,ECHO-JUDGEMENT,ECHO-AEGIS,ECHO-DOPPEL' &&
+      bs.every((b) => b.p2 && b.echo && b.en > 0),
+    '殘響化的 Boss：名稱、第二型態開始、能量減傷（' + JSON.stringify(bs) + '）',
+  );
+  // 完成 → 回收記憶片段 → ECHO 的紀錄
+  const mem = await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1y');
+    g.campEnterSeg();
+    g.campEnd(true);
+    const st = g.campStory();
+    g.openHub();
+    g.hubEcho(true);
+    return {
+      mem: Object.keys(st.memories || {}).join(','),
+      list: document.getElementById('hubEchoList').textContent,
+      btn: document.getElementById('btnHubEcho').textContent,
+    };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cycle3-echo.png') });
+  check(
+    mem.mem === '1' && mem.list.includes('訊號') && mem.list.includes('？？？') && mem.btn.includes('1／6'),
+    'ECHO 的委託完成：回收記憶片段 1，ECHO 的紀錄顯示（' + mem.btn + '）',
+  );
+  // 真結局的條件：紫色委託不夠時沒有第三個出口，通訊與說明卡說明；全部完成過才出現
+  const exits = async (hist) => {
+    await page.evaluate((hist) => {
+      const g = window.__game;
+      if (g.camp) g.campEnd(false, true);
+      g.hubEcho(false);
+      g.state = 'play';
+      const st = g.campStory();
+      st.cycle = 3;
+      st.done = { c1x: 1, c2x: 1 };
+      st.history = [{ cycle: 2, done: hist, choices: { c2: 'castron', c4: 'sancta', c6: 'seal' } }];
+      g.campBegin('c6s3');
+      g.camp.seg = 5;
+      g.camp.types[5] = 'supply';
+      g.campEnterSeg();
+    }, hist);
+    await page.waitForFunction(() => window.__game.camp && window.__game.camp.exits.length >= 2, null, {
+      timeout: 20000,
+    });
+    return page.evaluate(() => {
+      const g = window.__game;
+      const T = g.campTruth();
+      const e = g.commPick('choice', g.campCtx());
+      // 說明卡（冒煙測試平常略過）：鎖住的第三條路
+      g.autoPickMod = false;
+      g.campChoiceCard(
+        'c6',
+        g.camp.exits.map((q) => q.choice),
+      );
+      const card = document.getElementById('mpCards').textContent;
+      document.getElementById('modPick').classList.remove('on');
+      g.state = 'play';
+      g.autoPickMod = true;
+      return {
+        ex: g.camp.exits.map((q) => q.choice).join(','),
+        n: T.n,
+        line: e ? e.lines.map((l) => l[1]).join(' ') : '',
+        card,
+      };
+    });
+  };
+  const ex1 = await exits({ c3x: 1 });
+  const ex2 = await exits({ c3x: 1, c4x: 1, c5x: 1, c6x: 1 });
+  check(
+    ex1.ex === 'open,seal' &&
+      ex1.n === 3 &&
+      ex1.line.includes('全部的紀錄') &&
+      ex1.card.includes('3／6') &&
+      ex2.ex === 'open,seal,beyond' &&
+      ex2.line.includes('第三個出口'),
+    '真結局的條件：紫色委託 ' +
+      ex1.n +
+      '／6 時沒有第三個出口（說明卡與通訊說明），全部完成過才出現（' +
+      ex2.ex +
+      '）',
+  );
+  // 真結局＋6 片記憶片段：多一段結尾
+  const ep = await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+    g.campStory().memories = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1 };
+    g.openEpilogue('beyond');
+    const full = document.getElementById('epLines').textContent;
+    g.campStory().memories = { 1: 1 };
+    g.openEpilogue('beyond');
+    return { full, part: document.getElementById('epLines').textContent };
+  });
+  check(
+    ep.full.includes('循環沒有再開始') && !ep.part.includes('循環沒有再開始'),
+    '真結局：6 片記憶片段全部回收時多一段結尾',
+  );
+  // 第 2 周目：依上一周目的抉擇改變通訊與紫色委託的簡報
+  const pv = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.cycle = 2;
+    const pick = (hist, ev, ctx) => {
+      st.history = [{ cycle: 1, done: {}, choices: hist }];
+      const e = g.commPick(ev, { ...ctx, cycle: 2, ...g.campPrevCtx() });
+      return e ? e.lines.map((l) => l[1]).join(' ') : '';
+    };
+    const out = {
+      c2c: pick({ c2: 'castron' }, 'choice', { sid: 'c2s2', chapter: 2 }),
+      c2a: pick({ c2: 'aetheric' }, 'choice', { sid: 'c2s2', chapter: 2 }),
+      c4v: pick({ c4: 'veerwell' }, 'sortieStart', { sid: 'c4s1', chapter: 4 }),
+      endS: pick({ c6: 'seal' }, 'sortieStart', { sid: 'c1s1', chapter: 1 }),
+    };
+    st.history = [{ cycle: 1, done: {}, choices: { c2: 'aetheric' } }];
+    st.done = { c1s1: 1, c2s2: 1 };
+    g.openBrief('c2x');
+    out.brief = document.getElementById('brLines').textContent;
+    return out;
+  });
+  check(
+    pv.c2c.includes('卡斯特隆') &&
+      pv.c2a.includes('研究機構') &&
+      pv.c4v.includes('上一次') &&
+      pv.endS.includes('墜落') &&
+      pv.brief.includes('冷卻槽'),
+    '第 2 周目：依上一周目的抉擇改變通訊與簡報（' + JSON.stringify(pv).slice(0, 160) + '…）',
+  );
+  await ctx.close();
+}
+
 // 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
 async function testVariants6(browser, base) {
   console.log('主題變體：各主題補到 6 種');
@@ -8351,6 +8560,11 @@ async function testChapter6(browser, base) {
       if (g.camp) g.campEnd(false, true);
       g.state = 'play';
       g.save.story.cycle = cycle;
+      // 真結局的出口另外要完成全部紫色委託（哪一周目都算）
+      g.save.story.history =
+        cycle >= 3
+          ? [{ cycle: 2, done: { c1x: 1, c2x: 1, c3x: 1, c4x: 1, c5x: 1, c6x: 1 }, choices: {} }]
+          : [];
       g.campBegin('c6s3');
       g.camp.seg = 5;
       g.camp.types[5] = 'supply';
@@ -8393,6 +8607,7 @@ async function testChapter6(browser, base) {
     const g = window.__game;
     g.save.story.cycle = 1;
     g.save.story.done = { c1s1: 1, c6s3: 1 };
+    g.save.story.history = [];
     g.save.story.choices = { c2: 'castron', c4: 'sancta' };
     g.openEpilogue('seal');
   });
@@ -9409,6 +9624,7 @@ async function main() {
     await testChapter6(browser, base);
     await testVariants6(browser, base);
     await testCycle2(browser, base);
+    await testCycle3(browser, base);
     await testWaves(browser, base);
     await testOutposts(browser, base);
     await testModFx(browser, base);

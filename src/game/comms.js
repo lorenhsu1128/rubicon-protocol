@@ -5,7 +5,23 @@ import { COMMS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { escHtml } from '../core/html.js';
 import { Game } from './game.js';
 
-const COND = ['sid', 'seg', 'type', 'theme', 'chapter', 'fails', 'killedBy', 'cycle', 'ace', 'pick'];
+const COND = [
+  'sid',
+  'seg',
+  'type',
+  'theme',
+  'chapter',
+  'fails',
+  'killedBy',
+  'cycle',
+  'ace',
+  'pick',
+  'prevC2',
+  'prevC4',
+  'prevEnd',
+  'truth',
+];
+const PREV = ['prevC2', 'prevC4', 'prevEnd'];
 const keyOf = (e) => e.event + '|' + e.lines[0][1];
 
 Object.assign(Game.prototype, {
@@ -29,7 +45,11 @@ Object.assign(Game.prototype, {
     };
     const cand = COMMS.filter(ok);
     if (!cand.length) return null;
-    const score = (e) => COND.filter((k) => e[k] !== undefined).length + (e.once ? 0.5 : 0);
+    // 依上一周目的抉擇（prev*）比一般的周目台詞優先，但不蓋過第 3 周目真結局的條件
+    const score = (e) =>
+      COND.filter((k) => e[k] !== undefined).length +
+      PREV.filter((k) => e[k] !== undefined).length * 0.75 +
+      (e.once ? 0.5 : 0);
     const best = Math.max(...cand.map(score));
     const top = cand.filter((e) => score(e) === best);
     return top[Math.floor(Math.random() * top.length)];

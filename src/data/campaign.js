@@ -215,6 +215,7 @@ export const CHOICES = {
         sub: '？？？：駕駛軌道站離開這顆星球',
         faction: 'aetheric',
         cycle: 3,
+        need: 'truth', // 另外要完成全部的紫色委託（Game.campTruth）
       },
     ],
   },
@@ -738,10 +739,98 @@ SORTIES.c6x = {
     { theme: 'orbit', pool: ['boss'], boss: 'ibis', variants: ['dock', 'sunlit'] },
   ],
 };
+// ---- 第 3 周目：ECHO 的私人委託（每章一個；memory＝完成時回收的記憶片段，終點是殘響化的 Boss）----
+SORTIES.c1y = {
+  name: '南部荒野 — 最初的訊號',
+  chapter: 1,
+  level: 6,
+  reward: 60000,
+  memory: 1,
+  segs: [
+    { theme: 'wasteland', pool: ['battle'], variants: ['town', 'craters'] },
+    { theme: 'desert', border: true, pool: ['intel', 'battle', 'destroy'] },
+    { theme: 'desert', pool: ['elite'], ace: 'prospector', variants: ['tunnels', 'vein'] },
+    { theme: 'desert', pool: ['boss'], boss: 'artillery', echo: true, variants: ['openpit', 'shaft'] },
+  ],
+};
+SORTIES.c2y = {
+  name: '多重水壩 — 主壩的記憶',
+  chapter: 2,
+  level: 9,
+  reward: 108000,
+  memory: 2,
+  segs: [
+    { theme: 'dam', pool: ['battle'], variants: ['night', 'quarry'] },
+    { theme: 'dam', pool: ['intel', 'destroy', 'battle'], variants: ['plant', 'weirs'] },
+    { theme: 'dam', pool: ['elite'], ace: 'sluice', variants: ['quarry', 'night'] },
+    { theme: 'dam', pool: ['boss'], boss: 'railgun', echo: true, variants: ['plant', 'weirs', 'storm'] },
+  ],
+};
+SORTIES.c3y = {
+  name: '地下技研都市 — 重置的紀錄',
+  chapter: 3,
+  level: 11,
+  reward: 136000,
+  memory: 3,
+  segs: [
+    { theme: 'institute', pool: ['battle'], variants: ['tanks', 'core', 'blackout'] },
+    { theme: 'institute', pool: ['intel', 'destroy', 'battle'], variants: ['blackout', 'flooded'] },
+    { theme: 'institute', pool: ['elite'], ace: 'specimen', variants: ['blackout', 'flooded'] },
+    { theme: 'institute', pool: ['boss'], boss: 'phantom', echo: true, variants: ['core', 'tanks'] },
+  ],
+};
+SORTIES.c4y = {
+  name: '舊宇宙港 — 封印',
+  chapter: 4,
+  level: 14,
+  reward: 172000,
+  memory: 4,
+  segs: [
+    { theme: 'spaceport', pool: ['battle'], variants: ['runway', 'ruins', 'crash'] },
+    { theme: 'spaceport', pool: ['intel', 'destroy', 'battle'], variants: ['pads', 'launchnight'] },
+    { theme: 'spaceport', pool: ['elite'], ace: 'countdown', variants: ['launchnight', 'pads'] },
+    { theme: 'spaceport', pool: ['boss'], boss: 'orbital', echo: true, variants: ['runway', 'ruins'] },
+  ],
+};
+SORTIES.c5y = {
+  name: '洋上都市 — 重來的時刻',
+  chapter: 5,
+  level: 17,
+  reward: 208000,
+  memory: 5,
+  segs: [
+    { theme: 'xylem', pool: ['battle'], variants: ['harbor', 'dense', 'night'] },
+    { theme: 'xylem', pool: ['intel', 'destroy', 'battle'], variants: ['bridges', 'squall'] },
+    { theme: 'xylem', pool: ['elite'], ace: 'undertow', variants: ['bridges', 'squall'] },
+    { theme: 'xylem', pool: ['boss'], boss: 'flagship', echo: true, variants: ['harbor', 'open'] },
+  ],
+};
+SORTIES.c6y = {
+  name: '高空軌道 — 我在這裡',
+  chapter: 6,
+  level: 20,
+  reward: 252000,
+  memory: 6,
+  segs: [
+    { theme: 'orbit', pool: ['battle'], variants: ['sunlit', 'debris'] },
+    { theme: 'orbit', pool: ['intel', 'destroy', 'battle'], variants: ['cluster', 'span'] },
+    { theme: 'orbit', pool: ['elite'], ace: 'zenith', variants: ['sunlit', 'nightside'] },
+    { theme: 'orbit', pool: ['boss'], boss: 'mirror', echo: true, variants: ['dock', 'nightside'] },
+  ],
+};
 export const SORTIE_DEFAULT = 'c1s1';
 
+// 殘響化的 Boss（第 3 周目的 ECHO 委託）：名稱加 ECHO-、能量減傷、AP 稍高、一開始就是第二型態（campSpawnType）
+export const ECHO_BOSS = { hp: 1.1, en: 0.2 };
+export function echoBoss(b) {
+  const r = (b.res || [0, 0, 0]).slice();
+  r[2] = Math.min(0.6, r[2] + ECHO_BOSS.en);
+  return { ...b, name: 'ECHO-' + b.name, res: r, hpMul: b.hpMul * ECHO_BOSS.hp, echo: true };
+}
 export function sortieBoss(seg, type) {
-  return (type || (seg && seg.pool[0])) === 'boss' ? bossOf(seg.boss) : null;
+  if ((type || (seg && seg.pool[0])) !== 'boss') return null;
+  const b = bossOf(seg.boss);
+  return seg.echo ? echoBoss(b) : b;
 }
 // 兩個區段之間的轉場方式：往交界區段一律接力；同一個垂直主題往下一段用下降
 export function transMode(fromSeg, toSeg) {

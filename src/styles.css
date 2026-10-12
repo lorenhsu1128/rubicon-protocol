@@ -1638,6 +1638,7 @@ body.lab #fps {
 }
 #hubLogBox,
 #hubFacBox,
+#hubEchoBox,
 #rangeLogBox {
   position: absolute;
   inset: 40px max(16px, calc(50% - 320px));
@@ -1655,6 +1656,7 @@ body.lab #fps {
 }
 #hubLogList,
 #hubFacList,
+#hubEchoList,
 #rangeLogList {
   overflow: auto;
   flex: 1;
@@ -1959,8 +1961,33 @@ body.lab #fps {
   color: #ffd060;
 }
 
-#hubFacBox {
+#hubFacBox,
+#hubEchoBox {
   z-index: 45;
+}
+/* ECHO 的紀錄（hub.js 的 hubEcho） */
+.echoNote {
+  color: #ffd060;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.echoMem {
+  border-left: 3px solid #ffd060;
+  padding: 6px 10px;
+  margin: 6px 0;
+  background: rgba(255, 208, 96, 0.05);
+}
+.echoMem p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.echoMem.locked {
+  border-color: #3a4a58;
+  background: none;
+}
+.mpCard.locked {
+  opacity: 0.55;
+  border-style: dashed;
 }
 
 /* 靶場（game/range.js） */

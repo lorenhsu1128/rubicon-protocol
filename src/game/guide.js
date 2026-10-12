@@ -97,6 +97,13 @@ Object.assign(Game.prototype, {
         return `<div class="mpCard" style="border-color:${col}"><div class="mpTag" style="color:${col}">${escHtml(I.F.short)}</div><b>${escHtml(o.name)}</b>${rows.join('')}</div>`;
       })
       .join('');
+    // 第 3 周目但真結局的條件不夠：鎖住的第三條路（客機看不到房主的進度，不顯示）
+    const lockOpt = CH.opts.find((o) => o.need === 'truth' && keys && !keys.includes(o.key));
+    if (lockOpt && !this.campC && (this.campStory().cycle || 1) >= (lockOpt.cycle || 1)) {
+      const T = this.campTruth();
+      $('mpCards').innerHTML +=
+        `<div class="mpCard locked"><div class="mpTag">？？？</div><b>${escHtml(lockOpt.name)}</b><div class="mpTip">第三條路還沒有打開</div><div class="dim">需要完成全部紫色委託（目前 ${T.n}／${T.need}，哪一周目完成的都算）</div></div>`;
+    }
     $('mpDuo').innerHTML = '';
     $('mpSkip').textContent = '了解，前往選擇';
     $('mpSkip').style.display = '';
@@ -161,6 +168,7 @@ Object.assign(Game.prototype, {
       out.push(`⚑ 這次出擊有${CH.name.split('：')[0]}：${CH.opts.map((o) => o.name).join('／')}`);
     }
     if (B.cycle) out.push(`第 ${B.cycle} 周目起的委託`);
+    if (so.memory) out.push(`ECHO 的私人委託：完成時回收記憶片段 ${so.memory}／6`);
     return out;
   },
   // ---------- 作戰室的委託方面板 ----------

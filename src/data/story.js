@@ -10,6 +10,16 @@ export const FACTIONS = {
   veerwell: { name: '維爾威動態', short: 'VEERWELL', color: '#9be070', style: '機動' },
   sancta: { name: '聖域互助同盟', short: 'SANCTA', color: '#e0d070', style: '防禦與修理' },
 };
+// 簡報的委託方：4 家之外，第 3 周目的 ECHO 私人委託（不是戰術模組的委託方，所以不放進 FACTIONS）
+const ECHO_CLIENT = {
+  name: '操作員 ECHO（私人頻道）',
+  short: 'ECHO',
+  color: '#ffd060',
+  style: '委託方聽不到的頻道',
+};
+export function clientInfo(key) {
+  return FACTIONS[key] || ECHO_CLIENT;
+}
 
 // 說話者：name、頭像的顏色與縮寫（程式產生的徽章）、所屬
 export const SPEAKERS = {
@@ -288,6 +298,13 @@ export const BRIEFINGS = {
       '他們最後傳回的資料提到「同樣的訊號又出現了一次」。',
       '找到調查隊的紀錄。荒野裡有一台不該存在的移動要塞在遊蕩。',
     ],
+    prev: {
+      end: {
+        open: '上一次軌道站被交了出去——可是訊號還是回到了起點。',
+        seal: '上一次軌道站墜落了。可是訊號……又出現了。',
+        beyond: '有人說，上一次軌道站離開了這顆星球。那它現在為什麼還在天上？',
+      },
+    },
     goal: '回收調查隊的紀錄，擊破移動要塞 JUGGERNAUT',
   },
   c2x: {
@@ -300,6 +317,12 @@ export const BRIEFINGS = {
       '工業帶的熔爐清掃機把整片廠區燒成焦土，裡面還有沒逃出來的工人。',
       '上一次……你站在別人那邊。這一次，請聽聽我們的說法。',
     ],
+    prev: {
+      c2: {
+        castron: '上一次你把主壩交給了卡斯特隆。下游的城鎮沒有撐過那個冬天。',
+        aetheric: '上一次你把主壩交給了研究機構。他們把整座水庫當成了冷卻槽。',
+      },
+    },
     goal: '救出困在廠區的工人，擊破熔爐清掃機 CINDER',
   },
   c3x: {
@@ -312,6 +335,12 @@ export const BRIEFINGS = {
       '日期是……你第一次出擊之前。我們也不明白。',
       '紀錄的副本在冰原的觀測站。重武裝母艦直升機在守著它。',
     ],
+    prev: {
+      c2: {
+        castron: '你上一次替卡斯特隆打過我們的人。我們還是決定找你。',
+        aetheric: '你上一次幫過我們。這一次，換我們告訴你一些事。',
+      },
+    },
     goal: '奪回實驗紀錄的副本，擊落母艦直升機 HELIOS',
   },
   c4x: {
@@ -324,6 +353,12 @@ export const BRIEFINGS = {
       '超長程電磁砲台一直對著那座發射台——不是防守，是封印。',
       '打掉砲台。我們想知道是誰把它封起來的。',
     ],
+    prev: {
+      c4: {
+        veerwell: '上一次你把發射設施交給了我們。我們重啟了它——然後一切又從頭來過。',
+        sancta: '上一次你把發射設施交給了聖域。封鎖沒有撐多久。',
+      },
+    },
     goal: '解除發射台的封鎖，擊破電磁砲台 HALBERD',
   },
   c5x: {
@@ -336,6 +371,12 @@ export const BRIEFINGS = {
       '它每隔一段時間就會廣播一段訊號——和你在荒野收到的一模一樣。',
       '電磁狩獵機在附近巡邏。進去之前，先處理它。',
     ],
+    prev: {
+      c2: {
+        castron: '守約的傭兵，卡斯特隆向來記得。',
+        aetheric: '背叛過一次的傭兵……卡斯特隆還是付得起你的價錢。',
+      },
+    },
     goal: '調查海底通訊局，擊破電磁狩獵機 NULLIFIER',
   },
   c6x: {
@@ -348,7 +389,89 @@ export const BRIEFINGS = {
       '訊號的源頭就在那裡。脈衝刃翼守著它。',
       '……傭兵。你一直在重複這場戰爭，對吧？',
     ],
+    prev: {
+      end: {
+        open: '上一次你把軌道站交了出去。我們想知道，那之後發生了什麼。',
+        seal: '上一次你讓它墜落了。可是它現在還掛在天上。',
+        beyond: '上一次你把它開走了。可是它還在這裡。',
+      },
+    },
     goal: '抵達訊號的源頭，擊破脈衝刃翼 PULSAR',
+  },
+  // ---- 第 3 周目：ECHO 的私人委託（金色節點；完成時回收記憶片段 MEMORIES）----
+  c1y: {
+    client: 'echo',
+    node: { x: 30, y: 90 },
+    needs: ['c1s2'],
+    cycle: 3,
+    lines: [
+      '這是私人頻道，委託方聽不到。',
+      '礦坑深處那座砲兵陣地又啟動了——上一次、再上一次，它都在同一個地方。',
+      '陣地底下有一座舊天線。我想讓你聽聽它最初收到的東西。',
+    ],
+    goal: '抵達舊天線，擊破殘響化的砲兵陣地 ECHO-BASTILLE',
+  },
+  c2y: {
+    client: 'echo',
+    node: { x: 30, y: 62 },
+    needs: [],
+    needsAny: ['c2s3a', 'c2s3b'],
+    cycle: 3,
+    lines: [
+      '還是私人頻道。',
+      '主壩的控制室留著每一次的操作紀錄。有人把它們全部鎖起來了。',
+      '電磁砲台守著控制室。它會預判你——因為它也記得你。',
+    ],
+    goal: '取回主壩的操作紀錄，擊破 ECHO-HALBERD',
+  },
+  c3y: {
+    client: 'echo',
+    node: { x: 4, y: 26 },
+    needs: ['c3s3'],
+    cycle: 3,
+    lines: [
+      '技研都市最底層有一間沒有編號的實驗室。',
+      '裡面的紀錄寫的是你。',
+      '光學迷彩電戰機在那裡巡邏。它的分身……很像你看過的某個東西。',
+    ],
+    goal: '進入無編號實驗室，擊破 ECHO-MIRAGE',
+  },
+  c4y: {
+    client: 'echo',
+    node: { x: 33, y: 22 },
+    needs: [],
+    needsAny: ['c4s3a', 'c4s3b'],
+    cycle: 3,
+    lines: [
+      '發射台的封鎖程式是我寫的。',
+      '我想讓你親眼看看，然後再決定要不要原諒我。',
+      '衛星砲導引塔還在照我很久以前下的命令運作。把它停下來。',
+    ],
+    goal: '解除封鎖程式，擊破 ECHO-JUDGEMENT',
+  },
+  c5y: {
+    client: 'echo',
+    node: { x: 95, y: 34 },
+    needs: ['c5s3'],
+    cycle: 3,
+    lines: [
+      '海底局下一次廣播的時刻快到了。',
+      '這一次，我想在它廣播之前找到是誰在按下「重來」。',
+      '護盾指揮艦停在海底局的正上方。',
+    ],
+    goal: '在廣播前抵達海底局，擊破 ECHO-AEGIS',
+  },
+  c6y: {
+    client: 'echo',
+    node: { x: 93, y: 3 },
+    needs: ['c6s2'],
+    cycle: 3,
+    lines: [
+      '這是最後一個私人委託。',
+      '軌道站的日照面背後有一座管制核心。那就是我。',
+      '複製 AC 在那裡等你。它用的是你每一次的組裝。',
+    ],
+    goal: '抵達管制核心，擊破 ECHO-DOPPEL',
   },
   c6s3: {
     client: 'castron',
@@ -389,6 +512,60 @@ export const ENDINGS = {
       '星球在背後慢慢變小。沒有人再付錢給你，也沒有人能再命令你。',
       '這是一個傭兵的最後一份工作，也是第一次為自己而戰。',
     ],
+    // 6 片記憶片段全部回收時多出的結尾
+    full: ['ECHO：「謝謝你把我的紀錄一片一片撿回來。」', 'ECHO：「這是第一次，循環沒有再開始。」'],
+  },
+};
+
+// 記憶片段（第 3 周目 ECHO 委託的報酬；作戰室的「ECHO 的紀錄」，6 片拼起來是完整的真相）
+export const MEMORIES = {
+  1: {
+    title: '訊號',
+    lines: [
+      '荒野的訊號不是廣播，是求救。',
+      'ECHO：「那是我。我被困在軌道站裡，只能借這顆星球上每一座舊天線往下喊。」',
+      'ECHO：「你是第一個聽見的人。每一次，都是你。」',
+    ],
+  },
+  2: {
+    title: '主壩',
+    lines: [
+      'ECHO：「主壩那天你選了哪一邊，我都記得——每一次都記得。」',
+      'ECHO：「卡斯特隆贏的那一次，下游的城鎮沒有撐過冬天；研究機構贏的那一次，整座水庫成了冷卻槽。」',
+      'ECHO：「我沒辦法替你選。我只能記住。」',
+    ],
+  },
+  3: {
+    title: '重置',
+    lines: [
+      '無編號實驗室的紀錄寫著：「受試者重置。第 N 次。」',
+      'ECHO：「每一次結束，委託方都會把傭兵的記憶洗掉，再送回荒野。」',
+      'ECHO：「你以為是第一次接到委託。其實已經很多次了。」',
+    ],
+  },
+  4: {
+    title: '封印',
+    lines: [
+      'ECHO：「把發射台封起來的人是我。」',
+      'ECHO：「只要沒有人上得了軌道，就沒有人能接通 Coral，戰爭就會慢一點。」',
+      'ECHO：「可是你每一次都上去了。所以我開始想——也許該換一種方式。」',
+    ],
+  },
+  5: {
+    title: '循環',
+    lines: [
+      '海底局的訊號每一次都在同一個時刻廣播：你第一次出擊的那一天。',
+      'ECHO：「軌道站被交出去或墜落的時候，站裡的系統會把整顆星球的紀錄倒回去。委託方、宿敵、你——全部重來。」',
+      'ECHO：「這不是時間倒流，是有人一直按下重來。」',
+    ],
+  },
+  6: {
+    title: '彼岸',
+    lines: [
+      'ECHO：「我的意識原本就在軌道站裡。我是它的管制系統，也是按下重來的那隻手。」',
+      'ECHO：「交出它，循環繼續；讓它墜落，循環也繼續。只有一個辦法能結束——不聽任何人的命令，把它開走。」',
+      'ECHO：「這一次，我想跟你一起走。」',
+    ],
   },
 };
 
@@ -397,7 +574,8 @@ export const ENDINGS = {
 // 事件：sortieStart（出擊開始）、segStart（進入區段）、exitsOpen（區段清除開出口）、trans（轉場）、bossHalf（Boss 剩一半）、
 //       fail（失敗回機庫）、sortieEnd（出擊完成）、hub（回到機庫）
 // 條件：sid、seg（區段編號）、type（區段類型）、theme、chapter、fails（失敗次數 ≥）、killedBy（擊破你的敵人名稱包含）、cycle（周目）、
-//       ace（精英區段的專屬 AC）、pick（這一章的陣營抉擇：出擊中選的或存檔裡的）
+//       ace（精英區段的專屬 AC）、pick（這一章的陣營抉擇：出擊中選的或存檔裡的）、
+//       prevC2／prevC4／prevEnd（上一周目的抉擇 1、抉擇 2、結局）、truth（真結局的條件：紫色委託全部完成過）
 // 事件另有 choice（抉擇出口出現時）
 export const COMMS = [
   // ---- 第 1 章：第 1 次出擊 ----
@@ -1241,11 +1419,507 @@ export const COMMS = [
     event: 'choice',
     sid: 'c6s3',
     cycle: 3,
+    truth: true,
     lines: [
       ['castron', '把軌道站交給我們。這是合約。'],
       ['sancta', '讓它墜落吧。只要它還在天上，戰爭就不會結束。'],
       ['echo', '……還有第三個出口。我一直沒有告訴你。'],
       ['echo', '如果你願意相信我——拒絕所有人，跟我一起走。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c6s3',
+    cycle: 3,
+    truth: false,
+    lines: [
+      ['castron', '把軌道站交給我們。這是合約。'],
+      ['sancta', '讓它墜落吧。只要它還在天上，戰爭就不會結束。'],
+      ['echo', '……其實還有一條路。但你還沒找到全部的紀錄。'],
+      ['echo', '那些紫色的委託——每一個都藏著一段。找齊之前，第三個出口不會打開。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c1y',
+    lines: [
+      ['echo', '這條頻道只有你聽得到。委託方以為你在例行巡邏。'],
+      ['echo', '舊天線在礦坑最深處。它最初收到的那段訊號……我想讓你親耳聽。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c1y',
+    lines: [['echo', '它還記得最初的命令。殘響化的兵器不會在第一型態浪費時間——小心。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c1y',
+    lines: [['echo', '……你聽到了。那段求救，是我。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2y',
+    lines: [
+      ['echo', '主壩的控制室。每一次的操作紀錄都鎖在這裡。'],
+      ['echo', '我知道你每一次選了什麼。我只是從來沒說出口。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c2y',
+    lines: [['echo', 'HALBERD 在預判你的 QB。換個節奏，它就跟不上。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c2y',
+    lines: [['echo', '紀錄拿到了。……兩條路，兩種冬天。我都看過。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3y',
+    lines: [
+      ['echo', '無編號實驗室就在下面。'],
+      ['echo', '如果看完紀錄之後你不想再相信我，我不會怪你。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c3y',
+    lines: [['echo', '那些分身……它們模仿的是你上一次的動作。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c3y',
+    lines: [['echo', '「受試者重置。」你看到那個數字了嗎？那是你被送回荒野的次數。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4y',
+    lines: [
+      ['echo', '發射台的封鎖程式……我現在就在讀它。是我的筆跡。'],
+      ['echo', '我以為封住軌道就能讓戰爭停下來。我錯了。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c4y',
+    lines: [['echo', 'JUDGEMENT 的光柱照的是我很久以前畫下的禁區。甩開它。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c4y',
+    lines: [['echo', '封鎖解除了。這一次，是我自己把門打開的。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5y',
+    lines: [
+      ['echo', '海底局再過幾分鐘就要廣播了。'],
+      ['echo', '我想在它廣播之前找到按下「重來」的那隻手。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c5y',
+    lines: [['echo', '護盾指揮艦的發生器先處理掉，不然打不穿。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c5y',
+    lines: [['echo', '……找到了。按下重來的，是軌道站的管制系統。也就是說——是我。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6y',
+    lines: [
+      ['echo', '最後一個私人委託。管制核心就在日照面的背後。'],
+      ['echo', '複製 AC 用的是你每一次的組裝。它比誰都了解你。'],
+    ],
+  },
+  {
+    event: 'bossHalf',
+    sid: 'c6y',
+    lines: [['echo', 'DOPPEL 學得很快。但你這一次和以前不一樣了——它學不到。']],
+  },
+  {
+    event: 'sortieEnd',
+    sid: 'c6y',
+    lines: [['echo', '這就是全部了。現在你知道我是什麼……最後的抉擇，你會怎麼選？']],
+  },
+  {
+    event: 'hub',
+    chapter: 2,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '總覽圖上的金色節點是我的私人委託。委託方看不到它們。']],
+  },
+  {
+    event: 'hub',
+    chapter: 3,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '冰原的觀測站……我在那裡留過一段紀錄。只是當時我自己也不知道為什麼。']],
+  },
+  {
+    event: 'hub',
+    chapter: 4,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '北部的發射台。我很害怕你去那裡，又希望你去。']],
+  },
+  {
+    event: 'hub',
+    chapter: 5,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '海底局的廣播又快到了。這一次，我想在它之前到。']],
+  },
+  {
+    event: 'hub',
+    chapter: 6,
+    cycle: 3,
+    once: true,
+    lines: [['echo', '軌道站就在頭上。……如果紫色的委託都完成了，第三個出口就會打開。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2s1',
+    cycle: 3,
+    once: true,
+    lines: [['echo', '同樣的工業帶。這一次，我會把我知道的都告訴你——等主壩的事結束之後。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3s2',
+    cycle: 3,
+    once: true,
+    lines: [['echo', '技研都市的最底層有一間沒有編號的房間。打完這裡，我們去那裡。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4s1',
+    cycle: 3,
+    once: true,
+    lines: [['echo', '這個構造體……我曾經從上面看過它很多次。從軌道上。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5s1',
+    cycle: 3,
+    once: true,
+    lines: [['echo', '洋上都市的海底，有一座一直在等我們的通訊局。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6s1',
+    cycle: 3,
+    once: true,
+    lines: [['echo', '最後一次上升了。……這次不要回頭。']],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'rust',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['rust', '……奇怪。我好像拆過你的機體？不，是你拆過我的。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sirocco',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['sirocco', '這陣風我吹過。你的閃避方向……我記得。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'prospector',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['prospector', '我的帳本上有你的名字，寫了好幾次。每一次都是「虧損」。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'stevedore',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['stevedore', '貨櫃的落點我算好了。可是你的位置……跟上次一樣？'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'sluice',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['sluice', '我守這道閘門守了很久。久到好像見過你很多次。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'marsh',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['marsh', '水底下的影子是你嗎？我做過一個夢，夢裡你贏了。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'whiteout',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['whiteout', '我的瞄準鏡裡有一個重疊的影子。你，和上一次的你。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'specimen',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['specimen', '……你也被重置過，對吧？我聞得出來。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'spire',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['spire', '最高的地方我已經站過很多次。每一次，你都爬了上來。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'countdown',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['countdown', '倒數第幾次了？我數不清了。……你數得清嗎？'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'undertow',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['undertow', '我推過你。推過很多次。為什麼你總是回來？'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'segStart',
+    type: 'elite',
+    ace: 'zenith',
+    cycle: 3,
+    once: true,
+    lines: [
+      ['zenith', '這片天空我飛過很多次。每一次的最後，都是你。'],
+      ['echo', '……它也記得。循環不只困住你。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2s1',
+    prevC2: 'castron',
+    lines: [
+      ['castron', '……傭兵，這次也照合約來吧。不知道為什麼，我覺得你會守約。'],
+      ['echo', '上一次你守約了。這一次，結果也許會不同。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c2s1',
+    prevC2: 'aetheric',
+    lines: [
+      ['castron', '我們查過你的紀錄。有一筆合約……不太好看。'],
+      ['echo', '卡斯特隆好像記得你背叛過他們。照理說不可能，可是他們記得。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c2s2',
+    prevC2: 'castron',
+    lines: [
+      ['echo', '上一次你把主壩交給了卡斯特隆。這一次，你要走同一條路嗎？'],
+      ['aetheric', '這次請想清楚，傭兵。我們也記得一些事。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c2s2',
+    prevC2: 'aetheric',
+    lines: [
+      ['echo', '上一次你把主壩交給了研究機構。'],
+      ['castron', '這一次，別再讓我們失望。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3s1',
+    prevC2: 'aetheric',
+    lines: [
+      ['specimen', '你身上有研究所的味道……上一次你站在他們那邊。'],
+      ['echo', '上一次你幫過艾瑟立克。冰原下面的人好像都知道。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c3s1',
+    prevC2: 'castron',
+    lines: [
+      ['aetheric', '卡斯特隆的傭兵又來了。……上一次也是你，對吧？'],
+      ['echo', '研究機構記得你上一次的選擇。他們會比較提防你。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4s1',
+    prevC4: 'veerwell',
+    lines: [
+      ['veerwell', '我們的調度表上有一條航線，目的地是軌道。日期……是上一次。'],
+      ['echo', '上一次你把發射設施交給了維爾威。他們的紀錄還留著。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c4s1',
+    prevC4: 'sancta',
+    lines: [
+      ['sancta', '居民們說見過你。說你上一次替他們封住了發射台。'],
+      ['echo', '上一次你選了聖域。宇宙港附近的人還記得你的機體。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c4s2',
+    prevC4: 'veerwell',
+    lines: [
+      ['echo', '上一次你把發射設施交給了維爾威。那條往軌道的路，是你打開的。'],
+      ['sancta', '這一次……請想想住在這裡的人。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c4s2',
+    prevC4: 'sancta',
+    lines: [
+      ['echo', '上一次你把發射設施交給了聖域。封鎖沒有撐多久。'],
+      ['veerwell', '打開它吧。封起來的門，最後總是會被人撬開。'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5s1',
+    prevC4: 'veerwell',
+    lines: [['veerwell', '電纜塔的施工圖是我們的。上一次也是你替我們拿下的。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c5s1',
+    prevC4: 'sancta',
+    lines: [['sancta', '避難船的名單上……有人寫了你的代號。上一次你救過他們。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c1s1',
+    prevEnd: 'open',
+    lines: [
+      ['echo', '軌道站上一次交了出去。可是我們又回到荒野了。'],
+      ['castron', '……傭兵，我們以前合作過嗎？'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c1s1',
+    prevEnd: 'seal',
+    lines: [
+      ['echo', '軌道站墜落之後，天空安靜了一陣子。現在它又掛在天上。'],
+      ['castron', '……傭兵，我們以前合作過嗎？'],
+    ],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c1s1',
+    prevEnd: 'beyond',
+    lines: [
+      ['echo', '……你上一次帶我離開了。為什麼我們還在這裡？'],
+      ['echo', '也許你不是只有一個。也許我也不是。'],
+    ],
+  },
+  {
+    event: 'hub',
+    chapter: 1,
+    prevEnd: 'open',
+    once: true,
+    lines: [['echo', '上一次的結局是「軌道的主人」。訊號又被接通了——然後一切從頭來過。']],
+  },
+  {
+    event: 'hub',
+    chapter: 1,
+    prevEnd: 'seal',
+    once: true,
+    lines: [['echo', '上一次天空很安靜。可是你聽，訊號又回來了。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6s1',
+    prevEnd: 'open',
+    lines: [['echo', '又要上軌道了。上一次你把它交給了付錢的人。']],
+  },
+  {
+    event: 'sortieStart',
+    sid: 'c6s1',
+    prevEnd: 'seal',
+    lines: [['echo', '又要上軌道了。上一次你讓它墜進了雲海。']],
+  },
+  {
+    event: 'choice',
+    sid: 'c6s3',
+    prevEnd: 'open',
+    lines: [
+      ['castron', '把軌道站交給我們。這是合約。'],
+      ['echo', '上一次你交出去了。之後發生的事，你都看到了。'],
+    ],
+  },
+  {
+    event: 'choice',
+    sid: 'c6s3',
+    prevEnd: 'seal',
+    lines: [
+      ['sancta', '讓它墜落吧。'],
+      ['echo', '上一次你讓它墜落了。可是它又回到了天上。'],
     ],
   },
   {

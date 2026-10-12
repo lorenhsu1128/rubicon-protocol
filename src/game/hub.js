@@ -7,9 +7,10 @@ import {
   BRIEFINGS,
   CHAPTER_NAMES,
   ENDINGS,
-  FACTIONS,
+  MEMORIES,
   REGIONS,
   SPEAKERS,
+  clientInfo,
   speakerBadge,
 } from '../data/story.js';
 import { THEMES } from '../world/world.js';
@@ -28,6 +29,38 @@ Object.assign(Game.prototype, {
       !B || (B.needs.every((n) => st.done[n]) && (!B.needsAny || B.needsAny.some((n) => st.done[n])));
     return ok ? 'open' : 'locked';
   },
+  // 上一周目（history 的最後一筆）的抉擇與結局：通訊的條件 prevC2／prevC4／prevEnd、紫色委託簡報的一句
+  campPrev() {
+    const h = this.campStory().history || [];
+    const last = h[h.length - 1];
+    const ch = (last && last.choices) || {};
+    return { c2: ch.c2 || '', c4: ch.c4 || '', end: ch.c6 || '' };
+  },
+  campPrevCtx() {
+    const p = this.campPrev();
+    return { prevC2: p.c2, prevC4: p.c4, prevEnd: p.end };
+  },
+  // 真結局的條件：第 2 周目起的紫色委託（BRIEFINGS 的 cycle 2）全部完成過（哪一周目都算）
+  campTruth() {
+    const st = this.campStory();
+    const ids = Object.keys(BRIEFINGS).filter((sid) => BRIEFINGS[sid].cycle === 2 && SORTIES[sid]);
+    const dones = [st.done || {}, ...(st.history || []).map((h) => h.done || {})];
+    const n = ids.filter((sid) => dones.some((d) => d[sid])).length;
+    return { n, need: ids.length, ok: n >= ids.length };
+  },
+  // 回收的記憶片段數（第 3 周目的 ECHO 委託）
+  campMemN() {
+    return Object.keys(this.campStory().memories || {}).filter((k) => MEMORIES[k]).length;
+  },
+  // 作戰室的通訊條件
+  hubCtx() {
+    return {
+      chapter: this.hubChapter(),
+      cycle: this.campStory().cycle || 1,
+      truth: this.campTruth().ok,
+      ...this.campPrevCtx(),
+    };
+  },
   // 已開放的章節：有可以接（或完成過）的出擊的最大章節
   hubChapter() {
     let ch = 1;
@@ -42,7 +75,7 @@ Object.assign(Game.prototype, {
     this.state = 'hub';
     this.showScreen('hub');
     this.renderHub();
-    this.campComm('hub', { chapter: this.hubChapter() });
+    this.campComm('hub', this.hubCtx());
   },
   renderHub() {
     const $ = (id) => document.getElementById(id);
@@ -52,6 +85,9 @@ Object.assign(Game.prototype, {
     $('hubChapter').textContent = (cyc > 1 ? `第 ${cyc} 周目　` : '') + (CHAPTER_NAMES[ch] || '');
     $('hubCoam').textContent = this.save.coam.toLocaleString();
     $('hubMods').innerHTML = this.campModsHtml();
+    // ECHO 的紀錄：第 3 周目起（或回收過記憶片段）
+    $('btnHubEcho').style.display = cyc >= 3 || this.campMemN() ? '' : 'none';
+    $('btnHubEcho').textContent = `ECHO 的紀錄（${this.campMemN()}／6）`;
     // 進行中的出擊
     const ck = st.sortie;
     const so = ck && SORTIES[ck.sid];
@@ -82,7 +118,17 @@ Object.assign(Game.prototype, {
       if (!B) continue;
       const s = this.hubSortieState(sid);
       if (s === 'hidden') continue;
-      const col = s === 'done' ? '#7ee081' : s !== 'open' ? '#3a4a58' : B.cycle ? '#c090ff' : '#ffb020'; // 周目限定的是紫色
+      // 周目限定的是紫色，第 3 周目的 ECHO 委託是金色
+      const col =
+        s === 'done'
+          ? '#7ee081'
+          : s !== 'open'
+            ? '#3a4a58'
+            : B.client === 'echo'
+              ? '#ffd060'
+              : B.cycle
+                ? '#c090ff'
+                : '#ffb020';
       const tip = this.guideNodeInfo(sid);
       const chs = SORTIES[sid].segs.some((sg) => sg.choice);
       svg += `<g class="hubNode ${s}" data-sid="${sid}"><title>${escHtml(tip.join('\n'))}</title><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
@@ -116,7 +162,7 @@ Object.assign(Game.prototype, {
     const $ = (id) => document.getElementById(id);
     const so = SORTIES[sid],
       B = BRIEFINGS[sid] || { lines: [], goal: '', client: 'castron' };
-    const F = FACTIONS[B.client];
+    const F = clientInfo(B.client);
     this.briefSid = sid;
     this.state = 'brief';
     this.showScreen('brief');
@@ -128,7 +174,15 @@ Object.assign(Game.prototype, {
       .slice(1)
       .map((t) => `<div>${escHtml(t)}</div>`)
       .join('');
-    $('brLines').innerHTML = B.lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    // 紫色委託：依上一周目的抉擇多一句（BRIEFINGS 的 prev）
+    const pv = this.campPrev();
+    const extra = Object.keys(B.prev || {})
+      .map((k) => B.prev[k][pv[k]])
+      .filter(Boolean);
+    $('brLines').innerHTML = B.lines
+      .concat(extra)
+      .map((l) => `<p>${escHtml(l)}</p>`)
+      .join('');
     $('brGoal').textContent = '作戰目標：' + B.goal;
     const route = so.segs
       .map((sg, i) => {
@@ -171,7 +225,9 @@ Object.assign(Game.prototype, {
     this.showScreen('epilogue');
     $('epCycle').textContent = `第 ${cyc} 周目　完成`;
     $('epTitle').textContent = E.title;
-    $('epLines').innerHTML = E.lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    // 真結局：6 片記憶片段全部回收時多一段
+    const lines = E.full && this.campMemN() >= 6 ? E.lines.concat(E.full) : E.lines;
+    $('epLines').innerHTML = lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
     const seen = Object.keys(st.endings || {}).length;
     $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
     $('btnEpNext').style.display = cyc < 3 && !mp ? '' : 'none';
@@ -203,6 +259,25 @@ Object.assign(Game.prototype, {
     st.mpMods = null;
     this.writeSave();
     this.openHub();
+  },
+  // ECHO 的紀錄：回收的記憶片段（第 3 周目的 ECHO 委託）與真結局的條件
+  hubEcho(open) {
+    const el = document.getElementById('hubEchoBox');
+    el.style.display = open ? '' : 'none';
+    if (!open) return;
+    SFX.ui();
+    const st = this.campStory();
+    const mem = st.memories || {};
+    const T = this.campTruth();
+    let h = `<div class="echoNote">真結局的條件：第 3 周目，並完成全部紫色委託（目前 ${T.n}／${T.need}${T.ok ? '，已達成' : ''}）。記憶片段 ${this.campMemN()}／6${this.campMemN() >= 6 ? '：真結局多一段結尾' : '：全部回收時，真結局多一段結尾'}。</div>`;
+    for (const k of Object.keys(MEMORIES)) {
+      const M = MEMORIES[k];
+      const sid = Object.keys(SORTIES).find((s) => SORTIES[s].memory === +k);
+      h += mem[k]
+        ? `<div class="echoMem"><b>片段 ${k}「${escHtml(M.title)}」</b>${M.lines.map((l) => `<p>${escHtml(l)}</p>`).join('')}</div>`
+        : `<div class="echoMem locked"><b>片段 ${k}　？？？</b><p class="dim">完成 ECHO 的委託「${escHtml(sid ? SORTIES[sid].name : '')}」回收（第 3 周目）</p></div>`;
+    }
+    document.getElementById('hubEchoList').innerHTML = h;
   },
   // 通訊紀錄：最近的在上面
   hubLog(open) {
