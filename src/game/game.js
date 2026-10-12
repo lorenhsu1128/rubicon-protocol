@@ -340,6 +340,8 @@ export class Game {
     }
     if (this.updateVpad) this.updateVpad();
     if (this.commPlace) this.commPlace();
+    // 結果畫面的標題與評價（文字演出；內容在 showScreen 前後設定，所以等這段程式跑完）
+    if (id === 'result' && this.tfxResult) Promise.resolve().then(() => this.tfxResult());
     if (id === 'title' && this.renderContinue) this.renderContinue();
     // 主線（單人）才有「保存並回作戰室」
     const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);
@@ -353,6 +355,7 @@ export class Game {
     let dt = Math.min(0.05, (now - this.lastT) / 1000);
     this.lastT = now;
     this.lastDt = dt;
+    this.tfxTick(); // 文字演出（game/textfx.js）
     this.pollGamepad(dt);
     if (this.camp && this.camp.wait) this.campWaitTick(); // 主線多人：轉場中等待隊友（不靠會被節流的計時器）
     if ((this.frames & 15) === 0) this.updateVpad();
@@ -533,7 +536,7 @@ export class Game {
       } else if (!this.extractStart()) {
         // 自由出擊：還有補給箱時先給撤離時間（game/outposts.js）
         this.state = 'ending';
-        this.flashMsg('任務完成', 0x7ee081, 2);
+        this.flashMsg('任務完成', 0x7ee081, 2, { k: 'done', m: '任務完成' });
         setTimeout(() => this.endMission(true, false), 1800);
       }
     }

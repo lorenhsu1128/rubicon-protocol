@@ -328,7 +328,7 @@ Object.assign(Game.prototype, {
         }
         break;
       case 'msg':
-        this.flashMsg(e.txt, e.c, e.d || 1.6);
+        this.flashMsg(e.txt, e.c, e.d || 1.6, e.o);
         break;
       case 'alert':
         this.flashAlert(e.txt);
@@ -341,7 +341,7 @@ Object.assign(Game.prototype, {
         break;
       case 'bossDown':
         this.fx.hitStop = Math.max(this.fx.hitStop, 0.5);
-        this.showBanner('TARGET DESTROYED', `${e.n} 擊破`, '#ffb020', 3);
+        this.showBanner('TARGET DESTROYED', `${e.n} 擊破`, '#ffb020', 3, { k: 'kill', m: '擊破', s: e.n });
         break;
       case 'bounty':
         this.save.coam += e.v;

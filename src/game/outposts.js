@@ -111,7 +111,7 @@ Object.assign(Game.prototype, {
       if ((this.extract <= 0 || !this.cachesLeft()) && this.state === 'play') {
         this.extract = 0;
         this.state = 'ending';
-        this.flashMsg('撤離完成', 0x7ee081, 2);
+        this.flashMsg('撤離完成', 0x7ee081, 2, { k: 'done', m: '撤離完成', s: 'EXTRACTION COMPLETE' });
         setTimeout(() => this.state === 'ending' && this.player && this.endMission(true, false), 1500);
       }
     }

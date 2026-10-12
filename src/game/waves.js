@@ -148,6 +148,7 @@ Object.assign(Game.prototype, {
     if (ev.a) text += '敵對 AC 也在裡面。';
     if (ev.i >= ev.N) text += '這是最後一波。';
     SFX.waveAlert(Math.sin(ang), ev.i >= ev.N); // 從預告的方向（左右聲道）響起
+    if (ev.i >= ev.N && ev.N > 1) this.tfx('lastwave', '最終波', `${clock} 點鐘方向・${ev.n} 機`);
     this.commSay('echo', text);
   },
   // HUD：增援地點的指示（畫面外是邊緣的箭頭，畫面內是菱形標記）

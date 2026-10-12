@@ -45,5 +45,6 @@ import './game/waves.js';
 import './game/outposts.js';
 import './game/feedback.js';
 import './game/juice.js';
+import './game/textfx.js';
 
 new Game();

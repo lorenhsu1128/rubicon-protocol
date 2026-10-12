@@ -264,7 +264,9 @@ Object.assign(Game.prototype, {
     c.restore();
   },
   // 橫幅：Boss 登場（WARNING）與擊破
-  showBanner(txt, sub, col = '#ff4030', dur = 2.6) {
+  // o：文字演出 { k, m, s }（開著時改用 game/textfx.js）
+  showBanner(txt, sub, col = '#ff4030', dur = 2.6, o) {
+    if (o && this.tfx(o.k, o.m || txt, o.s != null ? o.s : sub)) return;
     this.banner = { txt, sub, col, t: dur, max: dur };
   },
   drawBanner(c, W, H, dt) {
@@ -272,7 +274,9 @@ Object.assign(Game.prototype, {
     for (const b of this.bosses || []) {
       if (b.introShown || b.dead) continue;
       b.introShown = true;
-      if (!this.lab) this.showBanner('WARNING', b.name, '#ff4030', 2.8);
+      if (this.lab) continue;
+      this.showBanner('WARNING', b.name, '#ff4030', 2.8, { k: 'warning' });
+      if (/^ECHO-/.test(b.name)) this.tfx('echo', '殘響反應', 'ECHO');
     }
     const B = this.banner;
     if (!B) return;

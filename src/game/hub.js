@@ -198,6 +198,7 @@ Object.assign(Game.prototype, {
     $('brRoute').innerHTML = route;
     $('brReward').textContent =
       `完成報酬 ${so.reward.toLocaleString()} COAM（另有區段報酬）　完成次數 ${this.campStory().done[sid] || 0}`;
+    this.tfxBrief(B.client === 'echo'); // 文字演出：系統日誌樣式逐字（點一下全部顯示）
   },
   // 從簡報出擊：有別的出擊進行中時先確認
   briefGo() {
@@ -231,13 +232,16 @@ Object.assign(Game.prototype, {
     $('epCycle').textContent = `第 ${cyc} 周目　完成`;
     $('epTitle').textContent = E.title;
     // 真結局：6 片記憶片段全部回收時多一段
-    const lines = E.full && this.campMemN() >= 6 ? E.lines.concat(E.full) : E.lines;
-    $('epLines').innerHTML = lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    const coda = !!(E.full && this.campMemN() >= 6);
+    const ps = (a) => a.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    $('epLines').innerHTML =
+      `<div class="epMain">${ps(E.lines)}</div>` + (coda ? `<div class="epCoda">${ps(E.full)}</div>` : '');
     const seen = Object.keys(st.endings || {}).length;
     $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
     $('btnEpNext').style.display = cyc < 3 && !mp ? '' : 'none';
     $('btnEpNext').textContent = `開始第 ${cyc + 1} 周目`;
     $('btnEpHub').textContent = mp ? '返回大廳' : '回到作戰室';
+    this.tfxEpilogue(E.title, coda); // 文字演出：標題、逐字、真結局的結尾與片尾
   },
   // 結局畫面的「回到機庫」：多人時回大廳
   epilogueBack() {
@@ -264,6 +268,7 @@ Object.assign(Game.prototype, {
     st.mpMods = null;
     this.writeSave();
     this.openHub();
+    this.tfx('cycle', `第 ${st.cycle} 周目`, `CYCLE ${st.cycle}`, { states: ['hub'] });
   },
   // ECHO 的紀錄：回收的記憶片段（第 3 周目的 ECHO 委託）與真結局的條件
   hubEcho(open) {

@@ -1112,7 +1112,11 @@ export class MechEntity {
       (g.bosses || []).every((b) => b.dead || b === this)
     ) {
       g.fx.hitStop = Math.max(g.fx.hitStop, 0.5);
-      g.showBanner('TARGET DESTROYED', `${this.name} 擊破`, '#ffb020', 3);
+      g.showBanner('TARGET DESTROYED', `${this.name} 擊破`, '#ffb020', 3, {
+        k: 'kill',
+        m: '擊破',
+        s: this.name,
+      });
       g.netEv({ t: 'bossDown', n: this.name });
     }
     // 自己擊破敵人：頓格與衝擊環（擊破的回饋）

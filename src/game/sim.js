@@ -176,7 +176,11 @@ Object.assign(Game.prototype, {
     this.fp = false;
     this.fpShow();
     if (this.ctrl.view === 'fps') this.setFp(true);
-    this.flashMsg('模擬戰開始 — 不消耗、不記錄進度', 0x7fc8ff, 2.2);
+    this.flashMsg('模擬戰開始 — 不消耗、不記錄進度', 0x7fc8ff, 2.2, {
+      k: 'start',
+      m: '模擬戰開始',
+      s: '不消耗、不記錄進度',
+    });
   },
   // 結束模擬戰（ok＝全滅敵人）：考核通過時解鎖零件
   simEnd(ok) {

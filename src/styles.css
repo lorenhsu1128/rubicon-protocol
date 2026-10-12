@@ -2318,3 +2318,152 @@ body.vpad #rangePanel {
     padding: 5px 8px;
   }
 }
+
+/* 文字演出（game/textfx.js、render/textfx.js：文字動畫 APNG 產生器的模板） */
+#tfx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+}
+/* DOM 裡的標題：文字保留但透明，畫布疊在上面 */
+.tfxHost {
+  position: relative;
+  color: transparent !important;
+  text-shadow: none !important;
+}
+.tfxHost > canvas.tfxC {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#rTitle.tfxHost {
+  min-height: 74px;
+  margin: 0;
+}
+#rRank.tfxHost {
+  height: 120px;
+  margin: 0;
+}
+#epTitle.tfxHost {
+  min-height: 96px;
+  margin: 0 0 8px;
+}
+#ctTitle.tfxHost {
+  min-height: 72px;
+}
+@media (max-height: 540px) {
+  #rTitle.tfxHost {
+    min-height: 52px;
+  }
+  #rRank.tfxHost {
+    height: 70px;
+  }
+  #epTitle.tfxHost {
+    min-height: 64px;
+  }
+  #ctTitle.tfxHost {
+    min-height: 52px;
+  }
+}
+/* DOM 逐字（預告模板）：每個字一個 span */
+.tq {
+  color: var(--tq-c);
+  text-shadow: 0 0 8px var(--tq-glow);
+}
+.tq .tqc {
+  display: inline-block;
+  white-space: pre;
+  opacity: var(--tq-op, 1);
+}
+.tqDone .tqc {
+  animation: none !important;
+}
+.tqCur {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--tq-cur);
+  opacity: 0;
+  animation: tqBlink 1s steps(1) infinite;
+}
+@keyframes tqType {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tqFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tqRise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5em);
+  }
+}
+@keyframes tqBlur {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: scale(1.15);
+  }
+}
+@keyframes tqBlink {
+  0% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0;
+  }
+}
+/* ECHO：間歇故障（紅與青的錯位、閃一下） */
+.tqGlitch,
+#comm.echo span {
+  animation: tqGlitch 3.4s infinite;
+}
+#comm.echo span {
+  text-shadow: 0 0 10px #8f3dff;
+}
+@keyframes tqGlitch {
+  0%,
+  88%,
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+  90% {
+    transform: translateX(2px);
+    text-shadow:
+      -2px 0 #ff2d6a,
+      2px 0 #2de2ff;
+  }
+  92% {
+    transform: translateX(-2px);
+    opacity: 0.5;
+  }
+  94% {
+    transform: none;
+    text-shadow:
+      2px 0 #ff2d6a,
+      -2px 0 #2de2ff;
+  }
+}
+/* 通訊框：宿敵的名字是紅色色帶，委託方的強調條是陣營色（行內樣式） */
+#comm.rival b {
+  display: inline-block;
+  background: linear-gradient(90deg, transparent, #c4001d 12%, #c4001d 88%, transparent);
+  color: #fff !important;
+  padding: 0 14px;
+  letter-spacing: 0.12em;
+}
+#comm span p {
+  margin: 0;
+}

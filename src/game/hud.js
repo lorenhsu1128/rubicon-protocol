@@ -123,9 +123,14 @@ Object.assign(Game.prototype, {
       document.getElementById('bossHp').style.width = clamp((hp / mx) * 100, 0, 100) + '%';
     }
   },
-  flashMsg(txt, color = 0xffb020, dur = 1.4) {
-    this.netEv({ t: 'msg', txt, c: color, d: dur });
+  // o：文字演出的種類與文字 { k, m 主字, s 副字 }（game/textfx.js；沒給時依顏色判斷種類）
+  flashMsg(txt, color = 0xffb020, dur = 1.4, o) {
+    this.netEv(o ? { t: 'msg', txt, c: color, d: dur, o } : { t: 'msg', txt, c: color, d: dur });
     const m = document.getElementById('msg');
+    if (this.tfxMsg && this.tfxMsg(txt, color, dur, o)) {
+      m.classList.remove('on');
+      return;
+    }
     m.textContent = txt;
     m.style.color = '#' + color.toString(16).padStart(6, '0');
     m.classList.add('on');

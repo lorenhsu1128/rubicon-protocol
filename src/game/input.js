@@ -564,6 +564,10 @@ Object.assign(Game.prototype, {
       this.camUser = Math.min(this.camUser || 1, this.ctrl.camMax);
       this.saveKeys();
     };
+    document.getElementById('ctrlTfx').onchange = (e) => {
+      this.tfxSetMode(e.target.value);
+      this.saveKeys();
+    };
     document.getElementById('ctrlPace').onchange = (e) => {
       this.ctrl.pace = parseFloat(e.target.value) || 0.85;
       this.saveKeys();

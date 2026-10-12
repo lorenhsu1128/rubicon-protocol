@@ -170,7 +170,7 @@ Object.assign(Game.prototype, {
         b.enraged = true;
         b.dmgMul *= BOSS_ENRAGE_DMG;
       }
-      this.flashMsg('Boss 狂暴化 — 火力與速度上升', 0xff3020, 3);
+      this.flashMsg('Boss 狂暴化 — 火力與速度上升', 0xff3020, 3, { k: 'enrage', m: '狂暴化', s: 'ENRAGE' });
       for (const b of live) this.fx.shockwave(b.center(), 22, 0xff2010, 0.8);
     }
     // 雙 AC：一台倒下時另一台狂暴（回復 25%、火力 ×1.3、節奏加快）
@@ -181,7 +181,11 @@ Object.assign(Game.prototype, {
       b.dmgMul *= BOSS_ENRAGE_DMG;
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.25);
       this.fx.shockwave(b.center(), 18, 0xff2010, 0.7);
-      this.flashMsg(`${b.name.split(' ')[0]} 狂暴化 — 僚機被擊破`, 0xff3020, 2.5);
+      this.flashMsg(`${b.name.split(' ')[0]} 狂暴化 — 僚機被擊破`, 0xff3020, 2.5, {
+        k: 'enrage',
+        m: `${b.name.split(' ')[0]} 狂暴化`,
+        s: '僚機被擊破',
+      });
     }
     for (const b of live) {
       const ph = b.bossPhase();

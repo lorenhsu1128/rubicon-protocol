@@ -7797,8 +7797,10 @@ async function testJuice(browser, base) {
     g.bosses[0].isBoss = true;
     g.bosses[0].name = 'TEST BOSS';
     g.drawHud(0.016);
-    out.banner = g.banner && g.banner.txt;
-    out.bannerSub = g.banner && g.banner.sub;
+    // 文字演出開著時是 textfx 的橫幅（game/textfx.js），關閉時是原本的 banner
+    const tb = g.textfx && g.textfx.items.find((x) => x.cue === 'warning');
+    out.banner = tb ? tb.s.text : g.banner && g.banner.txt;
+    out.bannerSub = tb ? tb.s.subText : g.banner && g.banner.sub;
     return out;
   });
   check(r.pops === 1 && r.sum > 300, `連續命中合併成一個傷害數字（${r.pops} 個、${r.sum}）`);
@@ -7869,7 +7871,8 @@ async function testBossPower(browser, base) {
     out.addAc = adds.some((e) => e.ai === 'ac' || e.isBoss);
     out.tempo2 = b.bossTempo();
     g.updateLoops(); // 換型態的提示與橫幅（feedback.js）
-    out.banner = g.banner && g.banner.txt;
+    const tb = g.textfx && g.textfx.items.find((x) => x.cue === 'phase');
+    out.banner = tb ? tb.s.text : g.banner && g.banner.txt;
     out.shocks = (g.shocks || []).length;
     // 同一個型態不會再派一次
     g.bossPhaseTick(0.016);
@@ -8073,6 +8076,147 @@ async function testCycle2(browser, base) {
     bs.out.join(',') === 'c1x:JUGGERNAUT,c2x:CINDER,c3x:HELIOS,c4x:HALBERD,c5x:NULLIFIER,c6x:PULSAR' &&
       bs.log,
     '6 個周目限定委託的終點 Boss 與通訊（' + bs.out.join('、') + '）',
+  );
+  await ctx.close();
+}
+
+// 文字演出（game/textfx.js）：文字動畫 APNG 產生器的模板——橫幅、中央訊息的種類、通訊框逐字、
+// 結果畫面的標題與評價、簡報與結局的逐字、設定的完整／簡化／關閉
+async function testTextFx(browser, base) {
+  console.log('文字演出：橫幅、中央訊息、通訊框、結果、簡報、結局、設定');
+  const { ctx, page } = await newPage(browser, 'textfx');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 設定：預設完整，改成簡化再改回來
+  await page.evaluate(() => window.__game.openSettings('title'));
+  const set0 = await page.evaluate(() => document.getElementById('ctrlTfx').value);
+  await page.selectOption('#ctrlTfx', 'simple');
+  const set1 = await page.evaluate(() => window.__game.textfx.mode + '/' + window.__game.ctrl.tfx);
+  await page.selectOption('#ctrlTfx', 'full');
+  await page.click('#btnSettingsBack');
+  check(set0 === 'full' && set1 === 'simple/simple', '設定的文字演出：預設完整、可改成簡化（' + set1 + '）');
+  // 出擊：作戰開始的橫幅；中央訊息依顏色分種類、「主 — 副」拆開
+  const s1 = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 2;
+    g.startMission();
+    for (const e of g.enemies) e.updateAI = () => {};
+    const start = g.textfx.items.find((x) => x.cue === 'start');
+    const kinds = [];
+    for (const [t, c] of [
+      ['防衛目標被摧毀', 0xff4d4d],
+      ['修復完成', 0x7ee081],
+      ['取得戰術模組：測試', 0xffd060],
+      ['手把已連接 — 測試手把', 0x7fc8ff],
+      ['COAM 不足', 0xffb020],
+    ]) {
+      g.flashMsg(t, c, 1.5);
+      const it = g.textfx.items.find((x) => x.slot === 'msg');
+      kinds.push(it.cue + ':' + it.s.text + (it.s.subText ? '|' + it.s.subText : ''));
+    }
+    return { start: start && start.s.text + '|' + start.s.subText, kinds };
+  });
+  check(
+    /^作戰開始\|任務 02/.test(s1.start || '') &&
+      s1.kinds.join(',') ===
+        'warn:防衛目標被摧毀|CAUTION,good:修復完成,good:取得戰術模組：測試,sys:手把已連接|測試手把,info:COAM 不足',
+    '出擊的橫幅與中央訊息的種類（' + s1.kinds.join('、') + '）',
+  );
+  // 橫幅畫在疊加畫布上（播到顯示中）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.textfx.clear();
+    g.showBanner('WARNING', 'TEST BOSS', '#ff4030', 2.8, { k: 'warning' });
+  });
+  await page.waitForTimeout(1500);
+  const px = await page.evaluate(() => {
+    const cv = document.getElementById('tfx');
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, Math.round(cv.height * 0.4)).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 16) if (d[i] > 40) n++;
+    return n;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'textfx-warning.png') });
+  check(px > 2000, `WARNING 的橫幅畫在疊加畫布上（${px} 點）`);
+  // 通訊框：逐字，打字中點一下整句顯示
+  const cm = await page.evaluate(() => {
+    const g = window.__game;
+    g.commQ = [['echo', '雷達有反應，三點鐘方向。']];
+    g.commNext();
+    const sp = document.querySelector('#comm span');
+    const n = sp.querySelectorAll('.tqc').length;
+    g.commTap();
+    return {
+      n,
+      done: sp.classList.contains('tqDone'),
+      text: sp.textContent,
+      echo: document.getElementById('comm').classList.contains('echo'),
+    };
+  });
+  check(
+    cm.n === 12 && cm.done && cm.text === '雷達有反應，三點鐘方向。' && cm.echo,
+    '通訊框逐字、ECHO 的樣式、點一下整句顯示',
+  );
+  // 結果畫面：標題與評價畫在元素裡的畫布
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.commClear();
+    g.endMission(true);
+  });
+  await page.waitForTimeout(1500);
+  const rs = await page.evaluate(() => ({
+    t: !!document.querySelector('#rTitle.tfxHost > canvas.tfxC'),
+    r: !!document.querySelector('#rRank.tfxHost > canvas.tfxC'),
+    text: document.getElementById('rTitle').textContent,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'textfx-result.png') });
+  check(rs.t && rs.r && rs.text === '任務完成', '結果畫面的標題與評價（文字保留：' + rs.text + '）');
+  // 簡報：系統日誌樣式逐字；結局：真結局的結尾、片尾
+  const br = await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.openBrief('c1s1');
+    const el = document.getElementById('brLines');
+    const n = el.querySelectorAll('.tqc').length;
+    g.campStory().memories = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1 };
+    g.openEpilogue('beyond');
+    const coda = document.querySelector('#epLines .epCoda .tqc');
+    g.tfxSkip();
+    g.tfxCredits();
+    const cr = g.textfx.items.some((x) => x.cue === 'credits');
+    return {
+      n,
+      len: el.textContent.length,
+      coda: !!coda,
+      cr,
+      title: !!document.querySelector('#epTitle > canvas.tfxC'),
+    };
+  });
+  check(
+    br.n > 20 && br.n === br.len && br.coda && br.cr && br.title,
+    '簡報與結局逐字、真結局的結尾與片尾（' + br.n + ' 字）',
+  );
+  // 關閉：回到原本的中央訊息與橫幅
+  const off = await page.evaluate(() => {
+    const g = window.__game;
+    g.tfxSetMode('off');
+    g.state = 'play';
+    g.flashMsg('測試訊息', 0xffb020, 1);
+    g.showBanner('WARNING', 'TEST', '#ff4030', 2, { k: 'warning' });
+    const r = {
+      msg: document.getElementById('msg').classList.contains('on'),
+      items: g.textfx.items.length,
+      banner: g.banner && g.banner.txt,
+      host: !!document.querySelector('.tfxHost'),
+    };
+    g.tfxSetMode('full');
+    g.state = 'title';
+    g.showScreen('title');
+    return r;
+  });
+  check(
+    off.msg && off.items === 0 && off.banner === 'WARNING' && !off.host,
+    '文字演出關閉：原本的中央訊息與橫幅',
   );
   await ctx.close();
 }
@@ -9632,6 +9776,7 @@ async function main() {
     await testVariants6(browser, base);
     await testCycle2(browser, base);
     await testCycle3(browser, base);
+    await testTextFx(browser, base);
     await testWaves(browser, base);
     await testOutposts(browser, base);
     await testModFx(browser, base);

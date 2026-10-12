@@ -1,5 +1,6 @@
 // Game：主線的通訊（data/story.js 的 COMMS）——依事件與條件挑一則，台詞依序顯示在右下角（不暫停遊戲），
 // 播過的寫進存檔的通訊紀錄。也用在失敗畫面與機庫。
+import { revealDom, revealFinish } from '../render/textfx.js';
 import { SFX } from '../audio/audio.js';
 import { COMMS, SPEAKERS, speakerBadge } from '../data/story.js';
 import { escHtml } from '../core/html.js';
@@ -87,11 +88,21 @@ Object.assign(Game.prototype, {
     this.commPlace();
     const [sp, text] = ln;
     const S = SPEAKERS[sp] || SPEAKERS.echo;
-    el.innerHTML = `${speakerBadge(sp)}<div><b style="color:${S.color}">${escHtml(S.name)}</b><span>${escHtml(text)}</span></div>`;
+    const fx = this.textfx && this.textfx.on;
+    const rival = /宿敵/.test(S.note || '');
+    el.innerHTML = `${speakerBadge(sp)}<div><b style="color:${S.color}">${escHtml(S.name)}</b><span><p>${escHtml(text)}</p></span></div>`;
+    el.classList.toggle('echo', fx && sp === 'echo');
+    el.classList.toggle('rival', fx && rival);
+    el.style.borderLeftColor = fx && S.faction ? S.color : '';
     el.classList.add('on');
     SFX.radio();
+    const show = 1.8 + text.length * 0.09;
+    // 文字演出：預告「打字機」的逐字（最多花顯示時間的 45%）
+    this.commTypeEnd = fx
+      ? performance.now() + revealDom(el.querySelector('span'), 'comm', { limit: show * 0.45 }) * 1000
+      : 0;
     clearTimeout(this.commTo);
-    this.commTo = setTimeout(() => this.commNext(), (1.8 + text.length * 0.09) * 1000);
+    this.commTo = setTimeout(() => this.commNext(), show * 1000);
   },
   // 即時的一句（增援預告等）：插到最前面立刻顯示，不寫進通訊紀錄
   commSay(sp, text) {
@@ -106,6 +117,10 @@ Object.assign(Game.prototype, {
   // 點一下：直接換下一句
   commTap() {
     if (!this.commBusy) return;
+    if (this.commTypeEnd > performance.now()) {
+      this.commTypeEnd = 0;
+      return revealFinish(document.querySelector('#comm span'));
+    }
     clearTimeout(this.commTo);
     this.commNext();
   },

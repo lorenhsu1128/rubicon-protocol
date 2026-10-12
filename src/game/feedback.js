@@ -127,7 +127,7 @@ Object.assign(Game.prototype, {
       b.phCue = ph;
       SFX.cue('phase');
       this.camShake = Math.max(this.camShake, 0.25);
-      this.showBanner(ph >= 3 ? '最終型態' : '第二型態', b.name, '#ff4030', 2.2);
+      this.showBanner(ph >= 3 ? '最終型態' : '第二型態', b.name, '#ff4030', 2.2, { k: 'phase' });
     }
   },
   // 腳步（MechEntity.ikGait 每半個步伐呼叫）：玩家與聽得到的距離內的機體

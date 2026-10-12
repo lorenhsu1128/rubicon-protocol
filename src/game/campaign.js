@@ -288,10 +288,14 @@ Object.assign(Game.prototype, {
     this.fp = false;
     this.fpShow();
     if (this.ctrl.view === 'fps') this.setFp(true);
+    const segTxt = `區段 ${c.seg + 1}／${so.segs.length}【${SEG_TYPES[type].name}】`;
     this.flashMsg(
-      `區段 ${c.seg + 1}／${so.segs.length}【${SEG_TYPES[type].name}】${this.levelName}`,
+      segTxt + this.levelName,
       0xffb020,
       2.6,
+      c.seg === 0
+        ? { k: 'start', m: '作戰開始', s: `${so.name}　${segTxt}` }
+        : { k: 'seg', m: this.levelName, s: segTxt },
     );
     const lm = this.world.landmark && this.world.landmark.name;
     if (lm) setTimeout(() => this.camp && this.state === 'play' && this.flashAlert(`地標：${lm}`), 2800);
@@ -529,7 +533,7 @@ Object.assign(Game.prototype, {
     c.pending = null;
     if (last) {
       this.state = 'ending';
-      this.flashMsg('作戰目標達成', 0x7ee081, 2);
+      this.flashMsg('作戰目標達成', 0x7ee081, 2, { k: 'clear', m: '作戰目標達成', s: 'OBJECTIVE COMPLETE' });
       setTimeout(() => this.state === 'ending' && this.campEnd(true, false), 1800);
       return;
     }
@@ -538,7 +542,11 @@ Object.assign(Game.prototype, {
       this.world.expandZone();
     }
     if (!c.exits.length) this.campSpawnExits();
-    this.flashMsg('區段清除 — 選擇出口前往下一區', 0x7ee081, 2.4);
+    this.flashMsg('區段清除 — 選擇出口前往下一區', 0x7ee081, 2.4, {
+      k: 'clear',
+      m: '區段清除',
+      s: 'AREA CLEAR — 選擇出口前往下一區',
+    });
     SFX.ui();
     this.campComm('exitsOpen', this.campCtx());
   },
@@ -740,7 +748,7 @@ Object.assign(Game.prototype, {
         this.fx.ring(pos.clone().setY(pos.y + 0.2), 6, 0xff5050);
         return { pos, reward: 'mod_' + o.faction, type, mode, tr, t: 0, group, choice: o.key, lab: L };
       });
-      this.flashMsg(CH.name, 0xff8a50, 3);
+      this.flashMsg(CH.name, 0xff8a50, 3, { k: 'choice', m: '抉擇', s: CH.name });
       this.campComm('choice', this.campCtx());
       this.campChoiceCard(
         cur.choice,
@@ -975,7 +983,7 @@ Object.assign(Game.prototype, {
       // 陣營抉擇：出擊完成時寫進存檔（紀錄點也記著）
       c.choice = { id: this.campSortie().segs[c.seg].choice, key: ex.choice };
       const o = CHOICES[c.choice.id].opts.find((q) => q.key === ex.choice);
-      this.flashMsg(`抉擇：${o.name}（${FACTIONS[o.faction].name}）`, 0xff8a50, 3);
+      this.flashMsg(`抉擇：${o.name}（${FACTIONS[o.faction].name}）`, 0xff8a50, 3, { k: 'sys' });
     }
     c.seg++;
     c.types[c.seg] = ex.type;
@@ -1015,6 +1023,7 @@ Object.assign(Game.prototype, {
     }, T * 1000);
     if (first !== 'resume' && c.seg > 0) this.campComm('trans', this.campCtx());
     $('ctWait').textContent = '';
+    this.tfxTrans(tr, first); // 文字演出：標題、說明逐字、章名卡
     if (this.campMp()) this.campMpTrans(tr, first);
   },
   campGo() {
@@ -1266,7 +1275,13 @@ Object.assign(Game.prototype, {
       // 第 3 周目的 ECHO 委託：回收記憶片段（作戰室的「ECHO 的紀錄」）
       if (so.memory) {
         st.memories = st.memories || {};
-        if (!st.memories[so.memory])
+        // 文字演出：回憶的樣式蓋在結果畫面上（關閉時是中央訊息）
+        if (
+          !st.memories[so.memory] &&
+          !this.tfx('memory', MEMORIES[so.memory].title, `MEMORY ${so.memory}／6`, {
+            states: ['play', 'result'],
+          })
+        )
           this.flashMsg(`記憶片段 ${so.memory}／6「${MEMORIES[so.memory].title}」回收`, 0xffd060, 4);
         st.memories[so.memory] = 1;
       }

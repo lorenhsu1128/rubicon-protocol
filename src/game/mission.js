@@ -419,11 +419,8 @@ Object.assign(Game.prototype, {
     this.fp = false;
     this.fpShow();
     if (this.ctrl.view === 'fps') this.setFp(true);
-    this.flashMsg(
-      (boss ? '決戰任務 ' : '任務 ') + String(L).padStart(2, '0') + ' — ' + T.name,
-      0xffb020,
-      2.2,
-    );
+    const misTxt = (boss ? '決戰任務 ' : '任務 ') + String(L).padStart(2, '0') + ' — ' + T.name;
+    this.flashMsg(misTxt, 0xffb020, 2.2, { k: 'start', m: boss ? '決戰開始' : '作戰開始', s: misTxt });
     document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
   },
@@ -585,7 +582,7 @@ Object.assign(Game.prototype, {
         speedMul: r.speedMul,
         turnRate: r.turnRate,
       });
-      this.flashMsg(`敵對 AC「${r.name}」介入`, 0xff4d4d, 2.2);
+      this.flashMsg(`敵對 AC「${r.name}」介入`, 0xff4d4d, 2.2, { k: 'ace', m: r.name, s: 'HOSTILE AC 介入' });
       this.flashAlert(r.intro);
       return e;
     }

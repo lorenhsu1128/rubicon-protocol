@@ -242,7 +242,7 @@ Object.assign(Game.prototype, {
       const now = Math.ceil(this.pvpCountdown);
       if (now !== prev && now > 0) this.flashMsg('對戰開始倒數 ' + now, 0xffb020, 0.9);
       if (this.pvpCountdown <= 0) {
-        this.flashMsg('FIGHT!', 0xff4d4d, 1.2);
+        this.flashMsg('FIGHT!', 0xff4d4d, 1.2, { k: 'start', m: 'FIGHT!', s: '' });
         for (const e of this.pvpCombatants()) e.iFrames = Math.max(e.iFrames, 0.5);
       }
       return;
