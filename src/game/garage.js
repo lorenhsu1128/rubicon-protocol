@@ -183,9 +183,11 @@ Object.assign(Game.prototype, {
         } else if (cat === 'legs') spec = `AP ${p.ap} · 負重 ${p.load} · 速 ${p.speed}`;
         else if (cat === 'generator') spec = `容量 ${p.cap} · 輸出 ${p.output} · 回充 ${p.recharge}`;
         else if (cat === 'booster') spec = `推力 ×${p.thrust} · QB ${p.qb}`;
-        else if (cat === 'fcs') spec = `鎖定距離 ${p.range}`;
+        else if (cat === 'fcs')
+          spec = `鎖定距離 ${p.range} · 輔助 近/中/遠 ${(p.assist || [0.6, 0.6, 0.45]).map((v) => Math.round(v * 100)).join('/')} · 導彈鎖定 ${(1 / (p.lockSpeed || 1)).toFixed(1)} 秒`;
         else spec = `AP ${p.ap} · 穩定 ${p.stab}`;
         if (p.defs) spec += ` · 防 實/爆/能 ${p.defs.join('/')}`;
+        if (cat === 'arms' && p.aim) spec += ` · 射擊適性 ${Math.round(p.aim * 100)}`;
         if (cat === 'generator') spec += ` · 能量適性 ${Math.round((p.enAdapt || 1) * 100)}%`;
         const dl = eq ? '' : this.garagePartDelta(key, cat, p); // 換上後的 DPS／有效 AP 變化
         d.innerHTML = `<div><div class="n">${p.name}${dl ? ' ' + dl : ''}</div><div class="s">${spec}${p.desc ? ' · ' + p.desc : ''}${p.weight !== undefined ? ' · 重 ' + p.weight + ' · EN ' + p.en : ''}</div></div><div class="pr">${owned ? (eq ? '已裝備' : '裝備') : p.price.toLocaleString() + ' C'}</div>`;
@@ -242,6 +244,12 @@ Object.assign(Game.prototype, {
       ['跳躍高度（地面 / 空中）', `${fx(JS.height, JE.height, m1)} / ${fx(JS.airH, JE.airH, m1)}`],
       ['空中跳躍 / 懸浮耗能', `${JS.air} 次 / ${JS.canHover ? JS.hover + '/s' : '不能懸浮'}`],
       ['鎖定距離', fx(st.lockRange, ef.lockRange)],
+      [
+        '火控輔助（近／中／遠）',
+        (P.fcs.assist || [0.6, 0.6, 0.45]).map((v) => Math.round(v * 100) + '%').join(' ／ '),
+      ],
+      ['射擊適性（手臂）', Math.round((P.arms.aim || 0.6) * 100) + '%'],
+      ['導彈鎖定時間', (1 / (P.fcs.lockSpeed || 1)).toFixed(1) + ' 秒'],
       ['修復套件', fx(3, 3 + ((pm && pm.kits) || 0))],
       ['腳部型式', { biped: '二足', reverse: '逆關節', quad: '四足', tank: '履帶' }[P.legs.type]],
     ];

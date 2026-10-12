@@ -5,9 +5,9 @@ import { ATTRS, ATTR_KEYS, weakText } from '../data/attrs.js';
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { AC_ROSTER, BOSS_DEFS, ENEMY_TYPES, FOE_HP_K, enemyScale } from '../data/enemies.js';
-import { effectiveAp, weaponDps } from '../data/firepower.js';
+import { effectiveAp, estHit, weaponDps } from '../data/firepower.js';
 import { ACES, FOES } from '../data/foes.js';
-import { FIST_DEF, FOE_STAB_K, PARTS, START_ASM, asmStats } from '../data/parts.js';
+import { FIST_DEF, FOE_STAB_K, PARTS, START_ASM, asmStats, assistSpread } from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
@@ -190,7 +190,7 @@ Object.assign(Game.prototype, {
     const camp = this.range ? this.range.camp : this.camp; // 轉場整備：主線的狀態先收起來
     this.camp = null;
     this.clearMission();
-    this.range = { camp, clock: 0, st: this.rangeNewStats(), respT: 0, uiT: 0 };
+    this.range = { camp, clock: 0, st: this.rangeNewStats(), respT: 0, uiT: 0, fire: null };
     const seed = Math.floor(Math.random() * 1e9);
     this.worldSeed = seed;
     this.worldTheme = 'grid';
@@ -261,7 +261,7 @@ Object.assign(Game.prototype, {
           oz = o.z - cz;
         const u = ox * dx + oz * dz,
           v = ox * px + oz * pz;
-        const ext = o.kind === 'box' ? Math.hypot(o.w, o.d) / 2 : o.r || 1;
+        const ext = o.w !== undefined ? Math.hypot(o.w, o.d || o.w) / 2 : o.r || 1; // 箱形、平台用長寬，圓柱用半徑
         if (u > -12 - ext && u < len - 12 + ext && Math.abs(v) < half + ext) return false;
       }
       return true;
@@ -476,15 +476,30 @@ Object.assign(Game.prototype, {
       twin: [],
       byA: {},
       byAin: {},
+      band: [
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ],
       selfStag: 0,
       downs: 0,
     };
+  },
+  // 和最近的目標的距離 → 分段（0～30、30～60、60 m 以上）
+  rangeBand(t) {
+    const pl = this.player;
+    if (!pl) return 0;
+    let d = 1e9;
+    for (const e of t ? [t] : (this.range && this.range.targets) || [])
+      if (!e.dead) d = Math.min(d, e.pos.distanceTo(pl.pos));
+    return d < 30 ? 0 : d < 60 ? 1 : 2;
   },
   rangeShot(wid) {
     const S = this.range && this.range.st;
     if (!S) return;
     if (S.t0 === null) S.t0 = this.range.clock;
     S.shots++;
+    S.band[this.rangeBand(this.player && this.player.lock)][0]++;
     const w = (S.byW[wid] = S.byW[wid] || { dmg: 0, hits: 0, shots: 0 });
     w.shots++;
   },
@@ -506,6 +521,7 @@ Object.assign(Game.prototype, {
       S.win.push([now, real]);
       S.byA[A] = (S.byA[A] || 0) + real;
       S.hits++;
+      S.band[this.rangeBand(t)][1]++;
       const w = (S.byW[wid || 'x'] = S.byW[wid || 'x'] || { dmg: 0, hits: 0, shots: 0 });
       w.dmg += real;
       w.hits++;
@@ -584,6 +600,7 @@ Object.assign(Game.prototype, {
       dps5: recent(S.win),
       maxHit: S.maxHit,
       acc: S.shots ? Math.min(1, S.hits / S.shots) : null,
+      band: S.band.map(([sh, hi]) => (sh ? Math.min(1, hi / sh) : null)),
       imp: t ? S.imp / t : 0,
       stagN: S.stags.length,
       stagT: avg(S.stags),
@@ -621,6 +638,10 @@ Object.assign(Game.prototype, {
     h += row('總傷害', fmt(s.dealt) + `（${s.t.toFixed(1)} 秒）`);
     h += row('單次最高', fmt(s.maxHit));
     h += row('命中率', s.acc === null ? '—' : Math.round(s.acc * 100) + '%');
+    h += row(
+      '命中率（近／中／遠）',
+      s.band.map((v) => (v === null ? '—' : Math.round(v * 100) + '%')).join(' ／ '),
+    );
     h += row('衝擊／秒', fmt(s.imp));
     h += row('打出失衡', s.stagN ? `${s.stagN} 次（平均 ${s.stagT.toFixed(1)} 秒）` : '—');
     h += row('擊破', s.killN ? `${s.killN} 次（平均 ${s.ttk.toFixed(1)} 秒）` : '—');
@@ -628,11 +649,28 @@ Object.assign(Game.prototype, {
     const ws = Object.entries(s.byW).filter(([, w]) => w.dmg > 0 || w.shots > 0);
     if (ws.length) {
       h += '<div class="rpSec">各武器</div>';
-      for (const [id, w] of ws)
+      // 每把武器：DPS、命中率、實測 ÷ 理論的有效率、擴散角與預判準度（目前目標的距離）
+      const F = (this.range.fire = this.range.fire || this.garageFire(this.save.asm));
+      const pl = this.player;
+      const tg = pl && (pl.lock || (this.range.targets || []).find((e) => !e.dead));
+      const dist = tg ? tg.pos.distanceTo(pl.pos) : 30;
+      const A = pl ? pl.fcsAssist(dist) : 0.6;
+      for (const [id, w] of ws) {
+        const dps = s.t ? w.dmg / s.t : 0;
+        const th = F.ws.find((x) => x.id === id);
+        const eff = th && th.sus > 0 ? `・效率 ${Math.round((dps / th.sus) * 100)}%` : '';
         h += row(
           wName(id),
-          `${fmt(s.t ? w.dmg / s.t : 0)}/s${w.shots ? `・${Math.round(Math.min(1, w.hits / w.shots) * 100)}%` : ''}`,
+          `${fmt(dps)}/s${w.shots ? `・${Math.round(Math.min(1, w.hits / w.shots) * 100)}%` : ''}${eff}`,
         );
+        const slot = pl && WSLOTS.find((k) => pl.weapons[k] && pl.weapons[k].def.id === id);
+        const d = slot && pl.weapons[slot].def;
+        if (d && d.spread !== undefined) {
+          const arm = slot.endsWith('arm') ? 1.3 - pl.stats.parts.arms.aim * 0.6 : 0.55;
+          const deg = (d.spread || 0) * arm * assistSpread(A) * 57.3;
+          h += `<div class="rpSub"><span>　擴散 ${deg.toFixed(1)}°・預判 ${Math.round(pl.leadK(dist) * 100)}%（${Math.round(dist)} m）</span></div>`;
+        }
+      }
     }
     h += '<div class="rpSec">承受</div>';
     h += row('受到傷害', fmt(s.taken) + (s.hitsIn ? `（${s.hitsIn} 次）` : ''));
@@ -664,6 +702,7 @@ Object.assign(Game.prototype, {
       dps: Math.round(s.dps),
       acc: s.acc === null ? null : Math.round(s.acc * 100),
       stagT: +s.stagT.toFixed(1),
+      band: s.band.map((v) => (v === null ? null : Math.round(v * 100))),
       ttk: +s.ttk.toFixed(1),
       tdps: Math.round(s.tdps),
       blocked: Math.round(s.blocked),
@@ -694,10 +733,10 @@ Object.assign(Game.prototype, {
       return `<td class="${B[k] !== undefined && v === B[k] && v ? 'best' : ''}">${s}</td>`;
     };
     document.getElementById('rangeLogList').innerHTML = log.length
-      ? `<table class="rgLog"><tr><th>比較</th><th>時間</th><th>武器</th><th>目標</th><th>DPS</th><th>命中</th><th>失衡(秒)</th><th>擊破(秒)</th><th>受傷/秒</th><th>擋下</th></tr>${log
+      ? `<table class="rgLog"><tr><th>比較</th><th>時間</th><th>武器</th><th>目標</th><th>DPS</th><th>命中</th><th>近／中／遠</th><th>失衡(秒)</th><th>擊破(秒)</th><th>受傷/秒</th><th>擋下</th></tr>${log
           .map(
             (x, i) =>
-              `<tr class="${sel.includes(i) ? 'sel' : ''}"><td><input type="checkbox" data-i="${i}"${sel.includes(i) ? ' checked' : ''}></td><td>${new Date(x.at).toLocaleString()}</td><td>${escHtml(x.w.join('、'))}${x.pm ? '' : '<span class="dim">（純機體）</span>'}</td><td>${escHtml(x.tgt)}・${escHtml(x.beh)}・${x.dist}m</td>${cell(x, 'dps')}${cell(x, 'acc')}${cell(x, 'stagT')}${cell(x, 'ttk')}${cell(x, 'tdps')}<td>${(x.blocked || 0).toLocaleString()}</td></tr>`,
+              `<tr class="${sel.includes(i) ? 'sel' : ''}"><td><input type="checkbox" data-i="${i}"${sel.includes(i) ? ' checked' : ''}></td><td>${new Date(x.at).toLocaleString()}</td><td>${escHtml(x.w.join('、'))}${x.pm ? '' : '<span class="dim">（純機體）</span>'}</td><td>${escHtml(x.tgt)}・${escHtml(x.beh)}・${x.dist}m</td>${cell(x, 'dps')}${cell(x, 'acc')}<td>${(x.band || []).map((v) => (v === null ? '—' : v + '%')).join('／') || '—'}</td>${cell(x, 'stagT')}${cell(x, 'ttk')}${cell(x, 'tdps')}<td>${(x.blocked || 0).toLocaleString()}</td></tr>`,
           )
           .join('')}</table><div class="dim">勾選兩筆會排在最上面並排比較；綠色＝所有紀錄裡最好的。</div>`
       : '<p class="dim">還沒有紀錄：進靶場打一打，離開或重新設定時會記下來。</p>';
@@ -733,7 +772,15 @@ Object.assign(Game.prototype, {
       if (!p || p.type === 'none') continue;
       const d = pilotWeaponDef(p, pm);
       const v = weaponDps(d, gen, (pm && pm.enWpn) || 0);
-      if (v) ws.push({ slot: k, name: p.name, ...v });
+      if (v)
+        ws.push({
+          slot: k,
+          id: p.id,
+          name: p.name,
+          ...v,
+          hit30: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 30),
+          hit60: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 60),
+        });
     }
     const sum = (k) => ws.reduce((a, w) => a + (w[k] || 0), 0);
     return {
@@ -759,6 +806,14 @@ Object.assign(Game.prototype, {
     if (!F.ws.length) h += row('武器', '沒有裝備');
     h += row('合計 DPS', `${fmt(F.burst)} <span class="dim">／持續 ${fmt(F.sus)}</span>`, 'ok');
     h += row('衝擊／秒', fmt(F.imp));
+    // 預估命中率：對移動中的 AC（firepower.js 的 estHit）
+    const hp = (v) => (v === null ? '—' : Math.round(v * 100) + '%');
+    const hw = F.ws.filter((w) => w.hit30 !== null);
+    if (hw.length) {
+      h += '<div class="dim gFireNote">預估命中率（對移動中的 AC：30 m ／ 60 m）</div>';
+      for (const w of hw)
+        h += row(`${SLOT_NAMES[w.slot]}　${escHtml(w.name)}`, `${hp(w.hit30)} ／ ${hp(w.hit60)}`);
+    }
     h += row('有效 AP（含防禦）', fmt(F.eap));
     h += row(
       '減傷（實／爆／能）',

@@ -7093,6 +7093,132 @@ async function testModFx(browser, base) {
 }
 
 // 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testAim(browser, base) {
+  console.log(
+    '命中：火控的距離輔助、依彈速預判、手臂的追蹤、導彈鎖定時間、機甲庫的預估命中率、靶場的分距離命中率與有效率',
+  );
+  const { ctx, page } = await newPage(browser, 'aim');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    for (const id of ['f_cqb', 'f_mid', 'f_snipe']) if (!g.save.owned.includes(id)) g.save.owned.push(id);
+    g.openGarage();
+    g.garageSlot = 'fcs';
+    g.renderGarage();
+  });
+  await waitVisible(page, 'garage');
+  const gs = await page.evaluate(() => ({
+    stats: document.getElementById('stats').textContent,
+    list: document.getElementById('partList').textContent,
+    fire: document.getElementById('gFire').textContent,
+  }));
+  check(
+    gs.stats.includes('火控輔助') && gs.stats.includes('射擊適性') && gs.stats.includes('導彈鎖定時間'),
+    '機甲庫顯示火控輔助、射擊適性、導彈鎖定時間',
+  );
+  check(
+    ['近距特化', '中距特化', '遠距狙擊'].every((n) => gs.list.includes(n)) &&
+      gs.list.includes('輔助 近/中/遠'),
+    '新的火控 3 款與輔助數值',
+  );
+  check(
+    gs.fire.includes('預估命中率'),
+    `機甲庫的預估命中率（${(gs.fire.match(/預估命中率[^右左]*(右手[^左]*)/) || [''])[0].slice(0, 60)}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    Object.assign(g.rangeCfgGet(), {
+      tgt: 'dummy',
+      beh: 'static',
+      dist: 45,
+      n: 1,
+      inf: true,
+      god: true,
+      pm: false,
+    });
+    g.save.asm.fcs = 'f_cqb';
+    g.rangeStart();
+  });
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const r = await page.evaluate(async () => {
+    const g = window.__game;
+    const pl = g.player,
+      t = g.range.targets[0];
+    const out = { a10: pl.fcsAssist(10), a80: pl.fcsAssist(80) };
+    // 預判：目標以 10 m/s 橫移；近距特化在 10 m 幾乎照實際攔截點
+    const muz = t.center().addScaledVector(new THREE.Vector3(0, 0, 1), 10);
+    t.vel.set(10, 0, 0);
+    pl.trkId = null;
+    const lp = pl.leadPoint(t, 95, muz);
+    out.leadNear = (lp.x - t.center().x) / ((10 * 10) / 95);
+    // 遠距狙擊：近距離的預判只到一部分
+    g.save.asm.fcs = 'f_snipe';
+    g.rangeSpawnPlayer();
+    const p2 = g.player;
+    p2.trkId = null;
+    const lp2 = p2.leadPoint(t, 95, muz);
+    out.leadFar = (lp2.x - t.center().x) / ((10 * 10) / 95);
+    // 追蹤：目標換方向後，預判的速度要一段時間才跟上
+    p2.trkId = null;
+    p2.trackVel(t);
+    t.vel.set(-10, 0, 0);
+    p2.t += 0.1;
+    out.trk = p2.trackVel(t).x;
+    t.vel.set(0, 0, 0);
+    // 導彈鎖定：標準火控 1 秒鎖滿 4 發
+    g.save.asm.fcs = 'f_std';
+    g.rangeSpawnPlayer();
+    const p3 = g.player;
+    const d = p3.weapons.rback.def;
+    p3.lkId = null;
+    p3.lockAge(t);
+    out.m0 = p3.missileN(d, t);
+    p3.lkT0 -= 0.4;
+    out.m5 = p3.missileN(d, t);
+    p3.lkT0 -= 0.7;
+    out.m10 = p3.missileN(d, t);
+    // HUD 的導彈鎖定數
+    for (let i = 0; i < 60 && !document.getElementById('lockHint').textContent.includes('導彈鎖定'); i++) {
+      p3.lock = t;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    out.hint = document.getElementById('lockHint').textContent;
+    // 靶場的分距離命中率與有效率
+    for (let i = 0; i < 4; i++) g.rangeShot('w_rifle');
+    for (let i = 0; i < 3; i++) t.takeDamage(500, 0, p3, t.center(), null, undefined, 'w_rifle');
+    g.rangePanelRender();
+    out.panel = document.getElementById('rangePanel').textContent;
+    out.band = g.rangeSummary().band;
+    return out;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'aim-range.png') });
+  check(
+    Math.abs(r.a10 - 1) < 0.01 && Math.abs(r.a80 - 0.1) < 0.01,
+    `近距特化火控：10 m 輔助 ${r.a10}、80 m ${r.a80}`,
+  );
+  check(
+    Math.abs(r.leadNear - 1) < 0.12 && r.leadFar < 0.75 && r.leadFar > 0.5,
+    `依彈速預判（近距特化 ${r.leadNear.toFixed(2)}、遠距狙擊 ${r.leadFar.toFixed(2)} 倍的攔截量）`,
+  );
+  check(r.trk > -9 && r.trk < 9, `目標換方向後的追蹤延遲（0.1 秒後預判速度 ${r.trk.toFixed(1)} m/s）`);
+  check(
+    r.m0 === 1 && r.m5 === 2 && r.m10 === 4,
+    `導彈鎖定時間（0／0.4／1.1 秒：${r.m0}／${r.m5}／${r.m10} 發）`,
+  );
+  check(r.hint.includes('導彈鎖定'), `鎖定提示顯示導彈鎖定數（${r.hint}）`);
+  check(
+    r.panel.includes('命中率（近／中／遠）') &&
+      r.panel.includes('效率') &&
+      r.panel.includes('擴散') &&
+      r.band[1] === 0.75,
+    '靶場的分距離命中率、有效率、擴散與預判',
+  );
+  await page.evaluate(() => window.__game.rangeExit());
+  await ctx.close();
+}
 async function testAttrs(browser, base) {
   console.log(
     '武器屬性：三種防禦、能量適性、直擊補正、無屬性、弱點、實彈距離衰減、能量霰彈、機甲庫與靶場的顯示',
@@ -9290,6 +9416,7 @@ async function main() {
     await testGuide(browser, base);
     await testRange(browser, base);
     await testAttrs(browser, base);
+    await testAim(browser, base);
     await testAudio(browser, base);
     await testJuice(browser, base);
     await testBossPower(browser, base);

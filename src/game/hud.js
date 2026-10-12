@@ -8,6 +8,16 @@ import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
+  // 多連導彈的鎖定數（火控的 lockSpeed；MechEntity.missileN）
+  hudMissileLock(p) {
+    const out = [];
+    for (const k of ['rarm', 'larm', 'rback', 'lback']) {
+      const w = p.weapons[k];
+      if (!w || w.dropped || w.def.type !== 'missile' || (w.def.count || 1) <= 1) continue;
+      out.push(`${p.missileN(w.def, p.lock)}/${w.def.count}`);
+    }
+    return out.length ? '　導彈鎖定 ' + out.join('・') : '';
+  },
   drawSpectateHud(dt) {
     const c = this.hctx;
     const W = innerWidth,
@@ -429,7 +439,7 @@ Object.assign(Game.prototype, {
               : '';
       }
       document.getElementById('lockHint').textContent = p.lock
-        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${p.lock.res ? '　' + weakText(p.lock.res) : ''}${hTxt}`
+        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${p.lock.res ? '　' + weakText(p.lock.res) : ''}${this.hudMissileLock(p)}${hTxt}`
         : '無鎖定目標';
       document.getElementById('lockHint').style.color = hTxt.includes('▲')
         ? '#7ee081'

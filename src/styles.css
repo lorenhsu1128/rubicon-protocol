@@ -2073,3 +2073,8 @@ body.lab #fps {
   color: #ffb070;
   font-weight: normal;
 }
+#rangePanel .rpSub {
+  color: #8a97a6;
+  font-size: 11px;
+  line-height: 1.3;
+}

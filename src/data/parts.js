@@ -365,6 +365,7 @@ export const PARTS = {
     {
       id: 'f_std',
       name: 'FCS-ABBOT 標準',
+      assist: [0.6, 0.6, 0.45],
       range: 48,
       lockSpeed: 1.0,
       weight: 80,
@@ -375,6 +376,7 @@ export const PARTS = {
     {
       id: 'f_far',
       name: 'FCS-OCELLUS 遠程',
+      assist: [0.35, 0.6, 0.8],
       range: 62,
       lockSpeed: 0.8,
       weight: 90,
@@ -385,12 +387,46 @@ export const PARTS = {
     {
       id: 'f_near',
       name: 'FCS-TALBOT 近距',
+      assist: [0.85, 0.55, 0.25],
       range: 38,
       lockSpeed: 1.5,
       weight: 80,
       en: 190,
       price: 28000,
       desc: '近距鎖定快、導彈追蹤強',
+    },
+    {
+      id: 'f_cqb',
+      name: 'FCS-BRAWLER 近距特化',
+      assist: [1.0, 0.4, 0.1],
+      range: 34,
+      lockSpeed: 2.0,
+      weight: 70,
+      en: 210,
+      price: 36000,
+      desc: '30 m 內幾乎百發百中，遠距離很差',
+    },
+    {
+      id: 'f_mid',
+      name: 'FCS-VERITAS 中距特化',
+      assist: [0.5, 0.92, 0.4],
+      range: 54,
+      lockSpeed: 1.1,
+      weight: 90,
+      en: 240,
+      price: 40000,
+      desc: '30～60 m 的預判最準',
+    },
+    {
+      id: 'f_snipe',
+      name: 'FCS-HAWKEYE 遠距狙擊',
+      assist: [0.2, 0.55, 1.0],
+      range: 74,
+      lockSpeed: 0.6,
+      weight: 110,
+      en: 300,
+      price: 48000,
+      desc: '遠距離的預判與集彈最好，導彈鎖定慢',
     },
   ],
   arm: [
@@ -1237,4 +1273,27 @@ export function weaponById(id) {
     for (const w of [...PARTS.arm, ...PARTS.back, FIST_DEF]) WEAPON_MAP.set(w.id, w);
   }
   return WEAPON_MAP.get(id) || null;
+}
+
+// 火控的距離輔助（0～1）：近 15 m、中 45 m、遠 75 m 之間線性內插（決定預判準度與擴散，MechEntity.fire）
+export const FCS_BANDS = [15, 45, 75];
+export function fcsAssist(fcs, dist) {
+  const a = (fcs && fcs.assist) || [0.6, 0.6, 0.45];
+  if (dist <= FCS_BANDS[0]) return a[0];
+  if (dist >= FCS_BANDS[2]) return a[2];
+  const i = dist < FCS_BANDS[1] ? 0 : 1;
+  const k = (dist - FCS_BANDS[i]) / (FCS_BANDS[i + 1] - FCS_BANDS[i]);
+  return a[i] + (a[i + 1] - a[i]) * k;
+}
+// 預判準度（玩家）：1＝照實際的攔截點；輔助低時只預判一部分
+export function leadOf(assist) {
+  return 0.55 + 0.45 * assist;
+}
+// 擴散倍率：輔助高時集彈
+export function assistSpread(assist) {
+  return 1.25 - 0.5 * assist;
+}
+// 追蹤速度（每秒）：手臂的射擊適性 aim 越高，目標換方向（QB）時預判跟得越快
+export function trackRate(aim) {
+  return 1 + (aim || 0.6) * 6;
 }

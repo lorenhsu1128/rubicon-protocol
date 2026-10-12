@@ -19,7 +19,7 @@ import {
   jumpSpec,
   partById,
 } from '../data/parts.js';
-import { weaponById } from '../data/parts.js';
+import { assistSpread, fcsAssist, leadOf, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
@@ -269,6 +269,13 @@ export class MechEntity {
     const muzzle = this.muzzle(slot);
     const from = this.center();
     const SP = this.isPlayer ? null : muzzle;
+    // 火控的距離輔助：依距離決定預判準度與集彈（data/parts.js 的 fcsAssist）
+    const tgtOk = targetEnt && !targetEnt.dead && targetEnt.center;
+    const distT = (tgtOk ? targetEnt.center() : targetPos).distanceTo(muzzle);
+    const assist = fcsAssist(this.stats.parts.fcs, distT);
+    if (tgtOk && (d.type === 'bullet' || d.type === 'shotgun' || d.type === 'shell'))
+      targetPos = this.leadPoint(targetEnt, d.speed, muzzle); // 依彈速算攔截點
+    else if (tgtOk && (d.type === 'laser' || d.type === 'empbeam')) targetPos = targetEnt.center(); // 即時命中：不預判
     // 高度優勢：射手比目標高 → 擴散縮小；比目標低 → 擴散放大（每 1m 高度差 ±7%，上限 ±45%）
     let hmul = 1;
     if (targetEnt && !targetEnt.dead) {
@@ -281,7 +288,8 @@ export class MechEntity {
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
         hmul *
-        steady +
+        steady *
+        assistSpread(assist) +
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
     const dir = targetPos.clone().sub(muzzle).normalize();
@@ -363,12 +371,15 @@ export class MechEntity {
         {
           let tp = targetPos.clone();
           if (targetEnt && !targetEnt.dead) {
+            // 依榴彈自身飛行時間預判（追蹤的速度、火控的預判準度）
+            const V = this.trackVel(targetEnt),
+              k = this.leadK(distT);
             let tt0 =
               Math.min(d.range, Math.max(8, targetEnt.center().sub(muzzle).setY(0).length())) / d.speed;
-            tp = targetEnt.center().addScaledVector(targetEnt.vel, tt0);
+            tp = targetEnt.center().addScaledVector(V, tt0 * k);
             tt0 = Math.min(d.range, Math.max(8, tp.clone().sub(muzzle).setY(0).length())) / d.speed;
-            tp = targetEnt.center().addScaledVector(targetEnt.vel, tt0);
-          } // 依榴彈自身飛行時間預判
+            tp = targetEnt.center().addScaledVector(V, tt0 * k);
+          }
           const hd = tp.clone().sub(muzzle);
           hd.y = 0;
           const dist = Math.min(d.range, Math.max(8, hd.length()));
@@ -403,7 +414,8 @@ export class MechEntity {
         break;
       case 'missile':
         {
-          const n = d.count;
+          const n = this.missileN(d, targetEnt); // 多連導彈：鎖定時間不夠時發射數量較少
+          this.lkT0 = this.t; // 發射後重新鎖定
           for (let i = 0; i < n; i++) {
             const up = new THREE.Vector3(rnd(-0.6, 0.6), 1.2, rnd(-0.6, 0.6)).normalize();
             const v = up.multiplyScalar(d.speed);
@@ -831,6 +843,58 @@ export class MechEntity {
     g.fx.ring(this.pos.clone().setY(this.pos.y + 0.1), 4, 0x80c8ff);
   }
   // attr＝攻擊屬性（data/attrs.js：kin／exp／en／none）；沒給時依 wid（武器 id）推算，都沒有時算實彈
+  // ---------- 命中（火控、手臂的射擊適性） ----------
+  fcsAssist(dist) {
+    return fcsAssist(this.stats.parts.fcs, dist);
+  }
+  // 預判準度：玩家照火控；電腦另外乘技巧（Boss 稍準、一般敵人保持原本的命中）
+  leadK(dist) {
+    let k = leadOf(this.fcsAssist(dist));
+    if (!this.pilotEnt()) k *= (this.isBoss ? 1.05 : 0.85) * clamp(this.aiSkill || 1, 0.5, 1.25);
+    return k;
+  }
+  // 追蹤的目標速度：手臂的射擊適性越高，目標換方向時跟得越快（QB 能甩開低適性的預判）
+  trackVel(t) {
+    const now = this.t;
+    if (this.trkId !== t.id || !this.trkV) {
+      this.trkId = t.id;
+      this.trkV = t.vel.clone();
+      this.trkT = now;
+      return this.trkV;
+    }
+    const dt = Math.min(1, Math.max(0, now - this.trkT));
+    this.trkT = now;
+    this.trkV.lerp(t.vel, 1 - Math.exp(-trackRate(this.stats.parts.arms.aim) * dt));
+    return this.trkV;
+  }
+  // 攔截點：目標中心＋追蹤速度 × 飛行時間 × 預判準度
+  leadPoint(t, speed, muzzle) {
+    const c = t.center();
+    if (!speed) return c;
+    const V = this.trackVel(t);
+    let tt = c.distanceTo(muzzle) / speed;
+    for (let i = 0; i < 2; i++) tt = c.clone().addScaledVector(V, tt).distanceTo(muzzle) / speed;
+    return c.addScaledVector(V, tt * this.leadK(c.distanceTo(muzzle)));
+  }
+  // 鎖定時間：每格以目前的目標更新（玩家在 move、電腦在 updateAI）
+  lockAge(t) {
+    if (!t) {
+      this.lkId = null;
+      return 0;
+    }
+    if (this.lkId !== t.id) {
+      this.lkId = t.id;
+      this.lkT0 = this.t;
+    }
+    return this.t - this.lkT0;
+  }
+  // 多連導彈的發射數：火控的 lockSpeed 決定鎖滿全部需要的時間（1／lockSpeed 秒）；沒有目標時全部發射
+  missileN(d, t) {
+    const n = d.count || 1;
+    if (!t || t.dead || n <= 1) return n;
+    const full = 1 / ((this.stats.parts.fcs && this.stats.parts.fcs.lockSpeed) || 1);
+    return clamp(Math.ceil((n * this.lockAge(t)) / full), 1, n);
+  }
   takeDamage(dmg, impact, from, at, dir, melee, wid, attr) {
     if (this.dead) return;
     if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
@@ -1131,6 +1195,9 @@ export class MechEntity {
       w = g.world,
       P = this.stats.parts;
     if (this.buffT > 0) this.buffT -= dt;
+    // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
+    if (this.team === 'player' && this.slot !== undefined && 'lock' in this)
+      this.lockAge(this.lock && !this.lock.dead ? this.lock : null);
     const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1) * this.waterK(); // 指揮官 MT 強化、水中
     this.t += dt;
     // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
@@ -1800,6 +1867,7 @@ export class MechEntity {
         pl = h;
       }
     }
+    this.lockAge(pl); // 導彈的鎖定時間
     if (this.isBoss && pl) this.boss3Tick(dt, pl); // 第三型態的專屬招式（mech-boss3.js）
     if (this.team === 'ally') {
       this.allyT -= dt;
