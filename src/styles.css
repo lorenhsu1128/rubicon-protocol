@@ -1637,7 +1637,8 @@ body.lab #fps {
   margin-top: 6px;
 }
 #hubLogBox,
-#hubFacBox {
+#hubFacBox,
+#rangeLogBox {
   position: absolute;
   inset: 40px max(16px, calc(50% - 320px));
   background: rgba(8, 12, 18, 0.97);
@@ -1653,7 +1654,8 @@ body.lab #fps {
   align-items: center;
 }
 #hubLogList,
-#hubFacList {
+#hubFacList,
+#rangeLogList {
   overflow: auto;
   flex: 1;
 }
@@ -1844,7 +1846,8 @@ body.lab #fps {
 }
 /* 主線：模擬器、作戰紀錄（game/sim.js） */
 #simMenu,
-#record {
+#record,
+#rangeMenu {
   background: radial-gradient(ellipse at 30% 20%, #142030, #070a0e 75%);
   align-items: center;
   justify-content: center;
@@ -1958,4 +1961,109 @@ body.lab #fps {
 
 #hubFacBox {
   z-index: 45;
+}
+
+/* 靶場（game/range.js） */
+#rangeLogBox {
+  z-index: 45;
+}
+#rangePanel {
+  position: absolute;
+  right: 12px;
+  top: 120px;
+  width: 260px;
+  background: rgba(8, 12, 18, 0.82);
+  border: 1px solid #2a3946;
+  border-left: 3px solid #7fc8ff;
+  padding: 8px 10px;
+  font-size: 12px;
+  pointer-events: none;
+}
+#rangePanel div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.55;
+}
+#rangePanel .rpHead {
+  display: block;
+  color: #7fc8ff;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+#rangePanel .rpSec {
+  display: block;
+  color: #ffb020;
+  margin-top: 4px;
+  border-bottom: 1px solid #2a3946;
+}
+.rgGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+.rgGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.rgChecks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+#gFire h3 {
+  font-size: 14px;
+  margin: 10px 0 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+#gFire h3 label {
+  font-size: 11px;
+  font-weight: normal;
+}
+.gFireNote {
+  font-size: 11px;
+  margin-top: 2px;
+}
+.dUp {
+  color: #7ee081;
+  font-size: 11px;
+}
+.dDn {
+  color: #ff8a8a;
+  font-size: 11px;
+}
+.rgLog {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.rgLog th,
+.rgLog td {
+  border-bottom: 1px solid #1c2630;
+  padding: 3px 6px;
+  text-align: left;
+}
+.rgLog td.best {
+  color: #7ee081;
+  font-weight: bold;
+}
+.rgLog tr.sel {
+  background: #13202b;
+}
+#rangeMenu .brBox {
+  width: min(720px, 100%);
+}
+#rangeMenu select,
+#rangeMenu input[type='number'] {
+  padding: 6px;
+  background: #0c1218;
+  color: #e8eef4;
+  border: 1px solid #2a3946;
 }

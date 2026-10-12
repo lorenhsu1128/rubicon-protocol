@@ -285,6 +285,7 @@ export class MechEntity {
     const dmg = d.dmg * this.dmgMul,
       imp = d.impact * this.dmgMul;
     const shoot = (dirv, kind, extra) => {
+      if (g.range && this === g.player) g.rangeShot(d.id); // 靶場的命中率
       g.projectiles.push(
         new Projectile(
           g,
@@ -557,6 +558,7 @@ export class MechEntity {
             if (this.isPlayer) g.camShake = Math.max(g.camShake, 0.14);
           }
           SFX.shot(charged ? 'laserCharged' : 'laser', d.id, SP);
+          if (g.range && this === g.player) g.rangeShot(d.id);
           w.cd = d.rof * (charged ? 1.6 : 1);
           this.recoil[w.side > 0 ? 'r' : 'l'] = charged ? 1 : 0.4;
           if (this.isPlayer) g.rumble(charged ? 0.9 : 0.1, charged ? 0.6 : 0.6, charged ? 260 : 70);
@@ -906,6 +908,7 @@ export class MechEntity {
       mul *= 1 - this.shield;
     }
     const real = Math.round(dmg * mul);
+    if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.stats.def), impact, wid); // 靶場的量測
     const mp = g.net && g.net.role;
     if (mp && this.team === 'player' && this.downed) {
       if (this.downHp === undefined) this.downHp = this.maxHp * (0.3 + this.pmv('downHp'));
@@ -968,6 +971,7 @@ export class MechEntity {
           this.game.rumble(1.0, 1.0, 600);
         }
         this.game.netEv({ t: 'stag', i: this.id });
+        if (this.game.range) this.game.rangeStag(this, from);
       }
     }
     this.game.popDamage(
@@ -980,6 +984,7 @@ export class MechEntity {
       this.id,
       impact,
     );
+    if (this.hp <= 0 && g.range && g.rangeSave(this)) return; // 靶場：目標 AP 無限、自己不會被擊破
     if (this.hp <= 0) {
       if (mp && this.team === 'player' && !this.downed && !g.pvp) {
         this.enterDowned();
@@ -1757,6 +1762,7 @@ export class MechEntity {
     const g = this.game,
       s = this.aiState;
     if (this.dead) return;
+    if (this.rangeB && g.range && g.rangeAI(this, dt)) return; // 靶場的目標：靜止／橫移（game/range.js）
     dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
     // 據點的守衛：還沒出動時守在原地（game/outposts.js）

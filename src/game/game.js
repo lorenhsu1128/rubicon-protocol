@@ -343,6 +343,7 @@ export class Game {
     // 主線（單人）才有「保存並回作戰室」
     const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);
     for (const b of document.querySelectorAll('.campSusp')) b.style.display = susp ? '' : 'none';
+    for (const b of document.querySelectorAll('.rangeOnly')) b.style.display = this.range ? '' : 'none';
   }
   // ---------- loop ----------
   loop() {
@@ -405,6 +406,7 @@ export class Game {
       this.state === 'record' ||
       this.state === 'epilogue' ||
       this.state === 'campfail' ||
+      this.state === 'rangemenu' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
       if (this.world) {
@@ -421,7 +423,12 @@ export class Game {
       this.renderer.clear();
       return;
     }
-    if (this.state === 'pause' || this.state === 'settings' || this.state === 'modpick') {
+    if (
+      this.state === 'pause' ||
+      this.state === 'settings' ||
+      this.state === 'modpick' ||
+      this.state === 'rangecfg'
+    ) {
       this.renderMain();
       return;
     }
@@ -510,6 +517,7 @@ export class Game {
       this.bossPhaseTick(dt); // Boss 的三個型態、換型態的增援、狂暴（bosses.js）
     } else if (
       !this.pvp &&
+      !this.range &&
       alive === 0 &&
       !this.waves.length &&
       this.playersAlive().length &&
@@ -532,6 +540,7 @@ export class Game {
       this.campTick(dt);
       if (!this.player) return; // 走進出口：已經轉場
     }
+    if (this.range) this.rangeTick(dt); // 靶場（range.js）
     this.updateCamera(dt);
     SFX.setListener((this.camFocus || this.player).center());
     this.updateLoops();

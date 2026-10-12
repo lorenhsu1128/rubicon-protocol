@@ -272,6 +272,53 @@
         </div>
       </div>
 
+      <!-- 機甲庫的靶場（game/range.js） -->
+      <div id="rangeMenu" class="screen">
+        <div class="brBox">
+          <h2>靶場 — 目標設定</h2>
+          <div class="dim">
+            測試目前組裝的火力與防禦；不消耗、不記錄進度。靶場裡按 T 回到這裡、Y 重置數據。
+          </div>
+          <div class="rgGrid">
+            <label>目標<select id="rgTgt"></select></label>
+            <label
+              >行為<select id="rgBeh">
+                <option value="static">靜止（不還手）</option>
+                <option value="strafe">橫移（不還手）</option>
+                <option value="turret">原地開火（測防禦）</option>
+                <option value="ai">完整 AI</option>
+              </select></label
+            >
+            <label
+              >距離<select id="rgDist">
+                <option value="10">10 m</option>
+                <option value="30">30 m</option>
+                <option value="60">60 m</option>
+                <option value="100">100 m</option>
+              </select></label
+            >
+            <label
+              >數量<select id="rgN">
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+              </select></label
+            >
+            <label>強度（等級）<input id="rgLv" type="number" min="1" max="60" /></label>
+          </div>
+          <div class="rgChecks">
+            <label><input type="checkbox" id="rgInf" /> 目標 AP 無限（長時間量 DPS）</label>
+            <label><input type="checkbox" id="rgGod" /> 自己不會被擊破（AP 歸零時補滿）</label>
+            <label><input type="checkbox" id="rgPm" /> 套用駕駛員與戰術模組的加成</label>
+            <label><input type="checkbox" id="rgAmmo" /> 彈藥無限</label>
+          </div>
+          <div id="rgNote" class="dim"></div>
+          <div class="row">
+            <button class="primary" id="btnRangeGo">進入靶場</button
+            ><button id="btnRangeBack">返回機甲庫</button>
+          </div>
+        </div>
+      </div>
       <!-- 主線：轉場（game/campaign.js） -->
       <div id="campTrans" class="screen">
         <div class="ctBox">
@@ -306,6 +353,10 @@
 
       <!-- Garage -->
       <div id="garage" class="screen">
+        <div id="rangeLogBox" class="hubBox" style="display: none">
+          <div class="hubLogHead"><b>靶場紀錄</b><button id="btnRangeLogClose">關閉</button></div>
+          <div id="rangeLogList"></div>
+        </div>
         <div id="garageLeft">
           <div id="gTitle">
             <h2>機甲庫 <span id="gCtx" class="gCtx"></span></h2>
@@ -323,6 +374,7 @@
         <div id="garageRight">
           <h2>機體規格</h2>
           <div id="stats"></div>
+          <div id="gFire"></div>
           <div
             id="gMissionM"
             class="dim"
@@ -342,6 +394,10 @@
               <button class="primary" id="btnCampGo2">繼續作戰</button>
             </div>
             <button class="primary" id="btnSortie">自由出擊</button>
+            <button id="btnRange" title="測試目前組裝的火力與防禦（不消耗、不記錄進度）">
+              靶場（測試機體）
+            </button>
+            <button id="btnRangeLog">靶場紀錄</button>
             <button id="btnCamp">前往作戰室（主線）</button>
             <button id="btnPilot">駕駛員（技能／預設組）</button>
             <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
@@ -641,6 +697,7 @@
           <div class="row">
             <button class="primary" id="btnResume">繼續</button
             ><button id="btnSuspend" class="campSusp">保存並回作戰室</button
+            ><button id="btnRangeCfgP" class="rangeOnly">靶場設定</button
             ><button id="btnAbort">放棄任務</button><button id="btnSettingsP">按鍵設定</button
             ><button id="btnFullscreenP">全螢幕</button>
           </div>
@@ -659,6 +716,7 @@
 
       <!-- In-game HUD -->
       <div id="hudWrap" style="display: none; position: absolute; inset: 0">
+        <div id="rangePanel" style="display: none"></div>
         <div id="hudTop"></div>
         <div id="hudBottom">
           <div id="kits"></div>

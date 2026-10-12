@@ -103,6 +103,7 @@ Object.assign(Game.prototype, {
         ? `目標：擊破 ${bossForLevel(L).name}`
         : `目標：肅清隨機戰區內所有敵對兵力（預估 ${Math.round(6 + L * 2.2)} 戰力點，分波來襲）`) +
       '　每擊破一台即時入帳 COAM，無修理費';
+    this.garageFireCache = null; // 理論火力（range.js）：每次重畫重新計算
     const slots = $('slots');
     slots.innerHTML = '';
     for (const [key, label, cat] of SLOTS) {
@@ -178,7 +179,8 @@ Object.assign(Game.prototype, {
         else if (cat === 'booster') spec = `推力 ×${p.thrust} · QB ${p.qb}`;
         else if (cat === 'fcs') spec = `鎖定距離 ${p.range}`;
         else spec = `AP ${p.ap} · 穩定 ${p.stab}`;
-        d.innerHTML = `<div><div class="n">${p.name}</div><div class="s">${spec}${p.desc ? ' · ' + p.desc : ''}${p.weight !== undefined ? ' · 重 ' + p.weight + ' · EN ' + p.en : ''}</div></div><div class="pr">${owned ? (eq ? '已裝備' : '裝備') : p.price.toLocaleString() + ' C'}</div>`;
+        const dl = eq ? '' : this.garagePartDelta(key, cat, p); // 換上後的 DPS／有效 AP 變化
+        d.innerHTML = `<div><div class="n">${p.name}${dl ? ' ' + dl : ''}</div><div class="s">${spec}${p.desc ? ' · ' + p.desc : ''}${p.weight !== undefined ? ' · 重 ' + p.weight + ' · EN ' + p.en : ''}</div></div><div class="pr">${owned ? (eq ? '已裝備' : '裝備') : p.price.toLocaleString() + ' C'}</div>`;
         d.onclick = () => {
           if (!owned) {
             if (S.coam >= p.price) {
@@ -234,6 +236,17 @@ Object.assign(Game.prototype, {
     $('stats').innerHTML = rows
       .map((r) => `<div class="stat ${r[2] || ''}"><span>${r[0]}</span><span>${r[1]}</span></div>`)
       .join('');
+    $('gFire').innerHTML = this.garageFireHtml();
+    $('gFirePm').onchange = (e) => {
+      const cfg = this.rangeCfgGet();
+      cfg.pm = e.target.checked;
+      try {
+        localStorage.setItem('rubicon_range', JSON.stringify(cfg));
+      } catch {
+        /* 不記住也沒關係 */
+      }
+      this.renderGarage();
+    };
     const warn = [];
     if (st.overWeight) warn.push('超重：無法出擊');
     if (st.overEn) warn.push('EN 輸出不足：無法出擊');
@@ -262,6 +275,8 @@ Object.assign(Game.prototype, {
     };
     const mp = !!(this.net && this.net.role);
     $('btnSortie').style.display = mp ? 'none' : '';
+    $('btnRange').style.display = mp ? 'none' : '';
+    $('btnRange').disabled = warn.length > 0;
     $('btnToTitle').style.display = mp ? 'none' : '';
     $('btnGarageLobby').style.display = mp ? '' : 'none';
     if (mp && warn.length) $('btnGarageLobby').disabled = true;

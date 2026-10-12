@@ -693,6 +693,10 @@ Object.assign(Game.prototype, {
   },
   onEnemyKilled(e, from) {
     if (this.lab) return; // 渲染風格實驗室的模擬戰鬥：不計入存檔
+    if (this.range) {
+      this.fbKill(e, from); // 靶場：只有擊破音與連殺，不計入存檔
+      return this.rangeKilled(e);
+    }
     this.foeScavenge(e);
     // 主線的戰術模組「回收迴路」：擊破時回復 AP
     if (from && from.pmv && !from.dead && from.pmv('killHeal') > 0)
@@ -744,6 +748,7 @@ Object.assign(Game.prototype, {
   },
   onPlayerDead() {
     if (this.lab) return; // 實驗室：由 labTick 重新空降
+    if (this.range) return this.rangePlayerDead(); // 靶場：重新出場
     if (this.sim) {
       this.flashMsg('AC 已被擊破', 0xff4d4d, 2);
       return setTimeout(() => this.sim && this.simEnd(false), 1800); // 模擬戰

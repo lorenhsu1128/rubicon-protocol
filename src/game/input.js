@@ -576,6 +576,7 @@ Object.assign(Game.prototype, {
         return;
       }
       if (this.lab && this.labKey(e)) return;
+      if (this.range && this.rangeKey(e.code)) return; // 靶場：T 設定、Y 重置
       this.keys[e.code] = true;
       this.down[e.code] = true;
       const km = this.keymap;
@@ -819,6 +820,13 @@ Object.assign(Game.prototype, {
     $('btnCampRetry').onclick = () => this.campRetry(false);
     $('btnCampFailGarage').onclick = () => this.campRetry(true);
     $('btnCampQuit').onclick = () => this.campEnd(false, true);
+    // 靶場（range.js）
+    $('btnRange').onclick = () => this.openRangeMenu();
+    $('btnRangeGo').onclick = () => this.rangeMenuGo();
+    $('btnRangeBack').onclick = () => this.rangeMenuBack();
+    $('btnRangeCfgP').onclick = () => this.openRangeMenu();
+    $('btnRangeLog').onclick = () => this.rangeLogOpen(true);
+    $('btnRangeLogClose').onclick = () => this.rangeLogOpen(false);
     for (const id of ['btnSuspend', 'btnCampSuspend', 'btnCampSuspend2'])
       $(id).onclick = () => this.campSuspend();
     $('btnRandomAsm').onclick = () => {
@@ -854,6 +862,7 @@ Object.assign(Game.prototype, {
     $('optPost').checked = this.post.enabled;
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
+      if (this.range) return this.rangeExit();
       if (this.lab) return this.exitLab();
       if (this.camp) return this.campEnd(false, true); // 多人時 campEnd 會通知客機
       if (this.sim) return this.simEnd(false);

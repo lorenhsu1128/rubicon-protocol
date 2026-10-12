@@ -7093,6 +7093,162 @@ async function testModFx(browser, base) {
 }
 
 // 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testRange(browser, base) {
+  console.log('靶場：機甲庫的理論火力、目標設定、量測輸出與承受、AP 無限、不會被擊破、橫移、紀錄、轉場整備');
+  const { ctx, page } = await newPage(browser, 'range');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.openGarage();
+    g.garageSlot = 'rarm';
+    g.renderGarage();
+  });
+  await waitVisible(page, 'garage');
+  const gf = await page.evaluate(() => ({
+    fire: document.getElementById('gFire').textContent,
+    delta: document.querySelectorAll('#partList .dUp, #partList .dDn').length,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'range-garage.png') });
+  check(
+    gf.fire.includes('合計 DPS') && gf.fire.includes('有效 AP') && gf.delta > 0,
+    `機甲庫的理論火力與換零件的差異（${gf.delta} 個零件標出 ▲▼）`,
+  );
+  // 目標設定 → 進入靶場：標準靶、靜止、30 m、AP 無限
+  await page.click('#btnRange');
+  await waitVisible(page, 'rangeMenu');
+  await page.selectOption('#rgTgt', 'dummy');
+  await page.selectOption('#rgBeh', 'static');
+  await page.selectOption('#rgDist', '30');
+  await page.evaluate(() => {
+    document.getElementById('rgInf').checked = true;
+    document.getElementById('rgGod').checked = false;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'range-menu.png') });
+  await page.click('#btnRangeGo');
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const r1 = await page.evaluate(async () => {
+    const g = window.__game;
+    const t = g.range.targets[0];
+    const d = Math.hypot(t.pos.x - g.player.pos.x, t.pos.z - g.player.pos.z);
+    // 4 發、2 發命中
+    for (let i = 0; i < 4; i++) g.rangeShot('w_rifle');
+    for (let i = 0; i < 2; i++)
+      t.takeDamage(500, 200, g.player, t.center(), new THREE.Vector3(0, 0, -1), undefined, 'w_rifle');
+    await new Promise((r) => setTimeout(r, 1500));
+    t.takeDamage(1e9, 0, g.player, t.center(), null, undefined, 'w_rifle'); // AP 無限：補滿、算一次擊破
+    await new Promise((r) => setTimeout(r, 600));
+    g.rangePanelRender();
+    const s = g.rangeSummary();
+    return {
+      d,
+      n: g.range.targets.length,
+      dead: t.dead,
+      hp: t.hp,
+      max: t.maxHp,
+      s,
+      panel: document.getElementById('rangePanel').textContent,
+    };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'range-play.png') });
+  check(r1.n === 1 && Math.abs(r1.d - 30) < 3, `標準靶在 30 m（${r1.d.toFixed(1)} m）`);
+  check(
+    r1.s.dealt > 900 && r1.s.dps > 0 && Math.round(r1.s.acc * 100) === 75 && r1.panel.includes('DPS'),
+    `量測輸出（總傷害 ${Math.round(r1.s.dealt)}、DPS ${Math.round(r1.s.dps)}、命中率 ${Math.round(r1.s.acc * 100)}%）`,
+  );
+  check(!r1.dead && r1.hp === r1.max && r1.s.killN === 1, 'AP 無限：歸零時補滿並記一次擊破時間');
+  // T 開設定：原地開火的敵人、自己不會被擊破
+  await page.keyboard.press('KeyT');
+  await waitVisible(page, 'rangeMenu');
+  check((await page.evaluate(() => window.__game.state)) === 'rangecfg', '靶場裡按 T：暫停並打開目標設定');
+  await page.selectOption('#rgTgt', 'type:mt_shot');
+  await page.selectOption('#rgBeh', 'turret');
+  await page.evaluate(() => (document.getElementById('rgGod').checked = true));
+  await page.click('#btnRangeGo');
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const r2 = await page.evaluate(async () => {
+    const g = window.__game;
+    const t = g.range.targets[0];
+    const a0 = t.pos.clone();
+    await new Promise((r) => setTimeout(r, 2500));
+    const moved = Math.hypot(t.pos.x - a0.x, t.pos.z - a0.z);
+    g.player.takeDamage(1e9, 0, t, g.player.center(), null);
+    await new Promise((r) => setTimeout(r, 300));
+    const s = g.rangeSummary();
+    return { name: t.name, moved, dead: g.player.dead, hp: g.player.hp, s };
+  });
+  check(r2.moved < 0.5, `原地開火的敵人不移動（${r2.name}，${r2.moved.toFixed(2)} m）`);
+  check(
+    !r2.dead && r2.s.downs === 1 && r2.s.taken > 0 && r2.s.blocked > 0,
+    `測防禦：不會被擊破、記錄受傷 ${Math.round(r2.s.taken)} 與防禦擋下 ${Math.round(r2.s.blocked)}`,
+  );
+  // 橫移
+  await page.keyboard.press('KeyT');
+  await waitVisible(page, 'rangeMenu');
+  await page.selectOption('#rgTgt', 'dummy');
+  await page.selectOption('#rgBeh', 'strafe');
+  await page.click('#btnRangeGo');
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const mv = await page.evaluate(async () => {
+    const g = window.__game;
+    const t = g.range.targets[0];
+    // 以遊戲時間等 3 秒（SwiftShader 的格數低，每格的 dt 有上限）
+    const c0 = g.range.clock;
+    for (let i = 0; i < 300 && g.range.clock < c0 + 3; i++) await new Promise((r) => setTimeout(r, 100));
+    return Math.hypot(t.pos.x - t.rangeAt.x, t.pos.z - t.rangeAt.z);
+  });
+  check(mv > 1, `橫移的標準靶左右移動（離開原位 ${mv.toFixed(1)} m）`);
+  // 離開：回機甲庫、留下紀錄
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'pause';
+    g.showScreen('pause');
+  });
+  check(await visible(page, 'btnRangeCfgP'), '暫停選單有「靶場設定」');
+  await page.click('#btnAbort');
+  await waitVisible(page, 'garage');
+  await page.click('#btnRangeLog');
+  const lg = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#rangeLogList tr').length - 1,
+    range: !!window.__game.range,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'range-log.png') });
+  check(!lg.range && lg.rows >= 2, `離開靶場回機甲庫、靶場紀錄 ${lg.rows} 筆`);
+  await page.click('#btnRangeLogClose');
+  // 轉場整備時進靶場：主線的狀態收起來，離開後放回
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.autoPickMod = true;
+    g.useSlot(g.saveSlot);
+    g.campBegin('c1s1');
+    g.campGarage();
+  });
+  await waitVisible(page, 'garage');
+  await page.click('#btnRange');
+  await waitVisible(page, 'rangeMenu');
+  await page.click('#btnRangeGo');
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const cp = await page.evaluate(() => ({ camp: !!window.__game.camp, kept: !!window.__game.range.camp }));
+  await page.evaluate(() => window.__game.rangeExit());
+  await waitVisible(page, 'garage');
+  const cp2 = await page.evaluate(() => ({
+    camp: !!window.__game.camp && window.__game.camp.sid,
+    panel: document.getElementById('gCamp').style.display !== 'none',
+  }));
+  check(
+    !cp.camp && cp.kept && cp2.camp === 'c1s1' && cp2.panel,
+    '轉場整備時進靶場：主線狀態收起來、離開後放回（整備面板還在）',
+  );
+  await ctx.close();
+}
 async function testGuide(browser, base) {
   console.log('主線的說明：出口文字、抉擇說明卡、模組卡片、委託方面板');
   const { ctx, page } = await newPage(browser, 'guide');
@@ -8964,6 +9120,7 @@ async function main() {
     await testModFx(browser, base);
     await testSupply(browser, base);
     await testGuide(browser, base);
+    await testRange(browser, base);
     await testAudio(browser, base);
     await testJuice(browser, base);
     await testBossPower(browser, base);
