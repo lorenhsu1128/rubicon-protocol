@@ -76,7 +76,7 @@ Object.assign(Game.prototype, {
       if (i > 0) {
         main = txt.slice(0, i);
         sub = txt.slice(i + 3);
-      } else sub = k === 'warn' ? 'CAUTION' : k === 'sys' ? 'SYSTEM' : k === 'echo' ? 'ECHO' : '';
+      } else sub = k === 'sys' ? 'SYSTEM' : k === 'echo' ? 'ECHO' : '';
     }
     // 中央訊息：登場＋顯示＋退場塞進給的秒數
     const fit = ['info', 'good', 'warn', 'sys', 'echo'].includes(k) ? Math.max(0.8, dur) : undefined;

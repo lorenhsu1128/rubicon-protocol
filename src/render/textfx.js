@@ -35,7 +35,24 @@ export const CUES = {
     hd: 300,
     patch: { ...preset('gold'), loop: 'once' },
   },
-  warn: { mode: 'message', tpl: 'incident', slot: 'msg', hd: 300 },
+  // 警告：常常出現（失衡、AC 擊破、Boss 招式），拿掉滿版的紅色色帶與顫抖、字小一點、不墊暗色帶，
+  // 只留模板的字型與登場／退場，字改成紅色系＋深色描邊
+  warn: {
+    mode: 'message',
+    tpl: 'incident',
+    slot: 'msg',
+    hd: 400,
+    noBackdrop: true,
+    patch: {
+      deco: { type: 'none' },
+      holdFx: 'none',
+      fill: { type: 'solid', color: '#ffd2d2' },
+      stroke: { on: true, width: 5, color: '#5a0010' },
+      shadow: { on: true, color: '#000000', opacity: 0.7, blur: 6, x: 0, y: 2 },
+      subColorOn: true,
+      subColor: '#ff8a8a',
+    },
+  },
   sys: { mode: 'message', tpl: 'newMessage', slot: 'msg', hd: 230, patch: { loop: 'once' } },
   echo: {
     mode: 'message',
@@ -310,6 +327,7 @@ export class TextFx {
   // 任務中的橫幅與訊息：模板沒有底色的（框線、兩側線、沒有裝飾）在亮的地圖上看不清楚，
   // 墊一條兩端淡出的暗色帶（跟著文字淡入淡出）
   backdrop(it, r, dpr) {
+    if (CUES[it.cue].noBackdrop) return;
     const d = it.scene.state.deco;
     if ((d.type === 'band' || d.type === 'box') && d.opacity > 0.3) return;
     const a = 0.42 * envelope(it.scene, Math.min(it.t, it.dur - 0.001));

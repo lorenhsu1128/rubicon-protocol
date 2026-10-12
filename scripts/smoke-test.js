@@ -8119,7 +8119,7 @@ async function testTextFx(browser, base) {
   check(
     /^作戰開始\|任務 02/.test(s1.start || '') &&
       s1.kinds.join(',') ===
-        'warn:防衛目標被摧毀|CAUTION,good:修復完成,good:取得戰術模組：測試,sys:手把已連接|測試手把,info:COAM 不足',
+        'warn:防衛目標被摧毀,good:修復完成,good:取得戰術模組：測試,sys:手把已連接|測試手把,info:COAM 不足',
     '出擊的橫幅與中央訊息的種類（' + s1.kinds.join('、') + '）',
   );
   // 橫幅畫在疊加畫布上（播到顯示中）
