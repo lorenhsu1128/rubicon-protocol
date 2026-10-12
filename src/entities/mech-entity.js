@@ -950,7 +950,6 @@ export class MechEntity {
         this.knockSide = Math.random() < 0.5 ? -1 : 1;
         this.game.fx.ring(this.center(), 4, 0xff6040);
         SFX.stagger(this.isPlayer ? null : this.center());
-        if (this.team === 'enemy') this.game.flashMsg('失衡！', 0xff6a2a, 0.7);
         this.game.fbBreak(this, from);
       }
       dir = null;
@@ -1033,11 +1032,10 @@ export class MechEntity {
           (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
           (1 - this.pmv('stagT'));
         this.game.fx.ring(this.center(), 4, 0xffb020);
-        // 打出敵人的失衡：短暫頓格與提示
+        // 打出敵人的失衡：短暫頓格（文字提示是命中位置的 BREAK，juice.js）
         if (this.team === 'enemy' && from && from.isPlayer) {
           this.game.fx.hitStop = Math.max(this.game.fx.hitStop, 0.07);
           this.game.fx.shockwave(this.center(), 4, 0xffb020, 0.3);
-          if (!this.isBoss) this.game.flashMsg('失衡！', 0xff6a2a, 0.7);
         }
         this.game.fbBreak(this, from);
         SFX.stagger(this.isPlayer ? null : this.center());
