@@ -43,14 +43,32 @@ export const SPEAKERS = {
   prospector: { name: 'PROSPECTOR', color: '#c8aa50', mark: 'P', note: '礦坑的重裝傭兵（第 1 章的宿敵）' },
 };
 
-// 戰區總覽圖的區域：x, y 是 0～100 的相對座標；章節依序開放
+// 戰區總覽圖的區域：x, y 是 0～100 的相對座標；章節依序開放；lx, ly＝區域名稱的位置（預設在圓的上方，避開節點）
 export const REGIONS = [
   { key: 'south', name: '南部荒野', chapter: 1, x: 48, y: 76, themes: ['wasteland', 'dunes', 'desert'] },
-  { key: 'central', name: '中部工業帶', chapter: 2, x: 50, y: 50, themes: ['industrial', 'dam', 'flooded'] },
-  { key: 'west', name: '西部冰原', chapter: 3, x: 18, y: 42, themes: ['snow', 'institute'] },
-  { key: 'north', name: '北部構造體', chapter: 4, x: 52, y: 18, themes: ['grid086', 'spaceport'] },
-  { key: 'east', name: '東岸洋上都市', chapter: 5, x: 84, y: 46, themes: ['xylem'] },
-  { key: 'sky', name: '高空軌道', chapter: 6, x: 80, y: 10, themes: ['orbit'] },
+  {
+    key: 'central',
+    name: '中部工業帶',
+    chapter: 2,
+    x: 50,
+    y: 50,
+    lx: 40,
+    ly: 38.5,
+    themes: ['industrial', 'dam', 'flooded'],
+  },
+  { key: 'west', name: '西部冰原', chapter: 3, x: 18, y: 42, lx: 24, ly: 30, themes: ['snow', 'institute'] },
+  {
+    key: 'north',
+    name: '北部構造體',
+    chapter: 4,
+    x: 52,
+    y: 18,
+    lx: 50,
+    ly: 7.5,
+    themes: ['grid086', 'spaceport'],
+  },
+  { key: 'east', name: '東岸洋上都市', chapter: 5, x: 84, y: 46, lx: 90, ly: 36.5, themes: ['xylem'] },
+  { key: 'sky', name: '高空軌道', chapter: 6, x: 80, y: 10, lx: 80, ly: 22, themes: ['orbit'] },
 ];
 export const CHAPTER_NAMES = {
   1: '第 1 章　荒野的訊號',
@@ -193,7 +211,7 @@ export const BRIEFINGS = {
   },
   c4s3a: {
     client: 'veerwell',
-    node: { x: 64, y: 23 },
+    node: { x: 66, y: 24.5 },
     needs: ['c4s2'],
     when: { c4: 'veerwell' },
     lines: [
@@ -230,7 +248,7 @@ export const BRIEFINGS = {
   },
   c5s2a: {
     client: 'veerwell',
-    node: { x: 88, y: 42 },
+    node: { x: 90, y: 43 },
     needs: ['c5s1'],
     when: { c4: 'veerwell' },
     lines: [
@@ -242,7 +260,7 @@ export const BRIEFINGS = {
   },
   c5s2b: {
     client: 'sancta',
-    node: { x: 88, y: 56 },
+    node: { x: 83, y: 63 },
     needs: ['c5s1'],
     when: { c4: 'sancta' },
     lines: [
@@ -254,7 +272,7 @@ export const BRIEFINGS = {
   },
   c5s3: {
     client: 'castron',
-    node: { x: 82, y: 38 },
+    node: { x: 77, y: 36 },
     needs: [],
     needsAny: ['c5s2a', 'c5s2b'],
     lines: [
@@ -309,7 +327,7 @@ export const BRIEFINGS = {
   },
   c2x: {
     client: 'sancta',
-    node: { x: 50, y: 62 },
+    node: { x: 32, y: 70 },
     needs: ['c2s2'],
     cycle: 2,
     lines: [
@@ -327,7 +345,7 @@ export const BRIEFINGS = {
   },
   c3x: {
     client: 'aetheric',
-    node: { x: 6, y: 40 },
+    node: { x: 6, y: 37 },
     needs: ['c3s2'],
     cycle: 2,
     lines: [
@@ -345,7 +363,7 @@ export const BRIEFINGS = {
   },
   c4x: {
     client: 'veerwell',
-    node: { x: 52, y: 30 },
+    node: { x: 56, y: 31 },
     needs: ['c4s2'],
     cycle: 2,
     lines: [
@@ -363,7 +381,7 @@ export const BRIEFINGS = {
   },
   c5x: {
     client: 'castron',
-    node: { x: 95, y: 48 },
+    node: { x: 93, y: 53 },
     needs: ['c5s1'],
     cycle: 2,
     lines: [
@@ -381,7 +399,7 @@ export const BRIEFINGS = {
   },
   c6x: {
     client: 'aetheric',
-    node: { x: 64, y: 5 },
+    node: { x: 64, y: 3.5 },
     needs: ['c6s1'],
     cycle: 2,
     lines: [
@@ -413,7 +431,7 @@ export const BRIEFINGS = {
   },
   c2y: {
     client: 'echo',
-    node: { x: 30, y: 62 },
+    node: { x: 26, y: 56 },
     needs: [],
     needsAny: ['c2s3a', 'c2s3b'],
     cycle: 3,
@@ -451,7 +469,7 @@ export const BRIEFINGS = {
   },
   c5y: {
     client: 'echo',
-    node: { x: 95, y: 34 },
+    node: { x: 93, y: 24 },
     needs: ['c5s3'],
     cycle: 3,
     lines: [
@@ -475,7 +493,7 @@ export const BRIEFINGS = {
   },
   c6s3: {
     client: 'castron',
-    node: { x: 90, y: 14 },
+    node: { x: 91, y: 15 },
     needs: ['c6s2'],
     lines: [
       '卡斯特隆重工。軌道站的中樞就在前面，所有委託方都在等你的結果。',

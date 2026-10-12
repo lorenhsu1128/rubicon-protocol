@@ -2551,7 +2551,14 @@ async function testEditorMaterials(browser, base) {
   await wait(1500);
   await reopen(page, base + 'model-library.html#head/h_std');
   await page.waitForSelector('#inspect:not([hidden])');
-  await wait(2000);
+  // 規格檢查要等 GLB 讀完才出現（電腦慢時超過 2 秒）
+  await page
+    .waitForFunction(
+      () => [...document.querySelectorAll('#insChecks li')].some((x) => x.textContent.includes('換色的材質')),
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {});
   const ins = (await page.$$eval('#insChecks li', (l) => l.map((x) => x.textContent))).find((t) =>
     t.includes('換色的材質'),
   );

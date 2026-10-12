@@ -339,6 +339,7 @@ export class Game {
       this.hctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     }
     if (this.updateVpad) this.updateVpad();
+    if (this.commPlace) this.commPlace();
     if (id === 'title' && this.renderContinue) this.renderContinue();
     // 主線（單人）才有「保存並回作戰室」
     const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);

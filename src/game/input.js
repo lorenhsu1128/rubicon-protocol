@@ -366,7 +366,9 @@ Object.assign(Game.prototype, {
     } catch (e) {}
   },
   updateVpad() {
-    const on = this.vpadWanted() && this.state === 'play';
+    // 渲染風格實驗室的觀看模式不操作機體：不顯示虛擬按鈕
+    const on = this.vpadWanted() && this.state === 'play' && !(this.lab && this.lab.mode === 'watch');
+    document.body.classList.toggle('touchDev', this.touchAvailable());
     if (this.vpadEl) this.vpadEl.classList.toggle('on', on);
     document.body.classList.toggle('vpad', on);
   },
@@ -778,6 +780,20 @@ Object.assign(Game.prototype, {
     $('btnHubLogClose').onclick = () => this.hubLog(false);
     $('btnHubFac').onclick = () => this.hubFactions(true);
     $('btnHubEcho').onclick = () => this.hubEcho(true);
+    $('comm').onclick = () => this.commTap();
+    // 靶場面板的觸控按鈕（面板會一直重畫，所以在外層接）
+    $('rangePanel').addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('[data-ra]');
+      if (!b || !this.range) return;
+      e.preventDefault();
+      e.stopPropagation();
+      SFX.ui();
+      const a = b.dataset.ra;
+      if (a === 'cfg') this.rangeKey('KeyT');
+      else if (a === 'reset') this.rangeKey('KeyY');
+      else this.rangeMini = !this.rangeMini;
+      this.rangePanelRender();
+    });
     $('btnHubEchoClose').onclick = () => this.hubEcho(false);
     $('btnHubFacClose').onclick = () => this.hubFactions(false);
     $('btnHubBack').onclick = () => {

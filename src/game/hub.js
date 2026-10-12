@@ -108,9 +108,12 @@ Object.assign(Game.prototype, {
     for (const R of REGIONS) {
       const open = R.chapter <= ch;
       svg += `<g class="hubRegion${open ? '' : ' locked'}"><circle cx="${R.x}" cy="${R.y}" r="9" fill="${open ? '#1a2a36' : '#10171e'}" stroke="${open ? '#3d5a70' : '#1c2630'}" stroke-width="0.4"/>`;
-      svg += `<text x="${R.x}" y="${R.y - 10.5}" text-anchor="middle" font-size="3" fill="${open ? '#a8bccc' : '#3a4a58'}">${escHtml(R.name)}</text>`;
+      // 區域名稱（lx, ly 避開節點），還沒開放的在名稱下方寫第幾章開放
+      const lx = R.lx !== undefined ? R.lx : R.x,
+        ly = R.ly !== undefined ? R.ly : R.y - 10.5;
+      svg += `<text class="rl" x="${lx}" y="${ly}" text-anchor="middle" font-size="3" fill="${open ? '#a8bccc' : '#3a4a58'}">${escHtml(R.name)}</text>`;
       if (!open)
-        svg += `<text x="${R.x}" y="${R.y + 1}" text-anchor="middle" font-size="2.4" fill="#3a4a58">第 ${R.chapter} 章開放</text>`;
+        svg += `<text class="rl" x="${lx}" y="${ly + 2.4}" text-anchor="middle" font-size="2" fill="#3a4a58">第 ${R.chapter} 章開放</text>`;
       svg += '</g>';
     }
     for (const sid in SORTIES) {
@@ -133,13 +136,15 @@ Object.assign(Game.prototype, {
       const chs = SORTIES[sid].segs.some((sg) => sg.choice);
       svg += `<g class="hubNode ${s}" data-sid="${sid}"><title>${escHtml(tip.join('\n'))}</title><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
       svg += `<text x="${B.node.x}" y="${B.node.y + 1}" text-anchor="middle" font-size="2.6" fill="${col}">${s === 'done' ? '✓' : s === 'open' ? '!' : '×'}</text>`;
-      svg += `<text x="${B.node.x}" y="${B.node.y + 5.6}" text-anchor="middle" font-size="2.2" fill="${col}">${escHtml(SORTIES[sid].name.split(' — ')[1] || SORTIES[sid].name)}</text>`;
+      svg += `<text class="nl" x="${B.node.x}" y="${B.node.y + 5.6}" text-anchor="middle" font-size="2.2" fill="${col}">${escHtml(SORTIES[sid].name.split(' — ')[1] || SORTIES[sid].name)}</text>`;
       if (chs)
         svg += `<text x="${B.node.x + 3.2}" y="${B.node.y - 2}" font-size="2.6" fill="#ff8a50">⚑</text>`; // 有陣營抉擇
       svg += '</g>';
     }
     svg += '</svg>';
     $('hubMap').innerHTML = svg;
+    // 地圖顯示得很小（手機橫式）：只留可以接的委託名稱並放大（styles.css 的 #hubMap.small）
+    $('hubMap').classList.toggle('small', $('hubMap').clientHeight < 420);
     $('hubCap').textContent = '戰區總覽圖：點選委託查看簡報（⚑＝有陣營抉擇）';
     $('hubCap').classList.remove('warn');
     for (const n of $('hubMap').querySelectorAll('.hubNode')) {

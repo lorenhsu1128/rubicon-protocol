@@ -231,7 +231,13 @@ Object.assign(Game.prototype, {
     if (this.ctrl.view === 'fps') this.setFp(true);
     document.getElementById('btnAbort').textContent = '離開靶場（回機甲庫）';
     document.getElementById('rangePanel').style.display = '';
-    this.flashMsg('靶場 — T：目標設定　Y：重置數據', 0x7fc8ff, 3);
+    // 手機橫式：面板預設收合（只留 DPS 與命中率）
+    if (this.rangeMini === undefined) this.rangeMini = this.vpadWanted() && innerHeight <= 540;
+    this.flashMsg(
+      this.vpadWanted() ? '靶場 — 面板上的按鈕：目標設定、重置數據' : '靶場 — T：目標設定　Y：重置數據',
+      0x7fc8ff,
+      3,
+    );
   },
   // 射擊道：找一條沒有障礙物的長方形（寬 36 m、長＝距離＋24 m），玩家站在一端、目標在另一端
   rangeLane() {
@@ -627,11 +633,26 @@ Object.assign(Game.prototype, {
     const row = (a, b) => `<div><span>${escHtml(a)}</span><b>${b}</b></div>`;
     const t0 = (this.range.targets || []).find((e) => !e.dead) || (this.range.targets || [])[0];
     const weak = t0 && t0.res ? weakText(t0.res) : '';
-    let h = `<div class="rpHead">靶場　${escHtml(this.rangeTgtName(cfg.tgt))}・${BEH[cfg.beh]}・${cfg.dist} m　<span class="dim">T 設定／Y 重置</span>${weak ? `<br><span class="rpWeak">${escHtml(weak)}</span>` : ''}</div>`;
+    // 觸控：沒有鍵盤，用面板上的按鈕（input.js 接 data-ra）；收合時只留主要數據
+    const touch = this.vpadWanted();
+    const mini = touch && this.rangeMini;
+    const btns = touch
+      ? `<div class="rpBtns"><button data-ra="cfg">設定</button><button data-ra="reset">重置</button><button data-ra="mini">${mini ? '展開' : '收合'}</button></div>`
+      : '';
+    let h = `${btns}<div class="rpHead">靶場　${escHtml(this.rangeTgtName(cfg.tgt))}・${BEH[cfg.beh]}・${cfg.dist} m${touch ? '' : '　<span class="dim">T 設定／Y 重置</span>'}${weak ? `<br><span class="rpWeak">${escHtml(weak)}</span>` : ''}</div>`;
     const byA = (o) =>
       ATTR_KEYS.filter((k) => o[k] > 0)
         .map((k) => `<span style="color:${ATTRS[k].color}">${ATTRS[k].short} ${fmt(o[k])}</span>`)
         .join(' ') || '—';
+    // 收合：只留 DPS、命中率、受到傷害
+    if (mini) {
+      el.innerHTML =
+        h +
+        row('DPS（最近 5 秒）', fmt(s.dps5)) +
+        row('命中率', s.acc === null ? '—' : Math.round(s.acc * 100) + '%') +
+        row('受到傷害', fmt(s.taken));
+      return;
+    }
     h += '<div class="rpSec">輸出</div>';
     h += row('DPS（最近 5 秒）', fmt(s.dps5));
     h += row('DPS（平均）', fmt(s.dps));

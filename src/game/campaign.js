@@ -1050,7 +1050,7 @@ Object.assign(Game.prototype, {
     if (!box) return;
     const mp = !!(this.net && this.net.role);
     const inG = !!((this.camp && this.camp.inGarage) || (this.campC && this.campC.inGarage));
-    const hub = !mp && !inG && this.fromHub;
+    const hub = !!(!mp && !inG && this.fromHub); // classList.toggle 的第二個參數是 undefined 時會變成切換
     const mode = mp ? 'mp' : inG ? 'trans' : hub ? 'hub' : 'free';
     const ctx = $('gCtx');
     if (ctx) {

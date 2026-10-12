@@ -84,6 +84,7 @@ Object.assign(Game.prototype, {
       return;
     }
     this.commBusy = true;
+    this.commPlace();
     const [sp, text] = ln;
     const S = SPEAKERS[sp] || SPEAKERS.echo;
     el.innerHTML = `${speakerBadge(sp)}<div><b style="color:${S.color}">${escHtml(S.name)}</b><span>${escHtml(text)}</span></div>`;
@@ -95,6 +96,17 @@ Object.assign(Game.prototype, {
   // 即時的一句（增援預告等）：插到最前面立刻顯示，不寫進通訊紀錄
   commSay(sp, text) {
     this.commQ = [[sp, text]].concat(this.commQ || []);
+    this.commNext();
+  },
+  // 位置：任務中＝右下角（觸控時下方中央，styles.css），選單畫面與暫停＝右上角
+  commPlace() {
+    const el = document.getElementById('comm');
+    if (el) el.classList.toggle('menu', this.state !== 'play');
+  },
+  // 點一下：直接換下一句
+  commTap() {
+    if (!this.commBusy) return;
+    clearTimeout(this.commTo);
     this.commNext();
   },
   commClear() {
