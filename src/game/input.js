@@ -817,6 +817,8 @@ Object.assign(Game.prototype, {
     $('btnCampRetry').onclick = () => this.campRetry(false);
     $('btnCampFailGarage').onclick = () => this.campRetry(true);
     $('btnCampQuit').onclick = () => this.campEnd(false, true);
+    for (const id of ['btnSuspend', 'btnCampSuspend', 'btnCampSuspend2'])
+      $(id).onclick = () => this.campSuspend();
     $('btnRandomAsm').onclick = () => {
       this.randomAsm();
       this.renderGarage();

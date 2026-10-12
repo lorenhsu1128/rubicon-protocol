@@ -340,6 +340,9 @@ export class Game {
     }
     if (this.updateVpad) this.updateVpad();
     if (id === 'title' && this.renderContinue) this.renderContinue();
+    // 主線（單人）才有「保存並回作戰室」
+    const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);
+    for (const b of document.querySelectorAll('.campSusp')) b.style.display = susp ? '' : 'none';
   }
   // ---------- loop ----------
   loop() {

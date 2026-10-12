@@ -1176,6 +1176,19 @@ Object.assign(Game.prototype, {
     if (toGarage) return this.campGarage();
     this.campShowTrans(this.camp.trans[this.camp.seg] || TRANSITIONS.drop, 'resume');
   },
+  // 保存並回作戰室（單人；暫停選單、轉場、失敗畫面）：紀錄點留著，下次在作戰室「繼續出擊」
+  // 從這一段的開頭接回（這一段裡的進度與紀錄點之後拿到的模組不算，和繼續時一致）
+  campSuspend() {
+    if (!this.camp || this.campMp()) return;
+    const ck = this.campStory().sortie;
+    if (!ck) return;
+    if (ck.mods) this.campSetMods(ck.mods);
+    this.writeSave();
+    this.commClear();
+    this.clearMission();
+    this.campClearExits();
+    this.openHub();
+  },
   // 機庫的「繼續出擊」：從存檔的紀錄點接回
   campResume() {
     SFX.ui();

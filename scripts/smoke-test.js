@@ -4698,6 +4698,30 @@ async function testCampaign(browser, base) {
     return { st: g.state, seg: g.camp.seg, fails: g.camp.fails, alive: !g.player.dead };
   });
   check(s3.st === 'play' && s3.seg === 1 && s3.fails === 1 && s3.alive, '從紀錄點繼續：回到區段 2 的起點');
+  // 暫停選單的「保存並回作戰室」：紀錄點留著，作戰室「繼續出擊」接回同一段
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'pause';
+    g.showScreen('pause');
+  });
+  check(await visible(page, 'btnSuspend'), '暫停選單有「保存並回作戰室」');
+  await page.click('#btnSuspend');
+  await waitVisible(page, 'hub');
+  const sp = await page.evaluate(() => {
+    const g = window.__game;
+    return { camp: !!g.camp, ck: g.save.story.sortie && g.save.story.sortie.seg, hud: !!g.player };
+  });
+  check(
+    !sp.camp && sp.ck === 1 && (await visible(page, 'hubActive')),
+    `保存並回作戰室：紀錄點保留（區段 ${sp.ck + 1}）、作戰室顯示進行中的出擊`,
+  );
+  await page.click('#btnHubResume');
+  await page.waitForFunction(() => document.getElementById('ctBtns').style.visibility === 'visible', null, {
+    timeout: 8000,
+  });
+  await page.click('#btnCampGo');
+  const s3b = await page.evaluate(() => ({ st: window.__game.state, seg: window.__game.camp.seg }));
+  check(s3b.st === 'play' && s3b.seg === 1, '作戰室「繼續出擊」：接回區段 2 的起點');
   // 第 4 段（礦場外圍）往礦坑深處：垂直下降型出口（在場內）
   await page.evaluate(() => {
     const g = window.__game;
