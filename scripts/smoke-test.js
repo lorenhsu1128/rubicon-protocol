@@ -7093,6 +7093,174 @@ async function testModFx(browser, base) {
 }
 
 // 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testAttrs(browser, base) {
+  console.log(
+    '武器屬性：三種防禦、能量適性、直擊補正、無屬性、弱點、實彈距離衰減、能量霰彈、機甲庫與靶場的顯示',
+  );
+  const { ctx, page } = await newPage(browser, 'attrs');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.openGarage();
+    g.garageSlot = 'rarm';
+    g.renderGarage();
+  });
+  await waitVisible(page, 'garage');
+  const gs = await page.evaluate(() => ({
+    stats: document.getElementById('stats').textContent,
+    list: document.getElementById('partList').textContent,
+  }));
+  check(
+    gs.stats.includes('減傷（實彈／爆發／能量）') &&
+      gs.stats.includes('能量武器適性') &&
+      gs.list.includes('[實彈]') &&
+      gs.list.includes('理想射程'),
+    '機甲庫顯示三種減傷、能量適性、武器屬性與理想射程',
+  );
+  // 靶場：標準靶（AP 無限）上直接量傷害
+  await page.evaluate(() => {
+    const g = window.__game;
+    Object.assign(g.rangeCfgGet(), {
+      tgt: 'dummy',
+      beh: 'static',
+      dist: 30,
+      n: 1,
+      inf: true,
+      god: true,
+      pm: false,
+    });
+    g.rangeStart();
+  });
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const r = await page.evaluate(async () => {
+    const g = window.__game;
+    const t = () => g.range.targets[0];
+    const hit = (wid, attr, stag) => {
+      const e = t();
+      e.hp = e.maxHp;
+      e.iFrames = 0;
+      e.staggerT = stag ? 2 : 0;
+      const h0 = e.hp;
+      e.takeDamage(1000, 0, g.player, e.center(), null, undefined, wid, attr);
+      const d = h0 - e.hp;
+      e.staggerT = 0;
+      e.acs = 0;
+      return d;
+    };
+    const out = {};
+    out.kin = hit('w_rifle');
+    out.en = hit('w_lr');
+    out.none = hit(undefined, 'none');
+    out.bzStag = hit('w_bz', undefined, true);
+    out.rfStag = hit('w_rifle', undefined, true);
+    // 能量特化發電機：能量武器 ×1.18
+    const asm0 = { ...g.save.asm };
+    g.save.asm.generator = 'g_arc';
+    g.rangeSpawnPlayer();
+    out.en2 = hit('w_lr');
+    out.kin2 = hit('w_rifle');
+    // 實彈的距離衰減：同一發子彈從 5 m 與 60 m 外射來
+    const e = t();
+    const shot = (back) => {
+      g.player.fire('rarm', e.center(), e);
+      const pr = g.projectiles[g.projectiles.length - 1];
+      const dir = pr.vel.clone().normalize();
+      pr.pos.copy(e.center()).addScaledVector(dir, -2);
+      pr.p0 = pr.pos.clone().addScaledVector(dir, -back);
+      pr.dmg = 1000;
+      return pr;
+    };
+    g.player.weapons.rarm.cd = 0;
+    e.hp = e.maxHp;
+    let h0 = e.hp;
+    const prnear = shot(3);
+    for (let i = 0; i < 100 && !prnear.dead; i++) await new Promise((res) => setTimeout(res, 100)); // 等到命中（遊戲時間）
+    out.near = h0 - e.hp;
+    g.player.weapons.rarm.cd = 0;
+    e.hp = e.maxHp;
+    h0 = e.hp;
+    const prfar = shot(58);
+    for (let i = 0; i < 100 && !prfar.dead; i++) await new Promise((res) => setTimeout(res, 100)); // 等到命中（遊戲時間）
+    out.far = h0 - e.hp;
+    // 能量霰彈：不用彈藥、每發耗 EN、7 顆
+    g.save.asm.rarm = 'w_lsg';
+    g.rangeSpawnPlayer();
+    const pl = g.player;
+    pl.en = pl.enMax;
+    const n0 = g.projectiles.length,
+      en0 = pl.en;
+    pl.weapons.rarm.cd = 0;
+    pl.fire('rarm', e.center(), e);
+    out.lsgN = g.projectiles.length - n0;
+    out.lsgEn = en0 - pl.en;
+    out.lsgAmmo = pl.weapons.rarm.ammo;
+    g.save.asm = asm0;
+    g.rangeSpawnPlayer();
+    return out;
+  });
+  check(
+    Math.abs(r.kin - r.en) <= 2 && r.kin < 1000 && r.none === 1000,
+    `三種防禦相同時實彈＝能量（${r.kin}／${r.en}），無屬性不減傷（${r.none}）`,
+  );
+  check(
+    Math.abs(r.en2 / r.en - 1.18) < 0.02 && r.kin2 === r.kin,
+    `能量特化發電機：能量武器 ×${(r.en2 / r.en).toFixed(2)}、實彈不變`,
+  );
+  check(
+    Math.abs(r.bzStag / r.rfStag - 1.9 / 1.4) < 0.02,
+    `直擊補正依武器（火箭筒 ${r.bzStag}／步槍 ${r.rfStag}）`,
+  );
+  check(
+    r.near > 0 && Math.abs(r.far / r.near - 0.73) < 0.03,
+    `實彈超過理想射程遞減（5 m ${r.near}、60 m ${r.far}）`,
+  );
+  check(
+    r.lsgN === 7 && r.lsgEn > 60 && r.lsgAmmo >= 999,
+    `能量霰彈：7 顆、耗 EN ${Math.round(r.lsgEn)}、不用彈藥`,
+  );
+  // 弱點：重型 MT 實彈抗、能量弱
+  await page.evaluate(() => {
+    const g = window.__game;
+    Object.assign(g.rangeCfgGet(), { tgt: 'type:mth', beh: 'static' });
+    g.rangeStart();
+  });
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
+    timeout: 20000,
+  });
+  const w = await page.evaluate(async () => {
+    const g = window.__game;
+    const e = g.range.targets[0];
+    const hit = (wid) => {
+      e.hp = e.maxHp;
+      const h0 = e.hp;
+      e.takeDamage(1000, 0, g.player, e.center(), null, undefined, wid);
+      return h0 - e.hp;
+    };
+    const kin = hit('w_rifle'),
+      en = hit('w_lr');
+    // HUD 每格更新：等到鎖定提示畫出來（遊戲時間很慢）
+    for (let i = 0; i < 60 && !document.getElementById('lockHint').textContent.includes('弱'); i++) {
+      g.player.lock = e;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    g.rangePanelRender();
+    return {
+      kin,
+      en,
+      res: e.res,
+      lock: document.getElementById('lockHint').textContent,
+      panel: document.getElementById('rangePanel').textContent,
+    };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'attrs-range.png') });
+  check(w.res && w.en > w.kin * 1.2, `弱點：重型 MT 受能量 ${w.en}、實彈 ${w.kin}`);
+  check(w.lock.includes('弱：能量') && w.panel.includes('弱：能量'), '鎖定提示與靶場面板顯示弱點');
+  await page.evaluate(() => window.__game.rangeExit());
+  await ctx.close();
+}
 async function testRange(browser, base) {
   console.log('靶場：機甲庫的理論火力、目標設定、量測輸出與承受、AP 無限、不會被擊破、橫移、紀錄、轉場整備');
   const { ctx, page } = await newPage(browser, 'range');
@@ -9121,6 +9289,7 @@ async function main() {
     await testSupply(browser, base);
     await testGuide(browser, base);
     await testRange(browser, base);
+    await testAttrs(browser, base);
     await testAudio(browser, base);
     await testJuice(browser, base);
     await testBossPower(browser, base);

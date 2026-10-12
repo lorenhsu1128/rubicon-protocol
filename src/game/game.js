@@ -308,7 +308,7 @@ export class Game {
           im = 0;
         }
         if (t.isProp) this.damageProp(t, dmg * k, im, p);
-        else t.takeDamage(dmg * k, im, owner, p, t.center().sub(p).normalize());
+        else t.takeDamage(dmg * k, im, owner, p, t.center().sub(p).normalize(), undefined, undefined, 'exp');
       }
     }
     if (this.player && this.player.center().distanceTo(p) < splash + 6)

@@ -61,6 +61,7 @@ Object.assign(Game.prototype, {
       stabMul: o.stabMul || 1,
       explodeOnDeath: o.explodeOnDeath || null,
       extraWeapons: o.extraWeapons || null,
+      res: e.res || null, // 弱點（客機的鎖定提示）
       allyDur: e.allyT || 0,
       slot: e.slot !== undefined ? e.slot : -1,
       wantDist: o.wantDist || 22,

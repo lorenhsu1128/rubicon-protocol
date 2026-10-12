@@ -1,3 +1,4 @@
+import { ATTRS, ATTR_KEYS, directOf, weaponAttr } from '../data/attrs.js';
 // Game：車庫（組裝、展示場景）
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
@@ -174,11 +175,18 @@ Object.assign(Game.prototype, {
           else if (p.type !== 'none' && p.type !== 'shield')
             spec = `傷 ${p.dmg} · 衝擊 ${p.impact} · 射程 ${p.range}${p.mag < 99 ? ' · 彈匣 ' + p.mag : ''}`;
           else if (p.type === 'shield') spec = '被動減傷 55%';
+          // 屬性、實彈的理想射程、直擊補正（data/attrs.js）
+          if (!['none', 'shield'].includes(p.type)) {
+            const A = ATTRS[weaponAttr(p)];
+            spec = `<b style="color:${A.color}">[${A.name}]</b> ${spec}${p.ideal ? ' · 理想射程 ' + p.ideal : ''} · 直擊 ×${directOf(p)}`;
+          }
         } else if (cat === 'legs') spec = `AP ${p.ap} · 負重 ${p.load} · 速 ${p.speed}`;
         else if (cat === 'generator') spec = `容量 ${p.cap} · 輸出 ${p.output} · 回充 ${p.recharge}`;
         else if (cat === 'booster') spec = `推力 ×${p.thrust} · QB ${p.qb}`;
         else if (cat === 'fcs') spec = `鎖定距離 ${p.range}`;
         else spec = `AP ${p.ap} · 穩定 ${p.stab}`;
+        if (p.defs) spec += ` · 防 實/爆/能 ${p.defs.join('/')}`;
+        if (cat === 'generator') spec += ` · 能量適性 ${Math.round((p.enAdapt || 1) * 100)}%`;
         const dl = eq ? '' : this.garagePartDelta(key, cat, p); // 換上後的 DPS／有效 AP 變化
         d.innerHTML = `<div><div class="n">${p.name}${dl ? ' ' + dl : ''}</div><div class="s">${spec}${p.desc ? ' · ' + p.desc : ''}${p.weight !== undefined ? ' · 重 ' + p.weight + ' · EN ' + p.en : ''}</div></div><div class="pr">${owned ? (eq ? '已裝備' : '裝備') : p.price.toLocaleString() + ' C'}</div>`;
         d.onclick = () => {
@@ -212,7 +220,11 @@ Object.assign(Game.prototype, {
     const rows = [
       ['駕駛員（' + (pMode === 'pvp' ? 'PvP' : 'PvE') + '）', 'Lv ' + levelOf(this.save.pilot[pMode].xp)],
       ['AP（總裝甲）', fx(st.ap, ef.ap)],
-      ['防禦（核心）', fx(st.def, ef.def, (v) => Math.round(v * 1000) / 10 + '%')],
+      [
+        '減傷（實彈／爆發／能量）',
+        ATTR_KEYS.map((k) => fx(st.defs[k], ef.defs[k], (v) => Math.round(v * 1000) / 10 + '%')).join(' ／ '),
+      ],
+      ['能量武器適性', fx(st.enAdapt, ef.enAdapt, (v) => Math.round(v * 100) + '%')],
       ['姿態穩定', fx(st.stab, ef.stab)],
       [
         '總重量 / 負重',

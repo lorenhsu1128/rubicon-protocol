@@ -135,6 +135,9 @@ Object.assign(Game.prototype, {
         src,
         t.center(),
         t.center().sub(c).setY(0).normalize(),
+        undefined,
+        undefined,
+        'en',
       );
       t.empLockT = 3;
       this.fx.ring(t.center(), 3, 0x80c8ff);

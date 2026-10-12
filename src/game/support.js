@@ -143,6 +143,7 @@ Object.assign(Game.prototype, {
         pos: mz.clone(),
         vel: v,
         kind: 'grenade',
+        attr: 'exp',
         dmg: o.dmg,
         impactV: o.im,
         team: src.team,
@@ -206,6 +207,7 @@ Object.assign(Game.prototype, {
         pos: from,
         vel: v,
         kind: 'torpedo',
+        attr: 'exp',
         dmg: o.dmg,
         impactV: o.im,
         team: src.team,
@@ -283,7 +285,7 @@ Object.assign(Game.prototype, {
       for (const t of this.hostilesOf(f.team, f.src)) {
         if (t.dead || t.flying || t.pos.y - w.terrainHeight(t.pos.x, t.pos.z) > 3 || this.flowAt(t) !== f)
           continue;
-        t.takeDamage(f.dps * 0.25, f.dps * 0.6, f.src, t.center(), dir.clone());
+        t.takeDamage(f.dps * 0.25, f.dps * 0.6, f.src, t.center(), dir.clone(), undefined, undefined, 'none');
       }
     }
   },
@@ -398,7 +400,17 @@ Object.assign(Game.prototype, {
       if (d >= splash) continue;
       const k = clamp(1 - (d / splash) * 0.5, 0.4, 1) * this.groundBlastK(t, p);
       if (t.isProp) this.damageProp(t, dmg * k, impact * k, p);
-      else t.takeDamage(dmg * k, impact * k, owner, p, t.center().sub(p).normalize());
+      else
+        t.takeDamage(
+          dmg * k,
+          impact * k,
+          owner,
+          p,
+          t.center().sub(p).normalize(),
+          undefined,
+          undefined,
+          'exp',
+        );
     }
   },
   // 子彈路徑經過未觸發的地雷 → 引爆

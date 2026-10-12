@@ -595,7 +595,7 @@ Object.assign(MechEntity.prototype, {
               const dd = rel.length();
               if (dd > 15 + t.radius || dd < 0.1) continue;
               if (rel.divideScalar(dd).dot(f) < Math.cos(0.56)) continue;
-              t.takeDamage(56 * dm, 90 * dm, this, t.center(), f.clone());
+              t.takeDamage(56 * dm, 90 * dm, this, t.center(), f.clone(), undefined, undefined, 'exp');
             }
           }
         }
@@ -616,7 +616,7 @@ Object.assign(MechEntity.prototype, {
             for (const t of g.hostilesOfEnt(this)) {
               if (t.dead || !t.pos || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > 9 + t.radius) continue;
               if (altOf(g, t) < 3) continue;
-              t.takeDamage(500 * dm, 900 * dm, this, t.center(), V(0, -1, 0));
+              t.takeDamage(500 * dm, 900 * dm, this, t.center(), V(0, -1, 0), undefined, undefined, 'exp');
               t.vel.y = Math.min(t.vel.y, -18);
             }
           });
@@ -728,7 +728,7 @@ Object.assign(MechEntity.prototype, {
         for (const t of g.hostilesOfEnt(this)) {
           if (t.dead || !t.pos || Math.hypot(t.pos.x - s.pp.x, t.pos.z - s.pp.z) > PILLAR_R + t.radius * 0.5)
             continue;
-          t.takeDamage(110 * dm, 200 * dm, this, t.center(), V(0, -1, 0));
+          t.takeDamage(110 * dm, 200 * dm, this, t.center(), V(0, -1, 0), undefined, undefined, 'en');
         }
       }
       this.bx = [1, +s.pp.x.toFixed(2), +s.pp.z.toFixed(2)];
@@ -784,7 +784,7 @@ Object.assign(MechEntity.prototype, {
             if (t.dead || !t.pos) continue;
             if (!cells.some((p) => Math.abs(t.pos.x - p.x) < C / 2 && Math.abs(t.pos.z - p.z) < C / 2))
               continue;
-            t.takeDamage(520 * dm, 900 * dm, this, t.center(), V(0, -1, 0));
+            t.takeDamage(520 * dm, 900 * dm, this, t.center(), V(0, -1, 0), undefined, undefined, 'en');
           }
           g.camShake = Math.max(g.camShake, 0.2);
         });
@@ -967,7 +967,16 @@ Object.assign(MechEntity.prototype, {
         for (const t of g.hostilesOfEnt(this)) {
           if (t.dead || !t.pos || s.boomed.has(t) || t.center().distanceTo(this.center()) > 9) continue;
           s.boomed.add(t);
-          t.takeDamage(260 * dm, 650 * dm, this, t.center(), t.center().sub(this.center()).normalize());
+          t.takeDamage(
+            260 * dm,
+            650 * dm,
+            this,
+            t.center(),
+            t.center().sub(this.center()).normalize(),
+            undefined,
+            undefined,
+            'exp',
+          );
           g.fx.shockwave(this.center(), 10, 0xffffff, 0.35);
           SFX.explode(true, this.center());
           g.camShake = Math.max(g.camShake, 0.3);
@@ -1302,7 +1311,7 @@ Object.assign(MechEntity.prototype, {
           if (t.dead || !t.pos || s.hitSet.has(t) || t.center().distanceTo(this.center()) > 3.2 + t.radius)
             continue;
           s.hitSet.add(t);
-          t.takeDamage(600 * dm, 1200 * dm, this, t.center(), s.dDir.clone());
+          t.takeDamage(600 * dm, 1200 * dm, this, t.center(), s.dDir.clone(), undefined, undefined, 'en');
         }
         if (Math.random() < dt * 40)
           g.fx.streaks(this.center(), 2, 0xff6080, 6, 0.3, 0, s.dDir.clone().negate());
@@ -1496,7 +1505,16 @@ Object.assign(MechEntity.prototype, {
       g.fx.flash(c, 3, 0xbffff8, 0.2);
       for (const t of g.hostilesOfEnt(this)) {
         if (t.dead || !t.pos || t.center().distanceTo(c) > 6 + t.radius) continue;
-        t.takeDamage(150 * dm, 300 * dm, this, t.center(), t.center().sub(c).normalize());
+        t.takeDamage(
+          150 * dm,
+          300 * dm,
+          this,
+          t.center(),
+          t.center().sub(c).normalize(),
+          undefined,
+          undefined,
+          'en',
+        );
         t.empLockT = Math.max(t.empLockT || 0, 1.2);
       }
     }

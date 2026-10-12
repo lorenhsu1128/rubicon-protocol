@@ -1,3 +1,4 @@
+import { ATTRS, ATTR_KEYS, directOf, weaponAttr } from '../data/attrs.js';
 // ============================================================
 //  MECH ENTITY
 // ============================================================
@@ -18,6 +19,7 @@ import {
   jumpSpec,
   partById,
 } from '../data/parts.js';
+import { weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
@@ -37,6 +39,7 @@ export class MechEntity {
     this.pm = opts.pilot || null; // 駕駛員技能加成（computePilotMods 的結果），敵人與友軍為 null
     this.stats = applyPilotStats(asmStats(asm), this.pm);
     this.opts = opts;
+    this.res = opts.res || null; // 弱點：[實彈, 爆發, 能量] 的額外減傷
     this.palKey = opts.palKey || null;
     this.slot = opts.slot;
     this.downed = false;
@@ -301,6 +304,7 @@ export class MechEntity {
               color: d.color,
               life: d.range / d.speed + 0.3,
               wid: d.id,
+              fall: d.ideal ? [d.ideal, d.range] : null, // 實彈的距離衰減（projectile.js）
             },
             extra || {},
           ),
@@ -330,6 +334,7 @@ export class MechEntity {
         }
         break;
       case 'shotgun':
+        if (d.enShot && !this.useEn(d.enShot * (1 - this.pmv('enWpn')))) return false; // 能量霰彈：每發耗 EN
         for (let i = 0; i < d.pellets; i++) shoot(jitter(dir), 'bullet');
         g.fx.muzzle(muzzle, dir, 0xffa050, 1.8);
         g.fx.casing(muzzle.clone().addScaledVector(dir, -1), w.side, dir);
@@ -825,7 +830,8 @@ export class MechEntity {
     if (this.isPlayer) g.flashAlert('墜落 — AP −10%，返回平台');
     g.fx.ring(this.pos.clone().setY(this.pos.y + 0.1), 4, 0x80c8ff);
   }
-  takeDamage(dmg, impact, from, at, dir, melee, wid) {
+  // attr＝攻擊屬性（data/attrs.js：kin／exp／en／none）；沒給時依 wid（武器 id）推算，都沒有時算實彈
+  takeDamage(dmg, impact, from, at, dir, melee, wid, attr) {
     if (this.dead) return;
     if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
     if (this.iFrames > 0) return;
@@ -900,15 +906,20 @@ export class MechEntity {
       this.game.fx.hitStop = 0.05;
     }
     let mul = 1;
-    if (this.staggerT > 0) mul = 1.5 + this.pmv('stagDmg');
-    mul *= 1 - this.stats.def;
+    const W = weaponById(wid);
+    const A = attr || (wid && ATTRS[wid] ? wid : W ? weaponAttr(W) : 'kin');
+    // 直擊補正（依武器）＋攻擊者的「破甲射擊」＋自己的「不屈」
+    if (this.staggerT > 0)
+      mul = directOf(W) + (from && from.pmv ? from.pmv('stagDmg') : 0) + this.pmv('stagTaken');
+    mul *= 1 - this.defCut(A);
+    if (A === 'en' && W && from && from.stats && from.stats.enAdapt) mul *= from.stats.enAdapt; // 能量武器適性
     const g = this.game;
     if (this.shield) {
       if (g.pilotCreditShield) g.pilotCreditShield(this, dmg * mul * this.shield);
       mul *= 1 - this.shield;
     }
     const real = Math.round(dmg * mul);
-    if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.stats.def), impact, wid); // 靶場的量測
+    if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.defCut(A)), impact, wid, A); // 靶場的量測
     const mp = g.net && g.net.role;
     if (mp && this.team === 'player' && this.downed) {
       if (this.downHp === undefined) this.downHp = this.maxHp * (0.3 + this.pmv('downHp'));
@@ -992,6 +1003,14 @@ export class MechEntity {
       }
       this.die(from);
     }
+  }
+  // 對某種屬性的減傷：機體的三種防禦＋敵人的弱點（res）
+  defCut(A) {
+    if (A === 'none') return 0;
+    const D = this.stats.defs;
+    const base = D ? D[A] || 0 : this.stats.def || 0;
+    const r = this.res ? this.res[ATTR_KEYS.indexOf(A)] || 0 : 0;
+    return clamp(base + r, -0.3, 0.6);
   }
   die(from) {
     if (this.dead) return;

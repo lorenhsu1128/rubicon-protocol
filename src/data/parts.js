@@ -1,3 +1,4 @@
+import { defCut } from './attrs.js';
 // ============================================================
 //  DATA — 零件資料庫
 // ============================================================
@@ -6,6 +7,7 @@ export const PARTS = {
     {
       id: 'h_std',
       name: 'HD-011 MELANDER',
+      defs: [110, 110, 110],
       ap: 900,
       weight: 340,
       en: 180,
@@ -16,6 +18,7 @@ export const PARTS = {
     {
       id: 'h_lt',
       name: 'HD-SEQ 輕量頭',
+      defs: [60, 60, 70],
       ap: 620,
       weight: 220,
       en: 130,
@@ -26,6 +29,7 @@ export const PARTS = {
     {
       id: 'h_hv',
       name: 'HD-HAWK 重裝頭',
+      defs: [220, 200, 140],
       ap: 1300,
       weight: 520,
       en: 240,
@@ -36,6 +40,7 @@ export const PARTS = {
     {
       id: 'h_scan',
       name: 'HD-VP 觀測頭',
+      defs: [90, 80, 120],
       ap: 820,
       weight: 300,
       en: 300,
@@ -48,52 +53,64 @@ export const PARTS = {
     {
       id: 'c_std',
       name: 'BD-011 MELANDER',
+      defs: [300, 300, 300],
       ap: 2900,
       weight: 2600,
       en: 330,
       price: 0,
       stab: 420,
-      def: 0.06,
       desc: '標準核心',
     },
     {
       id: 'c_lt',
       name: 'BD-SEQ 輕量核心',
+      defs: [150, 140, 170],
       ap: 2100,
       weight: 1700,
       en: 250,
       price: 33000,
       stab: 260,
-      def: 0.03,
       desc: '輕量，推進效率佳',
     },
     {
       id: 'c_hv',
       name: 'BD-TITAN 重裝核心',
+      defs: [700, 650, 420],
       ap: 4200,
       weight: 4300,
       en: 420,
       price: 59000,
       stab: 720,
-      def: 0.12,
       desc: '厚重裝甲',
     },
     {
       id: 'c_nat',
       name: 'BD-NACHTREIHER',
+      defs: [230, 200, 330],
       ap: 2450,
       weight: 2100,
       en: 380,
       price: 46000,
       stab: 340,
-      def: 0.05,
       desc: '高機動核心',
+    },
+    {
+      id: 'c_aeg',
+      name: 'BD-AEGIS 偏向核心',
+      defs: [220, 220, 560],
+      ap: 2600,
+      weight: 2700,
+      en: 420,
+      price: 58000,
+      stab: 380,
+      desc: '能量防禦特化',
     },
   ],
   arms: [
     {
       id: 'a_std',
       name: 'AR-011 MELANDER',
+      defs: [110, 110, 110],
       ap: 2200,
       weight: 1900,
       en: 230,
@@ -106,6 +123,7 @@ export const PARTS = {
     {
       id: 'a_lt',
       name: 'AR-SEQ 輕量臂',
+      defs: [70, 60, 80],
       ap: 1600,
       weight: 1300,
       en: 180,
@@ -118,6 +136,7 @@ export const PARTS = {
     {
       id: 'a_hv',
       name: 'AR-TITAN 重裝臂',
+      defs: [260, 240, 160],
       ap: 3100,
       weight: 3200,
       en: 290,
@@ -130,6 +149,7 @@ export const PARTS = {
     {
       id: 'a_ml',
       name: 'AR-BLADE 格鬥臂',
+      defs: [100, 90, 140],
       ap: 2000,
       weight: 2000,
       en: 250,
@@ -144,6 +164,7 @@ export const PARTS = {
     {
       id: 'l_bp',
       name: 'LG-011 MELANDER 二足',
+      defs: [120, 120, 120],
       type: 'biped',
       ap: 3800,
       weight: 4200,
@@ -162,6 +183,7 @@ export const PARTS = {
     {
       id: 'l_rj',
       name: 'LG-KASUAR 逆關節',
+      defs: [100, 120, 90],
       type: 'reverse',
       ap: 3300,
       weight: 3900,
@@ -180,6 +202,7 @@ export const PARTS = {
     {
       id: 'l_qd',
       name: 'LG-SPIDER 四足',
+      defs: [220, 200, 180],
       type: 'quad',
       ap: 4600,
       weight: 6800,
@@ -198,6 +221,7 @@ export const PARTS = {
     {
       id: 'l_tk',
       name: 'LG-TANK 履帶',
+      defs: [380, 360, 240],
       type: 'tank',
       ap: 5800,
       weight: 8900,
@@ -216,6 +240,7 @@ export const PARTS = {
     {
       id: 'l_bp2',
       name: 'LG-NACHTREIHER 輕二足',
+      defs: [90, 80, 140],
       type: 'biped',
       ap: 3000,
       weight: 3200,
@@ -234,6 +259,7 @@ export const PARTS = {
     {
       id: 'l_hv',
       name: 'LG-GOLIATH 重二足',
+      defs: [320, 300, 200],
       type: 'biped',
       ap: 4500,
       weight: 5900,
@@ -289,6 +315,7 @@ export const PARTS = {
     {
       id: 'g_std',
       name: 'GN-VP20 標準',
+      enAdapt: 1.0,
       cap: 2600,
       output: 2400,
       recharge: 1300,
@@ -300,6 +327,7 @@ export const PARTS = {
     {
       id: 'g_hi',
       name: 'GN-VE20B 高輸出',
+      enAdapt: 1.05,
       cap: 3200,
       output: 3300,
       recharge: 1400,
@@ -311,6 +339,7 @@ export const PARTS = {
     {
       id: 'g_fast',
       name: 'GN-DF-GA 速充',
+      enAdapt: 0.9,
       cap: 2200,
       output: 2500,
       recharge: 2100,
@@ -318,6 +347,18 @@ export const PARTS = {
       weight: 1700,
       price: 44000,
       desc: '回充極快、容量小',
+    },
+    {
+      id: 'g_arc',
+      name: 'GN-ARC 能量特化',
+      enAdapt: 1.18,
+      cap: 2400,
+      output: 2700,
+      recharge: 1250,
+      delay: 1.0,
+      weight: 1900,
+      price: 52000,
+      desc: '能量武器的傷害 ×1.18',
     },
   ],
   fcs: [
@@ -357,6 +398,8 @@ export const PARTS = {
     {
       id: 'w_rifle',
       name: 'RF-024 突擊步槍',
+      ideal: 45,
+      direct: 1.4,
       type: 'bullet',
       dmg: 110,
       impact: 130,
@@ -376,6 +419,8 @@ export const PARTS = {
     {
       id: 'w_mg',
       name: 'MG-014 機槍',
+      ideal: 30,
+      direct: 1.3,
       type: 'bullet',
       dmg: 44,
       impact: 60,
@@ -395,6 +440,8 @@ export const PARTS = {
     {
       id: 'w_sg',
       name: 'SG-027 霰彈槍',
+      ideal: 14,
+      direct: 1.5,
       type: 'shotgun',
       dmg: 75,
       impact: 130,
@@ -415,6 +462,7 @@ export const PARTS = {
     {
       id: 'w_bz',
       name: 'BZ-31 火箭筒',
+      direct: 1.9,
       type: 'shell',
       dmg: 540,
       impact: 640,
@@ -435,6 +483,7 @@ export const PARTS = {
     {
       id: 'w_emp',
       name: 'EMP-9 電磁槍',
+      direct: 1.2,
       type: 'empbeam',
       dmg: 240,
       impact: 800,
@@ -454,6 +503,7 @@ export const PARTS = {
     {
       id: 'w_lr',
       name: 'LR-036 雷射步槍',
+      direct: 1.5,
       type: 'laser',
       dmg: 190,
       impact: 110,
@@ -474,6 +524,8 @@ export const PARTS = {
     {
       id: 'w_blade',
       name: 'PB-033 脈衝刀',
+      attr: 'en',
+      direct: 1.8,
       type: 'melee',
       dmg: 0,
       impact: 0,
@@ -532,6 +584,8 @@ export const PARTS = {
     {
       id: 'w_saber',
       name: 'LS-70 光束大劍',
+      attr: 'en',
+      direct: 1.9,
       type: 'melee',
       dmg: 0,
       impact: 0,
@@ -590,6 +644,8 @@ export const PARTS = {
     {
       id: 'w_claw',
       name: 'CR-9 破碎爪',
+      attr: 'kin',
+      direct: 1.6,
       type: 'melee',
       dmg: 0,
       impact: 0,
@@ -649,6 +705,8 @@ export const PARTS = {
     {
       id: 'w_pile',
       name: 'PB-X 打樁機',
+      attr: 'kin',
+      direct: 1.5,
       type: 'melee',
       dmg: 0,
       impact: 0,
@@ -683,6 +741,8 @@ export const PARTS = {
     {
       id: 'w_hg',
       name: 'HG-020 手槍',
+      ideal: 20,
+      direct: 1.6,
       type: 'bullet',
       dmg: 170,
       impact: 250,
@@ -702,6 +762,7 @@ export const PARTS = {
     {
       id: 'w_lc',
       name: 'LC-055 雷射砲',
+      direct: 1.7,
       type: 'laser',
       dmg: 520,
       impact: 420,
@@ -719,12 +780,56 @@ export const PARTS = {
       desc: '重雷射，貫穿、蓄力極強',
       color: 0x9fe8ff,
     },
+    {
+      id: 'w_lsg',
+      name: 'LSG-06 雷射霰彈槍',
+      type: 'shotgun',
+      attr: 'en',
+      dmg: 62,
+      impact: 80,
+      pellets: 7,
+      rof: 0.5,
+      mag: 99,
+      ammo: 999,
+      reload: 0,
+      enShot: 70,
+      range: 24,
+      speed: 120,
+      spread: 0.13,
+      direct: 1.5,
+      weight: 3300,
+      en: 380,
+      price: 46000,
+      desc: '能量霰彈：不用彈藥、每發耗 EN',
+      color: 0x9fe0ff,
+    },
+    {
+      id: 'w_gl',
+      name: 'GL-12 手持榴彈槍',
+      type: 'grenade',
+      dmg: 520,
+      impact: 620,
+      rof: 1.1,
+      mag: 3,
+      ammo: 36,
+      reload: 2.2,
+      range: 55,
+      speed: 42,
+      splash: 4.5,
+      direct: 1.8,
+      weight: 4200,
+      en: 220,
+      price: 42000,
+      desc: '手持的拋射爆發武器',
+      color: 0xffa040,
+    },
   ],
   back: [
     { id: 'bw_none', name: '（空）', type: 'none', weight: 0, en: 0, price: 0 },
     {
       id: 'bw_ms',
       name: 'MS-4 導彈莢艙',
+      direct: 1.5,
       type: 'missile',
       dmg: 140,
       impact: 160,
@@ -746,6 +851,7 @@ export const PARTS = {
     {
       id: 'bw_ms8',
       name: 'MS-8 重導彈',
+      direct: 1.5,
       type: 'missile',
       dmg: 190,
       impact: 210,
@@ -767,6 +873,7 @@ export const PARTS = {
     {
       id: 'bw_gr',
       name: 'GL-90 榴彈砲',
+      direct: 1.8,
       type: 'grenade',
       dmg: 900,
       impact: 900,
@@ -826,6 +933,7 @@ export const PARTS = {
     {
       id: 'bw_lc',
       name: 'LCB-60 背雷射砲',
+      direct: 1.7,
       type: 'laser',
       dmg: 780,
       impact: 520,
@@ -856,6 +964,8 @@ export const PARTS = {
     {
       id: 'bw_gat',
       name: 'GT-70 背部加特林',
+      ideal: 32,
+      direct: 1.3,
       type: 'bullet',
       dmg: 52,
       impact: 80,
@@ -871,6 +981,29 @@ export const PARTS = {
       price: 52000,
       desc: '火力壓制',
       color: 0xffe0a0,
+    },
+    {
+      id: 'bw_pm',
+      name: 'PM-6 電漿導彈',
+      type: 'missile',
+      attr: 'en',
+      dmg: 115,
+      impact: 90,
+      count: 6,
+      rof: 2.0,
+      mag: 6,
+      ammo: 120,
+      reload: 2.0,
+      range: 75,
+      speed: 52,
+      turn: 3.6,
+      splash: 3.2,
+      direct: 1.5,
+      weight: 3000,
+      en: 400,
+      price: 50000,
+      desc: '六連能量導彈，依發電機的能量適性加成',
+      color: 0x8fd8ff,
     },
   ],
 };
@@ -1036,6 +1169,9 @@ export function asmStats(asm) {
   const wRatio = weight / p.legs.load;
   const speed = p.legs.speed * p.booster.thrust * (1.15 - 0.35 * Math.min(1, wRatio));
   const enOut = p.generator.output;
+  const defV = [0, 0, 0];
+  for (const k of ['head', 'core', 'arms', 'legs'])
+    for (let i = 0; i < 3; i++) defV[i] += (p[k].defs || [])[i] || 0;
   return {
     parts: p,
     weight,
@@ -1049,7 +1185,10 @@ export function asmStats(asm) {
     enCap: p.generator.cap,
     overWeight: weight > p.legs.load,
     overEn: enLoad > enOut,
-    def: p.core.def,
+    defV, // 三種防禦值的合計
+    defs: { kin: defCut(defV[0]), exp: defCut(defV[1]), en: defCut(defV[2]) },
+    def: (defCut(defV[0]) + defCut(defV[1]) + defCut(defV[2])) / 3, // 平均減傷（顯示與舊的加成用）
+    enAdapt: p.generator.enAdapt || 1,
     lockRange: p.fcs.range * (p.head.id === 'h_scan' ? 1.15 : 1),
   };
 }
@@ -1087,4 +1226,15 @@ export function jumpSpec(legs) {
     climb: t === 'quad' ? 240 : 480,
     freeHover: t === 'quad',
   };
+}
+
+// 武器以 id 查定義（手持、背部、拳頭）；找不到時 null
+let WEAPON_MAP = null;
+export function weaponById(id) {
+  if (!id) return null;
+  if (!WEAPON_MAP) {
+    WEAPON_MAP = new Map();
+    for (const w of [...PARTS.arm, ...PARTS.back, FIST_DEF]) WEAPON_MAP.set(w.id, w);
+  }
+  return WEAPON_MAP.get(id) || null;
 }

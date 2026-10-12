@@ -1,3 +1,4 @@
+import { weakText } from '../data/attrs.js';
 // Game：HUD 繪製與訊息提示
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
@@ -428,7 +429,7 @@ Object.assign(Game.prototype, {
               : '';
       }
       document.getElementById('lockHint').textContent = p.lock
-        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${hTxt}`
+        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${p.lock.res ? '　' + weakText(p.lock.res) : ''}${hTxt}`
         : '無鎖定目標';
       document.getElementById('lockHint').style.color = hTxt.includes('▲')
         ? '#7ee081'

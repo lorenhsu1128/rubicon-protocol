@@ -1,3 +1,4 @@
+import { directOf, weaponAttr } from './attrs.js';
 // 理論火力（機甲庫與靶場顯示用，純函式）：照 MechEntity 的開火方式換算
 // burst＝彈匣打完前（或 EN 用完前）的 DPS、sus＝算進換彈／EN 回復的持續 DPS、imp＝每秒衝擊（持續）
 // d 是套用駕駛員加成後的武器定義（data/pilot.js 的 pilotWeaponDef），gen 是發電機（recharge：每秒 EN 回復）
@@ -6,6 +7,21 @@ const GROUND_EN = 1.6; // 站在地面時 EN 回復 ×1.6（射擊時多半在�
 const MELEE_GAP = 0.35; // 近戰連段之間的空檔
 
 export function weaponDps(d, gen, enWpn = 0) {
+  const v = weaponDps0(d, gen, enWpn);
+  if (!v) return null;
+  const attr = weaponAttr(d);
+  const k = attr === 'en' ? (gen && gen.enAdapt) || 1 : 1; // 能量武器適性
+  return {
+    ...v,
+    attr,
+    burst: v.burst * k,
+    sus: v.sus * k,
+    charge: (v.charge || 0) * k,
+    direct: directOf(d),
+    ideal: d.ideal || 0,
+  };
+}
+function weaponDps0(d, gen, enWpn = 0) {
   if (!d || ['none', 'shield', 'emp'].includes(d.type)) return null;
   const rch = ((gen && gen.recharge) || 0) * GROUND_EN;
   if (d.type === 'melee') {
@@ -35,6 +51,13 @@ export function weaponDps(d, gen, enWpn = 0) {
       charge,
       note: k < 1 ? 'EN 回復跟不上連射' : '',
     };
+  }
+  if (d.enShot) {
+    // 能量霰彈：不用彈藥、每發耗 EN
+    const per = d.dmg * (d.pellets || 1);
+    const burst = per / d.rof;
+    const k = Math.min(1, rch / Math.max(1, (d.enShot * (1 - enWpn)) / d.rof));
+    return { burst, sus: burst * k, imp: ((d.impact * (d.pellets || 1)) / d.rof) * k, note: '' };
   }
   const n = (d.pellets || 1) * (d.count || 1);
   const per = d.dmg * n,

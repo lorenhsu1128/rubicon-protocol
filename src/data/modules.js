@@ -1,3 +1,4 @@
+import { weaponAttr } from './attrs.js';
 // 主線的戰術模組（docs/campaign-design.md 7.1）：4 家委託方各自的風格，三選一取得，延續到整章結束。
 // fx 用駕駛員加成同一套增量表（data/pilot.js 的 computePilotMods／applyPilotStats／pilotWeaponDef 與實體的 pmv），
 // 另加主線專用：killHeal（擊破時回復 AP 比例）、airN（空中跳次數），
@@ -17,6 +18,7 @@ export const MODULES = {
   c_reload: { faction: 'castron', name: '快速裝填', desc: '換彈時間', fx: { rld: 0.18 } },
   c_breaker: { faction: 'castron', name: '破甲射擊', desc: '對失衡目標的傷害', fx: { stagDmg: 0.225 } },
   c_power: { faction: 'castron', name: '高壓火藥', desc: '武器傷害', fx: { dmg: 0.105 } },
+  c_rifling: { faction: 'castron', name: '穩定膛線', desc: '實彈的理想射程', fx: { ideal: 0.3 } },
   c_chain: {
     faction: 'castron',
     name: '連鎖殉爆',
@@ -26,6 +28,7 @@ export const MODULES = {
   },
   // ---- 艾瑟立克研究機構：能量 ----
   a_cap: { faction: 'aetheric', name: '高密度電容', desc: 'EN 容量', fx: { enCap: 0.225 } },
+  a_amp: { faction: 'aetheric', name: '能量增幅器', desc: '能量武器適性', fx: { enAd: 0.06 } },
   a_recharge: { faction: 'aetheric', name: '回充迴路', desc: 'EN 回復速度', fx: { rch: 0.225 } },
   a_charge: { faction: 'aetheric', name: '瞬間充能', desc: '充能時間', fx: { chg: 0.225 } },
   a_eff: { faction: 'aetheric', name: '能量效率化', desc: '能量武器的 EN 消耗', fx: { enWpn: 0.225 } },
@@ -64,6 +67,8 @@ export const MODULES = {
   // ---- 聖域互助同盟：防禦與修理 ----
   s_ap: { faction: 'sancta', name: '追加裝甲', desc: 'AP', fx: { ap: 0.12 } },
   s_def: { faction: 'sancta', name: '偏向板', desc: '防禦', fx: { def: 0.045 } },
+  s_ward: { faction: 'sancta', name: '能量偏向場', desc: '能量防禦', fx: { defEn: 0.07 } },
+  s_plate: { faction: 'sancta', name: '耐爆裝甲', desc: '爆發防禦', fx: { defExp: 0.07 } },
   s_kits: {
     faction: 'sancta',
     name: '修復套件包',
@@ -159,6 +164,10 @@ export const MOD_TIPS = {
   c_reload: '換彈匣更快',
   c_breaker: '打失衡中的敵人更痛',
   c_power: '射擊武器的傷害提高',
+  c_rifling: '實彈武器在更遠的距離也不會掉傷害',
+  a_amp: '能量武器的傷害提高（和發電機的能量適性相加）',
+  s_ward: '受到的能量攻擊（雷射、光束、能量刀）減少',
+  s_plate: '受到的爆發攻擊（爆炸、導彈、衝擊波）減少',
   c_chain: '擊破的敵人會爆炸，波及周圍的敵人',
   a_cap: 'EN 上限提高（QB、懸浮、能量武器都用 EN）',
   a_recharge: 'EN 回復更快',
@@ -206,6 +215,11 @@ const FX_NAMES = {
   jump: '跳躍高度',
   ap: 'AP',
   def: '防禦',
+  defEn: '能量防禦',
+  defExp: '爆發防禦',
+  defKin: '實彈防禦',
+  enAd: '能量武器適性',
+  ideal: '理想射程',
   killHeal: '擊破時回復 AP',
   stab: '姿勢穩定',
   kits: '修復套件',
@@ -257,9 +271,11 @@ const FIT = {
   rld: (d) => d.type !== 'melee' && d.reload > 0,
   dmg: (d) => d.type !== 'melee' && (d.dmg > 0 || d.chargeDmg > 0),
   chg: (d) => d.chargeT > 0,
-  enWpn: (d) => d.type === 'laser' || d.enPerSec > 0,
+  enWpn: (d) => d.type === 'laser' || d.enPerSec > 0 || d.enShot > 0,
   spread: (d) => d.spread > 0,
   range: (d) => d.type !== 'melee' && d.range > 0,
+  ideal: (d) => d.ideal > 0,
+  enAd: (d) => weaponAttr(d) === 'en',
 };
 // 這個模組對裝備的武器（defs）有沒有用：null＝和武器無關；否則 { n 有效的把數, total }
 export function modFit(id, defs) {

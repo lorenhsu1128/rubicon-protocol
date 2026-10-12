@@ -1,3 +1,4 @@
+import { KIN_FALL_MIN } from '../data/attrs.js';
 // ============================================================
 //  PROJECTILES
 // ============================================================
@@ -9,6 +10,7 @@ export class Projectile {
   constructor(game, o) {
     Object.assign(this, { life: 3, splash: 0, gravity: 0, target: null, turn: 0, dead: false, trailT: 0 }, o);
     this.game = game;
+    this.p0 = this.pos.clone(); // 發射點（實彈的距離衰減）
     const col = o.color || 0xffe0a0;
     this.mesh = buildProjectileMesh(o.kind, col, this.vel.length());
     this.mesh.position.copy(this.pos);
@@ -160,13 +162,44 @@ export class Projectile {
             im = 0;
           }
           if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos);
-          else t.takeDamage(this.dmg * k, im, this.owner, this.pos, undefined, undefined, this.wid);
+          else
+            t.takeDamage(
+              this.dmg * k,
+              im,
+              this.owner,
+              this.pos,
+              undefined,
+              undefined,
+              this.wid,
+              this.attr || (this.wid ? undefined : 'exp'), // 沒有武器 id 的爆炸（迫擊砲、魚雷…）算爆發
+            );
         }
       }
     } else if (direct) {
       const dir = this.vel.clone().normalize();
       if (direct.isProp) g.damageProp(direct, this.dmg, this.impactV, this.pos);
-      else direct.takeDamage(this.dmg, this.impactV, this.owner, this.pos, dir, undefined, this.wid);
+      else {
+        // 實彈：超過理想射程遞減（data/attrs.js）
+        let fk = 1;
+        if (this.fall) {
+          const dd = this.pos.distanceTo(this.p0);
+          if (dd > this.fall[0])
+            fk =
+              1 -
+              (1 - KIN_FALL_MIN) *
+                Math.min(1, (dd - this.fall[0]) / Math.max(1, this.fall[1] - this.fall[0]));
+        }
+        direct.takeDamage(
+          this.dmg * fk,
+          this.impactV,
+          this.owner,
+          this.pos,
+          dir,
+          undefined,
+          this.wid,
+          this.attr,
+        );
+      }
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
       SFX.hit(direct.isPlayer ? null : this.pos, direct);
       if (this.owner && this.owner.isPlayer && !direct.isPlayer) g.rumble(0.05, 0.25, 40);

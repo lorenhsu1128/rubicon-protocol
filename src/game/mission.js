@@ -173,6 +173,7 @@ Object.assign(Game.prototype, {
                 .multiplyScalar(speed * 0.5)
                 .add(new THREE.Vector3(rnd(-2, 2), -4, rnd(-2, 2))),
               kind: 'shell',
+              attr: 'exp',
               dmg: 900 * (1 + (self.save.level - 1) * 0.05),
               impactV: 700,
               team: 'player',
@@ -435,6 +436,7 @@ Object.assign(Game.prototype, {
     this.bossAdds = {};
     // Boss 本體的血量與火力加強（部位與增援用原本的 scaleHp）
     const bd = { ...bd0, hpMul: bd0.hpMul * BOSS_HP_K, dmgMul: bd0.dmgMul * BOSS_DMG_K };
+    this.spawnRes = bd0.res || null; // 本體的弱點（spawnEnemy 依 isBoss 套用）
     if (bd.kind === 'heli') {
       const b = this.spawnEnemy({
         name: bd.name,
@@ -501,6 +503,7 @@ Object.assign(Game.prototype, {
       this.boss = b;
     }
     this.waves = []; // Boss 關的增援改在換型態時派出（bosses.js 的 bossPhaseTick）
+    this.spawnRes = null;
   },
   // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
   // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js
@@ -610,6 +613,7 @@ Object.assign(Game.prototype, {
         wantDist: d.wantDist,
         speedMul: d.speedMul,
         explodeOnDeath: d.explodeOnDeath,
+        res: d.res,
         foe: d.foe,
         perch: d.perch,
         extraWeapons: d.extraWeapons,
@@ -622,6 +626,7 @@ Object.assign(Game.prototype, {
   },
   spawnEnemy(o) {
     o.palKey = o.pal;
+    if (!o.res && o.isBoss && this.spawnRes) o.res = this.spawnRes; // Boss 的弱點（spawnBossDef）
     const e = new MechEntity(this, o.asm, PALETTES[o.pal], o);
     // 增援波次：在預告的地點附近（空降的從上空落下）
     const wv = !o.at && !o.perch && this.waveAt;

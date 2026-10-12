@@ -239,6 +239,13 @@ export function applyPilotStats(st, pm) {
     ap: Math.round(st.ap * upF(pm, 'ap')),
     stab: Math.round(st.stab * upF(pm, 'stab')),
     def: Math.min(0.35, st.def + (pm.def || 0)),
+    // 三種防禦（data/attrs.js）：def 加到全部、defKin／defExp／defEn 各自
+    defs: st.defs && {
+      kin: Math.min(0.5, st.defs.kin + (pm.def || 0) + (pm.defKin || 0)),
+      exp: Math.min(0.5, st.defs.exp + (pm.def || 0) + (pm.defExp || 0)),
+      en: Math.min(0.5, st.defs.en + (pm.def || 0) + (pm.defEn || 0)),
+    },
+    enAdapt: (st.enAdapt || 1) + (pm.enAd || 0),
     speed: st.speed * upF(pm, 'spd'),
     jump: st.jump * upF(pm, 'jump'),
     enCap: Math.round(st.enCap * upF(pm, 'enCap')),
@@ -249,6 +256,7 @@ export function applyPilotStats(st, pm) {
 // 會影響武器定義的技能效果
 const WEAPON_KEYS = [
   'dmg',
+  'ideal',
   'rld',
   'mag',
   'ammo',
@@ -299,6 +307,7 @@ export function pilotWeaponDef(def, pm) {
     d.ammo = Math.max(d.mag, Math.round(d.ammo * upF(f, 'ammo')));
   }
   if (d.spread) d.spread *= downF(f, 'spread');
+  if (d.ideal) d.ideal *= upF(f, 'ideal'); // 實彈的理想射程
   if (d.speed) d.speed *= upF(f, 'pspd');
   if (d.range) d.range *= upF(f, 'range');
   if (d.turn) d.turn *= upF(f, 'turn');

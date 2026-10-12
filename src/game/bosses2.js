@@ -152,7 +152,7 @@ Object.assign(Game.prototype, {
     for (const h of o.pierce === false ? hits.slice(0, 1) : hits) {
       const pt = from.clone().addScaledVector(dir, h.proj);
       if (h.t.isProp) this.damageProp(h.t, o.dmg, o.im, pt);
-      else h.t.takeDamage(o.dmg, o.im, owner, pt, dir.clone());
+      else h.t.takeDamage(o.dmg, o.im, owner, pt, dir.clone(), undefined, undefined, 'en');
       this.fx.spark(pt, o.color, dir);
       if (o.pierce === false) stop = h.proj;
     }
@@ -218,7 +218,7 @@ Object.assign(Game.prototype, {
           if (Math.hypot(t.pos.x - P.p.x, t.pos.z - P.p.z) > P.R + t.radius * 0.4) continue;
           if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 1.2) continue;
           if (P.acid) t.corrodeT = 0.6;
-          t.takeDamage(P.dps * 0.25, 40, P.owner, t.center(), null);
+          t.takeDamage(P.dps * 0.25, 40, P.owner, t.center(), null, undefined, undefined, 'exp');
         }
       }
     }
@@ -236,7 +236,16 @@ Object.assign(Game.prototype, {
           const dd = t.center().distanceTo(R.c);
           if (Math.abs(dd - R.r) > R.band / 2 + t.radius * 0.6) continue;
           R.hit.add(t);
-          t.takeDamage(R.dmg, R.im, R.owner, t.center(), t.center().sub(R.c).normalize());
+          t.takeDamage(
+            R.dmg,
+            R.im,
+            R.owner,
+            t.center(),
+            t.center().sub(R.c).normalize(),
+            undefined,
+            undefined,
+            'en',
+          );
         }
       }
     }

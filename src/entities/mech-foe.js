@@ -507,7 +507,16 @@ Object.assign(MechEntity.prototype, {
       const u = rx * fx + rz * fz,
         v = Math.abs(-rx * fz + rz * fx);
       if (u < 0.5 || u > 16.5 || v > t.radius + 0.4 || t.pos.y - this.pos.y > 3.6) continue;
-      t.takeDamage(90 * 0.2 * this.dmgMul, 120 * this.dmgMul, this, t.center(), null);
+      t.takeDamage(
+        90 * 0.2 * this.dmgMul,
+        120 * this.dmgMul,
+        this,
+        t.center(),
+        null,
+        undefined,
+        undefined,
+        'en',
+      );
       g.fx.spark(t.center(), 0xff3a30);
       if (s.alarmT <= 0) {
         s.alarmT = 15;
@@ -690,6 +699,9 @@ Object.assign(MechEntity.prototype, {
             this,
             t.center(),
             new THREE.Vector3(ax, 0, az),
+            undefined,
+            undefined,
+            'exp',
           );
         }
       }
@@ -785,6 +797,7 @@ Object.assign(MechEntity.prototype, {
           pos: mz.clone(),
           vel: v,
           kind: 'shell',
+          attr: 'exp',
           dmg: 120 * this.dmgMul,
           impactV: 260 * this.dmgMul,
           team: this.team,

@@ -109,6 +109,7 @@ Object.assign(Game.prototype, {
       stabMul: r.stabMul,
       explodeOnDeath: r.explodeOnDeath,
       extraWeapons: r.extraWeapons,
+      res: r.res || null,
       allyDur: r.allyDur,
       palKey: r.pal,
       wantDist: r.wantDist,

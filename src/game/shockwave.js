@@ -63,7 +63,7 @@ Object.assign(Game.prototype, {
         const k = 1 - (0.4 * d) / s.R;
         const dir = new THREE.Vector3(t.pos.x - s.p.x, 0, t.pos.z - s.p.z);
         if (dir.lengthSq() < 1e-4) dir.set(0, 0, 1);
-        t.takeDamage(s.dmg * k, s.im * k, s.owner, t.center(), dir.normalize());
+        t.takeDamage(s.dmg * k, s.im * k, s.owner, t.center(), dir.normalize(), undefined, undefined, 'exp');
       }
       if (r > s.R + 2) this.shocks.splice(i, 1);
     }

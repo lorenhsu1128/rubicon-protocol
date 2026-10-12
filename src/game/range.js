@@ -1,3 +1,4 @@
+import { ATTRS, ATTR_KEYS, weakText } from '../data/attrs.js';
 // Game：機甲庫的靶場（像《機戰傭兵6》的 AC TEST）——選目標、行為與距離，量測輸出（DPS、命中率、失衡、擊破時間）
 // 與承受（受傷、防禦擋下的量、還能撐幾秒）；不寫進度、不給報酬。轉場整備時也能進（主線的狀態先收起來，離開時放回）。
 // 機甲庫的理論火力（每把武器的 DPS、有效 AP、換零件的差異）與靶場紀錄也在這裡。
@@ -473,6 +474,8 @@ Object.assign(Game.prototype, {
       raw: 0,
       hitsIn: 0,
       twin: [],
+      byA: {},
+      byAin: {},
       selfStag: 0,
       downs: 0,
     };
@@ -486,7 +489,7 @@ Object.assign(Game.prototype, {
     w.shots++;
   },
   // takeDamage 算出實際傷害後（raw＝防禦前）
-  rangeHit(t, from, real, raw, impact, wid) {
+  rangeHit(t, from, real, raw, impact, wid, A = 'kin') {
     const r = this.range;
     if (!r) return;
     const S = r.st,
@@ -501,6 +504,7 @@ Object.assign(Game.prototype, {
       S.imp += impact || 0;
       S.maxHit = Math.max(S.maxHit, real);
       S.win.push([now, real]);
+      S.byA[A] = (S.byA[A] || 0) + real;
       S.hits++;
       const w = (S.byW[wid || 'x'] = S.byW[wid || 'x'] || { dmg: 0, hits: 0, shots: 0 });
       w.dmg += real;
@@ -511,6 +515,7 @@ Object.assign(Game.prototype, {
       if (S.tt0 === null) S.tt0 = now;
       S.taken += real;
       S.raw += raw;
+      S.byAin[A] = (S.byAin[A] || 0) + real;
       S.hitsIn++;
       S.twin.push([now, real]);
     }
@@ -585,6 +590,8 @@ Object.assign(Game.prototype, {
       killN: S.kills.length,
       ttk: avg(S.kills),
       byW: S.byW,
+      byA: S.byA,
+      byAin: S.byAin,
       taken: S.taken,
       tdps: tt ? S.taken / tt : 0,
       tdps5,
@@ -601,7 +608,13 @@ Object.assign(Game.prototype, {
     const s = this.rangeSummary(),
       cfg = this.rangeCfgGet();
     const row = (a, b) => `<div><span>${escHtml(a)}</span><b>${b}</b></div>`;
-    let h = `<div class="rpHead">靶場　${escHtml(this.rangeTgtName(cfg.tgt))}・${BEH[cfg.beh]}・${cfg.dist} m　<span class="dim">T 設定／Y 重置</span></div>`;
+    const t0 = (this.range.targets || []).find((e) => !e.dead) || (this.range.targets || [])[0];
+    const weak = t0 && t0.res ? weakText(t0.res) : '';
+    let h = `<div class="rpHead">靶場　${escHtml(this.rangeTgtName(cfg.tgt))}・${BEH[cfg.beh]}・${cfg.dist} m　<span class="dim">T 設定／Y 重置</span>${weak ? `<br><span class="rpWeak">${escHtml(weak)}</span>` : ''}</div>`;
+    const byA = (o) =>
+      ATTR_KEYS.filter((k) => o[k] > 0)
+        .map((k) => `<span style="color:${ATTRS[k].color}">${ATTRS[k].short} ${fmt(o[k])}</span>`)
+        .join(' ') || '—';
     h += '<div class="rpSec">輸出</div>';
     h += row('DPS（最近 5 秒）', fmt(s.dps5));
     h += row('DPS（平均）', fmt(s.dps));
@@ -611,6 +624,7 @@ Object.assign(Game.prototype, {
     h += row('衝擊／秒', fmt(s.imp));
     h += row('打出失衡', s.stagN ? `${s.stagN} 次（平均 ${s.stagT.toFixed(1)} 秒）` : '—');
     h += row('擊破', s.killN ? `${s.killN} 次（平均 ${s.ttk.toFixed(1)} 秒）` : '—');
+    h += row('依屬性', byA(s.byA));
     const ws = Object.entries(s.byW).filter(([, w]) => w.dmg > 0 || w.shots > 0);
     if (ws.length) {
       h += '<div class="rpSec">各武器</div>';
@@ -624,6 +638,7 @@ Object.assign(Game.prototype, {
     h += row('受到傷害', fmt(s.taken) + (s.hitsIn ? `（${s.hitsIn} 次）` : ''));
     h += row('每秒受傷（最近 5 秒）', fmt(s.tdps5));
     h += row('防禦擋下', fmt(s.blocked));
+    h += row('依屬性', byA(s.byAin));
     h += row('還能撐', s.survive === null ? '—' : s.survive.toFixed(1) + ' 秒');
     h += row('自己失衡／AP 歸零', `${s.selfStag}／${s.downs}`);
     el.innerHTML = h;
@@ -728,6 +743,7 @@ Object.assign(Game.prototype, {
       imp: sum('imp'),
       ap: ef.ap,
       def: ef.def,
+      defs: ef.defs,
       eap: effectiveAp(ef.ap, ef.def),
     };
   },
@@ -737,13 +753,19 @@ Object.assign(Game.prototype, {
     let h = `<h3 class="gFireH">火力（理論值）<label class="dim"><input type="checkbox" id="gFirePm"${this.rangePmOn() ? ' checked' : ''}> 套用加成</label></h3>`;
     for (const w of F.ws)
       h += row(
-        `${SLOT_NAMES[w.slot]}　${escHtml(w.name)}`,
+        `${SLOT_NAMES[w.slot]}　<b style="color:${ATTRS[w.attr].color}">${ATTRS[w.attr].short}</b> ${escHtml(w.name)}`,
         `${fmt(w.burst)}${Math.round(w.sus) !== Math.round(w.burst) ? ` <span class="dim">／持續 ${fmt(w.sus)}</span>` : ''}${w.charge ? ` <span class="dim">／蓄力 ${fmt(w.charge)}</span>` : ''}`,
       );
     if (!F.ws.length) h += row('武器', '沒有裝備');
     h += row('合計 DPS', `${fmt(F.burst)} <span class="dim">／持續 ${fmt(F.sus)}</span>`, 'ok');
     h += row('衝擊／秒', fmt(F.imp));
     h += row('有效 AP（含防禦）', fmt(F.eap));
+    h += row(
+      '減傷（實／爆／能）',
+      ATTR_KEYS.map(
+        (k) => `<span style="color:${ATTRS[k].color}">${Math.round(F.defs[k] * 1000) / 10}%</span>`,
+      ).join(' ／ '),
+    );
     h += '<div class="dim gFireNote">理論值假設全部命中；實際請到靶場量測。</div>';
     return h;
   },

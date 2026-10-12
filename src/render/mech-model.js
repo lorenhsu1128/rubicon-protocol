@@ -79,6 +79,23 @@ function buildWeapon(node, w, M, side) {
       CB(node, 0.3, 0.26, 0.5, G, 0, -0.32, 0.1, 0, 0, 0, C);
       kitBolts(node, M, [[0.22 * side, 0.1, -0.4, 0, Math.PI / 2]]);
       break;
+    case 'w_lsg':
+      // 雷射霰彈槍：短粗的槍身、發光的散射口
+      CB(node, 0.44, 0.46, 1.1, G, 0, 0, -0.2, 0, 0, 0, 0.06);
+      CB(node, 0.34, 0.3, 0.9, S, 0, 0.04, -1.1, 0, 0, 0, 0.04);
+      P(node, gFrustum(0.36, 0.56, 0.3, 0.5, 0.3), S, 0, 0.04, -1.7, Math.PI / 2);
+      CB(node, 0.3, 0.12, 0.7, glow, 0, 0.24, -1.0, 0, 0, 0, 0.02);
+      P(node, gCyl(0.16, 0.16, 0.06, 10), glow, 0, 0.04, -1.86, Math.PI / 2);
+      CB(node, 0.3, 0.26, 0.5, G, 0, -0.32, 0.1, 0, 0, 0, C);
+      break;
+    case 'w_gl':
+      // 手持榴彈槍：粗短的砲管與彈鼓
+      CB(node, 0.46, 0.48, 1.0, G, 0, 0, -0.1, 0, 0, 0, 0.06);
+      P(node, gCyl(0.22, 0.22, 1.0, 10), S, 0, 0.08, -0.9, Math.PI / 2);
+      P(node, gCyl(0.26, 0.26, 0.14, 10), A, 0, 0.08, -1.4, Math.PI / 2);
+      P(node, gCyl(0.3, 0.3, 0.3, 8), A, 0.3 * side, -0.1, -0.1, 0, 0, Math.PI / 2);
+      P(node, gCyl(0.22, 0.22, 0.04, 10), red, 0, 0.08, -1.48, Math.PI / 2);
+      break;
     case 'w_bz':
       CB(node, 0.5, 0.5, 2.2, G, 0, 0.06, -0.5, 0, 0, 0, 0.08);
       P(node, gCyl(0.34, 0.3, 0.5, 10), S, 0, 0.06, -1.75, Math.PI / 2);
@@ -161,8 +178,10 @@ function buildWeapon(node, w, M, side) {
       break;
     case 'bw_ms':
     case 'bw_ms8':
+    case 'bw_pm':
       {
-        const n = w.id === 'bw_ms' ? 2 : 3;
+        const n = w.id === 'bw_ms8' ? 3 : 2;
+        const tip = w.id === 'bw_pm' ? glow : red; // 電漿導彈：發光的彈頭
         const W = 0.36 * n + 0.2,
           H = 0.36 * n + 0.2;
         CB(node, W, H, 1.1, G, 0, 0, 0, 0, 0, 0, 0.08);
@@ -171,7 +190,7 @@ function buildWeapon(node, w, M, side) {
             const x = (i - (n - 1) / 2) * 0.36,
               y = (j - (n - 1) / 2) * 0.36;
             P(node, gBox(0.3, 0.3, 0.06), S, x, y, -0.56);
-            P(node, gCyl(0.1, 0.1, 0.06, 8), red, x, y, -0.6, Math.PI / 2);
+            P(node, gCyl(0.1, 0.1, 0.06, 8), tip, x, y, -0.6, Math.PI / 2);
           }
         P(node, gBox(W + 0.04, 0.06, 1.14), A, 0, H / 2, 0);
         decal(node, 3, 0.4, 0.4, W / 2 + 0.01, 0, 0.1, 0, Math.PI / 2, 0);

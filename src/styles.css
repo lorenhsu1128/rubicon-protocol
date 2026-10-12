@@ -1970,8 +1970,10 @@ body.lab #fps {
 #rangePanel {
   position: absolute;
   right: 12px;
-  top: 120px;
+  top: 64px;
   width: 260px;
+  max-height: calc(100% - 240px);
+  overflow: hidden;
   background: rgba(8, 12, 18, 0.82);
   border: 1px solid #2a3946;
   border-left: 3px solid #7fc8ff;
@@ -2066,4 +2068,8 @@ body.lab #fps {
   background: #0c1218;
   color: #e8eef4;
   border: 1px solid #2a3946;
+}
+#rangePanel .rpWeak {
+  color: #ffb070;
+  font-weight: normal;
 }
