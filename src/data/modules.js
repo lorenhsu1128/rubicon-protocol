@@ -151,18 +151,130 @@ export function modsPm(list) {
   }
   return pm;
 }
-// 顯示用：「重擊彈頭 Lv2（衝擊力 +24%）」
+// ---------- 顯示用的說明 ----------
+// 一句白話的效果（三選一的卡片、委託方面板）
+export const MOD_TIPS = {
+  c_impact: '讓敵人更快失衡',
+  c_mag: '彈匣更大、帶更多子彈',
+  c_reload: '換彈匣更快',
+  c_breaker: '打失衡中的敵人更痛',
+  c_power: '射擊武器的傷害提高',
+  c_chain: '擊破的敵人會爆炸，波及周圍的敵人',
+  a_cap: 'EN 上限提高（QB、懸浮、能量武器都用 EN）',
+  a_recharge: 'EN 回復更快',
+  a_charge: '需要蓄力的武器蓄得更快',
+  a_eff: '雷射類武器耗的 EN 更少',
+  a_siphon: '打中敵人會回復 EN（近戰回得多）',
+  a_focus: '子彈更集中、射程更遠',
+  v_qb: 'QB 衝刺得更遠更快',
+  v_qbc: 'QB 耗的 EN 更少',
+  v_speed: '地面移動更快',
+  v_jump: '跳得更高',
+  v_ram: '用 QB 撞敵人會造成傷害並讓它失衡',
+  v_air: '空中可以多跳一次',
+  s_ap: 'AP 上限提高',
+  s_def: '受到的傷害減少',
+  s_kits: '多帶修復套件',
+  s_heal: '擊破敵人時回復 AP',
+  s_stab: '不容易被打到失衡',
+  s_last: '快被擊破時自動張開障壁',
+  d_ram: '衝擊力與 QB 推力一起提升',
+  d_siege: '傷害提高，而且不容易失衡',
+  d_overload: '傷害提高，蓄力也更快',
+  d_phase: 'EN 回復更快，QB 也更省',
+  d_barrier: '減傷，EN 上限也提高',
+  d_shock: '擊破敵人時讓周圍的敵人失衡',
+  d_rescue: '擊破回復 AP，移動也更快',
+};
+// 數值的名稱；DOWN 的是「減少」（換彈、充能、消耗、擴散）
+const FX_NAMES = {
+  imp: '衝擊力',
+  mag: '彈匣',
+  ammo: '攜彈量',
+  rld: '換彈時間',
+  stagDmg: '對失衡目標的傷害',
+  dmg: '傷害',
+  enCap: 'EN 容量',
+  rch: 'EN 回復',
+  chg: '充能時間',
+  enWpn: '雷射的 EN 消耗',
+  spread: '擴散',
+  range: '射程',
+  qb: 'QB 推力',
+  qbc: 'QB 消耗',
+  spd: '地面速度',
+  jump: '跳躍高度',
+  ap: 'AP',
+  def: '防禦',
+  killHeal: '擊破時回復 AP',
+  stab: '姿勢穩定',
+  kits: '修復套件',
+  airN: '空中跳',
+};
+const FX_DOWN = new Set(['rld', 'chg', 'enWpn', 'spread', 'qbc']);
+function fxVal(k, x) {
+  if (k === 'airN' || k === 'kits') return `+${x}`;
+  return `${FX_DOWN.has(k) ? '−' : '+'}${Math.max(1, Math.round(x * 100))}%`;
+}
+// 各數值的文字：['衝擊力 +23%', …]（lbl 的模組回傳一句）
+export function modFxText(id, lv) {
+  const M = MODULES[id];
+  if (!M || lv < 1) return [];
+  const fx = modFx(id, lv);
+  if (M.lbl) return [M.lbl(Object.values(fx)[0])];
+  return Object.entries(fx).map(([k, x]) => `${FX_NAMES[k] || k} ${fxVal(k, x)}`);
+}
+// 升級的前後比較：['衝擊力 +23% → +37%']
+export function modFxCompare(id, lv) {
+  const M = MODULES[id];
+  if (!M || lv < 2) return modFxText(id, lv);
+  if (M.lbl) return [`${modFxText(id, lv)[0]}`, `（Lv${lv - 1}：${modFxText(id, lv - 1)[0]}）`];
+  const a = modFx(id, lv - 1),
+    b = modFx(id, lv);
+  return Object.keys(b).map((k) => `${FX_NAMES[k] || k} ${fxVal(k, a[k])} → ${fxVal(k, b[k])}`);
+}
+// 持有的模組合計的文字（作戰室、轉場）：數值合計＋改變打法的模組名稱
+export function modsSumText(list) {
+  const pm = {},
+    special = [];
+  for (const m of list || []) {
+    const M = MODULES[m.id];
+    if (!M) continue;
+    if (M.lbl) {
+      special.push(`${M.name} ${m.lv}`);
+      continue;
+    }
+    const fx = modFx(m.id, m.lv);
+    for (const k in fx) pm[k] = (pm[k] || 0) + fx[k];
+  }
+  return [...Object.entries(pm).map(([k, x]) => `${FX_NAMES[k] || k} ${fxVal(k, x)}`), ...special];
+}
+// 數值對哪些武器有效（照 data/pilot.js 的 pilotWeaponDef）；沒有列出的＝對機體、一律有效
+const FIT = {
+  imp: (d) => d.type !== 'melee' && d.impact > 0,
+  mag: (d) => d.mag > 0 && d.mag < 99,
+  ammo: (d) => d.mag > 0 && d.mag < 99,
+  rld: (d) => d.type !== 'melee' && d.reload > 0,
+  dmg: (d) => d.type !== 'melee' && (d.dmg > 0 || d.chargeDmg > 0),
+  chg: (d) => d.chargeT > 0,
+  enWpn: (d) => d.type === 'laser' || d.enPerSec > 0,
+  spread: (d) => d.spread > 0,
+  range: (d) => d.type !== 'melee' && d.range > 0,
+};
+// 這個模組對裝備的武器（defs）有沒有用：null＝和武器無關；否則 { n 有效的把數, total }
+export function modFit(id, defs) {
+  const M = MODULES[id];
+  if (!M) return null;
+  const keys = Object.keys(M.fx).filter((k) => FIT[k]);
+  if (!keys.length) return null;
+  const ws = (defs || []).filter((d) => d && d.type && d.type !== 'none' && d.type !== 'shield');
+  return { n: ws.filter((d) => keys.some((k) => FIT[k](d))).length, total: ws.length };
+}
+// 顯示用：「重擊彈頭 Lv2（衝擊力 +37%）」
 export function modLabel(id, lv) {
   const M = MODULES[id];
   if (!M) return id;
-  const fx = modFx(id, lv);
-  const v = Object.entries(fx)
-    .map(([k, x]) =>
-      Number.isInteger(x) && ['airN', 'kits'].includes(k) ? `+${x}` : `+${Math.round(x * 1000) / 10}%`,
-    )
-    .join('／');
-  if (M.lbl) return `${M.name} Lv${lv}（${M.lbl(Object.values(fx)[0])}）`;
-  return `${M.name} Lv${lv}（${M.desc} ${v}）`;
+  return `${M.name} Lv${lv}（${modFxText(id, lv).join('、')}）`;
 }
 // 三選一的選項：faction 指定委託方（null＝任意）；已滿級的不出現；持有兩家以上時有機會出現雙重模組
 export function modOffer(list, faction, rand, n = 3) {

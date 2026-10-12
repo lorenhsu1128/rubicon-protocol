@@ -648,27 +648,34 @@ Object.assign(Game.prototype, {
     beam.position.y = 30;
     g.add(beam);
     const cv = document.createElement('canvas');
-    cv.width = 512;
-    cv.height = sub ? 192 : 112;
+    const lines = sub ? String(sub).split('\n') : [];
+    cv.width = 640;
+    cv.height = 120 + lines.length * 52 + (lines.length ? 14 : 0);
     const x = cv.getContext('2d');
     x.fillStyle = 'rgba(10,14,20,0.78)';
-    x.fillRect(0, 0, 512, cv.height);
+    x.fillRect(0, 0, 640, cv.height);
     x.strokeStyle = '#' + col.getHexString();
     x.lineWidth = 6;
-    x.strokeRect(3, 3, 506, cv.height - 6);
+    x.strokeRect(3, 3, 634, cv.height - 6);
     x.fillStyle = '#' + col.getHexString();
-    x.font = 'bold 60px sans-serif';
+    // 寬度不夠時字縮小
+    const fit = (txt, px, bold) => {
+      x.font = `${bold ? 'bold ' : ''}${px}px sans-serif`;
+      const w = x.measureText(txt).width;
+      if (w > 600) x.font = `${bold ? 'bold ' : ''}${Math.floor((px * 600) / w)}px sans-serif`;
+    };
     x.textAlign = 'center';
-    x.fillText(title, 256, 78);
-    if (sub) {
-      x.fillStyle = '#d8e2ec';
-      x.font = '32px sans-serif';
-      x.fillText(sub, 256, 146);
-    }
+    fit(title, 64, true);
+    x.fillText(title, 320, 84);
+    lines.forEach((ln, i) => {
+      x.fillStyle = ln.startsWith('⚠') ? '#ffb070' : '#d8e2ec';
+      fit(ln, 40);
+      x.fillText(ln, 320, 156 + i * 52);
+    });
     const tex = new THREE.CanvasTexture(cv);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    spr.scale.set(9, (9 * cv.height) / 512, 1);
-    spr.position.y = 8;
+    spr.scale.set(12, (12 * cv.height) / 640, 1);
+    spr.position.y = 9;
     spr.renderOrder = 10;
     g.add(spr);
     g.userData.ring = ring;
@@ -696,6 +703,7 @@ Object.assign(Game.prototype, {
       next = so.segs[ni];
     if (!next) return;
     const mode = transMode(cur, next);
+    const Ln = so.level + Math.floor(ni / 2); // 下一段的等級（出口獎勵的資金與經驗）
     let types = next.pool.filter(
       (t) => this.campTypeOk(t, ni) && !(c.heat && c.heat.nosupply && t === 'supply'),
     );
@@ -722,13 +730,17 @@ Object.assign(Game.prototype, {
         const o = opts[i],
           type = types[i % types.length],
           tr = trs[i % trs.length];
-        const L = this.campExitLabel('mod_' + o.faction, type, tr.title, o.key, cur.choice);
+        const L = this.campExitLabel('mod_' + o.faction, type, tr.title, o.key, cur.choice, Ln);
         const group = this.campRing(pos, L.color, L.label, L.sub, EXIT_R);
         this.fx.ring(pos.clone().setY(pos.y + 0.2), 6, 0xff5050);
-        return { pos, reward: 'mod_' + o.faction, type, mode, tr, t: 0, group, choice: o.key };
+        return { pos, reward: 'mod_' + o.faction, type, mode, tr, t: 0, group, choice: o.key, lab: L };
       });
       this.flashMsg(CH.name, 0xff8a50, 3);
       this.campComm('choice', this.campCtx());
+      this.campChoiceCard(
+        cur.choice,
+        opts.map((o) => o.key),
+      ); // 說明卡：各選項的獎勵、路線、宿敵（guide.js）
       return;
     }
     const spots = this.campSpots(n, mode === 'relay' ? 'edge' : 'inner');
@@ -740,22 +752,37 @@ Object.assign(Game.prototype, {
       const reward = rewards[i % rewards.length],
         type = types[i % types.length],
         tr = trs[i % trs.length];
-      const L = this.campExitLabel(reward, type, tr.title);
+      const L = this.campExitLabel(reward, type, tr.title, null, null, Ln);
       const group = this.campRing(pos, L.color, L.label, L.sub, EXIT_R);
       this.fx.ring(pos.clone().setY(pos.y + 0.2), 6, 0xffb020);
-      return { pos, reward, type, mode, tr, t: 0, group };
+      return { pos, reward, type, mode, tr, t: 0, group, lab: L };
     });
   },
-  // 出口光環的顏色與文字（房主與客機共用）：抉擇出口顯示選項與後果
-  campExitLabel(reward, type, trTitle, choice, chId) {
+  // 出口光環的顏色與文字（房主與客機共用）：獎勵的效果、下一段要做什麼；抉擇出口顯示選項與後果
+  // L＝下一段的等級（資金與經驗的數值）
+  campExitLabel(reward, type, trTitle, choice, chId, L) {
     const R = EXIT_REWARDS[reward] || EXIT_REWARDS.coam;
     const o = choice && chId && CHOICES[chId] ? CHOICES[chId].opts.find((q) => q.key === choice) : null;
-    if (o) return { color: FACTIONS[o.faction].color, label: `⚑ ${o.name}`, sub: o.sub };
-    return {
-      color: R.color,
-      label: `${R.icon} ${R.name}`,
-      sub: `${(SEG_TYPES[type] || SEG_TYPES.battle).name}・${trTitle}`,
-    };
+    if (o) {
+      const I = this.campChoiceInfo(chId, choice);
+      const r = I.routes.length
+        ? `開放「${SORTIES[I.routes[0]].name.split(' — ')[1] || SORTIES[I.routes[0]].name}」`
+        : I.ending
+          ? '決定結局'
+          : '';
+      return {
+        color: FACTIONS[o.faction].color,
+        label: `⚑ ${o.name}`,
+        sub: `${FACTIONS[o.faction].name}模組${r ? '・' + r : ''}\n⚠ 選了不能更改`,
+      };
+    }
+    const T = SEG_TYPES[type] || SEG_TYPES.battle;
+    let sub = `下一段：${T.name}（${T.goal}）`;
+    if (R.faction) {
+      const miss = this.guideFactionMiss(R.faction);
+      if (miss) sub += `\n⚠ 其中 ${miss} 種模組你的武器用不到`;
+    }
+    return { color: R.color, label: this.guideReward(reward, L), sub };
   },
   campClearExits() {
     const c = this.camp;
@@ -1332,20 +1359,21 @@ Object.assign(Game.prototype, {
     const c = this.camp;
     if (!this.player) return;
     const marks = [];
-    const mk = (pos, reward, color, icon) =>
+    const mk = (pos, reward, color, icon, lab) =>
       marks.push({
         pos,
-        color: reward ? EXIT_REWARDS[reward].color : color,
+        color: lab ? lab.color : reward ? EXIT_REWARDS[reward].color : color,
         icon: reward ? EXIT_REWARDS[reward].icon : icon,
+        lab,
       });
     if (c) {
       const ss = c.ss || {};
-      for (const ex of c.exits || []) mk(ex.pos, ex.reward);
+      for (const ex of c.exits || []) mk(ex.pos, ex.reward, null, null, ex.lab);
       if (ss.pad && ss.pad.group) mk(ss.pad.pos, null, '#7ee081', '補');
       if (ss.intel && ss.intel.group) mk(ss.intel.pos, null, '#7fc8ff', '情');
     } else if (this.campC && this.campC.vis) {
       const V = this.campC.vis;
-      for (const ex of V.exits || []) mk(ex.pos, ex.reward);
+      for (const ex of V.exits || []) mk(ex.pos, ex.reward, null, null, ex.lab);
       if (V.pad) mk(V.pad.pos, null, '#7ee081', '補');
       if (V.intel) mk(V.intel.pos, null, '#7fc8ff', '情');
     }
@@ -1376,6 +1404,29 @@ Object.assign(Game.prototype, {
       ctx.font = 'bold 15px sans-serif';
       ctx.strokeText(`${mk.icon} ${d}m`, x, y);
       ctx.fillText(`${mk.icon} ${d}m`, x, y);
+      // 畫面內的出口：標記下方寫出獎勵與下一段（光環上的招牌在遠的鏡頭看不清楚）
+      if (!edge && mk.lab) {
+        const lines = [
+          mk.lab.label,
+          ...String(mk.lab.sub || '')
+            .split('\n')
+            .filter(Boolean),
+        ];
+        ctx.font = 'bold 15px sans-serif';
+        let w = ctx.measureText(lines[0]).width;
+        ctx.font = '13px sans-serif';
+        for (const ln of lines.slice(1)) w = Math.max(w, ctx.measureText(ln).width);
+        const bh = 8 + lines.length * 18;
+        ctx.fillStyle = 'rgba(8,12,18,0.78)';
+        ctx.fillRect(x - w / 2 - 8, y + 6, w + 16, bh);
+        ctx.fillStyle = mk.color;
+        ctx.fillRect(x - w / 2 - 8, y + 6, 3, bh);
+        lines.forEach((ln, i) => {
+          ctx.font = i ? '13px sans-serif' : 'bold 15px sans-serif';
+          ctx.fillStyle = i ? (ln.startsWith('⚠') ? '#ffb070' : '#d8e2ec') : mk.color;
+          ctx.fillText(ln, x, y + 22 + i * 18);
+        });
+      }
       if (edge) {
         ctx.beginPath();
         ctx.arc(x, y - 5, 15, 0, Math.PI * 2);

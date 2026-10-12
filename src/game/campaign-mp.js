@@ -108,7 +108,16 @@ Object.assign(Game.prototype, {
     const alive = this.enemies.filter((e) => !e.dead).length;
     const P = (v) => [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
     const chId = c.exits && c.exits.some((e) => e.choice) ? so.segs[c.seg].choice : '';
-    const ex = (c.exits || []).map((e) => [...P(e.pos), e.reward, e.type, e.tr.title, e.choice || '', chId]);
+    const Ln = so.level + Math.floor((c.seg + 1) / 2);
+    const ex = (c.exits || []).map((e) => [
+      ...P(e.pos),
+      e.reward,
+      e.type,
+      e.tr.title,
+      e.choice || '',
+      chId,
+      Ln,
+    ]);
     const pad = ss.pad && ss.pad.group ? P(ss.pad.pos) : 0;
     const intel = ss.intel && ss.intel.group ? P(ss.intel.pos) : 0;
     return {
@@ -433,8 +442,21 @@ Object.assign(Game.prototype, {
     C.vis = { exits: [], pad: null, intel: null };
     for (const e of v.ex || []) {
       const pos = V(e);
-      const L = this.campExitLabel(e[3], e[4], e[5], e[6], e[7]);
-      C.vis.exits.push({ pos, reward: e[3], group: this.campRing(pos, L.color, L.label, L.sub, EXIT_R) });
+      const L = this.campExitLabel(e[3], e[4], e[5], e[6], e[7], e[8]);
+      C.vis.exits.push({
+        pos,
+        reward: e[3],
+        lab: L,
+        group: this.campRing(pos, L.color, L.label, L.sub, EXIT_R),
+      });
+    }
+    const chEx = (v.ex || []).filter((e) => e[6]);
+    if (chEx.length && C.choiceShown !== `${v.so}|${v.seg}`) {
+      C.choiceShown = `${v.so}|${v.seg}`;
+      this.campChoiceCard(
+        chEx[0][7],
+        chEx.map((e) => e[6]),
+      );
     }
     if (v.pad) C.vis.pad = { pos: V(v.pad), group: this.campRing(V(v.pad), 0x7ee081, '補給') };
     if (v.intel) C.vis.intel = { pos: V(v.intel), group: this.campRing(V(v.intel), 0x7fc8ff, '資料終端') };

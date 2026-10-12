@@ -92,6 +92,7 @@
         <h2 id="mpTitle"></h2>
         <div id="mpSub" class="dim"></div>
         <div id="mpCards"></div>
+        <div id="mpDuo"></div>
         <button id="mpSkip">略過</button>
       </div>
       <!-- Title -->
@@ -189,7 +190,7 @@
         </div>
         <div id="hubBody">
           <div id="hubMapWrap">
-            <div class="dim hubCap">戰區總覽圖：點選委託查看簡報</div>
+            <div class="dim hubCap" id="hubCap">戰區總覽圖：點選委託查看簡報</div>
             <div id="hubMap"></div>
           </div>
           <div id="hubSide">
@@ -201,11 +202,16 @@
             <div id="hubMods" class="mySetBox"></div>
             <button id="btnHubGarage">機甲庫（組裝）</button>
             <button id="btnHubPilot">駕駛員（技能）</button>
+            <button id="btnHubFac" title="四家委託方的風格、模組與你的抉擇">委託方與模組</button>
             <button id="btnHubLog">通訊紀錄</button>
             <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">模擬器</button>
             <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">作戰紀錄</button>
             <button id="btnHubBack">回標題</button>
           </div>
+        </div>
+        <div id="hubFacBox" class="hubBox" style="display: none">
+          <div class="hubLogHead"><b>委託方與戰術模組</b><button id="btnHubFacClose">關閉</button></div>
+          <div id="hubFacList"></div>
         </div>
         <div id="hubLogBox" style="display: none">
           <div class="hubLogHead"><b>通訊紀錄</b><button id="btnHubLogClose">關閉</button></div>
@@ -255,6 +261,7 @@
           <h2 id="brTitle"></h2>
           <div id="brLines"></div>
           <div id="brGoal"></div>
+          <div id="brInfo" class="dim"></div>
           <div id="brRoute"></div>
           <div id="brReward" class="dim"></div>
           <div class="row">

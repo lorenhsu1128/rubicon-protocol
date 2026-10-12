@@ -7093,6 +7093,109 @@ async function testModFx(browser, base) {
 }
 
 // 補給：PvE 的攜彈量加成、擊破掉落彈藥箱與撿起補彈、轉場整備補充修復套件
+async function testGuide(browser, base) {
+  console.log('主線的說明：出口文字、抉擇說明卡、模組卡片、委託方面板');
+  const { ctx, page } = await newPage(browser, 'guide');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.click('#btnStory');
+  await waitVisible(page, 'hub');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const c2a = g.campChoiceInfo('c2', 'castron'),
+      c2b = g.campChoiceInfo('c2', 'aetheric'),
+      c4 = g.campChoiceInfo('c4', 'veerwell'),
+      c6 = g.campChoiceInfo('c6', 'seal');
+    const coam = g.campExitLabel('coam', 'battle', 'x', null, null, 4);
+    const mod = g.campExitLabel('mod_castron', 'destroy', 'x', null, null, 4);
+    const ch = g.campExitLabel('mod_castron', 'battle', 'x', 'castron', 'c2', 5);
+    // 沒有能量武器時，雷射的 EN 消耗模組對武器無效
+    const asm0 = { ...g.save.asm };
+    g.save.asm = { ...asm0, rarm: 'w_rifle', larm: 'w_rifle', rback: 'w_none', lback: 'w_none' };
+    const fitBad = g.guideFit('a_eff'),
+      fitOk = g.guideFit('c_power'),
+      miss = g.guideFactionMiss('aetheric');
+    g.save.asm = asm0;
+    const card = g.modCardHtml({ id: 'c_impact', lv: 2 }, 0, '選擇');
+    g.campSetMods([
+      { id: 'c_power', lv: 1 },
+      { id: 'c_chain', lv: 1 },
+    ]);
+    const sum = g.campModsHtml();
+    return { c2a, c2b, c4, c6, coam, mod, ch, fitBad, fitOk, miss, card, sum };
+  });
+  check(
+    r.c2a.routes.length && r.c2b.routes.length && r.c2a.aces.length && r.c4.routes.length && r.c6.ending,
+    `抉擇的影響：開放的出擊（${r.c2a.routes.join('、')}／${r.c2b.routes.join('、')}）、宿敵（${r.c2a.aces.join('、')}／${r.c2b.aces.join('、')}）、終局決定結局`,
+  );
+  check(
+    r.coam.label.includes('10,000') && r.mod.label.includes('實彈') && r.mod.sub.includes('下一段：破壞'),
+    `出口光環寫出效果與下一段（${r.coam.label}｜${r.mod.label}｜${r.mod.sub.split('\n')[0]}）`,
+  );
+  check(
+    r.ch.sub.includes('開放「') && r.ch.sub.includes('不能更改'),
+    `抉擇出口寫出路線與不能更改（${r.ch.sub}）`,
+  );
+  check(
+    r.fitBad.bad && !r.fitOk.bad && r.miss > 0,
+    `模組對武器的適用性（${r.fitBad.txt}｜${r.fitOk.txt}｜艾瑟立克 ${r.miss} 種用不到）`,
+  );
+  check(
+    r.card.includes('讓敵人更快失衡') && r.card.includes('→') && r.card.includes('適用'),
+    '模組卡片：白話效果、升級前後數值、適用性',
+  );
+  check(r.sum.includes('合計：') && r.sum.includes('連鎖殉爆'), '持有模組的合計');
+  await page.evaluate(() => window.__game.renderHub());
+  check(
+    await page.evaluate(() => !!document.querySelector('.hubNode title')),
+    '總覽圖的節點有說明（開放條件、路線、抉擇）',
+  );
+  // 抉擇說明卡：暫停、兩個選項、關掉回到原本的狀態
+  await page.evaluate(() => window.__game.campChoiceCard('c2'));
+  const cc = await page.evaluate(() => ({
+    st: window.__game.state,
+    n: document.querySelectorAll('#mpCards .mpCard').length,
+    txt: document.getElementById('mpCards').textContent,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'guide-choice.png') });
+  check(
+    cc.st === 'modpick' && cc.n === 2 && cc.txt.includes('開放的出擊') && cc.txt.includes('宿敵'),
+    '抉擇說明卡：暫停、兩個選項、路線與宿敵',
+  );
+  await page.click('#mpSkip');
+  check((await page.evaluate(() => window.__game.state)) === 'hub', '說明卡關掉後回到原本的狀態');
+  // 三選一還開著時，說明卡排隊到它關掉之後
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campSetMods([{ id: 'c_power', lv: 1 }]);
+    g.campOpenPick('veerwell');
+    g.campChoiceCard('c4');
+  });
+  const pk = await page.evaluate(() => ({
+    t: document.getElementById('mpTitle').textContent,
+    duo: document.getElementById('mpDuo').textContent,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'guide-modpick.png') });
+  check(
+    pk.duo.includes('衝鋒火線') && pk.duo.includes('✓'),
+    `三選一的雙重模組提示（${pk.duo.slice(0, 60)}…）`,
+  );
+  await page.click('#mpSkip');
+  const t2 = await page.evaluate(() => document.getElementById('mpTitle').textContent);
+  check(!pk.t.includes('抉擇') && t2.includes('抉擇 2'), '三選一關掉後才顯示抉擇說明卡');
+  await page.click('#mpSkip');
+  // 作戰室的委託方面板
+  await page.click('#btnHubFac');
+  const fac = await page.evaluate(() => ({
+    vis: document.getElementById('hubFacBox').style.display !== 'none',
+    n: document.querySelectorAll('#hubFacList .facSec').length,
+    held: document.querySelectorAll('#hubFacList .facMod.held').length,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'guide-factions.png') });
+  check(fac.vis && fac.n === 5 && fac.held === 1, '委託方面板：四家＋雙重模組、標出持有的');
+  await page.click('#btnHubFacClose');
+  await ctx.close();
+}
 async function testAudio(browser, base) {
   console.log('聲音：混音、環境音、命中分類、回饋音、腳步');
   const { ctx, page } = await newPage(browser, 'audio');
@@ -8860,6 +8963,7 @@ async function main() {
     await testOutposts(browser, base);
     await testModFx(browser, base);
     await testSupply(browser, base);
+    await testGuide(browser, base);
     await testAudio(browser, base);
     await testJuice(browser, base);
     await testBossPower(browser, base);

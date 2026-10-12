@@ -3,7 +3,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { SORTIES } from '../data/campaign.js';
-import { MODULES, modLabel, modOffer, modsPm } from '../data/modules.js';
+import { MODULES, MOD_TIPS, modFxCompare, modLabel, modOffer, modsPm } from '../data/modules.js';
 import { BRIEFINGS, FACTIONS } from '../data/story.js';
 import { Game } from './game.js';
 
@@ -88,6 +88,8 @@ Object.assign(Game.prototype, {
     $('mpTitle').textContent = title || (F ? `${F.name} 提供的戰術模組` : '戰術模組');
     $('mpSub').textContent = '選一個（從下一個區段開始生效，延續到這一章結束）';
     $('mpCards').innerHTML = opts.map((o, i) => this.modCardHtml(o, i, '選擇')).join('');
+    $('mpDuo').innerHTML = this.guideDuoHtml(faction);
+    $('mpSkip').textContent = '略過';
     $('mpSkip').style.display = '';
     $('modPick').classList.add('on');
     for (const b of $('mpCards').querySelectorAll('button[data-i]'))
@@ -98,7 +100,12 @@ Object.assign(Game.prototype, {
     const F = M.faction === 'duo' ? null : FACTIONS[M.faction];
     const col = F ? F.color : '#ff8ad8';
     const tag = M.faction === 'duo' ? `雙重：${M.need.map((f) => FACTIONS[f].short).join('＋')}` : F.short;
-    return `<div class="mpCard" style="border-color:${col}"><div class="mpTag" style="color:${col}">${escHtml(tag)}${o.lv > 1 ? '　強化' : '　新'}</div><b>${escHtml(M.name)}</b><div class="dim">${escHtml(modLabel(o.id, o.lv))}</div><button data-i="${i}"${price && this.save.coam < price ? ' disabled' : ''}>${escHtml(btn)}${price ? `（${price.toLocaleString()} COAM）` : ''}</button></div>`;
+    // 白話效果、數值（升級時前後比較）、對目前武器的適用性
+    const fit = this.guideFit(o.id);
+    const vals = modFxCompare(o.id, o.lv)
+      .map((t) => `<div>${escHtml(t)}</div>`)
+      .join('');
+    return `<div class="mpCard" style="border-color:${col}"><div class="mpTag" style="color:${col}">${escHtml(tag)}${o.lv > 1 ? `　強化 Lv${o.lv - 1} → Lv${o.lv}` : '　新'}</div><b>${escHtml(M.name)} Lv${o.lv}</b><div class="mpTip">${escHtml(MOD_TIPS[o.id] || M.desc)}</div><div class="dim">${vals}</div>${fit ? `<div class="mpFit${fit.bad ? ' bad' : ''}">${escHtml(fit.txt)}</div>` : ''}<button data-i="${i}"${price && this.save.coam < price ? ' disabled' : ''}>${escHtml(btn)}${price ? `（${price.toLocaleString()} COAM）` : ''}</button></div>`;
   },
   campTakeMod(o) {
     if (!o) return this.campClosePick();
@@ -114,9 +121,11 @@ Object.assign(Game.prototype, {
   },
   campClosePick() {
     document.getElementById('modPick').classList.remove('on');
-    if (this.state !== 'modpick') return;
-    this.state = this.modPrev === 'modpick' ? 'play' : this.modPrev || 'play';
-    this.lastT = performance.now();
+    if (this.state === 'modpick') {
+      this.state = this.modPrev === 'modpick' ? 'play' : this.modPrev || 'play';
+      this.lastT = performance.now();
+    }
+    this.campChoicePendShow(); // 排隊的抉擇說明卡（guide.js）
   },
   // ---------- 商店（補給區段） ----------
   campOpenShop() {
@@ -135,6 +144,8 @@ Object.assign(Game.prototype, {
     $('mpTitle').textContent = '補給站的商店';
     $('mpSub').textContent = `用 COAM 購買戰術模組（持有 ${this.save.coam.toLocaleString()} COAM）`;
     $('mpCards').innerHTML = opts.map((o, i) => this.modCardHtml(o, i, '購買', price)).join('');
+    $('mpDuo').innerHTML = this.guideDuoHtml(null);
+    $('mpSkip').textContent = '略過';
     $('mpSkip').style.display = '';
     $('modPick').classList.add('on');
     for (const b of $('mpCards').querySelectorAll('button[data-i]'))
@@ -157,6 +168,9 @@ Object.assign(Game.prototype, {
     $('mpCards').innerHTML = opts
       .map((o, i) => this.modCardHtml(o, i, price ? '購買' : '選擇', price))
       .join('');
+    const f0 = opts[0] && MODULES[opts[0].id] && MODULES[opts[0].id].faction;
+    $('mpDuo').innerHTML = this.guideDuoHtml(!price && f0 && f0 !== 'duo' ? f0 : null);
+    $('mpSkip').textContent = '略過';
     $('modPick').classList.add('on');
     for (const b of $('mpCards').querySelectorAll('button[data-i]'))
       b.onclick = () => {
@@ -182,7 +196,8 @@ Object.assign(Game.prototype, {
           const F = M.faction === 'duo' ? null : FACTIONS[M.faction];
           return `<span class="modChip" style="border-color:${F ? F.color : '#ff8ad8'}" title="${escHtml(modLabel(m.id, m.lv))}">${escHtml(M.name)} ${m.lv}</span>`;
         })
-        .join('')
+        .join('') +
+      this.guideModsSum()
     );
   },
 });

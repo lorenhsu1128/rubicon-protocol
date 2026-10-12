@@ -83,16 +83,29 @@ Object.assign(Game.prototype, {
       const s = this.hubSortieState(sid);
       if (s === 'hidden') continue;
       const col = s === 'done' ? '#7ee081' : s !== 'open' ? '#3a4a58' : B.cycle ? '#c090ff' : '#ffb020'; // 周目限定的是紫色
-      svg += `<g class="hubNode ${s}" data-sid="${sid}"><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
+      const tip = this.guideNodeInfo(sid);
+      const chs = SORTIES[sid].segs.some((sg) => sg.choice);
+      svg += `<g class="hubNode ${s}" data-sid="${sid}"><title>${escHtml(tip.join('\n'))}</title><circle cx="${B.node.x}" cy="${B.node.y}" r="2.6" fill="#0c1218" stroke="${col}" stroke-width="0.7"/>`;
       svg += `<text x="${B.node.x}" y="${B.node.y + 1}" text-anchor="middle" font-size="2.6" fill="${col}">${s === 'done' ? '✓' : s === 'open' ? '!' : '×'}</text>`;
-      svg += `<text x="${B.node.x}" y="${B.node.y + 5.6}" text-anchor="middle" font-size="2.2" fill="${col}">${escHtml(SORTIES[sid].name.split(' — ')[1] || SORTIES[sid].name)}</text></g>`;
+      svg += `<text x="${B.node.x}" y="${B.node.y + 5.6}" text-anchor="middle" font-size="2.2" fill="${col}">${escHtml(SORTIES[sid].name.split(' — ')[1] || SORTIES[sid].name)}</text>`;
+      if (chs)
+        svg += `<text x="${B.node.x + 3.2}" y="${B.node.y - 2}" font-size="2.6" fill="#ff8a50">⚑</text>`; // 有陣營抉擇
+      svg += '</g>';
     }
     svg += '</svg>';
     $('hubMap').innerHTML = svg;
+    $('hubCap').textContent = '戰區總覽圖：點選委託查看簡報（⚑＝有陣營抉擇）';
+    $('hubCap').classList.remove('warn');
     for (const n of $('hubMap').querySelectorAll('.hubNode')) {
       n.onclick = () => {
         const sid = n.dataset.sid;
-        if (this.hubSortieState(sid) === 'locked') return this.flashMsg('前置委託尚未完成', 0xff8a8a, 1.2);
+        if (this.hubSortieState(sid) === 'locked') {
+          // 鎖住的委託：在總覽圖上方寫出開放條件
+          SFX.ui('err');
+          $('hubCap').textContent = this.guideNodeInfo(sid).join('　');
+          $('hubCap').classList.add('warn');
+          return;
+        }
         this.openBrief(sid);
       };
     }
@@ -110,6 +123,11 @@ Object.assign(Game.prototype, {
     $('brClient').innerHTML =
       `${speakerBadge(B.client, 56)}<div><b style="color:${F.color}">${escHtml(F.name)}</b><span class="dim">${escHtml(F.short)}・${escHtml(F.style)}</span></div>`;
     $('brTitle').textContent = so.name;
+    // 路線與抉擇的說明（guide.js）
+    $('brInfo').innerHTML = this.guideNodeInfo(sid)
+      .slice(1)
+      .map((t) => `<div>${escHtml(t)}</div>`)
+      .join('');
     $('brLines').innerHTML = B.lines.map((l) => `<p>${escHtml(l)}</p>`).join('');
     $('brGoal').textContent = '作戰目標：' + B.goal;
     const route = so.segs

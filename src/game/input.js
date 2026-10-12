@@ -775,6 +775,8 @@ Object.assign(Game.prototype, {
     $('btnEpHub').onclick = () => this.epilogueBack();
     $('btnRecGo').onclick = () => this.recordGo();
     $('btnHubLogClose').onclick = () => this.hubLog(false);
+    $('btnHubFac').onclick = () => this.hubFactions(true);
+    $('btnHubFacClose').onclick = () => this.hubFactions(false);
     $('btnHubBack').onclick = () => {
       // 作戰室的「回標題」（自由出擊從標題進機甲庫，兩邊不再互相繞）
       SFX.ui();
