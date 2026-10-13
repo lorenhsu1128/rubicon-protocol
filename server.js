@@ -106,6 +106,33 @@ function loadStyles() {
   } catch (e) {}
   return styles;
 }
+// 自訂關卡：server-models/levels/<id>.json＋index.json（名稱、作者、縮圖、主題、通關時間、遊玩／通關次數、作者金鑰的雜湊）
+// 只有作者（同一把作者金鑰）能覆寫、刪除；控制台可以刪任何關卡
+const LV_DIR = path.join(MODELS_DIR, 'levels');
+const LV_ID = /^lv[a-z0-9]{6,30}$/;
+let lvIndex = null;
+function loadLevels() {
+  if (lvIndex) return lvIndex;
+  lvIndex = {};
+  try {
+    const o = JSON.parse(fs.readFileSync(path.join(LV_DIR, 'index.json'), 'utf8'));
+    if (o && typeof o === 'object') lvIndex = o;
+  } catch (e) {}
+  return lvIndex;
+}
+const saveLevels = () => writeAtomic(path.join(LV_DIR, 'index.json'), JSON.stringify(lvIndex, null, 1));
+const lvPublic = (id, e) => {
+  const { kh, ...rest } = e;
+  return Object.assign({ id }, rest);
+};
+function deleteLevel(id) {
+  const ix = loadLevels();
+  if (!ix[id]) return false;
+  delete ix[id];
+  rmQuiet(path.join(LV_DIR, id + '.json'));
+  saveLevels();
+  return true;
+}
 const glbPath = (kind, slot) => path.join(DEF_DIR, kind, ...slot.split('/')) + '.glb';
 function rmQuiet(f) {
   try {
@@ -293,6 +320,86 @@ async function modelsApi(req, resp, u, q) {
     }
     return bad('不支援的操作', 405);
   }
+  // 自訂關卡
+  if (u === '/api/levels') {
+    if (M !== 'GET') return bad('不支援的操作', 405);
+    const ix = loadLevels();
+    return json({ levels: Object.keys(ix).map((id) => lvPublic(id, ix[id])) });
+  }
+  if ((m = /^\/api\/levels\/([a-z0-9]{4,40})(\/play)?$/.exec(u))) {
+    const id = m[1];
+    if (!LV_ID.test(id)) return bad('關卡編號格式錯誤');
+    const ix = loadLevels();
+    const f = path.join(LV_DIR, id + '.json');
+    if (m[2]) {
+      // 遊玩／通關次數
+      if (M !== 'POST' || !ix[id]) return bad('沒有這個關卡', 404);
+      const body = await readBody(req, 4096);
+      let o = {};
+      try {
+        o = JSON.parse((body || '').toString('utf8') || '{}');
+      } catch (e) {}
+      await queued(() => {
+        const e = ix[id];
+        if (!e) return;
+        e.plays = (e.plays || 0) + 1;
+        if (o.clear) e.clears = (e.clears || 0) + 1;
+        saveLevels();
+      });
+      return json({ ok: true });
+    }
+    if (M === 'GET' || M === 'HEAD') return sendFile(f, 'application/json; charset=utf-8');
+    const key = String(req.headers['x-author-key'] || '');
+    if (key.length < 16 || key.length > 128) return bad('缺少作者金鑰', 401);
+    const kh = sha256(key);
+    if (M === 'PUT') {
+      if (ix[id] && ix[id].kh !== kh) return bad('只有作者本人可以覆寫這個關卡', 403);
+      const body = await readBody(req, MAX_JSON);
+      if (!body) return bad('關卡太大', 413);
+      let L;
+      try {
+        L = JSON.parse(body.toString('utf8'));
+      } catch (e) {
+        return bad('JSON 格式錯誤');
+      }
+      if (!L || L.format !== 'rubicon-level' || L.id !== id) return bad('不是這個編號的自訂關卡');
+      if (!L.clear || !(L.clear.t > 0)) return bad('上傳前要先自己通關一次');
+      const B = L.base || {};
+      const meta = {
+        name: String(L.name || '未命名關卡').slice(0, 40),
+        author: String(L.author || '').slice(0, 24),
+        desc: String(L.desc || '').slice(0, 300),
+        thumb: typeof L.thumb === 'string' && L.thumb.length < 200000 ? L.thumb : '',
+        theme: String(B.theme || '').slice(0, 24),
+        level: B.level | 0,
+        np: B.np | 0,
+        segs: Array.isArray(L.segs) ? L.segs.length + 1 : 1,
+        clearT: +L.clear.t || 0,
+        size: body.length,
+        t: Date.now(),
+      };
+      await queued(() => {
+        const old = ix[id] || {};
+        writeAtomic(f, body);
+        ix[id] = Object.assign({}, meta, {
+          created: old.created || Date.now(),
+          plays: old.plays || 0,
+          clears: old.clears || 0,
+          kh,
+        });
+        saveLevels();
+      });
+      log(`上傳自訂關卡「${meta.name}」by ${meta.author || '?'}`);
+      return json({ ok: true });
+    }
+    if (M === 'DELETE') {
+      if (!ix[id]) return bad('沒有這個關卡', 404);
+      if (ix[id].kh !== kh) return bad('只有作者本人可以刪除這個關卡', 403);
+      await queued(() => deleteLevel(id));
+      return json({ ok: true });
+    }
+    return bad('不支援的操作', 405);
+  }
   if ((m = /^\/api\/sets\/([0-9a-f]{64})$/.exec(u))) {
     const f = path.join(UP_DIR, m[1] + '.rubicon-set');
     if (M === 'GET' && q.get('check')) return json({ exists: fs.existsSync(f) }); // 上傳前確認（不回 404）
@@ -347,7 +454,12 @@ function startGame(port) {
     cleanUploads();
     const server = http.createServer((req, resp) => {
       const u = req.url.split('?')[0];
-      if (u.startsWith('/api/models/') || u.startsWith('/api/sets/') || u.startsWith('/api/styles')) {
+      if (
+        u.startsWith('/api/models/') ||
+        u.startsWith('/api/sets/') ||
+        u.startsWith('/api/styles') ||
+        u.startsWith('/api/levels')
+      ) {
         const q = new URL(req.url, 'http://x').searchParams;
         modelsApi(req, resp, u, q)
           .then((done) => {
@@ -571,6 +683,7 @@ function controlPage() {
 <div class="dim" style="margin-top:8px">port 80 被佔用時（IIS／Skype／其他網頁伺服器）請改用 8080 等其他 port。第一次啟動請在 Windows 防火牆詢問時按「允許」。</div></div>
 <h2>玩家連線位址（區網內用瀏覽器開啟即可玩單機或多人）</h2><div class="card qr" id="addrs"></div>
 <h2>伺服器模型組</h2><div class="card" id="models"></div>
+<h2>自訂關卡</h2><div class="card"><table><thead><tr><th>名稱</th><th>作者</th><th>主題</th><th>遊玩／通關</th><th>上傳</th><th></th></tr></thead><tbody id="levels"></tbody></table></div>
 <h2>房間</h2><div class="card"><table><thead><tr><th>房名</th><th>房主</th><th>人數</th><th>關卡</th><th>狀態</th><th>觀戰</th><th></th></tr></thead><tbody id="rooms"></tbody></table><div class="dim" id="peers" style="margin-top:6px"></div></div>
 <h2>日誌</h2><pre id="log"></pre></div>
 <script>
@@ -580,8 +693,10 @@ async function refresh(){ try{ const s=await api('/api/status'); cur=s; $('st').
   $('addrs').innerHTML=s.running? s.ips.map(i=>{ const url='http://'+i.ip+(s.port===80?'':':'+s.port)+'/'; return '<div><div><b>'+i.name+'</b>　<a style="color:#5cc8ff" href="'+url+'" target="_blank">'+url+'</a>　<a class="dim" href="'+url+'models" target="_blank">模型庫</a>　<a class="dim" href="'+url+'apng/" target="_blank">文字動畫</a>　<a class="dim" href="'+url+'paint/" target="_blank">貼圖繪製</a></div><img src="/api/qr?text='+encodeURIComponent(url)+'" width="140" height="140"></div>'; }).join('') : '<span class="dim">伺服器未啟動</span>';
   $('rooms').innerHTML=(s.rooms||[]).map(r=>'<tr><td>'+esc(r.room)+'</td><td>'+esc(r.host)+'</td><td>'+r.n+'/4</td><td>'+r.level+'</td><td>'+(r.state==='play'?'<span class="st on">任務中</span>':'大廳')+'</td><td>'+(r.spectators||0)+'</td><td><button onclick="spectate(\\''+r.peerId+'\\')">觀戰</button></td></tr>').join('')||'<tr><td colspan="7" class="dim">目前沒有房間</td></tr>';
   const md=s.models||{}; $('models').innerHTML='伺服器預設組：GLB '+(md.glb||0)+' 個・關節設定 '+(md.joints||0)+' 個・玩家上傳的模型組 '+(md.uploads||0)+' 個<div class="dim">在模型庫的「模型組」選單選「伺服器預設組」即可編輯；敵人、AI 機甲、載具、地圖物件與沒上傳模型組的玩家都用這一組。資料夾：<code>'+esc(md.dir||'')+'</code></div>';
+  $('levels').innerHTML=(s.levels||[]).map(l=>'<tr><td>'+esc(l.name)+'</td><td>'+esc(l.author)+'</td><td>'+esc(l.theme)+'</td><td>'+(l.plays||0)+'／'+(l.clears||0)+'</td><td>'+new Date(l.t).toLocaleString()+'</td><td><button class="d" onclick="delLevel(\\''+l.id+'\\')">刪除</button></td></tr>').join('')||'<tr><td colspan="6" class="dim">還沒有人上傳關卡</td></tr>';
   $('peers').textContent='線上連線數：'+(s.peers||0); $('log').textContent=s.logs.join('\\n'); $('log').scrollTop=$('log').scrollHeight; }catch(e){ $('st').textContent='控制台連線中斷'; } }
 function esc(s){ return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+async function delLevel(id){ if(confirm('確定要刪除這個關卡？')){ await api('/api/levels/delete',{id}); refresh(); } }
 function spectate(id){ const host=location.hostname; window.open('http://'+host+(cur.port===80?'':':'+cur.port)+'/?spectate='+id,'_blank'); }
 $('bStart').onclick=async()=>{ $('err').textContent=''; const r=await api('/api/start',{port:+$('port').value}); if(r.error) $('err').textContent=r.error; refresh(); };
 $('bStop').onclick=async()=>{ await api('/api/stop',{}); refresh(); }; $('bRestart').onclick=async()=>{ $('err').textContent=''; const r=await api('/api/restart',{port:+$('port').value}); if(r.error) $('err').textContent=r.error; refresh(); };
@@ -611,6 +726,15 @@ function status() {
     logs: logs.slice(-120),
     version: VERSION,
     models: modelsSummary(),
+    levels: Object.entries(loadLevels()).map(([id, e]) => ({
+      id,
+      name: e.name,
+      author: e.author,
+      theme: e.theme,
+      plays: e.plays || 0,
+      clears: e.clears || 0,
+      t: e.t,
+    })),
   };
 }
 const control = http.createServer((req, resp) => {
@@ -660,6 +784,11 @@ const control = http.createServer((req, resp) => {
           saveCfg();
           await startGame(port);
           return json({ ok: true });
+        }
+        if (u.pathname === '/api/levels/delete') {
+          const ok = typeof b.id === 'string' && LV_ID.test(b.id) && (await queued(() => deleteLevel(b.id)));
+          if (ok) log('控制台刪除自訂關卡 ' + b.id);
+          return json({ ok: !!ok });
         }
         if (u.pathname === '/api/quit') {
           json({ ok: true });

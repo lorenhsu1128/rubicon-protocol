@@ -76,9 +76,11 @@ Object.assign(Game.prototype, {
     const mesh = buildCacheMesh(d.color);
     mesh.position.copy(pos);
     this.scene.add(mesh);
-    const c = { id: ev.i, kind: ev.k, pos, mesh, t: 0, opened: false };
+    const c = { id: ev.i, kind: ev.k, pos, mesh, t: 0, opened: false, lvm: ev.m || null }; // lvm：自訂關卡的標記
     (this.caches || (this.caches = [])).push(c);
-    this.netEv({ t: 'cache', i: ev.i, k: ev.k, p: ev.p });
+    this.netEv(
+      ev.m ? { t: 'cache', i: ev.i, k: ev.k, p: ev.p, m: ev.m } : { t: 'cache', i: ev.i, k: ev.k, p: ev.p },
+    );
     return c;
   },
   cacheRemove(c) {
@@ -126,6 +128,7 @@ Object.assign(Game.prototype, {
   },
   cacheOpen(c, ent) {
     this.cacheRemove(c);
+    if (c.lvm) this.lvEmit('cache', { m: c.lvm }); // 自訂關卡的觸發器
     this.netEv({ t: 'cacheX', i: c.id });
     const d = CACHE_KINDS[c.kind];
     const L = this.camp ? this.campLevel() : this.save.level || 1;

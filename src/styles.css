@@ -2467,3 +2467,483 @@ body.vpad #rangePanel {
 #comm span p {
   margin: 0;
 }
+
+/* ---------- 自訂關卡的選單（game/levels.js） ---------- */
+.lvPanel {
+  width: min(960px, 94vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lvPanel h2 {
+  margin: 0;
+}
+.lvTabs button.on,
+.edBar button.on,
+.edSide button.on,
+.trTop button.on {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.2);
+  color: var(--acc);
+}
+#lvSearch {
+  flex: 1;
+  min-width: 140px;
+}
+#levels input,
+#levels select,
+#editor input,
+#editor select,
+#editor textarea {
+  font: inherit;
+  font-size: 13px;
+  background: #0b0f15;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 5px 7px;
+  min-width: 0;
+}
+.lvList {
+  overflow-y: auto;
+  min-height: 120px;
+  max-height: 56vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lvItem {
+  display: flex;
+  gap: 12px;
+  border: 1px solid var(--line);
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.lvItem.focus {
+  border-color: var(--acc);
+}
+.lvThumb {
+  width: 160px;
+  height: 90px;
+  flex-shrink: 0;
+  background: #070a0e;
+  border: 1px solid var(--line);
+}
+.lvThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.lvBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.lvBody b {
+  font-size: 15px;
+  color: var(--acc);
+}
+.lvBody .row button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.lvClear,
+.lvMine {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid var(--hp);
+  color: var(--hp);
+}
+.lvMine {
+  border-color: var(--acc2);
+  color: var(--acc2);
+}
+.lvDesc {
+  color: #c8d2dc;
+  white-space: pre-wrap;
+}
+.lvModal,
+.edModal {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto;
+  pointer-events: auto;
+  z-index: 60;
+}
+.lvModal[hidden],
+.edModal[hidden] {
+  display: none;
+}
+.lvModal .panel,
+.edModal .panel {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .lvThumb {
+    width: 96px;
+    height: 54px;
+  }
+}
+
+/* 任務中：自訂關卡的目標文字、倒數、資料終端的進度、試玩的除錯（接在 #hudTop 裡，game/level-play.js） */
+#hudTop .lvGoal,
+#hudTop .lvTimer,
+#hudTop .lvProg,
+#hudTop .lvDbg {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+#hudTop .lvGoal {
+  color: #ffe2a0;
+  font-weight: 700;
+}
+#hudTop .lvTimer {
+  color: var(--acc2);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+#hudTop .lvTimer.hot {
+  color: #ff7070;
+}
+#hudTop .lvProg {
+  color: var(--acc2);
+}
+#hudTop .lvDbg {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* ---------- 關卡編輯器（game/editor*.js） ---------- */
+body.editing #gl {
+  touch-action: none;
+}
+#ui .screen.edScreen {
+  pointer-events: none;
+}
+.edScreen > * {
+  pointer-events: auto;
+}
+.edBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  z-index: 5;
+  box-sizing: border-box;
+}
+.edBar button {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+.edSep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 4px;
+}
+.edSide {
+  position: absolute;
+  top: var(--edTop, 48px);
+  bottom: 30px;
+  width: 268px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+#edLeft {
+  left: 0;
+}
+#edRight {
+  right: 0;
+  width: 250px;
+}
+#edRight.empty {
+  bottom: auto;
+}
+.edSide button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.edHead {
+  color: var(--acc);
+  font-weight: 700;
+  font-size: 15px;
+}
+.edHint {
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.edSub {
+  color: var(--acc2);
+  font-size: 12px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.edF {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+}
+.edF > span {
+  flex-shrink: 0;
+  color: #c8d2dc;
+}
+.edF input[type='number'],
+.edF input[type='text'],
+.edF select {
+  width: 120px;
+}
+.edF input[type='range'] {
+  flex: 1;
+}
+.edF.col {
+  flex-direction: column;
+  align-items: stretch;
+}
+.edF.col textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.edGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.edGrid button {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.edList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.edLi {
+  text-align: left;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+.edLi small {
+  color: var(--dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.edDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.edSide button.danger,
+.trCard button.danger {
+  border-color: #8a2a32;
+  color: #ff9a9a;
+}
+.edWarn {
+  margin: 0;
+  padding-left: 18px;
+  color: #ffcf80;
+  font-size: 12px;
+}
+.edWarn li.err {
+  color: #ff8a8a;
+}
+.edStat {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+.edStat .bad {
+  color: #ff8a8a;
+}
+.edStat .ok,
+.edSide .ok {
+  color: var(--hp);
+}
+.edStat .warnT {
+  color: var(--acc);
+}
+.edTouchOnly {
+  display: none;
+}
+body.touchDev .edTouchOnly {
+  display: inline-block;
+}
+body.edHide .edSide {
+  display: none;
+}
+body.touchDev .edSide button,
+body.touchDev .edBar button {
+  min-height: 34px;
+}
+/* 觸發器面板 */
+.edOverlay {
+  position: absolute;
+  top: var(--edTop, 48px);
+  bottom: 30px;
+  left: 276px;
+  right: 258px;
+  background: rgba(10, 14, 20, 0.95);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  z-index: 4;
+}
+.edOverlay[hidden] {
+  display: none;
+}
+body.edHide .edOverlay {
+  left: 0;
+  right: 0;
+}
+.trTop {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.trTop .grow {
+  flex: 1;
+}
+.trBody {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.trCard {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--acc);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.trCard.off {
+  opacity: 0.55;
+  border-left-color: var(--dim);
+}
+.trHead,
+.trItem,
+.trRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.trHead input:not([type='checkbox']) {
+  flex: 1;
+  min-width: 120px;
+}
+.trCard button,
+.trRow button,
+.trTop button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.trTog {
+  width: 30px;
+}
+.trSec {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+.trSec > b {
+  color: var(--acc2);
+  width: 36px;
+}
+.trItem {
+  width: 100%;
+  padding-left: 42px;
+  box-sizing: border-box;
+}
+.trN {
+  color: var(--dim);
+  width: 16px;
+}
+.trP {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.trP > span {
+  color: #c8d2dc;
+  font-size: 12px;
+}
+.trP input.wide {
+  width: 220px;
+}
+.trSum {
+  font-size: 12px;
+  padding-left: 36px;
+}
+@media (max-width: 1100px) {
+  .edSide {
+    width: 230px;
+  }
+  #edRight {
+    width: 220px;
+  }
+  .edOverlay {
+    left: 236px;
+    right: 226px;
+  }
+}
+@media (max-height: 540px) {
+  .edBar button {
+    padding: 3px 7px;
+  }
+}

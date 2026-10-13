@@ -94,6 +94,8 @@ export class Game {
     this.fpInit();
     this.lmInit();
     this.mpModelsInit();
+    this.levelsInit(); // 自訂關卡的選單（levels.js）
+    this.edInit(); // 關卡編輯器（editor.js）
     // 冒煙測試用：網址帶 ?test 時把遊戲實例放在 window.__game（檢查各機甲用的模型組）
     if (/[?&]test\b/.test(location.search)) {
       window.__game = this;
@@ -347,6 +349,9 @@ export class Game {
     const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);
     for (const b of document.querySelectorAll('.campSusp')) b.style.display = susp ? '' : 'none';
     for (const b of document.querySelectorAll('.rangeOnly')) b.style.display = this.range ? '' : 'none';
+    // 自訂關卡的試玩：暫停選單的「放棄任務」＝回編輯器
+    if (id === 'pause' && !this.lab)
+      document.getElementById('btnAbort').textContent = this.lv && this.lv.test ? '回編輯器' : '放棄任務';
   }
   // ---------- loop ----------
   loop() {
@@ -374,6 +379,10 @@ export class Game {
       document.getElementById('fps').textContent = 'FPS:' + Math.round(this.frames / this.fpsT);
       this.frames = 0;
       this.fpsT = 0;
+    }
+    if (this.state === 'editor') {
+      this.edTick(dt); // 關卡編輯器（editor.js）
+      return;
     }
     if (this.state === 'garage') {
       if (this.garageMech) {
@@ -411,6 +420,7 @@ export class Game {
       this.state === 'epilogue' ||
       this.state === 'campfail' ||
       this.state === 'rangemenu' ||
+      this.state === 'levels' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
       if (this.world) {
@@ -454,6 +464,7 @@ export class Game {
       this.clientTick(dt);
       this.updateMapExtras(dt);
       this.updateSupport(dt);
+      if (this.lv) this.lvVisTick(dt);
       if (!this.player) {
         this.renderMain();
         return;
@@ -481,7 +492,10 @@ export class Game {
         this.flashMsg('全員倒下 — 任務失敗', 0xff4d4d, 2.5);
         if (this.camp)
           this.campDead(true); // 主線：回到紀錄點
-        else setTimeout(() => this.endMission(false, false), 2500);
+        else if (this.lv) {
+          this.state = 'play';
+          this.lvEnd(false, '全員倒下');
+        } else setTimeout(() => this.endMission(false, false), 2500);
       }
     }
     this.updateMapExtras(dt);
@@ -511,7 +525,9 @@ export class Game {
     // waves
     const alive = this.enemies.filter((e) => !e.dead && !e.guardOf).length; // 據點的守衛不算
     this.cacheTick(dt);
-    if (!this.isBossLevel && (this.waves.length || this.wavePend)) {
+    if (this.lv) {
+      this.lvTick(dt); // 自訂關卡：觸發器、機能物件、勝敗（game/level-play.js）
+    } else if (!this.isBossLevel && (this.waves.length || this.wavePend)) {
       this.waveTick(dt); // 一般戰鬥：剩下少數時派出下一波（game/waves.js）
     } else if (alive === 0 && this.waves.length) {
       const w = this.waves.shift();

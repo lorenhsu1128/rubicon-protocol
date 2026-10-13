@@ -46,5 +46,11 @@ import './game/outposts.js';
 import './game/feedback.js';
 import './game/juice.js';
 import './game/textfx.js';
+import './game/level-play.js';
+import './game/level-net.js';
+import './game/levels.js';
+import './game/editor.js';
+import './game/editor-ui.js';
+import './game/editor-trig.js';
 
 new Game();

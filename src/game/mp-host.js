@@ -73,6 +73,7 @@ Object.assign(Game.prototype, {
       pm: e.pm || null, // 駕駛員加成：客機的 HUD 上限與自身移動預測需要
       ms: o.ms || null, // 玩家機甲的模型組（伺服器上的內容雜湊）
       guard: o.guardOf || 0, // 據點的守衛
+      edu: this.lvEdu(e), // 自訂關卡的單位與群組（level-play.js）
       p: [e.pos.x, e.pos.y, e.pos.z],
     };
     this.net.spawnReg[e.id] = rec;
@@ -239,6 +240,7 @@ Object.assign(Game.prototype, {
           scaleHp: this.scaleHp,
           scaleDmg: this.scaleDmg,
           waveList: this.waves,
+          lvState: this.lvSnap(), // 自訂關卡的觸發器狀態（有變動時才帶）
         },
         ev: this.netEvents,
       };
@@ -357,6 +359,7 @@ Object.assign(Game.prototype, {
     this.bosses = this.enemies.filter((e) => e.isBoss);
     this.boss = this.bosses[0] || null;
     this.isClient = false;
+    this.lvPromote(); // 自訂關卡：觸發器狀態與單位的群組
     this.vehPlan = [];
     this.flashMsg('你已成為房主', 0xffb020, 2);
   },

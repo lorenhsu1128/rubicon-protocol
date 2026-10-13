@@ -1200,6 +1200,12 @@ export class MechEntity {
     // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
     if (this.team === 'player' && this.slot !== undefined && 'lock' in this)
       this.lockAge(this.lock && !this.lock.dead ? this.lock : null);
+    // 自訂關卡的「守住」：原地轉向、開火，不移動
+    if (this.edHold && !this.remote) {
+      wish = new THREE.Vector3();
+      wantQB = false;
+      wantAB = false;
+    }
     const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1) * this.waterK(); // 指揮官 MT 強化、水中
     this.t += dt;
     // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
@@ -1854,6 +1860,7 @@ export class MechEntity {
     dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
     // 據點的守衛：還沒出動時守在原地（game/outposts.js）
+    if (this.edu && g.lv && g.lvAI(this, dt)) return; // 自訂關卡的單位行為（game/level-play.js）
     if (this.guardOf && g.guardIdle(this)) {
       this.move(dt, new THREE.Vector3(), false, false, false, null);
       return;

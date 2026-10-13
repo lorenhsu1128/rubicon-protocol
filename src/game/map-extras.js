@@ -48,6 +48,7 @@ Object.assign(Game.prototype, {
     if (p.hp <= 0) {
       this.world.destroyProp(p, this.fx);
       this.netEv({ t: 'propDie', i: p.idx });
+      this.lvPropDown(p); // 自訂關卡的觸發器（物件被破壞）
       this.rumbleAt(p.center(), 0.5, 0.3, 160, 30);
     }
   },

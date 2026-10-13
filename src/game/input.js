@@ -857,10 +857,22 @@ Object.assign(Game.prototype, {
     };
     $('btnToTitle').onclick = () => {
       if (this.fromHub) return this.openHub();
+      if (this.fromLevels) {
+        this.fromLevels = false;
+        return this.openLevels();
+      }
       this.state = 'title';
       this.showScreen('title');
     };
     $('btnResultOk').onclick = () => {
+      // 自訂關卡：回關卡選單（多人回大廳）
+      if (this.lvResultBack) {
+        this.lvResultBack = false;
+        const id = this.lvFull && this.lvFull.id;
+        this.clearMission();
+        if (this.net && this.net.role) return this.mpBackToLobby();
+        return this.openLevels(id);
+      }
       // 終章完成：先看結局
       if (this.campEnding) {
         const k = this.campEnding;
@@ -884,6 +896,7 @@ Object.assign(Game.prototype, {
     $('optPost').checked = this.post.enabled;
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
+      if (this.lv) return this.lvAbort(); // 自訂關卡（編輯器的試玩：回編輯器）
       if (this.range) return this.rangeExit();
       if (this.lab) return this.exitLab();
       if (this.camp) return this.campEnd(false, true); // 多人時 campEnd 會通知客機

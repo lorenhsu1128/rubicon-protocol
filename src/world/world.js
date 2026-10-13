@@ -229,11 +229,18 @@ export class World {
     this.forceRail = !!opt.rail; // 武裝列車的關卡：一定有鐵路（主題允許時）
     this.forceRoad = !!opt.road; // 主線的護送區段：一定有公路（主題允許時）
     this.opt = opt;
+    // 自訂關卡（level/format.js）：opt.level＝{ blank 空白底圖, props 產生器物件 all／big／none, h 高度圖, water 水面,
+    // removed 移除的產生器物件 [[x, z]] }；全部在原本的亂數呼叫之外套用，一般地圖與主線不受影響
+    const LV = (this.lvl = opt.level || null);
     // 主題變體（world/variants.js）：覆寫主題欄位、改地形、加結構；沒有變體時完全照原本生成
-    this.variant = variantOf(theme, opt.variant);
+    this.variant = LV && LV.blank ? null : variantOf(theme, opt.variant);
     this.variantKey = this.variant ? opt.variant : '';
     this.theme =
       this.variant && this.variant.theme ? { ...THEMES[theme], ...this.variant.theme } : THEMES[theme];
+    if (LV && LV.water !== null && LV.water !== undefined) {
+      const W0 = this.theme.water || { color: 0x37586a, opacity: 0.85, rough: 0.12 };
+      this.theme = { ...this.theme, water: { ...W0, level: LV.water } };
+    }
     this.tod = opt.tod || ''; // 時間（主線）：'' 或 day／dusk／night／dawn
     this.depth = opt.depth || 0; // 垂直下降的深度（主線）：越深越暗
     this.themeKey = theme;
@@ -298,16 +305,22 @@ export class World {
           };
           this.featureNames.push(cf.kind === 'road' ? '穿越公路' : '穿越鐵路');
         }
+      } else if (LV && LV.blank) {
+        this.features = [];
+        this.featureNames = [];
       } else {
         this.planFeatures();
       }
       this.buildTerrain();
-      this.buildFeatures();
-      this.buildProps();
+      if (!(LV && LV.blank)) this.buildFeatures();
+      const ob0 = this.obstacles.length,
+        me0 = this.meshes.length;
+      if (!(LV && (LV.blank || LV.props === 'none'))) this.buildProps();
       // 以下只在主線（或選了變體）時有：接在原本的亂數呼叫之後，不影響一般地圖
       if (this.variant && this.variant.build) this.variant.build(this);
       if (opt.landmark) this.addLandmark(opt.landmark);
       if (opt.entry) this.addEntry(opt.entry);
+      if (LV) this.levelGenItems(ob0, me0);
     });
     // 邊界外的遠景地形與剪影物件（edges.js，獨立的亂數串，不影響上面的生成）
     withRng(seed * 97 + 41, () => {
@@ -319,7 +332,7 @@ export class World {
     });
     this.buildBoundary();
     // 天氣粒子：只有外觀，各端各自用 Math.random（不影響地圖）
-    const wk = opt.weather || this.theme.weather;
+    const wk = opt.weather === 'none' ? null : opt.weather || this.theme.weather;
     this.weather = wk ? new Weather(scene, wk, this.theme) : null;
   }
   hAt(i, j) {
@@ -344,14 +357,18 @@ export class World {
     const T = this.theme,
       n = this.noise,
       n2 = this.noise2;
-    // 新主題的地形輪廓（canyon／dunes）取代原本的起伏＋台地＋土丘
-    const prof = T.planTerrain
-      ? T.planTerrain(this)
-      : T.terrain === 'canyon'
-        ? this.planCanyon()
-        : T.terrain === 'dunes'
-          ? this.planDunes()
-          : null;
+    // 新主題的地形輪廓（canyon／dunes）取代原本的起伏＋台地＋土丘；自訂關卡的空白底圖是平地（有水面時高出水面）
+    const blankH = T.water ? Math.max(0, T.water.level + 1.2) : 0;
+    const prof =
+      this.lvl && this.lvl.blank
+        ? () => blankH
+        : T.planTerrain
+          ? T.planTerrain(this)
+          : T.terrain === 'canyon'
+            ? this.planCanyon()
+            : T.terrain === 'dunes'
+              ? this.planDunes()
+              : null;
     const plateaus = [];
     const cliffPts = [];
     if (!prof) {
@@ -373,7 +390,7 @@ export class World {
           h: rnd(6, 10),
         });
     }
-    const lake = T.iceLake ? this.planIceLake() : null;
+    const lake = T.iceLake && !(this.lvl && this.lvl.blank) ? this.planIceLake() : null;
     // 基本輪廓（地圖外的遠景地形也用它往外延伸，farHeight）
     this.baseH = (x, z) =>
       prof ? prof(x, z) : T.flat ? 0 : n(x * 0.03, z * 0.03) * 1.2 + n2(x * 0.1, z * 0.1) * 0.3;
@@ -415,7 +432,32 @@ export class World {
           8;
       }
     this.h = s;
-    // geometry
+    // 自訂關卡：整張高度圖（存的是平滑後的最終值）
+    const LH = this.lvl && this.lvl.h;
+    if (LH && LH.length === this.h.length) this.h = Float32Array.from(LH);
+    this.buildTerrainMesh();
+    if (T.water) this.addWater(T.water);
+    if (T.roof) this.addRoof(T.roof);
+    if (lake) {
+      const ice = buildIceSheet(lake.rx, lake.rz, lake.rng);
+      ice.position.set(lake.x, lake.level + 0.05, lake.z);
+      ice.rotation.y = lake.rot;
+      ice.userData.noFade = true;
+      this.scene.add(ice);
+      this.meshes.push(ice);
+    }
+    if (T.grid) {
+      const gh = new THREE.GridHelper(this.size * 3, (this.size * 3) / 2.5, 0x6b7280, 0x8b93a0);
+      gh.position.y = 0.04;
+      gh.material.transparent = true;
+      gh.material.opacity = 0.35;
+      this.scene.add(gh);
+      this.meshes.push(gh);
+    }
+  }
+  // 地形網格（關卡編輯器的筆刷改了高度後重建：keepMesh 時沿用同一個網格，只換幾何）
+  buildTerrainMesh(keepMesh) {
+    const T = this.theme;
     const geo = new THREE.PlaneGeometry(this.size, this.size, this.cells, this.cells);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
@@ -439,7 +481,7 @@ export class World {
       const steep = clamp((0.93 - ny) * 6, 0, 1);
       tmp.copy(cg).lerp(cs, steep);
       if (y > 9) tmp.lerp(cr, clamp((y - 9) / 6, 0, 0.7));
-      tmp.offsetHSL(0, 0, rnd(-0.02, 0.02));
+      tmp.offsetHSL(0, 0, keepMesh ? ((f * 0.618) % 1) * 0.04 - 0.02 : rnd(-0.02, 0.02));
       for (let q = 0; q < 3; q++) {
         col[(f + q) * 3] = tmp.r;
         col[(f + q) * 3 + 1] = tmp.g;
@@ -447,6 +489,11 @@ export class World {
       }
     }
     ng.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    if (keepMesh && this.terrainMesh) {
+      this.terrainMesh.geometry.dispose();
+      this.terrainMesh.geometry = ng;
+      return;
+    }
     const m = new THREE.Mesh(
       ng,
       new THREE.MeshStandardMaterial({
@@ -461,24 +508,6 @@ export class World {
     this.scene.add(m);
     this.meshes.push(m);
     this.terrainMesh = m;
-    if (T.water) this.addWater(T.water);
-    if (T.roof) this.addRoof(T.roof);
-    if (lake) {
-      const ice = buildIceSheet(lake.rx, lake.rz, lake.rng);
-      ice.position.set(lake.x, lake.level + 0.05, lake.z);
-      ice.rotation.y = lake.rot;
-      ice.userData.noFade = true;
-      this.scene.add(ice);
-      this.meshes.push(ice);
-    }
-    if (T.grid) {
-      const gh = new THREE.GridHelper(this.size * 3, (this.size * 3) / 2.5, 0x6b7280, 0x8b93a0);
-      gh.position.y = 0.04;
-      gh.material.transparent = true;
-      gh.material.opacity = 0.35;
-      this.scene.add(gh);
-      this.meshes.push(gh);
-    }
   }
   // 峽谷台地（荒野）：低緩的谷底＋數座陡峭的平頂台地與孤峰（邊緣以雜訊打亂）
   planCanyon() {
@@ -1036,7 +1065,16 @@ export class World {
   setZone(shape = 'full', axis = 0) {
     const L = this.lim;
     let z = [-L, L, -L, L];
-    if (shape === 'long') {
+    if (shape && typeof shape === 'object') {
+      // 自訂關卡畫的矩形（限制在場地內）
+      z = [
+        clamp(shape.x0, -L, L - 20),
+        clamp(shape.x1, -L + 20, L),
+        clamp(shape.z0, -L, L - 20),
+        clamp(shape.z1, -L + 20, L),
+      ];
+      shape = 'rect';
+    } else if (shape === 'long') {
       const n = L * 0.42;
       z = axis ? [-L, L, -n, n] : [-n, n, -L, L];
     } else if (shape === 'arena') {
@@ -1075,6 +1113,62 @@ export class World {
   zoneExcess(x, z) {
     const Z = this.zone;
     return Math.max(0, Z[0] - x, x - Z[1], Z[2] - z, z - Z[3]);
+  }
+  // 自訂關卡：產生器放的物件（buildProps 之後的障礙物，依群組）＝可以在編輯器裡移除的項目；
+  // props 'big' 時拿掉小型的，removed 的位置（[x, z]，比對群組位置 1.5 m 內）拿掉
+  levelGenItems(ob0, me0) {
+    const byG = new Map();
+    for (const ob of this.obstacles.slice(ob0)) {
+      if (!ob.group) continue;
+      if (!byG.has(ob.group)) byG.set(ob.group, []);
+      byG.get(ob.group).push(ob);
+    }
+    this.genItems = [];
+    for (const [g, obs] of byG) {
+      const b = new THREE.Box3().setFromObject(g);
+      const sz = b.getSize(new THREE.Vector3());
+      const c = b.getCenter(new THREE.Vector3());
+      this.genItems.push({
+        g,
+        obs,
+        x: g.position.x,
+        z: g.position.z,
+        c,
+        small: Math.max(sz.x, sz.z) < 7 && sz.y < 7,
+      });
+    }
+    // 沒有障礙物的裝飾也列進來（純外觀，不碰撞）
+    for (const m of this.meshes.slice(me0))
+      if (!byG.has(m) && !m.userData.noFade && m !== this.terrainMesh && m.position)
+        this.genItems.push({ g: m, obs: [], x: m.position.x, z: m.position.z, small: true, decor: true });
+    const L = this.lvl;
+    for (const it of this.genItems.slice()) {
+      if (
+        (L.props === 'big' && it.small) ||
+        (L.removed || []).some((r) => Math.hypot(r[0] - it.x, r[1] - it.z) < 1.5)
+      )
+        this.removeGenItem(it);
+    }
+  }
+  removeGenItem(it) {
+    it.g.visible = false;
+    it.removed = true;
+    for (const ob of it.obs) {
+      const i = this.obstacles.indexOf(ob);
+      if (i >= 0) this.obstacles.splice(i, 1);
+      const j = this.occluders.indexOf(ob);
+      if (j >= 0) this.occluders.splice(j, 1);
+      if (ob.prop) ob.prop.dead = true;
+    }
+  }
+  restoreGenItem(it) {
+    it.g.visible = true;
+    it.removed = false;
+    for (const ob of it.obs) {
+      if (!this.obstacles.includes(ob)) this.obstacles.push(ob);
+      if (ob.mats && ob.mats.length && !this.occluders.includes(ob)) this.occluders.push(ob);
+      if (ob.prop) ob.prop.dead = false;
+    }
   }
   // 變體不能放東西的地方（坑道網的岩壁…）
   offLimits(x, z) {
@@ -2203,6 +2297,18 @@ export class World {
     }
     const sp = this.safePoint();
     return { x: sp.x, z: sp.z };
+  }
+  // 換天候（自訂關卡的觸發器；只有外觀）
+  setWeather(wk) {
+    if (this.weather) this.weather.dispose();
+    this.weather = wk && wk !== 'none' ? new Weather(this.scene, wk, this.theme) : null;
+  }
+  // 水面高度（關卡編輯器）：沒有水面時建立
+  setWaterLevel(y) {
+    const W0 = this.theme.water || { color: 0x37586a, opacity: 0.85, rough: 0.12 };
+    this.theme = { ...this.theme, water: { ...W0, level: y } };
+    if (this.waterMesh) this.waterMesh.position.y = y;
+    else this.addWater(this.theme.water);
   }
   dispose() {
     if (this.weather) this.weather.dispose();

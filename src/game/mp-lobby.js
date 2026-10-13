@@ -250,7 +250,7 @@ Object.assign(Game.prototype, {
           S.mode === 'pvp' && S.type === 'team'
             ? `<span style="color:${PVP_TEAM_COLORS[p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam]};font-weight:700">［${(p.pvpTeam === undefined ? p.slot % 2 : p.pvpTeam) === 0 ? '藍隊' : '紅隊'}］</span> `
             : '';
-        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${escHtml(p.nick)}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${this.mpModelTag(p)}${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
+        return `<div class="lslot ${S.mode === 'pvp' && S.type === 'team' && (s === n.me || n.role === 'host') ? 'teamtoggle' : ''}" data-s="${s}" style="border-color:${n.slotColor(p.color)}"><b style="color:${n.slotColor(p.color)}">${teamTag}${escHtml(p.nick)}${isHost ? ' ★房主' : ''}${!p.online ? ' （離線）' : ''}${ord === 1 ? ' ・候補房主' : ''}</b><span>${n.pilotLv(p) ? 'Lv ' + n.pilotLv(p) + ' · ' : ''}AP ${st.ap} · ${st.parts.rarm.name.split(' ')[0]} / ${st.parts.larm.name.split(' ')[0]}</span><span class="${p.ready ? 'ok' : 'dim'}">${p.ready ? '✔ 已準備' : '未準備'}${p.lat ? ' · ' + p.lat + 'ms' : ''}</span>${this.mpModelTag(p)}${this.lvSlotTag(p)}${n.role === 'host' && s !== n.me ? `<button class="kick" data-s="${s}">踢出</button>` : ''}</div>`;
       })
       .join('');
     for (const b of $('lobbySlots').querySelectorAll('.kick')) b.onclick = () => n.kick(+b.dataset.s);
@@ -284,12 +284,20 @@ Object.assign(Game.prototype, {
         : [];
       if (host && story && !sorties.includes(S.sid)) S.sid = sorties[0] || 'c1s1';
       const modeName =
-        { pve: 'PVE 合作', pvp: 'PVP 對戰', story: '主線合作（房主的進度）' }[S.mode] || 'PVE 合作';
+        { pve: 'PVE 合作', pvp: 'PVP 對戰', story: '主線合作（房主的進度）', level: '自訂關卡' }[S.mode] ||
+        'PVE 合作';
+      const custom = S.mode === 'level';
+      if (host && custom && this.lvLobbyRoom !== n.roomName) {
+        this.lvLobbyRoom = n.roomName;
+        this.lvLobbyRefresh();
+      }
       $('lobbyMode').innerHTML =
-        (story
-          ? `<div class="krow"><span>委託</span><span>${host ? `<select id="pvSid">${sorties.map((sid) => `<option value="${sid}">${escHtml(SORTIES[sid].name)}</option>`).join('')}</select>` : escHtml((SORTIES[S.sid] || {}).name || '')}</span></div>`
-          : `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>`) +
-        `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option><option value="story">主線合作（房主的進度）</option></select>` : modeName}</span></div>` +
+        (custom
+          ? this.lvLobbyHtml(host)
+          : story
+            ? `<div class="krow"><span>委託</span><span>${host ? `<select id="pvSid">${sorties.map((sid) => `<option value="${sid}">${escHtml(SORTIES[sid].name)}</option>`).join('')}</select>` : escHtml((SORTIES[S.sid] || {}).name || '')}</span></div>`
+            : `<div class="krow"><span>地圖</span><span>${host ? `<select id="pvMap">${this.mapOptionsHtml()}</select>` : escHtml(this.mapName(S.map))}</span></div>`) +
+        `<div class="krow"><span>房間模式</span><span>${host ? `<select id="pvMode"><option value="pve">PVE 合作</option><option value="pvp">PVP 對戰</option><option value="story">主線合作（房主的進度）</option><option value="level">自訂關卡</option></select>` : modeName}</span></div>` +
         (story
           ? '<div class="dim" style="font-size:11px">主線合作：進度記在房主的存檔；每個人的經驗、資金、戰術模組各自取得。轉場時可以各自進機甲庫整備，最多等 90 秒。</div>'
           : '') +
@@ -322,6 +330,7 @@ Object.assign(Game.prototype, {
         bind('pvRule', 'rule');
         bind('pvDiff', 'diff');
         bind('pvFill', 'fill');
+        this.lvLobbyBind();
       }
     }
     const me = n.meP();
@@ -342,6 +351,7 @@ Object.assign(Game.prototype, {
       let ok = n.allReady() && cnt >= 1;
       if (S.mode === 'pvp' && (S.type === 'ffa' || S.type === 'team') && cnt < 2 && S.fill !== 'yes')
         ok = false;
+      if (S.mode === 'level' && !(S.lv && S.lv.h)) ok = false;
       $('btnLobbySortie').disabled = !ok;
       $('btnLobbySortie').title =
         !ok && cnt < 2 && S.mode === 'pvp' ? '人數不足：等待玩家加入，或選「電腦 AC 補位」' : '';
@@ -349,6 +359,10 @@ Object.assign(Game.prototype, {
     $('lobbySave').textContent = `我的機體與駕駛員：存檔 ${this.saveSlot}`;
     if ((n.pvpSet || {}).mode === 'story') {
       $('lobbyLevel').textContent = '主線：' + ((SORTIES[n.pvpSet.sid] || {}).name || '');
+      return;
+    }
+    if ((n.pvpSet || {}).mode === 'level') {
+      $('lobbyLevel').textContent = '自訂關卡：' + ((n.pvpSet.lv || {}).name || '（未選）');
       return;
     }
     $('lobbyLevel').textContent =

@@ -31,7 +31,15 @@ Object.assign(Game.prototype, {
     this.worldSeed = d.seed;
     this.worldTheme = d.theme;
     this.styleRefresh();
-    this.world = new World(this.scene, d.theme, d.seed, d.level, d.feat, d.wopt || { variant: d.variant });
+    this.world = new World(
+      this.scene,
+      d.theme,
+      d.seed,
+      d.level,
+      d.feat,
+      this.lvClientWopt(d) || d.wopt || { variant: d.variant },
+    );
+    this.lvClientStart(d); // 自訂關卡：擺放的物件、光環（level-play.js）
     // 主線（campaign-mp.js）：區段資訊由房主帶來
     if (d.camp) {
       this.campC = this.campC || {};
@@ -55,7 +63,9 @@ Object.assign(Game.prototype, {
     this.isBossLevel = d.camp ? !!d.camp.boss : !d.pvp && isBossLevel(d.level);
     this.levelName = d.camp
       ? d.camp.name
-      : T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
+      : d.lvName
+        ? d.lvName
+        : T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
     this.bossDef = { name: d.bossName || '' };
     this.mpStats = {};
     this.net.spawnReg = {};
@@ -130,6 +140,7 @@ Object.assign(Game.prototype, {
     e.slot = r.slot;
     e.pvpAi = !!r.pvpAi;
     if (r.guard) e.guardOf = r.guard;
+    if (r.edu) e.edu = { ...r.edu };
     if (r.pvpTeam !== undefined && r.pvpTeam !== null) e.pvpTeam = r.pvpTeam;
     e.kills = 0;
     e.deaths = 0;
@@ -235,11 +246,13 @@ Object.assign(Game.prototype, {
     this.clientWaves = m.waves;
     this.clientBoss = m.boss;
     if (m.camp && this.campC) this.campClientView(m.camp);
+    if (m.lvState) this.lvClientState(m.lvState);
     for (const ev of s.ev) this.clientEvent(ev);
   },
   clientEvent(e) {
     if (this.clientMapEvent(e)) return;
     if (this.clientCacheEvent(e)) return;
+    if (this.lvClientEvent(e)) return;
     if (this.campClientEvent(e)) return;
     if (this.supportEvent(e)) return;
     switch (e.t) {
@@ -596,6 +609,7 @@ Object.assign(Game.prototype, {
     };
   },
   clientEnd(d) {
+    if (d.lv) return this.lvClientEnd(d); // 自訂關卡：沒有經驗與獎勵
     this.campC = null;
     this.campCk = null;
     this.state = 'result';

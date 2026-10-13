@@ -251,6 +251,11 @@ export class Net {
   }
   sendMissionState(pid, rejoin) {
     const g = this.g;
+    if (g.lv) {
+      // 自訂關卡：先送關卡資料（對方沒有時會用雜湊再要），再送開局訊息
+      g.lvSendChunks(pid, g.lvHash);
+      return this.tr.send(pid, g.lvStartMsg(pid));
+    }
     this.tr.send(pid, {
       t: 'start',
       pace: g.ctrl.pace || 1,
@@ -352,6 +357,7 @@ export class Net {
       plv: this.pilotLv(p),
       ms: p.ms || null, // 玩家上傳到伺服器的模型組（內容雜湊），沒有時用伺服器預設組
       msn: p.msn || '',
+      lvh: p.lvh || null, // 自訂關卡：已經收到的關卡（雜湊）
     }));
     const m = {
       t: 'lobby',
@@ -413,6 +419,7 @@ export class Net {
     }
     const p = this.playerByPeer(pid);
     if (!p) return;
+    if (this.g.lvHostMsg(p, d)) return; // 自訂關卡的資料傳送（level-net.js）
     switch (d.t) {
       case 'ready':
         p.ready = !!d.v;
@@ -593,6 +600,7 @@ export class Net {
     this.lastHostMsg = performance.now();
     const g = this.g;
     if (g.campClientMsg(d)) return; // 主線的轉場、紀錄點、失敗、三選一（campaign-mp.js）
+    if (g.lvClientMsg(d)) return; // 自訂關卡的資料（level-net.js）
     switch (d.t) {
       case 'wait':
         this.log('等待房主同意…');

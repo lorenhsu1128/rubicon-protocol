@@ -267,9 +267,11 @@ Object.assign(Game.prototype, {
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML = this.camp
       ? this.campHudTop(alive, wavesLeft)
-      : this.campC && this.campC.view
-        ? this.campHudHtml(this.campC.view)
-        : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">${this.extract > 0 ? `撤離倒數 ${Math.ceil(this.extract)} 秒（回收補給箱）` : `殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''}`} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
+      : this.lv
+        ? `<b>${this.lv.test ? '試玩' : '自訂關卡'}</b> ｜ ${escHtml(this.levelName)}<div id="objective">殘存敵軍 ${alive} ｜ ${this.missionT.toFixed(0)}s</div>${this.lv.hudHtml || ''}`
+        : this.campC && this.campC.view
+          ? this.campHudHtml(this.campC.view)
+          : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">${this.extract > 0 ? `撤離倒數 ${Math.ceil(this.extract)} 秒（回收補給箱）` : `殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''}`} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
     if ((this.frames & 15) === 0) {
       const ht = document.getElementById('hudTop'),
         hb = document.getElementById('hudBottom');

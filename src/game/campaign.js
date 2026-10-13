@@ -1060,18 +1060,25 @@ Object.assign(Game.prototype, {
     const mp = !!(this.net && this.net.role);
     const inG = !!((this.camp && this.camp.inGarage) || (this.campC && this.campC.inGarage));
     const hub = !!(!mp && !inG && this.fromHub); // classList.toggle 的第二個參數是 undefined 時會變成切換
-    const mode = mp ? 'mp' : inG ? 'trans' : hub ? 'hub' : 'free';
+    const lvg = !!(!mp && !inG && !hub && this.fromLevels); // 從自訂關卡選單來的整備
+    const mode = mp ? 'mp' : inG ? 'trans' : hub ? 'hub' : lvg ? 'lv' : 'free';
     const ctx = $('gCtx');
     if (ctx) {
-      ctx.textContent = { mp: '多人', trans: '主線・轉場整備', hub: '主線整備', free: '自由出擊' }[mode];
+      ctx.textContent = {
+        mp: '多人',
+        trans: '主線・轉場整備',
+        hub: '主線整備',
+        lv: '自訂關卡整備',
+        free: '自由出擊',
+      }[mode];
       ctx.className = 'gCtx ' + mode;
     }
     $('btnCamp').style.display = mode === 'free' ? '' : 'none';
-    $('btnToTitle').textContent = hub ? '返回作戰室' : '回標題';
-    $('btnToTitle').classList.toggle('primary', hub);
-    if (inG || hub) $('btnSortie').style.display = 'none';
+    $('btnToTitle').textContent = hub ? '返回作戰室' : lvg ? '返回關卡選單' : '回標題';
+    $('btnToTitle').classList.toggle('primary', hub || lvg);
+    if (inG || hub || lvg) $('btnSortie').style.display = 'none';
     if (inG) $('btnToTitle').style.display = 'none';
-    $('gMap').style.display = inG || hub ? 'none' : ''; // 主線的地圖由出擊決定
+    $('gMap').style.display = inG || hub || lvg ? 'none' : ''; // 主線的地圖由出擊決定
     if (hub) {
       $('mcTitle').textContent = '主線整備';
       $('mcDesc').textContent = '在這裡組裝與換裝。完成後按「返回作戰室」，從戰區總覽圖選委託出擊。';

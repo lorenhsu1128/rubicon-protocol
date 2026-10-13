@@ -29,6 +29,9 @@ export const SPEAKERS = {
   veerwell: { name: '維爾威 調度員', color: '#9be070', mark: 'V', faction: 'veerwell' },
   sancta: { name: '聖域 協調人', color: '#e0d070', mark: 'S', faction: 'sancta' },
   enemy: { name: '敵方通訊', color: '#ff6b6b', mark: '!' },
+  cmd: { name: '指揮官', color: '#ffb020', mark: 'H' }, // 自訂關卡的說話者
+  ally: { name: '友軍', color: '#7ee081', mark: 'A' },
+  custom: { name: '通訊', color: '#d8e2ec', mark: '?' },
   rust: { name: 'RUST', color: '#c07040', mark: 'R', note: '拾荒傭兵（第 1 章的宿敵）' },
   sirocco: { name: 'SIROCCO', color: '#e8d4b0', mark: 'S', note: '沙暴裡的快刀（第 1 章的宿敵）' },
   zenith: { name: 'ZENITH', color: '#ffd060', mark: 'Z', note: '軌道的空戰專家（第 6 章的宿敵）' },

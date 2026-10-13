@@ -287,6 +287,8 @@ Object.assign(Game.prototype, {
     // 多人主線：房主的進度（campaign-mp.js）
     if (mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'story')
       return this.campBeginMp(this.net.pvpSet.sid);
+    // 多人自訂關卡（level-net.js）
+    if (mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'level') return this.lvBeginMp();
     const boss = isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
     const bd0 = boss ? bossForLevel(L) : null;
     this.clearMission();
@@ -558,7 +560,7 @@ Object.assign(Game.prototype, {
   },
   spawnType(t, scaleHp, scaleDmg, at, count) {
     const d = ENEMY_TYPES[t] || FOES[t];
-    if (FOES[t] && this.simMark && !this.sim) this.simMark('foes', t); // 遇過的專屬敵人（模擬器、自由出擊）
+    if (FOES[t] && this.simMark && !this.sim && !this.lv) this.simMark('foes', t); // 遇過的專屬敵人（模擬器、自由出擊）
     // 新類型第一次出現：提示打法
     if (d.intro && !d.roster) {
       if (!this.introSeen) this.introSeen = new Set();
@@ -700,6 +702,15 @@ Object.assign(Game.prototype, {
       return this.rangeKilled(e);
     }
     this.foeScavenge(e);
+    // 自訂關卡：沒有擊破獎金、不寫存檔（擊破音、連殺、彈藥箱照常）
+    if (this.lv) {
+      if (!this.isClient) this.dropAmmo(e);
+      this.fbKill(e, from);
+      if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
+        this.mpStats[from.slot].kills++;
+      if (e.isBoss && (!this.bosses || this.bosses.every((b) => b.dead))) this.waves = [];
+      return;
+    }
     // 主線的戰術模組「回收迴路」：擊破時回復 AP
     if (from && from.pmv && !from.dead && from.pmv('killHeal') > 0)
       from.hp = Math.min(from.maxHp, from.hp + from.maxHp * from.pmv('killHeal'));
@@ -760,12 +771,17 @@ Object.assign(Game.prototype, {
       if (this.campMp()) return; // 多人：全員倒下才算失敗（game.js 的主迴圈）
       return this.campDead(); // 主線：回機庫，從紀錄點重來
     }
+    if (this.lv) {
+      if (this.net && this.net.role) return; // 多人：全員倒下才算失敗
+      return this.lvEnd(false, 'AC 已被擊破');
+    }
     this.flashMsg('AC 已被擊破', 0xff4d4d, 3);
     setTimeout(() => {
       if (this.state === 'play') this.endMission(false, false);
     }, 2600);
   },
   clearMission() {
+    this.lvClear(); // 自訂關卡的光環與區域圈（level-play.js）
     this.rangeRing.visible = false;
     this.campClearExits();
     this.campClearClientVis();
@@ -811,6 +827,7 @@ Object.assign(Game.prototype, {
     this.introSeen = null;
     this.fx.clear();
     this.popups = [];
+    this.killStreak = null; // 連殺計數不帶到下一場
   },
   endMission(success, aborted) {
     const S = this.save,

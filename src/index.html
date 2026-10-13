@@ -150,6 +150,12 @@
             </button>
             <button id="btnSaves" title="三個存檔槽：繼續、新的傭兵生涯、匯出／匯入、刪除">選擇存檔</button>
             <button id="btnMP">多人連線（區網 2–4 人）</button>
+            <button
+              id="btnLevels"
+              title="玩別人做的關卡，或用關卡編輯器自己做（地形、物件、敵人、巡邏、觸發器）"
+            >
+              自訂關卡
+            </button>
             <button id="btnSettings">按鍵與操作設定</button>
             <button id="btnFullscreen" title="切換全螢幕（平板請用這個按鈕離開；鍵盤長按 Esc 也可離開）">
               全螢幕
@@ -709,6 +715,85 @@
         </div>
       </div>
       <!-- Pause -->
+      <!-- 自訂關卡的選單（game/levels.js） -->
+      <div id="levels" class="screen center">
+        <div class="panel lvPanel">
+          <h2>自訂關卡</h2>
+          <div class="row lvTabs">
+            <button data-lt="mine">我的關卡</button
+            ><button data-lt="server" id="lvTabServer">伺服器上的關卡</button
+            ><button data-lt="sample">範例</button>
+          </div>
+          <div class="row">
+            <button class="primary" id="btnLvNew">新建關卡</button><button id="btnLvImport">匯入檔案…</button
+            ><input type="file" id="lvFile" accept=".rubicon-level,.json,application/json" hidden /><input
+              id="lvSearch"
+              placeholder="搜尋名稱、作者"
+            /><select id="lvSort" title="伺服器上的關卡的排序">
+              <option value="new">最新</option>
+              <option value="plays">最多人玩</option>
+              <option value="rate">通關率最低（最難）</option>
+            </select>
+          </div>
+          <div id="lvList" class="lvList"></div>
+          <div id="lvMsg" class="dim"></div>
+          <div class="row">
+            <button id="btnLvGarage" title="遊玩時用機甲庫目前的組裝">機甲庫（整備）</button
+            ><button id="btnLvBack">回標題</button>
+          </div>
+          <p class="dim" style="font-size: 11px">
+            自訂關卡沒有
+            COAM、經驗與熟練度，只記通關紀錄。上傳到伺服器前要先在編輯器從頭試玩並通關一次；只有作者本人可以覆寫或刪除。
+          </p>
+        </div>
+        <div id="lvNew" class="lvModal" hidden>
+          <div class="panel">
+            <h2>新建關卡</h2>
+            <label class="edF"
+              ><span>名稱</span><input id="lvnName" maxlength="40" placeholder="新關卡"
+            /></label>
+            <label class="edF"
+              ><span>主題</span
+              ><select id="lvnTheme"></select
+            ></label>
+            <label class="edF"
+              ><span>底圖</span
+              ><select id="lvnBase">
+                <option value="blank">空白（平地，從零開始蓋）</option>
+                <option value="gen">產生器（主題的地形、地形特徵與物件）</option>
+              </select></label
+            >
+            <div id="lvnGenRow">
+              <label class="edF"
+                ><span>變體</span
+                ><select id="lvnVariant"></select
+              ></label>
+              <label class="edF"
+                ><span>種子</span><input type="number" id="lvnSeed" /><button id="btnLvnSeed">
+                  換一張
+                </button></label
+              >
+              <label class="edF"
+                ><span>產生器物件</span
+                ><select id="lvnProps">
+                  <option value="all">全部保留</option>
+                  <option value="big">只留大型結構</option>
+                  <option value="none">不留</option>
+                </select></label
+              >
+            </div>
+            <label class="edF"><span>關卡等級</span><input type="number" id="lvnLevel" step="1" /></label>
+            <div class="row">
+              <button class="primary" id="btnLvNewGo">建立並開始編輯</button
+              ><button id="btnLvNewCancel">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 關卡編輯器（game/editor.js、editor-ui.js、editor-trig.js 產生內容） -->
+      <div id="editor" class="screen edScreen"></div>
+
       <div id="pause" class="screen center">
         <div class="panel">
           <h2>暫停</h2>

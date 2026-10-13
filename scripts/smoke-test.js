@@ -27,6 +27,11 @@ const BROWSERS = [
 ];
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// SMOKE_ONLY=testLevels,testMpLevels（逗號分隔）：只跑這幾項（開發時用；server＝區網伺服器的部分）
+const ONLY = process.env.SMOKE_ONLY ? process.env.SMOKE_ONLY.split(',') : null;
+const run = async (name, fn, ...a) => {
+  if (!ONLY || ONLY.includes(name)) await fn(...a);
+};
 const failures = [];
 const errors = [];
 function check(ok, label) {
@@ -9704,6 +9709,851 @@ async function testMultiplayer(browser, url, tag, migrate) {
   await ctx.close();
 }
 
+// 自訂關卡與關卡編輯器（game/levels.js、editor*.js、level-play.js）：選單、新建、擺放（物件／坡道／疊放）、
+// 地形筆刷、復原重做、單位與巡邏、標記、區域、路徑、觸發器、存讀、試玩與通關紀錄、觸發器執行、多段、沒有獎勵
+async function testLevels(browser, base) {
+  console.log('自訂關卡：選單、編輯器（擺放、地形、復原、單位、觸發器）、存讀、試玩、觸發器、多段、獎勵');
+  const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const page = await ctx.newPage();
+  watch(page, 'levels');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.click('#btnLevels');
+  check(await waitVisible(page, 'levels'), '標題「自訂關卡」開啟關卡選單');
+  // 新建：空白底圖
+  await page.click('#btnLvNew');
+  await page.selectOption('#lvnBase', 'blank');
+  await page.selectOption('#lvnTheme', 'industrial');
+  await page.fill('#lvnName', '測試關卡');
+  await page.fill('#lvnLevel', '3');
+  await page.click('#btnLvNewGo');
+  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  const e0 = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      n: g.ed.L.terrain.n,
+      name: g.ed.L.name,
+      lv: g.ed.L.base.level,
+      spawn: g.ed.L.marks.filter((m) => m.k === 'spawn').length,
+    };
+  });
+  check(
+    e0.n > 1000 && e0.name === '測試關卡' && e0.lv === 3 && e0.spawn === 1,
+    `新建關卡：高度圖 ${e0.n} 點、名稱與等級、預設一個出生點`,
+  );
+  // 滑鼠：物件工具選方塊，點畫面中央放置
+  await page.click('[data-tool="prop"]');
+  await page.click('[data-pp="ed/block"]');
+  await page.mouse.click(800, 520);
+  await wait(300);
+  const p1 = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world;
+    const r = w.lvProps[0];
+    return {
+      n: g.ed.L.props.length,
+      ob: r && r.obs.length,
+      top: r && r.obs[0] && +r.obs[0].top.toFixed(1),
+      sel: g.ed.sel && g.ed.sel.t,
+    };
+  });
+  check(
+    p1.n === 1 && p1.ob === 1 && p1.top === 4 && p1.sel === 'prop',
+    `滑鼠點地面放方塊：碰撞頂面 ${p1.top} m、自動選取`,
+  );
+  // 程式：坡道、疊在方塊上的貨櫃、復原／重做
+  const p2 = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      ed = g.ed;
+    const b = ed.L.props[0];
+    ed.place = 'ed/ramp';
+    g.edPlaceProp({ x: b.x + 11, y: 0, z: b.z, terrain: true });
+    ed.place = 'prop/container';
+    g.edPlaceProp({ x: b.x, y: 4, z: b.z, terrain: false });
+    const ramp = (w.ramps || []).find((r) => r.lvl);
+    const box = w.lvProps[2];
+    const out = {
+      n: ed.L.props.length,
+      ramp: !!ramp && +ramp.y1.toFixed(1),
+      stack: box && +box.obs[0].y.toFixed(1),
+      ground: +w.groundAt(b.x, b.z, 10).toFixed(1),
+    };
+    g.edUndo(false);
+    out.undo = ed.L.props.length + '/' + w.lvProps.length;
+    g.edUndo(true);
+    out.redo = ed.L.props.length + '/' + w.lvProps.length;
+    return out;
+  });
+  check(
+    p2.ramp === 5 && p2.stack === 4 && p2.n === 3,
+    `坡道（高 ${p2.ramp} m）、貨櫃疊在方塊頂面（底 ${p2.stack} m）`,
+  );
+  check(p2.undo === '2/2' && p2.redo === '3/3', `復原／重做（${p2.undo} → ${p2.redo}）`);
+  // 地形筆刷：抬高 → 高度變了、寫回關卡；復原
+  const t1 = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      ed = g.ed;
+    const h0 = w.terrainHeight(-40, -40);
+    const s0 = ed.L.terrain.h;
+    ed.tool = 'terrain';
+    ed.brush = { k: 'raise', r: 10, s: 2 };
+    g.edStrokeStart({ x: -40, y: h0, z: -40 });
+    for (let i = 0; i < 30; i++) g.edBrushStep(0.05);
+    g.edStrokeEnd();
+    const h1 = w.terrainHeight(-40, -40);
+    const changed = ed.L.terrain.h !== s0;
+    g.edUndo(false);
+    const h2 = w.terrainHeight(-40, -40);
+    g.edUndo(true);
+    return { h0, h1, h2, changed };
+  });
+  check(
+    t1.h1 > t1.h0 + 3 && t1.changed && Math.abs(t1.h2 - t1.h0) < 0.05,
+    `地形筆刷抬高 ${(t1.h1 - t1.h0).toFixed(1)} m、寫回關卡、復原`,
+  );
+  // 單位、標記、路徑、區域、群組、觸發器（程式建立）＋屬性面板
+  await page.evaluate(() => {
+    const g = window.__game,
+      ed = g.ed,
+      L = ed.L;
+    g.edNewGroup(); // g2：增援
+    L.groups[1].name = '增援';
+    ed.grp = 'g1';
+    ed.unitKind = 'enemy';
+    ed.unitType = 'mt';
+    g.edPlaceUnit({ x: 30, y: 0, z: -30 }); // 巡邏
+    g.edPlaceUnit({ x: -30, y: 0, z: 40 }); // 守住
+    ed.grp = 'g2';
+    g.edPlaceUnit({ x: 20, y: 0, z: 20 }); // 等觸發器
+    g.edPlaceUnit({ x: 24, y: 0, z: 20 });
+    L.units[0].beh = { k: 'patrol', path: 'p1', r: 20, m: '', back: false, speed: 0.8 };
+    L.units[1].beh = { k: 'hold', path: '', r: 35, m: '', back: false, speed: 0.6 };
+    L.units[2].at = L.units[3].at = 'trig';
+    L.paths.push({
+      id: 'p1',
+      name: '巡邏線',
+      pts: [
+        [30, -30, 0],
+        [60, -30, 0],
+        [60, 0, 0],
+      ],
+      loop: false,
+    });
+    ed.markKind = 'exit';
+    g.edPlaceMark({ x: -50, y: 0, z: -50 });
+    L.areas.push({
+      id: 'a1',
+      name: '觸發區',
+      sh: 'circle',
+      x: 0,
+      z: 30,
+      w: 10,
+      d: 10,
+      r: 6,
+      yaw: 0,
+      show: true,
+      color: 0x5cc8ff,
+    });
+    L.counters.push({ id: 'c1', name: '進度', v: 0 });
+    L.triggers.push(
+      {
+        id: 't1',
+        name: '開場',
+        on: true,
+        once: true,
+        any: false,
+        ev: { k: 'start' },
+        cond: [],
+        act: [{ k: 'obj', text: '前往觸發區' }],
+      },
+      {
+        id: 't2',
+        name: '進區域',
+        on: true,
+        once: true,
+        any: false,
+        ev: { k: 'enter', a: 'a1', who: 'any' },
+        cond: [],
+        act: [
+          { k: 'spawn', g: 'g2', how: 'place', m: '', warn: '0' },
+          { k: 'add', c: 'c1', v: 1 },
+          { k: 'comm', who: 'custom', name: '測試員', text: '增援來了' },
+          { k: 'count', t: 300, text: '撤離' },
+        ],
+      },
+      {
+        id: 't3',
+        name: '全滅',
+        on: true,
+        once: true,
+        any: false,
+        ev: { k: 'gdead', g: 'g2' },
+        cond: [{ k: 'counter', c: 'c1', op: '=', v: 1 }],
+        act: [
+          { k: 'open', m: '' },
+          { k: 'obj', text: '走進出口' },
+        ],
+      },
+    );
+    g.edChanged();
+    g.edRebuildHelpers();
+    g.edSelect({ t: 'unit', i: 0 });
+  });
+  const insp = await page.evaluate(() => document.getElementById('edRight').textContent);
+  check(/行為/.test(insp) && /路徑/.test(insp), '選單位時右側顯示屬性（行為、巡邏路徑）');
+  // 觸發器面板
+  await page.click('[data-tool="trig"]');
+  await page.click('[data-tx="expand"]');
+  await wait(300);
+  const tp = await page.evaluate(() => ({
+    cards: document.querySelectorAll('#edTrig .trCard').length,
+    acts: document.querySelectorAll('#edTrig .trItem').length,
+  }));
+  check(tp.cards === 3 && tp.acts >= 7, `觸發器面板：${tp.cards} 張卡片、${tp.acts} 個條件與動作`);
+  // 在面板加一個動作（下拉選單）
+  await page.selectOption('#edTrig [data-tr="0"] select[data-tx-add]', 'shake');
+  const ta = await page.evaluate(() => window.__game.ed.L.triggers[0].act.map((a) => a.k).join(','));
+  check(ta === 'obj,shake', `觸發器面板加入動作（${ta}）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'level-editor-trig.png') });
+  await page.click('[data-tx="close"]');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'level-editor.png') });
+  // 存檔 → 重新整理 → 從選單再開
+  await page.click('[data-ea="save"]');
+  await wait(800);
+  const id = await page.evaluate(() => window.__game.ed.L.id);
+  await page.reload();
+  await waitVisible(page, 'title');
+  await page.click('#btnLevels');
+  await waitVisible(page, 'levels');
+  await page.waitForSelector(`#lvList [data-a="edit"][data-id="${id}"]`, { timeout: 10000 });
+  const thumb = await page.evaluate(() => !!document.querySelector('#lvList .lvThumb img'));
+  await page.click(`#lvList [data-a="edit"][data-id="${id}"]`);
+  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  const re = await page.evaluate(() => {
+    const g = window.__game,
+      L = g.ed.L;
+    return {
+      props: L.props.length,
+      units: L.units.length,
+      trig: L.triggers.length,
+      h: +g.world.terrainHeight(-40, -40).toFixed(1),
+      lp: g.world.lvProps.length,
+    };
+  });
+  check(
+    re.props === 3 && re.units === 4 && re.trig === 3 && re.h > 3 && re.lp === 3 && thumb,
+    `存檔後重新整理再開：物件 ${re.props}、單位 ${re.units}、觸發器 ${re.trig}、地形高度 ${re.h} m、選單縮圖`,
+  );
+  // 上傳前要通關：選單的上傳按鈕（沒有伺服器時不顯示，這裡直接檢查 clear）
+  check(await page.evaluate(() => !window.__game.ed.L.clear), '還沒通關：沒有通關紀錄');
+  // 試玩：開場的目標文字、巡邏、守住、進區域生成增援、全滅開出口、走進出口通關
+  const coam0 = await page.evaluate(() => window.__game.save.coam);
+  await page.click('[data-ea="test"]');
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.lv, null, {
+    timeout: 30000,
+  });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.hp = g.player.maxHp = 1e7;
+    g.player.updateAI = () => {};
+  });
+  await wait(1500);
+  const s1 = await page.evaluate(() => {
+    const g = window.__game;
+    const en = g.enemies.filter((e) => e.edu);
+    return {
+      obj: document.getElementById('hudTop').textContent,
+      n: en.length,
+      area: !!(g.lv.areaMesh && g.lv.areaMesh.a1),
+      pat: en[0] && [+en[0].pos.x.toFixed(1), +en[0].pos.z.toFixed(1)],
+      hold: en[1] && [+en[1].pos.x.toFixed(1), +en[1].pos.z.toFixed(1)],
+    };
+  });
+  check(
+    /前往觸發區/.test(s1.obj) && s1.n === 2 && s1.area,
+    `試玩：開場的目標文字、開場的 ${s1.n} 個單位、顯示的區域圈`,
+  );
+  // 玩家遠離：巡邏的往路徑走、守住的不動
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.pos.set(-60, g.world.groundAt(-60, 60, 99), 60);
+  });
+  await wait(3000);
+  const s2 = await page.evaluate(() => {
+    const g = window.__game;
+    const en = g.enemies.filter((e) => e.edu);
+    return {
+      pat: [+en[0].pos.x.toFixed(1), +en[0].pos.z.toFixed(1)],
+      hold: [+en[1].pos.x.toFixed(1), +en[1].pos.z.toFixed(1)],
+    };
+  });
+  const moved = Math.hypot(s2.pat[0] - s1.pat[0], s2.pat[1] - s1.pat[1]);
+  const held = Math.hypot(s2.hold[0] - s1.hold[0], s2.hold[1] - s1.hold[1]);
+  check(
+    moved > 2 && s2.pat[0] > s1.pat[0] && held < 0.5,
+    `巡邏沿路徑移動 ${moved.toFixed(1)} m、守住不動（${held.toFixed(2)} m）`,
+  );
+  // 進觸發區：生成增援、計數器、通訊（自訂名字）、倒數
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.pos.set(0, g.world.groundAt(0, 30, 99), 30);
+  });
+  await page
+    .waitForFunction(
+      () => window.__game.enemies.filter((e) => e.edu && e.edu.g === 'g2').length === 2,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  const s3 = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      n: g.enemies.filter((e) => e.edu && e.edu.g === 'g2').length,
+      c: g.lv.st.cnt.c1,
+      comm: document.getElementById('comm').textContent,
+      timer: !!g.lv.st.timer,
+    };
+  });
+  check(
+    s3.n === 2 && s3.c === 1 && /測試員/.test(s3.comm) && s3.timer,
+    `進區域：生成增援 ${s3.n} 台、計數器 ${s3.c}、通訊、倒數`,
+  );
+  // 增援全滅 → 開出口
+  await page.evaluate(() => {
+    const g = window.__game;
+    for (const e of g.enemies)
+      if (e.edu && e.edu.g === 'g2' && !e.dead)
+        e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  await page
+    .waitForFunction(
+      () =>
+        window.__game.lv && window.__game.lv.st.exits && Object.keys(window.__game.lv.st.exits).length > 0,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {});
+  const s4 = await page.evaluate(() => ({
+    exit: Object.keys(window.__game.lv.st.exits).length,
+    obj: document.getElementById('hudTop').textContent,
+    coam: window.__game.save.coam,
+  }));
+  check(s4.exit === 1 && /走進出口/.test(s4.obj), '群組全滅（條件：計數器＝1）→ 開出口、換目標文字');
+  check(s4.coam === coam0, `擊破沒有獎金（COAM ${coam0.toLocaleString()} 不變）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'level-play.png') });
+  // 走進出口（沒有寫出口的觸發器：預設＝任務成功）→ 回編輯器、記下通關
+  await page.evaluate(() => {
+    const g = window.__game;
+    const m = g.lv.L.marks.find((x) => x.k === 'exit');
+    g.player.pos.set(m.x, g.world.groundAt(m.x, m.z, 99), m.z);
+  });
+  await page
+    .waitForFunction(() => window.__game.state === 'editor', null, { timeout: 15000 })
+    .catch(() => {});
+  const s5 = await page.evaluate(() => ({
+    st: window.__game.state,
+    clear: window.__game.ed && window.__game.ed.L.clear,
+  }));
+  check(
+    s5.st === 'editor' && s5.clear && s5.clear.t > 0,
+    `走進出口通關：回編輯器並記下通關紀錄（${s5.clear && s5.clear.t} 秒）`,
+  );
+  // 改了關卡就要重新通關
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.edPush();
+    g.ed.L.props[0].x += 1;
+    g.edChanged();
+  });
+  check(
+    await page.evaluate(() => !window.__game.ed.L.clear),
+    '通關後改了關卡：通關紀錄清掉（上傳前要重新通關）',
+  );
+  // 驗證：沒有出生點時不能試玩
+  const v = await page.evaluate(() => {
+    const g = window.__game,
+      L = g.ed.L;
+    const keep = L.marks.slice();
+    L.marks = L.marks.filter((m) => m.k !== 'spawn');
+    const errs = g
+      .edValidate()
+      .filter((x) => x.err)
+      .map((x) => x.msg);
+    g.edTest(false);
+    const st = g.state;
+    L.marks = keep;
+    return { errs, st };
+  });
+  check(
+    v.st === 'editor' && v.errs.some((m) => /出生點/.test(m)),
+    `檢查：沒有出生點時擋下試玩（${v.errs[0]}）`,
+  );
+  // 多段：加第 2 段（出口一開始就開），第 1 段走出口 → 轉到第 2 段
+  const m1 = await page.evaluate(async () => {
+    const g = window.__game,
+      ed = g.ed;
+    ed.L.triggers = [];
+    ed.L.units = [];
+    ed.L.marks.find((m) => m.k === 'exit').open = true;
+    g.edAddSeg();
+    const seg = g.edCur();
+    seg.units = [];
+    seg.triggers = [
+      {
+        id: 't1',
+        name: '',
+        on: true,
+        once: true,
+        any: false,
+        ev: { k: 'time', t: 1 },
+        cond: [],
+        act: [{ k: 'win' }],
+      },
+    ];
+    g.edSetSeg(0);
+    return { n: 1 + ed.L.segs.length, seg: ed.seg };
+  });
+  check(m1.n === 2 && m1.seg === 0, '多段出擊：新增第 2 段');
+  await page.evaluate(() => window.__game.edTest(false));
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.lv, null, {
+    timeout: 30000,
+  });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.hp = g.player.maxHp = 1e7;
+    const m = g.lv.L.marks.find((x) => x.k === 'exit');
+    g.player.pos.set(m.x, g.world.groundAt(m.x, m.z, 99), m.z);
+  });
+  await page
+    .waitForFunction(() => window.__game.state === 'editor', null, { timeout: 25000 })
+    .catch(() => {});
+  check(await page.evaluate(() => window.__game.lvLastSeg === 1), '走進出口：轉場到第 2 段');
+  check(
+    await page.evaluate(() => window.__game.state === 'editor' && !!window.__game.ed.L.clear),
+    '第 2 段的觸發器「任務成功」：整段出擊通關',
+  );
+  // 產生器底圖：移除產生器物件與還原
+  await page.evaluate(() => window.__game.edSave(true));
+  await page.evaluate(() => window.__game.edClose());
+  await waitVisible(page, 'levels');
+  await page.click('#btnLvNew');
+  await page.selectOption('#lvnBase', 'gen');
+  await page.selectOption('#lvnTheme', 'wasteland');
+  await page.click('#btnLvNewGo');
+  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  const gn = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world;
+    const it = (w.genItems || []).find((x) => !x.removed && x.obs.length);
+    if (!it) return { n: 0 };
+    const ob0 = w.obstacles.length;
+    g.edGenToggle(it);
+    const ob1 = w.obstacles.length;
+    const rm = g.ed.L.removed.length;
+    g.edGenRestore(0);
+    return { n: w.genItems.length, ob0, ob1, rm, back: w.obstacles.length, vis: it.g.visible };
+  });
+  check(
+    gn.n > 0 && gn.ob1 < gn.ob0 && gn.rm === 1 && gn.back === gn.ob0 && gn.vis,
+    `產生器底圖：移除物件（碰撞 ${gn.ob0} → ${gn.ob1}）與還原`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ed.dirty = false;
+    g.edClose();
+  });
+  await waitVisible(page, 'levels');
+  // 選單：遊玩（不是試玩）→ 放棄回選單
+  await page.click(`#lvList [data-a="play"][data-id="${id}"]`);
+  await page.waitForFunction(
+    () => window.__game.state === 'play' && window.__game.lv && !window.__game.lv.test,
+    null,
+    { timeout: 30000 },
+  );
+  check(
+    await page.evaluate(() => /自訂關卡/.test(document.getElementById('hudTop').textContent)),
+    '選單「遊玩」：HUD 顯示自訂關卡',
+  );
+  await page.keyboard.press('Escape');
+  await waitVisible(page, 'pause');
+  await page.click('#btnAbort');
+  check(await waitVisible(page, 'levels'), '放棄任務回到關卡選單');
+  // 範例關卡：巡邏、依序的增援（預告後出現）、護送（車隊沿路線前進）
+  await page.click('#levels [data-lt="sample"]');
+  const sids = await page.$$eval('#lvList [data-a="xplay"]', (b) => b.map((x) => x.dataset.id));
+  check(sids.length === 3, `範例關卡 ${sids.length} 個`);
+  for (const sid of sids) {
+    await page.click(`#lvList [data-a="xplay"][data-id="${sid}"]`);
+    await page.waitForFunction(() => window.__game.state === 'play' && window.__game.lv, null, {
+      timeout: 30000,
+    });
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.player.hp = g.player.maxHp = 1e7;
+    });
+    const p0 = await page.evaluate(() =>
+      window.__game.allies.filter((a) => a.ai === 'convoy').map((a) => [a.pos.x, a.pos.z]),
+    );
+    if (/defend/.test(sid)) {
+      // 軟體繪圖下雪地很慢：時間快轉到第 1 波的觸發器，預告出現後把預告的倒數縮短
+      await page.evaluate(() => (window.__game.missionT = 3));
+      const warned = await page
+        .waitForFunction(() => window.__game.lv && window.__game.lv.st.pend.length > 0, null, {
+          timeout: 20000,
+        })
+        .then(
+          () => true,
+          () => false,
+        );
+      check(warned, '範例「據點防衛」：第 1 波的預告（增援地點）');
+      await page.evaluate(() => {
+        for (const q of window.__game.lv.st.pend) q.t = 0.05;
+      });
+    }
+    const ok = await page
+      .waitForFunction(
+        (sid) => {
+          const g = window.__game;
+          if (!g.lv) return false;
+          if (/patrol/.test(sid))
+            return g.enemies
+              .filter((e) => e.edu && e.edu.g === 'g1')
+              .some((e) => Math.hypot(e.pos.x, e.pos.z + 30) > 3);
+          if (/defend/.test(sid)) return g.enemies.filter((e) => e.edu && e.edu.g === 'g1').length === 3;
+          return g.allies.filter((a) => a.ai === 'convoy').length === 2 && g.missionT > 3;
+        },
+        sid,
+        { timeout: 30000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    let detail = '';
+    if (/convoy/.test(sid)) {
+      const p1 = await page.evaluate(() =>
+        window.__game.allies.filter((a) => a.ai === 'convoy').map((a) => [a.pos.x, a.pos.z]),
+      );
+      const mv = p0.length && p1.length ? Math.hypot(p1[0][0] - p0[0][0], p1[0][1] - p0[0][1]) : 0;
+      detail = `（車隊前進 ${mv.toFixed(1)} m）`;
+      check(ok && mv > 1, '範例「護送車隊」：車隊沿路線前進' + detail);
+    } else
+      check(
+        ok,
+        /patrol/.test(sid) ? '範例「巡邏與警戒」：巡邏隊出發' : '範例「據點防衛」：第 1 波預告後從北方進入',
+      );
+    await page.screenshot({ path: path.join(SHOT_DIR, `level-sample-${sid.slice(8, 14)}.png`) });
+    await page.evaluate(() => window.__game.lvAbort());
+    await waitVisible(page, 'levels');
+  }
+  // 複製範例到我的關卡 → 開編輯器；陣列複製
+  await page.click('#levels [data-lt="sample"]');
+  await page.click(`#lvList [data-a="xcopy"][data-id="${sids[0]}"]`);
+  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  const cp = await page.evaluate(() => {
+    const g = window.__game,
+      ed = g.ed;
+    const n0 = ed.L.props.length;
+    g.edSelect({ t: 'prop', i: 0 });
+    g.edArray(3, 8);
+    const out = { name: ed.L.name, n0, n1: ed.L.props.length, recs: g.world.lvProps.filter(Boolean).length };
+    ed.dirty = false;
+    return out;
+  });
+  check(
+    /副本/.test(cp.name) && cp.n1 === cp.n0 + 3 && cp.recs === cp.n1,
+    `範例複製到我的關卡後編輯；陣列複製 ${cp.n0} → ${cp.n1}`,
+  );
+  await page.evaluate(() => window.__game.edClose());
+  await waitVisible(page, 'levels');
+  await ctx.close();
+  // 平板與手機的版面
+  for (const [w, h, tag] of [
+    [1180, 820, 'tablet'],
+    [844, 390, 'phone'],
+  ]) {
+    const c2 = await browser.newContext({
+      viewport: { width: w, height: h },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const pg = await c2.newPage();
+    watch(pg, 'levels-' + tag);
+    await pg.goto(base + '?test');
+    await waitVisible(pg, 'title');
+    await pg.evaluate(() => window.__game.openLevels());
+    await waitVisible(pg, 'levels');
+    if (tag === 'phone') {
+      check(
+        await pg.evaluate(() => document.getElementById('btnLvNew').disabled),
+        '手機：關卡選單可以玩，但不能新建／編輯',
+      );
+      await pg.screenshot({ path: path.join(SHOT_DIR, 'level-menu-phone.png') });
+    } else {
+      await pg.click('#btnLvNew');
+      await pg.click('#btnLvNewGo');
+      await pg.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+      await wait(800);
+      // 觸控：點一下放置、雙指縮放
+      await pg.tap('[data-tool="mark"]');
+      await pg.tap('[data-mk="spawnpt"]');
+      const box = await pg.evaluate(() => {
+        const r = document.getElementById('edLeft').getBoundingClientRect();
+        return r.right;
+      });
+      await pg.touchscreen.tap(box + 200, h / 2);
+      await wait(300);
+      const n = await pg.evaluate(() => window.__game.ed.L.marks.filter((m) => m.k === 'spawnpt').length);
+      check(n === 1, '平板：點一下地面放置增援地點');
+      await pg.screenshot({ path: path.join(SHOT_DIR, 'level-editor-tablet.png') });
+    }
+    await c2.close();
+  }
+}
+
+// 建一個簡單的自訂關卡並存進這個頁面的本機關卡（開編輯器 → 加內容 → 試玩通關 → 存檔）；回傳關卡 id
+async function makeLevel(page, name, edit) {
+  await page.evaluate(() => window.__game.openLevels());
+  await waitVisible(page, 'levels');
+  await page.click('#btnLvNew');
+  await page.fill('#lvnName', name);
+  await page.click('#btnLvNewGo');
+  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  await page.evaluate(edit);
+  if (edit.clear) {
+    await page.evaluate(() => window.__game.edTest(false));
+    await page.waitForFunction(() => window.__game.state === 'play' && window.__game.lv, null, {
+      timeout: 30000,
+    });
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.player.hp = g.player.maxHp = 1e7;
+    });
+    await page
+      .waitForFunction(() => window.__game.state === 'editor', null, { timeout: 20000 })
+      .catch(() => {});
+  }
+  await page.evaluate(() => window.__game.edSave(true));
+  const id = await page.evaluate(() => window.__game.ed.L.id);
+  await page.evaluate(() => window.__game.edClose());
+  await waitVisible(page, 'levels');
+  return id;
+}
+// 只有「一秒後任務成功」的關卡（試玩一下就通關）
+function quickWin() {
+  const g = window.__game,
+    L = g.ed.L;
+  L.triggers.push({
+    id: 't1',
+    name: '',
+    on: true,
+    once: true,
+    any: false,
+    ev: { k: 'time', t: 1 },
+    cond: [],
+    act: [{ k: 'win' }],
+  });
+  g.edChanged();
+}
+quickWin.clear = true;
+
+// 區網伺服器的自訂關卡：上傳要先通關、作者金鑰（別人不能覆寫或刪除）、清單、遊玩與通關次數、下載、刪除
+async function testLevelsServer(browser, url) {
+  console.log('自訂關卡（伺服器）：上傳要通關、作者金鑰、清單、遊玩次數、下載、刪除');
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const page = await ctx.newPage();
+  watch(page, 'levels-server');
+  await page.goto(url + '?test');
+  await waitVisible(page, 'title');
+  const id = await makeLevel(page, '伺服器測試關卡', quickWin);
+  check(await page.evaluate(() => window.__game.lvMine.some((L) => L.clear)), '試玩通關後存檔：有通關紀錄');
+  // 選單上傳
+  await page.click(`#lvList [data-a="up"][data-id="${id}"]`);
+  await page
+    .waitForFunction(() => /已上傳/.test(document.getElementById('lvMsg').textContent), null, {
+      timeout: 10000,
+    })
+    .catch(() => {});
+  const list = await (await fetch(url + 'api/levels')).json();
+  const e = (list.levels || []).find((x) => x.id === id);
+  check(
+    !!e && e.name === '伺服器測試關卡' && !e.kh && e.clearT > 0,
+    '選單「上傳」：/api/levels 列出關卡（不含作者金鑰）',
+  );
+  // 別人的金鑰：不能覆寫、不能刪除；沒有通關紀錄：不能上傳
+  const raw = await (await fetch(url + 'api/levels/' + id)).json();
+  const put = (body, key) =>
+    fetch(url + 'api/levels/' + id, {
+      method: 'PUT',
+      headers: { 'X-Author-Key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const r1 = await put(raw, 'someone-else-key-0000');
+  const r2 = await fetch(url + 'api/levels/' + id, {
+    method: 'DELETE',
+    headers: { 'X-Author-Key': 'someone-else-key-0000' },
+  });
+  const nc = { ...raw, id: 'lvsmokenoclear01', clear: null };
+  const r3 = await fetch(url + 'api/levels/' + nc.id, {
+    method: 'PUT',
+    headers: { 'X-Author-Key': 'someone-else-key-0000', 'Content-Type': 'application/json' },
+    body: JSON.stringify(nc),
+  });
+  check(
+    r1.status === 403 && r2.status === 403 && r3.status === 400,
+    `別人不能覆寫（${r1.status}）或刪除（${r2.status}）；沒通關不能上傳（${r3.status}）`,
+  );
+  // 伺服器分頁：遊玩 → 通關 → 遊玩／通關次數
+  await page.click('#levels [data-lt="server"]');
+  await page.waitForSelector(`#lvList [data-a="splay"][data-id="${id}"]`, { timeout: 10000 });
+  await page.click(`#lvList [data-a="splay"][data-id="${id}"]`);
+  await page.waitForFunction(() => window.__game.state === 'play' && window.__game.lv, null, {
+    timeout: 30000,
+  });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.hp = g.player.maxHp = 1e7;
+  });
+  check(await waitVisible(page, 'result', 20000), '伺服器上的關卡：遊玩、通關、結果畫面');
+  const rows = await page.evaluate(() => document.getElementById('resultGrid').textContent);
+  check(/沒有 COAM/.test(rows), '結果畫面：自訂關卡沒有獎勵');
+  await wait(500);
+  const e2 = ((await (await fetch(url + 'api/levels')).json()).levels || []).find((x) => x.id === id);
+  check(e2 && e2.plays === 1 && e2.clears === 1, `遊玩／通關次數（${e2 && e2.plays}／${e2 && e2.clears}）`);
+  await page.click('#btnResultOk');
+  await waitVisible(page, 'levels');
+  // 刪除（作者本人，按兩次確認）
+  await page.click('#levels [data-lt="server"]');
+  await page.waitForSelector(`#lvList [data-a="sdel"][data-id="${id}"]`, { timeout: 10000 });
+  await page.click(`#lvList [data-a="sdel"][data-id="${id}"]`);
+  await page.click(`#lvList [data-a="sdel"][data-id="${id}"]`);
+  await wait(800);
+  const e3 = ((await (await fetch(url + 'api/levels')).json()).levels || []).find((x) => x.id === id);
+  check(!e3, '作者本人從伺服器刪除');
+  await ctx.close();
+}
+
+// 多人的自訂關卡（?lan=local）：大廳的「自訂關卡」模式、關卡資料傳給客機、雙方同一張地圖、觸發器狀態同步、結果
+async function testMpLevels(browser, url) {
+  console.log('多人自訂關卡：大廳選關卡、傳給客機、同一張地圖、目標文字同步、結束');
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
+  const host = await ctx.newPage();
+  const cli = await ctx.newPage();
+  watch(host, 'mplv:host');
+  watch(cli, 'mplv:client');
+  await host.goto(url);
+  await cli.goto(url);
+  await waitVisible(host, 'title');
+  const id = await makeLevel(host, '多人測試關卡', () => {
+    const g = window.__game,
+      ed = g.ed,
+      L = ed.L;
+    ed.place = 'ed/block';
+    g.edPlaceProp({ x: 14, y: 0, z: 0, terrain: true });
+    ed.unitKind = 'enemy';
+    ed.unitType = 'mt';
+    g.edPlaceUnit({ x: 30, y: 0, z: 30 });
+    L.triggers.push({
+      id: 't1',
+      name: '',
+      on: true,
+      once: true,
+      any: false,
+      ev: { k: 'start' },
+      cond: [],
+      act: [{ k: 'obj', text: 'MP 目標' }],
+    });
+    g.edChanged();
+  });
+  await host.evaluate(() => {
+    window.__game.state = 'title';
+    window.__game.showScreen('title');
+  });
+  await host.click('#btnMP');
+  await setNick(host, 'HOST');
+  await host.click('#btnMPHost');
+  await waitVisible(host, 'lobby');
+  await host.check('#mpAuto');
+  await host.dispatchEvent('#mpAuto', 'change');
+  await cli.click('#btnMP');
+  await setNick(cli, 'CLIENT');
+  await wait(1000);
+  await cli.click('#btnMPList');
+  await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+  await cli.click('#mpRooms .part');
+  await waitVisible(cli, 'lobby', 15000);
+  await host.selectOption('#pvMode', 'level');
+  await host.waitForSelector(`#pvLevel option[value="l:${id}"]`, { timeout: 10000, state: 'attached' });
+  await host.selectOption('#pvLevel', 'l:' + id);
+  const got = await cli
+    .waitForFunction(() => /✓/.test(document.getElementById('lobbyMode').textContent), null, {
+      timeout: 15000,
+    })
+    .then(
+      () => true,
+      () => false,
+    );
+  check(got, '大廳「自訂關卡」：房主選關卡，客機收到關卡資料（✓）');
+  await host
+    .waitForFunction(() => /關卡 ✓/.test(document.getElementById('lobbySlots').textContent), null, {
+      timeout: 10000,
+    })
+    .catch(() => {});
+  await cli.evaluate(() => (window.__game.hostLostMs = 15000));
+  await cli.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbyReady');
+  await wait(500);
+  await host.click('#btnLobbySortie');
+  await cli.bringToFront();
+  await host.evaluate(() => (window.requestAnimationFrame = () => 0));
+  let pumping = true;
+  const pumpLoop = (async () => {
+    while (pumping) {
+      await host.evaluate(() => window.__game.loop()).catch(() => {});
+      await wait(20);
+    }
+  })();
+  const started = (await waitVisible(host, 'hudWrap', 25000)) && (await waitVisible(cli, 'hudWrap', 25000));
+  check(started, '多人自訂關卡：雙方出擊');
+  await wait(2500);
+  const v = await cli.evaluate(() => {
+    const g = window.__game;
+    return {
+      props: g.world && g.world.lvProps ? g.world.lvProps.length : -1,
+      obs: g.world.obstacles.length,
+      edu: g.enemies.filter((e) => e.edu).length,
+      obj: document.getElementById('hudTop').textContent,
+      name: document.getElementById('hudTop').textContent,
+    };
+  });
+  const hv = await host.evaluate(() => ({ obs: window.__game.world.obstacles.length }));
+  check(
+    v.props === 1 && v.obs === hv.obs && v.edu === 1,
+    `客機：同樣的擺放物件（碰撞 ${v.obs}／${hv.obs}）與關卡的單位`,
+  );
+  check(/MP 目標/.test(v.obj) && /多人測試關卡/.test(v.name), '客機：觸發器的目標文字與關卡名稱');
+  await host.evaluate(() => {
+    const g = window.__game;
+    for (const p of g.players) p.hp = p.maxHp = 1e7;
+    for (const e of g.enemies)
+      if (!e.dead) e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  const end = await cli
+    .waitForFunction(() => window.__game.state === 'result', null, { timeout: 20000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  const t = await cli.evaluate(() => document.getElementById('rTitle').textContent);
+  check(end && /完成/.test(t), `敵人全滅：雙方的結果畫面（客機：${t}）`);
+  pumping = false;
+  await pumpLoop;
+  await ctx.close();
+}
+
 async function main() {
   if (!fs.existsSync(HTML)) throw new Error(`找不到 ${HTML}，請先執行 npm run build`);
   fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -9738,63 +10588,65 @@ async function main() {
   let game = null;
   try {
     const base = `http://127.0.0.1:${srv.address().port}/`;
-    await testFile(browser);
-    await testSolo(browser, base);
-    await testMaps(browser, base + '?test');
-    await testSaves(browser, base + '?test');
-    await testPilot(browser, base);
-    await testLibrary(browser, base);
-    await testLibraryGlb(browser, base);
-    await testRefTools(browser, base);
-    await testDraco(browser, base + 'model-library.html', 'http');
-    await testDraco(browser, 'file:///' + LIBRARY.split(path.sep).join('/'), 'file');
-    await testLibraryJoints(browser, base);
-    await testWorkshop(browser, base);
-    await testEditor(browser, base);
-    await testEditorSplit(browser, base);
-    await testEditorMaterials(browser, base);
-    await testEditorTextures(browser, base);
-    await testEditorFaces(browser, base);
-    await testEditorOptimize(browser, base);
-    await testPaint(browser);
-    await testStyleLab(browser);
-    await testStyleThemes(browser);
-    await testBosses(browser, base);
-    await testBosses2(browser, base);
-    await testLockOn(browser, base);
-    await testCamOcclusion(browser, base);
-    await testBoundary(browser, base);
-    await testCampaign(browser, base);
-    await testCampaign2(browser, base);
-    await testModules(browser, base);
-    await testChapter1(browser, base);
-    await testChapter2(browser, base);
-    await testChapter3(browser, base);
-    await testChapter4(browser, base);
-    await testChapter5(browser, base);
-    await testChapter6(browser, base);
-    await testVariants6(browser, base);
-    await testCycle2(browser, base);
-    await testCycle3(browser, base);
-    await testTextFx(browser, base);
-    await testWaves(browser, base);
-    await testOutposts(browser, base);
-    await testModFx(browser, base);
-    await testSupply(browser, base);
-    await testGuide(browser, base);
-    await testRange(browser, base);
-    await testAttrs(browser, base);
-    await testAim(browser, base);
-    await testAudio(browser, base);
-    await testJuice(browser, base);
-    await testBossPower(browser, base);
-    await testBoss3(browser, base);
-    await testLocalModels(browser, base);
-    await testModelSets(browser, base);
-    await testMultiplayer(browser, base + '?lan=local', 'local', true);
-    await testMpBosses(browser, base + '?lan=local&test');
-    await testMpCampaign(browser, base + '?lan=local&test');
-    if (WITH_SERVER) {
+    await run('testFile', testFile, browser);
+    await run('testSolo', testSolo, browser, base);
+    await run('testMaps', testMaps, browser, base + '?test');
+    await run('testSaves', testSaves, browser, base + '?test');
+    await run('testPilot', testPilot, browser, base);
+    await run('testLibrary', testLibrary, browser, base);
+    await run('testLibraryGlb', testLibraryGlb, browser, base);
+    await run('testRefTools', testRefTools, browser, base);
+    await run('testDraco', testDraco, browser, base + 'model-library.html', 'http');
+    await run('testDraco', testDraco, browser, 'file:///' + LIBRARY.split(path.sep).join('/'), 'file');
+    await run('testLibraryJoints', testLibraryJoints, browser, base);
+    await run('testWorkshop', testWorkshop, browser, base);
+    await run('testEditor', testEditor, browser, base);
+    await run('testEditorSplit', testEditorSplit, browser, base);
+    await run('testEditorMaterials', testEditorMaterials, browser, base);
+    await run('testEditorTextures', testEditorTextures, browser, base);
+    await run('testEditorFaces', testEditorFaces, browser, base);
+    await run('testEditorOptimize', testEditorOptimize, browser, base);
+    await run('testPaint', testPaint, browser);
+    await run('testStyleLab', testStyleLab, browser);
+    await run('testStyleThemes', testStyleThemes, browser);
+    await run('testBosses', testBosses, browser, base);
+    await run('testBosses2', testBosses2, browser, base);
+    await run('testLockOn', testLockOn, browser, base);
+    await run('testCamOcclusion', testCamOcclusion, browser, base);
+    await run('testBoundary', testBoundary, browser, base);
+    await run('testCampaign', testCampaign, browser, base);
+    await run('testCampaign2', testCampaign2, browser, base);
+    await run('testModules', testModules, browser, base);
+    await run('testChapter1', testChapter1, browser, base);
+    await run('testChapter2', testChapter2, browser, base);
+    await run('testChapter3', testChapter3, browser, base);
+    await run('testChapter4', testChapter4, browser, base);
+    await run('testChapter5', testChapter5, browser, base);
+    await run('testChapter6', testChapter6, browser, base);
+    await run('testVariants6', testVariants6, browser, base);
+    await run('testCycle2', testCycle2, browser, base);
+    await run('testCycle3', testCycle3, browser, base);
+    await run('testTextFx', testTextFx, browser, base);
+    await run('testLevels', testLevels, browser, base);
+    await run('testWaves', testWaves, browser, base);
+    await run('testOutposts', testOutposts, browser, base);
+    await run('testModFx', testModFx, browser, base);
+    await run('testSupply', testSupply, browser, base);
+    await run('testGuide', testGuide, browser, base);
+    await run('testRange', testRange, browser, base);
+    await run('testAttrs', testAttrs, browser, base);
+    await run('testAim', testAim, browser, base);
+    await run('testAudio', testAudio, browser, base);
+    await run('testJuice', testJuice, browser, base);
+    await run('testBossPower', testBossPower, browser, base);
+    await run('testBoss3', testBoss3, browser, base);
+    await run('testLocalModels', testLocalModels, browser, base);
+    await run('testModelSets', testModelSets, browser, base);
+    await run('testMultiplayer', testMultiplayer, browser, base + '?lan=local', 'local', true);
+    await run('testMpBosses', testMpBosses, browser, base + '?lan=local&test');
+    await run('testMpCampaign', testMpCampaign, browser, base + '?lan=local&test');
+    await run('testMpLevels', testMpLevels, browser, base + '?lan=local&test');
+    if (WITH_SERVER && (!ONLY || ONLY.includes('server'))) {
       console.log('區網伺服器：啟動 server.js');
       game = await startGameServer();
       check(game.health.length > 0, `/health 回應（${game.health.trim().slice(0, 60)}）`);
@@ -9872,8 +10724,9 @@ async function main() {
       const sl2 = await (await fetch(game.url + 'api/styles')).json();
       check(!(sl2.styles || []).some((x) => x.name === '區網分享風格'), '從伺服器刪除分享的風格');
       await page.context().close();
-      await testServerModels(browser, game.url);
-      await testMultiplayer(browser, game.url, 'server', false);
+      await run('testServerModels', testServerModels, browser, game.url);
+      await run('testLevelsServer', testLevelsServer, browser, game.url);
+      await run('testMultiplayer', testMultiplayer, browser, game.url, 'server', false);
     }
   } finally {
     await browser.close();
