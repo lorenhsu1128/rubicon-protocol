@@ -20,6 +20,7 @@ Object.assign(Game.prototype, {
       backL: 'KeyQ',
       backR: 'KeyE',
       lock: 'Tab',
+      assist: 'Mouse1',
       kit: 'KeyR',
       cs1: 'Digit1',
       cs2: 'Digit2',
@@ -80,6 +81,7 @@ Object.assign(Game.prototype, {
       backR: 'Pad5',
       backL: 'Pad4',
       lock: 'Pad11',
+      assist: 'Pad10',
       kit: 'Pad2',
       cs1: 'Pad12',
       cs2: 'Pad13',
@@ -213,7 +215,7 @@ Object.assign(Game.prototype, {
       el.addEventListener('touchcancel', end);
     };
     stick(document.getElementById('vsL'), this.touchMove);
-    const one = ['lock', 'kit', 'cs1', 'cs2', 'pause'];
+    const one = ['lock', 'kit', 'cs1', 'cs2', 'pause', 'view'];
     for (const b of vp.querySelectorAll('.vbtn')) {
       const a = b.dataset.a;
       const code = 'Touch_' + a;
@@ -258,6 +260,7 @@ Object.assign(Game.prototype, {
             } else if (this.state === 'pause') this.resume();
           } else if (this.state === 'play') {
             if (a === 'lock') this.cycleLock();
+            if (a === 'view') this.cycleView();
             if (a === 'kit') this.useKit();
             if (a === 'cs1') this.useConsumable('c1');
             if (a === 'cs2') this.useConsumable('c2');
@@ -398,7 +401,7 @@ Object.assign(Game.prototype, {
     this.padAim = new THREE.Vector3(dz(gp.axes[2] || 0), 0, dz(gp.axes[3] || 0));
     if (this.padMove.length() > 0.01 || this.padAim.length() > 0.01) this.padActive = true;
     const prev = this.padPrev || {};
-    const one = ['lock', 'kit', 'cs1', 'cs2', 'pause'];
+    const one = ['lock', 'assist', 'kit', 'cs1', 'cs2', 'pause'];
     for (let i = 0; i < gp.buttons.length && i < 16; i++) {
       const b = gp.buttons[i];
       const pressed = b.pressed || b.value > 0.5;
@@ -425,6 +428,7 @@ Object.assign(Game.prototype, {
               } else if (this.state === 'pause') this.resume();
             } else if (this.state === 'play') {
               if (nm === 'lock') this.cycleLock();
+              if (nm === 'assist') this.toggleAssist();
               if (nm === 'kit') this.useKit();
               if (nm === 'cs1') this.useConsumable('c1');
               if (nm === 'cs2') this.useConsumable('c2');
@@ -555,6 +559,26 @@ Object.assign(Game.prototype, {
       this.ctrl.view = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlSway').onchange = (e) => {
+      this.ctrl.chaseSway = clamp(parseFloat(e.target.value), 0, 2);
+      this.saveKeys();
+    };
+    document.getElementById('ctrlChaseDist').onchange = (e) => {
+      this.ctrl.chaseDist = clamp(parseFloat(e.target.value) || 1, 0.6, 1.6);
+      this.saveKeys();
+    };
+    document.getElementById('ctrlChaseFov').onchange = (e) => {
+      this.ctrl.chaseFov = clamp(parseFloat(e.target.value) || 62, 45, 80);
+      if (this.chase) {
+        this.camera.fov = this.ctrl.chaseFov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.saveKeys();
+    };
+    document.getElementById('ctrlInvY').onchange = (e) => {
+      this.ctrl.invY = e.target.checked;
+      this.saveKeys();
+    };
     document.getElementById('ctrlSens').onchange = (e) => {
       this.ctrl.sens = clamp(parseFloat(e.target.value) || 1, 0.2, 4);
       this.saveKeys();
@@ -589,11 +613,12 @@ Object.assign(Game.prototype, {
       if (this.lab && this.lab.mode === 'watch' && e.code !== km.pause) return; // 實驗室觀看模式：WASD 給自由鏡頭
       if (e.code === km.lock || e.code === 'Tab') e.preventDefault();
       if (e.code === 'KeyV' && this.state === 'play') {
-        this.setFp(!this.fp);
+        this.cycleView();
       }
       if (e.code === km.lock && this.state === 'play') {
         this.cycleLock();
       }
+      if (e.code === km.assist && this.state === 'play') this.toggleAssist();
       if (this.spectator && this.state === 'play' && e.code === 'KeyD') {
         this.specDetail = !this.specDetail;
       }
@@ -697,8 +722,11 @@ Object.assign(Game.prototype, {
       }
       const code = 'Mouse' + e.button;
       this.down[code] = true;
-      if (code === this.keymap.fireR || code === this.keymap.fireL) this.tryClickLock(e.clientX, e.clientY);
+      if (e.button === 1) e.preventDefault(); // 中鍵：不要自動捲動
+      if ((code === this.keymap.fireR || code === this.keymap.fireL) && !this.plocked)
+        this.tryClickLock(e.clientX, e.clientY);
       if (code === this.keymap.lock) this.cycleLock();
+      if (code === this.keymap.assist) this.toggleAssist();
       if (code === this.keymap.kit) this.useKit();
       if (code === this.keymap.cs1) this.useConsumable('c1');
       if (code === this.keymap.cs2) this.useConsumable('c2');
@@ -729,6 +757,9 @@ Object.assign(Game.prototype, {
         if (this.lab && this.state === 'play') this.labPointer('wheel', e);
         if (this.spectator && this.state === 'play') {
           this.specZoom = clamp((this.specZoom || 1) * (e.deltaY > 0 ? 1.12 : 0.9), 0.5, 4);
+        } else if (this.state === 'play' && !this.lab && this.chase && this.player) {
+          // 追尾：滾輪調整鏡頭距離
+          this.chaseUser = clamp((this.chaseUser || 1) * (e.deltaY > 0 ? 1.08 : 0.93), 0.7, 1.6);
         } else if (this.state === 'play' && !this.lab && !this.fp && this.player) {
           // 第三人稱：滾輪調整鏡頭距離（上限是設定的「鏡頭最遠距離」）
           const mx = this.ctrl.camMax || 1.8;

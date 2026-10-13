@@ -332,9 +332,7 @@ Object.assign(Game.prototype, {
       this.camZoom = 1;
       this.camera.position.set(0, 40, 24);
       this.renderWeaponHud(true);
-      this.fp = false;
-      this.fpShow();
-      if (this.ctrl.view === 'fps') this.setFp(true);
+      this.viewReset();
       this.levelName =
         T.name + (this.world.featureNames.length ? '・' + this.world.featureNames.join('／') : '');
       this.flashMsg('PVP 對戰 — ' + T.name, 0xff4d4d, 2.2);
@@ -418,9 +416,7 @@ Object.assign(Game.prototype, {
     this.camZoom = 1;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
-    this.fp = false;
-    this.fpShow();
-    if (this.ctrl.view === 'fps') this.setFp(true);
+    this.viewReset();
     const misTxt = (boss ? '決戰任務 ' : '任務 ') + String(L).padStart(2, '0') + ' — ' + T.name;
     this.flashMsg(misTxt, 0xffb020, 2.2, { k: 'start', m: boss ? '決戰開始' : '作戰開始', s: misTxt });
     document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
@@ -788,7 +784,7 @@ Object.assign(Game.prototype, {
     SFX.stopLoops();
     this.pvp = false;
     this.pvpOver = false;
-    if (this.fp) this.setFp(false);
+    if (this.fp || this.chase) this.setView('top', true);
     this.fpShow();
     for (const v of this.vehicles || []) v.cleanup();
     this.vehicles = [];

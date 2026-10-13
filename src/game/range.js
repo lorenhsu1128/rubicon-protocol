@@ -226,9 +226,7 @@ Object.assign(Game.prototype, {
     this.camZoom = 1;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
-    this.fp = false;
-    this.fpShow();
-    if (this.ctrl.view === 'fps') this.setFp(true);
+    this.viewReset();
     document.getElementById('btnAbort').textContent = '離開靶場（回機甲庫）';
     document.getElementById('rangePanel').style.display = '';
     // 手機橫式：面板預設收合（只留 DPS 與命中率）

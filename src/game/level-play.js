@@ -154,9 +154,7 @@ Object.assign(Game.prototype, {
     this.camZoom = 1;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
-    this.fp = false;
-    this.fpShow();
-    if (this.ctrl.view === 'fps') this.setFp(true);
+    this.viewReset();
     const bb = document.getElementById('bossBar');
     bb.style.display = this.bosses.length ? 'block' : 'none';
     if (this.bosses.length) document.getElementById('bossName').textContent = this.bosses[0].name;

@@ -81,6 +81,7 @@
         <div class="vbtn sm" data-a="kit">修復</div>
         <div class="vbtn sm" data-a="cs1">道具1</div>
         <div class="vbtn sm" data-a="cs2">道具2</div>
+        <div class="vbtn sm" data-a="view">視角</div>
         <div class="vbtn sm" data-a="pause">暫停</div>
       </div>
     </div>
@@ -130,8 +131,10 @@
             </tr>
             <tr>
               <td colspan="2">
-                <kbd>V</kbd> 第一／第三人稱切換（第一人稱：滑鼠轉視角、準星置中、視錐內自動鎖定、Tab
-                切換視野內目標、WS 前後 AD 側移）
+                <kbd>V</kbd> 視角切換：俯視 → 追尾（機戰傭兵6
+                式：鏡頭在機體後方、滑鼠轉鏡頭、中央鎖定框自動鎖定、
+                <kbd>滑鼠中鍵</kbd> 目標輔助（鏡頭跟著目標，甩動滑鼠換目標））→ 第一人稱；追尾與第一人稱的 WS
+                前後、AD 側移依鏡頭方向
               </td>
             </tr>
             <tr>
@@ -615,8 +618,39 @@
             <span>預設視角</span
             ><select id="ctrlView">
               <option value="tps">第三人稱俯視（預設）</option>
-              <option value="fps">第一人稱（V 鍵可隨時切換）</option>
+              <option value="chase">追尾視角（機戰傭兵6 式，鏡頭在機體後方）</option>
+              <option value="fps">第一人稱</option>
             </select>
+            <span class="dim" style="font-size: 11px">任務中按 V（觸控：「視角」）依序切換</span>
+          </div>
+          <div class="krow">
+            <span>追尾視角的速度偏移</span
+            ><select id="ctrlSway" title="鏡頭落後機體：移動、QB、跳躍時機體在畫面上往移動方向偏移">
+              <option value="0">關閉</option>
+              <option value="0.6">小</option>
+              <option value="1">標準（預設）</option>
+              <option value="1.5">大</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>追尾視角的鏡頭距離</span
+            ><select id="ctrlChaseDist" title="任務中也可以用滾輪調整">
+              <option value="0.8">近</option>
+              <option value="1">標準（預設）</option>
+              <option value="1.25">遠</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>追尾視角的視野</span
+            ><select id="ctrlChaseFov">
+              <option value="55">窄（55°）</option>
+              <option value="62">標準（62°，預設）</option>
+              <option value="70">寬（70°）</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>視角上下反轉</span
+            ><label><input type="checkbox" id="ctrlInvY" /> 追尾與第一人稱的鏡頭上下反轉</label>
           </div>
           <div class="krow">
             <span>鏡頭最遠距離（第三人稱）</span
@@ -635,7 +669,7 @@
             </select>
           </div>
           <div class="krow">
-            <span>滑鼠靈敏度（第一人稱）</span
+            <span>滑鼠靈敏度（追尾／第一人稱）</span
             ><input id="ctrlSens" type="number" step="0.1" min="0.2" max="4" style="width: 80px" />
           </div>
           <div class="krow">

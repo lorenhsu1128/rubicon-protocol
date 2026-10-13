@@ -139,7 +139,7 @@ Object.assign(Game.prototype, {
         let ap = ap0,
           ae = ae0;
         if (isBeam) {
-          if (inp.fp && aimRv) {
+          if (inp.fp && aimRv && !(inp.fp === 2 && e.lock && !e.lock.dead)) {
             ap = aimRv;
             ae = null;
           } else if (e.lock && !e.lock.dead && e.lock.pos.distanceTo(e.pos) < e.stats.lockRange) {

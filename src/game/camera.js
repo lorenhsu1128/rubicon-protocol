@@ -79,6 +79,24 @@ Object.assign(Game.prototype, {
   },
   updateCamera(dt) {
     this.camExtra = 0; // 鏡頭比預設距離遠出多少公尺（霧往外推，render/style/pipeline.js）
+    if (this.chase) {
+      // 追尾視角（chase.js）：觀戰與陣亡後看隊友時用對方的瞄準方向
+      let ent = this.player;
+      if (ent && !this.spectator && ent.dead && this.players && this.players.length > 1) {
+        const alive = this.players.filter((x) => !x.dead);
+        if (alive.length) ent = alive[this.spectateIdx % alive.length];
+      }
+      if (ent) {
+        if (this.spectator || ent !== this.player) {
+          this.chaseCamera(ent, dt, ent.aimYaw, clamp(ent.aimPitch || 0, -0.6, 0.6));
+        } else {
+          if (!ent.dead) this.chaseAssistTick(ent, dt);
+          this.chaseCamera(ent, dt, this.fpYaw, this.fpPitch);
+        }
+        this.camFocus = ent;
+        return;
+      }
+    }
     if (this.fp) {
       let ent = this.player;
       if (this.spectator) {

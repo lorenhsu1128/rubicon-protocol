@@ -25,7 +25,7 @@ Object.assign(Game.prototype, {
     return v.z > -1 && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
   },
   // 可以鎖定的敵人（依鎖定順序）：有效距離內；
-  // 第一人稱：畫面內、依離準星的角度；第三人稱：機甲面向的正面 180° 內（不論在不在畫面裡）由近到遠，背後的完全不鎖定
+  // 第一人稱：畫面內、依離準星的角度；追尾：畫面中央的鎖定框裡、依離準星的遠近（chase.js）；俯視：機甲面向的正面 180° 內（不論在不在畫面裡）由近到遠，背後的完全不鎖定
   lockCands(p) {
     const reach = this.lockReach(p);
     const out = [];
@@ -39,6 +39,8 @@ Object.assign(Game.prototype, {
         if (dist > reach || dist < 0.5 || !this.onScreen(e)) continue;
         out.push({ e, k: Math.acos(clamp(d.normalize().dot(look), -1, 1)) });
       }
+    } else if (this.chase) {
+      out.push(...this.chaseLockCands(p, reach));
     } else {
       const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
       for (const e of this.hostilesOfEnt(p)) {
@@ -56,6 +58,7 @@ Object.assign(Game.prototype, {
   autoLock(p) {
     if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > this.lockReach(p) * 1.05))
       p.lock = null;
+    if (this.chase) return this.chaseAutoLock(p);
     if (!p.lock) p.lock = this.lockCands(p)[0] || null;
   },
   // 切換鍵：依 lockCands 的順序換下一個
@@ -92,14 +95,8 @@ Object.assign(Game.prototype, {
       return;
     }
     // mouse → world at player's height
-    if (this.fp) {
-      if (this.padAim && this.padAim.lengthSq() > 0.09) {
-        this.fpYaw -= this.padAim.x * dt * 2.6 * (this.ctrl.sens || 1);
-        this.fpPitch = clamp(this.fpPitch - this.padAim.z * dt * 1.8 * (this.ctrl.sens || 1), -1.1, 0.9);
-      }
-      const look = this.fpLookDir(this.fpYaw, this.fpPitch);
-      this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40);
-      this.autoLock(p);
+    if (this.camAim()) {
+      this.camAimInput(p, dt);
     } else {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(
@@ -111,7 +108,8 @@ Object.assign(Game.prototype, {
       // lock-on
       this.autoLock(p);
     }
-    if (this.touchActive) {
+    if (this.touchActive && this.camAim()) this.padActive = true;
+    else if (this.touchActive) {
       this.padActive = true;
       if (!p.lock) {
         const dir =
@@ -121,7 +119,9 @@ Object.assign(Game.prototype, {
         this.mouseWorld.copy(p.center()).addScaledVector(dir, 20);
       }
     } // 觸控：全自動瞄準（鎖定目標，否則移動方向）
-    else if (this.padAim && this.padAim.lengthSq() > 0.09) {
+    else if (this.camAim()) {
+      // 第一人稱／追尾：右搖桿轉鏡頭（camAimInput），瞄準點就是準星
+    } else if (this.padAim && this.padAim.lengthSq() > 0.09) {
       this.mouseWorld.copy(p.center()).addScaledVector(this.padAim.clone().normalize(), 24);
       this.padAimT = 0.4;
     } // 右搖桿瞄準
@@ -131,7 +131,7 @@ Object.assign(Game.prototype, {
       const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
       this.mouseWorld.copy(p.center()).addScaledVector(fwd, 20);
     }
-    if (this.ctrl.aim === 'auto' && !p.lock) {
+    if (this.ctrl.aim === 'auto' && !p.lock && !this.camAim()) {
       const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
       this.mouseWorld.copy(p.center()).addScaledVector(fwd, 20);
     } // 自動瞄準：無鎖定時朝機體前方
@@ -163,8 +163,8 @@ Object.assign(Game.prototype, {
       wish.copy(this.touchMove);
       if (wish.length() > 1) wish.normalize();
     }
-    if ((this.ctrl.moveRel === 'mech' || this.fp) && wish.lengthSq() > 0) {
-      const yy = this.fp ? this.fpYaw : p.yaw;
+    if ((this.ctrl.moveRel === 'mech' || this.camAim()) && wish.lengthSq() > 0) {
+      const yy = this.camAim() ? this.fpYaw : p.yaw;
       const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy)),
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
@@ -177,10 +177,10 @@ Object.assign(Game.prototype, {
       p.fpFace = true;
       p.aimYaw = this.fpYaw;
       p.aimPitch = this.fpPitch;
-    } else p.fpFace = false;
+    } else p.fpFace = this.chase; // 追尾：機體面向準星（瞄準方向由 setAim 決定）
     p.move(dt, wish, this.act('jump'), qb, this.act('ab'), p.lock);
     // weapons
-    const aimR = this.reticlePoint(p);
+    const aimR = this.chase ? this.mouseWorld.clone() : this.reticlePoint(p);
     this.aimRet = aimR;
     const fireSlot = (slot, held) => {
       const w = p.weapons[slot];
@@ -188,7 +188,7 @@ Object.assign(Game.prototype, {
       let aimPos = aimPos0,
         aimEnt = aimEnt0;
       if (isBeam) {
-        if (this.fp) {
+        if (this.camAim() && !(this.chase && p.lock && !p.lock.dead)) {
           aimPos = aimR;
           aimEnt = null;
         } else if (p.lock && !p.lock.dead && p.lock.pos.distanceTo(p.pos) < p.stats.lockRange) {

@@ -26,7 +26,7 @@ Object.assign(Game.prototype, {
     const p = this.player;
     if (!p) return;
     document.getElementById('hudTop').innerHTML =
-      `<div><b>觀戰</b>　${escHtml(this.levelName)}</div><div id="objective">殘存敵軍 ${this.clientAlive || 0}${this.clientWaves ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div class="dim" style="font-size:11px">鏡頭 <b>${{ follow: '跟隨', director: '導演', all: '全景', free: '自由', boss: '魔王' }[this.specMode || 'follow']}</b>　V：第一人稱　C／1–5：切換模式　Tab／點擊玩家：換人　滾輪：縮放　D：${this.specDetail ? '隱藏' : '顯示'}細節</div>`;
+      `<div><b>觀戰</b>　${escHtml(this.levelName)}</div><div id="objective">殘存敵軍 ${this.clientAlive || 0}${this.clientWaves ? ' （尚有增援）' : ''} ｜ ${this.missionT.toFixed(0)}s</div><div class="dim" style="font-size:11px">鏡頭 <b>${{ follow: '跟隨', director: '導演', all: '全景', free: '自由', boss: '魔王' }[this.specMode || 'follow']}</b>　V：切換視角　C／1–5：切換模式　Tab／點擊玩家：換人　滾輪：縮放　D：${this.specDetail ? '隱藏' : '顯示'}細節</div>`;
     document.getElementById('hudBottom').style.display = 'none';
     document.getElementById('weapons').style.display = 'none';
     document.getElementById('lockHint').textContent =
@@ -481,7 +481,9 @@ Object.assign(Game.prototype, {
     this.drawWaveMarks(c, W, H, p, dt);
     // reticle at mouse
     if (this.pvp) this.drawPvpHud(c, W, H, p);
-    if (this.fp) {
+    if (this.chase) {
+      this.drawChaseHud(c, W, H, p);
+    } else if (this.fp) {
       this.drawFpHud(c, W, H, p);
     } else {
       let rx = this.mouse.x,

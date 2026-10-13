@@ -285,9 +285,7 @@ Object.assign(Game.prototype, {
     this.camZoom = 1;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
-    this.fp = false;
-    this.fpShow();
-    if (this.ctrl.view === 'fps') this.setFp(true);
+    this.viewReset();
     const segTxt = `區段 ${c.seg + 1}／${so.segs.length}【${SEG_TYPES[type].name}】`;
     this.flashMsg(
       segTxt + this.levelName,

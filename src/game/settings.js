@@ -28,6 +28,7 @@ Object.assign(Game.prototype, {
       ['backL', '左背武器'],
       ['backR', '右背武器'],
       ['lock', '切換鎖定'],
+      ['assist', '目標輔助（追尾視角）'],
       ['kit', '修復套件'],
       ['cs1', '消耗品 1'],
       ['cs2', '消耗品 2'],
@@ -57,6 +58,10 @@ Object.assign(Game.prototype, {
     $('ctrlAuto').checked = !!this.ctrl.autoFire;
     $('ctrlView').value = this.ctrl.view || 'tps';
     $('ctrlSens').value = this.ctrl.sens || 1;
+    $('ctrlSway').value = String(this.ctrl.chaseSway === undefined ? 1 : this.ctrl.chaseSway);
+    $('ctrlChaseDist').value = String(this.ctrl.chaseDist || 1);
+    $('ctrlChaseFov').value = String(this.ctrl.chaseFov || 62);
+    $('ctrlInvY').checked = !!this.ctrl.invY;
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
     $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
     $('ctrlTfx').value = this.ctrl.tfx || 'full';

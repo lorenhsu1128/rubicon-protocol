@@ -272,7 +272,7 @@ Object.assign(Game.prototype, {
       p.isPlayer = mode === 'ctrl';
       if (mode === 'ctrl') p.lock = null;
     }
-    if (mode === 'watch' && this.fp) this.setFp(false);
+    if (mode === 'watch' && (this.fp || this.chase)) this.setView('top', true);
     document.body.classList.toggle('labWatch', mode === 'watch');
     $('hudWrap').style.display = mode === 'ctrl' ? 'block' : 'none';
     this.stylePipe.resetHistory();

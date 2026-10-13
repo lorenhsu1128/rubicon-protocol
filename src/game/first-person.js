@@ -1,8 +1,8 @@
 // ============================================================
 //  FIRST PERSON — 第一人稱視角（玩家／觀戰）、指標鎖定、視錐自動鎖定、雷達與羅盤
 // ============================================================
-import { clamp, rnd } from '../core/math.js';
-import { FP_CONE, FP_FOV, TP_FOV } from './constants.js';
+import { rnd } from '../core/math.js';
+import { FP_CONE } from './constants.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -16,14 +16,12 @@ Object.assign(Game.prototype, {
       this.plocked = document.pointerLockElement === c;
     });
     addEventListener('mousemove', (e) => {
-      if (this.fp && this.plocked && this.state === 'play' && !this.spectator) {
-        const s = (this.ctrl.sens || 1) * 0.0022;
-        this.fpYaw -= e.movementX * s;
-        this.fpPitch = clamp(this.fpPitch - e.movementY * s, -1.1, 0.9);
+      if (this.camAim() && this.plocked && this.state === 'play' && !this.spectator) {
+        this.camTurn(e.movementX, e.movementY, (this.ctrl.sens || 1) * 0.0022);
       }
     });
     c.addEventListener('mousedown', () => {
-      if (this.fp && !this.plocked && this.state === 'play' && !this.spectator && !this.touchActive) {
+      if (this.camAim() && !this.plocked && this.state === 'play' && !this.spectator && !this.touchActive) {
         try {
           c.requestPointerLock();
         } catch (e) {}
@@ -36,7 +34,7 @@ Object.assign(Game.prototype, {
     c.addEventListener(
       'touchstart',
       (e) => {
-        if (!this.fp || this.state !== 'play') return;
+        if (!this.camAim() || this.state !== 'play') return;
         const t = e.changedTouches[0];
         if (t.clientX > innerWidth * 0.45) {
           const el = document.elementFromPoint(t.clientX, t.clientY);
@@ -54,9 +52,7 @@ Object.assign(Game.prototype, {
         if (tid === null) return;
         for (const t of e.changedTouches)
           if (t.identifier === tid) {
-            const s = (this.ctrl.sens || 1) * 0.006;
-            this.fpYaw -= (t.clientX - tx) * s;
-            this.fpPitch = clamp(this.fpPitch - (t.clientY - ty) * s, -1.1, 0.9);
+            this.camTurn(t.clientX - tx, t.clientY - ty, (this.ctrl.sens || 1) * 0.006);
             tx = t.clientX;
             ty = t.clientY;
           }
@@ -69,36 +65,10 @@ Object.assign(Game.prototype, {
     c.addEventListener('touchend', end);
     c.addEventListener('touchcancel', end);
   },
+  // 第一人稱的開關（視角切換在 chase.js 的 setView）
   setFp(on) {
     if (this.fp === on) return;
-    this.fp = on;
-    this.camera.fov = on ? FP_FOV : TP_FOV;
-    this.camera.updateProjectionMatrix();
-    if (this.camScratch) {
-      this.camScratch.fov = TP_FOV;
-      this.camScratch.updateProjectionMatrix();
-    }
-    if (on) {
-      const p = this.player;
-      if (p) {
-        this.fpYaw = p.aimYaw;
-        this.fpPitch = 0;
-      }
-      if (!this.spectator && !this.touchActive) {
-        try {
-          this.canvas.requestPointerLock();
-        } catch (e) {}
-      }
-      this.flashMsg('第一人稱視角（V 切換）', 0xffb020, 1.2);
-    } else {
-      this.fpShow();
-      if (document.pointerLockElement) {
-        try {
-          document.exitPointerLock();
-        } catch (e) {}
-      }
-      this.flashMsg('第三人稱視角', 0xffb020, 1.0);
-    }
+    this.setView(on ? 'fp' : 'top');
   },
   fpLookDir(yaw, pitch) {
     return new THREE.Vector3(
@@ -161,11 +131,13 @@ Object.assign(Game.prototype, {
     this.rangeRing.visible = false;
   },
   // 雷達與羅盤
-  drawFpHud(c, W, H, p) {
+  drawFpHud(c, W, H, p, noRet) {
     const yaw = this.fpYaw; // 羅盤
-    const cw = Math.min(420, W * 0.5),
+    const vp = document.body.classList.contains('vpad');
+    // 追尾視角的觸控版面：上方是武器欄，羅盤放到下方中央
+    const cw = noRet && vp ? Math.min(300, W * 0.36) : Math.min(420, W * 0.5),
       cx = W / 2,
-      cy = document.body.classList.contains('vpad') ? 52 : 28;
+      cy = noRet && vp ? H - 18 : vp ? 52 : 28;
     c.fillStyle = 'rgba(8,12,18,.5)';
     c.fillRect(cx - cw / 2, cy - 10, cw, 20);
     c.strokeStyle = '#ffb020';
@@ -200,10 +172,10 @@ Object.assign(Game.prototype, {
         c.fillRect(x - 2, cy - 7, 4, 14);
       }
     }
-    // 雷達（半徑 60 m）
-    const R = 62,
-      rx = document.body.classList.contains('vpad') ? W - 90 : 96,
-      ry = document.body.classList.contains('vpad') ? H / 2 : H - 330;
+    // 雷達（半徑 60 m）；追尾視角的觸控版面放在左側中間（右側是按鈕）
+    const R = noRet && vp ? Math.min(48, H * 0.12) : 62,
+      rx = vp ? (noRet ? R + 14 : W - 90) : 96,
+      ry = vp ? (noRet ? H * 0.47 : H / 2) : H - 330;
     c.fillStyle = 'rgba(8,12,18,.55)';
     c.beginPath();
     c.arc(rx, ry, R, 0, Math.PI * 2);
@@ -262,6 +234,7 @@ Object.assign(Game.prototype, {
     c.lineTo(rx + 4, ry + 4);
     c.closePath();
     c.fill();
+    if (noRet) return; // 追尾視角：準星與鎖定框另外畫
     // 中央準星
     c.strokeStyle = 'rgba(255,255,255,.85)';
     c.lineWidth = 1.5;

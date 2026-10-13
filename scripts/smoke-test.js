@@ -4251,6 +4251,223 @@ async function testLockOn(browser, base) {
   await ctx.close();
 }
 
+// 追尾視角（機戰傭兵6）：鏡頭在機體後方、速度偏移、鎖定框、目標輔助與甩動換目標、撞牆拉近、三段切換、觸控
+async function testChase(browser, base) {
+  console.log('追尾視角：鏡頭在後方、速度偏移、鎖定框、目標輔助、撞牆拉近、V 三段切換、平板與手機');
+  const { ctx, page } = await newPage(browser, 'chase');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'chase-test';
+    g.waves = [];
+    g.wavePend = [];
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const y0 = g.world.terrainHeight(0, 0);
+    pl.pos.set(0, y0, 0);
+    pl.yaw = pl.aimYaw = 0;
+    pl.vel.set(0, 0, 0);
+    // 把附近的障礙物移開，避免鏡頭被擋
+    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x, o.z) > 45);
+    for (const e of g.enemies) e.pos.set(200, -50, 200);
+    const W = window.innerWidth,
+      H = window.innerHeight;
+    const cam = (n = 40) => {
+      for (let i = 0; i < n; i++) g.updateCamera(1 / 60);
+      g.camera.updateMatrixWorld(true);
+    };
+    g.setView('chase', true);
+    g.fpYaw = 0;
+    g.fpPitch = 0;
+    cam(60);
+    const h = pl.model.height;
+    const cp = g.camera.position.clone();
+    const s0 = g.proj(pl.center());
+    const behind = cp.z > 4 && Math.abs(cp.x) < 0.5 && cp.y > y0 + h * 0.9;
+    const below = s0.y > H / 2 + 10 && Math.abs(s0.x - W / 2) < 6;
+    // 速度偏移：往右移動 → 機體往畫面右邊；往上 → 往上；往前衝 → 變遠
+    pl.vel.set(20, 0, 0);
+    cam(40);
+    const sR = g.proj(pl.center());
+    pl.vel.set(0, 12, 0);
+    cam(40);
+    const sU = g.proj(pl.center());
+    pl.vel.set(0, 0, -30);
+    cam(40);
+    const dF = g.camera.position.distanceTo(pl.center());
+    pl.vel.set(0, 0, 0);
+    cam(80);
+    const d0 = g.camera.position.distanceTo(pl.center());
+    const s1 = g.proj(pl.center());
+    // 鎖定框：正前方、偏一點、偏很多（畫面內但在框外）
+    const es = g.enemies.slice(0, 3);
+    while (es.length < 3) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
+    // 和玩家同一高度（地形起伏不影響是否在框裡）
+    const put = (e, x, z) => {
+      e.pos.set(x, y0, z);
+      e.mesh.position.copy(e.pos);
+    };
+    put(es[0], 0, -30);
+    put(es[1], 4, -30);
+    put(es[2], 25, -30);
+    const onScr2 = g.onScreen(es[2]);
+    pl.lock = null;
+    g.autoLock(pl);
+    const first = pl.lock === es[0];
+    const order = [];
+    for (let i = 0; i < 3; i++) {
+      g.cycleLock();
+      order.push(es.indexOf(pl.lock));
+    }
+    const boxOnly = !order.includes(2);
+    // 轉向偏很多的那台：鎖定的離開框一段時間後換過去
+    pl.lock = es[0];
+    g.fpYaw = Math.atan2(-25, 30);
+    cam(30);
+    g.autoLock(pl);
+    const kept = pl.lock === es[0];
+    g.lockLostT = performance.now() - 1000;
+    g.autoLock(pl);
+    const switched = pl.lock === es[2];
+    // 目標輔助：鏡頭轉向鎖定的目標
+    pl.lock = es[0];
+    g.assist = true;
+    cam(90);
+    const sa = g.proj(es[0].center());
+    const assistAim = Math.hypot(sa.x - W / 2, sa.y - H / 2) < 40;
+    // 輔助中往右甩：換到右邊的目標
+    g.flickT = 0;
+    g.camTurn(160, 0, 0.002);
+    const flick = pl.lock === es[1];
+    g.assist = false;
+    // 機體面向準星：沒有鎖定時，跑幾格玩家更新
+    for (const e of es) put(e, 200, 200);
+    pl.lock = null;
+    g.fpYaw = 0.9;
+    g.fpPitch = 0;
+    for (let i = 0; i < 30; i++) {
+      g.updatePlayer(1 / 60);
+      g.updateCamera(1 / 60);
+    }
+    const face = Math.abs(Math.atan2(Math.sin(pl.yaw - 0.9), Math.cos(pl.yaw - 0.9))) < 0.2;
+    // 撞牆拉近：機體正後方放一道牆
+    pl.pos.set(0, y0, 0);
+    pl.vel.set(0, 0, 0);
+    g.fpYaw = 0;
+    const wall = { kind: 'box', x: 0, z: 4, w: 12, d: 1, top: y0 + 40, y: y0 - 2 };
+    g.world.obstacles.push(wall);
+    cam(30);
+    const dWall = g.chDist;
+    g.world.obstacles.splice(g.world.obstacles.indexOf(wall), 1);
+    cam(150);
+    const dFree = g.chDist;
+    // V：俯視 → 追尾 → 第一人稱 → 俯視
+    g.setView('top', true);
+    const seq = [];
+    for (let i = 0; i < 3; i++) {
+      g.cycleView();
+      seq.push(g.viewName());
+    }
+    // 預設視角
+    const v0 = g.ctrl.view;
+    g.ctrl.view = 'chase';
+    g.viewReset();
+    const def = g.chase && !g.fp;
+    g.ctrl.view = v0;
+    g.viewReset();
+    const back = !g.chase && !g.fp;
+    g.clearMission();
+    g.state = 'title';
+    return {
+      behind,
+      below,
+      s0: [Math.round(s0.x), Math.round(s0.y)],
+      sR: Math.round(sR.x - s1.x),
+      sU: Math.round(s1.y - sU.y),
+      dF: +(dF - d0).toFixed(2),
+      back0: Math.hypot(s1.x - s0.x, s1.y - s0.y) < 4,
+      onScr2,
+      first,
+      order: order.join(','),
+      boxOnly,
+      kept,
+      switched,
+      assistAim,
+      flick,
+      face,
+      dWall: +dWall.toFixed(2),
+      dFree: +dFree.toFixed(2),
+      seq: seq.join(','),
+      def,
+      back,
+    };
+  });
+  check(r.behind && r.below, `鏡頭在機體後上方、機體在畫面中央偏下（${r.s0}）`);
+  check(
+    r.sR > 40 && r.sU > 20 && r.dF > 1 && r.back0,
+    `速度偏移：往右 → 畫面右移 ${r.sR}px、往上 → 上移 ${r.sU}px、往前衝 → 遠 ${r.dF} m，停下回到原位`,
+  );
+  check(r.first && r.boxOnly && r.onScr2, `鎖定框：先鎖正前方的、框外的（畫面內）不鎖定（${r.order}）`);
+  check(r.kept && r.switched, '鎖定的目標離開框一段時間後換成框裡的');
+  check(r.assistAim && r.flick, '目標輔助：鏡頭轉向目標、甩動換到右邊的目標');
+  check(r.face, '機體面向準星的方向');
+  check(r.dWall < 4 && r.dFree > 7.5, `撞牆拉近：後方有牆 ${r.dWall} m、沒有時回到 ${r.dFree} m`);
+  check(r.seq === 'chase,fp,top' && r.def && r.back, `V 依序切換（${r.seq}）、預設視角可以是追尾`);
+  // 畫面截圖：電腦、平板、手機（觸控時目標輔助自動開啟）
+  const shot = async (pg, name, touch) => {
+    const o = await pg.evaluate((touch) => {
+      const g = window.__game;
+      g.save.level = 2;
+      g.startMission();
+      const pl = g.player;
+      pl.hp = pl.maxHp = 1e7;
+      if (touch) g.touchActive = true;
+      g.setView('chase', true);
+      g.fpYaw = pl.yaw;
+      const e = g.enemies[0];
+      const fwd = new THREE.Vector3(-Math.sin(pl.yaw), 0, -Math.cos(pl.yaw));
+      const q = pl.pos.clone().addScaledVector(fwd, 30);
+      e.pos.set(q.x, g.world.terrainHeight(q.x, q.z), q.z);
+      pl.lock = e;
+      return { assist: g.assistOn(), btn: !!document.querySelector('#vpad [data-a="view"]') };
+    }, touch);
+    await wait(1500);
+    await pg.screenshot({ path: path.join(SHOT_DIR, name) });
+    await pg.evaluate(() => {
+      const g = window.__game;
+      g.clearMission();
+      g.state = 'title';
+      g.showScreen('title');
+    });
+    return o;
+  };
+  await shot(page, 'chase-desktop.png', false);
+  await ctx.close();
+  for (const [w, h, tag] of [
+    [1180, 820, 'tablet'],
+    [844, 390, 'phone'],
+  ]) {
+    const c2 = await browser.newContext({
+      viewport: { width: w, height: h },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const pg = await c2.newPage();
+    watch(pg, 'chase-' + tag);
+    await pg.goto(base + '?test');
+    await waitVisible(pg, 'title');
+    const o = await shot(pg, `chase-${tag}.png`, true);
+    check(
+      o.assist && o.btn,
+      `${tag === 'tablet' ? '平板' : '手機'}：追尾視角可用（觸控自動目標輔助、視角按鈕）`,
+    );
+    await c2.close();
+  }
+}
+
 // 第三人稱鏡頭的遮擋：地形擋住時鏡頭往上轉、物件淡出、還是被擋住時顯示機體的透視輪廓
 async function testCamOcclusion(browser, base) {
   console.log('鏡頭遮擋：地形抬高鏡頭、物件淡出、透視輪廓');
@@ -10712,6 +10929,7 @@ async function main() {
     await run('testBosses2', testBosses2, browser, base);
     await run('testLockOn', testLockOn, browser, base);
     await run('testCamOcclusion', testCamOcclusion, browser, base);
+    await run('testChase', testChase, browser, base);
     await run('testBoundary', testBoundary, browser, base);
     await run('testCampaign', testCampaign, browser, base);
     await run('testCampaign2', testCampaign2, browser, base);

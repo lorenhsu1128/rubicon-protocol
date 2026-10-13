@@ -1,6 +1,7 @@
 // ---------- 第一人稱 ----------
 export const FP_FOV = 75,
   TP_FOV = 42,
+  CHASE_FOV = 62,
   FP_CONE = (15 * Math.PI) / 180;
 
 // ---------- PVP ----------

@@ -173,9 +173,7 @@ Object.assign(Game.prototype, {
     this.camZoom = 1;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
-    this.fp = false;
-    this.fpShow();
-    if (this.ctrl.view === 'fps') this.setFp(true);
+    this.viewReset();
     this.flashMsg('模擬戰開始 — 不消耗、不記錄進度', 0x7fc8ff, 2.2, {
       k: 'start',
       m: '模擬戰開始',
