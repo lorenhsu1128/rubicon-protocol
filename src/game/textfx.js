@@ -120,6 +120,12 @@ Object.assign(Game.prototype, {
       }
     }
   },
+  // 序章與章節的開場／章末（game/story.js）：標題＋電影感的逐字
+  tfxStory(title) {
+    if (!this.textfx || !this.textfx.on) return;
+    this.textfx.host($('stTitle'), 'epTitle', title, null);
+    return revealDom($('stLines'), 'ending', { delay: 1, limit: 24 });
+  },
   // 簡報：系統日誌樣式逐字（ECHO 的私人委託是綠字＋故障）
   tfxBrief(echo) {
     if (!this.textfx || !this.textfx.on) return;
@@ -130,8 +136,10 @@ Object.assign(Game.prototype, {
     if (!this.textfx || !this.textfx.on) return;
     this.textfx.host($('epTitle'), 'epTitle', title, null);
     const main = $('epLines').querySelector('.epMain'),
+      rc = $('epLines').querySelector('.epRecall'),
       cd = $('epLines').querySelector('.epCoda');
     let end = revealDom(main, 'ending', { delay: 1.2, limit: 22 });
+    if (rc) end = revealDom(rc, 'briefEcho', { delay: end + 1.5, limit: 16 }); // 回收程序：系統日誌＋故障
     if (cd) end = revealDom(cd, 'coda', { delay: end + 1.2, limit: 14 });
     clearTimeout(this.tfxCreditsTo);
     if (coda)

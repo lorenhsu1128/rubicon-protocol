@@ -6385,7 +6385,7 @@ async function testChapter2(browser, base) {
       c2: g.save.story.choices.c2,
       a: g.hubSortieState('c2s3a'),
       b: g.hubSortieState('c2s3b'),
-      comm: log.some((t) => t.includes('主壩的電力接上了')),
+      comm: log.some((t) => t.includes('電力接進來了')),
     };
   });
   check(
@@ -9109,6 +9109,220 @@ async function testCycle3(browser, base) {
   await ctx.close();
 }
 
+// 主線的劇本：序章與章節的開場／章末（全畫面）、簡報依抉擇、宿敵依抉擇、擊破宿敵的台詞、結局之後的回收程序、章節回顧
+async function testStory(browser, base) {
+  console.log('主線的劇本：序章、章節畫面、依抉擇的簡報與宿敵、回收程序');
+  const { ctx, page } = await newPage(browser, 'story');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.autoPickMod = true;
+    g.storyTest = true;
+    const st = g.campStory();
+    st.cycle = 1;
+    st.done = {};
+    st.choices = {};
+    st.storySeen = {};
+    g.openHub();
+  });
+  const s1 = await page.evaluate(() => ({
+    state: window.__game.state,
+    title: document.getElementById('stTitle').textContent,
+    n: document.querySelectorAll('#stLines p').length,
+  }));
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-prologue.png') });
+  // 逐字全部顯示後的畫面
+  await page.evaluate(() => window.__game.tfxSkip());
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-prologue-full.png') });
+  await page.evaluate(() => window.__game.storyNext());
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => window.__game.tfxSkip());
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-ch1.png') });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.storySeen().i1_1 = 0;
+    g.storyQ = [];
+    g.storyPlay(['p1', 'i1_1'], () => g.openHub());
+  });
+  // 繼續：逐字還沒完時先全部顯示，再按一次換下一則
+  const next = () =>
+    page.evaluate(() => {
+      const g = window.__game;
+      g.storyTypeEnd = 0;
+      g.storyContinue();
+    });
+  const typing = await page.evaluate(() => window.__game.storyTypeEnd > performance.now());
+  await page.click('#btnStoryNext');
+  const same = await page.evaluate(() => document.getElementById('stTitle').textContent);
+  check(!typing || same.includes('序章'), '章節畫面：逐字中按「繼續」先全部顯示');
+  await next();
+  const s2 = await page.evaluate(() => document.getElementById('stTitle').textContent);
+  await next();
+  const s3 = await page.evaluate(() => window.__game.state);
+  check(
+    s1.state === 'story' && s1.title.includes('序章') && s1.n >= 4 && s2.includes('第一章') && s3 === 'hub',
+    '作戰室：第一次進入時播序章與第 1 章的開場，之後回到作戰室（' + s1.title + ' → ' + s2 + '）',
+  );
+  // 整章完成 → 結果畫面之後播章末 → 下一章的開場
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campStory().done = { c1s1: 1 };
+    g.state = 'play';
+    g.campBegin('c1s2');
+    g.campEnterSeg();
+    g.campEnd(true);
+  });
+  await waitVisible(page, 'result');
+  await page.click('#btnResultOk');
+  await waitVisible(page, 'storyScr');
+  const o1 = await page.evaluate(() => document.getElementById('stTitle').textContent);
+  await next();
+  const i2 = await page.evaluate(() => ({
+    state: window.__game.state,
+    title: document.getElementById('stTitle').textContent,
+  }));
+  check(
+    o1.includes('第一章') && o1.includes('完') && i2.state === 'story' && i2.title.includes('第二章'),
+    '整章完成：結果畫面之後播章末，接著播下一章的開場（' + o1 + ' → ' + i2.title + '）',
+  );
+  await next();
+  // 章末依抉擇：第 2 章
+  const o2 = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    const t = (k) => {
+      st.choices = { c2: k };
+      return g.storyItem('o1_2').lines.join('');
+    };
+    return { c: t('castron'), a: t('aetheric') };
+  });
+  check(
+    o2.c.includes('閘門') && !o2.c.includes('冷卻槽') && o2.a.includes('冷卻槽') && !o2.a.includes('慶功宴'),
+    '第 2 章的章末依抉擇 1 不同',
+  );
+  // 簡報依抉擇：第 3 章 c3s3 的委託方、c3s1 的句子；紫色委託由米拉說明
+  const br = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.done = { c1s1: 1, c1s2: 1, c2s1: 1, c2s2: 1, c2s3a: 1, c3s1: 1, c3s2: 1 };
+    const out = {};
+    for (const k of ['castron', 'aetheric']) {
+      st.choices = { c2: k };
+      g.openBrief('c3s3');
+      out[k] = document.getElementById('brClient').textContent;
+      g.openBrief('c3s1');
+      out[k + '1'] = document.getElementById('brLines').textContent;
+    }
+    g.openBrief('c1x');
+    out.mira = document.getElementById('brClient').textContent;
+    return out;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-brief.png') });
+  check(
+    br.castron.includes('霍斯特') &&
+      br.aetheric.includes('薩奇') &&
+      br.castron1.includes('閘門沒開') &&
+      br.aetheric1.includes('河乾了') &&
+      br.mira.includes('米拉'),
+    '簡報依抉擇：c3s3 的委託方與 c3s1 的句子不同，紫色委託由米拉說明（' +
+      br.castron +
+      '／' +
+      br.aetheric +
+      '）',
+  );
+  // 宿敵依抉擇：c6s1 依抉擇 1、c6s3 依抉擇 2、最後的抉擇區段是 ZENITH；擊破宿敵與依抉擇的通訊
+  const ace = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    const segAce = (sid, f, ch) => {
+      st.choices = ch;
+      g.camp = { sid, seg: 0, choice: null, types: {} };
+      const seg = g.campSortie().segs.find(f);
+      const a = g.campSegAce(seg);
+      g.camp = null;
+      return a;
+    };
+    const pick = (ev, c) => {
+      const e = g.commPick(ev, c);
+      return e ? e.lines.map((l) => l[1]).join(' ') : '';
+    };
+    return {
+      c6s1c: segAce('c6s1', (s) => s.ace, { c2: 'castron' }),
+      c6s1a: segAce('c6s1', (s) => s.ace, { c2: 'aetheric' }),
+      c6s3v: segAce('c6s3', (s) => s.ace && !s.choice, { c4: 'veerwell' }),
+      c6s3s: segAce('c6s3', (s) => s.ace && !s.choice, { c4: 'sancta' }),
+      zen: segAce('c6s3', (s) => s.choice, {}),
+      down: pick('aceDown', { ace: 'rust' }),
+      zline: pick('segStart', { sid: 'c6s3', type: 'elite', ace: 'zenith', cycle: 1, truth: false }),
+      c2end: pick('sortieEnd', { sid: 'c2s2', c2: 'aetheric' }),
+    };
+  });
+  check(
+    ace.c6s1c === 'prospector' &&
+      ace.c6s1a === 'rust' &&
+      ace.c6s3v === 'whiteout' &&
+      ace.c6s3s === 'specimen' &&
+      ace.zen === 'zenith' &&
+      ace.down.includes('天線') &&
+      ace.zline.includes('上一個') &&
+      ace.c2end.includes('冷卻'),
+    '宿敵依抉擇、最後的抉擇區段的 ZENITH、擊破宿敵與依抉擇的通訊（' +
+      JSON.stringify(ace).slice(0, 120) +
+      '…）',
+  );
+  // 結局之後的回收程序：交出／墜落有，第 2 周目多兩句，真結局沒有
+  const rc = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.cycle = 1;
+    g.openEpilogue('open');
+    const a = document.querySelector('#epLines .epRecall');
+    const o = { open: a ? a.textContent : '' };
+    st.cycle = 2;
+    g.openEpilogue('seal');
+    o.seal2 = (document.querySelector('#epLines .epRecall') || {}).textContent || '';
+    st.cycle = 3;
+    g.openEpilogue('beyond');
+    o.beyond = !!document.querySelector('#epLines .epRecall');
+    st.cycle = 1;
+    return o;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-recall.png') });
+  check(
+    rc.open.includes('KEY-07') && rc.seal2.includes('私人頻道') && !rc.beyond,
+    '結局之後的回收程序（第 2 周目多兩句、真結局沒有）',
+  );
+  // 章節回顧：看過的可以重看
+  const rv = await page.evaluate(() => {
+    const g = window.__game;
+    g.openHub();
+    g.hubStory(true);
+    const n = document.querySelectorAll('#hubStoryList .storyItem').length;
+    document.querySelector('#hubStoryList .storyItem').click();
+    return { n, state: g.state, title: document.getElementById('stTitle').textContent };
+  });
+  check(
+    rv.n >= 4 && rv.state === 'story' && rv.title.includes('序章'),
+    '章節回顧：列出看過的 ' + rv.n + ' 則並重看',
+  );
+  // 手機橫式：按鈕捲得到
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'story-phone.png') });
+  const fit = await page.evaluate(() => {
+    const sc = document.getElementById('storyScr');
+    const b = document.getElementById('btnStoryNext');
+    b.scrollIntoView();
+    const r = b.getBoundingClientRect();
+    return r.height > 0 && r.bottom <= window.innerHeight + 1 && sc.scrollWidth <= sc.clientWidth + 1;
+  });
+  check(fit, '手機橫式：章節畫面的按鈕捲得到、沒有橫向捲動');
+  await ctx.close();
+}
+
 // 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
 async function testVariants6(browser, base) {
   console.log('主題變體：各主題補到 6 種');
@@ -11401,6 +11615,7 @@ async function main() {
     await run('testVariants6', testVariants6, browser, base);
     await run('testCycle2', testCycle2, browser, base);
     await run('testCycle3', testCycle3, browser, base);
+    await run('testStory', testStory, browser, base);
     await run('testTextFx', testTextFx, browser, base);
     await run('testLevels', testLevels, browser, base);
     await run('testWaves', testWaves, browser, base);

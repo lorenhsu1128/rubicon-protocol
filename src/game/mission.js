@@ -725,6 +725,9 @@ Object.assign(Game.prototype, {
     if (from && from.pmv && from.team === 'player') this.modKillFx(e, from);
     if (!this.isClient) this.dropAmmo(e); // 彈藥箱（map-extras.js）
     this.fbKill(e, from); // 擊破確認音與連殺（feedback.js）
+    // 主線：擊破精英區段的宿敵 AC 時的台詞
+    if (this.camp && this.camp.ss && this.camp.ss.ace && e === this.camp.ss.elite)
+      this.campComm('aceDown', this.campCtx());
     this.save.kills++;
     if (this.mpStats && from && from.team === 'player' && this.mpStats[from.slot])
       this.mpStats[from.slot].kills++;

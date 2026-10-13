@@ -8,9 +8,12 @@ import {
   CHAPTER_NAMES,
   ENDINGS,
   MEMORIES,
+  RECALL_C2,
   REGIONS,
   SPEAKERS,
+  briefClient,
   clientInfo,
+  pickLines,
   speakerBadge,
 } from '../data/story.js';
 import { THEMES } from '../world/world.js';
@@ -58,6 +61,7 @@ Object.assign(Game.prototype, {
       chapter: this.hubChapter(),
       cycle: this.campStory().cycle || 1,
       truth: this.campTruth().ok,
+      ...this.campPickCtx(),
       ...this.campPrevCtx(),
     };
   },
@@ -72,6 +76,7 @@ Object.assign(Game.prototype, {
     SFX.ui();
     this.camp = null;
     this.fromHub = false;
+    if (this.storyHubCheck()) return; // 還沒看過的序章與章節開場（game/story.js）
     this.state = 'hub';
     this.showScreen('hub');
     this.renderHub();
@@ -127,7 +132,7 @@ Object.assign(Game.prototype, {
           ? '#7ee081'
           : s !== 'open'
             ? '#3a4a58'
-            : B.client === 'echo'
+            : briefClient(B) === 'echo'
               ? '#ffd060'
               : B.cycle
                 ? '#c090ff'
@@ -167,12 +172,18 @@ Object.assign(Game.prototype, {
     const $ = (id) => document.getElementById(id);
     const so = SORTIES[sid],
       B = BRIEFINGS[sid] || { lines: [], goal: '', client: 'castron' };
-    const F = clientInfo(B.client);
+    const ch = this.campStory().choices || {};
+    const cl = briefClient(B, ch),
+      F = clientInfo(cl),
+      spk = B.speaker || cl,
+      S = SPEAKERS[spk];
+    // 說話的人（委託方的代表）＋委託方
+    const who = S && spk !== 'echo' ? `${S.name}　` : '';
     this.briefSid = sid;
     this.state = 'brief';
     this.showScreen('brief');
     $('brClient').innerHTML =
-      `${speakerBadge(B.client, 56)}<div><b style="color:${F.color}">${escHtml(F.name)}</b><span class="dim">${escHtml(F.short)}・${escHtml(F.style)}</span></div>`;
+      `${speakerBadge(spk, 56)}<div><b style="color:${F.color}">${escHtml(who || F.name)}</b><span class="dim">${who ? escHtml(F.name) + '・' : ''}${escHtml(F.short)}・${escHtml(F.style)}</span></div>`;
     $('brTitle').textContent = so.name;
     // 路線與抉擇的說明（guide.js）
     $('brInfo').innerHTML = this.guideNodeInfo(sid)
@@ -184,7 +195,7 @@ Object.assign(Game.prototype, {
     const extra = Object.keys(B.prev || {})
       .map((k) => B.prev[k][pv[k]])
       .filter(Boolean);
-    $('brLines').innerHTML = B.lines
+    $('brLines').innerHTML = pickLines(B.lines, ch)
       .concat(extra)
       .map((l) => `<p>${escHtml(l)}</p>`)
       .join('');
@@ -198,7 +209,7 @@ Object.assign(Game.prototype, {
     $('brRoute').innerHTML = route;
     $('brReward').textContent =
       `完成報酬 ${so.reward.toLocaleString()} COAM（另有區段報酬）　完成次數 ${this.campStory().done[sid] || 0}`;
-    this.tfxBrief(B.client === 'echo'); // 文字演出：系統日誌樣式逐字（點一下全部顯示）
+    this.tfxBrief(cl === 'echo'); // 文字演出：系統日誌樣式逐字（點一下全部顯示）
   },
   // 從簡報出擊：有別的出擊進行中時先確認
   briefGo(ok) {
@@ -237,8 +248,12 @@ Object.assign(Game.prototype, {
     // 真結局：6 片記憶片段全部回收時多一段
     const coda = !!(E.full && this.campMemN() >= 6);
     const ps = (a) => a.map((l) => `<p>${escHtml(l)}</p>`).join('');
+    // 回收程序（循環的真相）：第 2 周目多兩句
+    const recall = E.recall ? E.recall.concat(cyc === 2 ? RECALL_C2 : []) : null;
     $('epLines').innerHTML =
-      `<div class="epMain">${ps(E.lines)}</div>` + (coda ? `<div class="epCoda">${ps(E.full)}</div>` : '');
+      `<div class="epMain">${ps(E.lines)}</div>` +
+      (recall ? `<div class="epRecall">${ps(recall)}</div>` : '') +
+      (coda ? `<div class="epCoda">${ps(E.full)}</div>` : '');
     const seen = Object.keys(st.endings || {}).length;
     $('epSeen').textContent = `看過的結局：${seen}／${Object.keys(ENDINGS).length}`;
     $('btnEpNext').style.display = cyc < 3 && !mp ? '' : 'none';

@@ -598,7 +598,7 @@ SORTIES.c6s1 = {
       theme: 'spaceport',
       mode: 'relay',
       pool: ['elite'],
-      ace: { castron: 'prospector', aetheric: 'rust' },
+      ace: { c2: { castron: 'prospector', aetheric: 'rust' } }, // 第 2 章背叛的那一方雇來的
       variants: ['pads'],
     },
     { theme: 'orbit', pool: ['battle', 'destroy', 'intel'], variants: ['cluster', 'span', 'debris'] },
@@ -647,11 +647,12 @@ SORTIES.c6s3 = {
     {
       theme: 'orbit',
       pool: ['elite'],
-      ace: { veerwell: 'specimen', sancta: 'whiteout' },
+      ace: { veerwell: 'whiteout', sancta: 'specimen' }, // 和抉擇 2 對立的一方
       variants: ['nightside', 'dock'],
     },
     { theme: 'orbit', pool: ['battle', 'destroy'], variants: ['nightside', 'cluster', 'debris'] },
-    { theme: 'orbit', pool: ['elite', 'battle'], choice: 'c6', variants: ['dock', 'span', 'sunlit'] },
+    // 最後的抉擇：上一位鑰匙 ZENITH 的警告
+    { theme: 'orbit', pool: ['elite'], ace: 'zenith', choice: 'c6', variants: ['dock', 'span', 'sunlit'] },
     { theme: 'orbit', pool: ['boss'], boss: 'BALTEUS', variants: ['dock'] },
   ],
 };

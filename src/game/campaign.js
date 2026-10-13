@@ -101,10 +101,27 @@ Object.assign(Game.prototype, {
       ace: (c.ss && c.ss.ace) || '',
       cycle: this.campStory().cycle || 1,
       pick: (c.choice && c.choice.key) || this.campLastPick(so.chapter),
+      ...this.campPickCtx(),
       ...this.campPrevCtx(),
       truth: this.campTruth().ok,
       ...extra,
     };
+  },
+  // 這一周目的抉擇 1／抉擇 2（通訊的條件 c2／c4）：存檔裡的，或這次出擊中選的
+  campPickCtx() {
+    const ch = this.campStory().choices || {},
+      cc = this.camp && this.camp.choice;
+    const of = (id) => ch[id] || (cc && cc.id === id ? cc.key : '');
+    return { c2: of('c2'), c4: of('c4') };
+  },
+  // 區段指定的專屬 AC：字串、{ 選項: AC }（依這一章為止最近的抉擇）或 { 抉擇 id: { 選項: AC } }
+  campSegAce(seg) {
+    const a = seg.ace;
+    if (!a) return '';
+    if (typeof a === 'string') return a;
+    const pc = this.campPickCtx();
+    for (const k in a) if (/^c\d$/.test(k) && typeof a[k] === 'object') return a[k][pc[k]] || '';
+    return a[this.campCtx().pick] || '';
   },
   // 到這一章為止最近的陣營抉擇（第 3 章看第 2 章的抉擇 1）
   campLastPick(chapter) {
@@ -334,8 +351,7 @@ Object.assign(Game.prototype, {
       // 具名 AC（強化）＋少數護衛
       // 主題的專屬 AC（劇情角色）；沒有時用一般的具名 AC
       // 區段指定的（依抉擇）＞主題的；別的主題的專屬 AC 是跨章節再登場（強化）
-      const pk = this.campCtx().pick;
-      const ace = (seg.ace && (typeof seg.ace === 'string' ? seg.ace : seg.ace[pk])) || THEME_ACE[seg.theme];
+      const ace = this.campSegAce(seg) || THEME_ACE[seg.theme];
       const key = ace || pick(Object.keys(AC_ROSTER));
       const r = ace ? ACES[ace] : AC_ROSTER[key];
       const up = ace && ACES[ace].theme !== seg.theme ? 1.15 : 1;
@@ -1304,6 +1320,7 @@ Object.assign(Game.prototype, {
       // 整章都完成時戰術模組清空（重打不影響）
       if (!c.replay && this.campChapterCheck(so.chapter)) {
         c.endPick = null; // 整章完成：模組重置，不再選
+        if (!mp && !so.final) this.storyOutro = so.chapter; // 結果畫面之後播章末（game/story.js）
         this.flashMsg('章節完成：戰術模組重置', 0xffd060, 3);
       }
     } else if (c.mods0) this.campSetMods(c.mods0); // 失敗／放棄：退回出擊開始時的模組

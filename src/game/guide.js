@@ -55,7 +55,7 @@ Object.assign(Game.prototype, {
     for (const sid in SORTIES) {
       for (const sg of SORTIES[sid].segs) {
         let a = null;
-        if (sg.ace && typeof sg.ace === 'object') a = sg.ace[key];
+        if (sg.ace && typeof sg.ace === 'object') a = sg.ace[chId] ? sg.ace[chId][key] : sg.ace[key];
         else if (sg.ace && routes.includes(sid)) a = sg.ace;
         if (a && ACES[a] && !aces.includes(ACES[a].name)) aces.push(ACES[a].name);
       }

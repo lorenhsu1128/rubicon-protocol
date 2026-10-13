@@ -222,6 +222,7 @@
             <button id="btnHubEcho" style="display: none" title="第 3 周目：ECHO 的委託回收的記憶片段">
               ECHO 的紀錄
             </button>
+            <button id="btnHubStory" title="看過的序章、章節的開場與章末">章節回顧</button>
             <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">模擬器</button>
             <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">作戰紀錄</button>
             <button id="btnHubBack">回標題</button>
@@ -235,6 +236,10 @@
           <div class="hubLogHead"><b>ECHO 的紀錄</b><button id="btnHubEchoClose">關閉</button></div>
           <div id="hubEchoList"></div>
         </div>
+        <div id="hubStoryBox" class="hubBox" style="display: none">
+          <div class="hubLogHead"><b>章節回顧</b><button id="btnHubStoryClose">關閉</button></div>
+          <div id="hubStoryList"></div>
+        </div>
         <div id="hubLogBox" style="display: none">
           <div class="hubLogHead"><b>通訊紀錄</b><button id="btnHubLogClose">關閉</button></div>
           <div id="hubLogList"></div>
@@ -247,6 +252,14 @@
           <div class="dim">模擬戰不消耗、不記錄進度；教官考核通過時解鎖零件。</div>
           <div id="simList"></div>
           <div class="row"><button id="btnSimBack">返回作戰室</button></div>
+        </div>
+      </div>
+      <div id="storyScr" class="screen">
+        <div class="brBox">
+          <div id="stSub" class="dim"></div>
+          <h2 id="stTitle"></h2>
+          <div id="stLines"></div>
+          <div class="row"><button class="primary" id="btnStoryNext">繼續</button></div>
         </div>
       </div>
       <div id="epilogue" class="screen">

@@ -418,6 +418,7 @@ export class Game {
       this.state === 'sim' ||
       this.state === 'record' ||
       this.state === 'epilogue' ||
+      this.state === 'story' ||
       this.state === 'campfail' ||
       this.state === 'rangemenu' ||
       this.state === 'levels' ||

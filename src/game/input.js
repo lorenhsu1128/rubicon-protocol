@@ -816,6 +816,10 @@ Object.assign(Game.prototype, {
     $('btnHubLogClose').onclick = () => this.hubLog(false);
     $('btnHubFac').onclick = () => this.hubFactions(true);
     $('btnHubEcho').onclick = () => this.hubEcho(true);
+    $('btnHubStory').onclick = () => this.hubStory(true);
+    $('btnHubStoryClose').onclick = () => this.hubStory(false);
+    $('btnStoryNext').onclick = () => this.storyContinue();
+    $('stLines').addEventListener('pointerdown', () => this.tfxSkip()); // 點文字：全部顯示
     $('comm').onclick = () => this.commTap();
     // 靶場面板的觸控按鈕（面板會一直重畫，所以在外層接）
     $('rangePanel').addEventListener('pointerdown', (e) => {
@@ -914,6 +918,12 @@ Object.assign(Game.prototype, {
       }
       if (this.campResultHub) {
         this.campResultHub = false;
+        // 整章完成：先播章末（game/story.js）
+        if (this.storyOutro) {
+          const ch = this.storyOutro;
+          this.storyOutro = null;
+          return this.storyChapterEnd(ch);
+        }
         return this.openHub();
       }
       if (this.net && this.net.role) this.mpBackToLobby();

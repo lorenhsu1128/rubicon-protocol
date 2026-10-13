@@ -17,6 +17,8 @@ const COND = [
   'cycle',
   'ace',
   'pick',
+  'c2',
+  'c4',
   'prevC2',
   'prevC4',
   'prevEnd',
