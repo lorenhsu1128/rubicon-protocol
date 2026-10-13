@@ -179,6 +179,7 @@ Object.assign(Game.prototype, {
       m: '模擬戰開始',
       s: '不消耗、不記錄進度',
     });
+    this.goalIntro();
   },
   // 結束模擬戰（ok＝全滅敵人）：考核通過時解鎖零件
   simEnd(ok) {

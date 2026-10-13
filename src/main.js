@@ -45,6 +45,7 @@ import './entities/mech-foe.js';
 import './game/sim.js';
 import './game/waves.js';
 import './game/ai-director.js';
+import './game/goals.js';
 import './entities/mech-sense.js';
 import './entities/mech-moves.js';
 import './game/outposts.js';

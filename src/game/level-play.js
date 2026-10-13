@@ -163,6 +163,7 @@ Object.assign(Game.prototype, {
       m: o.test ? '試玩' : '作戰開始',
       s: this.levelName,
     });
+    this.goalIntro();
     this.lvEmit('start', {});
   },
   // 執行時的狀態（st 會同步給客機、房主遷移時接手）

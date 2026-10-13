@@ -295,6 +295,7 @@ Object.assign(Game.prototype, {
         ? { k: 'start', m: '作戰開始', s: `${so.name}　${segTxt}` }
         : { k: 'seg', m: this.levelName, s: segTxt },
     );
+    this.goalIntro();
     const lm = this.world.landmark && this.world.landmark.name;
     if (lm) setTimeout(() => this.camp && this.state === 'play' && this.flashAlert(`地標：${lm}`), 2800);
     // 通訊（data/story.js）

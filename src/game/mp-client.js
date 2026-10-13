@@ -91,6 +91,7 @@ Object.assign(Game.prototype, {
       0xffb020,
       2.2,
     );
+    this.goalIntro();
     document.getElementById('bossBar').style.display = this.isBossLevel ? 'block' : 'none';
     if (this.isBossLevel) document.getElementById('bossName').textContent = d.bossName || '';
   },

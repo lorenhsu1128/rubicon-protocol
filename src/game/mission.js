@@ -419,6 +419,7 @@ Object.assign(Game.prototype, {
     this.viewReset();
     const misTxt = (boss ? '決戰任務 ' : '任務 ') + String(L).padStart(2, '0') + ' — ' + T.name;
     this.flashMsg(misTxt, 0xffb020, 2.2, { k: 'start', m: boss ? '決戰開始' : '作戰開始', s: misTxt });
+    this.goalIntro();
     document.getElementById('bossBar').style.display = boss ? 'block' : 'none';
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
   },
@@ -789,6 +790,7 @@ Object.assign(Game.prototype, {
   },
   clearMission() {
     this.aiReset(); // 敵人 AI 的導演（ai-director.js）
+    this.goalClear(); // 過關條件（goals.js）
     this.spawnIdle = false;
     this.lvClear(); // 自訂關卡的光環與區域圈（level-play.js）
     this.rangeRing.visible = false;

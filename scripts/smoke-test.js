@@ -7239,6 +7239,82 @@ async function testChapter5(browser, base) {
 }
 
 // 增援波次：編成分成 3～5 波、敵對 AC 在最後一波、剩下少數時預告方向（ECHO、光柱、畫面指示）後在預告地點出現
+// 過關條件：每個回合開始時中央的卡片（過關／失敗條件）、之後左上一直顯示；自由出擊、主線的防衛區段、自訂關卡
+async function testGoals(browser, base) {
+  console.log('過關條件：回合開始的卡片與左上的常駐顯示');
+  const { ctx, page } = await newPage(browser, 'goals');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const card = () =>
+    page.evaluate(() => {
+      const el = document.getElementById('goalCard');
+      const ht = document.getElementById('hudTop');
+      return {
+        on: !!el && el.classList.contains('on'),
+        txt: el ? el.textContent : '',
+        line: (ht.querySelector('.goalLine') || { textContent: '' }).textContent,
+      };
+    });
+  // 自由出擊：開場時還沒出現，過一下才出現
+  const pre = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 2;
+    g.startMission();
+    const el = document.getElementById('goalCard');
+    return !el || !el.classList.contains('on');
+  });
+  await page.evaluate(() => window.__game.goalTick(3));
+  await page.waitForTimeout(300);
+  const a = await card();
+  await page.screenshot({ path: path.join(SHOT_DIR, 'goals-free.png') });
+  check(
+    pre &&
+      a.on &&
+      a.txt.includes('過關條件') &&
+      a.txt.includes('擊破所有敵軍') &&
+      a.txt.includes('機體被擊破'),
+    `自由出擊：開場後出現過關條件卡片（${a.txt.slice(0, 60)}）`,
+  );
+  check(a.line.includes('擊破所有敵軍'), `自由出擊：左上一直顯示過關條件（${a.line}）`);
+  await page.evaluate(() => window.__game.goalTick(7));
+  await page.waitForTimeout(300);
+  const a2 = await card();
+  check(!a2.on && a2.line.includes('擊破所有敵軍'), '卡片幾秒後收起，左上仍顯示');
+  // 主線：防衛區段
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1s1');
+    g.camp.types[0] = 'defend';
+    g.campEnterSeg();
+    g.goalTick(3);
+  });
+  await page.waitForTimeout(300);
+  const b = await card();
+  await page.screenshot({ path: path.join(SHOT_DIR, 'goals-camp.png') });
+  check(
+    b.on && b.txt.includes('防衛') && b.txt.includes('防衛目標被摧毀') && b.txt.includes('區段 1'),
+    `主線區段：防衛的過關與失敗條件（${b.txt.slice(0, 80)}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+  });
+  // 自訂關卡（第一個範例：有出口）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.lvPlay(g.lvSamples()[0], { src: 'sample' });
+    g.goalTick(3);
+  });
+  await page.waitForTimeout(300);
+  const c = await card();
+  await page.screenshot({ path: path.join(SHOT_DIR, 'goals-level.png') });
+  check(
+    c.on && c.txt.includes('出口') && c.line.length > 2,
+    `自訂關卡：依關卡內容的過關條件（${c.txt.slice(0, 80)}）`,
+  );
+  await ctx.close();
+}
+
 // 敵人 AI：視線、感知（視角與距離、聲音、受到攻擊、無線電）、攻擊權杖（同時最多 3 台主攻、輪替）、預警招式
 async function testEnemyAI(browser, base) {
   console.log('敵人 AI：感知、警戒、仇恨、視線、攻擊權杖、預警招式');
@@ -7261,23 +7337,17 @@ async function testEnemyAI(browser, base) {
     const main = g.enemies.filter((e) => !e.guardOf && e.senseOn());
     out.idle = main.filter((e) => e.sn.st === 0).length;
     out.first = main.length;
-    // 視線：大型方塊障礙物兩側被擋住、上方看得到
-    const o = W.obstacles.find(
-      (b) =>
-        b.kind === 'box' &&
-        !b.deck &&
-        b.y < W.terrainHeight(b.x, b.z) + 0.5 &&
-        b.top - W.terrainHeight(b.x, b.z) > 4 &&
-        b.w > 3 &&
-        b.d > 3,
-    );
-    if (o) {
-      const y = W.terrainHeight(o.x, o.z) + 1.5;
-      out.losBlock = W.losBlocked(new THREE.Vector3(o.x - o.w, y, o.z), new THREE.Vector3(o.x + o.w, y, o.z));
-      out.losOver = W.losBlocked(
-        new THREE.Vector3(o.x - o.w, o.top + 4, o.z),
-        new THREE.Vector3(o.x + o.w, o.top + 4, o.z),
-      );
+    // 視線：方塊障礙物兩側被擋住、上方看得到（地圖是隨機的，所以在出生點放一個測試用的方塊、只留它）
+    {
+      const obs = W.obstacles;
+      const x = pl.pos.x,
+        z = pl.pos.z,
+        h0 = W.terrainHeight(x, z);
+      W.obstacles = [{ kind: 'box', x, z, w: 6, d: 6, y: h0, top: h0 + 8 }];
+      const y = h0 + 1.5;
+      out.losBlock = W.losBlocked(new THREE.Vector3(x - 7, y, z), new THREE.Vector3(x + 7, y, z));
+      out.losOver = W.losBlocked(new THREE.Vector3(x - 7, h0 + 12, z), new THREE.Vector3(x + 7, h0 + 12, z));
+      W.obstacles = obs;
     }
     for (const e of g.enemies) e.takeDamage(1e9, 0, null, e.center());
     // 測試用的待機 MT
@@ -7352,7 +7422,10 @@ async function testEnemyAI(browser, base) {
     return out;
   });
   check(r.idle > 0 && r.idle === r.first, `第一波在原地待機（${r.idle}/${r.first}）`);
-  check(r.losBlock === true && r.losOver === false, '視線：障礙物兩側擋住、上方看得到');
+  check(
+    r.losBlock === true && r.losOver === false,
+    `視線：障礙物兩側擋住、上方看得到（${r.losBlock}／${r.losOver}）`,
+  );
   check(r.behind !== undefined && r.behind !== 2, `背後 26 m 看不到（狀態 ${r.behind}）`);
   check(r.front === 2 && r.frontT > 0.1 && r.frontT < 2.5, `正面 24 m 看得到：${r.frontT} 秒後交戰`);
   check(r.noise === 1, `玩家開火讓附近的待機敵人起疑（狀態 ${r.noise}）`);
@@ -11332,6 +11405,7 @@ async function main() {
     await run('testLevels', testLevels, browser, base);
     await run('testWaves', testWaves, browser, base);
     await run('testEnemyAI', testEnemyAI, browser, base);
+    await run('testGoals', testGoals, browser, base);
     await run('testOutposts', testOutposts, browser, base);
     await run('testModFx', testModFx, browser, base);
     await run('testSupply', testSupply, browser, base);

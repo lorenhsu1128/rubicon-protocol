@@ -272,6 +272,7 @@ Object.assign(Game.prototype, {
         : this.campC && this.campC.view
           ? this.campHudHtml(this.campC.view)
           : `<b>${this.isBossLevel ? '決戰任務' : '任務'} ${String(this.save.level).padStart(2, '0')}</b> ｜ ${escHtml(this.levelName)}<div id="objective">${this.extract > 0 ? `撤離倒數 ${Math.ceil(this.extract)} 秒（回收補給箱）` : `殘存敵軍 ${alive}${wavesLeft ? ' （尚有增援）' : ''}`} ｜ ${this.missionT.toFixed(0)}s</div><div style="color:var(--acc)">COAM ${this.save.coam.toLocaleString()} <span class="dim">（本次 +${(this.missionEarned || 0).toLocaleString()}）</span></div>`;
+    if (this.goalCur) document.getElementById('hudTop').insertAdjacentHTML('beforeend', this.goalHudHtml());
     if ((this.frames & 15) === 0) {
       const ht = document.getElementById('hudTop'),
         hb = document.getElementById('hudBottom');
@@ -282,6 +283,7 @@ Object.assign(Game.prototype, {
       if (rp) rp.style.top = vp && this.range ? hb.offsetTop + hb.offsetHeight + 6 + 'px' : '';
     }
     if (this.camp || this.campC) this.campDrawHud(c);
+    this.goalTick(dt); // 過關條件（goals.js）
     if (this.bountyPops.length) {
       c.textAlign = 'left';
       c.font = (innerHeight < 540 ? 'bold 11px' : 'bold 16px') + ' Chakra Petch';
