@@ -1197,6 +1197,7 @@ export const ENEMY_TYPES = {
     dmgMul: 0.5,
     stabMul: 0.3,
     ai: 'kamikaze',
+    pref: 'ally', // 優先衝向友軍與護送車隊（mech-sense.js 的仇恨）
     wantDist: 0,
     speedMul: 1.7,
     explodeOnDeath: { dmg: 700, impact: 900, splash: 6 },
@@ -1369,6 +1370,7 @@ export const ENEMY_TYPES = {
     dmgMul: 0.5,
     stabMul: 0.8,
     ai: 'mortar',
+    pref: 'still', // 優先打站著不動的
     wantDist: 50,
     intro: '迫擊砲 MT — 地面的紅圈是砲彈落點，別停在原地',
     gen: () => ({

@@ -7239,6 +7239,188 @@ async function testChapter5(browser, base) {
 }
 
 // 增援波次：編成分成 3～5 波、敵對 AC 在最後一波、剩下少數時預告方向（ECHO、光柱、畫面指示）後在預告地點出現
+// 敵人 AI：視線、感知（視角與距離、聲音、受到攻擊、無線電）、攻擊權杖（同時最多 3 台主攻、輪替）、預警招式
+async function testEnemyAI(browser, base) {
+  console.log('敵人 AI：感知、警戒、仇恨、視線、攻擊權杖、預警招式');
+  const { ctx, page } = await newPage(browser, 'enemy-ai');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 5;
+    g.startMission();
+    g.state = 'ai-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    g.waves = [];
+    g.wavePend = null;
+    const dt = 1 / 60;
+    const W = g.world;
+    const out = {};
+    // 據點的守衛（另外有守在原地的規則）與支援類（運輸機、修理…）不算
+    const main = g.enemies.filter((e) => !e.guardOf && e.senseOn());
+    out.idle = main.filter((e) => e.sn.st === 0).length;
+    out.first = main.length;
+    // 視線：大型方塊障礙物兩側被擋住、上方看得到
+    const o = W.obstacles.find(
+      (b) =>
+        b.kind === 'box' &&
+        !b.deck &&
+        b.y < W.terrainHeight(b.x, b.z) + 0.5 &&
+        b.top - W.terrainHeight(b.x, b.z) > 4 &&
+        b.w > 3 &&
+        b.d > 3,
+    );
+    if (o) {
+      const y = W.terrainHeight(o.x, o.z) + 1.5;
+      out.losBlock = W.losBlocked(new THREE.Vector3(o.x - o.w, y, o.z), new THREE.Vector3(o.x + o.w, y, o.z));
+      out.losOver = W.losBlocked(
+        new THREE.Vector3(o.x - o.w, o.top + 4, o.z),
+        new THREE.Vector3(o.x + o.w, o.top + 4, o.z),
+      );
+    }
+    for (const e of g.enemies) e.takeDamage(1e9, 0, null, e.center());
+    // 測試用的待機 MT
+    const mk = () => {
+      g.spawnIdle = true;
+      const e = g.spawnType('mt', 1, 1, null, 1);
+      g.spawnIdle = false;
+      e.sn.wT = 99;
+      e.sn.wGoal = null;
+      return e;
+    };
+    // 找一個看得到的位置：從 e 的正面（ang＝相對面向的角度）距離 dist
+    const spot = (e, ang, dist) => {
+      for (let i = 0; i < 40; i++) {
+        const a = e.yaw + ang + (i % 2 ? 1 : -1) * Math.floor(i / 2) * 0.05;
+        const dd = dist + (i % 5);
+        const x = e.pos.x - Math.sin(a) * dd,
+          z = e.pos.z - Math.cos(a) * dd;
+        const p = new THREE.Vector3(x, W.groundAt(x, z, 50), z);
+        if (!W.losBlocked(e.eye(), p.clone().setY(p.y + 1.6))) return p;
+      }
+      return null;
+    };
+    const step = (list, sec) => {
+      for (let t = 0; t < sec; t += dt) {
+        g.time += dt;
+        for (const e of list) if (!e.dead) e.updateAI(dt);
+      }
+    };
+    // 背後看不到
+    const eB = mk();
+    const pB = spot(eB, Math.PI, 26);
+    if (pB) {
+      pl.pos.copy(pB);
+      step([eB], 1.5);
+      out.behind = eB.sn.st;
+    }
+    eB.takeDamage(1e9, 0, null, eB.center());
+    // 正面看得到：察覺量表滿了才交戰
+    const eF = mk();
+    const pF = spot(eF, 0, 24);
+    if (pF) {
+      pl.pos.copy(pF);
+      let t = 0;
+      while (eF.sn.st !== 2 && t < 3) {
+        step([eF], 0.05);
+        t += 0.05;
+      }
+      out.front = eF.sn.st;
+      out.frontT = +t.toFixed(2);
+    }
+    eF.takeDamage(1e9, 0, null, eF.center());
+    // 聲音：開火讓附近的待機敵人起疑
+    const eN = mk();
+    pl.pos.set(eN.pos.x + 30, eN.pos.y, eN.pos.z);
+    g.aiFireNoise(pl, 'bullet');
+    out.noise = eN.sn.st;
+    eN.takeDamage(1e9, 0, null, eN.center());
+    // 受到攻擊：直接交戰＋仇恨；無線電通知 35 m 內的待機友軍
+    const eH = mk(),
+      eR = mk();
+    eR.pos.set(eH.pos.x + 10, eH.pos.y, eH.pos.z);
+    pl.pos.set(eH.pos.x + 70, eH.pos.y, eH.pos.z + 70);
+    eH.takeDamage(1, 0, pl, eH.center());
+    out.hit = eH.sn.st;
+    out.threat = +(eH.sn.th.get(pl.id) || 0).toFixed(2);
+    out.radio0 = eR.sn.st;
+    step([eH], 1.2);
+    out.radio = eR.sn.st;
+    for (const e of g.enemies) if (!e.dead) e.takeDamage(1e9, 0, null, e.center());
+    g.enemies = g.enemies.filter((e) => !e.dead);
+    return out;
+  });
+  check(r.idle > 0 && r.idle === r.first, `第一波在原地待機（${r.idle}/${r.first}）`);
+  check(r.losBlock === true && r.losOver === false, '視線：障礙物兩側擋住、上方看得到');
+  check(r.behind !== undefined && r.behind !== 2, `背後 26 m 看不到（狀態 ${r.behind}）`);
+  check(r.front === 2 && r.frontT > 0.1 && r.frontT < 2.5, `正面 24 m 看得到：${r.frontT} 秒後交戰`);
+  check(r.noise === 1, `玩家開火讓附近的待機敵人起疑（狀態 ${r.noise}）`);
+  check(r.hit === 2 && r.threat > 0, `受到攻擊直接交戰、累積仇恨（${r.threat}）`);
+  check(r.radio0 === 0 && r.radio === 2, '發現後以無線電通知附近的待機友軍');
+  // 攻擊權杖：一大群敵人在鏡頭前方，推進 12 秒遊戲時間——同時最多 3 台主攻、會輪替、會放預警招式；沒拿到的退到外圈
+  const t = await page.evaluate(() => {
+    const g = window.__game;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.pos.set(0, g.world.groundAt(0, 0, 50), 0);
+    const dt = 1 / 30;
+    for (let i = 0; i < 30; i++) g.updateCamera(dt);
+    const f = g.camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
+    const a0 = Math.atan2(f.z, f.x);
+    const types = ['mt', 'mt', 'mt', 'mt', 'mth', 'mth', 'drone', 'mt_gren', 'mt', 'tank'];
+    types.forEach((t, i) => {
+      const a = a0 + (i / (types.length - 1) - 0.5) * 1.6,
+        R = 20 + (i % 3) * 5;
+      const x = Math.cos(a) * R,
+        z = Math.sin(a) * R;
+      g.spawnType(t, 1, 1, new THREE.Vector3(x, g.world.groundAt(x, z, 50), z), 1);
+    });
+    const L = { maxHold: 0, holders: new Set(), moves: new Set(), samples: 0, holdSum: 0, supD: 0, supN: 0 };
+    for (let k = 0; k < 360; k++) {
+      g.time += dt;
+      pl.pos.set(0, g.world.groundAt(0, 0, 50), 0);
+      g.aiDirectorTick(dt);
+      for (const e of g.enemies) if (!e.dead) e.updateAI(dt);
+      g.projectiles.length = 0;
+      g.updateCamera(dt);
+      if (k % 3) continue;
+      const live = g.enemies.filter((e) => !e.dead && e.sn);
+      const h = live.filter((e) => e.sn.tok && !e.ace);
+      L.maxHold = Math.max(L.maxHold, h.length);
+      if (k > 60) {
+        L.samples++;
+        L.holdSum += h.length;
+      }
+      for (const e of h) L.holders.add(e.id);
+      for (const e of live) {
+        if (e.sn.mv) L.moves.add(e.sn.mv.k);
+        if (!e.sn.tok && k > 180) {
+          L.supD += e.pos.distanceTo(pl.pos);
+          L.supN++;
+        }
+      }
+    }
+    return {
+      maxHold: L.maxHold,
+      avg: +(L.holdSum / L.samples).toFixed(2),
+      rot: L.holders.size,
+      moves: [...L.moves].join(','),
+      supD: Math.round(L.supD / Math.max(1, L.supN)),
+    };
+  });
+  check(t.maxHold <= 3 && t.avg >= 1, `一群敵人同時最多 3 台主攻（最多 ${t.maxHold}、平均 ${t.avg}）`);
+  check(t.rot >= 4, `主攻會輪替（拿過權杖的 ${t.rot} 台）`);
+  check(t.moves.split(',').filter(Boolean).length >= 2, `主攻放預警招式（${t.moves}）`);
+  check(t.supD >= 28, `沒拿到權杖的退到外圈（平均 ${t.supD} m）`);
+  await page.evaluate(() => {
+    window.__game.state = 'play';
+  });
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'enemy-ai.png') });
+  await ctx.close();
+}
+
 async function testWaves(browser, base) {
   console.log('增援波次：分波、預告方向、在預告的地點出現');
   const { ctx, page } = await newPage(browser, 'waves');
@@ -11149,6 +11331,7 @@ async function main() {
     await run('testTextFx', testTextFx, browser, base);
     await run('testLevels', testLevels, browser, base);
     await run('testWaves', testWaves, browser, base);
+    await run('testEnemyAI', testEnemyAI, browser, base);
     await run('testOutposts', testOutposts, browser, base);
     await run('testModFx', testModFx, browser, base);
     await run('testSupply', testSupply, browser, base);

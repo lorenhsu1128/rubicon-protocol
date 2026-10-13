@@ -579,6 +579,9 @@ Object.assign(Game.prototype, {
         wantDist: r.wantDist,
         speedMul: r.speedMul,
         turnRate: r.turnRate,
+        etype: t,
+        ace: true,
+        pref: r.ai === 'sniper' ? 'far' : undefined,
       });
       this.flashMsg(`敵對 AC「${r.name}」介入`, 0xff4d4d, 2.2, { k: 'ace', m: r.name, s: 'HOSTILE AC 介入' });
       this.flashAlert(r.intro);
@@ -587,6 +590,7 @@ Object.assign(Game.prototype, {
     const n = count || d.group || 1;
     let last = null;
     const a0 = Math.random() * Math.PI * 2;
+    const sq = n > 1 ? (this.squadSeq = (this.squadSeq || 0) + 1) : 0; // 編隊：無線電互相通知（game/ai-director.js）
     for (let i = 0; i < n; i++) {
       const asm = d.gen();
       last = this.spawnEnemy({
@@ -613,6 +617,11 @@ Object.assign(Game.prototype, {
         perch: d.perch,
         extraWeapons: d.extraWeapons,
         flankAngle: a0 + i * ((Math.PI * 2) / n),
+        etype: t,
+        ace: t === 'ac',
+        themeFoe: !ENEMY_TYPES[t], // 主題專屬敵人（data/foes.js）：壓制時照自己的行為，只限制一般射擊
+        pref: d.pref,
+        sq,
         at: at ? at.clone().add(new THREE.Vector3(i * 1.5, 0, 0)) : null,
       });
     }
@@ -684,6 +693,8 @@ Object.assign(Game.prototype, {
     e.pos.set(sp.x, y, sp.z);
     // 據點的守衛（game/outposts.js）：不算主要戰力
     if (this.guardAt) e.guardOf = o.guardOf = this.guardAt;
+    // 第一波：在原地待機，發現玩家才交戰（偷襲先手的小優勢；mech-sense.js）
+    if (this.spawnIdle && !e.guardOf && e.senseOn()) e.senseInit(true);
     this.registerSpawn(e);
     e.yaw = e.aimYaw = Math.atan2(-(0 - sp.x), -(0 - sp.z));
     e.mesh.position.copy(e.pos);
@@ -777,6 +788,8 @@ Object.assign(Game.prototype, {
     }, 2600);
   },
   clearMission() {
+    this.aiReset(); // 敵人 AI 的導演（ai-director.js）
+    this.spawnIdle = false;
     this.lvClear(); // 自訂關卡的光環與區域圈（level-play.js）
     this.rangeRing.visible = false;
     this.campClearExits();

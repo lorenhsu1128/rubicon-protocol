@@ -13,7 +13,8 @@ const isAce = (t) => t === 'ac' || !!(ENEMY_TYPES[t] || {}).roster;
 
 Object.assign(Game.prototype, {
   // 編成分成 3～5 波：第一波直接生成，其餘由 waveTick 依序派出；敵對 AC（小頭目）在最後一波
-  spawnComp(comp, np, scaleHp, scaleDmg) {
+  // idle：第一波在原地待機（發現玩家才交戰；突破區段、模擬器一開始就交戰）
+  spawnComp(comp, np, scaleHp, scaleDmg, idle = true) {
     const aces = comp.filter(isAce);
     const body = comp.filter((t) => !isAce(t));
     const per = 3 + (np - 1) * 2;
@@ -28,7 +29,12 @@ Object.assign(Game.prototype, {
     this.waveSize = Math.max(1, Math.ceil(body.length / n));
     this.waveGap = WAVE_GAP;
     this.wavePend = null;
-    for (const t of first) this.spawnType(t, scaleHp, scaleDmg);
+    this.spawnIdle = idle;
+    try {
+      for (const t of first) this.spawnType(t, scaleHp, scaleDmg);
+    } finally {
+      this.spawnIdle = false;
+    }
   },
   // 每格（房主／單機，非 Boss 關）：等待中的波次倒數；場上的敵人降到門檻就派出下一波
   waveTick(dt) {

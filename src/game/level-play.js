@@ -354,6 +354,7 @@ Object.assign(Game.prototype, {
               speedMul: r.speedMul,
               turnRate: r.turnRate,
               amphib: r.amphib,
+              ace: true,
               at: usePt ? null : at,
             }),
           );

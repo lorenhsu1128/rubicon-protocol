@@ -355,6 +355,7 @@ Object.assign(Game.prototype, {
         speedMul: r.speedMul,
         turnRate: r.turnRate,
         amphib: r.amphib,
+        ace: true,
       });
       this.bosses = [e];
       ss.elite = e;
@@ -377,7 +378,7 @@ Object.assign(Game.prototype, {
       this.campConvoy();
     } else if (type === 'breakthrough') {
       ss.brk = { t: 75, waveT: 10 };
-      this.spawnComp(comp(L), 1, sh, sd);
+      this.spawnComp(comp(L), 1, sh, sd, false); // 突破：一開始就在交戰
       this.campSpawnExits();
       this.flashAlert('突破任務：不必全滅，抵達任一出口即可');
     } else if (type === 'supply') {

@@ -2478,4 +2478,54 @@ export class World {
     }
     return false;
   }
+  // 視線（敵人 AI 的感知，game/ai-director.js）：地形＋障礙物（方塊以外框、圓柱以垂直圓柱）擋住 a→b 時為 true；
+  // 方塊略縮 0.85 倍，邊角擦過不算擋住；細的柱子（半徑 1 m 以下）不擋
+  losBlocked(a, b) {
+    if (this.terrainBlocks(a, b, 12)) return true;
+    const dx = b.x - a.x,
+      dy = b.y - a.y,
+      dz = b.z - a.z;
+    const minX = Math.min(a.x, b.x),
+      maxX = Math.max(a.x, b.x),
+      minZ = Math.min(a.z, b.z),
+      maxZ = Math.max(a.z, b.z);
+    for (const o of this.obstacles) {
+      if (o.kind === 'box') {
+        const hw = (o.w / 2) * 0.85,
+          hd = (o.d / 2) * 0.85;
+        if (o.x + hw < minX || o.x - hw > maxX || o.z + hd < minZ || o.z - hd > maxZ) continue;
+        // 線段與外框的 slab 測試
+        let t0 = 0,
+          t1 = 1;
+        const lo = [o.x - hw, o.y === undefined ? -1e9 : o.y, o.z - hd],
+          hi = [o.x + hw, o.top, o.z + hd],
+          p = [a.x, a.y, a.z],
+          v = [dx, dy, dz];
+        let hit = true;
+        for (let k = 0; k < 3 && hit; k++) {
+          if (Math.abs(v[k]) < 1e-6) {
+            if (p[k] < lo[k] || p[k] > hi[k]) hit = false;
+          } else {
+            let ta = (lo[k] - p[k]) / v[k],
+              tb = (hi[k] - p[k]) / v[k];
+            if (ta > tb) [ta, tb] = [tb, ta];
+            t0 = Math.max(t0, ta);
+            t1 = Math.min(t1, tb);
+            if (t0 > t1) hit = false;
+          }
+        }
+        if (hit) return true;
+      } else if (o.r > 1) {
+        if (o.x + o.r < minX || o.x - o.r > maxX || o.z + o.r < minZ || o.z - o.r > maxZ) continue;
+        const L2 = dx * dx + dz * dz;
+        const t = L2 > 1e-6 ? clamp(((o.x - a.x) * dx + (o.z - a.z) * dz) / L2, 0, 1) : 0;
+        const cx = a.x + dx * t - o.x,
+          cz = a.z + dz * t - o.z;
+        if (cx * cx + cz * cz > o.r * o.r * 0.8) continue;
+        const top = o.top !== undefined ? o.top : this.terrainHeight(o.x, o.z) + o.r * 2;
+        if (a.y + dy * t < top) return true;
+      }
+    }
+    return false;
+  }
 }

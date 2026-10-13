@@ -21,6 +21,16 @@ import {
 } from '../data/parts.js';
 import { assistSpread, fcsAssist, leadOf, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
+import {
+  CHARGE_AI,
+  HOLDER_IDLE_FIRE,
+  NOISE_QB,
+  SEEK_AI,
+  SUPPORT_AI,
+  SUP_FIRE,
+  SUP_SPECIAL_DT,
+  SUP_SPREAD,
+} from '../data/ai.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
@@ -78,6 +88,10 @@ export class MechEntity {
     this.acsDecayDelay = 0;
     this.radius = (opts.radius || 1.3) * this.scale;
     this.aiSkill = opts.aiSkill || 1;
+    this.etype = opts.etype || null; // ENEMY_TYPES 的鍵（攻擊權杖的權重與招式，data/ai.js）
+    this.ace = !!opts.ace; // 敵對 AC：一律主攻、不會跟丟目標
+    this.sq = opts.sq || 0; // 編隊編號（無線電）
+    this.themeFoe = !!opts.themeFoe;
     this.pvpAi = !!opts.pvpAi;
     this.pvpTeam = opts.pvpTeam !== undefined ? opts.pvpTeam : opts.team === 'enemy' ? -1 : 0;
     this.hoverH = opts.hoverH || 7;
@@ -268,6 +282,7 @@ export class MechEntity {
     }
     const muzzle = this.muzzle(slot);
     const from = this.center();
+    if (this.pilotEnt()) g.aiFireNoise(this, d.type); // 開火的聲音（敵人起疑，game/ai-director.js）
     const SP = this.isPlayer ? null : muzzle;
     // 火控的距離輔助：依距離決定預判準度與集彈（data/parts.js 的 fcsAssist）
     const tgtOk = targetEnt && !targetEnt.dead && targetEnt.center;
@@ -289,6 +304,7 @@ export class MechEntity {
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
         hmul *
         steady *
+        (this.supK || 1) * // 壓制射擊（沒拿到攻擊權杖）的擴散
         assistSpread(assist) +
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
@@ -899,6 +915,7 @@ export class MechEntity {
     if (this.dead) return;
     if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
     if (this.iFrames > 0) return;
+    if (this.sn) this.senseHit(from, dmg); // 仇恨與交戰（mech-sense.js）
     // DUELIST 格擋：未在連段中、未硬直、面向攻擊者時 55% 擋下近戰第 1 段並反擊
     if (
       melee &&
@@ -926,6 +943,7 @@ export class MechEntity {
     if (!sd) return;
     [dmg, impact] = sd;
     if (this.markT > 0) dmg *= 1.3; // 被軌道標定衛星標定（mech-foe.js）
+    if (this.sn && this.sn.vuln > 0) dmg *= 1.25; // 招式後的破綻（過熱，mech-moves.js）
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
       this.comboT = 1.2;
@@ -1302,6 +1320,7 @@ export class MechEntity {
     if (wantQB && this.qbT <= 0 && wish.lengthSq() > 0.1 && this.useEn(P.booster.qbCost)) {
       this.qbT = 0.16;
       this.qbDir.copy(wish).normalize();
+      if (this.pilotEnt()) g.aiNoise(this, NOISE_QB); // 敵人聽得到（game/ai-director.js）
       SFX.qb(this.isPlayer ? null : this.center());
       if (this.isPlayer) g.rumble(0.1, 0.35, 80);
       g.fx.chevrons(this.pos.clone(), this.qbDir.clone().negate(), 0xffffff);
@@ -1865,15 +1884,21 @@ export class MechEntity {
       this.move(dt, new THREE.Vector3(), false, false, false, null);
       return;
     }
-    // pick nearest hostile
-    let pl = null,
-      bd = 1e9;
-    for (const h of g.hostilesOfEnt(this)) {
-      if (h.dead || h.noLock) continue; // 迷彩中、分離中、在隧道裡的 Boss 不當目標
-      const dd = h.pos.distanceToSquared(this.pos);
-      if (dd < bd) {
-        bd = dd;
-        pl = h;
+    let pl = null;
+    const sense = this.senseOn(); // 一般敵人：感知、警戒、仇恨（mech-sense.js）
+    if (sense) {
+      if (this.senseTick(dt)) return; // 待機、起疑、搜索：自己移動
+      pl = this.sn.tgt;
+    } else {
+      // pick nearest hostile
+      let bd = 1e9;
+      for (const h of g.hostilesOfEnt(this)) {
+        if (h.dead || h.noLock) continue; // 迷彩中、分離中、在隧道裡的 Boss 不當目標
+        const dd = h.pos.distanceToSquared(this.pos);
+        if (dd < bd) {
+          bd = dd;
+          pl = h;
+        }
       }
     }
     this.lockAge(pl); // 導彈的鎖定時間
@@ -1921,6 +1946,14 @@ export class MechEntity {
       s.want = (this.opts.wantDist || 22) * rnd(0.75, 1.25);
     }
     const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(s.strafe);
+    // 攻擊權杖（game/ai-director.js）：沒拿到的壓制＝退到外圈、少量且散的射擊、特殊攻擊放慢；自己看不到目標時找射線
+    const sn = sense ? this.sn : null;
+    const sup = !!sn && !sn.tok && !this.ace;
+    const blind = !!sn && sn.blind > 1.2;
+    if (sup && !this.themeFoe) s.want = Math.max(s.want, sn.ring);
+    if (blind && sn.kn) this.setAim(sn.kn.clone().setY(aimPos.y)); // 看不到：朝最後已知位置
+    // 主題專屬敵人的計時也管移動（爬柱子、繞圈），不放慢
+    const sdt = sup && !SUPPORT_AI.has(this.ai) && !this.themeFoe ? dt * SUP_SPECIAL_DT : dt;
     // 指揮官 MT 被擊破後的混亂：亂走、不開火
     if (this.confuseT > 0) {
       this.confuseT -= dt;
@@ -1940,8 +1973,18 @@ export class MechEntity {
           }
       }
     }
-    const sm = this.aiSpecialMove(dt, d, dir, perp, wish, pl);
-    if (sm) {
+    let handled = false;
+    if (blind && SEEK_AI.has(this.ai)) {
+      hover = this.seekLos(wish, dt);
+      handled = true;
+    } else if (sup && CHARGE_AI.has(this.ai)) {
+      this.supOrbit(wish, d, dir, perp);
+      handled = true;
+    }
+    const sm = handled ? null : this.aiSpecialMove(sdt, d, dir, perp, wish, pl);
+    if (handled) {
+      /* 找射線／壓制的外圈 */
+    } else if (sm) {
       ({ hover, qb, ab } = sm);
       if (sm.done) return;
     } else if (this.ai === 'turret' || this.ai === 'mt_gren') {
@@ -2118,7 +2161,9 @@ export class MechEntity {
       }
       if (this.ai === 'ac' && d > 40 && Math.random() < dt * 0.5) ab = true;
     }
-    this.aiShock(dt, d, wish);
+    const mvr = sn ? this.movesTick(dt, d, dir, pl, wish) : null; // 主攻的預警招式（mech-moves.js）
+    if (mvr && mvr.ab) ab = true;
+    if (!sup) this.aiShock(dt, d, wish);
     // boss patterns
     if (this.isBoss && this.opts.bossKind === 'heli') this.heliBossAI(dt, d, dir, perp, wish, pl);
     else if (this.isBoss && !this.opts.bossKind) {
@@ -2131,7 +2176,27 @@ export class MechEntity {
         return;
       }
       // 特殊敵人自己處理開火（迫擊砲、布雷、修理、護盾、運輸機）
-      if (this.aiSpecialFire(dt, d, aimPos, pl)) {
+      if (this.aiSpecialFire(sdt, d, aimPos, pl)) {
+        this.move(dt, wish, hover, qb, ab, null);
+        return;
+      }
+      if (mvr && mvr.skip) {
+        // 招式自己開火
+        this.move(dt, wish, hover, qb, ab, ab ? pl : null);
+        return;
+      }
+      // 壓制與看不到時的開火限制
+      const hasMv = !!sn && !!this.movesOf();
+      const fk = !sn ? 1 : sup ? SUP_FIRE : hasMv ? HOLDER_IDLE_FIRE : 1;
+      const allow = (type) => {
+        if (!sn) return true;
+        const ind = type === 'missile' || type === 'grenade';
+        if (blind) return ind && !sup;
+        if (sup && (ind || type === 'melee')) return false;
+        return !(hasMv && ind);
+      };
+      this.supK = sup ? SUP_SPREAD : 1;
+      if (this.ai === 'sniper' && blind) {
         this.move(dt, wish, hover, qb, ab, null);
         return;
       }
@@ -2162,12 +2227,13 @@ export class MechEntity {
       if (this.ai === 'rain') {
         for (const slot of ['rback', 'lback']) {
           const w = this.weapons[slot];
+          if (!allow(w.def.type)) continue;
           if (
             w.def.type === 'missile' &&
             w.cd <= 0 &&
             w.reloadT <= 0 &&
             d < w.def.range &&
-            Math.random() < dt * 1.5
+            Math.random() < dt * 1.5 * fk
           ) {
             if (this.fire(slot, aimPos, pl)) {
               w.mag = 0;
@@ -2185,14 +2251,15 @@ export class MechEntity {
         }
         for (const slot of ['rarm', 'larm']) {
           const w = this.weapons[slot];
-          if (w.def.type !== 'none' && d < w.def.range && Math.random() < dt * 5) this.fire(slot, aimPos, pl);
+          if (w.def.type !== 'none' && allow(w.def.type) && d < w.def.range && Math.random() < dt * 5 * fk)
+            this.fire(slot, aimPos, pl);
         }
         this.move(dt, wish, hover, qb, ab, null);
         return;
       }
       for (const slot of ['rarm', 'larm', 'rback', 'lback']) {
         const w = this.weapons[slot];
-        if (w.def.type === 'none' || w.def.type === 'shield') continue;
+        if (w.def.type === 'none' || w.def.type === 'shield' || !allow(w.def.type)) continue;
         const inR = d < w.def.range * (this.isBoss ? 1.2 : 1) + 2;
         if (!inR) continue;
         if (w.def.type === 'emp') {
@@ -2204,11 +2271,11 @@ export class MechEntity {
           continue;
         }
         if (w.def.type === 'laser' && w.def.chargeT === 0) {
-          if (Math.random() < dt * 2.2) this.fire(slot, pl.center(), pl);
+          if (Math.random() < dt * 2.2 * fk) this.fire(slot, pl.center(), pl);
           continue;
         }
         if (this.ai === 'heli' && w.def.type === 'shell') {
-          if (Math.random() < dt * 0.45) this.fire(slot, aimPos, pl);
+          if (Math.random() < dt * 0.45 * fk) this.fire(slot, aimPos, pl);
           continue;
         }
         if (this.ai === 'mt_gren') {
@@ -2240,6 +2307,7 @@ export class MechEntity {
           dt *
             (w.def.type === 'missile' ? 0.5 : w.def.type === 'bullet' ? 9 : 1.8) *
             (this.ai === 'mt' ? 0.6 : 1) *
+            fk *
             this.aiSkill
         )
           this.fire(slot, aimPos, pl);

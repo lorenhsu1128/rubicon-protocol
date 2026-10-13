@@ -553,7 +553,8 @@ Object.assign(Game.prototype, {
         const k = Math.min((tx - cx) / (Math.cos(ang) || 1e-6), (ty - cy) / (Math.sin(ang) || 1e-6));
         const ax = cx + Math.cos(ang) * Math.abs(k),
           ay = cy + Math.sin(ang) * Math.abs(k);
-        const col = isLock ? '#ffb020' : e.isBoss ? '#ff4d4d' : '#ffffff';
+        const main = (e.sn ? e.senseAw() : e.aw || 0) & 8; // 主攻（攻擊權杖，ai-director.js）
+        const col = isLock ? '#ffb020' : e.isBoss || main ? '#ff4d4d' : '#ffffff';
         const sz = isLock ? 18 : 12;
         c.save();
         c.translate(ax, ay);
@@ -611,6 +612,7 @@ Object.assign(Game.prototype, {
         c.textAlign = 'center';
         c.fillText('STAGGER', s.x, s.y - 4);
       }
+      this.drawAwareMark(c, e, s); // 警戒標示與主攻（ai-director.js）
       if (isLock) {
         const cs = this.proj(e.center());
         const base = (e.isBoss ? 56 : 34) * Math.min(1.6, e.scale || 1);

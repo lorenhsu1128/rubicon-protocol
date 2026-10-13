@@ -499,6 +499,7 @@ export class Game {
       }
     }
     this.updateMapExtras(dt);
+    this.aiDirectorTick(dt); // 敵人 AI：攻擊權杖、節奏導演（ai-director.js）
     for (const e of this.enemies) {
       if (!e.dead) e.updateAI(dt);
     }

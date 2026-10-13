@@ -162,7 +162,7 @@ Object.assign(Game.prototype, {
         document.getElementById('bossName').textContent = bd.name;
       }
       this.waves = [];
-    } else if (key === 'mixed') this.spawnComp(this.rollComp(L, 1), 1, sh, sd);
+    } else if (key === 'mixed') this.spawnComp(this.rollComp(L, 1), 1, sh, sd, false);
     else for (let i = 0; i < 2; i++) this.spawnType(key, sh, sd);
     this.levelName = '模擬訓練場（模擬戰）';
     this.waveAlerted = false;
