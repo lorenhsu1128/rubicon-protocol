@@ -2947,3 +2947,114 @@ body.edHide .edOverlay {
     padding: 3px 7px;
   }
 }
+
+/* 挑底圖（game/editor-pick.js）：左側面板、下方的縮圖歷史、並排比較 */
+body.edPicking #edTop,
+body.edPicking #edLeft,
+body.edPicking #edRight,
+body.edPicking #edTrig {
+  display: none;
+}
+#edPick[hidden] {
+  display: none;
+}
+#epPanel {
+  top: 0;
+  left: 0;
+  bottom: 30px;
+  width: 300px;
+}
+.epSeedRow button {
+  flex: 1;
+}
+#epGrid {
+  width: 100%;
+  margin-top: 4px;
+}
+.epInfo {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c8d2dc;
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  min-height: 3.2em;
+}
+.epGo button.primary {
+  flex: 1;
+}
+.epHist {
+  position: absolute;
+  left: 306px;
+  right: 0;
+  bottom: 30px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  overflow-x: auto;
+  pointer-events: auto;
+}
+.epHist:empty {
+  display: none;
+}
+.epThumb,
+.epCell {
+  flex-shrink: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  font-size: 11px;
+  text-align: left;
+}
+.epThumb {
+  width: 136px;
+}
+.epThumb.on,
+.epCell:hover {
+  border-color: var(--acc);
+}
+.epThumb img {
+  width: 136px;
+  height: 76px;
+  object-fit: cover;
+  display: block;
+}
+.epThumb span,
+.epCell span {
+  padding: 2px 6px 4px;
+  color: #c8d2dc;
+}
+#edPickGrid .panel {
+  width: min(980px, 94vw);
+}
+#edPickGrid .grow {
+  flex: 1;
+}
+.epGridList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.epCell img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+.epCell > .dim {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 900px) {
+  #epPanel {
+    width: 250px;
+  }
+  .epHist {
+    left: 256px;
+  }
+  .epGridList {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

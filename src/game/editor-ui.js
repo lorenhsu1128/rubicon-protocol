@@ -83,8 +83,16 @@ Object.assign(Game.prototype, {
       <div id="edRight" class="edSide"></div>
       <div id="edStat" class="edStat"></div>
       <div id="edTrig" class="edOverlay" hidden></div>
+      <div id="edPick" hidden><div id="epPanel" class="edSide"></div><div id="epHist" class="epHist"></div></div>
+      <div id="edPickGrid" class="edModal" hidden></div>
       <div id="edModal" class="edModal" hidden></div>`;
     root.addEventListener('click', (e) => {
+      // 挑底圖：歷史的縮圖、並排比較的格子（editor-pick.js）
+      const ph = e.target.closest('[data-eh],[data-eg]');
+      if (ph && this.ed && this.ed.pick) {
+        if (ph.dataset.eh !== undefined) return this.edPickFromHist(+ph.dataset.eh);
+        return this.edPickGridChoose(+ph.dataset.eg);
+      }
       const t = e.target.closest(
         '[data-tool],[data-ea],[data-pp],[data-uk],[data-ut],[data-mk],[data-bk],[data-li],[data-pa],[data-ar]',
       );
@@ -219,26 +227,7 @@ Object.assign(Game.prototype, {
       const on = $('edWaterOn').checked;
       return this.edSetWater(on, $('edWaterY').value);
     }
-    if (a === 'rebase') {
-      const patch = {
-        theme: $('edBTheme').value,
-        blank: $('edBBlank').value === 'blank',
-        variant: $('edBBlank').value === 'blank' ? '' : $('edBVariant').value,
-        seed: Math.max(1, Math.floor(+$('edBSeed').value || 1)),
-        props: $('edBProps').value,
-      };
-      return this.edModal(
-        '重建底圖會重新產生地形（地形筆刷的修改與移除的產生器物件會消失；擺放的物件、單位、觸發器保留）。',
-        [
-          ['重建', () => this.edRebase(patch)],
-          ['取消', null],
-        ],
-      );
-    }
-    if (a === 'seed') {
-      $('edBSeed').value = Math.floor(Math.random() * 1e9);
-      return;
-    }
+    if (a === 'rebase') return this.edPickOpen('rebase'); // 挑底圖（editor-pick.js）
     if (a === 'zoneFull') {
       this.edPush();
       this.edCur().base.zone = null;
@@ -496,32 +485,11 @@ Object.assign(Game.prototype, {
         field('Z 從', num('B.zone.z0', B.zone.z0, -200, 200, 1)) +
         field('Z 到', num('B.zone.z1', B.zone.z1, -200, 200, 1));
     h += `<div class="edSub">底圖${ed.seg ? `（第 ${ed.seg + 1} 段）` : ''}</div>`;
-    h += field(
-      '主題',
-      `<select id="edBTheme">${Object.keys(THEMES)
-        .map((k) => opt(k, THEMES[k].name, B.theme))
-        .join('')}</select>`,
-    );
-    h += field(
-      '底圖',
-      `<select id="edBBlank">${opt('blank', '空白（平地）', B.blank ? 'blank' : '')}${opt('gen', '產生器', B.blank ? '' : 'gen')}</select>`,
-    );
-    h += field(
-      '變體',
-      `<select id="edBVariant">${opt('', '標準', B.variant)}${Object.keys(vs)
-        .filter((k) => !vs[k].border)
-        .map((k) => opt(k, vs[k].name || k, B.variant))
-        .join('')}</select>`,
-    );
-    h += field(
-      '種子',
-      `<input type="number" id="edBSeed" value="${B.seed}"><button data-ea="seed">換</button>`,
-    );
-    h += field(
-      '產生器物件',
-      `<select id="edBProps">${opt('all', '全部保留', B.props)}${opt('big', '只留大型結構', B.props)}${opt('none', '不留', B.props)}</select>`,
-    );
-    h += `<button data-ea="rebase">重建底圖</button>`;
+    {
+      const vn = B.variant ? (vs[B.variant] || {}).name || B.variant : '';
+      h += `<div>${escHtml(THEMES[B.theme].name)}${B.blank ? '・空白' : vn ? '・' + escHtml(vn) : ''}　種子 ${B.seed}${B.blank ? '' : `　產生器物件：${{ all: '全部', big: '只留大型', none: '不留' }[B.props]}`}</div>`;
+    }
+    h += `<button data-ea="rebase">選擇底圖…（預覽後再套用）</button>`;
     h += `<div class="edSub">多段出擊</div><div class="dim">目前第 ${ed.seg + 1} 段，共 ${1 + ((L.segs && L.segs.length) || 0)} 段；走進出口或觸發器「前往下一段」時轉場，AP 與彈藥帶到下一段。</div>`;
     if (ed.seg)
       h +=

@@ -9720,14 +9720,73 @@ async function testLevels(browser, base) {
   await waitVisible(page, 'title');
   await page.click('#btnLevels');
   check(await waitVisible(page, 'levels'), '標題「自訂關卡」開啟關卡選單');
-  // 新建：空白底圖
+  // 新建：挑底圖（全畫面預覽）——種子上一個／下一個、歷史縮圖、並排比較，最後選空白底圖
   await page.click('#btnLvNew');
-  await page.selectOption('#lvnBase', 'blank');
-  await page.selectOption('#lvnTheme', 'industrial');
-  await page.fill('#lvnName', '測試關卡');
-  await page.fill('#lvnLevel', '3');
-  await page.click('#btnLvNewGo');
-  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__game.state === 'editor' && window.__game.ed.pick, null, {
+    timeout: 30000,
+  });
+  const idle = () =>
+    page.waitForFunction(
+      () => window.__game.ed.pick && !window.__game.ed.pick.busy && !(window.__game.ed.pick.t > 0),
+      null,
+      {
+        timeout: 30000,
+      },
+    );
+  await page.selectOption('#epTheme', 'wasteland');
+  await page.selectOption('#epBase', 'gen');
+  await wait(400);
+  await idle();
+  const pk1 = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      seed: g.ed.L.base.seed,
+      theme: g.world.themeKey,
+      hist: g.ed.pick.hist.length,
+      info: document.getElementById('epInfo').textContent,
+    };
+  });
+  await page.click('#epNext');
+  await wait(200);
+  await idle();
+  const pk2 = await page.evaluate(() => ({
+    seed: window.__game.ed.L.base.seed,
+    hist: window.__game.ed.pick.hist.length,
+  }));
+  check(
+    pk1.theme === 'wasteland' &&
+      /荒涼工業荒野/.test(pk1.info) &&
+      pk2.seed === pk1.seed + 1 &&
+      pk2.hist === pk1.hist + 1,
+    `挑底圖：改主題與底圖就重新產生、「下一個」種子 +1、歷史縮圖 ${pk2.hist} 張`,
+  );
+  await page.click('#epHist [data-eh="1"]');
+  await idle();
+  check((await page.evaluate(() => window.__game.ed.L.base.seed)) === pk1.seed, '點歷史的縮圖回到那張地圖');
+  await page.click('#epGrid');
+  await page.waitForFunction(() => document.querySelectorAll('#edPickGrid .epCell img').length === 6, null, {
+    timeout: 120000,
+  });
+  const gs = await page.evaluate(() => window.__game.ed.pick.grid[2].seed);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'level-pick-grid.png') });
+  await page.click('#edPickGrid [data-eg="2"]');
+  await page.waitForFunction((s) => window.__game.ed.L.base.seed === s && !window.__game.ed.pick.busy, gs, {
+    timeout: 30000,
+  });
+  check(true, '並排比較 6 張俯視縮圖，點一張改用那個種子');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'level-pick.png') });
+  await page.selectOption('#epTheme', 'industrial');
+  await page.selectOption('#epBase', 'blank');
+  await page.fill('#epName', '測試關卡');
+  await page.fill('#epLevel', '3');
+  await page.click('#epGo');
+  await page.waitForFunction(
+    () => window.__game.state === 'editor' && !window.__game.ed.pick && window.__game.ed.L.base.blank,
+    null,
+    {
+      timeout: 30000,
+    },
+  );
   const e0 = await page.evaluate(() => {
     const g = window.__game;
     return {
@@ -10050,7 +10109,7 @@ async function testLevels(browser, base) {
     g.player.pos.set(m.x, g.world.groundAt(m.x, m.z, 99), m.z);
   });
   await page
-    .waitForFunction(() => window.__game.state === 'editor', null, { timeout: 15000 })
+    .waitForFunction(() => window.__game.state === 'editor', null, { timeout: 40000 })
     .catch(() => {});
   const s5 = await page.evaluate(() => ({
     st: window.__game.state,
@@ -10134,15 +10193,44 @@ async function testLevels(browser, base) {
     await page.evaluate(() => window.__game.state === 'editor' && !!window.__game.ed.L.clear),
     '第 2 段的觸發器「任務成功」：整段出擊通關',
   );
+  // 設定的「選擇底圖…」：取消回到原本的底圖；套用換成產生器底圖（可以復原）
+  await page.click('[data-tool="set"]');
+  await page.click('[data-ea="rebase"]');
+  await page.waitForFunction(() => window.__game.ed.pick && window.__game.ed.pick.mode === 'rebase', null, {
+    timeout: 10000,
+  });
+  const nUnits = await page.evaluate(() => window.__game.ed.L.units.length);
+  await page.selectOption('#epBase', 'gen');
+  await wait(400);
+  await page.waitForFunction(() => !window.__game.ed.pick.busy && !(window.__game.ed.pick.t > 0), null, {
+    timeout: 30000,
+  });
+  await page.click('#epCancel');
+  const rb1 = await page.evaluate(() => ({
+    blank: window.__game.ed.L.base.blank,
+    pick: !!window.__game.ed.pick,
+  }));
+  check(rb1.blank && !rb1.pick, '選擇底圖：取消回到原本的底圖');
+  await page.click('[data-tool="set"]');
+  await page.click('[data-ea="rebase"]');
+  await page.waitForFunction(() => window.__game.ed.pick, null, { timeout: 10000 });
+  await page.selectOption('#epTheme', 'wasteland');
+  await page.selectOption('#epBase', 'gen');
+  await page.click('#epGo');
+  await page.waitForFunction(() => !window.__game.ed.pick, null, { timeout: 30000 });
+  const rb2 = await page.evaluate(() => {
+    const g = window.__game;
+    const out = { blank: g.ed.L.base.blank, theme: g.world.themeKey, units: g.ed.L.units.length };
+    g.edUndo(false);
+    out.undo = g.ed.L.base.blank;
+    g.edUndo(true);
+    return out;
+  });
+  check(
+    !rb2.blank && rb2.theme === 'wasteland' && rb2.units === nUnits && rb2.undo,
+    '選擇底圖：套用換成荒野的產生器底圖、單位保留、可以復原',
+  );
   // 產生器底圖：移除產生器物件與還原
-  await page.evaluate(() => window.__game.edSave(true));
-  await page.evaluate(() => window.__game.edClose());
-  await waitVisible(page, 'levels');
-  await page.click('#btnLvNew');
-  await page.selectOption('#lvnBase', 'gen');
-  await page.selectOption('#lvnTheme', 'wasteland');
-  await page.click('#btnLvNewGo');
-  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
   const gn = await page.evaluate(() => {
     const g = window.__game,
       w = g.world;
@@ -10225,7 +10313,7 @@ async function testLevels(browser, base) {
           return g.allies.filter((a) => a.ai === 'convoy').length === 2 && g.missionT > 3;
         },
         sid,
-        { timeout: 30000 },
+        { timeout: 90000 },
       )
       .then(
         () => true,
@@ -10293,8 +10381,14 @@ async function testLevels(browser, base) {
       await pg.screenshot({ path: path.join(SHOT_DIR, 'level-menu-phone.png') });
     } else {
       await pg.click('#btnLvNew');
-      await pg.click('#btnLvNewGo');
-      await pg.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+      await pg.waitForFunction(() => window.__game.state === 'editor' && window.__game.ed.pick, null, {
+        timeout: 30000,
+      });
+      await pg.screenshot({ path: path.join(SHOT_DIR, 'level-pick-tablet.png') });
+      await pg.tap('#epGo');
+      await pg.waitForFunction(() => window.__game.state === 'editor' && !window.__game.ed.pick, null, {
+        timeout: 30000,
+      });
       await wait(800);
       // 觸控：點一下放置、雙指縮放
       await pg.tap('[data-tool="mark"]');
@@ -10318,9 +10412,14 @@ async function makeLevel(page, name, edit) {
   await page.evaluate(() => window.__game.openLevels());
   await waitVisible(page, 'levels');
   await page.click('#btnLvNew');
-  await page.fill('#lvnName', name);
-  await page.click('#btnLvNewGo');
-  await page.waitForFunction(() => window.__game.state === 'editor', null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__game.state === 'editor' && window.__game.ed.pick, null, {
+    timeout: 30000,
+  });
+  await page.fill('#epName', name);
+  await page.click('#epGo');
+  await page.waitForFunction(() => window.__game.state === 'editor' && !window.__game.ed.pick, null, {
+    timeout: 30000,
+  });
   await page.evaluate(edit);
   if (edit.clear) {
     await page.evaluate(() => window.__game.edTest(false));

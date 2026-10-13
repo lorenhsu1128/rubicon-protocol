@@ -141,7 +141,9 @@ Object.assign(Game.prototype, {
     this.state = 'editor';
     this.showScreen('editor');
     this.edRenderUi();
-    if (o.fresh) this.edSave(true);
+    if (o.pick)
+      this.edPickOpen('new'); // 新建：先挑底圖（editor-pick.js），按確定才存檔
+    else if (o.fresh) this.edSave(true);
   },
   edClose() {
     const ed = this.ed;
@@ -150,8 +152,9 @@ Object.assign(Game.prototype, {
       this.edDisposeHelpers();
       this.clearMission();
       this.camera.far = 400;
+      if (this.camera.view && this.camera.view.enabled) this.camera.clearViewOffset();
       this.camera.updateProjectionMatrix();
-      document.body.classList.remove('editing');
+      document.body.classList.remove('editing', 'edPicking');
       const id = ed.L.id;
       this.ed = null;
       this.openLevels(id);
@@ -234,6 +237,21 @@ Object.assign(Game.prototype, {
     C.z = clamp(C.z, -lim, lim);
     // 筆刷：按住時持續作用
     if (ed.stroke && ed.stroke.down) this.edBrushStep(dt);
+    if (ed.pick) this.edPickTick(dt); // 挑底圖（editor-pick.js）
+    if (!this.world) return;
+    this.edCamApply();
+    if (ed.selBox) ed.selBox.update();
+    this.renderMain();
+    this.hctx.clearRect(0, 0, innerWidth, innerHeight);
+  },
+  // 鏡頭與太陽跟著 ed.cam（注視點 x／z、方位 yaw、俯角 pitch、距離 dist）
+  edCamApply() {
+    const C = this.ed.cam;
+    // 挑底圖：畫面中心移到左側面板以外的地方（拍縮圖時 edThumb 會暫時拿掉）
+    const pp = this.ed.pick && document.getElementById('epPanel');
+    const off = pp ? pp.offsetWidth / 2 : 0;
+    if (off) this.camera.setViewOffset(innerWidth, innerHeight, -off, 0, innerWidth, innerHeight);
+    else if (this.camera.view && this.camera.view.enabled) this.camera.clearViewOffset();
     const gy = this.world.terrainHeight(C.x, C.z);
     const cp = Math.cos(C.pitch);
     const cam = this.camera;
@@ -254,9 +272,6 @@ Object.assign(Game.prototype, {
       sc.right = sc.top = R;
       sc.updateProjectionMatrix();
     }
-    if (ed.selBox) ed.selBox.update();
-    this.renderMain();
-    this.hctx.clearRect(0, 0, innerWidth, innerHeight);
   },
   edTyping() {
     const a = document.activeElement;
@@ -412,6 +427,8 @@ Object.assign(Game.prototype, {
   },
   edDown(e, p) {
     const ed = this.ed;
+    // 挑底圖：只能轉鏡頭（左鍵旋轉、右鍵或 Shift 平移）
+    if (ed.pick) return (p.cam = e.button === 0 && !e.shiftKey ? 'rot' : 'pan');
     if (e.button === 2 || (e.button === 0 && e.altKey)) return (p.cam = 'rot');
     if (e.button === 1 || (e.button === 0 && e.shiftKey && ed.tool === 'select')) return (p.cam = 'pan');
     const tool = ed.tool;
@@ -816,7 +833,7 @@ Object.assign(Game.prototype, {
   edSlopeTint() {
     const w = this.world,
       m = w && w.terrainMesh;
-    if (!m) return;
+    if (!m || (this.ed && this.ed.pick)) return; // 挑底圖時不染（預覽看原本的顏色）
     const pos = m.geometry.attributes.position,
       col = m.geometry.attributes.color;
     for (let f = 0; f < pos.count; f += 3) {
@@ -1268,7 +1285,7 @@ Object.assign(Game.prototype, {
   },
   edKey(e) {
     const ed = this.ed;
-    if (!ed || this.edTyping()) return;
+    if (!ed || this.edTyping() || ed.pick) return;
     const c = e.code,
       ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && c === 'KeyZ') {
@@ -1349,6 +1366,8 @@ Object.assign(Game.prototype, {
     this.edStatus();
   },
   edThumb() {
+    const vo = this.camera.view && this.camera.view.enabled;
+    if (vo) this.camera.clearViewOffset();
     this.renderMain();
     const src = this.canvas;
     const cv = document.createElement('canvas');
@@ -1362,6 +1381,7 @@ Object.assign(Game.prototype, {
     if (r > R) sw = sh * R;
     else sh = sw / R;
     c.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 256, 144);
+    if (vo) this.edCamApply();
     return cv.toDataURL('image/jpeg', 0.7);
   },
   // ---------- 試玩 ----------
@@ -1456,17 +1476,6 @@ Object.assign(Game.prototype, {
     this.edChanged();
     ed.seg = -1;
     this.edSetSeg(0);
-  },
-  // 底圖改了：重建（地形重算）
-  edRebase(patch) {
-    const cur = this.edCur();
-    this.edPush();
-    Object.assign(cur.base, patch);
-    cur.terrain = { n: 0, h: '', water: cur.terrain.water };
-    cur.removed = [];
-    this.edChanged();
-    this.edBuildWorld();
-    this.edRenderUi();
   },
   // ---------- 驗證 ----------
   edValidate() {

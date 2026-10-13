@@ -6,7 +6,6 @@ import { LEVEL_LV, levelBytes, LIMITS, newLevel, newLevelId } from '../level/for
 import { loadLevel } from '../level/known.js';
 import { SAMPLES } from '../level/samples.js';
 import { LevelStore } from '../level/store.js';
-import { VARIANTS } from '../world/variants.js';
 import { THEMES } from '../world/world.js';
 import { Game } from './game.js';
 
@@ -41,11 +40,6 @@ Object.assign(Game.prototype, {
       };
     $('lvSearch').oninput = () => this.lvRenderList(true);
     $('lvSort').onchange = () => this.lvRenderList();
-    $('btnLvNewCancel').onclick = () => ($('lvNew').hidden = true);
-    $('btnLvNewGo').onclick = () => this.lvNewGo();
-    $('lvnBase').onchange = () => this.lvNewSync();
-    $('lvnTheme').onchange = () => this.lvNewSync();
-    $('btnLvnSeed').onclick = () => ($('lvnSeed').value = Math.floor(Math.random() * 1e9));
     $('lvList').addEventListener('click', (e) => {
       const b = e.target.closest('[data-a]');
       if (b) this.lvItemAct(b.dataset.a, b.dataset.id);
@@ -268,45 +262,17 @@ Object.assign(Game.prototype, {
     return this.lvSampleList;
   },
   // ---------- 新建 ----------
+  // 新建：直接進編輯器的「挑底圖」（全畫面預覽，editor-pick.js）
   lvNewOpen() {
-    $('lvnTheme').innerHTML = Object.keys(THEMES)
-      .map((k) => `<option value="${k}">${escHtml(THEMES[k].name)}</option>`)
-      .join('');
-    $('lvnTheme').value = 'industrial';
-    $('lvnSeed').value = Math.floor(Math.random() * 1e9);
-    $('lvnLevel').min = LEVEL_LV[0];
-    $('lvnLevel').max = LEVEL_LV[1];
-    $('lvnLevel').value = Math.max(1, Math.min(30, this.save.level || 5));
-    $('lvnName').value = '';
-    $('lvNew').hidden = false;
-    this.lvNewSync();
-  },
-  lvNewSync() {
-    const gen = $('lvnBase').value === 'gen';
-    const th = $('lvnTheme').value;
-    $('lvnGenRow').style.display = gen ? '' : 'none';
-    const vs = VARIANTS[th] || {};
-    $('lvnVariant').innerHTML =
-      '<option value="">標準</option>' +
-      Object.keys(vs)
-        .filter((k) => !vs[k].border)
-        .map((k) => `<option value="${k}">${escHtml(vs[k].name || k)}</option>`)
-        .join('');
-  },
-  lvNewGo() {
-    const gen = $('lvnBase').value === 'gen';
     const L = newLevel({
-      theme: $('lvnTheme').value,
-      blank: !gen,
-      variant: gen ? $('lvnVariant').value : '',
-      seed: Math.max(1, Math.floor(+$('lvnSeed').value || 1)),
-      props: gen ? $('lvnProps').value : 'none',
-      level: Math.max(LEVEL_LV[0], Math.min(LEVEL_LV[1], Math.round(+$('lvnLevel').value || 5))),
+      theme: 'industrial',
+      blank: true,
+      seed: 1 + Math.floor(Math.random() * 999999999),
+      props: 'all',
+      level: Math.max(LEVEL_LV[0], Math.min(LEVEL_LV[1], this.save.level || 5)),
     });
-    L.name = ($('lvnName').value || '').trim().slice(0, LIMITS.name) || '新關卡';
     L.author = this.edAuthorName();
-    $('lvNew').hidden = true;
-    this.edOpen(L, { fresh: true });
+    this.edOpen(L, { pick: true });
   },
   edAuthorName() {
     try {

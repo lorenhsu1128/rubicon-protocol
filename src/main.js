@@ -52,5 +52,6 @@ import './game/levels.js';
 import './game/editor.js';
 import './game/editor-ui.js';
 import './game/editor-trig.js';
+import './game/editor-pick.js';
 
 new Game();
