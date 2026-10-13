@@ -201,10 +201,13 @@ Object.assign(Game.prototype, {
     this.tfxBrief(B.client === 'echo'); // 文字演出：系統日誌樣式逐字（點一下全部顯示）
   },
   // 從簡報出擊：有別的出擊進行中時先確認
-  briefGo() {
+  briefGo(ok) {
     const st = this.campStory();
     const sid = this.briefSid;
-    if (st.sortie && !confirm('目前有進行中的出擊，開始新的出擊會放棄它的紀錄點。確定？')) return;
+    if (st.sortie && ok !== true)
+      return this.uiConfirm('目前有進行中的出擊，開始新的出擊會放棄它的紀錄點。確定？', () =>
+        this.briefGo(true),
+      );
     st.sortie = null;
     SFX.ui();
     this.campBegin(sid);

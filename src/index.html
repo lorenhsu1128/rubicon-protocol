@@ -96,6 +96,9 @@
         <div id="mpDuo"></div>
         <button id="mpSkip">略過</button>
       </div>
+      <div id="padHint">
+        <b>Ⓐ</b> 決定　<b>Ⓑ</b> 返回　<b>LB／RB</b> 分頁　<b>Ⓧ</b> 下一句　<b>右搖桿</b> 捲動
+      </div>
       <!-- Title -->
       <div id="title" class="screen center">
         <div class="panel" style="max-width: 640px">
@@ -381,7 +384,7 @@
             <h2>機甲庫 <span id="gCtx" class="gCtx"></span></h2>
             <div class="coam">COAM <span id="gCoam">0</span></div>
           </div>
-          <div id="slots"></div>
+          <div id="slots" data-padtabs=".slot"></div>
           <div id="partList"></div>
         </div>
         <div id="garageMid">
@@ -433,7 +436,7 @@
       <div id="pilot" class="screen">
         <div id="pilotHead">
           <h2>駕駛員</h2>
-          <div class="pModes">
+          <div class="pModes" data-padtabs="button">
             <button id="pMode_pve">PvE</button>
             <button id="pMode_pvp">PvP</button>
           </div>
@@ -753,7 +756,7 @@
       <div id="levels" class="screen center">
         <div class="panel lvPanel">
           <h2>自訂關卡</h2>
-          <div class="row lvTabs">
+          <div class="row lvTabs" data-padtabs="[data-lt]">
             <button data-lt="mine">我的關卡</button
             ><button data-lt="server" id="lvTabServer">伺服器上的關卡</button
             ><button data-lt="sample">範例</button>

@@ -1242,10 +1242,10 @@ Object.assign(Game.prototype, {
       this.campShowTrans(this.camp.trans[this.camp.seg] || TRANSITIONS.drop, 'resume');
   },
   // 放棄存檔裡的紀錄點（車庫）
-  campDrop() {
+  campDrop(ok) {
     const st = this.campStory();
     if (!st.sortie) return;
-    if (!confirm('放棄目前的主線出擊？紀錄點會被刪除。')) return;
+    if (!ok) return this.uiConfirm('放棄目前的主線出擊？紀錄點會被刪除。', () => this.campDrop(true), '放棄');
     st.sortie = null;
     this.camp = null;
     this.writeSave();

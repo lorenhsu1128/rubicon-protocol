@@ -250,13 +250,16 @@ Object.assign(Game.prototype, {
     if (first) first.checked = true;
     document.getElementById('btnRecGo').disabled = !done.length;
   },
-  recordGo() {
+  recordGo(ok) {
     const sel = document.querySelector('#recList input:checked');
     if (!sel) return;
     const heat = {};
     for (const c of document.querySelectorAll('#recHeat input:checked')) heat[c.dataset.h] = true;
     const st = this.campStory();
-    if (st.sortie && !confirm('目前有進行中的出擊，開始重打會放棄它的紀錄點。確定？')) return;
+    if (st.sortie && ok !== true)
+      return this.uiConfirm('目前有進行中的出擊，開始重打會放棄它的紀錄點。確定？', () =>
+        this.recordGo(true),
+      );
     st.sortie = null;
     this.campBegin(sel.value, { replay: true, heat });
   },

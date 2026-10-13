@@ -438,6 +438,7 @@ Object.assign(Game.prototype, {
       }
     }
     this.padPrev = prev;
+    this.padUiPoll(gp, dt); // 選單畫面的手把操作（pad-ui.js）
   },
   keyLabel(code) {
     if (!code) return '—';

@@ -3058,3 +3058,49 @@ body.edPicking #edTrig {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* 手把的選單操作（game/pad-ui.js） */
+.padFocus {
+  outline: 3px solid #ffb020 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 14px rgba(255, 176, 32, 0.55) !important;
+}
+#padHint {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 10001;
+  display: none;
+  padding: 5px 10px;
+  background: rgba(8, 12, 18, 0.78);
+  border: 1px solid var(--line);
+  color: #e6edf3;
+  font-size: 12px;
+  pointer-events: none;
+}
+#padHint.on {
+  display: block;
+}
+#padHint b {
+  color: #ffb020;
+}
+#uiModal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: auto;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+#uiModal.on {
+  display: flex;
+}
+#uiModal .panel {
+  max-width: min(480px, 90vw);
+}
+#uiModal .row {
+  justify-content: center;
+  gap: 10px;
+}

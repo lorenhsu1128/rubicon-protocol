@@ -4468,6 +4468,208 @@ async function testChase(browser, base) {
   }
 }
 
+// 手把操作選單：模擬手把（navigator.getGamepads），十字鍵移動焦點、A 決定、B 返回、LB／RB 分頁、左右改下拉選單、
+// 模組三選一、確認視窗、暫停；各選單畫面都有可以操作的元素
+async function testPadUi(browser, base) {
+  console.log('手把操作選單：焦點移動、A／B、分頁、下拉選單、模組三選一、確認視窗、暫停、各畫面');
+  const { ctx, page } = await newPage(browser, 'padui');
+  await ctx.addInitScript(() => {
+    const mk = () => ({ pressed: false, value: 0 });
+    window.__pad = {
+      id: 'test pad',
+      index: 0,
+      connected: true,
+      mapping: 'standard',
+      buttons: Array.from({ length: 17 }, mk),
+      axes: [0, 0, 0, 0],
+    };
+    Object.defineProperty(Navigator.prototype, 'getGamepads', {
+      value: () => [window.__pad],
+      configurable: true,
+    });
+  });
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 按下到遊戲讀到兩次再放開（畫面更新慢時也不會漏掉）
+  const frames = async (n) => {
+    const n0 = await page.evaluate(() => window.__game.puN || 0);
+    await page.waitForFunction((t) => (window.__game.puN || 0) >= t, n0 + n, { timeout: 20000 });
+  };
+  const press = async (i) => {
+    await page.evaluate((i) => (window.__pad.buttons[i].pressed = true), i);
+    await frames(2);
+    await page.evaluate((i) => (window.__pad.buttons[i].pressed = false), i);
+    await frames(2);
+  };
+  const foc = () =>
+    page.evaluate(() => {
+      const e = document.querySelector('.padFocus');
+      return e ? e.id || e.textContent.trim().slice(0, 16) : null;
+    });
+  const focusId = (id) =>
+    page.evaluate((id) => window.__game.padUiFocus(document.getElementById(id), true), id);
+  // 標題：按一下就出現焦點，往下移動
+  await press(13);
+  const f0 = await foc();
+  await press(13);
+  const f1 = await foc();
+  const hint = await page.evaluate(() => document.getElementById('padHint').classList.contains('on'));
+  check(!!f0 && !!f1 && f0 !== f1 && hint, `標題：十字鍵移動焦點（${f0} → ${f1}）、顯示手把說明`);
+  // A：開設定；在下拉選單上按右改值；B 關閉
+  await focusId('btnSettings');
+  await press(0);
+  const st1 = await page.evaluate(() => window.__game.state);
+  const v0 = await page.evaluate(() => document.getElementById('ctrlView').value);
+  await focusId('ctrlView');
+  await press(15);
+  const v1 = await page.evaluate(() => [document.getElementById('ctrlView').value, window.__game.ctrl.view]);
+  await press(14);
+  await press(1);
+  const st2 = await page.evaluate(() => window.__game.state);
+  check(
+    st1 === 'settings' && v1[0] !== v0 && v1[1] === v1[0] && st2 === 'title',
+    `A 開啟設定、左右改下拉選單（${v0} → ${v1[0]}）、B 返回標題`,
+  );
+  // 關卡選單：RB 換分頁
+  await page.evaluate(() => window.__game.openLevels());
+  await waitVisible(page, 'levels');
+  await press(13);
+  const t0 = await page.evaluate(() => window.__game.lvTab);
+  await press(5);
+  const t1 = await page.evaluate(() => window.__game.lvTab);
+  await press(1);
+  const st3 = await page.evaluate(() => window.__game.state);
+  check(t0 !== t1 && st3 === 'title', `RB 切換分頁（${t0} → ${t1}）、B 回標題`);
+  // 機甲庫：LB／RB 換部位
+  await page.evaluate(() => window.__game.openGarage());
+  await waitVisible(page, 'garage');
+  await press(13);
+  const g0 = await page.evaluate(() => window.__game.garageSlot);
+  await press(5);
+  const g1 = await page.evaluate(() => window.__game.garageSlot);
+  check(g0 !== g1, `機甲庫：RB 換部位（${g0} → ${g1}）`);
+  // 模組三選一：焦點在第一張卡、往右換、A 選擇
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin('c1s1');
+    g.camp.types[0] = 'battle';
+    g.campEnterSeg();
+    g.campOpenPick('castron');
+  });
+  await frames(3); // 開了新視窗：焦點自動移到第一張卡片
+  const fi = () =>
+    page.evaluate(() => {
+      const e = document.querySelector('.padFocus');
+      return e && (e.dataset.i || '#' + (e.id || e.className || e.textContent.slice(0, 10)));
+    });
+  const m0 = await fi();
+  await press(15);
+  const m1 = await fi();
+  await page.screenshot({ path: path.join(SHOT_DIR, 'pad-modpick.png') });
+  const n0 = await page.evaluate(() => window.__game.campMods().length);
+  await press(0);
+  const mk = await page.evaluate(() => ({
+    on: document.getElementById('modPick').classList.contains('on'),
+    st: window.__game.state,
+    n: window.__game.campMods().length,
+  }));
+  check(
+    m0 === '0' && m1 === '1' && !mk.on && mk.st === 'play' && mk.n === n0 + 1,
+    `模組三選一：焦點在第一張（${m0}）、往右換（${m1}）、A 選擇並回到戰鬥`,
+  );
+  // 暫停：Start 暫停、B 繼續
+  await press(9);
+  const p1 = await page.evaluate(() => window.__game.state);
+  await press(13);
+  const pf = await foc();
+  await press(1);
+  const p2 = await page.evaluate(() => window.__game.state);
+  check(p1 === 'pause' && !!pf && p2 === 'play', `暫停選單：Start 暫停、焦點（${pf}）、B 繼續`);
+  // 確認視窗：A 確定、B 取消
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.state = 'pause';
+    g.showScreen('pause');
+    window.__ok = 0;
+    g.uiConfirm('測試', () => (window.__ok = 1));
+  });
+  await frames(3);
+  await press(0);
+  const ok1 = await page.evaluate(() => [window.__ok, !!window.__game.uiModalOn]);
+  await page.evaluate(() => {
+    window.__ok = 0;
+    window.__game.uiConfirm('測試', () => (window.__ok = 1));
+  });
+  await frames(3);
+  await press(1);
+  const ok2 = await page.evaluate(() => [window.__ok, !!window.__game.uiModalOn, window.__game.state]);
+  check(
+    ok1[0] === 1 && !ok1[1] && ok2[0] === 0 && !ok2[1] && ok2[2] === 'pause',
+    '確認視窗：A 確定、B 取消（不關掉底下的暫停選單）',
+  );
+  // 放棄紀錄點改用確認視窗（手把按得到）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.campStory().sortie = g.campStory().sortie || { sid: 'c1s1', seg: 0 };
+    g.openHub();
+    g.campDrop();
+  });
+  const drop = await page.evaluate(() => !!window.__game.uiModalOn && !!window.__game.campStory().sortie);
+  await frames(3);
+  await press(0);
+  const drop2 = await page.evaluate(() => !window.__game.uiModalOn && !window.__game.campStory().sortie);
+  check(drop && drop2, '作戰室：放棄紀錄點的確認視窗用手把確定');
+  // 各選單畫面都有可以操作的元素、有預設焦點
+  const scr = await page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    const t = (name, open) => {
+      try {
+        open();
+      } catch (e) {
+        out.push(name + '!' + e.message);
+        return;
+      }
+      const C = g.padUiCands();
+      const d = g.padUiDefault(C);
+      out.push(name + ':' + C.length + (d ? '' : '?'));
+    };
+    const go = (st, id) => () => {
+      g.state = st;
+      g.showScreen(id);
+    };
+    t('title', go('title', 'title'));
+    t('saves', () => g.openSaves());
+    t('garage', () => g.openGarage());
+    t('pilot', () => g.openPilot());
+    t('hub', () => g.openHub());
+    t('brief', () => g.openBrief('c1s1'));
+    t('sim', () => g.openSim());
+    t('record', () => g.openRecord());
+    t('range', () => g.openRangeMenu());
+    t('settings', () => g.openSettings('title'));
+    t('mp', () => g.openMP());
+    t('levels', () => g.openLevels());
+    t('result', go('result', 'result'));
+    t('campTrans', go('camptrans', 'campTrans'));
+    t('campFail', go('campfail', 'campFail'));
+    t('epilogue', () => g.openEpilogue('open'));
+    t('pause', go('pause', 'pause'));
+    g.state = 'title';
+    g.showScreen('title');
+    return out;
+  });
+  const bad = scr.filter((s) => /!|\?|:0$/.test(s));
+  check(!bad.length, `各畫面都能用手把操作（${scr.join('、')}）`);
+  // 改用滑鼠時焦點框消失
+  await page.mouse.move(200, 200);
+  await page.mouse.move(260, 240);
+  await wait(200);
+  check(!(await foc()), '移動滑鼠時拿掉手把的焦點框');
+  await ctx.close();
+}
+
 // 第三人稱鏡頭的遮擋：地形擋住時鏡頭往上轉、物件淡出、還是被擋住時顯示機體的透視輪廓
 async function testCamOcclusion(browser, base) {
   console.log('鏡頭遮擋：地形抬高鏡頭、物件淡出、透視輪廓');
@@ -10930,6 +11132,7 @@ async function main() {
     await run('testLockOn', testLockOn, browser, base);
     await run('testCamOcclusion', testCamOcclusion, browser, base);
     await run('testChase', testChase, browser, base);
+    await run('testPadUi', testPadUi, browser, base);
     await run('testBoundary', testBoundary, browser, base);
     await run('testCampaign', testCampaign, browser, base);
     await run('testCampaign2', testCampaign2, browser, base);

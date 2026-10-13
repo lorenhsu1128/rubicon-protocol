@@ -28,6 +28,7 @@ import './game/bosses.js';
 import './game/bosses2.js';
 import './game/first-person.js';
 import './game/chase.js';
+import './game/pad-ui.js';
 import './game/pvp.js';
 import './game/mp-models.js';
 import './game/style-lab.js';

@@ -43,7 +43,7 @@ Object.assign(Game.prototype, {
             `<div class="krow"><span>${l}</span><span style="display:flex;gap:8px"><button data-k="${k}" class="kbtn ${this.rebinding === k ? 'wait' : ''}">${this.rebinding === k ? '請按鍵…' : this.keyLabel(this.keymap[k])}</button><span class="kbtn dim" style="display:inline-block;text-align:center;padding:8px 6px;border:1px solid var(--line)">${padOnly[k] || this.padLabel(this.padmap[k])}</span></span></div>`,
         )
         .join('') +
-      `<p class="dim" style="font-size:11px">手把：左搖桿移動、右搖桿瞄準（放開時自動瞄準鎖定目標）；改鍵時直接按手把按鈕即可指定給手把。${this.padConnected ? '　✔ 已連接' : '　（尚未偵測到手把，按任一鍵喚醒）'}</p>`;
+      `<p class="dim" style="font-size:11px">手把：左搖桿移動、右搖桿瞄準（放開時自動瞄準鎖定目標）；選單畫面：十字鍵／左搖桿移動、A 決定、B 返回、LB／RB 切換分頁、左右改選項、右搖桿捲動；改鍵時直接按手把按鈕即可指定給手把。${this.padConnected ? '　✔ 已連接' : '　（尚未偵測到手把，按任一鍵喚醒）'}</p>`;
     for (const b of $('keyRows').querySelectorAll('.kbtn'))
       b.onclick = (ev) => {
         ev.stopPropagation();
