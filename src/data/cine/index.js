@@ -2,6 +2,7 @@
 // 值是產生器 (ctx：{ cycle, choices }) => 劇本（沒有內容時回傳 null）。播放在 game/cine.js
 import { chapterCine } from './chapters.js';
 import { c2Aetheric, c2Castron, c2Pre } from './ch2.js';
+import { c4Pre, c4Sancta, c4Veerwell } from './ch4.js';
 import { prologueCine } from './prologue.js';
 
 export const CINES = {};
@@ -18,4 +19,7 @@ Object.assign(CINES, {
   x_c2_pre: c2Pre,
   x_c2_castron: c2Castron,
   x_c2_aetheric: c2Aetheric,
+  x_c4_pre: c4Pre,
+  x_c4_veerwell: c4Veerwell,
+  x_c4_sancta: c4Sancta,
 });
