@@ -3,7 +3,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { SORTIES } from '../data/campaign.js';
-import { CHAPTER_NAMES, CHAPTER_TEXT, PROLOGUE, pickLines } from '../data/story.js';
+import { BRIEFINGS, CHAPTER_NAMES, CHAPTER_TEXT, PROLOGUE, pickLines } from '../data/story.js';
 import { Game } from './game.js';
 
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
@@ -117,13 +117,43 @@ Object.assign(Game.prototype, {
     }
     this.storyNext();
   },
+  // 章節回顧可以看的：看過的＋依進度已經開放的（序章、到目前章節的開場、完成的章的章末、以前周目的全部）。
+  // 舊存檔在劇本改版前就打過的章節沒有記在 storySeen，所以依進度補上
+  storyUnlocked() {
+    const st = this.campStory();
+    const cyc = st.cycle || 1;
+    const out = { ...this.storySeen() };
+    for (let c = 1; c < cyc; c++) {
+      out['p' + c] = 1;
+      for (let ch = 1; ch <= 6; ch++) out[`i${c}_${ch}`] = out[`o${c}_${ch}`] = 1;
+    }
+    const any = Object.keys(st.done || {}).some((s) => SORTIES[s] && st.done[s]);
+    if (any) out['p' + cyc] = 1;
+    const cur = this.hubChapter();
+    for (let ch = 1; ch <= cur; ch++) {
+      if (ch < cur || any) out[`i${cyc}_${ch}`] = 1;
+      if (this.storyChapterDone(ch)) out[`o${cyc}_${ch}`] = 1;
+    }
+    return out;
+  },
+  // 這一周目的第 ch 章是否完成（和 campChapterCheck 相同的條件，但不改存檔）
+  storyChapterDone(ch) {
+    const st = this.campStory();
+    const all = Object.keys(SORTIES).filter(
+      (sid) =>
+        SORTIES[sid].chapter === ch &&
+        this.hubSortieState(sid) !== 'hidden' &&
+        !(BRIEFINGS[sid] && BRIEFINGS[sid].cycle),
+    );
+    return all.length > 0 && all.every((sid) => st.done && st.done[sid]);
+  },
   // 作戰室的「章節回顧」：看過的序章、開場、章末
   hubStory(open) {
     const el = document.getElementById('hubStoryBox');
     el.style.display = open ? '' : 'none';
     if (!open) return;
     SFX.ui();
-    const seen = this.storySeen();
+    const seen = this.storyUnlocked();
     const order = (k) => {
       const m = /^([pio])(\d)(?:_(\d))?$/.exec(k);
       return +m[2] * 100 + (+m[3] || 0) * 10 + (m[1] === 'p' ? 0 : m[1] === 'i' ? 1 : 2);

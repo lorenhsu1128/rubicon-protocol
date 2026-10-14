@@ -9474,6 +9474,24 @@ async function testCine(browser, base) {
   await page.waitForFunction(() => window.__game.state === 'hub', null, { timeout: 20000 }).catch(() => {});
   const t2 = await page.evaluate(() => window.__game.state);
   check(k2 === 'i1_1' && t2 === 'hub', '第 1 章開場的過場動畫播完回到作戰室');
+  // 章節回顧：劇本改版前就打完第 1 章的舊存檔（storySeen 是空的）也看得到序章、第 1 章的開場與章末、第 2 章的開場
+  const rv = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.cycle = 1;
+    st.choices = {};
+    st.storySeen = {};
+    st.done = { c1s1: 1, c1s2: 1, c1x: 0 };
+    const k = Object.keys(g.storyUnlocked()).filter((x) => g.storyItem(x));
+    g.hubStory(true);
+    const n = document.querySelectorAll('#hubStoryList .storyItem').length;
+    g.hubStory(false);
+    return { k, n };
+  });
+  check(
+    ['p1', 'i1_1', 'o1_1', 'i1_2'].every((k) => rv.k.includes(k)) && rv.n >= 4,
+    `章節回顧：舊存檔依進度列出序章與已經打過的章節（${rv.k.join('、')}）`,
+  );
   // 設定「劇情動畫」關閉：改用文字畫面
   await page.evaluate(() => {
     const g = window.__game;

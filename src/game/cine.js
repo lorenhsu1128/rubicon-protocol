@@ -1147,6 +1147,7 @@ Object.assign(Game.prototype, {
     if (S.ov === 'boot') this.cineBoot(x, W, H, lt);
     if (S.ov === 'speed') this.cineSpeed(x, W, H, lt);
     if (S.ov === 'scan') this.cineScan(x, W, H, lt);
+    if (S.ov === 'lock') this.cineLockHud(x, W, H, lt, S.lock);
     // 略過的提示
     if (c.hintT > 0) c.hintT -= dt;
     $('cineSkip').classList.toggle('on', c.hintT > 0 || c.skipT > 0);
@@ -1301,6 +1302,79 @@ Object.assign(Game.prototype, {
     g.addColorStop(1, `rgba(255,90,30,${0.35 + Math.sin(lt * 20) * 0.05})`);
     x.fillStyle = g;
     x.fillRect(0, 0, W, H);
+    x.restore();
+  },
+  // 機戰傭兵6 式的戰鬥 HUD：中央準星、鎖定框（四角）套住目標、目標的 AP／ACS 條、左下彈數、右下 EN
+  cineLockHud(x, W, H, lt, id) {
+    const s = H / 720;
+    const A = this.cine.actors.get(id);
+    x.save();
+    x.lineWidth = 1.5 * s;
+    // 中央準星
+    x.strokeStyle = 'rgba(230,240,250,0.85)';
+    x.beginPath();
+    x.arc(W / 2, H / 2, 22 * s, 0.25, Math.PI - 0.25);
+    x.moveTo(W / 2 + 22 * s * Math.cos(Math.PI + 0.25), H / 2 + 22 * s * Math.sin(Math.PI + 0.25));
+    x.arc(W / 2, H / 2, 22 * s, Math.PI + 0.25, Math.PI * 2 - 0.25);
+    x.stroke();
+    x.fillStyle = 'rgba(230,240,250,0.9)';
+    x.fillRect(W / 2 - 1.5 * s, H / 2 - 1.5 * s, 3 * s, 3 * s);
+    // 鎖定框
+    if (A && A.e && !A.e.dead) {
+      const e = A.e;
+      const p = e.center().project(this.camera);
+      if (p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2) {
+        const sx = (p.x * 0.5 + 0.5) * W,
+          sy = (-p.y * 0.5 + 0.5) * H;
+        const d = this.camera.position.distanceTo(e.center());
+        const r = clamp((420 / Math.max(d, 4)) * s, 26 * s, 140 * s) * (1 + Math.max(0, 0.4 - lt) * 1.5);
+        const blink = lt < 0.5 ? (Math.floor(lt * 16) % 2 ? 0.3 : 1) : 1;
+        x.strokeStyle = `rgba(255,70,60,${0.95 * blink})`;
+        x.lineWidth = 2.2 * s;
+        const c = r * 0.38;
+        for (const [dx, dy] of [
+          [-1, -1],
+          [1, -1],
+          [1, 1],
+          [-1, 1],
+        ]) {
+          x.beginPath();
+          x.moveTo(sx + dx * r, sy + dy * (r - c));
+          x.lineTo(sx + dx * r, sy + dy * r);
+          x.lineTo(sx + dx * (r - c), sy + dy * r);
+          x.stroke();
+        }
+        x.font = `${11 * s}px "Share Tech Mono", monospace`;
+        x.fillStyle = `rgba(255,90,80,${blink})`;
+        x.fillText('LOCK', sx + r + 6 * s, sy - r + 10 * s);
+        x.fillText(`${d.toFixed(0)}m`, sx + r + 6 * s, sy - r + 24 * s);
+        // 目標的 AP 與 ACS
+        const bw = 220 * s,
+          by = (this.cine.bar || 0) + 30 * s; // 遮幅下方
+        x.fillStyle = 'rgba(0,0,0,0.35)';
+        x.fillRect(W / 2 - bw / 2, by, bw, 6 * s);
+        x.fillStyle = 'rgba(255,90,80,0.95)';
+        x.fillRect(W / 2 - bw / 2, by, bw * clamp(1 - lt * 0.08, 0.3, 1), 6 * s);
+        x.fillStyle = 'rgba(255,200,80,0.9)';
+        x.fillRect(W / 2 - bw / 2, by + 9 * s, bw * clamp(0.2 + lt * 0.3, 0, 1), 3 * s);
+        x.font = `${12 * s}px "Share Tech Mono", monospace`;
+        x.textAlign = 'center';
+        x.fillStyle = 'rgba(255,220,210,0.95)';
+        x.fillText(e.name, W / 2, by - 6 * s);
+        x.textAlign = 'left';
+      }
+    }
+    // 下方：彈數與 EN
+    x.font = `${13 * s}px "Share Tech Mono", monospace`;
+    x.fillStyle = 'rgba(200,230,255,0.85)';
+    const ammo = Math.max(0, 420 - Math.floor(lt * 37));
+    x.fillText(`R-ARM ${ammo}`, W * 0.36, H * 0.8);
+    x.fillText(`L-ARM ${Math.max(0, ammo - 88)}`, W * 0.36, H * 0.8 + 16 * s);
+    x.fillStyle = 'rgba(0,0,0,0.35)';
+    x.fillRect(W * 0.56, H * 0.8 - 8 * s, 120 * s, 5 * s);
+    x.fillStyle = 'rgba(120,220,255,0.9)';
+    x.fillRect(W * 0.56, H * 0.8 - 8 * s, 120 * s * (0.4 + 0.5 * Math.abs(Math.sin(lt * 1.7))), 5 * s);
+    x.fillText('EN', W * 0.56, H * 0.8 + 12 * s);
     x.restore();
   },
   // 監視器式的掃描線與雜訊（通訊、回憶）

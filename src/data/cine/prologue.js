@@ -46,9 +46,12 @@ const TXT = {
 };
 
 // 世界觀的空景（四家委託方與軌道站）：每張 3 秒，對齊配樂的脈動
+// 小工具：一台照劇本行動的單位（k: type／ace／roster；p 貼地；s 動作）
+const U = (id, key, p, yaw, s = [], o = {}) => ({ id, k: 'type', key, p, yaw, s, ...o });
 const VISTAS = [
+  // 卡斯特隆：MT 縱隊行軍、戰車、重型 MT 對遠方砲擊、直升機低空掠過、起重機砲台
   {
-    set: { k: 'world', theme: 'industrial', seed: 3101, tod: 'dusk', clear: 18 },
+    set: { k: 'world', theme: 'industrial', seed: 3101, tod: 'dusk', clear: 30 },
     grade: {
       sunAz: 250,
       sunEl: 6,
@@ -66,24 +69,49 @@ const VISTAS = [
       dust: 0.6,
     },
     cam: [
-      [0, [-30, 3, 26], [10, 8, -10]],
-      [3, [-24, 12, 20], [12, 9, -14]],
+      [0, [-20, 1.6, 16], [6, 3, -6]],
+      [3, [-15, 2.6, 13], [8, 4, -8]],
+    ],
+    actors: [
+      U('c1', 'mt', [-10, 0], 270, [{ t: 0, go: [24, 0] }], { pal: 'castron' }),
+      U('c2', 'mt', [-15, 3], 270, [{ t: 0, go: [20, 3] }]),
+      U('c3', 'mt', [-20, -1], 270, [{ t: 0, go: [16, -1] }]),
+      U('c4', 'tank', [-4, 7], 270, [{ t: 0, go: [26, 7] }]),
+      U('c5', 'mth', [4, -6], 300, [{ t: 0.3, aim: [60, 14, -70], fire: 'all', dur: 2.6 }]),
+      U('c6', 'heli', [-30, -12], 290, [{ t: 0, go: [40, -2] }]),
+      U('c7', 'crane', [14, -14], 220, []),
+    ],
+    ev: [
+      { t: 1.4, boom: [55, 4, -60], big: true },
+      { t: 2.3, boom: [48, 4, -70] },
     ],
     name: '卡斯特隆重工',
     s: '挖掘它。',
   },
+  // 艾瑟立克：無人機巡邏、雷射網、護盾產生器、實驗體在籠子裡蠕動
   {
-    set: { k: 'world', theme: 'institute', seed: 3102, clear: 16 },
-    grade: { tintLo: '#20405a', tintLoK: 0.5, fogK: 1.3 },
+    set: { k: 'world', theme: 'institute', seed: 3102, clear: 26 },
+    grade: { tintLo: '#20405a', tintLoK: 0.5, fogK: 1.3, bloom: 1, exposure: 0.95 },
     cam: [
-      [0, [18, 2, 18], [-6, 6, -8]],
-      [3, [10, 4, 22], [-8, 7, -10]],
+      [0, [16, 2, 16], [-4, 4, -6]],
+      [3, [11, 3, 19], [-6, 5, -8]],
     ],
+    actors: [
+      U('a1', 'drone', [-4, -4], 90, [{ t: 0, go: [-14, 6] }]),
+      U('a2', 'drone', [2, -8], 90, [{ t: 0, go: [-10, -2] }]),
+      U('a3', 'drone', [-8, 2], 0, [{ t: 0, go: [4, -6] }]),
+      U('a4', 'laserpost', [-2, 2], 0, []),
+      U('a5', 'mt_dome', [-10, -10], 45, []),
+      U('a6', 'blob', [4, 0], 200, [{ t: 0, go: [0, 4] }]),
+      U('a7', 'mt', [8, -6], 120, [{ t: 0, go: [-6, -10] }], { pal: 'aetheric' }),
+    ],
+    ev: [{ t: 0.6, fx: 'beam', at: [-2, 2.5, 2], to: [-12, 2.5, -10], color: 0x6ad8ff, w: 0.15 }],
     name: '艾瑟立克研究機構',
     s: '研究它。',
   },
+  // 維爾威：運輸機下降、直升機編隊、宇宙用 MT 跳躍、推進器試車台噴火
   {
-    set: { k: 'world', theme: 'spaceport', seed: 3103, tod: 'dusk', clear: 18 },
+    set: { k: 'world', theme: 'spaceport', seed: 3103, tod: 'dusk', clear: 30 },
     grade: {
       sunAz: 200,
       sunEl: 8,
@@ -96,14 +124,29 @@ const VISTAS = [
       fogK: 1.8,
     },
     cam: [
-      [0, [-12, 1.5, 30], [4, 16, -20]],
-      [3, [-14, 1.5, 22], [4, 20, -20]],
+      [0, [-16, 2.5, 18], [0, 7, -6]],
+      [3, [-18, 3, 13], [2, 8, -6]],
+    ],
+    actors: [
+      U('v1', 'dropship', [-12, -14], 270, [{ t: 0, go: [24, -14] }]),
+      U('v2', 'heli', [-16, -2], 270, [{ t: 0, go: [24, -2] }]),
+      U('v3', 'heli', [-20, -7], 270, [{ t: 0, go: [20, -7] }]),
+      U('v4', 'spacemt', [0, 0], 300, [{ t: 0.2, hover: true, go: [10, -6] }]),
+      U('v5', 'mt', [-2, 4], 250, [{ t: 0, go: [12, 0] }], { pal: 'veerwell' }),
+      U('v7', 'mt', [-6, 7], 250, [{ t: 0, go: [8, 3] }], { pal: 'veerwell' }),
+      U('v6', 'testrig', [12, -12], 180, []),
+    ],
+    ev: [
+      { t: 0.4, fx: 'flame', at: [12, 3, -12], to: [12, 12, -12], len: 14, ang: 0.25, n: 14 },
+      { t: 1.6, fx: 'flame', at: [12, 3, -12], to: [12, 12, -12], len: 14, ang: 0.25, n: 14 },
+      { t: 0.4, sfx: 'thrBurst', vol: 0.7, rate: 0.7 },
     ],
     name: '維爾威動態',
     s: '買賣它。',
   },
+  // 聖域：盾牌 MT 護著難民營、修理無人機、友軍 MT 巡邏
   {
-    set: { k: 'world', theme: 'snow', seed: 3104, clear: 16 },
+    set: { k: 'world', theme: 'snow', seed: 3104, clear: 28 },
     grade: {
       sunAz: 160,
       sunEl: 12,
@@ -116,18 +159,32 @@ const VISTAS = [
       contrast: 1.1,
     },
     cam: [
-      [0, [20, 6, 20], [-10, 4, -10]],
-      [3, [26, 8, 10], [-10, 4, -12]],
+      [0, [16, 2.2, 16], [-4, 3, -4]],
+      [3, [20, 3, 10], [-4, 3, -6]],
+    ],
+    actors: [
+      U('s1', 'mt_shield', [-2, 2], 45, [{ t: 0, go: [6, 8] }], { team: 'ally', pal: 'ally' }),
+      U('s2', 'mt_shield', [-6, -2], 45, [{ t: 0, go: [2, 4] }], { team: 'ally', pal: 'ally' }),
+      U('s3', 'repair', [-4, -6], 0, [{ t: 0, go: [2, 0] }], { team: 'ally', pal: 'ally' }),
+      U('s4', 'mt', [-12, 4], 90, [{ t: 0, go: [-2, 10] }], { team: 'ally', pal: 'ally' }),
+      U('s5', 'tank', [-14, -8], 60, [{ t: 0, go: [0, -4] }], { team: 'ally', pal: 'ally' }),
     ],
     name: '聖域互助同盟',
     s: '收容被它燒過的人。',
   },
+  // 軌道：真空作業機與標定衛星懸浮、無人機群
   {
-    set: { k: 'world', theme: 'orbit', seed: 3105, clear: 14 },
+    set: { k: 'world', theme: 'orbit', seed: 3105, clear: 24 },
     grade: { sunAz: 30, sunEl: 6, sunWarm: 0.3, bloom: 1.1 },
     cam: [
-      [0, [0, 3, 26], [0, 14, -30]],
-      [3, [0, 2, 18], [0, 24, -30]],
+      [0, [0, 3, 22], [0, 10, -20]],
+      [3, [0, 2, 15], [0, 18, -20]],
+    ],
+    actors: [
+      U('o1', 'vacuum', [-6, -8], 0, [{ t: 0, hover: true }]),
+      U('o2', 'vacuum', [8, -14], 0, [{ t: 0, hover: true }]),
+      U('o3', 'marker', [0, -20], 0, [{ t: 0, hover: true }]),
+      U('o4', 'swarm', [-12, -4], 90, [{ t: 0, go: [12, -10] }]),
     ],
     name: '而在所有人的頭上',
     s: '有一座沒有人提起的站。',
@@ -321,7 +378,9 @@ export function prologueCine(ctx) {
       ev: [
         { t: 0.25, card: v.name, s: v.s, style: 'loc', dur: 2.3 },
         { t: 0, sfx: i % 2 ? 'thud2' : 'thud1', vol: 0.5, rate: 0.6 },
+        ...(v.ev || []),
       ],
+      actors: v.actors || [],
     });
     at += 3;
   });
@@ -661,59 +720,88 @@ export function prologueCine(ctx) {
       { t: 1.0, fx: 'dust', at: [6, 0, -24], r: 10, n: 30, color: 0xdde6ee },
     ],
   });
+  // ---- 1:37 SPECIMEN：機戰傭兵6 式的追尾視角對射（鏡頭在機體右肩後方、鎖定框套住紅色機體）----
+  const spec = {
+    id: 'sp',
+    k: 'ace',
+    key: 'specimen',
+    p: [-26, -6],
+    yaw: 270,
+    s: [
+      { t: 0, aim: 'h', hover: true },
+      { t: 0.2, fire: ['rarm', 'larm'], dur: 2.4 },
+      { t: 0.7, qb: [1, 0] },
+      { t: 1.5, qb: [-1, 0.3] },
+      { t: 2.1, fire: ['rback', 'lback'], dur: 0.6 },
+      { t: 2.6, qb: [1, -0.2] },
+      { t: 3.2, fire: ['rarm', 'larm'], dur: 2 },
+    ],
+  };
   shots.push({
     at: 97,
     set: snow,
-    grade: snowG,
+    grade: { ...snowG, contrast: 1.22, chroma: 0.35, bloom: 1.15 },
+    ov: 'lock',
+    lock: 'sp',
+    actors: [spec],
     cam: {
-      fov: 46,
-      hand: 0.18,
+      fov: 52,
+      hand: 0.22,
+      follow: 18,
       keys: [
-        { t: 0, p: { a: 'h', o: [-3, 2.5, 8], loc: true }, l: { a: 'worm' } },
-        { t: 3, p: { a: 'h', o: [-4, 3, 9], loc: true }, l: { a: 'worm' } },
+        { t: 0, p: { a: 'h', at: 'head', o: [1.7, 0.9, 6.2], loc: true }, l: { a: 'sp' } },
+        { t: 2.6, p: { a: 'h', at: 'head', o: [1.9, 1.1, 5.6], loc: true }, l: { a: 'sp' } },
       ],
-      follow: 8,
     },
     ev: [
-      { t: 0, a: 'h', go: [20, 0], aim: 'worm' },
-      { t: 0.2, a: 'h', qb: [1, 0] },
-      { t: 1.4, a: 'h', qb: [1, -0.3] },
-      { t: 0.3, a: 'h', fire: 'all', dur: 2.4, at: 'worm' },
-      { t: 1.2, boom: { a: 'worm', o: [0, 2, 0] }, big: false },
-      { t: 2.1, boom: { a: 'worm', o: [2, -3, 1] }, big: false },
+      { t: 0, a: 'h', stop: true, aim: 'sp', hover: false },
+      { t: 0.1, card: 'SPECIMEN', s: '「為什麼被選上的是你？」', style: 'name', dur: 2.3 },
+      { t: 0.15, sfx: 'alarm', vol: 0.5, rate: 1.2 },
+      { t: 0.25, a: 'h', fire: ['rarm', 'larm'], dur: 2.3, at: 'sp' },
+      { t: 0.6, a: 'h', qb: [-1, -0.2] },
+      { t: 0.6, sfx: 'boostUp', vol: 0.9 },
+      { t: 1.1, boom: { a: 'h', o: [-5, 0, -3] }, r: 1.4, near: true },
+      { t: 1.25, a: 'h', qb: [1, -0.3] },
+      { t: 1.25, sfx: 'boostUp', vol: 0.9 },
+      { t: 1.7, boom: { a: 'sp', o: [0, 1, 0] } },
+      { t: 1.7, fx: 'streaks', at: { a: 'sp' }, n: 40, color: 0xffd080 },
+      { t: 2.0, a: 'h', fire: ['rback', 'lback'], dur: 0.6, at: 'sp' },
+      { t: 2.0, sfx: 'missile', vol: 1, rate: 0.9 },
+      { t: 2.3, boom: { a: 'h', o: [-6, 1, 1] }, r: 2, big: true, near: true },
+      { t: 2.3, shake: 0.9 },
     ],
   });
+  // 1:39.6 反打：從 SPECIMEN 的背後看兩台交叉射擊，導彈命中的慢動作
   shots.push({
-    at: 100,
+    at: 99.6,
     set: snow,
-    grade: { ...snowG, contrast: 1.25 },
-    actors: [
-      {
-        id: 'sp',
-        k: 'ace',
-        key: 'specimen',
-        p: [26, -6],
-        yaw: 90,
-        s: [{ t: 0, aim: 'h', ab: true, go: [16, 2] }],
-      },
-    ],
+    grade: { ...snowG, contrast: 1.25, chroma: 0.4, bloom: 1.25, tintHi: '#ffb070', tintHiK: 0.3 },
+    ov: 'lock',
+    lock: 'sp',
     cam: {
-      fov: 34,
-      hand: 0.22,
-      keys: [
-        { t: 0, p: { a: 'h', o: [3, 1.5, 7] }, l: { a: 'sp' } },
-        { t: 2.2, p: { a: 'h', o: [5, 2, 6] }, l: { a: 'sp' } },
-      ],
+      fov: 46,
+      hand: 0.25,
       follow: 14,
+      keys: [
+        { t: 0, p: { a: 'h', at: 'head', o: [-1.8, 1.0, 6], loc: true }, l: { a: 'sp' }, roll: -4 },
+        { t: 2.6, p: { a: 'h', at: 'head', o: [-2.4, 1.6, 7], loc: true }, l: { a: 'sp' }, roll: 3 },
+      ],
     },
     ev: [
-      { t: 0, a: 'h', ab: false, stop: true, aim: 'sp' },
-      { t: 0.2, card: 'SPECIMEN', s: '「為什麼被選上的是你？」', style: 'name', dur: 2 },
-      { t: 0.9, a: 'h', qb: [1, -0.2] },
-      { t: 1.1, fx: 'flash', at: { a: 'sp', o: [-2, 0, 0] }, r: 2.2, color: 0x9fe8ff },
-      { t: 1.1, sfx: 'shield', vol: 1, rate: 0.7 },
-      { t: 1.1, shake: 0.6 },
-      { t: 1.15, slow: 0.25, dur: 0.6 },
+      { t: 0.1, a: 'h', qb: [-1, 0] },
+      { t: 0.1, sfx: 'boostUp', vol: 1 },
+      { t: 0.3, a: 'h', fire: 'all', dur: 2, at: 'sp' },
+      { t: 0.8, boom: { a: 'h', o: [-4, 0, 3] }, r: 1.4, near: true },
+      { t: 1.2, boom: { a: 'sp', o: [1, 2, 0] }, big: true },
+      { t: 1.2, fx: 'shockwave', at: { a: 'sp' }, r: 7, color: 0xffb060 },
+      { t: 1.2, fx: 'streaks', at: { a: 'sp' }, n: 60, color: 0xffc070, speed: 40 },
+      { t: 1.22, slow: 0.25, dur: 0.7 },
+      { t: 1.22, flash: '#ffd0a0', in: 0.03, hold: 0.05, out: 0.3 },
+      { t: 1.6, sub: 'ACS 過載——對方失衡！', who: 'echo', dur: 1.4 },
+      { t: 2.0, a: 'h', qb: [1, -1] },
+      { t: 2.0, sfx: 'boostUp', vol: 1 },
+      { t: 2.3, boom: { a: 'sp', o: [-1, 1, 1] }, big: true },
+      { t: 2.3, shake: 1 },
     ],
   });
   shots.push({

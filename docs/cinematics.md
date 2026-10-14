@@ -28,7 +28,7 @@
   - 點的寫法：`[x, y, z]`（相對場景原點）、`{ g: [x, z], h }`（貼地）、`{ a: 演員, o: [x, y, z], loc（依演員朝向）, at: 'head'|'base' }`、`{ st: [x, y, z] }`（軌道站的局部座標）。
   - `ev`：`{ t, ... }`：`sfx`（`at` 有位置）、`loop`、`boom`（爆炸，`big`、`kill`）、`fx`（flash、killBurst、shockwave、beam、dust、smoke、streaks、pillar、ring、warnLine、pulse、fire、flame、muzzle）、`shake`、`slow`（慢動作，只影響模擬）、`flash`（閃白／閃色）、`sub`＋`who`（字幕；`who`＝SPEAKERS 的鍵，有說話者時播無線電音效）、`card`＋`s`＋`style`（字卡：card 黑底電影字距、logo、chapter、name 宿敵名牌、loc 地點）、`sys`（左下的機器文字，系統日誌逐字）、`call`（函式）。
   - `grade`：這一鏡的調色（渲染風格的參數，疊在玩家選的風格＋過場的基本調色 `CINE_GRADE` 上；景深 `dof` 也在這裡）。
-  - `fi`／`fo`：淡入／淡出秒數，`fc` 顏色，`fade`：整鏡蓋黑（後面在建地圖）。`ov`：疊加畫面（signal 訊號波形、boot 駕駛艙開機、speed 突入的速度線、scan 監視器掃描線）。`lb: false` 不要遮幅。`sun`：太空場景的太陽方向。
+  - `fi`／`fo`：淡入／淡出秒數，`fc` 顏色，`fade`：整鏡蓋黑（後面在建地圖）。`ov`：疊加畫面（signal 訊號波形、boot 駕駛艙開機、speed 突入的速度線、scan 監視器掃描線、lock 機戰傭兵6 式的戰鬥 HUD：準星、鎖定框套住鏡頭的 `lock` 指定的演員、目標的 AP／ACS、彈數與 EN）。`lb: false` 不要遮幅。`sun`：太空場景的太陽方向。
 
 ## 序章（`data/cine/prologue.js`，約 2 分 12 秒）
 
@@ -40,10 +40,10 @@
 | 0:30 | 投放 | 夾爪鬆開、推進器點火；「投放座標：南部荒野」 |
 | 0:34 | 墜落 | 從上方看空降艙墜向雲層 |
 | 0:38 | 突入 | 電漿外殼、速度線、震動；0:45.8 配合配樂最強的一擊閃白 |
-| 0:46 | 世界 | CORAL 字卡 → 四家委託方與軌道站的空景（每 3 秒，對齊配樂的脈動） |
+| 0:46 | 世界 | CORAL 字卡 → 四家委託方與軌道站的空景（每 3 秒，對齊配樂的脈動）：卡斯特隆的 MT 縱隊、戰車、重型 MT 砲擊、直升機、起重機砲台；艾瑟立克的無人機、雷射網、護盾產生器、實驗體；維爾威的運輸機、直升機編隊、宇宙用 MT、試車台噴火；聖域的盾牌 MT、修理無人機、友軍；軌道的真空作業機、標定衛星 |
 | 1:05 | 傭兵 | 「他們都需要同一種東西。不問理由的傭兵。」 |
 | 1:09 | 甦醒 | 駕駛艙開機（HUD 逐塊亮起）→ 墜落現場、機體站起來；ECHO 第一次通訊 |
-| 1:18 | 蒙太奇 | 水壩（MT 部隊、SLUICE）→ 夜間鐵路（武裝列車 IRON CITADEL）→ 冰原（巨型鑽地蟲、SPECIMEN）；越剪越快、閃白轉場 |
+| 1:18 | 蒙太奇 | 水壩（MT 部隊、SLUICE）→ 夜間鐵路（武裝列車 IRON CITADEL）→ 冰原（巨型鑽地蟲；SPECIMEN 的追尾視角對射：右肩後方的鏡頭、鎖定框與 HUD、快速推進閃避、導彈命中的慢動作與失衡）；越剪越快、閃白轉場 |
 | 1:45 | ZENITH | 黑畫面後紅色天空下的 ZENITH 特寫（配樂換成鋼琴的 ident） |
 | 1:59 | 收尾 | 紅色天空下的剪影、Logo「RUBICON PROTOCOL」、ECHO「照你的節奏來」 |
 
@@ -54,6 +54,8 @@
 - 台詞就是 `CHAPTER_TEXT`（依抉擇 `pickLines`，所以第 2、4 章的章末依抉擇不同），一句一個鏡頭，長度依字數（3.4～7 秒）。
 - 每章的 `BEATS[章].intro／outro` 是鏡頭清單，依序配給每一句（句子比鏡頭多時重複最後一個）：`vista`（空景：crane 升起／pan 橫移／push 推近／fly 低空飛越）、`hero`（主角：walk／boost／hover）、`fight`（主角對一群敵人）、`boss`（Boss 模型登場）、`rival`（宿敵的特寫＋名牌）、`comm`（安靜的鏡頭＋掃描線，委託方的通訊）。
 - 開場：黑底 CHAPTER 字卡 → 台詞 → 章名卡（主角的鏡頭）；章末：黑底章名字卡 → 台詞 → 淡出。配樂：開場 `cine_drive`、章末 `cine_tension`。
+- 逐章重做的分鏡提案在 `docs/cinematics-storyboard.md`。
+- 章節回顧（`storyUnlocked`）：看過的＋依進度開放的（序章、到目前章節的開場、完成的章的章末、以前周目的全部），劇本改版前的舊存檔也看得到。
 - 改台詞只要改 `data/story.js`（文字畫面與過場動畫共用）；換鏡頭改 `BEATS`。
 
 ## 測試與調整
