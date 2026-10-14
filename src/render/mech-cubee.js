@@ -7,7 +7,10 @@
 import { decal, gCyl, gPod } from './geometry.js';
 
 export const CUBEE_K = 0.5; // 原檔 → 遊戲的縮放
-const K_WEAPON = 0.42; // 武器另外縮小（原檔的步槍約 2 m，太長會和從手部射出的子彈對不上）
+// 步槍：粗細照 0.45 倍、長度壓到 0.32 倍（約 1.4 m，和標準步槍差不多；原稿約 2.2 m，太長會和從手部射出的子彈對不上）
+const RIFLE_SCALE = new THREE.Matrix4()
+  .makeScale(0.45, 0.45, 0.32)
+  .multiply(new THREE.Matrix4().makeRotationY(Math.PI));
 const PI2 = Math.PI / 2;
 
 // 遊戲裡的 CUBEE 零件與武器
@@ -380,7 +383,7 @@ export function buildCubeeWeapon(g, part, M, side) {
   const red = new THREE.MeshStandardMaterial({ color: 0xff3a2a, emissive: 0xff2a1a, emissiveIntensity: 1.3 });
   const m = mats(M, red);
   const sign = -side;
-  if (part.id === 'w_crifle') rifle(new Frame(g, M, K_WEAPON), m);
+  if (part.id === 'w_crifle') rifle(new Frame(g, M, 0, RIFLE_SCALE.clone()), m);
   else if (part.id === 'bw_cms') missilePod(new Frame(g, M), m, sign);
   else quadCannon(new Frame(g, M), m, sign);
   return true;
