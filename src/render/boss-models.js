@@ -296,6 +296,7 @@ function buildWormHead(pal, scale) {
   const back = new THREE.Group();
   back.position.set(0, 1.6, 0.6);
   torso.add(hand, back);
+  wormDetail(torso, M);
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, type: 'worm', height: 3.8 * scale });
 }
@@ -578,9 +579,11 @@ function buildSpider(pal, scale) {
     P(knee, gCyl(0.36, 0.36, 0.5, 8), M.sub, ank[0], ank[1], 0, 0, 0, 0.3);
     P(knee, gCyl(0.18, 0.5, 0.8, 6), M.joint, 3.05, -9.8, 0);
     P(knee, gCyl(0.62, 0.72, 0.2, 8), M.sub, 3.05, -10.1, 0);
+    spiderLegDetail(leg, knee, M, shinPts.at);
     legNodes.push({ hip, leg, knee, a });
     mounts.push(knee);
   }
+  spiderDetail(torso, M, red, glow(0xffc060, 1.2));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, type: 'spider', height: 9 * scale, body, legNodes, mounts });
 }
@@ -814,6 +817,7 @@ function buildFortress(pal, scale) {
     torso.add(m);
     mounts.push(m);
   }
+  fortressDetail(torso, M, red, amber);
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, type: 'fortress', height: 4.4 * scale, mounts });
 }
@@ -923,6 +927,7 @@ function buildBunker(pal, scale) {
   const back = new THREE.Group();
   back.position.set(0, 5.4, 0);
   torso.add(hand, back);
+  bunkerDetail(torso, M, red, glow(0xffc060, 1.2));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, type: 'bunker', height: 5.5 * scale, rotor });
 }
@@ -1462,6 +1467,7 @@ function buildRailgun(pal, scale) {
     M.gun,
   );
   for (const s of [-1, 1]) P(hand, gCyl(0.06, 0.06, 1.0, 6), M.sub, s * 0.13, 0, -0.5, HP);
+  railgunDetail(legsG, torso, barrel, M, red, glow(0xffc060, 1.2));
   finish(root, scale);
   return rigOf(root, torso, M, {
     hand,
@@ -1648,6 +1654,7 @@ function buildLoco(pal, scale) {
   );
   P(hand, gCyl(0.07, 0.07, 1.4, 6), M.sub, 0, 0, -0.5, HP);
   P(hand, gCyl(0.11, 0.11, 0.2, 6), M.joint, 0, 0, -1.15, HP);
+  locoDetail(torso, M, glow(0xff3a2a, 1.4), win);
   finish(root, scale);
   return rigOf(root, torso, M, { hand, type: 'loco', height: 4.6 * scale, extra: { boiler } });
 }
@@ -1805,6 +1812,7 @@ function buildCar(kind) {
       back.position.set(0, 0, 4.2);
     }
     P(torso, gBox(1.6, 0.12, 0.06), glow(0xff3a2a, 1.4), 0, 0.2, -4.2);
+    carDetail(legsG, M, glow(0xff3a2a, 1.4));
     finish(root, scale);
     return rigOf(root, torso, M, { hand, back, legsG, type: kind, height: 4 * scale, extra });
   };
@@ -1837,7 +1845,7 @@ function buildFurnace(pal, scale) {
     ]),
     M.main2,
   );
-  louver(torso, M, mx(T(0, 6.32, 1.0), RX(HP)), 2.6, 2.0, 7, 1.4);
+  louver(torso, M, mx(T(0, 6.32, -0.3), RX(HP)), 2.6, 1.4, 5, 1.4);
   louver(torso, M, mx(T(0, 3.4, 4.92), RY(Math.PI)), 4.4, 1.6, 6, 1.4);
   // 側面裝甲＋條紋
   for (const s of [-1, 1]) {
@@ -1877,7 +1885,7 @@ function buildFurnace(pal, scale) {
     P(torso, gSph(0.26, 8), M.sub, s * 1.2, 6.0, -1.0);
   }
   // 熔爐（內部發光）＋八角爐口框＋隔熱罩
-  P(torso, gSph(1.6, 12), core, 0, 3.2, -4.0);
+  P(torso, gSph(1.6, 12), core, 0, 3.2, -3.85, 0, 0, 0, 1, 1, 0.3); // 爐心：壓扁，嵌在爐口裡
   P(torso, gCyl(2.0, 2.0, 0.6, 8), M.joint, 0, 3.2, -4.3, HP, Math.PI / 8, 0);
   P(torso, gCyl(1.75, 1.75, 0.64, 8), M.gun, 0, 3.2, -4.3, HP, Math.PI / 8, 0);
   PM(torso, gPlate(cutRect(6.0, 0.6, 0.2), 0.5, 0.1, [1, 0.6]), M.sub, T(0, 4.75, -4.2), RX(0.5));
@@ -1917,6 +1925,7 @@ function buildFurnace(pal, scale) {
   const hand = new THREE.Group();
   hand.position.set(0, 3.0, -5.2);
   torso.add(back, hand);
+  furnaceDetail(torso, M, core, glow(0xff3a2a, 1.4), glow(0xffc060, 1.2));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, type: 'furnace', height: 7 * scale, extra: { jaws, core } });
 }
@@ -2067,6 +2076,7 @@ function buildTower(pal, scale) {
     M.gun,
   );
   P(torso, gCyl(0.1, 0.1, 1.2, 6), M.sub, 0, 4.4, -3.8, HP);
+  towerDetail(torso, M, lens, glow(0xff3a2a, 1.4));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, rotor, type: 'tower', height: 15 * scale, extra: { lens } });
 }
@@ -2237,6 +2247,7 @@ function buildJet(pal, scale) {
   const back = new THREE.Group();
   back.position.set(0, -0.8, 0);
   torso.add(hand, back);
+  jetDetail(torso, M, glow(0xff3a2a, 1.4));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, back, nozzles, type: 'jet', height: 2.8 * scale });
 }
@@ -2387,6 +2398,7 @@ function buildDozer(pal, scale) {
   torso.add(hand);
   P(torso, gBox(0.6, 0.3, 0.6), M.joint, 0, 6.6, -0.7);
   P(hand, gCyl(0.1, 0.1, 1.0, 6), M.gun, 0, 0, -0.3, HP);
+  dozerDetail(torso, M, glow(0xff3a2a, 1.4), glow(0xffc060, 1.2));
   finish(root, scale);
   return rigOf(root, torso, M, { hand, type: 'dozer', height: 7 * scale, extra: { grinders, vents, heat } });
 }
@@ -2486,8 +2498,944 @@ function buildIbis(pal, scale) {
   const hand = new THREE.Group();
   hand.position.set(0, 0, -2.0);
   torso.add(hand);
+  ibisDetail(torso, M, edge);
   finish(root, scale);
   return rigOf(root, torso, M, { hand, type: 'ibis', height: 3.2 * scale, extra: { wings, core } });
+}
+
+// ---------- 第二層細節（大型 Boss）----------
+// 以下的面板工具都畫在區域的 XY 平面、朝 −Z（B＝擺放矩陣，面板從 z＝0 往 −z 疊上去）
+// 分片裝甲：深色底板＋nx×ny 片倒角裝甲板（片與片之間留縫、厚度交錯），可加角上的鉚釘
+function armorPanels(node, M, B, w, h, nx, ny, m, k = 1, rivet = true) {
+  const g = 0.08 * k;
+  const pw = (w - g * (nx - 1)) / nx,
+    ph = (h - g * (ny - 1)) / ny;
+  PM(node, gBox(w, h, 0.04 * k), M.joint, B, T(0, 0, -0.02 * k));
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < ny; j++) {
+      const t = (0.09 + ((i + j) % 2) * 0.05) * k;
+      const x = -w / 2 + pw / 2 + i * (pw + g),
+        y = -h / 2 + ph / 2 + j * (ph + g);
+      PM(
+        node,
+        gPlate(cutRect(pw, ph, Math.min(pw, ph) * 0.14), t, 0.025 * k, 0.94),
+        m,
+        B,
+        T(x, y, -0.04 * k - t / 2),
+      );
+      if (rivet && pw > 0.5 * k && ph > 0.4 * k) {
+        const e = 0.14 * k;
+        bolts(
+          node,
+          M,
+          mx(B, T(0, 0, -0.04 * k - t)),
+          [
+            [x - pw / 2 + e, y + ph / 2 - e],
+            [x + pw / 2 - e, y + ph / 2 - e],
+            [x - pw / 2 + e, y - ph / 2 + e],
+            [x + pw / 2 - e, y - ph / 2 + e],
+          ],
+          0.04 * k,
+        );
+      }
+    }
+}
+// 凹下的面板：凸起的外框＋深色的內板＋中間的小檢修蓋
+function recess(node, M, B, w, h, k = 1, m = M.main2) {
+  const f = 0.12 * k,
+    d = 0.08 * k;
+  PM(node, gBox(w - f, h - f, 0.02), M.joint, B, T(0, 0, -0.01));
+  for (const s of [-1, 1]) {
+    PM(node, gBox(w, f, d), m, B, T(0, s * (h / 2 - f / 2), -d / 2));
+    PM(node, gBox(f, h - 2 * f, d), m, B, T(s * (w / 2 - f / 2), 0, -d / 2));
+  }
+  PM(node, gPlate(cutRect(w * 0.5, h * 0.45, 0.06 * k), 0.04 * k, 0.012 * k), M.sub, B, T(0, 0, -0.03 * k));
+}
+// 檢修艙門：門板＋上緣的鉸鏈＋把手＋鉚釘
+function hatch(node, M, B, w, h, k = 1) {
+  PM(
+    node,
+    gPlate(cutRect(w, h, Math.min(w, h) * 0.15), 0.08 * k, 0.02 * k, 0.95),
+    M.sub,
+    B,
+    T(0, 0, -0.04 * k),
+  );
+  for (const s of [-1, 1])
+    PM(
+      node,
+      gCyl(0.05 * k, 0.05 * k, w * 0.22, 6),
+      M.joint,
+      B,
+      T(s * w * 0.3, h / 2 - 0.02, -0.09 * k),
+      RZ(HP),
+    );
+  PM(node, gBox(w * 0.3, 0.05 * k, 0.06 * k), M.joint, B, T(0, -h * 0.32, -0.11 * k));
+  const e = 0.1 * k;
+  bolts(
+    node,
+    M,
+    mx(B, T(0, 0, -0.08 * k)),
+    [
+      [-w / 2 + e, -h / 2 + e],
+      [w / 2 - e, -h / 2 + e],
+    ],
+    0.03 * k,
+  );
+}
+// 鉚釘列：從 (x0, y) 到 (x1, y) 排 n 顆
+function rivets(node, M, B, x0, x1, y, n, r = 0.04) {
+  bolts(
+    node,
+    M,
+    B,
+    Array.from({ length: n }, (_, i) => [x0 + ((x1 - x0) * i) / Math.max(1, n - 1), y]),
+    r,
+  );
+}
+// 燈：外殼＋發光面
+function lamp(node, M, B, g, r = 0.12) {
+  PM(node, gCyl(r * 1.35, r * 1.5, r * 1.2, 8), M.joint, B, T(0, 0, -r * 0.4), RX(HP));
+  PM(node, gCyl(r, r, r * 0.3, 8), g, B, T(0, 0, -r * 1.05), RX(HP));
+}
+// 扶手：沿 pts（世界中的折線，腳點）立柱，頂端與中段各一條橫桿
+function handrail(node, M, pts, h = 0.5, r = 0.03) {
+  for (const p of pts) rod(node, M.joint, p, [p[0], p[1] + h, p[2]], r);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i],
+      b = pts[i + 1];
+    for (const k of [1, 0.5]) rod(node, M.joint, [a[0], a[1] + h * k, a[2]], [b[0], b[1] + h * k, b[2]], r);
+  }
+}
+// 梯子：a（底）→ b（頂），side＝橫向的單位向量
+function ladder(node, M, a, b, side, w = 0.45, r = 0.03) {
+  const o = (p, s) => [p[0] + side[0] * s, p[1] + side[1] * s, p[2] + side[2] * s];
+  rod(node, M.joint, o(a, -w / 2), o(b, -w / 2), r * 1.3);
+  rod(node, M.joint, o(a, w / 2), o(b, w / 2), r * 1.3);
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const n = Math.max(2, Math.floor(L / 0.32));
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    const p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    rod(node, M.joint, o(p, -w / 2), o(p, w / 2), r);
+  }
+}
+// 管線束：沿折線 pts 排 n 條平行的管，off＝每條之間的位移；每段中間一個管夾
+function pipes(node, M, pts, n, off, r = 0.06, m = M.rubber) {
+  for (let k = 0; k < n; k++) {
+    const d = k - (n - 1) / 2;
+    const q = pts.map((p) => [p[0] + off[0] * d, p[1] + off[1] * d, p[2] + off[2] * d]);
+    for (let i = 0; i < q.length - 1; i++) rod(node, m, q[i], q[i + 1], r);
+    for (let i = 1; i < q.length - 1; i++) PM(node, gSph(r * 1.05, 6), m, T(...q[i]));
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i],
+      b = pts[i + 1];
+    const c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    const L = Math.hypot(off[0], off[1], off[2]) * n + r * 3;
+    const ax = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(...ax).normalize(),
+    );
+    PM(
+      node,
+      gBox(L * 0.8, r * 1.8, L * 0.8),
+      M.sub,
+      new THREE.Matrix4().compose(new THREE.Vector3(...c), q, new THREE.Vector3(1, 1, 1)),
+    );
+  }
+}
+// 天線：底座＋細桿＋頂端
+function antenna(node, M, x, y, z, h, r = 0.04) {
+  P(node, gCyl(r * 3, r * 3.5, r * 4, 6), M.joint, x, y + r * 2, z);
+  rod(node, M.joint, [x, y, z], [x, y + h, z], r);
+  P(node, gSph(r * 1.8, 6), M.sub, x, y + h, z);
+}
+// 備用履帶板：沿區域 X 排 n 片
+function spareTrack(node, M, B, n, w = 0.9, k = 1) {
+  for (let i = 0; i < n; i++) {
+    const y = (i - (n - 1) / 2) * 0.32 * k;
+    PM(node, gBox(w, 0.26 * k, 0.1 * k), M.joint, B, T(0, y, -0.05 * k));
+    PM(node, gBox(w * 0.8, 0.08 * k, 0.06 * k), M.sub, B, T(0, y, -0.12 * k));
+  }
+  for (const s of [-1, 1])
+    PM(node, gBox(0.08 * k, n * 0.32 * k, 0.16 * k), M.sub, B, T(s * w * 0.42, 0, -0.08 * k));
+}
+const flipZ = (s) => (s > 0 ? RY(Math.PI) : new THREE.Matrix4());
+
+// 多足要塞：船殼下斜面的裝甲板、船殼底的管線、甲板的艙門與凹面板、髖座的燈、感測頭的桅杆
+function spiderDetail(torso, M, red, amber) {
+  for (let i = 0; i < 6; i++) {
+    const m = ((i + 1) / 6) * Math.PI * 2;
+    const c = Math.cos(m),
+      s = Math.sin(m);
+    armorPanels(
+      torso,
+      M,
+      mx(T(c * 3.86, -0.66, s * 3.86), RY(yawTo(c, s)), RX(-1.05)),
+      2.4,
+      0.62,
+      3,
+      1,
+      M.main2,
+      0.8,
+      false,
+    );
+    rivets(torso, M, mx(T(c * 4.5, 0.6, s * 4.5), RY(yawTo(c, s)), RX(0.5)), -1.1, 1.1, 0, 6, 0.05);
+    const a = ((i + 0.5) / 6) * Math.PI * 2;
+    const ca = Math.cos(a),
+      sa = Math.sin(a);
+    pipes(
+      torso,
+      M,
+      [
+        [ca * 2.1, -1.0, sa * 2.1],
+        [ca * 3.0, -1.02, sa * 3.0],
+        [ca * 3.5, -0.85, sa * 3.5],
+      ],
+      2,
+      [-sa * 0.24, 0, ca * 0.24],
+      0.08,
+    );
+    lamp(torso, M, mx(T(ca * 5.3, 0.55, sa * 5.3), RY(yawTo(ca, sa))), i % 2 ? red : amber, 0.1);
+  }
+  hatch(torso, M, mx(T(0, 1.81, -2.3), RX(HP)), 1.2, 0.9);
+  for (const s of [-1, 1]) {
+    recess(torso, M, mx(T(s * 1.25, 1.81, 2.55), RX(HP)), 1.0, 0.8, 0.8);
+    rod(torso, M.joint, [s * 0.5, 1.6, -3.4], [s * 0.4, 1.95, -2.9], 0.05);
+    pipes(
+      torso,
+      M,
+      [
+        [s * 0.9, 1.7, -3.4],
+        [s * 1.2, 1.86, -2.4],
+        [s * 1.4, 1.86, -1.0],
+      ],
+      2,
+      [0.14, 0, 0],
+      0.05,
+    );
+  }
+  // 指揮塔的鉚釘環與後方的天線
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    P(torso, gCyl(0.06, 0.06, 0.05, 6), M.joint, Math.cos(a) * 1.6, 2.6, 0.6 + Math.sin(a) * 1.6, 0.4);
+  }
+  antenna(torso, M, 0.95, 2.62, 1.5, 0.5, 0.035);
+  antenna(torso, M, -0.95, 2.62, 1.5, 0.4, 0.035);
+  // 感測頭：桅杆、兩側的探照燈
+  rod(torso, M.joint, [0, 1.75, -3.6], [0, 2.4, -3.5], 0.06);
+  P(torso, gBox(0.6, 0.12, 0.12), M.sub, 0, 2.4, -3.5);
+  for (const s of [-1, 1]) lamp(torso, M, mx(T(s * 1.12, 1.45, -4.3), RY(-s * 0.9)), amber, 0.12);
+}
+// 多足要塞的腿：大腿兩側的凹面板與鉚釘、沿骨樑的管線，小腿的面板、鉚釘與腳踝的警示條紋，膝的輪轂
+function spiderLegDetail(leg, knee, M, at) {
+  const th = -1.092;
+  for (const s of [-1, 1]) {
+    const z = s * 0.6;
+    for (const t of [0.3, 0.62]) {
+      const x = 5.0 * t - 0.461 * 0.15,
+        y = 2.6 * t + 0.887 * 0.15;
+      PM(leg, gBox(0.7, 1.3, 0.04), M.joint, T(x, y, z + s * 0.02), RZ(th));
+      PM(leg, gPlate(cutRect(0.56, 1.12, 0.1), 0.06, 0.015), M.main3, T(x, y, z + s * 0.06), RZ(th));
+    }
+    for (let i = 0; i < 4; i++) {
+      const t = 0.18 + i * 0.2;
+      P(
+        leg,
+        gCyl(0.045, 0.045, 0.05, 6),
+        M.joint,
+        5.0 * t - 0.461 * 0.62,
+        2.6 * t + 0.887 * 0.62,
+        s * 0.58,
+        HP,
+      );
+    }
+    if (s > 0)
+      pipes(
+        leg,
+        M,
+        [
+          [0.2, 0.85, 0.42],
+          [3.95, 2.8, 0.42],
+        ],
+        2,
+        [0, 0, 0.12],
+        0.05,
+      );
+    // 小腿
+    const zs = s * 0.44;
+    for (const t of [0.35, 0.62]) {
+      const p = at(t, -0.1);
+      P(knee, gBox(0.46, 1.9, 0.04), M.joint, p[0], p[1], zs, 0, 0, 0.3016);
+      P(knee, gBox(0.36, 1.7, 0.05), M.main2, p[0], p[1], zs + s * 0.03, 0, 0, 0.3016);
+    }
+    for (let i = 0; i < 4; i++) {
+      const p = at(0.15 + i * 0.2, -0.42);
+      P(knee, gCyl(0.045, 0.045, 0.05, 6), M.joint, p[0], p[1], s * 0.43, HP);
+    }
+    const f = at(0.8, 0);
+    stripes(knee, M, mx(T(f[0], f[1], s * 0.45), RZ(0.3016), flipZ(s)), 0.48, 0.7, 3);
+    P(knee, gCyl(0.42, 0.46, 0.12, 8), M.sub, 0, 0, s * 0.7, HP);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      P(knee, gCyl(0.04, 0.04, 0.06, 6), M.joint, Math.cos(a) * 0.3, Math.sin(a) * 0.3, s * 0.78, HP);
+    }
+  }
+}
+
+// 空中要塞：上下斜面的分片裝甲、兩舷的砲廊、腹部的裝甲與彈艙兩側、艦橋的桅杆與扶手、翼面的檢修蓋與翼下的飛彈、
+// 頂面的鉚釘列、機尾的噴口框
+function fortressDetail(torso, M, red, amber) {
+  for (const s of [-1, 1]) {
+    for (const [z0, z1] of [
+      [-11.6, -5.6],
+      [-5.2, 0.8],
+      [1.2, 8.2],
+    ]) {
+      const zc = (z0 + z1) / 2,
+        L = z1 - z0;
+      armorPanels(
+        torso,
+        M,
+        mx(T(s * 2.93, 1.43, zc), RY(-s * HP), RX(Math.PI / 4)),
+        L,
+        1.5,
+        3,
+        1,
+        M.main2,
+        1.4,
+      );
+      armorPanels(
+        torso,
+        M,
+        mx(T(s * 2.87, -1.37, zc), RY(-s * HP), RX(-Math.PI / 4)),
+        L,
+        1.5,
+        3,
+        1,
+        M.main3,
+        1.4,
+        false,
+      );
+    }
+    // 砲廊：楔形的側艙＋雙管砲＋觀測窗
+    P(
+      torso,
+      gPod([
+        [-2.9, 0.7, -0.4, 0.5, 0.15, 0.15],
+        [-2.3, 1.1, -0.6, 0.7, 0.25, 0.25],
+        [-0.4, 1.1, -0.6, 0.7, 0.25, 0.25],
+        [0.2, 0.8, -0.45, 0.55, 0.2, 0.2],
+      ]),
+      M.main2,
+      s * 3.95,
+      0,
+      0,
+    );
+    for (const y of [-0.15, 0.25]) {
+      P(torso, gCyl(0.09, 0.09, 1.4, 6), M.gun, s * 4.15, y, -3.3, HP);
+      P(torso, gCyl(0.13, 0.13, 0.3, 6), M.joint, s * 4.15, y, -3.95, HP);
+    }
+    P(torso, gBox(0.06, 0.18, 1.4), amber, s * 4.52, 0.3, -1.2);
+    // 腹部：龍骨兩側的裝甲
+    armorPanels(torso, M, mx(T(s * 1.35, -2.0, -4.2), RX(-HP)), 1.5, 5.0, 1, 3, M.main2, 1.2);
+    // 翼面：檢修蓋、鉚釘、翼下的飛彈莢
+    for (const [x, z] of [
+      [7.5, 4.6],
+      [15.2, 6.4],
+    ]) {
+      hatch(torso, M, mx(T(s * x, 0.28, z), RX(HP)), 1.6, 1.1, 1.2);
+      rivets(torso, M, mx(T(s * x, 0.28, z - 1.3), RX(HP)), -2.5, 2.5, 0, 8, 0.05);
+    }
+    for (const x of [6.5, 10.5]) {
+      P(torso, gBox(0.2, 0.3, 2.0), M.joint, s * x, -0.7, 4.3);
+      P(
+        torso,
+        gPod([
+          [-1.4, 0.9, -0.35, 0.35, 0.12, 0.12],
+          [1.2, 0.9, -0.35, 0.35, 0.12, 0.12],
+        ]),
+        M.gun,
+        s * x,
+        -1.2,
+        4.3,
+      );
+      for (const dx of [-0.2, 0.2]) P(torso, gCyl(0.12, 0.12, 0.06, 8), M.acc, s * x + dx, -1.2, 2.88, HP);
+    }
+    // 艦橋的扶手
+    handrail(
+      torso,
+      M,
+      [
+        [s * 2.05, 3.4, -1.3],
+        [s * 2.05, 3.4, 2.2],
+      ],
+      0.45,
+    );
+    // 機首的探照燈、翼根整流
+    lamp(torso, M, mx(T(s * 1.9, 0.9, -15.0), RY(-s * 0.6)), amber, 0.18);
+    P(
+      torso,
+      gPod([
+        [0.6, 0.9, -0.55, 0.1, 0.2, 0.2],
+        [2.0, 1.2, -0.6, 0.15, 0.3, 0.2],
+        [9.0, 1.2, -0.6, 0.15, 0.3, 0.2],
+      ]),
+      M.main3,
+      s * 3.45,
+      0,
+      0,
+    );
+  }
+  // 頂面：鉚釘列、前方的艙門
+  for (const s of [-1, 1]) rivets(torso, M, mx(T(s * 2.15, 2.01, 0), RX(HP), RZ(HP)), -11, -3.4, 0, 14, 0.06);
+  hatch(torso, M, mx(T(0, 2.01, -3.9), RX(HP)), 1.4, 0.9, 1.2);
+  hatch(torso, M, mx(T(0, 2.01, -13.2), RX(HP)), 1.2, 0.8, 1.2);
+  // 艦橋的桅杆與橫桿、燈
+  rod(torso, M.joint, [0, 4.6, 3.3], [0, 5.45, 3.3], 0.07);
+  rod(torso, M.joint, [-0.8, 5.2, 3.3], [0.8, 5.2, 3.3], 0.04);
+  P(torso, gSph(0.09, 6), red, 0, 5.5, 3.3);
+  for (const s of [-1, 1]) P(torso, gBox(0.3, 0.06, 0.06), M.sub, s * 0.8, 5.2, 3.3);
+  // 機尾的噴口框
+  PM(torso, gPlate(cutRect(5.6, 2.2, 0.5), 0.24, 0.06, 0.94), M.joint, T(0, 0.05, 12.22));
+  for (const s of [-1, 1]) P(torso, gBox(0.12, 0.3, 0.12), red, s * 2.55, 1.1, 12.3);
+}
+
+// 電磁砲台：砲塔底的斜面裝甲裙、斜前甲板的分片裝甲、觀測塔與窗框、頂面扶手、後方的梯子、電容器的電纜、
+// 導軌上的隔熱板；底盤正面的備用履帶板、側面的工具、後方的排氣管
+function railgunDetail(legsG, torso, barrel, M, red, amber) {
+  for (const s of [-1, 1]) {
+    PM(
+      torso,
+      gPlate(
+        sideProfile([
+          [-2.45, 0.05],
+          [3.55, 0.05],
+          [3.4, 0.68],
+          [-2.2, 0.68],
+        ]),
+        0.14,
+        0.04,
+      ),
+      M.main2,
+      T(s * 2.6, 0, 0),
+      RZ(s * 0.25),
+      RY(HP),
+    );
+    rivets(torso, M, mx(T(s * 2.68, 0.45, 0), RY(-s * HP)), -2.0 * s, 3.2 * s, 0, 9, 0.05);
+    // 底盤側面的工具（鏟、撬棍）與排氣管
+    P(legsG, gBox(0.1, 0.16, 1.8), M.joint, s * 3.02, 2.15, -0.6);
+    P(legsG, gBox(0.12, 0.42, 0.3), M.sub, s * 3.02, 2.1, 0.45);
+    P(legsG, gBox(0.08, 0.1, 1.6), M.sub, s * 3.02, 1.85, 1.6);
+    rod(legsG, M.sub, [s * 1.9, 2.2, 3.9], [s * 1.9, 2.6, 4.3], 0.14);
+    P(legsG, gCyl(0.18, 0.18, 0.14, 8), M.joint, s * 1.9, 2.66, 4.36, -0.8);
+    spareTrack(legsG, M, mx(T(s * 2.15, 2.02, -4.05), RX(0.1)), 3, 0.9);
+    lamp(legsG, M, mx(T(s * 2.55, 2.3, -3.85), RX(0.1)), amber, 0.11);
+  }
+  armorPanels(torso, M, mx(T(0, 1.98, -2.02), RX(Math.PI / 4)), 2.4, 1.0, 2, 1, M.main3, 0.9);
+  // 觀測塔：窗框
+  P(
+    torso,
+    gPod([
+      [-0.7, 0.9, 3.4, 3.75, 0.12, 0.01],
+      [-0.4, 1.0, 3.4, 3.85, 0.15, 0.01],
+      [0.2, 1.0, 3.4, 3.85, 0.15, 0.01],
+    ]),
+    M.sub,
+    -0.9,
+    0,
+    0,
+  );
+  P(torso, gBox(0.8, 0.14, 0.04), amber, -0.9, 3.68, -0.73, -0.5, 0, 0);
+  for (const x of [-1.2, -0.9, -0.6]) P(torso, gBox(0.04, 0.18, 0.06), M.joint, x, 3.68, -0.74, -0.5, 0, 0);
+  handrail(
+    torso,
+    M,
+    [
+      [1.6, 3.4, -0.6],
+      [1.6, 3.4, 3.0],
+      [-1.6, 3.4, 3.0],
+    ],
+    0.35,
+  );
+  ladder(torso, M, [1.6, 0.2, 3.66], [1.6, 2.35, 3.66], [1, 0, 0], 0.5);
+  for (const x of [-0.95, 0.95])
+    pipes(
+      torso,
+      M,
+      [
+        [x, 3.45, 0.38],
+        [x * 0.7, 3.1, -0.4],
+        [x * 0.6, 2.6, -0.85],
+      ],
+      2,
+      [0.14, 0, 0],
+      0.05,
+    );
+  antenna(torso, M, 1.4, 3.4, 2.9, 0.45, 0.03);
+  // 導軌上的隔熱板與鉚釘
+  for (let i = 0; i < 5; i++) {
+    const z = -2.5 - i * 2;
+    P(barrel, gPlate(cutRect(1.6, 1.3, 0.2), 0.08, 0.02), M.main3, 0, 0.5, z, HP, 0, 0);
+    for (const s of [-1, 1]) rivets(barrel, M, mx(T(s * 0.93, 0, z), RY(-s * HP)), -0.6, 0.6, 0, 4, 0.04);
+  }
+  decal(torso, 1, 0.7, 0.7, 2.55, 1.3, 1.6, 0, HP, 0);
+}
+
+// 推土要塞：楔形的 V 字車頭與衝角、斜前甲板的追加裝甲、側面與上斜面的分片裝甲、駕駛艙窗框與側窗、
+// 天線、梯子、扶手、排氣管的隔熱罩、鏟刀的耐磨板與端板、側面的備用履帶板與工具、後方的燈
+function dozerDetail(torso, M, red, amber) {
+  // V 字車頭
+  for (const s of [-1, 1]) {
+    PM(torso, gPlate(cutRect(2.6, 1.7, 0.3), 0.3, 0.08, 0.9), M.main3, T(s * 1.25, 2.9, -4.55), RY(s * 0.5));
+    // 衝角
+    P(torso, gCyl(0.02, 0.32, 1.7, 6), M.gun, s * 2.4, 4.35, -4.8, -HP + 0.15);
+    P(torso, gCyl(0.38, 0.38, 0.25, 6), M.joint, s * 2.4, 4.3, -4.0, HP);
+  }
+  // 斜前甲板（車頭頂斜面）的追加裝甲
+  PM(
+    torso,
+    gPlate(
+      sideProfile([
+        [-4.2, 4.62],
+        [-3.0, 5.32],
+        [-0.6, 5.32],
+        [-0.6, 5.48],
+        [-3.05, 5.5],
+        [-4.35, 4.75],
+      ]),
+      4.6,
+      0.08,
+    ),
+    M.main2,
+    RY(HP),
+  );
+  for (const x of [-1.5, 0, 1.5])
+    rivets(torso, M, mx(T(x, 5.55, -1.8), RX(HP), RZ(HP)), -0.9, 1.0, 0, 4, 0.06);
+  for (const s of [-1, 1]) {
+    // 側面
+    armorPanels(torso, M, mx(T(s * 3.62, 3.55, -0.1), RY(-s * HP)), 2.6, 2.6, 2, 2, M.main2, 1.2);
+    armorPanels(torso, M, mx(T(s * 3.62, 3.55, 4.25), RY(-s * HP)), 1.6, 2.6, 1, 2, M.main2, 1.2);
+    // 上斜面
+    armorPanels(
+      torso,
+      M,
+      mx(T(s * 3.24, 4.92, 1.0), RY(-s * HP), RX(Math.PI / 4)),
+      7.0,
+      0.9,
+      4,
+      1,
+      M.main3,
+      1.0,
+      false,
+    );
+    // 駕駛艙側窗與窗框
+    P(torso, gBox(0.06, 0.32, 2.2), amber, s * 2.32, 6.15, 1.6);
+    for (const z of [0.5, 1.6, 2.7]) P(torso, gBox(0.08, 0.4, 0.08), M.joint, s * 2.34, 6.15, z);
+    // 天線、梯子、扶手
+    antenna(torso, M, s * 1.9, 7.0, 3.3, 0.6, 0.04);
+    ladder(torso, M, [s * 3.7, 2.1, 5.0], [s * 3.7, 5.2, 5.0], [0, 0, 1], 0.45);
+    handrail(
+      torso,
+      M,
+      [
+        [s * 2.05, 7.0, -0.2],
+        [s * 2.05, 7.0, 3.5],
+      ],
+      0.35,
+    );
+    // 排氣管的隔熱罩
+    for (const y of [5.7, 6.1, 6.5]) P(torso, gCyl(0.34, 0.34, 0.08, 8), M.joint, s * 1.6, y, 4.5);
+    // 鏟刀的端板
+    sidePlate(
+      torso,
+      M.main2,
+      [
+        [-7.05, 0.25],
+        [-6.5, 0.25],
+        [-5.75, 1.6],
+        [-5.75, 2.6],
+        [-6.4, 4.2],
+        [-6.95, 4.2],
+      ],
+      0.2,
+      0.04,
+      s * 5.3,
+    );
+    // 側面的備用履帶板與工具
+    spareTrack(torso, M, mx(T(s * 3.7, 3.4, -2.45), RY(-s * HP), RZ(HP)), 3, 1.0, 1.1);
+    P(torso, gBox(0.1, 0.14, 2.0), M.joint, s * 3.75, 4.85, 1.0);
+    // 後方的燈
+    lamp(torso, M, mx(T(s * 3.1, 4.6, 5.42), RY(Math.PI)), red, 0.13);
+  }
+  // 駕駛艙的前窗框
+  for (const y of [5.95, 6.25]) P(torso, gBox(3.2, 0.06, 0.08), M.joint, 0, y, -0.55);
+  for (const x of [-1.5, -0.5, 0.5, 1.5]) P(torso, gBox(0.07, 0.36, 0.09), M.joint, x, 6.1, -0.56);
+  // 鏟刀正面的耐磨板
+  for (const [z, y, r] of [
+    [-6.32, 1.2, -0.38],
+    [-6.28, 2.1, -0.05],
+    [-6.37, 3.0, 0.3],
+  ])
+    P(torso, gBox(9.8, 0.14, 0.1), M.joint, 0, y, z, r, 0, 0);
+  decal(torso, 1, 1.0, 1.0, 0, 3.0, 5.47, 0, 0, 0);
+}
+
+// 熔爐：嵌在爐口裡的爐心與爐柵、上層的鍋爐筒（鞍座、帶環、閥輪、壓力表）、爐口上方的熔渣漏斗、
+// 上層甲板的走道扶手與梯子、側面的管線束與壓力表、側面散熱格柵、後方的梯子與燈
+function furnaceDetail(torso, M, core, red, amber) {
+  // 爐柵（顎門後方）
+  for (const y of [2.45, 3.2, 3.95]) P(torso, gBox(2.9, 0.14, 0.14), M.joint, 0, y, -4.5);
+  P(torso, gCyl(1.75, 1.45, 0.5, 8), M.joint, 0, 3.2, -4.1, HP, Math.PI / 8, 0);
+  // 鍋爐筒
+  P(torso, gCyl(0.58, 0.58, 3.2, 12), M.main3, 0, 6.9, 2.2, HP);
+  for (const z of [0.6, 3.8]) P(torso, gCyl(0.64, 0.64, 0.14, 12), M.sub, 0, 6.9, z, HP);
+  for (const z of [1.4, 2.2, 3.0]) P(torso, gCyl(0.61, 0.61, 0.08, 12), M.acc, 0, 6.9, z, HP);
+  for (const z of [1.0, 3.4]) P(torso, gBox(0.9, 0.5, 0.25), M.joint, 0, 6.45, z);
+  rod(torso, M.joint, [0, 7.45, 2.6], [0, 7.75, 2.6], 0.06);
+  P(torso, gCyl(0.22, 0.22, 0.05, 8), M.sub, 0, 7.78, 2.6);
+  lens(torso, M, mx(T(0.45, 7.25, 1.7), RY(-0.7), RX(0.6)), 0.1);
+  // 熔渣漏斗
+  loftY(
+    torso,
+    M.main2,
+    [
+      [4.95, cutRect(1.0, 1.0, 0.15)],
+      [5.6, cutRect(1.6, 1.6, 0.2)],
+      [5.8, cutRect(1.7, 1.7, 0.2)],
+    ],
+    0,
+    -2.6,
+  );
+  P(torso, gBox(1.5, 0.05, 1.5), M.joint, 0, 5.83, -2.6);
+  // 上層甲板的走道扶手、梯子
+  for (const s of [-1, 1]) {
+    handrail(
+      torso,
+      M,
+      [
+        [s * 2.45, 6.3, -0.4],
+        [s * 2.45, 6.3, 4.0],
+      ],
+      0.5,
+    );
+    ladder(torso, M, [s * 2.9, 5.0, 4.3], [s * 2.6, 6.3, 4.3], [0, 0, 1], 0.4);
+    ladder(torso, M, [s * 3.95, 0.4, 4.7], [s * 3.95, 4.3, 4.7], [0, 0, 1], 0.45);
+    // 側面上緣的管線束
+    pipes(
+      torso,
+      M,
+      [
+        [s * 3.5, 4.55, -3.4],
+        [s * 3.5, 4.55, 1.0],
+        [s * 3.3, 4.85, 4.4],
+      ],
+      3,
+      [0, 0.16, 0],
+      0.07,
+      M.joint,
+    );
+    // 側面：壓力表、散熱格柵、凹面板
+    lens(torso, M, mx(T(s * 3.92, 3.2, 0.2), RY(-s * HP)), 0.18, red);
+    louver(torso, M, mx(T(s * 3.92, 2.75, 2.6), RY(-s * HP)), 2.6, 1.0, 5, 1.2);
+    recess(torso, M, mx(T(s * 3.92, 3.6, -0.9), RY(-s * HP)), 1.4, 1.2, 1.0);
+    lamp(torso, M, mx(T(s * 3.2, 4.4, 4.9), RY(Math.PI)), red, 0.13);
+    // 上斜面的分片裝甲
+    armorPanels(
+      torso,
+      M,
+      mx(T(s * 3.38, 4.75, 0.6), RY(-s * HP), RX(Math.PI / 4)),
+      6.0,
+      0.8,
+      4,
+      1,
+      M.main3,
+      1.0,
+      false,
+    );
+    // 車頭兩側的追加裝甲
+    PM(torso, gPlate(cutRect(0.9, 2.4, 0.2), 0.3, 0.06, 0.9), M.main2, T(s * 3.0, 3.2, -4.2));
+  }
+  // 後方甲板的散熱器（鰭片）
+  for (let i = 0; i < 9; i++) P(torso, gBox(0.08, 0.5, 0.7), M.joint, -2.0 + i * 0.5, 5.2, 4.5);
+  P(torso, gBox(4.6, 0.1, 0.8), M.sub, 0, 4.98, 4.5);
+  decal(torso, 1, 1.0, 1.0, 0, 2.3, 4.93, 0, 0, 0);
+}
+
+// 鑽地蟲：裝甲板的鉚釘、沿機身的管線束、肋環的螺栓、顎的背肋
+function wormDetail(torso, M) {
+  for (let k = 0; k < 3; k++)
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + (k % 2) * (Math.PI / 10);
+      const r = 1.76 + k * 0.05 + 0.11;
+      bolts(
+        torso,
+        M,
+        mx(...radial(a, r, -1.15 + k * 1.25), RX(HP)),
+        [
+          [-0.36, -0.45],
+          [0.36, -0.45],
+          [0, 0.42],
+        ],
+        0.045,
+      );
+    }
+  for (const z of [-0.5, 0.75, 2.2])
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      P(torso, gCyl(0.06, 0.06, 0.34, 6), M.joint, Math.cos(a) * 1.96, Math.sin(a) * 1.96, z, HP);
+    }
+  for (const a of [Math.PI / 6 + 0.32, (5 * Math.PI) / 6 - 0.32]) {
+    const p = (z, r = 2.0) => [Math.cos(a) * r, Math.sin(a) * r, z];
+    pipes(
+      torso,
+      M,
+      [p(-1.6, 1.98), p(0.0, 2.04), p(2.3, 2.02)],
+      2,
+      [Math.cos(a + HP) * 0.13, Math.sin(a + HP) * 0.13, 0],
+      0.055,
+    );
+  }
+}
+
+// 衛星砲導引塔：底座各面的分片裝甲與艙門、上層的凹面板、沿塔身的梯子與管線、平台的燈與托架、頭部的天線陣列
+function towerDetail(torso, M, lens, red) {
+  for (let i = 0; i < 6; i++) {
+    const a = HP + (i / 6) * Math.PI * 2;
+    const m = a + Math.PI / 6;
+    const c = Math.cos(m),
+      s = Math.sin(m);
+    const B = mx(T(c * 2.85, 2.1, s * 2.85), RY(yawTo(c, s)), RX(0.54));
+    if (i === 3) hatch(torso, M, B, 1.4, 0.9, 1.1);
+    else recess(torso, M, B, 1.8, 0.85, 1.0);
+    rivets(torso, M, mx(T(c * 4.2, 1.05, s * 4.2), RY(yawTo(c, s)), RX(0.15)), -1.8, 1.8, 0, 8, 0.05);
+    // 平台下的托架
+    rod(
+      torso,
+      M.joint,
+      [Math.cos(a) * 1.55, 8.9, Math.sin(a) * 1.55],
+      [Math.cos(a) * 2.35, 9.55, Math.sin(a) * 2.35],
+      0.06,
+    );
+  }
+  // 梯子：沿塔身（朝 −Z 的面）
+  const dl = [Math.cos((4 * Math.PI) / 3), Math.sin((4 * Math.PI) / 3)];
+  ladder(
+    torso,
+    M,
+    [dl[0] * 1.68, 2.7, dl[1] * 1.68],
+    [dl[0] * 1.34, 9.5, dl[1] * 1.34],
+    [-dl[1], 0, dl[0]],
+    0.5,
+  );
+  pipes(
+    torso,
+    M,
+    [
+      [1.67, 2.7, 0],
+      [1.2, 12.5, 0],
+    ],
+    2,
+    [0, 0, 0.16],
+    0.06,
+  );
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    lamp(
+      torso,
+      M,
+      mx(T(Math.cos(a) * 2.5, 9.75, Math.sin(a) * 2.5), RY(yawTo(Math.cos(a), Math.sin(a)))),
+      i % 2 ? red : lens,
+      0.1,
+    );
+  }
+  // 頭部的天線陣列（碟面下方）
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    rod(
+      torso,
+      M.joint,
+      [Math.cos(a) * 1.35, 12.85, Math.sin(a) * 1.35],
+      [Math.cos(a) * 1.7, 13.2, Math.sin(a) * 1.7],
+      0.04,
+    );
+  }
+  const dr = [Math.cos((2 * Math.PI) / 3), Math.sin((2 * Math.PI) / 3)];
+  for (const [y, r] of [
+    [4.4, 1.53],
+    [7.2, 1.42],
+  ])
+    recess(
+      torso,
+      M,
+      mx(T(dr[0] * r, y, dr[1] * r), RY(yawTo(dr[0], dr[1])), RX(0.05)),
+      0.9,
+      2.2,
+      0.8,
+      M.main3,
+    );
+}
+
+// 砲兵指揮所：甲板邊緣的混凝土護塊、側牆的鉚釘、後方的梯子與門、管線、探照燈、彈藥箱、指揮塊的分片裝甲
+function bunkerDetail(torso, M, red, amber) {
+  for (let i = 0; i < 9; i++) {
+    const x = -4.0 + i;
+    PM(torso, gPlate(cutRect(0.85, 0.5, 0.1), 0.6, 0.06, [0.85, 0.8]), M.main2, T(x, 3.45, -4.55), RX(-HP));
+  }
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 4; i++)
+      PM(
+        torso,
+        gPlate(cutRect(0.85, 0.5, 0.1), 0.6, 0.06, [0.85, 0.8]),
+        M.main2,
+        T(s * 4.4, 3.45, -3.0 + i * 1.1),
+        RX(-HP),
+      );
+    rivets(
+      torso,
+      M,
+      mx(T(s * 5.45, 0, 0), RZ(s * 0.22), T(s * 0.57, 2.0, 0), RY(-s * HP)),
+      -5.0,
+      5.0,
+      0,
+      12,
+      0.07,
+    );
+    lamp(torso, M, mx(T(s * 2.9, 4.6, -2.9), RY(-s * 0.7), RX(0.2)), amber, 0.18);
+    // 指揮塊的側面裝甲
+    armorPanels(
+      torso,
+      M,
+      mx(T(s * 3.47, 3.5, 0), RY(-s * HP), RX(0.24)),
+      2.4,
+      0.5,
+      2,
+      1,
+      M.main3,
+      0.8,
+      false,
+    );
+  }
+  // 後方：梯子、門、管線
+  ladder(torso, M, [3.2, 0.1, 5.75], [3.0, 3.2, 5.3], [1, 0, 0], 0.55);
+  hatch(torso, M, mx(T(-3.0, 1.2, 5.6), RY(Math.PI), RX(-0.15)), 1.4, 2.0, 1.2);
+  pipes(
+    torso,
+    M,
+    [
+      [-4.6, 0.6, 5.55],
+      [-4.6, 2.8, 5.2],
+      [-3.4, 3.35, 4.6],
+    ],
+    3,
+    [0.18, 0, 0],
+    0.08,
+    M.joint,
+  );
+  // 彈藥箱
+  for (const [x, z] of [
+    [-3.6, -2.0],
+    [-3.6, -1.0],
+    [-2.6, -2.0],
+  ]) {
+    CB(torso, 0.8, 0.5, 0.6, M.sub, x, 3.45, z, 0, 0, 0, 0.05);
+    P(torso, gBox(0.82, 0.06, 0.2), M.acc, x, 3.6, z);
+  }
+  rivets(torso, M, mx(T(0, 2.95, -5.12), RX(0.15)), -4.0, 4.0, 0, 12, 0.06);
+}
+
+// 機車頭：引擎罩上斜面的分片裝甲、側面的鉚釘列、駕駛室的窗框與登車梯、屋頂的空調與喇叭、尾燈、編號
+function locoDetail(torso, M, red, amber) {
+  for (const s of [-1, 1]) {
+    armorPanels(
+      torso,
+      M,
+      mx(T(s * 1.36, 3.33, -0.05), RY(-s * HP), RX(Math.PI / 4)),
+      3.6,
+      0.7,
+      3,
+      1,
+      M.main2,
+      0.7,
+      false,
+    );
+    rivets(torso, M, mx(T(s * 1.61, 1.05, 0), RY(-s * HP)), -4.0, 4.0, 0, 14, 0.04);
+    for (const z of [2.0, 2.6])
+      P(torso, gBox(0.6, 0.06, 0.25), M.joint, s * 1.5, 0.55 + (z - 2.0) * 0.6, 3.4 + z - 2.0);
+    rod(torso, M.joint, [s * 1.6, 1.0, 2.0], [s * 1.6, 2.4, 2.0], 0.04);
+    P(torso, gBox(0.08, 0.06, 1.3), M.joint, s * 1.57, 3.4, 3.2);
+    lamp(torso, M, mx(T(s * 1.1, 2.5, 4.33), RY(Math.PI)), red, 0.12);
+    decal(torso, 1, 0.6, 0.6, s * 1.58, 2.9, 3.6, 0, s * HP, 0);
+  }
+  for (const z of [2.6, 3.2]) P(torso, gBox(0.06, 0.4, 0.08), M.joint, 0, 3.45, z - 0.66, -0.6, 0, 0);
+  CB(torso, 1.2, 0.3, 1.0, M.sub, 0, 4.1, 3.2, 0, 0, 0, 0.05);
+  louver(torso, M, mx(T(0, 4.26, 3.2), RX(HP)), 1.0, 0.8, 4, 0.6);
+  for (const s of [-1, 1]) P(torso, gCyl(0.08, 0.14, 0.4, 8), M.sub, s * 0.35, 3.75, 1.3, -HP);
+  antenna(torso, M, 1.1, 3.95, 3.8, 0.5, 0.03);
+}
+// 車廂共用：兩端的登車梯與扶手、側面的鉚釘列、手煞車輪、尾燈
+function carDetail(legsG, M, red) {
+  for (const s of [-1, 1]) {
+    rivets(legsG, M, mx(T(s * 1.56, 1.25, 0), RY(-s * HP)), -3.8, 3.8, 0, 14, 0.04);
+    for (const z of [-4.0, 4.0]) {
+      P(legsG, gBox(0.5, 0.05, 0.2), M.joint, s * 1.35, 0.55, z);
+      rod(legsG, M.joint, [s * 1.6, 1.1, z], [s * 1.6, 2.4, z], 0.035);
+    }
+    lamp(legsG, M, mx(T(s * 1.2, 1.5, 4.12), RY(Math.PI)), red, 0.1);
+  }
+  P(legsG, gCyl(0.28, 0.28, 0.05, 10), M.sub, 0.6, 2.4, 4.0, HP);
+  rod(legsG, M.joint, [0.6, 2.0, 4.0], [0.6, 2.4, 4.0], 0.04);
+}
+
+// 脈衝刃翼：肩部的裝甲、背上的小噴口、頭部的感測鰭、機身的面板線
+function ibisDetail(torso, M, edge) {
+  for (const s of [-1, 1]) {
+    P(
+      torso,
+      gPod([
+        [-0.6, 0.5, 0.45, 0.85, 0.1, 0.1],
+        [0.9, 0.6, 0.4, 0.9, 0.12, 0.1],
+      ]),
+      M.main2,
+      s * 0.62,
+      0,
+      0,
+    );
+    P(torso, gCyl(0.16, 0.2, 0.3, 8), M.joint, s * 0.35, 0.2, 1.95, HP);
+    P(torso, gCyl(0.12, 0.12, 0.04, 8), edge, s * 0.35, 0.2, 2.11, HP);
+    PM(
+      torso,
+      gPlate(
+        sideProfile([
+          [-2.4, 0.6],
+          [-1.7, 0.75],
+          [-1.4, 1.05],
+          [-1.9, 0.95],
+        ]),
+        0.05,
+        0.015,
+      ),
+      M.sub,
+      T(s * 0.3, 0, 0),
+      RZ(-s * 0.3),
+      RY(HP),
+    );
+    rivets(torso, M, mx(T(s * 0.61, 0, 0), RY(-s * HP)), -1.2, 0.9, 0.2, 5, 0.03);
+  }
+  for (const z of [-0.6, 0.2]) P(torso, gBox(1.22, 0.03, 0.04), M.joint, 0, 0.81, z);
+}
+// 高速突擊機：機身的面板線、空速管、座艙罩框、垂尾與翼面的鉚釘、進氣道的唇口、機腹的燈
+function jetDetail(torso, M, red) {
+  for (const z of [-5.0, -1.6, 1.4, 4.0]) P(torso, gBox(1.6, 0.03, 0.05), M.joint, 0, 0.7, z);
+  P(torso, gCyl(0.025, 0.025, 0.5, 4), M.joint, 0, 0, -9.4, HP);
+  for (const z of [-4.2, -3.4, -2.6]) P(torso, gBox(0.85, 0.05, 0.06), M.sub, 0, 1.06, z, 0.3, 0, 0);
+  for (const s of [-1, 1]) {
+    P(torso, gBox(0.62, 0.7, 0.08), M.sub, s * 1.15, -0.13, -3.88);
+    rivets(torso, M, mx(T(s * 4.2, 0.02, 1.7), RX(HP), RZ(HP)), -2.0, 2.0, 0, 6, 0.03);
+    P(torso, gBox(0.3, 0.05, 0.12), M.joint, s * 0.85, -0.68, -2.0);
+  }
+  P(torso, gSph(0.08, 6), red, 0, -0.66, 1.0);
 }
 
 const BUILDERS = {
