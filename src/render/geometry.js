@@ -51,6 +51,151 @@ export function gFrustum(tw, td, bw, bd, h) {
   GEO_CACHE[k] = g;
   return g;
 }
+// ----- 有輪廓的裝甲：放樣與倒角擠出 -----
+// 多邊形 [[x, y]…] 的有號面積（正＝逆時針）
+function polyArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, y0] = pts[i],
+      [x1, y1] = pts[(i + 1) % pts.length];
+    a += x0 * y1 - x1 * y0;
+  }
+  return a / 2;
+}
+// 多邊形往內縮 c（每條邊平移後求交點；尖角的位移限制在 3c，不會翻轉）
+function polyInset(pts, c) {
+  const n = pts.length,
+    out = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[(i + n - 1) % n],
+      q = pts[i],
+      r = pts[(i + 1) % n];
+    const e1 = [q[0] - p[0], q[1] - p[1]],
+      e2 = [r[0] - q[0], r[1] - q[1]];
+    const l1 = Math.hypot(e1[0], e1[1]) || 1,
+      l2 = Math.hypot(e2[0], e2[1]) || 1;
+    // 逆時針多邊形的內側法線＝邊方向往左轉
+    const n1 = [-e1[1] / l1, e1[0] / l1],
+      n2 = [-e2[1] / l2, e2[0] / l2];
+    let bx = n1[0] + n2[0],
+      by = n1[1] + n2[1];
+    const bl = Math.hypot(bx, by) || 1;
+    bx /= bl;
+    by /= bl;
+    const cos = bx * n1[0] + by * n1[1];
+    const k = Math.min(c / Math.max(cos, 0.2), c * 3);
+    out.push([q[0] + bx * k, q[1] + by * k]);
+  }
+  return out;
+}
+// 放樣：rings＝[{ pts: [[x, y]…], z }…]（z 由小到大、每圈點數相同），兩端以三角化的面封口
+// 每個面（側面的四邊形、封口）各自 0～1 的貼圖座標，和方塊一樣讓面板法線貼圖在每個面都有邊緣高光
+export function gLoft(rings) {
+  const k = 'L' + JSON.stringify(rings);
+  if (GEO_CACHE[k]) return GEO_CACHE[k];
+  const ccw = polyArea(rings[0].pts) > 0;
+  const R = rings.map((r) => ({ z: r.z, pts: ccw ? r.pts : r.pts.slice().reverse() }));
+  const pos = [],
+    uv = [];
+  const n = R[0].pts.length;
+  for (let i = 0; i < R.length - 1; i++) {
+    const A = R[i],
+      B = R[i + 1];
+    for (let j = 0; j < n; j++) {
+      const a0 = [...A.pts[j], A.z],
+        b0 = [...A.pts[(j + 1) % n], A.z],
+        a1 = [...B.pts[j], B.z],
+        b1 = [...B.pts[(j + 1) % n], B.z];
+      pos.push(...a0, ...b0, ...b1, ...a0, ...b1, ...a1);
+      uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    }
+  }
+  const cap = (ring, front) => {
+    const tris = THREE.ShapeUtils.triangulateShape(
+      ring.pts.map((p) => new THREE.Vector2(p[0], p[1])),
+      [],
+    );
+    let x0 = Infinity,
+      x1 = -Infinity,
+      y0 = Infinity,
+      y1 = -Infinity;
+    for (const [x, y] of ring.pts) {
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+    for (const t of tris) {
+      let [a, b, c] = t.map((i) => ring.pts[i]);
+      // 朝 +z 的封口要逆時針、朝 −z 的要順時針
+      const cz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      if (cz > 0 !== front) [b, c] = [c, b];
+      for (const p of [a, b, c]) {
+        pos.push(p[0], p[1], ring.z);
+        uv.push((p[0] - x0) / (x1 - x0 || 1), (p[1] - y0) / (y1 - y0 || 1));
+      }
+    }
+  };
+  cap(R[0], false);
+  cap(R[R.length - 1], true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  GEO_CACHE[k] = g;
+  return g;
+}
+function scalePts(pts, s) {
+  const sx = Array.isArray(s) ? s[0] : s,
+    sy = Array.isArray(s) ? s[1] : s;
+  // 以外框中心縮放，輪廓不會往原點偏
+  const xs = pts.map((p) => p[0]),
+    ys = pts.map((p) => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2,
+    cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  return pts.map(([x, y]) => [cx + (x - cx) * sx, cy + (y - cy) * sy]);
+}
+// 倒角擠出：輪廓 pts（XY 平面，原點附近）沿 Z 擠出厚度 d，兩面的邊都切掉 c 的倒角
+// sf／sb：前面（−z）／後面（+z）的輪廓以外框中心縮放（數字或 [sx, sy]），做出往一面收的斜面裝甲
+export function gPlate(pts, d, c = 0.02, sf = 1, sb = 1) {
+  if (polyArea(pts) < 0) pts = pts.slice().reverse();
+  const cc = Math.min(c, d / 3);
+  const f = scalePts(pts, sf),
+    b = scalePts(pts, sb);
+  return gLoft([
+    { pts: polyInset(f, cc), z: -d / 2 },
+    { pts: f, z: -d / 2 + cc },
+    { pts: b, z: d / 2 - cc },
+    { pts: polyInset(b, cc), z: d / 2 },
+  ]);
+}
+// 切角截面的放樣：secs＝[[z, 寬, 底, 頂, 上切角, 下切角]…]（z 由前（−）到後），
+// 每個截面是上下四角切掉的八角形，前後截面大小不同就成了楔形的胸部、頭盔
+export function gPod(secs) {
+  return gLoft(
+    secs.map(([z, w, yb, yt, ct, cb]) => {
+      const h = w / 2;
+      return {
+        z,
+        pts: [
+          [-h + cb, yb],
+          [h - cb, yb],
+          [h, yb + cb],
+          [h, yt - ct],
+          [h - ct, yt],
+          [-h + ct, yt],
+          [-h, yt - ct],
+          [-h, yb + cb],
+        ],
+      };
+    }),
+  );
+}
+// 側面輪廓 [[z, y]…]（z 往前為負）沿 X 擠出寬度 w：搭配 P(…, 0, Math.PI / 2, 0) 擺放
+// （繞 Y 轉 90° 時，區域的 x＝−世界 z、區域的 z＝世界 x）
+export function sideProfile(zy) {
+  return zy.map(([z, y]) => [-z, y]);
+}
 function gWedge(w, h, d) {
   return gFrustum(w * 0.35, d, w, d, h);
 }
