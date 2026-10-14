@@ -126,6 +126,7 @@ Object.assign(Game.prototype, {
       this.lastT = performance.now();
     }
     this.campChoicePendShow(); // 排隊的抉擇說明卡（guide.js）
+    this.fpRelock(); // 追尾／第一人稱：選完直接回到瞄準（first-person.js）
   },
   // ---------- 商店（補給區段） ----------
   campOpenShop() {

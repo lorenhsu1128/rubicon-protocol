@@ -3415,3 +3415,100 @@ body.edPicking #edTrig {
     font-size: 11px;
   }
 }
+/* 過場動畫劇場（game/cine-lib.js） */
+#cineLib {
+  overflow-y: auto;
+}
+#clOpts {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+#clList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#clList h3 {
+  margin: 10px 0 2px;
+  font-size: 14px;
+  color: #ffb070;
+}
+.clItem {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  text-align: left;
+}
+.clItem span {
+  grid-column: 1;
+  font-size: 12px;
+}
+.clItem i {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-style: normal;
+  font-size: 12px;
+  color: #9fb0c0;
+  white-space: nowrap;
+}
+.clItem code {
+  color: #6f8090;
+}
+#cineScr.lib {
+  cursor: auto;
+}
+#cineScr.lib #cineSkip {
+  display: none;
+}
+#cineScr > #cineCtl {
+  display: none;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  z-index: 6;
+  pointer-events: auto;
+  padding: 6px 10px;
+  background: rgba(8, 12, 18, 0.72);
+  border: 1px solid rgba(232, 238, 244, 0.2);
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+#cineScr > #cineCtl.on {
+  display: block;
+}
+#cineScr > #cineCtl.hide {
+  display: none;
+}
+#cineCtl:hover {
+  opacity: 1;
+}
+#cineCtl .clHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+#cineCtl #clTime {
+  font-family: 'Share Tech Mono', monospace;
+  color: #9fb0c0;
+  white-space: nowrap;
+}
+#clBar {
+  width: 100%;
+  margin: 4px 0;
+}
+#cineCtl .row {
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#cineCtl button {
+  padding: 3px 10px;
+  min-width: 0;
+}
+#cineCtl .dim {
+  font-size: 11px;
+  margin-left: auto;
+}

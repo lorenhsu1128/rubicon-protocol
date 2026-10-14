@@ -380,6 +380,7 @@ export class Game {
       this.frames = 0;
       this.fpsT = 0;
     }
+    this.fpMenuUnlock(); // 選單打開時放開滑鼠鎖定（first-person.js）
     if (this.state === 'cine') {
       this.cineTick(dt); // 過場動畫（game/cine.js）
       return;
@@ -423,6 +424,7 @@ export class Game {
       this.state === 'record' ||
       this.state === 'epilogue' ||
       this.state === 'story' ||
+      this.state === 'cinelib' ||
       this.state === 'campfail' ||
       this.state === 'rangemenu' ||
       this.state === 'levels' ||

@@ -6,6 +6,39 @@ import { FP_CONE } from './constants.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
+  // 追尾與第一人稱鎖住滑鼠；選單（模組三選一、抉擇說明卡、確認視窗、靶場設定…）打開時要放開，
+  // 否則看不到游標、要先按 Esc 才能點（多人的三選一不暫停，state 仍是 play，所以也看疊加視窗）
+  fpMenuOpen() {
+    const on = (id) => {
+      const el = document.getElementById(id);
+      return !!(el && el.classList.contains('on'));
+    };
+    return on('modPick') || on('uiModal');
+  },
+  fpCanLock() {
+    return (
+      this.camAim() &&
+      !this.plocked &&
+      this.state === 'play' &&
+      !this.spectator &&
+      !this.touchActive &&
+      !this.fpMenuOpen()
+    );
+  },
+  fpMenuUnlock() {
+    if (!this.plocked || (this.state === 'play' && !this.fpMenuOpen())) return;
+    try {
+      document.exitPointerLock();
+    } catch (e) {}
+    this.plocked = false;
+  },
+  // 選單關掉、回到任務時重新鎖住滑鼠（要在點擊的處理函式裡呼叫，瀏覽器才允許）
+  fpRelock() {
+    if (!this.fpCanLock()) return;
+    try {
+      this.canvas.requestPointerLock();
+    } catch (e) {}
+  },
   fpInit() {
     this.fp = false;
     this.fpYaw = 0;
@@ -21,7 +54,7 @@ Object.assign(Game.prototype, {
       }
     });
     c.addEventListener('mousedown', () => {
-      if (this.camAim() && !this.plocked && this.state === 'play' && !this.spectator && !this.touchActive) {
+      if (this.fpCanLock()) {
         try {
           c.requestPointerLock();
         } catch (e) {}

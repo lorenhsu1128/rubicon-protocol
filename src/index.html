@@ -178,6 +178,12 @@
               渲染風格
             </button>
             <button
+              id="btnCineLib"
+              title="依周目與抉擇觀看所有過場動畫（序章、各章的開場／章末、抉擇演出），可暫停與逐鏡跳轉"
+            >
+              過場動畫
+            </button>
+            <button
               id="btnLmReload"
               title="單人模式使用模型庫存在這個瀏覽器的 GLB 與關節設定（在按鍵與操作設定開啟）"
             >
@@ -265,6 +271,33 @@
         <div id="cineLoad">SIGNAL ACQUIRING<i></i></div>
         <div id="cineSkip">
           <span>長按 Esc／Enter／A 略過</span><b><i id="cineSkipBar"></i></b>
+        </div>
+        <!-- 過場動畫劇場的控制列（game/cine-lib.js） -->
+        <div id="cineCtl">
+          <div class="clHead"><b id="clTitle"></b><span id="clTime"></span></div>
+          <input type="range" id="clBar" min="0" max="1" step="0.05" value="0" />
+          <div class="row">
+            <button id="clPrev" title="上一鏡（Shift＋←、[）">⏮</button>
+            <button id="clBack5" title="倒退 5 秒（←）">−5s</button>
+            <button id="clPause" title="暫停／繼續（空白鍵、P）">❚❚</button>
+            <button id="clFwd5" title="快轉 5 秒（→）">+5s</button>
+            <button id="clNext" title="下一鏡（Shift＋→、]）">⏭</button>
+            <button id="clStop" title="結束並回到清單（長按 Esc）">返回清單</button>
+            <span class="dim">H 隱藏控制列</span>
+          </div>
+        </div>
+      </div>
+      <!-- 過場動畫劇場（game/cine-lib.js） -->
+      <div id="cineLib" class="screen center">
+        <div class="brBox">
+          <h2>過場動畫劇場</h2>
+          <p class="dim">
+            依周目與抉擇列出所有過場動畫。播放時：空白鍵暫停、←／→ 前後 5 秒、Shift＋←／→ 上一鏡／下一鏡、H
+            隱藏控制列、長按 Esc 結束。
+          </p>
+          <div id="clOpts" class="row"></div>
+          <div id="clList"></div>
+          <div class="row"><button id="btnClBack">回標題</button></div>
         </div>
       </div>
       <div id="storyScr" class="screen">

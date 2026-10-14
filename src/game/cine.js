@@ -72,6 +72,9 @@ Object.assign(Game.prototype, {
       def,
       done,
       live: !!opt.live,
+      lib: !!opt.lib, // 過場動畫劇場（game/cine-lib.js）：控制列、暫停、跳鏡頭
+      stand: opt.stand || null, // 劇場播抉擇的選前演出時代替目前戰場的地圖主題
+      paused: false,
       prevState: this.state,
       t: opt.at || 0,
       t0: 0,
@@ -97,6 +100,7 @@ Object.assign(Game.prototype, {
     this.state = 'cine';
     this.showScreen('cineScr');
     this.cineUi(true);
+    if (this.cineLibUi) this.cineLibUi(c);
     $('cineFade').style.background = '#000';
     $('cineFade').style.opacity = 1;
     $('cineLoad').classList.add('on');
@@ -213,6 +217,8 @@ Object.assign(Game.prototype, {
     $('cineSub').classList.remove('on');
     $('cineSys').innerHTML = '';
     $('cineSkip').classList.remove('on');
+    el.classList.remove('lib');
+    $('cineCtl').classList.remove('on');
     if (!on) {
       $('cineFade').style.opacity = 0;
       $('cineLoad').classList.remove('on');
@@ -231,6 +237,9 @@ Object.assign(Game.prototype, {
     this.world = null;
   },
   cineBuildSet(c, S) {
+    // 劇場播選前演出（沒有目前的戰場）：換成那個抉擇的地圖，主角與出口由 cineStandIn 擺
+    if (S.k === 'live' && !c.live)
+      S = { k: 'world', theme: c.stand || 'industrial', clear: 30, standIn: true };
     const key = JSON.stringify(S);
     if (key === c.setKey && c.set) return;
     this.cineClearSet(c);
@@ -299,6 +308,7 @@ Object.assign(Game.prototype, {
       this.audioScene();
       if (this.isClient !== false) this.isClient = false;
       this.cineStage();
+      if (S.standIn && this.cineStandIn) this.cineStandIn(c, set);
     } else {
       this.scene.background = new THREE.Color(0x000000);
       this.scene.fog = null;
@@ -371,7 +381,8 @@ Object.assign(Game.prototype, {
     if (Array.isArray(p)) return out.set(A.x + rx(p[0], p[2]), A.y + p[1], A.z + rz(p[0], p[2]));
     if (p.ex !== undefined) {
       // 目前戰場的出口（抉擇演出）
-      const ex = this.camp && this.camp.exits && this.camp.exits[p.ex];
+      const exs = (c.set && c.set.exits) || (this.camp && this.camp.exits);
+      const ex = exs && exs[p.ex];
       out.copy(ex ? ex.pos : A);
       if (p.o) out.add(V(p.o));
       return out;
@@ -422,7 +433,9 @@ Object.assign(Game.prototype, {
       return;
     }
     // 時間：配樂的 AudioContext 時間（卡住後畫面直接跳過去）；測試時用實際時間×速度
-    if (c.clockAudio && SFX.ctx && SFX.ctx.state === 'running') c.t = SFX.ctx.currentTime - c.t0;
+    if (c.paused) {
+      // 劇場暫停：時間不動
+    } else if (c.clockAudio && SFX.ctx && SFX.ctx.state === 'running') c.t = SFX.ctx.currentTime - c.t0;
     else c.t = c.tBase + (performance.now() / 1000 - c.real0) * (this.cineTest || 1); // 沒有配樂時：實際經過的時間（測試可加速）
     const t = c.t;
     const def = c.def;
@@ -449,12 +462,13 @@ Object.assign(Game.prototype, {
       c.slow -= dt;
       if (c.slow <= 0) c.slowK = 1;
     }
-    const sdt = Math.min(dt, 0.05) * c.slowK;
+    const sdt = c.paused ? 0 : Math.min(dt, 0.05) * c.slowK;
     this.cineActors(sdt, t);
     this.cineSim(sdt);
-    this.cineCamera(S, lt, dt);
+    this.cineCamera(S, lt, c.paused ? 0 : dt);
     if (c.set && c.set.space) c.set.space.update(t, this.camera);
     this.cineOverlay(S, lt, dt);
+    if (c.lib) this.cineLibTick(c);
     SFX.setListenerCam(this.camera);
     this.renderMain();
   },
@@ -1550,7 +1564,8 @@ Object.assign(Game.prototype, {
     const now = performance.now() / 1000;
     const rdt = Math.min(0.5, now - (c.inT || now));
     c.inT = now;
-    let hold = !!(this.keys.Escape || this.keys.Enter || this.keys.Space || this.cineTouch);
+    // 劇場：空白鍵是暫停、Enter 不略過，只有長按 Esc 結束
+    let hold = !!(this.keys.Escape || (!c.lib && (this.keys.Enter || this.keys.Space || this.cineTouch)));
     const gps = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const gp of gps || []) {
       if (!gp) continue;

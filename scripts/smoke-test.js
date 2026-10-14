@@ -9337,7 +9337,9 @@ async function testStory(browser, base) {
 // 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
 // 過場動畫（game/cine.js、data/cine/）：劇本、配樂、播放到結束、各鏡頭的截圖、略過、接回故事畫面、設定關閉、手機
 async function testCine(browser, base) {
-  console.log('過場動畫：序章與各章的劇本、配樂、播放、略過、故事畫面的接續、設定關閉、手機版面');
+  console.log(
+    '過場動畫：序章與各章的劇本、配樂、播放、略過、故事畫面的接續、設定關閉、手機版面、過場動畫劇場',
+  );
   const { ctx, page } = await newPage(browser, 'cine');
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
@@ -9599,7 +9601,55 @@ async function testCine(browser, base) {
   await page.evaluate(() => {
     const g = window.__game;
     g.campEnd(false, true);
+    g.state = 'title';
+    g.showScreen('title');
   });
+  // 過場動畫劇場：標題按鈕、依周目與抉擇的清單、選前演出改在代替的地圖上播、暫停、下一鏡、返回清單
+  await page.click('#btnCineLib');
+  const lib = await page.evaluate(() => {
+    const g = window.__game;
+    return { st: g.state, n: g.clibItems.length, ks: g.clibItems.map((i) => i.k) };
+  });
+  check(
+    lib.st === 'cinelib' && lib.n === 22 && lib.ks.includes('p1') && lib.ks.includes('x_c6_beyond'),
+    `過場動畫劇場：第 1 周目列出 ${lib.n} 段（序章、開場、章末、抉擇演出）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.cineTest = 1;
+    g.cineLibPlay(g.clibItems.findIndex((i) => i.k === 'x_c2_pre'));
+  });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.cineLibPause();
+    g.cineLibSeek(1.5);
+  });
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cine-lib-pre.png') });
+  const lp = await page.evaluate(async () => {
+    const g = window.__game;
+    const t0 = g.cine.t;
+    await new Promise((r) => setTimeout(r, 600));
+    const still = Math.abs(g.cine.t - t0) < 0.01;
+    g.cineLibShot(1);
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      still,
+      shot: g.cine.shot,
+      hero: !!(g.cine.actors.get('player') && g.cine.actors.get('player').e),
+      ex: (g.cine.set.exits || []).length,
+      ctl: getComputedStyle(document.getElementById('cineCtl')).display !== 'none',
+    };
+  });
+  await page.click('#clStop');
+  const back2 = await page.evaluate(() => window.__game.state);
+  check(
+    lp.still && lp.shot === 1 && lp.hero && lp.ex === 2 && lp.ctl && back2 === 'cinelib',
+    `過場動畫劇場：代替的戰場（主角、${lp.ex} 個出口）、暫停、下一鏡、返回清單（${back2}）`,
+  );
   await ctx.close();
 }
 
