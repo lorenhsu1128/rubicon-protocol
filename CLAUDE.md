@@ -59,6 +59,7 @@ render/style/        渲染風格：params.js（參數表、內建預設）、sh
 render/              cine-sets.js（過場動畫的太空場景、軌道站、空降艙、墜落現場）、textfx.js（文字演出：APNG 產生器的模板與引擎、疊加畫布、DOM 逐字）、materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      mech-ik.js（動作的 IK 修正層與開關 IK／setIK）、
+                     mech-cubee.js（CUBEE AC-01：Q 版比例的整套零件與 3 把武器，移植自使用者的程式模型，連接點照原稿；以原稿座標寫、轉 180° 縮 0.5 倍）、
                      vehicle-models.js、boss-models.js（新 Boss 與附屬部位的程式模型）、foe-models.js（主題專屬敵人的程式模型）、extra-models.js（運輸車輛、
                      掉落物、轟炸機、彈體）、environment.js（攝影棚環境貼圖）、measure.js（外框尺寸與統計）、
                      model-catalog.js（模型槽目錄）、glb.js（GLB 載入／換色／描邊／規格檢查）、

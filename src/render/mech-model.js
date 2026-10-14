@@ -21,6 +21,7 @@ import {
   sideProfile,
 } from './geometry.js';
 import { mechMats } from './materials.js';
+import { CUBEE_PARTS, buildCubeePiece, buildCubeeWeapon, cubeeConns } from './mech-cubee.js';
 import { jointSetting, resolveConn, withJoints } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
@@ -700,6 +701,10 @@ const C0 = (p, r = [0, 0, 0]) => ({ p, r: new THREE.Euler(r[0], r[1], r[2]) });
 // 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）
 export function pieceConns(info) {
   const R = CUBE;
+  if (info.part && CUBEE_PARTS.has(info.part.id)) {
+    const c = cubeeConns(info); // CUBEE：Q 版比例，關節位置照原檔
+    if (c) return c;
+  }
   switch (info.kind) {
     case 'core': {
       const o = {
@@ -1735,12 +1740,14 @@ const BUILD = {
   },
   // 武器：buildWeapon 的造型以舊版大機甲的尺寸製作，依新比例等比縮小（手持 ×0.5、肩上 ×0.55）
   weapon(g, info, { M }) {
+    if (buildCubeeWeapon(g, info.part, M, info.side)) return;
     const inner = new THREE.Group();
     inner.scale.setScalar(0.5);
     g.add(inner);
     buildWeapon(inner, info.part, M, info.side);
   },
   back(g, info, { M }) {
+    if (buildCubeeWeapon(g, info.part, M, info.side)) return;
     const inner = new THREE.Group();
     inner.scale.setScalar(0.55);
     g.add(inner);
@@ -1756,7 +1763,7 @@ function waistPost(g, M, y0, y1) {
 
 function makeProcPiece(info, ctx) {
   const g = new THREE.Group();
-  (BUILD[info.kind] || (() => {}))(g, info, ctx);
+  if (!buildCubeePiece(g, info, ctx.M, ctx.red)) (BUILD[info.kind] || (() => {}))(g, info, ctx);
   g.userData.slot = info.slot;
   return g;
 }

@@ -150,6 +150,26 @@ const addMech = (key, name, asm, palKey, scale, note = '', boss = false) =>
     build: (k) => wholeRig(buildMech(asm, pal(k), 1), scale),
   });
 addMech('player', 'RAVEN（玩家初始機）', START_ASM, 'player', 1);
+// CUBEE AC-01：Q 版比例的整套零件（render/mech-cubee.js），武器照原稿：左手步槍、左肩導彈莢、右肩四聯砲
+addMech(
+  'cubee',
+  'CUBEE AC-01',
+  {
+    ...START_ASM,
+    head: 'h_cubee',
+    core: 'c_cubee',
+    arms: 'a_cubee',
+    legs: 'l_cubee',
+    booster: 'b_cubee',
+    rarm: 'w_none',
+    larm: 'w_crifle',
+    rback: 'bw_cqc',
+    lback: 'bw_cms',
+  },
+  'player',
+  1,
+  'Q 版比例的整套零件',
+);
 for (const [key, r] of Object.entries(AC_ROSTER)) {
   const t = ENEMY_TYPES['ac_' + key];
   addMech('ac_' + key, r.name, r.asm, r.pal, t ? t.scale : 1, '具名 AC');
