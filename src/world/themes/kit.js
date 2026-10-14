@@ -1,6 +1,22 @@
 // 主題模組共用的小工具（world/themes/*.js）：網格建造工具從 prop-models.js 轉出，另加貼圖產生器。
 // 主題模組不可 import world.js（world.js 會 import 主題模組）；需要 World 時一律用參數 w。
-export { box, cyl, fadeMat, mat, propGlb, registerFeatureStyle } from '../prop-models.js';
+export {
+  box,
+  cyl,
+  fadeMat,
+  mat,
+  propGlb,
+  registerFeatureStyle,
+  PK,
+  DETAIL,
+  hazard,
+  railing,
+  ladder,
+  rivets,
+  grille,
+  truss,
+  HOLE,
+} from '../prop-models.js';
 
 // 簡單的 32 位元雜湊亂數（給貼圖用：同一個 seed 每次畫出一樣的圖）
 export function hashRng(seed) {

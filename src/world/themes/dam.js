@@ -1,7 +1,20 @@
 // 主題：多重水壩（AC6 貝利烏斯的多重水壩／牆）——橫貫地圖的壩體把戰場分成上游水庫與下游河谷；
 // 閘門下方可通行、兩座沿壩體的坡道可上到壩頂
 import { RNG, clamp, lerp, pick, rnd } from '../../core/math.js';
-import { box, cyl, fadeMat, mat, propGlb, registerFeatureStyle } from './kit.js';
+import {
+  box,
+  fadeMat,
+  mat,
+  propGlb,
+  registerFeatureStyle,
+  PK,
+  DETAIL,
+  HOLE,
+  hazard,
+  railing,
+  ladder,
+  grille,
+} from './kit.js';
 import { overlaps } from './flooded.js';
 
 const WATER = -2,
@@ -20,61 +33,120 @@ export function buildDamSegment(len, y0, dn) {
     fade: true,
   });
   if (glb) return glb;
-  const g = new THREE.Group();
   const H = TOP - y0;
   const m = fadeMat(0x8c8a84, { roughness: 0.95 }),
     dk = fadeMat(0x6a6862, { roughness: 1 }),
     rail = fadeMat(0x3d4044, { roughness: 0.7, metalness: 0.5 });
-  g.add(box(len, H, THICK - 3, m, 0, -H / 2, -dn * 1.5));
-  // 下游面的扶壁
-  for (let x = -len / 2 + 4; x < len / 2 - 2; x += 12)
-    g.add(box(2.2, H - 2, 3, dk, x, -H / 2 - 1, dn * (THICK / 2 - 1.5)));
-  g.add(box(len, 0.6, THICK, m, 0, -0.3, 0)); // 壩頂步道
-  for (const s of [-1, 1]) g.add(box(len, 1, 0.3, rail, 0, 0.5, s * (THICK / 2 - 0.15)));
-  // 上游面的水漬線
-  g.add(
-    box(len, 1.5, 0.1, fadeMat(0x4a5048, { roughness: 1 }), 0, WATER - TOP + 0.5, -dn * (THICK / 2 + 0.02)),
+  const k = new PK();
+  // 外框同原本（壩體、扶壁、步道、護欄、水漬線）
+  k.bounds(
+    -len / 2,
+    Math.min(-H, WATER - TOP - 0.25),
+    dn > 0 ? -THICK / 2 - 0.07 : -THICK / 2,
+    len / 2,
+    1,
+    dn > 0 ? THICK / 2 : THICK / 2 + 0.07,
   );
-  return g;
+  k.box(m, len, H, THICK - 3, 0, -H / 2, -dn * 1.5);
+  // 下游面：漸縮的扶壁＋伸縮縫＋排水廊道口
+  const fz = dn * (THICK / 2 - 3);
+  for (let x = -len / 2 + 4; x < len / 2 - 2; x += 12) {
+    k.prism(
+      dk,
+      [
+        [0, -H],
+        [-dn * 3, -H],
+        [-dn * 1.2, -2],
+        [0, -2],
+      ],
+      2.2,
+      x,
+      0,
+      fz,
+      0,
+      Math.PI / 2,
+      0,
+    );
+    if (x + 6 < len / 2) {
+      k.box(dk, 0.18, H - 1, 0.1, x + 6, -H / 2 - 0.5, fz + dn * 0.05);
+      k.box(DETAIL.black, 1.2, 1.6, 0.1, x + 6, -H + 2.2, fz + dn * 0.04);
+    }
+  }
+  // 壩頂步道：路面＋路緣＋鋼欄杆
+  k.box(m, len, 0.6, THICK, 0, -0.3, 0);
+  for (const s of [-1, 1]) {
+    k.box(m, len, 0.3, 0.5, 0, 0.15, s * (THICK / 2 - 0.25));
+    railing(k, rail, len - 0.3, 0.66, 0, 0.3, s * (THICK / 2 - 0.15), 0, 2.4, 0.08);
+  }
+  // 上游面的水漬線
+  k.box(fadeMat(0x4a5048, { roughness: 1 }), len, 1.5, 0.1, 0, WATER - TOP + 0.5, -dn * (THICK / 2 + 0.02));
+  return k.build();
 }
 // 閘門：寬 gw 的開口上方的閘門結構（門楣＋捲揚機），原點在壩頂中心
 export function buildDamGate(gw) {
   const glb = propGlb('dam_gate', { ref: [16, 9, THICK], size: [gw, 9, THICK], y: -GATE_H, fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0x8c8a84, { roughness: 0.95 }),
     steel = fadeMat(0x4a5a66, { roughness: 0.6, metalness: 0.6 }),
     yel = fadeMat(0xd8a020, { roughness: 0.6 });
-  g.add(box(gw, TOP - GATE_H, THICK, m, 0, -(TOP - GATE_H) / 2, 0));
-  g.add(box(gw - 1, 1.2, 0.6, steel, 0, -(TOP - GATE_H) - 0.6, 0)); // 拉起的閘門下緣
+  const k = new PK().bounds(-gw / 2, -(TOP - GATE_H) - 1.2, -THICK / 2, gw / 2, 5.9, THICK / 2), // 外框同原本
+    B = TOP - GATE_H;
+  k.box(m, gw, B, THICK, 0, -B / 2, 0);
+  // 拉起的閘門：下緣＋門扇的橫肋（露在開口上方）＋兩側的門槽
+  k.cb(steel, gw - 1, 1.2, 0.6, 0, -B - 0.6, 0, 0, 0, 0, 0.1);
   for (const s of [-1, 1]) {
-    g.add(box(1.2, 5, 1.6, steel, s * (gw / 2 - 1.2), 2.5, 0));
-    g.add(box(gw * 0.4, 0.4, 0.4, yel, 0, 0.6, s * (THICK / 2 - 0.3)));
+    k.box(steel, gw - 1, 0.25, 0.3, 0, -B + 0.6, s * 0.45);
+    hazard(k, yel, DETAIL.black, gw - 1.2, 0.6, 0, -B + 0.4, s * (THICK / 2 + 0.03), s > 0 ? 0 : Math.PI);
   }
-  g.add(box(gw - 1.2, 1.4, 2.2, steel, 0, 5.2, 0));
-  return g;
+  // 捲揚機：兩座機架＋捲筒＋馬達＋鋼索；頂部的機房
+  for (const s of [-1, 1]) {
+    k.cb(steel, 1.2, 5, 1.6, s * (gw / 2 - 1.2), 2.5, 0, 0, 0, 0, 0.1);
+    k.cyl(DETAIL.dark, 0.6, 0.6, 1.4, s * (gw / 2 - 2.4), 3.6, 0, 0, 0, Math.PI / 2, 10);
+    k.cb(yel, 0.8, 0.7, 0.9, s * (gw / 2 - 3.5), 3.5, 0, 0, 0, 0, 0.06);
+    k.pipe(DETAIL.dark, [s * (gw / 2 - 2.4), 3.0, 0.3], [s * (gw / 2 - 2.4), 0.2, 0.3], 0.05, 4);
+    k.box(yel, gw * 0.4, 0.4, 0.4, 0, 0.6, s * (THICK / 2 - 0.3));
+    k.box(DETAIL.red, 0.25, 0.25, 0.25, s * (gw / 2 - 1.2), 5.15, 0);
+  }
+  k.cb(steel, gw - 1.2, 1.4, 2.2, 0, 5.2, 0, 0, 0, 0, 0.12);
+  for (let i = 0; i < 4; i++) k.box(DETAIL.dark, 0.08, 1.2, 2.25, -gw / 2 + 2 + ((gw - 4) / 3) * i, 5.2, 0);
+  return k.build();
 }
 // 輸電鐵塔：高 h 的格子塔＋三層橫擔；原點在底面中心；GLB 以高 22 m 製作
 export function buildPylon(h) {
   const glb = propGlb('power_pylon', { ref: [8, 22, 3], size: [8, h, 3], fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0x8a9096, { roughness: 0.6, metalness: 0.6 });
+  const k = new PK();
   const b0 = 1.6,
     b1 = 0.5;
+  // 外框同原本（四支斜腳、三層橫擔與礙子）
+  const ta = Math.atan2(b0 - b1, h);
   for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) {
-      const leg = box(0.22, h, 0.22, m, sx * ((b0 + b1) / 2), h / 2, sz * ((b0 + b1) / 2));
-      leg.rotation.z = sx * Math.atan2(b0 - b1, h);
-      leg.rotation.x = -sz * Math.atan2(b0 - b1, h);
-      g.add(leg);
-    }
-  for (let y = 2; y < h - 1; y += 2.6) {
-    const a = lerp(b0, b1, y / h);
+    for (const sz of [-1, 1])
+      k.ob(0.22, h, 0.22, sx * ((b0 + b1) / 2), h / 2, sz * ((b0 + b1) / 2), -sz * ta, 0, sx * ta);
+  for (const [y, wd] of [
+    [h * 0.72, 7],
+    [h * 0.84, 5.4],
+    [h * 0.96, 3.6],
+  ]) {
+    k.ob(wd, 0.3, 0.3, 0, y, 0);
+    for (const s of [-1, 1]) k.obCyl(0.12, 0.12, 0.9, (s * wd) / 2, y - 0.45, 0, 0, 0, 0, 6);
+  }
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.bar(m, [sx * b0, 0, sz * b0], [sx * b1, h, sz * b1], 0.22);
+  let yp = 0,
+    i = 0;
+  for (let y = 2; y < h - 1; y += 2.6, i++) {
+    const a = lerp(b0, b1, y / h),
+      ap = lerp(b0, b1, yp / h);
     for (const s of [-1, 1]) {
-      g.add(box(a * 2, 0.12, 0.12, m, 0, y, s * a));
-      g.add(box(0.12, 0.12, a * 2, m, s * a, y, 0));
+      k.box(m, a * 2, 0.12, 0.12, 0, y, s * a);
+      k.box(m, 0.12, 0.12, a * 2, s * a, y, 0);
+      // 兩個大面的斜撐（交錯）
+      const f = i % 2 ? 1 : -1;
+      k.bar(m, [-f * ap, yp, s * ap], [f * a, y, s * a], 0.08);
     }
+    yp = y;
   }
   const ins = mat(0xd8e0e6, { roughness: 0.3 });
   for (const [y, wd] of [
@@ -82,66 +154,103 @@ export function buildPylon(h) {
     [h * 0.84, 5.4],
     [h * 0.96, 3.6],
   ]) {
-    g.add(box(wd, 0.3, 0.3, m, 0, y, 0));
-    for (const s of [-1, 1]) g.add(cyl(0.12, 0.12, 0.9, ins, (s * wd) / 2, y - 0.45, 0, 6));
+    // 橫擔：上下兩支弦材＋斜撐；兩端的礙子串（三片）
+    k.box(m, wd, 0.3, 0.3, 0, y, 0);
+    k.box(m, wd * 0.8, 0.14, 0.14, 0, y - 0.7, 0);
+    for (const s of [-1, 1]) {
+      k.bar(m, [s * wd * 0.4, y - 0.7, 0], [s * wd * 0.5, y, 0], 0.1);
+      for (let j = 0; j < 3; j++)
+        k.cyl(ins, 0.2, 0.2, 0.08, (s * wd) / 2, y - 0.25 - j * 0.25, 0, 0, 0, 0, 6);
+      k.cyl(ins, 0.06, 0.06, 0.9, (s * wd) / 2, y - 0.45, 0, 0, 0, 0, 4);
+    }
   }
-  return g;
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.cb(DETAIL.dark, 0.7, 0.4, 0.7, sx * b0, 0.2, sz * b0, 0, 0, 0, 0.06);
+  return k.build();
 }
 // 機房：6 × 4.2 × 5，原點在底面中心
 export const CONTROL = [6, 4.2, 5];
 export function buildControlHouse(color) {
   const glb = propGlb('control_house', { color, fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(color, { roughness: 0.85 }),
     dk = fadeMat(0x2e3236, { roughness: 0.6 });
-  g.add(box(6, 3.8, 5, m, 0, 1.9, 0));
-  g.add(box(6.4, 0.4, 5.4, dk, 0, 4, 0));
-  g.add(box(3.6, 1, 0.1, fadeMat(0x1d2a33, { roughness: 0.2 }), 0, 2.6, 2.51));
-  g.add(box(1.2, 2.4, 0.1, dk, -2, 1.2, 2.52));
-  g.add(cyl(0.12, 0.12, 2.4, dk, 2.4, 5.2, -1.8, 6));
-  return g;
+  const k = new PK().bounds(-3.2, 0, -2.7, 3.2, 6.4, 2.7); // 外框同原本
+  // 倒角的牆體＋屋頂板（女兒牆）＋空調機＋窗（窗框、窗櫺）＋門（門框、門燈）＋通風格柵＋外牆管線＋天線
+  k.cb(m, 6, 3.8, 5, 0, 1.9, 0, 0, 0, 0, 0.1);
+  k.cb(dk, 6.4, 0.4, 5.4, 0, 4, 0, 0, 0, 0, 0.06);
+  k.cb(m, 1.6, 0.7, 1.2, 1.4, 4.55, -0.8, 0, 0, 0, 0.06);
+  k.cyl(dk, 0.42, 0.42, 0.06, 1.4, 4.92, -0.8, 0, 0, 0, 10);
+  k.box(fadeMat(0x1d2a33, { roughness: 0.2 }), 3.6, 1, 0.1, 0, 2.6, 2.51);
+  k.box(dk, 3.8, 0.12, 0.2, 0, 2.06, 2.55);
+  for (const x of [-0.6, 0.6]) k.box(dk, 0.08, 1, 0.14, x, 2.6, 2.54);
+  k.box(dk, 1.2, 2.4, 0.1, -2, 1.2, 2.52);
+  k.box(DETAIL.steel, 0.12, 0.12, 0.08, -1.6, 1.15, 2.6);
+  k.box(DETAIL.lamp, 0.4, 0.12, 0.16, -2, 2.6, 2.6);
+  grille(k, dk, m, 1.2, 0.8, 4, 1.6, 2.6, -2.53, Math.PI);
+  k.pipe(dk, [3.06, 0.2, 1.8], [3.06, 3.7, 1.8], 0.08);
+  k.cyl(dk, 0.12, 0.12, 2.4, 2.4, 5.2, -1.8, 0, 0, 0, 6);
+  for (const y of [5.4, 6.0]) k.box(dk, 0.6, 0.05, 0.05, 2.4, y, -1.8);
+  return k.build();
 }
 // 變壓器：3 × 3.6 × 4，原點在底面中心
 export const TRANSFORMER = [3.2, 3.6, 4];
 export function buildTransformer() {
   const glb = propGlb('transformer', { fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0x6a7a6a, { roughness: 0.7, metalness: 0.4 }),
     ins = fadeMat(0x8a5a3a, { roughness: 0.4 });
-  g.add(box(2.4, 2.6, 3.4, m, 0, 1.3, 0));
-  for (let i = -3; i <= 3; i++) g.add(box(3.2, 2.2, 0.08, m, 0, 1.3, i * 0.45));
-  for (const x of [-0.7, 0, 0.7]) g.add(cyl(0.15, 0.2, 1, ins, x, 3.1, 0, 6));
-  return g;
+  const k = new PK().bounds(-1.6, 0, -1.7, 1.6, 3.6, 1.7); // 外框同原本
+  // 底座＋油箱（倒角）＋散熱鰭片＋套管（三段礙子）＋上方的儲油桶＋警示牌
+  k.box(DETAIL.dark, 2.8, 0.2, 3.8, 0, 0.1, 0);
+  k.cb(m, 2.4, 2.4, 3.4, 0, 1.4, 0, 0, 0, 0, 0.12);
+  for (let i = -3; i <= 3; i++) k.box(m, 3.2, 2.0, 0.08, 0, 1.3, i * 0.45);
+  for (const s of [-1, 1]) k.box(m, 3.2, 0.12, 0.1, 0, s > 0 ? 2.35 : 0.3, 0);
+  for (const x of [-0.7, 0, 0.7]) {
+    k.cyl(ins, 0.15, 0.2, 1, x, 3.1, 0, 0, 0, 0, 6);
+    for (const y of [2.85, 3.15]) k.cyl(ins, 0.25, 0.25, 0.07, x, y, 0, 0, 0, 0, 6);
+  }
+  k.cyl(m, 0.3, 0.3, 1.6, 0, 3.0, -1.2, 0, 0, Math.PI / 2, 8);
+  hazard(k, DETAIL.yellow, DETAIL.black, 0.8, 0.5, 0, 1.6, 1.71);
+  return k.build();
 }
 // 消波塊（四腳）：原點在底面中心，半徑約 1.6
 export function buildTetrapod() {
   const glb = propGlb('tetrapod', { fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0xa8a6a0, { roughness: 1 });
+  const k = new PK();
   const dirs = [
     [0, 1, 0],
     [0.94, -0.33, 0],
     [-0.47, -0.33, 0.82],
     [-0.47, -0.33, -0.82],
   ];
-  for (const [x, y, z] of dirs) {
-    const leg = cyl(0.35, 0.6, 1.6, m, x * 0.8, 1 + y * 0.8, z * 0.8, 6);
-    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x, y, z));
-    g.add(leg);
-  }
-  return g;
+  // 四支漸細的腳（同原本；外框也照原本的四個零件，呼叫端會任意旋轉）＋中心的接合塊
+  dirs.forEach(([x, y, z], i) => {
+    const e = new THREE.Euler().setFromQuaternion(
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x, y, z)),
+    );
+    k.obCyl(0.35, 0.6, 1.6, x * 0.8, 1 + y * 0.8, z * 0.8, e.x, e.y, e.z, 6);
+    k.inPart(i, () => k.cyl(m, 0.35, 0.6, 1.6, x * 0.8, 1 + y * 0.8, z * 0.8, e.x, e.y, e.z, 6));
+  });
+  k.inPart(0, () => k.cyl(m, 0.62, 0.62, 0.5, 0, 1, 0, 0, 0, 0, 6));
+  return k.build();
 }
-// 浮標（裝飾，浮在水庫上）
+// 浮標（裝飾，浮在水庫上）：浮體＋護舷環＋桅杆＋燈籠＋頂標
 export function buildBuoy() {
   const glb = propGlb('buoy');
   if (glb) return glb;
-  const g = new THREE.Group();
-  g.add(cyl(0.5, 0.6, 0.8, mat(0xd8601c, { roughness: 0.6 }), 0, 0.2, 0, 10));
-  g.add(cyl(0.08, 0.08, 1.4, mat(0x3d4044), 0, 1.2, 0, 6));
-  return g;
+  const k = new PK().bounds(-0.571, -0.2, -0.6, 0.571, 1.9, 0.6); // 外框同原本
+  const o = mat(0xd8601c, { roughness: 0.6 }),
+    d = mat(0x3d4044);
+  k.cyl(o, 0.5, 0.6, 0.8, 0, 0.2, 0, 0, 0, 0, 10);
+  k.cyl(d, 0.64, 0.64, 0.12, 0, 0.3, 0, 0, 0, 0, 10);
+  k.cyl(d, 0.08, 0.08, 1.4, 0, 1.2, 0, 0, 0, 0, 6);
+  for (const a of [0, 2.1, 4.2]) k.bar(d, [Math.cos(a) * 0.4, 0.6, Math.sin(a) * 0.4], [0, 1.4, 0], 0.05);
+  k.cyl(DETAIL.lamp, 0.1, 0.1, 0.2, 0, 1.78, 0, 0, 0, 0, 6);
+  k.box(o, 0.4, 0.08, 0.4, 0, 1.6, 0, 0, Math.PI / 4, 0);
+  return k.build();
 }
 
 // ---------- 地形特徵的外觀（混凝土＋黃黑警示）----------
@@ -155,69 +264,91 @@ const C = {
 };
 registerFeatureStyle('dam', C, {
   deck(w, d, thick, rotY, C) {
-    const g = new THREE.Group();
     const dm = fadeMat(C.deck, { roughness: 0.9 }),
       tm = fadeMat(C.trim, { roughness: 0.6 }),
       rm = fadeMat(0x3d4044, { roughness: 0.7, metalness: 0.5 });
-    g.add(box(w, thick, d, dm, 0, -thick / 2, 0));
-    for (const s of [-1, 1]) {
-      g.add(
-        rotY
-          ? box(0.4, 0.15, d, tm, s * (w / 2 - 0.2), 0.08, 0)
-          : box(w, 0.15, 0.4, tm, 0, 0.08, s * (d / 2 - 0.2)),
-      );
-      g.add(
-        rotY
-          ? box(0.15, 1, d, rm, s * (w / 2 - 0.1), 0.5, 0)
-          : box(w, 1, 0.15, rm, 0, 0.5, s * (d / 2 - 0.1)),
-      );
-    }
-    return g;
+    const L = rotY ? d : w,
+      D = rotY ? w : d;
+    const k = new PK().bounds(-w / 2, -thick, -d / 2, w / 2, 1, d / 2); // 外框同原本
+    k.at(0, 0, 0, 0, rotY ? Math.PI / 2 : 0, 0, () => {
+      k.cb(dm, L, thick, D, 0, -thick / 2, 0, 0, 0, 0, Math.min(0.1, thick * 0.2));
+      for (const s of [-1, 1]) {
+        k.box(tm, L, 0.15, 0.4, 0, 0.08, s * (D / 2 - 0.2));
+        railing(k, rm, L - 0.2, 0.96, 0, 0, s * (D / 2 - 0.1), 0, 2, 0.08);
+        for (let x = -L / 2 + 2; x < L / 2 - 1; x += 4)
+          k.box(DETAIL.dark, 0.2, 0.06, 0.5, x, -thick * 0.4, s * (D / 2 - 0.05));
+      }
+    });
+    return k.build();
   },
   pillar(r, h, C) {
-    const g = new THREE.Group();
-    g.add(box(r * 2, h, r * 2, mat(C.pillar, { roughness: 0.95 })));
-    g.add(box(r * 2.4, 0.6, r * 2.4, mat(C.trim, { roughness: 0.6 }), 0, -h / 2 + 0.3, 0));
-    return g;
+    const k = new PK().bounds(-r * 1.2, -h / 2, -r * 1.2, r * 1.2, h / 2, r * 1.2); // 外框同原本
+    const pm = mat(C.pillar, { roughness: 0.95 }),
+      tm = mat(C.trim, { roughness: 0.6 });
+    k.cb(pm, r * 2, h, r * 2, 0, 0, 0, 0, 0, 0, Math.min(0.12, r * 0.2));
+    k.cb(tm, r * 2.4, 0.6, r * 2.4, 0, -h / 2 + 0.3, 0, 0, 0, 0, 0.06);
+    k.cb(pm, r * 2.3, 0.4, r * 2.3, 0, h / 2 - 0.2, 0, 0, 0, 0, 0.06);
+    for (const s of [-1, 1])
+      hazard(k, tm, DETAIL.black, r * 1.8, 0.4, 0, -h / 2 + 1.0, s * (r + 0.02), s > 0 ? 0 : Math.PI, 0.4);
+    return k.build();
   },
   wall(w, h, d, C) {
-    const g = new THREE.Group();
     const m = fadeMat(C.wall, { roughness: 0.95 });
-    g.add(box(w, h, d, m));
-    g.add(box(w + 0.05, 0.4, d + 0.05, fadeMat(C.trim, { roughness: 0.6 }), 0, h / 2 - 0.6, 0));
-    return g;
+    const k = new PK();
+    const along = w > d,
+      L = along ? w : d,
+      T = along ? d : w;
+    k.at(0, 0, 0, 0, along ? 0 : -Math.PI / 2, 0, () => {
+      k.ob(L + 0.05, h, T + 0.05); // 外框同原本（牆＋警示帶）
+      k.cb(m, L, h, T, 0, 0, 0, 0, 0, 0, 0.12);
+      k.box(fadeMat(C.trim, { roughness: 0.6 }), L + 0.05, 0.4, T + 0.05, 0, h / 2 - 0.6, 0);
+      // 模板的接縫與繫桿孔
+      for (let x = -L / 2 + 2.5; x < L / 2 - 1; x += 2.5)
+        for (const s of [-1, 1]) k.box(DETAIL.dark, 0.06, h - 1.2, 0.04, x, -0.4, s * (T / 2 + 0.01));
+    });
+    return k.build();
   },
   platform(w, h, d, C) {
-    const g = new THREE.Group();
     const m = fadeMat(C.plat, { roughness: 0.95 });
-    g.add(box(w, h, d, m, 0, h / 2, 0));
     const tm = fadeMat(C.trim, { roughness: 0.6 });
+    const k = new PK().bounds(-w / 2 - 0.15, 0, -d / 2 - 0.15, w / 2 + 0.15, h, d / 2 + 0.15); // 外框同原本
+    k.cb(m, w, h, d, 0, h / 2, 0, 0, 0, 0, 0.15);
     for (const s of [-1, 1]) {
-      g.add(box(w + 0.05, 0.3, 0.3, tm, 0, h - 0.15, s * (d / 2)));
-      g.add(box(0.3, 0.3, d + 0.05, tm, s * (w / 2), h - 0.15, 0));
+      k.box(tm, w + 0.05, 0.3, 0.3, 0, h - 0.15, s * (d / 2));
+      k.box(tm, 0.3, 0.3, d + 0.05, s * (w / 2), h - 0.15, 0);
     }
-    return g;
+    for (let x = -w / 2 + 3; x < w / 2 - 1; x += 3)
+      k.box(DETAIL.dark, 0.08, h - 0.6, 0.04, x, (h - 0.6) / 2, d / 2 + 0.01);
+    ladder(k, DETAIL.dark, h - 0.3, w / 2 - 1.5, 0, d / 2 + 0.12);
+    return k.build();
   },
   ramp(rw, rd, C) {
-    const g = new THREE.Group();
-    g.add(box(rw, 0.45, rd, mat(C.plat, { roughness: 0.95 })));
     const along = rw >= rd;
-    for (const s of [-1, 1])
-      g.add(
-        along
-          ? box(rw, 0.2, 0.3, mat(C.trim), 0, 0.3, s * (rd / 2 - 0.15))
-          : box(0.3, 0.2, rd, mat(C.trim), s * (rw / 2 - 0.15), 0.3, 0),
-      );
-    return g;
+    const L = along ? rw : rd,
+      D = along ? rd : rw;
+    const k = new PK();
+    const pm = mat(C.plat, { roughness: 0.95 }),
+      tm = mat(C.trim);
+    k.at(0, 0, 0, 0, along ? 0 : Math.PI / 2, 0, () => {
+      k.cb(pm, L, 0.45, D, 0, 0, 0, 0, 0, 0, 0.06);
+      for (let x = -L / 2 + 0.6; x < L / 2; x += 1.2) k.box(DETAIL.dark, 0.1, 0.05, D - 0.8, x, 0.24, 0);
+      for (const s of [-1, 1]) k.box(tm, L, 0.2, 0.3, 0, 0.3, s * (D / 2 - 0.15));
+    });
+    return k.build();
   },
   tunnel(C) {
-    const g = new THREE.Group();
+    const k = new PK();
     const m = mat(0x8c8a84, { roughness: 0.95 });
-    g.add(box(24, 14, 10, mat(C.rock, { roughness: 1 }), 0, 5, -6));
-    g.add(box(14, 9, 2.5, m, 0, 4.5, 0));
-    g.add(box(8, 6.5, 2.8, new THREE.MeshBasicMaterial({ color: 0x07080a }), 0, 3.25, 0));
-    for (const s of [-1, 1]) g.add(box(0.6, 6.8, 2.9, mat(C.trim), s * 4.3, 3.4, 0));
-    return g;
+    k.cb(mat(C.rock, { roughness: 1 }), 24, 14, 10, 0, 5, -6, 0, 0, 0, 1.6);
+    k.cb(m, 14, 9, 2.5, 0, 4.5, 0, 0, 0, 0, 0.15);
+    k.box(HOLE, 8, 6.5, 2.8, 0, 3.25, 0);
+    for (const s of [-1, 1]) {
+      k.box(mat(C.trim), 0.6, 6.8, 2.9, s * 4.3, 3.4, 0);
+      k.box(DETAIL.lamp, 0.6, 0.2, 0.2, s * 2.5, 7.0, 1.35);
+    }
+    hazard(k, mat(C.trim), DETAIL.black, 9.2, 0.6, 0, 7.1, 1.27);
+    k.box(DETAIL.dark, 3, 0.8, 0.08, 0, 8.1, 1.29);
+    return k.build();
   },
 });
 
@@ -397,11 +528,15 @@ function placeRamp(w, rx, rz, zs, rl, rw) {
 }
 
 function buildRampMesh(rl, rw) {
-  const g = new THREE.Group();
-  g.add(box(rl, 0.6, rw, mat(0x8a8882, { roughness: 0.95 })));
-  g.add(box(rl, 0.25, 0.3, mat(0xd8a020), 0, 0.4, rw / 2 - 0.15));
-  g.add(box(rl, 0.25, 0.3, mat(0xd8a020), 0, 0.4, -rw / 2 + 0.15));
-  return g;
+  // 坡道板＋止滑橫條＋黃色路緣＋外側的欄杆
+  const k = new PK();
+  k.cb(mat(0x8a8882, { roughness: 0.95 }), rl, 0.6, rw, 0, 0, 0, 0, 0, 0, 0.08);
+  for (let x = -rl / 2 + 0.6; x < rl / 2; x += 1.2) k.box(DETAIL.dark, 0.1, 0.05, rw - 0.8, x, 0.32, 0);
+  for (const s of [-1, 1]) {
+    k.box(mat(0xd8a020), rl, 0.25, 0.3, 0, 0.4, s * (rw / 2 - 0.15));
+    railing(k, DETAIL.steel, rl - 0.4, 0.8, 0, 0.5, s * (rw / 2 - 0.08), 0, 2.4, 0.07);
+  }
+  return k.build();
 }
 function fadeMatsOf(g) {
   const out = [];

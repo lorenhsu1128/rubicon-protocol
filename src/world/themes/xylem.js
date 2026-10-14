@@ -1,6 +1,17 @@
 // 主題：洋上都市 Xylem（AC6 的無人洋上都市）——海上的都市街區以橋相連，街區外是虛空（掉進海裡會被拉回）
 import { RNG, clamp, rnd } from '../../core/math.js';
-import { box, cyl, fadeMat, mat, propGlb, registerFeatureStyle, windowMat } from './kit.js';
+import {
+  box,
+  fadeMat,
+  mat,
+  propGlb,
+  registerFeatureStyle,
+  windowMat,
+  PK,
+  DETAIL,
+  HOLE,
+  grille,
+} from './kit.js';
 
 // ---------- 海上（雲海上）的街區＋橋：洋上都市與高空軌道共用 ----------
 // o：{ h 街區高度, deep 海底高度, central 中央街區邊長, n [最少, 最多] 街區數, size [最小, 最大] 邊長, span 最長的橋 }
@@ -81,57 +92,98 @@ export function buildBridges(w, bw) {
 export function buildGlassTower(w, h, d, seed) {
   const glb = propGlb('glass_tower', { ref: [14, 30, 14], size: [w, h, d], fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const wm = windowMat({ base: '#c8d4dc', win: '#3a5a78', broken: 0.05, seed }, Math.max(w, d), h);
-  g.add(box(w, h, d, wm, 0, h / 2, 0));
   const trim = fadeMat(0xe6eaee, { roughness: 0.5, metalness: 0.3 });
-  g.add(box(w + 0.4, 0.8, d + 0.4, trim, 0, h, 0));
-  g.add(box(w * 0.4, 3, d * 0.4, trim, 0, h + 1.5, 0));
-  g.add(cyl(0.12, 0.12, 6, fadeMat(0x3d4044), w * 0.1, h + 6, 0, 6));
-  return g;
+  const k = new PK().bounds(-w / 2 - 0.2, 0, -d / 2 - 0.2, w / 2 + 0.2, h + 9, d / 2 + 0.2); // 外框同原本
+  k.box(wm, w, h, d, 0, h / 2, 0);
+  // 基座（挑高的大廳）＋每 8 m 的水平遮陽板＋四角的白色豎框＋屋頂（機房、直升機坪標示、天線）
+  k.box(trim, w + 0.4, 1.2, d + 0.4, 0, 0.6, 0);
+  for (let y = 8; y < h - 2; y += 8) k.box(trim, w + 0.4, 0.2, d + 0.4, 0, y, 0);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.box(trim, 0.45, h, 0.45, sx * (w / 2 - 0.1), h / 2, sz * (d / 2 - 0.1));
+  k.box(trim, w + 0.4, 0.8, d + 0.4, 0, h, 0);
+  k.box(trim, w * 0.4, 3, d * 0.4, 0, h + 1.5, 0);
+  grille(k, trim, DETAIL.dark, w * 0.3, 1.6, 4, 0, h + 1.6, d * 0.2 + 0.03);
+  k.cyl(
+    DETAIL.yellow,
+    Math.min(w, d) * 0.22,
+    Math.min(w, d) * 0.22,
+    0.04,
+    -w * 0.25,
+    h + 0.42,
+    -d * 0.25,
+    0,
+    0,
+    0,
+    16,
+  );
+  k.cyl(fadeMat(0x3d4044), 0.12, 0.12, 6, w * 0.1, h + 6, 0, 0, 0, 0, 6);
+  k.box(DETAIL.red, 0.25, 0.25, 0.25, w * 0.1, h + 9.1, 0);
+  return k.build();
 }
 // 防空砲塔：原點在底面中心，半徑約 1.8
 export function buildAATurret() {
   const glb = propGlb('aa_turret', { fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0x8a949e, { roughness: 0.5, metalness: 0.5 }),
     dk = fadeMat(0x3d4044, { roughness: 0.7, metalness: 0.4 });
-  g.add(cyl(1.8, 2, 1.2, dk, 0, 0.6, 0, 10));
-  g.add(box(2.4, 1.4, 2.4, m, 0, 1.9, 0));
-  for (const s of [-0.5, 0.5]) {
-    const b = cyl(0.15, 0.15, 3.2, dk, s, 3, -1.2, 6);
-    b.rotation.x = 1.0;
-    g.add(b);
+  const k = new PK().obCyl(1.8, 2, 1.2, 0, 0.6, 0, 0, 0, 0, 10).ob(2.4, 1.4, 2.4, 0, 1.9, 0); // 外框同原本的零件
+  for (const s of [-0.5, 0.5]) k.obCyl(0.15, 0.15, 3.2, s, 3, -1.2, 1.0, 0, 0, 6);
+  // 底座（螺栓環）＋旋轉座＋砲塔（倒角、斜面裝甲、感測器）＋雙砲管（砲口制退器）＋彈藥箱
+  k.cyl(dk, 1.8, 2, 1.2, 0, 0.6, 0, 0, 0, 0, 10);
+  k.cyl(m, 1.5, 1.6, 0.3, 0, 1.3, 0, 0, 0, 0, 10);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    k.box(DETAIL.steel, 0.12, 0.1, 0.12, Math.cos(a) * 1.85, 1.22, Math.sin(a) * 1.85);
   }
-  return g;
+  k.cb(m, 2.4, 1.4, 2.4, 0, 1.9, 0, 0, 0, 0, 0.2);
+  k.cb(m, 2.0, 0.8, 0.9, 0, 2.1, -1.1, -0.5, 0, 0, 0.12);
+  k.cb(dk, 0.6, 0.5, 0.6, 0.8, 2.85, 0.4, 0, 0, 0, 0.06);
+  k.box(DETAIL.glass, 0.4, 0.2, 0.05, 0.8, 2.9, 0.1);
+  for (const s of [-0.5, 0.5])
+    k.at(s, 3, -1.2, 1.0, 0, 0, () => {
+      k.cyl(dk, 0.15, 0.15, 3.2, 0, 0, 0, 0, 0, 0, 6);
+      k.cyl(dk, 0.24, 0.24, 0.9, 0, -1.1, 0, 0, 0, 0, 6);
+      k.cyl(dk, 0.2, 0.2, 0.3, 0, 1.6, 0, 0, 0, 0, 6);
+    });
+  for (const s of [-1, 1]) k.cb(dk, 0.4, 0.8, 1.2, s * 1.4, 1.9, 0.2, 0, 0, 0, 0.05);
+  return k.build();
 }
 // 流線型路燈：原點在底面中心，高 h
 export function buildSleekLamp(h) {
   const glb = propGlb('sleek_lamp', { ref: [1.6, 8, 0.6], size: [1.6, h, 0.6] });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = mat(0xe6eaee, { roughness: 0.4, metalness: 0.4 });
-  g.add(cyl(0.12, 0.2, h, m, 0, h / 2, 0, 8));
-  const arm = box(1.6, 0.18, 0.4, m, 0.6, h, 0);
-  g.add(arm);
-  g.add(box(0.8, 0.12, 0.35, mat(0xdff4ff, { emissive: 0x5a7a8a }), 1.1, h - 0.12, 0));
-  return g;
+  const k = new PK()
+    .obCyl(0.12, 0.2, h, 0, h / 2, 0)
+    .ob(1.6, 0.18, 0.4, 0.6, h, 0)
+    .ob(0.8, 0.12, 0.35, 1.1, h - 0.12, 0); // 外框同原本的零件
+  // 呼叫端會任意旋轉：零件分到原本的零件上（桿 0、橫臂 1、燈 2）
+  k.inPart(0, () => {
+    k.cyl(m, 0.2, 0.2, 0.3, 0, 0.15, 0, 0, 0, 0, 10);
+    k.cyl(m, 0.12, 0.2, h, 0, h / 2, 0, 0, 0, 0, 8);
+    k.cyl(mat(0x5aa0d0, { roughness: 0.3 }), 0.21, 0.21, 0.1, 0, 2.4, 0, 0, 0, 0, 8);
+  });
+  k.inPart(1, () => k.cb(m, 1.6, 0.18, 0.4, 0.6, h, 0, 0, 0, 0, 0.06));
+  k.inPart(2, () => k.box(mat(0xdff4ff, { emissive: 0x5a7a8a }), 0.8, 0.12, 0.35, 1.1, h - 0.12, 0));
+  return k.build();
 }
 // 花台（矮掩體）：4 × 1.2 × 1.6（沿 X），原點在底面中心
 export const PLANTER = [4, 1.3, 1.6];
 export function buildPlanter() {
   const glb = propGlb('planter', { fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
-  g.add(box(4, 0.9, 1.6, fadeMat(0xd8dce0, { roughness: 0.8 }), 0, 0.45, 0));
-  for (let i = -1; i <= 1; i++) {
-    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 0), fadeMat(0x4a7a4a, { roughness: 1 }));
-    b.position.set(i * 1.2, 1.1, 0);
-    b.castShadow = true;
-    g.add(b);
-  }
-  return g;
+  const pm = fadeMat(0xd8dce0, { roughness: 0.8 }),
+    leaf = fadeMat(0x4a7a4a, { roughness: 1 });
+  const k = new PK().bounds(-2, 0, -0.8, 2, 1.61, 0.8); // 外框同原本
+  // 倒角的花台＋上緣的壓頂＋底部的踢腳＋側面的燈條＋土與灌木
+  k.cb(pm, 4, 0.9, 1.6, 0, 0.45, 0, 0, 0, 0, 0.1);
+  k.cb(pm, 4.1, 0.12, 1.7, 0, 0.92, 0, 0, 0, 0, 0.04);
+  for (const s of [-1, 1]) k.box(mat(0xdff4ff, { emissive: 0x5a7a8a }), 3.2, 0.06, 0.04, 0, 0.2, s * 0.81);
+  k.box(fadeMat(0x4a3a2e, { roughness: 1 }), 3.7, 0.05, 1.3, 0, 0.88, 0);
+  for (let i = -1; i <= 1; i++)
+    k.geo(leaf, new THREE.IcosahedronGeometry(0.6, 0), i * 1.2, 1.1, 0, i * 0.5, i, 0);
+  return k.build();
 }
 
 // ---------- 地形特徵的外觀（白色流線的都市結構）----------
@@ -145,55 +197,94 @@ const C = {
 };
 registerFeatureStyle('xylem', C, {
   deck(w, d, thick, rotY, C) {
-    const g = new THREE.Group();
     const dm = fadeMat(C.deck, { roughness: 0.5, metalness: 0.2 }),
       tm = fadeMat(C.trim, { roughness: 0.3, metalness: 0.3 }),
       glass = fadeMat(0x9ac8e0, { roughness: 0.1, metalness: 0.3 });
     glass.opacity = 0.5;
-    g.add(box(w, thick, d, dm, 0, -thick / 2, 0));
-    for (const s of [-1, 1]) {
-      g.add(
-        rotY
-          ? box(0.15, 1, d, glass, s * (w / 2 - 0.1), 0.5, 0)
-          : box(w, 1, 0.15, glass, 0, 0.5, s * (d / 2 - 0.1)),
+    const L = rotY ? d : w,
+      D = rotY ? w : d;
+    const k = new PK();
+    k.at(0, 0, 0, 0, rotY ? Math.PI / 2 : 0, 0, () => {
+      // 流線斷面的橋面（下緣收斜）＋玻璃護欄（支柱）＋藍色扶手＋路面的導引線
+      k.prism(
+        dm,
+        [
+          [-D / 2, 0],
+          [D / 2, 0],
+          [D / 2, -thick * 0.55],
+          [D / 2 - 0.8, -thick],
+          [-D / 2 + 0.8, -thick],
+          [-D / 2, -thick * 0.55],
+        ],
+        L,
+        0,
+        0,
+        0,
+        0,
+        Math.PI / 2,
+        0,
       );
-      g.add(
-        rotY
-          ? box(0.3, 0.12, d, tm, s * (w / 2 - 0.15), 1.05, 0)
-          : box(w, 0.12, 0.3, tm, 0, 1.05, s * (d / 2 - 0.15)),
-      );
-    }
-    return g;
+      for (const s of [-1, 1]) {
+        k.box(glass, L, 1, 0.15, 0, 0.5, s * (D / 2 - 0.1));
+        k.box(tm, L, 0.12, 0.3, 0, 1.05, s * (D / 2 - 0.15));
+        for (let x = -L / 2 + 1; x < L / 2; x += 3) k.box(dm, 0.1, 1, 0.2, x, 0.5, s * (D / 2 - 0.1));
+        k.box(tm, L - 1, 0.02, 0.12, 0, 0.01, s * (D / 2 - 1.2));
+      }
+    });
+    return k.build();
   },
   pillar(r, h, C) {
-    const g = new THREE.Group();
-    g.add(cyl(r * 0.8, r * 1.2, h, mat(C.pillar, { roughness: 0.5 }), 0, 0, 0, 12));
-    return g;
+    const k = new PK().bounds(-r * 1.2, -h / 2, -r * 1.2, r * 1.2, h / 2, r * 1.2); // 外框同原本
+    const m = mat(C.pillar, { roughness: 0.5 });
+    k.cyl(m, r * 0.8, r * 1.2, h, 0, 0, 0, 0, 0, 0, 12);
+    k.cyl(m, r * 1.25, r * 0.85, 1.2, 0, h / 2 - 0.6, 0, 0, 0, 0, 12);
+    k.cyl(mat(C.trim, { roughness: 0.3 }), r * 1.0, r * 1.02, 0.15, 0, h / 2 - 1.4, 0, 0, 0, 0, 12);
+    return k.build();
   },
   wall(w, h, d, C) {
-    const g = new THREE.Group();
-    g.add(box(w, h, d, fadeMat(C.wall, { roughness: 0.6 })));
-    g.add(box(w + 0.05, 0.2, d + 0.05, fadeMat(C.trim), 0, h / 2 - 0.4, 0));
-    return g;
+    const k = new PK();
+    const m = fadeMat(C.wall, { roughness: 0.6 });
+    const along = w > d,
+      L = along ? w : d,
+      T = along ? d : w;
+    k.at(0, 0, 0, 0, along ? 0 : Math.PI / 2, 0, () => {
+      k.cb(m, L, h, T, 0, 0, 0, 0, 0, 0, Math.min(0.3, T * 0.3));
+      k.box(fadeMat(C.trim), L + 0.05, 0.2, T + 0.05, 0, h / 2 - 0.4, 0);
+      for (let x = -L / 2 + 2.5; x < L / 2 - 0.5; x += 2.5)
+        for (const s of [-1, 1]) k.box(DETAIL.steel, 0.04, h - 1.2, 0.03, x, -0.3, s * (T / 2 + 0.01));
+    });
+    return k.build();
   },
   platform(w, h, d, C) {
-    const g = new THREE.Group();
-    g.add(box(w, h, d, fadeMat(C.plat, { roughness: 0.6 }), 0, h / 2, 0));
-    g.add(box(w + 0.1, 0.2, d + 0.1, fadeMat(C.trim), 0, h - 0.3, 0));
-    return g;
+    const k = new PK();
+    k.cb(fadeMat(C.plat, { roughness: 0.6 }), w, h, d, 0, h / 2, 0, 0, 0, 0, 0.3);
+    k.box(fadeMat(C.trim), w + 0.1, 0.2, d + 0.1, 0, h - 0.3, 0);
+    k.box(mat(0xdff4ff, { emissive: 0x5a7a8a }), w + 0.06, 0.08, d + 0.06, 0, 0.5, 0);
+    return k.build();
   },
   ramp(rw, rd, C) {
-    const g = new THREE.Group();
-    g.add(box(rw, 0.35, rd, mat(C.deck, { roughness: 0.5 })));
-    return g;
+    const along = rw >= rd;
+    const L = along ? rw : rd,
+      D = along ? rd : rw;
+    const k = new PK().ob(rw, 0.35, rd); // 外框同原本
+    k.at(0, 0, 0, 0, along ? 0 : Math.PI / 2, 0, () => {
+      k.cb(mat(C.deck, { roughness: 0.5 }), L, 0.35, D, 0, 0, 0, 0, 0, 0, 0.1);
+      for (const s of [-1, 1])
+        k.box(mat(C.trim, { roughness: 0.3 }), L, 0.06, 0.15, 0, 0.19, s * (D / 2 - 0.3));
+    });
+    return k.build();
   },
   tunnel(C) {
-    const g = new THREE.Group();
-    g.add(box(24, 14, 10, mat(0x8a949e, { roughness: 0.6 }), 0, 5, -6));
-    g.add(box(12, 9, 2.5, mat(C.wall, { roughness: 0.6 }), 0, 4.5, 0));
-    g.add(box(8, 6.5, 2.8, new THREE.MeshBasicMaterial({ color: 0x07080a }), 0, 3.25, 0));
-    g.add(box(8.6, 0.3, 2.9, mat(C.trim), 0, 6.7, 0));
-    return g;
+    const k = new PK();
+    const wm = mat(C.wall, { roughness: 0.6 });
+    k.cb(mat(0x8a949e, { roughness: 0.6 }), 24, 14, 10, 0, 5, -6, 0, 0, 0, 1.6);
+    k.cb(wm, 12, 9, 2.5, 0, 4.5, 0, 0, 0, 0, 0.4);
+    k.box(HOLE, 8, 6.5, 2.8, 0, 3.25, 0);
+    k.box(mat(C.trim), 8.6, 0.3, 2.9, 0, 6.7, 0);
+    for (const s of [-1, 1])
+      k.box(mat(0xdff4ff, { emissive: 0x5a7a8a }), 0.15, 6.2, 0.1, s * 4.25, 3.3, 1.35);
+    k.box(DETAIL.glass, 5, 1, 0.08, 0, 7.8, 1.27);
+    return k.build();
   },
 });
 

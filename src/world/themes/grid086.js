@@ -1,7 +1,18 @@
 // 主題：Grid 086 巨型構造體（AC6 貝利烏斯西部的 Grid 086）——地面層之上有兩層鋼構平台（Y1、Y2），
 // 平台之間留有空隙；坡道從地面接到第一層、從第一層接到第二層（懸空坡道 lift），也可以跳躍、懸浮上下
 import { RNG, pick, rnd } from '../../core/math.js';
-import { box, cyl, fadeMat, mat, propGlb, registerFeatureStyle } from './kit.js';
+import {
+  fadeMat,
+  mat,
+  propGlb,
+  registerFeatureStyle,
+  PK,
+  DETAIL,
+  HOLE,
+  hazard,
+  railing,
+  ladder,
+} from './kit.js';
 
 const TILE = 24,
   Y1 = 11,
@@ -14,93 +25,125 @@ export const SHACK = [5, 3.6, 4];
 export function buildShack(color) {
   const glb = propGlb('doser_shack', { color, fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(color, { roughness: 0.85, metalness: 0.4 }),
     rust = fadeMat(0x7a3f22, { roughness: 1 }),
     dk = fadeMat(0x22201e, { roughness: 1 });
-  g.add(box(5, 3, 4, m, 0, 1.5, 0));
-  const roof = box(5.6, 0.2, 4.6, rust, 0, 3.3, 0);
-  roof.rotation.z = 0.12;
-  g.add(roof);
-  g.add(box(1.4, 2.2, 0.1, dk, -1, 1.1, 2.01));
-  g.add(box(1.8, 1, 0.1, rust, 1.2, 1.6, 2.02));
-  g.add(cyl(0.2, 0.2, 1.4, dk, 1.8, 4, -1.2, 6));
-  return g;
+  const k = new PK().bounds(-2.792, 0, -2.3, 2.792, 4.7, 2.3); // 外框同原本
+  // 牆（拼接的鐵皮：板縫與補丁）＋斜屋頂（壓條）＋門＋遮雨板＋煙囪＋外掛的箱子與管線
+  k.box(m, 5, 3, 4, 0, 1.5, 0);
+  for (const x of [-1.6, 0.2, 1.7]) k.box(dk, 0.06, 2.9, 4.06, x, 1.5, 0);
+  k.box(rust, 1.2, 1.1, 0.06, 1.6, 0.8, -2.02);
+  k.at(0, 3.3, 0, 0, 0, 0.12, () => {
+    k.box(rust, 5.6, 0.2, 4.6, 0, 0, 0);
+    for (let x = -2.4; x <= 2.4; x += 0.8) k.box(rust, 0.08, 0.1, 4.6, x, 0.14, 0);
+  });
+  k.box(dk, 1.4, 2.2, 0.1, -1, 1.1, 2.01);
+  k.box(DETAIL.steel, 0.1, 0.1, 0.1, -0.45, 1.1, 2.08);
+  k.box(rust, 1.8, 1, 0.1, 1.2, 1.6, 2.02);
+  k.box(rust, 2.0, 0.08, 0.5, 1.2, 2.2, 2.25, 0.3, 0, 0);
+  k.cyl(dk, 0.2, 0.2, 1.4, 1.8, 4, -1.2, 0, 0, 0, 6);
+  k.cyl(dk, 0.28, 0.28, 0.12, 1.8, 4.72, -1.2, 0, 0, 0, 6);
+  k.cb(m, 0.3, 1.0, 0.8, 2.64, 1.6, -0.8, 0, 0, 0, 0.04);
+  k.pipe(dk, [2.6, 2.1, -0.8], [2.6, 3.0, -0.8], 0.05);
+  return k.build();
 }
 // 廢料堆：半徑約 2.5，原點在底面中心
 export function buildScrapHeap(s) {
   const glb = propGlb('scrap_heap', { ref: [5, 2.6, 5], size: [5 * s, 2.6 * s, 5 * s], fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const cols = [0x5a4a3e, 0x7a3f22, 0x4a4e52, 0x6a5a3a];
-  for (let i = 0; i < 9; i++) {
-    const b = box(
+  const ms = cols.map((c) => fadeMat(c, { roughness: 0.9, metalness: 0.4 }));
+  const k = new PK();
+  // 外框同原本（9 塊旋轉的方塊）
+  for (let i = 0; i < 9; i++)
+    k.ob(
       s * (0.8 + (i % 3) * 0.5),
       s * (0.4 + (i % 2) * 0.5),
       s * (0.7 + ((i * 5) % 3) * 0.4),
-      fadeMat(cols[i % 4], { roughness: 0.9, metalness: 0.4 }),
       (((i * 7) % 5) - 2) * s * 0.55,
       s * (0.3 + (i % 4) * 0.45),
       (((i * 3) % 5) - 2) * s * 0.5,
+      i * 0.4,
+      i * 1.1,
+      i * 0.3,
     );
-    b.rotation.set(i * 0.4, i * 1.1, i * 0.3);
-    g.add(b);
-  }
-  return g;
+  for (let i = 0; i < 9; i++)
+    k.box(
+      ms[i % 4],
+      s * (0.8 + (i % 3) * 0.5),
+      s * (0.4 + (i % 2) * 0.5),
+      s * (0.7 + ((i * 5) % 3) * 0.4),
+      (((i * 7) % 5) - 2) * s * 0.55,
+      s * (0.3 + (i % 4) * 0.45),
+      (((i * 3) % 5) - 2) * s * 0.5,
+      i * 0.4,
+      i * 1.1,
+      i * 0.3,
+    );
+  // 插在堆裡的鋼樑與管子
+  k.box(ms[2], s * 3.2, s * 0.2, s * 0.3, 0, s * 1.2, 0, 0.2, 0.6, 0.35);
+  k.cyl(ms[3], s * 0.18, s * 0.18, s * 2.4, s * 0.6, s * 1.0, -s * 0.5, 0.9, 0.3, 0, 6);
+  return k.build();
 }
-// 油桶群（3 個）：原點在底面中心
+// 油桶群（3 個）：原點在底面中心；桶箍與桶蓋
 export function buildBarrels() {
   const glb = propGlb('barrels', { fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const cols = [0x8a3a2a, 0x3a5a7a, 0x6a6a2a];
+  const k = new PK(); // 外框同原本的零件（三個油桶）
   for (let i = 0; i < 3; i++)
-    g.add(
-      cyl(
-        0.45,
-        0.45,
-        1.3,
-        fadeMat(cols[i], { roughness: 0.7, metalness: 0.4 }),
-        Math.cos(i * 2.1) * 0.6,
-        0.65,
-        Math.sin(i * 2.1) * 0.6,
-        10,
-      ),
-    );
-  return g;
+    k.obCyl(0.45, 0.45, 1.3, Math.cos(i * 2.1) * 0.6, 0.65, Math.sin(i * 2.1) * 0.6, 0, 0, 0, 10);
+  for (let i = 0; i < 3; i++) {
+    const m = fadeMat(cols[i], { roughness: 0.7, metalness: 0.4 });
+    const x = Math.cos(i * 2.1) * 0.6,
+      z = Math.sin(i * 2.1) * 0.6;
+    k.cyl(m, 0.45, 0.45, 1.3, x, 0.65, z, 0, 0, 0, 10);
+    for (const y of [0.4, 0.9]) k.cyl(m, 0.47, 0.47, 0.06, x, y, z, 0, 0, 0, 10);
+    k.cyl(m, 0.4, 0.4, 0.03, x, 1.31, z, 0, 0, 0, 10);
+    k.cyl(DETAIL.dark, 0.06, 0.06, 0.04, x + 0.22, 1.33, z, 0, 0, 0, 6);
+  }
+  return k.build();
 }
 // 排氣煙囪：半徑 r、高 h，原點在底面中心；GLB 以半徑 1.5、高 30 m 製作
 export function buildChimney(r, h) {
   const glb = propGlb('chimney', { ref: [3, 30, 3], size: [r * 2, h, r * 2], fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const m = fadeMat(0x5a4e46, { roughness: 0.9, metalness: 0.3 }),
     band = fadeMat(0xb04a2a, { roughness: 0.7 });
-  g.add(cyl(r * 0.8, r, h, m, 0, h / 2, 0, 12));
-  for (const y of [h * 0.3, h * 0.6, h - 1.5]) g.add(cyl(r * 0.9, r * 0.9, 0.8, band, 0, y, 0, 12));
-  return g;
+  const k = new PK().bounds(-r, 0, -r, r, h, r); // 外框同原本（檢修平台與頂部的燈在外框外）
+  // 煙囪＋警示色帶＋基座＋爬梯＋檢修平台＋頂部的航空障礙燈
+  k.cyl(m, r * 0.8, r, h, 0, h / 2, 0, 0, 0, 0, 12);
+  for (const y of [h * 0.3, h * 0.6, h - 1.5]) k.cyl(band, r * 0.9, r * 0.9, 0.8, 0, y, 0, 0, 0, 0, 12);
+  k.cyl(m, r * 0.98, r, 1.2, 0, 0.6, 0, 0, 0, 0, 12);
+  const rr = (y) => r - (r * 0.2 * y) / h;
+  ladder(k, DETAIL.dark, h - 1.6, 0, 1.2, rr(h / 2) + 0.12, 0, 0.6);
+  const py = h * 0.6 + 1.2;
+  k.cyl(DETAIL.dark, rr(py) + 0.8, rr(py) + 0.8, 0.12, 0, py, 0, 0, 0, 0, 12);
+  k.geo(DETAIL.dark, new THREE.TorusGeometry(rr(py) + 0.75, 0.04, 3, 16), 0, py + 0.9, 0, Math.PI / 2, 0, 0);
+  k.cyl(m, r * 0.85, r * 0.82, 0.5, 0, h + 0.25, 0, 0, 0, 0, 12);
+  k.box(DETAIL.red, 0.25, 0.25, 0.25, r * 0.6, h + 0.6, 0);
+  return k.build();
 }
 // 垂直的管線束：原點在底面中心，高 h
 export function buildPipeStack(h) {
   const glb = propGlb('pipe_stack', { ref: [3, 9, 1.4], size: [3, h, 1.4], fade: true });
   if (glb) return glb;
-  const g = new THREE.Group();
   const cols = [0x8a7a5a, 0x5a6a72, 0x7a5a3a];
-  for (let i = 0; i < 4; i++)
-    g.add(
-      cyl(
-        0.32,
-        0.32,
-        h,
-        fadeMat(cols[i % 3], { roughness: 0.6, metalness: 0.5 }),
-        -1.1 + i * 0.75,
-        h / 2,
-        0,
-        8,
-      ),
-    );
-  for (const y of [1.5, h * 0.5, h - 1]) g.add(box(3.2, 0.3, 1, fadeMat(0x3a3836), 0, y, 0));
-  return g;
+  const k = new PK().bounds(-1.6, 0, -0.5, 1.6, h, 0.5); // 外框同原本
+  const fm = fadeMat(0x3a3836);
+  for (let i = 0; i < 4; i++) {
+    const pm = fadeMat(cols[i % 3], { roughness: 0.6, metalness: 0.5 });
+    const x = -1.1 + i * 0.75;
+    k.cyl(pm, 0.32, 0.32, h, x, h / 2, 0, 0, 0, 0, 8);
+    // 法蘭與閥門
+    for (const y of [h * 0.25 + i * 0.4, h * 0.75 - i * 0.3]) k.cyl(pm, 0.4, 0.4, 0.16, x, y, 0, 0, 0, 0, 8);
+    if (i % 2 === 0) k.cyl(DETAIL.red, 0.18, 0.18, 0.06, x, h * 0.4, 0.45, Math.PI / 2, 0, 0, 8);
+  }
+  for (const y of [1.5, h * 0.5, h - 1]) {
+    k.box(fm, 3.2, 0.3, 1, 0, y, 0);
+    for (let i = 0; i < 4; i++) k.box(fm, 0.08, 0.6, 0.75, -1.1 + i * 0.75 - 0.38, y, 0);
+  }
+  return k.build();
 }
 
 // ---------- 平台、柱、坡道的外觀（鋼格柵＋警示邊、鉚接鋼柱）----------
@@ -114,58 +157,116 @@ const C = {
 };
 registerFeatureStyle('grid086', C, {
   deck(w, d, thick, rotY, C) {
-    const g = new THREE.Group();
     const dm = fadeMat(C.deck, { roughness: 0.6, metalness: 0.6 }),
       tm = fadeMat(C.trim, { roughness: 0.6 }),
       rib = fadeMat(0x2e2a28, { roughness: 0.8, metalness: 0.4 });
-    g.add(box(w, thick, d, dm, 0, -thick / 2, 0));
-    // 底面的大梁
-    for (let x = -w / 2 + 3; x < w / 2; x += 6) g.add(box(0.6, 1.2, d, rib, x, -thick - 0.6, 0));
-    // 邊緣警示條
-    for (const s of [-1, 1]) {
-      g.add(box(w, 0.06, 0.5, tm, 0, 0.03, s * (d / 2 - 0.25)));
-      g.add(box(0.5, 0.06, d, tm, s * (w / 2 - 0.25), 0.03, 0));
+    const k = new PK();
+    // 外框同原本（板、底面的大梁、邊緣警示條）
+    k.ob(w, thick, d, 0, -thick / 2, 0).ob(w, 0.06, d, 0, 0.03, 0);
+    for (let x = -w / 2 + 3; x < w / 2; x += 6) k.ob(0.6, 1.2, d, x, -thick - 0.6, 0);
+    k.cb(dm, w, thick, d, 0, -thick / 2, 0, 0, 0, 0, 0.1);
+    // 底面的大梁（工字斷面）＋橫樑
+    for (let x = -w / 2 + 3; x < w / 2; x += 6) {
+      k.box(rib, 0.2, 1.2, d, x, -thick - 0.6, 0);
+      k.box(rib, 0.7, 0.14, d, x, -thick - 1.13, 0);
     }
-    return g;
+    for (let z = -d / 2 + 4; z < d / 2 - 1; z += 8) k.box(rib, w - 0.4, 0.6, 0.2, 0, -thick - 0.3, z);
+    // 頂面：格柵板的接縫＋邊緣警示條紋（黑底黃紋）
+    for (let x = -w / 2 + 4; x < w / 2 - 1; x += 4) k.box(rib, 0.08, 0.02, d - 1.2, x, 0.01, 0);
+    for (const s of [-1, 1]) {
+      k.at(0, 0.03, s * (d / 2 - 0.25), -Math.PI / 2, 0, 0, () =>
+        hazard(k, tm, rib, w - 1, 0.5, 0, 0, 0, 0, 1.0),
+      );
+      k.at(s * (w / 2 - 0.25), 0.03, 0, -Math.PI / 2, 0, Math.PI / 2, () =>
+        hazard(k, tm, rib, d - 1, 0.5, 0, 0, 0, 0, 1.0),
+      );
+    }
+    return k.build();
   },
   pillar(r, h, C) {
-    const g = new THREE.Group();
-    const m = mat(C.pillar, { roughness: 0.6, metalness: 0.6 });
-    g.add(box(r * 1.6, h, r * 1.6, m));
-    for (const y of [-h / 2 + 0.4, h / 2 - 0.4])
-      g.add(box(r * 2.1, 0.8, r * 2.1, mat(0x3a3632, { metalness: 0.5 }), 0, y, 0));
-    return g;
+    const k = new PK().bounds(-r * 1.05, -h / 2, -r * 1.05, r * 1.05, h / 2, r * 1.05); // 外框同原本
+    const m = mat(C.pillar, { roughness: 0.6, metalness: 0.6 }),
+      dk = mat(0x3a3632, { metalness: 0.5 });
+    // H 型鋼柱（翼板＋腹板）＋上下的柱腳／柱頭（鉚釘）＋加勁板
+    const a = r * 0.8;
+    for (const s of [-1, 1]) k.box(m, a * 2, h, 0.16, 0, 0, s * (a - 0.08));
+    k.box(m, 0.18, h, a * 2, 0, 0, 0);
+    for (const y of [-h / 2 + 0.4, h / 2 - 0.4]) {
+      k.cb(dk, r * 2.1, 0.8, r * 2.1, 0, y, 0, 0, 0, 0, 0.06);
+      for (const sx of [-1, 1])
+        for (const sz of [-1, 1]) k.box(DETAIL.steel, 0.1, 0.1, 0.1, sx * r * 0.85, y + 0.42, sz * r * 0.85);
+    }
+    for (let y = -h / 2 + 3; y < h / 2 - 2; y += 3)
+      for (const s of [-1, 1]) k.box(m, 0.08, 0.1, a * 2, s * a * 0.5, y, 0);
+    return k.build();
   },
   wall(w, h, d, C) {
-    const g = new THREE.Group();
-    g.add(box(w, h, d, fadeMat(C.wall, { roughness: 0.8, metalness: 0.4 })));
-    return g;
+    const k = new PK();
+    const m = fadeMat(C.wall, { roughness: 0.8, metalness: 0.4 });
+    const along = w > d,
+      L = along ? w : d,
+      T = along ? d : w;
+    k.at(0, 0, 0, 0, along ? 0 : -Math.PI / 2, 0, () => {
+      k.ob(L, h, T); // 外框同原本
+      k.cb(m, L, h, T, 0, 0, 0, 0, 0, 0, 0.08);
+      // 鋼板的加強肋與鉚釘列
+      for (let x = -L / 2 + 1.5; x < L / 2 - 0.5; x += 1.5)
+        for (const s of [-1, 1]) k.box(m, 0.14, h - 0.3, 0.1, x, 0, s * (T / 2 + 0.04));
+      for (const s of [-1, 1]) k.box(DETAIL.dark, L, 0.25, 0.06, 0, h / 2 - 0.4, s * (T / 2 + 0.03));
+    });
+    return k.build();
   },
   platform(w, h, d, C) {
-    const g = new THREE.Group();
-    g.add(box(w, h, d, fadeMat(C.plat, { roughness: 0.8, metalness: 0.4 }), 0, h / 2, 0));
-    return g;
+    const k = new PK().bounds(-w / 2, 0, -d / 2, w / 2, h, d / 2); // 外框同原本
+    const m = fadeMat(C.plat, { roughness: 0.8, metalness: 0.4 });
+    k.cb(m, w, h, d, 0, h / 2, 0, 0, 0, 0, 0.12);
+    // 側面的框架（柱＋橫樑）與頂緣的警示色
+    for (const s of [-1, 1]) {
+      for (let x = -w / 2 + 0.3; x <= w / 2 - 0.3 + 1e-6; x += (w - 0.6) / Math.max(1, Math.round(w / 4)))
+        k.box(DETAIL.dark, 0.3, h, 0.1, x, h / 2, s * (d / 2 + 0.04));
+      for (let z = -d / 2 + 0.3; z <= d / 2 - 0.3 + 1e-6; z += (d - 0.6) / Math.max(1, Math.round(d / 4)))
+        k.box(DETAIL.dark, 0.1, h, 0.3, s * (w / 2 + 0.04), h / 2, z);
+    }
+    k.box(DETAIL.yellow, w + 0.1, 0.2, d + 0.1, 0, h - 0.1, 0);
+    return k.build();
   },
   ramp(rw, rd, C) {
-    const g = new THREE.Group();
-    g.add(box(rw, 0.5, rd, mat(C.deck, { roughness: 0.6, metalness: 0.6 })));
-    const along = rw >= rd;
-    for (const s of [-1, 1])
-      g.add(
-        along
-          ? box(rw, 1, 0.2, mat(C.trim), 0, 0.6, s * (rd / 2 - 0.1))
-          : box(0.2, 1, rd, mat(C.trim), s * (rw / 2 - 0.1), 0.6, 0),
-      );
-    return g;
+    return gridRamp(rw, rd, mat(C.deck, { roughness: 0.6, metalness: 0.6 }), mat(C.trim));
   },
   tunnel(C) {
-    const g = new THREE.Group();
-    g.add(box(24, 14, 10, mat(C.rock, { roughness: 1 }), 0, 5, -6));
-    g.add(box(14, 10, 2.5, mat(C.wall, { metalness: 0.4 }), 0, 5, 0));
-    g.add(box(8, 6.5, 2.8, new THREE.MeshBasicMaterial({ color: 0x07080a }), 0, 3.25, 0));
-    return g;
+    const k = new PK().bounds(-12, -2, -11, 12, 12, 1.4); // 外框同原本
+    const wm = mat(C.wall, { metalness: 0.4 });
+    k.cb(mat(C.rock, { roughness: 1 }), 24, 14, 10, 0, 5, -6, 0, 0, 0, 1.6);
+    k.cb(wm, 14, 10, 2.5, 0, 5, 0, 0, 0, 0, 0.12);
+    k.box(HOLE, 8, 6.5, 2.8, 0, 3.25, 0);
+    for (const s of [-1, 1]) {
+      k.box(DETAIL.dark, 0.6, 7.2, 2.7, s * 4.3, 3.6, 0);
+      for (const x of [5.6, 6.8]) k.box(wm, 0.25, 9.6, 2.7, s * x, 4.8, 0);
+    }
+    k.box(DETAIL.dark, 9.2, 0.7, 2.7, 0, 7.2, 0);
+    hazard(k, DETAIL.yellow, DETAIL.black, 8.6, 0.5, 0, 7.2, 1.37);
+    return k.build();
   },
 });
+// 鋼坡道：格柵板＋止滑條＋兩側的黃色護欄（實心擋板＋扶手）
+function gridRamp(rw, rd, pm, tm) {
+  const along = rw >= rd;
+  const L = along ? rw : rd,
+    D = along ? rd : rw;
+  const k = new PK();
+  k.at(0, 0, 0, 0, along ? 0 : Math.PI / 2, 0, () => {
+    // 外框同原本（板＋兩側的擋板）
+    k.ob(L, 0.5, D);
+    for (const s of [-1, 1]) k.ob(L, 1, 0.2, 0, 0.6, s * (D / 2 - 0.1));
+    k.cb(pm, L, 0.5, D, 0, 0, 0, 0, 0, 0, 0.06);
+    for (let x = -L / 2 + 0.5; x < L / 2; x += 1) k.box(DETAIL.dark, 0.1, 0.05, D - 0.6, x, 0.27, 0);
+    for (const s of [-1, 1]) {
+      k.box(tm, L, 0.5, 0.2, 0, 0.35, s * (D / 2 - 0.1));
+      railing(k, tm, L - 0.2, 0.46, 0, 0.6, s * (D / 2 - 0.1), 0, 2.4, 0.08);
+    }
+  });
+  return k.build();
+}
 
 // ---------- 地形：平坦的底層 ----------
 function planTerrain(w) {
@@ -275,16 +376,7 @@ function buildStructures(w) {
   }
 }
 function buildGridRamp(rw, rd) {
-  const g = new THREE.Group();
-  g.add(box(rw, 0.5, rd, mat(0x4a4642, { roughness: 0.6, metalness: 0.6 })));
-  const along = rw >= rd;
-  for (const s of [-1, 1])
-    g.add(
-      along
-        ? box(rw, 1, 0.2, mat(0xd8a020), 0, 0.6, s * (rd / 2 - 0.1))
-        : box(0.2, 1, rd, mat(0xd8a020), s * (rw / 2 - 0.1), 0.6, 0),
-    );
-  return g;
+  return gridRamp(rw, rd, mat(0x4a4642, { roughness: 0.6, metalness: 0.6 }), mat(0xd8a020));
 }
 
 function buildProps(w) {
