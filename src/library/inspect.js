@@ -469,7 +469,8 @@ export class Inspector {
     };
     // 可編輯的連接點：target 的位置／旋轉就是連接點（組合預覽時直接移動連接點群組，子區塊會跟著動）
     const edits = [];
-    if (rig && rig.mounts) {
+    // Boss 的程式模型的 mounts 是部位掛點（Group 陣列），不是機甲的連接點清單
+    if (rig && Array.isArray(rig.mounts) && rig.mounts.every((m) => m && m.node)) {
       // 整台機甲：所有連接點；組合預覽時標出此區塊自己的連接點與它接上的那一個
       const parentMount = own && own.parent ? own.parent.parent : null;
       for (const m of rig.mounts) {
@@ -556,7 +557,7 @@ export class Inspector {
     $('insGlbHint').textContent = e.noGlb
       ? e.cat === 'mech'
         ? '完整機甲由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（頭、核心、上臂、前臂…）'
-        : e.parts.length
+        : e.parts && e.parts.length
           ? '這個模型由各區塊組成，不接受整台的 GLB：請把 GLB 放到各區塊的格子（' + e.parts.join('、') + '）'
           : '這個物件在遊戲中由其他物件拼成或沿路線產生，不接受 GLB，維持程式模型'
       : glb && !src.fallback
