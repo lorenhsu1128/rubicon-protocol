@@ -384,7 +384,7 @@ export function decal(node, tile, w, h, x, y, z, rx = 0, ry = 0, rz = 0) {
 }
 
 // --- detail kits ---
-function kitPiston(node, M, x1, y1, z1, x2, y2, z2, r = 0.05) {
+export function kitPiston(node, M, x1, y1, z1, x2, y2, z2, r = 0.05) {
   const dx = x2 - x1,
     dy = y2 - y1,
     dz = z2 - z1;
