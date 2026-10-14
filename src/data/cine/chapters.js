@@ -3,6 +3,7 @@
 // 角色的台詞（「名字：「…」」）變成無線電字幕，其他是旁白。
 import { CHAPTER_NAMES, CHAPTER_TEXT, pickLines } from '../story.js';
 import { ch1Intro, ch1Outro } from './ch1.js';
+import { ch2Intro, ch2Outro } from './ch2.js';
 
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -426,6 +427,7 @@ function parseLine(l) {
 // 逐章重做的分鏡（data/cine/ch<章>.js）；沒有的章用下面的模板
 const BESPOKE = {
   1: { intro: ch1Intro, outro: ch1Outro },
+  2: { intro: ch2Intro, outro: ch2Outro },
 };
 
 // kind：'intro'｜'outro'

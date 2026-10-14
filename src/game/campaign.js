@@ -766,10 +766,13 @@ Object.assign(Game.prototype, {
       });
       this.flashMsg(CH.name, 0xff8a50, 3, { k: 'choice', m: '抉擇', s: CH.name });
       this.campComm('choice', this.campCtx());
-      this.campChoiceCard(
-        cur.choice,
-        opts.map((o) => o.key),
-      ); // 說明卡：各選項的獎勵、路線、宿敵（guide.js）
+      const card = () =>
+        this.campChoiceCard(
+          cur.choice,
+          opts.map((o) => o.key),
+        ); // 說明卡：各選項的獎勵、路線、宿敵（guide.js）
+      // 抉擇演出（選前，在目前的戰場上播；game/cine.js）播完再顯示說明卡
+      if (!this.campChoiceCine(cur.choice, 'pre', card, opts)) card();
       return;
     }
     const spots = this.campSpots(n, mode === 'relay' ? 'edge' : 'inner');
@@ -1007,7 +1010,30 @@ Object.assign(Game.prototype, {
     c.usedTrans.push(ex.tr.title);
     this.clearMission();
     this.campCheckpoint(); // 紀錄點＝這次轉場的起點（整備後再記一次）
+    // 抉擇演出（選後的代價蒙太奇）播完再到轉場畫面
+    if (ex.choice && this.campChoiceCine(c.choice.id, ex.choice, () => this.campShowTrans(ex.tr, false)))
+      return;
     this.campShowTrans(ex.tr, false);
+  },
+  // 抉擇演出：x_<抉擇>_pre（選前，live）、x_<抉擇>_<選項>（選後）；單人、劇情動畫開啟時才播。回傳 true＝播放中
+  campChoiceCine(id, key, done, opts) {
+    const k = `x_${id}_${key}`;
+    if (this.campMp() || !this.cineAllowed() || !this.storyAuto() || !this.cineFor(k)) return false;
+    const st = this.campStory();
+    const o = (opts || []).map((q) => {
+      const F = FACTIONS[q.faction] || {};
+      return {
+        name: q.name,
+        sub: F.name || '',
+        color: F.color || '#ffffff',
+        hex: parseInt((F.color || '#ffffff').slice(1), 16),
+      };
+    });
+    this.cinePlay(k, () => done(), {
+      live: key === 'pre',
+      ctx: { cycle: st.cycle || 1, choices: { ...(st.choices || {}), [id]: key }, opts: o },
+    });
+    return true;
   },
 
   // ---------- 轉場畫面 ----------

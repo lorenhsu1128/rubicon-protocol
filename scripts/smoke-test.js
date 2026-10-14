@@ -9520,6 +9520,86 @@ async function testCine(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'cine-phone.png') });
   check(ph.on && ph.w <= 844 && ph.b <= 390, '手機橫式：字幕在畫面內');
   await page.evaluate(() => window.__game.cineEnd(true));
+  // 抉擇演出：抉擇區段清除後先在戰場上播選前的演出（live，播完回到戰鬥），走進出口後播選後的代價，再到轉場畫面
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.cine = 'on';
+    g.storyTest = true;
+    g.autoPickMod = true;
+    g.cineTest = 1;
+    const st = g.campStory();
+    st.done = { c1s1: 1, c1s2: 1, c2s1: 1 };
+    st.choices = {};
+    g.campBegin('c2s2');
+    g.camp.seg = 3;
+    g.camp.types[3] = 'battle';
+    g.camp.plan[3] = { ...g.camp.plan[3], variant: '', landmark: '' };
+    g.campEnterSeg();
+  });
+  const pre = await page
+    .waitForFunction(
+      () => {
+        const g = window.__game;
+        if (g.cine) return g.cine.key;
+        g.waves = [];
+        g.wavePend = null;
+        for (const e of g.enemies || [])
+          if (!e.dead) {
+            e.bossVis = 0;
+            e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+          }
+        return false;
+      },
+      null,
+      { timeout: 40000, polling: 300 },
+    )
+    .then(
+      (h) => h.jsonValue(),
+      () => null,
+    );
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 20000,
+  });
+  await page.evaluate(() => window.__game.cineSeek(4.5));
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cine-choice-pre.png') });
+  const live = await page.evaluate(() => ({
+    live: window.__game.cine.live,
+    world: !!window.__game.world,
+    ex: window.__game.camp.exits.length,
+  }));
+  await page.evaluate(() => window.__game.cineEnd(true));
+  const back = await page.evaluate(() => window.__game.state);
+  check(
+    pre === 'x_c2_pre' && live.live && live.world && live.ex === 2 && back === 'play',
+    `抉擇演出（選前）：在目前的戰場上播、播完回到戰鬥（${pre}、${back}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.camp.exits.find((q) => q.choice === 'castron');
+    g.flows = [];
+    g.player.pos.copy(e.pos);
+  });
+  const post = await page
+    .waitForFunction(() => window.__game.cine && window.__game.cine.started && window.__game.cine.key, null, {
+      timeout: 20000,
+      polling: 200,
+    })
+    .then(
+      (h) => h.jsonValue(),
+      () => null,
+    );
+  await page.evaluate(() => window.__game.cineSeek(5));
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cine-choice-post.png') });
+  await page.evaluate(() => window.__game.cineEnd(true));
+  const tr = await waitVisible(page, 'campTrans', 8000);
+  check(post === 'x_c2_castron' && tr, `抉擇演出（選後）：代價的蒙太奇之後到轉場畫面（${post}）`);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.campEnd(false, true);
+  });
   await ctx.close();
 }
 
