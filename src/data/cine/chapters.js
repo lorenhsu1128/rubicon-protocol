@@ -4,6 +4,7 @@
 import { CHAPTER_NAMES, CHAPTER_TEXT, pickLines } from '../story.js';
 import { ch1Intro, ch1Outro } from './ch1.js';
 import { ch2Intro, ch2Outro } from './ch2.js';
+import { ch3Intro, ch3Outro } from './ch3.js';
 
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -428,6 +429,7 @@ function parseLine(l) {
 const BESPOKE = {
   1: { intro: ch1Intro, outro: ch1Outro },
   2: { intro: ch2Intro, outro: ch2Outro },
+  3: { intro: ch3Intro, outro: ch3Outro },
 };
 
 // kind：'intro'｜'outro'

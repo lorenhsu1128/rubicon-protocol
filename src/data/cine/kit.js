@@ -103,7 +103,13 @@ export function parseLine(l) {
 // ---------- 組件（回傳 [鏡頭, 秒數]）----------
 // 黑底字卡
 export function black(card, s, d = 2.6, style = 'card', ev = []) {
-  return [{ set: { k: 'black' }, ev: [{ t: 0.25, card, s: s || '', style, dur: d - 0.4 }, ...ev] }, d];
+  return [
+    {
+      set: { k: 'black' },
+      ev: [...(card ? [{ t: 0.25, card, s: s || '', style, dur: d - 0.4 }] : []), ...ev],
+    },
+    d,
+  ];
 }
 // 空景：crane 升起／pan 橫移／push 推近／fly 低空飛越／orbit 環繞；line＝字幕
 const MOVES = {

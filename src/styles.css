@@ -1990,6 +1990,17 @@ body.lab #fps {
   bottom: auto;
   top: max(16vh, 50px);
 }
+/* 檔案畫面：畫面中央的大字（第 3 章章末的週期數） */
+#cineSys.file {
+  left: 50%;
+  bottom: auto;
+  top: 34%;
+  transform: translateX(-50%);
+  font-size: clamp(16px, 3.2vh, 30px);
+  color: #ff9a80;
+  text-shadow: 0 0 10px rgba(255, 80, 60, 0.7);
+  text-align: center;
+}
 #cineSys.out {
   opacity: 0;
 }
