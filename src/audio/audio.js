@@ -6,6 +6,7 @@ import { SFX_DATA } from './sfx-data.js';
 
 // 混音：音效（sfx）與環境音（amb）→ world（低 AP 時低通變悶）→ duck（大爆炸、通訊時壓低）→ master；
 // 介面與通訊（ui）不受影響直接進 master。音效另外送一份到殘響（依地圖主題，地下長、空曠短）。
+// 配樂（mus，過場動畫用）也直接進 master；曲子由 musicDecode 解碼快取、musicPlay 依 ctx 時間排程。
 export const SFX = {
   ctx: null,
   master: null,
@@ -40,6 +41,10 @@ export const SFX = {
       this.amb.connect(this.world);
       this.uiBus = c.createGain();
       this.uiBus.connect(this.master);
+      // 配樂（過場動畫，game/cine.js）：直接進 master，不受壓低與變悶
+      this.mus = c.createGain();
+      this.mus.gain.value = 0.62;
+      this.mus.connect(this.master);
       this.revIn = c.createGain();
       this.revIn.gain.value = 0;
       this.conv = c.createConvolver();
@@ -129,6 +134,87 @@ export const SFX = {
       L.setPosition(pos.x, pos.y, pos.z);
       L.setOrientation(0, -0.6, -1, 0, 1, 0);
     }
+  },
+  // 過場動畫：聽者跟著鏡頭（位置與朝向）
+  setListenerCam(cam) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener,
+      p = cam.position;
+    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion),
+      u = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+    this.lpos = p;
+    if (L.positionX) {
+      L.positionX.value = p.x;
+      L.positionY.value = p.y;
+      L.positionZ.value = p.z;
+      L.forwardX.value = f.x;
+      L.forwardY.value = f.y;
+      L.forwardZ.value = f.z;
+      L.upX.value = u.x;
+      L.upY.value = u.y;
+      L.upZ.value = u.z;
+    } else {
+      L.setPosition(p.x, p.y, p.z);
+      L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z);
+    }
+  },
+  // ---- 配樂：base64 的 mp3 解碼一次後快取；musicPlay 在 ctx 時間 at 從 offset 秒開始播 ----
+  mbuf: {},
+  mplay: [],
+  musicDecode(name, b64) {
+    if (this.mbuf[name]) return Promise.resolve(this.mbuf[name]);
+    if (!this.ctx || !b64) return Promise.resolve(null);
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Promise((res) =>
+      this.ctx.decodeAudioData(
+        arr.buffer,
+        (b) => res((this.mbuf[name] = b)),
+        () => res(null),
+      ),
+    );
+  },
+  musicPlay(name, at, offset = 0, vol = 1, fadeIn = 0) {
+    const b = this.mbuf[name];
+    if (!this.ctx || !this.on || !b || offset >= b.duration) return null;
+    const c = this.ctx,
+      s = c.createBufferSource(),
+      g = c.createGain();
+    s.buffer = b;
+    s.connect(g);
+    g.connect(this.mus);
+    const t = Math.max(at, c.currentTime);
+    g.gain.setValueAtTime(fadeIn > 0 ? 0.0001 : vol, t);
+    if (fadeIn > 0) g.gain.exponentialRampToValueAtTime(vol, t + fadeIn);
+    s.start(t, offset + (t - at));
+    const h = { s, g, name };
+    this.mplay.push(h);
+    s.onended = () => (this.mplay = this.mplay.filter((x) => x !== h));
+    return h;
+  },
+  // 一首曲子在 ctx 時間 at 開始淡出（dur 秒）
+  musicFadeAt(h, at, dur) {
+    if (!h || !this.ctx) return;
+    const g = h.g.gain,
+      t = Math.max(at, this.ctx.currentTime);
+    try {
+      g.setTargetAtTime(0, t, Math.max(0.05, dur / 4));
+      h.s.stop(t + dur + 0.1);
+    } catch (e) {}
+  },
+  musicStop(fade = 0.4) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const h of this.mplay) {
+      try {
+        h.g.gain.cancelScheduledValues(t);
+        h.g.gain.setValueAtTime(h.g.gain.value, t);
+        h.g.gain.linearRampToValueAtTime(0, t + fade);
+        h.s.stop(t + fade + 0.05);
+      } catch (e) {}
+    }
+    this.mplay = [];
   },
   dist(pos) {
     return pos && this.lpos ? Math.hypot(pos.x - this.lpos.x, pos.y - this.lpos.y, pos.z - this.lpos.z) : 0;

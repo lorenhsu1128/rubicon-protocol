@@ -37,6 +37,7 @@ import './game/campaign.js';
 import './game/comms.js';
 import './game/hub.js';
 import './game/story.js';
+import './game/cine.js';
 import './game/tactics.js';
 import './game/guide.js';
 import './game/range.js';

@@ -254,6 +254,19 @@
           <div class="row"><button id="btnSimBack">返回作戰室</button></div>
         </div>
       </div>
+      <!-- 過場動畫（game/cine.js）：淡入淡出、疊加畫布、遮幅、字幕、機器文字、略過提示 -->
+      <div id="cineScr" class="screen">
+        <div id="cineFade"></div>
+        <canvas id="cineCv"></canvas>
+        <div id="cineBarT" class="cineBar"></div>
+        <div id="cineBarB" class="cineBar"></div>
+        <div id="cineSys"></div>
+        <div id="cineSub"></div>
+        <div id="cineLoad">SIGNAL ACQUIRING<i></i></div>
+        <div id="cineSkip">
+          <span>長按 Esc／Enter／A 略過</span><b><i id="cineSkipBar"></i></b>
+        </div>
+      </div>
       <div id="storyScr" class="screen">
         <div class="brBox">
           <div id="stSub" class="dim"></div>
@@ -682,6 +695,13 @@
               <option value="full">完整（預設）</option>
               <option value="simple">簡化（較低解析度、沒有光暈與模糊）</option>
               <option value="off">關閉</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>劇情動畫</span
+            ><select id="ctrlCine" title="主線的開場與各章開場／章末的過場動畫；關閉時改用文字畫面">
+              <option value="on">播放（預設）</option>
+              <option value="off">關閉（改用文字畫面）</option>
             </select>
           </div>
           <div class="krow">

@@ -63,7 +63,7 @@ Object.assign(Game.prototype, {
   },
   renderMain() {
     const lab = this.lab;
-    const P = lab ? lab.P : this.styleP;
+    const P = lab ? lab.P : this.cine ? this.cine.P : this.styleP; // 過場動畫：風格＋過場的調色（game/cine.js）
     const t = performance.now() / 1000;
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());

@@ -9119,6 +9119,7 @@ async function testStory(browser, base) {
     const g = window.__game;
     g.autoPickMod = true;
     g.storyTest = true;
+    g.ctrl.cine = 'off'; // 這裡測文字畫面（過場動畫在 testCine）
     const st = g.campStory();
     st.cycle = 1;
     st.done = {};
@@ -9324,6 +9325,173 @@ async function testStory(browser, base) {
 }
 
 // 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
+// 過場動畫（game/cine.js、data/cine/）：劇本、配樂、播放到結束、各鏡頭的截圖、略過、接回故事畫面、設定關閉、手機
+async function testCine(browser, base) {
+  console.log('過場動畫：序章與各章的劇本、配樂、播放、略過、故事畫面的接續、設定關閉、手機版面');
+  const { ctx, page } = await newPage(browser, 'cine');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 劇本：3 個周目 × 序章、6 章開場、5 章章末都產生得出來；依抉擇的章末不同
+  const defs = await page.evaluate(() => {
+    const g = window.__game;
+    const all = [1, 2, 3].map((c) => g.cineDefs({ cycle: c }).filter((d) => d.k.slice(1, 2) === String(c)));
+    const o2c = g.cineDefs({ choices: { c2: 'castron' } }).find((d) => d.k === 'o1_2');
+    const o2a = g.cineDefs({ choices: { c2: 'aetheric' } }).find((d) => d.k === 'o1_2');
+    return { all, o2c, o2a };
+  });
+  const flat = defs.all.flat();
+  check(
+    flat.length === 36 && flat.every((d) => d.n > 0 && d.dur > 8),
+    `劇本：序章與各章開場／章末都有鏡頭（${flat.length} 段，最短 ${Math.min(...flat.map((d) => d.dur)).toFixed(0)} 秒）`,
+  );
+  const p1 = defs.all[0].find((d) => d.k === 'p1');
+  check(p1.dur > 120 && p1.n >= 25, `序章約 2 分鐘以上、${p1.n} 個鏡頭（${p1.dur.toFixed(0)} 秒）`);
+  check(defs.o2c.subs > 0 && defs.o2a.subs > 0, '第 2 章章末依抉擇產生');
+  // 播放序章：配樂載入、從頭播到結束（測試以 6 倍速）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.cineTest = 6;
+    window.__cineEnd = null;
+    window.__cineShots = new Set();
+    g.cinePlay('p1', (skipped) => (window.__cineEnd = skipped ? 'skip' : 'done'));
+    window.__cineIv = setInterval(() => g.cine && window.__cineShots.add(g.cine.shot), 50);
+  });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  const mus = await page.evaluate(() => ({
+    lib: !!window.RUBICON_MUSIC,
+    n: window.RUBICON_MUSIC ? Object.keys(window.RUBICON_MUSIC).length : 0,
+    ok: window.__game.cine.musicOk,
+    state: window.__game.state,
+  }));
+  check(
+    mus.lib && mus.n >= 4 && mus.state === 'cine',
+    `配樂：從 lib/cine-music.js 載入 ${mus.n} 首、state＝cine`,
+  );
+  const ended = await page
+    .waitForFunction(() => window.__cineEnd, null, { timeout: 120000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  const seen = await page.evaluate(() => {
+    clearInterval(window.__cineIv);
+    return { n: window.__cineShots.size, end: window.__cineEnd, state: window.__game.state };
+  });
+  check(ended && seen.end === 'done', `序章播到結束（經過 ${seen.n} 個鏡頭）`);
+  check(seen.n >= 18, '序章：換場景時建地圖也不會卡住整段（大部分鏡頭都有播到）');
+  // 各個段落的截圖（跳到指定秒數）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.cineTest = 1;
+    g.cinePlay('p1', () => {});
+  });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  const snaps = [
+    [10, 'signal'],
+    [16, 'orbit'],
+    [25, 'station'],
+    [31, 'drop'],
+    [41, 'entry'],
+    [57.5, 'vista'],
+    [73.5, 'wake'],
+    [80, 'montage-dam'],
+    [88.5, 'montage-rail'],
+    [95, 'montage-snow'],
+    [111, 'zenith'],
+    [124, 'logo'],
+  ];
+  const lit = [];
+  for (const [t, name] of snaps) {
+    await page.evaluate((t) => window.__game.cineSeek(t), t);
+    await page.waitForTimeout(900);
+    lit.push(
+      await page.evaluate(() => {
+        const g = window.__game;
+        return { shot: g.cine.shot, actors: g.cine.actors.size, world: !!g.world };
+      }),
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `cine-${name}.png`) });
+  }
+  check(
+    lit[6].actors >= 2 && lit[6].world && lit[9].actors >= 2,
+    '甦醒與蒙太奇：地圖與演員（主角、墜落的空降艙、Boss）都建好',
+  );
+  // 長按 Esc 略過
+  await page.keyboard.down('Escape');
+  await page.waitForTimeout(1300);
+  await page.keyboard.up('Escape');
+  const sk = await page.evaluate(() => ({ cine: !!window.__game.cine, state: window.__game.state }));
+  check(!sk.cine, '長按 Esc 略過過場動畫');
+  // 故事畫面：第一次進作戰室播序章的過場動畫；略過時改顯示序章的文字畫面，之後接第 1 章開場的過場動畫
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.storyTest = true;
+    g.cineTest = 4;
+    g.ctrl.cine = 'on';
+    const st = g.campStory();
+    st.cycle = 1;
+    st.done = {};
+    st.choices = {};
+    st.storySeen = {};
+    g.openHub();
+  });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  const k1 = await page.evaluate(() => window.__game.cine.key);
+  await page.evaluate(() => window.__game.cineEnd(true));
+  const t1 = await page.evaluate(() => ({
+    state: window.__game.state,
+    title: document.getElementById('stTitle').textContent,
+  }));
+  check(
+    k1 === 'p1' && t1.state === 'story' && t1.title.includes('序章'),
+    '作戰室：序章播過場動畫，略過時改顯示序章的文字',
+  );
+  await page.evaluate(() => window.__game.storyNext());
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  const k2 = await page.evaluate(() => window.__game.cine.key);
+  await page.evaluate(() => window.__game.cineSeek(window.__game.cine.def.dur - 0.3));
+  await page.waitForFunction(() => window.__game.state === 'hub', null, { timeout: 20000 }).catch(() => {});
+  const t2 = await page.evaluate(() => window.__game.state);
+  check(k2 === 'i1_1' && t2 === 'hub', '第 1 章開場的過場動畫播完回到作戰室');
+  // 設定「劇情動畫」關閉：改用文字畫面
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.cine = 'off';
+    g.storyPlay(['o1_1'], () => g.openHub());
+  });
+  const t3 = await page.evaluate(() => ({ state: window.__game.state, cine: !!window.__game.cine }));
+  check(t3.state === 'story' && !t3.cine, '設定關閉劇情動畫時改用文字畫面');
+  // 手機橫式：遮幅與字幕
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.cine = 'on';
+    g.cineTest = 1;
+    g.cinePlay('i1_2', () => {});
+  });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  await page.evaluate(() => window.__game.cineSeek(9));
+  await page.waitForTimeout(900);
+  const ph = await page.evaluate(() => {
+    const s = document.getElementById('cineSub').getBoundingClientRect();
+    return { on: document.getElementById('cineSub').classList.contains('on'), w: s.width, b: s.bottom };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cine-phone.png') });
+  check(ph.on && ph.w <= 844 && ph.b <= 390, '手機橫式：字幕在畫面內');
+  await page.evaluate(() => window.__game.cineEnd(true));
+  await ctx.close();
+}
+
 async function testVariants6(browser, base) {
   console.log('主題變體：各主題補到 6 種');
   const { ctx, page } = await newPage(browser, 'var6');
@@ -11616,6 +11784,7 @@ async function main() {
     await run('testCycle2', testCycle2, browser, base);
     await run('testCycle3', testCycle3, browser, base);
     await run('testStory', testStory, browser, base);
+    await run('testCine', testCine, browser, base);
     await run('testTextFx', testTextFx, browser, base);
     await run('testLevels', testLevels, browser, base);
     await run('testWaves', testWaves, browser, base);

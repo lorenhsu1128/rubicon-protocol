@@ -35,6 +35,7 @@ Object.assign(MechEntity.prototype, {
       this.team === 'enemy' &&
       !g.pvp &&
       !g.lab &&
+      !g.cine &&
       !g.range &&
       !g.aiOld &&
       !this.isBoss &&

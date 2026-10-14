@@ -8,6 +8,7 @@
 import { withRng } from '../core/math.js';
 import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/enemies.js';
 import { buildBossModel } from './boss-models.js';
+import { buildPod, buildStation } from './cine-sets.js';
 import { FOE_CATALOG } from './foe-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
@@ -355,6 +356,29 @@ addPlain('vehicle', 'transport_train/car', '運輸列車・車廂', '遊戲中�
 addPlain('vehicle', 'bomber', '空襲轟炸機', '消耗品 AIRSTRIKE', () => buildBomberMesh(), {
   origin: '機身中心（機頭朝正面）',
 });
+// 過場動畫的模型（render/cine-sets.js）：只預覽，不接受 GLB
+addPlain(
+  'vehicle',
+  'cine_pod',
+  '空降艙（過場）',
+  '序章：軌道站投放的空降艙，熱罩朝下',
+  () => buildPod().group,
+  {
+    noGlb: true,
+    origin: '艙體中心',
+  },
+);
+addPlain(
+  'vehicle',
+  'cine_station',
+  '軌道站（過場）',
+  '序章：軌道站的脊柱、居住環、散熱板與投放艙口',
+  () => buildStation().group,
+  {
+    noGlb: true,
+    origin: '脊柱中心',
+  },
+);
 
 // ---------- 地圖物件（遊戲中尺寸為隨機，這裡取代表值，備註列出範圍）----------
 // GLB 以這裡的代表尺寸製作，遊戲依每個物件的隨機尺寸分別縮放長寬高（prop-models.js 的 propGlb）；

@@ -1,0 +1,8 @@
+Music: Gregor Quendel - "Cinematic Trailer Music Collection" (www.gregorquendel.com)
+License: CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Source: https://opengameart.org/content/cinematic-trailer-music-collection
+Changes: trimmed, faded out and re-encoded to 96 kbps MP3 for the in-game cutscenes.
+cine_suspense.mp3 = "Cinematic Suspense Trailer - Extended Percussion Version" (0:00-1:48)
+cine_ident.mp3 = "Cinematic Piano Ident Logo Trailer" (0:00-0:25)
+cine_drive.mp3 = "Cinematic Cello Ostinato Trailer" (0:00-1:06)
+cine_tension.mp3 = "Cinematic Suspense Trailer" (0:00-1:00)

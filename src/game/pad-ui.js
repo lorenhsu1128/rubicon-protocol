@@ -56,7 +56,7 @@ Object.assign(Game.prototype, {
   // 手把選單操作是否作用（任務中只有多人的暫停選單與確認視窗）
   padUiActive() {
     if (this.rebinding) return false;
-    if (this.state === 'editor' || this.state === 'ending') return false;
+    if (this.state === 'editor' || this.state === 'ending' || this.state === 'cine') return false; // 過場動畫自己讀手把（長按略過）
     if (this.uiModalOn) return true;
     if (this.state === 'play') {
       // 多人時任務不暫停：暫停選單、模組三選一與抉擇說明卡

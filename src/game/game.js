@@ -380,6 +380,10 @@ export class Game {
       this.frames = 0;
       this.fpsT = 0;
     }
+    if (this.state === 'cine') {
+      this.cineTick(dt); // 過場動畫（game/cine.js）
+      return;
+    }
     if (this.state === 'editor') {
       this.edTick(dt); // 關卡編輯器（editor.js）
       return;

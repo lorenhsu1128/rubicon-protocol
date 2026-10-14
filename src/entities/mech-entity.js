@@ -1768,8 +1768,11 @@ export class MechEntity {
       if (veh) dir.set(0, -1, 0);
       const m = this.glare[i];
       m.position.copy(wp).addScaledVector(dir, 0.35 * this.scale);
-      m.scale.setScalar((0.25 + this.thrS * 1.3) * this.scale * (jitter ? 0.9 + Math.random() * 0.2 : 1));
-      m.material.opacity = 0.15 + this.thrS * 0.55;
+      const ck = this.cine ? 0.45 : 1; // 過場動畫的近拍：推進器的光暈小一點（game/cine.js）
+      m.scale.setScalar(
+        (0.25 + this.thrS * 1.3) * this.scale * ck * (jitter ? 0.9 + Math.random() * 0.2 : 1),
+      );
+      m.material.opacity = (0.15 + this.thrS * 0.55) * (this.cine ? 0.75 : 1);
     });
     if (!veh) {
       g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);

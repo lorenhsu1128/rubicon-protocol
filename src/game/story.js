@@ -83,6 +83,18 @@ Object.assign(Game.prototype, {
     const it = this.storyItem(k);
     this.storySeen()[k] = 1;
     this.writeSave();
+    // 過場動畫（game/cine.js）：看完接下一則；中途略過時改顯示這一則的文字畫面
+    if (this.cineAllowed() && this.cineFor(k)) {
+      const cyc = +/^[pio](\d)/.exec(k)[1];
+      this.cinePlay(k, (skipped) => (skipped ? this.storyText(k, it) : this.storyNext()), {
+        ctx: { cycle: cyc, choices: this.storyChoicesOf(cyc) },
+      });
+      return;
+    }
+    this.storyText(k, it);
+  },
+  // 文字畫面（全畫面逐字）
+  storyText(k, it) {
     SFX.ui();
     this.commClear();
     const $ = (id) => document.getElementById(id);

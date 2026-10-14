@@ -92,6 +92,42 @@ export const CUES = {
     hd: 720,
     patch: { bg: { type: 'solid', color: '#000000', opacity: 0.9, sync: false } },
   },
+  // ---- 過場動畫（game/cine.js 的 cineCard）：黑底字卡、Logo、章名、宿敵名牌（左下）、地點（左上）----
+  cineCard: {
+    mode: 'caption',
+    tpl: 'cinema',
+    slot: 'full',
+    hd: 680,
+    patch: { anchor: 'mc', align: 'center', loop: 'once', outEnabled: true },
+  },
+  cineLogo: {
+    mode: 'caption',
+    tpl: 'cinema',
+    slot: 'full',
+    hd: 420,
+    patch: { anchor: 'mc', align: 'center', loop: 'once', outEnabled: true },
+  },
+  cineChapter: {
+    mode: 'message',
+    tpl: 'chapter',
+    slot: 'full',
+    hd: 720,
+    patch: { loop: 'once', outEnabled: true },
+  },
+  cineName: {
+    mode: 'caption',
+    tpl: 'underline',
+    slot: 'msg',
+    hd: 420,
+    patch: { loop: 'once', outEnabled: true },
+  },
+  cineLoc: {
+    mode: 'caption',
+    tpl: 'boxed',
+    slot: 'banner',
+    hd: 420,
+    patch: { loop: 'once', outEnabled: true },
+  },
   // ---- DOM 裡的標題（播完停在完成的畫面）----
   transTitle: { mode: 'caption', tpl: 'cinema', hd: 200, patch: { anchor: 'mc', align: 'center' } },
   resClear: { mode: 'message', tpl: 'missionClear', hd: 260 },

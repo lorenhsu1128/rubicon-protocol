@@ -123,6 +123,36 @@ void main() {
 }
 `;
 
+// 景深（過場動畫用，P.dof > 0 才做）：依深度算模糊圈，圓盤取樣；只拿比自己更模糊或更遠的樣本，前景不會糊進背景
+const DOF_FRAG = /* glsl */ `
+#include <packing>
+uniform sampler2D tColor, tDepth;
+uniform vec2 px;
+uniform float cNear, cFar, focus, range, amt;
+varying vec2 vUv;
+float vz( vec2 uv ) { return - perspectiveDepthToViewZ( texture2D( tDepth, uv ).x, cNear, cFar ); }
+float coc( float z ) { return clamp( ( abs( z - focus ) - range ) / max( focus * 0.6, 1.0 ), 0.0, 1.0 ) * amt; }
+void main() {
+	float z0 = vz( vUv );
+	float c0 = coc( z0 );
+	vec3 sum = texture2D( tColor, vUv ).rgb;
+	float w = 1.0;
+	for ( int i = 0; i < 24; i ++ ) {
+		float fi = float( i );
+		float r = sqrt( ( fi + 0.5 ) / 24.0 );
+		float a = fi * 2.39996;
+		vec2 o = vec2( cos( a ), sin( a ) ) * r;
+		vec2 uv = vUv + o * px * c0;
+		float zs = vz( uv );
+		float cs = coc( zs );
+		float k = ( zs >= z0 - 0.5 ) ? 1.0 : smoothstep( 0.0, 1.0, cs / max( c0, 0.001 ) );
+		sum += texture2D( tColor, uv ).rgb * k;
+		w += k;
+	}
+	gl_FragColor = vec4( sum / w, 1.0 );
+}
+`;
+
 const TM = () => ({
   aces: THREE.ACESFilmicToneMapping,
   linear: THREE.LinearToneMapping,
@@ -203,6 +233,16 @@ export class StylePipeline {
       gL: { value: new THREE.Vector4() },
       gH: { value: new THREE.Vector4() },
       gB: { value: new THREE.Vector4() },
+    });
+    this.dof = quad(DOF_FRAG, {
+      tColor: { value: null },
+      tDepth: { value: null },
+      px: { value: new THREE.Vector2() },
+      cNear: { value: 0.5 },
+      cFar: { value: 400 },
+      focus: { value: 20 },
+      range: { value: 4 },
+      amt: { value: 0 },
     });
     this.split = quad(SPLIT_FRAG, {
       tA: { value: null },
@@ -378,17 +418,34 @@ export class StylePipeline {
     u.invVP.value.copy(vp).invert();
     u.prevVP.value.copy(this.prevVP);
     this.draw(this.comp, this.rtA);
-    // 4. Bloom（疊加回 rtA）
+    // 3.5 景深（過場動畫的 P.dof；rtA → rtB，之後改用 rtB）
+    let src = this.rtA,
+      tmp = this.rtB;
+    if (depth && P.dof > 0) {
+      const d = this.dof.m.uniforms;
+      d.tColor.value = this.rtA.texture;
+      d.tDepth.value = this.rtScene.depthTexture;
+      d.px.value.set((1 / W) * 14 * pr, (1 / H) * 14 * pr);
+      d.cNear.value = cam.near;
+      d.cFar.value = cam.far;
+      d.focus.value = P.dofF || 20;
+      d.range.value = P.dofR || 3;
+      d.amt.value = Math.min(1.5, P.dof);
+      this.draw(this.dof, this.rtB);
+      src = this.rtB;
+      tmp = this.rtA;
+    }
+    // 4. Bloom（疊加回 src）
     if (this.bloom && P.bloom > 0) {
       const b = this.bloom;
       b.strength = P.bloom;
       b.radius = P.bloomR;
       b.threshold = P.bloomTh;
-      b.render(R, null, this.rtA, 0, false);
+      b.render(R, null, src, 0, false);
     }
     // 5. 調色（含 gamma）→ 6. FXAA
     const g = this.grade.m.uniforms;
-    g.tDiffuse.value = this.rtA.texture;
+    g.tDiffuse.value = src.texture;
     g.px.value.set(1 / W, 1 / H);
     g.time.value = time;
     g.aspect.value = W / H;
@@ -400,9 +457,9 @@ export class StylePipeline {
     const cp = this.ctx && this.ctx.chromaPush ? this.ctx.chromaPush() : 0; // 受到重擊時的色差
     g.gB.value.set(P.vignette, Math.min(1, P.chroma + cp), P.grain, P.paper);
     if (this.fxaa && P.fxaa) {
-      this.draw(this.grade, this.rtB);
+      this.draw(this.grade, tmp);
       const f = this.fxaa.m.uniforms;
-      f.tDiffuse.value = this.rtB.texture;
+      f.tDiffuse.value = tmp.texture;
       f.resolution.value.set(1 / W, 1 / H);
       this.draw(this.fxaa, out);
     } else this.draw(this.grade, out);

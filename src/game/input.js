@@ -593,6 +593,15 @@ Object.assign(Game.prototype, {
       this.tfxSetMode(e.target.value);
       this.saveKeys();
     };
+    document.getElementById('ctrlCine').onchange = (e) => {
+      this.ctrl.cine = e.target.value;
+      this.saveKeys();
+    };
+    // 過場動畫：點一下顯示略過提示，觸控長按略過（game/cine.js）
+    const cs = document.getElementById('cineScr');
+    cs.addEventListener('pointerdown', () => this.cinePointer(true));
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave'])
+      cs.addEventListener(ev, () => this.cinePointer(false));
     document.getElementById('ctrlPace').onchange = (e) => {
       this.ctrl.pace = parseFloat(e.target.value) || 0.85;
       this.saveKeys();

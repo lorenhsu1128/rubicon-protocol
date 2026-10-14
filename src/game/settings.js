@@ -65,6 +65,7 @@ Object.assign(Game.prototype, {
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
     $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
+    $('ctrlCine').value = this.ctrl.cine || 'on';
     this.renderLocalModels();
     this.renderStyleSettings();
     this.renderIkSettings();

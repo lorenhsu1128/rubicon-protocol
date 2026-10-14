@@ -1904,6 +1904,143 @@ body.lab #fps {
   color: #d0dae4;
   font-family: 'Share Tech Mono', monospace;
 }
+/* 過場動畫（game/cine.js）：遮幅、淡入淡出、字幕、機器文字、略過提示 */
+#cineScr {
+  pointer-events: auto;
+  cursor: none;
+}
+#cineScr > * {
+  position: absolute;
+  pointer-events: none;
+}
+#cineFade {
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  z-index: 1;
+}
+#cineCv {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+.cineBar {
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #000;
+  z-index: 3;
+}
+#cineBarT {
+  top: 0;
+}
+#cineBarB {
+  bottom: 0;
+}
+#cineSub {
+  left: 50%;
+  bottom: max(5vh, 22px);
+  transform: translate(-50%, 6px);
+  z-index: 4;
+  max-width: min(88vw, 980px);
+  text-align: center;
+  font-size: clamp(15px, 2.3vh, 22px);
+  line-height: 1.6;
+  color: #f2f5f8;
+  text-shadow:
+    0 0 6px #000,
+    0 2px 3px #000;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+}
+#cineSub.on {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+#cineSub b {
+  margin-right: 0.8em;
+  font-family: 'Share Tech Mono', monospace;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+#cineSub.radio span {
+  font-family: inherit;
+}
+#cineSys {
+  left: max(4vw, 18px);
+  bottom: max(18vh, 70px);
+  z-index: 4;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: clamp(11px, 1.6vh, 15px);
+  color: #9fe8c8;
+  text-shadow: 0 0 6px rgba(80, 255, 170, 0.6);
+  letter-spacing: 0.08em;
+  transition: opacity 0.6s;
+}
+#cineSys p {
+  margin: 2px 0;
+}
+#cineSys.boot {
+  color: #9fd8ff;
+  text-shadow: 0 0 6px rgba(100, 200, 255, 0.7);
+  bottom: auto;
+  top: max(16vh, 50px);
+}
+#cineSys.out {
+  opacity: 0;
+}
+#cineLoad {
+  inset: auto 0 45% 0;
+  text-align: center;
+  z-index: 5;
+  font-family: 'Share Tech Mono', monospace;
+  letter-spacing: 0.3em;
+  color: #ff6a50;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+#cineLoad.on {
+  opacity: 0.85;
+  animation: cineBlink 1s steps(2) infinite;
+}
+@keyframes cineBlink {
+  50% {
+    opacity: 0.25;
+  }
+}
+#cineSkip {
+  right: max(3vw, 14px);
+  top: max(3vh, 12px);
+  z-index: 5;
+  font-size: 12px;
+  color: #c8d2dc;
+  opacity: 0;
+  transition: opacity 0.3s;
+  text-align: right;
+}
+#cineSkip.on {
+  opacity: 0.9;
+}
+#cineSkip b {
+  display: block;
+  margin-top: 5px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.18);
+}
+#cineSkip i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #e8eef4;
+}
+body.touchDev #cineSkip span::after {
+  content: '（觸控：長按畫面）';
+}
 /* 主線：序章與章節的開場／章末（game/story.js） */
 #storyScr {
   background: radial-gradient(ellipse at 50% 35%, #182434, #030508 80%);

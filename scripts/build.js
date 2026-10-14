@@ -48,6 +48,33 @@ function writeDraco() {
   fs.copyFileSync(path.join(dir, 'draco_encoder.js'), path.join(LIB, 'draco', 'draco-encoder.js'));
 }
 
+// 過場動畫的配樂：src/assets/music/*.mp3 → dist/lib/cine-music.js（window.RUBICON_MUSIC＝{ 曲名: base64 }）。
+// 不內嵌進遊戲的 HTML（約 4 MB）：第一次播過場動畫時才以 <script> 載入（game/cine.js 的 cineMusicLoad）
+const MUSIC_DIR = path.join(SRC, 'assets', 'music');
+function writeMusic() {
+  if (!fs.existsSync(MUSIC_DIR)) return;
+  const files = fs.readdirSync(MUSIC_DIR).filter((f) => f.endsWith('.mp3'));
+  const data = {};
+  for (const f of files)
+    data[f.replace(/\.mp3$/, '')] = fs.readFileSync(path.join(MUSIC_DIR, f)).toString('base64');
+  const credits = fs.existsSync(path.join(MUSIC_DIR, 'CREDITS.txt'))
+    ? fs
+        .readFileSync(path.join(MUSIC_DIR, 'CREDITS.txt'), 'utf8')
+        .split(/\r?\n/)
+        .filter((l) => l.trim())
+        .map((l) => '// ' + l)
+        .join('\n') + '\n'
+    : '';
+  const out = path.join(LIB, 'cine-music.js');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(
+    out,
+    '// 過場動畫的配樂（src/assets/music/），由 scripts/build.js 產生\n' +
+      credits +
+      `window.RUBICON_MUSIC = ${JSON.stringify(data)};\n`,
+  );
+}
+
 const PAGES = [
   { name: '遊戲', dir: SRC, out: 'rubicon-protocol.html' },
   { name: '模型庫', dir: path.join(SRC, 'library'), out: 'model-library.html' },
@@ -180,6 +207,7 @@ function copySubprojects() {
 async function main() {
   if (!watch) fs.rmSync(LIB, { recursive: true, force: true }); // 重新複製，移除不再使用的程式庫
   writeDraco();
+  writeMusic();
   copySubprojects();
   if (!watch) {
     for (const page of PAGES) {
