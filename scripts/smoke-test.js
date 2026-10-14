@@ -2553,7 +2553,17 @@ async function testEditorMaterials(browser, base) {
   await wait(600);
   check(!(await tinted()).includes('acc') && (await matCount()) === '3', '復原框選');
   await page.click('#edSave');
-  await wait(1500);
+  // 等存檔真的寫完（整套測試一起跑時，烘焙＋寫入 IndexedDB 可能超過 1.5 秒）再重新開啟
+  await page
+    .waitForFunction(
+      () => [...document.querySelectorAll('.toast')].some((x) => x.textContent.includes('已存到')),
+      null,
+      {
+        timeout: 20000,
+      },
+    )
+    .catch(() => {});
+  await wait(300);
   await reopen(page, base + 'model-library.html#head/h_std');
   await page.waitForSelector('#inspect:not([hidden])');
   // 規格檢查要等 GLB 讀完才出現（電腦慢時超過 2 秒）
@@ -2561,7 +2571,7 @@ async function testEditorMaterials(browser, base) {
     .waitForFunction(
       () => [...document.querySelectorAll('#insChecks li')].some((x) => x.textContent.includes('換色的材質')),
       null,
-      { timeout: 15000 },
+      { timeout: 30000 }, // 整套測試一起跑時電腦很忙，讀 GLB 可能超過 15 秒
     )
     .catch(() => {});
   const ins = (await page.$$eval('#insChecks li', (l) => l.map((x) => x.textContent))).find((t) =>
@@ -4129,7 +4139,7 @@ async function testBosses(browser, base) {
           r.alt = boss.pos.y - g.world.terrainHeight(boss.pos.x, boss.pos.z);
           r.a = hit();
           kill(boss.partsOf('engine'));
-          step(5);
+          step(9); // 降到 10 m 要一段時間（地形起伏時更久）
           r.altDown = boss.pos.y - g.world.terrainHeight(boss.pos.x, boss.pos.z);
           r.b = hit();
         }
