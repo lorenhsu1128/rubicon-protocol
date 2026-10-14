@@ -42,9 +42,20 @@ export const SFX = {
       this.uiBus = c.createGain();
       this.uiBus.connect(this.master);
       // 配樂（過場動畫，game/cine.js）：直接進 master，不受壓低與變悶
+      // 曲子的安靜段落（預告片的開頭）與高潮差 20 dB 以上：先壓縮再補增益，整段都聽得到
       this.mus = c.createGain();
-      this.mus.gain.value = 0.62;
-      this.mus.connect(this.master);
+      this.mus.gain.value = 1;
+      const mc = c.createDynamicsCompressor();
+      mc.threshold.value = -32;
+      mc.knee.value = 12;
+      mc.ratio.value = 3;
+      mc.attack.value = 0.05;
+      mc.release.value = 0.6;
+      const mg = c.createGain();
+      mg.gain.value = 2.2;
+      this.mus.connect(mc);
+      mc.connect(mg);
+      mg.connect(this.master);
       this.revIn = c.createGain();
       this.revIn.gain.value = 0;
       this.conv = c.createConvolver();

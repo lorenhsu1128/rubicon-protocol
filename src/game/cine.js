@@ -98,13 +98,21 @@ Object.assign(Game.prototype, {
     $('cineFade').style.opacity = 1;
     $('cineLoad').classList.add('on');
     // 配樂與字型：最多等 4 秒（沒有配樂也照樣播）
+    const load = this.cineMusicLoad().then(async (has) => {
+      if (!has) return false;
+      const names = [...new Set(def.music.map((m) => m.track))];
+      await Promise.all(names.map((n) => SFX.musicDecode(n, window.RUBICON_MUSIC[n])));
+      return true;
+    });
+    // 等太久（電腦慢、網路慢）就先開始播；配樂好了再從目前的時間接上
+    load.then((has) => {
+      if (has && this.cine === c && c.started && !c.musicOk) {
+        c.musicOk = true;
+        this.cineMusic(c.t);
+      }
+    });
     const ok = await Promise.race([
-      this.cineMusicLoad().then(async (has) => {
-        if (!has) return false;
-        const names = [...new Set(def.music.map((m) => m.track))];
-        await Promise.all(names.map((n) => SFX.musicDecode(n, window.RUBICON_MUSIC[n])));
-        return true;
-      }),
+      load,
       new Promise((r) => setTimeout(() => r(false), this.cineTest ? 1500 : 6000)),
     ]);
     if (this.cine !== c) return; // 等待中被略過
@@ -123,6 +131,16 @@ Object.assign(Game.prototype, {
     c.real0 = performance.now() / 1000;
     c.tBase = t;
     if (ctx) c.t0 = ctx.currentTime - t;
+    this.cineMusic(t);
+    c.started = true;
+    c.fired = new Set();
+    c.shot = -1;
+    this.cineStartReset(c);
+  },
+  // 配樂：從第 t 秒開始依 ctx 時間排程（c.t0＝第 0 秒的 ctx 時間）
+  cineMusic(t) {
+    const c = this.cine,
+      ctx = SFX.ctx;
     if (ctx && c.musicOk)
       for (const m of c.def.music) {
         const at = c.t0 + m.at;
@@ -131,9 +149,8 @@ Object.assign(Game.prototype, {
         if (h && m.fadeOut) SFX.musicFadeAt(h, c.t0 + m.fadeOut[0], m.fadeOut[1]);
         if (h) c.music.push(h);
       }
-    c.started = true;
-    c.fired = new Set();
-    c.shot = -1;
+  },
+  cineStartReset(c) {
     // 跳時間：清掉字幕、機器文字與字卡
     c.subUntil = c.sysUntil = 0;
     $('cineSub').classList.remove('on');
