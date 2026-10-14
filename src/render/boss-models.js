@@ -1413,6 +1413,7 @@ function buildRailgun(pal, scale) {
     P(barrel, gBox(0.08, 0.5, 12), cyan, s * 0.36, 0, -6.8);
     rod(barrel, M.rubber, [s * 0.7, -0.55, -1.0], [s * 0.7, -0.55, -11.5], 0.07);
   }
+  P(barrel, gBox(0.64, 0.05, 11.6), cyan, 0, -0.2, -6.9); // 兩條導軌之間的發光通道底面
   // 線圈套環
   for (let i = 0; i < 6; i++) {
     const z = -1.5 - i * 2;
@@ -2974,10 +2975,11 @@ function railgunDetail(legsG, torso, barrel, M, red, amber) {
       0.05,
     );
   antenna(torso, M, 1.4, 3.4, 2.9, 0.45, 0.03);
-  // 導軌上的隔熱板與鉚釘
+  // 導軌上的隔熱板與鉚釘：只蓋在左右導軌的外側，中間的發光導軌（|x| < 0.38）露出來
   for (let i = 0; i < 5; i++) {
     const z = -2.5 - i * 2;
-    P(barrel, gPlate(cutRect(1.6, 1.3, 0.2), 0.08, 0.02), M.main3, 0, 0.5, z, HP, 0, 0);
+    for (const s of [-1, 1])
+      P(barrel, gPlate(cutRect(0.5, 1.3, 0.12), 0.08, 0.02), M.main3, s * 0.66, 0.5, z, HP, 0, 0);
     for (const s of [-1, 1]) rivets(barrel, M, mx(T(s * 0.93, 0, z), RY(-s * HP)), -0.6, 0.6, 0, 4, 0.04);
   }
   decal(torso, 1, 0.7, 0.7, 2.55, 1.3, 1.6, 0, HP, 0);
