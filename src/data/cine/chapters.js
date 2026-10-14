@@ -7,6 +7,7 @@ import { ch2Intro, ch2Outro } from './ch2.js';
 import { ch3Intro, ch3Outro } from './ch3.js';
 import { ch4Intro, ch4Outro } from './ch4.js';
 import { ch5Intro, ch5Outro } from './ch5.js';
+import { ch6Intro } from './ch6.js';
 
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -434,6 +435,7 @@ const BESPOKE = {
   3: { intro: ch3Intro, outro: ch3Outro },
   4: { intro: ch4Intro, outro: ch4Outro },
   5: { intro: ch5Intro, outro: ch5Outro },
+  6: { intro: ch6Intro },
 };
 
 // kind：'intro'｜'outro'

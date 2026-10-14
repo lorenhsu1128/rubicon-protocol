@@ -49,7 +49,12 @@
 
 周目差別（`TXT`）：字卡、機器文字、開機的登錄號、ECHO 與 ZENITH 的台詞、最後一句（第 2 周目沒有「照你的節奏來」，改成旁白；第 3 周目「這一次，照我們的節奏來」）。
 
-## 各章開場／章末（`data/cine/chapters.js`）
+## 各章開場／章末與抉擇演出（`data/cine/ch1.js`～`ch6.js`、`kit.js`）
+
+- 每章的專屬分鏡在 `ch<章>.js`（`chapters.js` 的 `BESPOKE`；沒有專屬分鏡的才用下面的模板）。鏡頭組件 `kit.js`：`timeline`（同一張地圖連續的鏡頭自動移除上一鏡的演員，`keep` 保留）、`black` 黑底字卡／機器文字、`vista` 空景（crane／pan／push／fly／low）、`comm` 通訊分割（`ov: 'comm'`：左側徽章、名字、聲紋；`badge` 讓旁白也掛委託方）、`rival` 宿敵登場、`boss` Boss 登場、`hero` 主角（walk／boost／hover／kneel）、`shootout` 追尾視角對射兩鏡（`ov: 'lock'`）、`chapterCard`、`cut` 代價快切、`choicePre`／`choicePost` 抉擇演出。
+- 抉擇演出：鍵 `x_<抉擇>_pre`（選前，`cinePlay(..., { live: true })`：場景 `{ k: 'live' }`＝目前的戰場，原點與演員 `player`＝玩家，`{ ex: i }`＝第 i 個出口，`ov: 'choice'` 畫倒數條與出口名牌；模擬暫停，播完回到原本的 state）、`x_<抉擇>_<選項>`（選後的代價蒙太奇，播完到轉場畫面）。接在 `campaign.js` 的 `campChoiceCine`（抉擇出口出現時、`campLeave`）；多人、劇情動畫關閉時不播。
+
+### 舊的模板（`data/cine/chapters.js`）
 
 - 台詞就是 `CHAPTER_TEXT`（依抉擇 `pickLines`，所以第 2、4 章的章末依抉擇不同），一句一個鏡頭，長度依字數（3.4～7 秒）。
 - 每章的 `BEATS[章].intro／outro` 是鏡頭清單，依序配給每一句（句子比鏡頭多時重複最後一個）：`vista`（空景：crane 升起／pan 橫移／push 推近／fly 低空飛越）、`hero`（主角：walk／boost／hover）、`fight`（主角對一群敵人）、`boss`（Boss 模型登場）、`rival`（宿敵的特寫＋名牌）、`comm`（安靜的鏡頭＋掃描線，委託方的通訊）。

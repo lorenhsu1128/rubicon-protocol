@@ -191,7 +191,11 @@ export function comm(set, grade, line, o = {}) {
           { t: d, p: { a: 'heroC', o: [9, 3, 12] }, l: { a: 'heroC', o: [-3, 3.5, 0] } },
         ],
       },
-      ev: [sub(L.text, who, 0.35, d - 0.4), ...(o.badge ? [{ t: 0, badge: o.badge }] : []), ...(o.ev || [])],
+      ev: [
+        ...(L.text ? [sub(L.text, who, 0.35, d - 0.4)] : []),
+        ...(o.badge ? [{ t: 0, badge: o.badge }] : []),
+        ...(o.ev || []),
+      ],
     },
     d,
   ];

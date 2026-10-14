@@ -3,6 +3,7 @@
 import { chapterCine } from './chapters.js';
 import { c2Aetheric, c2Castron, c2Pre } from './ch2.js';
 import { c4Pre, c4Sancta, c4Veerwell } from './ch4.js';
+import { c6Beyond, c6Open, c6Pre, c6Seal } from './ch6.js';
 import { prologueCine } from './prologue.js';
 
 export const CINES = {};
@@ -22,4 +23,8 @@ Object.assign(CINES, {
   x_c4_pre: c4Pre,
   x_c4_veerwell: c4Veerwell,
   x_c4_sancta: c4Sancta,
+  x_c6_pre: c6Pre,
+  x_c6_open: c6Open,
+  x_c6_seal: c6Seal,
+  x_c6_beyond: c6Beyond,
 });
