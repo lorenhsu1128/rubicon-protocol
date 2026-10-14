@@ -63,13 +63,16 @@ Object.assign(Game.prototype, {
     SFX.init();
     if (SFX.ctx && SFX.ctx.state === 'suspended') SFX.ctx.resume();
     this.commClear && this.commClear();
-    this.clearMission();
+    // live：在目前的戰場上拍（抉擇演出）：不清掉任務、遊戲暫停，播完回到原本的狀態
+    if (!opt.live) this.clearMission();
     const def = make({ cycle: 1, choices: {}, ...(opt.ctx || {}) });
     if (!def) return done && done();
     const c = (this.cine = {
       key,
       def,
       done,
+      live: !!opt.live,
+      prevState: this.state,
       t: opt.at || 0,
       t0: 0,
       started: false,
@@ -180,7 +183,7 @@ Object.assign(Game.prototype, {
     this.cine = null;
     SFX.musicStop(skipped ? 0.25 : 1.2);
     SFX.loopSet('cine', 'engineLoop', 0);
-    SFX.stopLoops();
+    if (!c.live) SFX.stopLoops();
     this.cineClearSet(c);
     this.textfx && this.textfx.clear((x) => x.opt && x.opt.cine);
     this.cineUi(false);
@@ -196,7 +199,11 @@ Object.assign(Game.prototype, {
     this.hctx.clearRect(0, 0, innerWidth, innerHeight);
     const cv = $('cineCv');
     if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
-    this.state = 'title';
+    this.state = c.live ? c.prevState : 'title';
+    if (c.live) {
+      this.showScreen('');
+      this.lastT = performance.now();
+    }
     if (c.done) c.done(skipped);
   },
   cineUi(on) {
@@ -213,12 +220,13 @@ Object.assign(Game.prototype, {
   },
   // ---------- 場景 ----------
   cineClearSet(c) {
-    for (const a of c.actors.values()) this.cineDropActor(a);
+    for (const a of c.actors.values()) if (!a.live) this.cineDropActor(a);
     c.actors.clear();
     if (c.set && c.set.space) c.set.space.dispose();
     if (c.set && c.set.extra) for (const o of c.set.extra) this.scene.remove(o);
     c.set = null;
     c.setKey = '';
+    if (c.live) return; // 目前的戰場：任務保留
     this.clearMission();
     this.world = null;
   },
@@ -229,6 +237,17 @@ Object.assign(Game.prototype, {
     c.setKey = key;
     const set = (c.set = { spec: S, anchor: new THREE.Vector3(), extra: [] });
     const cam = this.camera;
+    if (S.k === 'live') {
+      // 目前的戰場：原點＝玩家，玩家是演員 'player'（不受劇本控制、播完不移除）
+      const p = this.player;
+      if (p) {
+        set.anchor.copy(p.pos);
+        c.actors.set('player', { id: 'player', e: p, spec: {}, pup: {}, live: true, t0: 0, si: 0 });
+      }
+      cam.updateProjectionMatrix();
+      this.stylePipe.resetHistory();
+      return;
+    }
     if (S.k === 'space') {
       set.space = buildSpaceSet(this.scene);
       if (S.coral != null) set.space.pu.coral.value = S.coral;
@@ -350,6 +369,13 @@ Object.assign(Game.prototype, {
       rz = (x, z) => (yaw ? -x * Math.sin(yaw) + z * Math.cos(yaw) : z);
     if (!p) return out.copy(A);
     if (Array.isArray(p)) return out.set(A.x + rx(p[0], p[2]), A.y + p[1], A.z + rz(p[0], p[2]));
+    if (p.ex !== undefined) {
+      // 目前戰場的出口（抉擇演出）
+      const ex = this.camp && this.camp.exits && this.camp.exits[p.ex];
+      out.copy(ex ? ex.pos : A);
+      if (p.o) out.add(V(p.o));
+      return out;
+    }
     if (p.st) {
       // 軌道站的局部座標（太空場景）
       const st = c.set && c.set.space && c.set.space.station.group;
@@ -646,6 +672,7 @@ Object.assign(Game.prototype, {
     }
     if (st.die && e && !e.dead) e.die(null);
     if (st.rise) A.rise = { t0: A.lt || 0, d: st.rise }; // 從蹲低／埋在坑裡站起來
+    if (st.crouch !== undefined) A.crouch = st.crouch; // 蹲低（休息、跪坐）
     if (st.hide !== undefined) (A.e ? A.e.mesh : A.obj).visible = !st.hide;
   },
   cineMelee(A, slot) {
@@ -678,6 +705,7 @@ Object.assign(Game.prototype, {
       const lt = (A.lt = t - A.t0);
       const steps = A.spec.s || [];
       while (A.si < steps.length && steps[A.si].t <= lt) this.cineDo(A, steps[A.si++]);
+      if (A.live) continue;
       if (A.e) this.cinePuppet(A, dt, lt);
       else this.cineModel(A, lt, dt);
     }
@@ -714,6 +742,10 @@ Object.assign(Game.prototype, {
     if (ap) e.setAim(ap);
     else if (wish.lengthSq() > 0) e.aimYaw = Math.atan2(-wish.x, -wish.z);
     e.move(dt, wish, hover, qb, !!P.ab, tgt);
+    if (A.crouch) {
+      e.mesh.position.y -= 0.9 * (e.scale || 1);
+      e.mesh.rotation.x += 0.22;
+    }
     // 站起來：一開始壓低、往前傾，慢慢回到原本的姿勢
     if (A.rise) {
       const k = 1 - smooth(clamp((lt - A.rise.t0) / A.rise.d, 0, 1));
@@ -798,7 +830,7 @@ Object.assign(Game.prototype, {
   },
   // 模擬：AI、子彈、特效（和實驗室相同，不計入存檔）
   cineSim(dt) {
-    if (!this.world) {
+    if (!this.world || this.cine.live) {
       this.fx.update(dt);
       return;
     }
@@ -963,6 +995,11 @@ Object.assign(Game.prototype, {
     if (ev.flash)
       c.flash = { color: ev.flash, t0: c.t, in: ev.in || 0.04, hold: ev.hold || 0.08, out: ev.out || 0.5 };
     if (ev.sub !== undefined) this.cineSub(ev.sub, ev.who, ev.dur || 3.2);
+    if (ev.badge) {
+      // 通訊分割的徽章（旁白的句子也可以掛上委託方）
+      c.commWho = ev.badge;
+      c.commT = c.t;
+    }
     if (ev.card) this.cineCard(ev);
     if (ev.sys) this.cineSys(ev.sys, ev.dur || 4, ev.cls);
     if (ev.call) ev.call(this, c);
@@ -1045,6 +1082,10 @@ Object.assign(Game.prototype, {
     el.innerHTML = `${name ? `<b style="color:${S.color}">${escHtml(name)}</b>` : ''}<span>${escHtml(text)}</span>`;
     el.classList.toggle('radio', !!who && who !== 'narr');
     el.classList.add('on');
+    if (who) {
+      c.commWho = who;
+      c.commT = c.t;
+    }
     if (who && who !== 'station') SFX.radio();
     else if (who === 'station') SFX.play('glitch', 0.3, 0.6, 0.02, 0.1, null, 'ui');
     c.subUntil = c.t + dur;
@@ -1148,6 +1189,8 @@ Object.assign(Game.prototype, {
     if (S.ov === 'speed') this.cineSpeed(x, W, H, lt);
     if (S.ov === 'scan') this.cineScan(x, W, H, lt);
     if (S.ov === 'lock') this.cineLockHud(x, W, H, lt, S.lock);
+    if (S.ov === 'comm') this.cineCommOv(x, W, H, lt);
+    if (S.ov === 'choice') this.cineChoiceOv(x, W, H, lt, S);
     // 略過的提示
     if (c.hintT > 0) c.hintT -= dt;
     $('cineSkip').classList.toggle('on', c.hintT > 0 || c.skipT > 0);
@@ -1375,6 +1418,119 @@ Object.assign(Game.prototype, {
     x.fillStyle = 'rgba(120,220,255,0.9)';
     x.fillRect(W * 0.56, H * 0.8 - 8 * s, 120 * s * (0.4 + 0.5 * Math.abs(Math.sin(lt * 1.7))), 5 * s);
     x.fillText('EN', W * 0.56, H * 0.8 + 12 * s);
+    x.restore();
+  },
+  // 通訊分割：左側暗下，說話者的徽章、名字、聲紋（字幕播放中才動）
+  cineCommOv(x, W, H, lt) {
+    const c = this.cine;
+    const who = c.commWho;
+    const S = who ? SPEAKERS[who] : null;
+    if (!S) return;
+    const s = H / 720;
+    const k = clamp((c.t - (c.commT || 0)) / 0.25, 0, 1);
+    const pw = W * 0.34 * k;
+    x.save();
+    const g = x.createLinearGradient(0, 0, pw, 0);
+    g.addColorStop(0, 'rgba(4,8,12,0.88)');
+    g.addColorStop(0.8, 'rgba(4,8,12,0.6)');
+    g.addColorStop(1, 'rgba(4,8,12,0)');
+    x.fillStyle = g;
+    x.fillRect(0, 0, pw, H);
+    // 掃描線
+    x.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let y = 0; y < H; y += 3) x.fillRect(0, y, pw, 1);
+    const cx = W * 0.11,
+      cy = H * 0.42,
+      R = 46 * s;
+    x.globalAlpha = k;
+    x.strokeStyle = S.color;
+    x.lineWidth = 2 * s;
+    x.beginPath();
+    x.rect(cx - R, cy - R, R * 2, R * 2);
+    x.stroke();
+    x.fillStyle = 'rgba(10,16,24,0.9)';
+    x.fillRect(cx - R + 2 * s, cy - R + 2 * s, R * 2 - 4 * s, R * 2 - 4 * s);
+    x.fillStyle = S.color;
+    x.font = `700 ${44 * s}px sans-serif`;
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(S.mark, cx, cy + 2 * s);
+    x.font = `${14 * s}px "Share Tech Mono", "Noto Sans TC", sans-serif`;
+    x.textAlign = 'left';
+    x.textBaseline = 'alphabetic';
+    x.fillText(S.name, cx - R, cy + R + 22 * s);
+    x.fillStyle = 'rgba(200,215,230,0.7)';
+    x.font = `${11 * s}px "Share Tech Mono", monospace`;
+    x.fillText((S.note || '') + '　// SECURE CHANNEL', cx - R, cy + R + 40 * s);
+    // 聲紋
+    const talking = c.subUntil && c.t < c.subUntil;
+    const n = 28;
+    for (let i = 0; i < n; i++) {
+      const a = talking ? 0.2 + Math.abs(Math.sin(c.t * 13 + i * 1.7) * Math.sin(c.t * 5.3 + i * 0.6)) : 0.05;
+      const h = a * 34 * s;
+      x.fillStyle = S.color;
+      x.globalAlpha = k * 0.85;
+      x.fillRect(cx - R + i * ((R * 2) / n), cy + R + 64 * s - h / 2, (R * 2) / n - 1.5 * s, h);
+    }
+    x.restore();
+  },
+  // 抉擇倒數：上方的計時條、各出口的光柱名牌（委託方的顏色）、四角的冷色框
+  cineChoiceOv(x, W, H, lt, S) {
+    const c = this.cine;
+    const s = H / 720;
+    const next = c.def.shots[c.shot + 1];
+    const dur = (next ? next.at : c.def.dur) - S.at;
+    const k = clamp(1 - lt / Math.max(0.1, dur), 0, 1);
+    x.save();
+    const top = (c.bar || 0) + 18 * s;
+    x.fillStyle = 'rgba(0,0,0,0.4)';
+    x.fillRect(W * 0.3, top, W * 0.4, 4 * s);
+    x.fillStyle = k < 0.3 ? 'rgba(255,80,70,0.95)' : 'rgba(255,170,90,0.95)';
+    x.fillRect(W * 0.3, top, W * 0.4 * k, 4 * s);
+    x.font = `${12 * s}px "Share Tech Mono", monospace`;
+    x.textAlign = 'center';
+    x.fillStyle = 'rgba(255,200,150,0.95)';
+    x.fillText('DECISION REQUIRED', W / 2, top - 5 * s);
+    // 出口的名牌
+    for (const o of S.opts || []) {
+      const p = this.cinePt({ ex: o.ex, o: [0, 6, 0] }).project(this.camera);
+      if (p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1) continue;
+      const sx = (p.x * 0.5 + 0.5) * W,
+        sy = (-p.y * 0.5 + 0.5) * H;
+      const pulse = 0.75 + Math.sin(c.t * 6 + o.ex) * 0.25;
+      x.globalAlpha = pulse;
+      x.strokeStyle = o.color;
+      x.lineWidth = 2 * s;
+      x.strokeRect(sx - 70 * s, sy - 22 * s, 140 * s, 36 * s);
+      x.fillStyle = 'rgba(6,10,14,0.75)';
+      x.fillRect(sx - 69 * s, sy - 21 * s, 138 * s, 34 * s);
+      x.fillStyle = o.color;
+      x.font = `700 ${14 * s}px "Noto Sans TC", sans-serif`;
+      x.fillText(o.name, sx, sy - 3 * s);
+      x.font = `${10 * s}px "Noto Sans TC", sans-serif`;
+      x.fillStyle = 'rgba(230,236,242,0.9)';
+      x.fillText(o.sub, sx, sy + 10 * s);
+    }
+    x.globalAlpha = 1;
+    // 冷色的四角框
+    x.strokeStyle = 'rgba(150,200,255,0.5)';
+    x.lineWidth = 2 * s;
+    const m = 40 * s,
+      L = 60 * s,
+      y0 = (c.bar || 0) + m,
+      y1 = H - (c.bar || 0) - m;
+    for (const [px, py, dx, dy] of [
+      [m, y0, 1, 1],
+      [W - m, y0, -1, 1],
+      [W - m, y1, -1, -1],
+      [m, y1, 1, -1],
+    ]) {
+      x.beginPath();
+      x.moveTo(px, py + dy * L);
+      x.lineTo(px, py);
+      x.lineTo(px + dx * L, py);
+      x.stroke();
+    }
     x.restore();
   },
   // 監視器式的掃描線與雜訊（通訊、回憶）

@@ -2,6 +2,7 @@
 // 每一句配一個鏡頭（beat）：鏡頭由各章的 BEATS 依序取用（句子比鏡頭多時重複最後一個），同一個場景的鏡頭沿用同一張地圖。
 // 角色的台詞（「名字：「…」」）變成無線電字幕，其他是旁白。
 import { CHAPTER_NAMES, CHAPTER_TEXT, pickLines } from '../story.js';
+import { ch1Intro, ch1Outro } from './ch1.js';
 
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
@@ -422,8 +423,15 @@ function parseLine(l) {
   return { text: m[2], who: WHO[name] || null, name };
 }
 
+// 逐章重做的分鏡（data/cine/ch<章>.js）；沒有的章用下面的模板
+const BESPOKE = {
+  1: { intro: ch1Intro, outro: ch1Outro },
+};
+
 // kind：'intro'｜'outro'
 export function chapterCine(ch, kind, ctx) {
+  const B = BESPOKE[ch] && BESPOKE[ch][kind];
+  if (B) return B(ctx);
   const T = CHAPTER_TEXT[ch];
   const lines = pickLines(T && T[kind], ctx.choices || {});
   const beats = (BEATS[ch] && BEATS[ch][kind]) || [];
