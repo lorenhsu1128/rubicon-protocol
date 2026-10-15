@@ -772,18 +772,28 @@ Object.assign(Game.prototype, {
     const ap = this.cineAimPt(P.aim);
     if (ap) e.setAim(ap);
     else if (wish.lengthSq() > 0) e.aimYaw = Math.atan2(-wish.x, -wish.z);
+    // 先拿掉上一格加的蹲低與前傾（move 沒有重設網格時——例如暫停——才不會一格一格累加）
+    if (A.pose) {
+      e.mesh.position.y += A.pose[0];
+      e.mesh.rotation.x -= A.pose[1];
+    }
     e.move(dt, wish, hover, qb, !!P.ab, tgt);
+    let dy = 0,
+      drx = 0;
     if (A.crouch) {
-      e.mesh.position.y -= 0.9 * (e.scale || 1);
-      e.mesh.rotation.x += 0.22;
+      dy += 0.9 * (e.scale || 1);
+      drx += 0.22;
     }
     // 站起來：一開始壓低、往前傾，慢慢回到原本的姿勢
     if (A.rise) {
       const k = 1 - smooth(clamp((lt - A.rise.t0) / A.rise.d, 0, 1));
-      e.mesh.position.y -= k * 2.4 * (e.scale || 1);
-      e.mesh.rotation.x += k * 0.5;
+      dy += k * 2.4 * (e.scale || 1);
+      drx += k * 0.5;
       if (k <= 0) A.rise = null;
     }
+    e.mesh.position.y -= dy;
+    e.mesh.rotation.x += drx;
+    A.pose = [dy, drx];
     for (const s in P.fire) {
       if (P.fire[s] < lt) {
         delete P.fire[s];

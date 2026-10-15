@@ -11,7 +11,7 @@ import { Game } from './game.js';
 const $ = (id) => document.getElementById(id);
 const NUM = ['', '一', '二', '三', '四', '五', '六'];
 // 選前演出代替戰場的地圖（抉擇區段的主題；高空軌道是懸空的平台，擺不好主角，改用荒野）
-const STAND = { c2: 'dam', c4: 'spaceport', c6: 'wasteland' };
+const STAND = { c2: 'dam', c4: 'spaceport', c6: 'orbit' };
 const fmt = (t) => {
   const m = Math.floor(t / 60);
   return `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}`;
