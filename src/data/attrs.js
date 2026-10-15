@@ -23,6 +23,8 @@ const TYPE_ATTR = {
   empbeam: 'en',
   emp: 'en',
 };
+// 失衡連攜：打出失衡的人改用不同種類的武器打失衡中的目標時，直擊補正再乘這個倍率（mech-entity.js 的 takeDamage）
+export const LINK_K = 1.2;
 const DIRECT_BASE = { kin: 1.4, exp: 1.8, en: 1.6 };
 
 export function defCut(D) {

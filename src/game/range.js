@@ -7,7 +7,7 @@ import { escHtml } from '../core/html.js';
 import { AC_ROSTER, BOSS_DEFS, ENEMY_TYPES, FOE_HP_K, enemyScale } from '../data/enemies.js';
 import { effectiveAp, estHit, weaponDps } from '../data/firepower.js';
 import { ACES, FOES } from '../data/foes.js';
-import { FIST_DEF, FOE_STAB_K, PARTS, START_ASM, asmStats, assistSpread } from '../data/parts.js';
+import { FIST_DEF, FOE_STAB_K, PARTS, START_ASM, asmStats, assistSpread, usesAmmo } from '../data/parts.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
@@ -405,7 +405,7 @@ Object.assign(Game.prototype, {
       r.ammoT = 1;
       for (const s of WSLOTS) {
         const w = this.player.weapons[s];
-        if (w && !w.dropped && w.def.ammo > 0 && w.def.mag < 99) w.ammo = w.def.ammo;
+        if (w && !w.dropped && w.def.ammo > 0 && usesAmmo(w.def)) w.ammo = w.def.ammo;
       }
     }
     // 全滅（AP 不是無限時）：2 秒後重新生成

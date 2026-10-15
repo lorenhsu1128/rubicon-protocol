@@ -1,4 +1,4 @@
-import { ATTRS, ATTR_KEYS, directOf, weaponAttr } from '../data/attrs.js';
+import { ATTRS, ATTR_KEYS, LINK_K, directOf, weaponAttr } from '../data/attrs.js';
 // ============================================================
 //  MECH ENTITY
 // ============================================================
@@ -18,6 +18,7 @@ import {
   asmStats,
   jumpSpec,
   partById,
+  usesAmmo,
 } from '../data/parts.js';
 import { assistSpread, fcsAssist, leadOf, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
@@ -272,7 +273,7 @@ export class MechEntity {
     if (!this.canAct()) return false;
     if (this.melee.active && d.type !== 'melee') return false;
     if (w.cd > 0 || w.reloadT > 0) return false;
-    if (d.mag < 99 && w.mag <= 0) {
+    if (usesAmmo(d) && w.mag <= 0) {
       if (w.ammo <= 0) {
         if (slot.endsWith('arm') && !w.dropped) this.dropWeapon(slot);
         return false;
@@ -299,18 +300,35 @@ export class MechEntity {
     }
     this.heightMul = hmul;
     const steady = (this.hoverMode === 1 ? 0.5 : 1) * (this.buffT > 0 ? 0.6 : 1); // 懸浮（定高）時瞄準穩定；指揮官 MT 強化
+    // 持續射擊的時間（機槍越打越準、加特林的轉速）：間隔太久就重新起算
+    const gap = this.t - (w.lastShot === undefined ? -99 : w.lastShot);
+    w.streak = gap > Math.max(0.3, d.rof * 1.6) ? 0 : (w.streak || 0) + gap;
+    w.lastShot = this.t;
+    const conv = d.conv ? 1.15 - 0.7 * clamp(w.streak / d.conv, 0, 1) : 1;
+    // 霰彈：理想射程以內越近越集中
+    const near = d.near ? clamp(distT / (d.ideal || 14), 0.45, 1) : 1;
     const spread =
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
         hmul *
         steady *
         (this.supK || 1) * // 壓制射擊（沒拿到攻擊權杖）的擴散
-        assistSpread(assist) +
+        assistSpread(assist) *
+        conv *
+        near +
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
     const dir = targetPos.clone().sub(muzzle).normalize();
-    const dmg = d.dmg * this.dmgMul,
+    // 玩家操作的機體用武器的數值；電腦（敵人、友軍）乘 npcK，武器調強時敵人的威脅不跟著變
+    const pilot = this.pilotEnt();
+    const dk = pilot ? 1 : d.npcK || 1;
+    const dmg = d.dmg * this.dmgMul * dk,
       imp = d.impact * this.dmgMul;
+    // 彈道修正與命中判定（只給玩家操作的機體）：子彈差一點擦過時往鎖定的目標偏轉，判定半徑加大
+    const aimX =
+      pilot && tgtOk && (d.bend || d.hitR)
+        ? { target: targetEnt, bend: (d.bend || 0) * (0.5 + assist), hitR: d.hitR || 0 }
+        : null;
     const shoot = (dirv, kind, extra) => {
       if (g.range && this === g.player) g.rangeShot(d.id); // 靶場的命中率
       g.projectiles.push(
@@ -330,6 +348,7 @@ export class MechEntity {
               wid: d.id,
               fall: d.ideal ? [d.ideal, d.range] : null, // 實彈的距離衰減（projectile.js）
             },
+            aimX || {},
             extra || {},
           ),
         ),
@@ -345,7 +364,7 @@ export class MechEntity {
         g.fx.muzzle(muzzle, dir, d.color || 0xffd080, slot.endsWith('back') ? 1.1 : 0.9);
         g.fx.casing(muzzle.clone().addScaledVector(dir, -1.2), w.side, dir);
         SFX.shot('bullet', d.id, SP);
-        w.cd = d.rof;
+        w.cd = d.rof * (d.spin ? 2.5 - 1.5 * clamp(w.streak / d.spin, 0, 1) : 1); // 加特林：轉速慢慢提升
         this.recoil[w.side > 0 ? 'r' : 'l'] = 0.35;
         if (this.isPlayer) {
           g.rumble(
@@ -541,7 +560,7 @@ export class MechEntity {
       case 'laser':
         {
           const charged = w.charge >= d.chargeT && d.chargeT > 0;
-          const ldmg = charged ? d.chargeDmg * this.dmgMul : dmg;
+          const ldmg = charged ? d.chargeDmg * this.dmgMul * dk : dmg;
           const limp = charged ? imp * 2.2 : imp;
           w.charge = 0;
           w.charging = false;
@@ -611,7 +630,7 @@ export class MechEntity {
         }
         break;
     }
-    if (d.mag < 99) {
+    if (usesAmmo(d)) {
       w.mag--;
       w.ammo--;
       if (w.mag <= 0 && w.ammo > 0) w.reloadT = d.reload;
@@ -942,6 +961,8 @@ export class MechEntity {
     const sd = this.specialDefense(dmg, impact, from, at, melee, wid);
     if (!sd) return;
     [dmg, impact] = sd;
+    const W = weaponById(wid);
+    const cls = melee ? 'melee' : W ? W.type : null; // 武器種類（失衡連攜用）
     if (this.markT > 0) dmg *= 1.3; // 被軌道標定衛星標定（mech-foe.js）
     if (this.sn && this.sn.vuln > 0) dmg *= 1.25; // 招式後的破綻（過熱，mech-moves.js）
     if (melee) {
@@ -965,6 +986,7 @@ export class MechEntity {
       ) {
         this.acs = this.acsMax;
         this.staggerT = melee.finisher ? 2.2 : 1.6;
+        this.stagBy = from ? { id: from.id, cls } : null;
         this.knockSide = Math.random() < 0.5 ? -1 : 1;
         this.game.fx.ring(this.center(), 4, 0xff6040);
         SFX.stagger(this.isPlayer ? null : this.center());
@@ -987,11 +1009,29 @@ export class MechEntity {
       this.game.fx.hitStop = 0.05;
     }
     let mul = 1;
-    const W = weaponById(wid);
     const A = attr || (wid && ATTRS[wid] ? wid : W ? weaponAttr(W) : 'kin');
     // 直擊補正（依武器）＋攻擊者的「破甲射擊」＋自己的「不屈」
-    if (this.staggerT > 0)
+    if (this.staggerT > 0) {
       mul = directOf(W) + (from && from.pmv ? from.pmv('stagDmg') : 0) + this.pmv('stagTaken');
+      // 失衡連攜：打出失衡的人改用不同種類的武器打 → 直擊補正再 ×LINK_K
+      const sb = this.stagBy;
+      if (sb && from && from.id === sb.id && cls && cls !== sb.cls) {
+        mul *= LINK_K;
+        if (!sb.shown && from.team === 'player') {
+          sb.shown = true;
+          this.game.popDamage(
+            this.center().setY(this.center().y + 2),
+            '連攜',
+            false,
+            true,
+            false,
+            0,
+            this.id,
+          );
+          this.game.fx.shockwave(this.center(), 3.5, 0x7fd8ff, 0.25);
+        }
+      }
+    }
     mul *= 1 - this.defCut(A);
     if (A === 'en' && W && from && from.stats && from.stats.enAdapt) mul *= from.stats.enAdapt; // 能量武器適性
     const g = this.game;
@@ -1049,6 +1089,7 @@ export class MechEntity {
         this.staggerT =
           (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
           (1 - this.pmv('stagT'));
+        this.stagBy = from ? { id: from.id, cls } : null;
         this.game.fx.ring(this.center(), 4, 0xffb020);
         // 打出敵人的失衡：短暫頓格（文字提示是命中位置的 BREAK，juice.js）
         if (this.team === 'enemy' && from && from.isPlayer) {

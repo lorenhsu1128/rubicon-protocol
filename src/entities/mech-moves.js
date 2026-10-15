@@ -3,6 +3,7 @@
 // 準備中被打出失衡就中斷。預警都用會轉送給客機的 fx（warnLine、warnRect、flash、spark；落點圈另送 warn 事件），
 // 所以多人不用改協定。只在房主／單機執行。
 import { SFX } from '../audio/audio.js';
+import { usesAmmo } from '../data/parts.js';
 import { clamp, rnd } from '../core/math.js';
 import { MOVES } from '../data/ai.js';
 import { MechEntity } from './mech-entity.js';
@@ -30,7 +31,7 @@ Object.assign(MechEntity.prototype, {
     for (const s of SLOTS) {
       const w = this.weapons[s];
       if (!w || w.dropped || !types.includes(w.def.type)) continue;
-      if (w.def.mag < 99 && w.ammo <= 0 && w.mag <= 0) continue;
+      if (usesAmmo(w.def) && w.ammo <= 0 && w.mag <= 0) continue;
       return s;
     }
     return null;

@@ -6,6 +6,7 @@
 //  - 畫面：渲染風格＋過場的調色與景深、遮幅（2.39:1）、字幕、文字演出的字卡、HUD 畫布上的光暈與疊加效果
 // state 'cine'；長按 Esc／Enter／空白鍵／手把 A、B、Start（觸控長按畫面）略過。多人不播。
 import { SFX } from '../audio/audio.js';
+import { usesAmmo } from '../data/parts.js';
 import { clamp, lerp } from '../core/math.js';
 import { escHtml } from '../core/html.js';
 import { CINES } from '../data/cine/index.js';
@@ -801,7 +802,7 @@ Object.assign(Game.prototype, {
       }
       const w = e.weapons[s];
       if (!w || !w.def) continue;
-      if (w.mag !== undefined && w.def.mag < 99 && w.mag <= 0) w.mag = w.def.mag;
+      if (w.mag !== undefined && usesAmmo(w.def) && w.mag <= 0) w.mag = w.def.mag;
       if (w.ammo !== undefined && w.ammo < 10) w.ammo = w.def.ammo || 999;
       w.reloadT = 0;
       e.fire(s, ap || e.aimPoint(), tgt);

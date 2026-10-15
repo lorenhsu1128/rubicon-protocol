@@ -305,6 +305,7 @@ Object.assign(Game.prototype, {
             gravity: e.g || 0,
             target: tgt,
             turn: e.tn || 0,
+            bend: e.bd || 0,
             visual: true,
             netId: e.i,
           });

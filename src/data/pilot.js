@@ -1,5 +1,5 @@
 // 駕駛員成長：等級、技能配點驗證、加成計算與套用（純函式，房主與客機共用）
-import { PARTS, REMOVED_PARTS } from './parts.js';
+import { PARTS, REMOVED_PARTS, usesAmmo } from './parts.js';
 import {
   PILOT_MAX_LEVEL,
   PRESET_MAX,
@@ -302,7 +302,7 @@ export function pilotWeaponDef(def, pm) {
   if (d.impact) d.impact *= upF(f, 'imp');
   if (d.reload) d.reload *= downF(f, 'rld');
   if (d.rof) d.rof *= downF(f, 'rof');
-  if (d.mag && d.mag < 99) {
+  if (usesAmmo(d)) {
     d.mag = Math.max(1, Math.round(d.mag * upF(f, 'mag')));
     d.ammo = Math.max(d.mag, Math.round(d.ammo * upF(f, 'ammo')));
   }

@@ -1,4 +1,5 @@
 import { weaponAttr } from './attrs.js';
+import { usesAmmo } from './parts.js';
 // 主線的戰術模組（docs/campaign-design.md 7.1）：4 家委託方各自的風格，三選一取得，延續到整章結束。
 // fx 用駕駛員加成同一套增量表（data/pilot.js 的 computePilotMods／applyPilotStats／pilotWeaponDef 與實體的 pmv），
 // 另加主線專用：killHeal（擊破時回復 AP 比例）、airN（空中跳次數），
@@ -266,8 +267,8 @@ export function modsSumText(list) {
 // 數值對哪些武器有效（照 data/pilot.js 的 pilotWeaponDef）；沒有列出的＝對機體、一律有效
 const FIT = {
   imp: (d) => d.type !== 'melee' && d.impact > 0,
-  mag: (d) => d.mag > 0 && d.mag < 99,
-  ammo: (d) => d.mag > 0 && d.mag < 99,
+  mag: (d) => usesAmmo(d),
+  ammo: (d) => usesAmmo(d),
   rld: (d) => d.type !== 'melee' && d.reload > 0,
   dmg: (d) => d.type !== 'melee' && (d.dmg > 0 || d.chargeDmg > 0),
   chg: (d) => d.chargeT > 0,

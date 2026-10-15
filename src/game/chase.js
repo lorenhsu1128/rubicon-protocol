@@ -4,6 +4,7 @@
 //  視角：this.fp（第一人稱）、this.chase（追尾），兩者都不是＝俯視。鏡頭方向共用 fpYaw／fpPitch。
 // ============================================================
 import { SFX } from '../audio/audio.js';
+import { usesAmmo } from '../data/parts.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { CHASE_FOV, FP_FOV, TP_FOV } from './constants.js';
 import { Game } from './game.js';
@@ -394,21 +395,21 @@ Object.assign(Game.prototype, {
       let txt;
       if (d.type === 'melee') txt = 'MELEE';
       else if (d.type === 'shield') txt = 'SHIELD';
-      else if (d.mag >= 99 || d.type === 'emp' || d.type === 'empbeam')
+      else if (!usesAmmo(d))
         txt = wp.charging
           ? Math.round(clamp(wp.charge / (d.chargeT || 1), 0, 1) * 100) + '%'
           : wp.cd > 0
             ? '…'
             : 'READY';
       else txt = wp.reloadT > 0 ? 'RELOAD' : String(wp.mag);
-      const low = d.mag < 99 && d.type !== 'melee' && wp.ammo <= 0 && wp.mag <= 0;
+      const low = usesAmmo(d) && wp.ammo <= 0 && wp.mag <= 0;
       c.textAlign = al;
       c.font = 'bold 15px Chakra Petch';
       c.fillStyle = low ? '#ff5a5a' : wp.reloadT > 0 ? amber : '#e6edf3';
       c.fillText(txt, x, y);
       c.font = '10px Chakra Petch';
       c.fillStyle = 'rgba(230,237,243,.65)';
-      const sub = d.mag < 99 && d.type !== 'melee' && d.type !== 'shield' ? '×' + wp.ammo : '';
+      const sub = usesAmmo(d) ? '×' + wp.ammo : '';
       c.fillText(d.name.split(' ')[0] + (sub ? '  ' + sub : ''), x, y + 13);
       const k =
         wp.reloadT > 0 ? 1 - wp.reloadT / (d.reload || 1) : wp.cd > 0 && d.rof ? 1 - wp.cd / d.rof : 1;

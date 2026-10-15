@@ -1,5 +1,5 @@
 import { directOf, weaponAttr } from './attrs.js';
-import { assistSpread, fcsAssist, leadOf, trackRate } from './parts.js';
+import { assistSpread, fcsAssist, leadOf, trackRate, usesAmmo } from './parts.js';
 // 理論火力（機甲庫與靶場顯示用，純函式）：照 MechEntity 的開火方式換算
 // burst＝彈匣打完前（或 EN 用完前）的 DPS、sus＝算進換彈／EN 回復的持續 DPS、imp＝每秒衝擊（持續）
 // d 是套用駕駛員加成後的武器定義（data/pilot.js 的 pilotWeaponDef），gen 是發電機（recharge：每秒 EN 回復）
@@ -64,7 +64,7 @@ function weaponDps0(d, gen, enWpn = 0) {
   const per = d.dmg * n,
     ip = d.impact * n;
   const burst = per / d.rof;
-  const mag = d.mag < 99 ? d.mag : 0;
+  const mag = usesAmmo(d) ? d.mag : 0;
   const cycle = mag ? mag * d.rof + d.reload : d.rof;
   const k = mag ? (mag * d.rof) / cycle : 1;
   return {
@@ -91,12 +91,17 @@ export function estHit(d, slot, fcs, aim, dist) {
   if (d.type === 'missile')
     return Math.min(0.95, Math.max(0.2, 0.45 + (d.turn || 3) * 0.1 + A * 0.15 - dist / 400));
   const arm = slot.endsWith('arm') ? 1.3 - (aim || 0.6) * 0.6 : 0.55;
-  const sErr = (d.spread || 0) * arm * assistSpread(A) * dist * 0.6;
+  const conv = d.conv ? 0.6 : 1; // 機槍：持續射擊時收斂（取平均）
+  const near = d.near ? Math.min(1, Math.max(0.45, dist / (d.ideal || 14))) : 1; // 霰彈：越近越集中
+  const sErr = (d.spread || 0) * arm * assistSpread(A) * dist * 0.6 * conv * near;
   const hitscan = d.type === 'laser' || d.type === 'empbeam';
   const t = hitscan ? 0 : dist / (d.speed || 90);
   const lErr = EST_V * t * (1 - leadOf(A));
   const jErr = EST_V * Math.min(t, 0.8) * Math.exp(-trackRate(aim) * 0.25);
-  const sig = Math.hypot(sErr, lErr, jErr);
-  const r = d.splash ? EST_R + d.splash * 0.6 : EST_R;
+  let sig = Math.hypot(sErr, lErr, jErr);
+  // 彈道修正（玩家的實彈）：飛行中最多轉 bend×(0.5＋輔助)×飛行時間（上限 0.25 弧度），換算成能修正的橫向距離
+  const corr = d.bend ? 0.5 * Math.min(0.25, d.bend * (0.5 + A) * t) * dist : 0;
+  if (corr > 0) sig = (sig * sig) / (sig + corr * 1.5);
+  const r = (d.splash ? EST_R + d.splash * 0.6 : EST_R) + (d.hitR || 0);
   return Math.min(0.99, Math.max(0.03, r / (r + sig * 1.6)));
 }

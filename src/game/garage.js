@@ -4,7 +4,7 @@ import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { pick } from '../core/math.js';
 import { bossForLevel, isBossLevel } from '../data/enemies.js';
-import { PARTS, SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
+import { PARTS, SLOTS, asmStats, jumpSpec, partById, usesAmmo } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { PALETTES } from '../render/materials.js';
 import { LocalModels } from '../render/local-models.js';
@@ -173,7 +173,7 @@ Object.assign(Game.prototype, {
           if (p.type === 'melee')
             spec = `${p.combo.length} 段 · 總傷 ${p.combo.reduce((a, c) => a + c.dmg, 0)} · 終結衝擊 ${p.combo[p.combo.length - 1].impact}`;
           else if (p.type !== 'none' && p.type !== 'shield')
-            spec = `傷 ${p.dmg} · 衝擊 ${p.impact} · 射程 ${p.range}${p.mag < 99 ? ' · 彈匣 ' + p.mag : ''}`;
+            spec = `傷 ${p.dmg} · 衝擊 ${p.impact} · 射程 ${p.range}${usesAmmo(p) ? ' · 彈匣 ' + p.mag : ''}`;
           else if (p.type === 'shield') spec = '被動減傷 55%';
           // 屬性、實彈的理想射程、直擊補正（data/attrs.js）
           if (!['none', 'shield'].includes(p.type)) {

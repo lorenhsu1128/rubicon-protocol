@@ -3,7 +3,7 @@ import { weakText } from '../data/attrs.js';
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
-import { CONSUMABLES } from '../data/parts.js';
+import { CONSUMABLES, usesAmmo } from '../data/parts.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
 
@@ -90,7 +90,7 @@ Object.assign(Game.prototype, {
           .map((s) => {
             const d = w[s].def;
             if (d.type === 'none') return null;
-            return d.name.split(' ')[0] + (d.mag < 99 ? ` ${w[s].mag}/${w[s].ammo}` : '');
+            return d.name.split(' ')[0] + (usesAmmo(d) ? ` ${w[s].mag}/${w[s].ammo}` : '');
           })
           .filter(Boolean)
           .join('  ');
@@ -211,7 +211,7 @@ Object.assign(Game.prototype, {
       else if (w.def.type === 'emp') txt = w.cd > 0 ? `冷卻 ${Math.ceil(w.cd)}s` : '就緒';
       else if (w.def.type === 'empbeam')
         txt = p.empLock ? '過載 (等 EN 回滿)' : w.firing ? '發射中' : 'EN 供能';
-      else if (w.def.mag >= 99)
+      else if (!usesAmmo(w.def))
         txt = w.charging ? '蓄力 ' + Math.round(clamp(w.charge / w.def.chargeT, 0, 1) * 100) + '%' : '∞';
       else txt = (w.reloadT > 0 ? '裝填中' : w.mag) + ' / ' + w.ammo;
       d.querySelector('b').textContent = labels[s] + ' ' + w.def.name.split(' ')[0];

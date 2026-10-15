@@ -6,6 +6,8 @@ import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { buildProjectileMesh } from '../render/extra-models.js';
 
+const BEND_CONE = 0.25; // 彈道修正只修正這個角度（弧度）以內的偏差：差一點擦過的會修正，大幅閃避照樣打不中
+
 export class Projectile {
   constructor(game, o) {
     Object.assign(this, { life: 3, splash: 0, gravity: 0, target: null, turn: 0, dead: false, trailT: 0 }, o);
@@ -31,6 +33,7 @@ export class Projectile {
         g: this.gravity,
         tg: this.target ? this.target.id : -1,
         tn: this.turn,
+        bd: this.bend ? +this.bend.toFixed(3) : undefined,
       });
     }
   }
@@ -64,6 +67,17 @@ export class Projectile {
         if (axis.lengthSq() > 0.5) cur.applyAxisAngle(axis, maxA);
       } else cur.copy(to);
       this.vel.copy(cur.multiplyScalar(sp));
+    } else if (this.bend && this.target && !this.target.dead) {
+      // 彈道修正（玩家的實彈，mech-entity.js 的 fire）：每秒最多轉 bend 弧度
+      const to = this.target.center().sub(this.pos).normalize();
+      const sp = this.vel.length();
+      const cur = this.vel.clone().divideScalar(sp);
+      const ang = cur.angleTo(to);
+      if (ang > 1e-4 && ang < BEND_CONE) {
+        const axis = cur.clone().cross(to).normalize();
+        if (axis.lengthSq() > 0.5)
+          this.vel.copy(cur.applyAxisAngle(axis, Math.min(ang, this.bend * dt)).multiplyScalar(sp));
+      }
     }
     if (this.gravity) this.vel.y -= this.gravity * dt;
     const prev = this.pos.clone();
@@ -109,7 +123,7 @@ export class Projectile {
     for (const t of targets) {
       if (t.dead) continue;
       const c = t.center();
-      const r = t.radius + 0.4;
+      const r = t.radius + 0.4 + (this.hitR || 0); // hitR：玩家實彈加大的判定
       let tt = segL2 > 1e-6 ? clamp(c.clone().sub(prev).dot(seg) / segL2, 0, 1) : 0;
       const cp = prev.clone().addScaledVector(seg, tt);
       if (cp.distanceToSquared(c) < r * r && tt < bestT) {

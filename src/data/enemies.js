@@ -24,7 +24,7 @@ export const AC_NAMES = [
 // kind：沒有＝一般大型機甲（bossAI）；heli、duo 見 mission.js；其他新 Boss 由 game/bosses.js 生成、
 // entities/mech-boss.js 控制（ai 同 kind）。mech：用機甲模型（模型庫列在完整機甲）；modelKind 'boss'＋vehKey：程式模型
 const B_JUGGERNAUT = {
-  res: [0.15, 0, -0.1], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, 0, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'JUGGERNAUT 戰略級移動要塞',
   asm: {
     head: 'h_hv',
@@ -47,7 +47,7 @@ const B_JUGGERNAUT = {
   speedMul: 1.1,
 };
 const B_STRIDER = {
-  res: [0.1, -0.1, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'STRIDER 巡邏用超大型四足',
   asm: {
     head: 'h_scan',
@@ -70,7 +70,7 @@ const B_STRIDER = {
   speedMul: 1.15,
 };
 const B_HELIOS = {
-  res: [-0.12, 0, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [-0.25, 0, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'HELIOS 重武裝母艦直升機',
   kind: 'heli',
   asm: {
@@ -105,7 +105,7 @@ const B_DUO = {
   speedMul: 1.1,
 };
 const B_BALTEUS = {
-  res: [0, -0.1, 0.12], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0, -0.25, 0.2], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'BALTEUS 自律型艦載機動兵器',
   asm: {
     head: 'h_lt',
@@ -128,7 +128,7 @@ const B_BALTEUS = {
   speedMul: 1.5,
 };
 const B_AEGIS = {
-  res: [0.1, 0, -0.12], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, 0, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'AEGIS 護盾指揮艦',
   kind: 'flagship',
   ai: 'flagship',
@@ -156,7 +156,7 @@ const B_AEGIS = {
   intro: '護盾指揮艦 — 護盾發生器還在時打不動本體，先拆發生器；它會重建，要把握時間',
 };
 const B_SANDWORM = {
-  res: [0.12, -0.1, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'SANDWORM 巨型鑽地蟲',
   kind: 'worm',
   ai: 'worm',
@@ -186,7 +186,7 @@ const B_SANDWORM = {
   intro: '鑽地蟲 — 在地下時打不到，地面紅圈是鑽出點；鑽出後打頭部感測器（EMP 能讓它停留更久）',
 };
 const B_BASTILLE = {
-  res: [0.12, -0.12, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'BASTILLE 砲兵陣地',
   kind: 'artillery',
   ai: 'artillery',
@@ -216,7 +216,7 @@ const B_BASTILLE = {
   intro: '砲兵陣地 — 看預警圈閃避砲擊、繞過地雷，先摧毀四座砲台，指揮所的裝甲才會解除',
 };
 const B_ARACHNE = {
-  res: [0.12, -0.1, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'ARACHNE 多足要塞',
   kind: 'spider',
   ai: 'spider',
@@ -246,7 +246,7 @@ const B_ARACHNE = {
   intro: '多足要塞 — 機身裝甲很厚，先打斷腳部關節；斷三條腿就會倒下、核心暴露。跳起時準備躲落地衝擊波',
 };
 const B_NULLIFIER = {
-  res: [-0.1, 0, 0.12], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [-0.25, 0, 0.2], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'NULLIFIER 電磁狩獵機',
   kind: 'hunter',
   ai: 'hunter',
@@ -274,7 +274,7 @@ const B_NULLIFIER = {
   intro: '電磁狩獵機 — 藍圈充能時拉開距離或跳高，被打中會封鎖 QB 與懸浮；被牽引時往反方向移動',
 };
 const B_LEVIATHAN = {
-  res: [0.18, -0.1, -0.05], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'LEVIATHAN 空中要塞',
   kind: 'fortress',
   ai: 'fortress',
@@ -334,7 +334,7 @@ const B_DOPPEL = {
   intro: '複製 AC — 用和你相同的機體作戰；適應裝甲會對你最常用的傷害類型提高抗性，輪流換武器',
 };
 const B_VIPER = {
-  res: [-0.12, 0, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [-0.25, 0, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'VIPER 高速突擊機',
   kind: 'interceptor',
   ai: 'interceptor',
@@ -366,7 +366,7 @@ const B_VIPER = {
   intro: '高速突擊機 — 看地面的進場警示線往側邊閃開；掉頭減速時是輸出時機，EMP 打中會失速',
 };
 const B_HALBERD = {
-  res: [0.1, 0, -0.1], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, 0, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'HALBERD 超長程電磁砲台',
   kind: 'railgun',
   ai: 'railgun',
@@ -396,7 +396,7 @@ const B_HALBERD = {
   intro: '電磁砲台 — 紅色瞄準線鎖定時躲到掩體後面（擋住射線就會中斷充能）；發射後散熱片打開才是弱點',
 };
 const B_SERAPHIM = {
-  res: [0, 0, -0.12], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0, 0, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'SERAPHIM 浮游砲指揮機',
   kind: 'funnel',
   ai: 'funnel',
@@ -426,7 +426,7 @@ const B_SERAPHIM = {
   intro: '浮游砲指揮機 — 浮游砲會從四面八方開火：看光點預警一直移動；EMP 能一次打落，收回充能時本體防禦下降',
 };
 const B_CINDER = {
-  res: [0, 0.15, -0.1], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0, 0.2, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'CINDER 熔爐清掃機',
   kind: 'furnace',
   ai: 'furnace',
@@ -456,7 +456,7 @@ const B_CINDER = {
   intro: '熔爐清掃機 — 熔渣會留下持續燃燒的地面；熔爐口打開時是弱點，飛上空中會被熱浪打下來',
 };
 const B_BEHEMOTH = {
-  res: [0.2, -0.12, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'BEHEMOTH 衝撞推土要塞',
   kind: 'rampart',
   ai: 'rampart',
@@ -486,7 +486,7 @@ const B_BEHEMOTH = {
   intro: '衝撞推土要塞 — 地面警示線是衝撞路線：誘它撞上高台或場地邊界，撞上後背後的散熱口會打開',
 };
 const B_MIRAGE = {
-  res: [0, 0, -0.15], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0, 0, -0.25], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'MIRAGE 光學迷彩電戰機',
   kind: 'phantom',
   ai: 'phantom',
@@ -514,7 +514,7 @@ const B_MIRAGE = {
   intro: '光學迷彩電戰機 — 本體隱形、分身會干擾鎖定：只有本體有影子，開火時會現形；EMP 能讓分身全部消失',
 };
 const B_JUDGEMENT = {
-  res: [0, -0.1, 0.12], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0, -0.25, 0.2], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'JUDGEMENT 衛星砲導引塔',
   kind: 'orbital',
   ai: 'orbital',
@@ -572,7 +572,7 @@ const B_CERBERUS = {
   intro: '三機合體 — 血量下降會分離成三台：30 秒內全部擊破，否則重新合體並回復；先打修理機，合體動作中無防備',
 };
 const B_CITADEL = {
-  res: [0.18, -0.12, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [0.2, -0.25, 0], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'IRON CITADEL 武裝列車',
   kind: 'train',
   ai: 'train',
@@ -606,7 +606,7 @@ const B_CITADEL = {
     '武裝列車 — 站在軌道上會被撞；懸浮會被防空車廂打、地面有雷射舷砲，邊追邊找角度。衝撞後鍋爐過熱時最脆弱',
 };
 const B_PULSAR = {
-  res: [-0.1, 0, 0.15], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
+  res: [-0.25, 0, 0.2], // 弱點（data/attrs.js）：[實彈, 爆發, 能量] 的額外減傷
   name: 'PULSAR 脈衝刃翼',
   kind: 'ibis',
   ai: 'ibis',
@@ -1061,7 +1061,7 @@ export const ENEMY_TYPES = {
     }),
   },
   mth: {
-    res: [0.12, 0, -0.1],
+    res: [0.2, 0, -0.25],
     cost: 2,
     name: 'MT 重型',
     pal: 'heavy',
@@ -1086,7 +1086,7 @@ export const ENEMY_TYPES = {
     }),
   },
   drone: {
-    res: [0, 0, -0.12],
+    res: [0, 0, -0.25],
     cost: 1.2,
     name: '偵察機',
     pal: 'enemy',
@@ -1112,7 +1112,7 @@ export const ENEMY_TYPES = {
     }),
   },
   turret: {
-    res: [0.1, -0.12, 0],
+    res: [0.2, -0.25, 0],
     cost: 1.5,
     name: '固定砲台',
     pal: 'enemy',
@@ -1216,7 +1216,7 @@ export const ENEMY_TYPES = {
     }),
   },
   tank: {
-    res: [0.15, -0.1, 0],
+    res: [0.2, -0.25, 0],
     cost: 2.5,
     name: '裝甲車',
     pal: 'vehicle',
@@ -1245,7 +1245,7 @@ export const ENEMY_TYPES = {
     }),
   },
   strider: {
-    res: [0.08, 0, -0.1],
+    res: [0.2, 0, -0.25],
     cost: 2.5,
     name: '步行砲台',
     pal: 'enemy',
@@ -1270,7 +1270,7 @@ export const ENEMY_TYPES = {
     }),
   },
   heli: {
-    res: [-0.12, 0, 0],
+    res: [-0.25, 0, 0],
     cost: 3,
     name: '武裝直升機 HOUND',
     pal: 'enemy',
@@ -1301,7 +1301,7 @@ export const ENEMY_TYPES = {
     extraWeapons: { rback: 'w_bz' },
   },
   swarm: {
-    res: [0, 0, -0.12],
+    res: [0, 0, -0.25],
     cost: 2.5,
     name: '導彈無人機',
     pal: 'kami',
@@ -1335,7 +1335,7 @@ export const ENEMY_TYPES = {
   // --- 改變走位／優先目標的敵人（行為在 entities/mech-special.js、game/support.js）---
   // intro：該類型第一次出現時的提示；support：要有其他敵人才會編入（修理、護盾、指揮）
   mt_shield: {
-    res: [0.1, 0, -0.12],
+    res: [0.2, 0, -0.25],
     cost: 2,
     name: '盾牌 MT',
     pal: 'heavy',
@@ -1388,7 +1388,7 @@ export const ENEMY_TYPES = {
     }),
   },
   minelayer: {
-    res: [0, 0, -0.1],
+    res: [0, 0, -0.25],
     cost: 1.5,
     name: '布雷無人機',
     pal: 'kami',
@@ -1420,7 +1420,7 @@ export const ENEMY_TYPES = {
     }),
   },
   mt_stomp: {
-    res: [0.12, 0, -0.1],
+    res: [0.2, 0, -0.25],
     cost: 2.5,
     name: '重踏機甲',
     pal: 'heavy',
@@ -1446,7 +1446,7 @@ export const ENEMY_TYPES = {
     }),
   },
   repair: {
-    res: [0, 0, -0.12],
+    res: [0, 0, -0.25],
     cost: 1.5,
     name: '修理無人機',
     pal: 'support',
@@ -1479,7 +1479,7 @@ export const ENEMY_TYPES = {
     }),
   },
   mt_dome: {
-    res: [-0.15, 0, 0.15],
+    res: [-0.25, 0, 0.2],
     cost: 3,
     name: '護盾產生器',
     pal: 'support',
@@ -1507,7 +1507,7 @@ export const ENEMY_TYPES = {
     }),
   },
   dropship: {
-    res: [-0.1, 0, 0],
+    res: [-0.25, 0, 0],
     cost: 3,
     name: '運輸機',
     pal: 'vehicle',
