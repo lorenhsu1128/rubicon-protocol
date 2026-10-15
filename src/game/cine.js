@@ -141,6 +141,8 @@ Object.assign(Game.prototype, {
     this.cineMusic(t);
     c.started = true;
     c.fired = new Set();
+    // 跳時間（劇場的跳鏡頭、cineSeek）：目前鏡頭的掛勾先收掉
+    if (c.shot >= 0) this.cineHookCall(c.def.shots[c.shot], 'exit');
     c.shot = -1;
     this.cineStartReset(c);
   },
