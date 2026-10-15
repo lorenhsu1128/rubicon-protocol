@@ -10,7 +10,7 @@ import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/
 import { buildBossModel } from './boss-models.js';
 import { buildPod, buildStation } from './cine-sets.js';
 import { FOE_CATALOG } from './foe-models.js';
-import { PARTS, START_ASM, STD_ASM } from '../data/parts.js';
+import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
 import { PIECE_NAMES, SIDE_NAMES, buildMech, buildPiece, partPieces } from './mech-model.js';
 import { THEMES } from '../world/world.js';
@@ -149,18 +149,7 @@ const addMech = (key, name, asm, palKey, scale, note = '', boss = false) =>
     noGlb: true,
     build: (k) => wholeRig(buildMech(asm, pal(k), 1), scale),
   });
-// mech/player：標準零件的組合（GLB 製作規格與範本的基準，以前的玩家初始機；槽位 id 沿用）
-addMech('player', 'MELANDER 標準機（GLB 規格的基準）', STD_ASM, 'player', 1);
-// 玩家初始機 CUBEE AC-01（render/mech-cubee.js），以及照原稿的武裝：左手步槍、左肩導彈莢、右肩四聯砲
-addMech('cubee', 'CUBEE AC-01（玩家初始機）', START_ASM, 'player', 1, 'Q 版比例的整套零件');
-addMech(
-  'cubee_full',
-  'CUBEE AC-01（原稿武裝）',
-  { ...START_ASM, rarm: 'w_none', larm: 'w_crifle', rback: 'bw_cqc', lback: 'bw_cms' },
-  'player',
-  1,
-  'Q 版比例的整套零件',
-);
+addMech('player', 'RAVEN（玩家初始機）', START_ASM, 'player', 1);
 for (const [key, r] of Object.entries(AC_ROSTER)) {
   const t = ENEMY_TYPES['ac_' + key];
   addMech('ac_' + key, r.name, r.asm, r.pal, t ? t.scale : 1, '具名 AC');

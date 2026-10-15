@@ -413,7 +413,7 @@ Object.assign(Game.prototype, {
         // 有 visor 顏色的網格就以它為準（眼燈的位置）
         const vb = new THREE.Box3();
         const vc = new THREE.Color(pal.visor || 0xff3020);
-        // 護目鏡：visor 顏色或明顯自發光的材質（CUBEE 的護目鏡用自己的紅色）
+        // 護目鏡：visor 顏色或明顯自發光的材質（有些頭部的護目鏡用自己的紅色）
         const isV = (mt) =>
           mt &&
           ((mt.color && mt.color.equals(vc)) ||

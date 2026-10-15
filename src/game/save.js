@@ -1,6 +1,6 @@
 // Game：存檔（三個存檔槽 localStorage rubicon_save_1～3，目前的槽位 rubicon_save_cur）與存檔畫面
 import { isBossLevel } from '../data/enemies.js';
-import { START_ASM, START_CUBEE, START_OWNED } from '../data/parts.js';
+import { REMOVED_PARTS as REMOVED, REMOVED_REFUND as REFUND, START_ASM, START_OWNED } from '../data/parts.js';
 import { newPilot, normalizePilot, levelOf } from '../data/pilot.js';
 import { escHtml } from '../core/html.js';
 import { SFX } from '../audio/audio.js';
@@ -17,16 +17,22 @@ const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 function normalizeSave(o) {
   if (!o || typeof o !== 'object' || !o.asm || typeof o.asm !== 'object') return null;
   const asm = {};
-  for (const k in START_ASM) asm[k] = typeof o.asm[k] === 'string' ? o.asm[k] : START_ASM[k];
-  const owned = Array.isArray(o.owned) ? o.owned.filter((x) => typeof x === 'string') : START_OWNED.slice();
+  for (const k in START_ASM) {
+    const v = typeof o.asm[k] === 'string' ? o.asm[k] : START_ASM[k];
+    asm[k] = REMOVED[v] || v;
+  }
+  let coam = num(o.coam);
+  let owned = Array.isArray(o.owned) ? o.owned.filter((x) => typeof x === 'string') : START_OWNED.slice();
+  for (const id of owned) if (REFUND[id]) coam += REFUND[id];
+  owned = owned.filter((id) => !REMOVED[id]);
+  for (const id of START_OWNED) if (!owned.includes(id)) owned.push(id);
   for (const id of ['cs_none', 'cs_bomber', 'cs_ally']) if (!owned.includes(id)) owned.push(id);
-  for (const id of START_CUBEE) if (!owned.includes(id)) owned.push(id); // 舊存檔也拿到初始機 CUBEE 的零件
   const items = {};
   const src = o.items && typeof o.items === 'object' ? o.items : { cs_bomber: 2, cs_ally: 1 };
   for (const k in src) items[k] = Math.max(0, num(src[k]));
   return {
     ...o,
-    coam: num(o.coam),
+    coam,
     owned,
     asm,
     items,

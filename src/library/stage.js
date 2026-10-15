@@ -4,7 +4,7 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { checkGlb, checkSummary, glbScene, matsOf, parseGlb } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
 import { measureBox, modelStats } from '../render/measure.js';
-import { STD_ASM } from '../data/parts.js';
+import { START_ASM } from '../data/parts.js';
 import { PIECE_ORIGIN, buildMech, mechPieces } from '../render/mech-model.js';
 import { setModelProvider } from '../render/model-provider.js';
 
@@ -216,13 +216,13 @@ export const prepareSource = (entry, palKey, src, store) =>
         ? prepareGlbModel(entry, palKey, src)
         : Promise.resolve(prepareModel(entry, palKey));
 
-// 組合預覽：標準零件的組合（STD_ASM）換上此區塊所屬的零件，所有區塊依各自來源（GLB／程式模型）組裝
+// 組合預覽：玩家初始機（START_ASM）換上此區塊所屬的零件，所有區塊依各自來源（GLB／程式模型）組裝
 export const COMPOSE_CATS = ['head', 'core', 'arms', 'legs', 'booster', 'weapon', 'back'];
 // 組合預覽的零件組合：目前模型組記住的組合（組裝調整頁）換上這個零件
 export function composeAsm(entry, base) {
   const k = entry.piece && entry.piece.key;
-  const asm = { ...STD_ASM };
-  for (const key in STD_ASM) if (base && typeof base[key] === 'string') asm[key] = base[key];
+  const asm = { ...START_ASM };
+  for (const key in START_ASM) if (base && typeof base[key] === 'string') asm[key] = base[key];
   if (entry.cat === 'weapon') return { ...asm, [k === 'l' ? 'larm' : 'rarm']: entry.part };
   if (entry.cat === 'back') return { ...asm, [k === 'l' ? 'lback' : 'rback']: entry.part };
   return { ...asm, [entry.cat]: entry.part };

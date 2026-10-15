@@ -170,28 +170,6 @@ async function newCareer(page, slot = 1) {
   await page.click(`${card} [data-act="new"]`);
 }
 
-// 測試用的 GLB 放在標準零件的槽位：玩家機甲（初始機是 CUBEE）換回標準零件並寫進存檔（頁面要用 ?test 開）
-const STD_FRAME = {
-  head: 'h_std',
-  core: 'c_std',
-  arms: 'a_std',
-  legs: 'l_bp',
-  booster: 'b_std',
-  rarm: 'w_rifle',
-  rback: 'bw_ms',
-};
-async function useStdMech(page, garage = false) {
-  await page.evaluate(
-    ([std, garage]) => {
-      const g = window.__game;
-      Object.assign(g.save.asm, std);
-      g.writeSave();
-      if (garage) g.openGarage();
-    },
-    [STD_FRAME, garage],
-  );
-}
-
 async function playFor(page, ms) {
   // 往前走、射擊，讓遊戲邏輯與渲染實際跑起來
   await page.mouse.move(640, 360);
@@ -2092,13 +2070,9 @@ async function testEditor(browser, base) {
   await page.setInputFiles('#edFile', fp);
   await wait(1500);
   check((await stats()).includes('100%／100%／100%'), '載入範本：尺寸與程式模型相同');
-  const dims0 = (await stats()).match(/([\d.]+) × ([\d.]+) × ([\d.]+)/) || [];
   await page.click('#edRot button[data-ax="y"][data-deg="90"]');
   await wait(300);
-  check(
-    (await stats()).includes(`${dims0[3]} × ${dims0[2]} × ${dims0[1]}`),
-    `Y +90° 旋轉後寬深對調（${await stats()}）`,
-  );
+  check((await stats()).includes('0.42 × 0.60 × 0.59'), `Y +90° 旋轉後寬深對調（${await stats()}）`);
   await page.click('#edRot button[data-ax="y"][data-deg="-90"]');
   await page.fill('#edScaleK', '3');
   await page.click('#edScaleGo');
@@ -3203,7 +3177,7 @@ async function testLocalModels(browser, base) {
   const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
   if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
   const { ctx, page } = await newPage(browser, 'local-models');
-  await page.goto(base + '?test');
+  await page.goto(base);
   check(await waitVisible(page, 'title'), '標題畫面顯示');
   await page.click('#btnLmReload');
   await wait(300);
@@ -3308,7 +3282,6 @@ async function testLocalModels(browser, base) {
   // 車庫與出擊
   await newCareer(page);
   check(await waitVisible(page, 'garage'), '車庫畫面顯示');
-  await useStdMech(page, true); // 測試用的 GLB 是標準零件的槽位
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
   const note = (await page.textContent('#gLocal')) || '';
@@ -3876,7 +3849,6 @@ async function testServerModels(browser, url) {
   await waitVisible(game, 'title');
   await newCareer(game);
   check(await waitVisible(game, 'garage'), '車庫畫面顯示');
-  await useStdMech(game, true); // 測試用的 GLB 是標準零件的槽位
   await wait(1500);
   t = (await game.textContent('#gLocal')) || '';
   check(t.includes('伺服器預設組：此機'), `沒選本地模型組時，車庫的機甲用伺服器預設組（${t.trim()}）`);
@@ -3931,8 +3903,6 @@ async function testServerModels(browser, url) {
   watch(cli, 'srv-mp-client');
   await host.goto(url + '?test');
   await cli.goto(url + '?test');
-  await useStdMech(host);
-  await useStdMech(cli);
   await host.click('#btnMP');
   await setNick(host, 'HOSTA');
   await host.click('#btnMPHost');
@@ -7913,9 +7883,8 @@ async function testAim(browser, base) {
     }
     out.hint = document.getElementById('lockHint').textContent;
     // 靶場的分距離命中率與有效率
-    const wid = g.save.asm.rarm; // 右手的武器（初始機是 CUBEE 的雙管步槍）
-    for (let i = 0; i < 4; i++) g.rangeShot(wid);
-    for (let i = 0; i < 3; i++) t.takeDamage(500, 0, p3, t.center(), null, undefined, wid);
+    for (let i = 0; i < 4; i++) g.rangeShot('w_rifle');
+    for (let i = 0; i < 3; i++) t.takeDamage(500, 0, p3, t.center(), null, undefined, 'w_rifle');
     g.rangePanelRender();
     out.panel = document.getElementById('rangePanel').textContent;
     out.band = g.rangeSummary().band;

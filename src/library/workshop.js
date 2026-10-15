@@ -4,7 +4,7 @@
 // - 右：依組裝層級列出所有區塊與連接點
 // 連接點的修改和區塊檢視窗共用同一份關節設定（GlbStore.joints，存在瀏覽器，可匯出 joints.json）。
 import { escHtml } from '../core/html.js';
-import { PARTS, STD_ASM, partById } from '../data/parts.js';
+import { PARTS, START_ASM, partById } from '../data/parts.js';
 import { PALETTES } from '../render/materials.js';
 import {
   CONN_NAMES,
@@ -62,7 +62,7 @@ export function slotPieces(key, asm) {
 const pieceLabel = (info) => (info.key ? SIDE_NAMES[info.key] : '') + (PIECE_NAMES[info.kind] || info.kind);
 // 只保留目前零件表裡存在的零件（匯入的預組可能來自舊版）
 export function sanitizeAsm(asm) {
-  const out = { ...STD_ASM };
+  const out = { ...START_ASM };
   for (const [key, , list] of WS_SLOTS) if (asm && partById(list, asm[key])) out[key] = asm[key];
   return out;
 }
@@ -99,7 +99,7 @@ export class Workshop {
     this.glbSlots = new Set(); // 目前畫面上用 GLB 的槽位
     this.onClose = onClose;
     this.toast = toast;
-    this.asm = { ...STD_ASM };
+    this.asm = { ...START_ASM };
     this.srcOff = new Set(); // 強制用程式模型的槽位
     this.anim = 'rest';
     this.t = 0;

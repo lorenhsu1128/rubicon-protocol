@@ -1,5 +1,5 @@
 // 駕駛員成長：等級、技能配點驗證、加成計算與套用（純函式，房主與客機共用）
-import { PARTS } from './parts.js';
+import { PARTS, REMOVED_PARTS } from './parts.js';
 import {
   PILOT_MAX_LEVEL,
   PRESET_MAX,
@@ -140,7 +140,7 @@ function normalizePreset(p) {
   if (!p || typeof p !== 'object' || !p.asm || typeof p.asm !== 'object') return null;
   return {
     name: String(p.name || '').slice(0, 16),
-    asm: { ...p.asm },
+    asm: Object.fromEntries(Object.entries(p.asm).map(([k, v]) => [k, REMOVED_PARTS[v] || v])),
     skills: p.skills && typeof p.skills === 'object' ? { ...p.skills } : {},
     t: p.t || 0,
   };

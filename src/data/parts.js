@@ -48,17 +48,6 @@ export const PARTS = {
       stab: 110,
       desc: '鎖定距離 +15%',
     },
-    {
-      id: 'h_cubee',
-      name: 'HD-CB01 CUBEE',
-      defs: [110, 110, 110],
-      ap: 900,
-      weight: 340,
-      en: 180,
-      price: 0,
-      stab: 120,
-      desc: 'CUBEE AC-01 的頭部（玩家初始機，數值同 HD-011）',
-    },
   ],
   core: [
     {
@@ -116,17 +105,6 @@ export const PARTS = {
       stab: 380,
       desc: '能量防禦特化',
     },
-    {
-      id: 'c_cubee',
-      name: 'BD-CB01 CUBEE',
-      defs: [300, 300, 300],
-      ap: 2900,
-      weight: 2600,
-      en: 330,
-      price: 0,
-      stab: 420,
-      desc: 'CUBEE AC-01 的核心（玩家初始機，數值同 BD-011）',
-    },
   ],
   arms: [
     {
@@ -180,19 +158,6 @@ export const PARTS = {
       aim: 0.6,
       melee: 1.5,
       desc: '近戰傷害 +50%',
-    },
-    {
-      id: 'a_cubee',
-      name: 'AR-CB01 CUBEE',
-      defs: [110, 110, 110],
-      ap: 2200,
-      weight: 1900,
-      en: 230,
-      price: 0,
-      stab: 300,
-      aim: 0.7,
-      melee: 1.0,
-      desc: 'CUBEE AC-01 的手臂（玩家初始機，數值同 AR-011）',
     },
   ],
   legs: [
@@ -310,25 +275,6 @@ export const PARTS = {
       price: 62000,
       desc: '重裝二足：高耐久、高負重、高穩定，較慢、跳得低',
     },
-    {
-      id: 'l_cubee',
-      name: 'LG-CB01 CUBEE 二足',
-      defs: [120, 120, 120],
-      type: 'biped',
-      ap: 3800,
-      weight: 4200,
-      en: 360,
-      load: 52000,
-      speed: 21,
-      jumpH: 4.5,
-      jumpT: 0.46,
-      airH: 4,
-      airT: 0.4,
-      airN: 2,
-      stab: 900,
-      price: 0,
-      desc: 'CUBEE AC-01 的腳部（玩家初始機，數值同 LG-011）',
-    },
   ],
   booster: [
     {
@@ -363,17 +309,6 @@ export const PARTS = {
       en: 250,
       price: 42000,
       desc: 'QB 耗能低',
-    },
-    {
-      id: 'b_cubee',
-      name: 'BST-CB01 CUBEE',
-      thrust: 1.0,
-      qb: 62,
-      qbCost: 170,
-      weight: 1600,
-      en: 280,
-      price: 0,
-      desc: 'CUBEE AC-01 的背包（玩家初始機，數值同 BST-G1）',
     },
   ],
   generator: [
@@ -924,27 +859,6 @@ export const PARTS = {
       desc: '手持的拋射爆發武器',
       color: 0xffa040,
     },
-    {
-      id: 'w_crifle',
-      name: 'AR-CB 雙管突擊步槍',
-      ideal: 45,
-      direct: 1.4,
-      type: 'bullet',
-      dmg: 110,
-      impact: 130,
-      rof: 0.085,
-      mag: 24,
-      ammo: 600,
-      reload: 1.6,
-      range: 70,
-      speed: 95,
-      spread: 0.03,
-      weight: 3200,
-      en: 150,
-      price: 0,
-      color: 0xffd28a,
-      desc: 'CUBEE AC-01 的上下雙管步槍（數值同 RF-024）',
-    },
   ],
   back: [
     { id: 'bw_none', name: '（空）', type: 'none', weight: 0, en: 0, price: 0 },
@@ -1127,49 +1041,6 @@ export const PARTS = {
       desc: '六連能量導彈，依發電機的能量適性加成',
       color: 0x8fd8ff,
     },
-    {
-      id: 'bw_cms',
-      name: 'MP-CB9 九連導彈莢',
-      direct: 1.5,
-      type: 'missile',
-      dmg: 140,
-      impact: 160,
-      count: 4,
-      rof: 1.5,
-      mag: 4,
-      ammo: 160,
-      reload: 1.6,
-      range: 80,
-      speed: 46,
-      turn: 3.2,
-      splash: 2.6,
-      weight: 2800,
-      en: 220,
-      price: 0,
-      color: 0xffb3b3,
-      desc: 'CUBEE AC-01 的 3×3 導彈莢（數值同 MS-4）',
-    },
-    {
-      id: 'bw_cqc',
-      name: 'QC-CB4 四聯砲',
-      ideal: 40,
-      direct: 1.6,
-      type: 'bullet',
-      dmg: 150,
-      impact: 240,
-      rof: 0.16,
-      mag: 40,
-      ammo: 480,
-      reload: 2.8,
-      range: 65,
-      speed: 120,
-      spread: 0.05,
-      weight: 5600,
-      en: 400,
-      price: 55000,
-      desc: 'CUBEE AC-01 的 2×2 肩砲：高衝擊的連射',
-      color: 0xffe0a0,
-    },
   ],
 };
 export const CONSUMABLES = [
@@ -1252,8 +1123,7 @@ export const SLOTS = [
   ['generator', '發電機', 'generator'],
   ['fcs', '火控', 'fcs'],
 ];
-// 標準零件的組合（以前的初始機）：模型庫的組裝調整、組合預覽、GLB 編輯器的拆分以它為基準（GLB 製作規格照標準零件）
-export const STD_ASM = {
+export const START_ASM = {
   c1: 'cs_bomber',
   c2: 'cs_ally',
   head: 'h_std',
@@ -1268,26 +1138,7 @@ export const STD_ASM = {
   rback: 'bw_ms',
   lback: 'bw_none',
 };
-// 玩家初始機：CUBEE AC-01（數值同標準零件）
-export const START_ASM = {
-  c1: 'cs_bomber',
-  c2: 'cs_ally',
-  head: 'h_cubee',
-  core: 'c_cubee',
-  arms: 'a_cubee',
-  legs: 'l_cubee',
-  booster: 'b_cubee',
-  generator: 'g_std',
-  fcs: 'f_std',
-  rarm: 'w_crifle',
-  larm: 'w_hg',
-  rback: 'bw_cms',
-  lback: 'bw_none',
-};
-// 玩家初始機是 CUBEE AC-01（數值同標準零件）；標準零件也一開始就擁有
-export const START_CUBEE = ['h_cubee', 'c_cubee', 'a_cubee', 'l_cubee', 'b_cubee', 'w_crifle', 'bw_cms'];
 export const START_OWNED = [
-  ...START_CUBEE,
   'h_std',
   'c_std',
   'a_std',
@@ -1306,6 +1157,18 @@ export const START_OWNED = [
   'cs_ally',
 ];
 
+// 移除的零件（CUBEE AC-01）：讀檔時換成對應的標準零件（存檔、預設組），買過的退款
+export const REMOVED_PARTS = {
+  h_cubee: 'h_std',
+  c_cubee: 'c_std',
+  a_cubee: 'a_std',
+  l_cubee: 'l_bp',
+  b_cubee: 'b_std',
+  w_crifle: 'w_rifle',
+  bw_cms: 'bw_ms',
+  bw_cqc: 'bw_none',
+};
+export const REMOVED_REFUND = { bw_cqc: 55000 };
 export function partById(cat, id) {
   return PARTS[cat].find((p) => p.id === id) || PARTS[cat][0];
 }

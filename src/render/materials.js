@@ -189,9 +189,9 @@ function makeDecalTexture() {
     x.fillStyle = '#e8e2d0';
     x.font = 'bold 34px Chakra Petch, sans-serif';
     x.textAlign = 'center';
-    x.fillText('CUBEE', 64, 58);
+    x.fillText('POWER', 64, 58);
     x.font = 'bold 24px Chakra Petch, sans-serif';
-    x.fillText('AC-01', 64, 92);
+    x.fillText('UNIT-5', 64, 92);
     x.fillRect(16, 66, 96, 3);
   });
   tile(6, () => {

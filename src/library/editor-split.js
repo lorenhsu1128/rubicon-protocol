@@ -5,7 +5,7 @@
 //    （父子區塊；其他重疊的區塊以兩框中心連線的中垂面切開）。之後可以框選改分配或排除、平面切割微調。
 // 3. 存檔：每個區塊轉成「拉直靜止姿勢」下該區塊的區域座標（原點＝旋轉中心）存進各自的槽位。
 import { escHtml } from '../core/html.js';
-import { PARTS, STD_ASM } from '../data/parts.js';
+import { PARTS, START_ASM } from '../data/parts.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { budgetFor } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
@@ -43,7 +43,7 @@ export class SplitTool {
     this.ed = ed;
     this.active = false; // 拆分模式（對齊階段起）
     this.cutting = false; // 分配階段（已建立三角形湯）
-    this.asm = { ...STD_ASM };
+    this.asm = { ...START_ASM };
     this.off = new Set(); // 不參與分配的區塊槽位
     this.quick = { arm: 0, elbow: 0, leg: 0, knee: 0 };
     this.pose = {}; // 槽位 → [x, y, z]°（加在快速姿勢之上）
