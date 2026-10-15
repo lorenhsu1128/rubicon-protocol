@@ -15,6 +15,7 @@ export class Projectile {
     this.p0 = this.pos.clone(); // 發射點（實彈的距離衰減）
     const col = o.color || 0xffe0a0;
     this.mesh = buildProjectileMesh(o.kind, col, this.vel.length());
+    if (o.scale) this.mesh.scale.setScalar(o.scale); // 外觀的放大（誘導飛彈架的大型飛彈；客機以 proj 事件的 sc 照做）
     this.mesh.position.copy(this.pos);
     game.scene.add(this.mesh);
     this.orient();
@@ -34,8 +35,12 @@ export class Projectile {
         tg: this.target ? this.target.id : -1,
         tn: this.turn,
         bd: this.bend ? +this.bend.toFixed(3) : undefined,
+        sh: this.shootable || undefined, // 可以打掉的投射物：血量與判定半徑（game/hazards2.js）
+        sr: this.shootable ? this.shotR : undefined,
+        sc: this.scale || undefined,
       });
     }
+    if (this.shootable) game.shotInit(this); // 代理目標（鎖定、子彈與爆炸打得到）
   }
   orient() {
     if (this.kind === 'crate') {
@@ -114,7 +119,7 @@ export class Projectile {
     if (g.projBlock(this, prev)) return;
     // swept hits: closest point on segment prev→pos to target sphere
     const targets = (this.allTeams ? g.everyone(this.owner) : g.hostilesOf(this.team, this.owner)).concat(
-      g.destructibles(),
+      g.destructibles(this.team),
     );
     const seg = this.pos.clone().sub(prev);
     const segL2 = seg.lengthSq();
@@ -146,6 +151,8 @@ export class Projectile {
     this.dead = true;
     g.scene.remove(this.mesh);
     if (this.netId) g.netEv({ t: 'pend', i: this.netId });
+    // 臨時障礙物受傷、爆炸點燃油漬（game/hazards2.js）
+    if (!direct || this.splash > 0) g.hz2Blast(this.pos, this.dmg, this.splash, this.attr);
     if (this.splash > 0) {
       g.fx.explosion(this.pos, this.splash * 0.9, 0xffa040, this.splash > 4);
       SFX.explode(this.splash > 4, this.pos);
@@ -157,7 +164,7 @@ export class Projectile {
         this.splash * 4 + 14,
       );
       const targets = (this.allTeams ? g.everyone(this.owner) : g.hostilesOf(this.team, this.owner)).concat(
-        g.destructibles(),
+        g.destructibles(this.team),
       );
       for (const t of targets) {
         if (t.dead) continue;

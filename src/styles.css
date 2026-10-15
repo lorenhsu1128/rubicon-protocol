@@ -3512,3 +3512,127 @@ body.edPicking #edTrig {
   font-size: 11px;
   margin-left: auto;
 }
+
+/* 狀態效果（game/status-hud.js）：畫面中下方的狀態列（圖示、倒數條、掙脫提示）與畫面邊緣的光暈 */
+#stsEdge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+}
+#stsHud {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 4;
+}
+#stsHud.on {
+  display: flex;
+}
+.stsI {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+  padding: 5px 10px 5px 5px;
+  background: rgba(6, 10, 16, 0.72);
+  border: 1px solid var(--c);
+  box-shadow: 0 0 12px var(--c);
+}
+.stsI.esc {
+  animation: stsPulse 0.6s ease-in-out infinite alternate;
+}
+.stsI > i {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  font-style: normal;
+  font-size: 21px;
+  font-weight: 700;
+  color: #0a0d12;
+  background: var(--c);
+}
+.stsI > div {
+  flex: 1;
+  min-width: 0;
+}
+.stsI b {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--c);
+}
+.stsI b em {
+  font-style: normal;
+  color: #fff;
+}
+.stsI .tb {
+  display: block;
+  height: 4px;
+  margin: 3px 0;
+  background: rgba(255, 255, 255, 0.15);
+}
+.stsI .tb s {
+  display: block;
+  height: 100%;
+  background: var(--c);
+  text-decoration: none;
+}
+.stsI small {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 6px var(--c);
+  white-space: nowrap;
+}
+.stsI:not(.esc) small {
+  font-weight: 400;
+  color: #d8dde6;
+}
+@keyframes stsPulse {
+  from {
+    box-shadow: 0 0 6px var(--c);
+  }
+  to {
+    box-shadow: 0 0 22px var(--c);
+  }
+}
+body.vpad #stsHud {
+  bottom: auto;
+  top: 54%;
+}
+@media (max-height: 540px) {
+  #stsHud {
+    bottom: 34px;
+    gap: 3px;
+  }
+  body.vpad #stsHud {
+    top: 46%;
+  }
+  .stsI {
+    min-width: 0;
+    gap: 5px;
+    padding: 3px 6px 3px 3px;
+  }
+  .stsI > i {
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+  }
+  .stsI b,
+  .stsI small {
+    font-size: 10px;
+  }
+}

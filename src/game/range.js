@@ -630,7 +630,7 @@ Object.assign(Game.prototype, {
       cfg = this.rangeCfgGet();
     const row = (a, b) => `<div><span>${escHtml(a)}</span><b>${b}</b></div>`;
     const t0 = (this.range.targets || []).find((e) => !e.dead) || (this.range.targets || [])[0];
-    const weak = t0 && t0.res ? weakText(t0.res) : '';
+    const weak = t0 && (t0.res || t0.laserK !== 1) ? weakText(t0.res, t0.laserK) : '';
     // 觸控：沒有鍵盤，用面板上的按鈕（input.js 接 data-ra）；收合時只留主要數據
     const touch = this.vpadWanted();
     const mini = touch && this.rangeMini;

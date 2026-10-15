@@ -26,6 +26,7 @@ import './game/shockwave.js';
 import './game/support.js';
 import './game/bosses.js';
 import './game/bosses2.js';
+import './game/hazards2.js';
 import './game/first-person.js';
 import './game/chase.js';
 import './game/pad-ui.js';
@@ -51,6 +52,12 @@ import './game/range.js';
 import './game/campaign-mp.js';
 import './entities/mech-objective.js';
 import './entities/mech-foe.js';
+import './entities/mech-status.js';
+import './entities/mech-foe-d2.js';
+import './entities/mech-foe-b1.js';
+import './entities/mech-foe-b2.js'; // 擴充：第 2 章的新敵人（B2）
+import './entities/mech-foe-c1.js';
+import './entities/mech-foe-c2.js'; // 地圖專屬敵人擴充（C2 組）
 import './game/sim.js';
 import './game/waves.js';
 import './game/ai-director.js';
@@ -60,6 +67,7 @@ import './entities/mech-moves.js';
 import './game/outposts.js';
 import './game/feedback.js';
 import './game/juice.js';
+import './game/status-hud.js';
 import './game/textfx.js';
 import './game/level-play.js';
 import './game/level-net.js';

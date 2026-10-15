@@ -614,6 +614,7 @@ Object.assign(Game.prototype, {
         speedMul: d.speedMul,
         explodeOnDeath: d.explodeOnDeath,
         res: d.res,
+        laserK: d.laserK,
         foe: d.foe,
         perch: d.perch,
         extraWeapons: d.extraWeapons,
@@ -881,7 +882,12 @@ Object.assign(Game.prototype, {
     const rows = [
       ['戰區', this.levelName],
       ['任務時間', this.missionT.toFixed(1) + ' s'],
-      ['擊破數', this.enemies.filter((e) => e.dead).length + ' / ' + this.enemies.length],
+      [
+        '擊破數',
+        this.enemies.filter((e) => e.dead && !e.decoy).length +
+          ' / ' +
+          this.enemies.filter((e) => !e.decoy).length,
+      ],
       ['受損 AP', Math.round(p.dmgTaken)],
       ['擊破獎金（已即時入帳）', '+' + earned.toLocaleString()],
       ['任務完成獎金', '+' + bonus.toLocaleString()],

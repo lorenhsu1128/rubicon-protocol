@@ -2482,6 +2482,7 @@ export class World {
   // 方塊略縮 0.85 倍，邊角擦過不算擋住；細的柱子（半徑 1 m 以下）不擋
   losBlocked(a, b) {
     if (this.terrainBlocks(a, b, 12)) return true;
+    if (this.losHook && this.losHook(a, b)) return true; // 煙霧（game/hazards2.js 的區域效果）
     const dx = b.x - a.x,
       dy = b.y - a.y,
       dz = b.z - a.z;

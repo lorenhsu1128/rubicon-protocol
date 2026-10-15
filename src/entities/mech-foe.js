@@ -14,12 +14,28 @@
 // rammer 衝撞無人機（預警後衝撞、往外推）、flak 艦載防空砲（專打空中）、undertow 專屬 AC UNDERTOW（貼身往外推）。
 // vacuum 真空作業機（懸浮、改變高度閃避）、marker 軌道標定衛星（標定目標＝markT，受傷 ×1.3）、zenith 專屬 AC ZENITH（空戰）。
 // 行為只在房主／單機執行；外殼量以 sx 同步給客機（顯示外殼大小）。
+// 擴充組（地圖專屬敵人擴充 B1／B2／C1／C2：data/foes-<組>.js、entities/mech-foe-<組>.js）的分派一律經過 foeExt：
+// ai → 組的後綴（EXT_AI），呼叫 foeMove_<組>／foeFire_<組>／foeDefense_<組>／foeFx_<組>（回傳 undefined＝不是那一組的）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { FOES_b1 } from '../data/foes-b1.js';
+import { FOES_b2 } from '../data/foes-b2.js';
+import { FOES_C1 } from '../data/foes-c1.js';
+import { FOES_C2 } from '../data/foes-c2.js';
 import { MechEntity } from './mech-entity.js';
 import { Projectile } from './projectile.js';
 
 const SHELL_K = 0.8; // 外殼吸收的比例
+// 擴充組的 ai → 方法後綴（全像投影器投出的假敵人 holofake 不在 FOES 裡，另外登記）
+const EXT_AI = new Map([['holofake', '_c1']]);
+for (const [k, T] of [
+  ['_b1', FOES_b1],
+  ['_b2', FOES_b2],
+  ['_c1', FOES_C1],
+  ['_c2', FOES_C2],
+])
+  for (const d of Object.values(T)) EXT_AI.set(d.ai, k);
+const _d1v = new THREE.Vector3();
 const HIDE_AI = new Set(['burrow', 'gunboat', 'marsh', 'lurker', 'whiteout']); // 會隱藏（不能鎖定）的
 const DRILL_R = 3.6; // 鑽擊距離
 // 近戰命中的參數（takeDamage 的 melee：kb＝擊退速度；不能只傳 true，否則擊退是 NaN）
@@ -30,6 +46,13 @@ const DRILL_HIT = { kb: 9 },
   BITE_BIG = { kb: 12 };
 
 Object.assign(MechEntity.prototype, {
+  // 擴充組的分派：fn 是 'foeMove'／'foeFire'／'foeDefense'／'foeFx'；不是擴充組的敵人回傳 undefined
+  foeExt(fn, ...a) {
+    const k = EXT_AI.get(this.ai);
+    if (!k) return undefined;
+    const f = this[fn + k];
+    return f ? f.apply(this, a) : undefined;
+  },
   // aiSpecialMove 轉過來：回傳 null＝不是這裡的
   foeMove(dt, d, dir, perp, wish, pl) {
     const s = this.aiState;
@@ -178,7 +201,8 @@ Object.assign(MechEntity.prototype, {
       s.loaded = false;
     }
     if (!s.loaded && s.crT < 2.5) s.loaded = true;
-    this.bossVis = s.loaded ? 1 : 0;
+    // 2＝快要丟出（模型的預警動作：render/foe-models.js 的 animD1）
+    this.bossVis = (s.loaded ? 1 : 0) | (s.loaded && s.crT < 1.2 && d < 70 ? 2 : 0);
     return true;
   },
   // 叉架 MT：舉著貨櫃時往前推進，到 20 m 內丟出；7 秒後再舉起一個（沒有貨櫃時保持距離）
@@ -212,7 +236,7 @@ Object.assign(MechEntity.prototype, {
       s.reT = 7;
       s.thT = 3;
     }
-    this.bossVis = s.hold ? 1 : 0;
+    this.bossVis = (s.hold ? 1 : 0) | (s.hold && s.thT < 1 && d < 20 ? 2 : 0); // 2＝快要丟出（模型的預警）
     this.stuckJump(dt, r);
     return r;
   },
@@ -335,6 +359,7 @@ Object.assign(MechEntity.prototype, {
       g.netEv({ t: 'warn', p: at.toArray().map((x) => +x.toFixed(2)), R: 4.5, dl: 1, c: 0x9aff40 });
       g.later(1, () => g.addPool(this, at, 4.5, 10, 50 * this.dmgMul, true));
     }
+    this.bossVis = s.spT < 1 && d < 26 ? 1 : 0; // 1＝快要噴（模型的預警：噴嘴臂抬起、噴口變亮）
     this.stuckJump(dt, r);
     return r;
   },
@@ -876,7 +901,7 @@ Object.assign(MechEntity.prototype, {
     return r;
   },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
-  foeFx() {
+  foeFx(dt) {
     if (HIDE_AI.has(this.ai)) {
       // 沙下／水下／雪裡（MARSH 的潛行、WHITEOUT 的隱形是 bossVis 2）
       const under = !!(this.bossVis & (this.ai === 'marsh' || this.ai === 'whiteout' ? 2 : 1)) && !this.dead;
@@ -890,6 +915,70 @@ Object.assign(MechEntity.prototype, {
       this.game.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xff3a30);
     if (this.model.wheel && this.bossVis & 1) this.model.wheel.rotation.x += 0.15; // 閘門砲台開閘前轉動捲揚輪
     if (this.model.crate) this.model.crate.visible = !!(this.bossVis & 1) && !this.dead; // 吊著／舉著的貨櫃
+    if (this.model.animD1) this.foeAnimD1(dt);
+  },
+  // 第 1、2 章專屬敵人模型的動作（房主與客機每格；動作本身是模型的 rig.animD1，render/foe-models.js）。
+  // 預警：bossVis 的位元（房主設定、隨快照同步）或最近敵對目標的距離；攻擊：bossVis 位元 1 剛結束
+  // （丟出貨櫃、開閘、鑽出地面、噴出）或剛從自己的槍口射出的子彈（房主與客機都有投射物，各端自己判斷）
+  foeAnimD1(dt) {
+    const m = this.model;
+    if (this.dead || !(dt > 0)) return;
+    const g = this.game;
+    const a = this.d1a || (this.d1a = { t: 0, warn: 0, atk: 0, near: 99, nT: 0, pv: this.bossVis || 0 });
+    a.t += dt;
+    if ((a.nT -= dt) <= 0) {
+      a.nT = 0.25;
+      a.near = 99;
+      for (const t of g.hostilesOfEnt(this))
+        if (!t.dead && !t.isProp) a.near = Math.min(a.near, t.pos.distanceTo(this.pos));
+    }
+    const v = this.bossVis || 0,
+      fall = !!(a.pv & 1) && !(v & 1);
+    a.pv = v;
+    let w = 0;
+    switch (m.type) {
+      case 'cart':
+        w = clamp((16 - a.near) / 10, 0, 1);
+        break;
+      case 'crystal':
+      case 'jammer':
+        w = a.near < (m.type === 'jammer' ? 25 : 24) ? 1 : 0;
+        break;
+      case 'driller':
+        w = a.near < 8 ? 1 : 0;
+        break;
+      case 'junk':
+        w = a.near < 9 ? 1 : 0;
+        break;
+      case 'patrol_cart':
+        w = a.near < 45 ? 1 : 0;
+        break;
+      case 'crane':
+      case 'forklift':
+        w = v & 2 ? 1 : 0;
+        break;
+      case 'gate_turret':
+      case 'sprayer':
+        w = v & 1 ? 1 : 0;
+        break;
+      case 'gunboat':
+        w = v & 1 ? 0 : 1; // 浮出水面時魚雷管打開
+        break;
+    }
+    let k = fall && m.type !== 'gunboat' ? 1 : 0;
+    if (m.type === 'driller' && a.near < 3.8) k = 1; // 鑽擊距離（mech-foe.js 的 DRILL_R）
+    if (!k) {
+      const mz = m.arms.r.hand.getWorldPosition(_d1v);
+      for (const p of g.projectiles)
+        if (!(p.age > 0.1) && p.team === this.team && p.p0 && p.p0.distanceToSquared(mz) < 9) {
+          k = 1;
+          break;
+        }
+    }
+    a.warn += (w - a.warn) * Math.min(1, dt * 6);
+    a.atk = k ? 1 : Math.max(0, a.atk - dt * 2.2);
+    const fwd = -(this.vel.x * Math.sin(this.yaw) + this.vel.z * Math.cos(this.yaw));
+    m.animD1(m, { t: a.t, dt, warn: a.warn, atk: a.atk, fwd, vis: v, remote: !!this.remote });
   },
   foeShellInit() {
     if (this.shell !== undefined) return;
@@ -913,6 +1002,7 @@ Object.assign(MechEntity.prototype, {
   },
   // specialDefense 先呼叫：外殼還在時吸收大部分傷害
   foeDefense(dmg, impact, from, at, melee) {
+    if (EXT_AI.has(this.ai)) return this.foeExt('foeDefense', dmg, impact, from, at, melee) || [dmg, impact];
     if ((this.ai === 'burrow' || this.ai === 'gunboat') && this.bossVis & 1) return [0, 0]; // 在沙下／潛航中
     if (this.ai === 'forklift') return this.foeCrateGuard(dmg, impact, from, at, melee);
     if (this.ai === 'lurker' && this.aiState.lk === 'hide') this.aiState.hit = true; // 被打中就現身

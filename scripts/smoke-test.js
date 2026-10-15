@@ -7248,6 +7248,451 @@ async function testChapter5(browser, base) {
   await ctx.close();
 }
 
+// 地圖專屬敵人擴充（C2 組）：燃料洩漏車、誘導飛彈架（舊宇宙港）、拋網無人機、迴旋刃無人機（洋上都市）、
+// 反射鏡衛星、聚光鏡陣列（高空軌道）——各自生成、觸發招式（預警 → 攻擊）、截圖；模型庫三視角截圖與三角面數
+async function testFoesC2(browser, base) {
+  console.log('地圖專屬敵人擴充（C2）：舊宇宙港、洋上都市、高空軌道的新敵人');
+  const { ctx, page } = await newPage(browser, 'foesc2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const enter = (theme) =>
+    page.evaluate((theme) => {
+      const g = window.__game;
+      if (g.camp) g.campEnd(false, true);
+      g.state = 'play';
+      g.campBegin('c1s1');
+      g.campSortie().segs[0].theme = theme;
+      g.camp.plan[0] = { ...g.camp.plan[0], variant: '', landmark: '' };
+      g.camp.types[0] = 'supply';
+      g.camp.seeds[0] = 4242; // 固定地圖（招式的射線與彈道每次都一樣）
+      g.campEnterSeg();
+      g.state = 'foe-test';
+      g.campCleared = () => {}; // 測試中擊破敵人不算區段清除（截圖不被橫幅蓋住）
+      const p = g.player;
+      p.hp = p.maxHp = 1e6;
+      // 共用的場上機制與狀態效果（A 組）：有的話包起來記錄，沒有的話用記錄用的替身
+      window.__zones = [];
+      window.__status = [];
+      if (!g.__c2wrap) {
+        g.__c2wrap = true;
+        const az = g.addZone;
+        g.addZone = (...a) => {
+          window.__zones.push(a[0]);
+          return az ? az.apply(g, a) : window.__zones.length;
+        };
+      }
+      const as = p.addStatus;
+      p.addStatus = (...a) => {
+        window.__status.push(a[0]);
+        return as ? as.apply(p, a) : undefined;
+      };
+      window.__step = (ents, n, stop) => {
+        for (let i = 0; i < n; i++) {
+          g.time += 1 / 60;
+          p.iFrames = 0;
+          for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+          for (const e of ents) if (!e.dead) e.specialFx(1 / 60);
+          for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+          g.projectiles = g.projectiles.filter((q) => !q.dead);
+          g.updateHazards(1 / 60);
+          g.hazards2Tick(1 / 60); // 區域效果（燃料、光束）
+          if (stop && stop()) return i;
+        }
+        return n;
+      };
+      // 玩家附近、不是虛空的地面點（相對玩家 dx, dz；h＝離地高度）
+      window.__at = (dx, dz, h = 0) => {
+        const w = g.world;
+        const r0 = Math.hypot(dx, dz),
+          a0 = Math.atan2(dz, dx);
+        for (let k = 0; k < 72; k++) {
+          const a = a0 + (k % 2 ? 1 : -1) * Math.ceil((k >> 1) / 3) * 0.3;
+          const r = r0 * [1, 0.8, 1.2][(k >> 1) % 3];
+          const x = p.pos.x + Math.cos(a) * r,
+            z = p.pos.z + Math.sin(a) * r;
+          if (w.isVoid && w.isVoid(x, z)) continue;
+          const q = new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 3) + h, z);
+          // 和玩家之間沒有障礙物（招式的射線與彈道不被地圖擋住）
+          if (![1, 3, 4.5].every((y) => g.losClear(q.clone().setY(q.y + y), p.center()))) continue;
+          return q;
+        }
+        return new THREE.Vector3(p.pos.x + dx, p.pos.y + h, p.pos.z + dz);
+      };
+    }, theme);
+  // 截圖：讓主迴圈跑一下（敵人也照常行動），之後停回測試狀態
+  const shot = async (name, ms = 350) => {
+    await page.evaluate(() => {
+      const g = window.__game;
+      if (g.popups) g.popups.length = 0;
+      g.state = 'play';
+    });
+    await page.waitForTimeout(ms);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'foesc2-' + name + '.png') });
+    await page.evaluate(() => (window.__game.state = 'foe-test'));
+  };
+  const clear = () =>
+    page.evaluate(() => {
+      const g = window.__game;
+      for (const e of g.enemies)
+        if (!e.dead) {
+          e.gone = true; // 不觸發擊破時的燃燒
+          e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+        }
+      g.projectiles = [];
+      g.clearHazards();
+      g.player.hp = g.player.maxHp;
+    });
+  // ---- 舊宇宙港 ----
+  await enter('spaceport');
+  const fu = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('fueler', 1, 1, window.__at(0, -9), 1);
+    window.__fu = e;
+    let warned = false;
+    window.__step([e], 900, () => {
+      if (e.bossVis === 1) warned = true;
+      return e.aiState.c2 && e.aiState.c2.n >= 1;
+    });
+    return {
+      n: e.aiState.c2.n,
+      warned,
+      zones: window.__zones.slice(),
+      fuel: (g.zones || []).some((z) => z.k === 'fuel'),
+      later: (g.hzLater || []).length,
+      res: e.res,
+      intro: !!(g.introSeen && g.introSeen.has('fueler')),
+    };
+  });
+  await shot('fueler');
+  const fu2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__fu;
+    e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    const pools = g.hzPools || [];
+    return { dead: e.dead, burst: !!e.c2Burst, big: pools.some((q) => q.R >= 9) };
+  });
+  check(
+    fu.n >= 1 && fu.warned && fu.zones.includes('fuel') && fu.fuel && fu.res && fu.res[0] < 0 && fu.intro,
+    '燃料洩漏車：預警後灑燃料（' + JSON.stringify(fu.zones) + '）、弱點實彈、第一次出現的說明',
+  );
+  check(fu2.dead && fu2.burst && fu2.big, '燃料洩漏車：擊破時原地大範圍燃燒');
+  await shot('fueler-burn', 600);
+  await clear();
+  const mr = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('missilerack', 1, 1, window.__at(-17, -5), 1);
+    window.__mr = e;
+    let warned = false;
+    window.__step([e], 900, () => {
+      if (e.aiState.c2 && e.aiState.c2.ph === 1) warned = true;
+      return warned;
+    });
+    return { warned };
+  });
+  await shot('missilerack-warn', 200);
+  const mr2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      e = window.__mr;
+    const c = e.aiState.c2;
+    c.ph = 1;
+    c.t = 0.01;
+    c.shot = null;
+    // 地圖的障礙物與可破壞物件先拿掉（只測飛彈本身；撞障礙物在下一項）
+    const w = g.world,
+      ob = w.obstacles,
+      pr = w.props;
+    w.obstacles = [];
+    w.props = [];
+    window.__step([e], 300, () => !!c.shot);
+    const m = c.shot;
+    const info = m
+      ? {
+          kind: m.kind,
+          target: m.target === p,
+          shootable: m.shootable,
+          sp: +m.vel.length().toFixed(1),
+          dmg: Math.round(m.dmg),
+        }
+      : null;
+    const tips = e.model.tips.some((t) => !t.visible);
+    const h0 = p.hp;
+    if (m) window.__step([e], 900, () => m.dead);
+    w.obstacles = ob;
+    w.props = pr;
+    return { info, hurt: h0 - p.hp, tips };
+  });
+  check(
+    mr.warned &&
+      mr2.info &&
+      mr2.info.kind === 'missile' &&
+      mr2.info.target &&
+      mr2.info.shootable > 0 &&
+      mr2.info.sp <= 18 &&
+      mr2.tips &&
+      mr2.hurt > 500,
+    '誘導飛彈架：預警線後發射慢速的大型追蹤飛彈（可擊落）、命中高傷害（' +
+      JSON.stringify(mr2.info) +
+      '，傷害 ' +
+      Math.round(mr2.hurt) +
+      '）',
+  );
+  // 繞到障礙物後面：飛彈撞上障礙物就爆炸
+  const mr3 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      e = window.__mr,
+      w = g.world;
+    const c = e.aiState.c2;
+    c.ph = 1;
+    c.t = 0.01;
+    c.shot = null;
+    window.__step([e], 300, () => !!c.shot);
+    const m = c.shot;
+    window.__step([e], 30);
+    // 在飛彈與玩家之間放一道牆
+    const mid = m.pos.clone().lerp(p.center(), 0.5);
+    const y = w.terrainHeight(mid.x, mid.z);
+    const o = { kind: 'box', x: mid.x, z: mid.z, w: 8, d: 8, y, top: y + 40, h: 40 };
+    w.obstacles.push(o);
+    const h0 = p.hp;
+    window.__step([e], 900, () => m.dead);
+    w.obstacles.splice(w.obstacles.indexOf(o), 1);
+    return { dead: m.dead, hurt: h0 - p.hp };
+  });
+  check(
+    mr3.dead && mr3.hurt < 300,
+    '誘導飛彈架：飛彈撞上障礙物就爆炸（甩掉，傷害 ' + Math.round(mr3.hurt) + '）',
+  );
+  await clear();
+  // ---- 洋上都市 ----
+  await enter('xylem');
+  const nt = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('netter', 1, 1, window.__at(13, -5, 3), 1);
+    window.__nt = e;
+    let warned = false;
+    window.__step([e], 900, () => {
+      if (e.aiState.c2 && e.aiState.c2.ph === 1) warned = true;
+      return warned;
+    });
+    return { warned };
+  });
+  await shot('netter-warn', 250);
+  const nt2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      e = window.__nt;
+    const c = e.aiState.c2;
+    if (c.ph !== 1) {
+      c.ph = 0;
+      c.t = 0.01;
+    }
+    const h0 = p.hp;
+    window.__step([e], 900, () => (c.hits || 0) >= 1);
+    return {
+      hits: c.hits || 0,
+      n: c.n || 0,
+      status: window.__status.slice(),
+      net: p.hasStatus('net'),
+      hurt: h0 - p.hp,
+      fly: e.flying,
+    };
+  });
+  check(
+    nt.warned && nt2.hits >= 1 && nt2.status.includes('net') && nt2.net && nt2.hurt > 0,
+    '拋網無人機：預警線後射網，打中套上「網」（' + JSON.stringify(nt2) + '）',
+  );
+  await clear();
+  const bm = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('boomer', 1, 1, window.__at(-14, -5, 3), 1);
+    window.__bm = e;
+    let warned = false;
+    window.__step([e], 900, () => {
+      if (e.aiState.c2 && e.aiState.c2.ph === 1) warned = true;
+      return e.aiState.c2 && e.aiState.c2.ph === 2 && e.aiState.c2.ft > 0.15;
+    });
+    return { warned, bx: !!e.bx, vis: e.model.blade.visible, blade: !!e.c2Blade };
+  });
+  await shot('boomer-throw', 120);
+  const bm2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      e = window.__bm;
+    const c = e.aiState.c2;
+    c.ph = 1;
+    c.t = 0.01;
+    const lead = new THREE.Vector3();
+    const mz = e.muzzle('rarm');
+    c.aimP = p.center().add(lead);
+    c.to = c.aimP.clone().add(p.center().sub(mz).setLength(6));
+    const h0 = p.hp;
+    window.__step([e], 5);
+    window.__step([e], 400, () => c.ph !== 2);
+    return {
+      out: c.hitOut.size,
+      back: c.hitBack.size,
+      hurt: Math.round(h0 - p.hp),
+      caught: c.ph === 0,
+      bx: e.bx,
+    };
+  });
+  check(
+    bm.warned && bm.bx && !bm.vis && bm.blade && bm2.out === 1 && bm2.back === 1 && bm2.caught && !bm2.bx,
+    '迴旋刃無人機：預警後丟出迴旋刃（bx 同步位置），去程與回程各打中一次、飛回本體（' +
+      JSON.stringify(bm2) +
+      '）',
+  );
+  await clear();
+  // ---- 高空軌道 ----
+  await enter('orbit');
+  const mi = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('mirror', 1, 1, window.__at(15, -6, 6), 1);
+    window.__mi = e;
+    let warned = false;
+    window.__step([e], 900, () => {
+      if (e.aiState.c2 && e.aiState.c2.ph === 1) warned = true;
+      return warned;
+    });
+    // 雷射類（雷射步槍 w_lr）打它只有 30%：和同樣能量屬性、沒有武器的傷害比較
+    e.hp = e.maxHp = 1e7;
+    let h = e.hp;
+    e.takeDamage(1000, 0, g.player, e.center(), null, undefined, 'w_lr', 'en');
+    const las = h - e.hp;
+    h = e.hp;
+    e.takeDamage(1000, 0, g.player, e.center(), null, undefined, undefined, 'en');
+    const en = h - e.hp;
+    return { warned, laserK: e.laserK, ratio: en > 0 ? +(las / en).toFixed(2) : -1 };
+  });
+  await shot('mirror-warn', 300);
+  const mi2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      e = window.__mi;
+    const c = e.aiState.c2;
+    e.pos.copy(window.__at(14, -6, 8));
+    e.vel.set(0, 0, 0);
+    c.ph = 1;
+    c.t = 0.3;
+    c.aim = p.center();
+    const h0 = p.hp,
+      n0 = c.n || 0;
+    const w = g.world,
+      ob = w.obstacles,
+      pr = w.props;
+    w.obstacles = [];
+    w.props = [];
+    window.__step([e], 300, () => (c.n || 0) > n0);
+    w.obstacles = ob;
+    w.props = pr;
+    return { n: (c.n || 0) - n0, hurt: h0 - p.hp };
+  });
+  check(
+    mi.warned && mi.laserK === 0.3 && Math.abs(mi.ratio - 0.3) < 0.02 && mi2.n >= 1 && mi2.hurt > 0,
+    '反射鏡衛星：雷射 30%（laserK，實測 ' +
+      mi.ratio +
+      '）、蓄力後射出聚光光束（傷害 ' +
+      Math.round(mi2.hurt) +
+      '）',
+  );
+  await clear();
+  const fc = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.spawnType('focus', 1, 1, window.__at(-16, -5), 1);
+    window.__fc = e;
+    let warned = false;
+    const lc = g.losClear;
+    g.losClear = () => true; // 中間剛好有物件時也照樣測
+    window.__step([e], 900, () => {
+      if (e.aiState.c2 && e.aiState.c2.ph === 1) warned = true;
+      return e.aiState.c2 && e.aiState.c2.ph === 2;
+    });
+    // 光束剛開始與 4 秒後的傷害（共用的光束還沒有時是自己算的）
+    const c = e.aiState.c2;
+    let h = p.hp;
+    window.__step([e], 60);
+    const d0 = h - p.hp;
+    window.__step([e], 150);
+    h = p.hp;
+    window.__step([e], 60);
+    const d1 = h - p.hp;
+    g.losClear = lc;
+    return { warned, zones: window.__zones.slice(), d0, d1, vis: e.bossVis, ph: c.ph, bx: !!e.bx };
+  });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.__lc = g.losClear;
+    g.losClear = () => true;
+  });
+  await shot('focus-beam', 250);
+  const fc2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__fc;
+    g.losClear = g.__lc;
+    const c = e.aiState.c2;
+    if (c.ph !== 2) return { skip: c.ph };
+    // 掩體：視線被擋住就斷開
+    const lc = g.losClear;
+    g.losClear = () => false;
+    window.__step([e], 5);
+    g.losClear = lc;
+    return { ph: c.ph, broke: c.broke || 0, bx: e.bx };
+  });
+  check(
+    fc.warned && fc.ph === 2 && fc.bx && fc.zones.includes('beam') && fc.d1 > fc.d0 * 1.5 && fc.vis >= 2,
+    '聚光鏡陣列：預警後的追蹤光束越照越痛（1 秒 ' +
+      Math.round(fc.d0) +
+      ' → ' +
+      Math.round(fc.d1) +
+      '，' +
+      JSON.stringify(fc.zones) +
+      '）',
+  );
+  check(fc2.broke === 1 && fc2.ph === 3 && !fc2.bx, '聚光鏡陣列：視線被擋住時光束斷開');
+  await clear();
+  // 主線的編成：各主題的專屬敵人清單含新敵人
+  const tf = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    for (const t of ['spaceport', 'xylem', 'orbit']) {
+      const comp = g.foeMix(g.rollComp(6, 1), t, 0);
+      out[t] = [...new Set(comp.map((c) => (typeof c === 'string' ? c : c.t || c.type || '')))].join('/');
+    }
+    return out;
+  });
+  console.log('    編成：' + JSON.stringify(tf));
+  await ctx.close();
+  // ---- 模型庫：三視角截圖、三角面數 ----
+  const lib = await newPage(browser, 'foesc2-lib');
+  for (const k of ['fueler', 'missilerack', 'netter', 'boomer', 'mirror', 'focus']) {
+    await lib.page.goto(base + 'model-library.html#vehicle/foe_' + k);
+    await lib.page.waitForSelector('#inspect:not([hidden])', { timeout: 15000 }).catch(() => {});
+    await wait(1800);
+    const info = (await lib.page.textContent('#insInfo').catch(() => '')) || '';
+    const tri = +((info.match(/三角面\s*([\d,]+)/) || [])[1] || '0').replace(/,/g, '');
+    check(tri > 1500 && tri <= 6000, `模型庫 ${k}：三角面 ${tri}（≤ 6000）`);
+    const box = await lib.page.$eval('#insView canvas', (c) => {
+      const r = c.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    });
+    await lib.page.screenshot({ path: path.join(SHOT_DIR, `foesc2-lib-${k}-a.png`) });
+    for (const j of ['b', 'c']) {
+      await lib.page.mouse.move(box[0], box[1]);
+      await lib.page.mouse.down();
+      await lib.page.mouse.move(box[0] + 130, box[1], { steps: 6 });
+      await lib.page.mouse.move(box[0] + 260, box[1], { steps: 6 });
+      await lib.page.mouse.up();
+      await wait(700);
+      await lib.page.screenshot({ path: path.join(SHOT_DIR, `foesc2-lib-${k}-${j}.png`) });
+    }
+  }
+  await lib.ctx.close();
+}
+
 // 增援波次：編成分成 3～5 波、敵對 AC 在最後一波、剩下少數時預告方向（ECHO、光柱、畫面指示）後在預告地點出現
 // 過關條件：每個回合開始時中央的卡片（過關／失敗條件）、之後左上一直顯示；自由出擊、主線的防衛區段、自訂關卡
 async function testGoals(browser, base) {
@@ -11870,6 +12315,2247 @@ async function testMpLevels(browser, url) {
   await ctx.close();
 }
 
+// 狀態效果（entities/mech-status.js、game/status-hud.js）：每種狀態的移動效果、掙脫規則、HUD、截圖
+async function testStatusFx(browser, base) {
+  console.log('狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN（移動、掙脫、HUD）');
+  const { ctx, page } = await newPage(browser, 'status');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    g.save.level = 1;
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.asm.larm = 'w_blade'; // 近戰割開用
+    pl.initWeapons();
+    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x - pl.pos.x, o.z - pl.pos.z) > 40);
+    for (const e of g.enemies) e.pos.set(300, -80, 300);
+    const src = g.enemies[0];
+    src.updateAI = () => {};
+    src.hp = src.maxHp = 1e8;
+    const reset = () => {
+      pl.statusClearAll(true);
+      pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+      pl.vel.set(0, 0, 0);
+      pl.grounded = true;
+      pl.en = pl.enMax;
+      pl.qbT = 0;
+      pl.melee.active = false;
+      pl.staggerT = 0;
+      pl.hoverMode = 0;
+    };
+    const step = (n, wish = new THREE.Vector3(), hover = false, qb = false) => {
+      for (let i = 0; i < n; i++) pl.move(1 / 60, wish.clone(), hover, qb && i === 0, false, null);
+    };
+    const fwd = new THREE.Vector3(1, 0, 0);
+    const speed = () => {
+      reset();
+      step(60, fwd);
+      return Math.hypot(pl.vel.x, pl.vel.z);
+    };
+    const hud = (k) => {
+      g.drawHud(1 / 60);
+      const el = document.querySelector(`#stsHud .stsI[data-k="${k}"]`);
+      return {
+        on: !!el && getComputedStyle(document.getElementById('stsHud')).display !== 'none',
+        txt: el ? el.querySelector('small').textContent : '',
+        bar: el ? parseFloat(el.querySelector('.tb s').style.width) : -1,
+        edge: document.getElementById('stsEdge').style.boxShadow.includes('inset'),
+      };
+    };
+    const v0 = speed();
+    // 緩速：速度 ×0.6、QB 耗能 ×1.5
+    const qbCost = (st) => {
+      reset();
+      if (st) pl.addStatus(st, 4);
+      const e0 = pl.en;
+      pl.move(1 / 60, fwd.clone(), false, true, false, null);
+      return e0 - pl.en;
+    };
+    const c0 = qbCost(null);
+    const c1 = qbCost('slow');
+    reset();
+    pl.addStatus('slow', 9); // 上限 4 秒
+    out.slowCap = pl.sts.slow.t;
+    out.slowHud = hud('slow');
+    out.slowSeen = !!(g.stsSeen && g.stsSeen.has('slow'));
+    step(60, fwd);
+    out.slowV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
+    out.slowQb = c1 / c0;
+    out.frost = !!(pl.stsV && pl.stsV.slow && pl.stsV.slow.frost.length);
+    // 禁止跳躍：地面跳不起來；空中被往下拉、不能懸浮
+    reset();
+    pl.addStatus('nojump', 4);
+    out.njHud = hud('nojump');
+    step(20, new THREE.Vector3(), true);
+    out.njGround = pl.grounded && pl.pos.y - g.world.groundAt(0, 0, 99) < 0.05;
+    pl.pos.y += 10;
+    pl.grounded = false;
+    pl.vel.y = 0;
+    step(20, new THREE.Vector3(), true);
+    out.njFall = pl.vel.y;
+    out.njHover = pl.hoverMode;
+    // 鉤住：往來源拉；QB 一次掙脫
+    reset();
+    src.pos.set(-30, g.world.groundAt(-30, 0, 99), 0);
+    pl.addStatus('hook', 4, { src: src.id, pull: 14 });
+    out.hookHud = hud('hook');
+    step(45);
+    out.hookPull = -pl.pos.x;
+    out.cable = !!(pl.stsV && pl.stsV.hook && pl.stsV.hook.cable.visible);
+    pl.qbT = 0;
+    step(1, new THREE.Vector3(), false, true);
+    out.hookEsc = !pl.hasStatus('hook');
+    // 黏附炸彈：QB 一次還在、兩次甩掉；時間到爆炸
+    reset();
+    pl.addStatus('stick', 4, { dmg: 500, impact: 100, src: src.id });
+    step(1, new THREE.Vector3(), false, true);
+    out.stick1 = pl.hasStatus('stick');
+    out.stickHud = hud('stick');
+    step(15);
+    step(1, new THREE.Vector3(), false, true);
+    out.stick2 = !pl.hasStatus('stick');
+    reset();
+    const hp0 = pl.hp;
+    pl.addStatus('stick', 0.5, { dmg: 500, impact: 100, src: src.id });
+    step(40);
+    out.stickBoom = hp0 - pl.hp;
+    out.stickGone = !pl.hasStatus('stick');
+    // 纏附：持續受損、變慢；近戰割開；QB 兩次也能甩掉
+    reset();
+    const hp1 = pl.hp;
+    pl.addStatus('latch', 4, { dps: 200, src: src.id });
+    out.latchHud = hud('latch');
+    step(60, fwd);
+    out.latchV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
+    out.latchDmg = hp1 - pl.hp;
+    pl.startMeleeStage('larm', 0, src.center(), null);
+    out.latchCut = !pl.hasStatus('latch');
+    reset();
+    pl.addStatus('latch', 4, { dps: 0 });
+    step(1, new THREE.Vector3(), false, true);
+    step(15);
+    step(1, new THREE.Vector3(), false, true);
+    out.latchQb = !pl.hasStatus('latch');
+    // 來源被擊破或離場時自動解除（纏附、鉤住）
+    reset();
+    const e3 = g.spawnType('mt', 1, 1);
+    e3.updateAI = () => {};
+    pl.addStatus('latch', 4, { dps: 0, src: e3.id });
+    pl.addStatus('hook', 4, { src: e3.id });
+    step(2);
+    const kept = pl.hasStatus('latch') && pl.hasStatus('hook');
+    e3.depart();
+    step(1);
+    out.srcGone = kept && !pl.hasStatus('latch') && !pl.hasStatus('hook');
+    // 捕獲網：變慢＋不能跳；QB 掙脫不了、近戰割開
+    reset();
+    pl.addStatus('net', 4);
+    out.netHud = hud('net');
+    step(60, fwd);
+    out.netV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
+    step(1, new THREE.Vector3(), true);
+    out.netJump = pl.grounded;
+    step(1, new THREE.Vector3(), false, true);
+    out.netQb = pl.hasStatus('net');
+    pl.startMeleeStage('larm', 0, src.center(), null);
+    out.netCut = !pl.hasStatus('net');
+    // 吸取 EN
+    reset();
+    pl.addStatus('drain', 4, { en: 400, src: src.id });
+    out.drainHud = hud('drain');
+    const en0 = pl.en;
+    step(30);
+    out.drain = en0 - pl.en;
+    // 標定：搜索中的敵人直接交戰並知道位置
+    reset();
+    const e2 = g.spawnType('mt', 1, 1);
+    e2.updateAI = () => {};
+    e2.pos.set(60, g.world.groundAt(60, 40, 99), 40);
+    if (e2.senseOn()) {
+      e2.sn.on = true;
+      e2.sn.st = 3;
+      e2.sn.tgt = null;
+    }
+    pl.addStatus('spotted', 4);
+    out.spotHud = hud('spotted');
+    g.aiDir().t = 0;
+    g.aiDirectorTick(0.01);
+    out.spot = !!(e2.sn && e2.sn.st === 2 && e2.sn.tgt === pl && e2.sn.kn && e2.sn.kn.distanceTo(pl.pos) < 1);
+    // 觸控時提示改成按鈕名稱
+    reset();
+    pl.addStatus('hook', 4, { src: src.id });
+    g.touchActive = true;
+    out.touchTxt = hud('hook').txt;
+    g.touchActive = false;
+    out.keyTxt = hud('hook').txt;
+    pl.statusClearAll(true);
+    g.drawHud(1 / 60);
+    out.hudOff = getComputedStyle(document.getElementById('stsHud')).display === 'none';
+    reset();
+    return out;
+  });
+  const hudOk = (h, re) => h.on && h.edge && h.bar > 50 && re.test(h.txt);
+  check(
+    Math.abs(r.slowV - 0.6) < 0.08 && r.slowQb > 1.35,
+    `緩速：速度 ×${r.slowV.toFixed(2)}、QB 耗能 ×${r.slowQb.toFixed(2)}`,
+  );
+  check(r.slowCap === 4, `每種狀態上限 4 秒（給 9 秒 → ${r.slowCap}）`);
+  check(
+    r.frost && r.slowSeen && hudOk(r.slowHud, /移動變慢/),
+    '緩速：結霜、第一次中招的說明、HUD 圖示與倒數、畫面邊緣',
+  );
+  check(
+    r.njGround && r.njFall < -5 && r.njHover === 0,
+    `禁止跳躍：跳不起來、空中被往下拉（${r.njFall.toFixed(1)} m/s）、不能懸浮`,
+  );
+  check(hudOk(r.njHud, /不能跳躍/), 'HUD：禁止跳躍');
+  check(r.hookPull > 3 && r.cable, `鉤住：0.75 秒被往鉤點拉 ${r.hookPull.toFixed(1)} m、畫出鋼索`);
+  check(r.hookEsc && hudOk(r.hookHud, /QB 掙脫/), 'HUD 提示「QB 掙脫」、QB 一次掙脫鉤住');
+  check(
+    r.stick1 && r.stick2 && hudOk(r.stickHud, /連按 QB 甩掉 1\/2/),
+    '黏附炸彈：QB 一次還在（HUD 顯示 1/2）、兩次甩掉',
+  );
+  check(r.stickBoom >= 400 && r.stickGone, `黏附炸彈時間到爆炸（受到 ${Math.round(r.stickBoom)}）`);
+  check(
+    r.latchV < 0.7 && r.latchDmg > 50 && r.latchCut && r.latchQb && hudOk(r.latchHud, /近戰割開.*連按 QB/),
+    `纏附：變慢 ×${r.latchV.toFixed(2)}、持續受損 ${Math.round(r.latchDmg)}、近戰割開、QB 兩次甩掉`,
+  );
+  check(
+    r.netV < 0.7 && r.netJump && r.netQb && r.netCut && hudOk(r.netHud, /近戰割開/),
+    `捕獲網：變慢 ×${r.netV.toFixed(2)}、不能跳、QB 掙脫不了、近戰割開` +
+      JSON.stringify({ j: r.netJump, q: r.netQb, c: r.netCut, h: r.netHud }),
+  );
+  check(r.drain > 100 && hudOk(r.drainHud, /EN/), `吸取 EN（0.5 秒 −${Math.round(r.drain)}）`);
+  check(r.spot && hudOk(r.spotHud, /敵人/), '標定：搜索中的敵人知道位置並交戰');
+  check(
+    /QB 鈕/.test(r.touchTxt) && /左 Shift/.test(r.keyTxt),
+    `觸控時提示改成按鈕名稱（${r.touchTxt}／${r.keyTxt}）`,
+  );
+  check(r.hudOff, '狀態解除後 HUD 收起');
+  check(r.srcGone, '纏附者／鉤住的來源離場（或被擊破）時自動解除');
+  // 截圖：每種狀態（俯視＋追尾）
+  const kinds = ['hook', 'stick', 'latch', 'slow', 'nojump', 'net', 'spotted', 'drain'];
+  for (const view of ['top', 'chase']) {
+    for (const k of kinds) {
+      await page.evaluate(
+        ({ k, view }) => {
+          const g = window.__game;
+          const pl = g.player;
+          pl.statusClearAll(true);
+          if ((view === 'chase') !== !!g.chase) g.setView(view, true);
+          g.fpYaw = 0;
+          g.fpPitch = -0.15;
+          const src = g.enemies[0];
+          const gy = (x, z) => g.world.groundAt(x, z, 99);
+          pl.pos.set(0, gy(0, 0), 0);
+          pl.vel.set(0, 0, 0);
+          src.pos.set(view === 'chase' ? 6 : 14, gy(14, -16), -16);
+          src.mesh.position.copy(src.pos);
+          pl.addStatus(k, 4, { src: src.id, dps: 0, en: 50, dmg: 0 });
+        },
+        { k, view },
+      );
+      await wait(700);
+      await page.screenshot({ path: path.join(SHOT_DIR, `status-${k}-${view}.png`) });
+    }
+  }
+  // 多個狀態同時（第一人稱）
+  await page.evaluate(() => {
+    const g = window.__game;
+    const pl = g.player;
+    pl.statusClearAll(true);
+    g.setView('fp', true);
+    for (const k of ['hook', 'stick', 'net']) pl.addStatus(k, 4, { src: g.enemies[0].id, dmg: 0 });
+  });
+  await wait(700);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'status-multi-fp.png') });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+  });
+  await ctx.close();
+}
+
+// 地圖專屬敵人用的場上機制（game/hazards2.js）：區域效果、臨時障礙物、可以打掉的投射物、laserK、受損與碎片、弱點
+async function testHazards2(browser, base) {
+  console.log(
+    '場上機制：區域效果、臨時障礙物、可以打掉的投射物、laserK、受損三階段與擊破碎片、專屬敵人的弱點',
+  );
+  // 專屬敵人（舊的與擴充組）的弱點（資料檢查）
+  // foes.js 是純資料的 ES module（只 import 同資料夾的純資料 foes-<組>.js）：拿掉 export、
+  // import 換成那個檔案包在自己的作用域裡執行（各檔的常數名稱可能重複）
+  const readData = (n) =>
+    fs
+      .readFileSync(path.join(ROOT, 'src/data', n), 'utf8')
+      .replace(/^export /gm, '')
+      .replace(
+        /^import \{([^}]*)\} from '\.\/([\w-]+\.js)';$/gm,
+        (m, names, f) => `const {${names}} = (() => {\n${readData(f)}\nreturn {${names}};\n})();`,
+      );
+  const FOES = new Function(readData('foes.js') + '\nreturn FOES;')();
+  const themes = {};
+  let noRes = [];
+  for (const [k, d] of Object.entries(FOES)) {
+    if (!Array.isArray(d.res) || d.res.length !== 3) {
+      noRes.push(k);
+      continue;
+    }
+    (themes[d.theme] = themes[d.theme] || new Set()).add(d.res.findIndex((x) => x <= -0.2));
+  }
+  const thin = Object.entries(themes).filter(([, s]) => [...s].filter((i) => i >= 0).length < 2);
+  check(
+    !noRes.length && !thin.length,
+    `專屬敵人都有弱點、每個主題至少兩種不同弱點${noRes.length ? '（缺：' + noRes.join('、') + '）' : ''}${thin.length ? '（不足：' + thin.map((t) => t[0]).join('、') + '）' : ''}`,
+  );
+  const { ctx, page } = await newPage(browser, 'hazards2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const shot = (n) => page.screenshot({ path: path.join(SHOT_DIR, `hz2-${n}.png`) });
+  // 出擊：清掉敵人，留一台不動的放在遠處（不然會判定任務完成）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 2;
+    g.startMission();
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.yaw = pl.aimYaw = 0; // 面向 −Z（俯視的鎖定看正面 180°）
+    for (const e of g.enemies) e.cleanup();
+    g.enemies = [];
+    g.waves = [];
+    g.wavePend = null;
+    const far = g.spawnType('mt', 1, 1, pl.pos.clone().add(new THREE.Vector3(60, 0, 60)), 1);
+    far.hp = far.maxHp = 1e9;
+    far.updateAI = () => {};
+    // 地圖是隨機的：出生點附近的貨櫃等障礙物會擋住探照燈、光束的視線或把臨時障礙物的碰撞推歪，先全部拿掉
+    g.world.obstacles.length = 0;
+    // 狀態效果（A1 的 mech-status.js）還沒合併時用記錄器代替
+    const st = (window.__st = []);
+    if (!pl.addStatus) pl.addStatus = (k, s, o) => st.push(k);
+    else {
+      const f = pl.addStatus.bind(pl);
+      pl.addStatus = (k, s, o) => (st.push(k), f(k, s, o));
+    }
+    window.__at = (dx, dz, dy = 0) => {
+      const p = pl.pos.clone().add(new THREE.Vector3(dx, 0, dz));
+      p.y = g.world.groundAt(p.x, p.z, p.y + 3) + dy;
+      return p;
+    };
+    window.__tick = (sec, step = 0.05) => {
+      pl.iFrames = 0;
+      for (let t = 0; t < sec; t += step) g.zonesTick(step);
+    };
+    window.__clr = () => {
+      g.clearZones();
+      g.clearTempWalls();
+      window.__st.length = 0;
+    };
+  });
+  // ---- 煙霧：不能鎖定、敵人的視線不通 ----
+  const smoke = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    const e = g.spawnType('mt', 1, 1, window.__at(0, -14), 1);
+    e.updateAI = () => {};
+    e.hp = e.maxHp = 1e8;
+    window.__mt = e;
+    const before = g.lockCands(pl).includes(e);
+    const los0 = g.world.losBlocked(pl.center(), e.center());
+    const id = g.addZone('smoke', window.__at(0, -14), 6, 60);
+    window.__tick(0.8);
+    const r = {
+      before,
+      los0,
+      after: g.lockCands(pl).includes(e),
+      los1: g.world.losBlocked(e.center(), pl.center()),
+      inSmoke: g.inSmoke(e.center()),
+    };
+    pl.lock = e;
+    g.autoLock(pl);
+    r.dropped = pl.lock !== e;
+    g.removeZone(id);
+    r.back = g.lockCands(pl).includes(e);
+    g.addZone('smoke', window.__at(0, -14), 6, 60);
+    window.__tick(0.8); // 淡入完成再截圖
+    return r;
+  });
+  check(
+    smoke.before && !smoke.after && smoke.los1 && smoke.inSmoke && smoke.dropped && smoke.back,
+    `煙霧：裡面的敵人不能鎖定（${smoke.before}→${smoke.after}）、鎖定中的被解除、敵人的視線不通、移除後恢復`,
+  );
+  await wait(900);
+  await shot('smoke');
+  // ---- 重力場：nojump；吸引：往中心拉 ----
+  const grav = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    window.__mt.pos.copy(window.__at(30, 30));
+    g.addZone('gravity', window.__at(0, 0), 7, 60);
+    window.__tick(0.5);
+    const nj = window.__st.includes('nojump');
+    window.__clr();
+    const id2 = g.addZone('gravity', window.__at(40, 0), 5, 60);
+    window.__tick(0.5);
+    const far = window.__st.includes('nojump');
+    g.removeZone(id2);
+    g.addZone('gravity', window.__at(0, 0), 7, 60);
+    window.__tick(0.8);
+    return { nj, far };
+  });
+  check(grav.nj && !grav.far, `重力場：裡面的玩家套 nojump（${grav.nj}），外面的不套（${grav.far}）`);
+  await wait(900);
+  await shot('gravity');
+  const suck = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    const c = window.__at(9, 0);
+    g.addZone('suction', c, 14, 60, { pull: 10 });
+    window.__tick(0.7);
+    const d0 = Math.hypot(pl.pos.x - c.x, pl.pos.z - c.z);
+    const z = new THREE.Vector3();
+    for (let i = 0; i < 40; i++) pl.move(1 / 40, z, false, false, false, null);
+    const d1 = Math.hypot(pl.pos.x - c.x, pl.pos.z - c.z);
+    pl.pos.add(new THREE.Vector3(-(d0 - d1), 0, 0)); // 放回原位
+    return { d0, d1 };
+  });
+  check(suck.d1 < suck.d0 - 2, `吸引：1 秒內往中心拉近（${suck.d0.toFixed(1)} → ${suck.d1.toFixed(1)} m）`);
+  await wait(900);
+  await shot('suction');
+  // ---- 水面電流：在水裡才受傷 ----
+  const elec = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player,
+      w = g.world;
+    window.__clr();
+    const th0 = w.theme;
+    const dry = pl.hp;
+    g.addZone('electro', window.__at(0, -6), 9, 60, { dps: 400 });
+    window.__tick(1);
+    const dryLoss = dry - pl.hp;
+    w.theme = Object.assign({}, th0, {
+      water: { level: w.terrainHeight(pl.pos.x, pl.pos.z) + 0.8, color: 0x305060 },
+    });
+    window.__th0 = th0;
+    const h0 = pl.hp;
+    window.__tick(1);
+    return { dryLoss, wet: h0 - pl.hp };
+  });
+  check(
+    elec.dryLoss === 0 && elec.wet > 150,
+    `水面電流：乾地不受傷（${elec.dryLoss}），站在水中受傷（${Math.round(elec.wet)}）`,
+  );
+  await wait(900);
+  await shot('electro');
+  await page.evaluate(() => (window.__game.world.theme = window.__th0));
+  // ---- 油漬：時間到點燃、被爆炸提早點燃 ----
+  const fuel = await page.evaluate(() => {
+    const g = window.__game;
+    window.__clr();
+    const pools0 = (g.hzPools || []).length;
+    g.addZone('fuel', window.__at(-8, -4), 4, 60, { ignite: 0.5, dps: 100 });
+    window.__tick(0.7);
+    const timed = (g.hzPools || []).length - pools0;
+    g.addZone('fuel', window.__at(8, -4), 4, 60, { ignite: 30 });
+    const left = g.zones.length;
+    g.hz2Blast(window.__at(8, -4, 1), 300, 3, 'exp');
+    return { timed, left, blast: (g.hzPools || []).length - pools0, zones: g.zones.length };
+  });
+  check(
+    fuel.timed === 1 && fuel.left === 1 && fuel.blast === 2 && fuel.zones === 0,
+    `油漬：時間到點燃成燃燒地面、被爆炸提早點燃（燃燒地面 ${fuel.blast}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.hzPools = [];
+    g.addZone('fuel', window.__at(5, 6), 5, 60, { ignite: 30 });
+    window.__tick(0.8);
+  });
+  await wait(900);
+  await shot('fuel');
+  // ---- 探照燈：照到套 spotted、照不到不套 ----
+  const spot = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    const id = g.addZone('spot', window.__at(-6, -6, 14), 0, 60, {
+      dir: pl
+        .center()
+        .sub(window.__at(-6, -6, 14))
+        .normalize(),
+      ang: 0.3,
+      len: 30,
+    });
+    window.__tick(0.5);
+    const hit = window.__st.includes('spotted');
+    window.__st.length = 0;
+    g.moveZone(id, null, new THREE.Vector3(1, -1, 0).normalize());
+    window.__tick(0.5);
+    const miss = window.__st.includes('spotted');
+    g.moveZone(
+      id,
+      null,
+      pl
+        .center()
+        .sub(window.__at(-6, -6, 14))
+        .normalize(),
+    );
+    return { hit, miss };
+  });
+  check(spot.hit && !spot.miss, `探照燈：照到的玩家套 spotted（${spot.hit}），轉開後不套（${spot.miss}）`);
+  await wait(900);
+  await shot('spot');
+  // ---- 追蹤光束：追越久越痛、被障礙物斷開就重來 ----
+  const beam = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    const from = window.__at(8, 8, 14);
+    const id = g.addZone('beam', from, 0, 60, { target: pl, dps0: 60, dps1: 600, ramp: 2, track: 30 });
+    const z = g.zoneById(id);
+    const loss = (sec) => {
+      const h = pl.hp;
+      // 不讓玩家失衡（失衡中的直擊補正會讓前後的傷害沒辦法比）
+      const tk = () => {
+        pl.acs = 0;
+        pl.staggerT = 0;
+      };
+      tk();
+      for (let k = 0; k < Math.round(sec / 0.1); k++) {
+        window.__tick(0.1);
+        tk();
+      }
+      return h - pl.hp;
+    };
+    // 光束每 0.25 秒（5 個 0.05 秒）結算一次：量的區間取 0.5 秒＝固定 2 次，前後才比得起來
+    loss(0.5); // 追上目標
+    const early = loss(0.5),
+      mid = z.frac;
+    loss(1.5);
+    const late = loss(0.5);
+    const fracFull = z.frac;
+    // 中間放一道牆：斷開重來
+    const mid2 = from.clone().lerp(pl.center(), 0.5);
+    g.addTempWall(mid2.setY(g.world.terrainHeight(mid2.x, mid2.z)), {
+      kind: 'rock',
+      w: 8,
+      h: 14,
+      d: 2,
+      life: 2,
+    });
+    window.__tick(0.3);
+    const cut = z.frac;
+    return { early, late, mid, fracFull, cut, id };
+  });
+  check(
+    beam.early > 0 && beam.late > beam.early * 1.5 && beam.fracFull > 0.95 && beam.cut === 0,
+    `追蹤光束：照越久越痛（${Math.round(beam.early)} → ${Math.round(beam.late)}／0.5 秒）、被障礙物斷開就重來（${beam.cut}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearTempWalls();
+    const z = g.zones.find((q) => q.k === 'beam');
+    z.lockT = z.ramp * 0.6;
+  });
+  await wait(700);
+  await shot('beam');
+  // ---- 臨時障礙物：碰撞、擋子彈、打碎、到期崩落 ----
+  const wall = await page.evaluate(async () => {
+    const g = window.__game,
+      pl = g.player,
+      w = g.world;
+    window.__clr();
+    const p = window.__at(0, -9);
+    const id = g.addTempWall(p, { kind: 'ice', w: 7, h: 4, d: 1.4, hp: 900, life: 60 });
+    const W = g.tWalls.find((x) => x.i === id);
+    const r = { obs: w.obstacles.includes(W.ob), occ: w.occluders.includes(W.ob) };
+    const [cx, cz] = w.collide(p.x + 0.2, p.z + 0.3, p.y + 0.5, 1);
+    r.pushed = Math.abs(cz - p.z) >= 0.7 + 1 - 0.01;
+    r.hits = w.hitsWorld(p.clone().setY(p.y + 2));
+    r.los = w.losBlocked(
+      p.clone().add(new THREE.Vector3(0, 2, 5)),
+      p.clone().add(new THREE.Vector3(0, 2, -5)),
+    );
+    // 玩家的子彈打在牆上
+    pl.weapons.rarm.cd = 0;
+    pl.fire('rarm', p.clone().setY(p.y + 2), null);
+    const pr0 = g.projectiles[g.projectiles.length - 1];
+    window.__Proj = pr0.constructor;
+    // 地圖是隨機的：從牆前 3 m 射（中間不會有別的物件），地圖物件先移出可破壞清單
+    for (const q of g.world.props || []) q.dead = true;
+    const pr = new window.__Proj(g, {
+      pos: p.clone().add(new THREE.Vector3(0, 2, 3)),
+      vel: new THREE.Vector3(0, 0, -150),
+      kind: 'bullet',
+      dmg: 110,
+      impactV: 50,
+      team: 'player',
+      owner: pl,
+      life: 2,
+    });
+    g.projectiles.push(pr);
+    for (let i = 0; i < 60 && !pr.dead; i++) pr.update(1 / 60);
+    r.hp1 = W.hp;
+    g.tempWallHitAt(p.clone().setY(p.y + 2), 2000, 3);
+    r.broken = W.dead && !w.obstacles.includes(W.ob);
+    // 岩牆到期崩落
+    const id2 = g.addTempWall(window.__at(6, -9), { kind: 'rock', w: 5, h: 3, d: 1.6, life: 0.5 });
+    const R = g.tWalls.find((x) => x.i === id2);
+    for (let i = 0; i < 20; i++) g.tempWallsTick(0.05);
+    r.expired = R.dead && !w.obstacles.includes(R.ob);
+    return r;
+  });
+  check(
+    wall.obs && wall.occ && wall.pushed && wall.hits && wall.los,
+    '臨時障礙物：碰撞推開、擋子彈（hitsWorld）、擋視線、登記遮擋淡出',
+  );
+  check(wall.hp1 < 900 && wall.broken, `臨時障礙物：子彈打掉 ${900 - wall.hp1}、打碎後碰撞消失`);
+  check(wall.expired, '臨時障礙物：到期崩落、碰撞消失');
+  await wait(250);
+  await shot('wall-break');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.addTempWall(window.__at(-3, 8), { kind: 'ice', w: 7, h: 4, d: 1.4, hp: 900, life: 60 });
+    g.tempWallsTick(0.5); // 升起完成再截圖
+    g.addTempWall(window.__at(7, 5), {
+      kind: 'rock',
+      w: 6,
+      h: 3.5,
+      d: 1.6,
+      hp: 900,
+      life: 60,
+      yaw: Math.PI / 2,
+    });
+    g.tempWallsTick(0.5);
+  });
+  await wait(900);
+  await shot('walls');
+  // ---- 可以打掉的投射物 ----
+  const sh = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    const P = window.__Proj;
+    const src = window.__mt;
+    src.pos.copy(window.__at(0, -30));
+    const at = window.__at(0, -16, 3);
+    const m = new P(g, {
+      pos: at,
+      vel: new THREE.Vector3(0, 0, 0.5),
+      kind: 'missile',
+      dmg: 800,
+      impactV: 300,
+      team: 'enemy',
+      owner: src,
+      life: 30,
+      splash: 3,
+      shootable: 300,
+      shotR: 1,
+      popDmg: 0,
+    });
+    g.projectiles.push(m);
+    const v0 = [g.fp, g.chase];
+    g.fp = g.chase = false; // 俯視的鎖定順序（正面 180°）
+    pl.yaw = 0;
+    window.__mt.pos.copy(window.__at(2, -20));
+    const lc = g.lockCands(pl);
+    [g.fp, g.chase] = v0;
+    const r = { lock: lc.includes(m.tgt), last: lc.at(-1) === m.tgt, n: lc.length };
+    r.dest = g.destructibles('player').includes(m.tgt) && !g.destructibles('enemy').includes(m.tgt);
+    pl.lock = m.tgt;
+    g.damageProp(m.tgt, 120, 0, m.pos.clone());
+    r.hp = m.hp;
+    // 玩家的子彈擊落
+    const hp0 = pl.hp;
+    const from = m.pos.clone().add(new THREE.Vector3(0, 0, 1.5)); // 從近處射（地圖是隨機的：避開地圖物件）
+    const b = new P(g, {
+      pos: from,
+      vel: m.pos.clone().sub(from).normalize().multiplyScalar(150),
+      kind: 'bullet',
+      dmg: 500,
+      impactV: 50,
+      team: 'player',
+      owner: pl,
+      life: 2,
+    });
+    g.projectiles.push(b);
+    for (let i = 0; i < 90 && !m.dead; i++) b.dead || b.update(1 / 60);
+    r.down = m.dead;
+    r.noHurt = pl.hp === hp0;
+    window.__mkShot = () => {
+      const q = new P(g, {
+        pos: window.__at(3, -10, 3),
+        vel: new THREE.Vector3(0, 0, 0.01),
+        kind: 'missile',
+        dmg: 0,
+        team: 'enemy',
+        owner: src,
+        life: 30,
+        shootable: 300,
+      });
+      q.hp = 140;
+      g.projectiles.push(q);
+      pl.lock = q.tgt;
+      return q;
+    };
+    window.__mkShot();
+    return r;
+  });
+  check(
+    sh.lock && sh.last && sh.dest && sh.hp === 180 && sh.down && sh.noHurt,
+    `可以打掉的投射物：可以鎖定（排在敵人後面）、子彈打得到（${sh.hp}／300）、擊落（${sh.down}）`,
+  );
+  await wait(700);
+  await shot('shootable');
+  // ---- 多人的同步：房主送出的事件交給客機的處理（clientEvent）重建 ----
+  const mp = await page.evaluate(() => {
+    const g = window.__game;
+    window.__clr();
+    for (const q of g.projectiles) g.scene.remove(q.mesh);
+    g.projectiles = [];
+    const net0 = g.net,
+      ev0 = g.netEvents,
+      seq0 = g.projSeq;
+    g.net = { role: 'host' };
+    g.netEvents = [];
+    g.projSeq = 0;
+    g.addZone('smoke', window.__at(-6, 6), 5, 60);
+    g.addZone('beam', window.__at(8, 8, 12), 0, 60, { target: g.player, dps0: 1, dps1: 2 });
+    g.addTempWall(window.__at(0, 9), { kind: 'ice', w: 6, h: 4, d: 1.4, hp: 500, life: 60 });
+    const m = new window.__Proj(g, {
+      pos: window.__at(4, -12, 3),
+      vel: new THREE.Vector3(0, 0, 0.01),
+      kind: 'missile',
+      dmg: 0,
+      team: 'enemy',
+      owner: window.__mt,
+      life: 60,
+      shootable: 300,
+    });
+    g.projectiles.push(m);
+    g.damageProp(m.tgt, 120, 0, m.pos.clone());
+    const evs = g.netEvents.slice();
+    // 客機：清掉本機的狀態，只靠事件重建
+    g.clearZones();
+    g.clearTempWalls();
+    for (const q of g.projectiles) g.scene.remove(q.mesh);
+    g.projectiles = [];
+    g.net = { role: 'client' };
+    for (const e of evs) g.clientEvent(e);
+    const sh = g.projectiles.find((q) => q.tgt);
+    const W = (g.tWalls || [])[0];
+    const r = {
+      types: [...new Set(evs.map((e) => e.t))].sort().join(','),
+      zones: (g.zones || [])
+        .map((z) => z.k)
+        .sort()
+        .join(','),
+      wall: !!W && g.world.obstacles.includes(W.ob),
+      hp: sh ? sh.hp : -1,
+      lock: !!sh && g.lockPool(g.player).includes(sh.tgt),
+    };
+    // 打碎與移除
+    g.clientEvent({ t: 'twX', i: W.i, b: 1 });
+    g.clientEvent({ t: 'zclr' });
+    r.after = (g.tWalls || []).length + (g.zones || []).length;
+    for (const q of g.projectiles) g.scene.remove(q.mesh);
+    g.projectiles = [];
+    g.net = net0;
+    g.netEvents = ev0;
+    g.projSeq = seq0;
+    return r;
+  });
+  check(
+    mp.zones === 'beam,smoke' && mp.wall && mp.hp === 180 && mp.lock && mp.after === 0,
+    `多人：房主的事件（${mp.types}）在客機重建區域效果、臨時障礙物（碰撞）、投射物的血條與鎖定，打碎與清除也同步`,
+  );
+  // ---- laserK：雷射類 30%、鎖定提示 ----
+  const lz = await page.evaluate(async () => {
+    const g = window.__game,
+      pl = g.player;
+    window.__clr();
+    for (const q of g.projectiles) g.scene.remove(q.mesh);
+    g.projectiles = [];
+    const e = g.spawnType('scav', 1, 1, window.__at(0, -12), 1);
+    e.updateAI = () => {};
+    e.laserK = 0.3;
+    const hit = (wid) => {
+      e.hp = e.maxHp = 1e6;
+      e.iFrames = 0;
+      e.staggerT = 0;
+      e.takeDamage(1000, 0, pl, e.center(), null, undefined, wid);
+      return 1e6 - e.hp;
+    };
+    const r = {
+      lr: hit('w_lr'),
+      lc: hit('bw_lc'),
+      lsg: hit('w_lsg'),
+      emp: hit('w_emp'),
+      kin: hit('w_rifle'),
+    };
+    e.laserK = 1;
+    r.lr1 = hit('w_lr');
+    e.laserK = 0.3;
+    for (let i = 0; i < 60 && !document.getElementById('lockHint').textContent.includes('雷射'); i++) {
+      pl.lock = e;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    r.hint = document.getElementById('lockHint').textContent;
+    return r;
+  });
+  check(
+    Math.abs(lz.lr / lz.lr1 - 0.3) < 0.02 && lz.lc < lz.lr1 * 0.5 && lz.lsg < 400 && lz.emp > lz.lr * 2,
+    `laserK：雷射步槍 ${lz.lr}／${lz.lr1}、背雷射砲、雷射霰彈也減，電磁槍不減（${lz.emp}）`,
+  );
+  check(/雷射 30%/.test(lz.hint) && /弱：實彈/.test(lz.hint), `鎖定提示顯示「雷射 30%」與弱點（${lz.hint}）`);
+  // ---- 受損三階段與擊破碎片（現有的專屬敵人臨時加 rig.dmg）----
+  const dmgSetup = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    for (const q of g.enemies) if (q !== window.__mt && q.etype === 'scav') q.mesh.visible = false; // 拾荒 MT 讓開
+    const e = g.spawnType('junk', 1, 1, window.__at(3, 7), 1);
+    e.updateAI = (dt) => e.specialFx(dt); // 不移動、只演出
+    g.clearTempWalls();
+    const gc = document.getElementById('goalCard');
+    if (gc) gc.style.visibility = 'hidden'; // 過關條件卡片擋住畫面
+    e.hp = e.maxHp = 10000;
+    window.__dmgE = e;
+    const G = e.model.group;
+    const mk = (w, h, d, x, y, z, c) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: c }));
+      m.position.set(x, y, z);
+      return m;
+    };
+    const plates = [mk(1.4, 1, 0.15, 0, 2, 2.1, 0xd0a020), mk(0.15, 1, 1.4, 2.2, 2, 0, 0xd0a020)];
+    const chunks = [];
+    for (let i = 0; i < 4; i++) {
+      const ch = new THREE.Group();
+      ch.add(mk(1.2, 1, 1.2, 0, 0, 0, 0x6a6a70));
+      ch.position.set(Math.cos(i * 1.57) * 1.2, 1.5, Math.sin(i * 1.57) * 1.2);
+      chunks.push(ch);
+    }
+    const sub = new THREE.Group();
+    sub.add(...plates, ...chunks);
+    G.add(sub);
+    e.model.dmg = {
+      smoke: [
+        [0, 3, 0],
+        [1, 2.5, 1],
+      ],
+      plates,
+      chunks,
+    };
+    e.hp = 4500;
+    return true;
+  });
+  check(dmgSetup, '受損測試：在廢鐵合成體加上 rig.dmg');
+  await wait(1200);
+  await shot('dmg-smoke');
+  const st2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__dmgE;
+    const smokes = g.fx.list.length;
+    e.hp = 2000;
+    for (let i = 0; i < 10; i++) e.specialFx(0.05);
+    return { smokes, off: e.model.dmg.plates.every((m) => m.parent === g.scene) };
+  });
+  check(st2.smokes > 0 && st2.off, `受損：AP 50% 以下冒煙、25% 以下裝甲板脫落（${st2.off}）`);
+  await wait(500);
+  await shot('dmg-sparks');
+  const st3 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__dmgE;
+    const p0 = e.model.dmg.chunks.map((c) => c.getWorldPosition(new THREE.Vector3()));
+    e.takeDamage(1e9, 0, g.player, e.center());
+    return { dead: e.dead, out: e.model.dmg.chunks.every((c) => c.parent === g.scene), p0 };
+  });
+  await wait(600);
+  await shot('dmg-chunks');
+  const moved = await page.evaluate((p0) => {
+    const e = window.__dmgE;
+    return e.model.dmg.chunks.map((c, i) =>
+      c.position.distanceTo(new THREE.Vector3(p0[i].x, p0[i].y, p0[i].z)),
+    );
+  }, st3.p0);
+  check(
+    st3.dead && st3.out && moved.every((d) => d > 0.3),
+    `擊破：chunks 拆下飛散（${moved.map((d) => d.toFixed(1)).join('／')} m）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+  });
+  await ctx.close();
+}
+
+// 狀態效果的多人同步：房主套到客機的機體上 → 客機的 HUD、3D 效果、移動預測；客機 QB 掙脫鉤住、房主割開網
+async function testMpStatus(browser, url) {
+  console.log('多人狀態效果：客機看到鉤住與捕獲網、QB 掙脫同步');
+  // 頁面忙或在背景時 playwright 的點擊會等不到畫面更新：直接呼叫元素的 click()
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
+  const host = await ctx.newPage();
+  const cli = await ctx.newPage();
+  watch(host, 'mpstatus:host');
+  watch(cli, 'mpstatus:client');
+  await host.goto(url, { timeout: 90000 });
+  await cli.goto(url, { timeout: 90000 });
+  await host.$eval('#btnMP', (b) => b.click());
+  await setNick(host, 'HOST');
+  await host.$eval('#btnMPHost', (b) => b.click());
+  await waitVisible(host, 'lobby');
+  await host.check('#mpAuto');
+  await host.dispatchEvent('#mpAuto', 'change');
+  await cli.$eval('#btnMP', (b) => b.click());
+  await setNick(cli, 'CLIENT');
+  await wait(1000);
+  await cli.$eval('#btnMPList', (b) => b.click());
+  await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+  await cli.$eval('#mpRooms .part', (b) => b.click());
+  await waitVisible(cli, 'lobby', 15000);
+  await cli.evaluate(() => (window.__game.hostLostMs = 15000));
+  await cli.$eval('#btnLobbyReady', (b) => b.click());
+  await wait(500);
+  await host.$eval('#btnLobbyReady', (b) => b.click());
+  await wait(500);
+  await host.$eval('#btnLobbySortie', (b) => b.click());
+  await cli.bringToFront(); // 客機在背景太久會被當成斷線
+  await cli.evaluate(() => (window.__game.hostLostMs = 60000)); // 負載高時房主開局可能卡很久
+  const ok = (await waitVisible(host, 'hudWrap', 20000)) && (await waitVisible(cli, 'hudWrap', 20000));
+  await cli.bringToFront();
+  await host.evaluate(() => (window.requestAnimationFrame = () => 0));
+  const pump = async (n) => {
+    for (let i = 0; i < n; i++) {
+      await host.evaluate(() => window.__game.loop()).catch(() => {});
+      await wait(20);
+    }
+  };
+  await pump(20);
+  // 房主：敵人停住、放在客機旁邊，把客機的機體鉤住
+  await host.evaluate(() => {
+    const g = window.__game;
+    g.waves = [];
+    g.wavePend = null;
+    for (const p of g.players) p.hp = p.maxHp = 1e7;
+    const c = g.players.find((p) => !p.isPlayer);
+    const src = g.enemies[0];
+    for (const e of g.enemies) e.updateAI = () => {};
+    src.hp = src.maxHp = 1e8;
+    src.pos.set(c.pos.x + 25, g.world.groundAt(c.pos.x + 25, c.pos.z, 99), c.pos.z);
+    src.mesh.position.copy(src.pos);
+    c.addStatus('hook', 4, { src: src.id, pull: 14 });
+  });
+  await pump(15);
+  const a = await cli.evaluate(() => {
+    const g = window.__game;
+    const p = g.player;
+    const el = document.querySelector('#stsHud .stsI[data-k="hook"]');
+    return {
+      sts: !!(p.sts && p.sts.hook),
+      cable: !!(p.stsV && p.stsV.hook && p.stsV.hook.cable.visible),
+      hud: el ? el.querySelector('small').textContent : '',
+    };
+  });
+  check(ok && a.sts && a.cable && /QB 掙脫/.test(a.hud), `多人：客機收到鉤住、畫出鋼索、HUD「${a.hud}」`);
+  await cli.screenshot({ path: path.join(SHOT_DIR, 'status-mp-hook-client.png') });
+  // 客機按 QB 掙脫（客機自己先預測解除，房主收到輸入後也解除）
+  await cli.keyboard.down('ShiftLeft');
+  await pump(4);
+  await cli.keyboard.up('ShiftLeft');
+  await pump(15);
+  const esc = await host.evaluate(() => !window.__game.players.find((p) => !p.isPlayer).hasStatus('hook'));
+  const escC = await cli.evaluate(() => !window.__game.player.hasStatus('hook'));
+  check(esc && escC, '多人：客機 QB 掙脫鉤住（房主與客機都解除）');
+  // 捕獲網：房主套上 → 客機的 HUD 與網；客機的移動預測也變慢
+  await host.evaluate(() => {
+    const g = window.__game;
+    return g.players.find((p) => !p.isPlayer).addStatus('net', 4);
+  });
+  await pump(15);
+  const n = await cli.evaluate(() => {
+    const g = window.__game;
+    const p = g.player;
+    const el = document.querySelector('#stsHud .stsI[data-k="net"]');
+    return {
+      sts: !!(p.sts && p.sts.net),
+      mesh: !!(p.stsV && p.stsV.net),
+      k: p.sts ? p.stsSpeedK() : 1,
+      noJump: p.stsNoJump(),
+      hud: el ? el.querySelector('small').textContent : '',
+    };
+  });
+  check(
+    n.sts && n.mesh && n.k < 0.7 && n.noJump && /近戰割開/.test(n.hud),
+    `多人：客機的捕獲網（HUD「${n.hud}」、移動預測變慢、不能跳）`,
+  );
+  await cli.screenshot({ path: path.join(SHOT_DIR, 'status-mp-net-client.png') });
+  await host.evaluate(() => window.__game.players.find((p) => !p.isPlayer).statusMelee());
+  await pump(15);
+  const cut = await cli.evaluate(() => {
+    const g = window.__game;
+    g.drawHud(1 / 60);
+    return !g.player.sts && getComputedStyle(document.getElementById('stsHud')).display === 'none';
+  });
+  check(cut, '多人：房主那邊割開網 → 客機的狀態與 HUD 解除');
+  await ctx.close();
+}
+
+// 第 1、2 章主題專屬敵人的模型（D1）：模型庫檢視窗的斜角／正面／側面截圖與三角面數
+// 截圖 test-results/foe-d1-<tag>-<key>-<視角>.png（FOE_D1_TAG 預設 after），三角面數寫到 foe-d1-<tag>.json
+const FOE_D1 = [
+  'cart',
+  'crystal_drone',
+  'driller',
+  'junk',
+  'burrower',
+  'jammer',
+  'crane',
+  'forklift',
+  'gate_turret',
+  'patrol_cart',
+  'gunboat',
+  'sprayer',
+];
+async function testFoeModelsD1(browser, base) {
+  console.log('第 1、2 章的主題專屬敵人模型（三視角、三角面數）');
+  const tag = process.env.FOE_D1_TAG || 'after';
+  const { ctx, page } = await newPage(browser, 'foe-d1');
+  const tris = {};
+  for (const key of FOE_D1) {
+    await reopen(page, `${base}model-library.html?test#vehicle/foe_${key}`);
+    const ok = await page.waitForSelector('#inspect:not([hidden])', { timeout: 15000 }).then(
+      () => true,
+      () => false,
+    );
+    if (!ok) {
+      check(false, `${key}：開啟檢視窗`);
+      continue;
+    }
+    await wait(1800);
+    await page.addStyleTag({ content: '#insLabels{display:none}' });
+    const info = (await page.textContent('#insInfo')) || '';
+    const m = info.match(/三角面\s*([\d,]+)/);
+    tris[key] = m ? +m[1].replace(/,/g, '') : -1;
+    const box = await page.$eval('#insGl', (c) => {
+      const r = c.getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    });
+    const shot = (v) =>
+      page.screenshot({ path: path.join(SHOT_DIR, `foe-d1-${tag}-${key}-${v}.png`), clip: box });
+    // 固定視角（遊戲的正面是 −Z）；最後一張是預警的姿勢（rig.animD1，warn＝1）
+    const view = async (dir, warn) => {
+      await page.evaluate(
+        ([dir, warn]) => {
+          const ins = window.__inspect;
+          const t = ins.controls.target;
+          const d = ins.d1Dist || (ins.d1Dist = ins.camera.position.distanceTo(t) * 0.8);
+          ins.camera.position.copy(t).addScaledVector(new THREE.Vector3(...dir).normalize(), d);
+          ins.controls.update();
+          const rig = ins.main && ins.main.built && ins.main.built.rig;
+          if (warn && rig && rig.animD1)
+            for (let i = 0; i < 10; i++)
+              rig.animD1(rig, { t: 1 + i * 0.05, dt: 0.05, warn: 1, atk: 0, fwd: 0, vis: 3, remote: true });
+        },
+        [dir, warn],
+      );
+      await wait(600);
+    };
+    await view([0.8, 0.45, -0.9]);
+    await shot('angle');
+    await view([0, 0.2, -1]);
+    await shot('front');
+    await view([1, 0.15, 0]);
+    await shot('side');
+    if (tag !== 'before') {
+      await view([0.8, 0.45, -0.9], true);
+      await shot('warn');
+    }
+    check(tris[key] > 0, `${key}：三角面 ${tris[key]}`);
+  }
+  fs.writeFileSync(path.join(SHOT_DIR, `foe-d1-${tag}.json`), JSON.stringify(tris, null, 1));
+  if (tag === 'before') return ctx.close();
+  // 遊戲內的預警姿勢：在沒有敵人的區段把各台排在玩家前方，停掉 AI、強制預警，截圖並檢查受損資料
+  await reopen(page, base + '?test');
+  await waitVisible(page, 'title');
+  const groups = [
+    ['drill', 'junk', 'cart', 'crystal', 'jammer', 'burrow'],
+    ['forklift', 'gategun', 'patrol', 'gunboat', 'sprayer', 'crane'],
+  ];
+  for (let gi = 0; gi < groups.length; gi++) {
+    const res = await page.evaluate(
+      ([keys, first]) => {
+        const g = window.__game;
+        if (first) {
+          g.campBegin('c1s1');
+          g.campSortie().segs[0].theme = 'industrial';
+          g.camp.plan[0] = { ...g.camp.plan[0], variant: 'railyard', landmark: '' };
+          g.camp.types[0] = 'supply';
+          g.campEnterSeg();
+          g.world.obstacles.length = 0;
+        }
+        for (const e of g.enemies) e.dead = true;
+        for (const e of g.enemies) e.mesh.visible = false;
+        g.waves = [];
+        g.wavePend = null;
+        const p = g.player;
+        p.hp = p.maxHp = 1e6;
+        const fx = -Math.sin(p.yaw),
+          fz = -Math.cos(p.yaw);
+        const out = [];
+        keys.forEach((k, i) => {
+          const far = k === 'crane' ? 24 : 9;
+          const side = (i - (keys.length - 1) / 2) * (k === 'crane' ? 0 : 6.5);
+          const x = p.pos.x + fx * far - fz * side,
+            z = p.pos.z + fz * far + fx * side;
+          const e = g.spawnType(k, 1, 1, new THREE.Vector3(x, g.world.terrainHeight(x, z), z));
+          e.updateAI = () => {};
+          e.bossVis = 0;
+          e.yaw = Math.atan2(fx, fz); // 面向玩家
+          const f = e.model.animD1;
+          if (f) e.model.animD1 = (r, st) => f(r, { ...st, warn: 1 });
+          const d = e.model.dmg || {};
+          out.push(
+            `${k}:${f ? 'anim' : '-'}/${(d.smoke || []).length}/${(d.plates || []).length}/${(d.chunks || []).length}`,
+          );
+        });
+        return out;
+      },
+      [groups[gi], gi === 0],
+    );
+    await wait(6000); // 等開場的橫幅退場
+    await page.screenshot({ path: path.join(SHOT_DIR, `foe-d1-game-warn-${gi + 1}.png`) });
+    const ok = res.every((r) => {
+      const [, a, s, pl, ch] = r.match(/^\w+:(\w+|-)\/(\d+)\/(\d+)\/(\d+)$/) || [];
+      return a === 'anim' && +s >= 1 && +pl >= 2 && +ch >= 3;
+    });
+    check(ok, `遊戲內的預警姿勢與受損資料（${res.join('、')}）`);
+  }
+  await ctx.close();
+}
+
+// 第 3～6 章的專屬敵人模型（D2）：三角形預算、受損資料（冒煙點、脫落的裝甲板、擊破時拆開的群組）、
+// 房主把行為狀態寫進 bossVis 的高位、客機依旗標擺出預警／攻擊的動作；各台在遊戲裡的待機與預警截圖
+async function testFoeModelsD2(browser, base) {
+  console.log('第 3～6 章專屬敵人的模型：細節、受損資料、待機／預警／攻擊的動作');
+  const { ctx, page } = await newPage(browser, 'foe-d2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const dir = path.join(SHOT_DIR, 'foe-d2');
+  fs.mkdirSync(dir, { recursive: true });
+  // [主題, 種類, 預警／攻擊的旗標（FB_D2：16 開火、32 預警、64 攻擊；試車台用低位 2＝噴火）, 離地高度]
+  const LIST = [
+    ['snow', 'lurker', 48, 0],
+    ['snow', 'skater', 16, 0],
+    ['institute', 'blob', 32, 0],
+    ['institute', 'chimera', 32, 0],
+    ['institute', 'laserpost', 32, 0],
+    ['grid086', 'crawler', 48, 0],
+    ['grid086', 'underturret', 16, 3],
+    ['spaceport', 'testrig', 2, 0],
+    ['spaceport', 'spacemt', 16, 0],
+    ['xylem', 'rammer', 64, 3],
+    ['xylem', 'flak', 112, 0],
+    ['orbit', 'vacuum', 16, 3],
+    ['orbit', 'marker', 32, 4],
+  ];
+  let theme = '';
+  const res = [];
+  for (const [th, key, bits, lift] of LIST) {
+    if (th !== theme) {
+      theme = th;
+      await page.evaluate((th) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = th;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant: '', landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.player.hp = g.player.maxHp = 1e6;
+      }, th);
+    }
+    const r = await page.evaluate(
+      ([key, bits, lift]) => {
+        const g = window.__game,
+          p = g.player,
+          w = g.world;
+        g.state = 'hub'; // 只畫畫面，不跑 AI
+        for (const e of g.enemies) if (!e.dead && e.ai !== 'objective') e.depart();
+        const x = p.pos.x,
+          z = p.pos.z - 10;
+        const e = g.spawnType(key, 1, 1, new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 4), z), 1);
+        e.pos.y += lift;
+        e.yaw = Math.PI * 0.85;
+        e.mesh.position.copy(e.pos);
+        e.mesh.rotation.y = e.yaw;
+        const m = e.model;
+        // 三角形（不含描邊、加色特效）
+        let tris = 0;
+        e.mesh.updateMatrixWorld(true);
+        e.mesh.traverseVisible((o) => {
+          if (
+            !o.isMesh ||
+            o.material.type === 'ShaderMaterial' ||
+            o.material.blending === THREE.AdditiveBlending
+          )
+            return;
+          const gg = o.geometry;
+          tris += (gg.index ? gg.index.count : gg.attributes.position.count) / 3;
+        });
+        // 房主：行為狀態 → 旗標（試車台的 ph 保留在低位）
+        let hostBits = null;
+        if (key === 'rammer') {
+          e.aiState.ph = 1;
+          e.specialFx(1 / 60);
+          hostBits = e.bossVis;
+          e.aiState.ph = 0;
+        }
+        if (key === 'testrig') {
+          e.bossVis = 1;
+          e.specialFx(1 / 60);
+          hostBits = e.bossVis;
+        }
+        const c = e.center();
+        const cam = g.camera;
+        const R = Math.max(5, (m.height || 2) * 2.4);
+        const fx = -Math.sin(e.yaw),
+          fz = -Math.cos(e.yaw); // 從正面斜前方看
+        cam.position.set(c.x + R * (0.9 * fx - 0.6 * fz), c.y + R * 0.45, c.z + R * (0.9 * fz + 0.6 * fx));
+        cam.lookAt(c);
+        window.__d2 = e;
+        const d = m.dmg || {};
+        return {
+          anim: typeof m.anim_d2 === 'function',
+          tris: Math.round(tris),
+          smoke: (d.smoke || []).length,
+          plates: (d.plates || []).filter((q) => q.isMesh).length,
+          chunks: (d.chunks || []).filter((q) => q.isObject3D && q.parent === m.torso).length,
+          hostBits,
+        };
+      },
+      [key, bits, lift],
+    );
+    // 待機 → 預警／攻擊（客機的方式：只看 bossVis）
+    for (const [tag, b] of [
+      ['rest', 0],
+      ['act', bits],
+    ]) {
+      await page.evaluate((b) => {
+        const e = window.__d2;
+        e.remote = true;
+        for (let i = 0; i < 40; i++) {
+          e.t += 1 / 30;
+          e.bossVis = b;
+          e.specialFx(1 / 30);
+        }
+      }, b);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: path.join(dir, `game-${key}-${tag}.png`) });
+    }
+    await page.evaluate(() => {
+      const e = window.__d2;
+      e.remote = false;
+      e.depart();
+    });
+    res.push(key + ':' + r.tris);
+    const cap = key === 'chimera' ? 12000 : 6000;
+    check(
+      r.anim &&
+        r.tris > 0 &&
+        r.tris <= cap &&
+        r.smoke >= 1 &&
+        r.plates >= 1 &&
+        r.chunks >= 3 &&
+        r.chunks <= 5,
+      `${key}：動作、三角形 ${r.tris}（≤ ${cap}）、冒煙點 ${r.smoke}、脫落板 ${r.plates}、拆塊 ${r.chunks}`,
+    );
+    if (key === 'rammer') check((r.hostBits & 32) > 0, '衝撞無人機：房主把預警寫進 bossVis 的高位');
+    if (key === 'testrig')
+      check((r.hostBits & 3) === 1, '推進器試車台：bossVis 的低位（行為端的 ph）保留（' + r.hostBits + '）');
+  }
+  console.log('    三角形：' + res.join('、'));
+  await ctx.close();
+}
+
+// 地圖專屬敵人擴充 B1（第 1 章）：魚叉拖車、煙幕投射車、沙脊狙擊機、旋風產生機、坍方爆破手、礦燈哨兵
+// 每種在對應主題出擊生成、逐格推進觸發一次招式，截圖預警與命中；模型庫三個角度截圖；三角形預算
+async function testFoesB1(browser, base) {
+  console.log('地圖專屬敵人 B1：荒野／沙丘／礦坑的新敵人（招式、預警、弱點、模型）');
+  const { ctx, page } = await newPage(browser, 'foes-b1');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.camp.seeds[0] = 5150; // 固定地圖（招式的射線與彈道每次都一樣）
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        const p = g.player;
+        p.hp = p.maxHp = 1e6;
+        // 狀態效果（A1）與場上機制（A2）：記錄呼叫（還沒合併時只記錄）
+        window.__b1 = { st: [], clr: [], zone: [], mv: 0, rm: [], wall: [] };
+        const L = window.__b1;
+        const add0 = p.addStatus,
+          clr0 = p.clearStatus;
+        p.addStatus = function (k, ...a) {
+          L.st.push(k);
+          return add0 ? add0.call(this, k, ...a) : undefined;
+        };
+        p.clearStatus = function (k) {
+          L.clr.push(k);
+          return clr0 ? clr0.call(this, k) : undefined;
+        };
+        const z0 = g.addZone,
+          m0 = g.moveZone,
+          r0 = g.removeZone,
+          w0 = g.addTempWall;
+        g.addZone = function (k, ...a) {
+          L.zone.push(k);
+          return z0 ? z0.call(this, k, ...a) : L.zone.length;
+        };
+        g.moveZone = function (...a) {
+          L.mv++;
+          return m0 ? m0.apply(this, a) : undefined;
+        };
+        g.removeZone = function (id) {
+          L.rm.push(id);
+          return r0 ? r0.call(this, id) : undefined;
+        };
+        g.addTempWall = function (pos, o) {
+          L.wall.push(o && o.kind);
+          return w0 ? w0.call(this, pos, o) : undefined;
+        };
+        // 主迴圈不跑 AI，逐格推進
+        window.__step = (ents, n, stop) => {
+          const p = g.player;
+          for (let i = 0; i < n; i++) {
+            g.time += 1 / 60;
+            p.iFrames = 0;
+            p.hp = Math.max(p.hp, 1e5);
+            p.vel.set(0, p.vel.y, 0); // 玩家站著不動（預判落點固定）
+            for (const e of ents)
+              if (!e.dead) {
+                if (e.sn) {
+                  e.sn.st = 2;
+                  e.sn.tok = true;
+                }
+                e.updateAI(1 / 60);
+              }
+            for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+            g.projectiles = g.projectiles.filter((q) => !q.dead);
+            if (g.updateHazards) g.updateHazards(1 / 60);
+            g.hazards2Tick(1 / 60); // 區域效果、臨時障礙物
+            g.fx.update(1 / 60);
+            if (stop && stop()) return i;
+          }
+          return n;
+        };
+        // 生成點：要求的方向與距離附近、地面（不在物件上）、看得到玩家的位置（地圖是隨機的）
+        window.__at = (dx, dz) => {
+          const w = g.world,
+            R = Math.hypot(dx, dz),
+            a0 = Math.atan2(dz, dx);
+          for (let i = 0; i < 72; i++) {
+            const a = a0 + (i % 18) * 0.35,
+              r = R * (1 - Math.floor(i / 18) * 0.15);
+            const x = p.pos.x + Math.cos(a) * r,
+              z = p.pos.z + Math.sin(a) * r;
+            const h = w.terrainHeight(x, z);
+            if (!w.inZone(x, z, 4) || w.groundAt(x, z, h + 4) > h + 0.5) continue;
+            if (w.losBlocked(new THREE.Vector3(x, h + 2.5, z), p.center())) continue;
+            return new THREE.Vector3(x, h, z);
+          }
+          return new THREE.Vector3(p.pos.x + dx, w.terrainHeight(p.pos.x + dx, p.pos.z + dz), p.pos.z + dz);
+        };
+        // 截圖用：暫停（只畫面）、鏡頭框住玩家與敵人
+        window.__frame = (e, k = 1) => {
+          const a = p.pos,
+            b = e.pos;
+          const mid = a.clone().lerp(b, 0.5);
+          const d = a.distanceTo(b);
+          const dir = b.clone().sub(a).setY(0).normalize();
+          const side = new THREE.Vector3(-dir.z, 0, dir.x);
+          g.state = 'pause';
+          document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
+          g.camera.position
+            .copy(mid)
+            .addScaledVector(side, (d * 0.55 + 9) * k)
+            .add(new THREE.Vector3(0, d * 0.35 + 7, 0))
+            .addScaledVector(dir, -4);
+          g.camera.lookAt(mid.clone().add(new THREE.Vector3(0, 2, 0)));
+        };
+      },
+      [theme, variant],
+    );
+  const shot = async (name) => {
+    await wait(500);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'foe-b1-' + name + '.png') });
+  };
+  // 截圖之後維持暫停：主迴圈不跑 AI（否則招式會在兩次 evaluate 之間以實際時間跑完），一律由 __step 推進
+  const resume = () => page.evaluate(() => (window.__game.state = 'pause'));
+
+  // ---- 荒野：魚叉拖車 ----
+  await enter('wasteland', '');
+  const hp1 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.spawnType('harpoon', 1, 1, window.__at(0, -22), 1);
+    window.__e = e;
+    let warn = false;
+    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    if (warn) window.__frame(e);
+    return { warn, res: e.res, name: e.name };
+  });
+  check(hp1.warn && hp1.res && hp1.res[1] < 0, '魚叉拖車：鉤頭發紅光的預警（弱點爆發）');
+  await shot('harpoon-warn');
+  await resume();
+  const hp2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e;
+    let hooked = false;
+    window.__step([e], 2000, () => (hooked = e.aiState.hk === 'hook')); // 鉤頭撞到物件時下一輪再射
+    let pull = 0;
+    if (hooked) {
+      const p = g.player,
+        d0 = p.pos.distanceTo(e.pos);
+      for (let k = 0; k < 20; k++) p.move(1 / 60, new THREE.Vector3(), false, false, false, null);
+      pull = +(d0 - p.pos.distanceTo(e.pos)).toFixed(2);
+      window.__frame(e);
+    }
+    return {
+      hooked,
+      real: g.player.hasStatus('hook'),
+      pull,
+      st: window.__b1.st.slice(),
+      vis: e.bossVis,
+      dbg: { hk: e.aiState.hk, miss: e.aiState.hkMiss, t: e.aiState.hkT, d: e.pos.distanceTo(g.player.pos) },
+    };
+  });
+  check(
+    hp2.hooked && hp2.st.includes('hook') && hp2.real && hp2.pull > 0.3 && hp2.vis === 3,
+    '魚叉拖車：鋼索鉤命中 → hook 狀態效果、玩家被拉過去（' +
+      hp2.pull +
+      ' m）、捲揚機收回' +
+      (hp2.hooked ? '' : JSON.stringify(hp2.dbg)),
+  );
+  await shot('harpoon-hook');
+  await resume();
+  const hp3 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      p = g.player;
+    if (e.aiState.hk !== 'hook') return { cut: 0 };
+    e.takeDamage(e.maxHp * 0.2, 0, p, e.center(), new THREE.Vector3(0, 0, 1), undefined, undefined, 'exp');
+    window.__step([e], 2);
+    const r = { cut: e.aiState.cut || 0, clr: window.__b1.clr.includes('hook'), hk: e.aiState.hk };
+    e.takeDamage(1e9, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
+    return r;
+  });
+  check(hp3.cut === 1 && hp3.clr && hp3.hk === 'reload', '魚叉拖車：鉤住時打它，鋼索斷掉並解除 hook');
+  // ---- 荒野：煙幕投射車 ----
+  const sm1 = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('smoker', 1, 1, window.__at(-6, -26), 1);
+    window.__e = e;
+    let warn = false;
+    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    window.__step([e], 40);
+    if (warn) window.__frame(e);
+    return { warn };
+  });
+  check(sm1.warn, '煙幕投射車：發射架抬起並發光的預警');
+  await shot('smoker-warn');
+  await resume();
+  const sm2 = await page.evaluate(() => {
+    const e = window.__e;
+    let shot = false;
+    window.__step([e], 200, () => (shot = (e.aiState.shots || 0) > 0));
+    window.__step([e], 30);
+    window.__frame(e);
+    return { shot };
+  });
+  await shot('smoker-land');
+  await resume();
+  const sm3 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e;
+    window.__step([e], 200, () => (e.aiState.smoked || 0) > 0);
+    const r = { smoked: e.aiState.smoked || 0, zone: window.__b1.zone.includes('smoke') };
+    // 煙裡的敵人：不能鎖定、視線不通
+    const z = (g.zones || []).find((q) => q.k === 'smoke');
+    if (z) {
+      for (let k = 0; k < 40; k++) g.hazards2Tick(1 / 60); // 煙霧濃起來
+      const p = g.player;
+      const at = z.p.clone();
+      at.y = g.world.groundAt(at.x, at.z, at.y + 2);
+      const t = g.spawnType('mt', 1, 1, at, 1);
+      t.updateAI = () => {};
+      p.yaw = p.aimYaw = Math.atan2(-(t.pos.x - p.pos.x), -(t.pos.z - p.pos.z)); // 面向它
+      r.inSmoke = g.inSmoke(t.center());
+      r.lockable = g.lockCands(p).includes(t);
+      r.los = !g.world.losBlocked(p.center(), t.center());
+      g.clearZones(); // 對照：煙散掉之後鎖定得到
+      r.after = g.lockCands(p).includes(t);
+      t.takeDamage(1e9, 0, p, t.center(), new THREE.Vector3(0, 0, 1));
+    }
+    e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    return r;
+  });
+  check(sm2.shot && sm3.smoked === 1 && sm3.zone, '煙幕投射車：灰色落點圈 → 落地生成煙幕（smoke 區域）');
+  check(
+    sm3.inSmoke && !sm3.lockable && !sm3.los && sm3.after,
+    '煙幕投射車：煙裡的敵人不能鎖定、視線不通（' + JSON.stringify(sm3) + '）',
+  );
+
+  // ---- 沙丘：沙脊狙擊機 ----
+  await enter('dunes', '');
+  const rs1 = await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world;
+    g.clearZones(); // 前面留下的煙霧不擋住這一段
+    g.clearTempWalls();
+    const e = g.spawnType('ridgesniper', 1, 1, window.__at(10, -45), 1);
+    window.__e = e;
+    window.__step([e], 2);
+    const x = e.pos.x,
+      z = e.pos.z;
+    let m = 0;
+    for (const [dx, dz] of [
+      [7, 0],
+      [-7, 0],
+      [0, 7],
+      [0, -7],
+    ])
+      m += w.terrainHeight(x + dx, z + dz) / 4;
+    const ridge = w.terrainHeight(x, z) - m;
+    let aim = false;
+    window.__step([e], 1200, () => (aim = !!(e.bossVis & 1)));
+    window.__step([e], 50);
+    if (aim) window.__frame(e, 0.8);
+    return { ridge, aim, prone: !!(e.bossVis & 4), bx: !!e.bx, res: e.res };
+  });
+  check(
+    rs1.aim && rs1.prone && rs1.bx && rs1.res[2] < 0,
+    '沙脊狙擊機：趴在稜線（比周圍高 ' + rs1.ridge.toFixed(1) + ' m），藍色瞄準線（弱點能量）',
+  );
+  await shot('sniper-aim');
+  await resume();
+  const rs2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      p = g.player;
+    const h0 = p.hp;
+    let fired = false;
+    window.__step([e], 700, () => (fired = (e.aiState.hits || 0) > 0));
+    const dmg = h0 - p.hp;
+    if (fired) window.__frame(e, 0.8);
+    return {
+      fired,
+      dmg,
+      hits: e.aiState.hits || 0,
+      sts: Object.keys(p.sts || {}),
+      zones: (g.zones || []).map((z) => z.k),
+    };
+  });
+  check(
+    rs2.fired && rs2.dmg > 300,
+    '沙脊狙擊機：瞄準 1.5 秒後一擊（' + Math.round(rs2.dmg) + '）' + JSON.stringify(rs2),
+  );
+  await shot('sniper-hit');
+  await resume();
+  const rs3 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      w = g.world;
+    e.aiState.rsT = 0;
+    e.aiState.rsGoal = null;
+    const b0 = e.aiState.broken || 0,
+      h1 = e.aiState.hits || 0;
+    let aim = false;
+    window.__step([e], 300, () => (aim = !!e.aiState.aim));
+    const lb = w.losBlocked;
+    w.losBlocked = () => true; // 躲到沙丘後面
+    window.__step([e], 40);
+    w.losBlocked = lb;
+    const r = { aim, broken: (e.aiState.broken || 0) - b0, hits: (e.aiState.hits || 0) - h1 };
+    e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    return r;
+  });
+  check(rs3.aim && rs3.broken === 1 && rs3.hits === 0, '沙脊狙擊機：射線被擋住時中斷瞄準');
+  // ---- 沙丘：旋風產生機 ----
+  const tw1 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.spawnType('twister', 1, 1, window.__at(0, -24), 1);
+    window.__e = e;
+    let warn = false;
+    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    window.__step([e], 40);
+    window.__frame(e);
+    return { warn };
+  });
+  check(tw1.warn, '旋風產生機：葉片打開、噴出環發光的預警');
+  await shot('twister-warn');
+  await resume();
+  const tw2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      p = g.player;
+    const h0 = p.hp;
+    let hit = false;
+    window.__step([e], 600, () => (hit = !!(e.aiState.tw && e.aiState.tw.hits > 2)));
+    const r = {
+      hit,
+      dmg: h0 - p.hp,
+      zone: window.__b1.zone.includes('suction') && (g.zones || []).some((z) => z.k === 'suction'),
+      mv: window.__b1.mv,
+      bx: !!e.bx,
+    };
+    window.__frame(e);
+    return r;
+  });
+  check(
+    tw2.hit && tw2.dmg > 0 && tw2.zone && tw2.mv > 10 && tw2.bx,
+    '旋風產生機：旋風追上目標、持續受傷（' + Math.round(tw2.dmg) + '），吸引區跟著移動',
+  );
+  await shot('twister-vortex');
+  await resume();
+  const tw3 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e;
+    const n0 = window.__b1.rm.length;
+    e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    window.__step([e], 2);
+    return { gone: !e.aiState.tw && !e.bx, rm: window.__b1.rm.length > n0 };
+  });
+  check(tw3.gone && tw3.rm, '旋風產生機：擊破產生機時旋風消失');
+
+  // ---- 礦坑（坑道網，有岩頂）：坍方爆破手 ----
+  await enter('desert', 'tunnels');
+  const bl1 = await page.evaluate(() => {
+    const g = window.__game;
+    const e = g.spawnType('blaster', 1, 1, window.__at(4, -22), 1);
+    window.__e = e;
+    let warn = false;
+    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    window.__step([e], 60);
+    window.__frame(e);
+    return { warn, roof: !!g.world.theme.roof, top: e.aiState.bl && e.aiState.bl.top.y };
+  });
+  check(bl1.warn && bl1.roof && bl1.top < 20, '坍方爆破手：在岩頂裝炸藥（閃燈＋裂紋圈預警）');
+  await shot('blaster-warn');
+  await resume();
+  const bl2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      p = g.player;
+    const h0 = p.hp;
+    window.__step([e], 200, () => (e.aiState.falls || 0) > 0);
+    window.__frame(e);
+    return { falls: e.aiState.falls || 0, dmg: h0 - p.hp, wall: window.__b1.wall.includes('rock') };
+  });
+  check(
+    bl2.falls === 1 && bl2.dmg > 0 && bl2.wall,
+    '坍方爆破手：落石（' + Math.round(bl2.dmg) + '），岩塊留下當掩體',
+  );
+  await shot('blaster-fall');
+  await resume();
+  await page.evaluate(() => {
+    const g = window.__game;
+    window.__e.takeDamage(1e9, 0, g.player, window.__e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  // ---- 礦坑：礦燈哨兵 ----
+  const lp1 = await page.evaluate(() => {
+    const g = window.__game;
+    g.clearZones(); // 坍方留下的岩塊（臨時障礙物）會擋住探照燈
+    g.clearTempWalls();
+    const lat = window.__at(-3, -18);
+    lat.y = g.world.terrainHeight(lat.x, lat.z); // 地面（不站在物件上）
+    const e = g.spawnType('lamp', 1, 1, lat, 1);
+    window.__e = e;
+    let lit = false;
+    window.__step([e], 1200, () => (lit = (e.aiState.spotted || 0) > 0));
+    window.__step([e], 5);
+    window.__frame(e, 0.5);
+    return {
+      lit,
+      zone: window.__b1.zone.includes('spot'),
+      vis: e.bossVis,
+      d: e.pos.distanceTo(g.player.pos),
+      los: e.aiState.los,
+    };
+  });
+  check(lp1.lit && lp1.zone, '礦燈哨兵：探照燈掃描、照到目標（spot 區域）' + JSON.stringify(lp1));
+  await shot('lamp-spot');
+  await resume();
+  const lp2 = await page.evaluate(() => {
+    const g = window.__game,
+      e = window.__e,
+      p = g.player;
+    const h0 = e.hp;
+    e.takeDamage(200, 0, p, e.center().add(new THREE.Vector3(0, -1, 0)), new THREE.Vector3(0, 0, 1));
+    const body = h0 - e.hp;
+    const h1 = e.hp;
+    e.takeDamage(200, 0, p, e.lampPos_b1(), new THREE.Vector3(0, 0, 1));
+    const head = h1 - e.hp;
+    window.__step([e], 3);
+    const r = { body, head, off: e.aiState.lmOff, vis: e.bossVis, rm: window.__b1.rm.length };
+    window.__frame(e, 0.5);
+    return r;
+  });
+  check(
+    lp2.head > lp2.body * 1.4 && lp2.off > 7 && lp2.vis === 2,
+    '礦燈哨兵：打燈頭傷害加重（' + Math.round(lp2.body) + ' → ' + Math.round(lp2.head) + '）並熄燈 8 秒',
+  );
+  await shot('lamp-break');
+  await resume();
+  // 三角形預算（一般 ≤ 6000）與 rig.dmg、動作節點
+  const tri = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    for (const k of ['harpoon', 'smoker', 'ridgesniper', 'twister', 'blaster', 'lamp']) {
+      const e = g.spawnType(k, 1, 1, window.__at(30, 30), 1);
+      let n = 0;
+      e.mesh.traverse((o) => {
+        if (
+          !o.isMesh ||
+          o.material.type === 'ShaderMaterial' ||
+          o.material.blending === THREE.AdditiveBlending
+        )
+          return;
+        const gm = o.geometry;
+        n += (gm.index ? gm.index.count : gm.attributes.position.count) / 3;
+      });
+      const m = e.model;
+      out[k] = {
+        tris: Math.round(n),
+        nodes: Object.keys(m).filter((q) => q[0] === 'x' && q !== 'xWarn' && q !== 'xL1' && q !== 'xL2')
+          .length,
+        dmg: !!(m.dmg && m.dmg.smoke.length && m.dmg.plates.length >= 2 && m.dmg.chunks.length >= 2),
+      };
+      e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+    }
+    return out;
+  });
+  check(
+    Object.values(tri).every((t) => t.tris <= 6000 && t.nodes >= 3 && t.dmg),
+    'B1 模型：三角形 ≤ 6000、至少 3 個動作節點、rig.dmg（' +
+      Object.entries(tri)
+        .map(([k, t]) => k + ' ' + t.tris)
+        .join('、') +
+      '）',
+  );
+  await ctx.close();
+  // 模型庫：三個角度
+  if (!fs.existsSync(LIBRARY)) return;
+  const lc = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const lpg = await lc.newPage();
+  watch(lpg, 'foes-b1-lib');
+  for (const k of ['harpoon', 'smoker', 'ridgesniper', 'twister', 'blaster', 'lamp']) {
+    await lpg.goto(base + 'model-library.html?test#vehicle/foe_' + k);
+    await lpg.waitForSelector('#inspect:not([hidden])');
+    await wait(1500);
+    const box = await lpg.$eval('#insGl', (c) => {
+      const r = c.getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2, r.height];
+    });
+    const view = await lpg.$('#insView');
+    await view.screenshot({ path: path.join(SHOT_DIR, 'foe-b1-lib-' + k + '-a.png') });
+    // OrbitControls：橫向拖曳 height 的 1/4 ≈ 轉 90°
+    await dragFrom(lpg, [box[0], box[1]], box[2] / 4, 0);
+    await view.screenshot({ path: path.join(SHOT_DIR, 'foe-b1-lib-' + k + '-b.png') });
+    await dragFrom(lpg, [box[0], box[1]], box[2] / 4, 0);
+    await view.screenshot({ path: path.join(SHOT_DIR, 'foe-b1-lib-' + k + '-c.png') });
+  }
+  check(true, '模型庫：6 種新敵人的三個角度截圖（test-results/foe-b1-lib-*.png）');
+  await lc.close();
+}
+
+// 地圖專屬敵人擴充（B2）：集散場的鉚釘槍 MT／電焊 MT、水壩的高壓水砲車／渦輪吸入機、水沒市街的電鰻無人機／漂流水雷浮標
+async function testFoesB2(browser, base) {
+  console.log('地圖專屬敵人擴充 B2：集散場、水壩、水沒市街的新敵人（行為、預警、模型）');
+  const { ctx, page } = await newPage(browser, 'foesb2');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  // 共用工具：進入主題的補給區段（沒有敵人）、凍結主迴圈（只畫面）、手動推進 AI；記錄狀態效果與場上機制的呼叫
+  await page.evaluate(() => {
+    const T = (window.__b2 = {});
+    T.enter = (theme, variant) => {
+      const g = window.__game;
+      if (!g.camp) g.campBegin('c1s1');
+      g.campSortie().segs[0].theme = theme;
+      g.camp.seg = 0;
+      g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '', tod: '', weather: '', zone: 'full' };
+      g.camp.types[0] = 'supply';
+      g.state = 'play';
+      g.campEnterSeg();
+      g.state = 'foe-test';
+      g.freezeT = 1e9; // 主迴圈只畫面，AI 由測試推進
+      const p = g.player;
+      p.hp = p.maxHp = 1e6;
+      const rec = (T.rec = { status: [], zone: [] });
+      const os = p.addStatus;
+      p.addStatus = function (k, s, o) {
+        rec.status.push(k);
+        return os ? os.call(this, k, s, o) : undefined;
+      };
+      if (T.oz === undefined) T.oz = g.addZone || null;
+      g.addZone = function (k, ...a) {
+        rec.zone.push(k);
+        return T.oz ? T.oz.call(this, k, ...a) : rec.zone.length;
+      };
+      return g.worldTheme;
+    };
+    T.at = (dx, dz) => {
+      const g = window.__game,
+        p = g.player;
+      const x = p.pos.x + dx,
+        z = p.pos.z + dz;
+      return new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
+    };
+    T.step = (ents, n, stop) => {
+      const g = window.__game,
+        p = g.player;
+      for (let i = 0; i < n; i++) {
+        g.time += 1 / 60;
+        p.iFrames = 0;
+        p.staggerT = 0;
+        for (const e of ents) if (!e.dead) e.updateAI(1 / 60);
+        for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+        g.projectiles = g.projectiles.filter((q) => !q.dead);
+        if (g.updateHazards) g.updateHazards(1 / 60);
+        g.hazards2Tick(1 / 60); // 區域效果
+        g.fx.update(1 / 60);
+        if (stop && stop()) return i;
+      }
+      return n;
+    };
+    // 截圖的鏡頭：從玩家這一側斜看敵人的正面
+    T.cam = (e, dist = 9, h = 3.5, side = 1) => {
+      const g = window.__game;
+      const c = e.center();
+      const d = c.clone().sub(g.player.center()).setY(0).normalize();
+      g.camera.position
+        .copy(c)
+        .addScaledVector(d, -dist)
+        .add(new THREE.Vector3(-d.z * side * dist * 0.6, h, d.x * side * dist * 0.6));
+      g.camera.lookAt(c);
+    };
+    // 側面的鏡頭：看玩家與敵人之間的攻擊（水柱、電弧）
+    T.side = (e, dist = 16, h = 5) => {
+      const g = window.__game;
+      const a = e.center(),
+        b = g.player.center();
+      const mid = a.clone().lerp(b, 0.5);
+      const d = b.clone().sub(a).setY(0).normalize();
+      g.camera.position.copy(mid).add(new THREE.Vector3(-d.z * dist, h, d.x * dist));
+      g.camera.lookAt(mid);
+    };
+    T.wetAt = (r0, r1) => {
+      const g = window.__game,
+        w = g.world,
+        p = g.player;
+      for (let r = r0; r < r1; r += 2)
+        for (let a = 0; a < 6.28; a += 0.2) {
+          const x = p.pos.x + Math.cos(a) * r,
+            z = p.pos.z + Math.sin(a) * r;
+          if (w.waterDepth(x, z) > 0.8 && w.inZone(x, z, 4))
+            return new THREE.Vector3(x, w.terrainHeight(x, z), z);
+        }
+      return null;
+    };
+    T.kill = (e) => e.takeDamage(1e9, 0, window.__game.player, e.center(), new THREE.Vector3(0, 0, 1));
+  });
+  const shot = async (name) => {
+    await page.evaluate(() => (window.__game.popups.length = 0)); // 傷害數字（凍結時不會消失）
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'foe-b2-' + name + '.png') });
+  };
+  // ---- 集散場：鉚釘槍 MT ----
+  const r1 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game;
+    const th = T.enter('industrial', 'railyard');
+    g.world.obstacles.length = 0;
+    g.world.props = [];
+    const e = g.spawnType('riveter', 1, 1, T.at(0, -18), 1);
+    T.e = e;
+    const n = T.step([e], 600, () => e.bossVis === 1);
+    T.cam(e, 8, 3);
+    return { th, n, vis: e.bossVis, res: e.res };
+  });
+  check(
+    r1.th === 'industrial' && r1.vis === 1,
+    `鉚釘槍 MT：瞄準前槍口預警（bossVis 1，${JSON.stringify(r1)}）`,
+  );
+  await shot('riveter-warn');
+  const r2 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e;
+    let proj = false;
+    T.step([e], 300, () => {
+      if (window.__game.projectiles.some((q) => q.owner === e)) proj = true;
+      return (e.aiState.stuckN || 0) > 0;
+    });
+    const out = {
+      proj,
+      stuck: e.aiState.stuckN || 0,
+      status: T.rec.status.slice(),
+      real: window.__game.player.hasStatus('stick'),
+    };
+    T.kill(e);
+    return out;
+  });
+  check(
+    r2.proj && r2.stuck > 0 && r2.status.includes('stick') && r2.real,
+    `鉚釘槍 MT：射出鉚釘，命中時黏上（addStatus stick，${JSON.stringify(r2)}）`,
+  );
+  // ---- 集散場：電焊 MT ----
+  const w1 = await page.evaluate(() => {
+    const T = window.__b2;
+    const e = window.__game.spawnType('welder', 1, 1, T.at(3, -8), 1);
+    T.e = e;
+    const n = T.step([e], 600, () => e.bossVis === 1);
+    T.cam(e, 7, 2.5);
+    return { n, vis: e.bossVis };
+  });
+  check(w1.vis === 1, `電焊 MT：貼近後焊槍預警（${JSON.stringify(w1)}）`);
+  await shot('welder-warn');
+  const w2 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e,
+      p = window.__game.player;
+    const h0 = p.hp;
+    T.step([e], 200, () => e.bossVis === 2);
+    T.step([e], 70);
+    T.side(e, 8, 3);
+    return {
+      vis: e.bossVis,
+      bx: e.bx,
+      pid: p.id,
+      hurt: h0 - p.hp,
+      drain: T.rec.status.includes('drain') && p.hasStatus('drain'),
+      arc: !!(e.b2arc && e.b2arc.visible),
+    };
+  });
+  check(
+    w2.vis === 2 && w2.bx && w2.bx[0] === w2.pid && w2.hurt > 0 && w2.drain && w2.arc,
+    `電焊 MT：電弧連到玩家，吸 EN（drain）並造成能量傷害（${JSON.stringify(w2)}）`,
+  );
+  await shot('welder-arc');
+  const w3 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e,
+      p = window.__game.player;
+    const dir = p.pos.clone().sub(e.pos).setY(0).normalize();
+    p.pos.addScaledVector(dir, 16); // 拉開 12 m 以上
+    T.step([e], 3);
+    const out = { vis: e.bossVis, bx: e.bx, arc: !!(e.b2arc && e.b2arc.visible) };
+    T.kill(e);
+    return out;
+  });
+  check(w3.vis === 0 && !w3.bx && !w3.arc, `電焊 MT：拉開距離電弧就斷（${JSON.stringify(w3)}）`);
+  // ---- 水壩：高壓水砲車 ----
+  const c1 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game;
+    const th = T.enter('dam', '');
+    // 找一個看得到玩家、高低差不大的位置（水壩的地形起伏大）
+    const p = g.player;
+    let sp = T.at(0, -22);
+    for (let a = 0; a < 6.28; a += 0.3) {
+      const q = T.at(Math.cos(a) * 22, Math.sin(a) * 22);
+      const c = q.clone().setY(q.y + 3);
+      if (
+        Math.abs(q.y - p.pos.y) < 1.5 &&
+        g.world.inZone(q.x, q.z, 4) &&
+        [0, 1, 2, 3, 4, 5, 6, 7].every(
+          (i) =>
+            !g.world.hitsWorld(
+              new THREE.Vector3(q.x + Math.cos(i * 0.8) * 4, q.y + 3, q.z + Math.sin(i * 0.8) * 4),
+            ),
+        ) &&
+        // 中間的地形平坦（水柱是直線）
+        [0.2, 0.4, 0.6, 0.8].every((k) => {
+          const x = q.x + (p.pos.x - q.x) * k,
+            z = q.z + (p.pos.z - q.z) * k;
+          return Math.abs(g.world.terrainHeight(x, z) - (q.y + (p.pos.y - q.y) * k)) < 0.8;
+        }) &&
+        !g.world.losBlocked(c, p.center())
+      ) {
+        sp = q;
+        break;
+      }
+    }
+    const e = g.spawnType('watercannon', 1, 1, sp, 1);
+    T.e = e;
+    e.speedMul = 0; // 停在選好的位置（只轉向）
+    T.obs = g.world.obstacles;
+    g.world.obstacles = []; // 水柱的判定只看地形（障礙物擋住水柱是正常的，但會讓測試不穩定）
+    const n = T.step([e], 600, () => e.bossVis === 1);
+    T.step([e], 30);
+    T.cam(e, 12, 4);
+    return { th, n, vis: e.bossVis };
+  });
+  check(c1.th === 'dam' && c1.vis === 1, `高壓水砲車：砲口白霧蓄水（${JSON.stringify(c1)}）`);
+  await shot('watercannon-warn');
+  const c2 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e,
+      p = window.__game.player;
+    const h0 = p.hp,
+      a0 = p.acs;
+    T.step([e], 200, () => (e.aiState.hitN || 0) > 0);
+    T.side(e, 16, 5);
+    window.__game.world.obstacles = T.obs;
+    return {
+      hit: e.aiState.hitN || 0,
+      vis: e.bossVis,
+      bx: e.bx,
+      dmg: Math.round(h0 - p.hp),
+      acs: Math.round(p.acs - a0),
+      col: !!(e.b2col && e.b2col.visible),
+      L: e.aiState.lastL,
+      d: +e.pos.distanceTo(p.pos).toFixed(1),
+      dy: +(e.pos.y - p.pos.y).toFixed(1),
+    };
+  });
+  check(
+    c2.hit > 0 && c2.vis === 2 && c2.bx && c2.dmg > 0 && c2.dmg < 300 && c2.acs > c2.dmg && c2.col,
+    `高壓水砲車：水柱傷害低、衝擊極高（${JSON.stringify(c2)}）`,
+  );
+  await shot('watercannon-fire');
+  // ---- 水壩：渦輪吸入機 ----
+  const t1 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game,
+      p = g.player;
+    T.kill(T.e);
+    const e = g.spawnType('turbine', 1, 1, T.at(-6, -16), 1);
+    T.e = e;
+    e.updateAI(1 / 60); // 第一次：移到附近的水道
+    const wet = g.world.waterDepth(e.pos.x, e.pos.z);
+    // 玩家站到渦輪的旁邊 10 m（渦輪會轉過來面向玩家）
+    p.pos.set(e.pos.x + 10, g.world.groundAt(e.pos.x + 10, e.pos.z, e.pos.y + 6), e.pos.z);
+    const n = T.step([e], 900, () => e.bossVis === 1);
+    T.step([e], 50);
+    T.cam(e, 13, 5);
+    return { n, vis: e.bossVis, wet: +wet.toFixed(2), water: !!g.world.theme.water };
+  });
+  check(t1.vis === 1, `渦輪吸入機：預警（蓋子半開、水面的預警圈，${JSON.stringify(t1)}）`);
+  await shot('turbine-warn');
+  const t2 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e;
+    T.step([e], 200, () => e.bossVis === 2);
+    T.step([e], 40);
+    T.cam(e, 13, 5);
+    // 蓋子打開時：正面 ×1.6、背面照常
+    e.hp = e.maxHp = 1e7;
+    const fwd = new THREE.Vector3(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+    const src = (k) => ({ pos: e.pos.clone().addScaledVector(fwd, k * 10), name: 't' });
+    let h = e.hp;
+    e.takeDamage(1000, 0, src(1), e.center(), null, undefined, undefined, 'none');
+    const front = h - e.hp;
+    h = e.hp;
+    e.takeDamage(1000, 0, src(-1), e.center(), null, undefined, undefined, 'none');
+    const back = h - e.hp;
+    return {
+      vis: e.bossVis,
+      zone: T.rec.zone.slice(),
+      real: (window.__game.zones || []).some((z) => z.k === 'suction'),
+      front: Math.round(front),
+      back: Math.round(back),
+      petal: +e.model.petals[0].rotation.y.toFixed(2),
+      vortex: !!(e.b2vx && e.b2vx.visible),
+    };
+  });
+  check(
+    t2.vis === 2 &&
+      t2.zone.includes('suction') &&
+      t2.real &&
+      t2.front > t2.back * 1.4 &&
+      t2.petal < -0.8 &&
+      t2.vortex,
+    `渦輪吸入機：打開前蓋吸入（addZone suction），正面受傷 ×1.6（${JSON.stringify(t2)}）`,
+  );
+  await shot('turbine-suck');
+  // ---- 水沒市街：電鰻無人機 ----
+  const e1 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game;
+    T.kill(T.e);
+    const th = T.enter('flooded', 'canal');
+    const wp = T.wetAt(10, 30);
+    const e = g.spawnType('eel', 1, 1, wp, 1);
+    T.e = e;
+    T.step([e], 60);
+    const lvl = g.world.theme.water.level;
+    const skim = +(e.pos.y - lvl).toFixed(2);
+    const n = T.step([e], 900, () => e.bossVis === 1);
+    T.step([e], 50);
+    T.cam(e, 9, 4);
+    return { th, wet: !!wp, n, vis: e.bossVis, skim };
+  });
+  check(
+    e1.th === 'flooded' && e1.vis === 1 && Math.abs(e1.skim) < 1.3,
+    `電鰻無人機：貼著水面游，充電時水面的電流紋預警（${JSON.stringify(e1)}）`,
+  );
+  await shot('eel-warn');
+  const e2 = await page.evaluate(() => {
+    const T = window.__b2,
+      e = T.e;
+    T.step([e], 200, () => e.bossVis === 2);
+    T.step([e], 10);
+    T.cam(e, 9, 4);
+    return {
+      vis: e.bossVis,
+      zone: T.rec.zone.slice(),
+      real: (window.__game.zones || []).some((z) => z.k === 'electro'),
+    };
+  });
+  check(
+    e2.vis === 2 && e2.zone.includes('electro') && e2.real,
+    `電鰻無人機：放電（addZone electro，${JSON.stringify(e2)}）`,
+  );
+  await shot('eel-zap');
+  // ---- 水沒市街：漂流水雷浮標 ----
+  const b1 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game,
+      p = g.player;
+    T.kill(T.e);
+    const wp = T.wetAt(12, 30) || T.at(0, -14);
+    g.spawnType('buoy', 1, 1, wp);
+    const bs = g.enemies.filter((x) => !x.dead && x.ai === 'buoy');
+    const d0 = bs[0].pos.distanceTo(p.pos);
+    T.step(bs, 90);
+    T.cam(bs[0], 8, 3);
+    return {
+      hp: Math.round(bs[0].maxHp),
+      n: bs.length,
+      d0: +d0.toFixed(1),
+      d1: +bs[0].pos.distanceTo(p.pos).toFixed(1),
+      vis: bs.map((b) => b.bossVis),
+    };
+  });
+  check(b1.n === 3 && b1.d1 < b1.d0, `漂流水雷浮標：三個一群漂向目標（${JSON.stringify(b1)}）`);
+  await shot('buoy-drift');
+  const b2 = await page.evaluate(() => {
+    const T = window.__b2,
+      g = window.__game,
+      p = g.player;
+    for (const b of g.enemies.filter((x) => !x.dead && x.ai === 'buoy')) T.kill(b);
+    const wp = T.wetAt(16, 34) || T.at(0, -18);
+    g.spawnType('buoy', 1, 1, wp);
+    const bs = g.enemies.filter((x) => !x.dead && x.ai === 'buoy');
+    // 射爆一個：旁邊的敵人（一般 MT）也受到爆炸
+    const mt = g.spawnType('mt', 1, 1, bs[0].pos.clone().add(new THREE.Vector3(2.5, 0, 0)), 1);
+    mt.hp = mt.maxHp = 1e5;
+    const m0 = mt.hp;
+    T.kill(bs[0]);
+    const chain = bs.slice(1).filter((b) => b.dead).length;
+    const mtHurt = m0 - mt.hp;
+    mt.takeDamage(1e9, 0, p, mt.center(), new THREE.Vector3(0, 0, 1));
+    // 剩下的浮標：靠近 4 m 就引信、爆炸
+    const rest = bs.filter((b) => !b.dead);
+    let fused = false;
+    const h0 = p.hp;
+    if (rest.length) {
+      rest[0].pos.set(p.pos.x + 3, rest[0].pos.y, p.pos.z);
+      T.step(rest, 60, () => {
+        if (rest[0].bossVis === 2) fused = true;
+        return rest[0].dead;
+      });
+    }
+    for (const b of rest) if (!b.dead) T.kill(b);
+    return {
+      chain,
+      mtHurt: Math.round(mtHurt),
+      rest: rest.length,
+      fused,
+      boom: rest.length ? rest[0].dead : null,
+      hurt: Math.round(h0 - p.hp),
+    };
+  });
+  check(
+    b2.mtHurt > 0 && (b2.rest === 0 || (b2.fused && b2.boom && b2.hurt > 0)),
+    `漂流水雷浮標：射爆時波及其他敵人、靠近 4 m 引信後爆炸（${JSON.stringify(b2)}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.freezeT = 0;
+    if (window.__b2.oz) g.addZone = window.__b2.oz;
+    g.state = 'play';
+  });
+  await ctx.close();
+  // ---- 模型庫：三視角（斜角、正面、側面）＋三角形數 ----
+  const lib = await newPage(browser, 'foesb2-lib');
+  const lp = lib.page;
+  await lp.setViewportSize({ width: 1280, height: 900 });
+  const HIDE = ['原點與三軸', '連接點', '尺寸標線', '外框', '刻度尺', '人形 1.8 m', '1 m 格線'];
+  for (const key of ['riveter', 'welder', 'water_cannon', 'turbine', 'eel_drone', 'mine_buoy']) {
+    await lp.goto(base + 'model-library.html#vehicle/foe_' + key);
+    await lp.waitForSelector('#insInfo .kv', { timeout: 15000 }).catch(() => {});
+    await wait(1500);
+    const info = await lp.evaluate((HIDE) => {
+      for (const l of document.querySelectorAll('label')) {
+        const i = l.querySelector('input[type=checkbox]');
+        if (!i || !i.checked || !l.offsetParent) continue;
+        if (HIDE.some((t) => l.textContent.trim().startsWith(t))) i.click();
+      }
+      const kv = [...document.querySelectorAll('#insInfo .kv')].map((k) => k.innerText.replace(/\n/g, ':'));
+      const tri = kv.find((s) => /三角/.test(s)) || '';
+      const cv = [...document.querySelectorAll('canvas')]
+        .filter((c) => c.offsetParent)
+        .sort((a, b) => b.clientHeight - a.clientHeight)[0];
+      const r = cv.getBoundingClientRect();
+      return {
+        tri: +(tri.split(':').pop() || '0').replace(/[^\d]/g, ''),
+        h: cv.clientHeight,
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+      };
+    }, HIDE);
+    check(info.tri > 600 && info.tri <= 6000, `模型庫 vehicle/foe_${key}：三角形 ${info.tri}（上限 6000）`);
+    const clip = { x: 0, y: 0, width: Math.min(1280, Math.round(info.x * 2)), height: 900 };
+    const drag = async (deg) => {
+      const dx = (-deg / 360) * info.h;
+      await lp.mouse.move(info.x, info.y);
+      await lp.mouse.down();
+      await lp.mouse.move(info.x + dx, info.y, { steps: 12 });
+      await lp.mouse.up();
+      await wait(1500);
+    };
+    await lp.mouse.move(info.x, info.y);
+    for (let i = 0; i < 3; i++) {
+      await lp.mouse.wheel(0, -300);
+      await wait(80);
+    }
+    await wait(800);
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foe-b2-lib-${key}-oblique.png`), clip });
+    await drag(36.9); // 預設是右前方的斜角（方位 143°）→ 正面（180°）
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foe-b2-lib-${key}-front.png`), clip });
+    await drag(-90); // → 右側面
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foe-b2-lib-${key}-side.png`), clip });
+  }
+  await lib.ctx.close();
+}
+
 async function main() {
   if (!fs.existsSync(HTML)) throw new Error(`找不到 ${HTML}，請先執行 npm run build`);
   fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -11910,6 +14596,7 @@ async function main() {
     await run('testSaves', testSaves, browser, base + '?test');
     await run('testPilot', testPilot, browser, base);
     await run('testLibrary', testLibrary, browser, base);
+    await run('testFoeModelsD1', testFoeModelsD1, browser, base);
     await run('testLibraryGlb', testLibraryGlb, browser, base);
     await run('testRefTools', testRefTools, browser, base);
     await run('testDraco', testDraco, browser, base + 'model-library.html', 'http');
@@ -11937,10 +14624,14 @@ async function main() {
     await run('testModules', testModules, browser, base);
     await run('testChapter1', testChapter1, browser, base);
     await run('testChapter2', testChapter2, browser, base);
+    await run('testFoesB2', testFoesB2, browser, base);
+    await run('testFoesC1', testFoesC1, browser, base);
+    await run('testFoesC2', testFoesC2, browser, base);
     await run('testChapter3', testChapter3, browser, base);
     await run('testChapter4', testChapter4, browser, base);
     await run('testChapter5', testChapter5, browser, base);
     await run('testChapter6', testChapter6, browser, base);
+    await run('testFoeModelsD2', testFoeModelsD2, browser, base);
     await run('testVariants6', testVariants6, browser, base);
     await run('testCycle2', testCycle2, browser, base);
     await run('testCycle3', testCycle3, browser, base);
@@ -11960,12 +14651,16 @@ async function main() {
     await run('testAim', testAim, browser, base);
     await run('testAudio', testAudio, browser, base);
     await run('testJuice', testJuice, browser, base);
+    await run('testFoesB1', testFoesB1, browser, base);
     await run('testBossPower', testBossPower, browser, base);
     await run('testBoss3', testBoss3, browser, base);
+    await run('testStatusFx', testStatusFx, browser, base);
+    await run('testHazards2', testHazards2, browser, base);
     await run('testLocalModels', testLocalModels, browser, base);
     await run('testModelSets', testModelSets, browser, base);
     await run('testMultiplayer', testMultiplayer, browser, base + '?lan=local', 'local', true);
     await run('testMpBosses', testMpBosses, browser, base + '?lan=local&test');
+    await run('testMpStatus', testMpStatus, browser, base + '?lan=local&test');
     await run('testMpCampaign', testMpCampaign, browser, base + '?lan=local&test');
     await run('testMpLevels', testMpLevels, browser, base + '?lan=local&test');
     if (WITH_SERVER && (!ONLY || ONLY.includes('server'))) {
@@ -12066,3 +14761,383 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+// 地圖專屬敵人擴充（C1 組）：各自生成、觸發招式並截圖（攻擊預警）、模型庫三視角截圖
+async function testFoesC1(browser, base) {
+  console.log('地圖專屬敵人擴充（C1）：冷凍噴霧機、冰錐迫擊砲、全像投影器、寄生纏附體、重力錨、滑索突擊兵');
+  const { ctx, page } = await newPage(browser, 'foes-c1');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => (window.__game.autoPickMod = true));
+  const enter = (theme, variant) =>
+    page.evaluate(
+      ([theme, variant]) => {
+        const g = window.__game;
+        if (g.camp) g.campEnd(false, true);
+        g.state = 'play';
+        g.campBegin('c1s1');
+        g.campSortie().segs[0].theme = theme;
+        g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
+        g.camp.types[0] = 'supply';
+        g.campEnterSeg();
+        g.state = 'foe-test';
+        const p = g.player;
+        p.hp = p.maxHp = 1e6;
+        g.waves = [];
+        g.wavePend = null;
+        g.aiOld = true; // 不用感知系統（看不到目標時不會回到待機，招式的測試才穩定）
+        // 狀態效果（mech-status.js）與場上機制（hazards2.js）：記錄呼叫並照常執行
+        window.__c1 = { zones: [], walls: [], status: [] };
+        if (!g.__c1wrap) {
+          g.__c1wrap = true;
+          const az = g.addZone,
+            aw = g.addTempWall;
+          g.addZone = function (...a) {
+            window.__c1.zones.push(a);
+            return az.apply(this, a);
+          };
+          g.addTempWall = function (...a) {
+            window.__c1.walls.push(a);
+            return aw.apply(this, a);
+          };
+        }
+        const as = p.addStatus;
+        p.addStatus = function (k, sec, o) {
+          window.__c1.status.push([k, sec, o]);
+          return as.call(this, k, sec, o);
+        };
+        // 共用：逐格推進（主迴圈暫停）
+        window.__step = (n, stop) => {
+          for (let i = 0; i < n; i++) {
+            g.time += 1 / 60;
+            p.iFrames = 0;
+            for (const e of g.enemies.slice()) if (!e.dead) e.updateAI(1 / 60);
+            for (const q of g.projectiles) if (!q.dead) q.update(1 / 60);
+            g.projectiles = g.projectiles.filter((q) => !q.dead);
+            if (g.updateHazards) g.updateHazards(1 / 60);
+            g.hazards2Tick(1 / 60); // 區域效果、臨時障礙物
+            if (stop && stop()) return i;
+          }
+          return n;
+        };
+        // 在玩家前方 dist m 生成（玩家面向它）
+        window.__spawn = (type, dist, side = 0) => {
+          const w = g.world;
+          const x = p.pos.x + side,
+            z = p.pos.z - dist;
+          const e = g.spawnType(type, 1, 1, new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 2), z), 1);
+          p.yaw = p.aimYaw = 0;
+          return e;
+        };
+        window.__clear = () => {
+          for (const e of g.enemies) if (!e.dead) e.depart();
+          g.enemies = [];
+          g.projectiles = [];
+        };
+      },
+      [theme, variant],
+    );
+  // 截圖：讓主迴圈跑一下（預警的特效會動），再暫停
+  const shot = async (name, ms = 350) => {
+    await page.evaluate(() => (window.__game.state = 'play'));
+    await page.waitForTimeout(ms);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'foes-c1-' + name + '.png') });
+    await page.evaluate(() => (window.__game.state = 'foe-test'));
+  };
+  await enter('snow', 'icefield');
+  const reg = await page.evaluate(() => {
+    const g = window.__game;
+    const want = ['cryo', 'icemortar', 'holo', 'parasite', 'anchor', 'zipline'];
+    return want.map((k) => {
+      const e = window.__spawn(k, 30);
+      const ok = !!e && !!e.model && e.model.vehicle && !!e.model.dmg && e.model.dmg.chunks.length >= 3;
+      if (e) e.depart();
+      g.enemies = g.enemies.filter((x) => x !== e);
+      return ok ? '' : k;
+    });
+  });
+  check(
+    reg.every((x) => !x),
+    '六種新敵人都能生成，模型有受損設定（' + reg.filter((x) => x).join('、') + '）',
+  );
+
+  // ---- 冰原：冷凍噴霧機 ----
+  const cr = await page.evaluate(() => {
+    const e = window.__spawn('cryo', 9);
+    const n1 = window.__step(400, () => e.bossVis === 1);
+    return { warn: n1 < 400 };
+  });
+  check(cr.warn, '冷凍噴霧機：噴嘴結霜的預警（bossVis 1）');
+  await shot('cryo-warn', 250);
+  const cr2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'cryo' && !x.dead);
+    const hp0 = p.hp;
+    window.__step(200, () => e.bossVis === 2);
+    window.__step(90);
+    const st = window.__c1.status.filter((s) => s[0] === 'slow');
+    return {
+      hit: p.c1SlowHit || 0,
+      dmg: hp0 - p.hp,
+      slow: p.hasStatus ? p.hasStatus('slow') : st.length > 0 && st[0][2].k === 0.6 && st[0][2].qb === 1.5,
+      vis: e.bossVis,
+    };
+  });
+  check(
+    cr2.hit > 0 && cr2.dmg > 0 && cr2.slow,
+    `冷凍噴霧機：噴到時受傷並變慢（命中 ${cr2.hit} 次、${Math.round(cr2.dmg)}）`,
+  );
+  await shot('cryo-spray', 100);
+  // ---- 冰原：冰錐迫擊砲 ----
+  const im = await page.evaluate(() => {
+    window.__clear();
+    const e = window.__spawn('icemortar', 32);
+    const n1 = window.__step(400, () => e.bossVis === 1);
+    // 冰錐的傷害另外記下來（截圖時主迴圈也在跑，AP 的差可能被別的處理蓋過）
+    const p = window.__game.player;
+    p.__imHit = 0;
+    if (!p.__imWrap) {
+      p.__imWrap = true;
+      const td = p.takeDamage;
+      p.takeDamage = function (d, ...a) {
+        if (a[1] && a[1].ai === 'icemortar') p.__imHit += d;
+        return td.call(this, d, ...a);
+      };
+    }
+    const n2 = window.__step(120, () => (e.c1Shots || 0) > 0);
+    window.__hp0 = window.__game.player.hp;
+    return { warn: n1 < 400, shot: n2 < 120 };
+  });
+  check(im.warn && im.shot, '冰錐迫擊砲：架砲預警後拋射冰錐（落點白圈）');
+  await shot('icemortar-warn', 400);
+  const im2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const hp0 = window.__hp0; // 發射時（截圖時主迴圈也可能讓冰錐落地）
+    window.__step(150);
+    const wl = window.__c1.walls[0];
+    const W = (g.tWalls || [])[0];
+    let blocks = false;
+    if (W && wl) {
+      // 從砲台側穿過冰牆的視線被擋住（臨時障礙物有碰撞、可當掩體）
+      const c = wl[0].clone().setY(wl[0].y + 1.5);
+      const e = g.enemies.find((x) => x.ai === 'icemortar');
+      const to = c.clone().sub(e.pos).setY(0).normalize();
+      blocks = g.world.losBlocked(c.clone().addScaledVector(to, -3), c.clone().addScaledVector(to, 3));
+    }
+    return {
+      real: (g.tWalls || []).length,
+      blocks,
+      walls: g.c1Walls || 0,
+      wall: wl ? { kind: wl[1].kind, hp: wl[1].hp, life: wl[1].life, d: wl[0].distanceTo(p.pos) } : null,
+      dmg: Math.max(hp0 - p.hp, p.__imHit || 0),
+    };
+  });
+  check(
+    im2.walls > 0 && (!im2.wall || (im2.wall.kind === 'ice' && im2.wall.life === 20 && im2.wall.d < 8)),
+    '冰錐迫擊砲：落點生成冰牆（' + JSON.stringify(im2.wall) + '）',
+  );
+  check(im2.real > 0 && im2.blocks, `冰錐迫擊砲：冰牆是真的障礙物、擋住視線（${im2.real} 面）`);
+  check(im2.dmg > 0, `冰錐迫擊砲：落點的目標受傷（${Math.round(im2.dmg)}）`);
+  await shot('icemortar-wall', 300);
+
+  // ---- 技研都市：全像投影器 ----
+  await enter('institute', 'core');
+  const ho = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = window.__spawn('holo', 30);
+    p.lock = e;
+    const n1 = window.__step(300, () => e.bossVis === 1);
+    window.__step(120, () => e.fakesOf_c1().length > 0);
+    const fakes = e.fakesOf_c1();
+    const cands = g.lockCands(p);
+    return {
+      warn: n1 < 300,
+      n: fakes.length,
+      stolen: !!p.lock && p.lock.ai === 'holofake',
+      first: cands.length ? cands[0].ai : null,
+      lockable: fakes.every((f) => !f.noLock),
+      // 殘存敵軍（HUD、波次門檻、清除判定）不算假敵人
+      alive: g.enemies.filter((x) => !x.dead && !x.guardOf && !x.decoy).length,
+      decoy: fakes.every((f) => f.decoy),
+    };
+  });
+  check(ho.decoy && ho.alive === 1, `全像投影器：假敵人不算進殘存敵軍（${ho.alive}）`);
+  check(ho.warn && ho.n === 3, `全像投影器：預警後投出 3 個假敵人（${ho.n}）`);
+  check(
+    ho.stolen && ho.first === 'holofake' && ho.lockable,
+    '全像投影器：假敵人可以鎖定、搶走鎖定（自動鎖定先選到）' + JSON.stringify(ho),
+  );
+  await page.evaluate(() => window.__step(30));
+  await shot('holo-fakes', 500);
+  const ho2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'holoproj' && !x.dead);
+    const fakes = e.fakesOf_c1();
+    const coam = g.save.coam,
+      kills = g.save.kills;
+    fakes[0].takeDamage(30, 10, p, fakes[0].center(), new THREE.Vector3(0, 0, 1));
+    const one = fakes[0].dead && fakes[0].gone && g.save.coam === coam && g.save.kills === kills;
+    e.takeDamage(1e9, 0, p, e.center(), new THREE.Vector3(0, 0, 1));
+    window.__step(5);
+    return { one, rest: fakes.slice(1).every((f) => f.dead && f.gone), left: e.fakesOf_c1().length };
+  });
+  check(ho2.one, '全像投影器：假的打一下就消失，不給賞金、不算擊破');
+  check(ho2.rest && ho2.left === 0, '全像投影器：本體被擊破時假敵人全部消失');
+  // ---- 技研都市：寄生纏附體 ----
+  const pa = await page.evaluate(() => {
+    window.__clear();
+    const e = window.__spawn('parasite', 6);
+    const n1 = window.__step(300, () => e.bossVis === 1);
+    return { crouch: n1 < 300 };
+  });
+  check(pa.crouch, '寄生纏附體：蹲伏預警（bossVis 1）');
+  await shot('parasite-crouch', 200);
+  const pa2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'parasite' && !x.dead);
+    const n = window.__step(120, () => e.c1Latched > 0);
+    window.__step(10);
+    const st = window.__c1.status.find((s) => s[0] === 'latch');
+    return {
+      latched: n < 120,
+      noLock: e.noLock,
+      vis: e.bossVis,
+      near: +e.pos.distanceTo(p.pos).toFixed(2),
+      status: p.hasStatus ? p.hasStatus('latch') : !!st && st[2].src === e.id && st[2].dps > 0,
+      cands: g.lockCands(p).includes(e),
+    };
+  });
+  check(
+    pa2.latched && pa2.noLock && pa2.vis === 2 && pa2.near < 3 && pa2.status && !pa2.cands,
+    '寄生纏附體：撲上來纏附（跟著機體、不能鎖定、latch 狀態）' + JSON.stringify(pa2),
+  );
+  await shot('parasite-latch', 200);
+  const pa3 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'parasite' && !x.dead);
+    if (p.clearStatus && p.hasStatus) p.clearStatus('latch');
+    const n = window.__step(300, () => e.c1Shaken > 0);
+    return { shaken: n < 300, stag: +e.staggerT.toFixed(2), noLock: e.noLock };
+  });
+  check(pa3.shaken && pa3.stag > 1 && !pa3.noLock, '寄生纏附體：被甩掉時彈開並硬直' + JSON.stringify(pa3));
+
+  // ---- Grid 086：重力錨 ----
+  await enter('grid086', 'catwalks');
+  const an = await page.evaluate(() => {
+    const e = window.__spawn('anchor', 24);
+    const n1 = window.__step(400, () => e.bossVis === 1);
+    return { warn: n1 < 400 };
+  });
+  check(an.warn, '重力錨：錨樁的紫圈預警');
+  await shot('anchor-warn', 400);
+  const an2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'anchor' && !x.dead);
+    window.__step(120, () => (g.c1Zones || 0) > 0);
+    window.__step(5);
+    const z = window.__c1.zones[0];
+    return {
+      nojump: p.hasStatus('nojump'),
+      n: g.c1Zones || 0,
+      zone: z ? { k: z[0], r: z[2], life: z[3], d: +z[1].distanceTo(p.pos).toFixed(2) } : null,
+      vis: e.bossVis,
+    };
+  });
+  check(
+    an2.n > 0 &&
+      an2.vis === 2 &&
+      (!an2.zone || (an2.zone.k === 'gravity' && an2.zone.r === 14 && an2.zone.life === 8 && an2.zone.d < 6)),
+    '重力錨：在目標腳下展開重力圈（' + JSON.stringify(an2.zone) + '）',
+  );
+  check(an2.nojump, '重力錨：重力圈裡的機體不能跳（nojump）');
+  await shot('anchor-field', 300);
+  // ---- Grid 086：滑索突擊兵 ----
+  const zp = await page.evaluate(() => {
+    window.__clear();
+    const g = window.__game,
+      p = g.player,
+      w = g.world;
+    // 找附近的上層平台站上去（找不到時放在地面 20 m 外）
+    let deck = null;
+    for (const o of w.obstacles) {
+      if (o.kind !== 'box' || !o.deck || !(o.top > w.terrainHeight(o.x, o.z) + 4)) continue;
+      const d = Math.hypot(o.x - p.pos.x, o.z - p.pos.z);
+      if (d > 14 && d < 40 && (!deck || d < deck.d)) deck = { o, d };
+    }
+    const at = deck
+      ? new THREE.Vector3(deck.o.x, deck.o.top, deck.o.z)
+      : p.pos.clone().add(new THREE.Vector3(0, 0, -20));
+    const e = g.spawnType('zipline', 1, 1, at, 1);
+    const dv = e.pos.clone().sub(p.pos).setY(0).normalize();
+    p.yaw = p.aimYaw = Math.atan2(-dv.x, -dv.z);
+    const n1 = window.__step(600, () => e.bossVis === 1);
+    return { warn: n1 < 600, deck: !!deck, h: e.pos.y - w.terrainHeight(e.pos.x, e.pos.z) };
+  });
+  check(zp.warn, `滑索突擊兵：纜索閃光的預警（平台上 ${zp.deck}、高 ${zp.h.toFixed(1)} m）`);
+  await shot('zipline-warn', 300);
+  const zp2 = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const e = g.enemies.find((x) => x.ai === 'zipline' && !x.dead);
+    window.__step(300, () => e.aiState.zp === 'vuln');
+    const f = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+    const rel = e.pos.clone().sub(p.pos).setY(0);
+    const k = e.foeDefense_c1(100, 100);
+    const out = {
+      vuln: e.aiState.zp === 'vuln',
+      d: +rel.length().toFixed(2),
+      behind: +rel.normalize().dot(f).toFixed(2),
+      k: k && k[0],
+    };
+    window.__step(60);
+    out.after = e.foeDefense_c1(100, 100) === undefined && e.aiState.zp === 'fight';
+    return out;
+  });
+  check(
+    zp2.vuln && zp2.d < 8 && zp2.behind < 0 && zp2.k === 130 && zp2.after,
+    '滑索突擊兵：滑到目標背後、落地 0.8 秒破綻受傷 ×1.3（' + JSON.stringify(zp2) + '）',
+  );
+  await shot('zipline-land', 150);
+  await ctx.close();
+
+  // ---- 模型庫：三視角（斜角、正面、側面）與三角形數 ----
+  const lib = await newPage(browser, 'foes-c1-lib');
+  for (const key of ['cryo', 'icemortar', 'holoproj', 'parasite', 'anchor', 'zipline']) {
+    const lp = lib.page;
+    await lp.goto(base + 'model-library.html#vehicle/foe_' + key);
+    await lp.waitForSelector('#inspect:not([hidden])', { timeout: 15000 });
+    await wait(2500);
+    const info = (await lp.textContent('#insInfo')) || '';
+    const m = info.replace(/,/g, '').match(/三角面\D*(\d+)/);
+    const tris = m ? +m[1] : -1;
+    check(tris > 0 && tris <= 6000, `模型庫 ${key}：三角面 ${tris}（≤ 6000）`);
+    const box = await lp.$eval('#insGl', (c) => {
+      const r = c.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    const clip = { x: box.x, y: box.y, width: box.w, height: box.h };
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foes-c1-lib-${key}-oblique.png`), clip });
+    // 拖曳旋轉（OrbitControls：水平拖曳畫布高度的像素＝轉一圈）
+    const cx = box.x + box.w / 2,
+      cy = box.y + box.h / 2;
+    const rot = async (ang) => {
+      await lp.mouse.move(cx, cy);
+      await lp.mouse.down();
+      await lp.mouse.move(cx + (ang / (Math.PI * 2)) * box.h, cy, { steps: 8 });
+      await lp.mouse.up();
+      await wait(1500);
+    };
+    await rot(-Math.PI / 4);
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foes-c1-lib-${key}-front.png`), clip });
+    await rot(Math.PI / 2);
+    await lp.screenshot({ path: path.join(SHOT_DIR, `foes-c1-lib-${key}-side.png`), clip });
+  }
+  await lib.ctx.close();
+}

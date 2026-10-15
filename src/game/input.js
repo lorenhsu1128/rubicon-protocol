@@ -972,7 +972,7 @@ Object.assign(Game.prototype, {
     if (!p || p.dead) return;
     let best = null,
       bd = 1e9;
-    for (const e of this.hostilesOfEnt(p)) {
+    for (const e of this.lockPool(p)) {
       if (e.dead || e.noLock) continue;
       const s = this.proj(e.center());
       if (!s.in) continue;

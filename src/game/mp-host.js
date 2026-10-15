@@ -62,6 +62,7 @@ Object.assign(Game.prototype, {
       explodeOnDeath: o.explodeOnDeath || null,
       extraWeapons: o.extraWeapons || null,
       res: e.res || null, // 弱點（客機的鎖定提示）
+      laserK: e.laserK !== 1 ? e.laserK : undefined, // 雷射類的傷害倍率（鎖定提示）
       allyDur: e.allyT || 0,
       slot: e.slot !== undefined ? e.slot : -1,
       wantDist: o.wantDist || 22,
@@ -88,6 +89,7 @@ Object.assign(Game.prototype, {
       (this.players || []).find((e) => e.id === id) ||
       this.enemies.find((e) => e.id === id) ||
       this.allies.find((e) => e.id === id) ||
+      this.shotById(id) || // 鎖定中的可以打掉的投射物（hazards2.js）
       null
     );
   },
@@ -198,7 +200,7 @@ Object.assign(Game.prototype, {
         ents,
         veh: this.serVehicles(),
         mis: {
-          alive: this.enemies.filter((e) => !e.dead && !e.guardOf).length,
+          alive: this.enemies.filter((e) => !e.dead && !e.guardOf && !e.decoy).length,
           waves: this.waves.length,
           mt: +this.missionT.toFixed(1),
           level: this.save.level,
@@ -320,6 +322,7 @@ Object.assign(Game.prototype, {
     const n = this.net; // 已有的實體與最後快照即為權威狀態
     for (const e of [...this.players, ...this.enemies, ...this.allies]) {
       e.remote = false;
+      e.statusClearAll(true); // 狀態效果的參數（爆炸傷害…）只在舊房主上，交接後清掉
       e.aiState = e.aiState || {};
       if (e.team === 'enemy' || e.team === 'ally') {
         e.aiState = {
@@ -346,6 +349,7 @@ Object.assign(Game.prototype, {
     this.projectiles = [];
     this.shocks = [];
     this.promoteSupport();
+    this.promoteHazards2(); // 臨時障礙物照常、序號接著用
     this.clearHazards(); // 延遲中的攻擊與燃燒地面只在舊房主上，交接後放棄
     const s = this.net.snap;
     if (s) {

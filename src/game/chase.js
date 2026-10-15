@@ -299,7 +299,7 @@ Object.assign(Game.prototype, {
   chaseLockCands(p, reach) {
     const bx = this.lockBox(p);
     const out = [];
-    for (const e of this.hostilesOfEnt(p)) {
+    for (const e of this.lockPool(p)) {
       if (e.dead || e.noLock) continue;
       if (e.pos.distanceTo(p.pos) > reach) continue;
       const v = e.center().project(this.camera);
@@ -332,7 +332,7 @@ Object.assign(Game.prototype, {
     const x0 = p.lock.center().project(this.camera).x;
     let best = null,
       bd = 1e9;
-    for (const e of this.hostilesOfEnt(p)) {
+    for (const e of this.lockPool(p)) {
       if (e.dead || e.noLock || e === p.lock || e.pos.distanceTo(p.pos) > reach) continue;
       const v = e.center().project(this.camera);
       if (v.z >= 1) continue;

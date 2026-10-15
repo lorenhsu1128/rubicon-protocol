@@ -32,7 +32,7 @@ Object.assign(Game.prototype, {
     if (this.fp) {
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
       const eye = this.fpEye(p);
-      for (const e of this.hostilesOfEnt(p)) {
+      for (const e of this.lockPool(p)) {
         if (e.dead || e.noLock) continue;
         const d = e.center().sub(eye);
         const dist = d.length();
@@ -43,7 +43,7 @@ Object.assign(Game.prototype, {
       out.push(...this.chaseLockCands(p, reach));
     } else {
       const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-      for (const e of this.hostilesOfEnt(p)) {
+      for (const e of this.lockPool(p)) {
         if (e.dead || e.noLock) continue;
         const dist = e.pos.distanceTo(p.pos);
         if (dist > reach) continue;
@@ -52,11 +52,18 @@ Object.assign(Game.prototype, {
         out.push({ e, k: dist });
       }
     }
-    return out.sort((a, b) => a.k - b.k).map((c) => c.e);
+    // 可以打掉的投射物排在敵人後面（hazards2.js 的 lockPool）
+    return out.sort((a, b) => (a.e.isShot ? 1 : 0) - (b.e.isShot ? 1 : 0) || a.k - b.k).map((c) => c.e);
   },
-  // 每格：目標被擊破、不能鎖定或移到攻擊距離外就解除，沒有目標時鎖定第一順位
+  // 每格：目標被擊破、不能鎖定（含被煙霧擋住）或移到攻擊距離外就解除，沒有目標時鎖定第一順位
   autoLock(p) {
-    if (p.lock && (p.lock.dead || p.lock.noLock || p.lock.pos.distanceTo(p.pos) > this.lockReach(p) * 1.05))
+    if (
+      p.lock &&
+      (p.lock.dead ||
+        p.lock.noLock ||
+        p.lock.pos.distanceTo(p.pos) > this.lockReach(p) * 1.05 ||
+        this.smokeHides(p, p.lock))
+    )
       p.lock = null;
     if (this.chase) return this.chaseAutoLock(p);
     if (!p.lock) p.lock = this.lockCands(p)[0] || null;

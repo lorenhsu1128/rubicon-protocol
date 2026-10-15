@@ -688,7 +688,7 @@ Object.assign(Game.prototype, {
     if (lv.ending) return;
     // 預設的勝利：沒有寫「任務成功」「前往下一段」、沒有出口、沒有護送時＝敵人全滅（含目標設施）
     if (!hasAct(L, 'win') && !hasAct(L, 'next') && !L.marks.some((m) => m.k === 'exit') && !cv.length) {
-      const alive = this.enemies.filter((e) => !e.dead).length;
+      const alive = this.enemies.filter((e) => !e.dead && !e.decoy).length;
       const waiting = L.units.some((u) => u.at === 'trig' && !st.spawned[u.g]);
       if (!alive && !st.pend.length && !waiting && this.missionT > 1) {
         this.flashMsg('任務完成', 0x7ee081, 2, { k: 'done', m: '任務完成' });

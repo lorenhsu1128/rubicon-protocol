@@ -23,14 +23,17 @@ Object.assign(Game.prototype, {
       t += rnd(35, 70);
     }
   },
-  destructibles() {
+  // team：攻擊者的隊伍（有給時另外加上它打得到的投射物，game/hazards2.js）
+  destructibles(team) {
     const out = [];
     if (this.world && this.world.props) for (const p of this.world.props) if (!p.dead) out.push(p);
     for (const v of this.vehicles) if (!v.dead) for (const pt of v.parts) out.push(pt);
+    if (team) out.push(...this.shotTargets(team));
     return out;
   },
   damageProp(p, dmg, impact, at) {
     if (p.dead) return;
+    if (p.isShot) return this.shotDamage(p, dmg, at); // 可以打掉的投射物（hazards2.js）
     p.hp -= Math.round(dmg);
     p.flashT = 0.06;
     if (p.ob.mats)

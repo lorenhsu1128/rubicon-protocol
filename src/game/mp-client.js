@@ -122,6 +122,7 @@ Object.assign(Game.prototype, {
       explodeOnDeath: r.explodeOnDeath,
       extraWeapons: r.extraWeapons,
       res: r.res || null,
+      laserK: r.laserK,
       allyDur: r.allyDur,
       palKey: r.pal,
       wantDist: r.wantDist,
@@ -257,6 +258,7 @@ Object.assign(Game.prototype, {
     if (this.lvClientEvent(e)) return;
     if (this.campClientEvent(e)) return;
     if (this.supportEvent(e)) return;
+    if (this.hazards2Event(e)) return; // 區域效果、臨時障礙物、可以打掉的投射物
     switch (e.t) {
       case 'ebeam':
         {
@@ -306,6 +308,9 @@ Object.assign(Game.prototype, {
             target: tgt,
             turn: e.tn || 0,
             bend: e.bd || 0,
+            shootable: e.sh || 0, // 可以打掉的投射物（hazards2.js：血條與鎖定）
+            shotR: e.sr,
+            scale: e.sc || 0,
             visual: true,
             netId: e.i,
           });

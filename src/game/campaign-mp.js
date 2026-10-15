@@ -105,7 +105,7 @@ Object.assign(Game.prototype, {
     const c = this.camp,
       so = this.campSortie(),
       ss = c.ss || {};
-    const alive = this.enemies.filter((e) => !e.dead).length;
+    const alive = this.enemies.filter((e) => !e.dead && !e.decoy).length;
     const P = (v) => [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
     const chId = c.exits && c.exits.some((e) => e.choice) ? so.segs[c.seg].choice : '';
     const Ln = so.level + Math.floor((c.seg + 1) / 2);

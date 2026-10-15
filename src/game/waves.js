@@ -48,7 +48,7 @@ Object.assign(Game.prototype, {
     }
     if (!this.waves.length) return;
     const fighters = this.enemies.filter(
-      (e) => !e.dead && e.ai !== 'objective' && e.ai !== 'part' && !e.guardOf,
+      (e) => !e.dead && e.ai !== 'objective' && e.ai !== 'part' && !e.guardOf && !e.decoy,
     ).length;
     const thr = Math.max(1, Math.round((this.waveSize || 3) * 0.34));
     if (fighters > thr) {

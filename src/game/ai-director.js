@@ -134,6 +134,7 @@ Object.assign(Game.prototype, {
     D.t -= dt;
     if (D.t > 0) return;
     D.t = 0.3;
+    this.aiSpotTick();
     // 權杖：依目標分組
     const groups = new Map();
     for (const e of this.enemies) {
@@ -153,8 +154,11 @@ Object.assign(Game.prototype, {
       const aces = list.filter((e) => e.ace);
       for (const a of aces) a.sn.tok = true;
       // 敵對 AC 在場時其他人的名額與預算都少 1（至少 1 台）
-      const maxN = Math.max(1, (stress > 0.6 ? 2 : TOKEN_MAX) - (aces.length ? 1 : 0));
+      // 被標定（狀態效果 spotted）的目標：名額與預算各多 1
+      const spot = t.sts && t.sts.spotted ? 1 : 0;
+      const maxN = Math.max(1, (stress > 0.6 ? 2 : TOKEN_MAX) - (aces.length ? 1 : 0)) + spot;
       if (aces.length) budget -= 1;
+      budget += spot;
       const others = list.filter((e) => !e.ace);
       // 交出權杖：時間到（招式放完）、看不到目標太久
       for (const e of others) {
@@ -186,6 +190,22 @@ Object.assign(Game.prototype, {
         used += w;
       }
     }
+  },
+  // 被標定（狀態效果 spotted，entities/mech-status.js）：交戰中的敵人都知道它的位置（共享位置），
+  // 交戰中但還沒有目標的、搜索中的直接改找它
+  aiSpotTick() {
+    const list = (this.players && this.players.length ? this.players : [this.player]).filter(
+      (p) => p && !p.dead && p.sts && p.sts.spotted,
+    );
+    for (const p of list)
+      for (const e of this.enemies) {
+        const sn = e.sn;
+        if (!sn || !sn.on || e.dead) continue;
+        if (sn.st === 2 && sn.tgt === p) {
+          sn.kn = p.pos.clone();
+          sn.knT = this.time;
+        } else if (sn.st === 3 || (sn.st === 2 && (!sn.tgt || sn.tgt.dead))) e.senseEngage(p, false);
+      }
   },
   // HUD：名牌上的警戒標示（? 起疑／搜索、! 剛發現、主攻的紅色箭頭、破綻）；s＝名牌在畫面上的位置
   drawAwareMark(c, e, s) {

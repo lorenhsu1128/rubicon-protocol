@@ -139,9 +139,10 @@ Object.assign(Game.prototype, {
         break;
       }
     }
+    if (stop < o.range) this.tempWallHitAt(from.clone().addScaledVector(dir, stop), o.dmg); // 臨時障礙物
     stop = this.beamStop(owner, from, dir, stop, o.dmg, o.im);
     const hits = [];
-    for (const t of this.hostilesOfEnt(owner).concat(this.destructibles())) {
+    for (const t of this.hostilesOfEnt(owner).concat(this.destructibles(owner && owner.team))) {
       if (!t || t.dead) continue;
       const ap = t.center().sub(from);
       const proj = ap.dot(dir);
@@ -254,6 +255,7 @@ Object.assign(Game.prototype, {
     this.hzLater = [];
     this.hzPools = [];
     this.hzRings = [];
+    this.clearZones(); // 區域效果（hazards2.js）
   },
   // ----- 光學迷彩電戰機的分身（同樣的機體，很脆弱；打中會引爆小型電磁脈衝）-----
   spawnHolos(boss, n) {

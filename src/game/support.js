@@ -391,8 +391,9 @@ Object.assign(Game.prototype, {
     this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4);
     SFX.explode(splash > 4, p);
     const src = owner && !owner.dead ? owner : null;
+    this.hz2Blast(p, dmg, splash, 'exp'); // 臨時障礙物、油漬（hazards2.js）
     const targets = (src ? this.hostilesOfEnt(src) : this.hostilesOf(team, null)).concat(
-      this.destructibles(),
+      this.destructibles(team),
     );
     for (const t of targets) {
       if (!t || t.dead) continue;
@@ -427,6 +428,7 @@ Object.assign(Game.prototype, {
   // 每格：地雷（房主判定觸發；客機只閃燈）
   updateSupport(dt) {
     this.updateFlows(dt);
+    this.hazards2Tick(dt); // 區域效果、臨時障礙物（hazards2.js）
     if (!this.mines || !this.mines.length) return;
     const host = !(this.net && this.net.role === 'client');
     const w = this.world;
@@ -530,5 +532,6 @@ Object.assign(Game.prototype, {
     for (const m of this.mines || []) this.scene.remove(m.mesh);
     this.mines = [];
     this.flows = [];
+    this.clearTempWalls(); // 臨時障礙物（hazards2.js；房主遷移時保留，所以不在 clearHazards）
   },
 });

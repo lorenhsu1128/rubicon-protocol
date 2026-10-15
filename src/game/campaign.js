@@ -862,7 +862,7 @@ Object.assign(Game.prototype, {
     }
     // 分段開放：擊破一半的敵人後擴大作戰區域
     if (w.zoneShape === 'staged' && !ss.expanded) {
-      const dead = this.enemies.filter((e) => e.dead).length;
+      const dead = this.enemies.filter((e) => e.dead && !e.decoy).length;
       if (dead >= Math.ceil((ss.n0 || 1) / 2)) {
         ss.expanded = true;
         w.expandZone();

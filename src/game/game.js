@@ -292,7 +292,10 @@ export class Game {
   explodeAt(p, dmg, impact, splash, owner, all = true) {
     this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4);
     SFX.explode(splash > 4, p);
-    const targets = (all ? this.everyone(owner) : this.hostilesOfEnt(owner)).concat(this.destructibles());
+    this.hz2Blast(p, dmg, splash, 'exp'); // 臨時障礙物、油漬（hazards2.js）
+    const targets = (all ? this.everyone(owner) : this.hostilesOfEnt(owner)).concat(
+      this.destructibles(owner && owner.team),
+    );
     for (const t of targets) {
       if (!t || t.dead) continue;
       const d = t.center().distanceTo(p) - t.radius;
@@ -531,7 +534,7 @@ export class Game {
     this.fx.update(dt);
     this.tickPopups(dt);
     // waves
-    const alive = this.enemies.filter((e) => !e.dead && !e.guardOf).length; // 據點的守衛不算
+    const alive = this.enemies.filter((e) => !e.dead && !e.guardOf && !e.decoy).length; // 據點的守衛、全像的假敵人不算
     this.cacheTick(dt);
     if (this.lv) {
       this.lvTick(dt); // 自訂關卡：觸發器、機能物件、勝敗（game/level-play.js）

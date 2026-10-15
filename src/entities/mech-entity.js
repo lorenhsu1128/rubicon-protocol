@@ -1,4 +1,4 @@
-import { ATTRS, ATTR_KEYS, LINK_K, directOf, weaponAttr } from '../data/attrs.js';
+import { ATTRS, ATTR_KEYS, LINK_K, directOf, isLaserWeapon, weaponAttr } from '../data/attrs.js';
 // ============================================================
 //  MECH ENTITY
 // ============================================================
@@ -51,6 +51,7 @@ export class MechEntity {
     this.stats = applyPilotStats(asmStats(asm), this.pm);
     this.opts = opts;
     this.res = opts.res || null; // 弱點：[實彈, 爆發, 能量] 的額外減傷
+    this.laserK = opts.laserK || 1; // 雷射類武器打它的傷害倍率（地圖專屬敵人的 laserK，例如 0.3）
     this.palKey = opts.palKey || null;
     this.slot = opts.slot;
     this.downed = false;
@@ -524,8 +525,9 @@ export class MechEntity {
               break;
             }
           }
+          if (stop < d.range) g.tempWallHitAt(muzzle.clone().addScaledVector(bdir, stop), dmg * dtb); // 臨時障礙物
           stop = g.beamStop(this, muzzle, bdir, stop, dmg * dtb, 0, d.id, true); // 護盾擋住光束
-          const targets = g.hostilesOf(this.team, this).concat(g.destructibles());
+          const targets = g.hostilesOf(this.team, this).concat(g.destructibles(this.team));
           for (const t of targets) {
             if (t.dead) continue;
             const c = t.center();
@@ -566,7 +568,7 @@ export class MechEntity {
           w.charging = false;
           // 雷射：從槍口射向瞄準點的直線，貫穿彈道上所有敵人；只有地形／障礙物能阻斷
           const bdir = targetPos.clone().sub(muzzle).normalize();
-          const targets = g.hostilesOfEnt(this).concat(g.destructibles());
+          const targets = g.hostilesOfEnt(this).concat(g.destructibles(this.team));
           let stop = d.range;
           for (let s2 = 1; s2 < stop; s2 += 1) {
             const p = muzzle.clone().addScaledVector(bdir, s2);
@@ -575,6 +577,7 @@ export class MechEntity {
               break;
             }
           }
+          if (stop < d.range) g.tempWallHitAt(muzzle.clone().addScaledVector(bdir, stop), ldmg); // 臨時障礙物
           stop = g.beamStop(this, muzzle, bdir, stop, ldmg, limp, d.id); // 護盾、盾牌擋住雷射
           const hits = [];
           for (const t of targets) {
@@ -718,6 +721,7 @@ export class MechEntity {
     m.slot = slot;
     m.stage = stage;
     m.t = 0;
+    if (this.sts) this.statusMelee(); // 近戰割開捕獲網、纏附（mech-status.js）
     m.queued = false;
     m.hit = new Set();
     m.target = targetEnt || null;
@@ -790,8 +794,14 @@ export class MechEntity {
     if (Math.random() < dt * 30) g.fx.boostFlame(this.center(), m.dir.clone().negate(), d.color);
     // hit window
     if (ph > 0.1 && ph < 0.85) {
-      const targets = g.hostilesOfEnt(this).concat(g.destructibles());
+      const targets = g.hostilesOfEnt(this).concat(g.destructibles(this.team));
       const c = this.center();
+      g.tempWallMelee(
+        c,
+        st.reach * this.scale + 1.0,
+        st.dmg * this.dmgMul * this.stats.parts.arms.melee,
+        m.hit,
+      ); // 臨時障礙物
       for (const t of targets) {
         if (t.dead || m.hit.has(t.id)) continue;
         const to = t.center().sub(c);
@@ -964,6 +974,7 @@ export class MechEntity {
     const W = weaponById(wid);
     const cls = melee ? 'melee' : W ? W.type : null; // 武器種類（失衡連攜用）
     if (this.markT > 0) dmg *= 1.3; // 被軌道標定衛星標定（mech-foe.js）
+    if (this.laserK !== 1 && isLaserWeapon(W)) dmg *= this.laserK; // 雷射類的傷害倍率（laserK）
     if (this.sn && this.sn.vuln > 0) dmg *= 1.25; // 招式後的破綻（過熱，mech-moves.js）
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
@@ -1136,6 +1147,7 @@ export class MechEntity {
   die(from) {
     if (this.dead) return;
     this.dead = true;
+    if (this.sts || this.stsV) this.statusClearAll(true);
     const g = this.game;
     const c = this.center();
     this.specialDie(from);
@@ -1195,6 +1207,7 @@ export class MechEntity {
   }
   respawnAt(pos) {
     const g = this.game;
+    this.statusClearAll(true);
     try {
       g.scene.remove(this.mesh);
     } catch (e) {}
@@ -1240,6 +1253,7 @@ export class MechEntity {
       this.glare = null;
     }
     this.specialCleanup();
+    this.statusVisClear();
   }
 
   // 涉水：站在 0.6 m 以上的水裡移動變慢（兩棲的 MARSH 反而變快）
@@ -1256,6 +1270,7 @@ export class MechEntity {
       w = g.world,
       P = this.stats.parts;
     if (this.buffT > 0) this.buffT -= dt;
+    if (this.sts) this.statusTick(dt); // 狀態效果（entities/mech-status.js）：倒數、黏附炸彈、纏附、吸取 EN
     // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
     if (this.team === 'player' && this.slot !== undefined && 'lock' in this)
       this.lockAge(this.lock && !this.lock.dead ? this.lock : null);
@@ -1265,7 +1280,12 @@ export class MechEntity {
       wantQB = false;
       wantAB = false;
     }
-    const spd = this.stats.speed * this.speedMul * (this.buffT > 0 ? 1.15 : 1) * this.waterK(); // 指揮官 MT 強化、水中
+    const spd =
+      this.stats.speed *
+      this.speedMul *
+      (this.buffT > 0 ? 1.15 : 1) *
+      this.waterK() *
+      (this.sts ? this.stsSpeedK() : 1); // 指揮官 MT 強化、水中、狀態效果
     this.t += dt;
     // AI 閃避衝擊波時按住跳躍（Game.updateShocks 設定）
     if (this.aiJumpT > 0) {
@@ -1279,6 +1299,8 @@ export class MechEntity {
       wantAB = false;
       wantHover = false;
     }
+    // 不能跳躍與懸浮（狀態效果 nojump／net）
+    if (this.sts && this.stsNoJump()) wantHover = false;
     // timers
     for (const k in this.weapons) {
       const ww = this.weapons[k];
@@ -1358,9 +1380,13 @@ export class MechEntity {
         this.en + P.generator.recharge * dt * (this.grounded ? 1.6 + this.pmv('gnd') : 1),
       );
     // quick boost
-    if (wantQB && this.qbT <= 0 && wish.lengthSq() > 0.1 && this.useEn(P.booster.qbCost)) {
+    // 被鉤住、黏住、纏住時沒有方向也能 QB（原地甩動掙脫）；緩速時 QB 耗能增加
+    const qbAny = wish.lengthSq() > 0.1 || (this.sts && this.stsQbEscape());
+    if (wantQB && this.qbT <= 0 && qbAny && this.useEn(P.booster.qbCost * (this.sts ? this.stsQbK() : 1))) {
       this.qbT = 0.16;
-      this.qbDir.copy(wish).normalize();
+      if (wish.lengthSq() > 0.1) this.qbDir.copy(wish).normalize();
+      else this.qbDir.set(0, 0, 0);
+      if (this.sts) this.statusQB(); // 掙脫（mech-status.js）
       if (this.pilotEnt()) g.aiNoise(this, NOISE_QB); // 敵人聽得到（game/ai-director.js）
       SFX.qb(this.isPlayer ? null : this.center());
       if (this.isPlayer) g.rumble(0.1, 0.35, 80);
@@ -1433,6 +1459,8 @@ export class MechEntity {
         if (to.length() > 6) target.addScaledVector(to.normalize(), 16);
       }
     }
+    // 狀態效果：鉤住時往鉤點拉、不能跳躍時空中往下拉
+    if (this.sts) this.statusPull(target, dt);
     // 閘門砲台的開閘水流（game/support.js）：貼地時往下游推（16 m/s；客機的自身預測也一樣算）
     if (
       g.flows &&
@@ -1447,6 +1475,7 @@ export class MechEntity {
         target.z += f.dz * 16;
       }
     }
+    if (g.zones && g.zones.length) g.zonePull(this, target); // 吸引區域（game/hazards2.js）
     const acc = this.qbT > 0 ? 60 : this.grounded || this.jumpT > 0 ? 18 : 9;
     if (!this.melee.active) {
       this.vel.x = lerp(this.vel.x, target.x, Math.min(1, acc * dt));
@@ -1713,6 +1742,7 @@ export class MechEntity {
     if (this.staggerT > 0 && Math.random() < dt * 20)
       g.fx.spark(this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1))), 0xffb020);
     this.specialFx(dt);
+    if (this.sts || this.stsV) this.statusFx(dt);
   }
   // 跳躍與懸浮（同一個鍵分段）：地面按下＝跳躍；空中按下＝空中跳（還有次數時，向上的 QB，高度依次遞減）；
   // 按住到最高點接懸浮（定高）；懸浮中放開後馬上再按住＝爬升（耗能加倍）。沒有空中跳時空中按住直接懸浮。

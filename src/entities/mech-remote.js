@@ -19,6 +19,8 @@ Object.assign(MechEntity.prototype, {
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
     if (this.melee.active) this.melee.t += dt;
     this.specialFx(dt);
+    if (this.sts) this.statusRemoteTick(dt);
+    if (this.sts || this.stsV) this.statusFx(dt); // 狀態效果的顯示（mech-status.js）
     this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5;
     ikRestore(this.model);
     this.mesh.position.copy(this.pos);
@@ -104,6 +106,7 @@ Object.assign(MechEntity.prototype, {
     if (this.dead) return;
     this.dead = true;
     this.specialFx(0); // 收起護盾、修理光束與標記
+    this.statusClearAll(true);
     const g = this.game;
     const c = this.center();
     SFX.explode(this.isBoss ? 'huge' : true, this.isPlayer ? null : c);

@@ -5,6 +5,7 @@
 // 投射物、雷射、地雷、迫擊砲彈在 game/support.js；新 Boss 在 mech-boss.js（這裡的掛勾轉過去）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { foeDamageTick } from '../render/foe-damage.js';
 import { MechEntity } from './mech-entity.js';
 
 const DOME_R = 9; // 護盾半徑（以產生器腳底為中心的球）
@@ -235,7 +236,13 @@ Object.assign(MechEntity.prototype, {
   // 顯示：護盾、修理光束、強化／混亂標記（房主與客機每格呼叫）
   specialFx(dt) {
     const g = this.game;
-    if (FOE_FX.has(this.ai) || (this.opts && this.opts.vehKey === 'jammer')) this.foeFx(); // 主題專屬敵人的顯示（mech-foe.js）
+    // 主題專屬敵人的顯示（房主與客機都跑）：
+    const m = this.model;
+    if (m && m.dmg) foeDamageTick(this, dt); // 受損狀態與擊破碎片（render/foe-damage.js）
+    if (FOE_FX.has(this.ai) || (this.opts && this.opts.vehKey === 'jammer') || (m && m.animD1))
+      this.foeFx(dt); // 原本的專屬敵人與第 1、2 章模型的動作（mech-foe.js）
+    if (m && m.anim_d2) this.foeAnim_d2(dt); // 第 3～6 章模型的動作（mech-foe-d2.js）
+    this.foeExt('foeFx', dt); // 擴充組的新敵人（mech-foe-<組>.js）
     const host = !this.remote;
     const sx = this.sx || (this.sx = {});
     if (this.guardBreakT > 0) this.guardBreakT -= dt;
@@ -423,6 +430,8 @@ Object.assign(MechEntity.prototype, {
       case 'zenith':
         return this.foeMove(dt, d, dir, perp, wish, pl); // 主題專屬敵人（mech-foe.js）
     }
+    const fe = this.foeExt('foeMove', dt, d, dir, perp, wish, pl); // 擴充組的新敵人（mech-foe-<組>.js）
+    if (fe) return fe;
     return this.bossMove(dt, d, dir, perp, wish, pl);
   },
   // 卡住時跳起爬升（同一般 MT）
@@ -492,6 +501,8 @@ Object.assign(MechEntity.prototype, {
       case 'testrig':
         return true; // 實驗體只會咬、雷射網只有柵欄
     }
+    const ff = this.foeExt('foeFire', dt, d, aimPos, pl); // 擴充組：true＝自己處理、false＝照常開火
+    if (ff !== undefined) return ff;
     return this.bossFire(dt, d, aimPos, pl);
   },
   // 修理無人機：找 AP 比例最低的友軍，躲在它背後（相對玩家）持續回復

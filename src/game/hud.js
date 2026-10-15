@@ -259,11 +259,12 @@ Object.assign(Game.prototype, {
     const oob = this.world ? this.world.zoneExcess(p.pos.x, p.pos.z) : 0;
     const ob = document.getElementById('oob');
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
+    this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
     document.getElementById('kits').innerHTML =
       `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(Math.max(0, (p.kitsMax || 3) - p.kits))}</b>　<span class="dim">[R]</span>`;
     const alive = this.isClient
       ? this.clientAlive || 0
-      : this.enemies.filter((e) => !e.dead && !e.guardOf).length;
+      : this.enemies.filter((e) => !e.dead && !e.guardOf && !e.decoy).length;
     const wavesLeft = this.isClient ? this.clientWaves || 0 : this.waves.length;
     document.getElementById('hudTop').innerHTML = this.camp
       ? this.campHudTop(alive, wavesLeft)
@@ -457,7 +458,7 @@ Object.assign(Game.prototype, {
               : '';
       }
       document.getElementById('lockHint').textContent = p.lock
-        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${p.lock.res ? '　' + weakText(p.lock.res) : ''}${this.hudMissileLock(p)}${hTxt}`
+        ? `LOCK ▸ ${p.lock.name}  ${Math.round(p.lock.pos.distanceTo(p.pos))}m${p.lock.res || p.lock.laserK !== 1 ? '　' + weakText(p.lock.res, p.lock.laserK) : ''}${this.hudMissileLock(p)}${hTxt}`
         : '無鎖定目標';
       document.getElementById('lockHint').style.color = hTxt.includes('▲')
         ? '#7ee081'
@@ -652,6 +653,7 @@ Object.assign(Game.prototype, {
         c.restore();
       }
     }
+    this.drawShotHud(c, p); // 可以打掉的投射物的血條與鎖定框（hazards2.js）
     // lock direction pointer around player when lock is off-screen
     if (p.lock) {
       const ls = this.proj(p.lock.center());

@@ -45,12 +45,20 @@ export function kinFall(d, dist) {
   const k = Math.min(1, (dist - d.ideal) / Math.max(1, d.range - d.ideal));
   return 1 - (1 - KIN_FALL_MIN) * k;
 }
-// 敵人的弱點文字：res＝[實彈, 爆發, 能量] 的額外減傷（負的＝弱點）
-export function weakText(res) {
-  if (!res) return '';
-  const w = ATTR_KEYS.filter((k, i) => res[i] <= -0.08).map((k) => ATTRS[k].name);
-  const s = ATTR_KEYS.filter((k, i) => res[i] >= 0.12).map((k) => ATTRS[k].name);
-  return [w.length ? '弱：' + w.join('・') : '', s.length ? '抗：' + s.join('・') : '']
+// 雷射類武器（敵人定義的 laserK 只乘這些）：雷射步槍、雷射砲、背雷射砲、雷射霰彈
+export function isLaserWeapon(d) {
+  return !!d && (d.type === 'laser' || (d.type === 'shotgun' && weaponAttr(d) === 'en'));
+}
+// 敵人的弱點文字：res＝[實彈, 爆發, 能量] 的額外減傷（負的＝弱點）；laserK＝雷射類的傷害倍率（≠1 時顯示「雷射 30%」）
+export function weakText(res, laserK) {
+  const w = res ? ATTR_KEYS.filter((k, i) => res[i] <= -0.08).map((k) => ATTRS[k].name) : [];
+  const s = res ? ATTR_KEYS.filter((k, i) => res[i] >= 0.12).map((k) => ATTRS[k].name) : [];
+  const lz = laserK !== undefined && laserK !== null && Math.abs(laserK - 1) > 0.01;
+  return [
+    w.length ? '弱：' + w.join('・') : '',
+    s.length ? '抗：' + s.join('・') : '',
+    lz ? `雷射 ${Math.round(laserK * 100)}%` : '',
+  ]
     .filter(Boolean)
     .join('　');
 }

@@ -6,6 +6,11 @@
 // 自由出擊的該主題地圖在主線遇過之後才會出現（save.story.foesSeen）。
 // 專屬 AC 是劇情角色：speaker＝通訊的說話者（data/story.js）、randomAsm＝每次出現的組裝不同、amphib＝兩棲（水中不減速）。
 
+import { FOES_b1 } from './foes-b1.js';
+import { FOES_b2 } from './foes-b2.js';
+import { FOES_C1 } from './foes-c1.js';
+import { FOES_C2 } from './foes-c2.js';
+
 const LIGHT = {
   head: 'h_lt',
   core: 'c_lt',
@@ -40,6 +45,7 @@ export const FOES = {
     foe: 'scav',
     cost: 1.5,
     name: '拾荒 MT',
+    res: [-0.25, 0, 0], // 輕裝的拼裝機體：實彈打穿
     pal: 'scav',
     scale: 0.85,
     hpMul: 0.3,
@@ -57,6 +63,7 @@ export const FOES = {
     foe: 'junk',
     cost: 3.5,
     name: '廢鐵合成體',
+    res: [0.2, -0.25, 0], // 廢鐵外殼：實彈彈開、爆發炸散
     pal: 'scav',
     scale: 1,
     hpMul: 1.1,
@@ -79,6 +86,7 @@ export const FOES = {
     cost: 3,
     max: 2,
     name: '起重機砲台',
+    res: [0.2, -0.25, 0], // 鋼構塔身：實彈彈開、爆發撼動
     pal: 'yard',
     scale: 1,
     hpMul: 1.3,
@@ -99,6 +107,7 @@ export const FOES = {
     foe: 'forklift',
     cost: 2,
     name: '叉架 MT',
+    res: [0, 0, -0.25], // 外露的液壓與電路：能量
     pal: 'yard',
     scale: 1,
     hpMul: 0.6,
@@ -122,6 +131,7 @@ export const FOES = {
     cost: 3,
     max: 2,
     name: '閘門砲台',
+    res: [0.2, -0.25, 0], // 嵌在閘門的混凝土砲座：實彈彈開、爆發
     pal: 'yard',
     scale: 1,
     hpMul: 1.2,
@@ -141,6 +151,7 @@ export const FOES = {
     theme: 'dam',
     cost: 1.5,
     name: '壩頂巡邏砲車',
+    res: [-0.25, 0, 0], // 薄裝甲的砲車：實彈
     pal: 'mt',
     scale: 1,
     hpMul: 0.5,
@@ -163,6 +174,7 @@ export const FOES = {
     foe: 'gunboat',
     cost: 2,
     name: '潛航砲艇',
+    res: [0, -0.25, 0.2], // 艇身泡水冷卻：能量抗、爆發弱
     pal: 'toxic',
     scale: 1,
     hpMul: 0.5,
@@ -183,6 +195,7 @@ export const FOES = {
     foe: 'sprayer',
     cost: 2,
     name: '汙染噴射 MT',
+    res: [-0.25, 0, 0], // 背著藥劑槽：實彈打穿
     pal: 'toxic',
     scale: 1,
     hpMul: 0.6,
@@ -204,6 +217,7 @@ export const FOES = {
     foe: 'lurker',
     cost: 2,
     name: '雪中潛伏 MT',
+    res: [0, -0.25, 0], // 埋在雪裡：爆發把它炸出來
     pal: 'snowcamo',
     scale: 1,
     hpMul: 0.55,
@@ -225,6 +239,7 @@ export const FOES = {
     foe: 'skater',
     cost: 2,
     name: '冰面滑行砲車',
+    res: [0, 0, -0.25], // 凍僵的電子系統：能量
     pal: 'snowcamo',
     scale: 1,
     hpMul: 0.45,
@@ -246,6 +261,7 @@ export const FOES = {
     foe: 'blob',
     cost: 1,
     name: '實驗體',
+    res: [0.2, 0, -0.25], // 生物組織：吸收實彈、怕能量燒灼
     pal: 'specimen',
     scale: 1,
     hpMul: 0.22,
@@ -268,6 +284,7 @@ export const FOES = {
     spawnOnly: true,
     cost: 4,
     name: '融合實驗體',
+    res: [0.2, 0, -0.25], // 生物組織：吸收實彈、怕能量燒灼
     pal: 'specimen',
     scale: 1,
     hpMul: 1.6,
@@ -289,6 +306,7 @@ export const FOES = {
     cost: 2,
     max: 2,
     name: '保全雷射網',
+    res: [-0.25, 0, 0.2], // 能量柵欄：能量抗、實彈打壞發射器
     pal: 'yard',
     scale: 1,
     hpMul: 0.7,
@@ -310,6 +328,7 @@ export const FOES = {
     foe: 'crawler',
     cost: 1.5,
     name: '構造體爬行機',
+    res: [-0.25, 0, 0], // 細長的腳：實彈
     pal: 'crawler',
     scale: 1,
     hpMul: 0.4,
@@ -332,6 +351,7 @@ export const FOES = {
     cost: 2,
     max: 3,
     name: '平台底部砲塔',
+    res: [0, -0.25, 0], // 吊在平台底下：爆發震落
     pal: 'crawler',
     scale: 1,
     hpMul: 0.5,
@@ -355,6 +375,7 @@ export const FOES = {
     cost: 2.5,
     max: 2,
     name: '推進器試車台',
+    res: [-0.25, 0, 0.2], // 耐熱噴口：能量抗、實彈打壞管線
     pal: 'yard',
     scale: 1,
     hpMul: 0.9,
@@ -375,6 +396,7 @@ export const FOES = {
     foe: 'spacemt',
     cost: 1.5,
     name: '舊式宇宙用 MT',
+    res: [0, -0.25, 0], // 老舊的氣密外殼：爆發
     pal: 'spacemt',
     scale: 1,
     hpMul: 0.4,
@@ -397,6 +419,7 @@ export const FOES = {
     foe: 'rammer',
     cost: 1.5,
     name: '衝撞無人機',
+    res: [0, 0, -0.25], // 無人機的電子系統：能量
     pal: 'xylemdrone',
     scale: 1,
     hpMul: 0.3,
@@ -421,6 +444,7 @@ export const FOES = {
     cost: 2,
     max: 2,
     name: '艦載防空砲',
+    res: [0.2, -0.25, 0], // 艦載砲塔的裝甲：實彈彈開、爆發
     pal: 'xylemdrone',
     scale: 1,
     hpMul: 0.8,
@@ -442,6 +466,7 @@ export const FOES = {
     foe: 'vacuum',
     cost: 1.5,
     name: '真空作業機',
+    res: [0, 0, -0.25], // 無人作業機：能量
     pal: 'orbitbot',
     scale: 1,
     hpMul: 0.4,
@@ -466,6 +491,7 @@ export const FOES = {
     cost: 2,
     max: 2,
     name: '軌道標定衛星',
+    res: [-0.25, 0, 0], // 展開的太陽能板：實彈打穿
     pal: 'orbitbot',
     scale: 1,
     hpMul: 0.35,
@@ -489,6 +515,7 @@ export const FOES = {
     foe: 'burrow',
     cost: 2,
     name: '沙中伏擊者',
+    res: [0, -0.25, 0], // 鑽地的甲殼：爆發
     pal: 'scav',
     scale: 1,
     hpMul: 0.55,
@@ -509,6 +536,7 @@ export const FOES = {
     foe: 'jammer',
     cost: 1.5,
     name: '沙暴干擾機',
+    res: [-0.25, 0, 0.2], // 電磁干擾機：能量抗、實彈打壞天線
     pal: 'kami',
     scale: 1,
     hpMul: 0.25,
@@ -531,6 +559,7 @@ export const FOES = {
     foe: 'drill',
     cost: 2,
     name: '鑽頭採礦機',
+    res: [0.2, 0, -0.25], // 厚重的鑽頭機身：實彈彈開、能量
     pal: 'vehicle',
     scale: 1,
     hpMul: 0.7,
@@ -550,6 +579,7 @@ export const FOES = {
     theme: 'desert',
     cost: 1,
     name: '炸藥礦車',
+    res: [-0.25, 0, 0], // 載著炸藥的礦車：實彈
     pal: 'kami',
     scale: 1,
     hpMul: 0.15,
@@ -571,6 +601,7 @@ export const FOES = {
     depth: 1,
     cost: 1.5,
     name: '結晶寄生無人機',
+    res: [0, -0.25, 0.2], // 結晶會折射能量：能量抗、爆發震碎
     pal: 'kami',
     scale: 1,
     hpMul: 0.2,
@@ -589,6 +620,10 @@ export const FOES = {
     intro: '結晶寄生無人機：擊破時碎裂四射，別在近距離打爆它',
     gen: () => ({ ...LIGHT, rarm: 'w_hg' }),
   },
+  ...FOES_b1, // 地圖專屬敵人擴充 B1（data/foes-b1.js）
+  ...FOES_b2, // 擴充：第 2 章的新敵人（foes-b2.js）
+  ...FOES_C1, // 擴充：冰原、技研都市、Grid 086（foes-c1.js）
+  ...FOES_C2,
 };
 
 export const ACES = {
