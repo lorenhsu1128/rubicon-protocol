@@ -184,6 +184,7 @@ Object.assign(Game.prototype, {
   cineEnd(skipped) {
     const c = this.cine;
     if (!c) return;
+    if (c.shot >= 0) this.cineHookCall(c.def.shots[c.shot], 'exit');
     this.cine = null;
     SFX.musicStop(skipped ? 0.25 : 1.2);
     SFX.loopSet('cine', 'engineLoop', 0);
@@ -470,12 +471,25 @@ Object.assign(Game.prototype, {
     this.cineOverlay(S, lt, dt);
     if (c.lib) this.cineLibTick(c);
     SFX.setListenerCam(this.camera);
-    this.renderMain();
+    // 各章的掛勾（game/cine-c<章>.js）：S.hook＝每格（'tick'），S.render＝取代一般的渲染（分割畫面、電視牆…）
+    this.cineHookCall(S, 'tick', lt, dt);
+    const R = S.render && this['cineRender_' + S.render];
+    if (R) R.call(this, S, lt, dt);
+    else this.renderMain();
+  },
+  // 鏡頭的掛勾：S.hook 可以是字串或陣列，呼叫 this['cineHook_' + 名稱](S, phase, lt, dt)；phase＝enter／tick／exit
+  cineHookCall(S, phase, lt, dt) {
+    if (!S || !S.hook) return;
+    for (const n of [].concat(S.hook)) {
+      const h = this['cineHook_' + n];
+      if (h) h.call(this, S, phase, lt || 0, dt || 0);
+    }
   },
   cineEnterShot(si) {
     const c = this.cine,
       S = c.def.shots[si];
     const prev = c.shot;
+    if (prev >= 0 && prev !== si) this.cineHookCall(c.def.shots[prev], 'exit');
     c.shot = si;
     const key0 = c.setKey;
     this.cineBuildSet(c, S.set || { k: 'black' });
@@ -511,6 +525,7 @@ Object.assign(Game.prototype, {
     else this.camExtra = 0;
     c.cut = prev !== si;
     this.stylePipe.resetHistory();
+    if (prev !== si) this.cineHookCall(S, 'enter');
   },
   // ---------- 演員 ----------
   cineAddActor(spec, shotAt) {
@@ -1205,6 +1220,11 @@ Object.assign(Game.prototype, {
     if (S.ov === 'lock') this.cineLockHud(x, W, H, lt, S.lock);
     if (S.ov === 'comm') this.cineCommOv(x, W, H, lt);
     if (S.ov === 'choice') this.cineChoiceOv(x, W, H, lt, S);
+    // 各章自己的疊加畫面：S.ov＝'名稱' 或陣列 → this['cineOv_' + 名稱](x, W, H, lt, S)
+    for (const n of [].concat(S.ov || [])) {
+      const o = this['cineOv_' + n];
+      if (o) o.call(this, x, W, H, lt, S);
+    }
     // 略過的提示
     if (c.hintT > 0) c.hintT -= dt;
     $('cineSkip').classList.toggle('on', c.hintT > 0 || c.skipT > 0);
