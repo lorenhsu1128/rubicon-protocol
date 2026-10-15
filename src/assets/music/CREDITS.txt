@@ -6,3 +6,14 @@ cine_suspense.mp3 = "Cinematic Suspense Trailer - Extended Percussion Version" (
 cine_ident.mp3 = "Cinematic Piano Ident Logo Trailer" (0:00-0:25)
 cine_drive.mp3 = "Cinematic Cello Ostinato Trailer" (0:00-1:06)
 cine_tension.mp3 = "Cinematic Suspense Trailer" (0:00-1:00)
+
+Music: Kevin MacLeod (incompetech.com)
+License: Licensed under Creative Commons: By Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Source: https://incompetech.com/music/royalty-free/ (track pages below)
+Changes: trimmed, faded in/out and re-encoded to 96 kbps MP3 for the in-game cutscenes.
+cine_c1.mp3 = "Sardana" (0:00-1:50) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400055
+cine_c2.mp3 = "Industrial Cinematic" (0:00-1:20) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1600047
+cine_c3.mp3 = "Spacial Harvest" (0:00-1:40) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100653
+cine_c4.mp3 = "Devastation and Revenge" (0:36-2:36) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100694
+cine_c5.mp3 = "Long Time Coming" (0:00-1:20) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100173
+cine_c6.mp3 = "Space X-plorers" (0:00-1:42, whole piece) https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100064
