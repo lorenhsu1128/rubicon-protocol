@@ -494,13 +494,20 @@ async function testStyleThemes(browser, part = 1, parts = 1) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   const page = await ctx.newPage();
   watch(page, 'style-themes');
+  await seededRandom(page);
   await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
   await waitVisible(page, 'title');
   await page.click('#btnStyleLab');
   await waitVisible(page, 'labPanel', 15000);
-  // 固定的地形種子與鏡頭、暫停模擬，每次量到的畫面相同
+  // 固定的地形種子與鏡頭、暫停模擬，每次量到的畫面相同。換戰區之前就先暫停：以前戰區建好之後才暫停，
+  // 中間兩隊已經打了幾格（依實際時間），停在畫面上的爆炸、雷射與砲口閃光讓過曝的比例在 0～40% 之間跳動；
+  // 機體的位置（labPlace）也用亂數，換戰區前重設種子
   await page.selectOption('#labCam', 'free');
-  await page.evaluate(() => (window.__game.lab.seed = 4242));
+  await page.evaluate(() => {
+    const L = window.__game.lab;
+    L.seed = 4242;
+    L.paused = true;
+  });
   const allThemes = await page.$$eval('#labTheme option', (os) => os.map((o) => o.value));
   const per = Math.ceil(allThemes.length / parts);
   const themes = allThemes.slice((part - 1) * per, part * per);
@@ -536,7 +543,14 @@ async function testStyleThemes(browser, part = 1, parts = 1) {
   const bad = [];
   const rows = [];
   for (const th of themes) {
-    await page.selectOption('#labTheme', th);
+    // 換戰區（同 #labTheme 的 onchange；第一組的主題可能就是實驗室開啟時的戰區，選單的值沒變時不會重建）
+    await page.evaluate((th) => {
+      const g = window.__game;
+      window.__reseed(4242);
+      document.getElementById('labTheme').value = th;
+      g.lab.theme = th;
+      g.labStart();
+    }, th);
     await page.waitForFunction((th) => window.__game.worldTheme === th && window.__game.world, th, {
       timeout: 30000,
     });
@@ -7014,12 +7028,17 @@ async function testChapter4(browser, base) {
     });
     out.rig = { warn, hurt: h0 - p.hp };
     tr.takeDamage(1e9, 0, p, tr.center(), new THREE.Vector3(0, 0, 1));
+    // 滯空期間暫時拿掉障礙物：跑道的變體有離地 4～5 m 的頂棚（deck），宇宙用 MT 繞圈時鑽到下面就撞頂、
+    // 一直按著爬升把能量耗光，只跳得到 2 m 左右（隨機地圖約 2%）
+    const ob = w.obstacles;
+    w.obstacles = [];
     const hm = g.spawnType('spacemt', 1, 1, at(0, -20), 1);
     let alt = 0;
     window.__step([hm], 400, () => {
       alt = Math.max(alt, hm.pos.y - w.terrainHeight(hm.pos.x, hm.pos.z));
       return false;
     });
+    w.obstacles = ob;
     out.hop = alt;
     hm.takeDamage(1e9, 0, p, hm.center(), new THREE.Vector3(0, 0, 1));
     g.state = 'play';
@@ -7863,9 +7882,16 @@ async function testGoals(browser, base) {
 async function testEnemyAI(browser, base) {
   console.log('敵人 AI：感知、警戒、仇恨、視線、攻擊權杖、預警招式');
   const { ctx, page } = await newPage(browser, 'enemy-ai');
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
+  // 結果只由亂數決定：地圖（startMission 的種子與編成）、生成位置、AI 的移動與冷卻都用 Math.random，
+  // 隨機地圖上障礙物擋住後退的路線時「退到外圈」的平均距離會不夠（50 次裡 2 次，最低 19 m），背後找不到看得到的位置、
+  // 主攻只輪替 3 台、只放一種招式的也各有幾 %（種子 16 的地圖每項都有餘裕）。所以停住主迴圈（state 'ai-test' 也會跑任務的更新，
+  // 兩次 evaluate 之間依實際時間跑了不定的幾格）、每段開頭重設亂數種子，每次都是同一張地圖、同樣的過程
+  await freezeLoop(page);
   const r = await page.evaluate(() => {
+    window.__reseed(16);
     const g = window.__game;
     g.save.level = 5;
     g.startMission();
@@ -7995,6 +8021,7 @@ async function testEnemyAI(browser, base) {
   check(r.radio0 === 0 && r.radio === 2, '發現後以無線電通知附近的待機友軍');
   // 攻擊權杖：一大群敵人在鏡頭前方，推進 12 秒遊戲時間——同時最多 3 台主攻、會輪替、會放預警招式；沒拿到的退到外圈
   const t = await page.evaluate(() => {
+    window.__reseed(16);
     const g = window.__game;
     const pl = g.player;
     pl.hp = pl.maxHp = 1e7;
@@ -8050,8 +8077,8 @@ async function testEnemyAI(browser, base) {
   check(t.supD >= 28, `沒拿到權杖的退到外圈（平均 ${t.supD} m）`);
   await page.evaluate(() => {
     window.__game.state = 'play';
+    window.__pump(0.6);
   });
-  await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(SHOT_DIR, 'enemy-ai.png') });
   await ctx.close();
 }
@@ -13749,10 +13776,23 @@ async function testFoeModelsD2(browser, base) {
 async function testFoesB1(browser, base) {
   console.log('地圖專屬敵人 B1：荒野／沙丘／礦坑的新敵人（招式、預警、弱點、模型）');
   const { ctx, page } = await newPage(browser, 'foes-b1');
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
-  const enter = (theme, variant) =>
+  // 主迴圈停住、亂數固定（同 testFoesC1／C2）：地圖種子固定之後剩下的變數是亂數——沙脊狙擊機挑稜線
+  // （ridge_b1）用 Math.random，挑到射線剛好擦過稜線的位置時，開始瞄準後砲口一動就被擋住、0.3 秒後中斷，
+  // 檢查時已經沒有瞄準線（40 次裡 3 次）；截圖前改推進固定的時間
+  await freezeLoop(page);
+  const ev = (fn, arg) =>
     page.evaluate(
+      ([src, a]) => {
+        window.__reseed(5150);
+        return (0, eval)('(' + src + ')')(a);
+      },
+      [fn.toString(), arg],
+    );
+  const enter = (theme, variant) =>
+    ev(
       ([theme, variant]) => {
         const g = window.__game;
         if (g.camp) g.campEnd(false, true);
@@ -13858,19 +13898,21 @@ async function testFoesB1(browser, base) {
             .addScaledVector(dir, -4);
           g.camera.lookAt(mid.clone().add(new THREE.Vector3(0, 2, 0)));
         };
+        // 新地圖先跑幾格主迴圈（更新與算繪），以前是靠兩次 evaluate 之間的實際幾格
+        window.__pump(0.25);
       },
       [theme, variant],
     );
   const shot = async (name) => {
-    await wait(500);
+    await ev(() => window.__pump(0.5)); // 暫停中（__frame）只算繪
     await page.screenshot({ path: path.join(SHOT_DIR, 'foe-b1-' + name + '.png') });
   };
   // 截圖之後維持暫停：主迴圈不跑 AI（否則招式會在兩次 evaluate 之間以實際時間跑完），一律由 __step 推進
-  const resume = () => page.evaluate(() => (window.__game.state = 'pause'));
+  const resume = () => ev(() => (window.__game.state = 'pause'));
 
   // ---- 荒野：魚叉拖車 ----
   await enter('wasteland', '');
-  const hp1 = await page.evaluate(() => {
+  const hp1 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.spawnType('harpoon', 1, 1, window.__at(0, -22), 1);
@@ -13883,7 +13925,7 @@ async function testFoesB1(browser, base) {
   check(hp1.warn && hp1.res && hp1.res[1] < 0, '魚叉拖車：鉤頭發紅光的預警（弱點爆發）');
   await shot('harpoon-warn');
   await resume();
-  const hp2 = await page.evaluate(() => {
+  const hp2 = await ev(() => {
     const g = window.__game,
       e = window.__e;
     let hooked = false;
@@ -13914,7 +13956,7 @@ async function testFoesB1(browser, base) {
   );
   await shot('harpoon-hook');
   await resume();
-  const hp3 = await page.evaluate(() => {
+  const hp3 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       p = g.player;
@@ -13927,7 +13969,7 @@ async function testFoesB1(browser, base) {
   });
   check(hp3.cut === 1 && hp3.clr && hp3.hk === 'reload', '魚叉拖車：鉤住時打它，鋼索斷掉並解除 hook');
   // ---- 荒野：煙幕投射車 ----
-  const sm1 = await page.evaluate(() => {
+  const sm1 = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('smoker', 1, 1, window.__at(-6, -26), 1);
     window.__e = e;
@@ -13940,7 +13982,7 @@ async function testFoesB1(browser, base) {
   check(sm1.warn, '煙幕投射車：發射架抬起並發光的預警');
   await shot('smoker-warn');
   await resume();
-  const sm2 = await page.evaluate(() => {
+  const sm2 = await ev(() => {
     const e = window.__e;
     let shot = false;
     window.__step([e], 200, () => (shot = (e.aiState.shots || 0) > 0));
@@ -13950,7 +13992,7 @@ async function testFoesB1(browser, base) {
   });
   await shot('smoker-land');
   await resume();
-  const sm3 = await page.evaluate(() => {
+  const sm3 = await ev(() => {
     const g = window.__game,
       e = window.__e;
     window.__step([e], 200, () => (e.aiState.smoked || 0) > 0);
@@ -13983,7 +14025,7 @@ async function testFoesB1(browser, base) {
 
   // ---- 沙丘：沙脊狙擊機 ----
   await enter('dunes', '');
-  const rs1 = await page.evaluate(() => {
+  const rs1 = await ev(() => {
     const g = window.__game,
       w = g.world;
     g.clearZones(); // 前面留下的煙霧不擋住這一段
@@ -14014,7 +14056,7 @@ async function testFoesB1(browser, base) {
   );
   await shot('sniper-aim');
   await resume();
-  const rs2 = await page.evaluate(() => {
+  const rs2 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       p = g.player;
@@ -14037,7 +14079,7 @@ async function testFoesB1(browser, base) {
   );
   await shot('sniper-hit');
   await resume();
-  const rs3 = await page.evaluate(() => {
+  const rs3 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       w = g.world;
@@ -14057,7 +14099,7 @@ async function testFoesB1(browser, base) {
   });
   check(rs3.aim && rs3.broken === 1 && rs3.hits === 0, '沙脊狙擊機：射線被擋住時中斷瞄準');
   // ---- 沙丘：旋風產生機 ----
-  const tw1 = await page.evaluate(() => {
+  const tw1 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.spawnType('twister', 1, 1, window.__at(0, -24), 1);
@@ -14071,7 +14113,7 @@ async function testFoesB1(browser, base) {
   check(tw1.warn, '旋風產生機：葉片打開、噴出環發光的預警');
   await shot('twister-warn');
   await resume();
-  const tw2 = await page.evaluate(() => {
+  const tw2 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       p = g.player;
@@ -14094,7 +14136,7 @@ async function testFoesB1(browser, base) {
   );
   await shot('twister-vortex');
   await resume();
-  const tw3 = await page.evaluate(() => {
+  const tw3 = await ev(() => {
     const g = window.__game,
       e = window.__e;
     const n0 = window.__b1.rm.length;
@@ -14106,7 +14148,7 @@ async function testFoesB1(browser, base) {
 
   // ---- 礦坑（坑道網，有岩頂）：坍方爆破手 ----
   await enter('desert', 'tunnels');
-  const bl1 = await page.evaluate(() => {
+  const bl1 = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('blaster', 1, 1, window.__at(4, -22), 1);
     window.__e = e;
@@ -14119,7 +14161,7 @@ async function testFoesB1(browser, base) {
   check(bl1.warn && bl1.roof && bl1.top < 20, '坍方爆破手：在岩頂裝炸藥（閃燈＋裂紋圈預警）');
   await shot('blaster-warn');
   await resume();
-  const bl2 = await page.evaluate(() => {
+  const bl2 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       p = g.player;
@@ -14134,12 +14176,12 @@ async function testFoesB1(browser, base) {
   );
   await shot('blaster-fall');
   await resume();
-  await page.evaluate(() => {
+  await ev(() => {
     const g = window.__game;
     window.__e.takeDamage(1e9, 0, g.player, window.__e.center(), new THREE.Vector3(0, 0, 1));
   });
   // ---- 礦坑：礦燈哨兵 ----
-  const lp1 = await page.evaluate(() => {
+  const lp1 = await ev(() => {
     const g = window.__game;
     g.clearZones(); // 坍方留下的岩塊（臨時障礙物）會擋住探照燈
     g.clearTempWalls();
@@ -14162,7 +14204,7 @@ async function testFoesB1(browser, base) {
   check(lp1.lit && lp1.zone, '礦燈哨兵：探照燈掃描、照到目標（spot 區域）' + JSON.stringify(lp1));
   await shot('lamp-spot');
   await resume();
-  const lp2 = await page.evaluate(() => {
+  const lp2 = await ev(() => {
     const g = window.__game,
       e = window.__e,
       p = g.player;
@@ -14184,7 +14226,7 @@ async function testFoesB1(browser, base) {
   await shot('lamp-break');
   await resume();
   // 三角形預算（一般 ≤ 6000）與 rig.dmg、動作節點
-  const tri = await page.evaluate(() => {
+  const tri = await ev(() => {
     const g = window.__game;
     const out = {};
     for (const k of ['harpoon', 'smoker', 'ridgesniper', 'twister', 'blaster', 'lamp']) {
@@ -14352,7 +14394,26 @@ async function testFoesB2(browser, base) {
     const th = T.enter('industrial', 'railyard');
     g.world.obstacles.length = 0;
     g.world.props = [];
-    const e = g.spawnType('riveter', 1, 1, T.at(0, -18), 1);
+    // 調車場的地形有路基與土堆（障礙物拿掉了、地形還在）：挑砲口高度到玩家之間沒有地形擋住的位置，
+    // 並停在那裡（只轉向；邊走邊瞄時會走到土堆後面，鉚釘打在土堆上）
+    const p = g.player,
+      w = g.world;
+    const clear = (q) =>
+      Math.abs(q.y - p.pos.y) < 1.5 &&
+      [1.2, 2, 3].every((h) => {
+        const a = q.clone().setY(q.y + h),
+          b = p.center();
+        const n = Math.ceil(a.distanceTo(b) / 0.5);
+        for (let i = 1; i < n; i++) if (w.hitsWorld(a.clone().lerp(b, i / n))) return false;
+        return true;
+      });
+    let sp = T.at(0, -18);
+    for (let k = 0; k < 24 && !clear(sp); k++) {
+      const a = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.26;
+      sp = T.at(Math.sin(a) * 18, -Math.cos(a) * 18);
+    }
+    const e = g.spawnType('riveter', 1, 1, sp, 1);
+    e.speedMul = 0;
     T.e = e;
     const n = T.step([e], 600, () => e.bossVis === 1);
     T.cam(e, 8, 3);
@@ -14455,7 +14516,18 @@ async function testFoesB2(browser, base) {
             z = q.z + (p.pos.z - q.z) * k;
           return Math.abs(g.world.terrainHeight(x, z) - (q.y + (p.pos.y - q.y) * k)) < 0.8;
         }) &&
-        !g.world.losBlocked(c, p.center())
+        !g.world.losBlocked(c, p.center()) &&
+        // 水柱實際的路線（砲口高度 → 玩家）沒有被坡道擋住（losBlocked 不看坡道；水壩有上壩頂的坡道）
+        [2.5, 3, 3.5].every((h) => {
+          const a = q.clone().setY(q.y + h),
+            b = p.center();
+          const n = Math.ceil(a.distanceTo(b) / 0.5);
+          for (let i = 1; i < n; i++) {
+            const v = a.clone().lerp(b, i / n);
+            if (v.y < g.world.rampHeight(v.x, v.z, v.y)) return false;
+          }
+          return true;
+        })
       ) {
         sp = q;
         break;
@@ -15097,11 +15169,23 @@ main().catch((e) => {
 async function testFoesC1(browser, base) {
   console.log('地圖專屬敵人擴充（C1）：冷凍噴霧機、冰錐迫擊砲、全像投影器、寄生纏附體、重力錨、滑索突擊兵');
   const { ctx, page } = await newPage(browser, 'foes-c1');
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   await page.evaluate(() => (window.__game.autoPickMod = true));
-  const enter = (theme, variant) =>
+  // 主迴圈停住（state 'foe-test' 也會跑任務的更新，以前在兩次 evaluate 之間依實際時間跑了不定的幾格），
+  // 招式只由 __step 與截圖前的 __pump（固定的遊戲時間）推進；亂數與地圖種子也固定（同 testFoesC2）
+  await freezeLoop(page);
+  const ev = (fn, arg) =>
     page.evaluate(
+      ([src, a]) => {
+        window.__reseed(4242);
+        return (0, eval)('(' + src + ')')(a);
+      },
+      [fn.toString(), arg],
+    );
+  const enter = (theme, variant) =>
+    ev(
       ([theme, variant]) => {
         const g = window.__game;
         if (g.camp) g.campEnd(false, true);
@@ -15110,6 +15194,7 @@ async function testFoesC1(browser, base) {
         g.campSortie().segs[0].theme = theme;
         g.camp.plan[0] = { ...g.camp.plan[0], variant, landmark: '' };
         g.camp.types[0] = 'supply';
+        g.camp.seeds[0] = 4242; // 固定地圖（招式的射線與彈道每次都一樣）
         g.campEnterSeg();
         g.state = 'foe-test';
         const p = g.player;
@@ -15165,18 +15250,24 @@ async function testFoesC1(browser, base) {
           g.enemies = [];
           g.projectiles = [];
         };
+        // 新地圖先跑幾格主迴圈（更新與算繪：機體的矩陣、鏡頭），以前是靠兩次 evaluate 之間的實際幾格
+        window.__pump(0.25);
       },
       [theme, variant],
     );
-  // 截圖：讓主迴圈跑一下（預警的特效會動），再暫停
+  // 截圖：讓主迴圈推進 ms 毫秒的遊戲時間（預警的特效會動、敵人也照常行動），之後停回測試狀態
   const shot = async (name, ms = 350) => {
-    await page.evaluate(() => (window.__game.state = 'play'));
-    await page.waitForTimeout(ms);
+    await ev((sec) => {
+      const g = window.__game;
+      if (g.popups) g.popups.length = 0;
+      g.state = 'play';
+      window.__pump(sec);
+    }, ms / 1000);
     await page.screenshot({ path: path.join(SHOT_DIR, 'foes-c1-' + name + '.png') });
-    await page.evaluate(() => (window.__game.state = 'foe-test'));
+    await ev(() => (window.__game.state = 'foe-test'));
   };
   await enter('snow', 'icefield');
-  const reg = await page.evaluate(() => {
+  const reg = await ev(() => {
     const g = window.__game;
     const want = ['cryo', 'icemortar', 'holo', 'parasite', 'anchor', 'zipline'];
     return want.map((k) => {
@@ -15193,14 +15284,14 @@ async function testFoesC1(browser, base) {
   );
 
   // ---- 冰原：冷凍噴霧機 ----
-  const cr = await page.evaluate(() => {
+  const cr = await ev(() => {
     const e = window.__spawn('cryo', 9);
     const n1 = window.__step(400, () => e.bossVis === 1);
     return { warn: n1 < 400 };
   });
   check(cr.warn, '冷凍噴霧機：噴嘴結霜的預警（bossVis 1）');
   await shot('cryo-warn', 250);
-  const cr2 = await page.evaluate(() => {
+  const cr2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'cryo' && !x.dead);
@@ -15221,9 +15312,51 @@ async function testFoesC1(browser, base) {
   );
   await shot('cryo-spray', 100);
   // ---- 冰原：冰錐迫擊砲 ----
-  const im = await page.evaluate(() => {
+  const im = await ev(() => {
     window.__clear();
-    const e = window.__spawn('icemortar', 32);
+    // 冰錐的拋物線（砲口 → 玩家腳下，1.5 秒、頂點高約 8 m）在隨機的冰原上會碰到坡道、丘陵、障礙物或可破壞的物件
+    // （信號燈桿的判定球半徑 4 m 多；碰到時在半路或砲口就爆炸，落點的目標沒受傷；約 20%）：生成後（生成點會被挪開）
+    // 照實際的位置檢查整條拋物線，不通就換下一個位置；停在那裡（只轉向）
+    const g = window.__game,
+      w = g.world,
+      pl = g.player;
+    // 砲口在機體上方約 4 m（依朝向前後差 1 m），所以檢查三條高度不同的拋物線、每點上下各留 0.4 m
+    const arcClear = (q) =>
+      [3.5, 4, 4.6].every((mh) => {
+        const M = q.clone().setY(q.y + mh),
+          L = pl.pos.clone().setY(w.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 1.5));
+        const T = 1.5,
+          G = 30;
+        const v = L.clone().sub(M).divideScalar(T);
+        v.y = (L.y - M.y + 0.5 * G * T * T) / T;
+        for (let t = 0; t <= T; t += 0.02) {
+          const P = M.clone().addScaledVector(v, t);
+          P.y -= 0.5 * G * t * t;
+          if (P.y < L.y + 0.5) break; // 落地
+          for (const dy of [-0.4, 0, 0.4]) if (w.hitsWorld(P.clone().setY(P.y + dy))) return false;
+          if ((w.props || []).some((o) => !o.dead && o.center().distanceTo(P) < (o.radius || 1) + 1.5))
+            return false;
+        }
+        return true;
+      });
+    let e = null;
+    for (let k = 0; k < 24 && !e; k++) {
+      // 從正前方開始，左右交錯繞一圈（玩家旁邊有坡道時，從另一側打過來）
+      const a = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27,
+        x = pl.pos.x - Math.sin(a) * 32,
+        z = pl.pos.z - Math.cos(a) * 32;
+      const c = g.spawnType('icemortar', 1, 1, new THREE.Vector3(x, w.groundAt(x, z, pl.pos.y + 2), z), 1);
+      // 站在平地上（生成在坡道或丘陵上時，速度 0 也會滑下來、離開檢查過的位置）
+      const flat = Math.abs(c.pos.y - w.terrainHeight(c.pos.x, c.pos.z)) < 0.3 && w.slopeOK(c.pos.x, c.pos.z);
+      if (flat && arcClear(c.pos)) e = c;
+      else {
+        c.depart();
+        g.enemies = g.enemies.filter((x) => x !== c);
+      }
+    }
+    if (!e) e = window.__spawn('icemortar', 32);
+    e.speedMul = 0;
+    pl.yaw = pl.aimYaw = Math.atan2(-(e.pos.x - pl.pos.x), -(e.pos.z - pl.pos.z)); // 玩家面向它
     const n1 = window.__step(400, () => e.bossVis === 1);
     // 冰錐的傷害另外記下來（截圖時主迴圈也在跑，AP 的差可能被別的處理蓋過）
     const p = window.__game.player;
@@ -15242,7 +15375,7 @@ async function testFoesC1(browser, base) {
   });
   check(im.warn && im.shot, '冰錐迫擊砲：架砲預警後拋射冰錐（落點白圈）');
   await shot('icemortar-warn', 400);
-  const im2 = await page.evaluate(() => {
+  const im2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const hp0 = window.__hp0; // 發射時（截圖時主迴圈也可能讓冰錐落地）
@@ -15275,7 +15408,7 @@ async function testFoesC1(browser, base) {
 
   // ---- 技研都市：全像投影器 ----
   await enter('institute', 'core');
-  const ho = await page.evaluate(() => {
+  const ho = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = window.__spawn('holo', 30);
@@ -15301,9 +15434,9 @@ async function testFoesC1(browser, base) {
     ho.stolen && ho.first === 'holofake' && ho.lockable,
     '全像投影器：假敵人可以鎖定、搶走鎖定（自動鎖定先選到）' + JSON.stringify(ho),
   );
-  await page.evaluate(() => window.__step(30));
+  await ev(() => window.__step(30));
   await shot('holo-fakes', 500);
-  const ho2 = await page.evaluate(() => {
+  const ho2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'holoproj' && !x.dead);
@@ -15319,7 +15452,7 @@ async function testFoesC1(browser, base) {
   check(ho2.one, '全像投影器：假的打一下就消失，不給賞金、不算擊破');
   check(ho2.rest && ho2.left === 0, '全像投影器：本體被擊破時假敵人全部消失');
   // ---- 技研都市：寄生纏附體 ----
-  const pa = await page.evaluate(() => {
+  const pa = await ev(() => {
     window.__clear();
     const e = window.__spawn('parasite', 6);
     const n1 = window.__step(300, () => e.bossVis === 1);
@@ -15327,7 +15460,7 @@ async function testFoesC1(browser, base) {
   });
   check(pa.crouch, '寄生纏附體：蹲伏預警（bossVis 1）');
   await shot('parasite-crouch', 200);
-  const pa2 = await page.evaluate(() => {
+  const pa2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'parasite' && !x.dead);
@@ -15348,7 +15481,7 @@ async function testFoesC1(browser, base) {
     '寄生纏附體：撲上來纏附（跟著機體、不能鎖定、latch 狀態）' + JSON.stringify(pa2),
   );
   await shot('parasite-latch', 200);
-  const pa3 = await page.evaluate(() => {
+  const pa3 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'parasite' && !x.dead);
@@ -15360,14 +15493,14 @@ async function testFoesC1(browser, base) {
 
   // ---- Grid 086：重力錨 ----
   await enter('grid086', 'catwalks');
-  const an = await page.evaluate(() => {
+  const an = await ev(() => {
     const e = window.__spawn('anchor', 24);
     const n1 = window.__step(400, () => e.bossVis === 1);
     return { warn: n1 < 400 };
   });
   check(an.warn, '重力錨：錨樁的紫圈預警');
   await shot('anchor-warn', 400);
-  const an2 = await page.evaluate(() => {
+  const an2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'anchor' && !x.dead);
@@ -15390,7 +15523,7 @@ async function testFoesC1(browser, base) {
   check(an2.nojump, '重力錨：重力圈裡的機體不能跳（nojump）');
   await shot('anchor-field', 300);
   // ---- Grid 086：滑索突擊兵 ----
-  const zp = await page.evaluate(() => {
+  const zp = await ev(() => {
     window.__clear();
     const g = window.__game,
       p = g.player,
@@ -15413,7 +15546,7 @@ async function testFoesC1(browser, base) {
   });
   check(zp.warn, `滑索突擊兵：纜索閃光的預警（平台上 ${zp.deck}、高 ${zp.h.toFixed(1)} m）`);
   await shot('zipline-warn', 300);
-  const zp2 = await page.evaluate(() => {
+  const zp2 = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.enemies.find((x) => x.ai === 'zipline' && !x.dead);
