@@ -129,6 +129,11 @@ Object.assign(MechEntity.prototype, {
         case 'ability':
           done = this.rtsAbOrder(o, dt, D);
           break;
+        case 'fuse':
+        case 'fuseTo':
+          // 融合（R3 A 包：rts.js 的 rtsFuseStep；宿主原地等、材料走向宿主）
+          done = g.rtsFuseStep ? g.rtsFuseStep(this, o, dt) : true;
+          break;
         default:
           done = true;
       }
@@ -477,6 +482,7 @@ Object.assign(MechEntity.prototype, {
     if (dy > Math.PI) dy = Math.PI * 2 - dy;
     if (dy > 0.5) return;
     if (this.rtsSiege && !this.deployed) return; // 自走砲：只有架設好才能開火
+    if (D.melee) return this.rtsAethMelee ? this.rtsAethMelee(t, this.game.rts.dt || 0.05, D) : undefined; // 近戰（R3 B 包）
     const n0 = this.game.projectiles.length;
     // 只用定義的 slots 開火（預設 rarm）；各槽的傷害倍率 rtsSlotK（rts.js 依 dps 換算）、對空設定 slotAa／aa、
     // 開火間隔乘數值層的 rtsRofK
@@ -647,7 +653,8 @@ Object.assign(MechEntity.prototype, {
       return !m || this.rtsGo(m.pos.x, m.pos.z, 6, dt, null);
     }
     let m = g.rtsMine(o.mine);
-    if (!rt.gp) rt.gp = this.carry && this.carry.n >= RTS_GATHER.trip ? 'back' : 'to';
+    const trip = D.trip || RTS_GATHER.trip; // 每趟的量（艾瑟立克的研究作業機 8）
+    if (!rt.gp) rt.gp = this.carry && this.carry.n >= trip ? 'back' : 'to';
     if (rt.gp !== 'back' && (!m || m.amount <= 0 || m.kind !== 'mine')) {
       // 礦脈採完（或不是礦脈）：換最近還有量的
       const n = g.rtsNearestMine(this.pos.x, this.pos.z, this.rtsTeam, m);
@@ -707,7 +714,7 @@ Object.assign(MechEntity.prototype, {
         if (g.rtsFxOk(_v)) g.fx.spark(_v.clone(), 0xffd070);
       }
       if (rt.gT >= RTS_GATHER.time) {
-        const n = Math.min(RTS_GATHER.trip, Math.floor(m.amount));
+        const n = Math.min(trip, Math.floor(m.amount));
         m.amount -= n;
         g.rtsMineChanged(m);
         this.carry = { kind: 'ore', n };
@@ -753,7 +760,7 @@ Object.assign(MechEntity.prototype, {
     if (!B) return true;
     let b = o.bid !== undefined ? g.rtsEnt(o.bid) : null;
     if (o.bid !== undefined && (!b || b.dead)) return true;
-    if (b && b.bld.progress >= 1) return this.rtsAfterBuild();
+    if (b && (b.bld.progress >= 1 || B.selfBuild)) return this.rtsAfterBuild();
     if (!b) {
       const r = Math.max(B.foot[0], B.foot[1]) / 2 + 2.5;
       const d = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
@@ -764,6 +771,11 @@ Object.assign(MechEntity.prototype, {
       b = g.rtsPlace(this.rtsTeam, o.def, o.x, o.z, o.yaw || 0, this);
       if (!b) return true; // 不能蓋（資源不足、被擋住）：rtsPlace 已經提示
       o.bid = b.id;
+      // 自己長的建築（艾瑟立克，R3）：放下地基就回去採集
+      if (B.selfBuild) {
+        b.bld.builders.delete(this);
+        return this.rtsAfterBuild();
+      }
     }
     // 施工：在建築旁邊（外形 REACH_BLD 內）
     const d = this.rtsDistTo(b);
@@ -841,10 +853,13 @@ Object.assign(MechEntity.prototype, {
       this.mesh.add(legs);
       (this.sx || (this.sx = {})).rtsLegs = legs; // sx 參照到的節點在 RTS 合併時當骨頭（render/rts-merge.js）
     }
+    if (this.rtsAethInit) this.rtsAethInit(D); // 艾瑟立克（R3 B 包：entities/mech-rts-aeth.js）
   },
   // 每格：回傳 true＝這一格不動也不開火（架設／收起中）
   rtsAbTick(dt, D) {
     const R = this.game.rts;
+    // 艾瑟立克（R3 B 包）：引導、撲上、纏附中接手（回傳 true＝這一格不動也不開火）
+    if (this.rtsAethTick && this.rtsAethTick(dt, D)) return true;
     // 叉架 MT：丟出貨櫃 20 秒後舉回新的貨櫃
     if (this.rtsCrateT !== undefined && !(this.bossVis & 1) && R.t >= this.rtsCrateT) this.bossVis |= 1;
     // 盾牆：每 0.5 秒掩護身後的友軍
@@ -932,7 +947,7 @@ Object.assign(MechEntity.prototype, {
       return false;
     }
     rt.face = rt.faceV.set(x, this.pos.y + 1, z);
-    this.rtsAbCast(o.ab, { x, z });
+    this.rtsAbCast(o.ab, { x, z, id: o.id });
     return true;
   },
   // 施放（費用與冷卻在這裡扣；自動施放也走這裡）
@@ -951,7 +966,8 @@ Object.assign(MechEntity.prototype, {
     else if (ab === 'ab_cover') this.rtsAbCover(o.x, o.z);
     else if (ab === 'ab_flare') this.rtsAbFlare(o.x, o.z);
     else if (ab === 'ab_rockets') this.rtsAbRockets(o.x, o.z);
-    else return;
+    // 艾瑟立克的技能（R3 B 包的 rtsAethAb：true＝施放了，費用與冷卻在這裡扣）
+    else if (!(this.rtsAethAb && this.rtsAethAb(ab, o))) return;
     R.teams[this.rtsTeam].coral -= A.coral || 0;
     this.rtsCd[ab] = R.t + (A.cd || 0);
   },
@@ -1272,6 +1288,7 @@ Object.assign(MechEntity.prototype, {
     st.cd = (gun.rof || 1) * (this.rtsRofK || 1);
     st.shots = (st.shots || 0) + 1;
     const dmg = (gun.dps || 0) * (gun.rof || 1) * this.dmgMul;
+    if (this.rtsAethTower && this.rtsAethTower(t, gun, dmg, top)) return; // 艾瑟立克的雷射網（R3 B 包）
     if (gun.aa === 'air') {
       // 防空砲塔：高速砲彈（範圍 2 m；攻擊類型＝定義的 pierce）
       const from = this.model.muzzle

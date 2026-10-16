@@ -47,19 +47,28 @@ RtsUnitMat.prototype.onBeforeCompile = function (sh, r) {
     return s.replace(a, b);
   };
   let v = sh.vertexShader;
-  v = 'attribute vec4 rtsA;\nattribute vec4 rtsB;\nvarying vec4 vRtsA;\nvarying vec4 vRtsB;\n' + v;
-  v = rep(v, '#include <begin_vertex>', '#include <begin_vertex>\nvRtsA = rtsA;\nvRtsB = rtsB;');
+  v =
+    'attribute vec4 rtsA;\nattribute vec4 rtsB;\nuniform vec4 rtsPulse;\nvarying vec4 vRtsA;\nvarying vec4 vRtsB;\nvarying float vRtsP;\n' +
+    v;
+  // 自發光的脈動（skinIndex.y＝頻道 1～4，0＝固定）：動作函式改的發光材質（地圖專屬敵人的 lit_d2）以 uniform 的倍率重現
+  v = rep(
+    v,
+    '#include <begin_vertex>',
+    '#include <begin_vertex>\nvRtsA = rtsA;\nvRtsB = rtsB;\nint rtsPc = int( skinIndex.y + 0.5 );\n' +
+      'vRtsP = rtsPc == 1 ? rtsPulse.x : rtsPc == 2 ? rtsPulse.y : rtsPc == 3 ? rtsPulse.z : rtsPc == 4 ? rtsPulse.w : 1.0;',
+  );
+  sh.uniforms.rtsPulse = this.rtsPulseU || (this.rtsPulseU = { value: new THREE.Vector4(1, 1, 1, 1) });
   // 每個頂點只屬於一根骨頭（權重 1）：只取一個骨頭矩陣（原本 4 根、骨頭貼圖讀 16 次）
   v = rep(v, '#include <skinbase_vertex>', SKIN1_BASE);
   v = rep(v, '#include <skinnormal_vertex>', SKIN1_NORMAL);
   v = rep(v, '#include <skinning_vertex>', SKIN1_POS);
   sh.vertexShader = v;
   let f = sh.fragmentShader;
-  f = 'varying vec4 vRtsA;\nvarying vec4 vRtsB;\n' + f;
+  f = 'varying vec4 vRtsA;\nvarying vec4 vRtsB;\nvarying float vRtsP;\n' + f;
   f = rep(
     f,
     'vec3 totalEmissiveRadiance = emissive;',
-    `vec3 totalEmissiveRadiance = emissive + vRtsB.rgb * ${E_K.toFixed(1)};`,
+    `vec3 totalEmissiveRadiance = emissive + vRtsB.rgb * ${E_K.toFixed(1)} * vRtsP;`,
   );
   // 貼圖：風格著色器的 MAP 段落（沒有時是原本的 map_fragment）
   if (f.includes('diffuseColor *= texelColor;'))
@@ -76,7 +85,7 @@ RtsUnitMat.prototype.onBeforeCompile = function (sh, r) {
   sh.fragmentShader = f;
 };
 RtsUnitMat.prototype.customProgramCacheKey = function () {
-  return 'rubicon-rts-unit-2';
+  return 'rubicon-rts-unit-3';
 };
 
 const OK_MAPS = ['map', 'roughnessMap', 'normalMap'];
@@ -126,7 +135,8 @@ function matOK(m, base, keep) {
   return false;
 }
 // 一個材質的頂點屬性（rtsA、rtsB 各 4 個 0～255）與顏色
-function matVals(m, base) {
+// unit：脈動的材質（自發光以強度 1 存，倍率由 uniform 給）
+function matVals(m, base, unit) {
   const c = [0, 0, 0],
     a = [0, 0, 0, 0],
     b = [0, 0, 0, 0];
@@ -139,7 +149,7 @@ function matVals(m, base) {
     a[1] = m.metalness;
     a[2] = m.map && m.map === base.map ? 1 : 0;
     a[3] = m.roughnessMap && m.roughnessMap === base.roughnessMap ? 1 : 0;
-    e.copy(m.emissive).multiplyScalar(m.emissiveIntensity);
+    e.copy(m.emissive).multiplyScalar(unit ? 1 : m.emissiveIntensity);
     b[3] = m.normalMap && m.normalMap === base.normalMap ? Math.min(1, Math.abs(m.normalScale.x)) : 0;
   } else if (m.isMeshBasicMaterial) {
     // 不受光的顏色：當成自發光
@@ -178,7 +188,7 @@ function baseMaps(meshes) {
 const _v = new THREE.Vector3();
 // 實心的部分：一律輸出沒有索引的三角形（索引幾何展開），屬性 position、uv、color（Uint8 正規化）、
 // rtsA／rtsB（Uint8 正規化）、skinIndex（Uint8）、skinWeight（Uint8 正規化）
-function buildSolid(items, base) {
+function buildSolid(items, base, pulse) {
   let total = 0;
   for (const it of items) total += it.geo.index ? it.geo.index.count : it.geo.attributes.position.count;
   const pos = new Float32Array(total * 3),
@@ -195,7 +205,8 @@ function buildSolid(items, base) {
       I = g.index;
     const n = I ? I.count : P.count;
     const flip = it.mm.determinant() < 0;
-    const mv = matVals(it.mat, base);
+    const pc = pulse ? pulse.get(it.mat) || 0 : 0;
+    const mv = matVals(it.mat, base, pc > 0);
     for (let i = 0; i < n; i++) {
       // 鏡像（行列式為負）時每個三角形的第 2、3 個頂點對調，維持正面朝外
       const j = flip ? (i % 3 === 1 ? i + 1 : i % 3 === 2 ? i - 1 : i) : i;
@@ -217,6 +228,7 @@ function buildSolid(items, base) {
         at[t * 8 + 4 + c] = mv.b[c];
       }
       si[t * 4] = it.bi;
+      si[t * 4 + 1] = pc;
       sw[t * 4] = 255;
     }
     o += n;
@@ -294,7 +306,8 @@ function mergeOnce(rig, ctx) {
         tagStyle({ traverse: (f) => f({ material: mat }) }, styleCat(sol[0].material));
         if (rig.mats && !rig.mats.includes(mat)) rig.mats.push(mat);
       }
-      const mesh = new THREE.SkinnedMesh(buildSolid(items, base), mat);
+      const mesh = new THREE.SkinnedMesh(buildSolid(items, base, ctx.pulse), mat);
+      if (ctx.pulseList) mesh.onBeforeRender = ctx.pulseUpd;
       mesh.castShadow = sol.some((o) => o.castShadow);
       mesh.receiveShadow = sol.some((o) => o.receiveShadow);
       made.push(mesh);
@@ -476,6 +489,33 @@ export function rtsMergeNow(rig, extra) {
     }),
     matInit: false,
   };
+  // 脈動的發光材質：動作函式會改發光強度的標準材質（rig.rtsPulseMats：地圖專屬敵人的模型，foe-merge.js 試驗出的），
+  // 有自發光顏色的最多 4 種
+  const pl = [];
+  for (const m of rig.rtsPulseMats || []) {
+    if (
+      m &&
+      m.isMeshStandardMaterial &&
+      !pl.includes(m) &&
+      m.emissive &&
+      m.emissive.getHex() &&
+      pl.length < 4
+    )
+      pl.push(m);
+  }
+  if (pl.length) {
+    ctx.pulse = new Map(pl.map((m, i) => [m, i + 1]));
+    ctx.pulseList = pl;
+    const U = ctx.mat.rtsPulseU || (ctx.mat.rtsPulseU = { value: new THREE.Vector4(1, 1, 1, 1) });
+    ctx.pulseUpd = () => {
+      U.value.set(
+        pl[0].emissiveIntensity,
+        pl[1] ? pl[1].emissiveIntensity : 1,
+        pl[2] ? pl[2].emissiveIntensity : 1,
+        pl[3] ? pl[3].emissiveIntensity : 1,
+      );
+    };
+  }
   const skinCache = new Map();
   const build = () => {
     const r1 = mergeOnce(rig, ctx);

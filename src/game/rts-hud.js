@@ -3,6 +3,10 @@
 // 自動施放、級數）、訊息與警示、血條與框選框。親自駕駛時（rts-pilot.js）只留資源列、小地圖、英雄頭像列與右上角的小字警示。
 // DOM 在 index.html 的 #rtsHud（rtsHudInit 填內容）；樣式在 styles.css 的 RTS 區塊。指令卡與面板都是 button（手把規則）。
 // 定義讀 data/rts-units.js（rtsUiDef）；核心、英雄（C 包）、中立（D 包）沒有提供的 API 一律以 typeof 判斷。
+// R3 艾瑟立克（docs 14.15）：資源列的導管狀態 #rtsPower（rtsHudFaction 依陣營顯示）、斷電的事件與標示（rtsHudPower：
+// 建築上的斷電圖示、小地圖閃紅框、選取面板「無導管供電」）、融合卡片（rtsFuseWhy／rtsFuseGroups：組數、引導進度）、
+// 建築的技能（結晶護壁：rtsCardAbilityAct 把選取中的建築傳給 rtsOrder）、自己的幻象標「幻」（敵方的不顯示）。
+// 導管範圍圈畫在 rts-input.js（rtsHudRings）。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
 import { escHtml } from '../core/html.js';
@@ -30,6 +34,7 @@ import {
 } from '../data/rts-combat.js';
 import { RTS_HERO_XP, RTS_REVIVE, RTS_SKILLS, skillLvReq, skillMax } from '../data/rts-heroes.js';
 import { RTS_ITEMS, RTS_SHOP, RTS_SHOP_CARD } from '../data/rts-items.js';
+import { RTS_FUSE } from '../data/rts-aetheric.js';
 
 const RTS_ME = 0;
 const KEYS = CARD_KEYS.flat();
@@ -84,6 +89,7 @@ Object.assign(Game.prototype, {
         <span class="rtsRes ore" title="礦石"><i></i><b id="rtsOre">0</b></span>
         <span class="rtsRes coral" title="Coral"><i></i><b id="rtsCoral">0</b></span>
         <span class="rtsRes pop" title="人口／上限"><i></i><b id="rtsPop">0/0</b></span>
+        <button id="rtsPower" type="button" hidden title="導管網：供電源的數量；有建築停擺時變紅，點一下跳到停擺的建築">導管</button>
         <span id="rtsUpkeep" title="維持費：人口越多，礦石收入越少">無維持費</span>
         <button id="rtsButlerBtn" type="button" title="自動管家（親自駕駛時一律啟動）">管家</button>
       </div>
@@ -133,6 +139,7 @@ Object.assign(Game.prototype, {
       p.hidden = !p.hidden;
       this.rtsButlerDraw(true);
     };
+    document.getElementById('rtsPower').onclick = () => this.rtsHudPowerJump();
     document.getElementById('rtsIdleW').onclick = (e) =>
       this.rtsIdleSelect('worker', e.shiftKey || e.ctrlKey);
     document.getElementById('rtsIdleA').onclick = () => this.rtsIdleSelect('army', true);
@@ -266,6 +273,125 @@ Object.assign(Game.prototype, {
     this.rtsMiniDraw();
   },
 
+  // ---------- 陣營（R3：docs 14.15） ----------
+  // rtsStart 最後呼叫（A 包的掛勾）：資源列依陣營（導管狀態、Coral 的說明）、#rtsHud 的陣營樣式
+  rtsHudFaction() {
+    const R = this.rts;
+    if (!R) return;
+    const root = document.getElementById('rtsHud');
+    if (root && !root.dataset.init) this.rtsHudInit();
+    const T = R.teams[RTS_ME];
+    if (root) root.dataset.fac = (T && T.faction) || 'castron';
+    const grid = typeof this.rtsPowerTeam === 'function' && this.rtsPowerTeam(RTS_ME);
+    const pw = document.getElementById('rtsPower');
+    if (pw) pw.hidden = !grid;
+    const co = document.querySelector('#rtsTop .rtsRes.coral');
+    if (co)
+      co.title = grid
+        ? 'Coral（汲取塔每秒 1.25、研究中樞自己產出；艾瑟立克的主要資源）'
+        : 'Coral（抽取站每秒 0.8）';
+    if (R.ui) R.ui.ringKey = '';
+    this._rtsPowSig = '';
+    this.rtsHudDirty = true;
+  },
+  // 導管重算之後（A 包 rtsPowerRebuild 的掛勾）：範圍圈重畫；玩家的建築停擺／恢復時發事件（同一次斷電只發一次）
+  rtsHudPower(teamId, info) {
+    const R = this.rts;
+    if (!R || !info) return;
+    if (R.ui) R.ui.ringKey = ''; // 範圍圈（rts-input.js 的 rtsHudRings）下一格重建
+    this.rtsHudDirty = true;
+    if (teamId !== RTS_ME || !(R.t > 0)) return;
+    if (info.newOff > 0) {
+      const b = this.rtsHudOffList()[0];
+      const x = b ? b.pos.x : R.cam ? R.cam.x : 0,
+        z = b ? b.pos.z : R.cam ? R.cam.z : 0;
+      const txt = `導管中斷：${info.newOff} 座建築停擺`;
+      if (R.ui) {
+        this.rtsEvent(x, z, txt, 0xff6a5a);
+        this.rtsPing(x, z, '#ff503c');
+      } else if (this.rtsSay) this.rtsSay(txt);
+      try {
+        SFX.alert();
+      } catch (err) {
+        void err;
+      }
+    } else if (info.newOn > 0 && !info.off && R.ui) {
+      const b = R.units.find((e) => !e.dead && e.bld && e.rtsTeam === RTS_ME && e.bld.pw);
+      this.rtsEvent(b ? b.pos.x : 0, b ? b.pos.z : 0, `導管恢復：${info.newOn} 座建築恢復運作`, 0x7ee081);
+    }
+  },
+  // 玩家停擺中的建築（斷電）
+  rtsHudOffList() {
+    const R = this.rts;
+    return R ? R.units.filter((e) => !e.dead && e.bld && e.rtsTeam === RTS_ME && e.bld.off) : [];
+  },
+  // 資源列的導管按鈕：依序跳到停擺的建築（沒有時依序跳到導管的供電源）
+  rtsHudPowerJump() {
+    const R = this.rts;
+    if (!R || !R.ui || this.state !== 'rts') return;
+    const off = this.rtsHudOffList();
+    const list = off.length
+      ? off
+      : R.units.filter((e) => !e.dead && e.bld && e.rtsTeam === RTS_ME && (RTS_DEFS[e.rtsDef] || {}).conduit);
+    if (!list.length) return;
+    R.ui.powI = ((R.ui.powI || 0) + 1) % list.length;
+    const b = list[R.ui.powI];
+    this.rtsCamJump(b.pos.x, b.pos.z);
+    this.rtsSetSel([b]);
+  },
+  rtsHudPowerDraw() {
+    const el = document.getElementById('rtsPower');
+    const R = this.rts;
+    if (!el || el.hidden || !R) return;
+    const T = R.teams[RTS_ME];
+    const srcs = (T && T.power && T.power.srcs) || [];
+    const on = srcs.filter((s) => s.on).length;
+    const off = this.rtsHudOffList().length;
+    const txt = off ? `停擺 ${off}` : `導管 ${on}`;
+    const sig = txt + '|' + srcs.length;
+    if (sig === this._rtsPowSig) return;
+    this._rtsPowSig = sig;
+    el.textContent = txt;
+    el.classList.toggle('off', off > 0);
+    el.title =
+      `導管網：有電的供電源 ${on}／${srcs.length}` +
+      (off ? `；${off} 座建築斷電停擺（點一下跳過去）` : '；點一下依序跳到導管的供電源');
+  },
+  // 選取中可以融合的組數與原因（卡片與說明）：{ why, groups, left, mats, F }
+  rtsHudFuseInfo(recipe) {
+    const R = this.rts,
+      F = RTS_FUSE[recipe];
+    if (!F) return null;
+    const mats = (R.sel || []).filter((e) => this.rtsOwn(e) && e.rtsDef === F.from && !e.rtsIllus);
+    const why = typeof this.rtsFuseWhy === 'function' ? this.rtsFuseWhy(RTS_ME, recipe, mats) : '';
+    const gr =
+      typeof this.rtsFuseGroups === 'function'
+        ? this.rtsFuseGroups(mats, recipe)
+        : { groups: [], left: mats };
+    return { why, groups: gr.groups.length, left: gr.left.length, mats: mats.length, F };
+  },
+  // 融合卡片：需求不滿足、不夠一組、Coral 不足時灰掉；說明是配方與選取中的組數
+  rtsCardFuse(it, a) {
+    const inf = this.rtsHudFuseInfo(a.recipe);
+    if (!inf) return;
+    const F = inf.F,
+      T = this.rts.teams[RTS_ME];
+    it.cost = { coral: F.coral };
+    it.time = F.time;
+    it.dis = inf.why;
+    if (!it.dis && !inf.groups) it.dis = `同一組的 ${F.n} 隻要在 24 m 內`;
+    it.lvTxt = inf.groups ? `${inf.groups} 組` : '';
+    it.label = (it.c && it.c.name) || '融合';
+    it.tip =
+      `${F.n} 隻${this.rtsUiName(F.from)} → ${this.rtsUiName(F.to)}（每組 Coral ${F.coral}、引導 ${F.time} 秒；人口不變）。` +
+      `選取中 ${inf.mats} 隻：可以融合 ${inf.groups} 組` +
+      (inf.left ? `，剩 ${inf.left} 隻不夠一組（還差 ${F.n - (inf.left % F.n)} 隻）` : '') +
+      `。引導中的宿主受到的傷害 ×1.25，被擊破＝全部損失` +
+      (inf.groups > 1 && (T.coral || 0) < F.coral * inf.groups
+        ? `（Coral 只夠 ${Math.floor((T.coral || 0) / F.coral)} 組）`
+        : '');
+  },
+
   // ---------- 每格 ----------
   rtsHudTick(dt) {
     const R = this.rts;
@@ -314,7 +440,10 @@ Object.assign(Game.prototype, {
               this.rtsUiName(m.def) +
               '：左鍵放置、Shift 連續放' +
               (m.D && m.D.wall ? '（Shift＋拖曳蓋一排）' : '') +
-              '、右鍵或 Esc 取消'
+              '、右鍵或 Esc 取消' +
+              (R.ui.ghost && R.ui.ghost.g.visible && !R.ui.ghost.ok && R.ui.ghost.why
+                ? '　— ' + R.ui.ghost.why
+                : '')
             : m.label + '：左鍵選擇目標、右鍵或 Esc 取消'
           : '';
       if (hint.textContent !== txt) {
@@ -356,6 +485,7 @@ Object.assign(Game.prototype, {
     set('rtsClock', Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'));
     const bb = document.getElementById('rtsButlerBtn');
     if (bb) bb.classList.toggle('on', !!(R.butler && (R.butler.on || R.pilot)));
+    this.rtsHudPowerDraw();
   },
   // 管家的設定面板（資源列的「管家」按鈕）
   rtsButlerDraw(force) {
@@ -669,6 +799,9 @@ Object.assign(Game.prototype, {
       case 'hero':
         this.rtsCardHero(it, a, e);
         break;
+      case 'fuse':
+        this.rtsCardFuse(it, a);
+        break;
       case 'loop':
         it.on = G.some((b) => b.bld && b.bld.loop);
         it.label = c.name || '循環生產';
@@ -676,7 +809,7 @@ Object.assign(Game.prototype, {
         if (!G.some((b) => b.bld && b.bld.lastId) && !it.on) it.tip = (c.tip || '') + '（先生產一次）';
         break;
     }
-    if (c.req && !it.dis && this.rtsReqWhy && e.rtsTeam === RTS_ME && a.k !== 'buy')
+    if (c.req && !it.dis && this.rtsReqWhy && e.rtsTeam === RTS_ME && a.k !== 'buy' && a.k !== 'fuse')
       it.dis = this.rtsReqWhy(RTS_ME, c);
     void T;
     return it;
@@ -714,6 +847,14 @@ Object.assign(Game.prototype, {
     it.tip = A.desc + (A.range ? `（射程 ${A.range} m）` : '') + (A.auto ? '；右鍵切換自動施放' : '');
     if (!it.dis && A.coral && (T.coral || 0) < A.coral) it.dis = 'Coral 不足';
     if (!it.dis && cd > 0 && A.target !== 'self') it.dis = '冷卻中';
+    // 建築的技能（結晶護壁）：A 包的原因（建造中、冷卻、Coral）
+    if (A.bld) {
+      const bs = L.filter((b) => b.bld);
+      if (a.ab === 'ab_aegis' && typeof this.rtsFactionAegisWhy === 'function') {
+        const ws = bs.map((b) => this.rtsFactionAegisWhy(b));
+        it.dis = ws.some((w) => !w) ? '' : ws[0] || '沒有可以施放的建築';
+      } else if (!bs.length) it.dis = '沒有可以施放的建築';
+    }
   },
   // 英雄的技能資訊：{ id, S, lv, max, coral, cd（剩餘秒）, cdMax, auto, autoable, why }
   rtsHudSkillInfo(e, slot) {
@@ -999,6 +1140,13 @@ Object.assign(Game.prototype, {
         this.rtsHudDirty = true;
         return;
       }
+      case 'fuse': {
+        // 融合：選取中（不只 Tab 子群組）己方的材料都交給 A 包分組
+        const mats = this.rts.sel.filter((u) => this.rtsOwn(u) && !u.bld);
+        if (typeof this.rtsOrder === 'function') this.rtsOrder(mats, { k: 'fuse', recipe: a.recipe }, shift);
+        this.rtsHudDirty = true;
+        return;
+      }
       case 'loop': {
         const on = !G.some((b) => b.bld && b.bld.loop);
         for (const b of G) if (b.bld) b.bld.loop = on;
@@ -1030,6 +1178,21 @@ Object.assign(Game.prototype, {
   },
   // 技能：自己施放＝立刻下指令；地點／單位＝進入目標模式
   rtsCardAbilityAct(a, G, shift) {
+    const A = RTS_ABILS[a.ab];
+    if (A && A.bld) {
+      // 建築的技能（結晶護壁）：選取中的建築也傳給 rtsOrder（回傳施放的座數）；不能施放時提示原因
+      const bs = G.filter((b) => this.rtsOwn(b) && b.bld);
+      if (a.ab === 'ab_aegis' && typeof this.rtsFactionAegisWhy === 'function') {
+        const ws = bs.map((b) => this.rtsFactionAegisWhy(b));
+        if (!ws.some((w) => !w))
+          return this.rtsMsg(A.name + '：' + (ws[0] || '沒有可以施放的建築'), 0xff8a8a);
+      }
+      const n =
+        typeof this.rtsOrder === 'function' ? this.rtsOrder(bs, { k: 'ability', ab: a.ab }, shift) : 0;
+      if (!n) this.rtsMsg(A.name + '：不能施放', 0xff8a8a);
+      this.rtsHudDirty = true;
+      return;
+    }
     const units = G.filter((u) => this.rtsOwn(u) && !u.bld);
     if (!units.length) return;
     if (!a.target || a.target === 'self') {
@@ -1308,6 +1471,43 @@ Object.assign(Game.prototype, {
         if (D.popCap) rows.push('人口上限 +' + D.popCap);
         if (D.coralRate) rows.push('Coral 每秒 +' + D.coralRate);
       }
+      // 導管（R3）：供電源的範圍、斷掉時會停擺幾座；要電的建築的供電狀態（warn＝紅字）
+      const warn = [];
+      if (e.bld && (D.conduit || D.needPower) && typeof this.rtsPowerAt === 'function') {
+        const tm = e.rtsTeam;
+        if (D.conduit) {
+          const r = this.rtsPowerR ? this.rtsPowerR(tm, D) : D.conduit.r;
+          rows.push(`供電範圍 ${r} m` + (D.conduit.root ? '（根）' : `、連接 ${D.conduit.link || 32} m`));
+          if (e.bld.progress < 1) rows.push('施工中：還不能供電');
+          else if (e.bld.unp) warn.push(`未接上導管（要在有電的導管 ${D.conduit.link || 32} m 內）`);
+          else if (own && this.rtsPowerDeps) {
+            const n = this.rtsPowerDeps(e);
+            if (n) rows.push(`被拆掉時 ${n} 座建築停擺`);
+          }
+        }
+        if (D.needPower && e.bld.off) warn.push('無導管供電：停擺中（生產、研究暫停）');
+        else if (D.needPower) rows.push('導管供電中');
+      }
+      if (e.bld && e.bld.empT > (R.t || 0)) warn.push(`電磁干擾：暫停 ${Math.ceil(e.bld.empT - R.t)} 秒`);
+      if (e.rtsAegisT > (R.t || 0))
+        rows.push(`結晶護壁 ${Math.ceil(e.rtsAegisT - R.t)} 秒（受到的傷害 ×0.5）`);
+      if (own && e.rtsIllus) rows.push(`幻象：剩 ${Math.max(0, Math.ceil(e.rtsIllus.t - (R.t || 0)))} 秒`);
+      // 融合（集合中／引導中）
+      let fq = '';
+      const fu =
+        own && e.rtsFusing && typeof this.rtsFuseOf === 'function' ? this.rtsFuseOf(e.rtsFusing) : null;
+      if (fu) {
+        const F = RTS_FUSE[fu.recipe] || {};
+        if (fu.st === 'chan' && fu.host === e) {
+          const p = clamp(1 - (fu.end - R.t) / (F.time || 1), 0, 1);
+          fq = `<div class="rtsProg fuse"><label>融合引導：${escHtml(this.rtsUiName(F.to))} ${Math.floor(p * 100)}%</label><i style="width:${Math.round(p * 100)}%"></i></div>`;
+        } else {
+          const near = fu.mats.filter(
+            (m) => !m.dead && Math.hypot(m.pos.x - fu.host.pos.x, m.pos.z - fu.host.pos.z) < 6,
+          ).length;
+          rows.push(`融合：${fu.host === e ? '宿主，等材料' : '走向宿主'}（${near + 1}／${F.n || 0} 到齊）`);
+        }
+      }
       // 攻擊類型／護甲類型 護甲值（滑鼠停留說明相剋）
       const atk = D.atk || (D.dps || D.range ? 'kin' : null);
       const arm = e.rtsArm || D.arm;
@@ -1388,14 +1588,31 @@ Object.assign(Game.prototype, {
           '|' +
           [0, 1, 2, 3].map((s) => Math.ceil((this.rtsHudSkillInfo(e, s) || { cd: 0 }).cd)).join()
         : '';
-      sig = 's' + e.id + '|' + hp + '|' + rows.join() + '|' + q + '|' + typeRow + '|' + invSig;
+      const illus = own && e.rtsIllus ? '（幻象）' : '';
+      sig =
+        's' +
+        e.id +
+        '|' +
+        hp +
+        '|' +
+        rows.join() +
+        '|' +
+        warn.join() +
+        '|' +
+        q +
+        fq +
+        '|' +
+        typeRow +
+        '|' +
+        invSig;
       html =
         `<div class="rtsOne"><div class="rtsPic ${own ? 'own' : e.rtsTeam === RTS_NEUTRAL ? 'neu' : 'foe'}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}</div>` +
-        `<div class="rtsInfo"><b>${escHtml(this.rtsUiName(e))}</b>` +
+        `<div class="rtsInfo"><b>${escHtml(this.rtsUiName(e) + illus)}</b>` +
         `<div class="rtsHpBar"><i style="width:${pct * 100}%;background:${this.rtsHpCol(pct)}"></i><span>${hp} / ${Math.round(e.maxHp)}</span></div>` +
         typeRow +
         rows.map((r) => `<div>${escHtml(r)}</div>`).join('') +
-        `</div>${hx}${q ? `<div class="rtsProd">${q}</div>` : ''}</div>`;
+        warn.map((r) => `<div class="rtsWarn">${escHtml(r)}</div>`).join('') +
+        `</div>${hx}${q || fq ? `<div class="rtsProd">${q}${fq}</div>` : ''}</div>`;
     } else {
       const act = this.rtsActiveGroup();
       sig = 'm' + sel.map((e) => e.id + ':' + Math.round((e.hp / e.maxHp) * 20)).join() + '|' + ui.sub;
@@ -1404,7 +1621,7 @@ Object.assign(Game.prototype, {
         sel
           .map((e, i) => {
             const pct = clamp(e.hp / e.maxHp, 0, 1);
-            return `<button type="button" class="rtsU${act.includes(e) ? ' act' : ''}${e.hero ? ' hero' : ''}" data-i="${i}" title="${escHtml(this.rtsUiName(e))}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}<i style="width:${pct * 100}%;background:${this.rtsHpCol(pct)}"></i></button>`;
+            return `<button type="button" class="rtsU${act.includes(e) ? ' act' : ''}${e.hero ? ' hero' : ''}${e.rtsIllus && this.rtsOwn(e) ? ' illus' : ''}" data-i="${i}" title="${escHtml(this.rtsUiName(e))}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}<i style="width:${pct * 100}%;background:${this.rtsHpCol(pct)}"></i></button>`;
           })
           .join('') +
         '</div>';
@@ -1573,8 +1790,21 @@ Object.assign(Game.prototype, {
       const hq = R.units.find(
         (b) => !b.dead && b.bld && b.rtsTeam === RTS_ME && (RTS_DEFS[b.rtsDef] || {}).dropoff,
       );
-      if (!building && hq) this.rtsHudAlert('pop', '人口將滿 — 蓋補給庫', hq.pos.x, hq.pos.z, 0xffd070, 30);
-      void F;
+      const dep =
+        F.node ||
+        (F.blds || []).find((id) => {
+          const D = RTS_DEFS[id];
+          return D && D.popCap && !D.dropoff && !D.heroes;
+        });
+      if (!building && hq)
+        this.rtsHudAlert(
+          'pop',
+          '人口將滿 — 蓋' + this.rtsUiName(dep || 'c_depot'),
+          hq.pos.x,
+          hq.pos.z,
+          0xffd070,
+          30,
+        );
     }
     // 維持費等級改變
     const u = upkeepOf((T && T.pop) || 0);
@@ -1629,7 +1859,12 @@ Object.assign(Game.prototype, {
       const sel = R.sel.includes(e);
       const hurt = e.hp < e.maxHp - 0.5;
       const bldUp = e.bld && e.bld.progress < 1;
-      if (!sel && !hurt && !bldUp && !e.hero) continue;
+      const own = this.rtsOwn(e);
+      const off = own && e.bld && (e.bld.off || e.bld.unp || e.bld.empT > (R.t || 0));
+      const ill = own && !!e.rtsIllus;
+      const fu = own && e.rtsFusing && e.orders[0] && e.orders[0].k === 'fuse' ? e.rtsFusing : 0;
+      const sh = e.rtsShield && e.rtsShield.n > 0 && !(e.rtsShield.t <= (R.t || 0)) ? e.rtsShield.n : 0; // 稜鏡屏障（C 包）
+      if (!sel && !hurt && !bldUp && !e.hero && !off && !ill && !fu && !sh) continue;
       if (!this.rtsSeen(e)) continue;
       this.rtsScreen(e, s);
       if (!s.in || s.x < -40 || s.y < -40 || s.x > innerWidth + 40 || s.y > innerHeight + 40) continue;
@@ -1639,8 +1874,51 @@ Object.assign(Game.prototype, {
       const pct = clamp(e.hp / e.maxHp, 0, 1);
       c.fillStyle = 'rgba(0,0,0,0.65)';
       c.fillRect(s.x - w / 2 - 1, top - 1, w + 2, 5);
-      c.fillStyle = this.rtsOwn(e) ? this.rtsHpCol(pct) : pct > 0.3 ? '#ff6a4a' : '#ff2a2a';
+      c.fillStyle = ill ? '#8fd8ff' : own ? this.rtsHpCol(pct) : pct > 0.3 ? '#ff6a4a' : '#ff2a2a';
       c.fillRect(s.x - w / 2, top, w * pct, 3);
+      if (sh) {
+        // 屏障的剩餘吸收量：血條上方一條白藍色（比例＝吸收量／最大血量）
+        c.fillStyle = '#d8f4ff';
+        c.fillRect(s.x - w / 2, top - 3, w * clamp(sh / e.maxHp, 0.05, 1), 2);
+      }
+      if (ill) {
+        // 自己的幻象：淡藍色的「幻」（敵方的看不出來）
+        c.font = 'bold 11px sans-serif';
+        c.textAlign = 'center';
+        c.fillStyle = '#8fd8ff';
+        c.fillText('幻', s.x - w / 2 - 7, top + 5);
+      }
+      if (off) {
+        // 停擺：閃爍的斷電圖示（紅底黃色閃電）；只是外觀沒電的節點用灰色
+        const blink = Math.floor(performance.now() / 400) % 2 === 0;
+        const r = 9;
+        const cy = top - 14;
+        c.fillStyle = e.bld.off || e.bld.empT > (R.t || 0) ? (blink ? '#d8202a' : '#7a1016') : '#55606c';
+        c.beginPath();
+        c.arc(s.x, cy, r, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#ffe14a';
+        c.beginPath();
+        c.moveTo(s.x + 2, cy - 7);
+        c.lineTo(s.x - 4, cy + 1);
+        c.lineTo(s.x, cy + 1);
+        c.lineTo(s.x - 2, cy + 7);
+        c.lineTo(s.x + 4, cy - 1);
+        c.lineTo(s.x, cy - 1);
+        c.closePath();
+        c.fill();
+      }
+      if (fu) {
+        // 融合：引導進度（紫色）
+        const f = this.rtsFuseOf ? this.rtsFuseOf(fu) : null;
+        const F = f && RTS_FUSE[f.recipe];
+        if (f && F && f.st === 'chan') {
+          c.fillStyle = 'rgba(0,0,0,0.65)';
+          c.fillRect(s.x - w / 2 - 1, top + 5, w + 2, 4);
+          c.fillStyle = '#c08cff';
+          c.fillRect(s.x - w / 2, top + 6, w * clamp(1 - (f.end - R.t) / (F.time || 1), 0, 1), 2);
+        }
+      }
       if (bldUp) {
         c.fillStyle = 'rgba(0,0,0,0.65)';
         c.fillRect(s.x - w / 2 - 1, top + 5, w + 2, 4);
@@ -1651,7 +1929,7 @@ Object.assign(Game.prototype, {
         // 英雄：名稱與等級
         c.font = 'bold 11px Chakra Petch, sans-serif';
         c.textAlign = 'center';
-        c.fillStyle = this.rtsOwn(e) ? '#bff7c8' : '#ffb0a0';
+        c.fillStyle = ill ? '#8fd8ff' : own ? '#bff7c8' : '#ffb0a0';
         c.fillText(`${this.rtsUiName(e)} Lv${(e.hero && e.hero.lv) || 1}`, s.x, top - 4);
       }
     }
@@ -1794,7 +2072,8 @@ Object.assign(Game.prototype, {
       g.fillText(NEU_ICON[kind] || '中', X(e.pos.x), Z(e.pos.z) + 0.5 * dpr);
     }
     if (mode !== 2) {
-      const heroes = [];
+      const heroes = [],
+        offs = [];
       for (const e of R.units || []) {
         if (e.dead || !this.rtsSeen(e)) continue;
         if (e.rtsTeam === RTS_NEUTRAL && e.bld && (R.neutrals || []).some((n) => (n.ent || n) === e))
@@ -1817,10 +2096,18 @@ Object.assign(Game.prototype, {
         if (e.bld) {
           const s = Math.max(3 * dpr, this.rtsRadius(e) * 1.4 * k);
           g.fillRect(X(e.pos.x) - s / 2, Z(e.pos.z) - s / 2, s, s);
+          if (own && e.bld.off) offs.push([X(e.pos.x), Z(e.pos.z), s]);
         } else {
           const s = 2.2 * dpr;
           g.fillRect(X(e.pos.x) - s / 2, Z(e.pos.z) - s / 2, s, s);
         }
+      }
+      // 停擺的建築：閃爍的紅框（每 0.2 秒重畫一次小地圖，所以一亮一暗約 0.4 秒）
+      if (offs.length && Math.floor((R.t || 0) * 2.5) % 2 === 0) {
+        g.strokeStyle = '#ff3a2a';
+        g.lineWidth = 2 * dpr;
+        for (const [x, z, s] of offs)
+          g.strokeRect(x - s / 2 - 2 * dpr, z - s / 2 - 2 * dpr, s + 4 * dpr, s + 4 * dpr);
       }
       // 英雄：大一號的菱形（畫在最上面）
       for (const [e, col] of heroes) {

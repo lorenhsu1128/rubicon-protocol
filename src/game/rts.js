@@ -10,7 +10,7 @@
 // - 敵人 AI 導演、感知、增援波次、據點、過關條件卡片在 RTS 都不啟動（rtsTick 不呼叫它們）。
 // - 冒煙測試：rtsSim(dt) 只推進模擬（不算繪），rtsPerf 記錄每格的耗時。
 import { SFX } from '../audio/audio.js';
-import { clamp } from '../core/math.js';
+import { clamp, makeRng } from '../core/math.js';
 import { escHtml } from '../core/html.js';
 import { SpatialHash } from '../core/spatial.js';
 import {
@@ -58,7 +58,7 @@ import { Game } from './game.js';
 
 const ME = 0; // 玩家的隊伍
 const PREF_KEY = 'rubicon_rts'; // 選單的設定
-const REC_KEY = 'rubicon_rts_rec'; // 遭遇戰的戰績
+const REC_KEY = 'rubicon_rts_rec'; // 遭遇戰的戰績（R3：{ '<我方陣營>-<電腦陣營>-<難度>': { w, l } }；舊格式 { w, l }＝卡斯特隆對卡斯特隆）
 const BLD_ASM = RTS_DEFS.c_worker.asm; // 建築的 MechEntity 只用來算數值（沒有武器）
 const END_DELAY = 2.5; // 勝敗決定後幾秒顯示結果
 const _q = [];
@@ -76,6 +76,20 @@ const saveJson = (k, v) => {
   } catch (e) {}
 };
 const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+// 可以選的陣營（選單的「隨機」從這裡挑）
+const availFacs = () => Object.keys(RTS_FACTIONS).filter((k) => RTS_FACTIONS[k].avail);
+const facName = (f) => (RTS_FACTIONS[f] && RTS_FACTIONS[f].name) || f;
+// 戰績（docs 14.7）：鍵＝我方陣營-電腦陣營-難度；舊的 { w, l } 當成卡斯特隆對卡斯特隆（普通難度）讀進來
+function loadRec() {
+  const r = loadJson(REC_KEY, {});
+  if (typeof r.w === 'number' || typeof r.l === 'number') {
+    const o = { 'castron-castron-normal': { w: r.w || 0, l: r.l || 0 } };
+    saveJson(REC_KEY, o);
+    return o;
+  }
+  return r && typeof r === 'object' ? r : {};
+}
+const recKey = (a, b, d) => `${a}-${b}-${d}`;
 
 Object.assign(Game.prototype, {
   // ---------- 初始化（Game 的 constructor 呼叫）：標題按鈕、選單與結果畫面 ----------
@@ -95,8 +109,9 @@ Object.assign(Game.prototype, {
       theme: 'wasteland',
       ...loadJson(PREF_KEY, {}),
     });
-    if (!RTS_FACTIONS[P.faction] || !RTS_FACTIONS[P.faction].avail) P.faction = 'castron';
-    if (!RTS_FACTIONS[P.aiFaction] || !RTS_FACTIONS[P.aiFaction].avail) P.aiFaction = 'castron';
+    const okFac = (f) => f === 'random' || (RTS_FACTIONS[f] && RTS_FACTIONS[f].avail);
+    if (!okFac(P.faction)) P.faction = 'castron';
+    if (!okFac(P.aiFaction)) P.aiFaction = 'castron';
     if (!RTS_THEMES[P.theme]) P.theme = 'wasteland';
     P.seed = Math.floor(Math.random() * 1e9);
     this.state = 'rtsmenu';
@@ -109,14 +124,28 @@ Object.assign(Game.prototype, {
     const el = document.getElementById('rtsMenu');
     if (!el) return;
     const P = this.rtsPrefs;
-    const rec = loadJson(REC_KEY, { w: 0, l: 0 });
+    const recs = loadRec();
+    const rec = (P.faction !== 'random' &&
+      P.aiFaction !== 'random' &&
+      recs[recKey(P.faction, P.aiFaction, P.diff)]) || { w: 0, l: 0 };
+    const recTxt =
+      P.faction === 'random' || P.aiFaction === 'random'
+        ? '戰績：隨機陣營（依實際的陣營記錄）'
+        : `戰績（${facName(P.faction)} 對 ${facName(P.aiFaction)}・${(RTS_DIFFS.find((d) => d.id === P.diff) || {}).name || P.diff}）：${rec.w} 勝 ${rec.l} 敗`;
     const fac = (sel, id) =>
       Object.entries(RTS_FACTIONS)
         .map(
           ([k, F]) =>
             `<button type="button" class="rtsFac${k === sel ? ' on' : ''}" data-${id}="${k}"${F.avail ? '' : ' disabled'} title="${escHtml(F.style + '（' + F.leader + '）' + (F.avail ? '' : '：之後的分期'))}">${escHtml(F.name)}</button>`,
         )
-        .join('');
+        .join('') +
+      `<button type="button" class="rtsFac rtsFacRand${sel === 'random' ? ' on' : ''}" data-${id}="random" title="從可以選的陣營隨機挑一個（依種子固定）">隨機</button>`;
+    // 陣營的說明（3 行特色）
+    const traits = (f) => {
+      const F = RTS_FACTIONS[f];
+      if (!F) return '<p class="dim rtsFacTraits">從可以選的陣營隨機挑一個（同一個種子結果相同）</p>';
+      return `<ul class="dim rtsFacTraits">${(F.traits || [F.style]).map((t) => `<li>${escHtml(t)}</li>`).join('')}</ul>`;
+    };
     el.innerHTML = `
       <div class="panel rtsMenuPanel">
         <h2>Coral 戰爭 <small>遭遇戰 — 1 對 1</small></h2>
@@ -124,6 +153,7 @@ Object.assign(Game.prototype, {
           <div class="rtsMenuOpts">
             <h3>你的陣營</h3>
             <div class="rtsFacs" data-padtabs="[data-pf]">${fac(P.faction, 'pf')}</div>
+            ${traits(P.faction)}
             <h3>電腦對手</h3>
             <div class="rtsFacs">${fac(P.aiFaction, 'af')}</div>
             <div class="row">
@@ -143,7 +173,7 @@ Object.assign(Game.prototype, {
               <button type="button" id="rtsReroll" title="換一張地圖">重抽</button>
               <button type="button" id="rtsPrevBtn" title="依種子重新預覽">預覽</button>
             </div>
-            <p class="dim rtsRec">戰績：${rec.w} 勝 ${rec.l} 敗</p>
+            <p class="dim rtsRec">${escHtml(recTxt)}</p>
           </div>
           <div class="rtsPrev">
             <img id="rtsPrevImg" alt="地圖預覽" />
@@ -175,6 +205,7 @@ Object.assign(Game.prototype, {
     $('rtsDiff').onchange = (e) => {
       P.diff = e.target.value;
       this.rtsMenuSave();
+      this.rtsMenuRender();
     };
     $('rtsTheme').onchange = (e) => {
       P.theme = e.target.value;
@@ -277,13 +308,30 @@ Object.assign(Game.prototype, {
     this.isBossLevel = false;
     this.waves = [];
     this.wavePend = null;
+    // 陣營（docs 14.7）：「隨機」以 makeRng(seed × 7 + 3) 決定（先玩家、再電腦；一律抽兩次，同一個種子同樣的結果）；
+    // cfg.aiFactions＝[隊伍 0, 隊伍 1] 直接指定（測試、勝率腳本）
+    const facs = availFacs();
+    const frng = makeRng(seed * 7 + 3);
+    const r0 = frng(),
+      r1 = frng();
+    const want = [cfg.faction || 'castron', cfg.aiFaction || 'castron'];
+    if (cfg.aiFactions) for (const i of [0, 1]) if (cfg.aiFactions[i]) want[i] = cfg.aiFactions[i];
+    const rand = [want[0] === 'random', want[1] === 'random'];
+    const fac = want.map((f, i) =>
+      f === 'random'
+        ? facs[Math.min(facs.length - 1, Math.floor((i ? r1 : r0) * facs.length))]
+        : RTS_FACTIONS[f] && RTS_FACTIONS[f].avail
+          ? f
+          : 'castron',
+    );
     const R = (this.rts = {
       cfg: {
         theme,
         seed,
         size,
-        faction: cfg.faction || 'castron',
-        aiFaction: cfg.aiFaction || 'castron',
+        faction: fac[0],
+        aiFaction: fac[1],
+        rand, // 哪一邊是「隨機」選的
         diff: cfg.diff || 'normal',
         aiBoth: !!cfg.aiBoth, // 測試／除錯：兩邊都是電腦（rts-ai.js）
         aiOpener: cfg.aiOpener || null,
@@ -294,7 +342,7 @@ Object.assign(Game.prototype, {
       teams: [0, 1].map((i) => ({
         id: i,
         team: i === ME ? 'player' : 'enemy',
-        faction: i === ME ? cfg.faction || 'castron' : cfg.aiFaction || 'castron',
+        faction: fac[i],
         ore: RTS_START.ore,
         coral: RTS_START.coral,
         pop: 0,
@@ -304,6 +352,7 @@ Object.assign(Game.prototype, {
         upk: 0,
         tech: { tier: 1, res: {}, busy: {} }, // 13.2：主堡層級、研究的級數、研究中的項目
         heroes: [], // 英雄紀錄（C 包，13.4）
+        power: { srcs: [], temp: [], ver: 0, deps: null }, // 導管網（docs 14.2；rts-grid.js）
       })),
       units: [],
       byId: new Map(),
@@ -317,7 +366,16 @@ Object.assign(Game.prototype, {
       over: null,
       overT: 0,
       pathQ: [],
-      stats: [0, 1, 2].map(() => ({ made: 0, lost: 0, killed: 0, ore: 0, coral: 0, blds: 0 })),
+      stats: [0, 1, 2].map(() => ({
+        made: 0,
+        lost: 0,
+        killed: 0,
+        ore: 0,
+        coral: 0,
+        blds: 0,
+        fused: 0,
+        offT: 0,
+      })),
       hostile: [[], [], []], // 每個隊伍的敵對實體（rtsSim 每格重建；game.js 的 hostilesOfEnt 用它）
       items: [], // 地上的道具（C 包）
       camps: [], // 野怪營地（D 包）
@@ -325,6 +383,10 @@ Object.assign(Game.prototype, {
       pilot: null, // 親自駕駛（E 包，13.8）
       butler: { gather: true, loop: true, depot: true, defend: true, follow: false }, // 自動管家（E 包）
       modT: 0, // 數值層的 buff 到期檢查（每 0.5 秒）
+      powT: 0, // 導管加成的檢查（每 0.5 秒，rts-grid.js）
+      fuses: [], // 融合中的組（rts-grid.js）
+      fuseN: 0,
+      illus: [[], [], []], // 每隊的幻象（最舊的在前面）
       g: new THREE.Group(),
       perf: { ai: 0, sim: 0, n: 0 },
       endT: 0,
@@ -344,6 +406,7 @@ Object.assign(Game.prototype, {
       upk: 0,
       tech: { tier: 1, res: {}, busy: {} },
       heroes: [],
+      power: { srcs: [], temp: [], ver: 0, deps: null },
     };
     R.g.userData.helper = true;
     this.scene.add(R.g);
@@ -419,6 +482,7 @@ Object.assign(Game.prototype, {
         const u = this.rtsSpawn(T.id, F.worker, x, z, -ang - Math.PI / 2);
         if (main) u.orders = [{ k: 'gather', mine: main.id }];
       }
+      if (this.rtsPowerRebuild) this.rtsPowerRebuild(T.id);
     }
     this.rtsRecount();
     // 其他包的開局（還沒實作時略過）：中立（野怪營地、酒館、商店、傭兵營）、英雄
@@ -436,6 +500,10 @@ Object.assign(Game.prototype, {
     if (this.rtsFogInit) this.rtsFogInit();
     if (this.rtsInputInit) this.rtsInputInit();
     if (this.rtsAiInit) this.rtsAiInit();
+    // 陣營的樣式（E 包：資源列、卡片）；隨機選到的陣營提示
+    if (this.rtsHudFaction) this.rtsHudFaction();
+    if (rand[ME] && !R.cfg.aiBoth) this.rtsSay(`你的陣營：${facName(fac[ME])}（隨機）`, 0x9fd0ff);
+    if (rand[1] && !R.cfg.aiBoth) this.rtsSay(`電腦的陣營：${facName(fac[1])}（隨機）`, 0x9fd0ff);
     this.state = 'rts';
     this.showScreen('');
     document.body.classList.add('rtsOn');
@@ -477,7 +545,8 @@ Object.assign(Game.prototype, {
       T = R.teams[teamId];
     if (!D || !T) return null;
     if (D.kind === 'bld') return this.rtsSpawnBld(teamId, defId, x, z, yaw, 1);
-    const pal = rtsPal(T.faction, teamId);
+    // 配色：定義的 palBase（實驗體類 'specimen'、投影器 'whiteout'）或陣營的，換上隊伍色（docs 14.3）
+    const pal = rtsPal(D.palBase || T.faction, teamId);
     const e = new MechEntity(this, { ...D.asm }, pal, {
       team: T.team,
       name: D.name,
@@ -514,7 +583,8 @@ Object.assign(Game.prototype, {
     e.yaw = e.aimYaw = yaw;
     e.mesh.position.copy(e.pos);
     e.mesh.rotation.y = yaw;
-    if (D.worker) addWorkerKit(e.model, pal);
+    if (D.worker) addWorkerKit(e.model, pal, T.faction); // 第 3 個參數：陣營的套件（B 包，R3）
+    if (e.rtsAethModel) e.rtsAethModel(D); // 艾瑟立克的外加零件（原型體；B 包，在網格合併之前）
     this.rtsHook(e);
     (teamId === ME ? this.allies : this.enemies).push(e);
     this.rtsAddEnt(e, x, z);
@@ -542,7 +612,8 @@ Object.assign(Game.prototype, {
       const dpsOf = (s) => {
         const wd = e.weapons[s] && e.weapons[s].def;
         if (!wd || !wd.dmg) return 0;
-        const per = wd.dmg * (wd.npcK || 1) * (wd.pellets || 1);
+        // 多連導彈（共振砲的 PM-6）一次射出 count 發（R3 B 包）
+        const per = wd.dmg * (wd.npcK || 1) * (wd.pellets || 1) * (wd.type === 'missile' ? wd.count || 1 : 1);
         return per / Math.max(D.rof || 0, wd.rof || 0.1);
       };
       const K = {};
@@ -608,7 +679,7 @@ Object.assign(Game.prototype, {
       D = RTS_DEFS[defId],
       T = R.teams[teamId],
       w = this.world;
-    const pal = rtsPal(T.faction, teamId);
+    const pal = rtsPal(D.palBase || T.faction, teamId);
     const q = Math.round((yaw || 0) / (Math.PI / 2)) & 3;
     yaw = (q * Math.PI) / 2;
     const [fw, fd] = q & 1 ? [D.foot[1], D.foot[0]] : D.foot;
@@ -626,7 +697,21 @@ Object.assign(Game.prototype, {
     e.rtsDef = defId;
     e.orders = [];
     e.acsMax = 1e9;
-    e.bld = { def: defId, progress, queue: [], rally: null, builders: new Set(), vent: null, w: fw, d: fd };
+    // off＝停擺（導管斷電，docs 14.2；rts-grid.js 的 rtsPowerRebuild 設定）、pw＝外觀目前的供電狀態（setPower）、
+    // empT＝電磁脈衝讓生產與研究暫停到這個局內時間（C 包的 VEIL）
+    e.bld = {
+      def: defId,
+      progress,
+      queue: [],
+      rally: null,
+      builders: new Set(),
+      vent: null,
+      w: fw,
+      d: fd,
+      off: false,
+      pw: true,
+      empT: 0,
+    };
     this.rtsBaseStats(e);
     e.hp = progress >= 1 ? e.maxHp : Math.max(1, e.maxHp * 0.1);
     if (D.inv) {
@@ -665,6 +750,8 @@ Object.assign(Game.prototype, {
     (teamId === ME ? this.allies : this.enemies).push(e);
     this.rtsAddEnt(e, x, z);
     R.stats[teamId].blds++;
+    // 導管網：供電源（蓋好的才算）與要電的建築（docs 14.2）
+    if ((D.conduit || D.needPower) && this.rtsPowerRebuild) this.rtsPowerRebuild(teamId);
     return e;
   },
   // 實體的 takeDamage／die 換成 RTS 版。傷害（docs 13.3）：
@@ -683,6 +770,7 @@ Object.assign(Game.prototype, {
       // 原本的 takeDamage 把傷害四捨五入成整數：RTS 每發的傷害小（機槍約 2.4），改成依小數部分的機率進位，平均才不會偏掉（B 包）
       let v = dmg * g.rtsDmgK(atk, this);
       if (v > 0) v = Math.floor(v) + (Math.random() < v - Math.floor(v) ? 1 : 0);
+      if (v > 0 && g.rts) this.rtsHurtT = g.rts.t; // 最後一次受傷的局內時間（導管裡的建築 8 秒沒受傷才回血）
       return td.call(this, v, (impact || 0) * (this.rtsImpK || 1), from, at, dir, melee, wid, 'none');
     };
     e.die = function (from) {
@@ -777,6 +865,7 @@ Object.assign(Game.prototype, {
         this.rtsModsApply(e);
       }
       if (e.rtsMilT !== undefined && R.t >= e.rtsMilT) this.rtsDemobUnit(e);
+      if (e.rtsIllus && R.t >= e.rtsIllus.t && this.rtsIllusionEnd) this.rtsIllusionEnd(e); // 幻象到期
     }
   },
   // 加一筆 buff（B、C 包的技能）：b＝{ src, ...欄位 }、sec 秒後到期；同一個 src 取代舊的
@@ -902,7 +991,7 @@ Object.assign(Game.prototype, {
         const q = e.bld.queue[0];
         if (q && q.on && !q.upg && !q.res)
           T.pop += q.pop !== undefined ? q.pop : (RTS_DEFS[q.id] || {}).pop || 0;
-      } else T.pop += D.pop || 0;
+      } else if (!e.rtsIllus && !e.rtsNoPop) T.pop += e.rtsPopFuse !== undefined ? e.rtsPopFuse : D.pop || 0; // 幻象與臨時單位（C 包的孵化）不佔人口、融合中的宿主算結果的人口
     }
     for (const T of R.teams) {
       T.cap = Math.min(RTS_POP_MAX, T.cap);
@@ -1059,6 +1148,7 @@ Object.assign(Game.prototype, {
       b.shape = propShape(this.world, b.rtsOb);
     }
     if (b.model.setTier && D.tier) b.model.setTier(D.tier);
+    if (D.conduit && this.rtsPowerRebuild) this.rtsPowerRebuild(b.rtsTeam); // 研究中樞升級：導管範圍變大
     this.rtsRecount();
     this.rtsTechDone(b.rtsTeam, toId, D.tier || 1, b);
   },
@@ -1069,6 +1159,7 @@ Object.assign(Game.prototype, {
     T.tech.res[q.id] = Math.max(T.tech.res[q.id] || 0, q.lv || 1);
     delete T.tech.busy[q.id];
     for (const e of R.units) if (!e.dead && e.rtsTeam === b.rtsTeam && e.rtsBase) this.rtsModsApply(e);
+    if (q.id === 'r_grid' && this.rtsPowerRebuild) this.rtsPowerRebuild(b.rtsTeam); // 導管範圍 +6 m
     this.rtsTechDone(b.rtsTeam, q.id, T.tech.res[q.id], b);
   },
   // 研究或升級完成的通知（事件、電腦對手讀 T.tech.log）
@@ -1175,6 +1266,7 @@ Object.assign(Game.prototype, {
           const r = Math.hypot(x - hq.pos.x, z - hq.pos.z);
           if (r > maxR || r < (hq.bld.w + w) / 2 + 3) continue;
           if (!nav.buildable(x, z, w + pad, d + pad)) continue;
+          if (this.rtsPowerWhy && this.rtsPowerWhy(teamId, defId, x, z)) continue; // 導管（docs 14.2）
           const dh = Math.abs(this.world.terrainHeight(x, z) - hq.pos.y);
           if (flat && dh > 2.5) continue; // 同一個平台
           // 不擋主堡與礦脈之間的路
@@ -1201,8 +1293,13 @@ Object.assign(Game.prototype, {
       nav = this.world.nav;
     const say = (t) => teamId === ME && this.rtsSay(t);
     if (!D || D.kind !== 'bld') return null;
+    const T = R.teams[teamId];
+    if (D.faction && T && D.faction !== T.faction) return (say('不是這個陣營的建築'), null);
     const why = this.rtsReqWhy(teamId, D);
     if (why) return (say(why), null);
+    // 導管（docs 14.2）：要電的建築要在有電的範圍內、導管節點要在有電的供電源 32 m 內
+    const pw = this.rtsPowerWhy ? this.rtsPowerWhy(teamId, defId, x, z) : '';
+    if (pw) return (say(pw), null);
     if (D.on === 'coral') {
       const v = R.corals.find((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 6);
       if (!v) return (say('要蓋在 Coral 湧出點上'), null);
@@ -1323,6 +1420,7 @@ Object.assign(Game.prototype, {
     if (!R) return;
     const t0 = performance.now();
     R.t += dt;
+    R.dt = dt; // 這一格的模擬時間（B 包的近戰等用）
     this.rtsPathService();
     this.lodTick();
     this.rtsHostileRebuild();
@@ -1347,6 +1445,9 @@ Object.assign(Game.prototype, {
     const t3 = performance.now();
     this.rtsBuildings(dt);
     this.rtsModsTick(dt);
+    // 艾瑟立克（rts-grid.js）：導管的加成與臨時導管、融合的集合與引導
+    if (this.rtsPowerTick) this.rtsPowerTick(dt);
+    if (this.rtsFuseTick) this.rtsFuseTick(dt);
     // 其他包的每格（還沒實作時略過）：英雄（經驗、光環、復活）、中立（營地、商店補貨）、自動管家
     if (this.rtsHeroTick) this.rtsHeroTick(dt);
     if (this.rtsNeutralTick) this.rtsNeutralTick(dt);
@@ -1424,8 +1525,10 @@ Object.assign(Game.prototype, {
       if (B.progress < 1) {
         for (const w of B.builders) if (w.dead || w.rt.buildOn !== b) B.builders.delete(w);
         const n = B.builders.size;
-        if (!n) continue;
-        const dp = ((1 + RTS_BUILD_ASSIST * (n - 1)) / D.time) * dt;
+        // 自己長的建築（艾瑟立克，docs 14.2）：不需要工人、斷電時不長；多派工人不會更快
+        const self = !!D.selfBuild;
+        if (self ? B.off : !n) continue;
+        const dp = ((self ? 1 : 1 + RTS_BUILD_ASSIST * (n - 1)) / D.time) * dt;
         const p = Math.min(1, B.progress + dp);
         b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * (p - B.progress));
         B.progress = p;
@@ -1434,21 +1537,35 @@ Object.assign(Game.prototype, {
           B.builders.clear();
           SFX.play('door', 0.6, 0.9, 0.05, 0.03, b.center());
           if (b.rtsTeam === ME && this.rtsEvent) this.rtsEvent(b.pos.x, b.pos.z, '建造完成：' + D.name);
+          if (D.conduit && this.rtsPowerRebuild) this.rtsPowerRebuild(b.rtsTeam); // 新的供電源
         }
         continue;
       }
-      // Coral 抽取站
-      if (D.coralRate && B.vent && B.vent.amount > 0) {
-        const n = Math.min(D.coralRate * dt, B.vent.amount);
-        B.vent.amount -= n;
-        T.coral += n * (T.income || 1);
-        R.stats[b.rtsTeam].coral += n;
+      // Coral：抽取站／汲取塔（蓋在湧出點上，消耗湧出點）；沒有 on 'coral' 的（研究中樞）自己產出
+      if (D.coralRate) {
+        if (D.on === 'coral') {
+          if (B.vent && B.vent.amount > 0) {
+            const n = Math.min(D.coralRate * dt, B.vent.amount);
+            B.vent.amount -= n;
+            T.coral += n * (T.income || 1);
+            R.stats[b.rtsTeam].coral += n;
+          }
+        } else if (!B.off) {
+          const n = D.coralRate * dt;
+          T.coral += n * (T.income || 1);
+          R.stats[b.rtsTeam].coral += n;
+        }
+      }
+      // 停擺（導管斷電）：生產、研究、升級的計時暫停、防禦塔不開火（docs 14.2）
+      if (B.off) {
+        R.stats[b.rtsTeam].offT += dt;
+        continue;
       }
       // 防禦塔、研究要塞化後的主堡（B 包的 rtsTowerAI）
       if (b.rtsTowerAI && this.rtsBldRange(b) > 0) b.rtsTowerAI(dt);
-      // 生產、研究、升級
+      // 生產、研究、升級（電磁脈衝 empT 期間暫停：C 包的 VEIL）
       const q = B.queue[0];
-      if (!q) continue;
+      if (!q || B.empT > R.t) continue;
       if (q.upg || q.res) {
         q.t += dt;
         if (q.t >= q.time) {
@@ -1554,6 +1671,9 @@ Object.assign(Game.prototype, {
         e.rtsOb = null;
       }
       if (B.vent && B.vent.ext === e) B.vent.ext = null;
+      // 供電源被拆：後面的節點與建築可能斷電（docs 14.2）
+      if (RTS_DEFS[e.rtsDef] && RTS_DEFS[e.rtsDef].conduit && this.rtsPowerRebuild)
+        this.rtsPowerRebuild(e.rtsTeam);
       for (const q of B.queue) {
         if (q.res && R.teams[e.rtsTeam]) delete R.teams[e.rtsTeam].tech.busy[q.id]; // 研究中被拆：取消
         if (e.rtsQuiet) this.rtsRefund(e.rtsTeam, q.cost || (RTS_DEFS[q.id] || {}).cost || {}, 1);
@@ -1645,11 +1765,13 @@ Object.assign(Game.prototype, {
     R.over = { win: !!win, t: R.t };
     R.overT = 0;
     if (!R.cfg.aiBoth) {
-      // 兩邊都是電腦（測試）不記戰績
-      const rec = loadJson(REC_KEY, { w: 0, l: 0 });
+      // 兩邊都是電腦（測試）不記戰績；鍵＝實際的陣營組合與難度（docs 14.7）
+      const recs = loadRec();
+      const k = recKey(R.teams[ME].faction, R.teams[1].faction, R.cfg.diff);
+      const rec = recs[k] || (recs[k] = { w: 0, l: 0 });
       if (win) rec.w++;
       else rec.l++;
-      saveJson(REC_KEY, rec);
+      saveJson(REC_KEY, recs);
     }
     SFX.cue('exit');
     const sub = win ? '敵方基地全毀' : '我方基地全毀';
@@ -1670,18 +1792,22 @@ Object.assign(Game.prototype, {
     const el = document.getElementById('rtsEnd');
     const S = R.stats;
     const row = (name, a, b) => `<tr><td>${name}</td><td>${a}</td><td>${b}</td></tr>`;
+    const facTxt = (i) =>
+      escHtml(facName(R.teams[i].faction) + (R.cfg.rand && R.cfg.rand[i] ? '（隨機）' : ''));
     el.innerHTML = `
       <div class="panel" style="min-width: 340px">
         <h2 id="rtsEndTitle" style="color:${R.over.win ? '#7ee081' : '#ff6a5a'}">${R.over.win ? '勝利' : '敗北'}</h2>
         <p class="dim">作戰時間 ${fmtT(R.over.t)}</p>
         <table class="rtsEndTbl">
           <tr><th></th><th>你</th><th>電腦</th></tr>
+          ${row('陣營', facTxt(ME), facTxt(1))}
           ${row('生產的單位', S[0].made, S[1].made)}
           ${row('建造的建築', S[0].blds, S[1].blds)}
           ${row('擊破', S[0].killed, S[1].killed)}
           ${row('損失', S[0].lost, S[1].lost)}
           ${row('採集的礦石', Math.round(S[0].ore), Math.round(S[1].ore))}
           ${row('抽取的 Coral', Math.round(S[0].coral), Math.round(S[1].coral))}
+          ${S[0].fused || S[1].fused ? row('融合用掉的單位', S[0].fused, S[1].fused) : ''}
         </table>
         <div class="row">
           <button type="button" class="primary" id="rtsEndMenu">回 Coral 戰爭選單</button>

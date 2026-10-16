@@ -4460,3 +4460,48 @@ body.rtsOn.rtsPilot.vpad #weapons {
     max-width: 260px;
   }
 }
+/* ---------- Coral 戰爭 R3：艾瑟立克的 HUD（導管、停擺、融合、幻象）與選單的陣營（rts-hud.js、rts.js 的選單） ---------- */
+#rtsPower {
+  color: #8fd8ff;
+  border-color: rgba(143, 216, 255, 0.5);
+}
+#rtsPower.off {
+  color: #ff6a5a;
+  border-color: #ff6a5a;
+  animation: rtsPowBlink 0.8s steps(2) infinite;
+}
+@keyframes rtsPowBlink {
+  50% {
+    background: rgba(255, 60, 40, 0.25);
+  }
+}
+#rtsHud[data-fac='aetheric'] #rtsTop {
+  border-bottom-color: rgba(90, 184, 255, 0.45);
+}
+#rtsHud[data-fac='aetheric'] .rtsRes.coral b {
+  color: #8fd8ff;
+}
+.rtsWarn {
+  color: #ff6a5a;
+  font-weight: bold;
+}
+.rtsProg.fuse i {
+  background: #c08cff;
+}
+.rtsU.illus {
+  border-color: #8fd8ff;
+  border-style: dashed;
+}
+.rtsFacRand {
+  font-style: italic;
+}
+.rtsFacTraits {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.rtsRec {
+  font-size: 12px;
+  margin: 6px 0 0;
+}

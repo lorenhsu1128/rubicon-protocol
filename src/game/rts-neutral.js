@@ -17,6 +17,7 @@ import {
   RTS_MERC_DEFS,
   RTS_MERC_RULE,
   RTS_TAVERN_R,
+  mercCard,
   neutralShopItems,
 } from '../data/rts-neutral.js';
 import { RTS_ITEMS, RTS_LOOT, RTS_SHOP } from '../data/rts-items.js';
@@ -53,6 +54,10 @@ Object.assign(Game.prototype, {
     // g.rtsNeutralOff（測試與除錯）：整個中立都不放（營地、酒館、商店、傭兵營；R1 的 testRtsCore 在地圖正中央交戰）
     if (this.rtsNeutralOff) return;
     const theme = RTS_CAMPS[R.cfg.theme] ? R.cfg.theme : 'wasteland';
+    // 傭兵營的指令卡換成這張地圖的名單（定義是共用的，同一時間只有一局）
+    const mc = RTS_DEFS.n_merc && RTS_DEFS.n_merc.card;
+    if (mc) mc.splice(0, mc.length, ...mercCard(theme));
+    R.iceT = 0;
     (plan.camps || []).forEach((c, i) => {
       const camp = this.rtsCampSetup(c, i, theme);
       R.camps.push(camp);
@@ -231,6 +236,14 @@ Object.assign(Game.prototype, {
   rtsNeutralTick(dt) {
     const R = this.rts;
     if (!R) return;
+    // 冰原的冰湖：冰上的地面單位速度 ×1.1（每 0.5 秒，buff 0.6 秒到期）
+    const plan = this.world && this.world.rts;
+    if (plan && plan.ice && plan.ice.length && (R.iceT = (R.iceT || 0) - dt) <= 0) {
+      R.iceT = 0.5;
+      for (const e of R.units)
+        if (!e.dead && !e.bld && !e.flying && this.world.onIce(e.pos.x, e.pos.z))
+          this.rtsBuff(e, { src: 'ice', speed: 1.1 }, 0.6);
+    }
     for (const c of R.camps) if (!c.cleared) this.rtsCampTick(c, dt);
     // 庫存補貨（商店：依階 60／90／120 秒、傭兵營：60 秒；兩隊共用）
     for (const q of R.neutrals)
@@ -469,7 +482,7 @@ Object.assign(Game.prototype, {
     if (this.rtsNeutralNear(teamId, rec).d > RTS_MERC_RULE.r)
       return `需要己方單位在傭兵營 ${RTS_MERC_RULE.r} m 內`;
     const T = this.rts.teams[teamId];
-    if (T.pop + (D.pop || 0) > T.cap) return '人口不足';
+    if (T.pop + (D.pop || 0) * (D.mercN || 1) > T.cap) return '人口不足';
     if (!this.rtsAfford(teamId, D.cost)) return T.ore < (D.cost.ore || 0) ? '礦石不足' : 'Coral 不足';
     return '';
   },
@@ -505,11 +518,21 @@ Object.assign(Game.prototype, {
     let x = b.pos.x + Math.sin(yaw) * half,
       z = b.pos.z + Math.cos(yaw) * half;
     const nav = this.world.nav;
-    const cell = nav.nearestCell(x, z, D.size || 0, -1, 10);
-    if (cell >= 0) ({ x, z } = nav.center(cell));
-    const e = this.rtsSpawn(teamId, id, x, z, yaw);
+    // mercN＞1（實驗體一次 2 隻）：沿正面左右排開
+    let e = null;
+    const nN = D.mercN || 1;
+    for (let k = 0; k < nN; k++) {
+      const off = (k - (nN - 1) / 2) * 2.6;
+      let qx = x + Math.cos(yaw) * off,
+        qz = z - Math.sin(yaw) * off;
+      const cell = nav.nearestCell(qx, qz, D.size || 0, -1, 10);
+      if (cell >= 0) ({ x: qx, z: qz } = nav.center(cell));
+      const u = this.rtsSpawn(teamId, id, qx, qz, yaw);
+      if (!u) continue;
+      u.rtsMerc = true;
+      if (!e) e = u;
+    }
     if (!e) return null;
-    e.rtsMerc = true;
     this.rtsRecount();
     if (teamId === (this.rts.me !== undefined ? this.rts.me : ME)) {
       if (this.rtsEvent) this.rtsEvent(x, z, '');

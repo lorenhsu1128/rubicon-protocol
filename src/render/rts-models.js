@@ -9,6 +9,7 @@ import { PALETTES } from './materials.js';
 import { buildMech } from './mech-model.js';
 import { DETAIL, PK, hazard, ladder, mat, railing, truss } from '../world/prop-models.js';
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
+import { addAethWorkerKit, buildAethBuilding, isAethBuilding } from './rts-aeth-models.js';
 
 // ---------- 陣營色 ----------
 const PAL_CACHE = {};
@@ -459,6 +460,7 @@ function scaffold(w, d, h, M) {
 }
 
 export function buildRtsBuilding(id, pal) {
+  if (isAethBuilding(id)) return buildAethBuilding(id, pal); // 艾瑟立克（R3 B 包：render/rts-aeth-models.js）
   const D = RTS_DEFS[id];
   const M = mats(pal);
   const group = new THREE.Group();
@@ -664,7 +666,8 @@ export function buildCoralVent() {
 // ---------- 工人（作業 MT） ----------
 // 程式模型的機甲（data/rts-units.js 的 asm：履帶＋輕量上身）加上工程套件：背上的小吊臂、右手的鑽頭、
 // 頭頂的旋轉警示燈、背後的貨箱（攜帶礦石時顯示，rig.rtsCrate）。掛在 torso 上（網格合併之後再加，各自可以開關）
-export function addWorkerKit(rig, pal) {
+export function addWorkerKit(rig, pal, faction) {
+  if (faction === 'aetheric') return addAethWorkerKit(rig, pal, buildOreCrate); // 研究作業機的採樣套件（R3）
   const t = rig.torso || rig.group;
   const kit = new THREE.Group();
   const k = new PK();

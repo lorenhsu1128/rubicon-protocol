@@ -1,16 +1,64 @@
 // RTS 地圖（world/rts-map.js）的障礙物外觀：plan 的 model 名稱 → 主題的物件網格（prop-models.js 的純函式）。
 // 加主題時在 rts-map.js 的 RTS_THEMES 加障礙物種類，這裡加對應的建模。
-import { buildFloodlight, buildOreHopper, buildRockSpire, buildStorageTank } from './prop-models.js';
+import {
+  buildBeacon,
+  buildFloodlight,
+  buildIceChunk,
+  buildOreHopper,
+  buildQuonset,
+  buildRadarDish,
+  buildRockSpire,
+  buildStorageTank,
+} from './prop-models.js';
+import {
+  buildCoralCrystal,
+  buildCoralTank,
+  buildCoralVein,
+  buildLab,
+  buildPipeRun,
+} from './themes/institute.js';
 import { attrSig, mergeList } from '../render/mesh-merge.js';
 import { styleCat } from '../render/style/shader.js';
 
 const HOPPER_COL = [0xb08a3e, 0x8c8f86, 0xa0522d],
-  TANK_COL = [0x8a5a3a, 0x9a8f7a, 0x6f7a80];
+  TANK_COL = [0x8a5a3a, 0x9a8f7a, 0x6f7a80],
+  QUONSET_COL = [0x6b7d6a, 0xd7a23c, 0x8a949c],
+  RADAR_COL = [0x9aa4ad, 0xb8bec4, 0x7d8790];
+// 冰柱（冰原的岩石）：主線冰原的冰塊（buildIceChunk，模型槽 prop/ice_chunk）拉高成柱狀
+function iceSpire(o) {
+  const g = new THREE.Group();
+  const m = buildIceChunk(o.r);
+  m.scale.y = o.h / (1.3 * o.r);
+  g.add(m);
+  return g;
+}
+// 方塊的障礙物：plan 旋轉 90° 的倍數時寬深已對調，建模用旋轉前的尺寸
+const unrot = (o) => ((Math.round((o.yaw || 0) / (Math.PI / 2)) & 1) === 1 ? [o.d, o.w] : [o.w, o.d]);
+// 障礙物（world/rts-map.js 的 RTS_THEMES 的 model）；全部沿用主線主題的物件（已登記在模型庫，GLB 也照用）
 export const RTS_PROPS = {
   spire: (o, T) => buildRockSpire(o.r, o.h, T.rock),
   hopper: (o) => buildOreHopper(HOPPER_COL[o.color || 0]),
   tank: (o) => buildStorageTank(o.r / 1.02, o.h, TANK_COL[o.color || 0]),
   floodlight: (o) => buildFloodlight(o.h, 0x4a4540),
+  // 冰原
+  icespire: iceSpire,
+  quonset: (o) => buildQuonset(QUONSET_COL[o.color || 0]),
+  radar: (o) => buildRadarDish(RADAR_COL[o.color || 0]),
+  beacon: (o) => buildBeacon(o.h),
+  // 技研都市地表：研究設施的殘骸（buildLab 的縮小版，方塊碰撞＝plan 的外框）、Coral 收容槽、管線、Coral 結晶
+  labruin: (o) => {
+    const [w, d] = unrot(o);
+    return buildLab(w, o.h, d, o.color || 1);
+  },
+  coraltank: () => buildCoralTank(),
+  piperun: () => buildPipeRun(),
+  crystal: (o) => buildCoralCrystal(o.h / 4),
+  // 裝飾（plan.decor：不碰撞）
+  coralvein: (o) => {
+    const g = buildCoralVein(o.len);
+    g.scale.z = 2.5; // RTS 的鏡頭遠：加寬才看得到
+    return g;
+  },
 };
 export function rtsPropMesh(o, T) {
   const f = RTS_PROPS[o.model];

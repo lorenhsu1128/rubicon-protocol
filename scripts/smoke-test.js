@@ -14976,6 +14976,57 @@ const RTS_E = require('./smoke-rts-e')({
 });
 // F 包（電腦對手第二輪）
 const RTS_F = require('./smoke-rts-f')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// R3 A 包（艾瑟立克的核心與資料：導管、融合、幻象）
+const RTS_R3A = require('./smoke-rts-aeth-a')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R3 B 包（艾瑟立克的兵種行為與模型）
+const RTS_R3B = require('./smoke-rts-aeth-b')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R3 C 包（艾瑟立克的英雄與道具）
+// R3 E 包（艾瑟立克的 HUD、輸入、親自駕駛）
+const RTS_R3E = require('./smoke-rts-aeth-e')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+  watch,
+});
+const RTS_R3C = require('./smoke-rts-aeth-c')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R3 D 包（地圖主題：冰原、技研都市地表；主題的營地與傭兵）
+const RTS_R3D = require('./smoke-rts-aeth-d')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15066,6 +15117,11 @@ const STEPS = [
   ['testRtsHero', (c) => RTS_C.testRtsHero(c.browser, c.base)],
   ['testRtsItems', (c) => RTS_C.testRtsItems(c.browser, c.base)],
   ['testRtsAi2', (c) => RTS_F.testRtsAi2(c.browser, c.base)],
+  ['testRtsAeth', (c) => RTS_R3A.testRtsAeth(c.browser, c.base)],
+  ['testRtsAethUnits', (c) => RTS_R3B.testRtsAethUnits(c.browser, c.base)],
+  ['testRtsAethHero', (c) => RTS_R3C.testRtsAethHero(c.browser, c.base)],
+  ['testRtsAethHud', (c) => RTS_R3E.testRtsAethHud(c.browser, c.base)],
+  ['testRtsThemes', (c) => RTS_R3D.testRtsThemes(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

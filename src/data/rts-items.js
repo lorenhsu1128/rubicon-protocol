@@ -3,7 +3,8 @@
 //
 // RTS_ITEMS[id]：{ id, name, short（背包格的縮寫）, tier 1～3, cost: { ore, coral }, kind 'use'｜'perm', charges（消耗品的次數）,
 //   cd（使用的冷卻秒）, target（'point'＝要選地點；其他＝立刻使用）, mods（永久道具的數值層 item；同名不疊加）,
-//   aura（永久道具的光環：{ r, ...數值層 }）, drop（只掉落，商店不賣）, desc }
+//   aura（永久道具的光環：{ r, ...數值層 }）, drop（只掉落，商店不賣）, fac（陣營專屬：只在那個陣營的商店賣，
+//   不在中立商店與掉寶表；docs 14.4）, desc }
 export const RTS_ITEMS = {
   i_kit: {
     name: '修復套件',
@@ -162,11 +163,84 @@ export const RTS_ITEMS = {
     t: 60,
     desc: '在英雄旁邊召喚一台這張地圖的傭兵，60 秒（只掉落）',
   },
+  // ===== 艾瑟立克的專屬道具（樣本保管庫 a_vault 才賣；docs 14.4） =====
+  i_stim: {
+    name: '生體興奮劑',
+    short: '興',
+    tier: 1,
+    cost: { ore: 40, coral: 10 },
+    kind: 'use',
+    fac: 'aetheric',
+    charges: 2,
+    cd: 10,
+    t: 8,
+    speed: 1.25,
+    rof: 1.2,
+    cost2: 0.08, // 結束時扣最大血量的比例
+    desc: '8 秒移動速度 +25%、射速 +20%，結束時扣 8% 最大血量；2 次',
+  },
+  i_sample: {
+    name: '實驗體樣本',
+    short: '樣',
+    tier: 1,
+    cost: { ore: 60, coral: 20 },
+    kind: 'use',
+    fac: 'aetheric',
+    charges: 1,
+    cd: 2,
+    n: 2,
+    t: 45,
+    desc: '身邊出現 2 隻實驗體 45 秒（不佔人口、擊破不給經驗）',
+  },
+  i_relay: {
+    name: '攜帶式導管',
+    short: '導',
+    tier: 2,
+    cost: { ore: 90, coral: 40 },
+    kind: 'use',
+    fac: 'aetheric',
+    charges: 1,
+    cd: 2,
+    target: 'point',
+    range: 20,
+    r: 14,
+    t: 60,
+    desc: '20 m 內的地點變成 60 秒的臨時導管（半徑 14 m）：可以在前線蓋建築；到期時沒有其他供電的建築停擺',
+  },
+  i_lens: {
+    name: '聚焦透鏡',
+    short: '鏡',
+    tier: 2,
+    cost: { ore: 150, coral: 60 },
+    kind: 'perm',
+    fac: 'aetheric',
+    mods: { skill: 1.15 },
+    desc: '技能傷害 +15%',
+  },
 };
 for (const id in RTS_ITEMS) RTS_ITEMS[id].id = id;
 
-// 可以購買的道具（依階）；商店的貨架順序
-const BUY = Object.keys(RTS_ITEMS).filter((id) => !RTS_ITEMS[id].drop);
+// 可以購買的道具（依階）；商店的貨架順序（中立商店、卡斯特隆的補給商店：陣營專屬的不算）
+const BUY = Object.keys(RTS_ITEMS).filter((id) => !RTS_ITEMS[id].drop && !RTS_ITEMS[id].fac);
+// 陣營商店的貨架（12 格依序；層級規則同補給商店：T1 賣 1 階、T2 起加 2 階、T3 起加 3 階）。
+// 商店建築的定義有 shopFac 時，game/rts-hero.js 載入時把 shopItems 與卡片填進去
+export const RTS_FAC_SHOP = {
+  castron: BUY,
+  aetheric: [
+    'i_kit',
+    'i_scout',
+    'i_beacon',
+    'i_stim',
+    'i_sample',
+    'i_barrier',
+    'i_fcs',
+    'i_plate',
+    'i_relay',
+    'i_lens',
+    'i_scope',
+    'i_antenna',
+  ],
+};
 // 補給商店的貨架（依主堡的層級：T1 賣 1 階、T2 起加 2 階、T3 起加 3 階）、中立商店的庫存（依階）與補貨秒數
 export const RTS_SHOP = {
   tiers: [1, 2, 3].map((t) => BUY.filter((id) => RTS_ITEMS[id].tier === t)),
@@ -177,7 +251,9 @@ export const RTS_SHOP = {
 };
 export const RTS_SHOP_ITEMS = BUY;
 // 掉寶表（D 包的營地掉落用）：各階可以掉的道具（含只掉落的）
-export const RTS_LOOT = [1, 2, 3].map((t) => Object.keys(RTS_ITEMS).filter((id) => RTS_ITEMS[id].tier === t));
+export const RTS_LOOT = [1, 2, 3].map((t) =>
+  Object.keys(RTS_ITEMS).filter((id) => RTS_ITEMS[id].tier === t && !RTS_ITEMS[id].fac),
+);
 
 // 商店的卡片（3×4 格依序，act { k: 'buy', item }）：補給商店（c_market）與中立商店共用；
 // req：補給商店的層級（中立商店不看，HUD 依 Game.rtsShopWhy 灰掉）

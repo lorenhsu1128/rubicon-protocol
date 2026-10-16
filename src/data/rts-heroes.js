@@ -4,7 +4,7 @@
 // RTS_HERO_DEFS[id]：kind 'unit'、hero: true、faction、name、role（定位）、asm（AC_ROSTER／ACES 的組裝）、atk 'hero'、
 //   arm 'hero'、armor、hp、dps、range、speed、sight、pop 5、time 55、slots、grow { hp, dps, armor }（每升一級）、
 //   skills [4 個技能 id：Z X C V]、card（英雄的指令卡）、menus.learn（學習技能的子選單）
-// 卡斯特隆：h_bastion、h_rain、h_pile；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
+// 卡斯特隆：h_bastion、h_rain、h_pile；艾瑟立克：h_prism、h_curator、h_veil（docs 14.4）；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
 // 技能的行為在 entities/mech-rts-hero.js（施放）與 game/rts-hero.js（光環、區域、持續效果）。
 import { AC_ROSTER } from './enemies.js';
 import { ACES } from './foes.js';
@@ -478,6 +478,141 @@ export const RTS_SKILLS = {
     lv: [{ coral: 80, cd: 120, R: 20, t: 12, speed: 0.65, dps: 20 }],
     desc: '半徑 20 m 腐蝕地 12 秒：敵方移動 −35%、每秒 20',
   },
+  // ===== PRISM（艾瑟立克，docs 14.4） =====
+  sk_refract: {
+    name: '折射光束',
+    slot: 0,
+    kind: 'point',
+    range: 40,
+    line: true, // 朝指定方向（任何距離）
+    auto: true,
+    aiR: 36,
+    lv: L3(
+      { coral: 20, cd: 10, len: 40, w: 3, dmg: 90, bldK: 0.5, warn: 0.6 },
+      { coral: 25, cd: 10, len: 40, w: 3, dmg: 140, bldK: 0.5, warn: 0.6 },
+      { coral: 30, cd: 10, len: 40, w: 3, dmg: 190, bldK: 0.5, warn: 0.6 },
+    ),
+    desc: '朝指定方向 40 m、寬 3 m 的直線：預警 0.6 秒後每個敵人 90／140／190 能量（建築 ×0.5）',
+  },
+  sk_prism: {
+    name: '稜鏡屏障',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'ally',
+    range: 24,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 16, n: 200, t: 10 },
+      { coral: 20, cd: 16, n: 350, t: 10 },
+      { coral: 25, cd: 16, n: 500, t: 10 },
+    ),
+    desc: '友軍（含英雄）10 秒內吸收 200／350／500 傷害',
+  },
+  sk_reso: {
+    name: '共振場',
+    slot: 2,
+    kind: 'aura',
+    r: 30,
+    lv: L3({ dmg: 1.08 }, { dmg: 1.14 }, { dmg: 1.2 }),
+    desc: '光環 30 m：友軍的能量攻擊傷害 +8／14／20%',
+  },
+  sk_skylight: {
+    name: '天光陣列',
+    slot: 3,
+    kind: 'point',
+    range: 50,
+    aiR: 46,
+    lv: [{ coral: 90, cd: 140, R: 14, n: 5, dur: 4, r: 3, dmg: 180, r2: 6, dmg2: 400 }],
+    desc: '半徑 14 m：4 秒內 5 道光柱，每道 3 m 180 能量，最後一道在中心 6 m 400 能量',
+  },
+  // ===== CURATOR =====
+  sk_hatch: {
+    name: '孵化',
+    slot: 0,
+    kind: 'self',
+    auto: true,
+    aiR: 20,
+    lv: L3(
+      { coral: 20, cd: 18, n: 2, t: 40 },
+      { coral: 25, cd: 18, n: 3, t: 40 },
+      { coral: 30, cd: 18, n: 4, t: 40 },
+    ),
+    desc: '身邊出現 2／3／4 隻實驗體，40 秒後消失（不佔人口、擊破不給經驗）',
+  },
+  sk_catalyze: {
+    name: '催化',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'ally',
+    bio: true, // 只能對生體單位
+    range: 24,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 12, heal: 0.3, speed: 1.3, t: 6 },
+      { coral: 15, cd: 12, heal: 0.3, speed: 1.3, t: 6 },
+      { coral: 15, cd: 12, heal: 0.3, speed: 1.3, t: 6 },
+    ),
+    desc: '己方生體單位回復 30% 血量、6 秒速度 +30%；引導中的融合立刻完成',
+  },
+  sk_symb: {
+    name: '共生',
+    slot: 2,
+    kind: 'aura',
+    r: 25,
+    lv: L3({ regen: 2, dmg: 1.05 }, { regen: 3, dmg: 1.1 }, { regen: 4, dmg: 1.15 }),
+    desc: '光環 25 m：己方生體單位每秒回復 2／3／4 AP、傷害 +5／10／15%',
+  },
+  sk_massfuse: {
+    name: '群體融合',
+    slot: 3,
+    kind: 'self',
+    r: 18,
+    lv: [{ coral: 80, cd: 150, R: 18, taken: 0.7, t: 12 }],
+    desc: '18 m 內己方的實驗體每 3 隻立刻融合成嵌合體（免費、沒有引導、不看需求），剩下的回滿血；範圍內己方生體單位 12 秒受到的傷害 ×0.7',
+  },
+  // ===== VEIL =====
+  sk_mirror: {
+    name: '全像分身',
+    slot: 0,
+    kind: 'self',
+    auto: true,
+    aiR: 24,
+    lv: L3(
+      { coral: 20, cd: 16, n: 2, t: 15, dmg: 0.25, taken: 2 },
+      { coral: 20, cd: 16, n: 2, t: 20, dmg: 0.25, taken: 2 },
+      { coral: 20, cd: 16, n: 3, t: 25, dmg: 0.25, taken: 2 },
+    ),
+    desc: '2／2／3 個自己的幻象（傷害 25%、受到的傷害 ×2），15／20／25 秒',
+  },
+  sk_emp: {
+    name: '電磁脈衝',
+    slot: 1,
+    kind: 'point',
+    range: 40,
+    auto: true,
+    aiR: 38,
+    lv: L3(
+      { coral: 25, cd: 14, R: 8, dmg: 60, stun: 1, bld: 4 },
+      { coral: 30, cd: 14, R: 8, dmg: 90, stun: 1.5, bld: 6 },
+      { coral: 35, cd: 14, R: 8, dmg: 120, stun: 2, bld: 8 },
+    ),
+    desc: '半徑 8 m：60／90／120 能量＋暈眩 1／1.5／2 秒；敵方建築的生產與研究暫停 4／6／8 秒',
+  },
+  sk_phase: {
+    name: '相位迷彩',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ idle: 4 }, { idle: 3 }, { idle: 2 }),
+    desc: '4／3／2 秒沒有開火、沒有施放技能就隱形（不能被鎖定）；開火或施放現形',
+  },
+  sk_legion: {
+    name: '虛像軍團',
+    slot: 3,
+    kind: 'self',
+    r: 20,
+    lv: [{ coral: 100, cd: 160, R: 20, max: 16, t: 20, dmg: 0.3, taken: 2 }],
+    desc: '20 m 內每台己方一般單位（最多 16 台，不含英雄、工人與建築）旁邊出現一個幻象 20 秒（傷害 30%、受到的傷害 ×2）',
+  },
 };
 for (const id in RTS_SKILLS) RTS_SKILLS[id].id = id;
 
@@ -585,6 +720,16 @@ function hero(id, o) {
 }
 const AC = (k) => ({ ...AC_ROSTER[k].asm });
 const ACE = (k) => ({ ...ACES[k].asm });
+// 艾瑟立克英雄的組裝底（docs 14.4）
+const AE = {
+  booster: 'b_std',
+  generator: 'g_std',
+  fcs: 'f_std',
+  rarm: 'w_none',
+  larm: 'w_none',
+  rback: 'bw_none',
+  lback: 'bw_none',
+};
 
 export const RTS_HERO_DEFS = {
   h_bastion: hero('h_bastion', {
@@ -637,6 +782,69 @@ export const RTS_HERO_DEFS = {
     sight: 32,
     grow: { hp: 95, dps: 3.0, armor: 0.45 },
     skills: ['sk_rush', 'sk_pile', 'sk_break', 'sk_quake'],
+  }),
+  // ===== 艾瑟立克（docs 14.4）：數值、組裝、技能照 14.4（R3 C 包）；配色由 rtsSpawn 依陣營（rtsPal('aetheric')） =====
+  h_prism: hero('h_prism', {
+    faction: 'aetheric',
+    name: 'PRISM',
+    atkEn: true, // 主武器是能量（PRISM 的共振場算它）
+    role: '光學研究機',
+    desc: '英雄：光學研究機（遠程、能量、控場）。折射光束、稜鏡屏障、共振場、天光陣列',
+    tier: 1,
+    asm: { ...AE, head: 'h_scan', core: 'c_std', arms: 'a_std', legs: 'l_bp2', rarm: 'w_lr', rback: 'bw_lc' },
+    slots: ['rarm', 'rback'],
+    hp: 1100,
+    armor: 2,
+    range: 38,
+    dps: 24,
+    speed: 8,
+    sight: 38,
+    grow: { hp: 75, dps: 2.8, armor: 0.3 },
+    skills: ['sk_refract', 'sk_prism', 'sk_reso', 'sk_skylight'],
+  }),
+  h_curator: hero('h_curator', {
+    faction: 'aetheric',
+    name: 'CURATOR',
+    role: '飼育主任',
+    desc: '英雄：飼育主任（實驗體、近戰）。孵化、催化、共生、群體融合',
+    tier: 1,
+    asm: { ...AE, head: 'h_hv', core: 'c_hv', arms: 'a_hv', legs: 'l_qd', rarm: 'w_claw', larm: 'w_lsg' },
+    slots: ['larm'],
+    hp: 1500,
+    armor: 3,
+    range: 16,
+    dps: 26,
+    speed: 8.5,
+    sight: 32,
+    grow: { hp: 100, dps: 2.4, armor: 0.5 },
+    skills: ['sk_hatch', 'sk_catalyze', 'sk_symb', 'sk_massfuse'],
+  }),
+  h_veil: hero('h_veil', {
+    faction: 'aetheric',
+    name: 'VEIL',
+    atkEn: true, // 主武器是能量（PRISM 的共振場算它）
+    role: '電子戰研究機',
+    desc: '英雄：電子戰研究機（幻象、EMP、迷彩）。全像分身、電磁脈衝、相位迷彩、虛像軍團',
+    tier: 1,
+    asm: {
+      ...AE,
+      head: 'h_scan',
+      core: 'c_lt',
+      arms: 'a_lt',
+      legs: 'l_rj',
+      rarm: 'w_emp',
+      larm: 'w_lr',
+      rback: 'bw_emp_s',
+    },
+    slots: ['larm'],
+    hp: 1050,
+    armor: 1,
+    range: 30,
+    dps: 22,
+    speed: 10,
+    sight: 36,
+    grow: { hp: 70, dps: 2.6, armor: 0.3 },
+    skills: ['sk_mirror', 'sk_emp', 'sk_phase', 'sk_legion'],
   }),
   // ===== 酒館的宿敵 AC（faction 'neutral'；全場唯一） =====
   t_rust: hero('t_rust', {
@@ -800,7 +1008,10 @@ export const RTS_TAVERN = [
   't_marsh',
 ];
 // 各陣營可以在主堡生產的英雄（rts-units.js 的 RTS_FACTIONS[].heroes 也有同一份）
-export const RTS_FACTION_HEROES = { castron: ['h_bastion', 'h_rain', 'h_pile'] };
+export const RTS_FACTION_HEROES = {
+  castron: ['h_bastion', 'h_rain', 'h_pile'],
+  aetheric: ['h_prism', 'h_curator', 'h_veil'],
+};
 
 // 經驗 → 等級（1～10）
 export function heroLvOf(xp) {

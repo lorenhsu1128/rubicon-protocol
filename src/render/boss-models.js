@@ -3465,6 +3465,7 @@ const BUILDERS = {
   ...FOE_BUILDERS, // 主題專屬敵人（foe-models.js）
 };
 export const BOSS_MODEL_KEYS = Object.keys(BUILDERS);
-export function buildBossModel(key, pal, scale = 1) {
-  return (BUILDERS[key] || buildJoint)(pal, scale);
+// o＝{ raw }：地圖專屬敵人的模型不先合併（RTS 渲染設定，render/foe-merge.js）
+export function buildBossModel(key, pal, scale = 1, o) {
+  return (BUILDERS[key] || buildJoint)(pal, scale, o);
 }

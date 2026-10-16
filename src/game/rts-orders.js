@@ -7,6 +7,8 @@
 // - 建造只派一個工人（最近的）；採集、修理派全部的工人，戰鬥單位改成走過去。
 // - R2（docs 13.1）：ability（技能：自己施放的給全部會的單位，有目標的給最近、沒在冷卻的一台）、pickup／shop（只給英雄）；
 //   防禦塔（有 range 的建築）可以接 attack／stop（B 包的 rtsTowerAI 讀 b.orders[0]）；親自駕駛中的英雄不接指令。
+// - R3（docs 14.2）：fuse（融合：選取中的材料分組，rts-grid.js 的 rtsFuseIssue；回傳組數）、建築的技能（結晶護壁：
+//   選取中有這個技能的建築 rtsBldAbility）；不能修理的工人（定義的 noRepair）右鍵受損的建築＝走過去。
 import { Game } from './game.js';
 import { RTS_ABILS, RTS_DEFS, RTS_GATHER } from '../data/rts-units.js';
 
@@ -20,6 +22,16 @@ Object.assign(Game.prototype, {
     const R = this.rts;
     if (!R || !order) return;
     const k = order.k;
+    if (k === 'ability') {
+      // 融合類的技能＝融合指令；建築的技能（結晶護壁）由 rts-grid.js 的 rtsBldAbility 施放
+      const A = RTS_ABILS[order.ab];
+      if (A && A.fuse) return this.rtsOrder(units, { k: 'fuse', recipe: A.fuse }, queue);
+      let nb = 0;
+      for (const b of units || [])
+        if (b && !b.dead && b.bld && ((RTS_DEFS[b.rtsDef] || {}).abil || []).includes(order.ab))
+          nb += this.rtsBldAbility && this.rtsBldAbility(b, order.ab) ? 1 : 0;
+      if (A && A.bld) return nb;
+    }
     if (k === 'attack' || k === 'stop') {
       // 防禦塔：指定目標／停止
       for (const b of units || [])
@@ -53,9 +65,11 @@ Object.assign(Game.prototype, {
       give(w, { ...order });
       return;
     }
+    if (k === 'fuse') return this.rtsFuseIssue ? this.rtsFuseIssue(list, order.recipe) : 0;
     if (k === 'gather' || k === 'repair') {
       for (const e of list) {
-        if (RTS_DEFS[e.rtsDef].worker) give(e, { ...order });
+        const D = RTS_DEFS[e.rtsDef];
+        if (D.worker && !(k === 'repair' && D.noRepair)) give(e, { ...order });
         else {
           // 戰鬥單位：走過去
           const t = k === 'gather' ? this.rtsMine(order.mine) : this.rtsEnt(order.id);
@@ -216,7 +230,10 @@ Object.assign(Game.prototype, {
       if (others.length) this.rtsOrder(others, { k: 'move', x, z }, queue);
       return;
     }
-    if (ent && ent.bld && ent.rtsTeam === team && workers.length) {
+    // 自己長的建築不需要工人續建、不能修理的工人（艾瑟立克）不修理：走過去
+    const builders = workers.filter((e) => !RTS_DEFS[e.rtsDef].noRepair);
+    const selfB = ent && ent.bld && RTS_DEFS[ent.rtsDef] && RTS_DEFS[ent.rtsDef].selfBuild;
+    if (ent && ent.bld && ent.rtsTeam === team && workers.length && !selfB && builders.length) {
       if (ent.bld.progress < 1) {
         for (const w of workers)
           this.rtsOrder([w], { k: 'build', def: ent.rtsDef, x: ent.pos.x, z: ent.pos.z, bid: ent.id }, queue);
@@ -224,8 +241,9 @@ Object.assign(Game.prototype, {
         return;
       }
       if (ent.hp < ent.maxHp) {
-        this.rtsOrder(workers, { k: 'repair', id: ent.id }, queue);
-        if (others.length) this.rtsOrder(others, { k: 'move', x, z }, queue);
+        this.rtsOrder(builders, { k: 'repair', id: ent.id }, queue);
+        const rest = mob.filter((e) => !builders.includes(e));
+        if (rest.length) this.rtsOrder(rest, { k: 'move', x, z }, queue);
         return;
       }
     }

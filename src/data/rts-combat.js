@@ -44,9 +44,9 @@ export const attrAtk = (attr) =>
 // ---------- 數值層（docs 13.3「數值層」） ----------
 // e.rtsMods = { up, hero, item, aura, buff: [] }；每層是部分的 { 欄位: 值 }，buff 是 [{ src, t（到期的局內時間）, ...欄位 }]
 // 倍率欄位（相乘、預設 1）：dmg 傷害、rof 射速（>1 較快）、speed 移動、taken 受到的傷害、imp 受到的衝擊（失衡值）、
-//   hpK 最大血量、splash 範圍半徑
+//   hpK 最大血量、splash 範圍半徑、skill 技能傷害（R3：C 包的 rtsHeroDmg／rtsHeroSplash 再乘施放者的 rtsM.skill）
 // 加算欄位（相加、預設 0）：armor 護甲、range 射程（m）、sight 視野（m）、regen 每秒回復 AP、hp 最大血量
-export const MOD_MUL = ['dmg', 'rof', 'speed', 'taken', 'imp', 'hpK', 'splash'];
+export const MOD_MUL = ['dmg', 'rof', 'speed', 'taken', 'imp', 'hpK', 'splash', 'skill'];
 export const MOD_ADD = ['armor', 'range', 'sight', 'regen', 'hp'];
 export const MOD_LAYERS = ['up', 'hero', 'item', 'aura'];
 export function emptyMods() {

@@ -181,6 +181,8 @@ Object.assign(MechEntity.prototype, {
       let best = null,
         bs = 0.5;
       for (const a of g.rtsHeroAllies(team, this.pos.x, this.pos.z, S.range)) {
+        if (S.bio && !(RTS_DEFS[a.rtsDef] || {}).bio) continue; // 催化：只對生體單位
+        if (a.rtsIllus) continue;
         const k = a.hp / a.maxHp - (a.hero ? 0.2 : 0);
         if (k < bs) ((bs = k), (best = a));
       }
@@ -739,6 +741,199 @@ const SKILL_FX = {
       acid: true,
       fx: 'acid',
     });
+  },
+  // ===== PRISM（艾瑟立克，docs 14.4） =====
+  // 折射光束：朝 p 的方向 40 m、寬 3 m 的直線，預警後一次打中線上的每個敵人（建築 ×0.5）
+  sk_refract(e, g, P, p) {
+    let dx = p.x - e.pos.x,
+      dz = p.z - e.pos.z;
+    let L = Math.hypot(dx, dz);
+    if (L < 0.5) {
+      const f = e.rtsHeroFwd();
+      ((dx = f.x), (dz = f.z), (L = 1));
+    }
+    dx /= L;
+    dz /= L;
+    const x0 = e.pos.x + dx * 1.5,
+      z0 = e.pos.z + dz * 1.5;
+    const x1 = x0 + dx * P.len,
+      z1 = z0 + dz * P.len;
+    e.yaw = e.aimYaw = Math.atan2(-dx, -dz);
+    g.fx.warnLine(P3(g, x0, z0, 0.4), P3(g, x1, z1, 0.4), P.warn, 0x8fd8ff, 0.12);
+    g.later(P.warn, () => {
+      if (!g.rts || e.dead) return;
+      const a = e.center(),
+        b = P3(g, x1, z1, 1.4);
+      if (g.rtsFxOk(a) || g.rtsFxOk(b)) {
+        g.fx.beam(a, b, 0xbfeaff, 0.22);
+        g.fx.beam(a, b, 0x3a90e0, 0.55);
+        g.fx.flash(b, 1.6, 0x8fd8ff, 0.15);
+      }
+      const mx = (x0 + x1) / 2,
+        mz = (z0 + z1) / 2;
+      for (const t of g.rtsHeroFoes(e.rtsTeam, mx, mz, P.len / 2 + 2)) {
+        const k = Math.max(0, Math.min(P.len, (t.pos.x - x0) * dx + (t.pos.z - z0) * dz));
+        const off = Math.hypot(t.pos.x - (x0 + dx * k), t.pos.z - (z0 + dz * k));
+        const rad = t.bld ? Math.max(t.bld.w, t.bld.d) / 2 : t.radius || 1;
+        if (off - rad > P.w / 2) continue;
+        g.rtsHeroDmg(e, t, P.dmg * (t.bld ? P.bldK : 1), 'en', 300);
+        if (g.rtsFxOk(t.pos)) g.fx.spark(t.center(), 0x8fd8ff);
+      }
+    });
+  },
+  sk_prism(e, g, P, t) {
+    g.rtsShieldAdd(t, P.n, P.t);
+    g.fx.beam(e.center(), t.center(), 0x8fe8ff, 0.08);
+  },
+  // 天光陣列：半徑 R 內 4 秒 n 道光柱（前 n−1 道隨機、每道 r m），最後一道在中心（r2 m、dmg2）
+  sk_skylight(e, g, P, p) {
+    const x = p.x,
+      z = p.z;
+    g.fx.warnCircle(P3(g, x, z, 0.1), P.R, P.dur + 0.2, 0x8fd8ff);
+    if (g.rtsFogReveal) g.rtsFogReveal(e.rtsTeam, x, z, P.R, P.dur + 1);
+    for (let i = 0; i < P.n; i++) {
+      const last = i === P.n - 1;
+      const T = last ? P.dur : 0.6 + (i * (P.dur - 1)) / Math.max(1, P.n - 1);
+      g.later(T, () => {
+        if (!g.rts) return;
+        let px = x,
+          pz = z;
+        if (!last) {
+          const a = Math.random() * Math.PI * 2,
+            r = Math.sqrt(Math.random()) * P.R * 0.8;
+          px += Math.cos(a) * r;
+          pz += Math.sin(a) * r;
+        }
+        const q = P3(g, px, pz, 0);
+        if (g.rtsFxOk(q)) g.fx.pillarStrike(q, last ? P.r2 * 0.6 : P.r * 0.8, last ? 0xffffff : 0x9fe8ff);
+        g.rtsHeroSplash(
+          e,
+          px,
+          pz,
+          last ? P.r2 : P.r,
+          last ? P.dmg2 : P.dmg,
+          'en',
+          last ? 900 : 300,
+          e.rtsTeam,
+        );
+      });
+    }
+  },
+  // ===== CURATOR =====
+  sk_hatch(e, g, P) {
+    if (!g.rtsHeroTemp(e, 'a_blob', P.n, P.t).length) return false;
+    g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), 3.5, 0xa0ff80);
+  },
+  sk_catalyze(e, g, P, t) {
+    t.hp = Math.min(t.maxHp, t.hp + t.maxHp * P.heal);
+    g.rtsBuff(t, { src: 'sk_catalyze', speed: P.speed }, P.t);
+    g.fx.beam(e.center(), t.center(), 0xa0ff80, 0.1);
+    g.fx.flash(t.center(), 2.2, 0xa0ff80, 0.25);
+    // 引導中的融合：立刻完成
+    if (g.rtsFuseFinish && g.rts.fuses && g.rts.fuses.some((f) => f.host === t && f.st === 'chan'))
+      g.rtsFuseFinish(t);
+  },
+  // 群體融合：18 m 內己方的實驗體每 3 隻立刻融合成嵌合體（免費、沒有引導）；剩下的回滿血；生體單位 12 秒受到的傷害 ×0.7
+  sk_massfuse(e, g, P) {
+    const R = g.rts;
+    const near = g.rtsHeroAllies(e.rtsTeam, e.pos.x, e.pos.z, P.R);
+    const blobs = near
+      .filter((u) => u.rtsDef === 'a_blob' && !u.rtsIllus && !u.rtsTemp && !u.rtsFusing)
+      .sort(
+        (a, b) =>
+          Math.hypot(a.pos.x - e.pos.x, a.pos.z - e.pos.z) - Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z),
+      );
+    if (!blobs.length && !near.some((u) => u.rtsDef === 'a_blob')) {
+      if (e.rtsTeam === 0) g.rtsSay('附近沒有實驗體');
+      return false;
+    }
+    const made = [];
+    const n = Math.floor(blobs.length / 3);
+    for (let i = 0; i < n; i++) {
+      const grp = blobs.slice(i * 3, i * 3 + 3);
+      for (const b of grp) g.fx.beam(b.center(), e.center(), 0xa0ff80, 0.1);
+      const c = g.rtsFuseMake && g.rtsFuseMake(e.rtsTeam, 'fu_chimera', grp, { free: true });
+      if (c) made.push(c);
+    }
+    for (const u of near) if (!u.dead && u.rtsDef === 'a_blob') u.hp = u.maxHp; // 剩下的回滿血
+    for (const u of [...g.rtsHeroAllies(e.rtsTeam, e.pos.x, e.pos.z, P.R), ...made])
+      if (!u.dead && (RTS_DEFS[u.rtsDef] || {}).bio)
+        g.rtsBuff(u, { src: 'sk_massfuse', taken: P.taken }, P.t);
+    g.fx.shockwave(e.center(), P.R, 0xa0ff80);
+    g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), P.R, 0xa0ff80);
+    e.hs.massN = made.length; // 測試與 HUD 用
+    void R;
+  },
+  // ===== VEIL =====
+  sk_mirror(e, g, P) {
+    if (!g.rtsIllusion) return false;
+    let n = 0;
+    for (let i = 0; i < P.n; i++) {
+      const a = (e.yaw || 0) + Math.PI / 2 + (i / P.n) * Math.PI * 2;
+      const u = g.rtsIllusion(e, e.pos.x + Math.cos(a) * 3, e.pos.z + Math.sin(a) * 3, {
+        sec: P.t,
+        dmg: P.dmg,
+        taken: P.taken,
+      });
+      if (u) {
+        n++;
+        if (e.orders.length) u.orders = e.orders.map((o) => ({ ...o }));
+      }
+    }
+    g.fx.flash(e.center(), 2.6, 0xcfe8ff, 0.25);
+    return n > 0;
+  },
+  sk_emp(e, g, P, p) {
+    const R = g.rts;
+    const q = P3(g, p.x, p.z, 0.6);
+    g.fx.shockwave(q, P.R, 0x80c0ff);
+    g.fx.ring(P3(g, p.x, p.z, 0.3), P.R, 0x80c0ff);
+    g.fx.flash(q, P.R * 0.6, 0xcfe8ff, 0.2);
+    g.fx.beam(e.center(), q, 0x80c0ff, 0.08);
+    const foes = g.rtsHeroFoes(e.rtsTeam, p.x, p.z, P.R);
+    g.rtsHeroSplash(e, p.x, p.z, P.R, P.dmg, 'en', 400, e.rtsTeam);
+    for (const t of foes) {
+      if (t.dead) continue;
+      if (t.bld)
+        t.bld.empT = Math.max(t.bld.empT || 0, R.t + P.bld); // 生產與研究暫停（A 的 rtsBuildings 判斷）
+      else g.rtsStun(t, P.stun);
+      if (g.rtsFxOk(t.pos)) g.fx.spark(t.center(), 0x80c0ff);
+    }
+  },
+  // 虛像軍團：20 m 內每台己方一般單位旁邊一個幻象
+  sk_legion(e, g, P) {
+    if (!g.rtsIllusion) return false;
+    const list = g
+      .rtsHeroAllies(e.rtsTeam, e.pos.x, e.pos.z, P.R)
+      .filter(
+        (u) => !u.hero && !u.rtsIllus && !u.rtsTemp && !(RTS_DEFS[u.rtsDef] || {}).worker && !u.rtsFusing,
+      )
+      .sort(
+        (a, b) =>
+          Math.hypot(a.pos.x - e.pos.x, a.pos.z - e.pos.z) - Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z),
+      )
+      .slice(0, P.max);
+    if (!list.length) {
+      if (e.rtsTeam === 0) g.rtsSay('附近沒有己方的單位');
+      return false;
+    }
+    let n = 0;
+    for (const u of list) {
+      const a = Math.random() * Math.PI * 2;
+      const c = g.rtsIllusion(u, u.pos.x + Math.cos(a) * 2.5, u.pos.z + Math.sin(a) * 2.5, {
+        sec: P.t,
+        dmg: P.dmg,
+        taken: P.taken,
+      });
+      if (c) {
+        n++;
+        if (u.orders.length) c.orders = u.orders.map((o) => ({ ...o }));
+      }
+    }
+    g.fx.shockwave(e.center(), P.R, 0xcfe8ff);
+    g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), P.R, 0xcfe8ff);
+    e.hs.legionN = n;
+    return n > 0;
   },
   sk_swamp(e, g, P) {
     g.rtsHeroZone({

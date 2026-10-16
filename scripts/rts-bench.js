@@ -25,6 +25,9 @@
 //   --heroes=6            另外加英雄（兩隊各一半，卡斯特隆三位英雄的 AC：BASTION、RAIN、PILEDRIVER；docs 13.10）
 //   --camps               另外加全部的野怪營地（地圖外圈 8 個營地、小／中／大的編成，待在原地不動；D 包有
 //                         rtsCampSpawnAll 時改用它）
+//   --faction=castron|aetheric|mix  兩隊的兵種（R3，docs 14.9）：castron＝卡斯特隆風格的編成（預設，同以前）、
+//                         aetheric＝艾瑟立克風格（實驗體、寄生纏附體、嵌合體、全像投影器、浮游砲機、雷射 MT…）、
+//                         mix＝友軍卡斯特隆、敵軍艾瑟立克；英雄照舊用 --heroes 的 AC
 //   --tag=名稱            輸出檔名的標記（預設 gpu／swiftshader＋鏡頭）
 //   --seed=1              擺放位置的亂數種子
 // 輸出：test-results/rts-bench-<tag>.json（以及截圖、profile）。需要先 npm run build；瀏覽器可用 BENCH_BROWSER 指定。
@@ -281,7 +284,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const results = [];
   for (const N of COUNTS) {
     const info = await page.evaluate(
-      ({ N, seed, heroes, camps }) => {
+      ({ N, seed, heroes, camps, faction }) => {
         const g = window.__game;
         const w = g.world;
         let s = (seed * 2654435761 + N * 97) >>> 0 || 1;
@@ -305,16 +308,33 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         pl.vel.set(0, 0, 0);
         pl.mesh.position.copy(pl.pos);
         const TYPES = ['mt', 'mth', 'mt_shot', 'drone', 'mt_gren', 'tank', 'mt', 'heli', 'strider', 'ac'];
+        // 艾瑟立克的編成（docs 14.3 的模型：實驗體類是主題專屬敵人的模型、浮游砲機＝偵察機）
+        const AETH = ['blob', 'blob', 'mt', 'parasite', 'chimera', 'holo', 'drone', 'mth', 'blob', 'ac'];
+        // 外觀換成 RTS 定義的真正模型（B 包的 rtsAethReskin；行為照一般任務的 AI）
+        const AETH_DEF = {
+          blob: 'a_blob',
+          mt: 'a_laser',
+          parasite: 'a_parasite',
+          chimera: 'a_chimera',
+          holo: 'a_holo',
+          drone: 'a_bit',
+          mth: 'a_beam',
+          ac: 'a_reson',
+        };
+        const typesOf = (team) =>
+          faction === 'aetheric' || (faction === 'mix' && team === 'enemy') ? AETH : TYPES;
         const half = N / 2;
         const spread = Math.min(L * 0.85, 14 + Math.sqrt(half) * 3.2);
         const mk = (i, team) => {
-          const t = TYPES[i % TYPES.length];
+          const L = typesOf(team);
+          const t = L[i % L.length];
           const side = team === 'enemy' ? 1 : -1;
           const x = Math.max(-L * 0.95, Math.min(L * 0.95, side * (10 + rand() * spread * 0.9)));
           const z = Math.max(-L * 0.95, Math.min(L * 0.95, (rand() * 2 - 1) * spread));
           const [qx, qz] = w.collide(x, z, 50, 1.8);
           const at = new THREE.Vector3(qx, w.groundAt(qx, qz, 99), qz);
           const e = g.spawnType(t, g.scaleHp * 25, g.scaleDmg, at, 1);
+          if (e && L === AETH && e.rtsAethReskin) e.rtsAethReskin(AETH_DEF[t], team === 'enemy' ? 1 : 0);
           if (team === 'ally') {
             const k = g.enemies.indexOf(e);
             if (k >= 0) g.enemies.splice(k, 1);
@@ -393,7 +413,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           e.mesh.traverse((o) => o.isMesh && o.visible && o.layers.mask && meshes++);
         return { en: g.enemies.length, al: g.allies.length, spread: Math.round(spread), meshes, creeps };
       },
-      { N, seed: SEED, heroes: +(args.heroes || 0), camps: !!args.camps },
+      {
+        N,
+        seed: SEED,
+        heroes: +(args.heroes || 0),
+        camps: !!args.camps,
+        faction: ['aetheric', 'mix'].includes(args.faction) ? args.faction : 'castron',
+      },
     );
     await sleep(WARM * 1000);
     if (AB) {

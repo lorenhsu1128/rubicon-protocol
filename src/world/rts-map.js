@@ -47,6 +47,59 @@ export const RTS_THEMES = {
     lights: { model: 'floodlight', r: 0.6, h: [8, 11], sink: 0.3 },
     counts: { rocks: [16, 24], wrecks: [5, 8], lights: [3, 5] }, // 半張圖
   },
+  // R3（docs 14.8、14.14）：冰原（冰湖）與技研都市地表（廢墟台地、Coral 脈、中立區多一對湧出點）。
+  // look＝World 的主題覆寫（plan.themeOver：不畫岩頂、不疊加時間）；extra／after＝附加地形（獨立的亂數串，
+  // 只有這些主題呼叫，荒野的地圖完全不變）；rocks 有 boxW 時是方塊碰撞（boxW／boxH／boxD 的範圍）
+  snow: {
+    name: '冰原',
+    baseH: [6.5, 8.5],
+    ridgeH: [11, 15],
+    mesaH: [10, 13],
+    watchH: [5, 6],
+    rimH: 22,
+    rough: 0.9,
+    rocks: { model: 'icespire', r: [1.6, 2.8], h: [5, 10], sink: 0.4 },
+    wrecks: [
+      { model: 'quonset', box: [6.2, 3.4, 9.4], sink: 0.15 },
+      { model: 'radar', r: [1.4, 1.6], h: [7, 7], sink: 0.1 },
+    ],
+    lights: { model: 'beacon', r: 0.6, h: [8, 11], sink: 0.2 },
+    counts: { rocks: [16, 24], wrecks: [5, 8], lights: [3, 5] },
+    look: { sun: 0xf2f6ff, sunI: 1.05, hemiI: 1.05, fogNear: 50, fogFar: 170, weather: 'snow' },
+    after: iceAfter,
+  },
+  institute: {
+    name: '技研都市地表',
+    baseH: [8, 10],
+    ridgeH: [13, 17],
+    mesaH: [12, 16],
+    watchH: [6, 7],
+    rimH: 26,
+    rough: 0.6,
+    rocks: { model: 'labruin', box: [8.5, 6, 7], boxW: [6, 8.5], boxH: [4, 7], boxD: [5, 7], sink: 0.2 },
+    wrecks: [
+      { model: 'coraltank', r: [2, 2], h: [6.2, 6.2], sink: 0.1 },
+      { model: 'piperun', box: [6, 1.7, 2], sink: 0.05 },
+    ],
+    lights: { model: 'crystal', r: 1.2, h: [3.5, 5], sink: 0.2 },
+    counts: { rocks: [11, 17], wrecks: [5, 8], lights: [3, 5] },
+    corals: { mid: 2 },
+    look: {
+      ground: 0x625e60,
+      slope: 0x45403f,
+      rock: 0x3a3434,
+      sky: 0xc89478,
+      fog: 0xa08c84,
+      sun: 0xffb27a,
+      amb: 0x4f8a90,
+      sunI: 0.95,
+      hemiI: 1.0,
+      fogNear: 55,
+      fogFar: 180,
+      weather: 'coral',
+    },
+    after: coralVeins,
+  },
 };
 
 const AMOUNT = { main: 12000, natural: 10000, outer: 8000, rich: 15000, coralBase: 6000, coralMid: 10000 };
@@ -102,6 +155,9 @@ export function planRtsMap(seed, opt = {}) {
   if (!plan.ok && full) plan = full;
   plan.seed = seed;
   plan.fails = fails;
+  // World 的主題覆寫（buildRts）：RTS 不畫岩頂、不疊加時間；荒野沒有（plan 的內容和以前相同）
+  const TH = RTS_THEMES[theme];
+  if (TH.look) plan.themeOver = { roof: null, noTod: true, ...TH.look };
   plan.ms = Date.now() - t0;
   return plan;
 }
@@ -363,6 +419,19 @@ function genOnce(sub, theme, size) {
   put(merc, 10);
   const coralMid = findLow([-20, 30], [60, 110], 8) || W(10, 80);
   put(coralMid, 10);
+  // 主題的中立 Coral 多幾對（技研都市：corals.mid 2）：獨立的亂數串，荒野不呼叫
+  const coralMids = [coralMid];
+  if (TH.corals && TH.corals.mid > 1) {
+    const xr = makeRng((sub * 59 + 23) >>> 0);
+    for (let k = 1; k < TH.corals.mid; k++)
+      for (let t = 0; t < 80; t++) {
+        const p = W(-20 + xr() * 60, (40 + xr() * 120) * (t & 1 ? 1 : -1));
+        if (!inUse(p, 14) || !isLow(p, 8) || taken(p, 18)) continue;
+        put(p, 10);
+        coralMids.push(p);
+        break;
+      }
+  }
   // 野怪營地（半張圖 3～5 個）
   const camps = [];
   const campNear = (c, r0, r1, tier, guards) => {
@@ -459,6 +528,30 @@ function genOnce(sub, theme, size) {
   const ground = (p, sink) => hAt(p.x, p.z) - sink;
   scatterObs(Math.round(RA(C.rocks)), TH.rocks, (p, r) => {
     const s = TH.rocks;
+    if (s.boxW) {
+      // 方塊的岩石（技研都市的廢墟）：尺寸與 90° 為單位的朝向（荒野不走這裡）
+      const q = Math.floor(rng() * 4);
+      const bw = RA(s.boxW),
+        bd = RA(s.boxD),
+        bh = RA(s.boxH);
+      const [w, d] = q & 1 ? [bd, bw] : [bw, bd];
+      const y = ground(p, s.sink);
+      const color = Math.floor(rng() * 1e6);
+      addObs({
+        model: s.model,
+        kind: 'box',
+        x: p.x,
+        z: p.z,
+        w,
+        d,
+        h: bh,
+        y,
+        top: y + bh,
+        yaw: q * (Math.PI / 2),
+        color,
+      });
+      return;
+    }
     const hh = RA(s.h);
     const y = ground(p, s.sink);
     addObs({ model: s.model, kind: 'circle', x: p.x, z: p.z, r, h: hh, y, top: y + hh, yaw: R(0, 6.28) });
@@ -551,7 +644,8 @@ function genOnce(sub, theme, size) {
     }));
   const corals = [];
   pair(corals, (k, f) => ({ pos: f(coralA), amount: AMOUNT.coralBase, owner: k }));
-  pair(corals, (k, f) => ({ pos: f(coralMid), amount: AMOUNT.coralMid, owner: null, near: k }));
+  for (const cm of coralMids)
+    pair(corals, (k, f) => ({ pos: f(cm), amount: AMOUNT.coralMid, owner: null, near: k }));
   const campsOut = [];
   for (const c of camps)
     pair(campsOut, (k, f) => {
@@ -603,7 +697,218 @@ function genOnce(sub, theme, size) {
   };
   if (campsOut.length < 6 || campsOut.length > 10) return fail(plan, `營地數 ${campsOut.length}`);
   if (outer.length < 2) return fail(plan, '外圍分礦不足');
-  return validate(plan);
+  // 主題的附加地形（冰湖…）：在高度圖與障礙物之後、檢查之前；自己的亂數串 makeRng(sub × 53 ＋ 19)
+  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse };
+  if (TH.extra) {
+    const why = TH.extra(plan, ctx);
+    if (why) return fail(plan, why);
+  }
+  const v = validate(plan);
+  if (v.ok && TH.after) {
+    const why = TH.after(v, ctx);
+    if (why) return fail(v, why);
+  }
+  return v;
+}
+
+// ---------- 主題的附加地形（docs 14.8、14.14） ----------
+export const RTS_ICE_Y = -0.7; // World.onIce 的冰面高度
+const ICE_BAND = 5; // 冰湖邊緣的過渡（m）
+// 點在橢圓裡的程度：< 1＝湖面裡（rot＝長軸的方向角）
+const lakeQ = (L, x, z) => {
+  const dx = x - L.x,
+    dz = z - L.z,
+    c = Math.cos(L.rot),
+    s = Math.sin(L.rot);
+  const lx = dx * c + dz * s,
+    lz = -dx * s + dz * c;
+  return Math.sqrt((lx / L.rx) ** 2 + (lz / L.rz) ** 2);
+};
+export const rtsOnLake = (plan, x, z) => (plan.ice || []).some((L) => lakeQ(L, x, z) < 1);
+// 冰原：每半張圖 1～2 個橢圓冰湖（長軸 24～40 m），壓平到冰面高度；第一個在主要通道上，
+// 不放在主基地、分礦、湧出點 20 m 內，避開營地、中立建築、高地；湖裡與邊緣的障礙物移除
+function iceLakes(plan, c) {
+  const r = c.rng;
+  const R = (a, b) => a + (b - a) * r();
+  const keep = [];
+  for (const b of plan.highs) keep.push([b.pos, b.r + 6], [b.ramp.bottom, 16], [b.ramp.top, 12]);
+  for (const m of plan.mines) keep.push([m.pos, 20]);
+  for (const q of plan.corals) keep.push([q.pos, 20]);
+  for (const q of plan.camps) keep.push([q.pos, 10]);
+  for (const q of plan.neutrals) keep.push([q.pos, 12]);
+  const lakes = [];
+  const fits = (L) => {
+    const big = Math.max(L.rx, L.rz),
+      small = Math.min(L.rx, L.rz);
+    if (Math.hypot(L.x, L.z) < big + 8) return false; // 不碰到自己的鏡像
+    // 到湖緣的距離（沿著從湖心出發的射線）
+    for (const [p, rr] of keep) {
+      const q = lakeQ(L, p.x, p.z);
+      if (q < 1 || Math.hypot(p.x - L.x, p.z - L.z) * (1 - 1 / q) < rr + ICE_BAND) return false;
+    }
+    for (const o of lakes)
+      for (const sg of [1, -1])
+        if (Math.hypot(L.x - sg * o.x, L.z - sg * o.z) < big + Math.max(o.rx, o.rz) + 10) return false;
+    // 整個湖（含邊緣的過渡）都是低地
+    const sc = 1 + (ICE_BAND + 2) / small;
+    const cs = Math.cos(L.rot),
+      sn = Math.sin(L.rot);
+    for (const k of [0, 0.55, sc])
+      for (let a = 0; a < (k ? 16 : 1); a++) {
+        const t = (a / 16) * Math.PI * 2,
+          lx = Math.cos(t) * L.rx * k,
+          lz = Math.sin(t) * L.rz * k;
+        const p = { x: L.x + lx * cs - lz * sn, z: L.z + lx * sn + lz * cs };
+        if (!c.inUse(p, 6) || c.high(p) > 0.05) return false;
+      }
+    return true;
+  };
+  let rMax = 20;
+  const make = (x, z, rot) => {
+    const rx = R(12, rMax);
+    return { x, z, rx, rz: rx * R(0.55, 0.8), rot };
+  };
+  // 第一個：主要通道（第一次檢查算出的 plan.lanes，A 側的前半段）上，長軸順著通道
+  for (let t = 0; t < 80 && !lakes.length; t++) {
+    if (t === 40) rMax = 15;
+    const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+    if (!lane || lane.length < 2) break;
+    let tot = 0;
+    for (let k = 1; k < lane.length; k++)
+      tot += Math.hypot(lane[k].x - lane[k - 1].x, lane[k].z - lane[k - 1].z);
+    let want = tot * R(0.12, 0.42);
+    for (let k = 1; k < lane.length; k++) {
+      const a = lane[k - 1],
+        b = lane[k];
+      const sl = Math.hypot(b.x - a.x, b.z - a.z);
+      if (want > sl) {
+        want -= sl;
+        continue;
+      }
+      const ux = (b.x - a.x) / (sl || 1),
+        uz = (b.z - a.z) / (sl || 1),
+        side = R(-3, 3);
+      const L = make(
+        a.x + ux * want - uz * side,
+        a.z + uz * want + ux * side,
+        Math.atan2(uz, ux) + R(-0.25, 0.25),
+      );
+      if (fits(L)) lakes.push(L);
+      break;
+    }
+  }
+  rMax = 20;
+  if (!lakes.length) return '冰湖放不下';
+  if (r() < 0.5)
+    for (let t = 0; t < 40; t++) {
+      const p = c.W(R(10, c.U1 + 40), R(-0.9, 0.9) * c.S);
+      const L = make(p.x, p.z, R(0, Math.PI));
+      if (fits(L)) {
+        lakes.push(L);
+        break;
+      }
+    }
+  const all = [];
+  for (const L of lakes) all.push(L, { ...L, x: -L.x, z: -L.z });
+  // 高度：湖面＝冰面高度，邊緣 ICE_BAND 公尺平滑過渡（k 與 N²−1−k 同值，維持對稱）
+  const n = plan.n,
+    h = plan.h,
+    S = plan.size / 2,
+    half = (n * n - 1) / 2;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      if (k > half) continue;
+      const x = i * RTS_CELL - S,
+        z = j * RTS_CELL - S;
+      let w = 0;
+      for (const L of all) {
+        const e = L.rx + ICE_BAND + 1;
+        if (Math.abs(x - L.x) > e || Math.abs(z - L.z) > e) continue;
+        const q = lakeQ(L, x, z);
+        const v = q <= 1 ? 1 : 1 - sm(((q - 1) * Math.min(L.rx, L.rz)) / ICE_BAND);
+        if (v > w) w = v;
+      }
+      if (w <= 0) continue;
+      const v = h[k] + (RTS_ICE_Y - h[k]) * w;
+      h[k] = v;
+      h[n * n - 1 - k] = v;
+    }
+  // 湖裡與邊緣的障礙物移除（成對：鏡像的湖蓋住鏡像的障礙物）
+  plan.obstacles = plan.obstacles.filter((o) => {
+    const or = o.r || Math.hypot(o.w || 0, o.d || 0) / 2;
+    return all.every((L) => lakeQ(L, o.x, o.z) > 1 + (or + ICE_BAND + 1) / Math.min(L.rx, L.rz));
+  });
+  plan.ice = all.map((L) => ({ x: L.x, z: L.z, rx: L.rx, rz: L.rz, rot: L.rot, y: RTS_ICE_Y }));
+  return '';
+}
+// 冰原：冰湖放在第一次檢查算出的通道上 → 改了高度圖與障礙物，所以整個重新檢查一次（不合格換子種子）→
+// 至少一個冰湖在重新算出的通道上
+function iceAfter(plan, c) {
+  const why = iceLakes(plan, c);
+  if (why) return why;
+  if (!validate(plan).ok) return plan.fail;
+  return iceOnLane(plan);
+}
+function iceOnLane(plan) {
+  for (const lane of plan.lanes)
+    for (let k = 1; k < lane.length; k++) {
+      const a = lane[k - 1],
+        b = lane[k];
+      const m = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2));
+      for (let s = 0; s <= m; s++)
+        if (rtsOnLake(plan, a.x + ((b.x - a.x) * s) / m, a.z + ((b.z - a.z) * s) / m)) return '';
+    }
+  return '冰湖不在通道上';
+}
+// 技研都市：地表裂開的 Coral 脈（只有外觀、不擋路），沿主要通道（A 側的前半段）每 10～18 m 一段，轉 180° 複製
+function coralVeins(plan, c) {
+  const r = c.rng;
+  const R = (a, b) => a + (b - a) * r();
+  const th = heightSampler(plan.h, plan.n, plan.size);
+  const decor = [];
+  const ok = (x, z, len, yaw) => {
+    for (const m of plan.mines) if (Math.hypot(m.pos.x - x, m.pos.z - z) < 10 + len / 2) return false;
+    for (const q of plan.corals) if (Math.hypot(q.pos.x - x, q.pos.z - z) < 8 + len / 2) return false;
+    for (const q of plan.neutrals) if (Math.hypot(q.pos.x - x, q.pos.z - z) < 12 + len / 2) return false;
+    for (const o of plan.obstacles)
+      if (Math.hypot(o.x - x, o.z - z) < (o.r || Math.hypot(o.w, o.d) / 2) + len / 2 + 1) return false;
+    for (const d of decor) if (Math.hypot(d.x - x, d.z - z) < 5) return false;
+    const ex = (Math.cos(yaw) * len) / 2,
+      ez = (-Math.sin(yaw) * len) / 2;
+    return Math.abs(th(x + ex, z + ez) - th(x - ex, z - ez)) < 0.5 && Math.hypot(x, z) > len;
+  };
+  for (const lane of plan.lanes) {
+    let tot = 0;
+    for (let k = 1; k < lane.length; k++)
+      tot += Math.hypot(lane[k].x - lane[k - 1].x, lane[k].z - lane[k - 1].z);
+    let walked = 0,
+      next = R(6, 14);
+    for (let k = 1; k < lane.length && walked < tot / 2; k++) {
+      const a = lane[k - 1],
+        b = lane[k];
+      const sl = Math.hypot(b.x - a.x, b.z - a.z) || 1e-6;
+      const dx = (b.x - a.x) / sl,
+        dz = (b.z - a.z) / sl;
+      while (next <= walked + sl && next < tot / 2) {
+        const f = (next - walked) / sl;
+        const side = R(-5, 5);
+        const x = a.x + (b.x - a.x) * f - dz * side,
+          z = a.z + (b.z - a.z) * f + dx * side;
+        const len = R(4, 8),
+          yaw = Math.atan2(-dz, dx) + R(-0.4, 0.4);
+        if (r() < 0.75 && ok(x, z, len, yaw)) {
+          const y = th(x, z) + 0.02;
+          decor.push({ model: 'coralvein', x, z, y, len, yaw });
+          decor.push({ model: 'coralvein', x: -x, z: -z, y, len, yaw: yaw + Math.PI });
+        }
+        next += R(10, 18);
+      }
+      walked += sl;
+    }
+  }
+  plan.decor = decor;
+  return '';
 }
 
 function fail(plan, why) {

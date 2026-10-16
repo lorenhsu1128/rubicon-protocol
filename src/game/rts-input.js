@@ -3,9 +3,12 @@
 // Ctrl＋數字編隊、指令卡快捷鍵（依格子位置 Q W E R／A S D F／Z X C V）、目標模式（攻擊移動、巡邏…）、建造預覽與放置。
 // 狀態放在 this.rts.cam（鏡頭）與 this.rts.ui（輸入與介面）；選取是 this.rts.sel、編隊 this.rts.groups（docs/rts-design.md 12 節）。
 // 核心的 rtsTick 每格呼叫 rtsCamUpdate(dt)（鏡頭、3D 標示、HUD 都在這裡更新）。
+// R3 艾瑟立克（docs 14.15）：建造預覽多看 rtsPowerWhy（導管範圍；原因顯示在模式提示）；導管的範圍圈 rtsHudRings
+// （建造要電／供電的建築、選取己方的導管建築時，貼著地形畫己方全部的供電範圍：有電青色、沒電灰色、選中的較亮；
+// 導管重算（rtsHudPower）或選取改變時才重建網格）；預覽的建築是供電源時另外畫它自己的範圍與連接距離。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
-import { RTS_SEL_MAX } from '../data/rts-units.js';
+import { RTS_DEFS, RTS_SEL_MAX } from '../data/rts-units.js';
 
 const RTS_ME = 0; // 玩家的隊伍編號（rts.teams[0]）
 const PITCH0 = 0.96; // 預設俯角（約 55°）
@@ -16,6 +19,9 @@ const EDGE_PX = 6; // 畫面邊緣捲動的寬度
 const SEL_MAX = RTS_SEL_MAX;
 const DBL_T = 0.35; // 雙擊、連按兩下編隊的間隔（秒）
 const COL = { own: 0x4cff7a, foe: 0xff4a3a, neu: 0xffd23a, sig: 0x5cf0ff };
+const POW = { on: [0.36, 0.85, 1], off: [0.5, 0.55, 0.6], sel: [0.8, 0.97, 1] }; // 範圍圈的顏色
+const RING_SEG = 72; // 範圍圈的邊緣段數
+const RING_LIFT = 0.35; // 離地高度
 
 let ringGeo = null;
 const ringMats = {};
@@ -659,6 +665,11 @@ Object.assign(Game.prototype, {
       ok = nav ? nav.buildable(x, z, w, d) : true;
       why = ok ? '' : '這裡不能建造';
     }
+    // 導管（艾瑟立克：要電的建築在有電的範圍內、節點在有電的導管 32 m 內）
+    if (ok && typeof this.rtsPowerWhy === 'function') {
+      const pw = this.rtsPowerWhy(RTS_ME, m.def, x, z);
+      if (pw) ((ok = false), (why = pw));
+    }
     // 沒探索過的地方不能蓋（照魔獸3）
     if (ok && typeof this.rtsFogState === 'function' && this.rtsFogState(RTS_ME, x, z) === 0) {
       ok = false;
@@ -699,6 +710,7 @@ Object.assign(Game.prototype, {
     G.z = z;
     G.ok = ok;
     G.why = why;
+    this.rtsHudGhostRing(D, x, z, ok);
   },
   rtsFootY(x, z, w, d) {
     const th = (a, b) => this.world.terrainHeight(a, b);
@@ -713,6 +725,8 @@ Object.assign(Game.prototype, {
   rtsGhostHide() {
     const g = this.rts && this.rts.ui && this.rts.ui.ghost;
     if (g) g.g.visible = false;
+    const gr = this.rts && this.rts.ui && this.rts.ui.gRing;
+    if (gr) gr.visible = false;
   },
   rtsCostWhy(cost) {
     const T = this.rts.teams[RTS_ME];
@@ -781,7 +795,9 @@ Object.assign(Game.prototype, {
     for (let i = 0; i < n; i++) {
       const x = horiz ? x0 + sg * i * fw : x0,
         z = horiz ? z0 : z0 + sg * i * fw;
-      const ok = !nav || (horiz ? nav.buildable(x, z, fw, fd) : nav.buildable(x, z, fd, fw));
+      const ok =
+        (!nav || (horiz ? nav.buildable(x, z, fw, fd) : nav.buildable(x, z, fd, fw))) &&
+        !(this.rtsPowerWhy && this.rtsPowerWhy(RTS_ME, m.def, x, z));
       if (!ok) continue;
       if (typeof this.rtsOrder === 'function')
         this.rtsOrder([w], { k: 'build', def: m.def, x, z, yaw: horiz ? 0 : Math.PI / 2 }, true);
@@ -864,7 +880,184 @@ Object.assign(Game.prototype, {
     }
     for (; i < ui.rings.length; i++) ui.rings[i].visible = false;
     if (ui.mode && ui.mode.k === 'build') this.rtsGhostUpdate();
+    this.rtsHudRings();
   },
+  // ---------- 導管的範圍圈（R3） ----------
+  // 要不要顯示：建造模式的建築要電或是供電源、選取中有己方的導管建築（要電的建築、供電源）
+  rtsHudRingsWant() {
+    const R = this.rts,
+      ui = R.ui;
+    if (R.pilot || this.state !== 'rts' || !(this.rtsPowerTeam && this.rtsPowerTeam(RTS_ME))) return false;
+    const m = ui.mode;
+    if (m && m.k === 'build') return !!(m.D && (m.D.needPower || m.D.conduit));
+    return R.sel.some((e) => {
+      if (e.dead || !e.bld || e.rtsTeam !== RTS_ME) return false;
+      const D = RTS_DEFS[e.rtsDef] || {};
+      return !!(D.needPower || D.conduit);
+    });
+  },
+  // 範圍圈：一個網格（填色）＋一組線段（邊緣；有電的範圍被別的有電範圍蓋住的段不畫），貼著地形；導管重算或選取改變時重建
+  rtsHudRings() {
+    const R = this.rts,
+      ui = R.ui;
+    if (!this.rtsHudRingsWant()) {
+      if (ui.rings3) ui.rings3.g.visible = false;
+      return;
+    }
+    const T = R.teams[RTS_ME];
+    const P = T.power || { srcs: [], ver: 0 };
+    const selIds = R.sel.filter((e) => !e.dead && e.bld).map((e) => e.id);
+    const key = (P.ver || 0) + '|' + P.srcs.length + '|' + selIds.join(',');
+    if (!ui.rings3) {
+      const g = new THREE.Group();
+      g.userData.helper = true;
+      const fill = new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.1,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+        }),
+      );
+      const edge = new THREE.LineSegments(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.95,
+          depthWrite: false,
+        }),
+      );
+      fill.renderOrder = 3;
+      edge.renderOrder = 4;
+      fill.frustumCulled = edge.frustumCulled = false;
+      g.add(fill, edge);
+      this.scene.add(g);
+      ui.rings3 = { g, fill, edge, n: 0 };
+      ui.ringKey = '';
+    }
+    const Rg = ui.rings3;
+    Rg.g.visible = true;
+    if (ui.ringKey === key) return;
+    ui.ringKey = key;
+    const th = (x, z) => this.world.terrainHeight(x, z) + RING_LIFT;
+    const fp = [],
+      fc = [],
+      fi = [],
+      lp = [],
+      lc = [];
+    const srcs = P.srcs;
+    const covered = (x, z, self) =>
+      srcs.some((o) => o !== self && o.on && Math.hypot(o.x - x, o.z - z) < o.r - 0.05);
+    const N = 36,
+      RN = 4; // 填色：中心＋4 圈 × 36 段
+    for (const s of srcs) {
+      const sel = !!(s.e && selIds.includes(s.e.id));
+      const col = sel ? POW.sel : s.on ? POW.on : POW.off;
+      const v0 = fp.length / 3;
+      fp.push(s.x, th(s.x, s.z), s.z);
+      fc.push(...col);
+      for (let k = 1; k <= RN; k++)
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2,
+            rr = (s.r * k) / RN;
+          const x = s.x + Math.cos(a) * rr,
+            z = s.z + Math.sin(a) * rr;
+          fp.push(x, th(x, z), z);
+          fc.push(...col);
+        }
+      for (let i = 0; i < N; i++) {
+        const j = (i + 1) % N;
+        fi.push(v0, v0 + 1 + i, v0 + 1 + j);
+        for (let k = 1; k < RN; k++) {
+          const a = v0 + 1 + (k - 1) * N,
+            b = v0 + 1 + k * N;
+          fi.push(a + i, b + i, b + j, a + i, b + j, a + j);
+        }
+      }
+      for (let i = 0; i < RING_SEG; i++) {
+        const a0 = (i / RING_SEG) * Math.PI * 2,
+          a1 = ((i + 1) / RING_SEG) * Math.PI * 2;
+        const x0 = s.x + Math.cos(a0) * s.r,
+          z0 = s.z + Math.sin(a0) * s.r,
+          x1 = s.x + Math.cos(a1) * s.r,
+          z1 = s.z + Math.sin(a1) * s.r;
+        if (s.on && !sel && covered((x0 + x1) / 2, (z0 + z1) / 2, s)) continue;
+        lp.push(x0, th(x0, z0), z0, x1, th(x1, z1), z1);
+        lc.push(...col, ...col);
+      }
+    }
+    const fg = new THREE.BufferGeometry();
+    fg.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3));
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(fc, 3));
+    fg.setIndex(fi);
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
+    lg.setAttribute('color', new THREE.Float32BufferAttribute(lc, 3));
+    Rg.fill.geometry.dispose();
+    Rg.edge.geometry.dispose();
+    Rg.fill.geometry = fg;
+    Rg.edge.geometry = lg;
+    Rg.n = srcs.length;
+  },
+  // 建造預覽是供電源時：它自己的供電範圍（綠／紅）＋節點的連接距離（灰色虛線：要在有電的導管這個距離內）
+  rtsHudGhostRing(D, x, z, ok) {
+    const ui = this.rts.ui;
+    if (!(D && D.conduit && this.rtsPowerTeam && this.rtsPowerTeam(RTS_ME))) {
+      if (ui.gRing) ui.gRing.visible = false;
+      return;
+    }
+    const segs = RING_SEG;
+    const rings = [this.rtsPowerR ? this.rtsPowerR(RTS_ME, D) : D.conduit.r];
+    if (!D.conduit.root) rings.push(D.conduit.link || 32);
+    if (!ui.gRing) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs * 2 * 2 * 3), 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(segs * 2 * 2 * 3), 3));
+      const l = new THREE.LineSegments(
+        geo,
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.95,
+          depthWrite: false,
+        }),
+      );
+      l.userData.helper = true;
+      l.renderOrder = 6;
+      l.frustumCulled = false;
+      this.scene.add(l);
+      ui.gRing = l;
+    }
+    const l = ui.gRing;
+    const pa = l.geometry.attributes.position,
+      ca = l.geometry.attributes.color;
+    const c0 = ok ? [0.3, 1, 0.45] : [1, 0.3, 0.3],
+      c1 = [0.6, 0.65, 0.7];
+    let n = 0;
+    rings.forEach((r, ri) => {
+      const c = ri ? c1 : c0;
+      for (let i = 0; i < segs; i++) {
+        if (ri && i % 2) continue; // 連接距離畫成虛線
+        for (const t of [i, i + 1]) {
+          const a = (t / segs) * Math.PI * 2;
+          const px = x + Math.cos(a) * r,
+            pz = z + Math.sin(a) * r;
+          pa.setXYZ(n, px, this.world.terrainHeight(px, pz) + RING_LIFT + 0.05, pz);
+          ca.setXYZ(n, c[0], c[1], c[2]);
+          n++;
+        }
+      }
+    });
+    l.geometry.setDrawRange(0, n);
+    pa.needsUpdate = ca.needsUpdate = true;
+    l.visible = true;
+  },
+
   // 離開 RTS 時清掉 3D 標示（核心的 rtsEnd／clearMission 呼叫）
   rtsInputClear() {
     const ui = this.rts && this.rts.ui;
@@ -875,6 +1068,17 @@ Object.assign(Game.prototype, {
       m.mesh.material.dispose();
     }
     if (ui.ghost) this.scene.remove(ui.ghost.g);
+    if (ui.rings3) {
+      this.scene.remove(ui.rings3.g);
+      ui.rings3.fill.geometry.dispose();
+      ui.rings3.edge.geometry.dispose();
+      ui.rings3 = null;
+    }
+    if (ui.gRing) {
+      this.scene.remove(ui.gRing);
+      ui.gRing.geometry.dispose();
+      ui.gRing = null;
+    }
     ui.rings = [];
     ui.marks = [];
     ui.ghost = null;

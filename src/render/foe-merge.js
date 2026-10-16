@@ -96,7 +96,9 @@ function probeMoving(build, pal, scale) {
     return o;
   });
   const E = 1e-6;
+  const lit = new Set(); // 發光強度會變的材質（RTS 的單一材質合併以 uniform 重現脈動）
   const check = () => {
+    for (const s of msnap) if (s.m.emissiveIntensity !== s.emissiveIntensity) lit.add(s.m);
     nodes.forEach((o, i) => {
       if (moving.has(o)) return;
       const s = snap[i];
@@ -130,15 +132,43 @@ function probeMoving(build, pal, scale) {
   }
   const out = new Set();
   for (const o of moving) out.add(paths.get(o));
+  // 每種發光會變的材質記一個用到它的網格的路徑
+  out.lit = [];
+  for (const m of lit) {
+    const o = nodes.find((n) => n.material === m);
+    if (o) out.lit.push(paths.get(o));
+  }
   for (const o of nodes) delete o._probeParent;
   return out;
 }
 
 // 地圖專屬敵人的建模出口：建好後合併靜態零件。會脫落的板與擊破時拆開的區塊也合併，
 // rig.dmg.unmerge() 還原（render/foe-damage.js 在拆下之前呼叫）。
+// o.raw（RTS 渲染設定，MechEntity 的 modelKind 'boss'）：不在這裡合併，交給 render/rts-merge.js 的單一材質合併；
+// 動作函式會動的節點（試驗的結果）放在 rig.rtsAnim（rigRefs 會把它們當成骨頭），rig.dmg 的 unmerge／remerge 轉給整台的
+function rawRig(key, build, rig, pal, scale) {
+  let probe = PROBE.get(key);
+  if (!probe) PROBE.set(key, (probe = probeMoving(build, pal, scale)));
+  const nodes = [];
+  for (const [o, p] of pathsOf(rig.group)) if (o !== rig.group && probe.has(p)) nodes.push(o);
+  rig.rtsAnim = nodes;
+  // 發光會脈動的材質（render/rts-merge.js 的 rtsPulse）
+  if (probe.lit && probe.lit.length) {
+    const byPath = new Map();
+    for (const [o, p] of pathsOf(rig.group)) byPath.set(p, o);
+    rig.rtsPulseMats = probe.lit.map((p) => byPath.get(p) && byPath.get(p).material).filter(Boolean);
+  }
+  const d = rig.dmg;
+  if (d) {
+    d.unmerge = () => rig.unmerge && rig.unmerge();
+    d.remerge = () => rig.remerge && rig.remerge();
+  }
+  return rig;
+}
 export function foeMerged(key, build) {
-  return (pal, scale) => {
+  return (pal, scale, o) => {
     const rig = build(pal, scale);
+    if (o && o.raw && rig && rig.group) return rawRig(key, build, rig, pal, scale);
     const root = rig && rig.group;
     if (!root) return rig;
     let probe = PROBE.get(key);

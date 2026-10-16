@@ -82,7 +82,9 @@ import './game/rts-input.js'; // Coral 戰爭的鏡頭、選取、快捷鍵
 import './game/rts-hud.js'; // Coral 戰爭的 HUD（資源列、小地圖、選取面板、指令卡）
 import './game/rts.js'; // Coral 戰爭的核心：選單、開局、資源、生產、建造、勝敗
 import './game/rts-orders.js'; // Coral 戰爭的指令發佈、尋路排隊
+import './game/rts-grid.js'; // Coral 戰爭 R3：艾瑟立克的導管網、融合、幻象、結晶護壁
 import './entities/mech-rts.js'; // Coral 戰爭的單位行為
+import './entities/mech-rts-aeth.js'; // Coral 戰爭 R3：艾瑟立克的兵種行為（近戰、技能、雷射網、融合的外觀）
 import './game/rts-ai.js'; // Coral 戰爭的電腦對手
 import './game/rts-pilot.js'; // Coral 戰爭的親自駕駛、自動管家
 import './game/rts-neutral.js'; // Coral 戰爭的中立：野怪營地、酒館、商店、傭兵營

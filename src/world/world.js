@@ -349,8 +349,10 @@ export class World {
   // RTS 的對稱地圖（world/rts-map.js）：高度圖整張取代；跳過地形特徵、公路／鐵路、變體、大型結構、一般物件、
   // 邊界處理的地形修改（planEdges 只給遠景用）；障礙物照 plan 建，最後建導航格 this.nav
   buildRts() {
-    const P = this.opt.rts,
-      T = this.theme,
+    const P = this.opt.rts;
+    // 主題的覆寫（rts-map.js 的 RTS_THEMES[].look：不畫岩頂、不疊加時間、地表的光線與顏色）
+    if (P.themeOver) this.theme = { ...this.theme, ...P.themeOver };
+    const T = this.theme,
       S = this.size / 2;
     this.features = [];
     this.featureNames = [];
@@ -370,10 +372,43 @@ export class World {
         this.addSmall(g, o.x, o.y, o.z, o.kind === 'box' ? { w: o.w, h: o.h, d: o.d } : { r: o.r, h: o.h }),
       );
     }
+    // 裝飾（plan.decor：技研都市的 Coral 脈）：不碰撞，和障礙物一起合併（迷霧的著色器同樣隱藏沒探索過的）
+    for (const o of P.decor || []) {
+      const g = rtsPropMesh(o, T);
+      if (!g) continue;
+      g.position.set(o.x, o.y, o.z);
+      g.rotation.y = o.yaw || 0;
+      this.scene.add(g);
+      this.meshes.push(g);
+      rp.push({ group: g, x: o.x, z: o.z });
+    }
     mergeRtsProps(this, rp); // 外觀依材質靜態合併（world/rts-props.js；迷霧的隱藏改在著色器）
+    // 冰湖（plan.ice）：冰面（地形的一部分：不受迷霧影響）；兩個鏡像的湖共用一張貼圖
+    let ice0 = null;
+    for (const L of P.ice || []) {
+      const m = ice0 ? ice0.clone() : (ice0 = buildIceSheet(1, 1, makeRng(((P.seed >>> 0) * 3 + 1) >>> 0)));
+      m.scale.set(L.rx, 1, L.rz);
+      m.position.set(L.x, L.y + 0.05, L.z);
+      m.rotation.y = -L.rot;
+      // 不設 noFade：rts-fog.js 把 world.meshes 裡 noFade 的網格當成遠景一直隱藏
+      m.updateMatrix(); // 靜止的冰面：矩陣先算好（RTS 的場景更新會略過沒有標記的節點）
+      m.matrixAutoUpdate = false;
+      m.updateMatrixWorld(true);
+      this.scene.add(m);
+      this.meshes.push(m);
+    }
     this.nav = new NavGrid(this, { cell: 2 });
     for (const m of P.mines || []) this.nav.reserve(m.pos.x, m.pos.z, 7);
     for (const c of P.corals || []) this.nav.reserve(c.pos.x, c.pos.z, 5);
+    // 冰湖不能蓋建築：沿長軸放幾個圓
+    for (const L of P.ice || []) {
+      const n = Math.ceil(L.rx / L.rz) + 1;
+      for (let k = 0; k < n; k++) {
+        const f = n > 1 ? (k / (n - 1)) * 2 - 1 : 0;
+        const e = L.rx - L.rz;
+        this.nav.reserve(L.x + Math.cos(L.rot) * e * f, L.z + Math.sin(L.rot) * e * f, L.rz + 1);
+      }
+    }
   }
   hAt(i, j) {
     i = clamp(i, 0, this.cells);

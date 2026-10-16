@@ -43,6 +43,7 @@ import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
+const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
 let MECH_ID = 0;
 const _rwM = new THREE.Matrix4(),
   _nzM = new THREE.Matrix4(); // thrusterFx 的暫存
@@ -75,7 +76,7 @@ export class MechEntity {
           : opts.modelKind === 'drone'
             ? buildDrone(pal, this.scale, opts.vehKey || 'swarm')
             : opts.modelKind === 'boss' || opts.modelKind === 'part'
-              ? buildBossModel(opts.vehKey, pal, this.scale) // 新 Boss 與附屬部位（render/boss-models.js）
+              ? buildBossModel(opts.vehKey, pal, this.scale, game && game.rtsR ? RAW_FOE : undefined) // 新 Boss 與附屬部位（render/boss-models.js；RTS 渲染設定時地圖專屬敵人改用單一材質合併）
               : opts.buildModel
                 ? opts.buildModel(pal, this.scale) // 呼叫端給的模型（RTS 的建築，render/rts-models.js）
                 : this.buildRig();

@@ -30,6 +30,7 @@
 //              { k: 'hire', hero｜merc }、{ k: 'militia' }、{ k: 'demob' }
 //         卡片的 req（同定義的 req）：不符合時灰掉（例：盾牆要研究 r_wall）
 import { RTS_RESEARCH } from './rts-combat.js';
+import { RTS_AETH_ABILS, RTS_AETH_DEFS, RTS_AETH_FACTION, RTS_AETH_RESEARCH } from './rts-aetheric.js';
 import { RTS_HERO_DEFS } from './rts-heroes.js';
 import { RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS } from './rts-neutral.js';
 
@@ -44,7 +45,7 @@ export const RTS_START = { ore: 500, coral: 100, workers: 5 };
 export const RTS_QUEUE_MAX = 5; // 生產佇列
 export const RTS_SEL_MAX = 24; // 一次最多選幾個單位
 export const RTS_GATHER = {
-  trip: 10, // 每趟帶回的礦石
+  trip: 10, // 每趟帶回的礦石（定義沒有 trip 時的預設值；艾瑟立克的研究作業機 8）
   time: 2, // 採一趟的秒數
   drop: 0.5, // 在主堡卸貨的秒數
   sat: 5, // 一座礦脈同時採集的工人數（超過的排隊或換礦）
@@ -124,6 +125,8 @@ export const RTS_ABILS = {
   },
 };
 for (const id in RTS_ABILS) RTS_ABILS[id].id = id;
+// 艾瑟立克的技能（data/rts-aetheric.js；docs 14.3）
+Object.assign(RTS_ABILS, RTS_AETH_ABILS);
 
 // ---------- 共用的指令卡 ----------
 const ORD = {
@@ -244,14 +247,19 @@ const hqCard = (next) => [
   cancel,
   rally,
 ];
-const hqMenus = {
-  hero: [
-    { at: [0, 0], name: 'BASTION', tip: '重裝要塞', act: { k: 'hero', id: 'h_bastion' } },
-    { at: [0, 1], name: 'RAIN', tip: '砲兵指揮', act: { k: 'hero', id: 'h_rain' } },
-    { at: [0, 2], name: 'PILEDRIVER', tip: '突擊', act: { k: 'hero', id: 'h_pile' } },
-    back,
-  ],
-};
+// 主堡的英雄子選單（Q W E＝陣營的三位英雄、V 返回）：依 RTS_FACTIONS[陣營].heroes 在檔尾產生（docs 14.3）
+const heroMenu = (ids) => [
+  ...ids.map((id, i) => {
+    const H = RTS_DEFS[id] || {};
+    return {
+      at: [0, i],
+      name: H.name || id.replace(/^h_/, '').toUpperCase(),
+      tip: H.role || '',
+      act: { k: 'hero', id },
+    };
+  }),
+  back,
+];
 
 // ---------- 定義 ----------
 export const RTS_DEFS = {
@@ -624,7 +632,6 @@ export const RTS_DEFS = {
     trains: ['c_worker'],
     upTo: 'c_hq2',
     card: hqCard('c_hq2'),
-    menus: hqMenus,
   },
   c_hq2: {
     kind: 'bld',
@@ -650,7 +657,6 @@ export const RTS_DEFS = {
     upTo: 'c_hq3',
     fortGun: { range: 30, dps: 20, atk: 'kin', rof: 0.25 },
     card: hqCard('c_hq3'),
-    menus: hqMenus,
   },
   c_hq3: {
     kind: 'bld',
@@ -675,7 +681,6 @@ export const RTS_DEFS = {
     from: 'c_hq2',
     fortGun: { range: 30, dps: 20, atk: 'kin', rof: 0.25 },
     card: hqCard(null),
-    menus: hqMenus,
   },
   c_depot: {
     kind: 'bld',
@@ -882,26 +887,27 @@ export const RTS_DEFS = {
     card: [train([0, 0], 'c_heli'), loop, cancel, rally],
   },
 };
-// 其他包的定義：英雄（C）、野怪與中立建築（D）
-Object.assign(RTS_DEFS, RTS_HERO_DEFS, RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS);
+// 其他包的定義：英雄（C）、野怪與中立建築（D）、艾瑟立克（data/rts-aetheric.js）
+Object.assign(RTS_DEFS, RTS_HERO_DEFS, RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS, RTS_AETH_DEFS);
+Object.assign(RTS_RESEARCH, RTS_AETH_RESEARCH);
 // 指令卡的預設快捷鍵（依位置）與說明（建造、生產的名稱帶成本）
 const costTxt = (c) => `礦石 ${c.ore || 0}${c.coral ? '、Coral ' + c.coral : ''}`;
+const fixCard = (card) => {
+  for (const c of card) {
+    if (!c.key) c.key = CARD_KEYS[c.at[0]][c.at[1]];
+    const a = c.act || {};
+    const ref =
+      a.k === 'train' || a.k === 'build' ? RTS_DEFS[a.id] : a.k === 'upgrade' ? RTS_DEFS[a.to] : null;
+    if (ref && !c.name) c.name = a.k === 'upgrade' ? '升級：' + ref.name : ref.name;
+    if (ref && !c.tip) c.tip = `${ref.desc}（${costTxt(ref.cost)}）`;
+    if (a.k === 'research' && !c.tip) c.tip = RTS_RESEARCH[a.id].desc;
+  }
+};
 for (const id in RTS_DEFS) {
   const D = RTS_DEFS[id];
   D.id = id;
-  const fix = (card) => {
-    for (const c of card) {
-      if (!c.key) c.key = CARD_KEYS[c.at[0]][c.at[1]];
-      const a = c.act || {};
-      const ref =
-        a.k === 'train' || a.k === 'build' ? RTS_DEFS[a.id] : a.k === 'upgrade' ? RTS_DEFS[a.to] : null;
-      if (ref && !c.name) c.name = a.k === 'upgrade' ? '升級：' + ref.name : ref.name;
-      if (ref && !c.tip) c.tip = `${ref.desc}（${costTxt(ref.cost)}）`;
-      if (a.k === 'research' && !c.tip) c.tip = RTS_RESEARCH[a.id].desc;
-    }
-  };
-  fix(D.card || []);
-  for (const m in D.menus || {}) fix(D.menus[m]);
+  fixCard(D.card || []);
+  for (const m in D.menus || {}) fixCard(D.menus[m]);
 }
 
 // ---------- 陣營（四個，R2 只有卡斯特隆可以選） ----------
@@ -943,17 +949,27 @@ export const RTS_FACTIONS = {
     ],
     heroes: ['h_bastion', 'h_rain', 'h_pile'],
     market: 'c_market',
+    traits: ['工人修理、主堡動員民兵', '城牆、防禦塔、重裝的兵種', '礦石多、單位耐打'],
   },
+  // 艾瑟立克（docs 14.2；hq／worker／units／blds／heroes／grid… 在 data/rts-aetheric.js 的 RTS_AETH_FACTION）
   aetheric: {
     name: '艾瑟立克研究機構',
     leader: '薩奇博士',
     style: '能量、實驗體、研究',
-    avail: false,
     pal: 'aetheric',
+    ...RTS_AETH_FACTION,
   },
   veerwell: { name: '維爾威動態', leader: '派克', style: '機動、空中、物流', avail: false, pal: 'veerwell' },
   sancta: { name: '聖域互助同盟', leader: '諾拉', style: '便宜、數量、回收', avail: false, pal: 'castron' },
 };
+// 主堡（有 heroes 的建築）的英雄子選單：依陣營的英雄產生
+for (const id in RTS_DEFS) {
+  const D = RTS_DEFS[id];
+  const F = D.heroes && RTS_FACTIONS[D.faction];
+  if (!F || !F.heroes) continue;
+  D.menus = { ...(D.menus || {}), hero: heroMenu(F.heroes) };
+  fixCard(D.menus.hero);
+}
 export const RTS_DIFFS = [
   { id: 'easy', name: '簡單' },
   { id: 'normal', name: '普通' },

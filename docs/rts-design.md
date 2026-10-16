@@ -912,3 +912,463 @@ R.butler = { gather: true, loop: true, depot: true, defend: true, follow: false 
   - **R4（維爾威）**：舊宇宙港外圍 `spaceport`（發射台當台地、試車台的營地；寬廣的平地適合空中單位）、Grid 086 地表 `grid086`（多層平台改成一般台地與坡道，不用懸空平台，尋路才可靠）。
   - **R5（聖域）**：汙染水沒市街 `flooded`（淺水區涉水減速、殘骸多＝拾荒經濟的舞台）、多重水壩 `dam`（壩體改成高地＋兩條坡道的通道，不放閘門水流）。
   - **R6（收尾）**：沙丘 `dunes`、礦坑地表 `desert`、貨運集散場 `industrial`（貨櫃堆當障礙物群），以及地圖大小「小」（300 m）的參數。
+
+## 14. R3 艾瑟立克：實作規格
+
+> R3 由 5 個 agent 平行實作（A～E，14.1），電腦對手（F）在 A～E 合併之後做第二輪，同 R2 的做法。介面以這一節為準，可以加欄位、不要改名；實作中有出入時在 14.10 之後補「各包的實作結果」。數值都是暫定、試玩後再調（調整的順序見 14.9）。
+> 陣營定位（定案）：**Coral 導管＋實驗體融合**。和卡斯特隆的差別一句話說完：卡斯特隆是「工人蓋、工人修、礦石多、單位耐打」；艾瑟立克是「導管範圍內才能蓋、建築自己長、自己回血、Coral 多礦石少、單位貴而脆但在導管上很強、低階單位可以融合成高階單位」。
+> R3 的驗收：玩家能用艾瑟立克打完一場完整的遭遇戰（導管、融合、三階科技、全部兵種與建築、3 位英雄、陣營商店）；選單可以選艾瑟立克與「隨機」、電腦也可以是艾瑟立克；冰原、技研都市地表兩個新主題；普通電腦的跨陣營對戰（卡斯特隆對艾瑟立克）勝率在 40～60%（14.9）；`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps --faction=mix` near 仍有 50 FPS 以上。
+
+### 14.1 檔案歸屬與分工
+
+| 包 | 負責 | 新檔 | 既有檔（只改這些區段） |
+|---|---|---|---|
+| A 核心與資料 | 艾瑟立克全部定義（單位、建築、技能、研究、融合配方）、導管網（供電計算、建造範圍、停擺、導管上的加成）、自己長的建築、建築在導管裡自己回血、主堡的 Coral 產出、融合的指令與完成、幻象實體（B、C 共用）、陣營的一般化（工人每趟的量、修理、動員只給有的陣營、主堡的英雄子選單）、選單的陣營選擇與「隨機」、各包的掛勾呼叫點 | `data/rts-aetheric.js`（`RTS_AETH_DEFS`、`RTS_AETH_ABILS`、`RTS_AETH_RESEARCH`、`RTS_FUSE`、`RTS_AETH` 常數） | `data/rts-units.js`（合併、`RTS_FACTIONS.aetheric`、陣營各自的主堡英雄子選單）、`data/rts-combat.js`（數值層加 `skill` 欄位）、`game/rts.js`（全部）、`game/rts-orders.js`（`fuse` 指令）、`scripts/rts-bench.js`（`--faction`） |
+| B 兵種行為與模型 | 艾瑟立克兵種的技能與行為（近戰啃咬、寄生、投影、過載、共振砲的導管射程、浮游砲、吞噬、結晶護壁、雷射網的攻擊與警報）、融合的引導外觀、工人不修理與蓋完就走、建築與導管連線的模型、停擺的外觀 | `entities/mech-rts-aeth.js`（MechEntity 擴充，方法 `rtsAeth*`）、`render/rts-aeth-models.js`（建築、導管連線、範圍圈、工人套件、原型體的外加零件；`RTS_AETH_CATALOG`） | `entities/mech-rts.js`（技能與近戰的分派幾行、`rtsBuild` 的 `selfBuild`、工人的 `trip`）、`render/rts-models.js`（`buildRtsBuilding` 遇到 `a_` 轉給新檔、`addWorkerKit` 的陣營分支）、`render/model-catalog.js`（目錄一行） |
+| C 英雄與道具 | 艾瑟立克 3 位英雄（12 個技能）、陣營專屬道具 4 種、保管庫的貨架、幻象英雄、給一般單位的屏障 | — | `data/rts-heroes.js`（英雄、技能、`RTS_FACTION_HEROES.aetheric`）、`data/rts-items.js`（道具、`fac`、`RTS_FAC_SHOP`）、`game/rts-hero.js`、`entities/mech-rts-hero.js`（`SKILL_FX` 加 12 項） |
+| D 地圖與中立 | 冰原 `snow`、技研都市地表 `institute` 兩個主題（地形、障礙物外觀、光線、冰湖、Coral 脈）、兩個主題的野怪營地編成與傭兵 | — | `world/rts-map.js`（`RTS_THEMES` 加兩項、主題的附加地形）、`world/rts-props.js`（新障礙物的建模）、`world/world.js` 的 `buildRts`（主題覆寫、冰面）、`data/rts-neutral.js`（`RTS_CAMPS`／`RTS_MERCS`／野怪與傭兵定義）、`game/rts-neutral.js`（傭兵營的卡片依主題）、`scripts/rts-map-test.js`（`--theme`） |
+| E HUD、輸入 | 導管範圍的顯示（建造預覽、選取建築時）、停擺的標示與事件、融合的卡片與說明、陣營相關的卡片與資源列提示、管家的陣營差異、選單的樣式 | — | `game/rts-hud.js`、`game/rts-input.js`、`game/rts-pilot.js`（管家：沒有修理的陣營、補給建築的導管檢查）、`styles.css` 的 RTS 區塊 |
+| F 電腦對手（第二輪） | 艾瑟立克的開局與戰術（導管、融合、技能）、跨陣營的兵種相剋權重、打導管、勝率量測腳本 | `scripts/rts-matchup.js` | `game/rts-ai.js`、`data/rts-ai.js` |
+
+- **共用檔案的規則**（同 13.1）：
+  - `game/rts.js`、`data/rts-units.js`、`data/rts-combat.js` 只有 A 改；其他包需要的呼叫點 A 第一天先加好（`typeof` 判斷，沒實作時略過），清單見下表。
+  - `data/rts-aetheric.js` **不可 import `rts-units.js`**（避免循環）；可以 import `rts-combat.js`（它不 import rts-units）。共用的指令卡片段（移動、守住、巡邏、攻擊、停止、返回、集結點、取消、循環生產）在新檔裡自己寫一份（同 rts-heroes.js 的做法）。`rts-units.js` 在既有的 `Object.assign(RTS_DEFS, …)` 加 `RTS_AETH_DEFS`，並 `Object.assign(RTS_ABILS, RTS_AETH_ABILS)`、`Object.assign(RTS_RESEARCH, RTS_AETH_RESEARCH)`（都在快捷鍵修正迴圈之前，所以卡片的預設鍵與說明照常補上）。
+  - A 第一天先放好 `data/rts-aetheric.js` 的完整資料（14.3 的表）與英雄的空殼（`RTS_FACTION_HEROES.aetheric = ['h_prism', 'h_curator', 'h_veil']`，C 接手填 `RTS_HERO_DEFS`），讓 B、C、E 能生產單位測試。
+  - `entities/mech-rts.js`（B）的分派：`rtsAbOrder`／`rtsAbCast` 認不得的技能 id 轉給 `this.rtsAethAb(ab, o)`；`rtsAbInit` 結尾呼叫 `this.rtsAethInit(D)`；`rtsAbTick` 開頭 `if (this.rtsAethTick && this.rtsAethTick(dt)) return true;`（引導、撲上、纏附中接手）；`rtsFire` 開頭 `if (D.melee) return this.rtsAethMelee(t, dt, D)`。
+  - mixin 規則照舊。方法名稱：A 用 `rtsPower*`／`rtsFuse*`／`rtsIllusion*`／`rtsFaction*`，B 的 MechEntity 方法用 `rtsAeth*`，C 用 `rtsHero*`／`rtsItem*`／`rtsSkill*`（同 R2），D 用 `rtsMap*`／`rtsCamp*`，E 用 `rtsHud*`。
+  - 冒煙測試：每包自己的檔 `scripts/smoke-rts-r3<包>.js`（`-r3a.js`…`-r3f.js`），`STEPS` 只在 RTS 區塊最後加行、`DEFAULT_TIMES` 加估計耗時（衝突由最後合併的人處理）。
+- **A 在 rts.js 放的呼叫點**：
+
+| 時機 | 呼叫 | 實作 |
+|---|---|---|
+| `rtsSpawnBld`、`rtsUpgradeDone`、`rtsPowerRebuild` 改了某座建築的供電 | `b.model.setPower(on)`（沒有時略過） | B |
+| `rtsPowerRebuild` 結束（供電有變化） | `this.rtsHudPower(teamId)`（範圍圈與連線重畫的版本號） | E |
+| `rtsSpawn`／`rtsSpawnBld` 之後（艾瑟立克的定義） | `e.rtsAethInit(D)`（經由 `rtsAbInit`） | B |
+| `rtsFuseStart`（材料到齊、開始引導） | `host.rtsAethFuseFx(recipe, sec)`（引導的特效與動作） | B |
+| `rtsFuseFinish` 換定義之後 | `host.rtsMorph(toId)`（B 的既有方法：換外觀）＋`host.rtsAethInit(D)` | B |
+| `rtsBuildings`：蓋好、有供電、`rtsBldRange(b) > 0` 的建築 | `b.rtsTowerAI(dt)`（照舊；雷射網在 B 的 `rtsTowerAI` 裡分支） | B |
+| `rtsIllusion` 建好幻象之後 | `this.rtsHeroIllusionInit(e, src)`（英雄的幻象套回等級的數值） | C |
+| 開局 `rtsStart` 決定陣營之後 | `this.rtsHudFaction()`（資源列、卡片的陣營樣式） | E |
+
+### 14.2 陣營機制
+
+#### Coral 導管網
+
+- **供電源**（定義的 `conduit: { r, root, link }`）：
+  - **根**（`root: true`，自己就有電）：研究中樞三階（`r` 26／30／34 m）、Coral 汲取塔（`r` 12 m）。汲取塔也是根，所以中線的 Coral 湧出點可以變成前進基地（蓋了汲取塔就能在旁邊蓋建築）。
+  - **導管節點** `a_node`（`r` 18 m、`link` 32 m）：只有「中心距離 32 m 內有一個有電的供電源」的節點才有電，沿節點一路串回某個根（廣度優先）。蓋好的才算（施工中不傳電、不供電）。
+- **建造的限制**：定義有 `needPower: true` 的建築，佔地中心要在某個**有電**的供電源的 `r` 內；導管節點本身不需要電，但要放在某個有電的供電源 32 m 內（所以網路一定從主堡或汲取塔往外長）；研究中樞（開分礦）與汲取塔不受限制。建造預覽（E）與 `rtsPlace`（A）都用 `rtsPowerWhy(teamId, defId, x, z)` → ''｜「要蓋在導管範圍內」｜「導管節點要在有電的導管 32 m 內」。
+- **停擺**：建築的供電源全部斷電（節點被拆、中間的節點被拆讓後面整串斷電、主堡被拆）時 `e.bld.off = true`：生產、研究、升級的計時暫停（佇列保留、人口照佔）、防禦塔不開火、施工中的建築停止長大、不自己回血、商店不能買；人口上限照算（節點本身斷電也照給人口，不然一斷電就連補給一起卡死）。外觀：發光材質熄滅＋閃爍的斷電標示（B 的 `setPower(false)`）。玩家的隊伍發事件「導管中斷：n 座建築停擺」（E，同一次斷電只發一次）。重新接上（重蓋節點）立刻恢復。
+- **導管上的加成**（每 0.5 秒，A 以 `rtsBuff(e, { src: 'grid', … }, 0.6)` 套用，離開後自動過期）：艾瑟立克的**單位**站在己方有電的範圍裡：每秒回復 2 AP、移動速度 ×1.15（研究 `r_grid` 後 4 AP、×1.25）；英雄也算。**建築**在有電的範圍裡、8 秒沒受傷：每秒回復最大血量的 0.4%（`r_grid` 後 0.8%）。這是艾瑟立克「在家很強、出門很脆」的來源，也取代工人修理。
+- **計算**（A，`game/rts.js`）：`T.power = { srcs: [{ e, x, z, r, root, on }], ver, temp: [] }`；`rtsPowerRebuild(teamId)` 在供電源蓋好、被拆、主堡升級（`r` 改變）、臨時導管到期時呼叫（不是每格）：根先標 `on`，再對節點做廣度優先（節點數通常 < 30，O(n²) 即可），之後重算每座 `needPower` 建築的 `bld.off`。查詢：`rtsPowerAt(teamId, x, z)` → 涵蓋這一點、有電的供電源（最近的）｜null；`rtsPowerDeps(b)` → 這個供電源斷掉時會停擺的建築數（F 的進攻目標用；以「拿掉它重跑一次」計算、結果快取到下一次 `ver` 改變）；`rtsPowerFields(teamId)` → `[{ x, z, r, on }]`（E 畫範圍圈）、`rtsPowerLinks(teamId)` → `[[a, b, on]]`（B 畫連線）。臨時導管（道具「攜帶式導管」，14.4）：`rtsPowerAddTemp(teamId, x, z, r, sec)` 是一個沒有實體的根。
+- 卡斯特隆不受影響（沒有 `conduit` 與 `needPower` 的定義）；之後的陣營也可以用同一套。
+
+#### 實驗體融合
+
+- **配方**（`RTS_FUSE`，`data/rts-aetheric.js`）：
+
+| 配方 id | 材料 | 結果 | Coral | 引導 | 需要 | 人口 |
+|---|---|---|---|---|---|---|
+| `fu_chimera` | 實驗體 ×3 | 嵌合體 `a_chimera` | 25 | 4 秒 | T2＋生體培養槽 | 1×3 → 3（不變） |
+| `fu_proto` | 嵌合體 ×2 | 原型體 `a_proto` | 100 | 6 秒 | T3＋研究 `r_proto` | 3×2 → 6（不變） |
+
+- **指令**：材料單位的卡片 Z「融合」＝`{ k: 'fuse', recipe }`（A 的 `rtsOrder`）。選取中同種的材料依距離貪婪分組（每組 n 台，組內最遠兩台相距 ≤ 24 m；多出來的不動並提示「還差 n 台」）；每組離重心最近的一台是**宿主**（指令 `{ k: 'fuse', recipe, mats: [id…] }`），其他走向宿主（`{ k: 'fuseTo', id }`）。全部在宿主 3 m 內時 `rtsFuseStart`：扣 Coral（不夠＝取消並提示）、材料移除（`rtsQuiet`：不給經驗、不算陣亡、`R.stats[t].fused += n`）、宿主引導（不能移動、受到的傷害 ×1.25；英雄 CURATOR 的「催化」可以立刻完成）。10 秒內沒到齊＝取消（不扣款）。宿主在引導中被擊破＝全部損失（風險）。`rtsFuseFinish(host)`：`rtsChangeDef(host, 結果)`（血量＝結果的最大血量 × 材料的平均血量比例）、`rtsMorph`、`rtsRecount`、玩家的事件「融合完成：嵌合體」。
+- **為什麼人口不變**：融合不需要人口空間，不會在人口滿時卡住；成本是 Coral、引導時間與「暫時少了兩台」的風險。
+
+#### 經濟
+
+- **工人**（研究作業機 `a_worker`）：每趟 8 礦石（卡斯特隆 10；定義的 `trip`，`RTS_GATHER.trip` 改成沒有 `trip` 時的預設值），不能修理（卡片沒有修理）、不能動員。**建築自己長**（定義的 `selfBuild: true`）：工人走到工地放下地基（`rtsPlace` 扣款）就結束 `build` 指令、回去採集；地基依 `1 / time` 自己長大（有電才長；多派工人不會更快，`RTS_BUILD_ASSIST` 不適用）。取消建造照舊退 75%。
+- **Coral**：汲取塔每秒 1.25（卡斯特隆的抽取站 0.8）；研究中樞自己產出 Coral（定義的 `coralRate` 在沒有 `on: 'coral'` 的建築上＝不消耗湧出點的產出；`rtsBuildings` 的 Coral 產出改成兩種都處理）：T1 0.15／T2 0.25／T3 0.35 每秒，分礦的中樞也算。
+- **估計**（開局 5 分鐘、一座主礦 13 工人、一座湧出點）：礦石收入約卡斯特隆的 80%，Coral 約 1.75 倍（1.4／秒對 0.8／秒）。1 Coral ≈ 2.5 礦石估算時，總收入約多 5～10%，用來抵銷「工人不能修、建築要先蓋導管」。艾瑟立克的單位 Coral 佔得多（Coral／礦石：實驗體 0.2、雷射步兵 0.27、光束砲 MT 0.4；卡斯特隆的 MT 0、盾牌 MT 0.18、重踏機甲 0.31），電腦的資源保留（13.18）照「Coral 是瓶頸」的規則運作。
+- **主堡的技能**：研究中樞 R「結晶護壁」（`ab_aegis`，取代卡斯特隆的動員）：Coral 60、冷卻 90 秒，36 m 內的己方建築 15 秒受到的傷害 ×0.5（`rtsBuff` 的 `taken`）。
+
+#### 其他
+
+- **研究最快**：艾瑟立克的研究時間是卡斯特隆同級研究的 0.75 倍；主堡升級 50／60 秒（卡斯特隆 60／75）。
+- **能量為主**：主力的攻擊類型是 `en`（相剋表：對輕甲、重甲 ×1.25，對城甲 ×0.5），所以打部隊強、拆建築弱；攻城靠 T3 的共振砲（`exp`）與嵌合體、原型體的近戰。
+- **幻象**（A 的 `rtsIllusion(src, x, z, o)`，B 的投影、C 的英雄技能共用）：以 `src` 的定義 `rtsSpawn` 一台同外觀的實體，`e.rtsIllus = { t: 到期的局內時間, dmg, taken }`：數值層 `buff` 套 `dmg`（傷害倍率，0＝只有開火的外觀）、`taken`；`o.hp` 可以指定血量（投影＝1）；不佔人口、`lv` 視為 0（擊破不給經驗、不掉寶、不算進戰績與勝敗、`rtsQuiet`）；到期安靜地移除；電腦對手與玩家都看不出真假（只有自己的隊伍在血條上看得到淡藍色的「幻」）。同時最多 24 個幻象一隊（超過時最舊的先消失）。
+
+### 14.3 單位與建築
+
+- 欄位同 13.3；新的定義欄位：`conduit`、`needPower`、`selfBuild`、`trip`（工人每趟）、`coralRate`（沒有 `on` 時＝自己產出）、`melee: { r, rof }`（近戰：不用武器槽，B 的 `rtsAethMelee` 以 `rtsHit` 打 `dps × rof × dmgMul`，`splash` 有值時對 `splash` 半徑內的其他敵人打 50%）、`palBase`（模型用哪個配色當底：實驗體類用 `'specimen'`，A 的 `rtsSpawn` 以 `rtsPal(D.palBase || 陣營, 隊伍)` 建模）、`bio: true`（生體單位：CURATOR 的技能、原型體的光環、研究 `r_bite` 用）、`fuse`（材料的配方 id，卡片用）、`gridRange`（共振砲：站在己方有電的範圍裡時射程加多少）。
+- **單位**：
+
+| id | 名稱 | 階 | 生產 | 礦石／Coral | 秒 | 人口 | 血量 | 甲／護甲 | 攻擊 | 射程 | dps | 速度 | 視野 | lv | 技能（卡片） |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `a_worker` | 研究作業機 | T1 | 研究中樞 Q | 70／0 | 13 | 1 | 220 | 無／0 | — | — | — | 6 | 24 | 1 | —（每趟 8、不修理、蓋完就走） |
+| `a_blob` | 實驗體 | T1 | 培養槽 Q | 50／10 | 12 | 1 | 240 | 輕／0 | 實彈（近戰） | 2.5 | 6 | 9.5 | 22 | 1 | Z 融合（`fu_chimera`） |
+| `a_laser` | 雷射步兵 | T1 | 兵器廠 Q | 110／30 | 18 | 2 | 480 | 輕／0 | 能量・地空 | 28 | 15 | 7.5 | 30 | 2 | — |
+| `a_parasite` | 寄生纏附體 | T2 | 培養槽 W | 90／40 | 16 | 2 | 380 | 輕／1 | 實彈（近戰） | 3 | 10 | 9 | 24 | 3 | Z 纏附（自動） |
+| `a_holo` | 全像投影器 | T2 | 兵器廠 W | 120／60 | 22 | 2 | 420 | 輕／0 | 能量 | 22 | 6 | 7 | 34 | 3 | Z 投影 |
+| `a_beam` | 光束砲 MT | T2 | 兵器廠 E | 200／80 | 28 | 4 | 950 | 重／2 | 能量 | 34 | 26 | 6 | 30 | 4 | Z 過載（研究 `r_overload`） |
+| `a_chimera` | 嵌合體 | T2 | 融合（實驗體 ×3） | 配方 | 4 | 3 | 1500 | 重／3 | 實彈（近戰、範圍 2.5） | 3.5 | 28 | 7.5 | 26 | 4 | Z 融合（`fu_proto`） |
+| `a_reson` | 共振砲 | T3 | 兵器廠 R | 280／160 | 38 | 5 | 820 | 重／1 | 爆發（範圍 5） | 60（最短 12；導管上 +16） | 30 | 6 | 30 | 5 | — |
+| `a_bit` | 浮游砲機 | T3 | 格納庫 Q | 220／140 | 30 | 4 | 600 | 輕／1（空中） | 能量・地空 | 26 | 20 | 13 | 34 | 4 | Z 浮游砲展開 |
+| `a_proto` | 原型體 | T3 | 融合（嵌合體 ×2） | 配方 | 6 | 6 | 3200 | 重／4 | 能量（近戰、範圍 3） | 8 | 55 | 7 | 30 | 6 | 光環 共鳴、Z 吞噬 |
+| 英雄 | 14.4 | T1～T3 | 研究中樞 W 子選單 | 同卡斯特隆 | 55 | 5 | 14.4 | 英雄 | 英雄 | | | | | | Z X C V |
+
+  - 對照卡斯特隆：雷射步兵單挑 MT 稍輸（MT 的實彈對輕甲 ×1.0，雷射的能量對中甲 ×1.0，血量少 80），在導管上（每秒回 2）打平；對重甲（盾牌 MT、重踏、裝甲車）能量 ×1.25 佔優。實驗體三隻（150／30、人口 3）的血量與傷害約等於 1.5 台 MT，但要貼身、怕迫擊砲與踏地（爆發對輕甲 ×1.25）。
+  - **組裝與模型**（B 確認都走 `mergeRtsRig`，draw call 不增加）：研究作業機＝卡斯特隆作業 MT 的組裝（`h_lt`／`c_lt`／`a_lt`／`l_bp`），`addWorkerKit(rig, pal, 'aetheric')` 換成背上的 Coral 採樣槽＋前方的掃描頭（不是鑽頭）；實驗體／嵌合體／寄生纏附體／全像投影器＝`FOES` 的 `blob`／`chimera`／`parasite`／`holo`（`modelKind 'boss'`、`vehKey` 照它們，`palBase 'specimen'`，投影器 `palBase 'whiteout'`）；雷射步兵＝MT 的組裝換 `w_lr`；光束砲 MT＝`h_hv`／`c_hv`／`a_hv`／`l_hv`＋`w_lc`；共振砲＝`h_scan`／`c_std`／`a_std`／`l_qd`＋`rback: 'bw_pm'`（`slots: ['rback']`）；浮游砲機＝`ENEMY_TYPES.drone` 的組裝（`modelKind 'drone'`、`flying`、`hoverH 8`、`scale 0.8`，`slots: ['rarm']`）；原型體＝嵌合體的模型 `scale 1.45`＋`addProtoKit(rig, pal)`（背上的 Coral 結晶與發光脈管）。
+  - **近戰的動作**：實驗體類的模型動作是 `animD1`（`foeFx` → `foeAnimD1`，預警看 `bossVis` 位元或最近目標的距離）；B 確認 RTS 單位每格有沒有跑到 `specialFx`，沒有時在 `rtsAethTick` 呼叫 `foeAnimD1`，咬的那一下設 `bossVis` 的攻擊位元。
+  - `rof`（暫定）：實驗體 0.5、寄生 0.6、嵌合體 0.9、原型體 1.1、雷射步兵 0.35、投影器 0.8、光束砲 1.4、共振砲 3、浮游砲機 0.3、雷射網 0.25。
+- **技能**（`RTS_AETH_ABILS`，B 實作；欄位同 `RTS_ABILS`）：
+
+| 技能 id | 單位 | 目標 | Coral | 冷卻 | 效果 |
+|---|---|---|---|---|---|
+| `ab_fuse` 融合 | 實驗體 | 自己（卡片 `{ k: 'fuse', recipe: 'fu_chimera' }`） | 配方 | — | 14.2；需求不滿足時灰掉（`rtsReqWhy(隊伍, RTS_FUSE[配方])`） |
+| `ab_fuse2` 原型融合 | 嵌合體 | 同上（`fu_proto`） | 配方 | — | 同上 |
+| `ab_latch` 纏附 | 寄生纏附體 | 敵方地面單位（射程 8，自動預設開） | 0 | 10 | 撲上目標（0.4 秒拋物線），之後黏在目標身上：每秒 16（攻擊類型 `'none'`：不看相剋與護甲）、目標速度 ×0.7、射速 ×0.8（`rtsBuff`），最長 8 秒；寄生體跟著目標移動、照常可以被打；同一個目標同時只能有一隻；目標是建築、空中單位時不能纏，英雄的 ACS 穩定器抵消 |
+| `ab_decoy` 投影 | 全像投影器 | 友軍單位（射程 30） | 20 | 18 | 在目標旁邊產生 3 個幻象（`rtsIllusion`，`dmg 0`、`hp 1`＝打一下就消失）15 秒；研究 `r_holo` 後 5 個、25 秒 |
+| `ab_overcharge` 過載 | 光束砲 MT | 自己 | 0 | 25 | 5 秒射速 +60%，之後硬直 2 秒（`staggerT`）；研究 `r_overload` |
+| `ab_bits` 浮游砲展開 | 浮游砲機 | 敵方單位（射程 30） | 25 | 20 | 3 個浮游砲（外觀：`fx.beam` 從目標周圍三個點）8 秒內每秒 3×8 能量；目標死了就停 |
+| `ab_devour` 吞噬 | 原型體 | 己方的實驗體（射程 6） | 0 | 20 | 移除那隻實驗體（`rtsQuiet`），回復 600 AP、10 秒傷害 +20% |
+| `ab_aegis` 結晶護壁 | 研究中樞（三階） | 自己 | 60 | 90 | 14.2 |
+| （被動）共鳴 | 原型體 | 光環 15 m | — | — | 己方 `bio` 單位每秒回復 3 AP |
+| （被動）警報 | 保全雷射網 | — | — | — | 開火時（20 秒內不重複）`rtsFogReveal(隊伍, 攻擊者位置, 20, 6)`＋玩家的事件「雷射網警報」 |
+
+- **建築**（全部 `arm: 'fort'`、`selfBuild: true`；「導管」欄＝供電源或要不要在導管範圍內）：
+
+| id | 名稱 | 階 | 建造卡 | 礦石／Coral | 秒 | 血量 | 護甲 | 佔地 | 高 | 視野 | 人口 | 導管 | 生產／功能 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `a_hq` | 研究中樞 | T1 | Q | 400／100 | 110 | 3800 | 5 | 16×16 | 14 | 40 | +10 | 根 26 m | 研究作業機、英雄、升級、結晶護壁；回收點；Coral 0.15／秒 |
+| `a_hq2` | Coral 研究院 | T2 | 升級 | 260／180 | 50 | 4800 | 6 | 16×16 | 16 | 42 | +12 | 根 30 m | 需要兵器廠；Coral 0.25／秒 |
+| `a_hq3` | 深層研究院 | T3 | 升級 | 340／300 | 60 | 5800 | 7 | 16×16 | 18 | 44 | +15 | 根 34 m | 需要培養槽＋研究所；Coral 0.35／秒 |
+| `a_node` | 導管節點 | T1 | W | 80／0 | 22 | 450 | 2 | 4×4 | 7 | 18 | +8 | 節點 18 m、連 32 m | 不需要電（要在有電的 32 m 內） |
+| `a_tap` | Coral 汲取塔 | T1 | E | 110／0 | 30 | 800 | 3 | 8×8 | 10 | 18 | — | 根 12 m | 蓋在湧出點上，每秒 1.25 Coral |
+| `a_lab` | 生體培養槽 | T1 | R | 160／40 | 45 | 1300 | 3 | 12×12 | 8 | 22 | — | 要 | 實驗體、寄生纏附體（T2）；融合嵌合體的需求 |
+| `a_foundry` | 光學兵器廠 | T1 | A | 170／50 | 50 | 1400 | 4 | 14×12 | 10 | 24 | — | 要 | 雷射步兵、全像投影器（T2）、光束砲 MT（T2）、共振砲（T3） |
+| `a_inst` | Coral 研究所 | T1（要兵器廠） | S | 140／60 | 40 | 1000 | 3 | 12×10 | 11 | 22 | — | 要 | 研究 |
+| `a_fence` | 保全雷射網 | T1（要兵器廠） | D | 110／40 | 35 | 800 | 3 | 5×5 | 6 | 32 | — | 要 | 防禦塔：能量・地空、射程 30、dps 16、警報 |
+| `a_vault` | 樣本保管庫 | T1 | F | 120／40 | 40 | 900 | 3 | 10×8 | 7 | 18 | — | 要 | 陣營商店（14.4） |
+| `a_hangar` | 浮游砲格納庫 | T3 | Z | 220／180 | 55 | 1300 | 3 | 14×14 | 9 | 22 | — | 要 | 浮游砲機 |
+
+  - 卡斯特隆對照：主堡 385／120、補給庫 90 給 10 人口（導管節點 80 給 8＋導管）、兵工廠 180／40；艾瑟立克的建築血量約低 10～15%，靠導管裡的自動回血與結晶護壁。
+  - 研究中樞的英雄子選單 `menus.hero`＝Q PRISM、W CURATOR、E VEIL、V 返回（A 把 `hqMenus` 改成依陣營的 `heroes` 產生）。
+- **研究**（`RTS_AETH_RESEARCH`，在 Coral 研究所的指令卡；欄位同 `RTS_RESEARCH`，時間是卡斯特隆同級的 0.75 倍）：
+
+| 研究 id | 名稱 | 級 | 費用（礦石／Coral） | 時間 | 需要 | 效果 |
+|---|---|---|---|---|---|---|
+| `r_en` | 能量兵器 | 1／2／3 | 100/50、175/125、250/200 | 30／41／52 | 1 級 T1、2 級 T2、3 級 T3 | 能量攻擊的單位與防禦塔傷害 +10%／級 |
+| `r_bite` | 生體強化 | 1／2／3 | 同上 | 同上 | 同上 | `bio` 單位傷害 +10%／級、速度 +3%／級 |
+| `r_bio` | 生體裝甲 | 1／2／3 | 125/50、200/125、275/200 | 30／41／52 | 同上 | 艾瑟立克的單位護甲 +2／級（不含建築與英雄） |
+| `r_grid` | 導管增幅 | 1 | 150/100 | 38 | T2 | 導管範圍 +6 m；導管上的回復 2 → 4 AP、速度 ×1.15 → ×1.25；建築回血加倍 |
+| `r_overload` | 能量過載 | 1 | 125/75 | 34 | T2 | 光束砲 MT 學會「過載」 |
+| `r_holo` | 投影強化 | 1 | 100/75 | 30 | T2 | 投影 3 → 5 個、15 → 25 秒；投影器視野 +8 |
+| `r_brood` | 寄生孵化 | 1 | 150/100 | 38 | T2 | 纏附中的目標死亡時在原地出現 1 隻實驗體（人口不夠時不出現） |
+| `r_proto` | 原型體協定 | 1 | 200/200 | 45 | T3 | 解鎖原型融合 |
+| `r_reson` | 共振校準 | 1 | 200/150 | 45 | T3 | 共振砲的導管射程 +16 → +24、範圍 ×1.3 |
+
+- **各層級解鎖一覽**：
+
+| 層級 | 建築 | 單位 | 英雄 |
+|---|---|---|---|
+| T1 | 研究中樞、導管節點、汲取塔、培養槽、兵器廠、研究所、雷射網、保管庫 | 研究作業機、實驗體、雷射步兵 | 第 1 個（免費） |
+| T2 | （沒有新建築） | ＋寄生纏附體、全像投影器、光束砲 MT、嵌合體（融合） | 第 2 個 |
+| T3 | ＋格納庫 | ＋共振砲、浮游砲機、原型體（融合＋研究） | 第 3 個 |
+
+- **指令卡**：
+  - 研究作業機：Q 移動、W 守住、E 巡邏、A 攻擊、S 停止、Z 建造、X 採集（沒有修理）；建造子選單照上表的建造卡，V 返回。
+  - 研究中樞：Q 研究作業機、W 英雄、E 升級、R 結晶護壁、C 取消、V 集結點。
+  - 生體培養槽：Q 實驗體、W 寄生纏附體、X 循環生產、C 取消、V 集結點。光學兵器廠：Q 雷射步兵、W 全像投影器、E 光束砲 MT、R 共振砲、X、C、V。格納庫：Q 浮游砲機、X、C、V。
+  - Coral 研究所：Q 能量兵器、W 生體強化、E 生體裝甲、R 導管增幅、A 能量過載、S 投影強化、D 寄生孵化、F 原型體協定、Z 共振校準、C 取消。
+  - 雷射網：A 攻擊、S 停止。保管庫：14.4。
+  - 一般單位：`UNIT_CARD`＋第 3 列 Z 的技能（融合、纏附、投影、過載、浮游砲、吞噬）。
+  - 新的卡片動作 `{ k: 'fuse', recipe }`（E 在 `rtsCardAct` 呼叫 `rtsOrder(選取, { k: 'fuse', recipe })`；說明框顯示配方、Coral、需求與「選取中有幾組」）。
+
+### 14.4 英雄、道具與商店
+
+- **英雄**（`data/rts-heroes.js`，C；組裝是新的，模型照一般 AC，配色是艾瑟立克的白、青；欄位同 13.4）：
+
+| id | 名稱 | 定位 | 組裝（`slots`） | 血量 | 護甲 | 射程 | dps | 速度 | 視野 | grow（血量／dps／護甲） |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `h_prism` | PRISM | 光學研究機（遠程、能量、控場） | `h_scan`／`c_std`／`a_std`／`l_bp2`、`w_lr`＋`bw_lc`（`['rarm', 'rback']`） | 1100 | 2 | 38 | 24 | 8 | 38 | 75／2.8／0.3 |
+| `h_curator` | CURATOR | 飼育主任（實驗體、近戰） | `h_hv`／`c_hv`／`a_hv`／`l_qd`、`w_claw`＋`w_lsg`（`['larm']`） | 1500 | 3 | 16 | 26 | 8.5 | 32 | 100／2.4／0.5 |
+| `h_veil` | VEIL | 電子戰研究機（幻象、EMP、迷彩） | `h_scan`／`c_lt`／`a_lt`／`l_rj`、`w_emp`＋`w_lr`＋`bw_emp_s`（`['larm']`） | 1050 | 1 | 30 | 22 | 10 | 36 | 70／2.6／0.3 |
+
+| 英雄 | 鍵 | 技能 id／名稱 | 種類／射程 | Coral（1／2／3 級） | 冷卻 | 效果（1／2／3 級） |
+|---|---|---|---|---|---|---|
+| PRISM | Z | `sk_refract` 折射光束 | 地點（直線 40 m） | 20／25／30 | 10 | 預警線 0.6 秒後，寬 3 m 的直線上每個敵人 90／140／190 能量（建築 ×0.5） |
+| | X | `sk_prism` 稜鏡屏障 | 友軍（含英雄）／24 m | 15／20／25 | 16 | 10 秒內吸收 200／350／500 傷害（`e.rtsShield = { n, t }`，C 的 `rtsHeroWrap` 對所有實體處理） |
+| | C | `sk_reso` 共振場 | 光環 30 m | — | — | 友軍的能量攻擊傷害 +8／14／20% |
+| | V | `sk_skylight` 天光陣列（6 級） | 地點（半徑 14）／50 m | 90 | 140 | 4 秒內 5 道光柱（`fx.pillarStrike`），每道 3 m 180 能量，最後一道在中心 6 m 400 能量 |
+| CURATOR | Z | `sk_hatch` 孵化 | 自己 | 20／25／30 | 18 | 身邊出現 2／3／4 隻實驗體，40 秒後消失（不佔人口、擊破不給經驗；`e.rtsTemp` 同傭兵合約） |
+| | X | `sk_catalyze` 催化 | 己方 `bio` 單位／24 m | 15 | 12 | 回復 30% 血量、6 秒速度 +30%；引導中的融合立刻完成 |
+| | C | `sk_symb` 共生 | 光環 25 m | — | — | 己方 `bio` 單位每秒回復 2／3／4 AP、傷害 +5／10／15% |
+| | V | `sk_massfuse` 群體融合（6 級） | 自己（18 m） | 80 | 150 | 18 m 內己方的實驗體每 3 隻立刻融合成嵌合體（不扣配方的 Coral、沒有引導、不需要培養槽與 T2）；剩下的回滿血；範圍內己方 `bio` 單位 12 秒受到的傷害 ×0.7 |
+| VEIL | Z | `sk_mirror` 全像分身 | 自己 | 20 | 16 | 2／2／3 個自己的幻象（`rtsIllusion`：傷害 25%、受到的傷害 ×2），15／20／25 秒 |
+| | X | `sk_emp` 電磁脈衝 | 地點（半徑 8）／40 m | 25／30／35 | 14 | 60／90／120 能量＋暈眩 1／1.5／2 秒（`rtsStun`）；範圍內的敵方建築生產與研究暫停 4／6／8 秒（`b.bld.empT`，A 在 `rtsBuildings` 判斷） |
+| | C | `sk_phase` 相位迷彩 | 被動 | — | — | 4／3／2 秒沒有開火、沒有施放技能就隱形（`noLock`，同 WHITEOUT 的白化，`applyCloak`）；開火或施放現形 |
+| | V | `sk_legion` 虛像軍團（6 級） | 自己（20 m） | 100 | 160 | 範圍內每台己方一般單位（最多 16 台、不含英雄與建築）旁邊出現一個幻象，20 秒，傷害 30%、受到的傷害 ×2 |
+
+  - 幻象英雄（VEIL 的分身）：C 的 `rtsHeroIllusionInit(e, src)` 套回英雄的等級數值（不建立英雄紀錄、沒有技能、不能撿道具、不能親自駕駛）。
+  - 新的數值層欄位 `skill`（倍率，A 加進 `MOD_MUL`）：C 的 `rtsHeroDmg`／`rtsHeroSplash` 對技能傷害再乘施放者的 `rtsM.skill`。
+- **陣營專屬道具**（`data/rts-items.js`，`fac: 'aetheric'`：只在樣本保管庫賣、不在中立商店與補給商店、不在掉寶表）：
+
+| id | 名稱 | 階 | 種類 | 礦石／Coral | 效果 |
+|---|---|---|---|---|---|
+| `i_stim` | 生體興奮劑 | 1 | 消耗（2 次） | 40／10 | 8 秒移動速度 +25%、射速 +20%，結束時扣 8% 最大血量 |
+| `i_sample` | 實驗體樣本 | 1 | 消耗（1 次） | 60／20 | 身邊出現 2 隻實驗體 45 秒（同孵化） |
+| `i_relay` | 攜帶式導管 | 2 | 消耗（1 次，地點 20 m） | 90／40 | 那裡變成 60 秒的臨時導管根（半徑 14 m，`rtsPowerAddTemp`）：可以在前線蓋建築、共振砲拿得到導管射程；到期時沒有其他供電的建築停擺 |
+| `i_lens` | 聚焦透鏡 | 2 | 永久 | 150／60 | 技能傷害 +15%（`skill`） |
+
+- **樣本保管庫的貨架**（`RTS_FAC_SHOP.aetheric`，12 格依序；層級規則同補給商店）：T1 修復套件、偵察無人機、回城信標、生體興奮劑、實驗體樣本；T2 緊急障壁、強化火控、追加裝甲、攜帶式導管、聚焦透鏡；T3 遠距照準、指揮天線。卡斯特隆的補給商店照舊（`RTS_FAC_SHOP.castron`＝現在的 `BUY`）。商店建築的定義加 `shopItems`（陣營的清單），C 的 `rtsBuyList` 與 E 的卡片都讀它；中立商店照舊賣 `fac` 以外的 12 種。
+- **酒館**：不變（8 位宿敵 AC 兩個陣營都能雇；SPECIMEN 和艾瑟立克的實驗體風格一致，但不給額外加成）。
+- 電腦施放的條件（F 填進 `RTS_AI_CAST`）：`sk_refract { k: 'line', n: 3 }`、`sk_prism { k: 'ally', hp: 0.6 }`、`sk_skylight { k: 'cluster', n: 5, bld: 1, r: 14 }`、`sk_hatch { k: 'self', hp: 1, n: 2, r: 20 }`、`sk_catalyze { k: 'ally', hp: 0.5, bio: true }`、`sk_massfuse { k: 'blobs', n: 6, r: 18 }`（新的 k：範圍內己方實驗體 ≥ n）、`sk_mirror { k: 'self', hp: 1, n: 3, r: 24 }`、`sk_emp { k: 'cluster', n: 4, r: 8 }`、`sk_legion { k: 'army', n: 8, r: 20 }`（新的 k：交戰中、範圍內己方單位 ≥ n）。
+
+### 14.5 模型方向
+
+- **配色**：`PALETTES.aetheric`（白陶瓷 0xc8d2dc、淺灰 0x8a96a4、深底 0x1e2632、Coral 青 0x5ab8ff／發光 0x8fd8ff）；隊伍色照 `rtsPal` 換 `main2`／`acc`／`visor`／`glow`，但艾瑟立克的 **Coral 管線另有一個固定的青色發光材質**（不換隊伍色，陣營辨識靠它；隊伍色在屋頂的環帶與旗標）。卡斯特隆是土黃鏽鋼、方正、桁架、煙囪；艾瑟立克是白色圓弧、圓柱與圓頂、玻璃槽、地面走著發光的管線——遠看就分得出來。
+- **共用元件**（`render/rts-aeth-models.js`，純函式，沿用 `prop-models.js` 的 `mat`／`DETAIL` 與建築的拼接工具；登記 `RTS_AETH_CATALOG`，模型庫只預覽）：
+  - 研究中樞：圓形基座＋三層圓筒研究棟＋玻璃圓頂（內有 Coral 結晶，`world/themes/institute.js` 的 `buildCoralCrystal` 縮小）＋環繞的導管環；T2 加外圈的玻璃培養槽（`buildCoralTank` 的比例）、T3 加高塔與懸浮的稜鏡環（`setTier`，同卡斯特隆的做法）。
+  - 導管節點：細長的白色柱＋頂端發光環（`rig.ring`：有電時慢慢轉、斷電時熄滅）；汲取塔：湧出點上的三腳架＋向上的 Coral 管。
+  - 培養槽（直立的玻璃槽 ×4，槽內是實驗體的剪影）、兵器廠（低矮的白色廠房＋屋頂的光學陣列）、研究所（圓頂天文台風格，`buildObsDome` 的比例）、雷射網（兩根柵欄柱＋轉動的發射頭，`rig.turret`／`rig.aimAt`／`rig.muzzle`，外觀參考 `laserpost`）、保管庫（低溫保存櫃）、格納庫（開放式的圓形停機架）。
+  - **導管連線**：每對「有連線的節點／根」之間一條貼地的發光管（寬 0.35 m，沿地形取 4 m 一段的高度），一隊的全部連線合併成**一個網格**（`buildConduitLinks(links, world, pal)`，`rtsHudPower` 的版本號變了才重建；斷電的連線改成暗灰）；只在探索過的格子顯示（照 `RTS_PROP_FOG` 的做法在著色器查「探索過」貼圖；敵方的連線也只在探索過的地方看得到）。
+  - **範圍圈**（E 畫，模型在 B）：`buildPowerRing(r)` 貼地的半透明青色圓環＋格線；建造模式與選取艾瑟立克建築時顯示己方全部有電的範圍（一個 InstancedMesh）。
+  - 停擺：`setPower(false)`＝發光材質的 `emissiveIntensity` 0、加一個閃爍的紅色斷電圖示（合併過的建築先 `unmerge` 再 `remerge`，同 `setTier`）。
+  - 自己長的建築：`setProgress(p)` 照用（本體依進度長高），但**不畫鷹架**，改成青色的結晶外殼從地面往上長（`rig.scaf` 換成結晶外殼），和卡斯特隆的工人施工區分。
+- 單位的模型全部沿用現有的（14.3）；新做的只有作業機的採樣套件與原型體的外加零件。艾瑟立克的單位推進器噴焰改成青色（`Effects.thruster` 的顏色依 `pal.glow`，B 確認）。
+
+### 14.6 電腦對手（F，第二輪）
+
+- **資料**（`data/rts-ai.js`）：
+  - `RTS_AI_ROLES.aetheric`＝`{ hq: 'a_hq', hq2: 'a_hq2', hq3: 'a_hq3', depot: 'a_node', node: 'a_node', factory: 'a_foundry', factory2: 'a_lab', extractor: 'a_tap', works: 'a_inst', pad: 'a_hangar', market: 'a_vault', tower: 'a_fence', flak: 'a_fence', heavy: null, wall: null }`（`factory2`＝第二種生產建築，`facMax` 兩種合計；null 的角色略過）。
+  - `RTS_AI_OPENERS.aetheric`：
+
+| 開局 | 步驟（人口：建築） | 工人上限 | 兵種（T1／T2／T3） | 英雄（第 1 個） | 科技 t2／t3 | 研究順序 | 進攻門檻／時間／分礦 |
+|---|---|---|---|---|---|---|---|
+| 標準 grid | 7 導管節點、9 兵器廠、11 汲取塔、13 培養槽、16 導管節點、19 導管節點 | 13 | 雷射 2：實驗體 3／＋光束 1、寄生 1、投影 0.5／雷射 2、光束 2、實驗體 3、共振 1、浮游 1 | PRISM（之後 CURATOR、VEIL） | 22／38 | `r_en`、`r_bio`、`r_grid`、`r_en`、`r_overload`、`r_bio`、`r_proto`、`r_en`、`r_reson` | ×1／×1／×1 |
+| 實驗體速攻 swarm | 6 培養槽、7 導管節點、9 培養槽、12 導管節點、16 汲取塔 | 9 | 實驗體／實驗體 4、寄生 2、雷射 1／實驗體 4、寄生 1、光束 1、浮游 1 | CURATOR（之後 VEIL、PRISM） | 24／42 | `r_bite`、`r_bite`、`r_bio`、`r_brood`、`r_bite`、`r_bio`、`r_proto` | ×0.75／×0.9／×1.2 |
+| Coral 科技 tech | 7 導管節點、9 汲取塔、11 兵器廠、13 研究中樞（分礦）、16 導管節點、19 培養槽 | 20 | 雷射／雷射 2、光束 2、投影 1／雷射 1、光束 2、共振 2、浮游 2 | VEIL（之後 PRISM、CURATOR） | 20／34 | `r_en`、`r_grid`、`r_en`、`r_holo`、`r_bio`、`r_reson`、`r_en`、`r_proto` | ×1.2／×1.1／×0.65 |
+
+  - `towers`：grid 2、swarm 1、tech 3（雷射網）；`fuse`：`{ keep: 3, proto: true }`＝實驗體留幾隻不融合（速度快、打前鋒）、要不要做原型體（swarm 的 `keep` 6）。
+- **導管**（`rtsAiSpot` 的增補）：`needPower` 的建築只挑 `rtsPowerAt` 有電的位置；找不到時先蓋一座導管節點：候選點在現有有電範圍的外緣、朝想要的方向（主基地平台內、坡道反方向），規則同其他建築（四周留 2 m、不擋主堡與礦脈之間的路、角度從主基地的方位起算）；**備援**：每座生產建築與研究所要被 2 個以上的供電源覆蓋（或在研究中樞的範圍內），不夠時多蓋一座節點（優先序在部隊之前、補給之後）；有建築停擺時重蓋節點的優先序最高（保留資源，同 13.18 的 `rtsAiKeep`）。分礦先蓋研究中樞（根），再在旁邊蓋節點與汲取塔。沒有修理（修理層略過）、沒有民兵（改用結晶護壁：基地的威脅戰力² > 留守² × 1.5 而且有建築 < 60%）。工人蓋完就回去採礦（`selfBuild`），施工中的工地不必派人續建。
+- **融合**（`rtsAiFuse`，每次決策）：T2 而且有培養槽之後，家裡（主基地 50 m 內）閒置的實驗體超過 `fuse.keep` 隻時，每 3 隻融合一組（保留配方的 Coral；Coral 不夠時不融合、先生產）；進攻出發前同樣檢查一次；T3＋`r_proto` 而且 `fuse.proto` 時，2 隻閒置的嵌合體＋Coral ≥ 100（保留以外）就融合原型體。融合中的宿主不加入進攻（`A.fusing`）。
+- **單位技能**（`RTS_AI_ABILS` 加）：投影＝交戰中、對自己部隊裡血量最高的單位；過載＝交戰中、射程內 2 台以上的敵人；浮游砲＝敵方英雄或血量最高的；吞噬＝原型體血量 < 50% 而且 6 m 內有實驗體；纏附照 B 的自動施放。
+- **跨陣營**：
+  - **兵種相剋的權重**（兩個陣營都用）：記最近 3 分鐘看過的敵方單位的護甲類型（人口加權），生產時每個兵種的權重 × `clamp(平均 RTS_TYPE_K[我的 atk][敵方 arm], 0.6, 1.6)`；比例仍以開局的 `mix` 為基準（相剋只是加權，不會整個換掉）。例：卡斯特隆看到大量實驗體（輕甲）時迫擊砲（爆發 ×1.25）、重踏機甲變多；艾瑟立克看到盾牌 MT、裝甲車（重甲）時光束砲、雷射（能量 ×1.25）變多。
+  - **卡斯特隆打艾瑟立克**：進攻時記得的建築裡，導管節點與汲取塔依 `rtsPowerDeps(b)`（會讓幾座建築停擺）加權（每座 +25 分，最多 +100）；兵力壓倒性時分頭拆的第一組先拆節點。困難以上、部隊 ≥ 門檻的 50% 時可以派 4 台騷擾看得到的外圍節點。
+  - **艾瑟立克打卡斯特隆**：拆建築慢（能量對城甲 ×0.5），所以進攻的目標先選部隊與工人；T3 有共振砲之前以「打部隊＋拆分礦」為主，有共振砲才攻主基地；英雄背包有攜帶式導管時放在共振砲的射程邊緣（拿到 +16 m）。
+  - 鏡像（艾瑟立克對艾瑟立克）：打節點的規則同卡斯特隆。
+- **只透過 API**（同 12.7、13.9）：新增 `rtsPowerAt`、`rtsPowerWhy`、`rtsPowerDeps`、`rtsOrder` 的 `fuse`；迷霧的限制照舊（`rtsPowerDeps` 只對記得的建築用，依「記得的敵方建築」重算，不讀對方的 `T.power`）。
+- `rts-ai.js` 寫死的卡斯特隆 id（研究的兵種對照 `r_wall`→`c_shield`…、單位技能 `ab_wall`／`ab_crate`／`ab_rockets`）改成依陣營的表（`RTS_AI_RES_UNIT[陣營]`、`RTS_AI_ABILS` 依單位定義的 `abil`）。
+
+### 14.7 選單
+
+- 陣營的按鈕：卡斯特隆、艾瑟立克可以選（`RTS_FACTIONS.aetheric.avail = true`，補上 `hq`／`worker`／`units`／`blds`／`heroes`／`market` 等欄位；沒有 `militia`）；維爾威、聖域照舊停用。玩家與電腦兩排都多一個「隨機」（`'random'`）。
+- 「隨機」在 `rtsStart` 決定（`makeRng(seed × 7 + 3)` 先玩家、再電腦，從 `avail` 的陣營挑；同一個種子同樣的結果，方便重現），開局的訊息「你的陣營：艾瑟立克研究機構（隨機）」，結果畫面顯示雙方的陣營。`cfg.faction`／`cfg.aiFaction` 記實際的陣營，`cfg.rand` 記哪一邊是隨機。
+- 戰績（`rubicon_rts_rec`）的鍵加陣營：`<我方陣營>-<電腦陣營>-<難度>`（舊的鍵當成卡斯特隆對卡斯特隆讀進來）；選單顯示目前選的組合的勝敗。
+- 陣營的說明欄：選了陣營時顯示 3 行特色（卡斯特隆：「工人修理、民兵、城牆、重裝」；艾瑟立克：「建築要在導管範圍內、自己長、自己回血；實驗體融合；Coral 多、礦石少」）。
+- 地圖主題的選單照 `RTS_THEMES` 列出（D 加的兩個主題自動出現）。
+- 測試與除錯：`cfg.aiFactions`＝[隊伍 0, 隊伍 1]（`aiBoth` 時兩邊都指定），F 的勝率腳本用它。
+
+### 14.8 地圖產生器的新主題
+
+- **擴充方式**（`world/rts-map.js`）：`RTS_THEMES[主題]` 照荒野的欄位（`baseH`、`ridgeH`、`mesaH`、`watchH`、`rimH`、`rough`、`rocks`、`wrecks`、`lights`、`counts`）＋新的選用欄位：
+  - `extra(plan, rng)`：主題的附加地形與障礙物，**用自己的亂數串**（`makeRng(sub × 53 + 19)`），在既有的高度圖與障礙物都產生之後、檢查之前呼叫，所以荒野的地圖完全不變；附加的東西同樣點對稱成對產生，之後照常跑 `validate`（不合格換子種子）。
+  - `light: { sunI, hemiI, fogNear, fogFar }`、`weather`：World 的 `buildRts` 以 `plan.themeOver`（`{ roof: null, noTod: true, ...light }`）覆寫 `this.theme`（RTS 不畫岩頂、不疊加時間）。
+  - `corals: { mid }`：中立區的 Coral 湧出點對數（預設 1 對＝2 個）。
+- **冰原 `snow`**：
+
+| 項目 | 內容 |
+|---|---|
+| 地形 | `baseH` [6, 8]、`ridgeH` [11, 15]、`mesaH` [10, 13]、`watchH` [5, 6]、`rimH` 22、`rough` 0.9 |
+| 冰湖（`extra`） | 每半張圖 1～2 個橢圓冰湖（長軸 24～40 m），高度壓平到 −0.7（World 的 `onIce` 照現有的判定），外觀 `buildIceSheet`；冰湖是可以走的低地，不能蓋建築（`nav.reserve`）；冰上的地面單位速度 ×1.1（D 確認 `MechEntity.move` 在 RTS 有沒有套 `onIce`，沒有時以 `rtsBuff` 加）；不放在主基地、分礦、湧出點 20 m 內，至少一個冰湖在主要通道上（捷徑但空曠、沒有掩護） |
+| 障礙物 | 岩石＝冰柱 `icespire`（`buildIceShard`）、殘骸＝雪埋的組合屋 `quonset`（`buildQuonset`）與廢棄的雷達 `radar`（`buildRadarDish`）、燈＝信標 `beacon`（`buildBeacon`）；`counts` 同荒野 |
+| 光線與天候 | 天候 `snow`；偏冷白的陽光、霧稍近 |
+| 野怪（`RTS_CAMPS.snow`） | tier 1：雪中潛伏 MT `cr_lurker`×2＋冰面滑行砲車 `cr_skater`；冷凍噴霧機 `cr_cryo`＋MT×2。tier 2：冰錐迫擊砲 `cr_icemortar`＋潛伏 MT×2＋滑行砲車；冷凍噴霧機×2＋重型 MT。tier 3：具名 AC＋冰錐迫擊砲＋潛伏 MT×2；WHITEOUT 型的 AC（`cr_ac_whiteout`，lv 6，`ACES.whiteout` 的組裝；和酒館的 WHITEOUT 無關） |
+| 傭兵（`RTS_MERCS.snow`） | 潛伏 MT 140／20、滑行砲車 160／30、冷凍噴霧機 200／60、冰錐迫擊砲 220／80（數值照 13.6 的 lv 2～3） |
+
+- **技研都市地表 `institute`**：
+
+| 項目 | 內容 |
+|---|---|
+| 地形 | `baseH` [8, 10]、`ridgeH` [13, 17]、`mesaH` [12, 16]（研究設施的廢墟台地：頂面平、邊緣是垂直的擋土牆）、`watchH` [6, 7]、`rimH` 26、`rough` 0.6（人工整地，平坦） |
+| Coral 脈（`extra`） | 地表裂開的 Coral 脈 `buildCoralVein`（只有外觀、不擋路），沿通道延伸；中立區的湧出點 2 對（`corals.mid` 2：Coral 豐富，艾瑟立克的主場）；湧出點旁 8 m 內不放障礙物 |
+| 障礙物 | 岩石＝研究設施的殘骸 `labruin`（`buildLab` 的縮小版，方塊碰撞用外框）、殘骸＝Coral 儲存槽 `coraltank`（`buildCoralTank`）與管線 `piperun`（`buildPipeRun`）、燈＝Coral 結晶 `crystal`（`buildCoralCrystal`，發光）；`counts` 的岩石比荒野少 30%（廢墟較大） |
+| 光線與天候 | 天候 `coral`（Coral 粒子）；黃昏的地表、偏青的環境光、霧中等；沒有岩頂 |
+| 野怪（`RTS_CAMPS.institute`） | tier 1：實驗體 `cr_blob`×3＋寄生纏附體 `cr_parasite`；全像投影器 `cr_holo`＋MT×2。tier 2：嵌合體 `cr_chimera`＋實驗體×2＋保全雷射網 `cr_laserpost`（不移動）；投影器＋寄生×2＋重型 MT。tier 3：具名 AC＋嵌合體×2；SPECIMEN 型的 AC（`cr_ac_specimen`）＋實驗體×3。野怪的實驗體**不會融合**（融合只看艾瑟立克陣營的定義 id） |
+| 傭兵（`RTS_MERCS.institute`） | 實驗體（一次 2 隻）100／20（人口 2）、寄生纏附體 150／50、全像投影器 180／70、嵌合體 320／90（人口 3）；傭兵是 `m_` 開頭的定義，也不能融合 |
+
+- 野怪的特殊行為（潛伏、投影、纏附、雷射網的警報）R3 仍不做（同 13.15 的「沒做的」），只借模型與數值；D 可以順手做潛伏 MT 的「16 m 內才現身」（`bossVis` 1＝隱藏、`noLock`），否則冰原的營地只是普通的 MT。
+- 兩個主題都要通過 `node scripts/rts-map-test.js --theme=snow`／`--theme=institute`（100 個種子：對稱、連通、兩邊路徑代價差 < 3%、主基地一條坡道、建築格），並記錄第一次就合格的比例（荒野 82%；低於 60% 時調參數）。`testRtsCore` 的地圖檢查逐一跑三個主題。
+
+### 14.9 平衡目標與測試
+
+- **平衡目標**（普通對普通，`rtsPathMs` 不限、`lodFrom` 在地圖中心，同 13.18 的量法）：
+  - 卡斯特隆對艾瑟立克：24 個種子 × 兩邊交換（共 48 局，三個主題輪流、開局隨機）：卡斯特隆的勝率 40～60%；40 分鐘內分出勝負 ≥ 85%、平均 ≤ 28 分鐘。
+  - 艾瑟立克鏡像：24 局，隊伍 0 的勝率 40～60%（檢查兩隊的偏差，13.18 的三個原因在艾瑟立克也要成立：導管節點的位置用主基地的方位起算）。
+  - 第一次進攻（電腦對不動的玩家）：艾瑟立克普通 4:00～7:00（swarm 可以早到 3:30）；8 分鐘內 T2 與第 2 個英雄；12 分鐘內至少融合一次嵌合體。
+  - 量測腳本 `scripts/rts-matchup.js`（F；`node scripts/rts-matchup.js --a=castron --b=aetheric --seeds=24 --swap --diff=normal --themes=wasteland,snow,institute`，結果寫 `test-results/rts-matchup-<a>-<b>.json`：每局的勝方、時間、雙方開局、最大人口、融合次數、停擺建築秒數），不放進冒煙測試（一輪約 50 分鐘）。
+  - **超出範圍時的調整順序**（一次調一項、重跑 24 局）：研究中樞的 Coral 產出 → 實驗體的 dps／血量 → 雷射步兵的血量 → 導管上的回復 → 融合的 Coral → 建築血量；卡斯特隆的數值不動（R2 已經測過），除非只調艾瑟立克無法進入範圍。
+- **冒煙測試**（共用：`seededRandom`、`freezeLoop`／`rtsSim` 快轉、`g.rtsAiOff`；截圖寫到 `test-results/rts-r3-*.png`）：
+
+| 測試 | 包 | 檢查點 |
+|---|---|---|
+| `testRtsAethCore` | A | 導管：範圍外拒絕（`rtsPowerWhy` 的文字）、節點只能放在有電的 32 m 內、串接三個節點後最後一個有電；拆中間的節點 → 後面的建築 `bld.off`、生產與研究計時停止、雷射網不開火、人口上限不變；重蓋節點恢復；汲取塔是根；臨時導管到期；建築自己長（沒有工人也長、斷電時不長、工人放下地基就回去採）；工人每趟 8；研究中樞的 Coral 產出（T1／T2）；導管上單位的回復與速度、離開後過期；建築的自動回血（8 秒沒受傷）；結晶護壁；融合：3 隻實驗體 → 嵌合體（人口不變、扣 25 Coral、血量比例、材料不給經驗）、多選 7 隻＝兩組＋提示 1 隻、需求不滿足拒絕、引導中宿主被擊破全部損失、原型體要 `r_proto`；幻象（不佔人口、不給經驗、到期移除、上限 24）；「隨機」陣營依種子固定；兩邊都是艾瑟立克開局；卡斯特隆的開局不變（工人每趟 10、抽取站 0.8） |
+| `testRtsAethUnits` | B | 每個兵種生產、移動、開火（近戰的實驗體、嵌合體、原型體也算），實際 dps 在定義的 ±15%（嵌合體的範圍另計）；纏附（撲上、持續傷害、緩速、8 秒、建築與空中不能纏、`r_brood` 孵化）；投影（3／5 個、打一下消失、敵方的電腦會打它）；過載與之後的硬直；共振砲在導管上 +16（`r_reson` +24）、最短射程；浮游砲機只被對空打、浮游砲展開；吞噬；雷射網的警報揭露；斷電的外觀；截圖 `rts-r3-blds.png`（全部建築與三階）、`rts-r3-units.png`、`rts-r3-conduit.png`（導管連線、斷電標示） |
+| `testRtsAethHero` | C | 三位英雄 12 個技能的 Coral、冷卻、效果（折射直線、屏障吸收、共振場、天光陣列、孵化的實驗體 40 秒消失、催化立刻完成融合、共生、群體融合（6 隻 → 2 隻嵌合體、免費）、分身、EMP 的暈眩與建築暫停、相位迷彩、虛像軍團）；4 種專屬道具（攜帶式導管讓範圍外可以蓋）；保管庫的貨架依層級、中立商店與補給商店沒有專屬道具、掉寶沒有；截圖 `rts-r3-hero.png` |
+| `testRtsMaps2` | D | 冰原、技研都市各 3 個種子開局：對稱（高度圖、障礙物、資源、營地、中立建築）、連通、路徑相等；冰湖在通道上而且不能蓋、冰上變快；技研都市的湧出點 6 個、Coral 脈不擋路；兩個主題的營地編成對稱與傭兵的雇用；平均亮度與過曝／死黑比例在 `testStyleThemes` 的範圍內；截圖 `rts-r3-map-snow.png`、`-institute.png`（俯視與 near 鏡頭） |
+| `testRtsAethHud` | E | 建造預覽：範圍外紅、範圍內綠、說明文字；建造模式與選取建築時顯示範圍圈；斷電的事件只發一次、建築的選取面板顯示「無導管供電」；融合卡片（需求不滿足的原因、選取 3 隻時可以按、多選時的組數）；研究作業機沒有修理卡、研究中樞的卡片；管家：艾瑟立克沒有修理的動作、補給＝導管節點而且放在有電的地方；選單的陣營按鈕與隨機、戰績的鍵；三種大小的截圖 `rts-r3-hud-{1920,1180,844}.png` |
+| `testRtsAi3` | F | 普通的艾瑟立克電腦（三套開局各一次）對不動的玩家快轉 12 分鐘：建築都在有電的地方（8 分鐘時停擺的建築 0）、分礦的研究中樞與節點、英雄、T2、融合 ≥ 1 次、施放技能 ≥ 2 次、第一次進攻在範圍內、決策 < 1 ms；拆掉電腦的一個節點後它在 30 秒內重蓋；跨陣營兩局（種子 8 卡斯特隆對艾瑟立克、種子 11 艾瑟立克對卡斯特隆）40 分鐘內分出勝負；截圖 `rts-r3-ai.png` |
+
+- 既有的 RTS 測試（`testRtsCore`、`testRtsAi`、`testRtsFog`、`testRtsInput`、`testRtsLod`、`testRtsTech`、`testRtsCastron`、`testRtsHero`、`testRtsItems`、`testRtsNeutral`、`testRtsHud2`、`testRtsPilot`、`testRtsAi2`）要繼續通過：卡斯特隆的數值與卡片不改；`RTS_GATHER.trip` 改成預設值、`hqMenus` 依陣營產生、`coralRate` 的兩種處理、`rtsAutoSpot` 的導管檢查都不能改變卡斯特隆的結果。
+- **效能**：`scripts/rts-bench.js` 加 `--faction=castron|aetheric|mix`（A：兩隊的兵種從該陣營的單位依比例生成；英雄用該陣營的三位；`mix` 一隊一個陣營），`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps --faction=mix` near ≥ 50 FPS、draw calls 不比卡斯特隆多 10% 以上（導管連線一隊一個網格、範圍圈只在建造與選取時），結果記進第 8.3 節。融合與幻象的生成（建模＋合併）一次 < 6 ms。
+
+### 14.10 開工時要先確認的地方
+
+- A：`rtsBuildings` 的 Coral 產出目前要 `B.vent`（研究中樞的產出要分開處理）；`rtsRecount` 的人口上限對斷電的節點照算；`rtsSpawn` 的 `palBase`；`RTS_GATHER.trip` 被哪些地方直接讀（mech-rts.js 的採集、rts-ai.js 的收入估計），改成讀定義的 `trip`；`rtsAutoSpot`（管家蓋補給）對 `needPower` 的建築要檢查 `rtsPowerAt`。
+- B：foe 模型（`blob`／`chimera`／`parasite`／`holoproj`）走 `mergeRtsRig` 時，`animD1` 的會動節點有沒有正確當成骨頭（`foe-merge.js` 的判定和 RTS 的合併是兩套）；RTS 單位有沒有跑 `specialFx`（近戰動作、受損冒煙）。
+- C：`rtsHeroWrap` 要包在所有實體上（稜鏡屏障給一般單位用）；VEIL 的相位迷彩與 WHITEOUT 的白化共用 `applyCloak`。
+- D：`World.onIce` 是用「snow 主題且高度 −0.7」判定，RTS 的冰湖要壓到這個高度；技研都市主題原本的 `roof`、`noTod` 與光線在 `buildRts` 覆寫；`buildLab`／`buildCoralTank` 放進 RTS 的障礙物時碰撞要用外框。
+- E：建造預覽目前只看 `nav.buildable`（`rts-input.js` 的兩處），要加 `rtsPowerWhy`；城牆的 Shift 連蓋只給有 `wall` 的定義（艾瑟立克沒有）。
+- F：見 14.6 最後一項（寫死的卡斯特隆 id）。
+
+### 14.11 A 包（核心與資料）的實作結果與掛勾
+
+> A 包已完成（2026-10-17）。B～E 以這一節為準接上；和 14.1～14.10 不同的地方都列在「規格的修改」。
+
+- **檔案**：`data/rts-aetheric.js`（新：`RTS_AETH_DEFS`、`RTS_AETH_ABILS`、`RTS_AETH_RESEARCH`、`RTS_FUSE`、`RTS_AETH` 常數、`RTS_AETH_FACTION`）、**`game/rts-grid.js`（新 mixin：導管網、結晶護壁、融合、幻象；`main.js` 一行 import）**、`data/rts-units.js`（合併、`RTS_FACTIONS.aetheric`、英雄子選單依陣營產生、陣營的 `traits`）、`data/rts-combat.js`（`MOD_MUL` 加 `skill`）、`game/rts.js`、`game/rts-orders.js`、`scripts/rts-bench.js`（`--faction`）、`scripts/smoke-rts-aeth-a.js`（`testRtsAeth`）。另外動了別包檔案的幾行（各包接手時保留或改寫）：
+  - `data/rts-heroes.js`（C）：`RTS_FACTION_HEROES.aetheric` 與三位英雄的**空殼** `h_prism`／`h_curator`／`h_veil`（14.4 的數值、組裝、`slots`；**技能暫時借卡斯特隆的**，C 換成 14.4 的 12 個）。
+  - `entities/mech-rts.js`（B）：指令 `fuse`／`fuseTo` 轉給 `g.rtsFuseStep`；採集讀定義的 `trip`；`rtsBuild` 的 `selfBuild`（放下地基就 `rtsAfterBuild`）；14.1 的四個分派（`rtsAbInit` 結尾 `rtsAethInit(D)`、`rtsAbTick` 開頭 `rtsAethTick(dt, D)`、`rtsAbCast` 認不得的技能 `rtsAethAb(ab, o)`、`rtsFire` 在轉向完成後 `if (D.melee) return this.rtsAethMelee(t, R.dt, D)`）都已經放好（沒有時略過；近戰單位在 B 之前不會攻擊）。
+- **核心 API（新增，rts-grid.js）**：
+  - 導管：`rtsPowerTeam(t)`（陣營有 `grid`）、`rtsPowerRebuild(t)`→`{ ver, newOff, newOn, off }`、`rtsPowerAt(t, x, z)`→供電源｜null、`rtsPowerNear(t, x, z, r)`、`rtsPowerWhy(t, defId, x, z)`、`rtsPowerDeps(b, blds?)`（`blds`＝改用這份建築清單計算：F 用記得的敵方建築，元素可以是實體或 `{ def, x, z }`）、`rtsPowerFields(t)`→`[{ x, z, r, on, root }]`、`rtsPowerLinks(t)`→`[[{x,z}, {x,z}, on]]`、`rtsPowerAddTemp(t, x, z, r, 秒)`、`rtsPowerCompute(t, blds, temp, excl)`（純計算）、`rtsBldOff(b)`（斷電或電磁脈衝中：HUD、商店用）、`rtsPowerTick(dt)`（rtsSim 每格）。
+  - 隊伍狀態 `T.power = { srcs: [{ e, x, z, r, root, link, on, par }], temp: [{ x, z, r, t }], ver, deps }`（三個隊伍都有；卡斯特隆的是空的）。建築 `e.bld.off`＝停擺（只有 `needPower` 的）、`e.bld.unp`＝外觀沒電（停擺的建築、沒接上的節點）、`e.bld.pw`＝目前 `setPower` 的狀態、`e.bld.empT`＝電磁脈衝讓生產與研究暫停到這個局內時間（C 寫）。實體 `e.rtsHurtT`＝最後一次受傷的局內時間。
+  - 建築技能：`rtsBldAbility(b, ab)`（`ab_aegis`→`rtsFactionAegis`，其他交給 `b.rtsAethAb(ab, {})`）、`rtsFactionAegis(hq)`、`rtsFactionAegisWhy(hq)`；冷卻寫在 `hq.rtsCd.ab_aegis`（HUD 既有的冷卻顯示看得到）、受影響的建築 `b.rtsAegisT`（外觀用）。
+  - 融合：`rtsFuseIssue(units, recipe)`→組數、`rtsFuseGroups(units, recipe)`→`{ groups, left }`（HUD 的組數說明）、`rtsFuseWhy(t, recipe, units?)`、`rtsFuseStep(e, o, dt)`、`rtsFuseTick()`、`rtsFuseFinish(組或宿主實體)`→新實體（CURATOR 的催化：傳引導中的宿主就立刻完成）、`rtsFuseMake(t, recipe, mats, { free, hpK })`→新實體（群體融合：免費、沒有引導、不看需求）、`rtsFuseOf(fid)`。狀態 `R.fuses = [{ id, team, recipe, host, mats, st 'gather'|'chan', t0, end, ho, hpK }]`，參與的實體 `e.rtsFusing = fid`，引導中的宿主 `e.rtsPopFuse`（人口算結果的）。
+  - 幻象：`rtsIllusion(src, x, z, { sec, dmg, taken, hp, team })`→實體、`rtsIllusionEnd(e)`、`rtsIllusionsOf(t)`；`R.illus[隊伍]`。
+- **給各包的掛勾（A 已經呼叫，沒實作時略過）**：
+
+| 包 | 方法 | 呼叫的地方 |
+|---|---|---|
+| B | `b.model.setPower(on)` | `rtsPowerRebuild`：外觀的供電狀態變了（`bld.pw` 記住，只在變化時呼叫；建立時預設有電，所以只會先收到 `false`） |
+| B | `addWorkerKit(rig, pal, faction)` | `rtsSpawn`：工人（第 3 個參數是隊伍的陣營） |
+| B | `host.rtsAethFuseFx(F, 秒)` | `rtsFuseTick`：開始引導（F＝`RTS_FUSE[配方]`）；沒有時畫一個圓環 |
+| B | `e.rtsAethInit(D)`、`e.rtsAethTick(dt, D)`、`e.rtsAethAb(ab, o)`、`e.rtsAethMelee(t, dt, D)` | `mech-rts.js` 的分派（上面）；`rtsAethAb` 回傳 true＝施放了（Coral 與冷卻由 `rtsAbCast` 扣） |
+| B | `b.rtsTowerAI(dt)` | 照舊（停擺的建築不呼叫）；雷射網在 B 之前走既有的「主堡砲座」分支（曳光＋`rtsHit`，攻擊類型 en），已經會打、會被停擺擋下 |
+| C | `rtsHeroIllusionInit(e, src)` | `rtsIllusion` 建好之後 |
+| E | `rtsHudPower(t, info)` | `rtsPowerRebuild` 結束；`info.newOff`＞0＝這次有建築停擺（E 發事件；沒有 E 時 A 用 `rtsSay` 提示） |
+| E | `rtsHudFaction()` | `rtsStart` 最後（迷霧、輸入、電腦對手之後） |
+
+- **規格的修改**：
+  - **融合的完成換成新實體**（14.2 寫的是 `rtsChangeDef(host)`＋`rtsMorph`）：嵌合體、原型體的模型是 `modelKind 'boss'`、和實驗體不同，B 的 `rtsMorph` 只能換組裝；所以 `rtsFuseMake` 安靜移除宿主、在原地 `rtsSpawn` 結果（新的 id，模型、數值、`rtsAbInit` 都照結果的定義），**選取（`R.sel`）與編隊（`R.groups`）換成新的實體**，`R.stats.made` 不算。B 不必為融合寫 `rtsMorph`；`rtsAethFuseFx` 只管引導的外觀。新實體 `e.rtsFusedFrom = 配方`。
+  - **人口**：集合時不變；開始引導時材料移除、宿主的人口改算結果的（`rtsPopFuse`），所以整個過程人口都不變（測試 9 → 9 → 9）。
+  - **融合的距離**：「全部在宿主 3 m 內」改成中心距離 ≤ 3＋兩者半徑（推擠讓嵌合體之間至少 4.2 m）。分組的貪婪：每次取離全部重心最遠的一台，配上離它最近的 n−1 台，組內最遠兩台 > 24 m 就留下它；多出來的提示「剩下 n 隻不夠一組（還差 m 隻）」。引導中的宿主不接其他指令（每格把指令換回 `fuse`）；集合中換了任何一台的指令＝取消（不扣款、不提示）。統計 `R.stats[t].fused`＝用掉的單位數（含宿主）。
+  - **嵌合體／原型體的尺寸**：嵌合體 `scale 0.85`、半徑 2、導航尺寸 1；原型體 `scale 1.25`（約嵌合體的 1.45 倍）、半徑 2.8、尺寸 2。兩者的 `cost` 只是顯示（`fused: true`，不在任何 `trains`）。
+  - **導管**：`needPower` 的建築停擺＝`bld.off`；導管節點本身沒電時不停擺（照樣自己長、照給人口），只有外觀 `bld.unp`。施工中的供電源不傳電、不供電；施工中、要電的建築斷電時不長。研究「導管增幅」對所有實體的供電源 +6 m（臨時導管不加）。`rtsPowerLinks` 的連線＝廣度優先的父子（有電）或 link 內最近的供電源（沒電）。研究中樞升級、研究導管增幅、供電源蓋好／被拆、臨時導管到期時重算；`rtsSpawnBld` 建立有 `conduit`／`needPower` 的建築時也重算（所以直接放的建築也會正確停擺）。
+  - **導管上的加成**：`rtsBuff(e, { src: 'grid', regen, speed, range }, 0.6)` 每 0.5 秒（`range`＝定義的 `gridRange`，研究共振校準再 +8；**共振砲的導管射程由 A 套用**，B 不用另外做）。建築的回血不走 buff：在有電的範圍裡、`rtsHurtT` 8 秒前，每 0.5 秒直接加。單位與建築都只看「中心在有電的範圍裡」。
+  - **研究中樞的 Coral** 套 `T.income`（同抽取站）；停擺的不產出（研究中樞是根，實際上不會停擺）。統計 `R.stats[t].offT`＝建築停擺的累計秒數（F 的勝率腳本用）。
+  - **技能**：`ab_fuse`／`ab_fuse2` 有 `fuse`（配方 id），`rtsOrder` 收到這兩個技能時轉成 `{ k: 'fuse' }`；卡片直接用 `{ k: 'fuse', recipe }`（E）。`ab_decoy`、`ab_devour` 有 `ally: true`（目標是己方）。`ab_aegis` 有 `bld: true`：**E 的 `rtsCardAbilityAct` 要把選取中的建築也傳給 `rtsOrder`**（現在只傳單位），`rtsOrder` 回傳施放的座數；不能施放的原因用 `rtsFactionAegisWhy(hq)`。
+  - **不能修理的工人**：定義 `noRepair`（研究作業機）；`rtsOrder` 的 `repair` 不派它、`rtsSmart` 對受損的己方建築改成走過去；`selfBuild` 的工地右鍵也是走過去（不續建）。
+  - **商店**：`a_vault` 是 `shop: true`＋`shopFac: 'aetheric'`，卡片留空；C 依 `RTS_FAC_SHOP.aetheric` 填 `shopItems` 與卡片（同 `c_market` 的做法）。商店要檢查 `rtsBldOff(b)`（停擺時不能買）。
+  - **選單**（14.7）：陣營按鈕最後一個是「隨機」（`data-pf="random"`／`data-af="random"`，class `rtsFacRand`）；選了的陣營下面是 3 行特色（`ul.rtsFacTraits`，`RTS_FACTIONS[].traits`）；戰績顯示目前組合與難度（`.rtsRec`），難度改了重畫。`rtsStart` 一律以 `makeRng(seed × 7 + 3)` 抽兩次（玩家、電腦），`cfg.rand`＝[隊伍 0, 隊伍 1] 是否隨機；`cfg.aiFactions` 優先於 `faction`／`aiFaction`。結果畫面多一列「陣營」（隨機的標「（隨機）」）與「融合用掉的單位」。
+  - **測試名稱**：A 包的測試是 `testRtsAeth`（`scripts/smoke-rts-aeth-a.js`；14.9 寫的 `testRtsAethCore`／`smoke-rts-r3a.js` 改了這個名字），其他包照 14.9 的名字、檔名用 `smoke-rts-aeth-<包>.js`。
+- **測試** `testRtsAeth`（約 15 秒，42 項）：開局與英雄子選單、工人每趟 8／10、研究中樞 Coral 0.15／秒（卡斯特隆 0）、`rtsPowerWhy` 的三種結果、串接三個節點、拆中間的節點（後面停擺、生產與施工停住、雷射網不開火、人口只少拆掉的那座）、重蓋恢復、汲取塔是根（Coral 1.25＋0.15）、臨時導管 3 秒、工人放下地基就回去採、兵器廠沒有工人 50 秒長好、導管上 ×1.15／2 AP、離開後過期、共振砲 +16、建築 8 秒後回血、結晶護壁（60 Coral、×0.5、遠處不受影響、冷卻、15 秒）、融合（需求、T2 升級 50 秒、4 秒、扣 25、人口 9→9→9、血量 80%、7 隻＝2 組＋1、宿主 ×1.25、被擊破全部損失、10 秒取消不扣款、原型體的需求）、幻象（人口、血量 1、打一下消失、不算陣亡與生產、分身倍率、到期、上限 24）、隨機陣營依種子、兩邊都是艾瑟立克、`aiFactions`、選單；截圖 `rts-r3a-grid.png`（導管的範圍與連線：測試自己畫的除錯圓環與預警線，B／E 的外觀之前）、`rts-r3a-fuse.png`、`rts-r3a-menu.png`。
+- **效能**（`scripts/rts-bench.js --faction=castron|aetheric|mix`：基準是一般任務的 `spawnType`，艾瑟立克的編成用主題專屬敵人的實驗體、寄生纏附體、嵌合體、全像投影器、偵察機＋MT，不是 RTS 的定義；AMD Radeon 880M，`--rts --hp --hud=rts --counts=120 --heroes=6 --camps`，各量 6 秒）：卡斯特隆 52.1 FPS、679 draw calls；mix 46.9 FPS、**1.1k draw calls**（渲染 12.5 ms 對 9.8 ms）。實驗體類的模型（`modelKind 'boss'`）在 RTS 渲染設定下的合併比機甲多很多 draw call，B 包要檢查 `mergeRtsRig` 對 foe 模型的處理（14.10 的 B 項），14.9 的「不比卡斯特隆多 10%」目前不成立。
+- **沒做的**：導管連線、範圍圈、停擺的外觀、艾瑟立克建築的模型（B、E；建築在 B 之前是 `buildRtsBuilding` 的預設外觀）；實驗體類的近戰與技能（B）；英雄的 12 個技能（C）；電腦對手（F：`rts-ai.js` 現在遇到艾瑟立克的隊伍照卡斯特隆的角色表，會壞——選單選電腦是艾瑟立克或隨機時，F 之前的電腦不會正常運作）。
+
+### 14.12 B 包（艾瑟立克的兵種行為與模型）的實作結果
+
+> B 包已完成（2026-10-17）。新檔：`entities/mech-rts-aeth.js`（MechEntity 擴充，方法 `rtsAeth*`；`main.js` 一行 import）、`render/rts-aeth-models.js`（建築、導管連線、研究作業機的採樣套件、原型體的外加零件；`RTS_AETH_CATALOG`）、`scripts/smoke-rts-aeth-b.js`（`testRtsAethUnits`）。改了的既有檔：`entities/mech-rts.js`（A 放的分派保留；`rtsAbOrder` 施放時多傳目標的 `id`、`rtsTowerAI` 開頭轉給 `rtsAethTower`）、`render/rts-models.js`（`buildRtsBuilding` 遇到艾瑟立克的 id 轉給新檔、`addWorkerKit` 的第 3 個參數）、`render/model-catalog.js`（目錄一行）。別包的檔案（最少行）：`game/rts.js` 兩處（`rtsSpawn` 在合併前呼叫 `e.rtsAethModel(D)`；`rtsBaseStats` 的 dps 換算算進多連導彈的 `count`——共振砲的 PM-6 一次 6 發，原本實際 dps 是定義的 6 倍；卡斯特隆沒有用多連導彈的兵種，不受影響）、`game/rts-grid.js` 兩行（import 與 `rtsPowerRebuild` 結尾的 `syncConduitLinks`）、`scripts/rts-bench.js`（`--faction` 的艾瑟立克編成換上 RTS 定義的真正模型，約 12 行）、`render/foe-merge.js`／`render/boss-models.js`／`entities/mech-entity.js`（下面的「效能」）、`smoke-test.js`／`smoke-jobs.js` 各加一行。
+
+- **近戰**（`rtsAethMelee(t, dt, D)`，`rtsFire` 轉向完成後轉來）：以局內時間計時，每 `melee.rof × rtsRofK` 秒一下 `rtsHit(t, dps × rof × dmgMul, 0, 自己, 定義的 atk)`（晚了的時間從下一下扣回）；`rtsFight` 在「快到射程」時也會呼叫 `rtsFire`，所以先檢查到外形的距離 ≤ `melee.r`＋0.3。`splash` 內的其他敵人（不含空中）50%。實驗體類的咬：`rtsD2`（`FB_D2.atk` 0.28 秒、目標在 `r`＋2.5 內＝`warn`）由實例覆寫的 `foeBits_d2` OR 進 `foeAnim_d2` 的動作旗標（它們的 ai 是 'rts'，原本只有開火的旗標）。
+- **纏附**（`ab_latch`，自動施放預設開；`rtsAethTick` 每 0.3 秒找交戰中的目標或 8 m 內最近的）：可以纏＝敵對的地面單位、不是建築、沒有被別隻纏住、英雄沒有 ACS 穩定器（`rtsHeroHas(hero, 'i_stab')`）。撲上 0.4 秒（水平直線，模型的 torso 畫拋物線）→ 黏在目標中心往後 0.4×半徑的地方（`noPush`，每格跟著目標，torso 抬到目標身高的 45%）：每 0.5 秒 `rtsHit(8 × dmgMul, 'none')` 與 `rtsBuff(目標, { src: 'latch', speed: 0.7, rof: 0.8 }, 0.65)`；8 秒、目標死亡或變成空中時放開。研究寄生孵化：纏住的目標死亡（幻象不算）且人口夠時原地 `rtsSpawn` 一隻實驗體（`e.rtsBrood`，不算生產）。纏附中 `rtsAethTick` 回傳 true（不動、不開火）。
+- **投影**（`ab_decoy`）：目標是己方的單位（不是建築）；周圍 3.2 m 出現 3／5 個 `rtsIllusion(目標, x, z, { sec 15／25, dmg 0, hp 1 })`，幻象照目標的指令（交戰中＝攻擊同一個目標，否則複製移動／攻擊移動／巡邏／守住）。投影器的模型（花瓣張開、投影錐、發射環快轉）在施放後 1.2 秒。
+- **過載**（`ab_overcharge`）：`rtsBuff({ src: 'oc', rof: 1.6 }, 5)`，5 秒後 `staggerT` 2 秒。**浮游砲展開**（`ab_bits`）：8 秒內每 1/3 秒一發（三個點輪流，`fx.beam`）`rtsHit(8 × dmgMul, 'en')`；目標死了就停。**吞噬**（`ab_devour`）：己方的實驗體（不是幻象）安靜移除、回復 600、`rtsBuff({ src: 'devour', dmg: 1.2 }, 10)`。**共鳴光環**（原型體，定義的 `aura`）：每 0.5 秒對 15 m 內己方的 `bio` 單位 `rtsBuff({ src: 'reso', regen: 3 }, 0.6)`（多台不疊加）。
+- **雷射網**（`rtsAethTower`）：從發射頭（`rig.muzzle`）的青色曳光＋`rtsHit`（能量）；警報 20 秒一次：`rtsFogReveal(自己的隊伍, 目標的位置, 20, 6)`、玩家的隊伍 `rtsEvent('雷射網警報：發現入侵者')`。
+- **融合的引導外觀**（`rtsAethFuseFx(F, 秒)`）：包住宿主的青色發光繭（加色、慢慢收緊、脈動，`fx.add`）＋地面的圓環，宿主的模型在引導中是預警的動作。
+- **推進器**：艾瑟立克的非生體單位實例覆寫 `thrusterFx`，噴焰與光暈固定 Coral 青（不是 `pal.glow`：`rtsPal` 把 glow 換成了隊伍色）。
+- **建築模型**（`buildAethBuilding`，`buildRtsBuilding` 轉來；rig 同卡斯特隆，多 `aeth: true`、`setPower(on)`、`powered`）：研究中樞（圓形基座、三層圓筒、玻璃圓頂與 Coral 結晶、導管環；T2 外圈 4 座培養槽與頂環、T3 尖塔與懸浮的稜鏡環）、導管節點（細長白柱＋頂端會轉的光環 `rig.ring`）、汲取塔（三腳架＋Coral 管＋收集器的光環）、培養槽（2×2 玻璃槽、槽內的剪影）、兵器廠（圓弧屋頂＋屋頂三組透鏡）、研究所（天文台圓頂＋觀測鏡）、雷射網（兩根柵欄柱、柱間的光束、轉動的發射頭 `rig.turret`）、保管庫（低溫保存櫃）、格納庫（開放式的圓形停機架）。玻璃是不透明的深青色（才能併進單一材質）。
+  - **合併**：Coral 青與隊伍色的發光材質每座建築一份、不放在 rig 上（rig 參照到的材質不會併進 RtsUnitMat），`setPower`／`setTier` 改材質或可見度前先 `unmerge`、改完 `remerge`。會轉的光環（節點、汲取塔、T3 的稜鏡環）是加色、有 `userData` 的網格（不合併），`onBeforeRender` 自己轉、自己更新矩陣，遊戲不必每格呼叫；斷電時停下、變暗。
+  - **停擺**：`setPower(false)`＝Coral 管線的發光熄滅（顏色換成暗灰）、隊伍色的發光降到 0.1、光環停下。**閃爍的斷電圖示由 E 的 HUD 畫布畫**（14.15），模型不另外放（兩個都有時會重疊）。
+  - **自己長**：`setProgress(p)` 本體照舊長高，鷹架換成青色的半透明六角結晶殼＋地面的結晶尖（殼的高度依進度從 15% 長到全高，完成時隱藏）。
+- **導管連線**（`buildConduitLinks(links, world)`、`syncConduitLinks(game, 隊伍)`）：`rtsPowerRebuild` 結尾呼叫，`T.power.ver` 變了才重建；一隊一個網格（`R.aethLinks[隊伍] = { ver, mesh, n }`，掛在 `R.g`，`rtsClear` 一起移除）。每條連線沿地形每 4 m 一段、寬約 0.6 m、中間凸起的發光管（頂點色：有電 Coral 青、沒電暗灰），MeshBasicMaterial＋polygonOffset，著色器照 `RTS_PROP_FOG` 的「探索過」貼圖丟掉沒探索過的格子（敵方的連線也一樣）。
+- **範圍圈**：E 自己畫（`rtsHudRings`），B 不提供模型（14.5 的 `buildPowerRing` 沒有做）。
+- **研究作業機**：`addWorkerKit(rig, pal, 'aetheric')` → `addAethWorkerKit`：背上兩支 Coral 採樣槽（發光的窗）、青色信號燈、右手的掃描頭（採集時轉的掃描環＝`rig.rtsDrill`）、攜帶礦石的貨箱（`rig.rtsCrate`）。**原型體**：`addProtoKit`（背上的骨質底座、5 根 Coral 結晶、6 條發光脈管），`rtsSpawn` 在合併前呼叫（`rtsAethModel`）；之後才加的時候先 unmerge／remerge。
+- **效能**（14.10 的 B 項）：實驗體類的模型（`FOE_BUILDERS`＝`foeMerged`）建好就依材質合併、設 `rig.merged`，所以 `mergeRtsRig` 直接略過，一台還是好幾個網格。改成 RTS 渲染設定（`game.rtsR`）時 `MechEntity` 以 `buildBossModel(key, pal, scale, { raw: true })` 建模，`foeMerged` 回傳沒合併的模型（`rawRig`：試驗出的會動節點放進 `rig.rtsAnim`，rigRefs 把它們當骨頭；`rig.dmg.unmerge／remerge` 轉給整台的），再走單一材質合併。動作改的發光材質（`lit_d2`）在 RTS 裡烘進頂點（14.16 整合時以每台的 uniform 倍率恢復脈動，見 14.16）；rig 參照到的發光材質（`cGlow`）照舊獨立、照樣會變。RTS 的野怪若用地圖專屬敵人的模型也一起受益。量測（RTX 5070 Ti Laptop，`--rts --hp --hud=rts --counts=120 --heroes=6 --camps`，各 6 秒）：
+
+| 編成 | FPS（1% low） | 渲染 ms | draw calls | 網格 |
+|---|---|---|---|---|
+| castron（B 之前） | 54.0（40.1） | 9.3 | 677 | 441 |
+| mix（B 之前） | 46.8（34.6） | 12.6 | 1060 | 824 |
+| castron | 57.4（37.7） | 8.3 | 552 | 316 |
+| mix | 58.7（39.6） | 8.3 | 574 | 335 |
+| aetheric | 64.4（43.4） | 7.7 | 590 | 352 |
+
+  - castron 也變少，是因為 D 包的野怪營地有地圖專屬敵人的模型；mix 比 castron 多 4%（目標 10% 以內）。
+
+  - `rts-bench.js` 的艾瑟立克編成改用 RTS 定義的真正模型：`spawnType` 照舊（行為是一般任務的 AI），之後 `e.rtsAethReskin(def, 隊伍)` 換上定義的組裝與模型（blob→`a_blob`、mt→`a_laser`、parasite→`a_parasite`、chimera→`a_chimera`、holo→`a_holo`、drone→`a_bit`、mth→`a_beam`、ac→`a_reson`）。
+- **測試** `testRtsAethUnits`（約 10 秒，50 項）：研究中樞三階、7 種生產的兵種（人口靠 3 座節點）、浮游砲機在空中、移動、單位都走單一材質合併（每台 ≤ 8 個網格）、9 種兵種的實際 dps 在定義的 ±15%（實驗體、寄生、嵌合體、原型體是近戰）、嵌合體的範圍、纏附（自動、撲上、跟著目標、緩速與降射速、每秒 16、8 秒、建築與空中不能纏、寄生孵化）、投影（3 個、血量 1、敵方會打掉、強化後 5 個 25 秒）、過載（研究、×1.6、5 秒後硬直 2 秒）、共振砲（60／導管上 76／校準 84、最短射程）、浮游砲機只被對空打、浮游砲展開（Coral 25、8 秒約 192）、原型體的外加零件、共鳴光環、吞噬、導管連線一隊一個網格、雷射網的警報（20 秒一次）、斷電（停擺、發光熄滅、連線少一條）與恢復、融合的引導外觀、全部建築的模型、結晶外殼、建築也走單一材質合併；截圖 `rts-r3-conduit.png`、`rts-r3-fuse.png`、`rts-r3-blds.png`、`rts-r3-units.png`。
+- **沒做的**：結晶護壁的建築外觀（`b.rtsAegisT`，A 只畫閃光）；纏附中的寄生體在目標身上的模型位置只是抬高 torso（不貼合目標的外形）；共振砲的導管射程由 A 套用（B 沒有另外做）。
+
+### 14.13 C 包（艾瑟立克的英雄與道具）的實作結果
+
+> C 包已完成（2026-10-17）。檔案：`data/rts-heroes.js`（三位英雄的技能與定義）、`data/rts-items.js`（4 種專屬道具、`RTS_FAC_SHOP`）、`game/rts-hero.js`、`entities/mech-rts-hero.js`（`SKILL_FX` 加 9 項；共振場、共生、相位迷彩是光環／被動）、`scripts/smoke-rts-aeth-c.js`（`testRtsAethHero`）。別包的檔案只動了：`game/rts.js` 的 `rtsRecount` 一行（`!e.rtsNoPop`：臨時單位不佔人口）、`smoke-test.js`／`smoke-jobs.js` 各加行。
+
+- **英雄**：`h_prism`／`h_curator`／`h_veil` 的技能換成 14.4 的 12 個；組裝照 14.4，配色由 `rtsSpawn` 依陣營（`rtsPal('aetheric')`）；PRISM、VEIL 的定義多 `atkEn: true`（主武器是能量，共振場算它們）。數值照 14.4 的表；技能的參數在 `RTS_SKILLS` 的 `lv`（`sk_refract { len, w, dmg, bldK, warn }`、`sk_prism { n, t }`、`sk_reso { dmg }`、`sk_skylight { R, n, dur, r, dmg, r2, dmg2 }`、`sk_hatch { n, t }`、`sk_catalyze { heal, speed, t }`（定義有 `bio: true`）、`sk_symb { regen, dmg }`、`sk_massfuse { R, taken, t }`、`sk_mirror { n, t, dmg, taken }`、`sk_emp { R, dmg, stun, bld }`、`sk_phase { idle }`、`sk_legion { R, max, t, dmg, taken }`）。
+- **做法與規格的差異**：
+  - 折射光束是 `line: true`（同飽和砲擊：任何距離、朝那個方向，從英雄前方 1.5 m 起 40 m），預警 0.6 秒後一次判定（線段距離 − 半徑 ≤ 1.5 m），建築用外形的半邊長。
+  - 天光陣列：前 4 道在半徑 ×0.8 內隨機（0.6～3 秒），第 5 道在 4 秒時打中心；傷害走 `rtsHeroSplash`（中心 100%、邊緣 40%）。
+  - 稜鏡屏障：`g.rtsShieldAdd(e, n, 秒)` → `e.rtsShield = { n, t }`（所有實體都可以有；`R.hfx.shields` 管到期與外觀），`rtsHeroWrap` 以**相剋與護甲之後的實際傷害**扣（`rtsShieldAbsorb`），所以吸收量是實際少扣的血量。
+  - 孵化與實驗體樣本共用 `g.rtsHeroTemp(英雄, 'a_blob', n, 秒)`：`rtsQuiet`（擊破不給經驗、不算陣亡）、`rtsNoPop`（不佔人口）、`rtsTemp`（到期的局內時間，`R.hfx.temps` 安靜地移除）、不算生產。
+  - 催化：目標要是 `bio`（`rtsSkillCast` 擋下非生體）；目標是引導中的融合宿主時呼叫 A 的 `rtsFuseFinish(宿主)`。
+  - 群體融合：18 m 內己方的實驗體（不含幻象、孵化的臨時實驗體、融合中的）依距離每 3 隻 `rtsFuseMake(隊伍, 'fu_chimera', 3 隻, { free: true })`；剩下的實驗體（含臨時的）回滿血；範圍內的生體單位與新的嵌合體 12 秒 `taken ×0.7`。附近一隻實驗體都沒有時不施放（不扣 Coral）。`e.hs.massN`＝這次做出幾隻。
+  - 全像分身／虛像軍團：A 的 `rtsIllusion(來源, x, z, { sec, dmg, taken })`；分身複製英雄目前的指令。`rtsHeroIllusionInit(e, src)` 給英雄的幻象 `rtsMods.hero`＝英雄等級的成長（血量、護甲、傷害），`e.rtsIllusHero`＝英雄 id，**沒有 `e.hero`**（不建立紀錄、沒有技能、不能撿道具、不能親自駕駛；HUD 的技能格 `rtsSkillInfo` 回傳 null）。虛像軍團不含英雄、工人、幻象、臨時單位、融合中的，最多 16 台、依距離。
+  - 電磁脈衝：`rtsHeroSplash`（能量）＋單位 `rtsStun`＋範圍內的敵方建築 `b.bld.empT = R.t + 4／6／8`（A 的 `rtsBuildings` 停住生產與研究、`rtsBldOff` 為 true）。
+  - 相位迷彩：英雄紀錄 `e.hs.actT`＝最後一次開火（打中敵人：`rtsHeroOnHit`）或施放技能（`rtsSkillCast`）的局內時間；`idle` 秒沒有就每格把 `hs.stealth` 延長 0.3 秒（和 WHITEOUT 的白化共用 `applyCloak`、`R.hfx.nl` 的 noLock 還原），開火或施放立刻現形。開火沒打中不會現形（同白化）。
+- **專屬道具**（`fac: 'aetheric'`）：`i_stim`（`rtsBuff` 的 speed 1.25／rof 1.2 8 秒，結束時 `later` 扣 8% 最大血量、不會扣到死）、`i_sample`（`rtsHeroTemp` 2 隻 45 秒）、`i_relay`（`target: 'point'`、`range: 20`；A 的 `rtsPowerAddTemp(隊伍, x, z, 14, 60)`）、`i_lens`（`mods: { skill: 1.15 }`；`rtsHeroDmg`／`rtsHeroSplash` 的倍率改成 `rtsHeroSkillK(src)`＝`dmgMul × rtsM.skill`）。
+- **商店**：`RTS_FAC_SHOP = { castron: 原本的 12 種, aetheric: 14.4 的 12 格 }`；`BUY`（中立商店、`RTS_SHOP`、`RTS_SHOP_ITEMS`）與 `RTS_LOOT` 都不含 `fac` 的道具。`rts-hero.js` 載入時：`c_market.shopItems`＝castron 的清單，定義有 `shopFac` 的商店（`a_vault`）填 `shopItems` 與卡片（`shopCard(清單, true)`：12 格依序，2／3 階帶 `req: { tier }`）。`rtsBuyList` 讀定義的 `shopItems`（依層級）。停擺（`rtsBldOff`：沒電或電磁脈衝）的商店 `rtsBuyShopOk` 為 false；`rtsBuyWhy`／`rtsBuyWhyAt` 回傳「商店停擺（沒有導管供電）」，英雄的 `rtsBuyAct` 在附近的商店停擺時不會走去別家。
+- **給 E 的**：技能卡與 13.14 相同（`rtsSkillInfo`、`rtsSkillWhy`、`rtsSkillCast`、`rtsSkillOrder`、`rtsSkillAuto`）；保管庫的卡片在定義上（`act { k: 'buy', item }`，灰掉的原因用 `rtsBuyWhy(選取, 道具)`）；`i_relay` 的 `rtsItemInfo(...).target === 'point'`（要選地點）；稜鏡屏障的剩餘量 `e.rtsShield.n`（可以畫在血條上）；幻象英雄沒有 `e.hero`。
+- **給 F 的**：自動施放（`rtsSkillAuto`）可以用的有折射光束、稜鏡屏障、孵化、催化（只找血量 < 50% 的生體單位）、全像分身、電磁脈衝；終極技（天光陣列、群體融合、虛像軍團）沒有 `auto`，照 14.4 的 `RTS_AI_CAST` 由 F 判斷（`sk_massfuse` 的「範圍內己方實驗體 ≥ n」不算臨時的；施放後 `e.hs.massN`、`e.hs.legionN` 是實際的數量）。
+- **測試** `testRtsAethHero`（約 10 秒，30 項）：只給艾瑟立克、技能卡、研究中樞生產 PRISM（55 秒、1100）、折射（3 級 190×3、線外沒打到、建築 95、Coral 30、冷卻 10、預警中沒有傷害）、屏障（吸收 200、不能對敵人）、共振場（雷射步兵 ×1.08、實驗體 ×1）、天光陣列、孵化（2 隻、人口不變、擊破不算、40 秒消失）、共生、催化（30%、×1.3、非生體不能、立刻完成融合）、群體融合（7 隻 → 2 隻＋1 隻回滿、只扣 80、×0.7）、分身（2／3 個、血量＝英雄 3 級、×0.25、受到 ×2、15／25 秒、沒有英雄紀錄）、EMP（60、暈眩、建築停擺與恢復）、相位迷彩（4 秒隱形、開火現形、施放現形）、虛像軍團（5 個、不含工人）、保管庫的貨架與卡片、補給／中立商店沒有專屬道具、層級 5／10／12、買 4 種、停擺不能買、興奮劑、樣本、攜帶式導管（範圍外 → 可以蓋 → 60 秒後不行、20 m 外不能用）、聚焦透鏡（折射 103.5）；截圖 `rts-r3-hero.png`。
+- **沒做的**：~~孵化的臨時實驗體仍然可以用一般的融合指令當材料~~（14.16 已修：`rtsFuseGroups`／`rtsFuseWhy` 排除 `rtsTemp`）；PRISM 的光束與 EMP 沒有專屬音效。
+
+### 14.14 D 包（地圖主題與中立）的實作結果
+
+> D 包已完成（2026-10-17）。檔案：`world/rts-map.js`（`RTS_THEMES.snow`／`institute`、附加地形）、`world/rts-props.js`（新障礙物的建模）、`world/world.js` 的 `buildRts`（主題覆寫、冰面、裝飾、冰湖的建築禁區）、`data/rts-neutral.js`（主題的野怪、傭兵、營地編成、`mercCard`）、`game/rts-neutral.js`（傭兵營的卡片依主題、一次多台的傭兵、冰上加速）、`scripts/rts-map-test.js`（`--theme=wasteland|snow|institute|all`、荒野的雜湊）、`scripts/smoke-rts-aeth-d.js`（新：`testRtsThemes`）。別包的檔案只動了 `smoke-test.js` 的 require 與 STEPS 各一處、`smoke-jobs.js` 的 `DEFAULT_TIMES` 一行；A 的檔案沒動。
+
+- **荒野不變**：附加的東西都在主題的掛勾裡、用自己的亂數串，荒野不呼叫。`node scripts/rts-map-test.js` 比對 100 個種子的地圖雜湊（高度圖＋plan 的其他欄位，`WASTELAND_HASH`），和 R3 之前相同（改之前先存了每個種子的雜湊逐一比對過）。
+- **主題的欄位**（14.8 的修改）：
+  - `look`＝World 的主題覆寫（顏色、光線、霧、天候），`planRtsMap` 輸出 `plan.themeOver = { roof: null, noTod: true, ...look }`（荒野沒有 `look`，所以沒有這個欄位），`buildRts` 開頭合併進 `this.theme`。14.8 寫的 `light` 改名 `look`（不只光線）。
+  - `extra(plan, ctx)`（檢查前）與 `after(plan, ctx)`（第一次檢查合格後；回傳不合格的原因或 ''）；`ctx`＝`{ rng: makeRng(sub × 53 ＋ 19), high, W, S, U1, chokes, inUse }`。
+  - `corals.mid`：中立區的 Coral 對數；第 2 對起用另一條亂數串 `makeRng(sub × 59 ＋ 23)` 在第一對之後放（營地等後面的點位會避開它）。
+  - `rocks.boxW／boxH／boxD`：方塊的岩石（技研都市的廢墟），朝向以 90° 為單位、碰撞是外框。
+- **冰原 `snow`**：地形照 14.8，只有 `baseH` 改成 [6.5, 8.5]（[6, 8] 時主基地比坡道下不到 6 m 的種子約 8%，`rts-map-test.js` 的高低差檢查不過）。冰湖在 `after`：放在第一次檢查算出的通道（`plan.lanes` 的 A 側 12～42%）上、長軸順著通道，再隨機加第二個（50%）；條件：整個湖與 5 m 的過渡帶都是低地、離主基地／坡道／高地、礦脈與湧出點（20 m）、營地（10 m）、中立建築（12 m）夠遠、不碰到自己的鏡像；湖面壓到 `RTS_ICE_Y`（−0.7＝`World.onIce`）、過渡帶平滑，湖裡與邊緣的障礙物移除；改了地形所以**整個重新 `validate`**，再確認新的通道經過冰湖（`iceOnLane`，不合格換子種子）。`plan.ice`＝[{ x, z, rx, rz, rot, y }]（成對）、`rtsOnLake(plan, x, z)`。World：冰面 `buildIceSheet`（兩個湖共用一張貼圖；**不設 `userData.noFade`**：`rts-fog.js` 把 `world.meshes` 裡 noFade 的網格當遠景一直隱藏；矩陣先算好、`matrixAutoUpdate` 關掉）、`nav.reserve` 沿長軸放幾個圓（不能蓋）。冰上的地面單位 `rtsBuff(e, { src: 'ice', speed: 1.1 }, 0.6)`（`rtsNeutralTick` 每 0.5 秒；`MechEntity.move` 在 RTS 沒有套 `onIce`）。障礙物：冰柱 `icespire`（主線的 `buildIceChunk` 拉高）、組合屋 `quonset`（方塊 6.2×3.4×9.4）、雷達 `radar`、信標 `beacon`。100 個種子第一次就合格 75%。
+- **技研都市地表 `institute`**：地形照 14.8（台地的邊緣沒有另外做成垂直的擋土牆）；`look`＝黃昏的地表（灰色地面、橘色陽光、青色環境光、霧 55～180 m、Coral 粒子），沒有岩頂。湧出點 6 個（`corals.mid` 2）。Coral 脈（`after`）：沿每條通道的 A 側前半段每 10～18 m 一段（75%），避開礦脈、湧出點、中立建築、障礙物與坡，轉 180° 複製，`plan.decor`＝[{ model: 'coralvein', x, z, y, len, yaw }]；World 建成不碰撞的群組，**和障礙物一起交給 `mergeRtsProps`**（所以迷霧的著色器一樣隱藏沒探索過的），外觀加寬 2.5 倍。障礙物：研究設施殘骸 `labruin`（`buildLab`，方塊 6～8.5 × 4～7 × 5～7）、Coral 收容槽 `coraltank`、管線 `piperun`（方塊 6×1.7×2）、Coral 結晶 `crystal`；岩石的數量 [11, 17]。100 個種子第一次就合格 76%。
+- **障礙物外觀**全部沿用主線主題已登記在模型庫的物件（GLB 也照用），所以模型庫的目錄不用改；冰柱是冰塊的縮放。
+- **野怪**（`RTS_CREEP_DEFS`，數值照 13.6 的 lv 公式；模型借主題敵人、行為是一般的野怪，特殊行為不做）：冰原 `cr_lurker`（2）、`cr_skater`（2）、`cr_cryo`（3，能量）、`cr_icemortar`（4，爆發、範圍 3 m、最短射程 8 m）；技研都市 `cr_blob`（1）、`cr_parasite`（2）、`cr_holo`（2，能量）、`cr_chimera`（5）、`cr_laserpost`（3，能量、`speed: 0.01`＝不移動：0 會被 `rtsBaseStats` 當成沒設定）；主題 AC `cr_ac_whiteout`、`cr_ac_specimen`（`ACES` 的組裝，lv 6；**不加進 `RTS_CAMP_ACES`**，否則荒野的「@ac」抽到的 AC 會變）。實驗體、寄生纏附體、嵌合體**是近戰**（`melee`：2.5／3／3.5 m，嵌合體有 2.5 m 的範圍；14.16 整合時從 D 暫用的霰彈改回，B 的 `rtsAethMelee` 一樣適用野怪與傭兵，`rtsAethInit` 對有 `melee` 的野怪只開近戰計時與咬的動作）；野怪的定義 id 不是艾瑟立克的，所以不會融合。
+- **營地編成**（`RTS_CAMPS.snow`／`institute`）照 14.8，lv 合計不夠的大營地多一台：冰原「AC＋冰錐迫擊砲＋潛伏 MT×2＋MT 重型」、「WHITEOUT＋冰錐迫擊砲＋滑行砲車×2＋冷凍噴霧機」；技研都市「AC＋嵌合體×2＋實驗體」、「SPECIMEN＋嵌合體＋實驗體×3＋保全雷射網」。
+- **傭兵**（`RTS_MERCS.snow`／`institute`，費用照 14.8）：`m_lurker`、`m_skater`、`m_cryo`、`m_icemortar`；`m_blob`（`mercN: 2`：一次 2 隻、費用是合計、`pop` 是每隻）、`m_parasite`、`m_holo`、`m_chimera`（lv 4 的數值）。`rtsMercWhy` 的人口檢查乘 `mercN`，`rtsMercHire` 沿正面排開、回傳第一台。傭兵營的卡片：`mercCard(主題)`，`rtsNeutralInit` 把 `RTS_DEFS.n_merc.card` 陣列的內容換成這張地圖的（HUD 不用改）。
+- **測試** `testRtsThemes`（約 15 秒，58 項）：冰原、技研都市各 3 個種子（7、23、101）開局：主題覆寫、對稱（高度取樣、障礙物、礦脈、湧出點、營地與編成、中立建築）、尋路（坡道下到營地與礦脈旁的格子，兩邊代價差 < 3%）、野怪都是主題的、傭兵營的名單與卡片、障礙物合併且有迷霧著色、冰湖（冰面高度、可以走、不能蓋、在通道上、冰面數）、湧出點 6 個與 Coral 脈不擋路；第一個種子另測冰上 ×1.1、4 種傭兵的雇用（實驗體 2 隻）、營地出動交戰（兩邊都受傷）、俯視與近景的亮度（testStyleThemes 的範圍）。截圖 `rts-r3-map-{snow,institute}.png`、`-near.png`。注意：測試的快轉要同時跑 `rtsFogTick`（迷霧決定 `noLock`，沒跑時野怪打不到）；放測試單位要和營地同高（低處看不到高處）。
+- **效能**（AMD Radeon 880M、1920×1080、`--force_high_performance_gpu`、RTS 渲染＋RTS HUD、兩隊各 60 台在中央互打＋全部野怪、鏡頭 60 m，各量 8 秒兩輪）：荒野 52.4／55.7 FPS、冰原 57.6／55.4、技研都市 52.2／51.1；draw calls 357／345／339。`rts-bench.js` 用一般任務的地圖，量不到 RTS 主題，所以用同樣的條件另外量。
+- **沒做的**：野怪的特殊行為（潛伏 MT 的現身、投影、纏附、雷射網的警報）；技研都市台地的垂直擋土牆；`testRtsCore` 的地圖檢查逐一跑三個主題（R1 的檔案，改由 `testRtsThemes` 與 `rts-map-test.js --theme=all` 涵蓋）。
+
+### 14.15 E 包（艾瑟立克的 HUD、輸入、親自駕駛）的實作結果
+
+> E 包已完成（2026-10-17）。檔案：`game/rts-hud.js`、`game/rts-input.js`、`game/rts-pilot.js`、`styles.css` 的 RTS 區塊（R3 的一段在檔尾）、`scripts/smoke-rts-aeth-e.js`（`testRtsAethHud`）。別包的檔案只在 `smoke-test.js`／`smoke-jobs.js` 加行；A 的檔案沒有改。
+
+- **陣營與資源列**：`rtsHudFaction()`（A 在 `rtsStart` 最後呼叫）把 `#rtsHud` 的 `data-fac` 設成玩家的陣營，有導管網（`rtsPowerTeam(0)`）時顯示資源列的 `#rtsPower`：平常「導管 n」（有電的供電源數），有建築停擺時變紅閃爍「停擺 n」；點一下依序跳到停擺的建築（沒有時依序跳到供電源）並選取。人口將滿的警示、管家的提示改用陣營的補給建築名稱（艾瑟立克＝導管節點）。
+- **導管範圍圈**（`rts-input.js` 的 `rtsHudRings`，B 的 `buildPowerRing` 沒有用）：建造模式的建築要電或是供電源、或選取中有己方要電／供電的建築時，畫己方全部的供電範圍（`T.power.srcs`）：一個貼著地形的半透明填色網格＋一組邊緣線段（有電青色、沒接上的灰色、選中的較亮；有電的範圍被其他有電範圍蓋住的邊不畫，所以看起來是整片網路的外框）。導管重算（`rtsHudPower` 把 `ui.ringKey` 清掉）或選取改變時才重建，平常每格只判斷要不要顯示。預覽的建築是供電源時另外畫它自己的範圍（綠／紅）與節點的連接距離（灰色虛線，`rtsHudGhostRing`）。
+- **建造預覽**：`rtsGhostUpdate` 在 `nav.buildable` 之後看 `rtsPowerWhy(0, def, x, z)`（在「沒探索過」與資源之前，所以原因優先顯示導管）；原因接在畫面上方的模式提示後面（「放置 … — 要蓋在導管範圍內」），點下去時照舊 `flashMsg`。城牆的 Shift 連蓋也檢查（艾瑟立克沒有城牆，卡斯特隆的 `rtsPowerWhy` 一律 ''）。
+- **斷電**：`rtsHudPower(t, info)`：玩家的 `info.newOff > 0` 時發一次事件「導管中斷：n 座建築停擺」（空白鍵跳過去、小地圖紅圈、警報音），全部恢復時（`newOn > 0` 且 `off` 0）「導管恢復：n 座建築恢復運作」。建築上的標示畫在 HUD 畫布：停擺（`bld.off`）或電磁脈衝（`bld.empT`）＝閃爍的紅底閃電圖示，只有外觀沒電的節點（`bld.unp`）＝灰色；小地圖上停擺的建築外框閃紅。選取面板：供電源顯示「供電範圍 r m（根）／連接 32 m」、「被拆掉時 n 座建築停擺」（`rtsPowerDeps`）、沒接上時紅字「未接上導管」；要電的建築「導管供電中」或紅字「無導管供電：停擺中」；電磁干擾的剩餘秒數；結晶護壁的剩餘秒數。
+- **融合**：卡片 `{ k: 'fuse', recipe }`（`rtsCardFuse`）：不能用的原因依序是 `rtsFuseWhy(0, 配方, 選取中的材料)`（需求、「需要 3 隻實驗體（選了 2 隻）」、Coral）、沒有一組在 24 m 內；`lvTxt` 是組數（「2 組」），說明框寫配方、每組 Coral、引導秒數與「剩 n 隻不夠一組」（`rtsFuseGroups`）。按下去＝`rtsOrder(選取中己方的單位（不只 Tab 子群組）, { k: 'fuse', recipe })`。引導中的宿主：血條下面一條紫色的進度（`R.fuses` 的 `end`），選取面板「融合引導：嵌合體 n%」；集合中的單位面板寫「宿主，等材料／走向宿主（n／3 到齊）」。
+- **建築的技能**：`rtsCardAbilityAct` 遇到 `A.bld`（結晶護壁）時把選取中的己方建築傳給 `rtsOrder`（回傳施放的座數）；卡片不能用的原因用 `rtsFactionAegisWhy`（建造中、冷卻 n 秒、Coral），施放前先檢查並提示。
+- **幻象**：自己的幻象在血條旁標淡藍色「幻」、血條淡藍色、選取面板名稱加「（幻象）」與剩餘秒數、多選的格子虛線框；敵方的幻象完全照一般單位顯示（看不出真假）。英雄的幻象（C：沒有 `e.hero`）不能親自駕駛（`rtsPilotCan` 先檢查 `rtsIllus`：「幻象不能親自駕駛」）。稜鏡屏障（C 的 `e.rtsShield`）在血條上方畫一條白藍色的剩餘吸收量。
+- **親自駕駛**：艾瑟立克英雄照 13.16 的流程；友軍技能的目標改成 `rtsPilotAlly`：技能射程內（含英雄自己）血量比例最低的己方單位，生體技能（`S.bio`：催化）只挑 `bio` 單位、引導中的融合宿主優先（催化會立刻完成融合），都沒有時是英雄自己。
+- **自動管家**：補給＝陣營的 `node`（艾瑟立克的導管節點；位置由 A 的 `rtsAutoSpot` 檢查 `rtsPowerWhy`，所以一定蓋在有電的導管 32 m 內）；工人不能修理的陣營（`rtsButlerNoRepair`：陣營工人的定義有 `noRepair`）「基地防衛」不派修理（只派部隊回防），修理名單也排除 `noRepair` 的工人。
+- **選單的樣式**：A 的陣營按鈕「隨機」（`.rtsFacRand`）、特色（`ul.rtsFacTraits`）、戰績（`.rtsRec`）。
+- **測試** `testRtsAethHud`（約 15 秒，39 項）：資源列的陣營與「導管 1」、研究作業機沒有修理卡、建造子選單、研究中樞的卡片、建造預覽（範圍外紅＋提示、範圍內綠、節點 32 m 內綠並畫自己的範圍、太遠紅、範圍外放不下去）、範圍圈（建造模式、取消、選研究中樞顯示、選工人不顯示）、斷電（事件只發一次、資源列「停擺 1」、面板「無導管供電」、範圍圈）、恢復的事件、融合卡片（T1 灰掉、選 2 隻、3 隻＝1 組、7 隻＝2 組剩 1 隻、說明框、按下去 2 組、引導進度、2 隻嵌合體）、結晶護壁（卡片施放、扣 60、冷卻灰掉、面板）、幻象（自己的標、敵方的不標、多選虛線框）、管家（不派修理、蓋導管節點在有電的地方）、PRISM 的親自駕駛與幻象不能駕駛、選單、三種大小（`rts-r3-hud-{1920,1180,844}.png`，另有 `rts-r3-hud-ghost.png`、`-off.png`、`-menu.png`）。
+- **和 B／C 的介面（還沒接上的）**：B 的 `buildPowerRing`（範圍圈的模型）沒有用（E 自己畫，B 不必做）；B 的導管連線 `buildConduitLinks` 要自己在 `T.power.ver` 改變時重建（E 的 `rtsHudPower` 沒有呼叫 B 的任何方法）；建築上的斷電外觀由 B 的 `setPower(false)` 做，E 只畫 HUD 畫布上的圖示。C 包已完成，E 用到的 `e.rtsShield`、`S.bio`、幻象英雄沒有 `e.hero` 都已經對上。
+- **沒做的**：停擺的建築仍然可以排生產（計時暫停，同 14.2；卡片不灰掉）；範圍圈沒有照迷霧隱藏（只畫自己的範圍）。
+
+### 14.16 整合
+
+> A～E 五包在同一個工作目錄平行完成後一起整合、測試、提交（2026-10-17）。電腦對手的艾瑟立克（F 包）還沒做：電腦選到艾瑟立克（含隨機抽到）時目前什麼都不做，留給下一步。
+
+- **修正**：
+  - 孵化的臨時實驗體（`rtsTemp`：CURATOR 的孵化、實驗體樣本）不能當一般融合指令的材料：`rtsFuseGroups`／`rtsFuseWhy` 排除 `rtsTemp`（幻象原本就排除）。群體融合照 C 的規則（臨時的只回滿血）。
+  - 技研都市的實驗體類野怪改回近戰（14.14）：`cr_blob` 2.5 m、`cr_parasite` 3 m、`cr_chimera` 3.5 m＋2.5 m 範圍（傭兵 `m_blob`／`m_parasite`／`m_chimera` 跟著）；`rtsAethInit` 對有 `melee` 的野怪只建立近戰計時與咬的動作旗標（不套艾瑟立克的推進器與其他覆寫）。`testRtsThemes` 的技研都市營地（實驗體×3＋寄生體）出動交戰兩邊都受傷。
+  - **合併後的發光脈動**（14.12 的代價）：foe-merge.js 的試驗另外記下動作函式會改 `emissiveIntensity` 的材質（`probe.lit` → `rawRig` 的 `rig.rtsPulseMats`）；rts-merge.js 把其中有自發光顏色的最多 4 種當頻道：頂點的 `skinIndex.y`＝頻道 1～4（原本只用 `.x`）、自發光以強度 1 存，`RtsUnitMat` 的著色器乘上 uniform `rtsPulse` 對應的分量；合併網格的 `onBeforeRender` 每次算繪前把材質目前的強度寫進 uniform（每台一份）。不多 draw call、不重新編譯（快取鍵 `rubicon-rts-unit-3`）。`testRtsAethUnits` 多一項：實驗體合併後強度隨時間變化。
+  - `mech-entity.js` 的 `RAW_FOE` 常數移到 import 之後。
+- **檢查**：C 對 `rts.js`、`smoke-test.js` 的 Prettier 排版是專案的設定（`format:check` 乾淨），diff 都是實際的修改；`scripts/rts-map-test.js` 的大量變動是包進 `runTheme`（縮排）。全部修改／新增的檔案是 LF；`npm run lint`、`npm run format:check` 乾淨。
+- **測試**：全部的 RTS 測試（testRtsCore、Fog、Input、Lod、Tech、Castron、Neutral、Hero、Items、Hud2、Pilot、Ai、Ai2、Aeth、AethUnits、AethHero、AethHud、Themes）＋testPadUi 534 項全過；卡斯特隆的電腦對電腦（testRtsAi 23:54、testRtsAi2 兩局 19:54／14:39）在上限內，決策平均 0.1～0.3 ms。完整 `npm test` 1512 項全過（3 段，約 10 分鐘，沒有不穩定的項目）。
+- **效能**：`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps --faction=mix`（RTX 5070 Ti Laptop、near）59.8 FPS（1% low 41.4）、渲染 8.5 ms、656 draw calls。

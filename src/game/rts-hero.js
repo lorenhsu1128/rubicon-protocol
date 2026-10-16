@@ -29,7 +29,14 @@ import {
   skillLvReq,
   skillMax,
 } from '../data/rts-heroes.js';
-import { RTS_ITEMS, RTS_SHOP, RTS_SHOP_CARD, RTS_SHOP_ITEMS, shopCard } from '../data/rts-items.js';
+import {
+  RTS_FAC_SHOP,
+  RTS_ITEMS,
+  RTS_SHOP,
+  RTS_SHOP_CARD,
+  RTS_SHOP_ITEMS,
+  shopCard,
+} from '../data/rts-items.js';
 import { buildItemCrate } from '../render/rts-neutral-models.js';
 
 const ME = 0;
@@ -37,11 +44,19 @@ const TICK = 0.5; // 光環、區域、持續效果的間隔
 const PICK_R = 2; // 走到幾公尺內自動撿道具
 const PASS_R = 6; // 交給別的英雄的距離
 const WRECK_T = 30; // 殘骸（RUST 的拾荒）保留秒數
-const MUL = ['dmg', 'rof', 'speed', 'taken', 'imp', 'hpK', 'splash'];
+const MUL = ['dmg', 'rof', 'speed', 'taken', 'imp', 'hpK', 'splash', 'skill'];
 const _v = new THREE.Vector3();
 
 // 補給商店的貨架卡片（rts-units.js 的 c_market 留空給 C／E）
 if (RTS_DEFS.c_market && !(RTS_DEFS.c_market.card || []).length) RTS_DEFS.c_market.card = RTS_SHOP_CARD;
+if (RTS_DEFS.c_market) RTS_DEFS.c_market.shopItems = RTS_FAC_SHOP.castron;
+// 陣營商店（shopFac，例如艾瑟立克的樣本保管庫 a_vault）：貨架 shopItems 與卡片（12 格依序、2／3 階帶層級需求）
+for (const id in RTS_DEFS) {
+  const D = RTS_DEFS[id];
+  if (!D || D.kind !== 'bld' || !D.shop || !D.shopFac || !RTS_FAC_SHOP[D.shopFac]) continue;
+  D.shopItems = RTS_FAC_SHOP[D.shopFac];
+  if (!(D.card || []).length) D.card = shopCard(D.shopItems, true);
+}
 
 // 合併數值層的部分欄位（倍率相乘、其他相加）
 function addMods(o, m) {
@@ -80,6 +95,7 @@ Object.assign(Game.prototype, {
       wrecks: [],
       temps: [],
       nl: new Set(),
+      shields: new Set(), // 稜鏡屏障（e.rtsShield）的實體
       summit: {},
       tick: 0,
       pick: 0,
@@ -113,6 +129,7 @@ Object.assign(Game.prototype, {
         const e = h.ent;
         if (!e || e.dead || h.st !== 'alive') continue;
         const H = e.hs || (e.hs = {});
+        this.rtsHeroPhase(h, e, H);
         const st = H.stealth > R.t || !!H.burrow;
         if (st) {
           e.noLock = true;
@@ -165,6 +182,43 @@ Object.assign(Game.prototype, {
     this.rtsHeroSummit();
     this.rtsHeroNoLock();
     this.rtsHeroPassiveTick();
+    this.rtsHeroShields();
+  },
+  // VEIL 的相位迷彩（被動）：idle 秒沒有開火（打中敵人）、沒有施放技能就隱形；開火或施放現形（hs.actT＝最後一次）
+  rtsHeroPhase(h, e, H) {
+    const D = RTS_HERO_DEFS[h.def];
+    const i = D ? D.skills.indexOf('sk_phase') : -1;
+    if (i < 0 || !h.sk[i]) return;
+    const R = this.rts;
+    if (H.actT === undefined) H.actT = R.t;
+    const P = skillLv('sk_phase', h.sk[i]);
+    if (R.t - H.actT >= P.idle && !(H.stealth > R.t + 0.2)) {
+      if (!(H.stealth > R.t) && this.rtsFxOk(e.pos)) this.fx.flash(e.center(), 2, 0xcfe8ff, 0.2);
+      H.stealth = R.t + 0.3; // 每格延長，開火或施放時歸零
+      H.phase = true;
+    }
+  },
+  // 稜鏡屏障：到期或吸收完就消失；有的每 0.5 秒閃一下
+  rtsHeroShields() {
+    const R = this.rts,
+      F = R.hfx;
+    for (const e of [...F.shields]) {
+      const S = e.rtsShield;
+      if (e.dead || !S || S.t <= R.t || S.n <= 0) {
+        if (!e.dead && S) e.rtsShield = null;
+        F.shields.delete(e);
+        continue;
+      }
+      if (this.rtsFxOk(e.pos))
+        this.fx.ring(e.pos.clone().setY(e.pos.y + 0.4), (e.radius || 1.2) + 1, 0x8fe8ff);
+    }
+  },
+  // 稜鏡屏障（PRISM；所有實體都可以有）：n＝還能吸收的傷害、sec 秒
+  rtsShieldAdd(e, n, sec) {
+    if (!e || e.dead || !this.rts || !this.rts.hfx) return;
+    e.rtsShield = { n, t: this.rts.t + sec };
+    this.rts.hfx.shields.add(e);
+    if (this.rtsFxOk(e.pos)) this.fx.flash(e.center(), 2.6, 0x8fe8ff, 0.3);
   },
 
   // ================= 紀錄與查詢 =================
@@ -513,6 +567,7 @@ Object.assign(Game.prototype, {
       if (!tgt || !tgt.pos || tgt.dead) return false;
       const ally = S.tgt === 'ally';
       if (ally ? tgt.rtsTeam !== e.rtsTeam || tgt.bld : tgt.rtsTeam === e.rtsTeam || tgt.rtsInv) return false;
+      if (S.bio && !(RTS_DEFS[tgt.rtsDef] || {}).bio) return false; // 催化：只對生體單位
     }
     if (S.kind === 'point') {
       if (!tgt) {
@@ -523,6 +578,10 @@ Object.assign(Game.prototype, {
     }
     if (!e.rtsSkillDo(id, P, tgt)) return false;
     const R = this.rts;
+    if (e.hs) {
+      e.hs.actT = R.t; // 相位迷彩：施放就現形
+      if (e.hs.phase) e.hs.stealth = 0;
+    }
     R.teams[e.rtsTeam].coral -= Math.ceil((P.coral || 0) * this.rtsHeroCoralK(rec));
     rec.cd[slot] = R.t + (P.cd || 0);
     e.rtsCd = e.rtsCd || {};
@@ -552,14 +611,14 @@ Object.assign(Game.prototype, {
   rtsHeroDmg(src, t, dmg, atk = 'hero', impact = 0) {
     if (!t || t.dead) return 0;
     this._hSkill = true;
-    const k = src && src.dmgMul ? src.dmgMul : 1;
+    const k = this.rtsHeroSkillK(src);
     const r = this.rtsHit(t, dmg * k, impact * k, src, atk);
     this._hSkill = false;
     return r;
   },
   rtsHeroSplash(src, x, z, r, dmg, atk = 'exp', impact = 0, team) {
     this._hSkill = true;
-    const k = src && src.dmgMul ? src.dmgMul : 1;
+    const k = this.rtsHeroSkillK(src);
     const n = this.rtsSplash(
       x,
       z,
@@ -572,6 +631,11 @@ Object.assign(Game.prototype, {
     );
     this._hSkill = false;
     return n;
+  },
+  // 技能傷害的倍率：施放者的 dmgMul × 數值層的 skill（聚焦透鏡）
+  rtsHeroSkillK(src) {
+    if (!src) return 1;
+    return (src.dmgMul || 1) * ((src.rtsM && src.rtsM.skill) || 1);
   },
   // 暈眩（失衡）：建築不受影響；英雄的 ACS 穩定器抵消
   rtsStun(t, sec) {
@@ -839,6 +903,8 @@ Object.assign(Game.prototype, {
         for (const a of S) {
           if (Math.hypot(a.x - e.pos.x, a.z - e.pos.z) > a.r) continue;
           if (a.key === 'sk_link' && !((D.range || 0) >= 30)) continue;
+          if (a.key === 'sk_reso' && !(D.atk === 'en' || D.atkEn)) continue; // 共振場：能量攻擊的友軍
+          if (a.key === 'sk_symb' && !D.bio) continue; // 共生：生體單位
           best = best || {};
           if (!best[a.key] || best[a.key].lv < a.lv) best[a.key] = a;
         }
@@ -864,9 +930,25 @@ Object.assign(Game.prototype, {
       if (from && from.hero && !from.dead && from !== this && from.rtsTeam !== this.rtsTeam)
         dmg = g.rtsHeroOnHit(from, this, dmg);
       if (this.hero) dmg = g.rtsHeroOnHurt(this, dmg, from);
+      if (this.rtsShield && dmg > 0) dmg = g.rtsShieldAbsorb(this, dmg, from, wid, attr);
       if (!(dmg > 0)) return;
       return td.call(this, dmg, impact, from, at, dir, melee, wid, attr);
     };
+  },
+  // 稜鏡屏障吸收：以相剋與護甲之後的實際傷害計算（回傳剩下的原始傷害）
+  rtsShieldAbsorb(e, dmg, from, wid, attr) {
+    const R = this.rts,
+      S = e.rtsShield;
+    if (!S || S.t <= R.t || S.n <= 0) {
+      e.rtsShield = null;
+      return dmg;
+    }
+    const k = Math.max(0.05, this.rtsDmgK(e._rtsAtk || this.rtsAtkOf(from, wid, attr), e) || 1);
+    const a = Math.min(S.n, dmg * k);
+    S.n -= a;
+    if (S.n <= 0) e.rtsShield = null;
+    if (Math.random() < 0.3 && this.rtsFxOk(e.pos)) this.fx.spark(e.center(), 0x8fe8ff);
+    return dmg - a / k;
   },
   // 英雄打中別人：WHITEOUT 的冷彈（隱形中的第一擊）、SPIRE 的高點射擊、PILEDRIVER 的破甲；開火就現形
   rtsHeroOnHit(h, t, dmg) {
@@ -883,6 +965,7 @@ Object.assign(Game.prototype, {
       if (P) dmg *= P.k;
       H.stealth = 0; // 現形
     }
+    H.actT = R.t; // 相位迷彩：開火就現形、重新計時
     if (H.high && H.high.until > R.t && h.pos.y - t.pos.y >= 4) dmg *= H.high.k;
     if (!this._hSkill) {
       const P = lvOf('sk_break');
@@ -1004,6 +1087,30 @@ Object.assign(Game.prototype, {
       case 'i_contract':
         if (!this.rtsItemContract(e, I)) return false;
         break;
+      // ===== 艾瑟立克的專屬道具（docs 14.4） =====
+      case 'i_stim': {
+        this.rtsBuff(e, { src: 'i_stim', speed: I.speed, rof: I.rof }, I.t);
+        if (this.rtsFxOk(e.pos)) this.fx.flash(e.center(), 2.4, 0xa0ff80, 0.25);
+        this.later(I.t, () => {
+          if (this.rts && !e.dead) e.hp = Math.max(1, e.hp - e.maxHp * I.cost2);
+        });
+        break;
+      }
+      case 'i_sample':
+        if (!this.rtsHeroTemp(e, 'a_blob', I.n, I.t).length) return false;
+        break;
+      case 'i_relay': {
+        const d = Math.hypot(at.x - e.pos.x, at.z - e.pos.z);
+        if (d > I.range + 0.5 || !this.rtsPowerAddTemp) {
+          if (team === ME) this.rtsSay(`要在 ${I.range} m 內`);
+          return false;
+        }
+        this.rtsPowerAddTemp(team, at.x, at.z, I.r, I.t);
+        const p = new THREE.Vector3(at.x, this.world.terrainHeight(at.x, at.z) + 0.4, at.z);
+        this.fx.ring(p, I.r, 0x8fd8ff);
+        this.fx.beam(e.center(), p, 0x8fd8ff, 0.1);
+        break;
+      }
       default:
         return false;
     }
@@ -1013,6 +1120,51 @@ Object.assign(Game.prototype, {
       if (s.ch <= 0) this.rtsItemTake(rec, slot);
     }
     return true;
+  },
+  // 臨時的單位（CURATOR 的孵化、實驗體樣本）：英雄身邊 n 台 defId，sec 秒後安靜地移除；不佔人口、擊破不給經驗
+  // （rtsQuiet）、不算生產。回傳實體的陣列
+  rtsHeroTemp(e, defId, n, sec) {
+    const R = this.rts,
+      nav = this.world.nav;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = (e.yaw || 0) + (i / Math.max(1, n)) * Math.PI * 2 + 0.5;
+      let x = e.pos.x + Math.cos(a) * 3.2,
+        z = e.pos.z + Math.sin(a) * 3.2;
+      if (nav) {
+        const c = nav.nearestCell(x, z, 0, -1, 8);
+        if (c >= 0) ({ x, z } = nav.center(c));
+      }
+      const u = this.rtsSpawn(e.rtsTeam, defId, x, z, e.yaw);
+      if (!u) continue;
+      R.stats[e.rtsTeam].made--;
+      u.rtsQuiet = true;
+      u.rtsNoPop = true;
+      u.rtsTemp = R.t + sec;
+      R.hfx.temps.push({ e: u, until: R.t + sec });
+      if (this.rtsFxOk(u.pos)) this.fx.flash(u.center(), 1.6, 0xa0ff80, 0.2);
+      out.push(u);
+    }
+    this.rtsRecount();
+    return out;
+  },
+  // 幻象的掛勾（A 的 rtsIllusion 建好之後呼叫）：英雄的幻象（VEIL 的全像分身）套回英雄等級的成長數值。
+  // 不建立英雄紀錄（e.hero 沒有）、沒有技能、不能撿道具、不能親自駕駛
+  rtsHeroIllusionInit(e, src) {
+    if (!e || !src || !src.hero || !e.rtsMods) return;
+    const rec = src.hero,
+      D = RTS_HERO_DEFS[src.rtsDef];
+    if (!D) return;
+    const n = rec.lv - 1,
+      G = D.grow || {};
+    e.rtsMods.hero = {
+      hp: (G.hp || 0) * n,
+      armor: (G.armor || 0) * n,
+      dmg: (D.dps + (G.dps || 0) * n) / D.dps,
+    };
+    this.rtsModsApply(e);
+    e.hp = e.maxHp;
+    e.rtsIllusHero = rec.def;
   },
   // 最近的己方主堡（回城信標）
   rtsHeroHome(e) {
@@ -1183,7 +1335,8 @@ Object.assign(Game.prototype, {
     if (!isShopBld(shop)) return [];
     if (shop.rtsTeam === RTS_NEUTRAL) return RTS_SHOP_ITEMS.slice();
     const tier = this.rtsTier(teamId !== undefined ? teamId : shop.rtsTeam);
-    return RTS_SHOP_ITEMS.filter((id) => RTS_ITEMS[id].tier <= tier);
+    const list = (RTS_DEFS[shop.rtsDef] || {}).shopItems || RTS_SHOP_ITEMS; // 陣營的貨架（14.4）
+    return list.filter((id) => RTS_ITEMS[id] && RTS_ITEMS[id].tier <= tier);
   },
   // 到商店的距離（外形）
   rtsBuyDist(e, shop) {
@@ -1192,11 +1345,18 @@ Object.assign(Game.prototype, {
       Math.hypot(e.pos.x - shop.pos.x, e.pos.z - shop.pos.z) - Math.max(shop.bld.w, shop.bld.d) / 2,
     );
   },
-  // 英雄可以用的商店：己方蓋好的補給商店、中立商店
+  // 英雄可以用的商店：己方蓋好的補給商店（停擺的不算：導管斷電、電磁脈衝）、中立商店
   rtsBuyShopOk(shop, teamId) {
     return (
-      isShopBld(shop) && shop.bld.progress >= 1 && (shop.rtsTeam === teamId || shop.rtsTeam === RTS_NEUTRAL)
+      isShopBld(shop) &&
+      shop.bld.progress >= 1 &&
+      (shop.rtsTeam === teamId || shop.rtsTeam === RTS_NEUTRAL) &&
+      !this.rtsBuyOff(shop)
     );
+  },
+  // 商店停擺（艾瑟立克的保管庫沒有導管供電，或被電磁脈衝打中）
+  rtsBuyOff(shop) {
+    return !!(this.rtsBldOff && shop && shop.bld && this.rtsBldOff(shop));
   },
   // 英雄 r（12）m 內最近的商店（沒有＝null）
   rtsBuyShopNear(e, r = RTS_SHOP.r) {
@@ -1228,6 +1388,7 @@ Object.assign(Game.prototype, {
       I = RTS_ITEMS[item];
     if (!R || !I || I.drop) return '這個道具不能購買';
     if (!hero || !hero.hero || hero.dead) return '附近沒有英雄';
+    if (shop && this.rtsBuyOff(shop)) return '商店停擺（沒有導管供電）';
     if (!shop || !this.rtsBuyShopOk(shop, hero.rtsTeam)) return '附近沒有商店';
     if (this.rtsBuyDist(hero, shop) > RTS_SHOP.r + 0.5) return `英雄要在商店 ${RTS_SHOP.r} m 內`;
     if (!this.rtsBuyList(shop, hero.rtsTeam).includes(item))
@@ -1264,6 +1425,8 @@ Object.assign(Game.prototype, {
     if (ent.hero) {
       const shop = this.rtsBuyShopNear(ent);
       if (shop) return this.rtsBuy(ent, shop, item);
+      const why = this.rtsBuyWhy(ent, item);
+      if (/停擺/.test(why)) return (ent.rtsTeam === ME && this.rtsSay(why), false); // 附近的商店停擺：不走去別家
       const far = this.rtsBuyShopNear(ent, 1e9);
       if (!far) return (ent.rtsTeam === ME && this.rtsSay('沒有商店'), false);
       this.rtsOrder([ent], { k: 'shop', id: far.id, item });
@@ -1278,7 +1441,15 @@ Object.assign(Game.prototype, {
     if (!ent) return '';
     if (ent.hero) {
       const shop = this.rtsBuyShopNear(ent);
-      return shop ? this.rtsBuyWhyAt(ent, shop, item) : '附近沒有商店';
+      if (shop) return this.rtsBuyWhyAt(ent, shop, item);
+      const off = this.rts.units.find(
+        (s) =>
+          isShopBld(s) &&
+          s.rtsTeam === ent.rtsTeam &&
+          this.rtsBuyOff(s) &&
+          this.rtsBuyDist(ent, s) <= RTS_SHOP.r,
+      );
+      return off ? '商店停擺（沒有導管供電）' : '附近沒有商店';
     }
     const buyer = this.rtsBuyer(ent, ent.rtsTeam === RTS_NEUTRAL ? teamId : ent.rtsTeam);
     return buyer ? this.rtsBuyWhyAt(buyer, ent, item) : '附近沒有英雄';

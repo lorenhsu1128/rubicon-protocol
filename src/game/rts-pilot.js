@@ -10,6 +10,9 @@
 //   defend 基地被攻擊時閒置部隊回防與工人修理、follow 新生產的戰鬥單位跟著親自駕駛的英雄。
 //   親自駕駛時一律啟動；指揮時由資源列的「管家」按鈕開啟（R.butler.on）；設定記在 localStorage rubicon_rts 的 butler。
 // C 包（英雄、技能、道具）的 API 一律以 typeof／?.() 判斷（還沒實作時略過）。
+// R3 艾瑟立克（docs 14.15）：幻象不能親自駕駛；友軍技能的目標＝範圍內血量比例最低的合格友軍（只給生體單位的技能挑
+//   bio，引導中的融合宿主優先）；管家的補給＝陣營的 node（導管節點，rtsAutoSpot 已經看 rtsPowerWhy）、
+//   工人不能修理的陣營（定義的 noRepair）不派修理。
 import { Game } from './game.js';
 import { RTS_DEFS, RTS_FACTIONS, RTS_GATHER, RTS_POP_MAX } from '../data/rts-units.js';
 import { RTS_SKILLS } from '../data/rts-heroes.js';
@@ -38,6 +41,7 @@ Object.assign(Game.prototype, {
   // 可以親自駕駛的英雄（己方、活著、不是建築）
   rtsPilotCan(e) {
     const R = this.rts;
+    if (R && e && !e.dead && e.rtsIllus && e.rtsTeam === RTS_ME) return '幻象不能親自駕駛';
     if (!R || R.over || !e || e.dead || !e.hero || e.rtsTeam !== RTS_ME || e.bld) return '';
     const H = e.hs; // C 包：施放中（衝刺、跳躍、潛地、引導）
     if (H && (H.dash || H.leap || H.burrow || H.chan)) return '施放技能中';
@@ -241,7 +245,7 @@ Object.assign(Game.prototype, {
     const aim = this.rtsPilotTarget();
     let tgt = null;
     if (S.kind === 'unit') {
-      tgt = S.tgt === 'ally' ? e : aim && aim.ent;
+      tgt = S.tgt === 'ally' ? this.rtsPilotAlly(e, S) : aim && aim.ent;
       if (!tgt) return (this.rtsMsg('先鎖定目標', 0xff8a8a), false);
       const d = Math.hypot(tgt.pos.x - e.pos.x, tgt.pos.z - e.pos.z);
       if (S.range && d > S.range + 1) return (this.rtsMsg(`太遠（射程 ${S.range} m）`, 0xff8a8a), false);
@@ -257,6 +261,25 @@ Object.assign(Game.prototype, {
     if (typeof this.rtsSkillCast === 'function') ok = this.rtsSkillCast(e, slot, tgt);
     if (!ok) this.rtsMsg('不能施放：' + S.name, 0xff8a8a);
     return !!ok;
+  },
+  // 友軍技能的目標：範圍內（含英雄自己）血量比例最低的合格友軍；生體技能（S.bio）只挑 bio 單位，引導中的融合宿主優先
+  //   （CURATOR 的催化會立刻完成融合）；都沒有時是英雄自己（C 包會判斷能不能施放）
+  rtsPilotAlly(e, S) {
+    const R = this.rts;
+    const bio = !!(S.bio || S.tgt2 === 'bio');
+    const range = (S.range || 0) + 1;
+    let best = bio ? null : e,
+      bs = bio ? 1e9 : e.hp / Math.max(1, e.maxHp) + 0.001;
+    for (const u of R.units) {
+      if (u === e || u.dead || u.bld || u.rtsTeam !== RTS_ME || u.rtsIllus) continue;
+      const D = RTS_DEFS[u.rtsDef] || {};
+      if (bio && !D.bio) continue;
+      if (range > 1 && Math.hypot(u.pos.x - e.pos.x, u.pos.z - e.pos.z) > range) continue;
+      const chan = u.rtsFusing && u.orders[0] && u.orders[0].k === 'fuse';
+      const sc = u.hp / Math.max(1, u.maxHp) - (chan ? 2 : 0);
+      if (sc < bs) ((bs = sc), (best = u));
+    }
+    return best || e;
   },
   rtsPilotItem(slot) {
     const R = this.rts,
@@ -505,10 +528,13 @@ Object.assign(Game.prototype, {
     if ((T.cap || 0) >= RTS_POP_MAX || (T.cap || 0) - (T.pop || 0) > DEPOT_LEFT) return;
     if (B._depotT && R.t < B._depotT) return;
     const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
-    const depot = (F.blds || []).find((id) => {
-      const D = RTS_DEFS[id];
-      return D && D.popCap && !D.dropoff && !D.heroes;
-    });
+    // 補給：陣營的 node（艾瑟立克的導管節點），否則給人口、不是主堡的建築
+    const depot =
+      (F.node && RTS_DEFS[F.node] && F.node) ||
+      (F.blds || []).find((id) => {
+        const D = RTS_DEFS[id];
+        return D && D.popCap && !D.dropoff && !D.heroes;
+      });
     if (!depot) return;
     // 已經在蓋（工地，或工人正要去蓋）
     for (const e of R.units) {
@@ -537,7 +563,8 @@ Object.assign(Game.prototype, {
     this.rtsOrder([w], { k: 'build', def: depot, x: spot.x, z: spot.z, yaw: 0 });
     if (back !== undefined) this.rtsOrder([w], { k: 'gather', mine: back }, true);
     B._depotT = R.t + 8;
-    if (R.pilot && this.rtsHudPilotNote) this.rtsHudPilotNote('管家：蓋補給庫', 0xffd070, 'depot');
+    if (R.pilot && this.rtsHudPilotNote)
+      this.rtsHudPilotNote('管家：蓋' + ((RTS_DEFS[depot] || {}).name || '補給庫'), 0xffd070, 'depot');
   },
   // 基地防衛：敵人進入己方建築 42 m 內 → 附近閒置的戰鬥單位攻擊移動過去（威脅消失後回原位）；被攻擊的建築派 2 個工人修理
   rtsButlerDefend(T) {
@@ -588,8 +615,8 @@ Object.assign(Game.prototype, {
         u._bHome = null;
       }
     }
-    // 修理：受損 < 70%、礦石 > 100、被攻擊中（最近受傷）
-    if ((T.ore || 0) <= 100) return;
+    // 修理：受損 < 70%、礦石 > 100、被攻擊中（最近受傷）；工人不能修理的陣營（艾瑟立克：建築在導管裡自己回血）不派
+    if ((T.ore || 0) <= 100 || this.rtsButlerNoRepair(T)) return;
     for (const b of blds) {
       if (b.bld.progress < 1 || b.hp >= b.maxHp * 0.7) continue;
       if (!threat && !(b._bHurtT && R.t - b._bHurtT < 10)) continue;
@@ -609,6 +636,7 @@ Object.assign(Game.prototype, {
             !w.bld &&
             w.rtsTeam === RTS_ME &&
             (RTS_DEFS[w.rtsDef] || {}).worker &&
+            !(RTS_DEFS[w.rtsDef] || {}).noRepair &&
             !w.rtsMilFrom &&
             (!w.orders[0] || w.orders[0].k === 'gather'),
         )
@@ -625,6 +653,12 @@ Object.assign(Game.prototype, {
         if (back !== undefined) this.rtsOrder([w], { k: 'gather', mine: back }, true);
       }
     }
+  },
+  // 這個陣營的工人不能修理（定義的 noRepair）
+  rtsButlerNoRepair(T) {
+    const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
+    const W = RTS_DEFS[F.worker];
+    return !!(W && W.noRepair);
   },
   // 跟隨：新生產的戰鬥單位攻擊移動到親自駕駛的英雄身邊；離太遠的跟上
   rtsButlerFollow() {
