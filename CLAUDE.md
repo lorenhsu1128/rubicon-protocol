@@ -17,6 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/campaign-design.md`：主線任務模式（機戰傭兵6＋黑帝斯）的設計文件與實作分期；做主線相關功能時照它進行，設計有變動時同步更新。
 - `docs/story-script.md`：主線的劇本（世界觀與真相、角色、序章、各章的開場／章末、簡報、通訊、結局、周目）；改台詞或劇情時與 `data/story.js`、`data/story-comms.js` 同步。
 - `docs/cinematics.md`：過場動畫（序章、各章開場／章末）的引擎、劇本格式、各段的分鏡；改過場動畫時同步更新。
+- `docs/rts-design.md`：即時戰略模式「Coral 戰爭」（魔獸爭霸3 式：指揮官視角、蓋基地採資源、英雄、四陣營、戰爭迷霧、對稱地圖產生器）的設計文件與分期；做相關功能時照它進行，設計有變動時同步更新。
 - `docs/level-editor-design.md`：自訂關卡與關卡編輯器的設計文件（玩家創作、分享、多人）；改編輯器或關卡格式時同步更新。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。過場動畫的配樂 `src/assets/music/*.mp3` 由建置寫成 `dist/lib/cine-music.js`（`window.RUBICON_MUSIC`，不內嵌在 HTML，第一次播過場時才載入）。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
 
