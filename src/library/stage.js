@@ -1,6 +1,6 @@
 // 模型庫共用：渲染器、燈光、模型建立與量測、相機取景、動作預覽狀態
 import { makeStudioEnv } from '../render/environment.js';
-import { OUTLINE_MAT } from '../render/geometry.js';
+import { isOutline } from '../render/geometry.js';
 import { checkGlb, checkSummary, glbScene, matsOf, parseGlb } from '../render/glb.js';
 import { PALETTES } from '../render/materials.js';
 import { measureBox, modelStats } from '../render/measure.js';
@@ -56,7 +56,8 @@ export function disposeObject(obj) {
   obj.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
-    for (const m of ms) if (m !== OUTLINE_MAT) m.dispose();
+    for (const m of ms) if (!isOutline(m)) m.dispose();
+    if (o.isSkinnedMesh && o.skeleton.boneTexture) o.skeleton.boneTexture.dispose(); // render/foe-merge.js
   });
 }
 
@@ -79,7 +80,7 @@ function finalize(entry, built, extra = {}, atOrigin = !entry.piece) {
   const ground = atOrigin ? box.min.y : null;
   if (ground !== null) pivot.position.y = ground;
   obj.traverse((o) => {
-    if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
+    if (o.isMesh && !isOutline(o.material)) o.castShadow = true;
   });
   return {
     pivot,

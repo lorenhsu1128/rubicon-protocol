@@ -1,10 +1,10 @@
 // 模型量測：外框尺寸（1 單位 = 1 公尺）、三角面數、繪製次數、材質與貼圖統計
-import { OUTLINE_MAT } from './geometry.js';
+import { isOutline } from './geometry.js';
 
 // 描邊外殼與加色發光（推進器火焰、光暈）不算模型本體
 export function isFxMaterial(m) {
   if (Array.isArray(m)) return m.every(isFxMaterial);
-  return !m || m === OUTLINE_MAT || m.blending === THREE.AdditiveBlending || !!(m.userData && m.userData.fx);
+  return !m || isOutline(m) || m.blending === THREE.AdditiveBlending || !!(m.userData && m.userData.fx);
 }
 
 // 回傳 obj 在自身父座標系中的外框（obj 不應有父物件，或父物件為單位矩陣）；includeFx 時連發光特效一起量（彈體）

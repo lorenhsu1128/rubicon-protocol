@@ -21,6 +21,7 @@ import { FOE_BUILDERS_C2, FOE_CATALOG_C2 } from './foe-models-c2.js';
 import { mechMats } from './materials.js';
 import { FOE_BUILDERS_b2, FOE_CATALOG_b2 } from './foe-models-b2.js';
 import { tagStyle } from './style/shader.js';
+import { foeMerged } from './foe-merge.js';
 
 const glow = (color, k = 1.6) =>
   new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: k, roughness: 0.4 });
@@ -2248,7 +2249,7 @@ function buildLurker(pal, scale) {
     brl.forEach((o, i) => {
       const k = fire ? Math.abs(Math.sin(t * 28 + i * HP)) : 0;
       o.b.position.z = to_d2(o.b.position.z, k * 0.14, dt, 30);
-      o.f.visible = fire && k > 0.6;
+      o.f.visible = !!(fire && k > 0.6);
     });
   };
   return rig(root, torso, M, {
@@ -2401,7 +2402,7 @@ function buildSkater(pal, scale) {
     const fire = st.vis & FB_D2.fire && !dead;
     fireK = to_d2(fireK, fire ? 1 : 0, dt, fire ? 12 : 3);
     brl.position.z = fire ? 0.1 * Math.abs(Math.sin(t * 34)) : to_d2(brl.position.z, 0, dt, 10);
-    flash.visible = fire && Math.sin(t * 34) > 0.3;
+    flash.visible = !!(fire && Math.sin(t * 34) > 0.3);
     tur.rotation.x = 0.04 * fireK;
     lit_d2(eyeM, 1.6 + 2.4 * fireK, dead);
   };
@@ -2907,7 +2908,7 @@ function buildCrawler(pal, scale) {
     const fire = st.vis & FB_D2.fire && !dead;
     fireK = to_d2(fireK, fire ? 1 : 0, dt, fire ? 14 : 4);
     gun.position.z = fire ? 0.08 * Math.abs(Math.sin(t * 40)) : 0;
-    flash.visible = fire && Math.sin(t * 40) > 0.4;
+    flash.visible = !!(fire && Math.sin(t * 40) > 0.4);
     for (const m of mand) m.g.rotation.y = m.s * (0.08 + 0.35 * fireK + 0.05 * Math.sin(t * 3));
     lit_d2(gl, 1.8 + 2.5 * Math.max(fireK, climb * wave_d2(t, 10)), dead);
   };
@@ -3037,7 +3038,7 @@ function buildUnderTurret(pal, scale) {
       const k = fire ? Math.abs(Math.sin(t * 22 + i * HP)) : 0;
       o.r = to_d2(o.r, k * 0.14, dt, 30);
       o.b.position.set(0, -dirY * o.r, -dirZ * o.r);
-      o.f.visible = fire && k > 0.65;
+      o.f.visible = !!(fire && k > 0.65);
     });
     lit_d2(lens, 2 + 3 * fireK, dead);
     lit_d2(eyeM, 1.6 + 2 * fireK, dead);
@@ -3357,7 +3358,7 @@ function buildSpaceMt(pal, scale) {
     const fire = st.vis & FB_D2.fire && !dead;
     fireK = to_d2(fireK, fire ? 1 : 0, dt, fire ? 12 : 3);
     brl.position.z = fire ? 0.12 * Math.abs(Math.sin(t * 18)) : to_d2(brl.position.z, 0, dt, 10);
-    flash.visible = fire && Math.sin(t * 18) > 0.5;
+    flash.visible = !!(fire && Math.sin(t * 18) > 0.5);
     arm.rotation.x = 0.06 * fireK;
     larm.rotation.x = -0.15 + 0.12 * Math.sin(t * 1.3) - 0.3 * tuck;
     lit_d2(gl, 1.4 + 2.2 * fireK, dead);
@@ -3619,7 +3620,7 @@ function buildFlak(pal, scale) {
       const k = fire ? Math.max(0, Math.sin(shot - i * HP)) : 0;
       o.r = to_d2(o.r, k * 0.25, dt, 30);
       o.b.position.set(0, -dy * o.r, -dz * o.r);
-      o.f.visible = fire && k > 0.8;
+      o.f.visible = !!(fire && k > 0.8);
     });
     lit_d2(strip, 1.4 + 1.8 * aimK, dead);
     lamp.color.setHex(air ? 0xff4030 : 0x60ff90);
@@ -3885,7 +3886,7 @@ function buildMarker(pal, scale) {
     },
   });
 }
-export const FOE_BUILDERS = {
+const FOE_RAW = {
   vacuum: buildVacuum,
   marker: buildMarker,
   rammer: buildRammer,
@@ -3916,6 +3917,8 @@ export const FOE_BUILDERS = {
   ...FOE_BUILDERS_C1, // 擴充：冰原、技研都市、Grid 086（foe-models-c1.js）
   ...FOE_BUILDERS_C2,
 };
+// 統一出口：建好後把不會動的零件依材質合併（render/foe-merge.js，降低 draw call）
+export const FOE_BUILDERS = Object.fromEntries(Object.entries(FOE_RAW).map(([k, f]) => [k, foeMerged(k, f)]));
 // 模型庫登記：[key, 名稱, 備註]
 export const FOE_CATALOG = [
   ['vacuum', '真空作業機', '高空軌道專屬；全程懸浮、忽高忽低'],

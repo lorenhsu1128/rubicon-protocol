@@ -7,7 +7,7 @@
 import { SFX } from '../audio/audio.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { partById } from '../data/parts.js';
-import { OUTLINE_MAT } from '../render/geometry.js';
+import { OUTLINE_MAT, isOutline } from '../render/geometry.js';
 import { MechEntity } from './mech-entity.js';
 
 // 場地依主題縮放（World.k、World.lim）；鐵路兩端隧道口的位置（World.trackS）
@@ -1679,7 +1679,7 @@ Object.assign(MechEntity.prototype, {
       this.cloakOutlines = [];
       this.mesh.traverse((o) => {
         if (!o.isMesh) return;
-        if (o.material === OUTLINE_MAT) {
+        if (isOutline(o.material)) {
           this.cloakOutlines.push(o);
           return;
         }
@@ -1728,12 +1728,7 @@ Object.assign(MechEntity.prototype, {
     if (!this.tintMats) {
       this.tintMats = [];
       this.mesh.traverse((o) => {
-        if (
-          o.isMesh &&
-          o.material !== OUTLINE_MAT &&
-          o.material.emissive &&
-          !this.tintMats.includes(o.material)
-        )
+        if (o.isMesh && !isOutline(o.material) && o.material.emissive && !this.tintMats.includes(o.material))
           this.tintMats.push(o.material);
       });
       this.tintBase = this.tintMats.map((mt) => [mt.emissive.getHex(), mt.emissiveIntensity]);

@@ -1,7 +1,7 @@
 // 模型庫檢視窗：放大檢視單一模型（滑鼠／觸控旋轉縮放）、後處理、尺寸參考物、配色與光線、動作預覽，
 // 以及 GLB 工具：單獨／並排對照／疊合對照／組合預覽四種模式、規格檢查報告、載入／下載／移除
 import { escHtml } from '../core/html.js';
-import { OUTLINE_MAT } from '../render/geometry.js';
+import { isOutline } from '../render/geometry.js';
 import { PALETTES } from '../render/materials.js';
 import { fmtSize } from '../render/measure.js';
 import { CATEGORIES } from '../render/model-catalog.js';
@@ -22,7 +22,7 @@ import { applyQuick } from './pose.js';
 import { RefTools } from './ref-tools.js';
 import { restPose } from './workshop.js';
 import { exportTemplate } from './template.js';
-import { StylePipeline, resetStyleGlobals } from '../render/style/pipeline.js';
+import { StylePipeline, resetStyleGlobals, skinAwareSSAO } from '../render/style/pipeline.js';
 import { installStyleShader, tagStyle } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
 
@@ -150,6 +150,7 @@ export class Inspector {
       const c = new THREE.EffectComposer(this.renderer);
       c.addPass(new THREE.RenderPass(this.scene, this.camera));
       this.ssao = new THREE.SSAOPass(this.scene, this.camera, 16, 16);
+      skinAwareSSAO(this.ssao); // 蒙皮網格（render/foe-merge.js）的法線也照動作
       this.ssao.kernelRadius = 0.5;
       this.ssao.minDistance = 0.001;
       this.ssao.maxDistance = 0.03;
@@ -371,7 +372,7 @@ export class Inspector {
     } else if (this.mode === 'overlay') {
       ref.pivot.traverse((o) => {
         if (!o.isMesh) return;
-        if (o.material === OUTLINE_MAT) o.visible = false;
+        if (isOutline(o.material)) o.visible = false;
         else o.material = GHOST;
       });
     }
@@ -627,7 +628,7 @@ export class Inspector {
     for (const c of this.helpers.conns) c.visible = o.conns;
     for (const it of this.items.slice(0, this.mode === 'overlay' ? 1 : 2))
       it.pivot.traverse((m) => {
-        if (m.isMesh && m.material === OUTLINE_MAT) m.visible = o.outline;
+        if (m.isMesh && isOutline(m.material)) m.visible = o.outline;
       });
     this.renderer.shadowMap.enabled = o.shadow;
     this.lights.sun.castShadow = o.shadow;

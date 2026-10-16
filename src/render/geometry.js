@@ -330,13 +330,30 @@ export function mergeGeos(list) {
   return g;
 }
 // 墨線描邊（放大的背面外殼）。alpha 0.5＝機體類（見 render/style/shader.js：後處理的描線以 alpha 分辨機體與地形）
+// 頂點著色器寫了蒙皮的段落（沒有 USE_SKINNING 時不作用）；蒙皮網格用 OUTLINE_SKIN（render/foe-merge.js）
 export const OUTLINE_MAT = new THREE.ShaderMaterial({
   uniforms: { th: { value: 0.012 } },
-  vertexShader:
-    'attribute vec3 onormal; uniform float th; void main(){ vec4 mv=modelViewMatrix*vec4(position+onormal*th,1.0); gl_Position=projectionMatrix*mv; }',
+  vertexShader: [
+    '#include <common>',
+    '#include <skinning_pars_vertex>',
+    'attribute vec3 onormal; uniform float th;',
+    'void main(){',
+    '  vec3 transformed = position + onormal * th;',
+    '  #include <skinbase_vertex>',
+    '  #include <skinning_vertex>',
+    '  vec4 mv = modelViewMatrix * vec4(transformed, 1.0);',
+    '  gl_Position = projectionMatrix * mv;',
+    '}',
+  ].join('\n'),
   fragmentShader: 'void main(){ gl_FragColor=vec4(0.03,0.035,0.05,0.5); }',
   side: THREE.BackSide,
 });
+// 蒙皮網格用的描邊外殼：和 OUTLINE_MAT 共用 uniforms（粗細），顯示開關由 style/pipeline.js 一起設定。
+// three.js r128 的同一個材質不會依物件是不是 SkinnedMesh 換程式，所以蒙皮與一般網格不能共用材質。
+export const OUTLINE_SKIN = OUTLINE_MAT.clone();
+OUTLINE_SKIN.uniforms = OUTLINE_MAT.uniforms;
+OUTLINE_SKIN.skinning = true;
+export const isOutline = (m) => m === OUTLINE_MAT || m === OUTLINE_SKIN;
 function bake(node, outline = true) {
   const prims = node.userData.prims;
   if (!prims) return;

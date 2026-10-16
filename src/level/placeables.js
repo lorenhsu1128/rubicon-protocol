@@ -2,7 +2,7 @@
 // 所有地圖物件（render/model-catalog.js 的 prop/…，含各主題物件、變體物件、地標）。
 // 每個物件包成一個「底面中心」為原點的群組；碰撞由外框產生（方塊／圓柱／無），可破壞時登記成地圖物件。
 import { MODEL_CATALOG } from '../render/model-catalog.js';
-import { OUTLINE_MAT } from '../render/geometry.js';
+import { isOutline } from '../render/geometry.js';
 import { LANDMARKS } from '../world/landmarks.js';
 import {
   box,
@@ -146,7 +146,7 @@ function measure(obj) {
   const b = new THREE.Box3();
   const tmp = new THREE.Box3();
   obj.traverse((o) => {
-    if (!o.isMesh || o.material === OUTLINE_MAT || !o.geometry) return;
+    if (!o.isMesh || isOutline(o.material) || !o.geometry) return;
     if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
     tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
     b.union(tmp);
@@ -159,7 +159,7 @@ export function ownMats(group) {
   const out = [];
   const map = new Map();
   group.traverse((o) => {
-    if (!o.isMesh || o.material === OUTLINE_MAT) return;
+    if (!o.isMesh || isOutline(o.material)) return;
     const one = (m) => {
       if (!map.has(m)) {
         const c = m.clone();

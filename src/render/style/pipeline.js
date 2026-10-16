@@ -2,7 +2,7 @@
 // 場景 → 自己的 render target（含深度貼圖）→［SSAO］→ 合成（AO、動態模糊、描線）→ Bloom → 調色（含 gamma、
 // 色偏、暗角、色差、顆粒、紙紋）→［FXAA］→ 畫面。左右比較時整條管線跑兩次再合成。
 // 原本的組合是 RenderPass＋SSAOPass（SSAOPass 自己又畫一次場景），這裡只畫一次場景＋SSAO 的法線。
-import { OUTLINE_MAT } from '../geometry.js';
+import { OUTLINE_MAT, OUTLINE_SKIN } from '../geometry.js';
 import { StyleAtmos } from './atmos.js';
 import { STYLE_DEFAULTS } from './params.js';
 import { setStyleUniforms } from './shader.js';
@@ -10,7 +10,7 @@ import { setStyleUniforms } from './shader.js';
 // 著色器 uniform 與描邊材質是全域共用的：同一頁有其他畫面（模型庫）時，畫完風格預覽後恢復預設
 export function resetStyleGlobals() {
   setStyleUniforms(STYLE_DEFAULTS);
-  OUTLINE_MAT.visible = true;
+  OUTLINE_MAT.visible = OUTLINE_SKIN.visible = true;
   OUTLINE_MAT.uniforms.th.value = 0.012;
 }
 
@@ -178,6 +178,48 @@ const srgb = (hex) => new THREE.Color(hex);
 const warm = (k) =>
   k >= 0 ? new THREE.Color(1, 1 - 0.18 * k, 1 - 0.42 * k) : new THREE.Color(1 + 0.25 * k, 1 + 0.08 * k, 1);
 
+// SSAOPass 的法線是整個場景套同一個覆蓋材質畫的；three.js r128 的同一個材質不會依物件換蒙皮／非蒙皮的程式，
+// 所以場景裡有 SkinnedMesh（render/foe-merge.js 合併的專屬敵人）時改成逐個網格換材質：蒙皮網格用蒙皮版的法線材質。
+// 沒有蒙皮網格時照原本的覆蓋材質畫（結果相同）。
+export function skinAwareSSAO(pass) {
+  const orig = pass.renderOverride;
+  const skinN = pass.normalMaterial.clone();
+  skinN.skinning = true;
+  const list = [],
+    mats = [];
+  pass.renderOverride = function (renderer, mat, rt, cc, ca) {
+    if (mat !== this.normalMaterial) return orig.call(this, renderer, mat, rt, cc, ca);
+    let any = false;
+    list.length = mats.length = 0;
+    this.scene.traverseVisible((o) => {
+      if (!o.material || !(o.isMesh || o.isSprite)) return;
+      list.push(o);
+      mats.push(o.material);
+      if (o.isSkinnedMesh) any = true;
+    });
+    if (!any) return orig.call(this, renderer, mat, rt, cc, ca);
+    for (const o of list) o.material = o.isSkinnedMesh ? skinN : mat;
+    // 同 SSAOPass.renderOverride，只是不設覆蓋材質
+    const oc = renderer.getClearColor(new THREE.Color()),
+      oa = renderer.getClearAlpha(),
+      ac = renderer.autoClear;
+    try {
+      renderer.setRenderTarget(rt);
+      renderer.autoClear = false;
+      renderer.setClearColor(mat.clearColor || cc);
+      renderer.setClearAlpha(mat.clearAlpha || ca || 0);
+      renderer.clear();
+      renderer.render(this.scene, this.camera);
+    } finally {
+      renderer.autoClear = ac;
+      renderer.setClearColor(oc);
+      renderer.setClearAlpha(oa);
+      for (let i = 0; i < list.length; i++) list[i].material = mats[i];
+      list.length = mats.length = 0;
+    }
+  };
+}
+
 export class StylePipeline {
   // ctx：{ scene, camera, sun, hemi, sunOff（Vector3，太陽相對位置，鏡頭程式每格用它擺太陽）}
   constructor(renderer, ctx) {
@@ -258,6 +300,7 @@ export class StylePipeline {
     if (THREE.SSAOPass && ctx.ssao !== false) {
       this.ssao = new THREE.SSAOPass(ctx.scene, ctx.camera, 4, 4);
       this.ssao.output = THREE.SSAOPass.OUTPUT.Default;
+      skinAwareSSAO(this.ssao); // 蒙皮網格（render/foe-merge.js）的法線也照動作
       this.ssaoBase = ctx.ssaoBase || { kernelRadius: 1.6, minDistance: 0.0004, maxDistance: 0.012 };
     }
     this.bloom = THREE.UnrealBloomPass
@@ -337,7 +380,7 @@ export class StylePipeline {
         r = 94.3;
       c.sunOff.set(Math.cos(el) * Math.cos(az) * r, Math.sin(el) * r, Math.cos(el) * Math.sin(az) * r);
     }
-    OUTLINE_MAT.visible = P.hull > 0;
+    OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0;
     OUTLINE_MAT.uniforms.th.value = 0.012 * P.hull;
     if (!this.atmos) return;
     const fc = s.fog ? s.fog.color : B.fogColor;

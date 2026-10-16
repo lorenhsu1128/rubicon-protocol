@@ -11,3 +11,7 @@ export const AI_DIFF = {
   std: { hp: 1.0, dmg: 1.0, skill: 1.0, name: '標準' },
   hard: { hp: 1.2, dmg: 1.1, skill: 1.4, name: '困難' },
 };
+
+// ---------- 據點（outposts.js） ----------
+export const GUARD_ALERT_R = 38; // 守衛發現玩家的距離
+export const GUARD_MIN_D = GUARD_ALERT_R + 6; // 守衛生成時離玩家至少這麼遠（否則一開場就出動）

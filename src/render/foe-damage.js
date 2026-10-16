@@ -1,6 +1,6 @@
 // 受損狀態與擊破碎片的共用執行（地圖專屬敵人的模型）：讀模型的 rig.dmg
 //   rig.dmg = { smoke: [[x, y, z], ...]（冒煙點，模型座標）, plates: [Mesh...]（AP ≤ 25% 脫落的裝甲板）,
-//               chunks: [Group...]（擊破時拆開飛散的大塊） }
+//               chunks: [Group...]（擊破時拆開飛散的大塊）, unmerge?／remerge?（拆下前還原合併的網格、拆完再合併，render/foe-merge.js） }
 // - AP ≤ 50%：冒煙點冒黑煙；≤ 25%：冒煙點與裝甲板位置噴火花、裝甲板脫落（一次）
 // - 擊破：chunks 從模型拆下，依物理拋物線飛散、落地彈跳，幾秒後淡出
 // 房主與客機各自依 AP 演出（客機的 AP 來自快照），不用新協定；特效一律不轉送（fx._nested）。
@@ -148,6 +148,7 @@ export function foeDamageTick(ent, dt) {
   }
   if (!S.plates && d.plates && d.plates.length) {
     S.plates = true;
+    if (d.unmerge) d.unmerge(); // 合併過的靜態零件還原成原本的網格（render/foe-merge.js）
     const c = ent.center();
     for (const m of d.plates) {
       if (!m || !m.parent) continue;
@@ -158,6 +159,7 @@ export function foeDamageTick(ent, dt) {
       fling(fx, g.world, m, out.add(new THREE.Vector3(0, rnd(5, 8), 0)), 5);
       local(fx, () => fx.streaks(m.position.clone(), 8, 0xffe090, 12, 0.35, 26));
     }
+    if (d.remerge) d.remerge(); // 剩下的零件再合併（render/foe-merge.js）
   }
 }
 
@@ -165,6 +167,7 @@ export function foeDamageTick(ent, dt) {
 export function foeDamageBurst(ent) {
   const d = ent.model && ent.model.dmg;
   if (!d || !d.chunks || !d.chunks.length) return;
+  if (d.unmerge) d.unmerge(); // 合併過的靜態零件還原成原本的網格（render/foe-merge.js）
   const g = ent.game;
   const c = ent.center();
   for (const ch of d.chunks) {

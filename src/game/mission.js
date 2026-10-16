@@ -22,6 +22,7 @@ import { PALETTES } from '../render/materials.js';
 import { FOES, themeFoes } from '../data/foes.js';
 import { VARIANTS, variantKeys } from '../world/variants.js';
 import { THEMES, World, corridorSpec } from '../world/world.js';
+import { GUARD_MIN_D } from './constants.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -635,18 +636,20 @@ Object.assign(Game.prototype, {
     if (!o.res && o.isBoss && this.spawnRes) o.res = this.spawnRes; // Boss 的弱點（spawnBossDef）
     const e = new MechEntity(this, o.asm, PALETTES[o.pal], o);
     // 增援波次：在預告的地點附近（空降的從上空落下）
-    const wv = !o.at && !o.perch && this.waveAt;
+    // 據點的守衛（guardAt）：一律在箱子旁（不上高處），離玩家 GUARD_MIN_D 以上（否則一開場就出動）
+    const guard = !!this.guardAt;
+    const wv = !o.at && (!o.perch || guard) && this.waveAt;
     let sp = this.world.spawnPoint(
       this.player.pos,
       this.enemies.map((x) => x.pos),
       wv ? wv.pos : null,
-      wv && wv.drop ? 14 : 28,
+      wv && wv.drop ? 14 : guard ? GUARD_MIN_D : 28,
     );
     let y = this.world.terrainHeight(sp.x, sp.z) + (o.flying ? o.hoverH || 6 : 0) + (wv && wv.drop ? 16 : 0);
     if (o.at) {
       sp = { x: o.at.x, z: o.at.z };
       y = Math.max(o.at.y, this.world.terrainHeight(sp.x, sp.z));
-    } else if (o.perch === 'dam' && this.world.dam) {
+    } else if (o.perch === 'dam' && this.world.dam && !guard) {
       // 壩頂巡邏砲車：站上壩頂（找不到時照一般的高處）
       const W = this.world;
       for (let t = 0; t < 20; t++) {
@@ -660,7 +663,7 @@ Object.assign(Game.prototype, {
         }
       }
     }
-    if (o.perch && y < this.world.terrainHeight(sp.x, sp.z) + 1 && !o.at) {
+    if (o.perch && !guard && y < this.world.terrainHeight(sp.x, sp.z) + 1 && !o.at) {
       const decks = this.world.obstacles.filter(
         (ob) =>
           ob.kind === 'box' &&

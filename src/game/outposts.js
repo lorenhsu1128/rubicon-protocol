@@ -9,6 +9,7 @@ import { ENEMY_TYPES } from '../data/enemies.js';
 import { FOES } from '../data/foes.js';
 import { FACTIONS } from '../data/story.js';
 import { buildCacheMesh } from '../render/extra-models.js';
+import { GUARD_ALERT_R } from './constants.js';
 import { Game } from './game.js';
 
 const CACHE_KINDS = {
@@ -20,7 +21,7 @@ const CACHE_KINDS = {
 };
 const OPEN_R = 3.4; // 打開的距離
 const OPEN_T = 1.2; // 站幾秒打開
-const ALERT_R = 38; // 守衛發現玩家的距離
+const ALERT_R = GUARD_ALERT_R; // 守衛發現玩家的距離
 const EXTRACT_T = 30; // 自由出擊的撤離時間
 const isAce = (t) => t === 'ac' || !!(ENEMY_TYPES[t] || {}).roster;
 

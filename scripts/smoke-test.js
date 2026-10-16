@@ -2070,9 +2070,14 @@ async function testEditor(browser, base) {
   await page.setInputFiles('#edFile', fp);
   await wait(1500);
   check((await stats()).includes('100%／100%／100%'), '載入範本：尺寸與程式模型相同');
+  // 讀旋轉前的尺寸（前臂的程式模型改過造型，不寫死數字）
+  const dims0 = (await stats()).match(/([\d.]+) × ([\d.]+) × ([\d.]+)/) || [];
   await page.click('#edRot button[data-ax="y"][data-deg="90"]');
   await wait(300);
-  check((await stats()).includes('0.42 × 0.60 × 0.59'), `Y +90° 旋轉後寬深對調（${await stats()}）`);
+  check(
+    dims0.length === 4 && (await stats()).includes(`${dims0[3]} × ${dims0[2]} × ${dims0[1]}`),
+    `Y +90° 旋轉後寬深對調（${await stats()}）`,
+  );
   await page.click('#edRot button[data-ax="y"][data-deg="-90"]');
   await page.fill('#edScaleK', '3');
   await page.click('#edScaleGo');
@@ -8058,7 +8063,15 @@ async function testOutposts(browser, base) {
     // 主要戰力全滅（守衛還在）：自由出擊給撤離時間
     g.waves = [];
     g.wavePend = null; // 已預告、還沒出現的增援也取消
-    for (const e of g.enemies) if (!e.guardOf) e.takeDamage(1e9, 0, pl, e.center());
+    // 護盾產生器的護盾罩著自己（和範圍內的友軍）：第一下只打破護盾，所以重複打到擊破；
+    // 前面 120 格的 AI 可能剛好 QB（短暫無敵），先清掉無敵時間
+    const kill = (e) => {
+      for (let k = 0; k < 4 && !e.dead; k++) {
+        e.iFrames = 0;
+        e.takeDamage(1e9, 0, pl, e.center());
+      }
+    };
+    for (const e of g.enemies.slice()) if (!e.guardOf) kill(e);
     out.mainLeft = g.enemies.filter((e) => !e.dead && !e.guardOf).length;
     out.extract = g.extractStart() && g.extract;
     // 走到第一個箱子旁：守衛出動、站 1.2 秒打開
@@ -8103,7 +8116,12 @@ async function testOutposts(browser, base) {
     const n = g.caches.length;
     g.waves = [];
     g.wavePend = null; // 已預告、還沒出現的增援也取消
-    for (const e of g.enemies) if (!e.guardOf) e.takeDamage(1e9, 0, g.player, e.center());
+    // 護盾產生器要先打破護盾（同上），重複打到擊破
+    for (const e of g.enemies.slice())
+      for (let k = 0; k < 4 && !e.guardOf && !e.dead; k++) {
+        e.iFrames = 0;
+        e.takeDamage(1e9, 0, g.player, e.center());
+      }
     for (let i = 0; i < 30 && !g.camp.cleared; i++) await new Promise((res) => setTimeout(res, 100));
     const out = { n, cleared: g.camp.cleared, guards: g.enemies.filter((e) => !e.dead && e.guardOf).length };
     g.campEnd(false, true);
@@ -9422,12 +9440,28 @@ async function testCycle3(browser, base) {
       g.camp.types[n - 1] = 'boss';
       g.campEnterSeg();
       const b = g.bosses[0];
-      out.push({
+      const o = {
         name: ((g.bossDef && g.bossDef.name) || '').split(' ')[0],
         p2: !!(b && b.forceP2 && b.phase2()),
         en: b && b.res ? b.res[2] : null,
         echo: !!(g.bossDef && g.bossDef.echo),
-      });
+      };
+      g.campEnd(false, true);
+      // 同一個區段不殘響化時的能量減傷（原版 Boss 的 res）：殘響化＝原版 +0.2（上限 0.6）
+      g.state = 'play';
+      g.campBegin(sid);
+      const seg = g.campSortie().segs[n - 1];
+      g.camp.seg = n - 1;
+      g.camp.types[n - 1] = 'boss';
+      seg.echo = false;
+      try {
+        g.campEnterSeg();
+      } finally {
+        seg.echo = true;
+      }
+      const b0 = g.bosses[0];
+      o.en0 = b0 && b0.res ? b0.res[2] : 0;
+      out.push(o);
       g.campEnd(false, true);
       g.state = 'play';
     }
@@ -9437,8 +9471,8 @@ async function testCycle3(browser, base) {
   check(
     bs.map((b) => b.name).join(',') ===
       'ECHO-BASTILLE,ECHO-HALBERD,ECHO-MIRAGE,ECHO-JUDGEMENT,ECHO-AEGIS,ECHO-DOPPEL' &&
-      bs.every((b) => b.p2 && b.echo && b.en > 0),
-    '殘響化的 Boss：名稱、第二型態開始、能量減傷（' + JSON.stringify(bs) + '）',
+      bs.every((b) => b.p2 && b.echo && Math.abs(b.en - Math.min(0.6, b.en0 + 0.2)) < 1e-6),
+    '殘響化的 Boss：名稱、第二型態開始、能量減傷比原版多 0.2（' + JSON.stringify(bs) + '）',
   );
   // 完成 → 回收記憶片段 → ECHO 的紀錄
   const mem = await page.evaluate(() => {

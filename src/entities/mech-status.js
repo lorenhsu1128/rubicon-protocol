@@ -110,6 +110,9 @@ const FROST_MAT = new THREE.MeshBasicMaterial({
   polygonOffsetFactor: -1,
   polygonOffsetUnits: -4,
 });
+// 蒙皮網格（render/foe-merge.js 合併的專屬敵人）的冰殼：同一副骨架、蒙皮版的材質（r128 的材質不能兩種共用）
+const FROST_SKIN = FROST_MAT.clone();
+FROST_SKIN.skinning = true;
 const helper = (o) => {
   o.traverse((x) => {
     x.userData.helper = true;
@@ -639,7 +642,10 @@ Object.assign(MechEntity.prototype, {
         list.push(o);
       });
       for (const o of list) {
-        const x = new THREE.Mesh(o.geometry, FROST_MAT);
+        const x = o.isSkinnedMesh
+          ? new THREE.SkinnedMesh(o.geometry, FROST_SKIN)
+          : new THREE.Mesh(o.geometry, FROST_MAT);
+        if (o.isSkinnedMesh) x.bind(o.skeleton, o.bindMatrix);
         x.renderOrder = 15;
         helper(x);
         o.add(x);
@@ -682,7 +688,7 @@ Object.assign(MechEntity.prototype, {
     for (const o of v.objs) {
       this.game.scene.remove(o);
       o.traverse((x) => {
-        if (x.material && x.material !== FROST_MAT) x.material.dispose();
+        if (x.material && x.material !== FROST_MAT && x.material !== FROST_SKIN) x.material.dispose();
       });
     }
     if (v.frost) for (const x of v.frost) if (x.parent) x.parent.remove(x);

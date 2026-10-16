@@ -1,6 +1,6 @@
 // Game：攝影機與觀戰目標
 import { clamp, lerp, rnd } from '../core/math.js';
-import { OUTLINE_MAT } from '../render/geometry.js';
+import { isOutline } from '../render/geometry.js';
 import { Game } from './game.js';
 
 const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
@@ -54,13 +54,7 @@ Object.assign(Game.prototype, {
       ent.mesh.traverse((o) => {
         if (!o.isMesh || o.userData.xray || !o.geometry) return;
         const m = o.material;
-        if (
-          !m ||
-          Array.isArray(m) ||
-          m.transparent ||
-          m === OUTLINE_MAT ||
-          m.blending === THREE.AdditiveBlending
-        )
+        if (!m || Array.isArray(m) || m.transparent || isOutline(m) || m.blending === THREE.AdditiveBlending)
           return;
         list.push(o);
       });
