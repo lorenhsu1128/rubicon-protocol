@@ -23,7 +23,11 @@ const HOOK_WARN = 0.8, // 魚叉的預警
   HOOK_BREAK = 0.12; // 鉤住期間拖車受到最大 AP 這個比例的傷害，鋼索就斷
 const SNIPE_AIM = 1.5, // 狙擊的瞄準時間
   SNIPE_LOCK = 0.25, // 開火前停止追蹤的時間
-  SNIPE_DMG = 1100; // 一擊（火箭筒級，再乘 dmgMul）
+  SNIPE_DMG = 1100, // 一擊（火箭筒級，再乘 dmgMul）
+  SN_PRONE_Y = 0.75, // 趴姿的機身高度（模型 xBody；站姿 1.5）
+  SN_STAND_Y = 1.5,
+  SNIPE_TOL_UP = 0.3, // 選位與開始瞄準的視線容差：砲口往上、左右各偏這麼多也要看得到
+  SNIPE_TOL_SIDE = 0.35;
 const TW_LIFE = 8, // 旋風壽命
   TW_R = 4, // 旋風的傷害半徑
   TW_SP = 4.5; // 旋風追蹤速度
@@ -78,6 +82,40 @@ Object.assign(MechEntity.prototype, {
   // 判定看得到、子彈卻打在沙丘稜線或貨櫃邊上，會一直在同一個位置打牆
   snipeLos_b1(a, b) {
     return this.losTo_b1(a, b) && this.game.losClear(a, b);
+  },
+  // 選位與開始瞄準用：砲口本身與往上、左右各偏一點都要看得到（只擦過稜線的位置不算，架好之後才不會一動就被擋住）
+  snipeLosTol_b1(a, b) {
+    const side = new THREE.Vector3(b.z - a.z, 0, a.x - b.x);
+    if (side.lengthSq() > 1e-6) side.setLength(SNIPE_TOL_SIDE);
+    const pts = [a, a.clone().add(side), a.clone().sub(side), a.clone().setY(a.y + SNIPE_TOL_UP)];
+    return pts.every((p) => this.losTo_b1(p, b)) && pts.every((p) => this.game.losClear(p, b));
+  },
+  // 架好槍（趴姿、槍沒有後座、機身面向目標）時砲口在機體網格座標裡的位置：模型固定，第一次用到時量一次。
+  // 視線檢查與開火的起點都用它，不用當下的砲口（站著走過來、還在趴下的途中、轉身中的砲口和架好時差了將近 1 m）
+  snipeOff_b1() {
+    if (this.rsOff) return this.rsOff;
+    const m = this.model,
+      mesh = this.mesh,
+      hand = m.arms.r.hand;
+    if (!m.xBody) return (this.rsOff = new THREE.Vector3(0, 1.3, -4.45));
+    const by = m.xBody.position.y,
+      gz = m.xGun.position.z,
+      ty = m.torso.rotation.y;
+    m.xBody.position.y = SN_PRONE_Y;
+    m.xGun.position.z = 0;
+    m.torso.rotation.y = 0;
+    mesh.updateMatrixWorld(true);
+    this.rsOff = mesh.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
+    m.xBody.position.y = by;
+    m.xGun.position.z = gz;
+    m.torso.rotation.y = ty;
+    mesh.updateMatrixWorld(true);
+    return this.rsOff;
+  },
+  // 機體在 pos（腳底）架槍瞄準 aim 時的砲口（世界座標）；機身朝向和 setAim 一樣由機體位置指向目標
+  snipeMz_b1(pos, aim) {
+    const yaw = Math.atan2(-(aim.x - pos.x), -(aim.z - pos.z));
+    return this.snipeOff_b1().clone().multiply(this.mesh.scale).applyAxisAngle(UP, yaw).add(pos);
   },
 
   // ---------- 魚叉拖車：idle → warn（鉤頭紅光、瞄準線）→ fly（鉤頭飛行，可被擊落）→ hook（拖過來）→ reload ----------
@@ -286,12 +324,14 @@ Object.assign(MechEntity.prototype, {
       wish.set(0, 0, 0);
       prone = true;
     }
-    const mz = this.muzzle('rarm');
+    // 砲口＝架好槍時的位置（開火的起點也是它，所以檢查看得到就打得到）
+    const tc = pl.center();
     if (s.aim) {
       s.aimT -= dt;
-      if (s.aimT > SNIPE_LOCK) s.aim.lerp(pl.center(), Math.min(1, dt * 3.5));
+      if (s.aimT > SNIPE_LOCK) s.aim.lerp(tc, Math.min(1, dt * 3.5));
+      const mz = this.snipeMz_b1(this.pos, s.aim);
       // 視線被擋住超過 0.3 秒就中斷
-      if (!this.snipeLos_b1(mz, pl.center())) s.blk = (s.blk || 0) + dt;
+      if (!this.snipeLos_b1(mz, tc)) s.blk = (s.blk || 0) + dt;
       else s.blk = 0;
       if (!this.canAct() || s.blk > 0.3) {
         s.aim = null;
@@ -311,27 +351,33 @@ Object.assign(MechEntity.prototype, {
       // 趴著看不到目標太久：換一條稜線
       if ((s.losT = (s.losT || 0) - dt) <= 0) {
         s.losT = 0.3;
-        s.los = this.snipeLos_b1(mz, pl.center());
+        s.los = this.snipeLosTol_b1(this.snipeMz_b1(this.pos, tc), tc);
         s.noLos = s.los ? 0 : (s.noLos || 0) + 0.3;
         if (s.noLos > 2.5) {
           s.noLos = 0;
           s.rsGoal = this.ridge_b1(pl, 35);
         }
       }
+      // 開始瞄準前再確認一次（上一次檢查最多是 0.3 秒前）
+      if (s.rsT <= 0 && d < 120 && this.canAct() && s.los)
+        s.los = this.snipeLosTol_b1(this.snipeMz_b1(this.pos, tc), tc);
       if (s.rsT <= 0 && d < 120 && this.canAct() && s.los) {
-        s.aim = pl.center();
+        s.aim = tc;
         s.aimT = SNIPE_AIM;
         s.blk = 0;
         SFX.play('charge', 0.8, 0.8, 0.05, 0.05, this.center());
       }
     }
     s.flashT = Math.max(0, (s.flashT || 0) - dt);
+    // 瞄準中機身轉向瞄準點（感知系統看不到目標時 setAim 會改朝最後已知位置，砲口就和架槍的位置對不上）
+    if (s.aim) this.setAim(s.aim);
     this.bx = s.aim ? [r2(s.aim.x), r2(s.aim.y), r2(s.aim.z)] : null;
     this.bossVis = (s.aim ? 1 : 0) | (s.flashT > 0 ? 2 : 0) | (prone || s.aim ? 4 : 0);
   },
   // 稜線：附近 rad 內的取樣點裡比周圍高最多、且離目標 35～95 m 的點
   ridge_b1(pl, rad) {
-    const w = this.game.world;
+    const w = this.game.world,
+      tc = pl.center();
     let best = null,
       bs = -1e9;
     for (let i = 0; i < 40; i++) {
@@ -352,8 +398,9 @@ Object.assign(MechEntity.prototype, {
         m += w.terrainHeight(x + dx, z + dz) / 4;
       const dd = Math.hypot(x - pl.pos.x, z - pl.pos.z);
       const sc = h + 2.5 * (h - m) - (dd < 35 ? (35 - dd) * 0.6 : dd > 95 ? (dd - 95) * 0.4 : 0);
-      // 看不到目標的稜線不選（只在比目前最好的還高分時才檢查視線）
-      if (sc > bs && w.losBlocked(new THREE.Vector3(x, h + 1.0, z), pl.center())) continue;
+      // 看不到目標的稜線不選（只在比目前最好的還高分時才檢查視線）：用在這裡架好槍時的砲口＋容差，
+      // 和開始瞄準、開火的判定相同
+      if (sc > bs && !this.snipeLosTol_b1(this.snipeMz_b1(new THREE.Vector3(x, h, z), tc), tc)) continue;
       if (sc > bs) {
         bs = sc;
         best = new THREE.Vector3(x, h, z);
@@ -710,7 +757,7 @@ Object.assign(MechEntity.prototype, {
     const m = this.model;
     if (!m.xBody) return;
     const prone = !!(bv & 4);
-    m.xBody.position.y = ease(m.xBody.position.y, prone ? 0.75 : 1.5, 3);
+    m.xBody.position.y = ease(m.xBody.position.y, prone ? SN_PRONE_Y : SN_STAND_Y, 3);
     const L1 = m.xL1,
       L2 = m.xL2,
       F = prone ? 1.75 : 1.2; // 腳掌離髖的水平距離

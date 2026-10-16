@@ -13780,8 +13780,8 @@ async function testFoesB1(browser, base) {
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   // 主迴圈停住、亂數固定（同 testFoesC1／C2）：地圖種子固定之後剩下的變數是亂數——沙脊狙擊機挑稜線
-  // （ridge_b1）用 Math.random，挑到射線剛好擦過稜線的位置時，開始瞄準後砲口一動就被擋住、0.3 秒後中斷，
-  // 檢查時已經沒有瞄準線（40 次裡 3 次）；截圖前改推進固定的時間
+  // （ridge_b1）用 Math.random（以前挑到射線剛好擦過稜線的位置時，開始瞄準後砲口一動就被擋住、0.3 秒後中斷；
+  // 現在選位與瞄準都用架好槍時的砲口＋容差檢查）；截圖前改推進固定的時間
   await freezeLoop(page);
   const ev = (fn, arg) =>
     page.evaluate(
