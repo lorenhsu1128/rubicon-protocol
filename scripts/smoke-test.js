@@ -8288,10 +8288,12 @@ async function testOutposts(browser, base) {
 async function testModFx(browser, base) {
   console.log('戰術模組：改變打法的效果');
   const { ctx, page } = await newPage(browser, 'modfx');
+  await seededRandom(page); // 地圖固定（隨機地圖偶爾在測試位置有高台或障礙物）
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   const r = await page.evaluate(() => {
     const g = window.__game;
+    window.__reseed(8288);
     g.save.level = 5;
     g.startMission();
     g.state = 'modfx-test';
@@ -8300,6 +8302,32 @@ async function testModFx(browser, base) {
     const dt = 1 / 60;
     const out = {};
     const foes = () => g.enemies.filter((e) => !e.dead && !e.isBoss && e.ai !== 'objective');
+    // 平地、沒有障礙物的位置（中心附近 ±r m 的地面都是地形本身、高低差小、不是虛空），從 (x, z) 附近找
+    const W = g.world;
+    const flat = (x, z, r) => {
+      const h0 = W.terrainHeight(x, z);
+      for (let dx = -r; dx <= r; dx += 1)
+        for (let dz = -r; dz <= r; dz += 1) {
+          const h = W.terrainHeight(x + dx, z + dz);
+          if (
+            Math.abs(h - h0) > 0.4 ||
+            Math.abs(W.groundAt(x + dx, z + dz, 99) - h) > 0.05 ||
+            W.isVoid(x + dx, z + dz)
+          )
+            return false;
+        }
+      return true;
+    };
+    const spot = (x, z, r) => {
+      for (let k = 0; k < 400; k++) {
+        const a = k * 2.4,
+          d = Math.sqrt(k) * 3;
+        const px = x + Math.cos(a) * d,
+          pz = z + Math.sin(a) * d;
+        if (Math.abs(px) < W.lim - r && Math.abs(pz) < W.lim - r && flat(px, pz, r)) return [px, pz];
+      }
+      return [x, z];
+    };
     const put = (e, x, z) => {
       e.pos.set(x, g.world.groundAt(x, z, 99), z);
       e.mesh.position.copy(e.pos);
@@ -8320,15 +8348,17 @@ async function testModFx(browser, base) {
     // 連鎖殉爆
     pl.pm = { ...(pl.pm || {}), killBlast: 1 };
     let [a, b] = fresh(2);
-    put(a, 20, 20);
-    put(b, 22, 20);
+    let [sx, sz] = spot(20, 20, 4);
+    put(a, sx, sz);
+    put(b, sx + 2, sz);
     a.takeDamage(1e9, 0, pl, a.center());
     out.blast = b.hp < b.maxHp;
     // 殉爆脈衝
     pl.pm = { ...pl.pm, killBlast: 0, killStag: 1 };
     [a, b] = fresh(2);
-    put(a, -20, 20);
-    put(b, -24, 20);
+    [sx, sz] = spot(-20, 20, 5);
+    put(a, sx, sz);
+    put(b, sx - 4, sz);
     a.takeDamage(1e9, 0, pl, a.center());
     out.stag = b.staggerT > 0;
     // 能量虹吸
@@ -8341,9 +8371,10 @@ async function testModFx(browser, base) {
     out.en = Math.round((pl.en / pl.enMax) * 100);
     // 衝撞推進
     pl.pm = { ...pl.pm, hitEn: 0, qbRam: 1 };
-    put(pl, 0, -30);
+    [sx, sz] = spot(0, -30, 6); // QB 的路線上沒有障礙物、和敵人同高
+    put(pl, sx, sz);
     pl.vel.set(0, 0, 0);
-    put(a, 0, -32.5); // QB 一開始就碰得到（中間不會剛好有障礙物）
+    put(a, sx, sz - 2.5); // QB 一開始就碰得到
     a.hp = a.maxHp = 1e7;
     a.iFrames = 0;
     pl.en = pl.enMax;

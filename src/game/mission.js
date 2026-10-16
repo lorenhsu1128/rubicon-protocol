@@ -262,9 +262,16 @@ Object.assign(Game.prototype, {
       localStorage.setItem('rubicon_variant', k || '');
     } catch (e) {}
   },
-  // 依選擇決定這次的變體：隨機時一半標準、一半隨機變體；選的變體不屬於這個主題時用標準
-  resolveVariant(theme, want) {
-    const ks = variantKeys(theme).filter((k) => !VARIANTS[theme][k].border);
+  // 依選擇決定這次的變體：隨機時一半標準、一半隨機變體；選的變體不屬於這個主題時用標準。
+  // bd＝這一關的 Boss：變體會覆寫主題欄位（例：只有公路的 corridor），武裝列車只用還有鐵路的變體、
+  // 也避開變體的 bossBan（主題本身已由 startMission 的 fits 篩過）
+  resolveVariant(theme, want, bd = null) {
+    const ok = (k) => {
+      if (!bd) return true;
+      const T = { ...THEMES[theme], ...(VARIANTS[theme][k].theme || {}) };
+      return !(T.bossBan || []).includes(bd.kind) && !(bd.rail && !corridorSpec(T).kinds.includes('rail'));
+    };
+    const ks = variantKeys(theme).filter((k) => !VARIANTS[theme][k].border && ok(k));
     if (!want) return ks.length && Math.random() < 0.5 ? pick(ks) : '';
     return ks.includes(want) ? want : '';
   },
@@ -314,7 +321,11 @@ Object.assign(Game.prototype, {
     this.worldSeed = seed;
     this.worldTheme = theme;
     this.styleRefresh(); // 渲染風格只在出擊時套用，任務中不換
-    const variant = this.resolveVariant(theme, mp0 ? (this.net.pvpSet || {}).variant : this.variantPref());
+    const variant = this.resolveVariant(
+      theme,
+      mp0 ? (this.net.pvpSet || {}).variant : this.variantPref(),
+      bd0,
+    );
     // 武裝列車：地圖一定有鐵路（客機收到開局訊息的地形特徵，跟著一致）
     this.world = new World(this.scene, theme, seed, L, null, { rail: !!(bd0 && bd0.rail), variant });
     this.isClient = false;
