@@ -3734,6 +3734,7 @@ body.rtsOn #gl {
   pointer-events: auto;
 }
 #rtsMini {
+  position: relative;
   flex: none;
   width: calc(var(--rtsH) - 16px);
   height: calc(var(--rtsH) - 16px);
@@ -4008,12 +4009,388 @@ body.rtsOn #gl {
     width: 160px;
   }
 }
-/* RTS 不用一般任務的 HUD（AP、武器…），只留訊息 */
-body.rtsOn #hudWrap > :not(#msg):not(#alert):not(#fps) {
+/* RTS 不用一般任務的 HUD（AP、武器…），只留訊息；親自駕駛（rts-pilot.js）時照常顯示，只拿掉任務資訊 */
+body.rtsOn:not(.rtsPilot) #hudWrap > :not(#msg):not(#alert):not(#fps) {
+  display: none;
+}
+body.rtsOn.rtsPilot #hudTop,
+body.rtsOn.rtsPilot #kits,
+body.rtsOn.rtsPilot #weapons .wslot.cs {
   display: none;
 }
 body.rtsOn #fps {
   top: 42px;
+}
+/* ---------- Coral 戰爭 R2：層級、管家、英雄頭像列、閒置、技能與背包、親自駕駛（rts-hud.js、rts-pilot.js） ---------- */
+#rtsTier {
+  font-size: 13px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: #cfe3ff;
+}
+#rtsUpkeep.near {
+  box-shadow: 0 0 0 1px #ffd23a;
+  color: #ffd23a;
+}
+#rtsButlerBtn.on {
+  border-color: #7ee081;
+  color: #7ee081;
+}
+#rtsButlerPanel {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  width: 270px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  z-index: 3;
+}
+#rtsButlerPanel[hidden] {
+  display: none;
+}
+#rtsButlerPanel small {
+  color: var(--dim);
+  font-size: 11px;
+}
+.rtsTg {
+  text-align: left;
+  font-size: 13px;
+  padding: 3px 8px;
+  color: var(--dim);
+}
+.rtsTg.on {
+  color: #7ee081;
+  border-color: rgba(126, 224, 129, 0.5);
+}
+#rtsHeroes {
+  position: absolute;
+  top: 40px;
+  left: 8px;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+}
+.rtsHero {
+  position: relative;
+  width: 118px;
+  height: 46px;
+  padding: 2px 6px 10px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+  background: rgba(8, 12, 18, 0.82);
+}
+.rtsHero em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--acc);
+  margin-right: 4px;
+}
+.rtsHero b {
+  display: inline-block;
+  max-width: calc(100% - 46px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-weight: 700;
+}
+.rtsHero .lv {
+  position: absolute;
+  right: 5px;
+  top: 2px;
+  font-size: 11px;
+  color: #cfe3ff;
+}
+.rtsHero .pts {
+  position: absolute;
+  right: 5px;
+  top: 16px;
+  color: #ffd23a;
+  font-weight: 700;
+}
+.rtsHero small {
+  display: block;
+  font-size: 11px;
+  color: #ffb0a0;
+}
+.rtsHero i {
+  position: absolute;
+  left: 4px;
+  height: 3px;
+}
+.rtsHero i.hp {
+  bottom: 5px;
+  background: #4cff7a;
+}
+.rtsHero i.xp {
+  bottom: 1px;
+  background: #b48cff;
+}
+.rtsHero.dead {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+.rtsHero.hit {
+  box-shadow: inset 0 0 0 2px #ff4a3a;
+}
+.rtsHero.low {
+  animation: rtsBlink 0.6s steps(2) infinite;
+}
+.rtsHero.piloted {
+  border-color: #7ee081;
+  box-shadow: inset 0 0 0 1px #7ee081;
+}
+@keyframes rtsBlink {
+  50% {
+    background: rgba(140, 20, 10, 0.85);
+  }
+}
+#rtsNote {
+  position: absolute;
+  right: 8px;
+  top: 212px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+  text-shadow:
+    0 0 3px #000,
+    0 0 6px #000;
+}
+#rtsMiniBtns {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#rtsMiniBtns button {
+  font-size: 10px;
+  padding: 1px 4px;
+  min-width: 0;
+  line-height: 1.3;
+  background: rgba(8, 12, 18, 0.8);
+  color: var(--dim);
+}
+#rtsMiniBtns button.on {
+  color: #ffd23a;
+  border-color: rgba(255, 210, 58, 0.6);
+}
+.rtsCmd .cdf {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.rtsCmd u {
+  position: absolute;
+  left: 3px;
+  bottom: 1px;
+  text-decoration: none;
+  font-size: 8px;
+  color: #ffd23a;
+  letter-spacing: -1px;
+}
+.rtsCmd.auto {
+  border-color: #ffc23a;
+  box-shadow: inset 0 0 0 2px #ffc23a;
+}
+.rtsCmd.cool {
+  color: var(--dim);
+}
+#rtsTip .type {
+  color: #9fd0ff;
+}
+#rtsTip .lvt {
+  color: #ffd23a;
+  font-size: 12px;
+}
+#rtsTip .auto {
+  color: #ffc23a;
+}
+.rtsType {
+  color: #9fd0ff;
+  cursor: help;
+}
+.rtsPic.neu {
+  background: rgba(224, 192, 64, 0.25);
+}
+.rtsU.hero {
+  border-color: #ffd23a;
+}
+.rtsHeroX {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 6px;
+}
+.rtsSks {
+  display: flex;
+  gap: 3px;
+}
+.rtsSk {
+  position: relative;
+  width: 34px;
+  height: 30px;
+  font-size: 11px;
+  text-align: center;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  line-height: 1.6;
+}
+.rtsSk.off {
+  opacity: 0.45;
+}
+.rtsSk u {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  text-decoration: none;
+  font-size: 7px;
+  line-height: 1;
+  color: #ffd23a;
+}
+.rtsInvs {
+  display: grid;
+  grid-template-columns: repeat(3, 34px);
+  grid-auto-rows: 30px;
+  gap: 3px;
+}
+.rtsInv {
+  position: relative;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 0;
+}
+.rtsInv.empty {
+  border: 1px dashed var(--line);
+  opacity: 0.5;
+}
+.rtsInv sub {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font-size: 9px;
+  color: #ffd23a;
+}
+.rtsProg.tech i {
+  background: #b48cff;
+}
+/* 親自駕駛：只留資源列、英雄頭像列、小地圖（右上角縮小）與小字警示；動作 HUD 照常 */
+#rtsHud.pilot #rtsPanel,
+#rtsHud.pilot #rtsCard,
+#rtsHud.pilot #rtsTip,
+#rtsHud.pilot #rtsModeHint,
+#rtsHud.pilot #rtsMiniBtns {
+  display: none;
+}
+#rtsHud.pilot #rtsBottom {
+  top: 40px;
+  bottom: auto;
+  left: auto;
+  right: 8px;
+  height: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  pointer-events: none;
+}
+#rtsHud.pilot #rtsMini {
+  width: 160px;
+  height: 160px;
+}
+#rtsHud.pilot #rtsMsg {
+  bottom: auto;
+  top: 96px;
+}
+/* 親自駕駛＋觸控（虛擬按鈕）：動作 HUD 排到英雄頭像列下方、武器在左側，上方的按鈕避開小地圖；修復與道具 1／2 不用 */
+body.rtsPilot #vpad .vbtn[data-a='kit'],
+body.rtsPilot #vpad .vbtn[data-a='cs1'],
+body.rtsPilot #vpad .vbtn[data-a='cs2'] {
+  display: none;
+}
+body.rtsOn.rtsPilot.vpad #vpad .top {
+  top: 42px !important;
+  right: 180px !important;
+}
+body.rtsOn.rtsPilot.vpad #hudBottom {
+  top: 92px !important;
+}
+body.rtsOn.rtsPilot.vpad #weapons {
+  top: 176px;
+  right: auto;
+  left: 10px;
+  transform: none;
+}
+@media (max-width: 1400px), (max-height: 900px) {
+  .rtsHero {
+    width: 100px;
+    height: 40px;
+    font-size: 12px;
+  }
+  .rtsInvs {
+    grid-template-columns: repeat(3, 28px);
+  }
+  .rtsSk {
+    width: 28px;
+    height: 26px;
+  }
+  .rtsInvs {
+    grid-auto-rows: 24px;
+  }
+}
+@media (max-height: 540px) {
+  #rtsHeroes {
+    top: 36px;
+  }
+  .rtsHero {
+    width: 88px;
+    height: 34px;
+    font-size: 11px;
+  }
+  #rtsHud.pilot #rtsMini {
+    width: 110px;
+    height: 110px;
+  }
+  #rtsNote {
+    top: 156px;
+    font-size: 11px;
+  }
+  body.rtsOn.rtsPilot.vpad #vpad .top {
+    top: 38px !important;
+    right: 128px !important;
+  }
+  body.rtsOn.rtsPilot.vpad #hudBottom {
+    top: 74px !important;
+  }
+  body.rtsOn.rtsPilot.vpad #weapons {
+    top: 140px;
+    left: 6px;
+    width: 200px;
+  }
 }
 /* ---------- Coral 戰爭（RTS）的選單與結果（game/rts.js） ---------- */
 .rtsMenuPanel {

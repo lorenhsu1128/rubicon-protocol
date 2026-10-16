@@ -214,7 +214,13 @@ Object.assign(Game.prototype, {
   },
   rtsMenuSave() {
     const P = this.rtsPrefs;
-    saveJson(PREF_KEY, { faction: P.faction, aiFaction: P.aiFaction, diff: P.diff, theme: P.theme });
+    saveJson(PREF_KEY, {
+      ...loadJson(PREF_KEY, {}),
+      faction: P.faction,
+      aiFaction: P.aiFaction,
+      diff: P.diff,
+      theme: P.theme,
+    });
   },
   rtsKeyOf(P) {
     return `${P.theme}|${P.seed >>> 0}|400`;
@@ -674,8 +680,10 @@ Object.assign(Game.prototype, {
       this._rtsAtk = null;
       if (this.rtsInv || this.dead) return;
       if (from && this.rtsHurtBy) this.rtsHurtBy(from);
-      const k = g.rtsDmgK(atk, this);
-      return td.call(this, dmg * k, (impact || 0) * (this.rtsImpK || 1), from, at, dir, melee, wid, 'none');
+      // 原本的 takeDamage 把傷害四捨五入成整數：RTS 每發的傷害小（機槍約 2.4），改成依小數部分的機率進位，平均才不會偏掉（B 包）
+      let v = dmg * g.rtsDmgK(atk, this);
+      if (v > 0) v = Math.floor(v) + (Math.random() < v - Math.floor(v) ? 1 : 0);
+      return td.call(this, v, (impact || 0) * (this.rtsImpK || 1), from, at, dir, melee, wid, 'none');
     };
     e.die = function (from) {
       if (this.dead) return;

@@ -10,6 +10,20 @@ import { NavGrid } from './nav.js';
 export const RTS_CELL = 2.5;
 const NAV_CELL = 2;
 const EDGE = 16; // 地圖邊緣的斷崖從離邊界這麼遠開始
+// 中立建築的佔地（m，旋轉 0 時的 [寬, 深]；data/rts-neutral.js 的 n_tavern／n_shop／n_merc 用同樣的值）：
+// 檢查時先佔用導航格，路徑相等、連通、通道都已經繞過這些建築（docs 13.15）
+export const RTS_NEUTRAL_FOOT = { tavern: [12, 12], shop: [10, 8], merc: [12, 10] };
+// 中立建築的朝向：正面（+Z）轉向地圖中心、以 90° 為單位（兩邊差 180°，佔地也點對稱）
+export const neutralYaw = (p) =>
+  Math.abs(p.x) + Math.abs(p.z) < 1e-6
+    ? 0
+    : (Math.round(Math.atan2(-p.x, -p.z) / (Math.PI / 2)) * Math.PI) / 2;
+// 中立建築佔用的導航格（rtsSpawnBld 同樣的規則：旋轉 90° 時寬深對調）
+export function neutralFoot(q) {
+  const f = RTS_NEUTRAL_FOOT[q.kind] || [8, 8];
+  const k = Math.round((q.yaw || 0) / (Math.PI / 2)) & 1;
+  return k ? [f[1], f[0]] : f;
+}
 const sm = (t) => {
   t = clamp(t, 0, 1);
   return t * t * (3 - 2 * t);
@@ -545,9 +559,9 @@ function genOnce(sub, theme, size) {
       if (c.guards.type === 'mine') g.mine = mines.findIndex((m) => dist(m.pos, f(c.guards.ref.p)) < 0.01);
       return { pos: f(c.p), tier: c.tier, guards: g, near: k };
     });
-  const neutrals = [{ kind: 'tavern', pos: P(0, 0) }];
-  pair(neutrals, (k, f) => ({ kind: 'shop', pos: f(shop), near: k }));
-  pair(neutrals, (k, f) => ({ kind: 'merc', pos: f(merc), near: k }));
+  const neutrals = [{ kind: 'tavern', pos: P(0, 0), yaw: 0 }];
+  pair(neutrals, (k, f) => ({ kind: 'shop', pos: f(shop), near: k, yaw: neutralYaw(f(shop)) }));
+  pair(neutrals, (k, f) => ({ kind: 'merc', pos: f(merc), near: k, yaw: neutralYaw(f(merc)) }));
   const highs = [{ kind: 'base', pos: A, r: rB, h: Hb, ramp: bases[0].ramp }];
   if (watch) highs.push({ kind: 'watch', pos: watch.c, r: watch.r, h: watch.H, ramp: watch.ramp });
   const highsOut = [];
@@ -604,6 +618,20 @@ export function validate(plan, nav) {
   nav = nav || new NavGrid(rtsShim(plan), { cell: NAV_CELL });
   for (const m of plan.mines) nav.reserve(m.pos.x, m.pos.z, 7);
   for (const c of plan.corals) nav.reserve(c.pos.x, c.pos.z, 5);
+  // 中立建築（酒館、商店、傭兵營）佔地：不能壓在斷崖上，檢查與通道都要繞過它們
+  for (const q of plan.neutrals) {
+    const [fw, fd] = neutralFoot(q);
+    for (const [sx, sz] of [
+      [0, 0],
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ])
+      if (!nav.walkableAt(q.pos.x + (sx * fw) / 2, q.pos.z + (sz * fd) / 2, 0))
+        return fail(plan, `${q.kind} 的佔地不能通行`);
+    nav.block(q.pos.x, q.pos.z, fw, fd, 0, true);
+  }
   // 檢查用的導航格（不列舉：plan 本身維持純資料）
   Object.defineProperty(plan, 'nav', { value: nav, enumerable: false, writable: true, configurable: true });
   const [bA, bB] = plan.bases;
@@ -615,11 +643,15 @@ export function validate(plan, nav) {
   for (const c of plan.corals) if (c.owner === 0 || c.near === 0) keys.push(['coral', c.pos]);
   for (const c of plan.camps) if (c.near === 0) keys.push(['camp' + c.tier, c.pos]);
   // 酒館在正中央（格子的角落上）：往 A 側偏 0.5 m，兩邊才落在互相對稱的格子
+  // 中立建築佔用導航格：要點是正面外 6 m（中型單位的間隙）（酒館在正中央：朝 A 側那一面的外面，兩邊才互相對稱）
   const off = Math.hypot(bA.pos.x, bA.pos.z) || 1;
-  for (const q of plan.neutrals)
-    if (q.near === 0) keys.push([q.kind, q.pos]);
+  for (const q of plan.neutrals) {
+    const fd = (RTS_NEUTRAL_FOOT[q.kind] || [8, 8])[1] / 2 + 6;
+    if (q.near === 0)
+      keys.push([q.kind, P(q.pos.x + Math.sin(q.yaw || 0) * fd, q.pos.z + Math.cos(q.yaw || 0) * fd)]);
     else if (q.kind === 'tavern')
-      keys.push([q.kind, P(q.pos.x + (bA.pos.x / off) * 0.5, q.pos.z + (bA.pos.z / off) * 0.5)]);
+      keys.push([q.kind, P(q.pos.x + (bA.pos.x / off) * fd, q.pos.z + (bA.pos.z / off) * fd)]);
+  }
   for (const c of plan.chokes.filter((_, i) => i % 2 === 0)) keys.push(['choke', c.pos]);
   keys.push(['enemyBase', bB.pos]);
   let worst = 0;

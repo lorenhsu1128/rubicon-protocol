@@ -84,5 +84,10 @@ import './game/rts.js'; // Coral 戰爭的核心：選單、開局、資源、�
 import './game/rts-orders.js'; // Coral 戰爭的指令發佈、尋路排隊
 import './entities/mech-rts.js'; // Coral 戰爭的單位行為
 import './game/rts-ai.js'; // Coral 戰爭的電腦對手
+import './game/rts-pilot.js'; // Coral 戰爭的親自駕駛、自動管家
+import './game/rts-neutral.js'; // Coral 戰爭的中立：野怪營地、酒館、商店、傭兵營
+import './entities/mech-rts-creep.js'; // Coral 戰爭的野怪行為
+import './game/rts-hero.js'; // Coral 戰爭的英雄與道具（經驗、光環、道具、商店、酒館）
+import './entities/mech-rts-hero.js'; // Coral 戰爭的英雄：技能的施放與實體端
 
 new Game();

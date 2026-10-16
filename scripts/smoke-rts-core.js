@@ -60,7 +60,7 @@ module.exports = (H) => {
       `開局：隊伍 ${st.teams}（第 3 隊中立）、層級 T${st.tier}、科技 ${st.tech}`,
     );
     check(
-      st.hostile[0] + st.hostile[1] === st.units && st.hostile[2] === st.units,
+      st.hostile[0] + st.hostile[1] + st.hostile[2] === 2 * st.units, // 每個實體在另外兩隊的名單裡（含 D 包的野怪與中立建築）
       `敵對名單：隊伍 0 ${st.hostile[0]}、隊伍 1 ${st.hostile[1]}、中立 ${st.hostile[2]}（全部 ${st.units}）`,
     );
     check(st.hqArm.join() === 'fort,5,4200', `主堡：城甲 ${st.hqArm.join('／')}`);

@@ -1,13 +1,15 @@
-// Coral 戰爭（RTS）的英雄（docs/rts-design.md 13.4、13.5；C 包負責內容）：英雄定義、技能、經驗表、酒館的英雄。
+// Coral 戰爭（RTS）的英雄（docs/rts-design.md 13.4、13.5、13.14；C 包）：英雄定義、技能、經驗表、酒館的英雄。
 // 不可 import rts-units.js（rts-units.js 在檔尾把 RTS_HERO_DEFS 併進 RTS_DEFS；需要的常數各自寫）。
 //
-// RTS_HERO_DEFS[id]：kind 'unit'、hero: true、faction、name、asm（AC_ROSTER 的組裝）、atk 'hero'、arm 'hero'、armor、
-//   hp、dps、range、speed、sight、pop 5、time 55、slots、grow { hp, dps, armor }、skills [4 個技能 id]、card（C／E）
-// 卡斯特隆的三位英雄 id（主堡的英雄子選單、RTS_FACTIONS.castron.heroes 已經用這些 id）：h_bastion、h_rain、h_pile；
-// 酒館：t_rust、t_sirocco、t_whiteout、t_specimen、t_spire、t_countdown、t_undertow、t_marsh（faction 'neutral'）。
-export const RTS_HERO_DEFS = {};
-// 技能：{ name, slot 0～3, kind 'unit'｜'point'｜'self'｜'aura'｜'passive', range, lv: [{ coral, cd, ... }], desc }
-export const RTS_SKILLS = {};
+// RTS_HERO_DEFS[id]：kind 'unit'、hero: true、faction、name、role（定位）、asm（AC_ROSTER／ACES 的組裝）、atk 'hero'、
+//   arm 'hero'、armor、hp、dps、range、speed、sight、pop 5、time 55、slots、grow { hp, dps, armor }（每升一級）、
+//   skills [4 個技能 id：Z X C V]、card（英雄的指令卡）、menus.learn（學習技能的子選單）
+// 卡斯特隆：h_bastion、h_rain、h_pile；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
+// 技能的行為在 entities/mech-rts-hero.js（施放）與 game/rts-hero.js（光環、區域、持續效果）。
+import { AC_ROSTER } from './enemies.js';
+import { ACES } from './foes.js';
+
+export const RTS_HERO_LV_MAX = 10;
 // 累積經驗表（第 n 級需要的累積經驗；等級上限 10）
 export const RTS_HERO_XP = [0, 200, 500, 900, 1400, 2000, 2700, 3500, 4400, 5400];
 // 擊破單位的經驗（依單位的 lv 1～6；建築 0）、擊破英雄的經驗（依英雄等級 1～10）
@@ -15,5 +17,800 @@ export const RTS_XP_UNIT = [0, 25, 40, 60, 85, 115, 150];
 export const RTS_XP_HERO = [0, 100, 120, 160, 220, 300, 380, 470, 570, 680, 800];
 // 野怪的經驗倍率（依英雄等級；5 級以後 0）
 export const RTS_XP_CREEP_K = [0, 0.8, 0.7, 0.6, 0.5, 0, 0, 0, 0, 0, 0];
-// 酒館的英雄 id（定義也放在 RTS_HERO_DEFS）
-export const RTS_TAVERN = [];
+export const RTS_XP_R = 40; // 分經驗的距離（m）
+export const RTS_XP_PILOT = 1.15; // 親自駕駛中的英雄多拿的經驗（暫定）
+export const RTS_HERO_LVUP_HEAL = 0.25; // 升級時回復最大血量的比例
+// 復活（主堡）：礦石 120＋35×等級、時間 10＋5×等級秒；酒館的立刻復活：費用 ×1.5、只回半血
+export const RTS_REVIVE = { ore0: 120, oreLv: 35, t0: 10, tLv: 5, tavernK: 1.5, tavernHp: 0.5 };
+// 酒館雇用：費用、距離
+export const RTS_HIRE = { cost: { ore: 425, coral: 135 }, r: 14 };
+export const RTS_INV = 6; // 背包格數
+
+// 第 n 級（1 起）的技能可以在英雄幾級學：一般技能 2n−1（1、3、5），終極技（slot 3）6 級、只有 1 級
+export const skillLvReq = (slot, n) => (slot === 3 ? 6 : 2 * n - 1);
+export const skillMax = (slot) => (slot === 3 ? 1 : 3);
+
+// ---------- 技能 ----------
+// { name, slot 0～3, kind 'unit'｜'point'｜'self'｜'aura'｜'passive', tgt（unit：'enemy'｜'ally'）, range,
+//   lv: [每級 { coral, cd, ...參數 }], desc（說明，{n} 會換成級數的數值文字）, auto（可以自動施放）, aiR（自動施放：
+//   幾公尺內有敵人才放） }
+const L3 = (a, b, c) => [a, b, c];
+export const RTS_SKILLS = {
+  // ===== BASTION =====
+  sk_plate: {
+    name: '重裝甲板',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'ally',
+    range: 24,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 14, armor: 4, t: 12 },
+      { coral: 20, cd: 14, armor: 7, t: 12 },
+      { coral: 25, cd: 14, armor: 10, t: 12 },
+    ),
+    desc: '友軍單位 12 秒內護甲 +4／+7／+10',
+  },
+  sk_bulwark: {
+    name: '貨櫃壁壘',
+    slot: 1,
+    kind: 'point',
+    range: 30,
+    lv: L3(
+      { coral: 20, cd: 18, n: 1, hp: 600, t: 20 },
+      { coral: 20, cd: 18, n: 2, hp: 800, t: 20 },
+      { coral: 20, cd: 18, n: 3, hp: 1000, t: 20 },
+    ),
+    desc: '放 1／2／3 段臨時牆（6×3 m，血量 600／800／1000，20 秒）',
+  },
+  sk_will: {
+    name: '鋼鐵意志',
+    slot: 2,
+    kind: 'aura',
+    r: 25,
+    lv: L3({ armor: 1, imp: 0.9 }, { armor: 2, imp: 0.8 }, { armor: 3, imp: 0.7 }),
+    desc: '光環 25 m：友軍護甲 +1／+2／+3、受到的失衡值 −10／20／30%',
+  },
+  sk_fortress: {
+    name: '不落要塞',
+    slot: 3,
+    kind: 'self',
+    aiR: 20,
+    lv: [{ coral: 75, cd: 120, t: 18, taken: 0.4, range: 14, every: 3, R: 12, dmg: 80 }],
+    desc: '18 秒內不能移動、受到的傷害 −60%、射程 +14，每 3 秒一次半徑 12 m 的地面衝擊波 80 爆發',
+  },
+  // ===== RAIN =====
+  sk_rain: {
+    name: '飛彈雨',
+    slot: 0,
+    kind: 'point',
+    range: 50,
+    auto: true,
+    aiR: 46,
+    lv: L3(
+      { coral: 25, cd: 12, n: 8, R: 8, dmg: 40 },
+      { coral: 30, cd: 12, n: 12, R: 8, dmg: 40 },
+      { coral: 35, cd: 12, n: 16, R: 8, dmg: 40 },
+    ),
+    desc: '半徑 8 m 內 3 秒落下 8／12／16 發飛彈，每發 40 爆發',
+  },
+  sk_mark: {
+    name: '標定',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 45,
+    lv: L3(
+      { coral: 15, cd: 16, taken: 1.15, t: 8 },
+      { coral: 15, cd: 16, taken: 1.25, t: 11 },
+      { coral: 15, cd: 16, taken: 1.35, t: 14 },
+    ),
+    desc: '敵方單位 8／11／14 秒內受到的傷害 +15／25／35%，全隊看得到它',
+  },
+  sk_link: {
+    name: '火控連結',
+    slot: 2,
+    kind: 'aura',
+    r: 30,
+    lv: L3({ range: 2, rof: 1.08 }, { range: 4, rof: 1.14 }, { range: 6, rof: 1.2 }),
+    desc: '光環 30 m：射程 30 以上的友軍射程 +2／4／6、射速 +8／14／20%',
+  },
+  sk_barrage: {
+    name: '飽和砲擊',
+    slot: 3,
+    kind: 'point',
+    range: 70,
+    line: true,
+    aiR: 60,
+    lv: [{ coral: 90, cd: 150, warn: 1.5, dur: 6, gap: 0.25, len: 70, R: 4, dmg: 90, end: 20 }],
+    desc: '朝指定方向 70 m 的直線：預警 1.5 秒後每 0.25 秒一發 90 爆發（6 秒），結束時終點 20 發飛彈雨',
+  },
+  // ===== PILEDRIVER =====
+  sk_rush: {
+    name: '突擊推進',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 30,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 12, dmg: 60, stun: 1 },
+      { coral: 15, cd: 12, dmg: 100, stun: 1.5 },
+      { coral: 15, cd: 12, dmg: 140, stun: 2 },
+    ),
+    desc: '衝到敵方單位身邊撞擊 60／100／140 實彈＋暈眩 1／1.5／2 秒',
+  },
+  sk_pile: {
+    name: '打樁',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 6,
+    auto: true,
+    lv: L3({ coral: 20, cd: 10, dmg: 180 }, { coral: 20, cd: 10, dmg: 280 }, { coral: 20, cd: 10, dmg: 380 }),
+    desc: '單體 180／280／380 穿甲並打出失衡',
+  },
+  sk_break: {
+    name: '破甲',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ armor: -1, t: 5 }, { armor: -2, t: 5 }, { armor: -3, t: 5 }),
+    desc: '普通攻擊讓目標護甲 −1／−2／−3（5 秒，不疊加）',
+  },
+  sk_quake: {
+    name: '地裂',
+    slot: 3,
+    kind: 'self',
+    aiR: 14,
+    lv: [{ coral: 80, cd: 100, n: 3, step: 5, R: 6, dmg: 150, stun: 0.8, speed: 1.3, t: 8 }],
+    desc: '往前方連續 3 次噴發，每次 150 爆發＋失衡；之後 8 秒移動速度 +30%',
+  },
+  // ===== RUST（酒館） =====
+  sk_scav: {
+    name: '拾荒',
+    slot: 0,
+    kind: 'self',
+    r: 20,
+    lv: L3({ coral: 10, cd: 15, max: 3 }, { coral: 10, cd: 15, max: 5 }, { coral: 10, cd: 15, max: 7 }),
+    desc: '吸附 20 m 內最近 30 秒的殘骸（最多 3／5／7 個），每個回復 80 AP、隊伍 +10 礦石',
+  },
+  sk_junk: {
+    name: '廢鐵投擲',
+    slot: 1,
+    kind: 'point',
+    range: 30,
+    auto: true,
+    aiR: 28,
+    lv: L3(
+      { coral: 15, cd: 10, R: 5, dmg: 120 },
+      { coral: 15, cd: 10, R: 5, dmg: 180 },
+      { coral: 15, cd: 10, R: 5, dmg: 240 },
+    ),
+    desc: '指定地點範圍 5 m 120／180／240 實彈',
+  },
+  sk_salvage: {
+    name: '回收再利用',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ per: 0.01, max: 10 }, { per: 0.01, max: 15 }, { per: 0.01, max: 20 }),
+    desc: '每次擊破永久傷害 +1%（最多 10／15／20 層）',
+  },
+  sk_storm: {
+    name: '廢鐵風暴',
+    slot: 3,
+    kind: 'self',
+    aiR: 12,
+    lv: [{ coral: 80, cd: 110, t: 8, R: 12, dmg: 60, armor: 5 }],
+    desc: '8 秒內每秒對 12 m 內的敵人 60 實彈、自己護甲 +5',
+  },
+  // ===== SIROCCO =====
+  sk_sand: {
+    name: '沙暴',
+    slot: 0,
+    kind: 'point',
+    range: 30,
+    lv: L3(
+      { coral: 15, cd: 16, R: 10, t: 8, taken: 0.75 },
+      { coral: 15, cd: 16, R: 10, t: 10, taken: 0.7 },
+      { coral: 15, cd: 16, R: 10, t: 12, taken: 0.65 },
+    ),
+    desc: '10 m 煙幕 8／10／12 秒：裡面的友軍受到的傷害 −25／30／35%',
+  },
+  sk_ambush: {
+    name: '沙中突襲',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 30,
+    auto: true,
+    lv: L3(
+      { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 150, stun: 1 },
+      { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 225, stun: 1 },
+      { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 300, stun: 1 },
+    ),
+    desc: '鑽進地下（不能被攻擊），從目標腳下鑽出 150／225／300 爆發＋暈眩 1 秒',
+  },
+  sk_evade: {
+    name: '迴避',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ taken: 0.9 }, { taken: 0.8 }, { taken: 0.7 }),
+    desc: '受到的傷害 −10／20／30%',
+  },
+  sk_dome: {
+    name: '沙暴領域',
+    slot: 3,
+    kind: 'self',
+    aiR: 24,
+    lv: [{ coral: 80, cd: 120, R: 30, t: 15, rangeK: 0.6, taken: 0.75 }],
+    desc: '30 m 煙幕 15 秒：裡面的敵人射程 −40%、友軍受到的傷害 −25%',
+  },
+  // ===== WHITEOUT =====
+  sk_white: {
+    name: '白化',
+    slot: 0,
+    kind: 'self',
+    lv: L3({ coral: 15, cd: 20, t: 8 }, { coral: 15, cd: 20, t: 12 }, { coral: 15, cd: 20, t: 16 }),
+    desc: '隱形 8／12／16 秒（不能被鎖定，開火現形）',
+  },
+  sk_snipe: {
+    name: '狙擊',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 70,
+    auto: true,
+    lv: L3({ coral: 20, cd: 12, dmg: 300 }, { coral: 20, cd: 12, dmg: 400 }, { coral: 20, cd: 12, dmg: 500 }),
+    desc: '射程 70，300／400／500 穿甲',
+  },
+  sk_ambushfire: {
+    name: '冷彈',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ k: 1.5 }, { k: 1.75 }, { k: 2 }),
+    desc: '從隱形中開火的第一擊傷害 ×1.5／1.75／2',
+  },
+  sk_freeze: {
+    name: '冰封',
+    slot: 3,
+    kind: 'point',
+    range: 40,
+    aiR: 36,
+    lv: [{ coral: 80, cd: 110, R: 14, t: 6, speed: 0.4, walls: 3, hp: 900 }],
+    desc: '半徑 14 m 緩速 60% 6 秒，四周升起三面冰牆',
+  },
+  // ===== SPECIMEN =====
+  sk_overload: {
+    name: '過載',
+    slot: 0,
+    kind: 'self',
+    aiR: 26,
+    lv: L3(
+      { coral: 10, cd: 18, t: 5, rof: 1.5, stun: 2 },
+      { coral: 10, cd: 16, t: 5, rof: 1.65, stun: 1.6 },
+      { coral: 10, cd: 14, t: 5, rof: 1.8, stun: 1.2 },
+    ),
+    desc: '5 秒射速 +50／65／80%，之後硬直 2／1.6／1.2 秒',
+  },
+  sk_parasite: {
+    name: '寄生',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 20,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 12, dps: 30, t: 6, speed: 0.7 },
+      { coral: 15, cd: 12, dps: 45, t: 6, speed: 0.6 },
+      { coral: 15, cd: 12, dps: 60, t: 6, speed: 0.5 },
+    ),
+    desc: '纏附敵方單位 6 秒：每秒 30／45／60、移動速度 −30／40／50%',
+  },
+  sk_regen: {
+    name: '再生',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ regen: 2 }, { regen: 4 }, { regen: 6 }),
+    desc: '每秒回復 2／4／6 AP',
+  },
+  sk_fuse: {
+    name: '融合',
+    slot: 3,
+    kind: 'self',
+    lv: [{ coral: 60, cd: 90, r: 15, n: 3, heal: 0.25, dmg: 1.15, t: 15 }],
+    desc: '吸收 15 m 內最多 3 台己方一般單位，每台回復 25% AP，15 秒傷害 +15%',
+  },
+  // ===== SPIRE =====
+  sk_climb: {
+    name: '攀升',
+    slot: 0,
+    kind: 'point',
+    range: 25,
+    lv: L3({ coral: 10, cd: 14 }, { coral: 10, cd: 11 }, { coral: 10, cd: 8 }),
+    desc: '跳到 25 m 內的地點（可以上高台）；冷卻 14／11／8 秒',
+  },
+  sk_high: {
+    name: '高點射擊',
+    slot: 1,
+    kind: 'self',
+    aiR: 40,
+    lv: L3(
+      { coral: 15, cd: 16, t: 8, k: 1.3 },
+      { coral: 15, cd: 16, t: 8, k: 1.45 },
+      { coral: 15, cd: 16, t: 8, k: 1.6 },
+    ),
+    desc: '8 秒內比目標高 4 m 以上時傷害 +30／45／60%',
+  },
+  sk_eye: {
+    name: '鷹眼',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ sight: 6 }, { sight: 10 }, { sight: 14 }),
+    desc: '視野 +6／10／14',
+  },
+  sk_summit: {
+    name: '制高點',
+    slot: 3,
+    kind: 'self',
+    lv: [{ coral: 70, cd: 120, t: 30, range: 8 }],
+    desc: '30 秒內全隊在高台上的單位射程 +8',
+  },
+  // ===== COUNTDOWN =====
+  sk_homing: {
+    name: '誘導飛彈',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 45,
+    auto: true,
+    lv: L3(
+      { coral: 15, cd: 10, n: 4, dmg: 35 },
+      { coral: 20, cd: 10, n: 6, dmg: 35 },
+      { coral: 25, cd: 10, n: 8, dmg: 35 },
+    ),
+    desc: '鎖定目標發射 4／6／8 枚，每枚 35 爆發',
+  },
+  sk_burner: {
+    name: '推進器噴火',
+    slot: 1,
+    kind: 'self',
+    aiR: 10,
+    lv: L3(
+      { coral: 15, cd: 14, t: 4, len: 12, dps: 60 },
+      { coral: 15, cd: 14, t: 4, len: 12, dps: 80 },
+      { coral: 15, cd: 14, t: 4, len: 12, dps: 100 },
+    ),
+    desc: '前方錐形 12 m 4 秒，每秒 60／80／100 爆發',
+  },
+  sk_longms: {
+    name: '長程導彈',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ range: 4 }, { range: 6 }, { range: 8 }),
+    desc: '射程 +4／6／8',
+  },
+  sk_launch: {
+    name: '發射倒數',
+    slot: 3,
+    kind: 'point',
+    range: 60,
+    aiR: 55,
+    lv: [{ coral: 90, cd: 140, delay: 10, R: 14, dmg: 400 }],
+    desc: '指定地點預警圈 10 秒後，半徑 14 m 400 爆發',
+  },
+  // ===== UNDERTOW =====
+  sk_shove: {
+    name: '推擊',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 12,
+    auto: true,
+    lv: L3(
+      { coral: 10, cd: 10, dmg: 100, kb: 8 },
+      { coral: 10, cd: 9, dmg: 140, kb: 8 },
+      { coral: 10, cd: 8, dmg: 180, kb: 8 },
+    ),
+    desc: '撞開敵方單位並擊退 8 m，100／140／180 實彈',
+  },
+  sk_vortex: {
+    name: '漩渦',
+    slot: 1,
+    kind: 'point',
+    range: 30,
+    aiR: 28,
+    lv: L3(
+      { coral: 20, cd: 16, R: 10, t: 5, pull: 4 },
+      { coral: 20, cd: 16, R: 10, t: 6, pull: 5 },
+      { coral: 20, cd: 16, R: 10, t: 7, pull: 6 },
+    ),
+    desc: '10 m 吸引區 5／6／7 秒，把敵人往中心拉',
+  },
+  sk_tide: {
+    name: '浪尖',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ taken: 1.1, t: 4 }, { taken: 1.2, t: 4 }, { taken: 1.3, t: 4 }),
+    desc: '被擊退或拉動的目標 4 秒內受到的傷害 +10／20／30%',
+  },
+  sk_undertow: {
+    name: '暗流',
+    slot: 3,
+    kind: 'self',
+    aiR: 14,
+    lv: [{ coral: 80, cd: 110, R: 18, stun: 2, dmg: 80 }],
+    desc: '把 18 m 內的敵方單位拉到中心並暈眩 2 秒（80 實彈）',
+  },
+  // ===== MARSH =====
+  sk_lurk: {
+    name: '潛行',
+    slot: 0,
+    kind: 'self',
+    lv: L3({ coral: 10, cd: 18, t: 12 }, { coral: 10, cd: 15, t: 12 }, { coral: 10, cd: 12, t: 12 }),
+    desc: '12 秒內不能被鎖定（開火現形）',
+  },
+  sk_acid: {
+    name: '腐蝕噴霧',
+    slot: 1,
+    kind: 'point',
+    range: 30,
+    auto: true,
+    aiR: 28,
+    lv: L3(
+      { coral: 15, cd: 12, R: 6, t: 8, dps: 30, armor: -3 },
+      { coral: 15, cd: 12, R: 6, t: 8, dps: 40, armor: -3 },
+      { coral: 15, cd: 12, R: 6, t: 8, dps: 50, armor: -3 },
+    ),
+    desc: '指定地點 6 m 腐蝕區 8 秒：每秒 30／40／50、護甲 −3',
+  },
+  sk_amphib: {
+    name: '兩棲',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ regen: 3 }, { regen: 6 }, { regen: 9 }),
+    desc: '在水裡（或腐蝕區）每秒回復 3／6／9 AP',
+  },
+  sk_swamp: {
+    name: '沼澤化',
+    slot: 3,
+    kind: 'self',
+    aiR: 16,
+    lv: [{ coral: 80, cd: 120, R: 20, t: 12, speed: 0.65, dps: 20 }],
+    desc: '半徑 20 m 腐蝕地 12 秒：敵方移動 −35%、每秒 20',
+  },
+};
+for (const id in RTS_SKILLS) RTS_SKILLS[id].id = id;
+
+// ---------- 指令卡（rts-units.js 的 UNIT_CARD 的複本：這裡不能 import rts-units.js） ----------
+const UNIT_CARD = [
+  {
+    at: [0, 0],
+    alt: 'M',
+    name: '移動',
+    tip: '移動到指定地點（不理會敵人）',
+    act: { k: 'order', o: 'move', target: 'point' },
+  },
+  { at: [0, 1], alt: 'H', name: '守住', tip: '原地不動，只攻擊射程內的敵人', act: { k: 'order', o: 'hold' } },
+  {
+    at: [0, 2],
+    alt: 'P',
+    name: '巡邏',
+    tip: '在目前位置與指定地點之間來回，遇敵就交戰',
+    act: { k: 'order', o: 'patrol', target: 'point' },
+  },
+  {
+    at: [1, 0],
+    name: '攻擊',
+    tip: '攻擊移動：沿路迎擊遇到的敵人；指定敵人時集中攻擊',
+    act: { k: 'order', o: 'amove', target: 'any' },
+  },
+  { at: [1, 1], name: '停止', tip: '取消所有指令', act: { k: 'order', o: 'stop' } },
+];
+const KEYS = ['Z', 'X', 'C', 'V'];
+// 技能卡片的目標（輸入端選點）：unit＝單位、point＝地點、self／aura／passive＝不用目標
+export const skillTarget = (S) => (S.kind === 'unit' ? 'unit' : S.kind === 'point' ? 'point' : null);
+// 技能卡片：act { k: 'ability', ab, target, slot, hero: true }；被動與光環 act.passive（顯示但不能按）
+export function skillCard(id, slot) {
+  const S = RTS_SKILLS[id];
+  return {
+    at: [2, slot],
+    key: KEYS[slot],
+    name: S.name,
+    tip: S.desc,
+    act: {
+      k: 'ability',
+      ab: id,
+      slot,
+      hero: true,
+      target: skillTarget(S),
+      passive: S.kind === 'aura' || S.kind === 'passive',
+    },
+  };
+}
+function heroCard(skills) {
+  return [
+    ...UNIT_CARD,
+    // R＝商店（12 m 內有商店時；子選單由 Game.rtsHeroShopCard(英雄) 產生）
+    { at: [0, 3], name: '商店', tip: '向 12 m 內的商店購買道具', act: { k: 'shop' } },
+    {
+      at: [1, 2],
+      key: 'D',
+      alt: 'O',
+      name: '學習技能',
+      tip: '用技能點學習或升級技能',
+      act: { k: 'menu', menu: 'learn' },
+    },
+    {
+      at: [1, 3],
+      key: 'F',
+      name: '親自駕駛',
+      tip: '親自操作這位英雄（長按 F 回到指揮）',
+      act: { k: 'pilot' },
+    },
+    ...skills.map((id, i) => skillCard(id, i)),
+  ];
+}
+function learnMenu(skills) {
+  return [
+    ...skills.map((id, i) => ({
+      at: [2, i],
+      key: KEYS[i],
+      name: RTS_SKILLS[id].name,
+      tip: RTS_SKILLS[id].desc,
+      act: { k: 'learn', slot: i, ab: id },
+    })),
+    { at: [1, 3], key: 'F', alt: 'Escape', name: '返回', tip: '回上一層', act: { k: 'back' } },
+  ];
+}
+
+// ---------- 英雄 ----------
+const COMMON = {
+  kind: 'unit',
+  hero: true,
+  atk: 'hero',
+  arm: 'hero',
+  pop: 5,
+  time: 55,
+  cost: { ore: 425, coral: 100 },
+  size: 1,
+  scale: 1,
+  radius: 1.5,
+  lv: 0, // 經驗用的是英雄等級（RTS_XP_HERO），不看這個
+};
+function hero(id, o) {
+  const D = { ...COMMON, ...o };
+  D.card = heroCard(D.skills);
+  D.menus = { learn: learnMenu(D.skills) };
+  return D;
+}
+const AC = (k) => ({ ...AC_ROSTER[k].asm });
+const ACE = (k) => ({ ...ACES[k].asm });
+
+export const RTS_HERO_DEFS = {
+  h_bastion: hero('h_bastion', {
+    faction: 'castron',
+    name: 'BASTION',
+    role: '重裝要塞',
+    desc: '英雄：重裝要塞（坦）。護甲光環、臨時牆、不落要塞',
+    tier: 1,
+    asm: AC('bastion'),
+    slots: ['rarm', 'larm'],
+    hp: 1600,
+    armor: 4,
+    range: 26,
+    dps: 26,
+    speed: 7,
+    sight: 34,
+    grow: { hp: 110, dps: 2.2, armor: 0.6 },
+    skills: ['sk_plate', 'sk_bulwark', 'sk_will', 'sk_fortress'],
+  }),
+  h_rain: hero('h_rain', {
+    faction: 'castron',
+    name: 'RAIN',
+    role: '砲兵指揮',
+    desc: '英雄：砲兵指揮。飛彈雨、標定、火控連結、飽和砲擊',
+    tier: 1,
+    asm: AC('rain'),
+    slots: ['rarm', 'rback'],
+    hp: 1150,
+    armor: 2,
+    range: 40,
+    dps: 22,
+    speed: 8,
+    sight: 38,
+    grow: { hp: 80, dps: 2.6, armor: 0.3 },
+    skills: ['sk_rain', 'sk_mark', 'sk_link', 'sk_barrage'],
+  }),
+  h_pile: hero('h_pile', {
+    faction: 'castron',
+    name: 'PILEDRIVER',
+    role: '突擊',
+    desc: '英雄：突擊。突擊推進、打樁、破甲、地裂',
+    tier: 1,
+    asm: { ...AC('piledriver'), larm: 'w_sg' },
+    slots: ['larm'],
+    hp: 1350,
+    armor: 3,
+    range: 14,
+    dps: 30,
+    speed: 9,
+    sight: 32,
+    grow: { hp: 95, dps: 3.0, armor: 0.45 },
+    skills: ['sk_rush', 'sk_pile', 'sk_break', 'sk_quake'],
+  }),
+  // ===== 酒館的宿敵 AC（faction 'neutral'；全場唯一） =====
+  t_rust: hero('t_rust', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'RUST',
+    role: '拾荒、成長',
+    desc: '酒館：拾荒傭兵。吸附殘骸回復、擊破後永久成長',
+    asm: {
+      head: 'h_std',
+      core: 'c_std',
+      arms: 'a_std',
+      legs: 'l_bp',
+      booster: 'b_std',
+      generator: 'g_std',
+      fcs: 'f_std',
+      rarm: 'w_mg',
+      larm: 'w_sg',
+      rback: 'bw_none',
+      lback: 'bw_none',
+    },
+    slots: ['rarm'],
+    hp: 1400,
+    armor: 3,
+    range: 24,
+    dps: 24,
+    speed: 8,
+    sight: 32,
+    grow: { hp: 95, dps: 2.4, armor: 0.45 },
+    skills: ['sk_scav', 'sk_junk', 'sk_salvage', 'sk_storm'],
+  }),
+  t_sirocco: hero('t_sirocco', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'SIROCCO',
+    role: '干擾、游擊',
+    desc: '酒館：沙丘的游擊手。煙幕、沙中突襲',
+    asm: ACE('sirocco'),
+    slots: ['larm'],
+    hp: 1200,
+    armor: 2,
+    range: 16,
+    dps: 28,
+    speed: 9.5,
+    sight: 32,
+    grow: { hp: 80, dps: 2.8, armor: 0.3 },
+    skills: ['sk_sand', 'sk_ambush', 'sk_evade', 'sk_dome'],
+  }),
+  t_whiteout: hero('t_whiteout', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'WHITEOUT',
+    role: '狙擊、隱形',
+    desc: '酒館：冰原的狙擊手。隱形、狙擊、冰封',
+    asm: ACE('whiteout'),
+    slots: ['rarm'],
+    hp: 1150,
+    armor: 2,
+    range: 42,
+    dps: 24,
+    speed: 8,
+    sight: 40,
+    grow: { hp: 75, dps: 2.8, armor: 0.3 },
+    skills: ['sk_white', 'sk_snipe', 'sk_ambushfire', 'sk_freeze'],
+  }),
+  t_specimen: hero('t_specimen', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'SPECIMEN',
+    role: '爆發、續戰',
+    desc: '酒館：技研都市的實驗體。過載、寄生、再生',
+    asm: ACE('specimen'),
+    slots: ['rarm'],
+    hp: 1450,
+    armor: 2,
+    range: 24,
+    dps: 26,
+    speed: 8.5,
+    sight: 32,
+    grow: { hp: 100, dps: 2.6, armor: 0.35 },
+    skills: ['sk_overload', 'sk_parasite', 'sk_regen', 'sk_fuse'],
+  }),
+  t_spire: hero('t_spire', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'SPIRE',
+    role: '高地',
+    desc: '酒館：Grid 086 的攀爬者。攀升、高點射擊',
+    asm: ACE('spire'),
+    slots: ['rarm', 'larm'],
+    hp: 1250,
+    armor: 2,
+    range: 32,
+    dps: 24,
+    speed: 8.5,
+    sight: 36,
+    grow: { hp: 85, dps: 2.6, armor: 0.35 },
+    skills: ['sk_climb', 'sk_high', 'sk_eye', 'sk_summit'],
+  }),
+  t_countdown: hero('t_countdown', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'COUNTDOWN',
+    role: '導彈',
+    desc: '酒館：宇宙港的飛彈手。誘導飛彈、噴火、發射倒數',
+    asm: ACE('countdown'),
+    slots: ['rarm', 'rback'],
+    hp: 1200,
+    armor: 2,
+    range: 38,
+    dps: 22,
+    speed: 7.5,
+    sight: 36,
+    grow: { hp: 80, dps: 2.6, armor: 0.3 },
+    skills: ['sk_homing', 'sk_burner', 'sk_longms', 'sk_launch'],
+  }),
+  t_undertow: hero('t_undertow', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'UNDERTOW',
+    role: '控場',
+    desc: '酒館：洋上都市的推擊手。推擊、漩渦、暗流',
+    asm: ACE('undertow'),
+    slots: ['rarm'],
+    hp: 1550,
+    armor: 3,
+    range: 16,
+    dps: 26,
+    speed: 8.5,
+    sight: 30,
+    grow: { hp: 105, dps: 2.5, armor: 0.5 },
+    skills: ['sk_shove', 'sk_vortex', 'sk_tide', 'sk_undertow'],
+  }),
+  t_marsh: hero('t_marsh', {
+    faction: 'neutral',
+    tavern: true,
+    name: 'MARSH',
+    role: '腐蝕、潛行',
+    desc: '酒館：水沒市街的潛行者。潛行、腐蝕噴霧、沼澤化',
+    asm: ACE('marsh'),
+    slots: ['rarm'],
+    hp: 1300,
+    armor: 2,
+    range: 16,
+    dps: 27,
+    speed: 9,
+    sight: 30,
+    grow: { hp: 90, dps: 2.7, armor: 0.35 },
+    skills: ['sk_lurk', 'sk_acid', 'sk_amphib', 'sk_swamp'],
+  }),
+};
+// 酒館的英雄 id（定義也在 RTS_HERO_DEFS）
+export const RTS_TAVERN = [
+  't_rust',
+  't_sirocco',
+  't_whiteout',
+  't_specimen',
+  't_spire',
+  't_countdown',
+  't_undertow',
+  't_marsh',
+];
+// 各陣營可以在主堡生產的英雄（rts-units.js 的 RTS_FACTIONS[].heroes 也有同一份）
+export const RTS_FACTION_HEROES = { castron: ['h_bastion', 'h_rain', 'h_pile'] };
+
+// 經驗 → 等級（1～10）
+export function heroLvOf(xp) {
+  let lv = 1;
+  while (lv < RTS_HERO_LV_MAX && xp >= RTS_HERO_XP[lv]) lv++;
+  return lv;
+}
+// 技能某一級的數值（lv 1 起；0＝還沒學）
+export function skillLv(id, lv) {
+  const S = RTS_SKILLS[id];
+  if (!S || !lv) return null;
+  return S.lv[Math.min(lv, S.lv.length) - 1];
+}

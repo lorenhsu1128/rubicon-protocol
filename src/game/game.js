@@ -388,7 +388,8 @@ export class Game {
     this.pollGamepad(dt);
     if (this.camp && this.camp.wait) this.campWaitTick(); // 主線多人：轉場中等待隊友（不靠會被節流的計時器）
     if ((this.frames & 15) === 0) this.updateVpad();
-    if (this.state === 'play' || this.state === 'ending') {
+    // 一般任務的節奏設定（ctrl.pace）；Coral 戰爭（含親自駕駛時 state 'play'）一律原速，不拖慢整個模擬
+    if ((this.state === 'play' || this.state === 'ending') && !this.rts) {
       const pace = this.net && this.net.role === 'client' ? this.hostPace || 1 : this.ctrl.pace || 1;
       dt *= pace;
       this.lastDt = dt;
@@ -480,7 +481,8 @@ export class Game {
       return;
     }
     // Coral 戰爭（RTS）：rts.js 的 rtsTick 接手更新與算繪（沒有玩家的機甲）
-    if (this.state === 'rts') {
+    if (this.state === 'rts' || (this.state === 'play' && this.rts)) {
+      // 親自駕駛（rts-pilot.js）時 state 是 'play'（一般任務的輸入），更新仍由 rtsTick 接手
       if (this.rts) this.rtsTick(dt);
       else this.renderMain();
       return;
@@ -639,7 +641,7 @@ export class Game {
       if (off || e === this.player || e === this.camFocus) {
         e.lodIk = false;
         e.lodVis = true;
-        if (e.shLodOff && !(rr && !e.bld)) e.setShadowLod(true);
+        if (e.shLodOff && !(rr && !e.bld && !e.hero)) e.setShadowLod(true);
         continue;
       }
       const d = Math.sqrt(cp.distanceToSquared(e.pos));
@@ -649,8 +651,8 @@ export class Game {
       const vis = _lodF.intersectsSphere(_lodS);
       e.lodVis = vis; // 在畫面內（RTS 的單位在畫面外時降低動作與推進器的更新，MechEntity.move）
       e.lodIk = !vis || d > (e.lodIk ? ikD * 0.92 : ikD);
-      // 全像的假敵人自己關掉陰影，不碰；RTS 渲染設定的單位不投影（render-setup.js 的 rtsRenderTick），建築照常
-      if (!e.decoy && !(rr && !e.bld)) e.setShadowLod(d < (e.shLodOff ? shD * 0.92 : shD));
+      // 全像的假敵人自己關掉陰影，不碰；RTS 渲染設定的單位不投影（render-setup.js 的 rtsRenderTick），建築與英雄照常
+      if (!e.decoy && !(rr && !e.bld && !e.hero)) e.setShadowLod(d < (e.shLodOff ? shD * 0.92 : shD));
     }
     list.length = 0;
   }

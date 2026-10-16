@@ -1093,10 +1093,32 @@ module.exports = (H) => {
       }
       g.rtsOrder(mine, { k: 'amove', x: A.x - 40, z: A.z });
       window.__fight = { mine, foes };
-      window.__sim(6);
-      return { hit: foes.some((e) => e.hp < e.maxHp || e.dead) };
+      // 兩隊之間是地圖正中央的酒館（打不壞的中立建築）：射線被擋住時要繞過去再開火（mech-rts.js 的 rtsLosBlocked），
+      // 不能一直打在酒館上
+      const tav = g.rts.neutrals && g.rts.neutrals.find((n) => n.kind === 'tavern');
+      const tavHp = tav && tav.ent ? tav.ent.hp : 0;
+      let tavHits = 0;
+      if (tav && tav.ent) {
+        const td = tav.ent.takeDamage;
+        tav.ent.takeDamage = function (...a) {
+          tavHits++;
+          return td.apply(this, a);
+        };
+      }
+      const t = window.__sim(15, () => foes.some((e) => e.hp < e.maxHp || e.dead));
+      window.__tavHits = () => tavHits;
+      return {
+        hit: foes.some((e) => e.hp < e.maxHp || e.dead),
+        t,
+        tav: !!tav,
+        tavOk: !tav || (tav.ent && !tav.ent.dead && tav.ent.hp === tavHp),
+        tavHits,
+      };
     });
-    check(fight.hit, '攻擊移動：遇到敵人就交戰（敵方 MT 受傷）');
+    check(
+      fight.hit && fight.tavOk,
+      `攻擊移動：遇到敵人就交戰（敵方 MT 受傷，${fight.t >= 0 ? fight.t.toFixed(1) + ' 秒' : '逾時'}；中央${fight.tav ? '有' : '沒有'}酒館，打不壞、被打到 ${fight.tavHits} 發）`,
+    );
     await ev(() => {
       const g = window.__game,
         F = window.__fight;
@@ -1114,14 +1136,15 @@ module.exports = (H) => {
       const t = window.__sim(60, () => F.foes.every((e) => e.dead));
       return {
         t,
+        tavHits: window.__tavHits ? window.__tavHits() : 0,
         alive: F.mine.filter((e) => !e.dead).length,
         dead: F.foes.filter((e) => e.dead).length,
         killed: g.rts.stats[0].killed,
       };
     });
     check(
-      fight2.t >= 0 && fight2.dead === 3,
-      `敵方 3 台全滅（${fight2.t >= 0 ? fight2.t.toFixed(1) + ' 秒' : '逾時'}），我方剩 ${fight2.alive}/6、擊破 ${fight2.killed}`,
+      fight2.t >= 0 && fight2.dead === 3 && fight2.tavHits < 30, // 射線被酒館擋住時繞過去（以前一直打在酒館上，數百發）
+      `敵方 3 台全滅（${fight2.t >= 0 ? fight2.t.toFixed(1) + ' 秒' : '逾時'}），我方剩 ${fight2.alive}/6、擊破 ${fight2.killed}；打在酒館上 ${fight2.tavHits} 發`,
     );
     // 效能：每邊 60 台互相攻擊移動（共 120 台）時，指令與索敵＋推擠與空間索引的耗時
     const perf = await ev(() => {
@@ -1383,6 +1406,7 @@ module.exports = (H) => {
       const g = window.__game;
       // 尋路服務不依實際耗時截斷（同一個種子每次的結果相同；以前平行跑時偶爾 25 分鐘還沒分出勝負）
       g.rtsPathMs = Infinity;
+      g.rtsCampsOff = true; // 野怪營地（D 包）：電腦對手的打野是 F 包第二輪的事，這裡不生成野怪
       window.__reseed(7);
       g.rtsStart({
         theme: 'wasteland',
@@ -1547,6 +1571,7 @@ module.exports = (H) => {
     const both = await ev2(() => {
       const g = window.__game;
       g.rtsPathMs = Infinity;
+      g.rtsCampsOff = true; // 野怪營地（D 包）：電腦對手的打野是 F 包第二輪的事，這裡不生成野怪
       window.__reseed(8);
       g.rtsStart({
         theme: 'wasteland',

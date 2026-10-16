@@ -14926,6 +14926,23 @@ const LIB_FILE = () => 'file:///' + LIBRARY.split(path.sep).join('/');
 const RTS = require('./smoke-rts')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
 // R2 的各包（docs/rts-design.md 13.1）：A＝核心與資料
 const RTS_A = require('./smoke-rts-core')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// D＝中立與地圖（野怪營地、酒館、商店、傭兵營）
+const RTS_D = require('./smoke-rts-d')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// C 包（英雄與道具）的測試在 smoke-rts-c.js
+const RTS_C = require('./smoke-rts-c')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// B 包（兵種行為與模型）的測試在 smoke-rts-b.js
+const RTS_B = require('./smoke-rts-b')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// E 包（HUD、輸入、親自駕駛）的測試在 smoke-rts-e.js
+const RTS_E = require('./smoke-rts-e')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+  watch,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15009,6 +15026,12 @@ const STEPS = [
   ['testRtsAi', (c) => RTS.testRtsAi(c.browser, c.base)],
   ['testRtsLod', (c) => RTS.testRtsLod(c.browser, c.base)],
   ['testRtsTech', (c) => RTS_A.testRtsTech(c.browser, c.base)],
+  ['testRtsNeutral', (c) => RTS_D.testRtsNeutral(c.browser, c.base)],
+  ['testRtsCastron', (c) => RTS_B.testRtsCastron(c.browser, c.base)],
+  ['testRtsHud2', (c) => RTS_E.testRtsHud2(c.browser, c.base)],
+  ['testRtsPilot', (c) => RTS_E.testRtsPilot(c.browser, c.base)],
+  ['testRtsHero', (c) => RTS_C.testRtsHero(c.browser, c.base)],
+  ['testRtsItems', (c) => RTS_C.testRtsItems(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

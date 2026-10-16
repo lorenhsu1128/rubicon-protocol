@@ -15,7 +15,7 @@ const DIST_MIN = 30,
 const EDGE_PX = 6; // 畫面邊緣捲動的寬度
 const SEL_MAX = RTS_SEL_MAX;
 const DBL_T = 0.35; // 雙擊、連按兩下編隊的間隔（秒）
-const COL = { own: 0x4cff7a, foe: 0xff4a3a, neu: 0xffd23a };
+const COL = { own: 0x4cff7a, foe: 0xff4a3a, neu: 0xffd23a, sig: 0x5cf0ff };
 
 let ringGeo = null;
 const ringMats = {};
@@ -423,6 +423,15 @@ Object.assign(Game.prototype, {
     }
     if (e.button !== 0) return;
     if (ui.mode) {
+      // 城牆：Shift＋拖曳蓋一排（放開時沿拖曳方向排開）
+      if (ui.mode.k === 'build' && ui.mode.D && ui.mode.D.wall && e.shiftKey) {
+        this.rtsGhostUpdate();
+        const G = ui.ghost;
+        if (G && G.g.visible) {
+          ui.wallDrag = { x0: G.x, z0: G.z };
+          return;
+        }
+      }
       const gp = this.rtsGroundAt(e.clientX, e.clientY);
       const hit = this.rtsPickAt(e.clientX, e.clientY);
       if (gp || hit) this.rtsModeAt(gp ? gp.x : hit.pos.x, gp ? gp.z : hit.pos.z, hit, e.shiftKey);
@@ -451,6 +460,11 @@ Object.assign(Game.prototype, {
   rtsPtrUp(e) {
     const ui = this.rts.ui;
     if (ui.rot && (e.button === 1 || e.button === 0)) ui.rot = null;
+    if (ui.wallDrag && e.button === 0) {
+      const w = ui.wallDrag;
+      ui.wallDrag = null;
+      return this.rtsWallRow(w.x0, w.z0);
+    }
     const d = ui.drag;
     if (!d || e.button !== 0) return;
     ui.drag = null;
@@ -556,6 +570,32 @@ Object.assign(Game.prototype, {
       case 'repair':
         if (ent && this.rtsOwn(ent) && ent.bld) ((order = { k: 'repair', id: ent.id }), (mk = 'gather'));
         break;
+      case 'ability': {
+        // 技能：地點或單位（英雄的技能由 C 包、一般單位的由 B 包執行）
+        if (m.target === 'unit' && !ent) {
+          this.rtsMsg('要點一個單位', 0xff8a8a, 1);
+          return;
+        }
+        order = { k: 'ability', ab: m.ab, x, z };
+        if (ent) order.id = ent.id;
+        mk = ent && !this.rtsOwn(ent) ? 'attack' : 'gather';
+        break;
+      }
+      case 'item': {
+        // 英雄的道具（C 包的 rtsItemUse）
+        const h = m.hero;
+        if (!h || h.dead) return this.rtsSetMode(null);
+        if (m.target === 'unit' && !ent) {
+          this.rtsMsg('要點一個單位', 0xff8a8a, 1);
+          return;
+        }
+        if (typeof this.rtsItemUse === 'function')
+          this.rtsItemUse(h, m.slot, { x, z, id: ent ? ent.id : undefined });
+        this.rtsMark(x, z, 'gather');
+        this.rtsHudDirty = true;
+        if (!shift) this.rtsSetMode(null);
+        return;
+      }
       case 'rally':
         // 集結點：交給智慧指令（只有建築時＝設集結點，點礦脈＝工人自動採集）
         if (typeof this.rtsSmart === 'function')
@@ -709,11 +749,55 @@ Object.assign(Game.prototype, {
     if (!shift) this.rtsSetMode(null);
   },
 
+  // 城牆一排：從 (x0, z0) 到目前的預覽位置，沿主要方向每 4 m 一段（橫的 yaw 0、直的轉 90°），全部排進同一個工人的佇列
+  rtsWallRow(x0, z0) {
+    const ui = this.rts.ui,
+      m = ui.mode;
+    if (!m || m.k !== 'build') return;
+    this.rtsGhostUpdate();
+    const G = ui.ghost;
+    if (!G || !G.g.visible) return;
+    const dx = G.x - x0,
+      dz = G.z - z0;
+    const [fw, fd] = this.rtsFootprint(m.D);
+    const horiz = Math.abs(dx) >= Math.abs(dz);
+    const len = horiz ? Math.abs(dx) : Math.abs(dz);
+    const n = Math.min(20, Math.round(len / fw) + 1);
+    if (n <= 1) return this.rtsBuildAt(true);
+    const ws = this.rtsActiveGroup().filter((e) => this.rtsOwn(e) && !e.bld);
+    if (!ws.length) return this.rtsSetMode(null);
+    let w = m.worker && ws.includes(m.worker) ? m.worker : null;
+    if (!w) {
+      let bd = 1e9;
+      for (const u of ws) {
+        const dd = Math.hypot(u.pos.x - x0, u.pos.z - z0);
+        if (dd < bd) ((bd = dd), (w = u));
+      }
+    }
+    m.worker = w;
+    const nav = this.world.nav;
+    const sg = horiz ? Math.sign(dx) : Math.sign(dz);
+    let placed = 0;
+    for (let i = 0; i < n; i++) {
+      const x = horiz ? x0 + sg * i * fw : x0,
+        z = horiz ? z0 : z0 + sg * i * fw;
+      const ok = !nav || (horiz ? nav.buildable(x, z, fw, fd) : nav.buildable(x, z, fd, fw));
+      if (!ok) continue;
+      if (typeof this.rtsOrder === 'function')
+        this.rtsOrder([w], { k: 'build', def: m.def, x, z, yaw: horiz ? 0 : Math.PI / 2 }, true);
+      this.rtsMark(x, z, 'gather');
+      placed++;
+    }
+    if (!placed) this.rtsMsg('這裡不能建造', 0xff8a8a, 1.2);
+    return placed;
+  },
+
   // ---------- 指令標記與選取圈（3D） ----------
   rtsMark(x, z, kind) {
     const ui = this.rts.ui;
     if (!ringGeo) ringGeo = new THREE.RingGeometry(0.82, 1, 28).rotateX(-Math.PI / 2);
-    const c = kind === 'attack' ? COL.foe : kind === 'gather' ? COL.neu : COL.own;
+    const c =
+      kind === 'attack' ? COL.foe : kind === 'gather' ? COL.neu : kind === 'signal' ? COL.sig : COL.own;
     let mk = ui.marks.find((q) => q.t >= q.life);
     if (!mk) {
       const mesh = new THREE.Mesh(
@@ -732,6 +816,8 @@ Object.assign(Game.prototype, {
       ui.marks.push(mk);
     }
     mk.t = 0;
+    mk.life = kind === 'signal' ? 1.6 : 0.6;
+    mk.big = kind === 'signal' ? 3 : 1;
     mk.mesh.material.color.setHex(c);
     mk.mesh.position.set(x, this.world.terrainHeight(x, z) + 0.3, z);
     mk.mesh.visible = true;
@@ -742,7 +828,7 @@ Object.assign(Game.prototype, {
       if (mk.t >= mk.life) continue;
       mk.t += dt;
       const k = Math.min(1, mk.t / mk.life);
-      const s = 3.2 * (1 - k) + 0.6;
+      const s = (3.2 * (1 - k) + 0.6) * (mk.big || 1);
       mk.mesh.scale.set(s, 1, s);
       mk.mesh.material.opacity = 1 - k * k;
       if (mk.t >= mk.life) mk.mesh.visible = false;
@@ -832,6 +918,28 @@ Object.assign(Game.prototype, {
       if (e.repeat) return;
       const ev = ui.events[ui.events.length - 1];
       if (ev) this.rtsCamJump(ev.x, ev.z);
+      return;
+    }
+    // F1～F3 英雄、F8 閒置工人（Ctrl＝全部）、F9 閒置部隊
+    const fk = /^F([1-3])$/.exec(code);
+    if (fk) {
+      e.preventDefault();
+      if (!e.repeat && this.rtsHudHeroKey) this.rtsHudHeroKey(+fk[1] - 1);
+      return;
+    }
+    if (code === 'F8' || code === 'F9') {
+      e.preventDefault();
+      if (!e.repeat && this.rtsIdleSelect)
+        this.rtsIdleSelect(code === 'F8' ? 'worker' : 'army', code === 'F9' || ctrl);
+      return;
+    }
+    // Alt＋1～6：選中的英雄使用道具
+    const ak = e.altKey && /^Digit([1-6])$/.exec(code);
+    if (ak) {
+      e.preventDefault();
+      if (e.repeat) return;
+      const h = this.rtsActiveGroup().find((u) => u.hero && this.rtsOwn(u));
+      if (h && this.rtsHudItemUse) this.rtsHudItemUse(h, +ak[1] - 1);
       return;
     }
     if (/^Digit[0-9]$/.test(code)) {

@@ -176,7 +176,8 @@ Object.assign(Game.prototype, {
     const sm = this.renderer.shadowMap;
     if (sm.needsUpdate && this.sun) {
       const moved = R.sunAt.distanceToSquared(this.sun.position) > 0.25;
-      if (moved || ++R.shN >= RTS_SHADOW_N) {
+      // 英雄投影（真正的陰影）：畫面上的英雄移動了就每 2 格重畫
+      if (moved || ++R.shN >= RTS_SHADOW_N || (R.shN >= 2 && this.rtsHeroShadowMoved())) {
         R.shN = 0;
         R.sunAt.copy(this.sun.position);
       } else sm.needsUpdate = false;
@@ -192,6 +193,8 @@ Object.assign(Game.prototype, {
       for (const e of this.rts.units) if (e && !e.dead && e.model && e.model.rtsPending) this.rtsMergeEnt(e);
     let j = 0;
     for (const e of list) {
+      // 英雄（e.hero）照 lodTick 的距離規則投影真正的陰影，不畫假影子
+      if (e.hero) continue;
       if (!e.decoy) e.setShadowLod(false);
       if (e.mesh.visible && !e.fogHid) list[j++] = e; // 戰爭迷霧裡看不到的（rts-fog.js 的 fogHid）不畫
     }
@@ -200,6 +203,25 @@ Object.assign(Game.prototype, {
       e.grounded || !w ? e.pos.y : Math.min(e.pos.y, w.groundAt(e.pos.x, e.pos.z, e.pos.y + 0.5)),
     );
     list.length = 0;
+  },
+  // 有投影的英雄（畫面內、迷霧外）從上次重畫陰影貼圖之後移動了 0.15 m 以上：記下位置、回傳 true
+  rtsHeroShadowMoved() {
+    const R = this.rts;
+    if (!R || !R.teams) return false;
+    let moved = false;
+    for (const T of R.teams) {
+      if (!T || !T.heroes) continue;
+      for (const h of T.heroes) {
+        const e = h && h.ent;
+        if (!e || e.dead || !e.mesh || e.fogHid || e.shLodOff || e.lodVis === false) continue;
+        const p = e._shAt || (e._shAt = new THREE.Vector3(1e9, 0, 0));
+        if (p.distanceToSquared(e.pos) > 0.0225) {
+          p.copy(e.pos);
+          moved = true;
+        }
+      }
+    }
+    return moved;
   },
   // 合併一台：陰影的距離分級關著時先開回來（原本的網格恢復投影），合併後再關（合併出來的網格沿用設定、包住 unmerge／remerge）
   rtsMergeEnt(e) {

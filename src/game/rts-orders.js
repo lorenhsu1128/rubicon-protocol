@@ -69,8 +69,10 @@ Object.assign(Game.prototype, {
       return;
     }
     if (k === 'ability') {
-      // 會這個技能的：單位定義的 abil，或英雄（技能由 C 包檢查）
-      const can = list.filter((e) => e.hero || (RTS_DEFS[e.rtsDef].abil || []).includes(order.ab));
+      // 會這個技能的：單位定義的 abil，或英雄定義的 skills（施放的檢查在 C 包）
+      const can = list.filter((e) =>
+        [...(RTS_DEFS[e.rtsDef].abil || []), ...(RTS_DEFS[e.rtsDef].skills || [])].includes(order.ab),
+      );
       if (!can.length) return;
       const A = RTS_ABILS[order.ab];
       const self = A ? A.target === 'self' : order.x === undefined && order.id === undefined;

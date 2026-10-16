@@ -2,7 +2,9 @@
 // 攜帶礦石的小貨箱。全部是純函式（不呼叫亂數、不碰遊戲狀態），模型庫以 RTS_CATALOG 登記（render/model-catalog.js）。
 // 建築的原點在底面中心、正面 +Z，尺寸符合 data/rts-units.js 的 foot／height；陣營色用 rtsPal（玩家藍、電腦紅）。
 // 建築的 rig（給 MechEntity 的 opts.buildModel）：{ group, body（建好的本體，建造中依進度往上長）, scaf（鷹架）, torso,
-//   height, vehicle: true, cls: 'bld', glow（陣營色的發光材質）, setProgress(p) }
+//   height, vehicle: true, cls: 'bld', glow（陣營色的發光材質）, setProgress(p), aimAt(yaw, pitch)（防禦塔轉向） }；
+//   主堡三階另有 tier2／tier3 群組與 setTier(1～3)，起重機砲台 arm／hook、防空砲塔 turret／gun／muzzle。
+// 另外：叉架 MT 的貨櫃掩體 buildCoverCrates、自走砲的駐鋤 buildArtyLegs（entities/mech-rts.js 的技能用）
 import { PALETTES } from './materials.js';
 import { buildMech } from './mech-model.js';
 import { DETAIL, PK, hazard, ladder, mat, railing, truss } from '../world/prop-models.js';
@@ -158,7 +160,277 @@ function extractorBody(k, M) {
   }
   hazard(k, M.yellow, M.black, 6, 0.3, 0, 0.75, -3.98, Math.PI);
 }
-const BODY = { c_hq: hqBody, c_depot: depotBody, c_factory: factoryBody, c_extractor: extractorBody };
+// 主堡 T2（要塞主堡，高 15）：四周的外牆（正面留大門）、兩座前角的砲座、加高的指揮塔頂
+function hqTier2(k, M) {
+  for (const s of [-1, 1]) {
+    // 側牆與後牆
+    k.cb(M.conc, 0.9, 2.6, 13.6, s * 7.55, 1.3 + 1.2, -0.6, 0, 0, 0, 0.12);
+    k.box(M.team, 0.95, 0.4, 13.6, s * 7.55, 3.7, -0.6);
+    // 正面牆（大門兩側）
+    k.cb(M.conc, 3.8, 2.6, 0.9, s * 5.7, 2.5, 7.55, 0, 0, 0, 0.12);
+    k.box(M.team, 3.8, 0.4, 0.95, s * 5.7, 3.7, 7.55);
+    // 前角的砲座：基座＋雙管
+    k.at(s * 6.9, 3.9, 6.9, 0, 0, 0, () => {
+      k.cyl(M.main3, 1.15, 1.3, 1.2, 0, 0.6, 0, 0, 0, 0, 10);
+      k.cb(M.sub, 1.4, 0.8, 1.6, 0, 1.6, 0, 0, 0, 0, 0.1);
+      for (const g of [-0.3, 0.3]) k.cyl(M.dark, 0.12, 0.14, 2.2, g, 1.7, 1.6, Math.PI / 2, 0, 0, 6);
+      k.box(M.glow, 0.3, 0.2, 0.1, 0, 2.05, 0.81);
+    });
+  }
+  k.cb(M.conc, 15.1, 2.6, 0.9, 0, 2.5, -7.55, 0, 0, 0, 0.12);
+  k.box(M.team, 15.1, 0.4, 0.95, 0, 3.7, -7.55);
+  // 加高的指揮塔頂（到 15 m）
+  k.cb(M.main3, 4.4, 2.4, 4, -1.5, 13.3, -1.5, 0, 0, 0, 0.15);
+  k.box(M.glass, 3.8, 0.7, 0.1, -1.5, 13.6, 0.52);
+  k.box(M.team, 4.6, 0.3, 4.2, -1.5, 14.65, -1.5);
+}
+// 主堡 T3（重工司令部，高 17）：司令塔、雷達盤、兩根天線與屋頂的信號燈
+function hqTier3(k, M) {
+  k.cb(M.main, 3.2, 2.2, 3, -1.5, 15.9, -1.5, 0, 0, 0, 0.12);
+  k.box(M.glass, 2.8, 0.6, 0.1, -1.5, 16.2, 0.02);
+  k.cyl(M.steel, 0.1, 0.12, 4.5, -2.8, 16.2, -2.8, 0, 0, 0, 6);
+  k.cyl(M.steel, 0.08, 0.1, 3.4, 4, 15.2, -3.5, 0, 0, 0, 6);
+  k.box(M.glow, 0.35, 0.35, 0.35, -2.8, 18.5, -2.8);
+  k.box(M.glow, 0.3, 0.3, 0.3, 4, 17, -3.5);
+  // 雷達盤（傾斜的圓盤＋支架）
+  k.cyl(M.dark, 0.25, 0.25, 0.8, -0.5, 17.4, -0.5, 0, 0, 0, 6);
+  k.cyl(M.main3, 1.4, 0.6, 0.35, -0.5, 18, -0.5, 0.5, 0, 0, 12);
+  // 側面的旗桿與隊伍色布條
+  for (const s of [-1, 1]) {
+    k.cyl(M.steel, 0.07, 0.07, 6, s * 7.55, 6.6, 7.55, 0, 0, 0, 6);
+    k.box(M.team, 0.06, 2, 1.2, s * 7.55, 8.4, 6.9);
+  }
+}
+// 工程研究所（12×10、高 9）：研究棟、圓頂的實驗室、衛星天線、側面的試驗台
+function worksBody(k, M) {
+  k.cb(M.conc, 12, 0.6, 10, 0, 0.3, 0, 0, 0, 0, 0.15);
+  k.cb(M.main, 8, 4.6, 7, -1.5, 2.9, -0.5, 0, 0, 0, 0.2);
+  k.box(M.team, 8.2, 0.5, 7.2, -1.5, 5.3, -0.5);
+  for (let i = 0; i < 4; i++) k.box(M.glass, 1.2, 1.4, 0.1, -4.4 + i * 1.95, 3.2, 3.04);
+  // 圓頂
+  k.geo(
+    M.main3,
+    new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    2.2,
+    5.4,
+    -1,
+    0,
+    0,
+    0,
+    2.6,
+    2.4,
+    2.6,
+  );
+  k.box(M.glass, 0.6, 2.2, 0.08, 2.2, 6.6, 1.55, -0.4, 0, 0);
+  // 衛星天線
+  k.cyl(M.steel, 0.12, 0.14, 2.4, -4.2, 6.6, -2.6, 0, 0, 0, 6);
+  k.cyl(M.main3, 1.3, 0.3, 0.4, -4.2, 8.0, -2.6, -0.6, 0, 0.3, 12);
+  k.box(M.glow, 0.25, 0.25, 0.25, -4.2, 8.4, -2.4);
+  // 試驗台：架上的零件與夾具
+  k.at(4.4, 0.6, 2.6, 0, 0, 0, () => {
+    k.box(M.dark, 2.6, 0.3, 2.6, 0, 0.15, 0);
+    for (const sx of [-1, 1]) k.box(M.steel, 0.15, 2.6, 0.15, sx * 1.1, 1.3, 0);
+    k.box(M.steel, 2.4, 0.15, 0.15, 0, 2.6, 0);
+    k.cb(M.team, 0.9, 1.1, 0.9, 0, 1.0, 0, 0.3, 0.5, 0, 0.06);
+  });
+  hazard(k, M.yellow, M.black, 3, 0.35, 4.4, 0.8, 3.95);
+  k.box(M.lamp, 0.5, 0.3, 0.3, -1.5, 4.7, 3.05);
+}
+// 起重機砲台（6×6、高 16）：格子塔＋塔頂的駕駛室；旋轉的吊臂另外建（towerArm，rig.arm）
+function towerBody(k, M) {
+  k.cb(M.conc, 6, 0.8, 6, 0, 0.4, 0, 0, 0, 0, 0.15);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.bar(M.main3, [sx * 2.2, 0.8, sz * 2.2], [sx * 1, 13.4, sz * 1], 0.3);
+  for (const y of [3.4, 6.4, 9.4, 12.2]) {
+    const r = 2.2 - ((y - 0.8) / 12.6) * 1.2;
+    k.box(M.steel, r * 2, 0.15, 0.15, 0, y, r);
+    k.box(M.steel, r * 2, 0.15, 0.15, 0, y, -r);
+    k.box(M.steel, 0.15, 0.15, r * 2, r, y, 0);
+    k.box(M.steel, 0.15, 0.15, r * 2, -r, y, 0);
+  }
+  k.cyl(M.team, 1.5, 1.5, 0.6, 0, 13.7, 0, 0, 0, 0, 12);
+  ladder(k, M.steel, 12, 0, 0.8, 1.6);
+  hazard(k, M.yellow, M.black, 5, 0.3, 0, 0.95, 3.02);
+}
+// 吊臂（原點在旋轉軸、吊臂朝 −Z）：駕駛室、配重、吊臂、吊鉤與貨櫃
+function towerArm(M) {
+  const k = new PK();
+  k.cb(M.main, 2.2, 1.6, 2.4, 0, 0.8, 0.4, 0, 0, 0, 0.1);
+  k.box(M.glass, 1.6, 0.7, 0.08, 0, 1.0, -0.82);
+  k.cb(M.sub, 2, 1.2, 1.6, 0, 0.7, 2.6, 0, 0, 0, 0.08); // 配重
+  truss(k, M.yellow, 9, 0.9, 0, 1.4, -4.6, Math.PI / 2, 0.14);
+  k.pipe(M.steel, [0, 2.6, 0.5], [0, 1.9, -8.8], 0.05);
+  k.box(M.steel, 0.05, 2.2, 0.05, 0, 0.3, -8.6);
+  k.cb(M.team, 1.6, 1, 1, 0, -1.2, -8.6, 0, 0, 0, 0.05);
+  k.box(M.glow, 0.25, 0.2, 0.25, 0, 2.05, -9);
+  const g = k.build(new THREE.Group());
+  const hook = new THREE.Object3D();
+  hook.position.set(0, -1.2, -8.6);
+  g.add(hook);
+  return { g, hook };
+}
+// 城牆（4×2、高 4）：混凝土牆段＋頂部的隊伍色條與鐵絲網支架
+function wallBody(k, M) {
+  k.cb(M.conc, 4, 3.4, 1.6, 0, 1.7, 0, 0, 0, 0, 0.18);
+  k.cb(M.conc, 4.1, 0.6, 2, 0, 0.3, 0, 0, 0, 0, 0.12);
+  k.box(M.team, 4.04, 0.35, 1.64, 0, 2.9, 0);
+  for (const x of [-1.6, 0, 1.6]) k.box(M.steel, 0.08, 0.6, 0.08, x, 3.7, 0);
+  k.box(M.steel, 3.4, 0.05, 0.05, 0, 3.9, 0);
+  k.box(M.steel, 3.4, 0.05, 0.05, 0, 3.6, 0);
+  hazard(k, M.yellow, M.black, 3.6, 0.3, 0, 0.8, 1.02);
+  hazard(k, M.yellow, M.black, 3.6, 0.3, 0, 0.8, -1.02, Math.PI);
+}
+// 補給商店（10×8、高 7）：倉庫＋前面的遮雨棚、陳列的貨箱、發光的招牌
+function marketBody(k, M) {
+  k.cb(M.conc, 10, 0.5, 8, 0, 0.25, 0, 0, 0, 0, 0.15);
+  k.cb(M.main, 8, 4.4, 5, 0, 2.7, -1.2, 0, 0, 0, 0.18);
+  k.prism(
+    M.main3,
+    [
+      [-4.2, 0],
+      [4.2, 0],
+      [0, 1.6],
+    ],
+    5.2,
+    0,
+    4.9,
+    -1.2,
+  );
+  k.box(M.dark, 4, 2.8, 0.15, 0, 1.9, 1.35);
+  // 遮雨棚（隊伍色）與柱子
+  k.box(M.team, 8.6, 0.15, 2.6, 0, 4.2, 2.5, 0.18, 0, 0);
+  for (const s of [-1, 1]) k.box(M.steel, 0.12, 3.6, 0.12, s * 4, 2.3, 3.6);
+  // 招牌
+  k.box(M.sub, 4.4, 1.1, 0.2, 0, 5.4, 1.4);
+  k.box(M.glow, 3.8, 0.5, 0.06, 0, 5.4, 1.52);
+  // 貨箱
+  k.cb(M.team, 1.2, 1, 1.2, -3.4, 1.0, 3.1, 0, 0.3, 0, 0.06);
+  k.cb(M.main3, 1, 0.9, 1, -3.0, 1.95, 3.0, 0, -0.2, 0, 0.06);
+  k.cb(M.sub, 1.4, 1.1, 1.0, 3.3, 1.05, 3.2, 0, 0.1, 0, 0.06);
+  k.cyl(M.main3, 0.5, 0.5, 1.2, 4.3, 1.1, 1.6, 0, 0, 0, 8);
+  k.box(M.lamp, 0.4, 0.3, 0.3, -2.4, 3.9, 1.4);
+  k.box(M.lamp, 0.4, 0.3, 0.3, 2.4, 3.9, 1.4);
+}
+// 重工廠（16×14、高 12）：高大的組裝廠房、兩扇大門、屋頂的大型龍門吊與排氣塔
+function heavyBody(k, M) {
+  k.cb(M.conc, 16, 0.8, 14, 0, 0.4, 0, 0, 0, 0, 0.2);
+  k.cb(M.main, 14.4, 8, 12, 0, 4.8, 0, 0, 0, 0, 0.25);
+  k.box(M.team, 14.6, 0.7, 12.2, 0, 8.6, 0);
+  k.prism(
+    M.main3,
+    [
+      [-7.2, 0],
+      [7.2, 0],
+      [5.6, 1.4],
+      [-5.6, 1.4],
+    ],
+    12,
+    0,
+    8.95,
+    0,
+    0,
+    0,
+    0,
+  );
+  // 兩扇大門（+Z）
+  for (const s of [-1, 1]) {
+    k.box(M.dark, 5.6, 6.6, 0.25, s * 3.4, 4.1, 6.05);
+    for (let y = 1.5; y < 7.4; y += 0.8) k.box(M.sub, 5.6, 0.1, 0.08, s * 3.4, y, 6.2);
+    k.box(M.lamp, 0.6, 0.3, 0.3, s * 6.6, 7.7, 6.1);
+  }
+  hazard(k, M.yellow, M.black, 13, 0.5, 0, 7.75, 6.07);
+  // 屋頂的龍門吊
+  for (const s of [-1, 1]) k.box(M.steel, 0.45, 2.8, 0.45, s * 6.6, 11.2, 4);
+  truss(k, M.yellow, 13.6, 1, 0, 12.4, 4, 0, 0.18);
+  k.cb(M.sub, 1.6, 1, 1.4, -2, 11.5, 4, 0, 0, 0, 0.08);
+  // 排氣塔
+  for (const x of [-5.5, -3.8]) {
+    k.cyl(M.dark, 0.6, 0.75, 4, x, 11.4, -4.5, 0, 0, 0, 10);
+    k.cyl(M.glow, 0.62, 0.62, 0.22, x, 13.2, -4.5, 0, 0, 0, 10);
+  }
+  // 側面的零件堆與油槽
+  k.at(7.9, 0.8, -3, 0, 0, 0, () => {
+    k.cyl(M.main3, 1, 1, 3.2, 0, 1.6, 0, 0, 0, 0, 10);
+    k.cyl(M.team, 1.04, 1.04, 0.4, 0, 2.4, 0, 0, 0, 0, 10);
+  });
+  railing(k, M.steel, 14, 1, 0, 9.3, 6.0);
+  ladder(k, M.steel, 8.6, -7.3, 0.8, 4, Math.PI / 2);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.box(M.glow, 0.45, 0.45, 0.45, sx * 7.6, 1.0, sz * 6.6);
+}
+// 防空砲塔（5×5、高 8）：基座與支柱；旋轉的砲塔另外建（flakTurret，rig.turret／rig.gun）
+function flakBody(k, M) {
+  k.cb(M.conc, 5, 0.8, 5, 0, 0.4, 0, 0, 0, 0, 0.15);
+  k.cyl(M.main3, 1.4, 2, 3.6, 0, 2.6, 0, 0, 0, 0, 10);
+  k.cyl(M.team, 1.5, 1.5, 0.5, 0, 4.0, 0, 0, 0, 0, 10);
+  for (const s of [-1, 1]) {
+    k.cb(M.sub, 1, 1.2, 1, s * 1.9, 1.4, 1.9, 0, 0, 0, 0.06);
+    k.cb(M.sub, 1, 1.2, 1, s * 1.9, 1.4, -1.9, 0, 0, 0, 0.06);
+  }
+  hazard(k, M.yellow, M.black, 4, 0.3, 0, 0.95, 2.52);
+}
+// 防空砲塔的砲塔（原點在旋轉軸）：砲塔本體＋可以俯仰的四管機砲（gun，朝 −Z）
+function flakTurret(M) {
+  const k = new PK();
+  k.cb(M.main, 2.6, 1.4, 2.6, 0, 0.7, 0, 0, 0, 0, 0.15);
+  k.box(M.glass, 1, 0.35, 0.08, 0.6, 1.1, -1.32);
+  k.cyl(M.dark, 0.5, 0.5, 0.3, -0.8, 1.55, 0.6, 0, 0, 0, 8);
+  const tur = k.build(new THREE.Group());
+  const g = new PK();
+  g.cb(M.sub, 1.6, 0.8, 1.2, 0, 0, 0, 0, 0, 0, 0.08);
+  for (const x of [-0.45, -0.15, 0.15, 0.45])
+    g.cyl(M.dark, 0.08, 0.1, 3, x, 0.05, -1.9, Math.PI / 2, 0, 0, 6);
+  g.box(M.glow, 1.2, 0.12, 0.1, 0, 0.45, -0.62);
+  const gun = g.build(new THREE.Group());
+  gun.position.set(0, 1.5, -0.2);
+  tur.add(gun);
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0, 0.05, -3.5);
+  gun.add(muzzle);
+  return { tur, gun, muzzle };
+}
+// 停機坪（14×14、高 5）：平台、H 標示與邊燈、塔台、油槽
+function helipadBody(k, M) {
+  k.cb(M.conc, 14, 1, 14, 0, 0.5, 0, 0, 0, 0, 0.2);
+  k.cb(M.dark, 11, 0.12, 11, 0, 1.06, 0, 0, 0, 0, 0.05);
+  // H 標示
+  k.box(M.yellow, 0.8, 0.04, 5, -1.8, 1.14, 0);
+  k.box(M.yellow, 0.8, 0.04, 5, 1.8, 1.14, 0);
+  k.box(M.yellow, 2.8, 0.04, 0.8, 0, 1.14, 0);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    k.box(M.glow, 0.3, 0.2, 0.3, Math.cos(a) * 5.3, 1.2, Math.sin(a) * 5.3);
+  }
+  // 塔台
+  k.at(-5.9, 1, -5.9, 0, 0, 0, () => {
+    k.cb(M.main, 1.8, 2.6, 1.8, 0, 1.3, 0, 0, 0, 0, 0.1);
+    k.cb(M.main3, 2.2, 1, 2.2, 0, 3.1, 0, 0, 0, 0, 0.1);
+    k.box(M.glass, 2.24, 0.5, 2.24, 0, 3.15, 0);
+    k.cyl(M.steel, 0.05, 0.05, 1.2, 0.6, 4.2, 0.6, 0, 0, 0, 5);
+    k.box(M.glow, 0.2, 0.2, 0.2, 0.6, 4.85, 0.6);
+  });
+  // 油槽
+  for (const z of [3.6, 5.6]) k.cyl(M.team, 0.8, 0.8, 1.8, -6.2, 1.9, z, Math.PI / 2, 0, 0, 10);
+  // 風向袋的桿
+  k.cyl(M.steel, 0.06, 0.06, 3, 6.2, 2.5, -6.2, 0, 0, 0, 5);
+  k.cyl(M.yellow, 0.25, 0.12, 1, 6.2, 3.6, -5.7, Math.PI / 2, 0, 0, 6);
+}
+const BODY = {
+  c_hq: hqBody,
+  c_hq2: hqBody,
+  c_hq3: hqBody,
+  c_depot: depotBody,
+  c_factory: factoryBody,
+  c_extractor: extractorBody,
+  c_works: worksBody,
+  c_tower: towerBody,
+  c_wall: wallBody,
+  c_market: marketBody,
+  c_heavy: heavyBody,
+  c_flak: flakBody,
+  c_helipad: helipadBody,
+};
+const HQ_IDS = new Set(['c_hq', 'c_hq2', 'c_hq3']);
 
 // 鷹架：佔地四周的柱子與每 2.5 m 一圈橫桿（建造中顯示）
 function scaffold(w, d, h, M) {
@@ -217,7 +489,96 @@ export function buildRtsBuilding(id, pal) {
       scaf.visible = p < 1;
     },
   };
+  // 主堡三階（docs 13.3）：T2 外牆與砲座、T3 司令塔與天線；同一個模型切換子群組的 visible
+  if (HQ_IDS.has(id)) {
+    const mk = (fn) => {
+      const kk = new PK();
+      fn(kk, M);
+      const grp = kk.build(new THREE.Group());
+      body.add(grp);
+      return grp;
+    };
+    rig.tier2 = mk(hqTier2);
+    rig.tier3 = mk(hqTier3);
+    rig.tier = 0;
+    // 合併過的（RTS 渲染設定）先還原、切換後再合併，合併出來的網格才會照新的可見度
+    rig.setTier = (n) => {
+      n = Math.max(1, Math.min(3, n | 0));
+      if (rig.tier === n) return;
+      const re = rig.merged && rig.unmerge;
+      if (re) rig.unmerge();
+      rig.tier = n;
+      rig.tier2.visible = n >= 2;
+      rig.tier3.visible = n >= 3;
+      if (re) rig.remerge();
+    };
+    rig.setTier(D.tier || 1);
+  }
+  // 起重機砲台的吊臂（rig.arm 繞 Y 轉、rig.hook＝貨櫃的出手點）
+  if (id === 'c_tower') {
+    const { g, hook } = towerArm(M);
+    g.position.set(0, 14, 0);
+    body.add(g);
+    rig.arm = g;
+    rig.hook = hook;
+  }
+  // 防空砲塔的砲塔（rig.turret 繞 Y、rig.gun 俯仰、rig.muzzle＝砲口）
+  if (id === 'c_flak') {
+    const { tur, gun, muzzle } = flakTurret(M);
+    tur.position.set(0, 4.25, 0);
+    body.add(tur);
+    rig.turret = tur;
+    rig.gun = gun;
+    rig.muzzle = muzzle;
+  }
+  // 防禦塔轉向（yaw：建築座標裡的方位，朝 −Z 為 0；pitch：仰角）
+  rig.aimAt = (yaw, pitch = 0) => {
+    const piv = rig.arm || rig.turret;
+    if (piv) piv.rotation.y = yaw;
+    if (rig.gun) rig.gun.rotation.x = Math.max(0, Math.min(1.3, pitch));
+  };
   return rig;
+}
+// 叉架 MT 的貨櫃掩體（docs 13.3 的 ab_cover）：兩層疊放的貨櫃；原點在底面中心、寬沿 X、厚沿 Z（game/hazards2.js 的
+// 臨時障礙物換上這個外觀，所以尺寸跟著臨時牆）
+export function buildCoverCrates(w = 8, h = 3, d = 2.6, pal = rtsPal('castron', 0)) {
+  const M = mats(pal);
+  const k = new PK();
+  const cw = w / 2 - 0.05;
+  for (const s of [-1, 1]) {
+    k.cb(s < 0 ? M.team : M.main3, cw, h * 0.5, d, (s * w) / 4, h * 0.25, 0, 0, 0, 0, 0.05);
+    for (let i = 0; i < 6; i++)
+      k.box(M.sub, 0.08, h * 0.46, d + 0.04, (s * w) / 4 - cw / 2 + 0.3 + (i * (cw - 0.6)) / 5, h * 0.25, 0);
+  }
+  k.cb(M.main, cw, h * 0.48, d * 0.92, -w / 8, h * 0.75, 0, 0, 0.06, 0, 0.05);
+  for (let i = 0; i < 5; i++)
+    k.box(
+      M.sub,
+      0.08,
+      h * 0.44,
+      d * 0.95,
+      -w / 8 - cw / 2 + 0.3 + (i * (cw - 0.6)) / 4,
+      h * 0.75,
+      0,
+      0,
+      0.06,
+      0,
+    );
+  hazard(k, M.yellow, M.black, cw * 0.8, 0.3, w / 4, h * 0.42, d / 2 + 0.03);
+  return k.build(new THREE.Group());
+}
+// 自走砲架設時放下的四支駐鋤（MechEntity 的 sx.rtsLegs；原點在車體中心的地面，k＝放下的程度 0～1 由 scale 控制）
+export function buildArtyLegs(pal) {
+  const M = mats(pal);
+  const k = new PK();
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) {
+      k.cb(M.dark, 0.5, 0.5, 0.5, sx * 1.3, 1.2, sz * 1.7, 0, 0, 0, 0.04);
+      k.bar(M.yellow, [sx * 1.3, 1.2, sz * 1.7], [sx * 3.1, 0.2, sz * 3.0], 0.3);
+      k.bar(M.steel, [sx * 1.3, 0.8, sz * 1.7], [sx * 2.4, 0.35, sz * 2.5], 0.14);
+      k.cb(M.dark, 1, 0.18, 1, sx * 3.15, 0.09, sz * 3.05, 0, 0, 0, 0.03);
+    }
+  return k.build(new THREE.Group());
 }
 
 // ---------- 礦脈、Coral 湧出點 ----------
@@ -413,4 +774,35 @@ export const RTS_CATALOG = [
     () => buildRtsWorker(P0()).group,
   ],
   ['small', 'ore_crate', '礦石貨箱', 'Coral 戰爭；工人攜帶礦石時背在背後', () => buildOreCrate()],
+  ...[
+    ['c_hq2', '卡斯特隆：要塞主堡（主堡 T2）', '；主堡升級：外牆與砲座'],
+    ['c_hq3', '卡斯特隆：重工司令部（主堡 T3）', '；主堡升級：司令塔、雷達與天線'],
+    ['c_works', '卡斯特隆：工程研究所', ''],
+    ['c_tower', '卡斯特隆：起重機砲台', '；吊臂朝目標旋轉，從吊鉤拋出貨櫃'],
+    ['c_wall', '卡斯特隆：城牆', ''],
+    ['c_market', '卡斯特隆：補給商店', ''],
+    ['c_heavy', '卡斯特隆：重工廠', ''],
+    ['c_flak', '卡斯特隆：防空砲塔', '；砲塔與四管機砲朝空中目標轉動'],
+    ['c_helipad', '卡斯特隆：停機坪', ''],
+  ].map(([id, name, extra]) => [
+    'prop',
+    id,
+    name,
+    bldNote(id) + extra,
+    () => buildRtsBuilding(id, P0()).group,
+  ]),
+  [
+    'prop',
+    'cover_crates',
+    '卡斯特隆：貨櫃掩體',
+    'Coral 戰爭；叉架 MT 的技能放下的臨時牆（8 × 2.6 m、高 3 m），原點在底面中心',
+    () => buildCoverCrates(),
+  ],
+  [
+    'small',
+    'arty_legs',
+    '卡斯特隆：自走砲的駐鋤',
+    'Coral 戰爭；自走砲架設時放下（掛在車體上）',
+    () => buildArtyLegs(P0()),
+  ],
 ];
