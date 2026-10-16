@@ -1391,7 +1391,9 @@ module.exports = (H) => {
 
   // ---------- 電腦對手（game/rts-ai.js） ----------
   // 普通難度、玩家不動：電腦會蓋補給庫與兵工廠、生產部隊；開局不知道玩家主堡（受迷霧限制），派偵查找到之後才進攻；
-  // 7 分鐘內打到玩家基地；決策耗時。之後兩邊都是電腦（cfg.aiBoth）快轉一整場：40 分鐘內分出勝負（R2 的相剋表讓單位互打變快、建築相對耐打，實測 11～32 分；F 包的第二輪目標是 30 分）。
+  // 7 分鐘內出發進攻、10 分鐘內打到玩家基地（R2 第二輪起野怪營地照常生成：偵查兵常被野怪打掉，部隊出發時先清掉路上的
+  // 營地，所以「知道玩家主堡」只要求在打到之前）；決策耗時。之後兩邊都是電腦（cfg.aiBoth）快轉一整場：40 分鐘內分出勝負
+  // （F 包的目標 30 分由 testRtsAi2 檢查）。
   // 只推進模擬（rtsSim＋rtsFogTick，不算繪）；截圖前才用 __pump 算繪幾格
   async function testRtsAi(browser, base) {
     console.log('Coral 戰爭：電腦對手（經濟、建造順序、偵查、進攻、兩邊都是電腦）');
@@ -1406,7 +1408,6 @@ module.exports = (H) => {
       const g = window.__game;
       // 尋路服務不依實際耗時截斷（同一個種子每次的結果相同；以前平行跑時偶爾 25 分鐘還沒分出勝負）
       g.rtsPathMs = Infinity;
-      g.rtsCampsOff = true; // 野怪營地（D 包）：電腦對手的打野是 F 包第二輪的事，這裡不生成野怪
       window.__reseed(7);
       g.rtsStart({
         theme: 'wasteland',
@@ -1448,7 +1449,7 @@ module.exports = (H) => {
       !st.see && st.known === 0,
       `開局：電腦看不到玩家的主堡、記得的敵方建築 ${st.known} 座（受迷霧限制）`,
     );
-    // 快轉到電腦打到玩家基地（最多 7 分鐘）：記下各里程碑的時間
+    // 快轉到電腦打到玩家基地（最多 10 分鐘）：記下各里程碑的時間
     const run = await ev(() => {
       const g = window.__game,
         R = g.rts,
@@ -1461,7 +1462,7 @@ module.exports = (H) => {
       const own = (def, done) =>
         R.units.some((e) => !e.dead && e.rtsTeam === 1 && e.rtsDef === def && (!done || e.bld.progress >= 1));
       let msMax = 0;
-      const t = window.__sim(420, () => {
+      const t = window.__sim(600, () => {
         mark('depot', own('c_depot', true));
         mark('factory', own('c_factory', true));
         mark('unit', own('c_mt') || own('c_shield'));
@@ -1484,7 +1485,8 @@ module.exports = (H) => {
         );
         const hurt = R.units.some((e) => !e.dead && e.rtsTeam === 0 && e.bld && e.hp < e.maxHp - 1);
         mark('arrive', near || hurt);
-        return M.arrive !== undefined;
+        // 打到之後再看幾秒（迷霧每 0.2 秒更新，記得的建築晚一點才有）
+        return M.arrive !== undefined && (M.found !== undefined || R.t > M.arrive + 15);
       });
       const army = R.units.filter(
         (e) => !e.dead && e.rtsTeam === 1 && (e.rtsDef === 'c_mt' || e.rtsDef === 'c_shield'),
@@ -1513,15 +1515,16 @@ module.exports = (H) => {
       `電腦生產部隊（第一台 ${M.unit} 秒，現在 ${run.army} 台、工人 ${run.workers}）`,
     );
     check(
-      M.scout !== undefined &&
-        M.found !== undefined &&
-        M.found > M.scout &&
-        (M.attack === undefined || M.found <= M.attack),
-      `電腦派偵查（${M.scout} 秒）後才知道玩家主堡的位置（${M.found} 秒），進攻在那之後（${M.attack} 秒）`,
+      M.scout !== undefined && M.found !== undefined && M.found > M.scout && M.found <= M.arrive + 10,
+      `電腦派偵查（${M.scout} 秒）、之後才知道玩家主堡的位置（${M.found} 秒；進攻 ${M.attack} 秒出發、${M.arrive} 秒打到）`,
     );
     check(
-      M.attack !== undefined && M.attack >= 180 && M.arrive !== undefined && M.arrive <= 420,
-      `普通難度第一次進攻 ${M.attack} 秒、${M.arrive} 秒打到玩家基地（7 分鐘內）`,
+      M.attack !== undefined &&
+        M.attack >= 180 &&
+        M.attack <= 420 &&
+        M.arrive !== undefined &&
+        M.arrive <= 600,
+      `普通難度第一次進攻 ${M.attack} 秒出發（7 分鐘內）、${M.arrive} 秒打到玩家基地（10 分鐘內）`,
     );
     check(
       run.ms < 1 && run.msMax < 8,
@@ -1571,7 +1574,6 @@ module.exports = (H) => {
     const both = await ev2(() => {
       const g = window.__game;
       g.rtsPathMs = Infinity;
-      g.rtsCampsOff = true; // 野怪營地（D 包）：電腦對手的打野是 F 包第二輪的事，這裡不生成野怪
       window.__reseed(8);
       g.rtsStart({
         theme: 'wasteland',

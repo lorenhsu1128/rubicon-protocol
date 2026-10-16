@@ -1332,8 +1332,15 @@ Object.assign(Game.prototype, {
     // 單位行為（updateAI → mech-rts.js 的 rtsUnitAI）；離鏡頭遠的分批更新（game.js 的 aiStep）
     R.logicMs = 0;
     const batch = this.aiBatchOn ? this.aiBatchOn() : false;
-    for (const e of R.units)
+    // 每格輪流正向、反向（R.units 依生成順序，隊伍 0 的開局單位在前面：同一格先開火、先打倒對方的一直是同一隊，
+    // 電腦對電腦時隊伍 0 的勝率明顯偏高；docs 13.18）
+    const U = R.units,
+      n = U.length,
+      rev = (R.simN = (R.simN || 0) + 1) & 1;
+    for (let i = 0; i < n; i++) {
+      const e = U[rev ? n - 1 - i : i];
       if (!e.dead && !e.bld && !e.rtsPiloted) this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
+    }
     const t2 = performance.now();
     this.rtsSeparate();
     for (const e of R.units) if (!e.dead && !e.bld) R.hash.update(e, e.pos.x, e.pos.z);
@@ -1406,8 +1413,11 @@ Object.assign(Game.prototype, {
   // 建築：工地進度、生產佇列、Coral 產出
   rtsBuildings(dt) {
     const R = this.rts;
-    for (const b of R.units) {
-      if (b.dead || !b.bld) continue;
+    const n = R.units.length,
+      rev = (R.simN || 0) & 1; // 和單位一樣每格輪流方向（防禦塔先開火的不固定是同一隊）
+    for (let i = 0; i < n; i++) {
+      const b = R.units[rev ? n - 1 - i : i];
+      if (!b || b.dead || !b.bld) continue;
       const B = b.bld,
         D = RTS_DEFS[b.rtsDef],
         T = R.teams[b.rtsTeam];

@@ -107,6 +107,7 @@ const DEFAULT_TIMES = {
   testRtsPilot: 40000,
   testRtsHero: 45000,
   testRtsItems: 30000,
+  testRtsAi2: 150000,
   server: 8089,
   'server:testServerModels': 32811,
   'server:testLevelsServer': 9780,

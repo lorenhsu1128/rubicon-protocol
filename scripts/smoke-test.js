@@ -14943,6 +14943,8 @@ const RTS_E = require('./smoke-rts-e')({
   path,
   watch,
 });
+// F 包（電腦對手第二輪）
+const RTS_F = require('./smoke-rts-f')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15032,6 +15034,7 @@ const STEPS = [
   ['testRtsPilot', (c) => RTS_E.testRtsPilot(c.browser, c.base)],
   ['testRtsHero', (c) => RTS_C.testRtsHero(c.browser, c.base)],
   ['testRtsItems', (c) => RTS_C.testRtsItems(c.browser, c.base)],
+  ['testRtsAi2', (c) => RTS_F.testRtsAi2(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

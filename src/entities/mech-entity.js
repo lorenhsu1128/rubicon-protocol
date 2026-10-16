@@ -1137,9 +1137,19 @@ export class MechEntity {
       this.acsDecayDelay = pve ? PVE_ACS_DELAY : 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
-        // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）
+        // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）。
+        // Coral 戰爭（RTS）的單位兩隊一樣 2 秒：team 字串是沿用的 'player'／'enemy'，以前隊伍 1 的單位
+        // 失衡 2.6 秒、隊伍 0 只有 1.4 秒，電腦對電腦時隊伍 0 的勝率明顯偏高（docs 13.18）
         this.staggerT =
-          (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
+          (this.isBoss
+            ? 1.5
+            : this.rtsTeam !== undefined
+              ? 2.0
+              : this.team === 'player'
+                ? 1.4
+                : this.team === 'enemy'
+                  ? FOE_STAG_T
+                  : 2.0) *
           (1 - this.pmv('stagT'));
         this.stagBy = from ? { id: from.id, cls } : null;
         this.game.fx.ring(this.center(), 4, 0xffb020);

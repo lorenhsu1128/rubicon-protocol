@@ -325,8 +325,10 @@ Object.assign(MechEntity.prototype, {
     const list = g.rtsNear(this.pos.x, this.pos.z, r + 10);
     let best = null,
       bs = 1e9;
+    const nc = this.rt && this.rt.nc && this.orders[0] && this.orders[0].k === 'amove';
     for (const t of list) {
       if (!this.rtsHostileOk(t) || !this.rtsAbCanHit(D, t)) continue;
+      if (nc && t.creep && this.rtsCreepCalm(t)) continue;
       const d = this.rtsDistTo(t);
       if (d > r || (D.minRange && d < D.minRange)) continue;
       const s = d + (t.bld ? 25 : 0) + (t.rtsDef && RTS_DEFS[t.rtsDef] && RTS_DEFS[t.rtsDef].worker ? 6 : 0);
@@ -528,6 +530,13 @@ Object.assign(MechEntity.prototype, {
     this.rt.hurtBy = from;
     this.rt.hurtT = this.game.rts ? this.game.rts.t : 0;
   },
+  // 野怪的營地在待機（沒有出動、沒有在回營）
+  rtsCreepCalm(t) {
+    const camps = this.game.rts && this.game.rts.camps;
+    if (!camps) return false;
+    for (const c of camps) if (c.id === t.creep) return c.st === 'idle'; // 回營中的照打（不然它們回到營地就回滿血）
+    return false;
+  },
   rtsPickTarget(r, D) {
     const rt = this.rt;
     const R = this.game.rts;
@@ -579,6 +588,7 @@ Object.assign(MechEntity.prototype, {
   },
   rtsAttackMove(o, dt, D) {
     const rt = this.rt;
+    rt.nc = !!o.nc; // 電腦對手的進攻（F 包）：不主動去打待在營地裡的野怪（被打或營地出動了才打）
     if (this.rtsRange(D)) {
       if (rt.engage && !this.rtsHostileOk(rt.engage)) {
         rt.engage = null;
