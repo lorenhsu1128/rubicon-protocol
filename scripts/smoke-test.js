@@ -160,6 +160,60 @@ async function waitVisible(page, id, ms = 10000) {
   return false;
 }
 
+// 明確推進遊戲時間（不靠實際經過的時間）：停住頁面自己的主迴圈（requestAnimationFrame 換成空函式，等已經排定的
+// 那一格跑完才回傳），之後由 window.__pump(秒, 停止條件) 以固定 dt 逐格呼叫 g.loop()（每格前把 lastT 往前推 dt，
+// 所以 loop 算出的 dt 固定；照常更新與算繪，截圖拍得到）。回傳推進的秒數，停止條件一直沒成立時回傳 -1。
+// 負載高時實際時間換算的遊戲時間不固定，要檢查遊戲邏輯的結果時用它（同 testMpBosses 推進房主的主迴圈）
+async function freezeLoop(page) {
+  await page.evaluate(
+    () =>
+      new Promise((res) => {
+        window.__pump = (sec, until, dt = 1 / 60) => {
+          const g = window.__game;
+          let t = 0;
+          for (; t < sec - 1e-6; t += dt) {
+            if (until && until()) return t;
+            g.lastT = performance.now() - dt * 1000;
+            g.loop();
+          }
+          return !until || until() ? t : -1;
+        };
+        if (window.__rafOrig) return res();
+        const raf = (window.__rafOrig = window.requestAnimationFrame.bind(window));
+        window.requestAnimationFrame = () => 0;
+        raf(() => raf(() => res()));
+      }),
+  );
+}
+// 頁面的 Math.random 換成可以重設種子的亂數（mulberry32）：遊戲的 rnd／pick（core/math.js 的 RNG）在模組載入時就拿走了
+// Math.random，所以要在 page.goto 之前裝（addInitScript）；之後 window.__reseed(種子) 重設。主迴圈停住、地圖種子固定之後，
+// 剩下的變數是 AI 與招式裡的亂數（移動、冷卻、目標點），重設種子後每次結果相同
+async function seededRandom(page) {
+  await page.addInitScript(() => {
+    let a = 1;
+    Math.random = () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    window.__reseed = (s) => (a = s >>> 0);
+  });
+}
+// 恢復頁面自己的主迴圈
+async function thawLoop(page) {
+  await page.evaluate(() => {
+    const raf = window.__rafOrig;
+    if (!raf) return;
+    window.__rafOrig = null;
+    window.requestAnimationFrame = raf;
+    const g = window.__game;
+    g.lastT = performance.now();
+    raf(() => g.loop());
+  });
+}
+
 // 標題「選擇存檔」→ 存檔畫面的槽位開新的傭兵生涯（槽位已有存檔時先刪除）→ 車庫
 async function newCareer(page, slot = 1) {
   await page.click('#btnSaves');
@@ -6487,7 +6541,15 @@ async function testChapter3(browser, base) {
     while (sa < 6.28 && w.onIce(p.pos.x + Math.cos(sa) * 24, p.pos.z + Math.sin(sa) * 24)) sa += 0.3;
     const sk = g.spawnType('skater', 1, 1, at(Math.cos(sa) * 24, Math.sin(sa) * 24));
     const a0 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
+    // 繞圈的路上有障礙物時撞到就反向（卡住才換方向），1 秒多的角度就會很小（和負載無關，約一成的地圖）：
+    // 繞圈這段先拿掉地圖的障礙物與可破壞物件，只測繞圈本身（同 testFoesC2 的誘導飛彈）
+    const ob = w.obstacles,
+      pr = w.props;
+    w.obstacles = [];
+    w.props = [];
     step([sk], 70);
+    w.obstacles = ob;
+    w.props = pr;
     const a1 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
     let da = Math.abs(a1 - a0);
     if (da > Math.PI) da = Math.PI * 2 - da;
@@ -7263,11 +7325,24 @@ async function testChapter5(browser, base) {
 async function testFoesC2(browser, base) {
   console.log('地圖專屬敵人擴充（C2）：舊宇宙港、洋上都市、高空軌道的新敵人');
   const { ctx, page } = await newPage(browser, 'foesc2');
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   await page.evaluate(() => (window.__game.autoPickMod = true));
+  // 主迴圈停住：招式的階段只由 __step 與截圖前的 __pump（固定的遊戲時間）推進，和負載無關；
+  // 亂數也固定（招式的射線與彈道每次都一樣，同下面固定的地圖種子）
+  await freezeLoop(page);
+  // 每個 evaluate 開頭重設亂數種子：截圖前推進主迴圈時，天候粒子與文字演出依實際經過的時間取用亂數，會打亂後面的順序
+  const ev = (fn, arg) =>
+    page.evaluate(
+      ([src, a]) => {
+        window.__reseed(4242);
+        return (0, eval)('(' + src + ')')(a);
+      },
+      [fn.toString(), arg],
+    );
   const enter = (theme) =>
-    page.evaluate((theme) => {
+    ev((theme) => {
       const g = window.__game;
       if (g.camp) g.campEnd(false, true);
       g.state = 'play';
@@ -7329,20 +7404,22 @@ async function testFoesC2(browser, base) {
         }
         return new THREE.Vector3(p.pos.x + dx, p.pos.y + h, p.pos.z + dz);
       };
+      // 新地圖先跑幾格主迴圈（更新與算繪：機體的矩陣、鏡頭），以前是靠兩次 evaluate 之間的實際幾格
+      window.__pump(0.25);
     }, theme);
-  // 截圖：讓主迴圈跑一下（敵人也照常行動），之後停回測試狀態
+  // 截圖：讓主迴圈推進 ms 毫秒的遊戲時間（敵人也照常行動），之後停回測試狀態
   const shot = async (name, ms = 350) => {
-    await page.evaluate(() => {
+    await ev((sec) => {
       const g = window.__game;
       if (g.popups) g.popups.length = 0;
       g.state = 'play';
-    });
-    await page.waitForTimeout(ms);
+      window.__pump(sec);
+    }, ms / 1000);
     await page.screenshot({ path: path.join(SHOT_DIR, 'foesc2-' + name + '.png') });
-    await page.evaluate(() => (window.__game.state = 'foe-test'));
+    await ev(() => (window.__game.state = 'foe-test'));
   };
   const clear = () =>
-    page.evaluate(() => {
+    ev(() => {
       const g = window.__game;
       for (const e of g.enemies)
         if (!e.dead) {
@@ -7355,7 +7432,7 @@ async function testFoesC2(browser, base) {
     });
   // ---- 舊宇宙港 ----
   await enter('spaceport');
-  const fu = await page.evaluate(() => {
+  const fu = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('fueler', 1, 1, window.__at(0, -9), 1);
     window.__fu = e;
@@ -7375,7 +7452,7 @@ async function testFoesC2(browser, base) {
     };
   });
   await shot('fueler');
-  const fu2 = await page.evaluate(() => {
+  const fu2 = await ev(() => {
     const g = window.__game,
       e = window.__fu;
     e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
@@ -7389,7 +7466,7 @@ async function testFoesC2(browser, base) {
   check(fu2.dead && fu2.burst && fu2.big, '燃料洩漏車：擊破時原地大範圍燃燒');
   await shot('fueler-burn', 600);
   await clear();
-  const mr = await page.evaluate(() => {
+  const mr = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('missilerack', 1, 1, window.__at(-17, -5), 1);
     window.__mr = e;
@@ -7401,7 +7478,7 @@ async function testFoesC2(browser, base) {
     return { warned };
   });
   await shot('missilerack-warn', 200);
-  const mr2 = await page.evaluate(() => {
+  const mr2 = await ev(() => {
     const g = window.__game,
       p = g.player,
       e = window.__mr;
@@ -7449,7 +7526,7 @@ async function testFoesC2(browser, base) {
       '）',
   );
   // 繞到障礙物後面：飛彈撞上障礙物就爆炸
-  const mr3 = await page.evaluate(() => {
+  const mr3 = await ev(() => {
     const g = window.__game,
       p = g.player,
       e = window.__mr,
@@ -7460,9 +7537,11 @@ async function testFoesC2(browser, base) {
     c.shot = null;
     window.__step([e], 300, () => !!c.shot);
     const m = c.shot;
-    window.__step([e], 30);
-    // 在飛彈與玩家之間放一道牆
-    const mid = m.pos.clone().lerp(p.center(), 0.5);
+    // 在飛彈與玩家之間放一道牆（8 m 見方）：牆的中心離玩家 9 m，飛彈撞上的那一面在 13 m 外，爆炸（半徑 5 m）波及不到玩家。
+    // 以前是飛 30 格後放在正中間，飛彈架被 AI 帶近時飛彈只剩 6 m，牆貼著玩家、爆炸也打得到（和亂數有關）
+    window.__step([e], 30, () => m.pos.distanceTo(p.center()) < 14);
+    const dm = m.pos.distanceTo(p.center());
+    const mid = p.center().lerp(m.pos, dm > 13.5 ? 9 / dm : 0.5);
     const y = w.terrainHeight(mid.x, mid.z);
     const o = { kind: 'box', x: mid.x, z: mid.z, w: 8, d: 8, y, top: y + 40, h: 40 };
     w.obstacles.push(o);
@@ -7478,7 +7557,7 @@ async function testFoesC2(browser, base) {
   await clear();
   // ---- 洋上都市 ----
   await enter('xylem');
-  const nt = await page.evaluate(() => {
+  const nt = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('netter', 1, 1, window.__at(13, -5, 3), 1);
     window.__nt = e;
@@ -7490,7 +7569,7 @@ async function testFoesC2(browser, base) {
     return { warned };
   });
   await shot('netter-warn', 250);
-  const nt2 = await page.evaluate(() => {
+  const nt2 = await ev(() => {
     const g = window.__game,
       p = g.player,
       e = window.__nt;
@@ -7515,7 +7594,7 @@ async function testFoesC2(browser, base) {
     '拋網無人機：預警線後射網，打中套上「網」（' + JSON.stringify(nt2) + '）',
   );
   await clear();
-  const bm = await page.evaluate(() => {
+  const bm = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('boomer', 1, 1, window.__at(-14, -5, 3), 1);
     window.__bm = e;
@@ -7527,7 +7606,7 @@ async function testFoesC2(browser, base) {
     return { warned, bx: !!e.bx, vis: e.model.blade.visible, blade: !!e.c2Blade };
   });
   await shot('boomer-throw', 120);
-  const bm2 = await page.evaluate(() => {
+  const bm2 = await ev(() => {
     const g = window.__game,
       p = g.player,
       e = window.__bm;
@@ -7558,7 +7637,7 @@ async function testFoesC2(browser, base) {
   await clear();
   // ---- 高空軌道 ----
   await enter('orbit');
-  const mi = await page.evaluate(() => {
+  const mi = await ev(() => {
     const g = window.__game;
     const e = g.spawnType('mirror', 1, 1, window.__at(15, -6, 6), 1);
     window.__mi = e;
@@ -7578,7 +7657,7 @@ async function testFoesC2(browser, base) {
     return { warned, laserK: e.laserK, ratio: en > 0 ? +(las / en).toFixed(2) : -1 };
   });
   await shot('mirror-warn', 300);
-  const mi2 = await page.evaluate(() => {
+  const mi2 = await ev(() => {
     const g = window.__game,
       p = g.player,
       e = window.__mi;
@@ -7609,7 +7688,7 @@ async function testFoesC2(browser, base) {
       '）',
   );
   await clear();
-  const fc = await page.evaluate(() => {
+  const fc = await ev(() => {
     const g = window.__game,
       p = g.player;
     const e = g.spawnType('focus', 1, 1, window.__at(-16, -5), 1);
@@ -7633,13 +7712,13 @@ async function testFoesC2(browser, base) {
     g.losClear = lc;
     return { warned, zones: window.__zones.slice(), d0, d1, vis: e.bossVis, ph: c.ph, bx: !!e.bx };
   });
-  await page.evaluate(() => {
+  await ev(() => {
     const g = window.__game;
     g.__lc = g.losClear;
     g.losClear = () => true;
   });
   await shot('focus-beam', 250);
-  const fc2 = await page.evaluate(() => {
+  const fc2 = await ev(() => {
     const g = window.__game,
       e = window.__fc;
     g.losClear = g.__lc;
@@ -7852,8 +7931,26 @@ async function testEnemyAI(browser, base) {
     }
     eB.takeDamage(1e9, 0, null, eB.center());
     // 正面看得到：察覺量表滿了才交戰
-    const eF = mk();
-    const pF = spot(eF, 0, 24);
+    // 測試的 MT 生成在隨機的出生點：站在高處（貨櫃上）或中間剛好有障礙物時，量表上升時走過去查看會被擋住視線
+    // （和負載無關、約 3% 的地圖）。所以挑兩者都站在地面、從 MT 往玩家的前 70% 路上沒有障礙物也看得到玩家的位置
+    let eF = null,
+      pF = null;
+    for (let k = 0; k < 40 && !pF; k++) {
+      if (eF) eF.takeDamage(1e9, 0, null, eF.center());
+      eF = mk();
+      pF = Math.abs(eF.pos.y - W.terrainHeight(eF.pos.x, eF.pos.z)) < 0.5 ? spot(eF, 0, 24) : null;
+      if (!pF) continue;
+      pl.pos.copy(pF);
+      const pc = pl.center();
+      const clear = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7].every((f) => {
+        if (W.losBlocked(eF.eye().lerp(pc, f), pc)) return false;
+        if (!f) return true;
+        const q = eF.pos.clone().lerp(pF, f);
+        const c = W.collide(q.x, q.z, W.terrainHeight(q.x, q.z), 2);
+        return Math.abs(c[0] - q.x) < 1e-6 && Math.abs(c[1] - q.z) < 1e-6;
+      });
+      if (!clear || Math.abs(pF.y - W.terrainHeight(pF.x, pF.z)) > 0.5) pF = null;
+    }
     if (pF) {
       pl.pos.copy(pF);
       let t = 0;
@@ -10061,11 +10158,17 @@ async function testCine(browser, base) {
     pre === 'x_c2_pre' && live.live && live.world && live.ex === 2 && back === 'play',
     `抉擇演出（選前）：在目前的戰場上播、播完回到戰鬥（${pre}、${back}）`,
   );
-  await page.evaluate(() => {
+  // 走進出口到播出選後的演出：主迴圈停住、以固定 dt 推進，最多 10 秒遊戲時間；演出開始播（配樂載入）是非同步的，照常等。
+  // 分段開放的作戰區域（staged）在出口出現時可能還在擴大（每秒 30 m），出口在擴大後的範圍裡：先推進到擴大完，
+  // 否則玩家放到出口會被推回作戰區域內、站不進出口（以前靠實際經過的時間，負載高時遊戲時間不夠就失敗）
+  await freezeLoop(page);
+  const postT = await page.evaluate(() => {
     const g = window.__game;
     const e = g.camp.exits.find((q) => q.choice === 'castron');
+    window.__pump(10, () => !g.world.zoneGoal);
     g.flows = [];
     g.player.pos.copy(e.pos);
+    return window.__pump(10, () => !!g.cine);
   });
   const post = await page
     .waitForFunction(() => window.__game.cine && window.__game.cine.started && window.__game.cine.key, null, {
@@ -10076,11 +10179,15 @@ async function testCine(browser, base) {
       (h) => h.jsonValue(),
       () => null,
     );
-  await page.evaluate(() => window.__game.cineSeek(5));
-  await page.waitForTimeout(1200);
+  await page.evaluate(() => {
+    window.__game.cineSeek(5);
+    window.__pump(1.2);
+  });
   await page.screenshot({ path: path.join(SHOT_DIR, 'cine-choice-post.png') });
   await page.evaluate(() => window.__game.cineEnd(true));
   const tr = await waitVisible(page, 'campTrans', 8000);
+  await thawLoop(page);
+  if (postT < 0) console.log('    （走進出口 10 秒遊戲時間內沒有播出選後的演出）');
   check(post === 'x_c2_castron' && tr, `抉擇演出（選後）：代價的蒙太奇之後到轉場畫面（${post}）`);
   await page.evaluate(() => {
     const g = window.__game;
