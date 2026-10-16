@@ -4,6 +4,8 @@
 //   3. 區網伺服器（server.js，WebSocket 中繼）：/health、多人建房／加入／出擊
 // 用法：node scripts/smoke-test.js [html 路徑] [--no-server]
 //   指定 html 路徑時只跑 1、2（例如拿舊版單檔 HTML 當基準比對）；截圖存到 test-results/
+// 預設分段平行（scripts/smoke-jobs.js）：SMOKE_JOBS＝段數（1＝單一程序依序跑），耗時記在
+// test-results/smoke-times.json；SMOKE_ONLY 可以一起用
 'use strict';
 /* global window, document, localStorage, location, getComputedStyle, scrollTo, indexedDB, THREE -- page.evaluate 的回呼在瀏覽器端執行 */
 const http = require('http');
@@ -29,14 +31,19 @@ const BROWSERS = [
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // SMOKE_ONLY=testLevels,testMpLevels（逗號分隔）：只跑這幾項（開發時用；server＝區網伺服器的部分）
 const ONLY = process.env.SMOKE_ONLY ? process.env.SMOKE_ONLY.split(',') : null;
-const run = async (name, fn, ...a) => {
-  if (!ONLY || ONLY.includes(name)) await fn(...a);
-};
-const failures = [];
+// 分段平行（scripts/smoke-jobs.js）：子程序以 SMOKE_CHILD＝段號、SMOKE_UNITS＝要跑的步驟、
+// SMOKE_WORK＝自己的暫存資料夾（跨測試的中間檔、伺服器模型組）、SMOKE_RESULT＝結果 JSON 執行
+const CHILD = process.env.SMOKE_CHILD || '';
+// 跨測試共用的中間檔（模型庫範本 GLB）與伺服器的資料夾；單一程序時照舊放 test-results/
+const WORK_DIR = process.env.SMOKE_WORK ? path.resolve(process.env.SMOKE_WORK) : SHOT_DIR;
+const failures = []; // { test, label }
 const errors = [];
+let checks = 0;
+let CUR = ''; // 目前執行的步驟（失敗清單標示所屬測試）
 function check(ok, label) {
+  checks++;
   console.log(`${ok ? '  ✓' : '  ✗'} ${label}`);
-  if (!ok) failures.push(label);
+  if (!ok) failures.push({ test: CUR, label });
 }
 
 // 提供單一 HTML 的靜態伺服器（BroadcastChannel 需要同源，不能用 file://）
@@ -63,26 +70,17 @@ function serveHtml() {
   });
 }
 
-function freePort() {
-  return new Promise((res) => {
-    const s = http.createServer().listen(0, '127.0.0.1', () => {
-      const p = s.address().port;
-      s.close(() => res(p));
-    });
-  });
-}
-
-// 伺服器模型組的資料夾（測試用，每次重來）
-const SERVER_MODELS = path.join(SHOT_DIR, 'server-models');
+// 伺服器模型組的資料夾（測試用，每次重來；分段平行時在各段自己的暫存資料夾）
+const SERVER_MODELS = path.join(WORK_DIR, 'server-models');
 async function startGameServer() {
-  const [gamePort, controlPort] = [await freePort(), await freePort()];
   fs.rmSync(SERVER_MODELS, { recursive: true, force: true });
+  // port 0：由系統挑空的 port，test-server-preload.js 把實際的 port 印出來
   const proc = spawn(process.execPath, ['-r', './scripts/test-server-preload.js', 'server.js'], {
     cwd: ROOT,
     env: {
       ...process.env,
-      TEST_GAME_PORT: gamePort,
-      TEST_CONTROL_PORT: controlPort,
+      TEST_GAME_PORT: 0,
+      TEST_CONTROL_PORT: 0,
       RUBICON_MODELS_DIR: SERVER_MODELS,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -90,12 +88,16 @@ async function startGameServer() {
   let log = '';
   proc.stdout.on('data', (d) => (log += d));
   proc.stderr.on('data', (d) => (log += d));
-  const url = `http://127.0.0.1:${gamePort}/`;
-  for (let i = 0; i < 50; i++) {
-    try {
-      const r = await fetch(url + 'health');
-      if (r.ok) return { proc, url, health: await r.text() };
-    } catch (e) {}
+  for (let i = 0; i < 100; i++) {
+    const m = log.match(/\[test-port\] 80 (\d+)/);
+    if (m) {
+      const url = `http://127.0.0.1:${m[1]}/`;
+      try {
+        const r = await fetch(url + 'health');
+        if (r.ok) return { proc, url, health: await r.text() };
+      } catch (e) {}
+    }
+    if (proc.exitCode !== null) break;
     await wait(200);
   }
   proc.kill();
@@ -432,8 +434,9 @@ async function testPaint(browser) {
 // → 存成我的預設並套用 → 離開（存檔沒變）→ 設定畫面顯示 → 出擊時用該風格
 // 每個內建渲染風格 × 每個地圖主題：截圖（test-results/style-<風格>-<主題>.png）並量亮度，過曝或過暗就失敗。
 // 新增或修改內建風格時要逐張看這些截圖
-async function testStyleThemes(browser) {
-  console.log('渲染風格：每個內建風格在每個地圖主題的亮度');
+// part／parts：只量第 part 組（主題依序平均分成 parts 組；分段平行時各組可以分到不同段）
+async function testStyleThemes(browser, part = 1, parts = 1) {
+  console.log(`渲染風格：每個內建風格在每個地圖主題的亮度（第 ${part}／${parts} 組主題）`);
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   const page = await ctx.newPage();
   watch(page, 'style-themes');
@@ -444,7 +447,9 @@ async function testStyleThemes(browser) {
   // 固定的地形種子與鏡頭、暫停模擬，每次量到的畫面相同
   await page.selectOption('#labCam', 'free');
   await page.evaluate(() => (window.__game.lab.seed = 4242));
-  const themes = await page.$$eval('#labTheme option', (os) => os.map((o) => o.value));
+  const allThemes = await page.$$eval('#labTheme option', (os) => os.map((o) => o.value));
+  const per = Math.ceil(allThemes.length / parts);
+  const themes = allThemes.slice((part - 1) * per, part * per);
   const styles = await page.$$eval('#labStyle option', (os) =>
     os.map((o) => o.value).filter((v) => v.startsWith('builtin:')),
   );
@@ -509,7 +514,7 @@ async function testStyleThemes(browser) {
   console.log('    ' + rows.join('\n    '));
   check(
     bad.length === 0,
-    `${styles.length} 個內建風格 × ${themes.length} 個主題的畫面亮度都在範圍內` +
+    `${styles.length} 個內建風格 × ${themes.length} 個主題（${themes.join('、')}）的畫面亮度都在範圍內` +
       (bad.length ? '：' + bad.join('；') : ''),
   );
   await ctx.close();
@@ -1612,7 +1617,7 @@ async function testLibraryGlb(browser, base) {
   };
   const template = async (name) => {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
-    const fp = path.join(SHOT_DIR, name);
+    const fp = path.join(WORK_DIR, name);
     await dl.saveAs(fp);
     return fp;
   };
@@ -3178,8 +3183,8 @@ const lmOverlay = (page) =>
 
 async function testLocalModels(browser, base) {
   console.log('本地模型庫：模型庫的瀏覽器暫存 → 遊戲單人模式讀取');
-  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
-  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  const fore = path.join(WORK_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(WORK_DIR, 'w_rifle_r_template.glb');
   if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
   const { ctx, page } = await newPage(browser, 'local-models');
   await page.goto(base);
@@ -3349,8 +3354,8 @@ async function testLocalModels(browser, base) {
 // 模型組：舊版資料庫（第 3 版）遷移成「預設」、新增／切換／複製／改名／刪除、匯出匯入、組裝調整記住零件組合、遊戲選模型組
 async function testModelSets(browser, base) {
   console.log('模型組：遷移、切換、複製、匯出匯入、遊戲選模型組');
-  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
-  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  const fore = path.join(WORK_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(WORK_DIR, 'w_rifle_r_template.glb');
   if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
   const page = await ctx.newPage();
@@ -3728,8 +3733,8 @@ async function testMechPack(page, game, base) {
 // → 多人（兩個瀏覽器各自上傳模型組，房主與客機看到對方的機甲用對方的模型組，敵人用伺服器組）
 async function testServerModels(browser, url) {
   console.log('伺服器模型組：伺服器預設組 → 單人套用 → 多人各自上傳模型組');
-  const fore = path.join(SHOT_DIR, 'a_std_r_fore_template.glb');
-  const rifle = path.join(SHOT_DIR, 'w_rifle_r_template.glb');
+  const fore = path.join(WORK_DIR, 'a_std_r_fore_template.glb');
+  const rifle = path.join(WORK_DIR, 'w_rifle_r_template.glb');
   if (!fs.existsSync(fore) || !fs.existsSync(rifle)) return check(false, '找不到模型庫測試產生的範本 GLB');
   const foreB = [...fs.readFileSync(fore)],
     rifleB = [...fs.readFileSync(rifle)];
@@ -11018,14 +11023,15 @@ async function testBosses2(browser, base) {
 // 多人的第三批 Boss：房主出擊到該 Boss 關，客機看到的顯示狀態（快照的 bossVis／bx、隱藏、不能鎖定、附屬機體）。
 // 同一個 context 的兩個分頁裡房主在背景會被節流，所以房主的 requestAnimationFrame 換成空函式，由這裡推進主迴圈；
 // 客機在前景照常執行，以計時器每 100 ms 記錄看到的狀態。
-async function testMpBosses(browser, url) {
-  console.log('多人 Boss：客機顯示電磁砲台的瞄準線、武裝列車出隧道、迷彩機與分身、三機合體分離');
+// only：只跑這幾隻 Boss（分段平行時各隻可以分到不同段）
+async function testMpBosses(browser, url, only = null) {
   const cases = [
-    { L: 10, key: 'halberd' },
-    { L: 31, key: 'citadel' },
-    { L: 22, key: 'mirage' },
-    { L: 28, key: 'cerberus' },
-  ];
+    { L: 10, key: 'halberd', name: '電磁砲台的瞄準線' },
+    { L: 31, key: 'citadel', name: '武裝列車出隧道' },
+    { L: 22, key: 'mirage', name: '迷彩機與分身' },
+    { L: 28, key: 'cerberus', name: '三機合體分離' },
+  ].filter((c) => !only || only.includes(c.key));
+  console.log('多人 Boss：客機顯示' + cases.map((c) => c.name).join('、'));
   for (const { L, key } of cases) {
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
     const host = await ctx.newPage();
@@ -11096,9 +11102,22 @@ async function testMpBosses(browser, url) {
         seen.subs = Math.max(seen.subs, g.enemies.filter((e) => !e.dead && e.opts.partKind === 'sub').length);
       }, 100);
     });
-    for (let i = 0; i < 160; i++) {
+    // 推進房主的主迴圈至少 160 格；遊戲時間跟著實際經過的時間走，顯示卡算繪時 160 格只有幾秒
+    // （SwiftShader 約 1 分鐘），列車可能還沒開進隧道：還沒看到要檢查的現象時繼續推進，最多 60 秒
+    const seenAll = (r) =>
+      key === 'halberd'
+        ? r.aim > 0 && r.line > 0
+        : key === 'citadel'
+          ? r.cars === 4 && r.hidden > 0 && r.shown > 0
+          : key === 'mirage'
+            ? r.cloak > 0 && r.holo === 3
+            : r.split > 0 && r.subs === 3;
+    const tLoop = Date.now();
+    for (let i = 0; ; i++) {
       await host.evaluate(() => window.__game.loop());
       await wait(15);
+      if (i < 160 || i % 20) continue;
+      if (Date.now() - tLoop > 60000 || seenAll(await cli.evaluate(() => window.__mpSeen))) break;
     }
     const r = await cli.evaluate(() => window.__mpSeen);
     await cli.screenshot({ path: path.join(SHOT_DIR, `mp-boss-${key}-client.png`) });
@@ -14590,21 +14609,270 @@ async function testFoesB2(browser, base) {
   await lib.ctx.close();
 }
 
-async function main() {
-  if (!fs.existsSync(HTML)) throw new Error(`找不到 ${HTML}，請先執行 npm run build`);
-  fs.mkdirSync(SHOT_DIR, { recursive: true });
+// 區網伺服器：/health、注入、/models、/apng、/paint、渲染風格的分享（testServerModels 等共用同一個伺服器）
+async function testServerBasics(browser, game) {
+  console.log('區網伺服器：啟動 server.js');
+  check(game.health.length > 0, `/health 回應（${game.health.trim().slice(0, 60)}）`);
+  const page = await (await browser.newContext()).newPage();
+  await page.goto(game.url);
+  check(await page.evaluate(() => !!window.RUBICON_SERVER), '遊戲頁已注入 window.RUBICON_SERVER');
+  const lib = await fetch(game.url + 'models');
+  check(lib.ok && (await lib.text()).includes('模型庫'), '/models 提供模型庫頁面');
+  await waitVisible(page, 'title');
+  const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#btnLibrary')]);
+  check(
+    await popup.waitForSelector('.cell', { timeout: 15000 }).then(
+      () => true,
+      () => false,
+    ),
+    '標題畫面「模型庫」按鈕開啟模型庫',
+  );
+  // 文字動畫 APNG 產生器（dist/apng/，原生 ES Modules）
+  const redir = await fetch(game.url + 'apng', { redirect: 'manual' });
+  check(redir.status === 301 && redir.headers.get('location') === '/apng/', '/apng 轉到 /apng/');
+  const js = await fetch(game.url + 'apng/js/app.js');
+  check(
+    js.ok && /javascript/.test(js.headers.get('content-type') || ''),
+    `/apng/ 的 ES Module 以 JavaScript 型別提供（${js.headers.get('content-type')}）`,
+  );
+  const bad = await fetch(game.url + 'apng/..%2f..%2fserver.js');
+  check(bad.status === 404, '/apng/ 不能讀到資料夾外的檔案');
+  // 貼圖繪製（dist/paint/）
+  const pr = await fetch(game.url + 'paint', { redirect: 'manual' });
+  check(pr.status === 301 && pr.headers.get('location') === '/paint/', '/paint 轉到 /paint/');
+  const pj = await fetch(game.url + 'paint/lib/three/three.min.js');
+  const ph = await fetch(game.url + 'paint/');
+  check(
+    pj.ok &&
+      /javascript/.test(pj.headers.get('content-type') || '') &&
+      (await ph.text()).includes('Rubicon Paint'),
+    '/paint/ 提供貼圖繪製與它的程式庫',
+  );
+  const [apng] = await Promise.all([page.waitForEvent('popup'), page.click('#btnApng')]);
+  watch(apng, 'apng');
+  check(
+    await apng.waitForSelector('#templateStrip > *', { timeout: 15000 }).then(
+      () => true,
+      () => false,
+    ),
+    '標題畫面「文字動畫」按鈕開啟文字動畫 APNG 產生器（模板列表顯示）',
+  );
+  await wait(1500);
+  await apng.screenshot({ path: path.join(SHOT_DIR, 'apng-tool.png') });
+  // 渲染風格：上傳到伺服器 → 清單有它 → 刪除
+  page.on('dialog', (d) => d.accept());
+  await page.click('#btnStyleLab');
+  await waitVisible(page, 'labPanel', 15000);
+  await page.selectOption('#labStyle', 'builtin:ghibli');
+  await page.fill('#labName', '區網分享風格');
+  await page.click('#labUpload');
+  await page
+    .waitForFunction(() => /已上傳/.test(document.getElementById('labMsg').textContent), null, {
+      timeout: 10000,
+    })
+    .catch(() => {});
+  const sl = await (await fetch(game.url + 'api/styles')).json();
+  check(
+    (sl.styles || []).some((x) => x.name === '區網分享風格' && x.params && x.params.toon === 1),
+    '實驗室「上傳到伺服器」：/api/styles 列出分享的風格',
+  );
+  check(
+    (await page.$$eval('#labStyle option', (o) => o.map((x) => x.textContent))).some((t) =>
+      t.includes('伺服器・區網分享風格'),
+    ),
+    '風格選單出現伺服器上的風格',
+  );
+  await page.click('#labSrvDel');
+  await wait(800);
+  const sl2 = await (await fetch(game.url + 'api/styles')).json();
+  check(!(sl2.styles || []).some((x) => x.name === '區網分享風格'), '從伺服器刪除分享的風格');
+  await page.context().close();
+}
+
+// 模型庫的範本 GLB（testLibraryGlb 下載；testLocalModels、testModelSets、testServerModels 讀取）：
+// 分段平行時各段的暫存資料夾是分開的，同一段沒有先跑 testLibraryGlb 時在這裡下載同樣的檔案
+async function ensureTemplates(browser, base) {
+  const want = [
+    ['arms/a_std/r_fore', 'a_std_r_fore_template.glb'],
+    ['weapon/w_rifle/r', 'w_rifle_r_template.glb'],
+  ];
+  if (want.every(([, n]) => fs.existsSync(path.join(WORK_DIR, n)))) return;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'templates');
+  for (const [id, n] of want) {
+    await reopen(page, base + 'model-library.html#' + id);
+    await page.waitForSelector('#inspect:not([hidden])');
+    await wait(1500);
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insTemplate')]);
+    await dl.saveAs(path.join(WORK_DIR, n));
+  }
+  await ctx.close();
+}
+
+// 測試步驟（依序）：key＝SMOKE_ONLY／耗時紀錄／分段用的名稱。server＝要區網伺服器（同一段只啟動一次）：
+// 'server' 是伺服器本身的檢查；server: 開頭的照原本的規則，SMOKE_ONLY 要同時有 server 與該測試名稱。
+// family＝拆細的測試（testStyleThemes:1、testMpBosses:halberd…）：SMOKE_ONLY 寫整個名稱或單一步驟都可以
+const LIB_FILE = () => 'file:///' + LIBRARY.split(path.sep).join('/');
+const STEPS = [
+  ['testFile', (c) => testFile(c.browser)],
+  ['testSolo', (c) => testSolo(c.browser, c.base)],
+  ['testMaps', (c) => testMaps(c.browser, c.base + '?test')],
+  ['testSaves', (c) => testSaves(c.browser, c.base + '?test')],
+  ['testPilot', (c) => testPilot(c.browser, c.base)],
+  ['testLibrary', (c) => testLibrary(c.browser, c.base)],
+  ['testFoeModelsD1', (c) => testFoeModelsD1(c.browser, c.base)],
+  ['testLibraryGlb', (c) => testLibraryGlb(c.browser, c.base)],
+  ['testRefTools', (c) => testRefTools(c.browser, c.base)],
+  [
+    'testDraco',
+    async (c) => {
+      await testDraco(c.browser, c.base + 'model-library.html', 'http');
+      await testDraco(c.browser, LIB_FILE(), 'file');
+    },
+  ],
+  ['testLibraryJoints', (c) => testLibraryJoints(c.browser, c.base)],
+  ['testWorkshop', (c) => testWorkshop(c.browser, c.base)],
+  ['testEditor', (c) => testEditor(c.browser, c.base)],
+  ['testEditorSplit', (c) => testEditorSplit(c.browser, c.base)],
+  ['testEditorMaterials', (c) => testEditorMaterials(c.browser, c.base)],
+  ['testEditorTextures', (c) => testEditorTextures(c.browser, c.base)],
+  ['testEditorFaces', (c) => testEditorFaces(c.browser, c.base)],
+  ['testEditorOptimize', (c) => testEditorOptimize(c.browser, c.base)],
+  ['testPaint', (c) => testPaint(c.browser)],
+  ['testStyleLab', (c) => testStyleLab(c.browser)],
+  // 每個內建風格 × 13 個主題要量很久，主題分成 3 組（SMOKE_ONLY=testStyleThemes 一樣跑全部）
+  ...[1, 2, 3].map((i) => [
+    'testStyleThemes:' + i,
+    (c) => testStyleThemes(c.browser, i, 3),
+    { family: 'testStyleThemes' },
+  ]),
+  ['testBosses', (c) => testBosses(c.browser, c.base)],
+  ['testBosses2', (c) => testBosses2(c.browser, c.base)],
+  ['testLockOn', (c) => testLockOn(c.browser, c.base)],
+  ['testCamOcclusion', (c) => testCamOcclusion(c.browser, c.base)],
+  ['testChase', (c) => testChase(c.browser, c.base)],
+  ['testPadUi', (c) => testPadUi(c.browser, c.base)],
+  ['testBoundary', (c) => testBoundary(c.browser, c.base)],
+  ['testCampaign', (c) => testCampaign(c.browser, c.base)],
+  ['testCampaign2', (c) => testCampaign2(c.browser, c.base)],
+  ['testModules', (c) => testModules(c.browser, c.base)],
+  ['testChapter1', (c) => testChapter1(c.browser, c.base)],
+  ['testChapter2', (c) => testChapter2(c.browser, c.base)],
+  ['testFoesB2', (c) => testFoesB2(c.browser, c.base)],
+  ['testFoesC1', (c) => testFoesC1(c.browser, c.base)],
+  ['testFoesC2', (c) => testFoesC2(c.browser, c.base)],
+  ['testChapter3', (c) => testChapter3(c.browser, c.base)],
+  ['testChapter4', (c) => testChapter4(c.browser, c.base)],
+  ['testChapter5', (c) => testChapter5(c.browser, c.base)],
+  ['testChapter6', (c) => testChapter6(c.browser, c.base)],
+  ['testFoeModelsD2', (c) => testFoeModelsD2(c.browser, c.base)],
+  ['testVariants6', (c) => testVariants6(c.browser, c.base)],
+  ['testCycle2', (c) => testCycle2(c.browser, c.base)],
+  ['testCycle3', (c) => testCycle3(c.browser, c.base)],
+  ['testStory', (c) => testStory(c.browser, c.base)],
+  ['testCine', (c) => testCine(c.browser, c.base)],
+  ['testTextFx', (c) => testTextFx(c.browser, c.base)],
+  ['testLevels', (c) => testLevels(c.browser, c.base)],
+  ['testWaves', (c) => testWaves(c.browser, c.base)],
+  ['testEnemyAI', (c) => testEnemyAI(c.browser, c.base)],
+  ['testGoals', (c) => testGoals(c.browser, c.base)],
+  ['testOutposts', (c) => testOutposts(c.browser, c.base)],
+  ['testModFx', (c) => testModFx(c.browser, c.base)],
+  ['testSupply', (c) => testSupply(c.browser, c.base)],
+  ['testGuide', (c) => testGuide(c.browser, c.base)],
+  ['testRange', (c) => testRange(c.browser, c.base)],
+  ['testAttrs', (c) => testAttrs(c.browser, c.base)],
+  ['testAim', (c) => testAim(c.browser, c.base)],
+  ['testAudio', (c) => testAudio(c.browser, c.base)],
+  ['testJuice', (c) => testJuice(c.browser, c.base)],
+  ['testFoesB1', (c) => testFoesB1(c.browser, c.base)],
+  ['testBossPower', (c) => testBossPower(c.browser, c.base)],
+  ['testBoss3', (c) => testBoss3(c.browser, c.base)],
+  ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
+  ['testHazards2', (c) => testHazards2(c.browser, c.base)],
+  ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
+  ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
+  ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],
+  // 每隻 Boss 一個步驟（SMOKE_ONLY=testMpBosses 一樣跑全部）
+  ...['halberd', 'citadel', 'mirage', 'cerberus'].map((k) => [
+    'testMpBosses:' + k,
+    (c) => testMpBosses(c.browser, c.base + '?lan=local&test', [k]),
+    { family: 'testMpBosses' },
+  ]),
+  ['testMpStatus', (c) => testMpStatus(c.browser, c.base + '?lan=local&test')],
+  ['testMpCampaign', (c) => testMpCampaign(c.browser, c.base + '?lan=local&test')],
+  ['testMpLevels', (c) => testMpLevels(c.browser, c.base + '?lan=local&test')],
+  ['server', (c) => testServerBasics(c.browser, c.game), { server: true }],
+  [
+    'server:testServerModels',
+    (c) => testServerModels(c.browser, c.game.url),
+    { server: true, only: 'testServerModels', templates: true },
+  ],
+  [
+    'server:testLevelsServer',
+    (c) => testLevelsServer(c.browser, c.game.url),
+    { server: true, only: 'testLevelsServer' },
+  ],
+  [
+    'server:testMultiplayer',
+    (c) => testMultiplayer(c.browser, c.game.url, 'server', false),
+    { server: true, only: 'testMultiplayer' },
+  ],
+].map(([key, fn, o = {}]) => ({ key, fn, ...o }));
+
+// 彼此相依、必須在同一段依序執行的步驟（其他步驟彼此獨立：每個測試都開新的 browser context，
+// localStorage／IndexedDB 不共用；跨測試的範本 GLB 由 ensureTemplates 補上）
+const GROUPS = [
+  ['testLibrary', 'testRefTools'], // testRefTools 拿 testLibrary 的截圖 library.png 當參考圖
+  ['server', 'server:testServerModels', 'server:testLevelsServer', 'server:testMultiplayer'], // 同一個伺服器
+];
+
+// SMOKE_ONLY 選到的步驟（規則和以前相同）
+function selectSteps() {
+  const srvOn = WITH_SERVER && (!ONLY || ONLY.includes('server'));
+  return STEPS.filter((s) =>
+    s.server
+      ? srvOn && (s.key === 'server' || !ONLY || ONLY.includes(s.only))
+      : !ONLY || ONLY.includes(s.key) || (s.family && ONLY.includes(s.family)),
+  );
+}
+
+async function launchBrowser() {
   const exe = BROWSERS.find((p) => fs.existsSync(p));
   if (!exe) throw new Error('找不到 Edge 或 Chrome');
-  console.log(`目標：${path.relative(ROOT, HTML)}`);
+  // 預設用顯示卡算繪（Windows：ANGLE D3D11）；SMOKE_GPU=0 改回 SwiftShader（CPU 軟體算繪，慢很多）
+  const gpu = process.env.SMOKE_GPU !== '0';
   const browser = await chromium.launch({
     executablePath: exe,
     headless: true,
     args: [
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
+      ...(gpu
+        ? [
+            process.platform === 'win32' ? '--use-angle=d3d11' : '--use-angle=default',
+            '--enable-gpu',
+            '--ignore-gpu-blocklist',
+          ]
+        : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
       '--autoplay-policy=no-user-gesture-required',
     ],
   });
+  // 印出實際的 WebGL 算繪器（要求 GPU 卻拿到 SwiftShader 時提示）
+  const pg = await browser.newPage();
+  const renderer = await pg
+    .evaluate(() => {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const e = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      return gl
+        ? e
+          ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL)
+          : gl.getParameter(gl.RENDERER)
+        : '沒有 WebGL';
+    })
+    .catch((e) => '讀不到：' + e.message);
+  await pg.close();
+  console.log(`WebGL：${renderer}`);
+  if (gpu && /SwiftShader/i.test(renderer)) console.log('  （要求顯示卡算繪，但瀏覽器改用了 SwiftShader）');
   // 地圖預設固定為貨運集散場（平坦、沒有虛空與多層），Boss、鎖定、多人等測試的結果才穩定；
   // 各地圖本身由 testMaps 逐一出擊檢查。測試自己選了地圖（包含選回「隨機」）時不覆蓋
   const newCtx = browser.newContext.bind(browser);
@@ -14620,174 +14888,96 @@ async function main() {
     });
     return c;
   };
+  return browser;
+}
+
+// 依序執行步驟。keepGoing（分段的子程序）：某一步拋出例外時記成失敗、繼續下一步；
+// 單一程序時照舊整個中止
+async function runSteps(steps, { keepGoing = false, onStep } = {}) {
+  const times = {};
+  const counts = {}; // 各步驟的項數
+  const browser = await launchBrowser();
   const srv = await serveHtml();
-  let game = null;
+  const c = { browser, base: `http://127.0.0.1:${srv.address().port}/`, game: null };
   try {
-    const base = `http://127.0.0.1:${srv.address().port}/`;
-    await run('testFile', testFile, browser);
-    await run('testSolo', testSolo, browser, base);
-    await run('testMaps', testMaps, browser, base + '?test');
-    await run('testSaves', testSaves, browser, base + '?test');
-    await run('testPilot', testPilot, browser, base);
-    await run('testLibrary', testLibrary, browser, base);
-    await run('testFoeModelsD1', testFoeModelsD1, browser, base);
-    await run('testLibraryGlb', testLibraryGlb, browser, base);
-    await run('testRefTools', testRefTools, browser, base);
-    await run('testDraco', testDraco, browser, base + 'model-library.html', 'http');
-    await run('testDraco', testDraco, browser, 'file:///' + LIBRARY.split(path.sep).join('/'), 'file');
-    await run('testLibraryJoints', testLibraryJoints, browser, base);
-    await run('testWorkshop', testWorkshop, browser, base);
-    await run('testEditor', testEditor, browser, base);
-    await run('testEditorSplit', testEditorSplit, browser, base);
-    await run('testEditorMaterials', testEditorMaterials, browser, base);
-    await run('testEditorTextures', testEditorTextures, browser, base);
-    await run('testEditorFaces', testEditorFaces, browser, base);
-    await run('testEditorOptimize', testEditorOptimize, browser, base);
-    await run('testPaint', testPaint, browser);
-    await run('testStyleLab', testStyleLab, browser);
-    await run('testStyleThemes', testStyleThemes, browser);
-    await run('testBosses', testBosses, browser, base);
-    await run('testBosses2', testBosses2, browser, base);
-    await run('testLockOn', testLockOn, browser, base);
-    await run('testCamOcclusion', testCamOcclusion, browser, base);
-    await run('testChase', testChase, browser, base);
-    await run('testPadUi', testPadUi, browser, base);
-    await run('testBoundary', testBoundary, browser, base);
-    await run('testCampaign', testCampaign, browser, base);
-    await run('testCampaign2', testCampaign2, browser, base);
-    await run('testModules', testModules, browser, base);
-    await run('testChapter1', testChapter1, browser, base);
-    await run('testChapter2', testChapter2, browser, base);
-    await run('testFoesB2', testFoesB2, browser, base);
-    await run('testFoesC1', testFoesC1, browser, base);
-    await run('testFoesC2', testFoesC2, browser, base);
-    await run('testChapter3', testChapter3, browser, base);
-    await run('testChapter4', testChapter4, browser, base);
-    await run('testChapter5', testChapter5, browser, base);
-    await run('testChapter6', testChapter6, browser, base);
-    await run('testFoeModelsD2', testFoeModelsD2, browser, base);
-    await run('testVariants6', testVariants6, browser, base);
-    await run('testCycle2', testCycle2, browser, base);
-    await run('testCycle3', testCycle3, browser, base);
-    await run('testStory', testStory, browser, base);
-    await run('testCine', testCine, browser, base);
-    await run('testTextFx', testTextFx, browser, base);
-    await run('testLevels', testLevels, browser, base);
-    await run('testWaves', testWaves, browser, base);
-    await run('testEnemyAI', testEnemyAI, browser, base);
-    await run('testGoals', testGoals, browser, base);
-    await run('testOutposts', testOutposts, browser, base);
-    await run('testModFx', testModFx, browser, base);
-    await run('testSupply', testSupply, browser, base);
-    await run('testGuide', testGuide, browser, base);
-    await run('testRange', testRange, browser, base);
-    await run('testAttrs', testAttrs, browser, base);
-    await run('testAim', testAim, browser, base);
-    await run('testAudio', testAudio, browser, base);
-    await run('testJuice', testJuice, browser, base);
-    await run('testFoesB1', testFoesB1, browser, base);
-    await run('testBossPower', testBossPower, browser, base);
-    await run('testBoss3', testBoss3, browser, base);
-    await run('testStatusFx', testStatusFx, browser, base);
-    await run('testHazards2', testHazards2, browser, base);
-    await run('testLocalModels', testLocalModels, browser, base);
-    await run('testModelSets', testModelSets, browser, base);
-    await run('testMultiplayer', testMultiplayer, browser, base + '?lan=local', 'local', true);
-    await run('testMpBosses', testMpBosses, browser, base + '?lan=local&test');
-    await run('testMpStatus', testMpStatus, browser, base + '?lan=local&test');
-    await run('testMpCampaign', testMpCampaign, browser, base + '?lan=local&test');
-    await run('testMpLevels', testMpLevels, browser, base + '?lan=local&test');
-    if (WITH_SERVER && (!ONLY || ONLY.includes('server'))) {
-      console.log('區網伺服器：啟動 server.js');
-      game = await startGameServer();
-      check(game.health.length > 0, `/health 回應（${game.health.trim().slice(0, 60)}）`);
-      const page = await (await browser.newContext()).newPage();
-      await page.goto(game.url);
-      check(await page.evaluate(() => !!window.RUBICON_SERVER), '遊戲頁已注入 window.RUBICON_SERVER');
-      const lib = await fetch(game.url + 'models');
-      check(lib.ok && (await lib.text()).includes('模型庫'), '/models 提供模型庫頁面');
-      await waitVisible(page, 'title');
-      const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#btnLibrary')]);
-      check(
-        await popup.waitForSelector('.cell', { timeout: 15000 }).then(
-          () => true,
-          () => false,
-        ),
-        '標題畫面「模型庫」按鈕開啟模型庫',
-      );
-      // 文字動畫 APNG 產生器（dist/apng/，原生 ES Modules）
-      const redir = await fetch(game.url + 'apng', { redirect: 'manual' });
-      check(redir.status === 301 && redir.headers.get('location') === '/apng/', '/apng 轉到 /apng/');
-      const js = await fetch(game.url + 'apng/js/app.js');
-      check(
-        js.ok && /javascript/.test(js.headers.get('content-type') || ''),
-        `/apng/ 的 ES Module 以 JavaScript 型別提供（${js.headers.get('content-type')}）`,
-      );
-      const bad = await fetch(game.url + 'apng/..%2f..%2fserver.js');
-      check(bad.status === 404, '/apng/ 不能讀到資料夾外的檔案');
-      // 貼圖繪製（dist/paint/）
-      const pr = await fetch(game.url + 'paint', { redirect: 'manual' });
-      check(pr.status === 301 && pr.headers.get('location') === '/paint/', '/paint 轉到 /paint/');
-      const pj = await fetch(game.url + 'paint/lib/three/three.min.js');
-      const ph = await fetch(game.url + 'paint/');
-      check(
-        pj.ok &&
-          /javascript/.test(pj.headers.get('content-type') || '') &&
-          (await ph.text()).includes('Rubicon Paint'),
-        '/paint/ 提供貼圖繪製與它的程式庫',
-      );
-      const [apng] = await Promise.all([page.waitForEvent('popup'), page.click('#btnApng')]);
-      watch(apng, 'apng');
-      check(
-        await apng.waitForSelector('#templateStrip > *', { timeout: 15000 }).then(
-          () => true,
-          () => false,
-        ),
-        '標題畫面「文字動畫」按鈕開啟文字動畫 APNG 產生器（模板列表顯示）',
-      );
-      await wait(1500);
-      await apng.screenshot({ path: path.join(SHOT_DIR, 'apng-tool.png') });
-      // 渲染風格：上傳到伺服器 → 清單有它 → 刪除
-      page.on('dialog', (d) => d.accept());
-      await page.click('#btnStyleLab');
-      await waitVisible(page, 'labPanel', 15000);
-      await page.selectOption('#labStyle', 'builtin:ghibli');
-      await page.fill('#labName', '區網分享風格');
-      await page.click('#labUpload');
-      await page
-        .waitForFunction(() => /已上傳/.test(document.getElementById('labMsg').textContent), null, {
-          timeout: 10000,
-        })
-        .catch(() => {});
-      const sl = await (await fetch(game.url + 'api/styles')).json();
-      check(
-        (sl.styles || []).some((x) => x.name === '區網分享風格' && x.params && x.params.toon === 1),
-        '實驗室「上傳到伺服器」：/api/styles 列出分享的風格',
-      );
-      check(
-        (await page.$$eval('#labStyle option', (o) => o.map((x) => x.textContent))).some((t) =>
-          t.includes('伺服器・區網分享風格'),
-        ),
-        '風格選單出現伺服器上的風格',
-      );
-      await page.click('#labSrvDel');
-      await wait(800);
-      const sl2 = await (await fetch(game.url + 'api/styles')).json();
-      check(!(sl2.styles || []).some((x) => x.name === '區網分享風格'), '從伺服器刪除分享的風格');
-      await page.context().close();
-      await run('testServerModels', testServerModels, browser, game.url);
-      await run('testLevelsServer', testLevelsServer, browser, game.url);
-      await run('testMultiplayer', testMultiplayer, browser, game.url, 'server', false);
+    for (const s of steps) {
+      CUR = s.key;
+      const t0 = Date.now();
+      const ctx0 = new Set(browser.contexts());
+      const c0 = checks;
+      try {
+        if (s.server && !c.game) c.game = await startGameServer();
+        if (s.templates) await ensureTemplates(browser, c.base);
+        await s.fn(c);
+      } catch (e) {
+        if (!keepGoing) throw e;
+        console.log(`  ✗ ${s.key} 拋出例外：${(e && e.stack) || e}`);
+        checks++;
+        failures.push({ test: s.key, label: `拋出例外：${String((e && e.message) || e).split('\n')[0]}` });
+      }
+      // 這一步開的 browser context 沒關（測試忘了關、或拋出例外中斷）時關掉，免得頁面在背景一直渲染、拖慢後面的測試
+      for (const x of browser.contexts()) if (!ctx0.has(x)) await x.close().catch(() => {});
+      times[s.key] = Date.now() - t0;
+      counts[s.key] = checks - c0;
+      if (onStep) onStep(times, counts);
     }
   } finally {
-    await browser.close();
+    CUR = '';
+    await browser.close().catch(() => {});
     srv.close();
-    if (game) game.proc.kill();
+    if (c.game) {
+      const p = c.game.proc;
+      if (p.exitCode === null) {
+        const done = new Promise((r) => p.once('exit', r));
+        p.kill();
+        await done;
+      }
+    }
   }
+  return { times, counts };
+}
+
+async function main() {
+  if (!fs.existsSync(HTML)) throw new Error(`找不到 ${HTML}，請先執行 npm run build`);
+  fs.mkdirSync(SHOT_DIR, { recursive: true });
+  fs.mkdirSync(WORK_DIR, { recursive: true });
+  const jobs = require('./smoke-jobs');
+  // 分段的子程序：只跑分到的步驟，結果寫成 JSON 交給協調程序彙整（每一步做完就更新，崩潰時也有部分結果）
+  if (CHILD) {
+    const want = (process.env.SMOKE_UNITS || '').split(',');
+    const steps = STEPS.filter((s) => want.includes(s.key));
+    const save = (times, counts, done) =>
+      fs.writeFileSync(
+        process.env.SMOKE_RESULT,
+        JSON.stringify({ checks, counts, failures, errors: [...new Set(errors)], times, done: !!done }),
+      );
+    const r = await runSteps(steps, { keepGoing: true, onStep: (t, c) => save(t, c) });
+    save(r.times, r.counts, true);
+    process.exit(0);
+  }
+  const steps = selectSteps();
+  const n = jobs.jobCount();
+  if (n > 1) {
+    const units = jobs.makeUnits(
+      steps.map((s) => s.key),
+      GROUPS,
+    );
+    if (units.length > 1)
+      process.exit(await jobs.coordinate({ units, jobs: n, args, root: ROOT, shotDir: SHOT_DIR }));
+  }
+  // 單一程序依序執行（SMOKE_JOBS=1，或只選到一個單位）
+  console.log(`目標：${path.relative(ROOT, HTML)}`);
+  const t0 = Date.now();
+  const { times } = await runSteps(steps);
+  jobs.saveTimes(SHOT_DIR, times);
   const uniq = [...new Set(errors)];
   check(uniq.length === 0, `沒有頁面錯誤（${uniq.length} 筆）`);
   for (const e of uniq) console.log('    ' + e);
-  console.log(failures.length ? `\n失敗 ${failures.length} 項` : '\n全部通過');
+  console.log(`\n共 ${checks} 項，通過 ${checks - failures.length} 項，耗時 ${jobs.fmtMs(Date.now() - t0)}`);
+  if (failures.length) {
+    console.log(`失敗 ${failures.length} 項：`);
+    for (const f of failures) console.log(`  ✗ [${f.test || '彙總'}] ${f.label}`);
+  } else console.log('全部通過');
   process.exit(failures.length ? 1 : 0);
 }
 
