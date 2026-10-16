@@ -274,6 +274,8 @@ export class Game {
   // 以實體為準的敵對名單（PVP：不同隊的玩家也是敵人）
   hostilesOfEnt(e) {
     if (!e) return this.enemies;
+    // Coral 戰爭：依隊伍編號（含中立的第 3 隊）；rts.js 每格重建（呼叫端不要修改這個陣列）
+    if (this.rts && e.rtsTeam !== undefined && this.rts.hostile) return this.rts.hostile[e.rtsTeam] || [];
     if (this.pvp) {
       const all = [...(this.players || []), ...this.enemies];
       return all.filter((q) => q !== e && !q.dead && this.isHostile(e, q));
@@ -284,6 +286,7 @@ export class Game {
   }
   isHostile(a, b) {
     if (!a || !b || a === b) return false;
+    if (this.rts && a.rtsTeam !== undefined && b.rtsTeam !== undefined) return a.rtsTeam !== b.rtsTeam;
     if (this.pvp) {
       const ta = this.pvpTeamOf(a),
         tb = this.pvpTeamOf(b);

@@ -100,6 +100,7 @@ const DEFAULT_TIMES = {
   testMpStatus: 13037,
   testMpCampaign: 31951,
   testMpLevels: 13521,
+  testRtsTech: 15000,
   server: 8089,
   'server:testServerModels': 32811,
   'server:testLevelsServer': 9780,

@@ -14924,6 +14924,8 @@ async function ensureTemplates(browser, base) {
 const LIB_FILE = () => 'file:///' + LIBRARY.split(path.sep).join('/');
 // Coral 戰爭（RTS）的測試在 smoke-rts.js
 const RTS = require('./smoke-rts')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
+// R2 的各包（docs/rts-design.md 13.1）：A＝核心與資料
+const RTS_A = require('./smoke-rts-core')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15006,6 +15008,7 @@ const STEPS = [
   ['testRtsCore', (c) => RTS.testRtsCore(c.browser, c.base)],
   ['testRtsAi', (c) => RTS.testRtsAi(c.browser, c.base)],
   ['testRtsLod', (c) => RTS.testRtsLod(c.browser, c.base)],
+  ['testRtsTech', (c) => RTS_A.testRtsTech(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

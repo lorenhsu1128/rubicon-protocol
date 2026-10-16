@@ -249,7 +249,12 @@ Object.assign(Game.prototype, {
       ];
     for (const c of list) {
       const a = c.act || {};
-      const ref = a.k === 'train' || a.k === 'build' ? this.rtsUiDef(a.id) || {} : null;
+      const ref =
+        a.k === 'train' || a.k === 'build'
+          ? this.rtsUiDef(a.id) || {}
+          : a.k === 'upgrade'
+            ? this.rtsUiDef(a.to) || {}
+            : null;
       const it = {
         c,
         cmd: a.k === 'order' ? a.o : a.k + (a.id ? ':' + a.id : a.menu ? ':' + a.menu : ''),
@@ -265,6 +270,17 @@ Object.assign(Game.prototype, {
       };
       if (a.k === 'cancel' && !building && !(e.bld && e.bld.queue && e.bld.queue.length))
         it.dis = '佇列是空的';
+      if (a.k === 'upgrade' && !it.dis && e.bld && e.bld.queue.length) it.dis = '佇列要是空的才能升級';
+      if (a.k === 'research' && this.rtsResearchInfo) {
+        const inf = this.rtsResearchInfo(RTS_ME, a.id, e);
+        if (inf) {
+          it.cost = inf.next ? inf.next.cost : null;
+          it.time = inf.next ? inf.next.time : 0;
+          it.label = c.name + (inf.max > 1 ? ` ${Math.min(inf.lv + 1, inf.max)}` : '');
+          it.dis = inf.why;
+        }
+      }
+      if (c.req && !it.dis && this.rtsReqWhy) it.dis = this.rtsReqWhy(RTS_ME, c);
       put(c.at[0] * 4 + c.at[1], it);
     }
     return cells;
@@ -279,6 +295,26 @@ Object.assign(Game.prototype, {
         return this.rtsInstant(a.o, shift);
       case 'train':
         return this.rtsTrain(G, a.id);
+      case 'upgrade': {
+        const b = G.find((x) => x.bld && (this.rtsUiDef(x) || {}).upTo === a.to);
+        if (b && this.rtsUpgrade) this.rtsUpgrade(b, a.to);
+        this.rtsHudDirty = true;
+        return;
+      }
+      case 'research': {
+        const b = G.find((x) => x.bld && !(x.bld.progress < 1));
+        if (b && this.rtsResearch) this.rtsResearch(b, a.id);
+        this.rtsHudDirty = true;
+        return;
+      }
+      case 'militia':
+      case 'demob': {
+        const b = G.find((x) => x.bld && !(x.bld.progress < 1));
+        if (b && a.k === 'militia' && this.rtsMilitia) this.rtsMilitia(b);
+        else if (b && a.k === 'demob' && this.rtsDemob) this.rtsDemob(b);
+        this.rtsHudDirty = true;
+        return;
+      }
       case 'build':
         return this.rtsSetMode({ k: 'build', def: a.id, D: this.rtsUiDef(a.id) });
       case 'menu':
@@ -305,12 +341,9 @@ Object.assign(Game.prototype, {
   rtsWhyNot(D, unit) {
     const R = this.rts;
     const T = R.teams[RTS_ME];
-    for (const id of D.req || []) {
-      const ok = (R.units || []).some(
-        (e) => this.rtsOwn(e) && e.rtsDef === id && e.bld && !(e.bld.progress < 1),
-      );
-      if (!ok) return '需要 ' + this.rtsUiName(id);
-    }
+    void R;
+    const why = this.rtsReqWhy ? this.rtsReqWhy(RTS_ME, D) : '';
+    if (why) return why;
     if (D.cost) {
       if (D.cost.ore && (T.ore || 0) < D.cost.ore) return '礦石不足';
       if (D.cost.coral && (T.coral || 0) < D.cost.coral) return 'Coral 不足';

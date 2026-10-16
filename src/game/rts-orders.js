@@ -5,8 +5,10 @@
 // - A* 路徑不在下指令時算：rtsPathReq 排進佇列，rtsPathService 每格最多算 PATH_PER_FRAME 條（或 PATH_MS 毫秒），
 //   120 個不同目標的指令分散到幾格。
 // - 建造只派一個工人（最近的）；採集、修理派全部的工人，戰鬥單位改成走過去。
+// - R2（docs 13.1）：ability（技能：自己施放的給全部會的單位，有目標的給最近、沒在冷卻的一台）、pickup／shop（只給英雄）；
+//   防禦塔（有 range 的建築）可以接 attack／stop（B 包的 rtsTowerAI 讀 b.orders[0]）；親自駕駛中的英雄不接指令。
 import { Game } from './game.js';
-import { RTS_DEFS, RTS_GATHER } from '../data/rts-units.js';
+import { RTS_ABILS, RTS_DEFS, RTS_GATHER } from '../data/rts-units.js';
 
 const PATH_PER_FRAME = 16;
 const PATH_MS = 3;
@@ -17,9 +19,15 @@ Object.assign(Game.prototype, {
   rtsOrder(units, order, queue = false) {
     const R = this.rts;
     if (!R || !order) return;
-    const list = (units || []).filter((e) => e && !e.dead && !e.bld && e.rtsDef);
-    if (!list.length) return;
     const k = order.k;
+    if (k === 'attack' || k === 'stop') {
+      // 防禦塔：指定目標／停止
+      for (const b of units || [])
+        if (b && !b.dead && b.bld && RTS_DEFS[b.rtsDef] && RTS_DEFS[b.rtsDef].range)
+          b.orders = k === 'attack' ? [{ ...order }] : [];
+    }
+    const list = (units || []).filter((e) => e && !e.dead && !e.bld && e.rtsDef && !e.rtsPiloted);
+    if (!list.length) return;
     if (k === 'stop') {
       for (const e of list) this.rtsSetOrders(e, []);
       return;
@@ -58,6 +66,35 @@ Object.assign(Game.prototype, {
     }
     if (k === 'attack') {
       for (const e of list) give(e, { ...order });
+      return;
+    }
+    if (k === 'ability') {
+      // 會這個技能的：單位定義的 abil，或英雄（技能由 C 包檢查）
+      const can = list.filter((e) => e.hero || (RTS_DEFS[e.rtsDef].abil || []).includes(order.ab));
+      if (!can.length) return;
+      const A = RTS_ABILS[order.ab];
+      const self = A ? A.target === 'self' : order.x === undefined && order.id === undefined;
+      if (self) {
+        for (const e of can) give(e, { ...order });
+        return;
+      }
+      // 有目標：沒在冷卻、離目標最近的一台
+      const t = R.t;
+      const tx = order.x !== undefined ? order.x : (this.rtsEnt(order.id) || { pos: { x: 0 } }).pos.x;
+      const tz = order.z !== undefined ? order.z : (this.rtsEnt(order.id) || { pos: { z: 0 } }).pos.z;
+      let best = null,
+        bd = 1e9;
+      for (const e of can) {
+        const cd = e.rtsCd && e.rtsCd[order.ab] > t ? 1e5 : 0;
+        const d = Math.hypot(e.pos.x - tx, e.pos.z - tz) + cd;
+        if (d < bd) ((bd = d), (best = e));
+      }
+      give(best, { ...order });
+      return;
+    }
+    if (k === 'pickup' || k === 'shop') {
+      // 英雄撿道具、走到商店買（C 包）
+      for (const e of list) if (e.hero) give(e, { ...order });
       return;
     }
     if (k === 'move' || k === 'amove' || k === 'patrol') {

@@ -22,6 +22,9 @@
 //                         距離 near＝60 m、far＝90 m（--dist=公尺 另訂）；--ssao=off|depth|half|full 換掉 RTS 的 SSAO 設定
 //   --hud=rts             HUD 換成 RTS 的（只畫受傷單位的血條，同 game/rts-hud.js 的 rtsDrawOverlay），不畫一般任務的
 //                         名牌與 HUD（120 台的名牌文字在 2D 畫布上點陣化要好幾 ms，不在 JS 的計時裡、但會拉長每一格）
+//   --heroes=6            另外加英雄（兩隊各一半，卡斯特隆三位英雄的 AC：BASTION、RAIN、PILEDRIVER；docs 13.10）
+//   --camps               另外加全部的野怪營地（地圖外圈 8 個營地、小／中／大的編成，待在原地不動；D 包有
+//                         rtsCampSpawnAll 時改用它）
 //   --tag=名稱            輸出檔名的標記（預設 gpu／swiftshader＋鏡頭）
 //   --seed=1              擺放位置的亂數種子
 // 輸出：test-results/rts-bench-<tag>.json（以及截圖、profile）。需要先 npm run build；瀏覽器可用 BENCH_BROWSER 指定。
@@ -278,7 +281,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const results = [];
   for (const N of COUNTS) {
     const info = await page.evaluate(
-      ({ N, seed }) => {
+      ({ N, seed, heroes, camps }) => {
         const g = window.__game;
         const w = g.world;
         let s = (seed * 2654435761 + N * 97) >>> 0 || 1;
@@ -323,15 +326,74 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         };
         for (let i = 0; i < half; i++) mk(i, 'ally');
         for (let i = 0; i < half; i++) mk(i, 'enemy');
+        // 英雄：卡斯特隆三位英雄的 AC，兩隊各一半
+        const HEROES = ['ac_bastion', 'ac_rain', 'ac_piledriver'];
+        for (let i = 0; i < heroes; i++) {
+          const team = i % 2 ? 'enemy' : 'ally';
+          const n0 = g.enemies.length;
+          const side = team === 'enemy' ? 1 : -1;
+          const x = side * (8 + rand() * spread * 0.5),
+            z = (rand() * 2 - 1) * spread * 0.6;
+          const [qx, qz] = w.collide(x, z, 50, 1.8);
+          const e = g.spawnType(
+            HEROES[(i >> 1) % 3],
+            g.scaleHp * 25,
+            g.scaleDmg,
+            new THREE.Vector3(qx, w.groundAt(qx, qz, 99), qz),
+            1,
+          );
+          if (e && team === 'ally') {
+            const k = g.enemies.indexOf(e);
+            if (k >= 0) g.enemies.splice(k, 1);
+            e.team = 'ally';
+            e.allyT = 1e9;
+            e.sn = null;
+            g.allies.push(e);
+          }
+          void n0;
+        }
+        // 野怪營地：地圖外圈 8 個（小、中、大輪流），待在原地
+        let creeps = 0;
+        if (camps) {
+          if (g.rtsCampSpawnAll) creeps = g.rtsCampSpawnAll();
+          else {
+            const COMP = [
+              ['mt', 'mt', 'drone'],
+              ['mth', 'mt_shot', 'tank'],
+              ['strider', 'tank', 'tank', 'mt_cmd'],
+            ];
+            const Z = new THREE.Vector3();
+            for (let c = 0; c < 8; c++) {
+              const a = (c / 8) * Math.PI * 2 + 0.2;
+              const cx = Math.cos(a) * L * 0.8,
+                cz = Math.sin(a) * L * 0.8;
+              for (const [j, t] of COMP[c % 3].entries()) {
+                const [qx, qz] = w.collide(cx + (j % 2) * 4 - 2, cz + Math.floor(j / 2) * 4 - 2, 50, 1.8);
+                const e = g.spawnType(
+                  t,
+                  g.scaleHp * 25,
+                  g.scaleDmg,
+                  new THREE.Vector3(qx, w.groundAt(qx, qz, 99), qz),
+                  1,
+                );
+                if (!e) continue;
+                e.updateAI = function (dt) {
+                  this.move(dt, Z, false, false, false, null);
+                };
+                creeps++;
+              }
+            }
+          }
+        }
         g.waves = [];
         g.wavePend = null;
         if (g.rtsR) g.rtsRenderTick(); // RTS 渲染設定：網格合併在第一次算繪前（render/rts-merge.js）
         let meshes = 0;
         for (const e of [...g.enemies, ...g.allies])
           e.mesh.traverse((o) => o.isMesh && o.visible && o.layers.mask && meshes++);
-        return { en: g.enemies.length, al: g.allies.length, spread: Math.round(spread), meshes };
+        return { en: g.enemies.length, al: g.allies.length, spread: Math.round(spread), meshes, creeps };
       },
-      { N, seed: SEED },
+      { N, seed: SEED, heroes: +(args.heroes || 0), camps: !!args.camps },
     );
     await sleep(WARM * 1000);
     if (AB) {

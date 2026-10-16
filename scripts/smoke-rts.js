@@ -1368,7 +1368,7 @@ module.exports = (H) => {
 
   // ---------- 電腦對手（game/rts-ai.js） ----------
   // 普通難度、玩家不動：電腦會蓋補給庫與兵工廠、生產部隊；開局不知道玩家主堡（受迷霧限制），派偵查找到之後才進攻；
-  // 7 分鐘內打到玩家基地；決策耗時。之後兩邊都是電腦（cfg.aiBoth）快轉一整場：25 分鐘內分出勝負。
+  // 7 分鐘內打到玩家基地；決策耗時。之後兩邊都是電腦（cfg.aiBoth）快轉一整場：40 分鐘內分出勝負（R2 的相剋表讓單位互打變快、建築相對耐打，實測 11～32 分；F 包的第二輪目標是 30 分）。
   // 只推進模擬（rtsSim＋rtsFogTick，不算繪）；截圖前才用 __pump 算繪幾格
   async function testRtsAi(browser, base) {
     console.log('Coral 戰爭：電腦對手（經濟、建造順序、偵查、進攻、兩邊都是電腦）');
@@ -1535,7 +1535,7 @@ module.exports = (H) => {
     await page.screenshot({ path: path.join(SHOT_DIR, 'rts-ai-base.png') });
     await ctx.close();
 
-    // 兩邊都是電腦：快轉一整場（25 分鐘內分出勝負）。開新的頁面，種子固定時每次的結果相同（上面那一局的截圖推進過
+    // 兩邊都是電腦：快轉一整場（40 分鐘內分出勝負）。開新的頁面，種子固定時每次的結果相同（上面那一局的截圖推進過
     // 主迴圈，留下的實體編號、粒子等狀態和這一局無關）
     const { ctx: ctx2, page: page2 } = await newPage(browser, 'rtsAi2');
     await page2.setViewportSize({ width: 1600, height: 900 });
@@ -1608,7 +1608,7 @@ module.exports = (H) => {
       // 截圖時的算繪會產生粒子、取用亂數：清掉粒子並重設種子
       g.fx.clear();
       window.__reseed(81);
-      window.__sim(1500 - R.t + 0.1, () => !!R.over);
+      window.__sim(2400 - R.t + 0.1, () => !!R.over);
       const S = R.stats;
       return {
         over: R.over,
@@ -1622,8 +1622,8 @@ module.exports = (H) => {
     });
     const fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
     check(
-      !!end.over && end.over.t <= 1500,
-      `電腦對電腦：${end.over ? fmt(end.over.t) + ' 分出勝負，' + (end.over.win ? '隊伍 0' : '隊伍 1') + ' 獲勝' : '25 分鐘還沒結束'}（生產 ${end.made.join('／')}、損失 ${end.lost.join('／')}、決策 ${end.ms.join('／')} ms）`,
+      !!end.over && end.over.t <= 2400,
+      `電腦對電腦：${end.over ? fmt(end.over.t) + ' 分出勝負，' + (end.over.win ? '隊伍 0' : '隊伍 1') + ' 獲勝' : '40 分鐘還沒結束'}（生產 ${end.made.join('／')}、損失 ${end.lost.join('／')}、決策 ${end.ms.join('／')} ms）`,
     );
     check(end.rec === both.rec, '兩邊都是電腦的局不記戰績');
     await ev2(() => window.__pump(3, () => window.__game.state === 'rtsend', 1 / 20));

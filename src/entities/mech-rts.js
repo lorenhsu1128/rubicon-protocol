@@ -17,6 +17,7 @@ const _v = new THREE.Vector3(),
   _aim = new THREE.Vector3(),
   _dir = { x: 0, z: 0 };
 const ZERO = new THREE.Vector3();
+const SLOTS0 = ['rarm'];
 
 Object.assign(MechEntity.prototype, {
   // ---------- 每格 ----------
@@ -217,8 +218,9 @@ Object.assign(MechEntity.prototype, {
   },
 
   // ---------- 戰鬥 ----------
+  // 射程＝定義的 range＋數值層（研究、英雄光環、道具；rts.js 的 rtsModsApply 寫 rtsRangeAdd）
   rtsRange(D) {
-    return D.range || 0;
+    return D.range ? D.range + (this.rtsRangeAdd || 0) : 0;
   },
   // 到目標的距離（建築用外形最近點）
   rtsDistTo(t) {
@@ -296,13 +298,21 @@ Object.assign(MechEntity.prototype, {
     let dy = Math.abs(this.aimYaw - this.yaw) % (Math.PI * 2);
     if (dy > Math.PI) dy = Math.PI * 2 - dy;
     if (dy > 0.5) return;
-    for (const s of ['rarm', 'larm', 'rback', 'lback']) {
+    // 只用定義的 slots 開火（預設 rarm）；各槽的傷害倍率 rtsSlotK（rts.js 依 dps 換算）、對空設定 slotAa／aa、
+    // 開火間隔乘數值層的 rtsRofK
+    const dm = this.dmgMul;
+    for (const s of D.slots || SLOTS0) {
       const w = this.weapons[s];
       const wd = w && w.def;
       if (!wd || wd.type === 'none' || wd.type === 'shield' || wd.type === 'melee' || w.dropped) continue;
+      const aa = (D.slotAa && D.slotAa[s]) || D.aa || 'ground';
+      if (aa !== 'both' && (aa === 'air') !== !!t.flying) continue;
       if (wd.ammo && w.ammo < wd.ammo * 0.5) w.ammo = wd.ammo; // RTS：彈藥不會用完
       if (w.cd > 0 || w.reloadT > 0) continue;
-      if (this.fire(s, _aim, t)) w.cd = Math.max(w.cd, D.rof || 0);
+      this.dmgMul = dm * ((this.rtsSlotK && this.rtsSlotK[s]) || 1);
+      const ok = this.fire(s, _aim, t);
+      this.dmgMul = dm;
+      if (ok) w.cd = Math.max(w.cd, D.rof || 0) * (this.rtsRofK || 1);
     }
   },
   // 被打：待命或攻擊移動中的單位回擊（記下攻擊者，下一次找目標時優先）

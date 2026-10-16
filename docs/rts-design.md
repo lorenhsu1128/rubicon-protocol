@@ -228,6 +228,8 @@
   - **基準的 HUD 是一般任務的**（每台的名牌文字畫在 2D 畫布上，點陣化不在 JS 的計時裡，但每格多 6～9 ms）。換成 RTS 的血條（`--hud=rts`）：120 台 near 58.8／far 62.1 FPS、160 台 48.4／46.2 FPS，接近 RTS 局內的實際情況。
   - 剩下的大項（120 台、far）：`move` 約 3.7 ms（動作、碰撞、推進器）、單位 AI 其餘約 0.8 ms、骨架的節點矩陣約 1.5 ms、粒子更新與寫入約 2 ms、投射物約 1 ms。要再快可以做同型單位的 InstancedMesh（骨架改成每台幾個實例矩陣）與遠處的低面數模型（120 台約 80～100 萬個三角形）。
 
+- **R2 A 包（2026-10-17）**：`--heroes=6 --camps`（120 台＋6 個英雄＋26 台野怪，`--hud=rts`）near 53.9 FPS（1% low 37.7）、更新 10.3／渲染 7.8 ms、379 draw calls（13.12）。
+
 ### 8.4 和現有系統的關係
 
 - 不動主線、自由出擊、自訂關卡的流程；RTS 的新判定一律在 `this.rts` 存在時才走。
@@ -367,13 +369,13 @@ this.rts = {
   | 普通 normal | 0.7 | 20 | 2 | 32 | 4:15 | 8 | 是 | 2.0 | 否 | 是 | 1:15 | 5:30 |
   | 困難 hard | 0.5 | 24 | 3 | 46 | 3:45 | 9 | 是 | 1.6 | 是 | 是 | 0:45 | 3:20 |
   | 瘋狂 insane | 0.5 | 24 | 4 | 50 | 3:30 | 9 | 是 | 1.6 | 是 | 是 | 看全圖 | 3:20；收入 ×1.5 |
-- **測試與除錯**：`cfg.aiBoth`（或 `g.rtsAiBoth`）＝兩邊都是電腦（不記戰績），`cfg.diffs`＝[隊伍 0, 隊伍 1] 各自的難度，`cfg.aiOpener`（或 `g.rtsAiOpener`，可以是陣列）指定開局，`g.rtsAiOff`＝不啟動電腦（`testRtsCore` 用）。冒煙測試 `testRtsAi`：普通難度、玩家不動 → 補給庫、兵工廠、生產、偵查後才知道玩家主堡、7 分鐘內打到玩家基地、決策耗時；之後兩邊都是電腦快轉一整場（`rtsSim`＋`rtsFogTick`，不算繪），25 分鐘內分出勝負。
+- **測試與除錯**：`cfg.aiBoth`（或 `g.rtsAiBoth`）＝兩邊都是電腦（不記戰績），`cfg.diffs`＝[隊伍 0, 隊伍 1] 各自的難度，`cfg.aiOpener`（或 `g.rtsAiOpener`，可以是陣列）指定開局，`g.rtsAiOff`＝不啟動電腦（`testRtsCore` 用）。冒煙測試 `testRtsAi`：普通難度、玩家不動 → 補給庫、兵工廠、生產、偵查後才知道玩家主堡、7 分鐘內打到玩家基地、決策耗時；之後兩邊都是電腦快轉一整場（`rtsSim`＋`rtsFogTick`，不算繪），40 分鐘內分出勝負（R1 時是 25 分；R2 的相剋表讓單位互打變快、建築相對耐打，實測 11～32 分）。
 - **實測**（R1，只有卡斯特隆兩個兵種）：決策平均 0.04～0.15 ms，偶爾 1～3 ms（建築找位置、垃圾回收）；`rtsOrder` 第一次走向新目標時算流場 5～10 ms（核心，`ordMs` 另計）。普通對不動的玩家：第一次進攻 4:15～6:05、6～8 分鐘拆光；簡單 7:00～8:00 才進攻。電腦對電腦（普通）多數 12～26 分鐘分出勝負（一場比賽的路徑計算有時間預算，結果不是完全固定）。
 - 核心的配合（mech-rts.js）：`rtsFight` 在高低差大、地形擋住射線時（`rtsTerrainBlocked`，0.5 秒檢查一次）射程內也再靠近，不會在斷崖下對著高台上的建築空打。
 
 ## 13. R2 卡斯特隆完整：實作規格
 
-> R2 由 5 個 agent 平行實作（13.1），電腦對手的增補（13.9）在前 5 包合併之後做第二輪。介面以這一節為準，可以加欄位、不要改名；實作中有出入時更新這一節。數值都是暫定、試玩後再調。
+> **A 包已完成，實作結果與對這一節的修改見 13.12。** R2 由 5 個 agent 平行實作（13.1），電腦對手的增補（13.9）在前 5 包合併之後做第二輪。介面以這一節為準，可以加欄位、不要改名；實作中有出入時更新這一節。數值都是暫定、試玩後再調。
 > R2 的驗收：玩家能用卡斯特隆打完一場完整的遭遇戰（三階科技、全部兵種與建築、3 位英雄＋酒館、道具、野怪、親自駕駛），普通電腦也會用英雄、升科技、打野；`npm run bench:rts -- --rts --hp --hud=rts --counts=120` 在加上 6 個英雄與全部野怪營地時 near 仍有 50 FPS 以上（R0 第三輪是 58.8）。
 
 ### 13.1 檔案歸屬與分工
@@ -710,6 +712,45 @@ R.butler = { gather: true, loop: true, depot: true, defend: true, follow: false 
 
 - 既有的 `testRtsCore`、`testRtsAi`、`testRtsFog`、`testRtsInput`、`testRtsLod` 要繼續通過（R1 的單位數值不改；`RTS_BLD_RES` 換成相剋表後 `testRtsCore` 的建築受傷檢查由 A 更新）。
 - 效能：`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps`（A 加這兩個參數：每隊 3 個 10 級英雄、生成全部營地），near ≥ 50 FPS，結果記進第 8.3 節。
+
+### 13.12 A 包（核心與資料）的實作結果與規格的修改
+
+> A 包已完成（2026-10-17）。B～E 以這一節為準接上；和 13.1～13.10 不同的地方都列在「規格的修改」。
+
+- **檔案**：`data/rts-combat.js`（新）、`data/rts-heroes.js`／`rts-items.js`／`rts-neutral.js`（空殼：C、D 填內容；經驗表、XP 常數已照 13.4 填好）、`data/rts-units.js`（卡斯特隆全部定義、`RTS_ABILS`、合併其他包的定義）、`game/rts.js`、`game/rts-orders.js`、`game/game.js`（`isHostile`／`hostilesOfEnt` 的 RTS 分支）、`scripts/rts-bench.js`（`--heroes`、`--camps`）、`scripts/smoke-rts-core.js`（`testRtsTech`）。另外為了不讓既有的東西壞掉，動了別包檔案的幾行（各包接手時保留或改寫）：`entities/mech-rts.js` 的 `rtsRange`／`rtsFire`（B）、`game/rts-hud.js` 的 `rtsWhyNot`／`rtsCardItems`／`rtsCardAct`（E）、`game/rts-ai.js` 的中立隊伍（F）、`game/rts-fog.js` 的 `rtsFogEnemies`／`rtsFogKnown`（不屬於任何包）。
+- **核心 API（rts.js，新增）**：
+  - 科技：`rtsTier(t)`、`rtsResLv(t, id)`、`rtsHasBld(t, 建築 id)`（升級過的主堡也算）、`rtsReqWhy(t, D)`（D＝定義、卡片或任何有 `req` 的物件；英雄另外看 `rtsHeroWhy`）、`rtsTierName(t, tier)`、`rtsUpgrade(b, toId)`、`rtsResearch(b, id)`、`rtsResearchInfo(t, id, b?)`→`{ lv, max, next: { cost, time, tier }, why }`（HUD 與電腦用）、`rtsTechDone(t, id, lv, b)`（升級與研究完成都呼叫：`T.tech.log.push({ id, lv, t })`、玩家的事件與訊息）。
+  - 數值層：`rtsBaseStats(e)`（定義的基準＋武器槽換算）、`rtsModsApply(e)`、`rtsChangeDef(e, defId)`（換定義、保留血量比例）、`rtsBuff(e, { src, ...欄位 }, 秒)`（加一筆 buff，同一個 src 取代）、`rtsModsTick(dt)`（rtsSim 每格：regen、每 0.5 秒清過期的 buff、民兵到期）。
+  - 傷害：`rtsHit(t, dmg, impact, src, atk, at?)`→實際扣的血量、`rtsSplash(x, z, r, dmg, impact, src, atk, team?)`→命中數（沒有 src 時用 team）、`rtsAtkOf(from, wid, attr)`、`rtsDmgK(atk, t)`。
+  - 其他：`rtsGrant(t, ore, coral)`（不套維持費）、`rtsBldRange(b)`（防禦塔與要塞化的主堡；0＝不會攻擊）、`rtsMilitia(hq)`／`rtsDemob(hq)`／`rtsDemobUnit(e)`、`rtsAutoSpot(t, defId, maxR = 60)`（主基地旁、同一個平台、四周留 2 m、不擋主堡與礦脈之間的路；找不到時放寬；E 的自動管家用）、`rtsHeroPrice(t, heroId)`、`rtsHeroWhyDefault(t, heroId)`、`rtsAddEnt(e, x, z)`（`rtsSpawn`／`rtsSpawnBld` 用：清單、空間索引、其他隊伍的 `R.hostile` 立刻加進去）、`rtsHostileRebuild()`。
+- **給各包的掛勾（rts.js 已經呼叫，沒實作時略過）**：
+
+| 包 | 方法 | 呼叫的地方 |
+|---|---|---|
+| B | `b.rtsTowerAI(dt)` | `rtsBuildings`：蓋好、`rtsBldRange(b) > 0` 的建築（防禦塔；研究要塞化後 T2 起的主堡，攻擊用定義的 `fortGun`） |
+| B | `b.model.setTier(1～3)` | `rtsSpawnBld`（定義有 `tier`）、`rtsUpgradeDone` |
+| B | `e.rtsMorph(defId)`（MechEntity 方法） | `rtsMilitia`／`rtsDemobUnit`：換外觀（組裝），在 `rtsChangeDef` 之前呼叫；數值由 A 換 |
+| C | `rtsHeroInit()`、`rtsHeroTick(dt)`、`rtsHeroClear()` | 開局、rtsSim 每格、rtsClear |
+| C | `rtsHeroSpawned(e, q)` | `rtsTrained`：生產完成的是英雄（q＝佇列項目，`q.revive`＝復活） |
+| C | `rtsXpOnKill(e, from)`、`rtsHeroDied(e)` | `rtsOnDeath` 開頭（`rtsQuiet` 的不算經驗） |
+| C | `rtsHeroWhy(t, heroId)`、`rtsHeroCost(t, heroId)`、`rtsHeroReviveCost(t, heroId)`→`{ cost, time }` | `rtsReqWhy`／`rtsQueue`（沒有時用 A 的預設：同一位一個、最多 3、第 n 位要 Tn；第 1 位免費、之後 425／100；復活 155 礦石 15 秒的暫定值） |
+| D | `rtsNeutralInit()`、`rtsNeutralTick(dt)`、`rtsNeutralClear()`、`rtsLootOnKill(e, from)` | 開局、每格、rtsClear、rtsOnDeath |
+| E | `rtsPilotStep(dt)`、`rtsPilotView(dt)`、`rtsPilotExit('clear')`、`rtsButlerTick(dt)` | rtsSim 單位迴圈之前（迴圈略過 `e.rtsPiloted`）、rtsTick（`R.pilot` 時取代 `rtsCamUpdate`）、rtsClear（`R.pilot` 時）、每格 |
+
+- **規格的修改**：
+  - **武器槽的傷害**：`dps` 不再換算成 `e.dmgMul`，改成每個開火槽的倍率 `e.rtsSlotK[槽]`（`slots` 裡沒有 `slotDps` 的槽合計＝`dps`；`slotDps: { 槽: dps }` 的槽各自換算），`mech-rts.js` 的 `rtsFire` 開火時暫時乘上（已改好）。`e.dmgMul` 現在只是數值層的傷害倍率（基準 1）：B、C 的技能傷害要自己乘 `e.dmgMul`。
+  - **新的定義欄位**：`slotDps`、`slotAtk`（`{ 槽: atk }`，例：裝甲車的加特林是實彈；攻擊類型依開火的武器 id 查 `e.rtsAtkBy`）、`slotAa`（`{ 槽: aa }`）；`rtsFire` 依 `slotAa`／`aa` 過濾目標是不是空中（已改好；`rtsScan` 的過濾還是 B 的）。新兵種的 `rof`（13.3 的表沒有，暫定）：民兵 0.4、迫擊砲 2.4、重踏 0.6、裝甲車 1.2、自走砲 3、直升機 0.2、起重機砲台 2.5、防空砲塔 0.5。
+  - **數值層的欄位**比 13.3 多：倍率 `dmg`、`rof`（射速，>1 較快；`e.rtsRofK`＝1／rof 是開火間隔的倍率，`rtsFire` 已乘）、`speed`、`taken`（受到的傷害，標定用）、`imp`（受到的衝擊，鋼鐵意志用）、`hpK`（最大血量倍率，要塞化用）、`splash`（範圍半徑，`e.rtsSplashK`）；加算 `armor`、`range`、`sight`、`regen`、`hp`（最大血量加算，英雄成長用）。最大血量＝(基準＋hp)×hpK。合併結果另存 `e.rtsM`（HUD）。研究的 `up` 層在每次 `rtsModsApply` 依隊伍的研究重算（不必另外寫）。
+  - **傷害流程**：`'none'` 確實不套零件的 `defs` 與 `res`（`defCut('none')`＝0），所以照 13.3 以 `'none'` 交給原本的 `takeDamage`；`impact` 也乘 `e.rtsImpK`。攻擊類型的優先順序：`rtsHit` 指定的 > 來源的 `rtsAtkBy[武器 id]` > 來源定義的 `atk` > 依屬性（kin／exp／en，'none' 不看相剋與護甲）。`RTS_BLD_RES` 拿掉、盾牌 MT 的 `res` 拿掉。失衡的直擊補正照舊依武器。
+  - **英雄的生產**：`rtsQueue(b, heroId, { revive })`（有 `heroes: true` 的建築＝主堡三階，英雄的 id 不必列在 `trains`）；佇列項目都帶實際付的 `cost`（取消照它退），可以有 `time`、`pop` 覆寫定義（復活）。生產卡片 `{ k: 'hero', id }` 的 E 包處理：`rtsQueue(主堡, id, { revive: 已陣亡 })`。
+  - **研究與升級的佇列項目**：`{ id, t, on: true, res: true, lv, time, cost }`／`{ id, t, on: true, upg: true, time, cost }`；不佔人口。`rtsRecount` 同時算層級（`T.tech.tier`＝蓋好的、有 `heroes` 的建築的最高 `tier`）。
+  - **民兵**：用定義 `c_militia`（`militia: true`，不能生產）取代 13.3 的「換組裝」：`rtsMilitia` 把主堡 45 m 內的工人 `rtsChangeDef` 成 `c_militia`（記下 `e.rtsMilFrom`、`e.rtsMilT` 到期時間、`e.rtsMilMine`），到期或解除時換回並回去採集。`rtsMorph` 改成 MechEntity 方法 `e.rtsMorph(defId)`（B，只管外觀）。
+  - **防禦塔的指令**：`rtsOrder` 對有 `range` 的建築接受 `attack`／`stop`（寫 `b.orders`，B 的 `rtsTowerAI` 讀 `b.orders[0]`）。
+  - **技能資料** `RTS_ABILS`（`data/rts-units.js`：`target` 'point'｜'unit'｜'self'、`range`、`coral`、`cd`、`auto`、`req`、`desc`），單位定義的 `abil` 是它的 id；`rtsOrder` 的 `ability`：`target 'self'` 的給全部會的單位，其他給最近、沒在冷卻（`e.rtsCd[ab] > R.t` 視為冷卻中，B 寫到期的局內時間）的一台；英雄（`e.hero`）一律轉過去由 C 檢查。`pickup`／`shop` 只給英雄。
+  - **中立隊伍**：`RTS_NEUTRAL`＝2、`team: 'neutral'`、`RTS_TEAM_COLORS[2]`（黃）；`R.stats` 也有第 3 筆。`rtsFogEnemies(t, withNeutral = false)`、`rtsFogKnown(t, withNeutral = false)` 預設**不含**中立（電腦對手不會把打不壞的酒館當成進攻目標；F 打野時傳 true）。迷霧仍替中立隊伍算視野（野怪「看得到」的單位不會被設成 noLock）。
+  - **卡片**：卡片可以有 `req`（盾牆的 `r_wall`），HUD 以 `rtsReqWhy(隊伍, 卡片)` 灰掉。補給商店 `c_market` 的卡片留空（C／E 依 `RTS_SHOP` 產生），英雄子選單的三格已經放在主堡的 `menus.hero`。HUD 已經能處理 `upgrade`、`research`（顯示級數與下一級的費用）、`militia`、`demob`；其他新動作（`hero`、`ability`、`learn`、`pilot`、`loop`、`buy`、`hire`）是 E 的。
+  - **電腦對電腦**：相剋表讓單位互打變快（MT 打 MT ×1.41，以前約 ×0.96）、建築的減傷和以前差不多，所以攻城變慢：普通對普通實測 11～32 分鐘分出勝負，`testRtsAi` 的上限從 25 分改成 40 分（F 的第二輪目標仍是 30 分）。
+- **實測**：`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps`（RTX 5070 Ti Laptop）：120 台＋6 個英雄＋26 台營地的野怪 near 53.9 FPS（1% low 37.7）、更新 10.3 ms、渲染 7.8 ms、379 draw calls。英雄用 `ac_bastion`／`ac_rain`／`ac_piledriver`，營地是地圖外圈 8 個不動的編成（D 包有 `rtsCampSpawnAll()` 時改用它）。
 
 ### 13.11 之後各期的地圖主題
 

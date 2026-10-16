@@ -59,12 +59,12 @@ Object.assign(Game.prototype, {
     const cfg = R.cfg || {};
     if (cfg.aiBoth || this.rtsAiBoth) {
       cfg.aiBoth = true;
-      for (const T of R.teams) T.ai = true;
+      for (const T of R.teams) if (!T.neutral) T.ai = true;
     }
     const plan = this.world.rts;
     const diffs = cfg.diffs || this.rtsAiDiffs || null; // 兩邊都是電腦時可以各自指定難度
     for (const T of R.teams) {
-      if (!T.ai) continue;
+      if (!T.ai || T.neutral) continue;
       const diff = (diffs && diffs[T.id]) || cfg.diff || 'normal';
       const P = RTS_AI_DIFFS[diff] || RTS_AI_DIFFS.normal;
       const roles = RTS_AI_ROLES[T.faction] || RTS_AI_ROLES.castron;

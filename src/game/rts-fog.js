@@ -612,24 +612,33 @@ Object.assign(Game.prototype, {
     return this.rtsFogSees(F, T, ent);
   },
   // 電腦 AI：自己看得到的敵方單位與建築
-  rtsFogEnemies(teamId) {
+  // 中立隊伍（野怪、中立建築：R.teams[i].neutral）預設不算；withNeutral＝也列出（電腦對手的打野，F 包）
+  rtsFogEnemies(teamId, withNeutral = false) {
     const R = this.rts;
     if (!R) return [];
-    return (R.units || []).filter((e) => e && !e.dead && e.rtsTeam !== teamId && this.rtsVisible(teamId, e));
+    const neu = (e) => !withNeutral && R.teams && R.teams[e.rtsTeam] && R.teams[e.rtsTeam].neutral;
+    return (R.units || []).filter(
+      (e) => e && !e.dead && e.rtsTeam !== teamId && !neu(e) && this.rtsVisible(teamId, e),
+    );
   },
   // 電腦 AI：記得的敵方建築（看過、還沒確認被摧毀的；位置是最後看到的）
-  rtsFogKnown(teamId) {
-    const F = this.rts && this.rts.fog;
+  // 中立建築（酒館、商店、傭兵營）預設不算；withNeutral＝也列出
+  rtsFogKnown(teamId, withNeutral = false) {
+    const R = this.rts;
+    const F = R && R.fog;
     const T = F && F.teams.find((q) => q.id === teamId);
     if (!T) return [];
-    return [...T.mem.values()].map((r) => ({
-      id: r.id,
-      def: r.def,
-      team: r.team,
-      x: r.x,
-      z: r.z,
-      gone: r.gone,
-    }));
+    const neu = (r) => !withNeutral && R.teams && R.teams[r.team] && R.teams[r.team].neutral;
+    return [...T.mem.values()]
+      .filter((r) => !neu(r))
+      .map((r) => ({
+        id: r.id,
+        def: r.def,
+        team: r.team,
+        x: r.x,
+        z: r.z,
+        gone: r.gone,
+      }));
   },
   // 小地圖：整張格子（vis＝1 可見、exp＝1 探索過；W×W，(gx, gz) → gz×W＋gx，格子左上角 x＝−S＋gx×cell）
   rtsFogGrid(teamId) {

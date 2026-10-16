@@ -14,18 +14,33 @@ import { clamp } from '../core/math.js';
 import { escHtml } from '../core/html.js';
 import { SpatialHash } from '../core/spatial.js';
 import {
-  RTS_BLD_RES,
   RTS_BUILD_ASSIST,
   RTS_DEFS,
   RTS_DIFFS,
   RTS_FACTIONS,
   RTS_GATHER,
+  RTS_HERO_COST,
+  RTS_HERO_MAX,
+  RTS_MILITIA,
+  RTS_NEUTRAL,
   RTS_POP_MAX,
   RTS_QUEUE_MAX,
   RTS_REPAIR,
   RTS_START,
+  bldSatisfies,
+  reqOf,
   upkeepOf,
 } from '../data/rts-units.js';
+import {
+  RTS_RESEARCH,
+  armorK,
+  attrAtk,
+  atkAttr,
+  emptyMods,
+  mergeMods,
+  researchMods,
+  typeK,
+} from '../data/rts-combat.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import {
   CORAL_GLOW,
@@ -36,7 +51,7 @@ import {
   rtsPal,
   setMineAmount,
 } from '../render/rts-models.js';
-import { propShape } from '../world/prop-hit.js';
+import { propShape, targetDist } from '../world/prop-hit.js';
 import { RTS_THEMES, planRtsMap } from '../world/rts-map.js';
 import { World } from '../world/world.js';
 import { Game } from './game.js';
@@ -281,6 +296,8 @@ Object.assign(Game.prototype, {
         ai: i !== ME,
         alive: true,
         upk: 0,
+        tech: { tier: 1, res: {}, busy: {} }, // 13.2：主堡層級、研究的級數、研究中的項目
+        heroes: [], // 英雄紀錄（C 包，13.4）
       })),
       units: [],
       byId: new Map(),
@@ -294,11 +311,34 @@ Object.assign(Game.prototype, {
       over: null,
       overT: 0,
       pathQ: [],
-      stats: [0, 1].map(() => ({ made: 0, lost: 0, killed: 0, ore: 0, coral: 0, blds: 0 })),
+      stats: [0, 1, 2].map(() => ({ made: 0, lost: 0, killed: 0, ore: 0, coral: 0, blds: 0 })),
+      hostile: [[], [], []], // 每個隊伍的敵對實體（rtsSim 每格重建；game.js 的 hostilesOfEnt 用它）
+      items: [], // 地上的道具（C 包）
+      camps: [], // 野怪營地（D 包）
+      neutrals: [], // 中立建築（D 包）
+      pilot: null, // 親自駕駛（E 包，13.8）
+      butler: { gather: true, loop: true, depot: true, defend: true, follow: false }, // 自動管家（E 包）
+      modT: 0, // 數值層的 buff 到期檢查（每 0.5 秒）
       g: new THREE.Group(),
       perf: { ai: 0, sim: 0, n: 0 },
       endT: 0,
     });
+    // 中立隊伍（13.6）：野怪、中立建築；不算進勝敗、人口、戰績
+    R.teams[RTS_NEUTRAL] = {
+      id: RTS_NEUTRAL,
+      team: 'neutral',
+      faction: 'neutral',
+      neutral: true,
+      ore: 0,
+      coral: 0,
+      pop: 0,
+      cap: 0,
+      ai: false,
+      alive: true,
+      upk: 0,
+      tech: { tier: 1, res: {}, busy: {} },
+      heroes: [],
+    };
     R.g.userData.helper = true;
     this.scene.add(R.g);
     // 資源點
@@ -352,6 +392,7 @@ Object.assign(Game.prototype, {
     });
     // 兩邊的主堡＋工人
     for (const T of R.teams) {
+      if (T.neutral) continue;
       const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
       const base = plan.bases.find((b) => b.owner === T.id) || plan.bases[T.id];
       const main = R.mines.find(
@@ -374,6 +415,10 @@ Object.assign(Game.prototype, {
       }
     }
     this.rtsRecount();
+    // 其他包的開局（還沒實作時略過）：中立（野怪營地、酒館、商店、傭兵營）、英雄
+    if (this.rtsNeutralInit) this.rtsNeutralInit();
+    if (this.rtsHeroInit) this.rtsHeroInit();
+    this.rtsHostileRebuild();
     // 鏡頭、迷霧、輸入、HUD、電腦對手（各自的檔案；還沒有時略過）
     const cam = this.camera;
     cam.far = 1400;
@@ -424,17 +469,21 @@ Object.assign(Game.prototype, {
     const R = this.rts,
       D = RTS_DEFS[defId],
       T = R.teams[teamId];
-    if (!D) return null;
+    if (!D || !T) return null;
     if (D.kind === 'bld') return this.rtsSpawnBld(teamId, defId, x, z, yaw, 1);
     const pal = rtsPal(T.faction, teamId);
     const e = new MechEntity(this, { ...D.asm }, pal, {
       team: T.team,
       name: D.name,
       ai: D.ai || 'rts',
-      scale: D.scale,
-      radius: D.radius / D.scale,
-      res: D.res,
+      scale: D.scale || 1,
+      radius: (D.radius || 1.2) / (D.scale || 1),
       stabMul: 3,
+      modelKind: D.modelKind,
+      vehKey: D.vehKey,
+      flying: D.flying,
+      hoverH: D.hoverH,
+      buildModel: D.buildModel ? () => D.buildModel(pal) : undefined,
     });
     e.isPlayer = false;
     e.rtsTeam = teamId;
@@ -451,15 +500,10 @@ Object.assign(Game.prototype, {
       nav: null,
       cur: undefined,
     };
-    e.maxHp = e.hp = D.hp;
-    e.speedMul = D.speed / Math.max(1, e.stats.speed);
-    // 傷害：依主武器換算成定義的 dps（射速取定義的 rof 與武器的 rof 較慢者）
-    const wd = e.weapons.rarm && e.weapons.rarm.def;
-    if (wd && wd.dmg && D.dps) {
-      const per = wd.dmg * (wd.npcK || 1) * (wd.pellets || 1);
-      e.dmgMul = D.dps / (per / Math.max(D.rof || 0, wd.rof || 0.1));
-    }
-    const y = this.world.groundAt(x, z, this.world.terrainHeight(x, z) + 2);
+    this.rtsBaseStats(e);
+    e.hp = e.maxHp;
+    const gy = this.world.groundAt(x, z, this.world.terrainHeight(x, z) + 2);
+    const y = D.flying ? this.world.terrainHeight(x, z) + (D.hoverH || 6) : gy;
     e.pos.set(x, y, z);
     e.yaw = e.aimYaw = yaw;
     e.mesh.position.copy(e.pos);
@@ -467,11 +511,90 @@ Object.assign(Game.prototype, {
     if (D.worker) addWorkerKit(e.model, pal);
     this.rtsHook(e);
     (teamId === ME ? this.allies : this.enemies).push(e);
-    R.units.push(e);
-    R.byId.set(e.id, e);
-    R.hash.insert(e, x, z);
+    this.rtsAddEnt(e, x, z);
     R.stats[teamId].made++;
     return e;
+  },
+  // 定義的基準數值（rtsSpawn、換定義（升級、民兵）時）：e.rtsBase、攻擊與護甲類型、各武器槽的傷害倍率，再套數值層。
+  // 傷害：每個 slots 的武器槽依「武器的單發傷害 ÷ 兩發間隔（定義的 rof 與武器的 rof 取慢的）」換算，
+  // 合計＝定義的 dps（slotDps 另外指定的槽各自換算、不算進 dps）；結果是 e.rtsSlotK[槽]（mech-rts.js 開火時乘上）
+  rtsBaseStats(e) {
+    const D = RTS_DEFS[e.rtsDef];
+    if (!D) return;
+    e.rtsArm = D.arm || (e.bld ? 'fort' : 'med');
+    e.rtsAtkBy = null;
+    e.rtsSlotK = null;
+    const base = {
+      hp: D.hp,
+      speedMul: 1,
+      armor: D.armor || 0,
+      sight: D.sight || 0,
+    };
+    if (!e.bld) {
+      base.speedMul = (D.speed || 6) / Math.max(1, e.stats.speed);
+      const slots = D.slots || ['rarm'];
+      const dpsOf = (s) => {
+        const wd = e.weapons[s] && e.weapons[s].def;
+        if (!wd || !wd.dmg) return 0;
+        const per = wd.dmg * (wd.npcK || 1) * (wd.pellets || 1);
+        return per / Math.max(D.rof || 0, wd.rof || 0.1);
+      };
+      const K = {};
+      let main = 0;
+      for (const s of slots) if (!(D.slotDps && D.slotDps[s])) main += dpsOf(s);
+      for (const s of slots) {
+        const d = dpsOf(s);
+        if (!d) continue;
+        if (D.slotDps && D.slotDps[s]) K[s] = D.slotDps[s] / d;
+        else if (D.dps && main > 0) K[s] = D.dps / main;
+      }
+      e.rtsSlotK = K;
+      if (D.slotAtk) {
+        e.rtsAtkBy = {};
+        for (const s in D.slotAtk) {
+          const wd = e.weapons[s] && e.weapons[s].def;
+          if (wd) e.rtsAtkBy[wd.id] = D.slotAtk[s];
+        }
+      }
+    }
+    e.rtsBase = base;
+    if (!e.rtsMods) e.rtsMods = emptyMods();
+    this.rtsModsApply(e);
+  },
+  // 數值層（docs 13.3）：研究（up，依隊伍的研究即時算）＋英雄成長、道具、光環、buff → 實體的數值。
+  // 血量依比例換算；改了 e.rtsMods 之後呼叫
+  rtsModsApply(e) {
+    const R = this.rts;
+    if (!R || !e || !e.rtsBase) return;
+    const D = RTS_DEFS[e.rtsDef] || {};
+    const T = R.teams[e.rtsTeam];
+    const M = e.rtsMods || (e.rtsMods = emptyMods());
+    M.up = researchMods(T && T.tech ? T.tech.res : null, D);
+    const m = mergeMods(M, R.t);
+    const B = e.rtsBase;
+    e.dmgMul = m.dmg;
+    e.speedMul = B.speedMul * m.speed;
+    e.rtsArmor = B.armor + m.armor;
+    e.rtsRangeAdd = m.range;
+    e.rtsVision = B.sight + m.sight;
+    e.rtsRegen = m.regen;
+    e.rtsRofK = 1 / Math.max(0.05, m.rof); // 開火間隔的倍率（mech-rts.js）
+    e.rtsTakenK = m.taken;
+    e.rtsImpK = m.imp;
+    e.rtsSplashK = m.splash;
+    const max = Math.max(1, (B.hp + m.hp) * m.hpK);
+    if (e.maxHp && e.maxHp !== max && e.hp > 0) e.hp = (e.hp / e.maxHp) * max;
+    e.maxHp = max;
+    e.rtsM = m; // 合併的結果（HUD 顯示用）
+  },
+  // 換定義（主堡升級、民兵動員／解除）：保留血量比例
+  rtsChangeDef(e, defId) {
+    const D = RTS_DEFS[defId];
+    if (!D) return;
+    e.rtsDef = defId;
+    e.name = D.name;
+    if (e.bld) e.bld.def = defId;
+    this.rtsBaseStats(e);
   },
   // 建築：progress＜1 時是工地（鷹架、血量從 10% 長起來）
   rtsSpawnBld(teamId, defId, x, z, yaw = 0, progress = 1) {
@@ -488,9 +611,8 @@ Object.assign(Game.prototype, {
       name: D.name,
       ai: 'bld',
       modelKind: 'rts',
-      buildModel: () => buildRtsBuilding(defId, pal),
+      buildModel: D.buildModel ? () => D.buildModel(pal) : () => buildRtsBuilding(defId, pal),
       radius: Math.max(fw, fd) / 2,
-      res: RTS_BLD_RES,
     });
     e.isPlayer = false;
     e.noPush = true;
@@ -498,9 +620,14 @@ Object.assign(Game.prototype, {
     e.rtsDef = defId;
     e.orders = [];
     e.acsMax = 1e9;
-    e.maxHp = D.hp;
-    e.hp = progress >= 1 ? D.hp : Math.max(1, D.hp * 0.1);
     e.bld = { def: defId, progress, queue: [], rally: null, builders: new Set(), vent: null, w: fw, d: fd };
+    this.rtsBaseStats(e);
+    e.hp = progress >= 1 ? e.maxHp : Math.max(1, e.maxHp * 0.1);
+    if (D.inv) {
+      // 中立建築：打不壞、不能鎖定（D 包）
+      e.rtsInv = true;
+      e.noLock = true;
+    }
     // 地面：佔地四角與中心的最低點（本體略微埋進地面）
     const th = (a, b) => w.terrainHeight(a, b);
     const gy = Math.min(
@@ -514,7 +641,8 @@ Object.assign(Game.prototype, {
     e.yaw = e.aimYaw = yaw;
     e.mesh.position.copy(e.pos);
     e.mesh.rotation.y = yaw;
-    e.model.setProgress(progress);
+    if (e.model.setProgress) e.model.setProgress(progress);
+    if (e.model.setTier && D.tier) e.model.setTier(D.tier);
     const ob = { kind: 'box', x, z, w: fw, d: fd, y: gy - 0.5, top: gy + D.height, rtsBld: e };
     w.obstacles.push(ob);
     e.rtsOb = ob;
@@ -529,24 +657,130 @@ Object.assign(Game.prototype, {
     }
     this.rtsHook(e);
     (teamId === ME ? this.allies : this.enemies).push(e);
-    R.units.push(e);
-    R.byId.set(e.id, e);
-    R.hash.insert(e, x, z);
+    this.rtsAddEnt(e, x, z);
     R.stats[teamId].blds++;
     return e;
   },
-  // 實體的 takeDamage／die 換成 RTS 版
+  // 實體的 takeDamage／die 換成 RTS 版。傷害（docs 13.3）：
+  //   dmg（已含來源的 dmgMul）× 相剋表[來源的攻擊類型][自己的護甲類型] × 護甲（armorK）× 受到的傷害倍率（數值層 taken），
+  //   再以屬性 'none' 交給原本的 takeDamage（不套零件的防禦與弱點；盾牌 MT 正面大盾的 specialDefense 照舊）。
+  //   攻擊類型：rtsHit 指定的 > 來源定義的 slotAtk（依武器）> 來源定義的 atk > 依屬性推算（kin／exp／en）。
+  //   e.rtsInv（中立建築）忽略傷害。
   rtsHook(e) {
     const td = MechEntity.prototype.takeDamage;
-    e.takeDamage = function (dmg, impact, from, ...rest) {
+    const g = this;
+    e.takeDamage = function (dmg, impact, from, at, dir, melee, wid, attr) {
+      const atk = this._rtsAtk || g.rtsAtkOf(from, wid, attr);
+      this._rtsAtk = null;
+      if (this.rtsInv || this.dead) return;
       if (from && this.rtsHurtBy) this.rtsHurtBy(from);
-      return td.call(this, dmg, impact, from, ...rest);
+      const k = g.rtsDmgK(atk, this);
+      return td.call(this, dmg * k, (impact || 0) * (this.rtsImpK || 1), from, at, dir, melee, wid, 'none');
     };
     e.die = function (from) {
       if (this.dead) return;
       this.dead = true;
       this.rtsDie(from);
     };
+  },
+  // 來源的攻擊類型
+  rtsAtkOf(from, wid, attr) {
+    if (from && from.rtsAtkBy && wid && from.rtsAtkBy[wid]) return from.rtsAtkBy[wid];
+    const D = from && from.rtsDef && RTS_DEFS[from.rtsDef];
+    if (D && D.atk) return D.atk;
+    return attrAtk(attr);
+  },
+  // 對 t 的傷害倍率：相剋 × 護甲 × 受到的傷害倍率
+  rtsDmgK(atk, t) {
+    if (atk === 'none') return t.rtsTakenK || 1;
+    return typeK(atk, t.rtsArm) * armorK(t.rtsArmor || 0) * (t.rtsTakenK || 1);
+  },
+  // 技能與範圍傷害的入口（docs 13.3）：atk 明確指定、src 是施放者（擊破的經驗照常算給它）；回傳實際扣的血量
+  rtsHit(t, dmg, impact, src, atk = 'kin', at = null) {
+    if (!t || t.dead || t.rtsInv) return 0;
+    const hp0 = t.hp;
+    const c = at || t.center();
+    let dir = null;
+    if (src && src.pos) {
+      dir = new THREE.Vector3(t.pos.x - src.pos.x, 0, t.pos.z - src.pos.z);
+      if (dir.lengthSq() > 1e-6) dir.normalize();
+      else dir = null;
+    }
+    t._rtsAtk = atk;
+    t.takeDamage(dmg, impact || 0, src || null, c, dir, undefined, undefined, atkAttr(atk));
+    t._rtsAtk = null;
+    return Math.max(0, hp0 - Math.max(0, t.hp));
+  },
+  // 範圍傷害：中心 100% 線性降到邊緣 40%（建築以外形最近點算距離）；team＝攻擊方的隊伍（沒有 src 時用）；
+  // 只打敵對的、高度差在半徑＋3 m 以內（空中單位不會被地面爆炸波及）。回傳命中的數量
+  rtsSplash(x, z, r, dmg, impact, src, atk = 'exp', team) {
+    const R = this.rts;
+    if (!R || !(r > 0)) return 0;
+    const tm = src && src.rtsTeam !== undefined ? src.rtsTeam : team;
+    const y = this.world.terrainHeight(x, z);
+    const p = new THREE.Vector3(x, y + 0.5, z);
+    const list = this.rtsNear(x, z, r + 12).slice();
+    let n = 0;
+    for (const t of list) {
+      if (!t || t.dead || t.rtsInv || t.rtsTeam === tm) continue;
+      const d = t.shape
+        ? targetDist(t, p)
+        : Math.max(0, Math.hypot(t.pos.x - x, t.pos.z - z) - (t.radius || 1));
+      if (d > r) continue;
+      if (!t.bld && Math.abs(t.pos.y - y) > r + 3) continue;
+      const k = 1 - 0.6 * Math.min(1, d / r);
+      this.rtsHit(t, dmg * k, (impact || 0) * k, src, atk);
+      n++;
+    }
+    return n;
+  },
+  // 登記新的實體：清單、編號、空間索引、其他隊伍的敵對名單（這一格之內新生成的也打得到）
+  rtsAddEnt(e, x, z) {
+    const R = this.rts;
+    R.units.push(e);
+    R.byId.set(e.id, e);
+    R.hash.insert(e, x, z);
+    for (let i = 0; i < R.teams.length; i++) if (i !== e.rtsTeam && R.hostile[i]) R.hostile[i].push(e);
+  },
+  // 每個隊伍的敵對實體（不同隊、活著）；rtsSim 每格重建
+  rtsHostileRebuild() {
+    const R = this.rts;
+    const H = R.hostile;
+    for (let i = 0; i < R.teams.length; i++) (H[i] || (H[i] = [])).length = 0;
+    for (const e of R.units) {
+      if (e.dead) continue;
+      for (let i = 0; i < R.teams.length; i++) if (i !== e.rtsTeam) H[i].push(e);
+    }
+  },
+  // 數值層的維護（rtsSim 每格）：每秒回復（regen）、每 0.5 秒清掉過期的 buff 並重算、民兵到期
+  rtsModsTick(dt) {
+    const R = this.rts;
+    for (const e of R.units)
+      if (!e.dead && e.rtsRegen > 0 && e.hp < e.maxHp && !(e.bld && e.bld.progress < 1))
+        e.hp = Math.min(e.maxHp, e.hp + e.rtsRegen * dt);
+    R.modT -= dt;
+    if (R.modT > 0) return;
+    R.modT = 0.5;
+    for (const e of R.units) {
+      if (e.dead || !e.rtsMods) continue;
+      const B = e.rtsMods.buff;
+      if (B && B.length && B.some((b) => b.t !== undefined && b.t <= R.t)) {
+        e.rtsMods.buff = B.filter((b) => !(b.t !== undefined && b.t <= R.t));
+        this.rtsModsApply(e);
+      }
+      if (e.rtsMilT !== undefined && R.t >= e.rtsMilT) this.rtsDemobUnit(e);
+    }
+  },
+  // 加一筆 buff（B、C 包的技能）：b＝{ src, ...欄位 }、sec 秒後到期；同一個 src 取代舊的
+  rtsBuff(e, b, sec) {
+    if (!e || e.dead || !e.rtsMods) return;
+    const R = this.rts;
+    const o = { ...b, t: R.t + sec };
+    const L = e.rtsMods.buff;
+    const i = b.src !== undefined ? L.findIndex((x) => x.src === b.src) : -1;
+    if (i >= 0) L[i] = o;
+    else L.push(o);
+    this.rtsModsApply(e);
   },
   rtsEnt(id) {
     return this.rts ? this.rts.byId.get(id) || null : null;
@@ -645,15 +879,21 @@ Object.assign(Game.prototype, {
     for (const T of R.teams) {
       T.pop = 0;
       T.cap = 0;
+      if (T.tech) T.tech.tier = 1;
     }
     for (const e of R.units) {
       if (e.dead) continue;
       const T = R.teams[e.rtsTeam],
         D = RTS_DEFS[e.rtsDef];
+      if (!T || !D) continue;
       if (e.bld) {
-        if (e.bld.progress >= 1) T.cap += D.popCap || 0;
+        if (e.bld.progress >= 1) {
+          T.cap += D.popCap || 0;
+          if (D.heroes && D.tier && T.tech) T.tech.tier = Math.max(T.tech.tier, D.tier); // 層級＝蓋好的主堡的最高階
+        }
         const q = e.bld.queue[0];
-        if (q && q.on) T.pop += RTS_DEFS[q.id].pop || 0;
+        if (q && q.on && !q.upg && !q.res)
+          T.pop += q.pop !== undefined ? q.pop : (RTS_DEFS[q.id] || {}).pop || 0;
       } else T.pop += D.pop || 0;
     }
     for (const T of R.teams) {
@@ -661,15 +901,300 @@ Object.assign(Game.prototype, {
       T.upk = upkeepOf(T.pop).lv;
     }
   },
+  // 資源直接入帳（不套維持費：營地掉寶、拾荒；docs 13.6）
+  rtsGrant(teamId, ore = 0, coral = 0) {
+    const T = this.rts && this.rts.teams[teamId];
+    if (!T) return;
+    T.ore += ore;
+    T.coral += coral;
+  },
 
+  // ---------- 科技（docs 13.2） ----------
+  // 層級＝蓋好的主堡的最高階（主堡被拆光時退回剩下的最高階，沒有＝1）
+  rtsTier(teamId) {
+    const T = this.rts && this.rts.teams[teamId];
+    return T && T.tech ? T.tech.tier : 1;
+  },
+  // 研究的級數
+  rtsResLv(teamId, id) {
+    const T = this.rts && this.rts.teams[teamId];
+    return (T && T.tech && T.tech.res[id]) || 0;
+  },
+  // 有沒有蓋好的建築 want（升級過的主堡也算低階的）
+  rtsHasBld(teamId, want) {
+    for (const e of this.rts.units)
+      if (!e.dead && e.bld && e.rtsTeam === teamId && e.bld.progress >= 1 && bldSatisfies(e.rtsDef, want))
+        return true;
+    return false;
+  },
+  // 需求檢查：D＝定義、卡片或任何有 req 的物件；回傳 '' 或原因。英雄另外看數量與層級（C 包的 rtsHeroWhy 優先）
+  rtsReqWhy(teamId, D) {
+    if (!this.rts || !D) return '';
+    const r = reqOf(D);
+    if (r) {
+      if (r.tier && this.rtsTier(teamId) < r.tier)
+        return `需要 ${this.rtsTierName(teamId, r.tier)}（T${r.tier}）`;
+      for (const id of r.blds || [])
+        if (!this.rtsHasBld(teamId, id)) return '需要 ' + ((RTS_DEFS[id] && RTS_DEFS[id].name) || id);
+      for (const id of r.res || [])
+        if (!this.rtsResLv(teamId, id))
+          return '需要研究 ' + ((RTS_RESEARCH[id] && RTS_RESEARCH[id].name) || id);
+    }
+    if (D.hero && D.id) {
+      if (this.rtsHeroWhy) return this.rtsHeroWhy(teamId, D.id) || '';
+      return this.rtsHeroWhyDefault(teamId, D.id);
+    }
+    return '';
+  },
+  // 第 n 階主堡的名稱（依陣營）
+  rtsTierName(teamId, tier) {
+    const T = this.rts.teams[teamId];
+    const F = RTS_FACTIONS[T && T.faction] || RTS_FACTIONS.castron;
+    let id = F.hq;
+    for (let i = 1; i < tier && id && RTS_DEFS[id]; i++) id = RTS_DEFS[id].upTo;
+    return (id && RTS_DEFS[id] && RTS_DEFS[id].name) || '主堡';
+  },
+  // 英雄的取得條件（C 包沒有提供 rtsHeroWhy 時）：同一位只能一個、最多 3 個、第 n 個要 Tn
+  rtsHeroWhyDefault(teamId, heroId) {
+    const R = this.rts,
+      T = R.teams[teamId];
+    const have = (T.heroes || []).map((h) => h.def);
+    const queued = [];
+    for (const e of R.units)
+      if (!e.dead && e.bld && e.rtsTeam === teamId)
+        for (const q of e.bld.queue)
+          if (RTS_DEFS[q.id] && RTS_DEFS[q.id].hero && !q.revive) queued.push(q.id);
+    if (have.includes(heroId) || queued.includes(heroId)) return '已經有這位英雄';
+    const n = have.length + queued.length;
+    if (n >= RTS_HERO_MAX) return `英雄最多 ${RTS_HERO_MAX} 位`;
+    if (this.rtsTier(teamId) < n + 1) return `需要 ${this.rtsTierName(teamId, n + 1)}（T${n + 1}）`;
+    return '';
+  },
+  // 英雄的價格：第 1 位免費（只花人口），之後 425／100（C 包可以提供 rtsHeroCost 覆寫）；
+  // 復活另外由 C 包的 rtsHeroReviveCost(teamId, heroId) 決定 { cost, time }
+  rtsHeroPrice(teamId, heroId) {
+    if (this.rtsHeroCost) return this.rtsHeroCost(teamId, heroId);
+    const R = this.rts,
+      T = R.teams[teamId];
+    let n = (T.heroes || []).length;
+    for (const e of R.units)
+      if (!e.dead && e.bld && e.rtsTeam === teamId)
+        for (const q of e.bld.queue) if (RTS_DEFS[q.id] && RTS_DEFS[q.id].hero && !q.revive) n++;
+    return n === 0 ? { ore: 0, coral: 0 } : { ...RTS_HERO_COST };
+  },
+  // 研究的資訊（HUD 與電腦對手）：{ lv 目前級數, max, next（下一級的 { cost, time, tier }）, why（不能研究的原因） }
+  rtsResearchInfo(teamId, id, b = null) {
+    const Rs = RTS_RESEARCH[id];
+    const T = this.rts && this.rts.teams[teamId];
+    if (!Rs || !T) return null;
+    const lv = T.tech.res[id] || 0;
+    const max = Rs.lv.length;
+    const next = lv < max ? Rs.lv[lv] : null;
+    let why = '';
+    if (!next) why = '已完成';
+    else if (T.tech.busy[id]) why = '研究中';
+    else if (this.rtsTier(teamId) < next.tier)
+      why = `需要 ${this.rtsTierName(teamId, next.tier)}（T${next.tier}）`;
+    else if (b && b.bld && b.bld.progress < 1) why = '建築還沒蓋好';
+    else if (b && b.bld && b.bld.queue.length >= RTS_QUEUE_MAX) why = '佇列已滿';
+    else if (T.ore < next.cost.ore) why = '礦石不足';
+    else if (T.coral < next.cost.coral) why = 'Coral 不足';
+    return { lv, max, next, why };
+  },
+  // 研究：放進建築的佇列（同一隊同一項同時只能一棟在研究）
+  rtsResearch(b, id) {
+    const R = this.rts;
+    if (!R || !b || b.dead || !b.bld) return false;
+    const BD = RTS_DEFS[b.rtsDef];
+    const me = b.rtsTeam === ME;
+    if (!BD || !(BD.research || []).includes(id)) return false;
+    const inf = this.rtsResearchInfo(b.rtsTeam, id, b);
+    if (!inf || inf.why) return (me && inf && this.rtsSay(inf.why), false);
+    if (!this.rtsPay(b.rtsTeam, inf.next.cost)) return false;
+    R.teams[b.rtsTeam].tech.busy[id] = true;
+    b.bld.queue.push({
+      id,
+      t: 0,
+      on: true,
+      res: true,
+      lv: inf.lv + 1,
+      time: inf.next.time,
+      cost: inf.next.cost,
+    });
+    return true;
+  },
+  // 主堡升級（同一棟建築原地升級；期間不能生產工人，佇列只能有這一項）
+  rtsUpgrade(b, toId) {
+    const R = this.rts;
+    if (!R || !b || b.dead || !b.bld) return false;
+    const BD = RTS_DEFS[b.rtsDef],
+      U = RTS_DEFS[toId];
+    const me = b.rtsTeam === ME;
+    if (!BD || !U || BD.upTo !== toId) return false;
+    if (b.bld.progress < 1) return (me && this.rtsSay('建築還沒蓋好'), false);
+    if (b.bld.queue.length) return (me && this.rtsSay('佇列要是空的才能升級'), false);
+    const why = this.rtsReqWhy(b.rtsTeam, U);
+    if (why) return (me && this.rtsSay(why), false);
+    if (!this.rtsPay(b.rtsTeam, U.cost)) {
+      if (me) this.rtsSay(R.teams[b.rtsTeam].ore < (U.cost.ore || 0) ? '礦石不足' : 'Coral 不足');
+      return false;
+    }
+    b.bld.queue.push({ id: toId, t: 0, on: true, upg: true, time: U.time, cost: { ...U.cost } });
+    return true;
+  },
+  // 升級完成：換定義（血量依比例）、外觀換階（B 包的 setTier）、高度與命中外形
+  rtsUpgradeDone(b, toId) {
+    const D = RTS_DEFS[toId];
+    this.rtsChangeDef(b, toId);
+    if (b.rtsOb) {
+      b.rtsOb.top = b.rtsOb.y + 0.5 + D.height;
+      b.shape = propShape(this.world, b.rtsOb);
+    }
+    if (b.model.setTier && D.tier) b.model.setTier(D.tier);
+    this.rtsRecount();
+    this.rtsTechDone(b.rtsTeam, toId, D.tier || 1, b);
+  },
+  // 研究完成：級數 +1、全隊重算數值層
+  rtsResearchDone(b, q) {
+    const R = this.rts,
+      T = R.teams[b.rtsTeam];
+    T.tech.res[q.id] = Math.max(T.tech.res[q.id] || 0, q.lv || 1);
+    delete T.tech.busy[q.id];
+    for (const e of R.units) if (!e.dead && e.rtsTeam === b.rtsTeam && e.rtsBase) this.rtsModsApply(e);
+    this.rtsTechDone(b.rtsTeam, q.id, T.tech.res[q.id], b);
+  },
+  // 研究或升級完成的通知（事件、電腦對手讀 T.tech.log）
+  rtsTechDone(teamId, id, lv, b) {
+    const R = this.rts,
+      T = R.teams[teamId];
+    (T.tech.log || (T.tech.log = [])).push({ id, lv, t: R.t });
+    if (teamId !== ME) return;
+    const name = RTS_RESEARCH[id]
+      ? RTS_RESEARCH[id].name + (RTS_RESEARCH[id].lv.length > 1 ? ' ' + lv + ' 級' : '')
+      : (RTS_DEFS[id] && RTS_DEFS[id].name) || id;
+    const txt = (RTS_RESEARCH[id] ? '研究完成：' : '升級完成：') + name;
+    if (this.rtsEvent && b) this.rtsEvent(b.pos.x, b.pos.z, txt);
+    this.rtsSay(txt, 0x7ee081);
+  },
+  // 建築的攻擊距離（防禦塔＝定義的 range＋數值層；主堡研究要塞化後 T2 起 fortGun）；0＝不會攻擊
+  rtsBldRange(b) {
+    const D = RTS_DEFS[b.rtsDef];
+    if (!D || !b.bld || b.bld.progress < 1) return 0;
+    if (D.range) return D.range + (b.rtsRangeAdd || 0);
+    if (D.fortGun && this.rtsResLv(b.rtsTeam, 'r_fort')) return D.fortGun.range;
+    return 0;
+  },
+
+  // ---------- 民兵（主堡的動員；docs 13.3 的 ab_militia） ----------
+  // 主堡 RTS_MILITIA.r 內的作業 MT 變成民兵（定義 c_militia；外觀由 B 包的 e.rtsMorph(defId) 換組裝）
+  rtsMilitia(hq) {
+    const R = this.rts;
+    if (!R || !hq || hq.dead || !hq.bld || hq.bld.progress < 1 || !RTS_DEFS[hq.rtsDef].heroes) return 0;
+    const T = R.teams[hq.rtsTeam];
+    const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
+    if (!F.militia) return 0;
+    const dur = this.rtsResLv(hq.rtsTeam, 'r_militia') ? RTS_MILITIA.t2 : RTS_MILITIA.t;
+    let n = 0;
+    for (const e of R.units) {
+      if (e.dead || e.bld || e.rtsTeam !== hq.rtsTeam || !RTS_DEFS[e.rtsDef].worker) continue;
+      if (Math.hypot(e.pos.x - hq.pos.x, e.pos.z - hq.pos.z) > RTS_MILITIA.r) continue;
+      const lastMine = e.rt.lastMine !== undefined ? e.rt.lastMine : e.orders[0] && e.orders[0].mine;
+      if (e.carry && e.carry.n) e.carry = null;
+      this.rtsSetOrders(e, []);
+      e.rtsLeaveOrder(null);
+      e.rt.cur = undefined;
+      e.rtsMilFrom = e.rtsDef;
+      e.rtsMilMine = lastMine;
+      e.rtsMilT = R.t + dur;
+      if (e.rtsMorph) e.rtsMorph(F.militia);
+      this.rtsChangeDef(e, F.militia);
+      n++;
+    }
+    if (hq.rtsTeam === ME)
+      this.rtsSay(n ? `動員：${n} 台作業 MT 拿起武器` : '附近沒有作業 MT', n ? 0xffd070 : undefined);
+    return n;
+  },
+  // 解除動員：這一隊全部的民兵
+  rtsDemob(hq) {
+    const R = this.rts;
+    if (!R || !hq) return 0;
+    let n = 0;
+    for (const e of R.units)
+      if (!e.dead && e.rtsTeam === hq.rtsTeam && e.rtsMilFrom) {
+        this.rtsDemobUnit(e);
+        n++;
+      }
+    return n;
+  },
+  rtsDemobUnit(e) {
+    const from = e.rtsMilFrom;
+    if (!from || e.dead) return;
+    e.rtsMilFrom = null;
+    e.rtsMilT = undefined;
+    if (e.rtsMorph) e.rtsMorph(from);
+    this.rtsChangeDef(e, from);
+    this.rtsSetOrders(e, []);
+    const m =
+      (e.rtsMilMine !== undefined && this.rtsMine(e.rtsMilMine)) ||
+      this.rtsNearestMine(e.pos.x, e.pos.z, e.rtsTeam, null, true);
+    if (m && m.amount > 0) e.orders = [{ k: 'gather', mine: m.id }];
+  },
+  // 自動管家等用的建築位置（E 包）：主基地（第一座主堡）maxR 內、同一個平台、四周留 2 m 通道（找不到時放寬）、
+  // 不擋主堡與礦脈之間的路；找不到回傳 null
+  rtsAutoSpot(teamId, defId, maxR = 60) {
+    const R = this.rts,
+      D = RTS_DEFS[defId],
+      nav = this.world.nav;
+    if (!R || !D || D.kind !== 'bld') return null;
+    const hq = R.units.find((e) => !e.dead && e.bld && e.rtsTeam === teamId && RTS_DEFS[e.rtsDef].dropoff);
+    if (!hq) return null;
+    const [w, d] = D.foot;
+    const cell = nav.cell,
+      S = this.world.size / 2;
+    const snap = (v, s) => Math.round((v - s / 2 + S) / cell) * cell - S + s / 2;
+    const m = this.rtsNearestMine(hq.pos.x, hq.pos.z, teamId);
+    // 先找同一個平台、四周留 2 m 通道的；都沒有時放寬（不看平台、通道 1 m）
+    for (const [pad, flat] of [
+      [4, true],
+      [2, false],
+    ]) {
+      let best = null,
+        bs = 1e9;
+      for (let dx = -maxR; dx <= maxR; dx += 2)
+        for (let dz = -maxR; dz <= maxR; dz += 2) {
+          const x = snap(hq.pos.x + dx, w),
+            z = snap(hq.pos.z + dz, d);
+          const r = Math.hypot(x - hq.pos.x, z - hq.pos.z);
+          if (r > maxR || r < (hq.bld.w + w) / 2 + 3) continue;
+          if (!nav.buildable(x, z, w + pad, d + pad)) continue;
+          const dh = Math.abs(this.world.terrainHeight(x, z) - hq.pos.y);
+          if (flat && dh > 2.5) continue; // 同一個平台
+          // 不擋主堡與礦脈之間的路
+          if (m) {
+            const ax = m.pos.x - hq.pos.x,
+              az = m.pos.z - hq.pos.z,
+              L = Math.hypot(ax, az) || 1;
+            const t = ((x - hq.pos.x) * ax + (z - hq.pos.z) * az) / (L * L);
+            const off = Math.abs(((x - hq.pos.x) * az - (z - hq.pos.z) * ax) / L);
+            if (t > -0.1 && t < 1.1 && off < (w + d) / 2 + 5) continue;
+          }
+          const s = r + dh * 4;
+          if (s < bs) ((bs = s), (best = { x, z }));
+        }
+      if (best) return best;
+    }
+    return null;
+  },
   // ---------- 建造 ----------
-  // 工人到了工地：檢查位置與資源、扣款、建立地基（progress 0）；不行時回傳 null（玩家的提示）
+  // 工人到了工地：檢查位置、需求與資源、扣款、建立地基（progress 0）；不行時回傳 null（玩家的提示）
   rtsPlace(teamId, defId, x, z, yaw, builder) {
     const R = this.rts,
       D = RTS_DEFS[defId],
       nav = this.world.nav;
     const say = (t) => teamId === ME && this.rtsSay(t);
     if (!D || D.kind !== 'bld') return null;
+    const why = this.rtsReqWhy(teamId, D);
+    if (why) return (say(why), null);
     if (D.on === 'coral') {
       const v = R.corals.find((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 6);
       if (!v) return (say('要蓋在 Coral 湧出點上'), null);
@@ -703,22 +1228,40 @@ Object.assign(Game.prototype, {
     b.hp += dh;
     return true;
   },
-  // 生產：加入佇列（扣款；人口在開始生產時才檢查）
-  rtsQueue(b, defId) {
+  // 生產：加入佇列（扣款；人口在開始生產時才檢查）。英雄（定義的 hero）在有 heroes 的建築（主堡）生產；
+  // o.revive＝復活（C 包的 rtsHeroReviveCost 決定費用與時間）。佇列項目 { id, t, on, cost, time?, pop?, revive? }
+  rtsQueue(b, defId, o = {}) {
     const D = RTS_DEFS[defId],
       BD = b && RTS_DEFS[b.rtsDef];
     const me = b && b.rtsTeam === ME;
-    if (!b || b.dead || !b.bld || !D || !BD || !(BD.trains || []).includes(defId)) return false;
+    if (!b || b.dead || !b.bld || !D || !BD) return false;
+    const hero = !!D.hero;
+    if (hero ? !BD.heroes : !(BD.trains || []).includes(defId)) return false;
     if (b.bld.progress < 1) return (me && this.rtsSay('建築還沒蓋好'), false);
+    if (b.bld.queue.some((q) => q.upg)) return (me && this.rtsSay('升級中，不能生產'), false);
     if (b.bld.queue.length >= RTS_QUEUE_MAX) return (me && this.rtsSay('生產佇列已滿'), false);
-    if (!this.rtsPay(b.rtsTeam, D.cost)) {
-      if (me) this.rtsSay(this.rts.teams[b.rtsTeam].ore < (D.cost.ore || 0) ? '礦石不足' : 'Coral 不足');
+    let cost = D.cost,
+      time;
+    if (hero && o.revive) {
+      const rv = this.rtsHeroReviveCost ? this.rtsHeroReviveCost(b.rtsTeam, defId) : null;
+      cost = (rv && rv.cost) || { ore: 155, coral: 0 };
+      time = (rv && rv.time) || 15;
+    } else {
+      const why = this.rtsReqWhy(b.rtsTeam, D);
+      if (why) return (me && this.rtsSay(why), false);
+      if (hero) cost = this.rtsHeroPrice(b.rtsTeam, defId);
+    }
+    if (!this.rtsPay(b.rtsTeam, cost)) {
+      if (me) this.rtsSay(this.rts.teams[b.rtsTeam].ore < (cost.ore || 0) ? '礦石不足' : 'Coral 不足');
       return false;
     }
-    b.bld.queue.push({ id: defId, t: 0 });
+    const it = { id: defId, t: 0, cost: { ore: cost.ore || 0, coral: cost.coral || 0 } };
+    if (time !== undefined) it.time = time;
+    if (o.revive) it.revive = true;
+    b.bld.queue.push(it);
     return true;
   },
-  // 取消：i＝-1（或建築還沒蓋好）＝取消建造（退 75%）；否則取消佇列的第 i 項（全額退還）
+  // 取消：i＝-1（或建築還沒蓋好）＝取消建造（退 75%）；否則取消佇列的第 i 項（全額退還；研究與升級也是）
   rtsCancel(b, i) {
     if (!b || b.dead || !b.bld) return false;
     const R = this.rts;
@@ -731,9 +1274,9 @@ Object.assign(Game.prototype, {
     if (i === undefined || i < 0 || i >= b.bld.queue.length) i = b.bld.queue.length - 1;
     if (i < 0) return false;
     const it = b.bld.queue.splice(i, 1)[0];
-    this.rtsRefund(b.rtsTeam, RTS_DEFS[it.id].cost, 1);
+    this.rtsRefund(b.rtsTeam, it.cost || (RTS_DEFS[it.id] || {}).cost || {}, 1);
+    if (it.res) delete R.teams[b.rtsTeam].tech.busy[it.id];
     this.rtsRecount();
-    void R;
     return true;
   },
   rtsSay(t, color = 0xff8a8a) {
@@ -751,7 +1294,9 @@ Object.assign(Game.prototype, {
     this.fx.update(dt);
     this.tickPopups(dt);
     if (this.rtsFogTick) this.rtsFogTick(dt);
-    if (this.rtsCamUpdate) this.rtsCamUpdate(dt);
+    // 親自駕駛中（E 包）：動作鏡頭＋動作 HUD＋RTS 小面板，不跑 RTS 鏡頭
+    if (R.pilot && this.rtsPilotView) this.rtsPilotView(dt);
+    else if (this.rtsCamUpdate) this.rtsCamUpdate(dt);
     else this.rtsCamFallback();
     SFX.setListener(this.camTarget);
     this.updateLoops();
@@ -772,16 +1317,25 @@ Object.assign(Game.prototype, {
     R.t += dt;
     this.rtsPathService();
     this.lodTick();
+    this.rtsHostileRebuild();
     const t1 = performance.now();
+    // 親自駕駛的英雄（E 包：updatePlayer），之後的單位迴圈略過它
+    if (R.pilot && this.rtsPilotStep) this.rtsPilotStep(dt);
     // 單位行為（updateAI → mech-rts.js 的 rtsUnitAI）；離鏡頭遠的分批更新（game.js 的 aiStep）
     R.logicMs = 0;
     const batch = this.aiBatchOn ? this.aiBatchOn() : false;
-    for (const e of R.units) if (!e.dead && !e.bld) this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
+    for (const e of R.units)
+      if (!e.dead && !e.bld && !e.rtsPiloted) this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
     const t2 = performance.now();
     this.rtsSeparate();
     for (const e of R.units) if (!e.dead && !e.bld) R.hash.update(e, e.pos.x, e.pos.z);
     const t3 = performance.now();
     this.rtsBuildings(dt);
+    this.rtsModsTick(dt);
+    // 其他包的每格（還沒實作時略過）：英雄（經驗、光環、復活）、中立（營地、商店補貨）、自動管家
+    if (this.rtsHeroTick) this.rtsHeroTick(dt);
+    if (this.rtsNeutralTick) this.rtsNeutralTick(dt);
+    if (this.rtsButlerTick) this.rtsButlerTick(dt);
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.update(dt);
@@ -855,7 +1409,7 @@ Object.assign(Game.prototype, {
         if (!n) continue;
         const dp = ((1 + RTS_BUILD_ASSIST * (n - 1)) / D.time) * dt;
         const p = Math.min(1, B.progress + dp);
-        b.hp = Math.min(b.maxHp, b.hp + D.hp * 0.9 * (p - B.progress));
+        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * 0.9 * (p - B.progress));
         B.progress = p;
         b.model.setProgress(p);
         if (p >= 1) {
@@ -872,12 +1426,28 @@ Object.assign(Game.prototype, {
         T.coral += n * (T.income || 1);
         R.stats[b.rtsTeam].coral += n;
       }
-      // 生產
+      // 防禦塔、研究要塞化後的主堡（B 包的 rtsTowerAI）
+      if (b.rtsTowerAI && this.rtsBldRange(b) > 0) b.rtsTowerAI(dt);
+      // 生產、研究、升級
       const q = B.queue[0];
       if (!q) continue;
+      if (q.upg || q.res) {
+        q.t += dt;
+        if (q.t >= q.time) {
+          B.queue.shift();
+          if (q.upg) this.rtsUpgradeDone(b, q.id);
+          else this.rtsResearchDone(b, q);
+        }
+        continue;
+      }
       const U = RTS_DEFS[q.id];
+      if (!U) {
+        B.queue.shift();
+        continue;
+      }
+      const pop = q.pop !== undefined ? q.pop : U.pop || 0;
       if (!q.on) {
-        if (T.pop + (U.pop || 0) > T.cap) {
+        if (T.pop + pop > T.cap) {
           if (!q.warn && b.rtsTeam === ME) {
             q.warn = true;
             this.rtsSay(T.cap >= RTS_POP_MAX ? '人口已達上限' : '人口不足 — 蓋補給庫');
@@ -885,17 +1455,18 @@ Object.assign(Game.prototype, {
           continue;
         }
         q.on = true;
-        T.pop += U.pop || 0;
+        T.pop += pop;
       }
       q.t += dt;
-      if (q.t >= U.time) {
+      if (q.t >= (q.time !== undefined ? q.time : U.time)) {
         B.queue.shift();
-        this.rtsTrained(b, q.id);
+        this.rtsTrained(b, q.id, q);
       }
     }
   },
   // 生產完成：在建築正面出來，前往集結點（點了礦脈的集結點：工人自動採集）；工人沒有集結點時自動去採最近的礦
-  rtsTrained(b, id) {
+  // q＝佇列項目（英雄：C 包的 rtsHeroSpawned(e, q) 套回等級與道具；q.revive＝復活）
+  rtsTrained(b, id, q = null) {
     const R = this.rts,
       D = RTS_DEFS[id],
       nav = this.world.nav;
@@ -916,6 +1487,7 @@ Object.assign(Game.prototype, {
     if (c >= 0) ({ x, z } = nav.center(c));
     const u = this.rtsSpawn(b.rtsTeam, id, x, z, Math.atan2(-(x - b.pos.x), -(z - b.pos.z)) + Math.PI);
     if (!u) return;
+    if (D.hero && this.rtsHeroSpawned) this.rtsHeroSpawned(u, q || { id });
     const m =
       rl && rl.mine
         ? this.rtsMine(rl.mine)
@@ -938,6 +1510,12 @@ Object.assign(Game.prototype, {
     const R = this.rts,
       w = this.world;
     if (!R) return;
+    // 其他包：英雄的經驗、野怪的掉寶、英雄陣亡（C、D）
+    if (!e.rtsQuiet) {
+      if (this.rtsXpOnKill) this.rtsXpOnKill(e, from);
+      if (this.rtsLootOnKill) this.rtsLootOnKill(e, from);
+    }
+    if (e.hero && this.rtsHeroDied) this.rtsHeroDied(e);
     const c = e.center();
     if (!e.rtsQuiet) {
       R.stats[e.rtsTeam].lost++;
@@ -958,7 +1536,10 @@ Object.assign(Game.prototype, {
         e.rtsOb = null;
       }
       if (B.vent && B.vent.ext === e) B.vent.ext = null;
-      for (const q of B.queue) if (e.rtsQuiet) this.rtsRefund(e.rtsTeam, RTS_DEFS[q.id].cost, 1);
+      for (const q of B.queue) {
+        if (q.res && R.teams[e.rtsTeam]) delete R.teams[e.rtsTeam].tech.busy[q.id]; // 研究中被拆：取消
+        if (e.rtsQuiet) this.rtsRefund(e.rtsTeam, q.cost || (RTS_DEFS[q.id] || {}).cost || {}, 1);
+      }
       B.queue = [];
       if (e.rtsQuiet) {
         e.mesh.visible = false;
@@ -1035,9 +1616,10 @@ Object.assign(Game.prototype, {
   rtsCheckEnd() {
     const R = this.rts;
     if (R.over) return;
-    for (const T of R.teams) T.alive = R.units.some((e) => !e.dead && e.bld && e.rtsTeam === T.id);
+    for (const T of R.teams)
+      if (!T.neutral) T.alive = R.units.some((e) => !e.dead && e.bld && e.rtsTeam === T.id);
     if (!R.teams[ME].alive) this.rtsEnd(false);
-    else if (R.teams.every((T) => T.id === ME || !T.alive)) this.rtsEnd(true);
+    else if (R.teams.every((T) => T.id === ME || T.neutral || !T.alive)) this.rtsEnd(true);
   },
   rtsEnd(win) {
     const R = this.rts;
@@ -1108,6 +1690,10 @@ Object.assign(Game.prototype, {
   rtsClear() {
     const R = this.rts;
     if (!R) return;
+    // 其他包的清理（還沒實作時略過）：親自駕駛、中立、英雄
+    if (this.rtsPilotExit && R.pilot) this.rtsPilotExit('clear');
+    if (this.rtsNeutralClear) this.rtsNeutralClear();
+    if (this.rtsHeroClear) this.rtsHeroClear();
     if (this.rtsInputClear) this.rtsInputClear();
     if (this.rtsFogClear) this.rtsFogClear();
     if (this.rtsAiClear) this.rtsAiClear();
