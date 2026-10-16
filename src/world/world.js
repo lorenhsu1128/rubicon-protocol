@@ -59,6 +59,7 @@ import {
   mat,
   stripMesh,
 } from './prop-models.js';
+import { propShape, shapeContains, shapeSegT } from './prop-hit.js';
 import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 import { LANDMARKS } from './landmarks.js';
@@ -71,6 +72,7 @@ import { ORBIT } from './themes/orbit.js';
 import { SPACEPORT } from './themes/spaceport.js';
 import { XYLEM } from './themes/xylem.js';
 
+const _seg = new THREE.Vector3(); // propBlocks 的暫存
 // 網格建造在 prop-models.js（純函式）；這裡只用亂數決定參數與位置，亂數呼叫順序不可改變
 // 主題的公路／鐵路設定：{ p 出現機率, kinds 可出現的種類 }（noCorridor 時沒有）
 export function corridorSpec(T) {
@@ -1905,6 +1907,7 @@ export class World {
       pos: c,
       center: () => c.clone(),
       flashT: 0,
+      shape: propShape(this, ob), // 命中形狀＝碰撞障礙物（world/prop-hit.js）；radius 只剩粗略的用途
     };
     ob.prop = p;
     this.props.push(p);
@@ -2246,6 +2249,25 @@ export class World {
     z = clamp(z, Math.max(Z[2] - b, -this.limOut), Math.min(Z[3] + b, this.limOut));
     return [x, z];
   }
+  // 線段 a → b 碰到還在的可破壞物件（命中形狀加寬 pad）：點取樣的視線（rayClear／losClear）補上細的柱子與薄牆
+  propBlocks(a, b, pad = 0) {
+    return !!this.propFirst(a, _seg.subVectors(b, a), pad);
+  }
+  // 線段 a → a+v 第一個碰到的可破壞物件：[物件, t（0～1）]，沒有時 null（光束停在物件上）
+  propFirst(a, v, pad = 0) {
+    if (!this.props) return null;
+    let best = null,
+      bt = 2;
+    for (const p of this.props) {
+      if (p.dead || !p.shape) continue;
+      const t = shapeSegT(p.shape, a, v, pad);
+      if (t >= 0 && t < bt) {
+        best = p;
+        bt = t;
+      }
+    }
+    return best ? [best, bt] : null;
+  }
   // projectile vs world
   hitsWorld(p) {
     // 地圖外用遠景地形的高度（山脊、斷崖）
@@ -2254,7 +2276,10 @@ export class World {
       Math.abs(p.x) > S || Math.abs(p.z) > S ? this.farHeight(p.x, p.z) : this.terrainHeight(p.x, p.z);
     if (p.y < th || p.y < this.rampHeight(p.x, p.z, p.y)) return true;
     for (const o of this.obstacles) {
-      if (o.kind === 'box') {
+      if (o.prop && o.prop.shape && !o.prop.dead) {
+        // 可破壞物件：和子彈、光束相同的命中形狀（world/prop-hit.js；細的柱子也算）
+        if (shapeContains(o.prop.shape, p)) return true;
+      } else if (o.kind === 'box') {
         if (Math.abs(p.x - o.x) < o.w / 2 && Math.abs(p.z - o.z) < o.d / 2 && p.y < o.top && p.y > o.y)
           return true;
       } else if (

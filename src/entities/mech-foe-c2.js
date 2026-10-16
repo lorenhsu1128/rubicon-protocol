@@ -5,12 +5,16 @@
 // boomer 迴旋刃無人機：預警後丟出迴旋刃，飛到預判點再飛回來（去程、回程各判定一次）；刃的位置以 bx 同步給客機。
 // mirror 反射鏡衛星：雷射只有 30%（laserK）；蓄力後射出聚光的能量光束（beamAttack）。
 // focus 聚光鏡陣列：預警後的追蹤光束（g.addZone 'beam'）照越久越痛，視線被擋住就斷開。
+// 發射點（entities/fire-point.js）：拋網、迴旋刃、反射鏡、聚光鏡開始預警前的視線檢查用發射時的砲口（機身轉向目標、
+// 聚光鏡的俯仰架對準目標）＋容差，不用機體中心或待機姿勢的砲口；被擋住時 0.3 秒後再試。發射一律從實際的砲口，
+// 無人機在預警中還會滑行一段，所以發射時再以實際的砲口檢查一次（不加容差），被擋住就不發射、1 秒後重來。
 // 狀態（bossVis）：1＝預警、2＝攻擊中（聚光鏡陣列 2～10＝光束強度）；行為只在房主／單機，顯示（foeFx_c2）房主與客機都跑。
 // 共用的 g.addZone（燃料、光束：game/hazards2.js）、addStatus（entities/mech-status.js）、shootable（投射物）。
 import { SFX } from '../audio/audio.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { FOE_AI_C2 } from '../data/foes-c2.js';
 import { buildBoomerBlade } from '../render/foe-models-c2.js';
+import { firePoint, losTol, measureLocal, rayClear } from './fire-point.js';
 import { MechEntity } from './mech-entity.js';
 import { Projectile } from './projectile.js';
 
@@ -72,6 +76,33 @@ Object.assign(MechEntity.prototype, {
   foeFire_c2() {
     if (!C2.has(this.ai)) return undefined;
     return this.ai !== 'fueler'; // 燃料洩漏車的車頂機槍照常開火
+  },
+  // 發射點：砲口（hand）固定在機身上（拋網筒、刃架、聚光盤），第一次用到時量一次；機體在 pos 面向 aim 時的世界座標
+  mzAt_c2(pos, aim) {
+    if (!this.c2Off) this.c2Off = measureLocal(this, this.model.arms.r.hand);
+    return firePoint(this, this.c2Off, pos, aim);
+  },
+  // 開始預警前：發射點本身與往上、左右各偏一點都看得到（和投射物、光束一樣以 hitsWorld 判定）
+  losTol_c2(a, b) {
+    return losTol((p, q) => rayClear(this.game.world, p, q), a, b);
+  },
+  // 發射時：實際的發射點，不加容差
+  losFire_c2(a, b) {
+    return rayClear(this.game.world, a, b);
+  },
+  // 聚光鏡陣列：照射時的砲口（收光器）。俯仰架和 foeFx_c2 一樣由俯仰架的位置對準目標，所以砲口隨目標的高低移動，每次量
+  focusMz_c2(aim) {
+    const m = this.model;
+    if (!m.gimbal) return this.muzzle('rarm');
+    if (!this.c2Gim) this.c2Gim = measureLocal(this, m.gimbal);
+    const gp = firePoint(this, this.c2Gim, this.pos, aim);
+    const pitch = clamp(Math.atan2(aim.y - gp.y, Math.hypot(aim.x - gp.x, aim.z - gp.z)), -0.5, 1.2);
+    const off = measureLocal(this, m.arms.r.hand, () => {
+      const x = m.gimbal.rotation.x;
+      m.gimbal.rotation.x = pitch;
+      return () => (m.gimbal.rotation.x = x);
+    });
+    return firePoint(this, off, this.pos, aim);
   },
   // 繞著目標的移動（無人機、衛星）：橫移＋保持距離
   orbit_c2(d, dir, perp, wish, k = 1) {
@@ -212,23 +243,34 @@ Object.assign(MechEntity.prototype, {
     c.t -= dt;
     if (c.ph === 0) {
       this.orbit_c2(d, dir, perp, wish);
-      if (c.t <= 0 && d < 30 && this.canAct() && g.losClear(this.center(), pl.center())) {
-        c.ph = 1;
-        c.t = NET.warn;
+      if (c.t <= 0 && d < 30 && this.canAct()) {
         const lead = pl.vel.clone().multiplyScalar(0.25);
         if (lead.length() > 3) lead.setLength(3);
-        c.aim = pl.center().add(lead);
-        const mz = this.muzzle('rarm');
-        const end = c.aim.clone().add(c.aim.clone().sub(mz).setLength(8));
-        g.fx.warnLine(mz, end, NET.warn, NET_COL, 0.07);
-        SFX.play('ui2', 0.6, 1.3, 0.05, 0.05, this.center());
+        const aim = pl.center().add(lead);
+        // 從發射時的砲口看得到瞄準點才預警（不是機體中心：砲口在機腹前方）
+        const mz = this.mzAt_c2(this.pos, aim);
+        if (!this.losTol_c2(mz, aim)) c.t = 0.3;
+        else {
+          c.ph = 1;
+          c.t = NET.warn;
+          c.aim = aim;
+          const end = c.aim.clone().add(c.aim.clone().sub(mz).setLength(8));
+          g.fx.warnLine(mz, end, NET.warn, NET_COL, 0.07);
+          SFX.play('ui2', 0.6, 1.3, 0.05, 0.05, this.center());
+        }
       }
     } else if (c.ph === 1) {
       wish.set(0, 0, 0); // 預警中停在空中
       if (c.t <= 0) {
-        if (this.canAct()) this.netShot_c2(c);
-        c.ph = 2;
-        c.t = 0.5;
+        if (this.canAct() && !this.losFire_c2(this.muzzle('rarm'), c.aim)) {
+          // 預警中滑到掩體後面：不發射，1 秒後重來
+          c.ph = 0;
+          c.t = 1;
+        } else {
+          if (this.canAct()) this.netShot_c2(c);
+          c.ph = 2;
+          c.t = 0.5;
+        }
       }
     } else {
       this.orbit_c2(d, dir, perp, wish, 0.4);
@@ -255,7 +297,7 @@ Object.assign(MechEntity.prototype, {
   },
   netShot_c2(c) {
     const g = this.game;
-    const mz = this.muzzle('rarm');
+    const mz = this.muzzle('rarm'); // 發射時已轉向目標：和預警前檢查的發射點相差約 2 cm
     const v = c.aim.clone().sub(mz).normalize().multiplyScalar(NET.sp);
     const p = new Projectile(g, {
       pos: mz.clone(),
@@ -285,24 +327,29 @@ Object.assign(MechEntity.prototype, {
     c.t -= dt;
     if (c.ph === 0) {
       this.orbit_c2(d, dir, perp, wish);
-      if (c.t <= 0 && d < 28 && this.canAct() && g.losClear(this.center(), pl.center())) {
-        c.ph = 1;
-        c.t = BLADE.warn;
+      if (c.t <= 0 && d < 28 && this.canAct()) {
         const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
         if (lead.length() > 5) lead.setLength(5);
-        const mz = this.muzzle('rarm');
         const aim = pl.center().add(lead);
-        c.aimP = aim;
-        c.to = aim.clone().add(aim.clone().sub(mz).setLength(BLADE.over));
-        g.fx.warnLine(mz, c.to, BLADE.warn, BLADE_COL, 0.08);
-        SFX.play('ui2', 0.7, 1.6, 0.05, 0.05, this.center());
+        // 從發射時的刃架看得到預判點才預警（刃在飛行中碰到地形就折返）
+        const mz = this.mzAt_c2(this.pos, aim);
+        if (!this.losTol_c2(mz, aim)) c.t = 0.3;
+        else {
+          c.ph = 1;
+          c.t = BLADE.warn;
+          c.aimP = aim;
+          c.to = aim.clone().add(aim.clone().sub(mz).setLength(BLADE.over));
+          g.fx.warnLine(mz, c.to, BLADE.warn, BLADE_COL, 0.08);
+          SFX.play('ui2', 0.7, 1.6, 0.05, 0.05, this.center());
+        }
       }
     } else if (c.ph === 1) {
       wish.set(0, 0, 0);
       if (c.t <= 0) {
-        if (this.canAct()) {
+        const bp = this.muzzle('rarm');
+        if (this.canAct() && this.losFire_c2(bp, c.aimP)) {
           c.ph = 2;
-          c.bp = this.muzzle('rarm');
+          c.bp = bp;
           c.back = false;
           c.wp = c.aimP; // 回程先沿原路經過預判點，再飛回本體
           c.ft = 0;
@@ -378,20 +425,30 @@ Object.assign(MechEntity.prototype, {
       wish.copy(perp).multiplyScalar(0.6);
       if (d < this.aiState.want - 6) wish.addScaledVector(dir, -0.6);
       else if (d > this.aiState.want + 10) wish.addScaledVector(dir, 0.7);
-      if (c.t <= 0 && d < 55 && this.canAct() && g.losClear(this.center(), pl.center())) {
-        c.ph = 1;
-        c.t = MIRROR.warn;
-        c.aim = pl.center();
-        g.fx.warnLine(this.muzzle('rarm'), c.aim, MIRROR.warn, 0xfff080, 0.07);
-        SFX.play('charge', 0.6, 1.4, 0.05, 0.05, this.center());
+      if (c.t <= 0 && d < 55 && this.canAct()) {
+        const aim = pl.center();
+        // 從發射時的聚光盤中心看得到目標才蓄力（不是機體中心）
+        const mz = this.mzAt_c2(this.pos, aim);
+        if (!this.losTol_c2(mz, aim)) c.t = 0.3;
+        else {
+          c.ph = 1;
+          c.t = MIRROR.warn;
+          c.aim = aim;
+          g.fx.warnLine(mz, c.aim, MIRROR.warn, 0xfff080, 0.07);
+          SFX.play('charge', 0.6, 1.4, 0.05, 0.05, this.center());
+        }
       }
     } else if (c.ph === 1) {
       wish.set(0, 0, 0);
       // 蓄力的前 0.8 秒瞄準點慢慢跟上目標，之後鎖住
       if (c.t > 0.2) c.aim.lerp(pl.center(), Math.min(1, dt * 2.5));
-      if (c.t <= 0) {
+      const mz = c.t <= 0 ? this.muzzle('rarm') : null;
+      if (c.t <= 0 && this.canAct() && !this.losFire_c2(mz, c.aim)) {
+        // 蓄力中滑到掩體後面：不發射，1 秒後重來
+        c.ph = 0;
+        c.t = 1;
+      } else if (c.t <= 0) {
         if (this.canAct()) {
-          const mz = this.muzzle('rarm');
           g.beamAttack(this, mz, c.aim.clone().sub(mz).normalize(), {
             range: MIRROR.range,
             dmg: MIRROR.dmg * this.dmgMul,
@@ -419,17 +476,27 @@ Object.assign(MechEntity.prototype, {
     wish.set(0, 0, 0);
     if (c.t === 0 && c.ph === 0) c.t = rnd(3, 5);
     c.t -= dt;
+    // 照射中的起點與斷開判定：實際的砲口（俯仰架在預警中已經對準目標）
     const mz = this.muzzle('rarm');
     if (c.ph === 0) {
       this.bx = null;
-      if (c.t <= 0 && d < 70 && this.canAct() && g.losClear(mz, pl.center())) {
-        c.ph = 1;
-        c.t = FOCUS.warn;
-        c.tgt = pl;
-        g.fx.warnLine(mz, pl.center(), FOCUS.warn, 0xfff080, 0.09);
-        SFX.play('charge', 0.8, 0.8, 0.05, 0.05, this.center());
+      if (c.t <= 0 && d < 70 && this.canAct()) {
+        // 開始前：照射時的砲口（俯仰架對準目標；待機時收光器抬高約 1 m）＋容差看得到目標才預警
+        const tc = pl.center(),
+          fz = this.focusMz_c2(tc);
+        if (!this.losTol_c2(fz, tc)) c.t = 0.3;
+        else {
+          c.ph = 1;
+          c.t = FOCUS.warn;
+          c.tgt = pl;
+          g.fx.warnLine(fz, tc, FOCUS.warn, 0xfff080, 0.09);
+          SFX.play('charge', 0.8, 0.8, 0.05, 0.05, this.center());
+        }
       }
     } else if (c.ph === 1) {
+      // 預警中俯仰架就對準目標（bx 同步給客機），照射開始時砲口已在照射的位置
+      const tc = c.tgt && !c.tgt.dead ? c.tgt.center() : null;
+      this.bx = tc ? tc.toArray().map((x) => +x.toFixed(2)) : null;
       if (c.t <= 0) {
         c.ph = 2;
         c.bt = 0;
@@ -550,11 +617,12 @@ Object.assign(MechEntity.prototype, {
         const k = atk ? (v - 2) / 8 : 0;
         if (m.gimbal) {
           let pitch = 0.5;
+          // 預警與照射中對準目標（bx）；focusMz_c2 用同樣的算法預測照射時的砲口
           if (this.bx) {
             const gp = new THREE.Vector3();
             m.gimbal.getWorldPosition(gp);
             pitch = Math.atan2(this.bx[1] - gp.y, Math.hypot(this.bx[0] - gp.x, this.bx[2] - gp.z));
-          } else if (warn) pitch = 0.15;
+          }
           m.gimbal.rotation.x = lerp(m.gimbal.rotation.x, clamp(pitch, -0.5, 1.2), Math.min(1, dt * 4));
         }
         if (m.lens) {

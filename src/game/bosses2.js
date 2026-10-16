@@ -6,6 +6,7 @@ import { clamp, rnd } from '../core/math.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { asmStats } from '../data/parts.js';
 import { Game } from './game.js';
+import { PROP_PAD } from '../world/prop-hit.js';
 
 const CAR_SP = 9.6;
 const CARS = ['car_aa', 'car_ms', 'car_lz', 'car_mine'];
@@ -125,6 +126,12 @@ Object.assign(Game.prototype, {
       p.copy(a).addScaledVector(dir, s);
       if (w.hitsWorld(p)) return false;
     }
+    // 可破壞物件以線段判定（和投射物、光束相同的命中形狀與加寬：細的柱子不會夾在兩個取樣點之間）
+    if (
+      d - 1.5 > 2 &&
+      w.propBlocks(a.clone().addScaledVector(dir, 2), p.copy(a).addScaledVector(dir, d - 1.5), PROP_PAD)
+    )
+      return false;
     return true;
   },
   // 光束攻擊：from 沿 dir，地形／障礙物與護盾會擋住；o：{ range, dmg, im, w 判定半徑, color, width, pierce }
@@ -142,8 +149,14 @@ Object.assign(Game.prototype, {
     if (stop < o.range) this.tempWallHitAt(from.clone().addScaledVector(dir, stop), o.dmg); // 臨時障礙物
     stop = this.beamStop(owner, from, dir, stop, o.dmg, o.im);
     const hits = [];
+    // 可破壞物件：光束停在第一個物件的命中形狀上（world/prop-hit.js，不是外接球）
+    const pf = w.propFirst(from, dir.clone().multiplyScalar(stop), PROP_PAD);
+    if (pf) {
+      stop = pf[1] * stop;
+      hits.push({ t: pf[0], proj: stop });
+    }
     for (const t of this.hostilesOfEnt(owner).concat(this.destructibles(owner && owner.team))) {
-      if (!t || t.dead) continue;
+      if (!t || t.dead || t.shape) continue;
       const ap = t.center().sub(from);
       const proj = ap.dot(dir);
       if (proj < 0 || proj > stop) continue;

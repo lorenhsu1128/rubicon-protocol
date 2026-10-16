@@ -4270,25 +4270,30 @@ async function testBosses(browser, base) {
 async function testLockOn(browser, base) {
   console.log('鎖定：機甲正面 180° 由近到遠、背後不鎖定、第一人稱依準星角度、超出攻擊距離重新鎖定');
   const { ctx, page } = await newPage(browser, 'lock');
+  // 地圖種子與敵人編成固定（以前每次隨機：大約 40 次有 1 次中央是台地等地形特徵，敵人放在台地下方 15 m，
+  // 3D 距離的順序變了、第一人稱的準星也看不到它們）
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   const r = await page.evaluate(() => {
     const g = window.__game;
+    window.__reseed(4270);
     g.save.level = 1;
     g.startMission();
     g.state = 'lock-test';
     const pl = g.player;
     pl.hp = pl.maxHp = 1e7;
-    pl.pos.set(0, g.world.terrainHeight(0, 0), 0); // 地面上（中央可能有高架橋）
+    const y0 = g.world.terrainHeight(0, 0);
+    pl.pos.set(0, y0, 0); // 地面上（中央可能有高架橋）
     pl.yaw = pl.aimYaw = 0; // 面向 −Z
     const reach = g.lockReach(pl);
     // 五台：前方近、前方遠、前方偏右、背後最近、正側面（畫面外）；其他敵人移走
     for (const e of g.enemies) e.pos.set(200, -50, 200);
     const es = g.enemies.slice(0, 5);
     while (es.length < 5) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
-    // 放在地面上（不站到貨櫃、掩體頂，否則高度改變會影響是否在畫面內）
+    // 和玩家同一高度（地形起伏、貨櫃與掩體頂都不影響距離的順序與是否在畫面內；同 testChase）
     const put = (e, x, z) => {
-      e.pos.set(x, g.world.terrainHeight(x, z), z);
+      e.pos.set(x, y0, z);
       e.mesh.position.copy(e.pos);
     };
     put(es[0], 0, -8);

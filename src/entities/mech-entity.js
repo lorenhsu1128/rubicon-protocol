@@ -39,6 +39,7 @@ import { nozzleWorld } from '../fx/thruster.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
+import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 let MECH_ID = 0;
 export class MechEntity {
@@ -527,9 +528,17 @@ export class MechEntity {
           }
           if (stop < d.range) g.tempWallHitAt(muzzle.clone().addScaledVector(bdir, stop), dmg * dtb); // 臨時障礙物
           stop = g.beamStop(this, muzzle, bdir, stop, dmg * dtb, 0, d.id, true); // 護盾擋住光束
+          // 可破壞物件：光束停在第一個物件的命中形狀上（world/prop-hit.js）
+          const pf = g.world.propFirst(muzzle, bdir.clone().multiplyScalar(stop), PROP_PAD);
+          if (pf) {
+            stop *= pf[1];
+            const pt = muzzle.clone().addScaledVector(bdir, stop);
+            g.damageProp(pf[0], dmg * dtb, imp * dtb, pt);
+            if (Math.random() < dtb * 4) g.fx.spark(pt, d.color, bdir);
+          }
           const targets = g.hostilesOf(this.team, this).concat(g.destructibles(this.team));
           for (const t of targets) {
-            if (t.dead) continue;
+            if (t.dead || t.shape) continue;
             const c = t.center();
             const ap = c.clone().sub(muzzle);
             const proj = ap.dot(bdir);
@@ -580,8 +589,14 @@ export class MechEntity {
           if (stop < d.range) g.tempWallHitAt(muzzle.clone().addScaledVector(bdir, stop), ldmg); // 臨時障礙物
           stop = g.beamStop(this, muzzle, bdir, stop, ldmg, limp, d.id); // 護盾、盾牌擋住雷射
           const hits = [];
+          // 可破壞物件：雷射停在第一個物件的命中形狀上（world/prop-hit.js，不是外接球）
+          const pf = g.world.propFirst(muzzle, bdir.clone().multiplyScalar(stop), PROP_PAD);
+          if (pf) {
+            stop *= pf[1];
+            hits.push({ t: pf[0], proj: stop });
+          }
           for (const t of targets) {
-            if (t.dead) continue;
+            if (t.dead || t.shape) continue;
             const c = t.center();
             const ap = c.clone().sub(muzzle);
             const proj = ap.dot(bdir);
@@ -804,14 +819,17 @@ export class MechEntity {
       ); // 臨時障礙物
       for (const t of targets) {
         if (t.dead || m.hit.has(t.id)) continue;
-        const to = t.center().sub(c);
-        const dist = to.length() - t.radius;
+        // 物件以外形上最近的點算距離與方向（world/prop-hit.js）；其他以球
+        const near = targetNear(t, c);
+        const to = near.clone().sub(c);
+        if (to.lengthSq() < 1e-4) to.copy(t.center()).sub(c); // 機體中心在物件裡面
+        const dist = targetDist(t, c);
         if (dist > st.reach * this.scale + 1.0) continue;
         const ang = st.spin ? 0 : Math.abs(Math.atan2(to.x, to.z) - Math.atan2(m.dir.x, m.dir.z));
         const a2 = st.spin ? 0 : Math.min(ang, Math.PI * 2 - ang);
         if (a2 > THREE.MathUtils.degToRad(st.arc) / 2) continue;
         m.hit.add(t.id);
-        const hp = t.center().lerp(c, 0.3);
+        const hp = t.shape ? near : t.center().lerp(c, 0.3);
         if (t.isProp) {
           g.damageProp(t, st.dmg * this.dmgMul * this.stats.parts.arms.melee, st.impact, hp);
           g.fx.meleeHit(hp, d.color, m.dir.clone(), !!st.finisher);

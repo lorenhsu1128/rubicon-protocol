@@ -8,6 +8,7 @@ import { SFX } from '../audio/audio.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { partById } from '../data/parts.js';
 import { OUTLINE_MAT, isOutline } from '../render/geometry.js';
+import { firePoint, losTol, measureLocal } from './fire-point.js';
 import { MechEntity } from './mech-entity.js';
 
 // 場地依主題縮放（World.k、World.lim）；鐵路兩端隧道口的位置（World.trackS）
@@ -156,7 +157,10 @@ Object.assign(MechEntity.prototype, {
     this.bx = null;
     if (s.rg === 'idle') {
       s.rgT -= dt;
-      if (s.rgT <= 0 && this.canAct() && d < 170) {
+      // 開始充能前：發射時的砲口（砲身轉向瞄準點、俯仰對準）＋容差看得到瞄準點才開始；
+      // 看不到時 0.3 秒後再試（以前不檢查就開始，0.45 秒後一定「失去目標」中斷）
+      if (s.rgT <= 0 && this.canAct() && d < 170 && !this.railLos(s.tp)) s.rgT = 0.3;
+      else if (s.rgT <= 0 && this.canAct() && d < 170) {
         s.rg = 'aim';
         s.charge = 0;
         s.lost = 0;
@@ -170,6 +174,7 @@ Object.assign(MechEntity.prototype, {
         s.rgT = 1.5;
         s.burst = false;
       } else {
+        // 充能中與發射：實際的砲口（砲身跟著瞄準點轉）→ 瞄準點，不加容差；發射的起點也是 mz，所以檢查看得到就打得到
         if (g.losClear(mz, s.tp)) {
           s.charge += dt;
           s.lost = Math.max(0, s.lost - dt);
@@ -218,6 +223,23 @@ Object.assign(MechEntity.prototype, {
       }
     }
     this.bossVis = s.rg === 'vent' ? 1 : 0;
+  },
+  // 電磁砲台在目前位置瞄準 aim 時的砲口：砲身（barrel）的俯仰和 bossFx 一樣是 aimPitch（機體中心 → 目標）夾在 −0.25～0.5，
+  // 機身朝向瞄準點。砲管長 13 m，俯仰差一點砲口就差很多，所以每次依俯仰量
+  railMz(aim) {
+    const m = this.model;
+    if (!m.barrel) return this.muzzle('rback');
+    const c = this.center();
+    const pitch = clamp(Math.atan2(aim.y - c.y, Math.hypot(aim.x - c.x, aim.z - c.z)), -0.25, 0.5);
+    const off = measureLocal(this, m.arms.r.back, () => {
+      const x = m.barrel.rotation.x;
+      m.barrel.rotation.x = pitch;
+      return () => (m.barrel.rotation.x = x);
+    });
+    return firePoint(this, off, this.pos, aim);
+  },
+  railLos(aim) {
+    return losTol((a, b) => this.game.losClear(a, b), this.railMz(aim), aim);
   },
   // ---------- 浮游砲指揮機：展開浮游砲包圍目標 → 依序從各方位開火 → 回收充能（本體防禦下降）----------
   funnelAI(dt, d, dir, perp, wish) {

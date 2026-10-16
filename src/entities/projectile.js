@@ -5,6 +5,7 @@ import { KIN_FALL_MIN } from '../data/attrs.js';
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { buildProjectileMesh } from '../render/extra-models.js';
+import { targetDist, targetSegT } from '../world/prop-hit.js';
 
 const BEND_CONE = 0.25; // 彈道修正只修正這個角度（弧度）以內的偏差：差一點擦過的會修正，大幅閃避照樣打不中
 
@@ -122,16 +123,13 @@ export class Projectile {
       g.destructibles(this.team),
     );
     const seg = this.pos.clone().sub(prev);
-    const segL2 = seg.lengthSq();
     let best = null,
       bestT = 2;
+    const pad = 0.4 + (this.hitR || 0); // hitR：玩家實彈加大的判定（對物件不加：物件用命中形狀，world/prop-hit.js）
     for (const t of targets) {
       if (t.dead) continue;
-      const c = t.center();
-      const r = t.radius + 0.4 + (this.hitR || 0); // hitR：玩家實彈加大的判定
-      let tt = segL2 > 1e-6 ? clamp(c.clone().sub(prev).dot(seg) / segL2, 0, 1) : 0;
-      const cp = prev.clone().addScaledVector(seg, tt);
-      if (cp.distanceToSquared(c) < r * r && tt < bestT) {
+      const tt = targetSegT(t, prev, seg, pad);
+      if (tt >= 0 && tt < bestT) {
         best = t;
         bestT = tt;
       }
@@ -168,7 +166,7 @@ export class Projectile {
       );
       for (const t of targets) {
         if (t.dead) continue;
-        const d = t.center().distanceTo(this.pos) - t.radius;
+        const d = targetDist(t, this.pos); // 物件以外形最近點算距離
         if (d < this.splash) {
           let k = clamp(1 - (d / this.splash) * 0.5, 0.4, 1) * g.groundBlastK(t, this.pos);
           let im = this.impactV * k;

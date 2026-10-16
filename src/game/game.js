@@ -5,6 +5,7 @@ import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { Effects } from '../fx/effects.js';
 import { animateMech } from '../render/mech-model.js';
+import { targetDist } from '../world/prop-hit.js';
 
 export class Game {
   constructor() {
@@ -298,7 +299,7 @@ export class Game {
     );
     for (const t of targets) {
       if (!t || t.dead) continue;
-      const d = t.center().distanceTo(p) - t.radius;
+      const d = targetDist(t, p); // 物件以外形最近點算距離
       if (d < splash) {
         let k = clamp(1 - (d / splash) * 0.5, 0.4, 1) * this.groundBlastK(t, p);
         let im = impact * k;

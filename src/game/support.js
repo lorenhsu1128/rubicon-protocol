@@ -5,6 +5,7 @@ import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { Projectile } from '../entities/projectile.js';
 import { Game } from './game.js';
+import { targetDist } from '../world/prop-hit.js';
 
 const MORTAR_G = 26; // 迫擊砲彈重力（和榴彈相同）
 const MINE_TRIG = 2.2; // 地雷觸發的水平距離
@@ -397,7 +398,7 @@ Object.assign(Game.prototype, {
     );
     for (const t of targets) {
       if (!t || t.dead) continue;
-      const d = t.center().distanceTo(p) - t.radius;
+      const d = targetDist(t, p); // 物件以外形最近點算距離
       if (d >= splash) continue;
       const k = clamp(1 - (d / splash) * 0.5, 0.4, 1) * this.groundBlastK(t, p);
       if (t.isProp) this.damageProp(t, dmg * k, impact * k, p);
