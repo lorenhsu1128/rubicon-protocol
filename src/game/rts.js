@@ -1,0 +1,1146 @@
+// Coral 戰爭（RTS，docs/rts-design.md）的核心（mixin）：選單畫面 'rtsmenu'、開局 rtsStart、局內狀態 this.rts、
+// 主迴圈 rtsTick（state 'rts'：game.js 的 loop 在 this.rts 存在時改呼叫它）、資源與維持費、人口、生產佇列、建造、
+// 修理、勝敗與結果畫面 'rtsend'。
+// - 單位與建築都是 MechEntity（建築＝不移動、ai 'bld'、模型由 opts.buildModel 給）：放進既有的 enemies／allies 清單，
+//   所以投射物、命中、爆炸、鎖定照舊；e.isPlayer 一律 false（玩家沒有自己的機甲，this.player 是 null）。
+//   每個實體的 takeDamage／die 換成 RTS 版（記下攻擊者給回擊；死亡不經過 onEnemyKilled／onPlayerDead，局內不寫存檔）。
+// - 建築在 world.obstacles 登記碰撞方塊、world.nav.block 佔用導航格（拆掉時解除），命中用外形（e.shape，prop-hit.js）。
+// - 單位行為在 entities/mech-rts.js（updateAI 開頭攔截），指令發佈在 game/rts-orders.js；鏡頭、選取、HUD 在
+//   rts-input.js／rts-hud.js（rtsCamUpdate），戰爭迷霧在 rts-fog.js（rtsFogTick），電腦對手在 rts-ai.js（rtsAiTick）。
+// - 敵人 AI 導演、感知、增援波次、據點、過關條件卡片在 RTS 都不啟動（rtsTick 不呼叫它們）。
+// - 冒煙測試：rtsSim(dt) 只推進模擬（不算繪），rtsPerf 記錄每格的耗時。
+import { SFX } from '../audio/audio.js';
+import { clamp } from '../core/math.js';
+import { escHtml } from '../core/html.js';
+import { SpatialHash } from '../core/spatial.js';
+import {
+  RTS_BLD_RES,
+  RTS_BUILD_ASSIST,
+  RTS_DEFS,
+  RTS_DIFFS,
+  RTS_FACTIONS,
+  RTS_GATHER,
+  RTS_POP_MAX,
+  RTS_QUEUE_MAX,
+  RTS_REPAIR,
+  RTS_START,
+  upkeepOf,
+} from '../data/rts-units.js';
+import { MechEntity } from '../entities/mech-entity.js';
+import {
+  CORAL_GLOW,
+  addWorkerKit,
+  buildCoralVent,
+  buildMineNode,
+  buildRtsBuilding,
+  rtsPal,
+  setMineAmount,
+} from '../render/rts-models.js';
+import { propShape } from '../world/prop-hit.js';
+import { RTS_THEMES, planRtsMap } from '../world/rts-map.js';
+import { World } from '../world/world.js';
+import { Game } from './game.js';
+
+const ME = 0; // 玩家的隊伍
+const PREF_KEY = 'rubicon_rts'; // 選單的設定
+const REC_KEY = 'rubicon_rts_rec'; // 遭遇戰的戰績
+const BLD_ASM = RTS_DEFS.c_worker.asm; // 建築的 MechEntity 只用來算數值（沒有武器）
+const END_DELAY = 2.5; // 勝敗決定後幾秒顯示結果
+const _q = [];
+
+const loadJson = (k, d) => {
+  try {
+    return JSON.parse(localStorage.getItem(k)) || d;
+  } catch (e) {
+    return d;
+  }
+};
+const saveJson = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch (e) {}
+};
+const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+Object.assign(Game.prototype, {
+  // ---------- 初始化（Game 的 constructor 呼叫）：標題按鈕、選單與結果畫面 ----------
+  rtsInit() {
+    const b = document.getElementById('btnRts');
+    if (b) b.onclick = () => this.rtsMenuOpen();
+  },
+
+  // ---------- 選單 ----------
+  rtsMenuOpen() {
+    SFX.init();
+    if (this.rts) this.clearMission();
+    const P = (this.rtsPrefs = {
+      faction: 'castron',
+      aiFaction: 'castron',
+      diff: 'normal',
+      theme: 'wasteland',
+      ...loadJson(PREF_KEY, {}),
+    });
+    if (!RTS_FACTIONS[P.faction] || !RTS_FACTIONS[P.faction].avail) P.faction = 'castron';
+    if (!RTS_FACTIONS[P.aiFaction] || !RTS_FACTIONS[P.aiFaction].avail) P.aiFaction = 'castron';
+    if (!RTS_THEMES[P.theme]) P.theme = 'wasteland';
+    P.seed = Math.floor(Math.random() * 1e9);
+    this.state = 'rtsmenu';
+    this.showScreen('rtsMenu');
+    this.rtsMenuRender();
+    // 預覽要等畫面出來再算（建 World 要一點時間）
+    setTimeout(() => this.state === 'rtsmenu' && this.rtsMenuPreview(), 30);
+  },
+  rtsMenuRender() {
+    const el = document.getElementById('rtsMenu');
+    if (!el) return;
+    const P = this.rtsPrefs;
+    const rec = loadJson(REC_KEY, { w: 0, l: 0 });
+    const fac = (sel, id) =>
+      Object.entries(RTS_FACTIONS)
+        .map(
+          ([k, F]) =>
+            `<button type="button" class="rtsFac${k === sel ? ' on' : ''}" data-${id}="${k}"${F.avail ? '' : ' disabled'} title="${escHtml(F.style + '（' + F.leader + '）' + (F.avail ? '' : '：之後的分期'))}">${escHtml(F.name)}</button>`,
+        )
+        .join('');
+    el.innerHTML = `
+      <div class="panel rtsMenuPanel">
+        <h2>Coral 戰爭 <small>遭遇戰 — 1 對 1</small></h2>
+        <div class="rtsMenuGrid">
+          <div class="rtsMenuOpts">
+            <h3>你的陣營</h3>
+            <div class="rtsFacs" data-padtabs="[data-pf]">${fac(P.faction, 'pf')}</div>
+            <h3>電腦對手</h3>
+            <div class="rtsFacs">${fac(P.aiFaction, 'af')}</div>
+            <div class="row">
+              <label>難度 <select id="rtsDiff">${RTS_DIFFS.map((d) => `<option value="${d.id}"${d.id === P.diff ? ' selected' : ''}>${escHtml(d.name)}</option>`).join('')}</select></label>
+            </div>
+            <h3>地圖</h3>
+            <div class="row">
+              <label>主題 <select id="rtsTheme">${Object.entries(RTS_THEMES)
+                .map(
+                  ([k, T]) =>
+                    `<option value="${k}"${k === P.theme ? ' selected' : ''}>${escHtml(T.name)}</option>`,
+                )
+                .join('')}</select></label>
+            </div>
+            <div class="row">
+              <label>種子 <input id="rtsSeed" value="${P.seed}" size="11" inputmode="numeric" /></label>
+              <button type="button" id="rtsReroll" title="換一張地圖">重抽</button>
+              <button type="button" id="rtsPrevBtn" title="依種子重新預覽">預覽</button>
+            </div>
+            <p class="dim rtsRec">戰績：${rec.w} 勝 ${rec.l} 敗</p>
+          </div>
+          <div class="rtsPrev">
+            <img id="rtsPrevImg" alt="地圖預覽" />
+            <div id="rtsPrevInfo" class="dim">產生地圖中…</div>
+          </div>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="rtsGo">開始</button>
+          <button type="button" id="rtsBack">回標題</button>
+        </div>
+        <p class="dim" style="font-size: 11px">
+          左鍵選取、拖曳框選；右鍵移動／攻擊／採集；指令卡的快捷鍵 Q W E R／A S D F／Z X C V；Ctrl＋數字編隊；Esc 選單。
+          局內不寫存檔（沒有 COAM 與經驗），只記勝敗。
+        </p>
+      </div>`;
+    const $ = (id) => document.getElementById(id);
+    for (const b of el.querySelectorAll('[data-pf]'))
+      b.onclick = () => {
+        P.faction = b.dataset.pf;
+        this.rtsMenuSave();
+        this.rtsMenuRender();
+      };
+    for (const b of el.querySelectorAll('[data-af]'))
+      b.onclick = () => {
+        P.aiFaction = b.dataset.af;
+        this.rtsMenuSave();
+        this.rtsMenuRender();
+      };
+    $('rtsDiff').onchange = (e) => {
+      P.diff = e.target.value;
+      this.rtsMenuSave();
+    };
+    $('rtsTheme').onchange = (e) => {
+      P.theme = e.target.value;
+      this.rtsMenuSave();
+      this.rtsMenuPreview();
+    };
+    $('rtsSeed').onchange = (e) => {
+      P.seed = Math.abs(parseInt(e.target.value, 10) || 0) >>> 0;
+      this.rtsMenuPreview();
+    };
+    $('rtsReroll').onclick = () => {
+      P.seed = Math.floor(Math.random() * 1e9);
+      $('rtsSeed').value = P.seed;
+      this.rtsMenuPreview();
+    };
+    $('rtsPrevBtn').onclick = () => this.rtsMenuPreview();
+    $('rtsGo').onclick = () => {
+      P.seed = Math.abs(parseInt($('rtsSeed').value, 10) || 0) >>> 0;
+      this.rtsStart({
+        theme: P.theme,
+        seed: P.seed,
+        size: 400,
+        faction: P.faction,
+        aiFaction: P.aiFaction,
+        diff: P.diff,
+      });
+    };
+    $('rtsBack').onclick = () => {
+      this.clearMission();
+      this.state = 'title';
+      this.showScreen('title');
+    };
+    if (this.rtsPrevUrl && this.rtsPrevKey === this.rtsKeyOf(P)) {
+      $('rtsPrevImg').src = this.rtsPrevUrl;
+      $('rtsPrevInfo').textContent = this.rtsPrevTxt || '';
+    }
+  },
+  rtsMenuSave() {
+    const P = this.rtsPrefs;
+    saveJson(PREF_KEY, { faction: P.faction, aiFaction: P.aiFaction, diff: P.diff, theme: P.theme });
+  },
+  rtsKeyOf(P) {
+    return `${P.theme}|${P.seed >>> 0}|400`;
+  },
+  // 俯視縮圖（rts-preview.js 的 rtsMapPreview：建 World 並從正上方算繪）；建好的 World 留著，開始時沿用
+  rtsMenuPreview() {
+    const P = this.rtsPrefs;
+    const info = document.getElementById('rtsPrevInfo');
+    if (info) info.textContent = '產生地圖中…';
+    setTimeout(() => {
+      if (this.state !== 'rtsmenu') return;
+      const key = this.rtsKeyOf(P);
+      const r = this.rtsMapPreview(P.seed >>> 0, { theme: P.theme, size: 400 });
+      this.rtsPreviewClear();
+      this._rtsPrevW = this.world;
+      this.rtsPrevKey = this._rtsPrevK = key;
+      this.rtsPrevUrl = r.url;
+      this.rtsPrevTxt = `${r.ok ? '' : '（檢查未通過）'}礦脈 ${r.mines}・Coral ${r.corals}・野怪營地 ${r.camps}・通道 ${r.lanes}`;
+      const img = document.getElementById('rtsPrevImg');
+      if (img) img.src = r.url;
+      const inf = document.getElementById('rtsPrevInfo');
+      if (inf) inf.textContent = this.rtsPrevTxt;
+      // 背景：從斜上方看整張地圖
+      const cam = this.camera;
+      cam.position.set(0, 260, 300);
+      cam.lookAt(0, 0, 0);
+      cam.far = 1600;
+      cam.updateProjectionMatrix();
+    }, 20);
+  },
+
+  // ---------- 開局 ----------
+  rtsStart(cfg) {
+    SFX.init();
+    const seed = cfg.seed >>> 0,
+      theme = RTS_THEMES[cfg.theme] ? cfg.theme : 'wasteland',
+      size = cfg.size || 400;
+    const key = `${theme}|${seed}|${size}`;
+    let w = this.world;
+    if (!(w && w === this._rtsPrevW && this._rtsPrevK === key && w.rts)) {
+      this.clearMission();
+      if (this.rtsPreviewClear) this.rtsPreviewClear();
+      const plan = planRtsMap(seed, { theme, size });
+      w = this.world = new World(this.scene, plan.theme, seed, 1, null, { rts: plan });
+    } else if (this.rtsPreviewClear) this.rtsPreviewClear();
+    this._rtsPrevW = null;
+    this._rtsPrevK = null;
+    const plan = w.rts;
+    w.applyLight(this);
+    this.worldSeed = seed;
+    this.worldTheme = plan.theme;
+    this.missionT = 0;
+    this.time = this.time || 0;
+    this.isBossLevel = false;
+    this.waves = [];
+    this.wavePend = null;
+    const R = (this.rts = {
+      cfg: {
+        theme,
+        seed,
+        size,
+        faction: cfg.faction || 'castron',
+        aiFaction: cfg.aiFaction || 'castron',
+        diff: cfg.diff || 'normal',
+        aiBoth: !!cfg.aiBoth, // 測試／除錯：兩邊都是電腦（rts-ai.js）
+        aiOpener: cfg.aiOpener || null,
+        diffs: cfg.diffs || null, // 兩邊都是電腦時各自的難度 [隊伍 0, 隊伍 1]
+      },
+      t: 0,
+      me: ME,
+      teams: [0, 1].map((i) => ({
+        id: i,
+        team: i === ME ? 'player' : 'enemy',
+        faction: i === ME ? cfg.faction || 'castron' : cfg.aiFaction || 'castron',
+        ore: RTS_START.ore,
+        coral: RTS_START.coral,
+        pop: 0,
+        cap: 0,
+        ai: i !== ME,
+        alive: true,
+        upk: 0,
+      })),
+      units: [],
+      byId: new Map(),
+      mines: [],
+      corals: [],
+      resById: new Map(),
+      hash: new SpatialHash(8),
+      sel: [],
+      groups: {},
+      fog: null,
+      over: null,
+      overT: 0,
+      pathQ: [],
+      stats: [0, 1].map(() => ({ made: 0, lost: 0, killed: 0, ore: 0, coral: 0, blds: 0 })),
+      g: new THREE.Group(),
+      perf: { ai: 0, sim: 0, n: 0 },
+      endT: 0,
+    });
+    R.g.userData.helper = true;
+    this.scene.add(R.g);
+    // 資源點
+    const th = (p) => w.terrainHeight(p.x, p.z);
+    plan.mines.forEach((m, i) => {
+      const mesh = buildMineNode();
+      mesh.position.set(m.pos.x, th(m.pos) - 0.3, m.pos.z);
+      mesh.rotation.y = i * 1.7;
+      R.g.add(mesh);
+      const rec = {
+        id: 'm' + i,
+        kind: 'mine',
+        pos: { x: m.pos.x, y: th(m.pos), z: m.pos.z },
+        amount: m.amount,
+        max: m.amount,
+        mesh,
+        miners: new Set(),
+        mk: m.kind,
+      };
+      R.mines.push(rec);
+      R.resById.set(rec.id, rec);
+      // 礦脈本身擋路（小圓柱＋導航格：工人從邊緣採）
+      const mr = RTS_GATHER.mineR - 0.6;
+      w.obstacles.push({
+        kind: 'circle',
+        x: m.pos.x,
+        z: m.pos.z,
+        r: mr,
+        y: th(m.pos) - 1,
+        top: th(m.pos) + 2.6,
+        rtsRes: rec,
+      });
+      w.nav.block(m.pos.x, m.pos.z, mr * 1.5, mr * 1.5, 0, true);
+    });
+    plan.corals.forEach((c, i) => {
+      const mesh = buildCoralVent();
+      mesh.position.set(c.pos.x, th(c.pos) - 0.1, c.pos.z);
+      mesh.rotation.y = i * 2.1;
+      R.g.add(mesh);
+      const rec = {
+        id: 'c' + i,
+        kind: 'coral',
+        pos: { x: c.pos.x, y: th(c.pos), z: c.pos.z },
+        amount: c.amount,
+        max: c.amount,
+        mesh,
+        ext: null,
+      };
+      R.corals.push(rec);
+      R.resById.set(rec.id, rec);
+    });
+    // 兩邊的主堡＋工人
+    for (const T of R.teams) {
+      const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
+      const base = plan.bases.find((b) => b.owner === T.id) || plan.bases[T.id];
+      const main = R.mines.find(
+        (m) => m.mk === 'main' && Math.hypot(m.pos.x - base.pos.x, m.pos.z - base.pos.z) < base.r + 20,
+      );
+      const spot = this.rtsFindSpot(F.hq, base.pos, main ? main.pos : null, base.r);
+      const hq = this.rtsSpawnBld(T.id, F.hq, spot.x, spot.z, 0, 1);
+      // 工人：主堡朝礦脈的一側排開，開局就去採礦
+      const to = main ? main.pos : base.pos;
+      const ang = Math.atan2(to.z - hq.pos.z, to.x - hq.pos.x);
+      for (let i = 0; i < RTS_START.workers; i++) {
+        const a = ang + (i - (RTS_START.workers - 1) / 2) * 0.35;
+        const rr = RTS_DEFS[F.hq].foot[0] / 2 + 3;
+        let x = hq.pos.x + Math.cos(a) * rr,
+          z = hq.pos.z + Math.sin(a) * rr;
+        const c = w.nav.nearestCell(x, z, 0, -1, 8);
+        if (c >= 0) ({ x, z } = w.nav.center(c));
+        const u = this.rtsSpawn(T.id, F.worker, x, z, -ang - Math.PI / 2);
+        if (main) u.orders = [{ k: 'gather', mine: main.id }];
+      }
+    }
+    this.rtsRecount();
+    // 鏡頭、迷霧、輸入、HUD、電腦對手（各自的檔案；還沒有時略過）
+    const cam = this.camera;
+    cam.far = 1400;
+    cam.updateProjectionMatrix();
+    // 大量單位的渲染設定（render-setup.js：低特效、單位的假影子、AI 分批）
+    if (this.setRtsRender) this.setRtsRender(true);
+    else if (this.setLowFx) this.setLowFx({ ssao: 'half', mblur: false });
+    if (this.stylePipe && this.stylePipe.resetHistory) this.stylePipe.resetHistory();
+    if (this.rtsFogInit) this.rtsFogInit();
+    if (this.rtsInputInit) this.rtsInputInit();
+    if (this.rtsAiInit) this.rtsAiInit();
+    this.state = 'rts';
+    this.showScreen('');
+    document.body.classList.add('rtsOn');
+    this.lastT = performance.now();
+    return R;
+  },
+  // 主堡的位置：基地平台上可以蓋的地方，外形離主礦（中心）約 13 m、離平台中心近（兩邊用同樣的規則，結果對稱）
+  rtsFindSpot(defId, c, near, r) {
+    const D = RTS_DEFS[defId];
+    const nav = this.world.nav;
+    const [w, d] = D.foot;
+    const cell = nav.cell,
+      S = this.world.size / 2;
+    const snap = (v, s) => Math.round((v - s / 2 + S) / cell) * cell - S + s / 2;
+    let best = null,
+      bs = 1e9;
+    for (let dx = -r; dx <= r; dx += 2)
+      for (let dz = -r; dz <= r; dz += 2) {
+        const x = snap(c.x + dx, w),
+          z = snap(c.z + dz, d);
+        if (Math.hypot(x - c.x, z - c.z) > r) continue;
+        if (!nav.buildable(x, z, w, d)) continue;
+        // 離主礦：主堡外形到礦脈中心的距離（工人來回要走一段，不能站在中間兩邊都搆得到）
+        const rd = near
+          ? Math.hypot(Math.max(0, Math.abs(near.x - x) - w / 2), Math.max(0, Math.abs(near.z - z) - d / 2))
+          : 0;
+        if (near && rd < 11) continue;
+        const s = (near ? Math.abs(rd - 13) : 0) + 0.3 * Math.hypot(x - c.x, z - c.z);
+        if (s < bs) ((bs = s), (best = { x, z }));
+      }
+    return best || { x: c.x, z: c.z };
+  },
+
+  // ---------- 實體 ----------
+  // 單位（建築轉給 rtsSpawnBld，已完成）
+  rtsSpawn(teamId, defId, x, z, yaw = 0) {
+    const R = this.rts,
+      D = RTS_DEFS[defId],
+      T = R.teams[teamId];
+    if (!D) return null;
+    if (D.kind === 'bld') return this.rtsSpawnBld(teamId, defId, x, z, yaw, 1);
+    const pal = rtsPal(T.faction, teamId);
+    const e = new MechEntity(this, { ...D.asm }, pal, {
+      team: T.team,
+      name: D.name,
+      ai: D.ai || 'rts',
+      scale: D.scale,
+      radius: D.radius / D.scale,
+      res: D.res,
+      stabMul: 3,
+    });
+    e.isPlayer = false;
+    e.rtsTeam = teamId;
+    e.rtsDef = defId;
+    e.rtNavSize = D.size || 0;
+    e.orders = [];
+    e.carry = null;
+    e.rt = {
+      wish: new THREE.Vector3(),
+      faceV: new THREE.Vector3(),
+      face: null,
+      fireT: 0,
+      scanT: Math.random() * 0.35,
+      nav: null,
+      cur: undefined,
+    };
+    e.maxHp = e.hp = D.hp;
+    e.speedMul = D.speed / Math.max(1, e.stats.speed);
+    // 傷害：依主武器換算成定義的 dps（射速取定義的 rof 與武器的 rof 較慢者）
+    const wd = e.weapons.rarm && e.weapons.rarm.def;
+    if (wd && wd.dmg && D.dps) {
+      const per = wd.dmg * (wd.npcK || 1) * (wd.pellets || 1);
+      e.dmgMul = D.dps / (per / Math.max(D.rof || 0, wd.rof || 0.1));
+    }
+    const y = this.world.groundAt(x, z, this.world.terrainHeight(x, z) + 2);
+    e.pos.set(x, y, z);
+    e.yaw = e.aimYaw = yaw;
+    e.mesh.position.copy(e.pos);
+    e.mesh.rotation.y = yaw;
+    if (D.worker) addWorkerKit(e.model, pal);
+    this.rtsHook(e);
+    (teamId === ME ? this.allies : this.enemies).push(e);
+    R.units.push(e);
+    R.byId.set(e.id, e);
+    R.hash.insert(e, x, z);
+    R.stats[teamId].made++;
+    return e;
+  },
+  // 建築：progress＜1 時是工地（鷹架、血量從 10% 長起來）
+  rtsSpawnBld(teamId, defId, x, z, yaw = 0, progress = 1) {
+    const R = this.rts,
+      D = RTS_DEFS[defId],
+      T = R.teams[teamId],
+      w = this.world;
+    const pal = rtsPal(T.faction, teamId);
+    const q = Math.round((yaw || 0) / (Math.PI / 2)) & 3;
+    yaw = (q * Math.PI) / 2;
+    const [fw, fd] = q & 1 ? [D.foot[1], D.foot[0]] : D.foot;
+    const e = new MechEntity(this, { ...BLD_ASM }, pal, {
+      team: T.team,
+      name: D.name,
+      ai: 'bld',
+      modelKind: 'rts',
+      buildModel: () => buildRtsBuilding(defId, pal),
+      radius: Math.max(fw, fd) / 2,
+      res: RTS_BLD_RES,
+    });
+    e.isPlayer = false;
+    e.noPush = true;
+    e.rtsTeam = teamId;
+    e.rtsDef = defId;
+    e.orders = [];
+    e.acsMax = 1e9;
+    e.maxHp = D.hp;
+    e.hp = progress >= 1 ? D.hp : Math.max(1, D.hp * 0.1);
+    e.bld = { def: defId, progress, queue: [], rally: null, builders: new Set(), vent: null, w: fw, d: fd };
+    // 地面：佔地四角與中心的最低點（本體略微埋進地面）
+    const th = (a, b) => w.terrainHeight(a, b);
+    const gy = Math.min(
+      th(x, z),
+      th(x - fw / 2, z - fd / 2),
+      th(x + fw / 2, z - fd / 2),
+      th(x - fw / 2, z + fd / 2),
+      th(x + fw / 2, z + fd / 2),
+    );
+    e.pos.set(x, gy, z);
+    e.yaw = e.aimYaw = yaw;
+    e.mesh.position.copy(e.pos);
+    e.mesh.rotation.y = yaw;
+    e.model.setProgress(progress);
+    const ob = { kind: 'box', x, z, w: fw, d: fd, y: gy - 0.5, top: gy + D.height, rtsBld: e };
+    w.obstacles.push(ob);
+    e.rtsOb = ob;
+    e.shape = propShape(w, ob);
+    w.nav.block(x, z, fw, fd, 0, true);
+    if (D.on === 'coral') {
+      const v = R.corals.find((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 3);
+      if (v) {
+        v.ext = e;
+        e.bld.vent = v;
+      }
+    }
+    this.rtsHook(e);
+    (teamId === ME ? this.allies : this.enemies).push(e);
+    R.units.push(e);
+    R.byId.set(e.id, e);
+    R.hash.insert(e, x, z);
+    R.stats[teamId].blds++;
+    return e;
+  },
+  // 實體的 takeDamage／die 換成 RTS 版
+  rtsHook(e) {
+    const td = MechEntity.prototype.takeDamage;
+    e.takeDamage = function (dmg, impact, from, ...rest) {
+      if (from && this.rtsHurtBy) this.rtsHurtBy(from);
+      return td.call(this, dmg, impact, from, ...rest);
+    };
+    e.die = function (from) {
+      if (this.dead) return;
+      this.dead = true;
+      this.rtsDie(from);
+    };
+  },
+  rtsEnt(id) {
+    return this.rts ? this.rts.byId.get(id) || null : null;
+  },
+  rtsMine(id) {
+    return this.rts ? this.rts.resById.get(id) || null : null;
+  },
+  rtsUnitsOf(teamId) {
+    return this.rts ? this.rts.units.filter((e) => e.rtsTeam === teamId && !e.dead) : [];
+  },
+  // 範圍內的實體（空間索引粗篩，共用的陣列：呼叫端不要保留）
+  rtsNear(x, z, r) {
+    return this.rts.hash.query(x, z, r, _q);
+  },
+  rtsMineAt(x, z, r) {
+    let best = null,
+      bd = r;
+    for (const m of this.rts.mines) {
+      if (m.amount <= 0) continue;
+      const d = Math.hypot(m.pos.x - x, m.pos.z - z);
+      if (d < bd) ((bd = d), (best = m));
+    }
+    return best;
+  },
+  rtsNearestMine(x, z, teamId, exclude, freeOnly) {
+    let best = null,
+      bd = 1e9;
+    for (const m of this.rts.mines) {
+      if (m === exclude || m.amount <= 0) continue;
+      if (freeOnly && m.miners.size >= RTS_GATHER.sat) continue;
+      const d = Math.hypot(m.pos.x - x, m.pos.z - z);
+      if (d < bd) ((bd = d), (best = m));
+    }
+    return best;
+  },
+  // 最近的回收點（蓋好的主堡）
+  rtsDropoff(teamId, x, z) {
+    let best = null,
+      bd = 1e9;
+    for (const e of this.rts.units) {
+      if (e.dead || !e.bld || e.rtsTeam !== teamId || e.bld.progress < 1 || !RTS_DEFS[e.rtsDef].dropoff)
+        continue;
+      const d = Math.hypot(e.pos.x - x, e.pos.z - z);
+      if (d < bd) ((bd = d), (best = e));
+    }
+    return best;
+  },
+  rtsMineChanged(m) {
+    setMineAmount(m.mesh, m.amount / m.max);
+    if (m.amount <= 0) {
+      m.amount = 0;
+      if (this.rtsEvent && [...m.miners].some((u) => u.rtsTeam === ME))
+        this.rtsEvent(m.pos.x, m.pos.z, '礦脈採完了');
+    }
+  },
+  // 特效只在鏡頭附近產生（遠處的採礦火花不畫）
+  rtsFxOk(p) {
+    const c = this.camTarget;
+    return !c || Math.hypot(p.x - c.x, p.z - c.z) < 160;
+  },
+
+  // ---------- 資源 ----------
+  rtsAfford(teamId, cost) {
+    const T = this.rts && this.rts.teams[teamId];
+    if (!T || !cost) return !!T;
+    if ((cost.ore || 0) > T.ore + 1e-6 || (cost.coral || 0) > T.coral + 1e-6) return false;
+    if (cost.pop && T.pop + cost.pop > T.cap) return false;
+    return true;
+  },
+  rtsPay(teamId, cost) {
+    if (!this.rtsAfford(teamId, cost)) return false;
+    const T = this.rts.teams[teamId];
+    T.ore -= cost.ore || 0;
+    T.coral -= cost.coral || 0;
+    return true;
+  },
+  rtsRefund(teamId, cost, k = 1) {
+    const T = this.rts.teams[teamId];
+    T.ore += Math.floor((cost.ore || 0) * k);
+    T.coral += Math.floor((cost.coral || 0) * k);
+  },
+  // 繳交資源：礦石套維持費（人口 60／100 以上收入 70%／40%），Coral 不受影響；回傳實際入帳的量
+  rtsDeposit(teamId, kind, n) {
+    const T = this.rts.teams[teamId];
+    if (kind === 'coral') {
+      T.coral += n * (T.income || 1);
+      return n * (T.income || 1);
+    }
+    const v = n * upkeepOf(T.pop).k * (T.income || 1); // T.income：電腦「瘋狂」難度的收入倍率（rts-ai.js）
+    T.ore += v;
+    return v;
+  },
+  // 人口與上限：活著的單位＋生產中（已開始）的單位；上限＝蓋好的建築的 popCap 合計（最多 150）
+  rtsRecount() {
+    const R = this.rts;
+    for (const T of R.teams) {
+      T.pop = 0;
+      T.cap = 0;
+    }
+    for (const e of R.units) {
+      if (e.dead) continue;
+      const T = R.teams[e.rtsTeam],
+        D = RTS_DEFS[e.rtsDef];
+      if (e.bld) {
+        if (e.bld.progress >= 1) T.cap += D.popCap || 0;
+        const q = e.bld.queue[0];
+        if (q && q.on) T.pop += RTS_DEFS[q.id].pop || 0;
+      } else T.pop += D.pop || 0;
+    }
+    for (const T of R.teams) {
+      T.cap = Math.min(RTS_POP_MAX, T.cap);
+      T.upk = upkeepOf(T.pop).lv;
+    }
+  },
+
+  // ---------- 建造 ----------
+  // 工人到了工地：檢查位置與資源、扣款、建立地基（progress 0）；不行時回傳 null（玩家的提示）
+  rtsPlace(teamId, defId, x, z, yaw, builder) {
+    const R = this.rts,
+      D = RTS_DEFS[defId],
+      nav = this.world.nav;
+    const say = (t) => teamId === ME && this.rtsSay(t);
+    if (!D || D.kind !== 'bld') return null;
+    if (D.on === 'coral') {
+      const v = R.corals.find((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 6);
+      if (!v) return (say('要蓋在 Coral 湧出點上'), null);
+      if (v.ext && !v.ext.dead) return (say('這個湧出點已經有抽取站'), null);
+      x = v.pos.x;
+      z = v.pos.z;
+    } else {
+      const q = Math.round((yaw || 0) / (Math.PI / 2)) & 1;
+      const [fw, fd] = q ? [D.foot[1], D.foot[0]] : D.foot;
+      if (!nav.buildable(x, z, fw, fd)) return (say('這裡不能建造'), null);
+    }
+    if (!this.rtsPay(teamId, D.cost))
+      return (say(R.teams[teamId].ore < (D.cost.ore || 0) ? '礦石不足' : 'Coral 不足'), null);
+    const b = this.rtsSpawnBld(teamId, defId, x, z, yaw, 0);
+    if (builder) b.bld.builders.add(builder);
+    if (teamId === ME && this.rtsEvent) this.rtsEvent(x, z, '');
+    return b;
+  },
+  // 修理一格：補血並扣礦石；資源不足時回傳 false
+  rtsRepairStep(b, w, dt) {
+    const D = RTS_DEFS[b.rtsDef],
+      T = this.rts.teams[b.rtsTeam];
+    const dh = Math.min((b.maxHp / (D.time * RTS_REPAIR.timeK)) * dt, b.maxHp - b.hp);
+    if (dh <= 0) return true;
+    const cost = ((D.cost.ore || 0) * RTS_REPAIR.costK * dh) / b.maxHp;
+    if (T.ore < cost) {
+      if (b.rtsTeam === ME) this.rtsSay('礦石不足，無法修理');
+      return false;
+    }
+    T.ore -= cost;
+    b.hp += dh;
+    return true;
+  },
+  // 生產：加入佇列（扣款；人口在開始生產時才檢查）
+  rtsQueue(b, defId) {
+    const D = RTS_DEFS[defId],
+      BD = b && RTS_DEFS[b.rtsDef];
+    const me = b && b.rtsTeam === ME;
+    if (!b || b.dead || !b.bld || !D || !BD || !(BD.trains || []).includes(defId)) return false;
+    if (b.bld.progress < 1) return (me && this.rtsSay('建築還沒蓋好'), false);
+    if (b.bld.queue.length >= RTS_QUEUE_MAX) return (me && this.rtsSay('生產佇列已滿'), false);
+    if (!this.rtsPay(b.rtsTeam, D.cost)) {
+      if (me) this.rtsSay(this.rts.teams[b.rtsTeam].ore < (D.cost.ore || 0) ? '礦石不足' : 'Coral 不足');
+      return false;
+    }
+    b.bld.queue.push({ id: defId, t: 0 });
+    return true;
+  },
+  // 取消：i＝-1（或建築還沒蓋好）＝取消建造（退 75%）；否則取消佇列的第 i 項（全額退還）
+  rtsCancel(b, i) {
+    if (!b || b.dead || !b.bld) return false;
+    const R = this.rts;
+    if (i === -1 || b.bld.progress < 1) {
+      this.rtsRefund(b.rtsTeam, RTS_DEFS[b.rtsDef].cost, 0.75);
+      b.rtsQuiet = true;
+      b.die(null);
+      return true;
+    }
+    if (i === undefined || i < 0 || i >= b.bld.queue.length) i = b.bld.queue.length - 1;
+    if (i < 0) return false;
+    const it = b.bld.queue.splice(i, 1)[0];
+    this.rtsRefund(b.rtsTeam, RTS_DEFS[it.id].cost, 1);
+    this.rtsRecount();
+    void R;
+    return true;
+  },
+  rtsSay(t, color = 0xff8a8a) {
+    if (this.rtsMsg) this.rtsMsg(t, color);
+    else this.flashMsg(t, color, 1.4);
+  },
+
+  // ---------- 每格 ----------
+  rtsTick(dt) {
+    const R = this.rts;
+    if (!R || !this.world) return;
+    this.time += dt;
+    this.missionT += dt;
+    this.rtsSim(dt);
+    this.fx.update(dt);
+    this.tickPopups(dt);
+    if (this.rtsFogTick) this.rtsFogTick(dt);
+    if (this.rtsCamUpdate) this.rtsCamUpdate(dt);
+    else this.rtsCamFallback();
+    SFX.setListener(this.camTarget);
+    this.updateLoops();
+    const gm = CORAL_GLOW();
+    gm.emissiveIntensity = 1.35 + 0.45 * Math.sin(R.t * 2.2);
+    this.renderMain();
+    if (!this.rtsHudTick) this.hctx.clearRect(0, 0, innerWidth, innerHeight);
+    if (R.over && !R.shown) {
+      R.overT += dt;
+      if (R.overT >= END_DELAY) this.rtsShowResult();
+    }
+  },
+  // 模擬一格（不含鏡頭與算繪；冒煙測試可以直接呼叫來快轉）
+  rtsSim(dt) {
+    const R = this.rts;
+    if (!R) return;
+    const t0 = performance.now();
+    R.t += dt;
+    this.rtsPathService();
+    this.lodTick();
+    const t1 = performance.now();
+    // 單位行為（updateAI → mech-rts.js 的 rtsUnitAI）；離鏡頭遠的分批更新（game.js 的 aiStep）
+    R.logicMs = 0;
+    const batch = this.aiBatchOn ? this.aiBatchOn() : false;
+    for (const e of R.units) if (!e.dead && !e.bld) this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
+    const t2 = performance.now();
+    this.rtsSeparate();
+    for (const e of R.units) if (!e.dead && !e.bld) R.hash.update(e, e.pos.x, e.pos.z);
+    const t3 = performance.now();
+    this.rtsBuildings(dt);
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.update(dt);
+      if (p.dead) this.projectiles.splice(i, 1);
+    }
+    this.updateShocks(dt);
+    this.updateSupport(dt);
+    this.updateHazards(dt);
+    this.rtsSweep(dt);
+    this.rtsRecount();
+    if (this.rtsAiTick) this.rtsAiTick(dt);
+    R.endT -= dt;
+    if (R.endT <= 0) {
+      R.endT = 0.5;
+      this.rtsCheckEnd();
+    }
+    // 耗時（毫秒，指數平均）：ai＝單位行為（含 move／動作），sep＝推擠＋空間索引，sim＝整格
+    const k = 0.1;
+    R.perf.ai += (t2 - t1 - R.perf.ai) * k;
+    R.perf.sep = (R.perf.sep || 0) + (t3 - t2 - (R.perf.sep || 0)) * k;
+    R.perf.sim += (performance.now() - t0 - R.perf.sim) * k;
+    R.perf.logic = (R.perf.logic || 0) + (R.logicMs - (R.perf.logic || 0)) * k;
+    R.perf.n = R.units.length;
+  },
+  // 單位之間的推擠：空間索引找鄰近的，兩兩推開（待命的讓路給移動中的；採集中的工人互相穿過，不塞車）
+  rtsSeparate() {
+    const R = this.rts;
+    for (const a of R.units) {
+      if (a.dead || a.bld || a.noPush) continue;
+      const near = R.hash.query(a.pos.x, a.pos.z, a.radius + 3, _q);
+      const ag = a.orders[0] && a.orders[0].k === 'gather';
+      for (let i = 0; i < near.length; i++) {
+        const b = near[i];
+        if (b === a || b.id < a.id || b.dead || b.bld || b.noPush) continue;
+        if (ag && b.orders[0] && b.orders[0].k === 'gather' && a.rtsTeam === b.rtsTeam) continue;
+        if (Math.abs(a.pos.y - b.pos.y) > 3) continue;
+        const dx = b.pos.x - a.pos.x,
+          dz = b.pos.z - a.pos.z;
+        let d = Math.hypot(dx, dz);
+        const min = a.radius + b.radius + 0.2;
+        if (d >= min) continue;
+        if (d < 1e-4) d = 1e-4;
+        const nx = dx / d,
+          nz = dz / d,
+          push = min - d;
+        const wa = a.orders.length ? 0.35 : 1,
+          wb = b.orders.length ? 0.35 : 1;
+        const s = wa + wb;
+        a.pos.x -= nx * push * (wa / s);
+        a.pos.z -= nz * push * (wa / s);
+        b.pos.x += nx * push * (wb / s);
+        b.pos.z += nz * push * (wb / s);
+        a.mesh.position.x = a.pos.x;
+        a.mesh.position.z = a.pos.z;
+        b.mesh.position.x = b.pos.x;
+        b.mesh.position.z = b.pos.z;
+      }
+    }
+  },
+  // 建築：工地進度、生產佇列、Coral 產出
+  rtsBuildings(dt) {
+    const R = this.rts;
+    for (const b of R.units) {
+      if (b.dead || !b.bld) continue;
+      const B = b.bld,
+        D = RTS_DEFS[b.rtsDef],
+        T = R.teams[b.rtsTeam];
+      if (B.progress < 1) {
+        for (const w of B.builders) if (w.dead || w.rt.buildOn !== b) B.builders.delete(w);
+        const n = B.builders.size;
+        if (!n) continue;
+        const dp = ((1 + RTS_BUILD_ASSIST * (n - 1)) / D.time) * dt;
+        const p = Math.min(1, B.progress + dp);
+        b.hp = Math.min(b.maxHp, b.hp + D.hp * 0.9 * (p - B.progress));
+        B.progress = p;
+        b.model.setProgress(p);
+        if (p >= 1) {
+          B.builders.clear();
+          SFX.play('door', 0.6, 0.9, 0.05, 0.03, b.center());
+          if (b.rtsTeam === ME && this.rtsEvent) this.rtsEvent(b.pos.x, b.pos.z, '建造完成：' + D.name);
+        }
+        continue;
+      }
+      // Coral 抽取站
+      if (D.coralRate && B.vent && B.vent.amount > 0) {
+        const n = Math.min(D.coralRate * dt, B.vent.amount);
+        B.vent.amount -= n;
+        T.coral += n * (T.income || 1);
+        R.stats[b.rtsTeam].coral += n;
+      }
+      // 生產
+      const q = B.queue[0];
+      if (!q) continue;
+      const U = RTS_DEFS[q.id];
+      if (!q.on) {
+        if (T.pop + (U.pop || 0) > T.cap) {
+          if (!q.warn && b.rtsTeam === ME) {
+            q.warn = true;
+            this.rtsSay(T.cap >= RTS_POP_MAX ? '人口已達上限' : '人口不足 — 蓋補給庫');
+          }
+          continue;
+        }
+        q.on = true;
+        T.pop += U.pop || 0;
+      }
+      q.t += dt;
+      if (q.t >= U.time) {
+        B.queue.shift();
+        this.rtsTrained(b, q.id);
+      }
+    }
+  },
+  // 生產完成：在建築正面出來，前往集結點（點了礦脈的集結點：工人自動採集）；工人沒有集結點時自動去採最近的礦
+  rtsTrained(b, id) {
+    const R = this.rts,
+      D = RTS_DEFS[id],
+      nav = this.world.nav;
+    const B = b.bld;
+    const fx = Math.sin(b.yaw),
+      fz = Math.cos(b.yaw);
+    const r = Math.max(B.w, B.d) / 2 + 2.5;
+    let x = b.pos.x + fx * r,
+      z = b.pos.z + fz * r;
+    const rl = B.rally;
+    if (rl) {
+      // 從離集結點最近的一側出來
+      const a = Math.atan2(rl.z - b.pos.z, rl.x - b.pos.x);
+      x = b.pos.x + Math.cos(a) * r;
+      z = b.pos.z + Math.sin(a) * r;
+    }
+    const c = nav.nearestCell(x, z, D.size || 0, -1, 10);
+    if (c >= 0) ({ x, z } = nav.center(c));
+    const u = this.rtsSpawn(b.rtsTeam, id, x, z, Math.atan2(-(x - b.pos.x), -(z - b.pos.z)) + Math.PI);
+    if (!u) return;
+    const m =
+      rl && rl.mine
+        ? this.rtsMine(rl.mine)
+        : rl && D.worker
+          ? this.rtsMineAt(rl.x, rl.z, RTS_GATHER.mineR + 2)
+          : null;
+    if (D.worker && m && m.amount > 0) u.orders = [{ k: 'gather', mine: m.id }];
+    else if (rl && rl.id !== undefined && this.rtsEnt(rl.id) && !this.rtsEnt(rl.id).dead)
+      this.rtsSmart([u], rl.x, rl.z, this.rtsEnt(rl.id));
+    else if (rl) u.orders = [{ k: 'move', x: rl.x, z: rl.z }];
+    else if (D.worker) {
+      const n = this.rtsNearestMine(x, z, b.rtsTeam, null, true) || this.rtsNearestMine(x, z, b.rtsTeam);
+      if (n && Math.hypot(n.pos.x - x, n.pos.z - z) < 60) u.orders = [{ k: 'gather', mine: n.id }];
+    }
+    if (b.rtsTeam === ME && this.rtsEvent && !D.worker) this.rtsEvent(u.pos.x, u.pos.z, '');
+    void R;
+  },
+  // 死亡（mech-rts.js 的 rtsDie 呼叫）：統計、建築倒塌、解除碰撞與導航佔用
+  rtsOnDeath(e, from) {
+    const R = this.rts,
+      w = this.world;
+    if (!R) return;
+    const c = e.center();
+    if (!e.rtsQuiet) {
+      R.stats[e.rtsTeam].lost++;
+      if (from && from.rtsTeam !== undefined && from.rtsTeam !== e.rtsTeam) R.stats[from.rtsTeam].killed++;
+    }
+    if (e.rtsQuiet && !e.bld) {
+      // 不演出（取消、測試的清場）
+      e.mesh.visible = false;
+      e.rtsCleanT = 0;
+      return;
+    }
+    if (e.bld) {
+      const B = e.bld;
+      if (e.rtsOb) {
+        const i = w.obstacles.indexOf(e.rtsOb);
+        if (i >= 0) w.obstacles.splice(i, 1);
+        w.nav.block(e.pos.x, e.pos.z, B.w, B.d, 0, false);
+        e.rtsOb = null;
+      }
+      if (B.vent && B.vent.ext === e) B.vent.ext = null;
+      for (const q of B.queue) if (e.rtsQuiet) this.rtsRefund(e.rtsTeam, RTS_DEFS[q.id].cost, 1);
+      B.queue = [];
+      if (e.rtsQuiet) {
+        e.mesh.visible = false;
+        e.rtsCleanT = 0;
+        return;
+      }
+      // 倒塌：佔地上的連續爆炸、煙，本體往下沉
+      const D = RTS_DEFS[e.rtsDef];
+      const y0 = e.mesh.position.y;
+      let k = 0;
+      const n = Math.max(3, Math.round((B.w * B.d) / 40));
+      this.fx.task(2.4, (q, t) => {
+        if (t * n * 1.6 > k && k < n) {
+          k++;
+          const p = new THREE.Vector3(
+            e.pos.x + (Math.random() - 0.5) * B.w * 0.8,
+            e.pos.y + Math.random() * D.height * 0.7,
+            e.pos.z + (Math.random() - 0.5) * B.d * 0.8,
+          );
+          this.fx.explosion(p, 3 + Math.random() * 3, 0xffa040, k === 1);
+          this.fx.smoke(p, 2.2, 0x4a4a4e, 2.5, 3);
+        }
+        e.mesh.position.y = y0 - t * t * D.height * 0.9;
+        e.mesh.rotation.z = Math.sin(t * 9) * 0.02 * t;
+        if (t >= 0.999) e.rtsCleanT = 0;
+      });
+      e.rtsCleanT = 3;
+      SFX.explode('huge', c);
+      SFX.wreck(c);
+      this.fx.dust(
+        new THREE.Vector3(e.pos.x, e.pos.y + 0.3, e.pos.z),
+        Math.max(B.w, B.d) * 0.5,
+        14,
+        0x8a8070,
+      );
+      this.fx.killBurst(c, Math.max(B.w, B.d) / 8, true, e.pos.y);
+    } else {
+      this.fx.shatter(e, w);
+      if (this.rtsFxOk(c)) this.fx.killBurst(c, e.scale || 1, false, w.groundAt(c.x, c.z, c.y));
+      e.mesh.visible = false;
+      SFX.explode(true, c);
+      SFX.wreck(c);
+      e.rtsCleanT = 0;
+    }
+  },
+  // 清掉死掉的實體（建築等倒塌演出結束）
+  // dt＝模擬這一格的時間（不用主迴圈的 lastDt：冒煙測試以 rtsSim 快轉時它是實際時間，結果會依負載不同）
+  rtsSweep(dt) {
+    const R = this.rts;
+    let any = false;
+    for (const e of R.units) {
+      if (!e.dead) continue;
+      if (!e.rtsGone) {
+        e.rtsGone = true;
+        R.hash.remove(e);
+        R.byId.delete(e.id);
+        for (const L of [this.enemies, this.allies]) {
+          const i = L.indexOf(e);
+          if (i >= 0) L.splice(i, 1);
+        }
+      }
+      if (e.rtsCleanT === undefined) e.rtsCleanT = 0;
+      if (e.rtsCleanT > 0) {
+        e.rtsCleanT -= dt || 0.016;
+        continue;
+      }
+      e.cleanup();
+      e.rtsSwept = true;
+      any = true;
+    }
+    if (any) R.units = R.units.filter((e) => !e.rtsSwept);
+  },
+  // 勝敗：一方的建築全毀（含工地）
+  rtsCheckEnd() {
+    const R = this.rts;
+    if (R.over) return;
+    for (const T of R.teams) T.alive = R.units.some((e) => !e.dead && e.bld && e.rtsTeam === T.id);
+    if (!R.teams[ME].alive) this.rtsEnd(false);
+    else if (R.teams.every((T) => T.id === ME || !T.alive)) this.rtsEnd(true);
+  },
+  rtsEnd(win) {
+    const R = this.rts;
+    if (!R || R.over) return;
+    R.over = { win: !!win, t: R.t };
+    R.overT = 0;
+    if (!R.cfg.aiBoth) {
+      // 兩邊都是電腦（測試）不記戰績
+      const rec = loadJson(REC_KEY, { w: 0, l: 0 });
+      if (win) rec.w++;
+      else rec.l++;
+      saveJson(REC_KEY, rec);
+    }
+    SFX.cue('exit');
+    const sub = win ? '敵方基地全毀' : '我方基地全毀';
+    if (
+      !this.tfx(win ? 'done' : 'warn', win ? '勝利' : '敗北', sub, {
+        states: ['rts', 'rtsend'],
+        freeze: ['pause'],
+      })
+    )
+      this.rtsSay((win ? '勝利 — ' : '敗北 — ') + sub, win ? 0x7ee081 : 0xff4d4d);
+  },
+  rtsShowResult() {
+    const R = this.rts;
+    R.shown = true;
+    if (this.rtsHudHide) this.rtsHudHide();
+    this.state = 'rtsend';
+    this.showScreen('rtsEnd');
+    const el = document.getElementById('rtsEnd');
+    const S = R.stats;
+    const row = (name, a, b) => `<tr><td>${name}</td><td>${a}</td><td>${b}</td></tr>`;
+    el.innerHTML = `
+      <div class="panel" style="min-width: 340px">
+        <h2 id="rtsEndTitle" style="color:${R.over.win ? '#7ee081' : '#ff6a5a'}">${R.over.win ? '勝利' : '敗北'}</h2>
+        <p class="dim">作戰時間 ${fmtT(R.over.t)}</p>
+        <table class="rtsEndTbl">
+          <tr><th></th><th>你</th><th>電腦</th></tr>
+          ${row('生產的單位', S[0].made, S[1].made)}
+          ${row('建造的建築', S[0].blds, S[1].blds)}
+          ${row('擊破', S[0].killed, S[1].killed)}
+          ${row('損失', S[0].lost, S[1].lost)}
+          ${row('採集的礦石', Math.round(S[0].ore), Math.round(S[1].ore))}
+          ${row('抽取的 Coral', Math.round(S[0].coral), Math.round(S[1].coral))}
+        </table>
+        <div class="row">
+          <button type="button" class="primary" id="rtsEndMenu">回 Coral 戰爭選單</button>
+          <button type="button" id="rtsEndTitleBtn">回標題</button>
+        </div>
+      </div>`;
+    document.getElementById('rtsEndMenu').onclick = () => this.rtsMenuOpen();
+    document.getElementById('rtsEndTitleBtn').onclick = () => {
+      this.clearMission();
+      this.state = 'title';
+      this.showScreen('title');
+    };
+  },
+  // 暫停（Esc、HUD 的選單按鈕）；暫停選單的「放棄」＝回 Coral 戰爭選單
+  rtsPause() {
+    if (this.state !== 'rts') return;
+    this.state = 'pause';
+    this.showScreen('pause');
+  },
+  rtsAbort() {
+    this.rtsMenuOpen();
+  },
+  // 離開 RTS（clearMission 呼叫）：輸入、迷霧、3D 物件、畫面設定
+  rtsClear() {
+    const R = this.rts;
+    if (!R) return;
+    if (this.rtsInputClear) this.rtsInputClear();
+    if (this.rtsFogClear) this.rtsFogClear();
+    if (this.rtsAiClear) this.rtsAiClear();
+    if (this.rtsHudHide) this.rtsHudHide();
+    this.scene.remove(R.g);
+    if (this.setRtsRender) this.setRtsRender(false);
+    else if (this.setLowFx) this.setLowFx(null);
+    this.camExtra = 0;
+    this.camera.far = 400;
+    this.camera.updateProjectionMatrix();
+    document.body.classList.remove('rtsOn');
+    this.rts = null;
+  },
+  // 沒有輸入模組時的鏡頭：從斜上方看自己的主堡
+  rtsCamFallback() {
+    const R = this.rts;
+    if (!R.cam) {
+      const b = R.units.find((e) => e.rtsTeam === ME && e.bld) || { pos: new THREE.Vector3() };
+      R.cam = { x: b.pos.x, z: b.pos.z, yaw: 0, pitch: 0.96, dist: 95 };
+    }
+    const C = R.cam,
+      cam = this.camera;
+    const gy = this.world.terrainHeight(C.x, C.z);
+    const cp = Math.cos(C.pitch);
+    cam.position.set(
+      C.x + Math.sin(C.yaw) * cp * C.dist,
+      gy + Math.sin(C.pitch) * C.dist,
+      C.z + Math.cos(C.yaw) * cp * C.dist,
+    );
+    cam.lookAt(C.x, gy, C.z);
+    this.camTarget.set(C.x, gy, C.z);
+    this.sun.position.copy(this.camTarget).add(this.sunOff);
+    this.sun.target.position.copy(this.camTarget);
+    void clamp;
+  },
+});

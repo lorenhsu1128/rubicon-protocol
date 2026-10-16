@@ -445,19 +445,25 @@ function glbProjectile(kind, col, speed) {
   return mesh;
 }
 // 子彈的拖曳長度依速度決定（speed：彈速 m/s）
-export function buildProjectileMesh(kind, color, speed) {
+// part(geo, color, opacity, parent)：遊戲傳入時，發光的部分改用粒子批次（fx/batch.js 的 attached 代理，
+// Effects.projPart），不建立自己的網格與材質；沒傳時（模型庫）照原本建網格
+export function buildProjectileMesh(kind, color, speed, part = null) {
   const col = color || 0xffe0a0;
   const g = glbProjectile(kind, col, speed);
   if (g) return g;
   const mesh = new THREE.Group();
+  const gm = (geo, c, op) => {
+    if (part) return part(geo, c, op, mesh);
+    const m = new THREE.Mesh(geo, glow(c, op));
+    mesh.add(m);
+    return m;
+  };
   if (kind === 'bullet') {
     const L = bulletLen(speed);
-    const core = new THREE.Mesh(ProjGeo, glow(0xfff2c8, 0.95));
+    const core = gm(ProjGeo, 0xfff2c8, 0.95);
     core.scale.set(0.4, 0.4, L);
-    const halo = new THREE.Mesh(ProjGeo, glow(col, 0.5));
+    const halo = gm(ProjGeo, col, 0.5);
     halo.scale.set(1.3, 1.3, L * 1.1);
-    mesh.add(core);
-    mesh.add(halo);
   } else if (kind === 'missile') {
     const body = new THREE.Mesh(
       MissileGeo,
@@ -495,11 +501,8 @@ export function buildProjectileMesh(kind, color, speed) {
     }
   } else {
     const geo = kind === 'shell' || kind === 'grenade' ? ShellGeo : ProjGeo;
-    const b = new THREE.Mesh(geo, glow(col, 0.95));
-    const h = new THREE.Mesh(geo, glow(col, 0.4));
-    h.scale.setScalar(2.2);
-    mesh.add(b);
-    mesh.add(h);
+    gm(geo, col, 0.95);
+    gm(geo, col, 0.4).scale.setScalar(2.2);
   }
   return mesh;
 }

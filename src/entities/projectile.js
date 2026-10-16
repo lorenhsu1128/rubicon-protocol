@@ -15,7 +15,8 @@ export class Projectile {
     this.game = game;
     this.p0 = this.pos.clone(); // 發射點（實彈的距離衰減）
     const col = o.color || 0xffe0a0;
-    this.mesh = buildProjectileMesh(o.kind, col, this.vel.length());
+    // 發光的彈體用粒子批次（fx/batch.js），每顆子彈不再各自一個網格與材質
+    this.mesh = buildProjectileMesh(o.kind, col, this.vel.length(), game.fx && game.fx.projPart);
     if (o.scale) this.mesh.scale.setScalar(o.scale); // 外觀的放大（誘導飛彈架的大型飛彈；客機以 proj 事件的 sc 照做）
     this.mesh.position.copy(this.pos);
     game.scene.add(this.mesh);

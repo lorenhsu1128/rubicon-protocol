@@ -34,14 +34,19 @@ import {
 } from '../data/ai.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
-import { applyIK, ikOn, ikRestore } from '../render/mech-ik.js';
-import { nozzleWorld } from '../fx/thruster.js';
+import { applyIK, ikMeasure, ikOn, ikRestore } from '../render/mech-ik.js';
+import { mergeRig } from '../render/mesh-merge.js';
+import { mergeRtsRig } from '../render/rts-merge.js';
+import { nozzleFrom, nozzleWorld } from '../fx/thruster.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 let MECH_ID = 0;
+const _rwM = new THREE.Matrix4(),
+  _nzM = new THREE.Matrix4(); // thrusterFx 的暫存
+
 export class MechEntity {
   constructor(game, asm, pal, opts = {}) {
     this.game = game;
@@ -71,7 +76,10 @@ export class MechEntity {
             ? buildDrone(pal, this.scale, opts.vehKey || 'swarm')
             : opts.modelKind === 'boss' || opts.modelKind === 'part'
               ? buildBossModel(opts.vehKey, pal, this.scale) // 新 Boss 與附屬部位（render/boss-models.js）
-              : this.buildRig();
+              : opts.buildModel
+                ? opts.buildModel(pal, this.scale) // 呼叫端給的模型（RTS 的建築，render/rts-models.js）
+                : this.buildRig();
+    if (opts.modelKind) this.mergeModel(this.model);
     this.mesh = this.model.group;
     game.scene.add(this.mesh);
     this.pos = new THREE.Vector3();
@@ -158,10 +166,20 @@ export class MechEntity {
     return this.model.vehicle ? -l : -l * 0.35;
   }
   // 機甲模型：模型組由遊戲決定（伺服器模式依玩家／敵人選伺服器預設組或玩家上傳的模型組，見 game/local-lib.js）
-  buildRig() {
+  // noMerge：先不合併網格（swapModel 要先拿掉已丟出的武器）
+  buildRig(noMerge) {
     const g = this.game;
     this.modelSrc = g.mechSource ? g.mechSource(this.opts) : null;
-    return buildMech(this.asm, this.pal, this.scale, { source: this.modelSrc });
+    const rig = buildMech(this.asm, this.pal, this.scale, { source: this.modelSrc });
+    return noMerge ? rig : this.mergeModel(rig);
+  }
+  // 網格依材質合併（render/mesh-merge.js，降低 draw call）：只在遊戲實體做，模型庫、機甲庫的展示台不合併。
+  // 動作 IK 要量腳底的網格，所以機甲先量好（ikMeasure）再合併。opts.noMerge 時不合併
+  mergeModel(rig) {
+    if (this.opts.noMerge) return rig;
+    if (!rig.vehicle && rig.legs) ikMeasure(rig);
+    // RTS 渲染設定：整台併成一個網格＋描邊外殼（render/rts-merge.js）
+    return this.game && this.game.rtsR ? mergeRtsRig(rig) : mergeRig(rig);
   }
   // 換成新的模型（客機下載完玩家的模型組後）：保留位置、可見度與已丟出的武器，只換外觀
   swapModel() {
@@ -174,7 +192,7 @@ export class MechEntity {
       this.glare.forEach((m) => g.scene.remove(m));
       this.glare = null;
     }
-    this.model = this.buildRig();
+    this.model = this.buildRig(true);
     this.mesh = this.model.group;
     this.mesh.position.copy(old.position);
     this.mesh.rotation.copy(old.rotation);
@@ -186,6 +204,7 @@ export class MechEntity {
         for (const c of [...wm.children]) wm.remove(c);
       }
     }
+    this.mergeModel(this.model); // 拿掉丟出的武器之後才合併
     g.scene.add(this.mesh);
   }
   // 駕駛員加成值（沒有時為 0）
@@ -662,6 +681,8 @@ export class MechEntity {
     const wm = arm.weapon;
     const g = this.game;
     if (wm && wm.children.length) {
+      // 合併過的網格先還原（武器的網格回到武器節點底下），拆下之後剩下的再合併（render/mesh-merge.js）
+      if (this.model.unmerge) this.model.unmerge();
       wm.updateMatrixWorld(true);
       const piece = new THREE.Group();
       wm.matrixWorld.decompose(piece.position, piece.quaternion, piece.scale);
@@ -669,6 +690,8 @@ export class MechEntity {
         wm.remove(c);
         piece.add(c);
       }
+      if (this.model.remerge) this.model.remerge();
+      this.xrayFor = null; // 透視輪廓重新掛（game/camera.js 的 camXray）
       g.scene.add(piece);
       const fwd = new THREE.Vector3(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
       const v = fwd
@@ -1287,6 +1310,12 @@ export class MechEntity {
     const g = this.game,
       w = g.world,
       P = this.stats.parts;
+    // AI 分批（Game.aiStep）：updateAI 收到的是累積的 dt，移動仍用這一格的 dt；
+    // 記下移動輸入，之後只移動的格子（aiCoast）沿用
+    if (this.aiFrame) {
+      dt = this.aiFrame;
+      this.aiLast = { wish: wish.clone(), hover: wantHover, ab: wantAB, tgt: targetEnt };
+    }
     if (this.buffT > 0) this.buffT -= dt;
     if (this.sts) this.statusTick(dt); // 狀態效果（entities/mech-status.js）：倒數、黏附炸彈、纏附、吸取 EN
     // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
@@ -1654,45 +1683,61 @@ export class MechEntity {
       this.landT = this.landT === undefined ? 9 : this.landT + dt;
       const fwdV = clamp(this.vel.dot(fwd) / spd, -1, 1);
       this.ikGait(dt);
-      animateMech(this.model, dt, {
-        moving: this.moving,
-        grounded: this.grounded,
-        hover: this.hover,
-        boost: this.boost,
-        qb: this.qbT > 0,
-        aimPitch: this.aimPitch,
-        t: this.t,
-        recoil: this.recoil,
-        swing: this.swing,
-        knock: this.staggerT > 0 || this.downed ? 1 : 0,
-        knockSide: this.knockSide || 1,
-        strafe,
-        fwd: fwdV,
-        gait: this.gaitPh,
-        amp: this.gaitAmp,
-        melee: this.melee.active
-          ? (() => {
-              const d = this.weapons[this.melee.slot].def,
-                st2 = d.combo[this.melee.stage];
-              return {
-                kind: st2.spin ? 'spin' : st2.thrust ? 'thrust' : st2.slam ? 'slam' : 'slash',
-                ph: clamp(this.melee.t / st2.dur, 0, 1),
-                mirror: !!st2.mirror,
-                side: this.melee.slot === 'rarm' ? 1 : -1,
-              };
-            })()
-          : null,
-        turn: this.turnS,
-        landT: this.landT,
-        aimRel:
-          ((((this.aimYaw - this.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI,
-        leanZ: this.leanZ || 0,
-        leanX: this.leanX || 0,
-      });
-      if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
+      // RTS 渲染設定：畫面外的單位（Game.lodTick 的 lodVis）動作每 4 格、鏡頭拉遠時每 2 格才更新一次（累積的 dt）；
+      // 沒更新的格子骨頭只跟著整台移動（render/rts-merge.js 的 rtsPosed）
+      let adt = dt;
+      const ak = g.rtsR && !this.isPlayer ? (this.lodVis === false ? 4 : g.rtsR.hullOff ? 2 : 1) : 1;
+      if (ak > 1) {
+        this.animAcc = (this.animAcc || 0) + dt;
+        this.animN = ((this.animN === undefined ? this.id || 0 : this.animN) + 1) % ak;
+        adt = this.animN ? 0 : this.animAcc;
+        if (adt) this.animAcc = 0;
+      } else if (this.animAcc) {
+        adt += this.animAcc;
+        this.animAcc = 0;
+      }
+      if (g.rtsR) this.mesh.rtsPosed = adt > 0;
+      if (adt)
+        animateMech(this.model, adt, {
+          moving: this.moving,
+          grounded: this.grounded,
+          hover: this.hover,
+          boost: this.boost,
+          qb: this.qbT > 0,
+          aimPitch: this.aimPitch,
+          t: this.t,
+          recoil: this.recoil,
+          swing: this.swing,
+          knock: this.staggerT > 0 || this.downed ? 1 : 0,
+          knockSide: this.knockSide || 1,
+          strafe,
+          fwd: fwdV,
+          gait: this.gaitPh,
+          amp: this.gaitAmp,
+          melee: this.melee.active
+            ? (() => {
+                const d = this.weapons[this.melee.slot].def,
+                  st2 = d.combo[this.melee.stage];
+                return {
+                  kind: st2.spin ? 'spin' : st2.thrust ? 'thrust' : st2.slam ? 'slam' : 'slash',
+                  ph: clamp(this.melee.t / st2.dur, 0, 1),
+                  mirror: !!st2.mirror,
+                  side: this.melee.slot === 'rarm' ? 1 : -1,
+                };
+              })()
+            : null,
+          turn: this.turnS,
+          landT: this.landT,
+          aimRel:
+            ((((this.aimYaw - this.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI,
+          leanZ: this.leanZ || 0,
+          leanX: this.leanX || 0,
+        });
+      if (adt && !this.model.vehicle) applyIK(this.model, this.ikCtx(adt));
     }
     // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
-    {
+    // RTS 渲染設定：畫面外的單位不更新推進器（光暈與噴焰）
+    if (!(g.rtsR && this.lodVis === false && !this.isPlayer)) {
       this.thrusterFx(dt, this.isPlayer ? 0x9fe8ff : 0xffb070, this.isPlayer ? 0x8fe8ff : 0xffb060, true);
       // 側移／急減速時的肩腰側噴嘴
       const ar = this.leanZ || 0,
@@ -1846,14 +1891,30 @@ export class MechEntity {
   // 載具（直升機、無人機）維持原本的尾焰
   thrusterFx(dt, glareCol, flameCol, jitter) {
     const g = this.game;
-    if (!this.glare) this.glare = this.model.nozzles.map(() => g.fx.glareMesh(glareCol));
+    if (!this.glare) this.glare = this.model.nozzles.map(() => g.fx.glareMesh(glareCol, this)); // this：戰爭迷霧裡看不到時不畫
     const thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
     this.thrS = lerp(this.thrS || 0, thr, Math.min(1, dt * 10));
     const wp = new THREE.Vector3(),
       dir = new THREE.Vector3();
     const veh = this.model.vehicle;
+    // RTS 單位的骨頭群組（render/rts-merge.js）：噴口＝現在的根 × 上次算繪時相對根的矩陣，不往上更新一整串
+    const rel = this.mesh.rtsRel;
+    let rw = null;
+    if (rel) {
+      this.mesh.updateMatrix();
+      rw = _rwM.copy(this.mesh.matrix);
+      if (this.mesh.parent) rw.premultiply(this.mesh.parent.matrixWorld);
+    }
+    const cache = rw ? this.model.nzW || (this.model.nzW = []) : null;
+    this.model.nzW = cache;
     this.model.nozzles.forEach((n, i) => {
-      nozzleWorld(n, wp, dir);
+      if (rw && rel(n, _nzM)) nozzleFrom(_nzM.premultiply(rw), wp, dir);
+      else nozzleWorld(n, wp, dir);
+      if (cache) {
+        const c = cache[i] || (cache[i] = { p: new THREE.Vector3(), d: new THREE.Vector3() });
+        c.p.copy(wp);
+        c.d.copy(dir);
+      }
       if (veh) dir.set(0, -1, 0);
       const m = this.glare[i];
       m.position.copy(wp).addScaledVector(dir, 0.35 * this.scale);
@@ -1864,7 +1925,10 @@ export class MechEntity {
       m.material.opacity = (0.15 + this.thrS * 0.55) * (this.cine ? 0.75 : 1);
     });
     if (!veh) {
+      if (this.fogHid) return; // 戰爭迷霧裡看不到（game/rts-fog.js）：不噴（噴焰粒子沒有擁有者，不會跟著隱藏）
+      this.model.nzFresh = true; // 噴口的世界矩陣剛算過（fx/thruster.js 的 nozzleWorld 不用再往上更新）
       g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);
+      this.model.nzFresh = false;
       return;
     }
     if (
@@ -1959,7 +2023,87 @@ export class MechEntity {
       stride: this.gaitAmp !== undefined,
       lockOK: this.gaitLockOK,
       near: !g.camera || g.camera.position.distanceToSquared(this.pos) < 160 * 160,
+      off: !!this.lodIk, // 距離分級（Game.lodTick）：離鏡頭遠或在畫面外時 IK 淡出後略過
     };
+  }
+
+  // ---------- 距離分級（Game.lodTick）----------
+  // AI 分批時不跑 updateAI 的格子：沿用上次的移動輸入（QB 不重複），移動與動作照常每格
+  aiCoast(dt) {
+    const c = this.aiLast;
+    if (!c) return this.move(dt, new THREE.Vector3(), false, false, false, null);
+    const t = c.tgt && !c.tgt.dead ? c.tgt : null;
+    this.move(dt, c.wish.clone(), c.hover, false, c.ab && !!t, t);
+  }
+  // 能不能分批：一般的敵人與友軍（Boss、部位、目標物、主題專屬敵人、自訂關卡的單位、靶場、離場中、近戰中的照常每格）
+  aiBatchable() {
+    return !(
+      this.isBoss ||
+      this.opts.parent ||
+      this.opts.partKind ||
+      this.themeFoe ||
+      this.edu ||
+      this.rangeB ||
+      this.guardOf ||
+      this.decoy ||
+      this.departing ||
+      this.remote ||
+      this.melee.active ||
+      this.ai === 'objective' ||
+      this.ai === 'convoy'
+    );
+  }
+  // 陰影的距離分級：不記網格參照（模型會換、網格合併會整組換掉）。關掉時把投影中的網格設成不投影並做記號
+  // （lodNoShadow），開回來時只還原有記號的。網格合併的 unmerge／remerge（丟武器、碎裂、裝甲板脫落）前先開回來，
+  // remerge 後再關，合併出來的新網格才會沿用原本的設定；換了模型（swapModel）就當作重新開始
+  setShadowLod(on) {
+    if (this.shRoot !== this.mesh) {
+      this.shRoot = this.mesh;
+      this.shLodOff = false;
+    }
+    if (on === !this.shLodOff) return;
+    if (!on) {
+      this.shHook(this.model);
+      if (this.model.dmg) this.shHook(this.model.dmg);
+      this.mesh.traverse((o) => {
+        if (o.castShadow) {
+          o.castShadow = false;
+          o.lodNoShadow = true;
+        }
+      });
+      this.shLodOff = true;
+    } else {
+      this.shRestore();
+      this.shLodOff = false;
+    }
+  }
+  // 有記號的網格恢復投影（unmerge 拿回來的原本網格也帶著記號）
+  shRestore() {
+    this.mesh.traverse((o) => {
+      if (o.lodNoShadow) {
+        o.castShadow = true;
+        o.lodNoShadow = false;
+      }
+    });
+  }
+  // 包住 rig（或 rig.dmg）的 unmerge／remerge：拆合網格的期間陰影照原本的設定
+  shHook(r) {
+    if (!r || r.shHooked || (!r.unmerge && !r.remerge)) return;
+    r.shHooked = true;
+    for (const k of ['unmerge', 'remerge']) {
+      const fn = r[k];
+      if (!fn) continue;
+      r[k] = (...a) => {
+        const was = this.shLodOff && this.shRoot === this.mesh;
+        if (was) this.setShadowLod(true);
+        const ret = fn(...a);
+        if (was) {
+          this.shRestore();
+          if (k === 'remerge') this.setShadowLod(false);
+        }
+        return ret;
+      };
+    }
   }
 
   // ---------- AI ----------
@@ -1967,6 +2111,7 @@ export class MechEntity {
     const g = this.game,
       s = this.aiState;
     if (this.dead) return;
+    if (this.rtsDef && g.rts) return this.rtsUnitAI(dt); // Coral 戰爭的單位與建築（entities/mech-rts.js）
     if (this.rangeB && g.range && g.rangeAI(this, dt)) return; // 靶場的目標：靜止／橫移（game/range.js）
     dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）

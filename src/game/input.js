@@ -948,6 +948,7 @@ Object.assign(Game.prototype, {
     $('optPost').checked = this.post.enabled;
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
     $('btnAbort').onclick = () => {
+      if (this.rts) return this.rtsAbort(); // Coral 戰爭：回 Coral 戰爭選單
       if (this.lv) return this.lvAbort(); // 自訂關卡（編輯器的試玩：回編輯器）
       if (this.range) return this.rangeExit();
       if (this.lab) return this.exitLab();
@@ -990,7 +991,7 @@ Object.assign(Game.prototype, {
     }
   },
   resume() {
-    this.state = 'play';
+    this.state = this.rts ? 'rts' : 'play'; // Coral 戰爭（rts.js）回到 'rts'
     this.showScreen('');
     this.lastT = performance.now();
   },

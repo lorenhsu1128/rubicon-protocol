@@ -66,16 +66,34 @@ const AX = new THREE.Vector3(1, 0, 0),
 // 世界座標（呼叫前 matrixWorld 必須是最新的：開頭整台更新一次，之後每次修改都更新該節點的子樹）
 const wpos = (o, out) => out.setFromMatrixPosition(o.matrixWorld);
 const wquat = (o, out) => (o.matrixWorld.decompose(_p, out, _s), out);
+// 只更新骨架的世界矩陣：略過沒有子節點的網格（IK 只讀關節群組；網格在算繪時由 scene.updateMatrixWorld 更新，
+// 讀網格 matrixWorld 的地方都會自己先更新）。整台 updateMatrixWorld(true) 是 IK 最大的開銷
+let _keep = null; // 這一台 IK 會讀的節點（rig.ik.keep；就算是網格也要更新）
+function upd(o) {
+  if (o.matrixAutoUpdate) o.updateMatrix();
+  if (o.parent) o.matrixWorld.multiplyMatrices(o.parent.matrixWorld, o.matrix);
+  else o.matrixWorld.copy(o.matrix);
+  o.matrixWorldNeedsUpdate = false;
+  const ch = o.children;
+  for (let i = 0; i < ch.length; i++) {
+    const c = ch[i];
+    if (c.children.length || !(c.isMesh || c.isLine || c.isPoints || c.isSprite) || (_keep && _keep.has(c)))
+      upd(c);
+  }
+}
+// 距離分級（MechEntity.ikCtx 的 off：離鏡頭遠或在畫面外）：所有項目當作關閉，權重淡出到 0 後整個略過
+let _off = false;
+const on = (k) => !_off && ikOn(k);
 // 在世界座標套一個旋轉 q（以節點自己的原點為中心）
 function rotWorld(o, q) {
   wquat(o, _qw).premultiply(q);
   wquat(o.parent, _qp).invert();
   o.quaternion.copy(_qp.multiply(_qw));
-  o.updateMatrixWorld(true);
+  upd(o);
 }
 function rotLocal(o, axis, ang) {
   o.quaternion.multiply(_q2.setFromAxisAngle(axis, ang));
-  o.updateMatrixWorld(true);
+  upd(o);
 }
 // q 從單位四元數插值到 q 的 w 倍（w=1 時原樣），另外限制最大角度
 function partial(q, w, maxAng) {
@@ -138,6 +156,24 @@ function lowestLocal(node) {
   return Number.isFinite(min) ? best : null;
 }
 
+// 腳掌深度、四足腳尖（量網格）：遊戲實體在合併網格之前先量好存在 rig.ikMeas（render/mesh-merge.js 會把網格
+// 移到模型的根，之後就量不到各關節底下的網格）
+export function ikMeasure(rig) {
+  const quad = rig.type === 'quad';
+  rig.ikMeas = (rig.legs || []).map((L) => {
+    // 二足：腳踝（foot 關節）到腳底的距離；四足：膝關節區域座標的腳尖
+    let sole = 0.3,
+      tip = null;
+    if (quad) tip = lowestLocal(L.knee) || V3(0, -0.9, 0);
+    else {
+      const lo = lowestLocal(L.foot);
+      if (lo) sole = Math.max(0.05, -lo.y);
+    }
+    return { sole, tip };
+  });
+  return rig.ikMeas;
+}
+
 // 第一次套用時建立狀態：要還原的關節、腳掌深度、四足腳尖
 function initIK(rig) {
   const joints = [];
@@ -149,20 +185,17 @@ function initIK(rig) {
     joints.push(a.up, a.fore, a.back);
   }
   const uniq = [...new Set(joints)];
-  const quad = rig.type === 'quad';
-  const legs = rig.legs.map((L) => {
-    // 二足：腳踝（foot 關節）到腳底的距離；四足：膝關節區域座標的腳尖
-    let sole = 0.3,
-      tip = null;
-    if (quad) tip = lowestLocal(L.knee) || V3(0, -0.9, 0);
-    else {
-      const lo = lowestLocal(L.foot);
-      if (lo) sole = Math.max(0.05, -lo.y);
-    }
-    return { sole, tip, dy: 0, lockP: null, lockW: 0 };
-  });
+  const keep = new Set([...uniq, rig.group, rig.lift]);
+  for (const L of rig.legs) keep.add(L.thigh).add(L.knee).add(L.foot);
+  for (const k of ['l', 'r']) {
+    const a = rig.arms[k];
+    for (const o of [a.up, a.fore, a.back, a.weapon, a.hand]) if (o) keep.add(o);
+  }
+  const meas = rig.ikMeas || ikMeasure(rig);
+  const legs = meas.map((m) => ({ sole: m.sole, tip: m.tip && m.tip.clone(), dy: 0, lockP: null, lockW: 0 }));
   rig.ik = {
     joints: uniq,
+    keep,
     fk: new Float32Array(uniq.length * 3),
     saved: false,
     liftY: 0,
@@ -204,6 +237,33 @@ export function applyIK(rig, ctx) {
   const S = rig.ik,
     W = S.w,
     dt = ctx.dt;
+  _off = !!ctx.off;
+  _keep = S.keep;
+  if (_off) {
+    // 距離分級：權重都淡出到 0 之後不再計算（ikRestore 已經把關節還原成動作層，不留下殘留姿勢）
+    const lo = 0.002;
+    if (
+      W.feet <= lo &&
+      W.tilt <= lo &&
+      W.head <= lo &&
+      W.melee <= lo &&
+      W.back <= lo &&
+      W.arm.l <= lo &&
+      W.arm.r <= lo &&
+      W.sup.l <= lo &&
+      W.sup.r <= lo
+    ) {
+      W.feet = W.tilt = W.head = W.melee = W.back = W.arm.l = W.arm.r = W.sup.l = W.sup.r = 0;
+      S.drop = 0;
+      S.tiltQ.identity();
+      for (const st of S.legs) {
+        st.lockP = null;
+        st.lockW = 0;
+        st.dy = 0;
+      }
+      return;
+    }
+  }
   // 記下動作層的結果（下一格開頭還原）
   S.joints.forEach((o, i) => {
     S.fk[i * 3] = o.rotation.x;
@@ -212,16 +272,16 @@ export function applyIK(rig, ctx) {
   });
   S.liftY = rig.lift.position.y;
   S.saved = true;
-  rig.group.updateMatrixWorld(true);
+  upd(rig.group);
   const sc = ctx.scale || 1;
   const type = rig.type;
   const legged = type === 'biped' || type === 'reverse';
   // ===== 下半身：腳貼地、身體傾斜、腳步鎖定、四足、履帶 =====
   const legFeat = legged ? 'feet' : type === 'quad' ? 'quad' : null;
   const groundOK = ctx.grounded && ctx.near;
-  const feetOn = legFeat && ikOn(legFeat) && groundOK && (!ctx.knock || ikOn('knock'));
+  const feetOn = legFeat && on(legFeat) && groundOK && (!ctx.knock || on('knock'));
   W.feet = smooth(W.feet, feetOn ? 1 : 0, dt, 8);
-  const tiltOn = ikOn(type === 'tank' ? 'tank' : 'tilt') && groundOK && !ctx.knock;
+  const tiltOn = on(type === 'tank' ? 'tank' : 'tilt') && groundOK && !ctx.knock;
   W.tilt = smooth(W.tilt, tiltOn ? 1 : 0, dt, 6);
   if (W.feet > 0.002 || W.tilt > 0.002) lowerBody(rig, ctx, sc);
   // ===== 上半身 =====
@@ -240,7 +300,7 @@ function lowerBody(rig, ctx, sc) {
   // 1. 動作層的腳踝（四足：腳尖）位置與腳下地面
   const targets = [];
   if (legged || quad) {
-    const lockOn = legged && ikOn('lock') && ctx.lockOK && ctx.moving && !ctx.knock;
+    const lockOn = legged && on('lock') && ctx.lockOK && ctx.moving && !ctx.knock;
     rig.legs.forEach((L, i) => {
       const st = S.legs[i];
       const C = quad ? _t.copy(st.tip).applyMatrix4(L.knee.matrixWorld) : wpos(L.foot, _t);
@@ -293,7 +353,7 @@ function lowerBody(rig, ctx, sc) {
   const drop = S.drop * W.feet;
   if (drop < -1e-4) {
     rig.lift.position.y += drop / sc;
-    rig.lift.updateMatrixWorld(true);
+    upd(rig.lift);
   }
   // 4. 每隻腳解兩段骨頭，二足再把腳掌貼齊地面法線
   rig.legs.forEach((L, i) => {
@@ -326,26 +386,26 @@ function upperBody(rig, ctx, sc) {
     dt = ctx.dt;
   const aim = ctx.aim;
   // ===== 近戰：上身俯仰對準目標的高度（俯仰正值＝後仰）=====
-  W.melee = smooth(W.melee, ikOn('melee') && ctx.melee && ctx.meleePt ? 1 : 0, dt, 10);
+  W.melee = smooth(W.melee, on('melee') && ctx.melee && ctx.meleePt ? 1 : 0, dt, 10);
   if (W.melee > 0.002 && ctx.meleePt) S.meleePt = ctx.meleePt.clone();
   if (W.melee > 0.002 && S.meleePt) {
     const T = wpos(rig.torso, _a);
     const P = S.meleePt;
     const pitch = Math.atan2(P.y - T.y, Math.hypot(P.x - T.x, P.z - T.z));
     rig.torso.rotation.x += clamp(pitch, -0.45, 0.45) * W.melee;
-    rig.torso.updateMatrixWorld(true);
+    upd(rig.torso);
   }
   // ===== 頭：看向瞄準點（區域角度上限：偏航 ±1.0、俯仰 ±0.5）=====
-  W.head = smooth(W.head, ikOn('head') && !ctx.knock ? 1 : 0, dt, 6);
+  W.head = smooth(W.head, on('head') && !ctx.knock ? 1 : 0, dt, 6);
   if (rig.head && W.head > 0.002) {
     const h = rig.head;
     const [yaw, pitch] = lookAngles(h, aim);
     h.rotation.y = lerp(h.rotation.y, clamp(yaw, -1.0, 1.0), W.head);
     h.rotation.x = lerp(h.rotation.x, clamp(pitch, -0.5, 0.5), W.head);
-    h.updateMatrixWorld(true);
+    upd(h);
   }
   // ===== 肩上武器：轉向瞄準點（偏航 ±0.5、俯仰 −0.35～0.7）=====
-  W.back = smooth(W.back, ikOn('back') && !ctx.knock ? 1 : 0, dt, 6);
+  W.back = smooth(W.back, on('back') && !ctx.knock ? 1 : 0, dt, 6);
   for (const k of ['l', 'r']) {
     const b = rig.arms[k].back;
     if (W.back <= 0.002 || !ctx.backs[k] || !b.children.length) continue;
@@ -353,14 +413,14 @@ function upperBody(rig, ctx, sc) {
     b.rotation.order = 'YXZ';
     b.rotation.y = lerp(b.rotation.y, clamp(yaw, -0.5, 0.5), W.back);
     b.rotation.x = lerp(b.rotation.x, clamp(pitch, -0.35, 0.7), W.back);
-    b.updateMatrixWorld(true);
+    upd(b);
   }
   // ===== 空手扶槍的權重：一隻手沒有武器、另一隻手持槍（要開手臂瞄準）=====
   for (const k of ['l', 'r']) {
     const o = k === 'l' ? 'r' : 'l';
     const want =
-      ikOn('support') &&
-      ikOn('arms') &&
+      on('support') &&
+      on('arms') &&
       ctx.guns[k] === 'none' &&
       ctx.guns[o] === 'gun' &&
       !ctx.melee &&
@@ -381,11 +441,7 @@ function upperBody(rig, ctx, sc) {
     const rec = (ctx.recoil && ctx.recoil[k]) || 0;
     const firing = rec > 0.05;
     const want =
-      ikOn('arms') && ctx.guns[k] === 'gun' && !ctx.melee && !ctx.knock
-        ? ctx.boost && !firing
-          ? 0.35
-          : 1
-        : 0;
+      on('arms') && ctx.guns[k] === 'gun' && !ctx.melee && !ctx.knock ? (ctx.boost && !firing ? 0.35 : 1) : 0;
     W.arm[k] = smooth(W.arm[k], want, dt, 8);
     if (W.arm[k] <= 0.002) continue;
     aimArm(a, W.arm[k]);

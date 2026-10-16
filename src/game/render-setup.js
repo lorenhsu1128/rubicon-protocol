@@ -1,11 +1,21 @@
 // Game：場景環境、後處理與渲染風格、主渲染
+import { BlobShadows } from '../fx/batch.js';
+import { RTS_LAZY, rtsMergeNow } from '../render/rts-merge.js';
 import { makeStudioEnv } from '../render/environment.js';
-import { StylePipeline } from '../render/style/pipeline.js';
+import { StylePipeline, manualShadows } from '../render/style/pipeline.js';
 import { installStyleShader } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
 installStyleShader(); // 越早越好：之後建立的標準材質都會用風格著色器
+
+// RTS 渲染設定（setRtsRender）
+const RTS_HULL_DIST = 80; // 鏡頭離注視點這麼遠（m）以上不畫描邊外殼
+const RTS_SSAO = 'depth'; // SSAO：半解析度、法線從深度重建（不重畫場景）
+const RTS_IK = [70, 25, 1]; // 鏡頭距離 ≤ [0] 時注視點 [1] m 內跑 IK，拉遠時 [2] m 內（單位在畫面上很小，等於不跑；0 會被當成沒設定）
+const RTS_SHADOW_N = 8; // 陰影貼圖每幾格才重畫（單位不投影，只剩地形與建築）；太陽跟著鏡頭移動時立刻重畫
+const RTS_LIST = [];
+const _rtsRay = new THREE.Vector3();
 
 Object.assign(Game.prototype, {
   // ---------- environment map (procedural studio: sky gradient + light panels) ----------
@@ -23,6 +33,7 @@ Object.assign(Game.prototype, {
     this.sunOff = new THREE.Vector3(40, 80, 30); // 太陽相對鏡頭注視點的位置（渲染風格可改方位與高度）
     this.styleP = StyleStore.current();
     this.applyRes();
+    manualShadows(this.renderer); // 陰影貼圖每格只畫一次：loop 開頭設 needsUpdate（SSAO 的法線不再觸發）
     this.stylePipe = new StylePipeline(this.renderer, {
       scene: this.scene,
       camera: this.camera,
@@ -65,10 +76,137 @@ Object.assign(Game.prototype, {
     const lab = this.lab;
     const P = lab ? lab.P : this.cine ? this.cine.P : this.styleP; // 過場動畫：風格＋過場的調色（game/cine.js）
     const t = performance.now() / 1000;
+    if (this.fx) this.fx.flush(); // 粒子批次：fx.update 之後才產生的粒子也寫進去（fx/batch.js）
+    if (this.rtsR) this.rtsRenderTick();
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
     if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);
     else this.stylePipe.renderPlain(P, t);
+  },
+  // 低特效（大量單位的模式用，例如 RTS）：o＝{ ssao: 'off'｜'half'｜'full', mblur: 布林 }，null＝恢復
+  setLowFx(o) {
+    if (this.stylePipe) this.stylePipe.setLowFx(o);
+  },
+  // ---------- RTS 渲染設定（大量單位：docs/rts-design.md 8.3）----------
+  // on：低特效（SSAO 'depth'、沒有動態模糊）、單位不投影（建築 e.bld 與地形照常）改畫圓形假影子、
+  // 鏡頭離注視點遠時不畫描邊外殼、IK 與 AI 分批的距離改以鏡頭注視點計算（lodFrom）、AI 分批一律開啟。
+  // off：全部還原。每格由 renderMain 呼叫 rtsRenderTick
+  setRtsRender(on) {
+    if (!!on === !!this.rtsR) return;
+    if (on) {
+      this.rtsR = {
+        aiBatch: this.aiBatch,
+        ikDist: this.lodIkDist,
+        low: this.stylePipe ? this.stylePipe.low : null,
+        blobs: new BlobShadows(this.scene),
+        hullOff: false,
+        lodDone: false,
+        shN: 0,
+        sunAt: new THREE.Vector3(1e9, 0, 0),
+      };
+      this.aiBatch = true;
+      this.setLowFx({ ssao: RTS_SSAO, mblur: false });
+      // 場景每格的節點矩陣：RTS 單位的骨頭群組延到算繪骨架時才算（render/rts-merge.js 的 RTS_LAZY）
+      const sc = this.scene,
+        umw = sc.updateMatrixWorld;
+      this.rtsR.scUmw = umw;
+      if (this.fx) this.fx.lateFlush = true; // 粒子批次只在算繪前寫一次（fx/effects.js）
+      sc.updateMatrixWorld = function (force) {
+        RTS_LAZY.on = true;
+        try {
+          umw.call(this, force);
+        } finally {
+          RTS_LAZY.on = false;
+        }
+      };
+      this.lodFrom = new THREE.Vector3();
+      this.rtsRenderTick();
+      return;
+    }
+    const R = this.rtsR;
+    this.rtsR = null;
+    this.aiBatch = R.aiBatch;
+    this.lodIkDist = R.ikDist;
+    if (R.scUmw) this.scene.updateMatrixWorld = R.scUmw;
+    if (this.fx) this.fx.lateFlush = false;
+    if (this.stylePipe) {
+      this.stylePipe.setLowFx(R.low);
+      this.stylePipe.hullOff = false;
+    }
+    R.blobs.dispose();
+    this.lodFrom = null;
+    // 陰影交回 lodTick（距離分級關掉時一律投影）
+    for (const e of this.rtsUnits(RTS_LIST)) if (e.shLodOff) e.setShadowLod(true);
+    RTS_LIST.length = 0;
+  },
+  // 場上的單位（不含建築、看不到的）；敵人、友軍、玩家（RTS 的單位也在這些清單裡）
+  rtsUnits(out) {
+    out.length = 0;
+    const add = (L) => {
+      if (L)
+        for (const e of L)
+          if (e && !e.dead && e.mesh && !e.bld && e._rtsMark !== out) ((e._rtsMark = out), out.push(e));
+    };
+    add(this.enemies);
+    add(this.allies);
+    add(this.players && this.players.length ? this.players : this.player ? [this.player] : null);
+    for (const e of out) e._rtsMark = null;
+    return out;
+  },
+  rtsRenderTick() {
+    const R = this.rtsR,
+      cam = this.camera,
+      w = this.world;
+    // 鏡頭注視點：RTS 鏡頭的焦點，沒有時取視線與地面（上一個注視點的高度）的交點
+    const F = this.lodFrom;
+    const C = this.rts && this.rts.cam;
+    if (C && C.gy !== null && C.gy !== undefined) F.set(C.x, C.gy, C.z);
+    else {
+      cam.getWorldDirection(_rtsRay);
+      const y0 = w ? w.terrainHeight(F.x, F.z) : 0;
+      const k = _rtsRay.y < -0.05 ? (y0 - cam.position.y) / _rtsRay.y : 60;
+      F.copy(cam.position).addScaledVector(_rtsRay, Math.min(k, 400));
+    }
+    // 拉遠時不畫描邊外殼（有遲滯）
+    const d = cam.position.distanceTo(F);
+    R.hullOff = d > (R.hullOff ? RTS_HULL_DIST * 0.92 : RTS_HULL_DIST);
+    if (this.stylePipe) this.stylePipe.hullOff = R.hullOff;
+    this.lodIkDist = d <= RTS_IK[0] ? RTS_IK[1] : RTS_IK[2];
+    // 陰影貼圖：投影的只剩地形、建築（和少數碎片），太陽（跟著鏡頭）沒動時每 RTS_SHADOW_N 格才重畫
+    const sm = this.renderer.shadowMap;
+    if (sm.needsUpdate && this.sun) {
+      const moved = R.sunAt.distanceToSquared(this.sun.position) > 0.25;
+      if (moved || ++R.shN >= RTS_SHADOW_N) {
+        R.shN = 0;
+        R.sunAt.copy(this.sun.position);
+      } else sm.needsUpdate = false;
+    }
+    // RTS 的主迴圈沒有呼叫 lodTick 時在這裡補（IK 的距離分級）
+    if (!R.lodDone && this.state !== 'title') this.lodTick();
+    R.lodDone = false;
+    // 單位不投影，腳下畫圓形假影子
+    const list = this.rtsUnits(RTS_LIST);
+    // 單位與建築的網格合併（render/rts-merge.js：建立時記下、第一次算繪前才合併，生產時加上去的零件一起併）
+    for (const e of list) if (e.model && e.model.rtsPending) this.rtsMergeEnt(e);
+    if (this.rts && this.rts.units)
+      for (const e of this.rts.units) if (e && !e.dead && e.model && e.model.rtsPending) this.rtsMergeEnt(e);
+    let j = 0;
+    for (const e of list) {
+      if (!e.decoy) e.setShadowLod(false);
+      if (e.mesh.visible && !e.fogHid) list[j++] = e; // 戰爭迷霧裡看不到的（rts-fog.js 的 fogHid）不畫
+    }
+    list.length = j;
+    R.blobs.update(list, (e) =>
+      e.grounded || !w ? e.pos.y : Math.min(e.pos.y, w.groundAt(e.pos.x, e.pos.z, e.pos.y + 0.5)),
+    );
+    list.length = 0;
+  },
+  // 合併一台：陰影的距離分級關著時先開回來（原本的網格恢復投影），合併後再關（合併出來的網格沿用設定、包住 unmerge／remerge）
+  rtsMergeEnt(e) {
+    const off = e.shLodOff && e.shRoot === e.mesh;
+    if (off) e.setShadowLod(true);
+    rtsMergeNow(e.model, e.sx ? { sx: e.sx } : null);
+    if (off) e.setShadowLod(false);
   },
   setPost(on) {
     this.post.enabled = on;

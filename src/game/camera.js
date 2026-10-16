@@ -17,6 +17,9 @@ const XRAY_MAT = new THREE.MeshBasicMaterial({
   depthFunc: THREE.GreaterDepth,
   fog: false,
 });
+// 蒙皮網格（render/mesh-merge.js 合併的機體）用的版本：同一副骨架（r128 的材質不能蒙皮與一般共用）
+const XRAY_SKIN = XRAY_MAT.clone();
+XRAY_SKIN.skinning = true;
 
 Object.assign(Game.prototype, {
   spectateList() {
@@ -59,7 +62,10 @@ Object.assign(Game.prototype, {
         list.push(o);
       });
       for (const o of list) {
-        const x = new THREE.Mesh(o.geometry, XRAY_MAT);
+        const x = o.isSkinnedMesh
+          ? new THREE.SkinnedMesh(o.geometry, XRAY_SKIN)
+          : new THREE.Mesh(o.geometry, XRAY_MAT);
+        if (o.isSkinnedMesh) x.bind(o.skeleton, o.bindMatrix);
         x.userData.xray = true;
         x.userData.helper = true;
         x.renderOrder = 20;
@@ -70,6 +76,8 @@ Object.assign(Game.prototype, {
     }
     XRAY_MAT.opacity = lerp(XRAY_MAT.opacity, on && !this.fp ? 0.5 : 0, Math.min(1, dt * 8));
     XRAY_MAT.visible = XRAY_MAT.opacity > 0.01;
+    XRAY_SKIN.opacity = XRAY_MAT.opacity;
+    XRAY_SKIN.visible = XRAY_MAT.visible;
   },
   updateCamera(dt) {
     this.camExtra = 0; // 鏡頭比預設距離遠出多少公尺（霧往外推，render/style/pipeline.js）

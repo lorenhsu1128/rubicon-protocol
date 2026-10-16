@@ -1368,6 +1368,7 @@ Object.assign(Game.prototype, {
   edThumb() {
     const vo = this.camera.view && this.camera.view.enabled;
     if (vo) this.camera.clearViewOffset();
+    this.renderer.shadowMap.needsUpdate = true; // 在主迴圈外算繪（剛換的地圖）：陰影要跟著更新
     this.renderMain();
     const src = this.canvas;
     const cv = document.createElement('canvas');

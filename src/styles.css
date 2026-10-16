@@ -3636,3 +3636,450 @@ body.vpad #stsHud {
     font-size: 10px;
   }
 }
+
+/* ---------- Coral 戰爭（RTS）的 HUD（game/rts-hud.js） ---------- */
+#rtsHud {
+  --rtsH: 214px; /* 下方列的高度 */
+  --rtsB: 58px; /* 指令卡按鈕 */
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#rtsHud[hidden] {
+  display: none;
+}
+body.rtsOn #gl {
+  touch-action: none;
+}
+#rtsTop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  background: linear-gradient(rgba(8, 12, 18, 0.92), rgba(8, 12, 18, 0.7));
+  border-bottom: 1px solid var(--line);
+  pointer-events: auto;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+#rtsTop button {
+  padding: 3px 12px;
+  font-size: 13px;
+}
+#rtsClock {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.rtsGap {
+  flex: 1;
+}
+.rtsRes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.rtsRes b {
+  min-width: 44px;
+}
+.rtsRes i {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.rtsRes.ore i {
+  background: #ffd23a;
+}
+.rtsRes.coral i {
+  background: #3af0d8;
+  border-radius: 50%;
+}
+.rtsRes.pop i {
+  background: #9fb4c8;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+#rtsUpkeep {
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #7ee081;
+  border: 1px solid rgba(126, 224, 129, 0.4);
+}
+#rtsUpkeep.lo {
+  color: #ffd23a;
+  border-color: rgba(255, 210, 58, 0.5);
+}
+#rtsUpkeep.hi {
+  color: #ff6a5a;
+  border-color: rgba(255, 106, 90, 0.5);
+}
+#rtsBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--rtsH);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: linear-gradient(rgba(8, 12, 18, 0.78), rgba(8, 12, 18, 0.94));
+  border-top: 1px solid var(--line);
+  pointer-events: auto;
+}
+#rtsMini {
+  flex: none;
+  width: calc(var(--rtsH) - 16px);
+  height: calc(var(--rtsH) - 16px);
+  border: 1px solid var(--line);
+  background: #000;
+}
+#rtsMiniCv {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+#rtsPanel {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: 14px;
+}
+.rtsEmpty {
+  color: var(--dim);
+  padding: 8px;
+}
+.rtsOne {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.rtsProd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 8px;
+}
+.rtsPic {
+  flex: none;
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #1b2733, #0d141c);
+}
+.rtsPic.own {
+  color: #7ee081;
+}
+.rtsPic.foe {
+  color: #ff6a5a;
+}
+.rtsPic.ore {
+  color: #ffd23a;
+}
+.rtsPic.coral {
+  color: #3af0d8;
+}
+.rtsInfo {
+  min-width: 160px;
+  line-height: 1.5;
+}
+.rtsInfo b {
+  font-size: 16px;
+}
+.rtsHpBar {
+  position: relative;
+  width: 200px;
+  height: 14px;
+  margin: 3px 0;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--line);
+}
+.rtsHpBar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+.rtsHpBar span {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  line-height: 14px;
+  text-shadow: 0 0 3px #000;
+}
+.rtsQueue {
+  display: flex;
+  gap: 4px;
+}
+.rtsQ {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 13px;
+}
+.rtsProg {
+  position: relative;
+  width: 220px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--line);
+}
+.rtsProg i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #5cc8ff;
+}
+.rtsProg label {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-size: 11px;
+  line-height: 14px;
+  padding-left: 4px;
+  text-shadow: 0 0 3px #000;
+}
+.rtsMulti {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rtsU {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  padding: 0 0 6px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+.rtsU.act {
+  opacity: 1;
+  border-color: var(--acc);
+}
+.rtsU i {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  height: 3px;
+}
+#rtsCard {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, var(--rtsB));
+  grid-template-rows: repeat(3, var(--rtsB));
+  gap: 5px;
+  align-content: center;
+}
+.rtsCmd {
+  position: relative;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1.15;
+  overflow: hidden;
+}
+.rtsCmd b {
+  font-weight: 600;
+}
+.rtsCmd em {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--acc);
+}
+.rtsCmd small {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 10px;
+  color: #ffd23a;
+}
+.rtsCmd.empty {
+  opacity: 0.18;
+  pointer-events: none;
+}
+.rtsCmd.dis {
+  color: var(--dim);
+  filter: grayscale(0.8);
+}
+.rtsCmd.on {
+  border-color: var(--acc);
+  box-shadow: inset 0 0 0 1px var(--acc);
+}
+.rtsCmd.press {
+  transform: scale(0.93);
+}
+#rtsTip {
+  position: absolute;
+  right: 8px;
+  bottom: calc(var(--rtsH) + 6px);
+  width: 280px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+  display: none;
+}
+#rtsTip.on {
+  display: block;
+}
+#rtsTip kbd {
+  color: var(--acc);
+  font-family: inherit;
+}
+#rtsTip .cost {
+  color: #ffd23a;
+}
+#rtsTip .why {
+  color: #ff8a8a;
+}
+#rtsMsg,
+#rtsModeHint {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+#rtsMsg {
+  bottom: calc(var(--rtsH) + 44px);
+  font-size: 20px;
+  font-weight: 700;
+}
+#rtsModeHint {
+  bottom: calc(var(--rtsH) + 12px);
+  font-size: 14px;
+  color: #cfe3ff;
+}
+#rtsMsg.on,
+#rtsModeHint.on {
+  opacity: 1;
+}
+/* 平板（1180×820 一類）：下方列與按鈕縮小 */
+@media (max-width: 1400px), (max-height: 900px) {
+  #rtsHud {
+    --rtsH: 176px;
+    --rtsB: 48px;
+  }
+  .rtsCmd {
+    font-size: 12px;
+  }
+  .rtsPic {
+    width: 64px;
+    height: 64px;
+    font-size: 20px;
+  }
+  .rtsU {
+    width: 42px;
+    height: 42px;
+    font-size: 12px;
+  }
+  .rtsInfo {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .rtsHpBar {
+    width: 160px;
+  }
+}
+/* RTS 不用一般任務的 HUD（AP、武器…），只留訊息 */
+body.rtsOn #hudWrap > :not(#msg):not(#alert):not(#fps) {
+  display: none;
+}
+body.rtsOn #fps {
+  top: 42px;
+}
+/* ---------- Coral 戰爭（RTS）的選單與結果（game/rts.js） ---------- */
+.rtsMenuPanel {
+  max-width: 920px;
+  width: calc(100vw - 32px);
+}
+.rtsMenuPanel h2 small {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-left: 8px;
+}
+.rtsMenuPanel h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  opacity: 0.85;
+}
+.rtsMenuGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.rtsFacs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rtsFac.on {
+  outline: 2px solid #ffb020;
+  background: rgba(255, 176, 32, 0.18);
+}
+.rtsFac:disabled {
+  opacity: 0.4;
+}
+.rtsPrev img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: #0c1016;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: block;
+}
+.rtsPrev #rtsPrevInfo {
+  font-size: 12px;
+  margin-top: 6px;
+}
+.rtsEndTbl {
+  border-collapse: collapse;
+  margin: 10px 0 14px;
+  width: 100%;
+}
+.rtsEndTbl td,
+.rtsEndTbl th {
+  padding: 4px 10px;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rtsEndTbl td:first-child {
+  text-align: left;
+  opacity: 0.8;
+}
+@media (max-width: 760px), (max-height: 540px) {
+  .rtsMenuGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rtsPrev img {
+    max-width: 260px;
+  }
+}

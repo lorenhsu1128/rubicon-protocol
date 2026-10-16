@@ -33,9 +33,15 @@ const _v = new THREE.Vector3();
 const COLORS = new Map();
 const colorOf = (c) => COLORS.get(c) || COLORS.set(c, new THREE.Color(c)).get(c);
 // 噴口的世界座標與噴射方向（連接點的 −Y 軸）
-export function nozzleWorld(n, pos, dir) {
-  n.getWorldPosition(pos);
-  n.getWorldQuaternion(_q);
+// （往上更新一次世界矩陣再分解；fresh＝世界矩陣剛算過，不再更新）
+const _s = new THREE.Vector3();
+export function nozzleWorld(n, pos, dir, fresh) {
+  if (!fresh) n.updateWorldMatrix(true, false);
+  nozzleFrom(n.matrixWorld, pos, dir);
+}
+// 從噴口的世界矩陣算位置與方向
+export function nozzleFrom(m, pos, dir) {
+  m.decompose(pos, _q, _s);
   dir.copy(DOWN).applyQuaternion(_q).normalize();
 }
 
@@ -95,6 +101,7 @@ export class ThrusterFx {
   // 依推力（0～1）從模型的每個噴口持續噴出；scale 為機體縮放，carry 為機體速度（尾焰會被帶著走一點）
   stream(model, thrust, color, scale, dt, carry) {
     if (!model || !model.nozzles || !model.nozzles.length || thrust <= 0.005) return;
+    if (this.cull && model.group && this.cull(model.group.position)) return; // 粒子很多時畫面外的不噴（Effects.skip）
     const rate = (15 + 220 * thrust) * dt;
     model._thrAcc = (model._thrAcc || 0) + rate;
     let n = Math.floor(model._thrAcc);
@@ -103,8 +110,13 @@ export class ThrusterFx {
     const pos = new THREE.Vector3(),
       dir = new THREE.Vector3(),
       v = new THREE.Vector3();
-    for (const nz of model.nozzles) {
-      nozzleWorld(nz, pos, dir);
+    const nzs = model.nozzles;
+    for (let i = 0; i < nzs.length; i++) {
+      const c = model.nzFresh && model.nzW && model.nzW[i]; // MechEntity.thrusterFx 剛算好的
+      if (c) {
+        pos.copy(c.p);
+        dir.copy(c.d);
+      } else nozzleWorld(nzs[i], pos, dir, model.nzFresh);
       for (let k = 0; k < n; k++) {
         const sp = (3 + 8 * thrust) * scale * (0.8 + Math.random() * 0.4);
         v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)

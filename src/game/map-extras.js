@@ -97,7 +97,7 @@ Object.assign(Game.prototype, {
   },
   // 擊破敵人時掉落彈藥箱（房主／單機）：敵對 AC 一定掉，其他 18%；有玩家彈藥剩不到三成時機率加倍
   dropAmmo(e) {
-    if (this.pvp || this.lab || this.cine || !this.world || e.isBoss) return;
+    if (this.pvp || this.lab || this.cine || this.rts || !this.world || e.isBoss) return;
     if (['objective', 'part', 'holo', 'convoy'].includes(e.ai)) return;
     const low = this.playersAlive().some((p) => {
       const ws = Object.values(p.weapons || {}).filter((w) => w && w.def && w.def.ammo > 0);

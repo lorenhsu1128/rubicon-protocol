@@ -7,6 +7,16 @@ import { Effects } from '../fx/effects.js';
 import { animateMech } from '../render/mech-model.js';
 import { targetDist } from '../world/prop-hit.js';
 
+// 距離分級（lodTick）與 AI 分批（aiStep）的門檻
+const LOD_IK_DIST = 60; // 離鏡頭這麼遠（m）以上不跑 IK
+const LOD_SHADOW_DIST = 90; // 離鏡頭這麼遠（m）以上不投影（陰影貼圖的範圍是鏡頭注視點 ±70 m）
+const AI_BATCH_MIN = 64; // 場上的敵人＋友軍達到這個數量才分批更新 AI
+const AI_BATCH_NEAR = 45; // 離玩家這麼近（m）的照常每格更新
+const LOD_LIST = [];
+const _lodM = new THREE.Matrix4(),
+  _lodF = new THREE.Frustum(),
+  _lodS = new THREE.Sphere();
+
 export class Game {
   constructor() {
     this.canvas = document.getElementById('gl');
@@ -97,6 +107,7 @@ export class Game {
     this.mpModelsInit();
     this.levelsInit(); // 自訂關卡的選單（levels.js）
     this.edInit(); // 關卡編輯器（editor.js）
+    this.rtsInit(); // Coral 戰爭（rts.js）
     // 冒煙測試用：網址帶 ?test 時把遊戲實例放在 window.__game（檢查各機甲用的模型組）
     if (/[?&]test\b/.test(location.search)) {
       window.__game = this;
@@ -355,11 +366,17 @@ export class Game {
     for (const b of document.querySelectorAll('.rangeOnly')) b.style.display = this.range ? '' : 'none';
     // 自訂關卡的試玩：暫停選單的「放棄任務」＝回編輯器
     if (id === 'pause' && !this.lab)
-      document.getElementById('btnAbort').textContent = this.lv && this.lv.test ? '回編輯器' : '放棄任務';
+      document.getElementById('btnAbort').textContent = this.rts
+        ? '放棄（回 Coral 戰爭選單）'
+        : this.lv && this.lv.test
+          ? '回編輯器'
+          : '放棄任務';
   }
   // ---------- loop ----------
   loop() {
     requestAnimationFrame(() => this.loop());
+    this.renderer.shadowMap.needsUpdate = true; // 陰影貼圖每格只畫一次（render/style/pipeline.js 的 manualShadows）
+    this.fx.view = null; // 粒子的畫面外判斷只在任務中（lodTick 設定）
     const now = performance.now();
     let dt = Math.min(0.05, (now - this.lastT) / 1000);
     this.lastT = now;
@@ -432,6 +449,8 @@ export class Game {
       this.state === 'campfail' ||
       this.state === 'rangemenu' ||
       this.state === 'levels' ||
+      this.state === 'rtsmenu' ||
+      this.state === 'rtsend' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
       if (this.world) {
@@ -457,6 +476,12 @@ export class Game {
       this.renderMain();
       return;
     }
+    // Coral 戰爭（RTS）：rts.js 的 rtsTick 接手更新與算繪（沒有玩家的機甲）
+    if (this.state === 'rts') {
+      if (this.rts) this.rtsTick(dt);
+      else this.renderMain();
+      return;
+    }
     // play
     if (this.lab) {
       this.labTick(dt); // 渲染風格實驗室的模擬戰鬥（game/style-lab.js）
@@ -472,6 +497,7 @@ export class Game {
     if (this.net && this.net.role === 'client') {
       this.time += dt;
       this.missionT += dt;
+      this.lodTick(); // 距離分級：遠處與畫面外的 IK、陰影、粒子
       this.clientTick(dt);
       this.updateMapExtras(dt);
       this.updateSupport(dt);
@@ -511,13 +537,15 @@ export class Game {
     }
     this.updateMapExtras(dt);
     this.aiDirectorTick(dt); // 敵人 AI：攻擊權杖、節奏導演（ai-director.js）
+    this.lodTick(); // 距離分級：遠處與畫面外的 IK、陰影、粒子
+    const batch = this.aiBatchOn();
     for (const e of this.enemies) {
-      if (!e.dead) e.updateAI(dt);
+      if (!e.dead) this.aiStep(e, dt, batch);
     }
     this.separateMechs(dt);
     for (let i = this.allies.length - 1; i >= 0; i--) {
       const a = this.allies[i];
-      if (!a.dead) a.updateAI(dt);
+      if (!a.dead) this.aiStep(a, dt, batch);
       else {
         a.cleanup();
         this.allies.splice(i, 1);
@@ -578,5 +606,99 @@ export class Game {
     this.updateLoops();
     this.renderMain();
     this.drawHud(dt);
+  }
+  // ---------- 距離分級（LOD）----------
+  // 每格依上一格的鏡頭決定各機體的 IK 與陰影：離鏡頭遠（lodIkDist）或在畫面外的不跑 IK（權重淡出後略過，
+  // render/mech-ik.js），離鏡頭更遠（lodShadowDist）的不投影；有遲滯，不會在門檻附近來回切換。
+  // this.lod＝false 時全部關掉（量測與比較用）。自己的機體一律照常
+  lodTick() {
+    const cam = this.camera;
+    const list = LOD_LIST;
+    list.length = 0;
+    for (const e of this.enemies) list.push(e);
+    for (const e of this.allies) list.push(e);
+    if (this.players) for (const e of this.players) list.push(e);
+    const off = this.lod === false;
+    const ikD = this.lodIkDist || LOD_IK_DIST,
+      shD = this.lodShadowDist || LOD_SHADOW_DIST;
+    if (!off) {
+      cam.updateMatrixWorld();
+      _lodM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+      _lodF.setFromProjectionMatrix(_lodM);
+    }
+    this.fx.view = off ? null : _lodF; // 粒子很多時略過畫面外的小粒子、遠處的減量（fx/effects.js 的 skip／far）
+    this.fx.viewPos.copy(cam.position);
+    const cp = this.lodFrom || cam.position; // RTS 渲染設定：以鏡頭注視點計算（鏡頭很高）
+    const rr = this.rtsR;
+    if (rr) rr.lodDone = true;
+    for (const e of list) {
+      if (!e || e.dead || !e.mesh) continue;
+      if (off || e === this.player || e === this.camFocus) {
+        e.lodIk = false;
+        e.lodVis = true;
+        if (e.shLodOff && !(rr && !e.bld)) e.setShadowLod(true);
+        continue;
+      }
+      const d = Math.sqrt(cp.distanceToSquared(e.pos));
+      const h = (e.model && e.model.height ? e.model.height : 4) * (e.scale || 1);
+      _lodS.center.set(e.pos.x, e.pos.y + h * 0.5, e.pos.z);
+      _lodS.radius = h * 0.75 + 3; // 留一點邊：進入畫面前先淡入
+      const vis = _lodF.intersectsSphere(_lodS);
+      e.lodVis = vis; // 在畫面內（RTS 的單位在畫面外時降低動作與推進器的更新，MechEntity.move）
+      e.lodIk = !vis || d > (e.lodIk ? ikD * 0.92 : ikD);
+      // 全像的假敵人自己關掉陰影，不碰；RTS 渲染設定的單位不投影（render-setup.js 的 rtsRenderTick），建築照常
+      if (!e.decoy && !(rr && !e.bld)) e.setShadowLod(d < (e.shLodOff ? shD * 0.92 : shD));
+    }
+    list.length = 0;
+  }
+  // ---------- AI 分批 ----------
+  // this.aiBatch：true＝一律、false＝不分批、其他（預設）＝場上的敵人＋友軍達到 AI_BATCH_MIN 才分批，
+  // 所以一般任務照原本每格更新。只在房主／單機（客機不跑 AI）
+  aiBatchOn() {
+    if (this.aiBatch === true || this.aiBatch === false) return this.aiBatch;
+    return this.enemies.length + this.allies.length >= AI_BATCH_MIN;
+  }
+  // 幾格更新一次 AI：離任何玩家 AI_BATCH_NEAR 以內＝每格；交戰中＝2 格；待機、起疑、搜索＝4 格
+  aiBatchK(e) {
+    if (!e.aiBatchable()) return 1;
+    const pls = this.players && this.players.length ? this.players : [this.player];
+    let dm = this.lodFrom ? this.lodFrom.distanceToSquared(e.pos) : Infinity; // RTS：鏡頭注視點附近照常每格
+    for (const p of pls) if (p && !p.dead) dm = Math.min(dm, p.pos.distanceToSquared(e.pos));
+    if (dm < AI_BATCH_NEAR * AI_BATCH_NEAR) return 1;
+    return e.sn && e.sn.st !== 2 ? 4 : 2;
+  }
+  // 一台機體這一格的 AI：分批時跳過的格子只移動（aiCoast），輪到的格子以累積的 dt 呼叫 updateAI
+  // （移動仍用這一格的 dt：MechEntity.move 的 aiFrame）。測試直接呼叫 updateAI 的不經過這裡
+  aiStep(e, dt, batch) {
+    if (!batch) {
+      e.aiLast = null; // 之後再分批時不沿用很久以前的移動輸入
+      if (!e.aiAcc) return e.updateAI(dt);
+      // 剛關掉分批：把累積的時間補給 AI
+      const acc = e.aiAcc + dt;
+      e.aiAcc = 0;
+      e.aiFrame = dt;
+      try {
+        e.updateAI(acc);
+      } finally {
+        e.aiFrame = 0;
+      }
+      return;
+    }
+    const k = this.aiBatchK(e);
+    if (e.aiN === undefined) e.aiN = (e.id || 0) % 4; // 錯開各台的更新格，負載平均
+    e.aiN++;
+    const acc = (e.aiAcc || 0) + dt;
+    if (k > 1 && e.aiN % k !== 0 && e.aiLast) {
+      e.aiAcc = acc;
+      e.aiCoast(dt);
+      return;
+    }
+    e.aiAcc = 0;
+    e.aiFrame = dt;
+    try {
+      e.updateAI(acc);
+    } finally {
+      e.aiFrame = 0;
+    }
   }
 }

@@ -22,7 +22,13 @@ import { applyQuick } from './pose.js';
 import { RefTools } from './ref-tools.js';
 import { restPose } from './workshop.js';
 import { exportTemplate } from './template.js';
-import { StylePipeline, resetStyleGlobals, skinAwareSSAO } from '../render/style/pipeline.js';
+import {
+  StylePipeline,
+  manualShadows,
+  resetStyleGlobals,
+  shadowFrame,
+  skinAwareSSAO,
+} from '../render/style/pipeline.js';
 import { installStyleShader, tagStyle } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
 
@@ -88,6 +94,7 @@ export class Inspector {
     this.onPaint = onPaint;
     this.canvas = $('insGl');
     this.renderer = makeRenderer(this.canvas, true);
+    manualShadows(this.renderer); // 陰影每格只畫一次（SSAO 的法線不再觸發）
     this.scene = new THREE.Scene();
     this.lights = addLights(this.scene);
     this.lights.sun.castShadow = true;
@@ -684,6 +691,7 @@ export class Inspector {
     }
     this.thruster.update(dt);
     this.controls.update();
+    shadowFrame(this.renderer);
     // 正交視圖不做後處理（後處理綁定透視鏡頭）
     if (this.ref.view !== 'persp') this.renderer.render(this.scene, this.camera);
     else if (this.opts.post && this.styleP && this.stylePipe) {

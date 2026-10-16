@@ -2,7 +2,9 @@
 // 場景 → 自己的 render target（含深度貼圖）→［SSAO］→ 合成（AO、動態模糊、描線）→ Bloom → 調色（含 gamma、
 // 色偏、暗角、色差、顆粒、紙紋）→［FXAA］→ 畫面。左右比較時整條管線跑兩次再合成。
 // 原本的組合是 RenderPass＋SSAOPass（SSAOPass 自己又畫一次場景），這裡只畫一次場景＋SSAO 的法線。
-import { OUTLINE_MAT, OUTLINE_SKIN } from '../geometry.js';
+// 陰影貼圖每格只畫一次：renderer.shadowMap.autoUpdate 關掉，由使用的地方每格設一次 needsUpdate（shadowFrame），
+// 第一次畫有光源的場景時更新，之後同一格的 SSAO 法線、分割畫面的另一半都沿用。
+import { OUTLINE_MAT, OUTLINE_SKIN, isOutline } from '../geometry.js';
 import { StyleAtmos } from './atmos.js';
 import { STYLE_DEFAULTS } from './params.js';
 import { setStyleUniforms } from './shader.js';
@@ -153,6 +155,29 @@ void main() {
 }
 `;
 
+// 低特效的 SSAO（setLowFx 的 'depth'）：不重畫場景的法線，從場景的深度貼圖重建視角空間的法線（取左右／上下深度差較小的一邊，
+// 避免邊緣），編碼同 MeshNormalMaterial（packNormalToRGB），交給 SSAOPass 的 AO 計算
+const NRM_FRAG = /* glsl */ `
+uniform sampler2D tDepth;
+uniform vec2 px;
+uniform mat4 invP;
+varying vec2 vUv;
+vec3 vpos( vec2 uv ) {
+	vec4 v = invP * vec4( uv * 2.0 - 1.0, texture2D( tDepth, uv ).x * 2.0 - 1.0, 1.0 );
+	return v.xyz / v.w;
+}
+void main() {
+	vec3 p = vpos( vUv );
+	vec3 r = vpos( vUv + vec2( px.x, 0.0 ) ) - p, l = p - vpos( vUv - vec2( px.x, 0.0 ) );
+	vec3 u = vpos( vUv + vec2( 0.0, px.y ) ) - p, d = p - vpos( vUv - vec2( 0.0, px.y ) );
+	vec3 dx = abs( r.z ) < abs( l.z ) ? r : l;
+	vec3 dy = abs( u.z ) < abs( d.z ) ? u : d;
+	vec3 n = normalize( cross( dx, dy ) );
+	if ( n.z < 0.0 ) n = - n;
+	gl_FragColor = vec4( n * 0.5 + 0.5, 1.0 );
+}
+`;
+
 const TM = () => ({
   aces: THREE.ACESFilmicToneMapping,
   linear: THREE.LinearToneMapping,
@@ -218,6 +243,16 @@ export function skinAwareSSAO(pass) {
       list.length = mats.length = 0;
     }
   };
+}
+
+// 陰影貼圖改成手動更新（每格一次）：建立 renderer 後呼叫一次，之後每格在算繪前呼叫 shadowFrame
+export function manualShadows(renderer) {
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
+}
+// 這一格要更新陰影貼圖：下一次畫有投影光源的場景時更新（只有後處理四邊形的算繪沒有光源，不會用掉）
+export function shadowFrame(renderer) {
+  renderer.shadowMap.needsUpdate = true;
 }
 
 export class StylePipeline {
@@ -295,17 +330,29 @@ export class StylePipeline {
     this.fxaa = THREE.FXAAShader
       ? quad(THREE.FXAAShader.fragmentShader, THREE.UniformsUtils.clone(THREE.FXAAShader.uniforms))
       : null;
+    this.nrm = quad(NRM_FRAG, {
+      tDepth: { value: null },
+      px: { value: new THREE.Vector2() },
+      invP: { value: new THREE.Matrix4() },
+    });
     this.qScene = new THREE.Scene();
     this.ssao = null;
     if (THREE.SSAOPass && ctx.ssao !== false) {
       this.ssao = new THREE.SSAOPass(ctx.scene, ctx.camera, 4, 4);
       this.ssao.output = THREE.SSAOPass.OUTPUT.Default;
-      skinAwareSSAO(this.ssao); // 蒙皮網格（render/foe-merge.js）的法線也照動作
+      // 蒙皮網格（render/foe-merge.js、mesh-merge.js）的法線也照動作：用蒙皮版的法線材質（renderNormals）
+      this.skinN = this.ssao.normalMaterial.clone();
+      this.skinN.skinning = true;
+      this.nHide = [];
+      this.nList = [];
+      this.nMats = [];
       this.ssaoBase = ctx.ssaoBase || { kernelRadius: 1.6, minDistance: 0.0004, maxDistance: 0.012 };
     }
     this.bloom = THREE.UnrealBloomPass
       ? new THREE.UnrealBloomPass(new THREE.Vector2(4, 4), 0.45, 0.4, 0.9)
       : null;
+    this.low = null; // 低特效（setLowFx）
+    this.hullOff = false; // true＝不畫描邊外殼（RTS 渲染設定拉遠時）
     this.prevVP = new THREE.Matrix4();
     this.hasPrev = false;
     this.base = null;
@@ -319,8 +366,21 @@ export class StylePipeline {
     this.w = W;
     this.h = H;
     for (const t of [this.rtScene, this.rtA, this.rtB, this.rtL, this.rtR]) t.setSize(W, H);
-    if (this.ssao) this.ssao.setSize(W, H);
+    this.sizeSSAO();
     if (this.bloom) this.bloom.setSize(W, H);
+  }
+  sizeSSAO() {
+    if (!this.ssao || !this.w) return;
+    const k = this.low && (this.low.ssao === 'half' || this.low.ssao === 'depth') ? 2 : 1;
+    this.ssao.setSize(Math.max(1, Math.ceil(this.w / k)), Math.max(1, Math.ceil(this.h / k)));
+  }
+  // 低特效（給大量單位的模式，例如 RTS）：o＝{ ssao, mblur: 是否保留動態模糊（預設 false）}；ssao：
+  // 'off'（預設）關掉、'depth' 半解析度且法線從深度貼圖重建（不重畫場景，最省）、'half' 半解析度、'full' 照原本。
+  // null／false＝恢復（照風格參數）。只影響這條管線，風格參數不變。
+  setLowFx(o) {
+    const prev = this.low && this.low.ssao;
+    this.low = o ? { ssao: o.ssao || 'off', mblur: !!o.mblur } : null;
+    if ((this.low && this.low.ssao) !== prev) this.sizeSSAO();
   }
   // 鏡頭切換（瞬移）後呼叫：動態模糊不要拿上一格的位置
   resetHistory() {
@@ -380,7 +440,7 @@ export class StylePipeline {
         r = 94.3;
       c.sunOff.set(Math.cos(el) * Math.cos(az) * r, Math.sin(el) * r, Math.cos(el) * Math.sin(az) * r);
     }
-    OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0;
+    OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0 && !this.hullOff; // hullOff：RTS 鏡頭拉遠時（game/render-setup.js）
     OUTLINE_MAT.uniforms.th.value = 0.012 * P.hull;
     if (!this.atmos) return;
     const fc = s.fog ? s.fog.color : B.fogColor;
@@ -411,28 +471,50 @@ export class StylePipeline {
     }
     return ch;
   }
-  // 整條管線；out 為 null 時畫到畫面
+  // 整條管線；out 為 null 時畫到畫面。
+  // 場景的世界矩陣只在這裡算一次：之後這條管線裡的算繪（場景、陰影、SSAO 法線）都關掉 scene.autoUpdate
   run(P, out, time) {
+    const s = this.scene;
+    this.applyScene(P, time);
+    s.updateMatrixWorld();
+    const au = s.autoUpdate;
+    s.autoUpdate = false;
+    try {
+      this.runInner(P, out, time);
+    } finally {
+      s.autoUpdate = au;
+    }
+  }
+  runInner(P, out, time) {
     const R = this.R,
       cam = this.camera,
       s = this.scene;
-    this.applyScene(P, time);
     const W = this.w,
       H = this.h;
     // 1. 場景
     R.setRenderTarget(this.rtScene);
     R.render(s, cam);
     // 2. SSAO（只畫法線＋算 AO，不再重畫一次場景）
-    const ao = this.ssao && P.ssao > 0;
+    const low = this.low;
+    const ao = this.ssao && P.ssao > 0 && !(low && low.ssao === 'off');
     if (ao) {
       const S = this.ssao,
         b = this.ssaoBase;
       S.kernelRadius = b.kernelRadius;
       S.minDistance = b.minDistance;
       S.maxDistance = b.maxDistance;
-      S.overrideVisibility();
-      S.renderOverride(R, S.normalMaterial, S.normalRenderTarget, 0x7777ff, 1.0);
-      S.restoreVisibility();
+      const fromDepth = low && low.ssao === 'depth' && this.rtScene.depthTexture;
+      if (fromDepth) {
+        const n = this.nrm.m.uniforms;
+        n.tDepth.value = this.rtScene.depthTexture;
+        n.px.value.set(1 / W, 1 / H);
+        n.invP.value.copy(cam.projectionMatrixInverse);
+        this.draw(this.nrm, S.normalRenderTarget);
+        S.ssaoMaterial.uniforms.tDepth.value = this.rtScene.depthTexture;
+      } else {
+        S.ssaoMaterial.uniforms.tDepth.value = S.normalRenderTarget.depthTexture;
+        this.renderNormals(S);
+      }
       S.ssaoMaterial.uniforms.kernelRadius.value = S.kernelRadius;
       S.ssaoMaterial.uniforms.minDistance.value = S.minDistance;
       S.ssaoMaterial.uniforms.maxDistance.value = S.maxDistance;
@@ -456,7 +538,7 @@ export class StylePipeline {
     u.inkB.value.set(ic.r, ic.g, ic.b, P.inkObj);
     u.inkC.value.set(P.inkNear, Math.max(P.inkFar, P.inkNear + 1), P.inkEnv, 0);
     const vp = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    const mb = depth && P.mblur && P.mblurK > 0 && this.hasPrev;
+    const mb = depth && P.mblur && P.mblurK > 0 && this.hasPrev && !(low && !low.mblur);
     u.mbA.value.set(mb ? P.mblurK * 1.2 : 0, P.mblurMech, 0, 0);
     u.invVP.value.copy(vp).invert();
     u.prevVP.value.copy(this.prevVP);
@@ -506,6 +588,56 @@ export class StylePipeline {
       f.resolution.value.set(1 / W, 1 / H);
       this.draw(this.fxaa, out);
     } else this.draw(this.grade, out);
+  }
+  // SSAO 的法線（同 SSAOPass 的 overrideVisibility＋renderOverride＋restoreVisibility，但只走訪場景一次）：
+  // 隱藏點、線（SSAOPass 原本就隱藏），以及描邊外殼（覆蓋材質下它和本體是同一份幾何、同樣的深度與法線，畫了結果相同，
+  // 只是多一倍 draw call）。沒有蒙皮網格時用覆蓋材質；有的話逐個網格換材質（蒙皮網格用蒙皮版：three.js r128 的同一個
+  // 材質不會依物件換蒙皮／非蒙皮的程式）。
+  renderNormals(S) {
+    const R = this.R,
+      s = this.scene,
+      mat = S.normalMaterial;
+    const hide = this.nHide,
+      list = this.nList,
+      mats = this.nMats;
+    let skin = false;
+    s.traverseVisible((o) => {
+      if (o.isPoints || o.isLine) hide.push(o);
+      else if (o.material && (o.isMesh || o.isSprite)) {
+        if (o.isMesh && isOutline(o.material)) hide.push(o);
+        else {
+          list.push(o);
+          if (o.isSkinnedMesh) skin = true;
+        }
+      }
+    });
+    for (const o of hide) o.visible = false;
+    if (skin)
+      for (const o of list) {
+        mats.push(o.material);
+        o.material = o.isSkinnedMesh ? this.skinN : mat;
+      }
+    const oc = R.getClearColor(this.tmpC || (this.tmpC = new THREE.Color())),
+      oa = R.getClearAlpha(),
+      ac = R.autoClear,
+      ov = s.overrideMaterial;
+    try {
+      R.setRenderTarget(S.normalRenderTarget);
+      R.autoClear = false;
+      R.setClearColor(0x7777ff);
+      R.setClearAlpha(1);
+      R.clear();
+      if (!skin) s.overrideMaterial = mat;
+      R.render(s, this.camera);
+    } finally {
+      s.overrideMaterial = ov;
+      R.autoClear = ac;
+      R.setClearColor(oc);
+      R.setClearAlpha(oa);
+      for (const o of hide) o.visible = true;
+      if (skin) for (let i = 0; i < list.length; i++) list[i].material = mats[i];
+      hide.length = list.length = mats.length = 0;
+    }
   }
   draw(q, target) {
     this.qScene.children.length = 0;

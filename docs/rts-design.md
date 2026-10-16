@@ -203,6 +203,30 @@
   3. RTS 的距離分級：遠處單位不畫陰影、不跑 IK、AI 分批每 2～4 格更新；RTS 模式關掉 SSAO 或用低解析度。
   4. 估計做完 1～3：120 台約 30～45 FPS。要穩定 60 FPS 再做同型單位的 InstancedMesh（MT、無人機、戰車）與更簡單的 AI、子彈判定。
 - 量測腳本可重跑（`scripts/` 之後加一個 RTS 效能基準，R0 用來驗收）。
+- **R0 第二輪（粒子批次、RTS 渲染設定）**，`npm run bench:rts -- --rts --hp`（RTX 5070 Ti Laptop，1920×1080，鏡頭俯角 55°，near＝60 m、far＝90 m）：
+
+| 單位數 | near FPS | 更新／渲染 ms | draw calls | far FPS | 更新／渲染 ms | draw calls |
+|---|---|---|---|---|---|---|
+| 40 | 61.9 | 5.0／7.1 | 504 | 60.6 | 4.2／8.4 | 834 |
+| 80 | 37.9 | 8.9／12.3 | 730 | 34.1 | 7.9／15.2 | 1.1k |
+| 120 | 28.9 | 11.8／16.7 | 876 | 25.4 | 10.6／20.7 | 1.5k |
+| 160 | 22.7 | 15.0／22.0 | 1.1k | 18.8 | 14.1／28.3 | 1.8k |
+
+  - 一般模式（沒有 RTS 設定）120 台：近鏡頭 15.4 → 22.2 FPS（draw calls 7.2k → 2.2k）、遠鏡頭 12.4 → 19.4（10k → 3.7k）。
+  - 剩下的瓶頸：每台單位約 10 個網格（每種材質一個，貼圖與顏色不同，不能再併）＋約 60 個節點（每格的 updateMatrixWorld 與算繪的走訪）、`move`（約 45 µs／台，含推進器、動作、碰撞）、粒子更新約 1.8 ms。要穩定 30 FPS 以上（遠鏡頭、160 台）要做同型單位的 InstancedMesh（骨架動作改成每台幾個實例矩陣）；RTS 的地圖物件也可以用 `mesh-merge.js` 的 `mergeStatic` 靜態合併。
+- **R0 第三輪（單一材質、骨頭群組、地圖物件合併）**，同樣的指令（三次的中位數；跑到跑之間差約 ±10%）：
+
+| 單位數 | near FPS | 更新／渲染 ms | draw calls | far FPS | 更新／渲染 ms | draw calls |
+|---|---|---|---|---|---|---|
+| 40 | 82.1 | 4.0／4.2 | 291 | 77.4 | 3.6／5.1 | 502 |
+| 80 | 54.3 | 7.1／5.9 | 344 | 50.0 | 6.4／6.7 | 554 |
+| 120 | 39.2 | 10.2／7.7 | 392 | 38.4 | 8.9／8.6 | 597 |
+| 160 | 33.9 | 12.7／9.3 | 409 | 29.3 | 11.6／10.7 | 604 |
+
+  - 做法（`render/rts-merge.js`、`world/rts-props.js`，CLAUDE.md「RTS 單位的單一材質合併」）：每台單位整台一個 SkinnedMesh＋一個描邊外殼（顏色、粗糙度、金屬感、自發光寫進頂點屬性，共用磨損貼圖與面板法線貼圖；一個頂點一根骨頭），120 台的單位網格 1.4k → 240；模型的節點收進不顯示的骨頭群組，算繪時不走訪、場景更新也略過，改在骨架要畫時才算（畫面外不算）；拉遠時動作隔格、畫面外每 4 格，推進器噴口用相對根的矩陣；RTS 的 IK 只在拉近時注視點 25 m 內；粒子批次每格只寫一次；`makeSkeleton` 的可見度由上往下算。地圖物件依材質合併成約 11 個網格，迷霧改在著色器查「探索過」的貼圖。
+  - 這張表的 far 量的是一般任務的地圖（貨運集散場的物件多，0 台時就有 450 個 draw calls）。
+  - **基準的 HUD 是一般任務的**（每台的名牌文字畫在 2D 畫布上，點陣化不在 JS 的計時裡，但每格多 6～9 ms）。換成 RTS 的血條（`--hud=rts`）：120 台 near 58.8／far 62.1 FPS、160 台 48.4／46.2 FPS，接近 RTS 局內的實際情況。
+  - 剩下的大項（120 台、far）：`move` 約 3.7 ms（動作、碰撞、推進器）、單位 AI 其餘約 0.8 ms、骨架的節點矩陣約 1.5 ms、粒子更新與寫入約 2 ms、投射物約 1 ms。要再快可以做同型單位的 InstancedMesh（骨架改成每台幾個實例矩陣）與遠處的低面數模型（120 台約 80～100 萬個三角形）。
 
 ### 8.4 和現有系統的關係
 
@@ -235,5 +259,462 @@
 
 - 各陣營的完整數值、技能、英雄名單（各期開工時定案）。
 - 親自駕駛的額外獎勵。
-- 電腦「瘋狂」難度的資源加成幅度。
+- 電腦「瘋狂」難度的資源加成幅度（R1 暫定 +50%，見 12.7）。
 - 戰役的劇本（另寫進 `docs/story-script.md` 或獨立文件）。
+
+## 12. R1 實作規格（各 agent 共用的介面）
+
+> R1 由幾個 agent 平行實作，依檔案分工；介面以這一節為準，可以加欄位、不要改名。實作中有出入時更新這一節。
+
+### 12.1 檔案歸屬
+
+| 系統 | 檔案 |
+|---|---|
+| 空間索引 | `core/spatial.js`（`SpatialHash`） |
+| 導航 | `world/nav.js`（`NavGrid`：`findPath`、`flowField`、`block`、`buildable`、clearance） |
+| 地圖產生器 | `world/rts-map.js`（`planRtsMap`）、`world.js` 的 `opt.rts`（`world.rts`、`world.nav`） |
+| 資料 | `data/rts-units.js`（兵種、建築、陣營：成本、時間、人口、血量、視野、佔地、武器、指令卡） |
+| 核心 | `game/rts.js`（選單、開局、`this.rts`、`rtsTick`、資源、人口與維持費、生產、建造、勝敗、結果） |
+| 模型 | `render/rts-models.js`（建築、工人、礦脈、Coral 湧出點、建造中的鷹架；登記模型庫目錄） |
+| 單位行為 | `entities/mech-rts.js`（MechEntity 擴充：指令佇列的執行、移動、避讓、索敵、採集、建造、修理） |
+| 指令發佈 | `game/rts-orders.js`（`rtsOrder`、智慧指令、編隊） |
+| 輸入、鏡頭、HUD | `game/rts-input.js`（鏡頭、選取、框選、快捷鍵）、`game/rts-hud.js`（資源列、選取面板、指令卡、小地圖）、`index.html`／`styles.css` 的 RTS 區塊 |
+| 戰爭迷霧 | `game/rts-fog.js`（視野格、地形疊加、隱藏敵方實體） |
+| 電腦對手 | `game/rts-ai.js` |
+
+### 12.2 局內狀態 `this.rts`
+
+```js
+this.rts = {
+  cfg: { theme, seed, size, faction, aiFaction, diff },
+  t: 0,                         // 局內時間（秒）
+  teams: [                      // 0＝玩家、1＝電腦
+    { id: 0, team: 'player', faction: 'castron', ore: 500, coral: 100, pop: 0, cap: 0, ai: false, alive: true },
+    { id: 1, team: 'enemy',  faction: 'castron', ore: 500, coral: 100, pop: 0, cap: 0, ai: true,  alive: true },
+  ],
+  units: [],                    // 該局的單位與建築（MechEntity），也在 this.enemies／allies 等既有清單裡讓戰鬥系統看得到
+  mines: [], corals: [],        // { id, pos, amount, mesh, ext（抽取站） }
+  hash: SpatialHash,            // 單位的空間索引（每格更新）
+  sel: [], groups: {},          // 玩家的選取與編隊
+  fog: null,                    // rts-fog.js 建立
+  over: null,                   // 結束：{ win, t }
+};
+```
+
+- 實體欄位：`e.rtsTeam`（0／1）、`e.rtsDef`（data 的定義 id）、`e.bld`（建築才有：`{ def, progress（0～1）, queue: [{ id, t }], rally }`）、`e.orders`（陣列，第一個是目前的指令）、`e.carry`（工人攜帶的資源 `{ kind, n }`）。
+- `team` 沿用既有的 'player'／'enemy'，所以 `isHostile`、投射物、命中、鎖定都照舊。
+- 主迴圈：`this.rts` 存在時 `loop` 改呼叫 `rtsTick(dt)`（同 `lvTick` 的做法），`state` 為 'rts'（任務中）；選單畫面 'rtsmenu' 加進 `loop` 的選單狀態清單。
+
+### 12.3 指令格式
+
+```js
+{ k: 'move', x, z }            // 移動
+{ k: 'amove', x, z }           // 攻擊移動
+{ k: 'attack', id }            // 攻擊指定目標
+{ k: 'hold' } / { k: 'stop' }
+{ k: 'patrol', x, z, x0, z0 }
+{ k: 'gather', mine }          // 採集（mine＝rts.mines 的 id 或抽取站）
+{ k: 'build', def, x, z, yaw } // 工人建造
+{ k: 'repair', id }
+```
+
+- `rtsOrder(units, order, queue = false)`（rts-orders.js）：多個單位移動到同一點時共用一個流場、終點散開成陣形；`queue` 為 Shift 排隊。
+- 單位行為 `rtsUnitAI(dt)`（mech-rts.js）在 `updateAI` 開頭攔截有 `rtsDef` 的實體（同 `lvAI` 的做法）；沒有指令時自動迎擊視野內的敵人（守住時只在射程內開火、不追）。
+
+### 12.4 核心 API（rts.js）
+
+- `rtsStart(cfg)`、`rtsEnd(win)`、`rtsSpawn(teamId, defId, x, z, yaw)` → 實體、`rtsPlace(teamId, defId, x, z, yaw, builder)` → 建築（扣資源、`world.nav.block`）、`rtsAfford(teamId, cost)`、`rtsPay`、`rtsQueue(bld, defId)`、`rtsCancel(bld, i)`、`rtsUnitsOf(teamId)`、`rtsDeposit(teamId, kind, n)`（套維持費）。
+- 電腦對手（rts-ai.js）只透過這些 API 與 `rtsOrder` 操作，不直接改狀態，並受戰爭迷霧限制。
+- 實作補充（R1 核心）：`rtsSmart(units, x, z, target, queue)`（target＝實體、資源點或 null）、`rtsEnt(id)`、`rtsMine(id)`（資源點的 id 是字串 'm0'／'c0'，記錄另有 `kind` 'mine'／'coral'、`miners`、`max`）、`rtsPause()`／`rtsAbort()`、`rtsSim(dt)`（只模擬、不算繪，測試用）、`rtsRecount()`（人口與上限）、`rtsFindSpot(defId, 中心, 靠近的點, 半徑)`（可以蓋的位置）。建築的 `e.bld` 另有 `builders`（施工中的工人）、`vent`（抽取站的湧出點）、`w`／`d`（佔地）；生產佇列的項目 `{ id, t, on }`（on＝已開始、佔人口）。`rtsCancel(b, -1)`＝取消建造（退 75%）。電腦對手的掛勾：`rtsAiInit`（開局）、`rtsAiTick(dt)`（rtsSim 每格）、`rtsAiClear`（離開）。
+
+### 12.5 戰爭迷霧 API（rts-fog.js）
+
+- 核心呼叫：`rtsFogInit()`（`rtsStart` 建好 World 與開局單位之後；沒呼叫時 `rtsFogTick` 第一次會自己建立）、`rtsFogTick(dt)`（`rtsTick` 每格）、`rtsFogClear()`（結束、離開 RTS：移除迷霧網格、殘影、算繪掛勾，還原 noLock）。
+- 查詢：`rtsFogState(teamId, x, z)`（0 未探索、1 探索過、2 可見）、`rtsVisible(teamId, ent)`（自己的一律 true；選取、下攻擊、電腦 AI 都用它）、`rtsFogEnemies(teamId)`（看得到的敵方實體）、`rtsFogKnown(teamId)`（記得的敵方建築：最後看到的位置，在迷霧裡被摧毀的要等重新看到該處才移除）、`rtsFogGrid(teamId)`（小地圖：`{ W, S, cell, vis, exp, cheat, ver }`）、`rtsFogReveal(teamId, x, z, r, 秒)`（暫時揭露，不看高度）、`rtsFogRevealAll(teamId, on)`、`rtsFogStats()`。
+- 視野＝定義的 `sight`（`e.rtsVision` 可以覆寫）；`teams[i].fogCheat` 或電腦的 `cfg.diff === 'insane'` 不受迷霧限制。
+- 實體的 `noLock`：所有敵對隊伍都看不到時由迷霧設為 true（鎖定、名牌、一般 AI 找目標都會略過；`mech-rts.js` 的目標檢查也看它），只清掉迷霧自己設的。
+- 顯示只給玩家的隊伍（`rts.me`，沒有時是第一個 `ai: false` 的隊伍）：看不到的敵方實體、未探索處的地圖物件與資源點、遠景在 `scene.onBeforeRender` 暫時隱藏、`onAfterRender` 還原（不改其他機制的 `visible`）。
+
+### 12.6 輸入、鏡頭與 HUD（rts-input.js、rts-hud.js）
+
+- 核心呼叫：`rtsCamUpdate(dt)`（`rtsTick` 每格、算繪前；第一次呼叫時 `rtsInputInit` 綁定事件、建立 `rts.cam`／`rts.ui`、鏡頭對準自己的主堡，並更新選取圈、指令標記、建造預覽、血條、小地圖與 HUD；同一格重複呼叫 HUD 只跑一次）、`rtsInputClear()`（結束、離開 RTS：移除 3D 標示、隱藏 HUD、`camExtra` 歸零）、`rtsCamJump(x, z)`。
+- 核心提供時使用（`typeof` 判斷）：`rtsSmart`／`rtsOrder`（右鍵、指令卡、目標模式、建造）、`rtsQueue`／`rtsCancel`（生產、取消；`rtsCancel(bld, -1)`＝取消建造中的建築）、`rtsPause()`（Esc 沒有模式可以取消時、選單按鈕；`state` 'rts' 不走一般任務的暫停）。
+- 指令卡讀 `data/rts-units.js` 的 `card`／`menus`（`at`、`key`、`alt`、`act`）；生產與建造的不能用原因依序是 `req`（需要的建築）、礦石、Coral、人口。訊息用 `rtsMsg(文字, 顏色)`（`#rtsHud` 裡，不靠一般任務的 `#msg`）；`rtsEvent(x, z, 文字)` 記一個事件（空白鍵跳過去），HUD 自己偵測己方建築／單位受傷發出「基地遭受攻擊」「部隊遭受攻擊」。
+- 選取的規則：自己的與別人的不混選、有單位時框選不選建築、上限 `RTS_SEL_MAX`；`rts.sel` 的順序就是選取面板的順序，`rts.ui.sub` 是 Tab 的子群組（依 `rtsDef` 分組，指令卡顯示它的卡片）。敵方單位要 `rtsVisible(0, e)` 才能點選、顯示在小地圖。
+- 鍵位：方向鍵與畫面邊緣捲動（不用 WASD）、滾輪縮放、中鍵或 Alt＋左鍵拖曳旋轉、Home 重設、空白鍵跳到最新事件、Ctrl＋數字編隊、Shift＋數字加入編隊、數字選回（連按兩下鏡頭跳過去）、Tab 子群組、Esc 取消目前的模式（目標、建造、子選單）。
+
+### 12.7 電腦對手（rts-ai.js、data/rts-ai.js）
+
+- 核心呼叫：`rtsAiInit()`（`rtsStart` 最後）、`rtsAiTick(dt)`（`rtsSim` 每格）、`rtsAiClear()`（`rtsClear`）。每個 `ai: true` 的隊伍一份狀態 `R.ai[i]`（`team`、`diff`、`P`＝難度參數、`op`＝開局、`mode` 'home'／'attack'、`atk` 進攻中的部隊、`obj` 目標、`log` 事件紀錄、`ms`／`msMax` 決策耗時、`firstAtk` 第一次進攻的時間）。
+- **只透過核心 API 操作**：`rtsQueue`（生產）、`rtsOrder`（建造、採集、移動、攻擊移動、攻擊、修理）、`rtsSmart`（集結點）、`rtsFindSpot`（分礦的主堡位置）、`rtsAfford`、`rtsUnitsOf`／`R.units`（自己的單位）、`world.nav` 的查詢（`buildable`、`walkable`、`nearestCell`）。不直接改單位、建築與資源。
+- **戰爭迷霧**：敵人只從 `rtsFogEnemies`（看得到的）與 `rtsFogKnown`（記得的建築）取得；開局只知道地圖公開的出生點候選（`plan.bases`），派偵查看到之後才知道對方的主堡（冒煙測試檢查）。進攻時不知道任何敵方建築就依序搜索出生點候選與其他礦脈。瘋狂難度由 rts-fog.js 依 `cfg.diff` 不受迷霧限制，收入倍率 `T.income`（1.5）由核心的 `rtsDeposit` 與抽取站套用。
+- **決策**（每 `P.dt` 秒一次：簡單 1、普通 0.7、困難／瘋狂 0.5）：
+  - 經濟：工人生產到「有主堡的礦脈 × 5＋2」（`wkMax` 上限），閒置的工人分配到人少的礦脈、人太多的礦脈換一個出去；被部隊打的工人（附近我方部隊打不過時）往主堡另一側躲 6 秒再回去採；人口快滿（剩餘 < 生產速度 × 1.5＋2）時蓋補給庫（錢多時可以同時蓋兩三座）；Coral 湧出點（自己的或主堡 60 m 內）蓋抽取站；時間到（`expandT`×開局的 `expandK`）、工人接近飽和或礦快採完時開分礦（自己這一側最近、附近沒有記得的敵方建築的礦脈旁，`rtsFindSpot`；主堡上限 `hqMax` 只算還有礦的）；兵工廠數依主堡數與存款（`facMax`）；沒有工人施工的工地派人續建；受損建築（< 72%）派工人修理（簡單只修主堡）；主堡全毀時有工人就重建。
+  - 建築位置（`rtsAiSpot`）：主基地平台上優先（滿了往外、分礦旁、坡道下），四周留 2 m 通道（`nav.buildable` 加大 4 m 再檢查）、不擋主堡與礦脈之間的路、離坡道遠一點。
+  - 資源保留：開局步驟、補給庫、分礦錢不夠時先保留（只保留那個項目用得到的資源；Coral 不夠的不保留礦石），工人與部隊的生產讓路。
+  - 軍事：兵工廠的集結點＝自家坡道下 8 m；佇列保持 1 項（存款 > 800 時 2 項），兵種依開局的比例（Coral 不夠時只生產 MT），部隊上限 `armyMax`（`allInT` 之後 ×1.6、存款 > 2000 時 +8）。進攻條件：時間 ≥ `attackT`×`attackK` 且部隊 ≥ 門檻（`need0`×`armyK`，每次進攻失敗＋`grow`，`allInT` 之後降到 `allInN`）、或最近 90 秒偵查到對方兵力明顯比較弱（戰力² × 2.5 < 我方²）、或人口快滿。進攻＝攻擊移動到記得的敵方建築旁「同一個高度」的位置（不在斷崖下）；集火（普通以上）：會還手的部隊優先、盾牌 MT 與建築其次、工人最後，打 7 秒血量掉不到 4% 的換目標（被擋住），短時間換兩次＝被盾牌擋住，先打盾牌並分兩半從左右包抄；兵力壓倒性（戰力² 6 倍）時改拆建築（附近有好幾座時分頭拆）。戰力＝Σ√(血量×dps)（盾牌 ×1.6），比較時取平方。撤退：附近的敵方戰力² > 我方² × `retreat`（簡單不撤退）；困難以上撤回血量 < 30% 的單位。基地被攻擊（敵人在自己建築 42 m 內）時留守部隊回防，威脅大於留守部隊時召回進攻中的部隊（普通以上）。坡道口累積 3～4 台時成群加入進攻。
+  - 偵查：`scoutT`（簡單 150、普通 75、困難 45 秒）派一個工人（有閒置部隊時用部隊）走對方的出生點候選；看到敵方建築就回去，被擊破 90 秒後再派。
+- **開局建造順序**（`RTS_AI_OPENERS.castron`，開局時以 `Math.random` 隨機挑一套，`cfg.aiOpener` 可以指定；步驟依人口觸發，工人補滿、人口不會再長時提前做）：
+  | 開局 | 步驟（人口：建築） | 工人上限 | 兵種 | 進攻門檻 | 分礦 |
+  |---|---|---|---|---|---|
+  | 標準 std | 7 補給庫、9 兵工廠、11 抽取站、14 補給庫、17 兵工廠 | 13 | MT 2：盾牌 1 | ×1 | ×1 |
+  | 速攻 rush | 6 兵工廠、7 補給庫、9 兵工廠、13 補給庫、18 抽取站 | 9 | 只有 MT | ×0.7 | ×1.2 |
+  | 偏經濟 eco | 7 補給庫、9 抽取站、11 分礦、13 兵工廠、16 補給庫、19 兵工廠 | 20 | MT 1：盾牌 1 | ×1.3（時間 ×1.15） | ×0.6 |
+- **難度**（`RTS_AI_DIFFS`）：
+  | | 決策間隔 | 工人上限 | 兵工廠 | 部隊上限 | 最早進攻 | 第一次門檻 | 集火 | 撤退 | 撤回受傷 | 召回 | 偵查 | 分礦 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | 簡單 easy | 1 秒 | 13 | 1 | 14 | 7:00 | 6 | 否 | 否 | 否 | 否 | 2:30 | 礦採完才開 |
+  | 普通 normal | 0.7 | 20 | 2 | 32 | 4:15 | 8 | 是 | 2.0 | 否 | 是 | 1:15 | 5:30 |
+  | 困難 hard | 0.5 | 24 | 3 | 46 | 3:45 | 9 | 是 | 1.6 | 是 | 是 | 0:45 | 3:20 |
+  | 瘋狂 insane | 0.5 | 24 | 4 | 50 | 3:30 | 9 | 是 | 1.6 | 是 | 是 | 看全圖 | 3:20；收入 ×1.5 |
+- **測試與除錯**：`cfg.aiBoth`（或 `g.rtsAiBoth`）＝兩邊都是電腦（不記戰績），`cfg.diffs`＝[隊伍 0, 隊伍 1] 各自的難度，`cfg.aiOpener`（或 `g.rtsAiOpener`，可以是陣列）指定開局，`g.rtsAiOff`＝不啟動電腦（`testRtsCore` 用）。冒煙測試 `testRtsAi`：普通難度、玩家不動 → 補給庫、兵工廠、生產、偵查後才知道玩家主堡、7 分鐘內打到玩家基地、決策耗時；之後兩邊都是電腦快轉一整場（`rtsSim`＋`rtsFogTick`，不算繪），25 分鐘內分出勝負。
+- **實測**（R1，只有卡斯特隆兩個兵種）：決策平均 0.04～0.15 ms，偶爾 1～3 ms（建築找位置、垃圾回收）；`rtsOrder` 第一次走向新目標時算流場 5～10 ms（核心，`ordMs` 另計）。普通對不動的玩家：第一次進攻 4:15～6:05、6～8 分鐘拆光；簡單 7:00～8:00 才進攻。電腦對電腦（普通）多數 12～26 分鐘分出勝負（一場比賽的路徑計算有時間預算，結果不是完全固定）。
+- 核心的配合（mech-rts.js）：`rtsFight` 在高低差大、地形擋住射線時（`rtsTerrainBlocked`，0.5 秒檢查一次）射程內也再靠近，不會在斷崖下對著高台上的建築空打。
+
+## 13. R2 卡斯特隆完整：實作規格
+
+> R2 由 5 個 agent 平行實作（13.1），電腦對手的增補（13.9）在前 5 包合併之後做第二輪。介面以這一節為準，可以加欄位、不要改名；實作中有出入時更新這一節。數值都是暫定、試玩後再調。
+> R2 的驗收：玩家能用卡斯特隆打完一場完整的遭遇戰（三階科技、全部兵種與建築、3 位英雄＋酒館、道具、野怪、親自駕駛），普通電腦也會用英雄、升科技、打野；`npm run bench:rts -- --rts --hp --hud=rts --counts=120` 在加上 6 個英雄與全部野怪營地時 near 仍有 50 FPS 以上（R0 第三輪是 58.8）。
+
+### 13.1 檔案歸屬與分工
+
+| 包 | 負責 | 新檔 | 既有檔（只改這些區段） |
+|---|---|---|---|
+| A 核心與資料 | 科技層級、研究、升級、攻擊／護甲相剋、數值層（`rtsMods`）、中立隊伍、各包的掛勾呼叫點、生產與建造的需求檢查 | `data/rts-combat.js`（相剋表、護甲換算、`RTS_RESEARCH`） | `data/rts-units.js`（卡斯特隆全部定義與指令卡、合併其他包的定義）、`game/rts.js`（全部）、`game/rts-orders.js`（新指令的發佈）、`game/game.js` 的 `isHostile`／`hostilesOfEnt`（RTS 分支）、`scripts/rts-bench.js`（`--heroes`、`--camps`） |
+| B 兵種行為與模型 | 兵種技能、架設模式、防禦塔的攻擊、民兵、城牆、空中單位的移動、新建築的模型與主堡三階外觀 | — | `entities/mech-rts.js`（全部）、`render/rts-models.js`（全部）、`render/model-catalog.js` 的 RTS 項目 |
+| C 英雄與道具 | 英雄的生產、等級、經驗、技能、復活、光環、背包與道具、酒館英雄的資料與雇用、地上的道具 | `data/rts-heroes.js`（英雄、技能、經驗表、酒館英雄）、`data/rts-items.js`（道具、商店貨架）、`game/rts-hero.js`（mixin）、`entities/mech-rts-hero.js`（MechEntity 擴充：施放技能、技能的實體端） | — |
+| D 中立與地圖 | 野怪營地的生成與行為、掉寶、酒館／商店／傭兵營的建築與互動、傭兵、地圖產生器的中立點位調整 | `data/rts-neutral.js`（野怪、營地編成、掉寶表、傭兵）、`game/rts-neutral.js`（mixin）、`entities/mech-rts-creep.js`（野怪行為）、`render/rts-neutral-models.js`（中立建築、地上的道具箱） | `world/rts-map.js`（中立點位的佔地保留）、`game/rts-preview.js`（預覽標示） |
+| E HUD、輸入、親自駕駛 | 英雄頭像列、背包與技能的面板、指令卡的新動作、小地圖強化、警示、閒置工人鍵、親自駕駛、自動管家 | `game/rts-pilot.js`（mixin：親自駕駛、自動管家） | `game/rts-hud.js`、`game/rts-input.js`（全部）、`index.html`／`styles.css` 的 RTS 區塊、暫停選單的「回到指揮」按鈕 |
+| F 電腦對手（第二輪） | 英雄、科技、研究、道具、打野、酒館 | — | `game/rts-ai.js`、`data/rts-ai.js` |
+
+- **共用檔案的規則**：
+  - `game/rts.js`、`data/rts-units.js` 只有 A 改。其他包需要的呼叫點由 A **第一天先加好**（`typeof this.xxx === 'function'` 判斷，沒實作時略過），清單見下表；其他包只實作被呼叫的方法。
+  - 其他包的定義（英雄、野怪、中立建築）放自己的 data 檔，`data/rts-units.js` 在檔尾、指令卡快捷鍵的修正迴圈之前 `Object.assign(RTS_DEFS, RTS_HERO_DEFS, RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS)`。這三個 data 檔**不可 import `rts-units.js`**（避免循環；需要的常數各自寫）。A 第一天先建立這三個檔的空殼（`export const RTS_HERO_DEFS = {}` 等），C、D 接手填內容。
+  - `entities/mech-rts.js`（B）的 `rtsUnitAI` 開頭加兩行轉給別包：`if (this.creep) return this.rtsCreepAI(dt)`（D）、`if (this.hero) { const r = this.rtsHeroAI(dt); if (r !== undefined) return r; }`（C：施法中、走向道具或商店時接手，回傳 undefined＝照一般單位處理）。親自駕駛中的英雄不進 `rtsUnitAI`（A 在 `rtsSim` 略過 `e.rtsPiloted`）。
+  - 冒煙測試：每包把自己的測試寫在自己的檔 `scripts/smoke-rts-<包>.js`（`smoke-rts-core.js`、`-units.js`、`-hero.js`、`-neutral.js`、`-hud.js`、`-ai2.js`），`scripts/smoke-test.js` 的 `STEPS` 只在 RTS 區塊的最後加行、`scripts/smoke-jobs.js` 的 `DEFAULT_TIMES` 加估計耗時（兩個檔的衝突由最後合併的人處理）。
+  - mixin 規則照舊（不 export、`main.js` 加 import、方法名稱不重複）：C 的方法用 `rtsHero*`／`rtsItem*`／`rtsXp*`／`rtsSkill*`／`rtsBuy`／`rtsHire`，D 用 `rtsNeutral*`／`rtsCamp*`／`rtsCreep*`／`rtsShop*`／`rtsMerc*`／`rtsLoot*`，E 用 `rtsPilot*`／`rtsButler*`／`rtsHud*`，B 的 MechEntity 方法用 `rtsAb*`／`rtsTower*`／`rtsMorph`。
+
+- **A 在 rts.js 放的呼叫點**：
+
+| 時機 | 呼叫 | 實作 |
+|---|---|---|
+| `rtsStart` 建好主堡與工人之後、`rtsFogInit` 之前 | `rtsNeutralInit()` | D |
+| 同上 | `rtsHeroInit()` | C |
+| `rtsSim` 每格（單位行為之前） | `rtsPilotStep(dt)`（親自駕駛的英雄：`updatePlayer`） | E |
+| `rtsSim` 每格（`rtsBuildings` 之後） | `rtsHeroTick(dt)`、`rtsNeutralTick(dt)`、`rtsButlerTick(dt)` | C、D、E |
+| `rtsBuildings` 對蓋好、有 `D.range` 的建築 | `b.rtsTowerAI(dt)` | B |
+| `rtsTrained(b, id)` 生產完成的是英雄（`RTS_DEFS[id].hero`） | `rtsHeroSpawned(e, rec)` | C |
+| `rtsOnDeath(e, from)` 開頭 | `rtsXpOnKill(e, from)`、`rtsLootOnKill(e, from)`；`e.hero` 時 `rtsHeroDied(e)` | C、D、C |
+| 研究或升級完成 | `rtsTechDone(teamId, id)`（A 自己；發 `rtsEvent`，電腦對手也讀） | A |
+| `rtsClear` | `rtsPilotExit('clear')`、`rtsNeutralClear()`、`rtsHeroClear()` | E、D、C |
+| `rtsTick`：`R.pilot` 時 | 改呼叫 `rtsPilotView(dt)`（動作鏡頭＋動作 HUD＋RTS 小面板），不呼叫 `rtsCamUpdate` | E |
+
+- **新增的局內狀態**（A 在 `rtsStart` 建立，各包填內容）：
+
+```js
+R.teams[i].tech = { tier: 1, res: {}, busy: {} };   // 13.2（A）
+R.teams[i].heroes = [];                             // 英雄紀錄（C，13.4）
+R.teams[2] = { id: 2, team: 'neutral', faction: 'neutral', neutral: true, ai: false, alive: true }; // 13.6（A）
+R.hostile = [[], [], []];   // 每個隊伍的敵對實體（A 每格重建；投射物與爆炸用）
+R.items = [];               // 地上的道具（C）
+R.camps = [];               // 野怪營地 { id, pos, tier, ents: Set, cleared, set }（D）
+R.neutrals = [];            // 中立建築 { kind, ent, stock }（D）
+R.pilot = null;             // 親自駕駛（E，13.8）
+R.butler = { gather: true, loop: true, depot: true, defend: true, follow: false }; // 自動管家（E）
+```
+
+- **新增的指令**（12.3 的補充；`rtsOrder` 發佈，A；執行在 B 的 `rtsUnitAI`，英雄的部分轉給 C）：
+
+```js
+{ k: 'ability', ab, x, z, id }   // 單位或英雄的技能（目標依技能：地點 x/z、單位 id、自己）
+{ k: 'pickup', uid }             // 英雄撿地上的道具
+{ k: 'shop', id, item }          // 英雄走到商店（id）買 item
+```
+
+### 13.2 科技層級
+
+- 隊伍狀態 `T.tech = { tier, res: { 研究 id: 級數 }, busy: { 研究 id: true } }`；`rtsTier(teamId)`＝「蓋好的主堡」的最高階（主堡被拆光時退回剩下的最高階，沒有主堡＝1）。
+- **主堡升級**（照魔獸3：同一棟建築原地升級，期間不能生產工人；被拆掉＝升級取消）：
+
+| | 名稱 | 費用（礦石／Coral） | 時間 | 需要 | 血量 | 護甲 | 人口上限 |
+|---|---|---|---|---|---|---|---|
+| T1 `c_hq` | 主堡 | 385／120（新蓋） | 110 秒 | — | 4200 | 5 | 10 |
+| T2 `c_hq2` | 要塞主堡 | 300／150（升級） | 60 秒 | 兵工廠 | 5200 | 6 | 12 |
+| T3 `c_hq3` | 重工司令部 | 400／250（升級） | 75 秒 | 重工廠＋工程研究所 | 6400 | 7 | 15 |
+
+- 升級指令：指令卡 `{ k: 'upgrade', to: 'c_hq2' }` → `rtsUpgrade(b, toId)`（A）：檢查 `D.upTo === toId`、`rtsReqWhy`、佇列是空的，扣款後放進佇列 `{ id: toId, t: 0, on: true, upg: true }`（不佔人口、佇列只能有這一項）；完成時 `e.rtsDef = toId`、血量依比例換算（`hp / 舊 maxHp × 新 maxHp`）、`e.model.setTier(2|3)`（B）、`rtsRecount`、`rtsModsApply(e)`。取消＝全額退還。分礦蓋的主堡一律從 T1 開始，可以各自升級。`c_hq2`／`c_hq3` 的 `dropoff`、`trains`、英雄與動員的卡片同 `c_hq`。
+- **需求**：定義的 `req` 從陣列改成物件 `req: { tier, blds: [建築 id], res: [研究 id] }`（相容：陣列＝`{ blds }`；要求 `c_hq` 的也接受 `c_hq2`／`c_hq3`）。`rtsReqWhy(teamId, D)` → '' 或原因（「需要 要塞主堡（T2）」「需要 重工廠」「需要研究 盾牆」）；`rtsQueue`、`rtsPlace`、`rtsUpgrade`、`rtsResearch` 都先檢查它，HUD 的 `rtsWhyNot` 改成先呼叫它（E）。
+- **研究**（`data/rts-combat.js` 的 `RTS_RESEARCH`，在工程研究所的指令卡；`{ k: 'research', id }` → `rtsResearch(b, id)`）：放進佇列 `{ id, t, on: true, res: true }`；同一隊同一項同時只能有一棟在研究（`T.tech.busy`）；完成時 `T.tech.res[id]++`，對該隊全部單位 `rtsModsApply`（新生產的單位在 `rtsSpawn` 套用）。
+
+| 研究 id | 名稱 | 級 | 費用（礦石／Coral） | 時間 | 需要 | 效果 |
+|---|---|---|---|---|---|---|
+| `r_kin` | 實彈武器 | 1／2／3 | 100/50、175/125、250/200 | 40／55／70 | 1 級 T1、2 級 T2、3 級 T3 | 實彈、穿甲攻擊的單位與防禦塔傷害 +10%／級 |
+| `r_exp` | 爆發武器 | 1／2／3 | 同上 | 同上 | 同上 | 爆發攻擊 +10%／級、範圍 +5%／級 |
+| `r_arm` | 複合裝甲 | 1／2／3 | 125/50、200/125、275/200 | 40／55／70 | 同上 | 單位護甲 +2／級（不含建築與英雄） |
+| `r_fort` | 要塞化 | 1 | 150/100 | 50 | T2 | 建築護甲 +3、血量 +20%；防禦塔射程 +4；主堡（T2 起）可以開火（射程 30、實彈 dps 20） |
+| `r_militia` | 民兵訓練 | 1 | 75/25 | 30 | — | 動員時間 45 → 60 秒、民兵傷害 +30% |
+| `r_wall` | 盾牆 | 1 | 125/75 | 45 | T2 | 盾牌 MT 學會「盾牆」 |
+| `r_shell` | 榴彈改良 | 1 | 150/75 | 45 | T2 | 迫擊砲 MT、起重機砲台的範圍 +30% |
+| `r_barrel` | 長程砲管 | 1 | 200/150 | 60 | T3 | 自走砲射程 +12 |
+| `r_stomp` | 重踏強化 | 1 | 175/100 | 50 | T3 | 重踏機甲的「踏地」暈眩 1.5 秒 |
+
+- **各層級解鎖一覽**：
+
+| 層級 | 建築 | 單位 | 英雄 |
+|---|---|---|---|
+| T1 | 主堡、補給庫、兵工廠、Coral 抽取站、工程研究所、起重機砲台、城牆、補給商店 | 作業 MT、MT、盾牌 MT、叉架 MT | 第 1 個（免費） |
+| T2 | ＋重工廠、防空砲塔 | ＋迫擊砲 MT、重踏機甲、裝甲車 | 第 2 個 |
+| T3 | ＋停機坪 | ＋自走砲、武裝直升機 | 第 3 個 |
+
+### 13.3 卡斯特隆的單位與建築
+
+- **攻擊類型**（定義的 `atk`）：實彈 `kin`（機槍、步槍、霰彈）、穿甲 `pierce`（火箭筒、加農砲、狙擊）、爆發 `exp`（榴彈、迫擊砲、砲兵，攻城）、能量 `en`（雷射，R3 的艾瑟立克為主）、英雄 `hero`。**護甲類型**（`arm`）：無 `none`（工人）、輕 `light`、中 `med`、重 `heavy`、城甲 `fort`（建築）、英雄 `hero`；護甲值 `armor`（點數）。
+- **相剋表**（`data/rts-combat.js` 的 `RTS_TYPE_K[atk][arm]`）：
+
+| 攻＼甲 | 無 | 輕 | 中 | 重 | 城甲 | 英雄 |
+|---|---|---|---|---|---|---|
+| 實彈 kin | 1.0 | 1.0 | 1.5 | 1.0 | 0.7 | 1.0 |
+| 穿甲 pierce | 1.25 | 0.75 | 1.0 | 1.75 | 0.5 | 0.75 |
+| 爆發 exp | 1.25 | 1.25 | 0.75 | 0.75 | 1.5 | 0.5 |
+| 能量 en | 1.0 | 1.25 | 1.0 | 1.25 | 0.5 | 0.75 |
+| 英雄 hero | 1.0 | 1.0 | 1.0 | 1.0 | 0.5 | 1.0 |
+
+  - 護甲的減傷照魔獸3：`armorK(A) = A ≥ 0 ? 1 − 0.06A／(1＋0.06A) : 2 − 0.94^(−A)`（5 點＝−23%、10 點＝−37.5%）。
+  - 傷害流程（A，`rtsHook` 的 `takeDamage`）：`dmg × RTS_TYPE_K[來源的 atk][自己的 arm] × armorK(自己的護甲)`（來源的傷害加成已經在來源的 `dmgMul` 裡），再以第 8 個參數 attr `'none'` 呼叫原本的 `takeDamage`（不再套零件的 `defs`；`res` 與 `RTS_BLD_RES` 由相剋表取代，盾牌 MT 正面大盾的 `specialDefense` 照舊）。A 實作時確認 `'none'` 確實不套 `defs`／`res`，否則在 `this.rts` 時跳過。`e.rtsInv`（中立建築）直接忽略傷害。顯示與失衡用的屬性：kin／pierce＝'kin'、exp＝'exp'、en＝'en'。
+  - 技能與範圍傷害一律經過 `rtsHit(t, dmg, impact, src, atk)`（A；`atk` 明確指定、`src` 是施放者，擊破的經驗照常算給它），不要直接呼叫 `takeDamage`。範圍傷害用 `rtsSplash(x, z, r, dmg, impact, src, atk)`（A；`rtsNear` 找敵對的、中心 100% 線性降到邊緣 40%）。
+  - 定義加欄位：`atk`、`arm`、`armor`、`lv`（單位等級，給經驗用）、`aa`（`'both'` 地空都打、`'air'` 只打空中，沒有＝只打地面；B 在 `rtsScan` 依它過濾 `flying`）、`minRange`、`splash`（範圍半徑 m）、`slots`（RTS 指揮時開火的武器槽，預設 `['rarm']`；`dps` 依這些槽平均換算 `dmgMul`，修正 R1 只用 rarm 換算、卻四個槽都開火的問題）、`modelKind`／`vehKey`／`flying`／`hoverH`（A 在 `rtsSpawn` 轉給 MechEntity，照 `ENEMY_TYPES` 的同名欄位）、`abil`（技能 id 陣列）、`upTo`（主堡升級）。
+- **數值層**（A）：`e.rtsMods = { up, hero, item, buff, aura }`，每層 `{ dmg, rof, armor, speed, range, sight, regen, hp }`（倍率欄位預設 1、加算欄位預設 0）；A 的研究寫 `up`、C 的英雄成長／道具／光環寫 `hero`／`item`／`aura`、B 與 C 的技能效果寫 `buff`（`buff` 可以有多筆 `{ src, t（到期的局內時間）, ... }`，A 合併時略過過期的）。改了之後呼叫 `rtsModsApply(e)`（A）合併成 `e.dmgMul`、`e.speedMul`、`e.rtsArmor`、`e.rtsRangeAdd`、`e.rtsVision`、`e.rtsRegen`、`e.rtsRofK`、`e.maxHp`（血量依比例），基準值存在 `e.rtsBase`（`rtsSpawn` 記下）。光環每 0.5 秒重算一次（C 的 `rtsHeroTick`），`buff` 到期由 A 在 `rtsSim` 每 0.5 秒清掉並重算。
+- **單位**（`lv`＝經驗用的等級；生產欄是建築指令卡的鍵；技能在單位自己的指令卡第 3 列）：
+
+| id | 名稱 | 階 | 生產 | 礦石／Coral | 秒 | 人口 | 血量 | 甲／護甲 | 攻擊 | 射程 | dps | 速度 | 視野 | lv | 技能（卡片） |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `c_worker` | 作業 MT | T1 | 主堡 Q | 75／0 | 14 | 1 | 260 | 無／0 | — | — | — | 5.5 | 26 | 1 | 民兵（主堡的動員） |
+| `c_mt` | MT | T1 | 兵工廠 Q | 135／0 | 18 | 2 | 560 | 中／1 | 實彈・地空 | 26 | 14 | 7.5 | 30 | 2 | — |
+| `c_shield` | 盾牌 MT | T1 | 兵工廠 W | 170／30 | 24 | 3 | 820 | 重／3 | 實彈 | 20 | 10 | 6 | 28 | 3 | Z 盾牆（研究 `r_wall`） |
+| `c_forklift` | 叉架 MT | T1 | 兵工廠 E | 155／20 | 22 | 3 | 700 | 中／2 | 實彈 | 18 | 12 | 7 | 26 | 3 | Z 投擲貨櫃、X 貨櫃掩體 |
+| `c_mortar` | 迫擊砲 MT | T2 | 兵工廠 R | 190／60 | 26 | 3 | 480 | 輕／0 | 爆發（範圍 4） | 46（最短 10） | 16 | 5.5 | 30 | 3 | Z 照明彈 |
+| `c_stomper` | 重踏機甲 | T2 | 重工廠 Q | 260／80 | 32 | 4 | 1300 | 重／3 | 實彈 | 12 | 30 | 6 | 26 | 4 | Z 踏地（可自動施放） |
+| `c_tank` | 裝甲車 | T2 | 重工廠 W | 240／60 | 30 | 4 | 1100 | 重／2 | 穿甲；加特林對空 10 dps | 30 | 22 | 8 | 30 | 4 | — |
+| `c_arty` | 自走砲 | T3 | 重工廠 E | 300／150 | 40 | 5 | 900 | 重／1 | 爆發（範圍 5） | 72（最短 16，要架設） | 34 | 6.5 | 28 | 5 | Z 架設／收起 |
+| `c_heli` | 武裝直升機 | T3 | 停機坪 Q | 280／120 | 34 | 4 | 750 | 輕／1（空中） | 穿甲・地空 | 28 | 20 | 12 | 34 | 4 | Z 火箭齊射 |
+| 英雄 | 13.4 | T1～T3 | 主堡 W 子選單 | 第 1 個 0／0、之後 425／100 | 55 | 5 | 13.4 | 英雄 | 英雄 | | | | | | Z X C V |
+
+  - R1 已有的 `c_worker`、`c_mt`、`c_shield` 的成本、時間、人口、血量、射程、dps 不改（`testRtsCore`／`testRtsAi` 依賴），只補新欄位。
+  - 組裝（`asm`）沿用現有：叉架 MT＝`FOES.forklift`（`modelKind 'boss'`、`vehKey 'forklift'`）、迫擊砲 MT＝`ENEMY_TYPES.mt_mortar`、重踏機甲＝`ENEMY_TYPES.mt_stomp`、裝甲車＝`ENEMY_TYPES.tank`（`slots: ['rarm', 'rback']`，rback 的加特林只打空中）、自走砲＝`tank` 的底盤換 `rback: 'bw_gr'`（`slots: ['rback']`）、武裝直升機＝`ENEMY_TYPES.heli`（`flying`、`hoverH 7`；B 讓 `flying` 的單位在 `rtsGo` 直線飛、不用導航格，推擠只和空中單位）；B 確認這些模型走 `mergeRtsRig` 後 draw call 不增加（bench 量）。
+  - **技能**（B，`entities/mech-rts.js`；指令 `{ k: 'ability', ab, ... }`；Coral 從隊伍扣；冷卻記在 `e.rtsCd[ab]`）：
+
+| 技能 id | 單位 | 目標 | Coral | 冷卻 | 效果（沿用的現有機制） |
+|---|---|---|---|---|---|
+| `ab_wall` 盾牆 | 盾牌 MT | 自己（切換） | 0 | 2 | 不能移動；正面範圍擴大到 ±110°、正面傷害 ×0.12；身後 6 m 內的友軍受到的遠程傷害 −30%（`buff`） |
+| `ab_crate` 投擲貨櫃 | 叉架 MT | 地點（射程 24） | 0 | 12 | 預警圈 1 秒後落地，範圍 4 m 90 爆發＋衝擊 300（`support.js` 的 `crateShot`）；丟出後 20 秒沒有貨櫃盾（舉著時正面受到的傷害 ×0.5） |
+| `ab_cover` 貨櫃掩體 | 叉架 MT | 地點（射程 8） | 15 | 30 | 放下 8×2.6 m 的臨時牆（`addTempWall`，血量 800、30 秒；B 同時 `nav.block`，消失時解除） |
+| `ab_flare` 照明彈 | 迫擊砲 MT | 地點（射程 50） | 10 | 30 | `rtsFogReveal(隊伍, x, z, 18, 10)` |
+| `ab_stomp` 踏地 | 重踏機甲 | 自己（右鍵切換自動） | 0 | 14 | 半徑 9 m 地面衝擊波（`aiShock` 的特效）60 爆發＋失衡；研究 `r_stomp` 後暈眩 1.5 秒（`staggerT`） |
+| `ab_siege` 架設／收起 | 自走砲 | 自己 | 0 | 架設 3 秒、收起 2 秒 | 架設中不能移動，只有架設好才能開火（`e.deployed`）；架設時視野 +6；收到移動指令時自動收起 |
+| `ab_rockets` 火箭齊射 | 武裝直升機 | 地點（射程 30） | 20 | 18 | 地面航線預警（`strafeRun` 的預警線）1 秒後沿 24 m 直線落下 8 發，每發 45 穿甲 |
+| `ab_militia` 動員 | 主堡（R） | 自己 | 0 | 0 | 45 m 內的作業 MT 變成民兵 45 秒（`r_militia` 後 60）：`rtsMorph(e, asm)`（B：換組裝、保留位置與血量比例）換上步槍、中甲 1、實彈射程 18、dps 9；主堡 A「解除動員」或時間到變回工人並回去採集 |
+
+- **建築**（全部 `arm: 'fort'`；`foot` 單位 m；建造卡＝工人建造子選單的鍵）：
+
+| id | 名稱 | 階 | 建造卡 | 礦石／Coral | 秒 | 血量 | 護甲 | 佔地 | 高 | 視野 | 人口 | 生產／功能 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `c_hq` | 主堡（T2、T3 見 13.2） | T1 | Q | 385／120 | 110 | 4200 | 5 | 16×16 | 13 | 40 | +10 | 作業 MT、英雄（祭壇）、升級、動員；回收點 |
+| `c_depot` | 補給庫 | T1 | W | 90／0 | 30 | 700 | 3 | 8×8 | 6 | 20 | +10 | — |
+| `c_factory` | 兵工廠 | T1 | E | 180／40 | 55 | 1500 | 4 | 14×12 | 10 | 24 | — | MT、盾牌 MT、叉架 MT、迫擊砲 MT（T2） |
+| `c_extractor` | Coral 抽取站 | T1 | R | 120／0 | 35 | 900 | 3 | 8×8 | 9 | 18 | — | 每秒 0.8 Coral |
+| `c_works` | 工程研究所 | T1（要兵工廠） | A | 160／60 | 50 | 1100 | 3 | 12×10 | 9 | 22 | — | 研究（13.2） |
+| `c_tower` | 起重機砲台 | T1（要兵工廠） | S | 130／30 | 40 | 900 | 4 | 6×6 | 16 | 34 | — | 防禦塔：爆發、射程 36（最短 6）、dps 18、範圍 3；不打空中 |
+| `c_wall` | 城牆 | T1 | D | 25／0 | 10 | 600 | 6 | 4×2 | 4 | 4 | — | 擋路；Shift 拖曳連續蓋一排（E） |
+| `c_market` | 補給商店 | T1 | F | 130／30 | 45 | 900 | 3 | 10×8 | 7 | 18 | — | 賣道具給 12 m 內的英雄（13.5） |
+| `c_heavy` | 重工廠 | T2 | Z | 240／120 | 70 | 2000 | 5 | 16×14 | 12 | 24 | — | 重踏機甲、裝甲車、自走砲（T3） |
+| `c_flak` | 防空砲塔 | T2 | X | 120／40 | 35 | 750 | 3 | 5×5 | 8 | 34 | — | 防禦塔：只打空中、穿甲、射程 34、dps 28 |
+| `c_helipad` | 停機坪 | T3 | C | 200／150 | 60 | 1300 | 3 | 14×14 | 5 | 22 | — | 武裝直升機 |
+
+  - 防禦塔的攻擊（B，`rtsTowerAI(dt)`）：每 0.35 秒以 `rtsNear` 找射程內的敵人（單位優先、工人最後，`rtsHostileOk` 會略過迷霧設的 `noLock`），起重機砲台用 `crateShot` 的拋物線（預警圈只對玩家的隊伍顯示），防空砲塔用 `foeFlakFire`；建築沒有武器槽，傷害用 `rtsHit`／`rtsSplash`。
+  - 主堡三階的外觀（B）：`buildRtsBuilding('c_hq')` 的 rig 加 `setTier(1～3)`：T2 加外牆與砲座、T3 加司令塔與天線（同一個模型、切換子群組的 `visible`；建築若被合併過，切換前 `unmerge()`、之後 `remerge()`）。新建築的模型都登記到 `RTS_CATALOG`。
+- **指令卡**（`at`＝[列, 行]，鍵依位置 Q W E R／A S D F／Z X C V；`alt` 是另一個鍵）：
+  - 作業 MT：R1 的卡片不變（Q 移動、W 守住、E 巡邏、A 攻擊、S 停止、Z 建造、X 採集、C 修理）；建造子選單如上表（V 返回）。
+  - 主堡：Q 作業 MT、W 英雄（子選單：Q／W／E＝三位英雄的生產或復活、V 返回）、E 升級（T1 顯示要塞主堡、T2 顯示重工司令部）、R 動員、A 解除動員、C 取消、V 集結點。
+  - 兵工廠：Q MT、W 盾牌 MT、E 叉架 MT、R 迫擊砲 MT、X 循環生產（自動管家，13.8）、C 取消、V 集結點。重工廠：Q 重踏機甲、W 裝甲車、E 自走砲，X、C、V 同兵工廠。停機坪：Q 武裝直升機，X、C、V 同上。
+  - 工程研究所：Q 實彈武器、W 爆發武器、E 複合裝甲、R 要塞化、A 民兵訓練、S 盾牆、D 榴彈改良、F 長程砲管、Z 重踏強化、C 取消（已研究到最高級的格子顯示「已完成」並停用）。
+  - 防禦塔：A 攻擊（指定目標）、S 停止。補給商店：見 13.5。
+  - 一般單位：R1 的 `UNIT_CARD` ＋第 3 列 Z／X 的技能；英雄見 13.4。
+  - 新的卡片動作（`act.k`，E 在 `rtsCardAct` 處理，呼叫 A／B／C 的 API）：`upgrade`（`to`）、`research`（`id`）、`ability`（`ab`、`target`）、`learn`（打開學習技能的子選單）、`hero`（`id`：生產或復活）、`pilot`、`loop`、`buy`（`item`）、`hire`（`hero`／`merc`）、`militia`／`demob`。右鍵點技能格＝切換自動施放（`c.auto` 的技能才可以，記在 `e.rtsAuto[ab]`）。
+
+### 13.4 英雄
+
+- **資料**（`data/rts-heroes.js`，C）：`RTS_HERO_DEFS`（併進 `RTS_DEFS`，`kind: 'unit'`、`hero: true`、`faction`、`asm` 照現有 AC、`atk: 'hero'`、`arm: 'hero'`、`pop: 5`、`time: 55`、`grow`、`skills: [4 個技能 id]`）、`RTS_SKILLS`（技能：`name`、`slot` 0～3、`kind` 'unit'｜'point'｜'self'｜'aura'｜'passive'、`range`、`lv: [每級 { coral, cd, ...參數 }]`、`desc`）、`RTS_HERO_XP`、`RTS_XP_UNIT`、`RTS_XP_HERO`、`RTS_XP_CREEP_K`、`RTS_TAVERN`。
+- **隊伍的英雄紀錄**（C，`T.heroes`，最多 3 筆，依取得順序＝F1～F3）：`{ def, lv, xp, pts, sk: [0, 0, 0, 0], cd: [0, 0, 0, 0], inv: [6 × null], ent, st: 'alive'｜'dead'｜'revive', deadT, src: 'hq'｜'tavern' }`；實體 `e.hero = 紀錄`。英雄死亡時實體照常移除（`rtsDie`），紀錄保留等級、技能與道具；復活時以紀錄重建實體（`rtsSpawn` 後 C 套回等級與道具）。
+- **取得**：同一位英雄一隊只能一個、全隊最多 3 個；第 1 個免費（只花人口）、第 2 個要 T2、第 3 個要 T3（`rtsReqWhy` 依目前英雄數判斷，C 提供 `rtsHeroWhy(teamId, id)` 給 A 呼叫），之後的費用 425 礦石／100 Coral、55 秒；酒館雇用算進同一個上限（13.5）。
+- **經驗與等級**（照魔獸3，等級上限 10）：
+  - 累積經驗表 `RTS_HERO_XP`＝[0, 200, 500, 900, 1400, 2000, 2700, 3500, 4400, 5400]（第 n 級需要的累積經驗）。
+  - 擊破單位的經驗依它的 `lv`：`RTS_XP_UNIT`＝[0, 25, 40, 60, 85, 115, 150]（lv 1～6；建築 0）；擊破英雄依它的等級：`RTS_XP_HERO`＝[0, 100, 120, 160, 220, 300, 380, 470, 570, 680, 800]。
+  - 野怪（`creep`）的經驗再乘 `RTS_XP_CREEP_K[英雄等級]`＝等級 1：0.8、2：0.7、3：0.6、4：0.5、5 以上：0（5 級以後打野不給經驗，第 3.5 節）。
+  - **分配**（`rtsXpOnKill(dead, from)`）：擊破者所屬隊伍、活著、離死亡位置 40 m 內的英雄平分（擊破者不必是英雄；野怪的倍率依各英雄自己的等級）；附近沒有英雄＝沒有經驗。親自駕駛中的英雄 +15%（暫定，第 11 節的待定項目）。
+  - 每升一級 1 個技能點（`pts`）：一般技能第 n 級需要英雄等級 2n−1（1、3、5），終極技需要 6 級、只有 1 級；10 級時剛好 3×3＋1＝10 點。學習：卡片 D「學習技能」（alt O）→ 子選單的 Z X C V 顯示可以學的與級數（`rtsHeroLearn(e, slot)`）。
+  - **成長**（每升一級，C 寫進 `e.rtsMods.hero`）：血量 ＋`grow.hp`、dps ＋`grow.dps`、護甲 ＋`grow.armor`；升級時回復 25% 血量（暫定）、升級特效與 `rtsEvent`。
+- **技能的施放**（C，`entities/mech-rts-hero.js`）：指令 `{ k: 'ability', ab, x, z, id }`（`ab` 是技能 id）；走到射程內 → 施放（`rtsSkillCast`）→ 冷卻 `rec.cd[slot]`。費用是**隊伍的 Coral**（第 3.1 節：Coral 用在英雄技能），沒有個別的能量；Coral 不足時卡片灰掉。終極技借 Boss 最終型態的共用零件（`mech-boss3.js` 的 `b3Rain`／`b3Line`／`b3Shock`／`b3Erupt`／`b3Volley`…）；它們的傷害要經過 `rtsHit` 才能套相剋與經驗，C 在 `this.rts` 時把 `b3Dm()` 這類傷害呼叫轉給 `rtsHit`（或在 RTS 用自己的版本），並確認目標選取用 `R.hostile` 而不是 `this.player`。暈眩＝`staggerT`（`rtsUnitAI` 在失衡時停下）。
+- **卡斯特隆的 3 位英雄**（組裝用 `AC_ROSTER` 的 AC；`hp`／`dps`／`armor` 是 1 級，`grow` 是每級）：
+
+| id | 名稱 | 定位 | 組裝 | 血量 | 護甲 | 射程 | dps | 速度 | 視野 | grow（血量／dps／護甲） |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `h_bastion` | BASTION | 重裝要塞（坦） | `AC_ROSTER.bastion`（`slots: ['rarm', 'larm']`） | 1600 | 4 | 26 | 26 | 7 | 34 | 110／2.2／0.6 |
+| `h_rain` | RAIN | 砲兵指揮 | `AC_ROSTER.rain`（`slots: ['rarm', 'rback']`） | 1150 | 2 | 40 | 22 | 8 | 38 | 80／2.6／0.3 |
+| `h_pile` | PILEDRIVER | 突擊 | `AC_ROSTER.piledriver`，`larm` 改 `w_sg`（`slots: ['larm']`；打樁機留給技能） | 1350 | 3 | 14 | 30 | 9 | 32 | 95／3.0／0.45 |
+
+| 英雄 | 鍵 | 技能 | 種類／射程 | Coral（1／2／3 級） | 冷卻 | 效果（1／2／3 級） |
+|---|---|---|---|---|---|---|
+| BASTION | Z | 重裝甲板 | 友軍單位／24 m | 15／20／25 | 14 | 12 秒內護甲 +4／+7／+10 |
+| | X | 貨櫃壁壘 | 地點／30 m | 20 | 18 | 放 1／2／3 段臨時牆（6×3 m，血量 600／800／1000，20 秒，`addTempWall`＋`nav.block`） |
+| | C | 鋼鐵意志 | 光環 25 m | — | — | 友軍護甲 +1／+2／+3、受到的失衡值 −10／20／30% |
+| | V | 不落要塞（6 級） | 自己 | 75 | 120 | 18 秒內不能移動、受到的傷害 −60%、射程 +14，每 3 秒一次半徑 12 m 的地面衝擊波 80 爆發（`b3Shock`） |
+| RAIN | Z | 飛彈雨 | 地點（半徑 8）／50 m | 25／30／35 | 12 | 3 秒內落下 8／12／16 發，每發 40 爆發（`b3Rain`） |
+| | X | 標定 | 敵方單位／45 m | 15 | 16 | 8／11／14 秒內受到的傷害 +15／25／35%，全隊看得到它（跟著目標的 `rtsFogReveal`） |
+| | C | 火控連結 | 光環 30 m | — | — | 射程 30 以上的友軍射程 +2／4／6、射速 +8／14／20% |
+| | V | 飽和砲擊（6 級） | 直線 70 m | 90 | 150 | 預警線 1.5 秒後沿線每 0.25 秒一發 90 爆發（6 秒，`b3Line`），結束時終點 20 發飛彈雨 |
+| PILEDRIVER | Z | 突擊推進 | 敵方單位／30 m | 15 | 12 | 衝到目標身邊撞擊 60／100／140 實彈＋暈眩 1／1.5／2 秒 |
+| | X | 打樁 | 敵方單位／6 m | 20 | 10 | 單體 180／280／380 穿甲並打出失衡 |
+| | C | 破甲 | 被動 | — | — | 普通攻擊讓目標護甲 −1／−2／−3（5 秒，不疊加；寫目標的 `buff`） |
+| | V | 地裂（6 級） | 自己（前方扇形） | 80 | 100 | 往前方連續 3 次噴發（`b3Erupt`），每次 150 爆發＋失衡；之後 8 秒移動速度 +30% |
+
+- **英雄的卡片**：R1 的 `UNIT_CARD`（Q 移動、W 守住、E 巡邏、A 攻擊、S 停止）＋ R 商店（附近有商店時，13.5）、D 學習技能（alt O）、F 親自駕駛（13.8）、Z X C V 四個技能（被動與光環顯示但不能按）。
+- **英雄的自動行為**（C 的 `rtsHeroAI`）：沒有指令時同一般單位自動迎擊；自動施放只有勾選的技能（預設全關）；血量 < 15% 時頭像閃爍（不自動撤退）。
+- **死亡與復活**：死亡時 `rtsEvent('英雄陣亡：名稱')`，道具留在紀錄（不掉落）。主堡（任何一階，祭壇角色）的英雄子選單顯示「復活」：礦石 `120＋35×等級`（10 級 470）、Coral 0、時間 `10＋5×等級` 秒（10 級 60 秒；佇列項目 `{ id: 英雄 id, revive: true }`，佔人口），完成時回滿血量。酒館可以立刻復活：費用 ×1.5、只回半血（13.5）。
+
+### 13.5 道具、商店與酒館
+
+- **背包**：英雄 6 格（`rec.inv`）。地上的道具 `R.items = [{ uid, item, x, z, mesh }]`（C；模型是發光的小箱子，`render/rts-neutral-models.js` 的 `buildItemCrate`，D）：英雄走到 2 m 內自動撿（指令 `{ k: 'pickup', uid }`，背包滿就留在地上）；英雄可以把道具丟在腳下（背包格右鍵）或交給 6 m 內的另一位己方英雄（拖曳到頭像）。API（C）：`rtsItemSpawn(item, x, z)`、`rtsItemGive(e, item)`、`rtsItemUse(e, slot, tgt)`、`rtsItemDrop(e, slot)`、`rtsItemPass(e, slot, to)`。
+- **使用**：指揮時點背包格或 Alt＋1～6；親自駕駛時 1～6（13.8）。
+- **道具表**（`data/rts-items.js` 的 `RTS_ITEMS`：`{ id, name, tier 1～3, cost: { ore, coral }, kind 'use'｜'perm', charges, cd, mods, use, drop, desc }`；永久道具寫進 `e.rtsMods.item`，同名不疊加）：
+
+| id | 名稱 | 階 | 種類 | 礦石／Coral | 效果 |
+|---|---|---|---|---|---|
+| `i_kit` | 修復套件 | 1 | 消耗（2 次） | 50／0 | 5 秒內回復 350 AP（受傷中斷） |
+| `i_scout` | 偵察無人機 | 1 | 消耗（1 次） | 40／0 | 指定地點 25 m 揭露 30 秒 |
+| `i_smoke` | 煙幕彈 | 1 | 消耗（2 次） | 60／0 | 腳下 10 m 煙幕 8 秒（`addZone('smoke')`：裡面不能被鎖定） |
+| `i_beacon` | 回城信標 | 1 | 消耗（1 次） | 120／0 | 3 秒後傳送到最近的主堡（受傷中斷） |
+| `i_barrier` | 緊急障壁 | 2 | 消耗（1 次） | 100／25 | 10 秒內吸收 300 傷害 |
+| `i_fcs` | 強化火控 | 2 | 永久 | 150／50 | 傷害 +10% |
+| `i_plate` | 追加裝甲 | 2 | 永久 | 175／25 | 護甲 +3 |
+| `i_boost` | 高出力推進器 | 2 | 永久 | 125／50 | 移動速度 +12% |
+| `i_cooler` | 散熱器 | 2 | 永久 | 150／50 | 射速 +15% |
+| `i_repair` | 修理模組 | 2 | 永久 | 160／40 | 每秒回復 3 AP |
+| `i_scope` | 遠距照準 | 3 | 永久 | 200／100 | 射程 +4、視野 +6 |
+| `i_antenna` | 指揮天線 | 3 | 永久 | 225／75 | 光環：25 m 內友軍護甲 +1、傷害 +5% |
+| `i_stab` | ACS 穩定器 | 3（只掉落） | 永久 | — | 每 20 秒抵消一次失衡與暈眩 |
+| `i_coralcore` | Coral 共振核 | 3（只掉落） | 永久 | — | 技能的 Coral 費用 −25% |
+| `i_contract` | 傭兵合約 | 2（只掉落） | 消耗（1 次） | — | 在英雄旁邊召喚一台這張地圖的傭兵（13.6），60 秒 |
+
+- **商店**：
+  - 卡斯特隆的補給商店 `c_market`（每隊自己的）：主堡 T1 時賣 1 階、T2 起加 2 階、T3 起加 3 階的可購買道具；不限數量。指令卡 Q W E R A S D F Z X 依序列出，選了英雄而且 12 m 內有商店時，英雄的卡片 R（[0, 3]，英雄卡片唯一的空格）多一格「商店」打開子選單，直接買給那位英雄（`rtsBuy(hero, shop, item)`）；選商店本身時買給 12 m 內最近的己方英雄（沒有＝灰掉「附近沒有英雄」）；英雄在遠處時下 `{ k: 'shop' }` 指令走過去買。
+  - 中立商店（地圖上成對的 `shop`，D 放建築與庫存、C 的 `rtsBuy` 扣庫存）：賣全部可購買的道具（不看層級），每種有庫存（1 階 3 個、2 階 2 個、3 階 1 個），賣掉後每 60／90／120 秒補 1 個；兩隊共用庫存。
+  - 賣出：背包格的「賣出」（在任何商店 12 m 內）退一半。
+- **酒館**（地圖正中央的 `tavern`，D 放建築、C 寫雇用 `rtsHire(teamId, tavern, heroId)`）：己方單位在 14 m 內時可以雇用（卡片列出 `RTS_TAVERN`）。費用 425 礦石／135 Coral、立刻出現、從 1 級開始；算進英雄上限與層級規則。**全場唯一**：被一隊雇走後另一隊不能雇（陣亡後仍屬於雇用的隊伍，可以在主堡或酒館復活）。酒館另有「立刻復活」（13.4）。
+- **酒館的宿敵 AC**（`RTS_TAVERN`，併進 `RTS_HERO_DEFS`，`faction: 'neutral'`；組裝與模型照 `data/foes.js` 的 `ACES`，行為借該 AC 的現有機制；血量、dps 在卡斯特隆三位英雄的範圍內）：
+
+| id | 名稱 | 定位 | Z | X | C（被動／光環） | V（6 級） |
+|---|---|---|---|---|---|---|
+| `t_rust` | RUST | 拾荒、成長 | 拾荒：吸附 20 m 內的殘骸，每個回復 80 AP、隊伍 +10 礦石 | 廢鐵投擲：地點範圍 5 m 120 實彈 | 每次擊破永久傷害 +1%（最多 20 層） | 廢鐵風暴：8 秒內每秒對 12 m 內的敵人 60 實彈、自己護甲 +5 |
+| `t_sirocco` | SIROCCO | 干擾、游擊 | 沙暴：10 m 煙幕 8 秒 | 沙中突襲：鑽進地下 3 秒（`burrow` 的隱藏），從目標腳下鑽出 150 爆發＋暈眩 1 秒 | 迴避：受到的遠程傷害 −10／20／30% | 沙暴領域：30 m 煙幕 15 秒、裡面的敵人射程 −40% |
+| `t_whiteout` | WHITEOUT | 狙擊、隱形 | 白化：隱形 8／12／16 秒（`noLock`、開火現形） | 狙擊：射程 70，300 穿甲 | 從隱形中開火傷害 ×1.5 | 冰封：半徑 14 m 緩速 60% 6 秒＋三面冰牆（`addTempWall('ice')`） |
+| `t_specimen` | SPECIMEN | 爆發、續戰 | 過載：5 秒射速 +50%，之後硬直 2 秒 | 寄生：目標纏附（`addStatus('latch')`）每秒 30 | 再生：每秒 2／4／6 AP | 融合：吸收 15 m 內最多 3 台己方一般單位（移除），每台回復 25% AP、15 秒傷害 +15% |
+| `t_spire` | SPIRE | 高地 | 攀升：跳到 25 m 內的地點（可以上高台） | 高點射擊：比目標高 4 m 以上時 8 秒傷害 +30／45／60% | 視野 +6／10／14 | 制高點：30 秒內全隊在高台上的單位射程 +8 |
+| `t_countdown` | COUNTDOWN | 導彈 | 誘導飛彈：鎖定 4／6／8 枚，每枚 35 爆發 | 推進器噴火：前方錐形 4 秒每秒 60 爆發（`flameCone`） | 導彈類射程 +4／6／8 | 發射倒數：指定地點預警圈 10 秒後半徑 14 m 400 爆發 |
+| `t_undertow` | UNDERTOW | 控場 | 推擊：撞開並擊退 8 m、100 實彈 | 漩渦：10 m 吸引區 5 秒（`addZone('suction')`） | 擊退的目標受到的傷害 +10／20／30%（4 秒） | 暗流：把 18 m 內的敵方單位拉到中心並暈眩 2 秒 |
+| `t_marsh` | MARSH | 腐蝕、潛行 | 潛行：12 秒內不能被鎖定（開火現形） | 腐蝕噴霧：地點 6 m 腐蝕區 8 秒（`addPool(..., acid)`：每秒 30、護甲 −3） | 兩棲：涉水不減速，在水裡每秒回復 3／6／9 AP | 沼澤化：半徑 20 m 腐蝕地 12 秒、敵方移動 −35% |
+
+### 13.6 中立：野怪營地、傭兵營、維持費
+
+- **中立隊伍**（A）：`R.teams[2]`（13.1），不算進勝敗、人口、戰績；中立實體放在 `this.enemies`（讓親自駕駛的鎖定與一般 HUD 看得到）。RTS 時 `game.js` 的 `isHostile(a, b)`＝`a.rtsTeam !== b.rtsTeam`（兩邊都有 `rtsTeam` 時），`hostilesOfEnt(e)` 回傳 A 每格重建的 `R.hostile[e.rtsTeam]`（不同隊、活著的實體；投射物與爆炸用它，所以電腦隊伍的子彈也打得到野怪）。迷霧對中立同敵方處理（D 確認 `rtsFogEnemies`／`rtsVisible` 以 `rtsTeam !==` 判斷）；小地圖與選取圈用 `COL.neu`（黃）。
+- **營地的位置**：照地圖產生器已經輸出的 `plan.camps`（`{ pos, tier 1～3, guards: { type: 'mine'｜'high'｜'item', mine }, near }`，成對、點對稱，6～10 個）。D 只調整 `rts-map.js` 讓營地四周 6 m 不放障礙物、不壓到礦脈與主堡的位置（`put` 的保留半徑；不改既有的亂數呼叫順序，舊種子的地圖除了營地附近的障礙物以外不變）。
+- **編成**（`data/rts-neutral.js` 的 `RTS_CAMPS[主題][tier]`，各 2～3 套；**兩個對稱的營地用同一套**：套的選擇用 `makeRng(seed × 41 + 營地的成對編號)`，不用 `Math.random`）。野怪定義 `RTS_CREEP_DEFS`（併進 `RTS_DEFS`，`creep: true`、`faction: 'neutral'`，組裝／模型照 `ENEMY_TYPES`／`FOES`，數值用 RTS 的表）：
+
+| tier | lv 合計 | 荒野（wasteland）的編成例 | 掉寶 |
+|---|---|---|---|
+| 1（小） | 5～7 | MT×2＋無人機；拾荒者 `scav`×2＋外殼機 `junk` | 60%：1 階道具；否則礦石 75 |
+| 2（中） | 10～13 | 重型 MT＋霰彈 MT＋裝甲車；外殼機×2＋魚叉拖車 `harpoon`＋煙幕車 `smoker` | 2 階道具＋礦石 50 |
+| 3（大） | 17～21 | 步行砲台＋裝甲車×2＋指揮官 MT；落單的具名 AC（`AC_ROSTER` 依營地的亂數挑一台，lv 6）＋MT×2 | 3 階道具（含只掉落的）＋礦石 150＋Coral 50 |
+
+  - 野怪的數值：lv 1 血量 450／dps 10、每多 1 lv 血量 +300／dps +6（具名 AC：血量 2600、dps 40、英雄甲）；護甲類型依原型（MT＝中、裝甲車與步行砲台＝重、無人機＝輕）、攻擊類型依主武器。
+  - **行為**（D，`entities/mech-rts-creep.js` 的 `rtsCreepAI`；`e.creep`＝營地 id）：在營地中心附近站著（待機時偶爾轉頭）；敵人進入 12 m（tier 3 為 16 m）或被攻擊時整營出動；離營地中心超過 28 m（追擊上限）或 8 秒沒有打到敵人就回營，回營途中不理會攻擊、4 秒內回滿血量；不會重生。
+  - **掉寶**（`rtsLootOnKill`）：整營全滅時在最後一台的位置 `rtsItemSpawn`（C）＋資源給擊破者的隊伍（不套維持費），`rtsEvent('營地清除')`，`camp.cleared = true`。掉落的道具同樣依營地的亂數決定（兩邊對稱的營地掉同樣的東西）。`guards.type 'mine'` 的營地守著外圍分礦（電腦會先清營地，13.9）。
+- **傭兵營**（成對的 `merc`，D，`rtsMercHire(teamId, merc, id)`）：己方單位 14 m 內可以雇用這張地圖主題的傭兵（荒野：拾荒者 120／0、外殼機 200／30、魚叉拖車 210／60、煙幕車 180／80；數值同野怪 lv 2～3），每種庫存 2 台、每 60 秒補 1 台，兩隊共用；立刻出現在傭兵營旁，佔人口（2～3），屬於雇用的隊伍、照一般單位的指令（不是 `creep`）。
+- **中立建築**（D，`RTS_NEUTRAL_DEFS`：`n_tavern` 酒館、`n_shop` 商店、`n_merc` 傭兵營；以 A 的 `rtsSpawnBld(2, …)` 建立）：屬於中立隊伍、`e.rtsInv = true`、`noLock`、不擋視線，佔地登記到 `world.nav.block`；選取時顯示貨架或可以雇用的名單；模型在 `render/rts-neutral-models.js`（`buildRtsBuilding` 遇到 `n_` 開頭時轉給它，或 D 在定義的 `buildModel` 提供），登記到模型庫（只預覽）。
+- **維持費**：照現有常數（第 3.2 節、`RTS_UPKEEP`）：人口 0～60 礦石收入 100%、61～100 70%、101～150 40%（對應魔獸3 上限 100 時的 50／80）；Coral、營地掉寶、RUST 的拾荒不受影響。R2 只加顯示（13.7）與電腦的判斷（13.9），英雄的人口 5 照算。
+
+### 13.7 HUD 的增補（E）
+
+- **英雄頭像列**（左上、資源列下方，`#rtsHeroes`）：每位英雄一格（名稱縮寫、等級、AP 條、經驗條、有技能點時顯示「＋」），陣亡時灰掉並顯示復活倒數；點一下選取、連點兩下鏡頭跳過去；F1～F3 同點一下（按兩下跳過去）。被攻擊時頭像閃紅。
+- **選取面板**：單一單位多一行「攻擊類型／護甲類型 護甲值」（滑鼠停留說明相剋，例：「穿甲：對重甲 175%」）、研究等級（實彈 2、裝甲 1…）；英雄另有技能列（4 格，級數點）與背包 2×3（點＝使用、右鍵＝丟下或賣出、拖曳到頭像＝交給別的英雄）；建築升級與研究的進度條。
+- **資源列**：多顯示層級（T1／T2／T3）與維持費等級（「無／低／高維持費」，進入下一級前 6 人口時變黃）；「管家」按鈕（13.8）。
+- **閒置工人**（小地圖右上角的按鈕，顯示數量）：F8 或點一下＝依序選一個閒置工人並把鏡頭移過去，Ctrl＋F8 或 Shift＋點＝全部選取；閒置部隊 F9（全部選取沒有指令的戰鬥單位，不含英雄）。
+- **小地圖**：野怪營地（黃色點，大小依 tier，清除後變灰）、中立建築的圖示（酒館、商店、傭兵營）、英雄（大一號的菱形）、警示的位置（紅色擴散圈 3 秒）；Alt＋點小地圖＝信號（小地圖與畫面上的擴散圈＋音效）；切換按鈕：只顯示地形／敵我配色（我方綠、敵方紅、中立黃）。
+- **警示**（`rtsMsg` 與 `rtsEvent`，空白鍵跳過去；同種 `ALERT_GAP` 秒內不重複）：英雄升級、英雄陣亡、英雄復活完成、研究完成、升級完成、建造完成、生產完成（只在親自駕駛時）、人口將滿（剩 4 以內且沒有補給庫在蓋）、礦脈採完、維持費等級改變、營地清除、基地／部隊遭受攻擊（R1 已有）、第一次看到敵方英雄。
+- **指令卡**：13.3 的新動作；技能格顯示 Coral 費用、冷卻（扇形遮罩）、自動施放（金框）；研究與升級顯示級數；說明框加「需要」行（`rtsReqWhy`）與攻擊／護甲類型。
+- **鍵位的增補**（`rtsKey`）：F1～F3 英雄、F8／F9 閒置、Alt＋1～6 道具（`altKey` 時目前會直接返回，要先處理）、F＝親自駕駛（指令卡 [1, 3]，只有英雄的卡片有）。
+- 三種大小（1920×1080、1180×820、844×390 觸控）都要截圖檢查（觸控的 RTS 操作仍是之後的分期，R2 只確認不重疊、不超出畫面）。
+
+### 13.8 親自駕駛（E，`game/rts-pilot.js`）
+
+- **進入**：選取一位己方英雄（單選，或子群組是英雄時取第一個）按 F → `rtsPilotEnter(e)`；條件：英雄活著、不在施法中、局還沒結束。流程：
+  1. `R.pilot = { e, t0, cam: { ...R.cam }, prevSel: R.sel.slice(), hold: 0 }`；清掉英雄的 `orders`。
+  2. `this.player = e`、`e.isPlayer = true`、`e.slot = 0`、`e.rtsPiloted = true`、`e.lock = null`；`setView` 到設定的預設視角（`ctrl.view`）並 `viewReset`。
+  3. 鏡頭交給一般任務的 `updateCamera`（`rtsTick` 改呼叫 `rtsPilotView`）；`camera.far` 維持 1400、霧照 RTS 的設定；`this.lodFrom = e.pos`（IK、AI 分批的距離以英雄為準）；英雄改用真正的陰影（`setShadowLod(true)`，其他單位照舊用假影子）。
+  4. HUD：`#rtsHud` 加 `pilot` class，只留資源列、小地圖（縮小在左下）、英雄頭像列、警示；動作 HUD 照常 `drawHud`（AP、EN、ACS、武器、鎖定、`drawChaseHud`）。
+- **操作的對應**：移動、瞄準、QB、跳躍與懸浮、四把武器、鎖定照一般操作（`updatePlayer`，`rtsPilotStep` 在 `rtsSim` 的單位行為之前呼叫，`rtsSim` 的單位迴圈略過 `e.rtsPiloted`）。英雄的 4 個技能＝Z X C V（動作操作沒有用到這四個鍵；目標＝鎖定的敵人或準星指的地面點）；道具＝1～6（取代一般任務的消耗品 `cs1`／`cs2`）；F1～F3＝換開另一位英雄；彈藥一律無限（同 RTS 指揮時）。傷害照英雄的 `dmgMul`（四把武器都能打，所以親自駕駛的輸出比指揮時高，這是親自駕駛的價值）；AP、護甲、相剋照 RTS 規則（`takeDamage` 仍經過 `rtsHook`）。
+- **離開**：長按 F 0.6 秒（短按 F 照常是突擊推進 `ab`；畫面上顯示長按進度）、暫停選單的「回到指揮」、英雄陣亡（自動）、局結束、`rtsClear`。`rtsPilotExit(why)`：還原 `this.player = null`、`e.isPlayer = false`、`e.rtsPiloted = false`、刪掉 `e.slot`、陰影改回、`this.lodFrom` 交還 RTS 鏡頭，鏡頭回到 `R.pilot.cam` 但注視點移到英雄的位置，選取＝這位英雄，`R.pilot = null`。
+- **`this.player` 的依賴**（E 逐一確認）：`this.player` 只在 `R.pilot` 期間不是 null；`onPlayerDead`／`onEnemyKilled` 在 RTS 本來就直接返回（英雄的死亡由 `rtsHook` 的 `die` 處理，`rtsHeroDied` 之後呼叫 `rtsPilotExit('dead')`）；`pilotEnt()` 為 true 時的失衡後保護、`PVE_IMP_K`、ACS 回復延遲照給（親自駕駛的手感）；`playersAlive()`、`everyone()` 這類讀 `this.players || [this.player]` 的地方在 null 時要能跳過（R1 已經是 null，進出時不能留下殘值）；鎖定（`lockCands`）用 `this.enemies`，迷霧設的 `noLock` 讓看不到的敵人不能鎖定；`hostilesOfEnt` 走 A 的 RTS 分支；名牌與畫面外指示略過 `noLock`（現有規則）。
+- **自動管家**（`R.butler`，`rtsButlerTick(dt)` 每 1 秒；親自駕駛時一律啟動，指揮時可以在資源列的「管家」按鈕開啟，設定記在 `rubicon_rts`）：
+  - `gather`（預設開）：閒置超過 3 秒的工人分到最近、沒飽和的己方礦脈（`rtsNearestMine(..., true)`，只選己方主堡 32 m 內的）；建造或修理完成的工人回到原本的礦脈。
+  - `loop`（建築卡片 X「循環生產」逐棟開關，`b.bld.loop`）：佇列空了而且付得起時再排一次最後生產的單位（人口滿時暫停、不扣款）。
+  - `depot`（預設開）：人口剩 6 以內、上限 < 150、沒有補給庫在蓋時，派一個工人在主堡附近蓋補給庫（位置用 A 提供的 `rtsAutoSpot(teamId, defId)`：主基地平台上、四周留 2 m 通道，規則同電腦的 `rtsAiSpot`；F 之後可以改成共用它）。
+  - `defend`（預設開）：敵人進入己方建築 42 m 內時，基地附近閒置的戰鬥單位攻擊移動過去，威脅消失後回原位；被攻擊的建築派最近的 2 個工人修理（受損 < 70%、礦石 > 100）。
+  - `follow`（預設關）：新生產的戰鬥單位集結到親自駕駛的英雄身邊（攻擊移動），取代建築的集結點。
+- **警示**：親自駕駛時事件以右上角的小字＋音效提示（基地被攻擊、生產完成、英雄升級、研究完成），小地圖閃紅圈；不另外加跳轉鍵，要處理就長按 F 回到指揮。
+- **效能**：親自駕駛不改 RTS 的渲染設定（不開 SSAO、不重新編譯著色器，避免切換時卡頓）；英雄的模型仍是 RTS 的單一材質合併（動作照常），近距離的 IK 照 `lodTick` 的一般門檻；冒煙測試量切換那一格的耗時（尖峰 < 8 ms）。
+
+### 13.9 電腦對手的增補（F，第二輪）
+
+- `data/rts-ai.js` 的開局加欄位：`hero`（第 1 個英雄：std＝BASTION、rush＝PILEDRIVER、eco＝RAIN）、`tech`（`{ t2, t3 }`：人口或秒的觸發點，難度的時間是下限）、`research`（研究順序）、`mix2`／`mix3`（T2、T3 之後的兵種比例：例 std 的 T2 `{ c_mt: 2, c_shield: 1, c_tank: 1, c_mortar: 1 }`、T3 加 `c_arty: 1, c_heli: 1`）、`towers`（基地被攻擊兩次後蓋幾座起重機砲台；對手有空中單位時改蓋防空砲塔）。`RTS_AI_ROLES.castron` 加 `works`、`heavy`、`pad`、`market`、`tower`、`flak`。
+- 難度的新參數（`RTS_AI_DIFFS`）：
+
+| | 第 1 個英雄 | T2 | T3 | 第 2／3 個英雄 | 打野 | 研究 | 道具 | 酒館 | 施放技能 |
+|---|---|---|---|---|---|---|---|---|---|
+| 簡單 | 3:00 | 9:00 | 不升 | T2 後／— | 只打 tier 1、英雄 ≥ 2 級才打 | 只有實彈 1 | 不買 | 不雇 | 只用 Z、隨機時機 |
+| 普通 | 1:45 | 5:00 | 11:00 | 升階後 | tier 1～2，2:30 起 | 實彈、裝甲到 2 | 修復套件 | 30% | 依 `RTS_AI_CAST` |
+| 困難 | 1:30 | 4:00 | 9:00 | 升階後 | tier 1～3，2:00 起，會搶對方那側的營地 | 全部 | 修復套件＋永久道具 | 50% | 依 `RTS_AI_CAST`＋集火被標定的目標 |
+| 瘋狂 | 同困難 | 3:45 | 8:30 | 同困難 | 同困難 | 全部 | 同困難 | 50% | 同困難 |
+
+- **打野**（`rtsAiCreep`）：基地沒有威脅、英雄 ≥ 1 級、部隊 ≥ 4 台時，挑「己方這一側、等級最低、沒清的」營地，戰力（12.7 的 Σ√(血量×dps)）× 1.4 > 營地戰力才去；英雄血量 < 35% 時撤回（用回城信標或走回主堡）；清完撿道具（`pickup`）；英雄 5 級後不再為了經驗打野（只打擋住分礦的 `guards.type 'mine'`）。營地的位置與戰力是地圖公開的資訊（`plan.camps`，不算作弊），清除與否要看得到才知道。
+- **技能**（`RTS_AI_CAST[技能 id]` 的條件）：飛彈雨／飽和砲擊＝範圍內 ≥ 4 台敵方單位或 1 座建築；標定＝敵方英雄或血量最高的單位；重裝甲板＝血量 < 50% 的己方英雄或盾牌 MT；不落要塞＝英雄血量 < 45% 且 20 m 內敵方 ≥ 6；突擊推進＝敵方的自走砲、迫擊砲或血量 < 30% 的英雄；打樁＝重甲目標；地裂＝前方扇形 ≥ 4 台；單位技能：自走砲進攻時在射程邊緣架設、盾牌 MT 在交戰時開盾牆、重踏機甲自動施放。終極技的 Coral 不夠時，用到 Coral 的生產讓路。
+- **道具與商店**：英雄血量 < 50% 且背包沒有修復套件時，下一次回家時在補給商店買；困難以上依序買強化火控 → 追加裝甲 → 遠距照準；地上的道具在 30 m 內就撿。
+- **科技與研究**：T2 時先蓋重工廠、再依 `research` 順序研究；偵查到對手以穿甲類為主時優先複合裝甲；看到對手的空中單位時蓋防空砲塔並提高裝甲車比例。
+- **英雄的戰術**：進攻時英雄跟在部隊中後方（離部隊重心 ≤ 10 m）；英雄血量 < 25% 先撤（普通以上）；英雄陣亡時主堡排復活（礦石不夠時優先於部隊）；學點順序：終極技優先，其餘 Z → X → C 輪流。
+- **只透過 API**（同 12.7）：新增的是 `rtsUpgrade`、`rtsResearch`、`rtsOrder` 的 `ability`／`pickup`／`shop`、`rtsBuy`、`rtsHire`、`rtsHeroLearn`、`rtsMercHire`；戰爭迷霧的限制照舊。
+- 實測目標：普通對不動的玩家 8 分鐘內有 T2 與 2 個英雄、第一次進攻帶著英雄；電腦對電腦（普通）30 分鐘內分出勝負；決策平均仍 < 0.2 ms。
+
+### 13.10 冒煙測試
+
+- 共用：`seededRandom`、`freezeLoop`／`rtsSim` 快轉（不等實際時間），`g.rtsAiOff` 讓電腦不動（F 包的測試除外）；截圖寫到 `test-results/rts-*.png`。
+
+| 測試 | 包 | 檢查點 |
+|---|---|---|
+| `testRtsTech` | A | 主堡升級 T2／T3（需求不足時拒絕、升級中不能生產工人、完成後血量依比例、人口上限 12／15、被拆時取消）；研究 3 級（同一項不能兩棟同時研究、完成後新舊單位的傷害與護甲都改變）；相剋表（同一把武器打輕／中／重／城甲的傷害比照表、護甲 5＝−23%）；`req` 擋下 T3 單位；中立隊伍不影響勝敗；`R.hostile` 讓兩隊的子彈都打得到中立單位 |
+| `testRtsCastron` | B | 每個兵種都能生產、移動、開火；`slots` 的換算讓實際 dps 在定義的 ±15%；迫擊砲最短射程內不開火；自走砲沒架設不開火、架設 3 秒；盾牆不能移動且正面減傷；投擲貨櫃預警後落地傷害；踏地失衡；直升機飛越懸崖、只被對空單位打；起重機砲台與防空砲塔各自的目標；民兵動員與解除；城牆擋路（尋路繞過）；主堡三階與新建築的截圖 |
+| `testRtsHero` | C | 第 1 個英雄免費、第 2 個要 T2；經驗表（擊破 lv 2 單位 +40、兩位英雄在 40 m 內平分、40 m 外沒有）；升級與技能點、學習的等級限制（2 級不能學第 2 級、6 級才有終極技）；三位英雄 12 個技能都施放一次（Coral 扣除、冷卻、效果：護甲、臨時牆、飛彈雨的傷害、標定的揭露與加傷、突擊的暈眩、光環範圍、終極技）；死亡 → 主堡復活（費用與時間依等級）；10 級上限 |
+| `testRtsItems` | C | 補給商店依層級的貨架；買、用、丟、撿、交給別的英雄、背包滿；永久道具的數值與同名不疊加；回城信標傳送；中立商店的庫存與補貨 |
+| `testRtsNeutral` | D | 營地數量與對稱（兩邊同編成、同掉寶、位置點對稱）；靠近才出動、追擊上限與回營回血；打野經驗依英雄等級遞減、5 級 0；整營全滅的掉寶與資源；酒館雇用（距離條件、全場唯一、上限與層級規則）、酒館立刻復活半血；傭兵營的庫存與補貨；中立建築打不壞；營地與中立建築的截圖 |
+| `testRtsHud2` | E | 英雄頭像列（F1 選取、F1 兩下跳鏡頭、陣亡倒數）；閒置工人 F8／Ctrl＋F8；小地圖的營地、中立建築、英雄、Alt 信號；警示（英雄升級、研究完成、人口將滿）；指令卡的技能冷卻與自動施放切換；背包的使用與 Alt＋數字；三種大小的截圖 |
+| `testRtsPilot` | E | F 進入：`this.player` 是英雄、`isPlayer`、鏡頭換成動作視角、英雄不再接 RTS 指令；移動、開火、看不到的敵人不能鎖定；Z 施放技能、1 使用道具；長按 F 離開、短按 F 是突擊推進；陣亡自動離開；自動管家：親自駕駛 3 分鐘內工人一直在採、循環生產有排、人口快滿時蓋了補給庫、基地被攻擊時閒置部隊回防；切換那一格的耗時；離開後 `this.player` 是 null |
+| `testRtsAi2` | F | 普通電腦：英雄、打野（撿到道具）、T2、第 2 個英雄、研究、施放技能、帶著英雄進攻；兩邊都是電腦（普通）快轉，30 分鐘內分出勝負並記錄決策耗時 |
+
+- 既有的 `testRtsCore`、`testRtsAi`、`testRtsFog`、`testRtsInput`、`testRtsLod` 要繼續通過（R1 的單位數值不改；`RTS_BLD_RES` 換成相剋表後 `testRtsCore` 的建築受傷檢查由 A 更新）。
+- 效能：`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps`（A 加這兩個參數：每隊 3 個 10 級英雄、生成全部營地），near ≥ 50 FPS，結果記進第 8.3 節。
+
+### 13.11 之後各期的地圖主題
+
+- R2 只有荒野（`wasteland`）。之後每期在 `world/rts-map.js` 的 `RTS_THEMES` 加主題（地形參數＋`world/rts-props.js` 的障礙物外觀），野怪編成與傭兵（`RTS_CAMPS[主題]`）用該主題的專屬敵人；主題只決定外觀與野怪，不限制陣營。不用主題的大型結構（第 6 節），每個主題都要通過對稱、連通、路徑距離相等的檢查，並在 `testRtsCore` 的地圖檢查逐一跑過。
+  - **R3（艾瑟立克）**：冰原 `snow`（冰湖＝可以走的低地、雪中潛伏 MT 的營地）、技研都市地表 `institute`（不用岩頂，改成研究設施的廢墟台地；實驗體與保全雷射網的營地）。
+  - **R4（維爾威）**：舊宇宙港外圍 `spaceport`（發射台當台地、試車台的營地；寬廣的平地適合空中單位）、Grid 086 地表 `grid086`（多層平台改成一般台地與坡道，不用懸空平台，尋路才可靠）。
+  - **R5（聖域）**：汙染水沒市街 `flooded`（淺水區涉水減速、殘骸多＝拾荒經濟的舞台）、多重水壩 `dam`（壩體改成高地＋兩條坡道的通道，不放閘門水流）。
+  - **R6（收尾）**：沙丘 `dunes`、礦坑地表 `desert`、貨運集散場 `industrial`（貨櫃堆當障礙物群），以及地圖大小「小」（300 m）的參數。

@@ -4,7 +4,14 @@
 import { SFX } from '../audio/audio.js';
 import { rnd } from '../core/math.js';
 import { mergeGeos } from '../render/geometry.js';
+import { FxBatch } from './batch.js';
 import { ThrusterFx } from './thruster.js';
+
+const FX_BUSY = 400; // 特效數量達到這個數時才略過畫面外的小粒子（一般戰鬥照原本）
+const FX_FAR = 70; // 粒子很多時，離鏡頭這麼遠（m）以上的減量
+const _skS = new THREE.Sphere(),
+  _skV = new THREE.Vector3(),
+  _Z = new THREE.Vector3(0, 0, 1);
 
 export class Effects {
   constructor(scene) {
@@ -15,11 +22,51 @@ export class Effects {
     this.chevGeo = new THREE.ConeGeometry(0.35, 0.7, 3);
     this.ringGeo = new THREE.RingGeometry(0.85, 1, 32);
     this.discGeo = new THREE.CircleGeometry(1, 20);
+    this.cylGeo = new THREE.CylinderGeometry(1, 1, 1, 6); // 光束（批次用：半徑、長度都是 1，以縮放決定）
     this.light = new THREE.PointLight(0xffc070, 0, 26, 2);
     scene.add(this.light);
     this.lightT = 0;
     this.hitStop = 0;
     this.thruster = new ThrusterFx(scene); // 機甲推進器噴焰粒子
+    this.thruster.cull = (p) => this.skip(p, 4);
+    this.view = null; // 粒子的距離分級（skip／far）：上一格鏡頭的視錐與位置
+    this.viewPos = new THREE.Vector3();
+    // 粒子批次（fx/batch.js）：同種幾何＋混合模式的粒子一次畫完。透明的依建立順序畫（同一個深度），
+    // 所以一般混合的煙塵先建、加色的後建
+    const N = THREE.NormalBlending;
+    this.batches = {
+      sn: new FxBatch(scene, this.sphereGeo, { blending: N }), // 煙、塵土
+      sa: new FxBatch(scene, this.sphereGeo), // 閃光、火球、槍口、火苗
+      ba: new FxBatch(scene, this.boxGeo), // 火花、斬擊線
+      ca: new FxBatch(scene, this.chevGeo), // 槍口的錐形火焰、突進箭頭
+      ra: new FxBatch(scene, this.ringGeo), // 衝擊波的環
+      ya: new FxBatch(scene, this.cylGeo), // 光束
+      gl: new FxBatch(scene, this.sphereGeo, { attached: true, renderOrder: 5 }), // 推進器光暈（glareMesh）
+      dk: new FxBatch(scene, this.boxGeo, { std: { color: 0x2a2a2a, roughness: 0.9 } }), // 爆炸碎片
+      cs: new FxBatch(scene, this.boxGeo, { std: { color: 0xd4a54a, metalness: 0.8, roughness: 0.3 } }), // 彈殼
+    };
+    this.batchList = Object.values(this.batches);
+    this.projPart = this.projPartOf.bind(this); // 傳給 buildProjectileMesh（entities/projectile.js）
+  }
+  // 批次粒子的代理（fx/batch.js）：照一般網格改 position／scale／rotation、material.opacity，加進 list 後由 update 更新
+  P(kind, color, opacity = 1) {
+    return this.batches[kind].get(color, opacity);
+  }
+  // 子彈的發光部分（render/extra-models.js 的 buildProjectileMesh 的 part）：依幾何各一個 attached 批次，
+  // 代理掛在彈體的群組裡；彈體從場景移除時自動放掉
+  projPartOf(geo, color, opacity, parent) {
+    const M = this.projB || (this.projB = new Map());
+    let b = M.get(geo);
+    if (!b) {
+      b = new FxBatch(this.scene, geo, { attached: true });
+      M.set(geo, b);
+      this.batchList.push(b);
+    }
+    return b.get(color, opacity, parent);
+  }
+  // 把批次的代理寫進 InstancedMesh（update 結尾與渲染前各一次，update 之後才產生的粒子也畫得到）
+  flush() {
+    for (const b of this.batchList) b.flush();
   }
   addM(color, opacity = 1, additive = true) {
     return new THREE.MeshBasicMaterial({
@@ -31,9 +78,21 @@ export class Effects {
     });
   }
   add(mesh, life, fn) {
-    this.scene.add(mesh);
+    if (!mesh.isFxProxy) this.scene.add(mesh);
     this.list.push({ mesh, life, max: life, fn });
     return mesh;
+  }
+  // 粒子很多時（FX_BUSY 以上）畫面外的小粒子不產生（看不到；房主照樣轉送給客機，各端依自己的鏡頭判斷）。
+  // view＝上一格鏡頭的視錐（Game.lodTick 設定，null＝不判斷），r＝粒子會擴散到的範圍
+  skip(p, r = 0) {
+    if (!this.view || this.list.length < FX_BUSY) return false;
+    _skS.center.copy(p);
+    _skS.radius = 4 + r * 1.5;
+    return !this.view.intersectsSphere(_skS);
+  }
+  // 粒子很多時離鏡頭 FX_FAR 以上的：火花數減半、細小的煙不產生（viewPos＝鏡頭位置，Game.lodTick 設定）
+  far(p) {
+    return !!this.view && this.list.length >= FX_BUSY && this.viewPos.distanceToSquared(p) > FX_FAR * FX_FAR;
   }
   flashLight(p, color, intensity) {
     this.light.position.copy(p);
@@ -43,7 +102,8 @@ export class Effects {
   }
   // bright sphere flash
   flash(p, r, color, life = 0.12) {
-    const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.9));
+    if (this.skip(p, r)) return;
+    const m = this.P('sa', color, 0.9);
     m.position.copy(p);
     this.add(m, life, (e, t) => {
       e.mesh.scale.setScalar(r * (0.6 + t * 0.7));
@@ -52,8 +112,10 @@ export class Effects {
   }
   // spark streaks: elongated additive boxes flying out
   streaks(p, n, color, speed, life = 0.3, grav = 30, dir = null, spread = 1) {
+    if (this.skip(p, speed * life * 0.5)) return;
+    if (this.far(p)) n = Math.ceil(n / 2);
     for (let i = 0; i < n; i++) {
-      const s = new THREE.Mesh(this.boxGeo, this.addM(color, 1));
+      const s = this.P('ba', color, 1);
       s.position.copy(p);
       const v = new THREE.Vector3(rnd(-1, 1), rnd(-0.4, 1), rnd(-1, 1));
       if (dir) v.multiplyScalar(spread).add(dir.clone().multiplyScalar(1.6));
@@ -64,13 +126,16 @@ export class Effects {
         e.mesh.position.addScaledVector(v, dt);
         const L = Math.min(1.6, v.length() * 0.035);
         e.mesh.scale.set(w, w, L);
-        e.mesh.lookAt(e.mesh.position.clone().add(v));
+        // 朝速度方向（同 lookAt 的 +Z；剖面是正方形，不管滾轉）。比 lookAt 省：不必算世界矩陣
+        const vl = v.length();
+        if (vl > 1e-4) e.mesh.quaternion.setFromUnitVectors(_Z, _skV.copy(v).divideScalar(vl));
         e.mesh.material.opacity = 1 - t * t;
       });
     }
   }
   smoke(p, sc = 1, color = 0x5a5e66, life = 1.0, rise = 2) {
-    const sm = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.28, false));
+    if (this.skip(p, sc + rise * life) || (sc < 0.5 && this.far(p))) return;
+    const sm = this.P('sn', color, 0.28);
     sm.position.copy(p);
     const drift = new THREE.Vector3(rnd(-1, 1), rise, rnd(-1, 1));
     this.add(sm, life * rnd(0.8, 1.2), (e, t, dt) => {
@@ -135,7 +200,7 @@ export class Effects {
     });
   }
   shockwave(p, r, color = 0xffd090, life = 0.4) {
-    const g = new THREE.Mesh(this.ringGeo, this.addM(color, 1));
+    const g = this.P('ra', color, 1);
     g.position.copy(p);
     g.rotation.x = -Math.PI / 2;
     this.add(g, life, (e, t) => {
@@ -146,7 +211,7 @@ export class Effects {
   explosion(p, r, color = 0xffa040, big = false) {
     this.flash(p, r * 0.32, 0xffffff, 0.08);
     this.flash(p, r * 0.45, color, 0.18);
-    const fb = new THREE.Mesh(this.sphereGeo, this.addM(0xff6a20, 0.9));
+    const fb = this.P('sa', 0xff6a20, 0.9);
     fb.position.copy(p);
     this.add(fb, big ? 0.45 : 0.3, (e, t) => {
       e.mesh.scale.setScalar(r * (0.22 + t * 0.55));
@@ -156,10 +221,7 @@ export class Effects {
     this.streaks(p, big ? 26 : 12, 0xffa030, rnd(16, 26) * (big ? 1.5 : 1), big ? 0.9 : 0.5, 32);
     this.streaks(p, big ? 10 : 5, 0xffe0a0, rnd(24, 34), 0.25, 10);
     for (let i = 0; i < (big ? 14 : 6); i++) {
-      const s = new THREE.Mesh(
-        this.boxGeo,
-        new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 }),
-      );
+      const s = this.P('dk', 0x2a2a2a);
       s.position.copy(p);
       s.scale.setScalar(rnd(0.15, 0.4) * (big ? 2 : 1));
       const v = new THREE.Vector3(rnd(-1, 1), rnd(0.4, 1.6), rnd(-1, 1))
@@ -191,13 +253,14 @@ export class Effects {
     this.smoke(p, 0.35, 0x6a6e75, 0.45, 1.5);
   }
   muzzle(p, dir, color = 0xffd080, size = 1) {
-    const f = new THREE.Mesh(this.sphereGeo, this.addM(0xffffff, 1));
+    if (this.skip(p, size)) return;
+    const f = this.P('sa', 0xffffff, 1);
     f.position.copy(p);
     this.add(f, 0.06, (e, t) => {
       e.mesh.scale.setScalar(size * (0.32 - t * 0.15));
       e.mesh.material.opacity = 1 - t;
     });
-    const c = new THREE.Mesh(this.chevGeo, this.addM(color, 0.95));
+    const c = this.P('ca', color, 0.95);
     c.position.copy(p).addScaledVector(dir, size * 0.6);
     c.lookAt(c.position.clone().add(dir));
     c.rotateX(-Math.PI / 2);
@@ -206,6 +269,7 @@ export class Effects {
       e.mesh.material.opacity = 1 - t;
       e.mesh.scale.multiplyScalar(1.06);
     });
+    if (this.far(p)) return; // 遠處只留閃光
     this.streaks(p, 3, color, 14, 0.14, 4, dir, 0.5);
     this.smoke(p.clone().addScaledVector(dir, 0.6), 0.25, 0x8a8e96, 0.4, 1.5);
   }
@@ -235,20 +299,19 @@ export class Effects {
   }
   beam(a, b, color, width = 0.12) {
     const d = a.distanceTo(b);
-    const g = new THREE.Mesh(new THREE.CylinderGeometry(width, width, d, 6), this.addM(color, 0.95));
+    const g = this.P('ya', color, 0.95);
     g.position.copy(a).lerp(b, 0.5);
     g.lookAt(b);
     g.rotateX(Math.PI / 2);
+    g.scale.set(width, d, width);
     this.add(g, 0.2, (e, t) => {
       e.mesh.material.opacity = 0.95 * (1 - t);
-      e.mesh.scale.x = e.mesh.scale.z = 1 + t * 2;
+      e.mesh.scale.x = e.mesh.scale.z = width * (1 + t * 2);
     });
-    const core = new THREE.Mesh(
-      new THREE.CylinderGeometry(width * 0.35, width * 0.35, d, 6),
-      this.addM(0xffffff, 1),
-    );
+    const core = this.P('ya', 0xffffff, 1);
     core.position.copy(g.position);
     core.quaternion.copy(g.quaternion);
+    core.scale.set(width * 0.35, d, width * 0.35);
     this.add(core, 0.13, (e, t) => {
       e.mesh.material.opacity = 1 - t;
     });
@@ -257,7 +320,7 @@ export class Effects {
   }
   chevrons(p, dir, color = 0xffffff) {
     for (let i = 0; i < 6; i++) {
-      const c = new THREE.Mesh(this.chevGeo, this.addM(color, 0.9));
+      const c = this.P('ca', color, 0.9);
       c.position.copy(p).addScaledVector(dir, -i * 1.3);
       c.position.y += 0.5;
       c.lookAt(c.position.clone().add(dir));
@@ -269,9 +332,10 @@ export class Effects {
     }
   }
   dust(p, r, n = 8, color = 0x9aa0a8) {
+    if (this.skip(p, r * 2)) return;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + rnd(-0.3, 0.3);
-      const sm = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.3, false));
+      const sm = this.P('sn', color, 0.3);
       sm.position.copy(p).add(new THREE.Vector3(Math.cos(a) * r * 0.3, 0.2, Math.sin(a) * r * 0.3));
       const v = new THREE.Vector3(Math.cos(a) * r * 2.2, rnd(0.5, 1.5), Math.sin(a) * r * 2.2);
       this.add(sm, rnd(0.5, 0.8), (e, t, dt) => {
@@ -283,10 +347,8 @@ export class Effects {
     this.shockwave(p.clone().setY(p.y + 0.1), r * 1.2, 0xffffff, 0.25);
   }
   casing(p, side, dir) {
-    const s = new THREE.Mesh(
-      this.boxGeo,
-      new THREE.MeshStandardMaterial({ color: 0xd4a54a, metalness: 0.8, roughness: 0.3 }),
-    );
+    if (this.skip(p, 3)) return;
+    const s = this.P('cs', 0xd4a54a);
     s.position.copy(p);
     s.scale.set(0.05, 0.05, 0.14);
     const right = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(side);
@@ -300,7 +362,8 @@ export class Effects {
     });
   }
   boostFlame(p, dir, color) {
-    const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.7));
+    if (this.skip(p, 1)) return;
+    const m = this.P('sa', color, 0.7);
     m.position.copy(p);
     this.add(m, 0.18, (e, t, dt) => {
       e.mesh.position.addScaledVector(dir, dt * 6);
@@ -462,7 +525,7 @@ export class Effects {
         const a = Math.random() * Math.PI * 2,
           r = Math.random() * R * 0.85;
         const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3, Math.sin(a) * r));
-        const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.5 ? C[2] : C[3], 0.8));
+        const f = this.P('sa', Math.random() < 0.5 ? C[2] : C[3], 0.8);
         f.position.copy(q);
         const up = rnd(2.5, 4.5);
         this.add(f, rnd(0.4, 0.7), (e2, t2, dt2) => {
@@ -482,7 +545,7 @@ export class Effects {
         .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.6, 0.6), rnd(-1, 1)).multiplyScalar(Math.tan(ang)))
         .normalize()
         .multiplyScalar(len * rnd(1.6, 2.4));
-      const f = new THREE.Mesh(this.sphereGeo, this.addM(Math.random() < 0.6 ? 0xff6a10 : 0xffc040, 0.8));
+      const f = this.P('sa', Math.random() < 0.6 ? 0xff6a10 : 0xffc040, 0.8);
       f.position.copy(p);
       this.add(f, 0.45, (e, t, dt) => {
         e.mesh.position.addScaledVector(v, dt);
@@ -512,14 +575,15 @@ export class Effects {
     this.flashLight(p.clone().setY(p.y + 3), color, 30);
   }
   // big additive thruster glare (billboard sphere) — used every frame by mechs, pooled per entity
-  glareMesh(color) {
-    const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.55));
-    m.renderOrder = 5;
-    this.scene.add(m);
-    return m;
+  // 批次的代理（fx/batch.js 的 attached）：掛在場景裡，別處照舊 scene.remove／visible／position／scale／material.opacity
+  // owner：所屬的實體（戰爭迷霧裡看不到時不畫）
+  glareMesh(color, owner = null) {
+    return this.batches.gl.get(color, 0.55, null, owner);
   }
   // ---- 機體支離破碎：把每個關節節點的網格拆成獨立碎片，給予初速、角速度、重力、地面反彈 ----
   shatter(ent, world) {
+    // 合併過的網格（render/mesh-merge.js 的 mergeRig）先還原成各關節底下的網格，才拆得成碎片
+    if (ent.model.unmerge) ent.model.unmerge();
     const root = ent.model.group;
     root.updateMatrixWorld(true);
     const center = ent.center();
@@ -601,14 +665,19 @@ export class Effects {
     // secondary detonations + big flash
     this.explosion(center, ent.isBoss ? 12 : 5, 0xffa040, true);
     this.flashLight(center, 0xffc060, ent.isBoss ? 60 : 30);
-    for (let i = 1; i <= (ent.isBoss ? 8 : 3); i++)
-      setTimeout(
-        () => {
-          const p = center.clone().add(new THREE.Vector3(rnd(-3, 3), rnd(-1, 3), rnd(-3, 3)));
-          this.explosion(p, ent.isBoss ? 6 : 2.6, 0xff7030, ent.isBoss);
-        },
-        i * (ent.isBoss ? 160 : 110),
-      );
+    // 依遊戲時間（fx.task）排程，不用 setTimeout：暫停時不會繼續爆，也不會在實際時間的空檔取用亂數
+    // （遊戲邏輯共用同一個亂數串；冒煙測試快轉模擬時，結果會依實際經過的時間不同）
+    const nB = ent.isBoss ? 8 : 3,
+      step = ent.isBoss ? 0.16 : 0.11;
+    let k = 0;
+    this.task(nB * step + 0.08, (e, t) => {
+      const el = t * e.max;
+      while (k < nB && el >= (k + 1) * step) {
+        k++;
+        const p = center.clone().add(new THREE.Vector3(rnd(-3, 3), rnd(-1, 3), rnd(-3, 3)));
+        this.explosion(p, ent.isBoss ? 6 : 2.6, 0xff7030, ent.isBoss);
+      }
+    });
     return pieces;
   }
   // crescent slash arc in XZ plane around center, facing yaw
@@ -654,7 +723,7 @@ export class Effects {
     this.flash(p, big ? 0.9 : 0.5, 0xffffff, 0.06);
     this.flash(p, big ? 1.6 : 1.1, color, 0.22);
     // cut mark: bright slash line across the target
-    const cut = new THREE.Mesh(this.boxGeo, this.addM(0xffffff, 1));
+    const cut = this.P('ba', 0xffffff, 1);
     cut.position.copy(p);
     const yaw = dir ? Math.atan2(dir.x, dir.z) : 0;
     cut.rotation.set(0.6, yaw + Math.PI / 2 + (Math.random() < 0.5 ? 0.5 : -0.5), 0);
@@ -662,7 +731,7 @@ export class Effects {
       e.mesh.scale.set(0.12 + t * 0.1, 0.12, (big ? 6 : 4.2) * (0.6 + t * 0.7));
       e.mesh.material.opacity = 1 - t * t;
     });
-    const cut2 = new THREE.Mesh(this.boxGeo, this.addM(color, 0.9));
+    const cut2 = this.P('ba', color, 0.9);
     cut2.position.copy(p);
     cut2.rotation.copy(cut.rotation);
     this.add(cut2, 0.32, (e, t) => {
@@ -684,28 +753,45 @@ export class Effects {
       if (this.lightT <= 0) this.light.intensity = 0;
       else this.light.intensity *= 0.8;
     }
-    for (let i = this.list.length - 1; i >= 0; i--) {
-      const e = this.list[i];
+    // 一次走完並就地壓縮（大量粒子時逐一 splice 是 O(n²)）；這一格 fn 裡新加的項目留到下一格才更新
+    const L = this.list,
+      n = L.length;
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      const e = L[i];
       e.life -= dt;
-      const t = 1 - e.life / e.max;
       if (e.life <= 0) {
-        if (!e.mesh) {
-          this.list.splice(i, 1);
-          continue;
-        }
-        this.scene.remove(e.mesh);
-        const keep = [this.sphereGeo, this.boxGeo, this.chevGeo, this.ringGeo, this.discGeo];
-        e.mesh.traverse((o) => {
-          if (o.material) o.material.dispose();
-          if (o.geometry && !keep.includes(o.geometry)) o.geometry.dispose();
-        });
-        this.list.splice(i, 1);
-      } else e.fn(e, t, dt);
+        if (e.mesh) this.dispose(e.mesh);
+        continue;
+      }
+      e.fn(e, 1 - e.life / e.max, dt);
+      L[j++] = e;
     }
+    // lateFlush（RTS 渲染設定）：只在算繪前（Game.renderMain）寫一次批次，不在這裡先寫一次
+    if (this.list !== L) return this.lateFlush ? undefined : this.flush(); // fn 裡呼叫了 clear()
+    for (let i = n; i < L.length; i++) L[j++] = L[i];
+    L.length = j;
+    if (!this.lateFlush) this.flush();
+  }
+  // 移除到期的特效網格並釋放材質與（非共用的）幾何
+  dispose(mesh) {
+    if (mesh.isFxProxy) {
+      if (mesh.fxBatch) mesh.fxBatch.release(mesh);
+      return;
+    }
+    if (mesh.parent) mesh.parent.remove(mesh);
+    const keep =
+      this.keepGeos ||
+      (this.keepGeos = new Set([this.sphereGeo, this.boxGeo, this.chevGeo, this.ringGeo, this.discGeo]));
+    mesh.traverse((o) => {
+      if (o.material) o.material.dispose();
+      if (o.geometry && !keep.has(o.geometry)) o.geometry.dispose();
+    });
   }
   clear() {
-    for (const e of this.list) this.scene.remove(e.mesh);
+    for (const e of this.list) if (e.mesh && !e.mesh.isFxProxy) this.scene.remove(e.mesh);
     this.list = [];
+    for (const b of this.batchList) b.clear();
     this.light.intensity = 0;
     this.thruster.clear();
   }

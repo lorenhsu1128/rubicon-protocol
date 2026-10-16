@@ -1,8 +1,12 @@
 // ============================================================
 //  AUDIO — 簡易合成音效
 // ============================================================
-import { clamp, lerp } from '../core/math.js';
+import { clamp, lerp, makeRng } from '../core/math.js';
 import { SFX_DATA } from './sfx-data.js';
+
+// 音效自己的亂數（音高變化、隨機選檔、雜訊）：不用 Math.random，因為遊戲邏輯共用它，而音效依 AudioContext 的
+// 實際時間節流（minGap）——播不播會改變遊戲邏輯之後拿到的亂數（冒煙測試固定種子快轉模擬時結果每次不同）
+const arnd = makeRng(0x5f3759df);
 
 // 混音：音效（sfx）與環境音（amb）→ world（低 AP 時低通變悶）→ duck（大爆炸、通訊時壓低）→ master；
 // 介面與通訊（ui）不受影響直接進 master。音效另外送一份到殘響（依地圖主題，地下長、空曠短）。
@@ -100,7 +104,7 @@ export const SFX = {
         for (let i = 0; i < len; i++) {
           const t = i / len;
           // 前段稀疏的早期反射＋指數衰減的尾巴
-          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2) * (i < 600 && i % 97 ? 0.3 : 1);
+          d[i] = (arnd() * 2 - 1) * Math.pow(1 - t, 3.2) * (i < 600 && i % 97 ? 0.3 : 1);
         }
       }
       this.conv.buffer = b;
@@ -243,7 +247,7 @@ export const SFX = {
     if (this.ctx.state === 'suspended') this.ctx.resume();
     const s = this.ctx.createBufferSource();
     s.buffer = b;
-    s.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * detune);
+    s.playbackRate.value = rate * (1 + (arnd() * 2 - 1) * detune);
     const g = this.ctx.createGain();
     g.gain.value = vol;
     s.connect(g);
@@ -274,7 +278,7 @@ export const SFX = {
     s.start(t + delay);
   },
   pickPlay(list, vol, rate, pos, detune = 0.06, minGap = 0.03) {
-    this.play(list[Math.floor(Math.random() * list.length)], vol, rate, detune, minGap, pos);
+    this.play(list[Math.floor(arnd() * list.length)], vol, rate, detune, minGap, pos);
   },
   // ---- 合成音（短促的提示音、心跳、無線電雜訊）----
   noise(dur, freq, vol, type = 'lowpass', bus = 'sfx', q = 1, delay = 0) {
@@ -282,7 +286,7 @@ export const SFX = {
     const c = this.ctx;
     const b = c.createBuffer(1, Math.max(1, Math.floor(c.sampleRate * dur)), c.sampleRate);
     const d = b.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    for (let i = 0; i < d.length; i++) d[i] = (arnd() * 2 - 1) * (1 - i / d.length);
     const s = c.createBufferSource();
     s.buffer = b;
     const f = c.createBiquadFilter();
@@ -378,7 +382,7 @@ export const SFX = {
         s.loopEnd = b.duration - Math.min(0.05, b.duration * 0.1);
         s.playbackRate.value = L.r || 1;
         s.connect(g);
-        s.start(c.currentTime, s.loopStart + Math.random() * b.duration * 0.5);
+        s.start(c.currentTime, s.loopStart + arnd() * b.duration * 0.5);
         nodes.push(s);
       } else nodes.push(...this.synthAmb(L.syn, g));
       this.ambNodes.push(nodes);
@@ -407,7 +411,7 @@ export const SFX = {
       d = b.getChannelData(0);
     let last = 0;
     for (let i = 0; i < len; i++) {
-      last = last * 0.6 + (Math.random() * 2 - 1) * 0.4; // 偏粉紅的雜訊
+      last = last * 0.6 + (arnd() * 2 - 1) * 0.4; // 偏粉紅的雜訊
       d[i] = last;
     }
     // 頭尾交叉淡化，循環不會喀一聲

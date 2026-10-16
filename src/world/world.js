@@ -62,6 +62,8 @@ import {
 import { propShape, shapeContains, shapeSegT } from './prop-hit.js';
 import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
+import { NavGrid } from './nav.js';
+import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -235,7 +237,8 @@ export class World {
     // removed 移除的產生器物件 [[x, z]] }；全部在原本的亂數呼叫之外套用，一般地圖與主線不受影響
     const LV = (this.lvl = opt.level || null);
     // 主題變體（world/variants.js）：覆寫主題欄位、改地形、加結構；沒有變體時完全照原本生成
-    this.variant = LV && LV.blank ? null : variantOf(theme, opt.variant);
+    // RTS（opt.rts＝world/rts-map.js 的 planRtsMap 結果）：不用變體
+    this.variant = opt.rts || (LV && LV.blank) ? null : variantOf(theme, opt.variant);
     this.variantKey = this.variant ? opt.variant : '';
     this.theme =
       this.variant && this.variant.theme ? { ...THEMES[theme], ...this.variant.theme } : THEMES[theme];
@@ -246,11 +249,16 @@ export class World {
     this.tod = opt.tod || ''; // 時間（主線）：'' 或 day／dusk／night／dawn
     this.depth = opt.depth || 0; // 垂直下降的深度（主線）：越深越暗
     this.themeKey = theme;
-    this.size = this.theme.size || MAP_SIZE;
+    this.size = opt.rts ? opt.rts.size : this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
     this.cells = Math.round(this.size / CELL);
     this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
     this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
+    if (opt.rts) {
+      // RTS：作戰區域＝整張圖（地圖邊緣是斷崖），不能出界
+      this.rts = opt.rts;
+      this.lim = this.limOut = this.size / 2;
+    }
     this.setZone(opt.zone, opt.zoneAxis);
     this.trackS = (this.size / 2) * 0.86; // 公路／鐵路兩端隧道口
     this.level = level;
@@ -263,6 +271,7 @@ export class World {
     this.meshes = [];
     this.h = new Float32Array((this.cells + 1) * (this.cells + 1));
     withRng(seed * 31 + 11, () => {
+      if (opt.rts) return this.buildRts(); // RTS 的地圖：只有 plan 給的地形與障礙物（一般地圖不經過這裡）
       if (feat) {
         this.features = feat.map((f) => ({
           k: f.k,
@@ -336,6 +345,35 @@ export class World {
     // 天氣粒子：只有外觀，各端各自用 Math.random（不影響地圖）
     const wk = opt.weather === 'none' ? null : opt.weather || this.theme.weather;
     this.weather = wk ? new Weather(scene, wk, this.theme) : null;
+  }
+  // RTS 的對稱地圖（world/rts-map.js）：高度圖整張取代；跳過地形特徵、公路／鐵路、變體、大型結構、一般物件、
+  // 邊界處理的地形修改（planEdges 只給遠景用）；障礙物照 plan 建，最後建導航格 this.nav
+  buildRts() {
+    const P = this.opt.rts,
+      T = this.theme,
+      S = this.size / 2;
+    this.features = [];
+    this.featureNames = [];
+    this.corridor = null;
+    if (P.h.length === this.h.length) this.h = Float32Array.from(P.h);
+    // 遠景：地圖外以邊緣（斷崖頂）的高度往外延伸，再加邊界的段落
+    this.baseH = (x, z) => this.terrainHeight(clamp(x, -S, S), clamp(z, -S, S));
+    this.edges = planEdges(this);
+    this.buildTerrainMesh();
+    if (T.water) this.addWater(T.water);
+    const rp = [];
+    for (const o of P.obstacles) {
+      const g = rtsPropMesh(o, T);
+      if (!g) continue;
+      g.rotation.y = o.yaw || 0;
+      rp.push(
+        this.addSmall(g, o.x, o.y, o.z, o.kind === 'box' ? { w: o.w, h: o.h, d: o.d } : { r: o.r, h: o.h }),
+      );
+    }
+    mergeRtsProps(this, rp); // 外觀依材質靜態合併（world/rts-props.js；迷霧的隱藏改在著色器）
+    this.nav = new NavGrid(this, { cell: 2 });
+    for (const m of P.mines || []) this.nav.reserve(m.pos.x, m.pos.z, 7);
+    for (const c of P.corals || []) this.nav.reserve(c.pos.x, c.pos.z, 5);
   }
   hAt(i, j) {
     i = clamp(i, 0, this.cells);

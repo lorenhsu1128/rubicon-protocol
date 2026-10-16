@@ -4348,10 +4348,14 @@ async function testLockOn(browser, base) {
 async function testChase(browser, base) {
   console.log('追尾視角：鏡頭在後方、速度偏移、鎖定框、目標輔助、撞牆拉近、V 三段切換、平板與手機');
   const { ctx, page } = await newPage(browser, 'chase');
+  // 地圖種子固定（以前每次隨機：偶爾機體正後方是台地等地形特徵，鏡頭被地形拉近到 2.2 m、往上推，
+  // 位置、速度偏移、撞牆拉近的檢查都失敗）
+  await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   const r = await page.evaluate(() => {
     const g = window.__game;
+    window.__reseed(4348);
     g.save.level = 1;
     g.startMission();
     g.state = 'chase-test';
@@ -4744,6 +4748,7 @@ async function testPadUi(browser, base) {
     t('settings', () => g.openSettings('title'));
     t('mp', () => g.openMP());
     t('levels', () => g.openLevels());
+    t('rtsMenu', () => g.rtsMenuOpen());
     t('result', go('result', 'result'));
     t('campTrans', go('camptrans', 'campTrans'));
     t('campFail', go('campfail', 'campFail'));
@@ -11383,14 +11388,21 @@ async function testMpCampaign(browser, url) {
     return 0;
   })();
   check(cliEx >= 2, '客機看到出口的光環（' + cliEx + ' 個）');
-  // 投票：一人站進出口開始倒數
-  await host.evaluate(() => {
-    const g = window.__game,
-      e = g.camp.exits[0];
-    g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+  // 投票：一人站進出口開始倒數（房主的主迴圈由上面的 pumpLoop 依實際時間推進，出口可能在還沒擴大完的作戰區域外、
+  // 機體會被推回，所以每次檢查前都把房主放回出口，並在同一個 evaluate 裡讀投票的提示）
+  let vote = false;
+  await pump(60, async () => {
+    vote = await host.evaluate(() => {
+      const g = window.__game,
+        c = g.camp,
+        e = c.exits[0];
+      const v = !!c.vote && c.hint;
+      g.player.pos.set(e.pos.x, e.pos.y, e.pos.z);
+      g.player.vel.set(0, 0, 0);
+      return v;
+    });
+    return !!vote;
   });
-  await pump(60, () => host.evaluate(() => !!window.__game.camp.vote));
-  const vote = await host.evaluate(() => !!window.__game.camp.vote && window.__game.camp.hint);
   check(!!vote && vote.includes('投票'), '有人站進出口：開始投票倒數（' + vote + '）');
   // 全員站同一個出口：立刻出發，雙方都進入轉場
   await host.evaluate(() => {
@@ -11401,7 +11413,19 @@ async function testMpCampaign(browser, url) {
       p.vel.set(0, 0, 0);
     }
   });
-  await pump(150, () => host.evaluate(() => window.__game.state === 'camptrans'));
+  await pump(150, () =>
+    host.evaluate(() => {
+      const g = window.__game;
+      if (g.state === 'camptrans') return true;
+      const e = g.camp && g.camp.exits[0];
+      if (e)
+        for (const p of g.players) {
+          p.pos.set(e.pos.x, e.pos.y, e.pos.z);
+          p.vel.set(0, 0, 0);
+        }
+      return false;
+    }),
+  );
   check(
     (await waitVisible(host, 'campTrans', 8000)) && (await waitVisible(cli, 'campTrans', 8000)),
     '全員站同一個出口：雙方進入轉場',
@@ -14898,6 +14922,8 @@ async function ensureTemplates(browser, base) {
 // 'server' 是伺服器本身的檢查；server: 開頭的照原本的規則，SMOKE_ONLY 要同時有 server 與該測試名稱。
 // family＝拆細的測試（testStyleThemes:1、testMpBosses:halberd…）：SMOKE_ONLY 寫整個名稱或單一步驟都可以
 const LIB_FILE = () => 'file:///' + LIBRARY.split(path.sep).join('/');
+// Coral 戰爭（RTS）的測試在 smoke-rts.js
+const RTS = require('./smoke-rts')({ check, newPage, freezeLoop, seededRandom, wait, SHOT_DIR, path });
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -14975,6 +15001,11 @@ const STEPS = [
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testHazards2', (c) => testHazards2(c.browser, c.base)],
+  ['testRtsFog', (c) => RTS.testRtsFog(c.browser, c.base)],
+  ['testRtsInput', (c) => RTS.testRtsInput(c.browser, c.base)],
+  ['testRtsCore', (c) => RTS.testRtsCore(c.browser, c.base)],
+  ['testRtsAi', (c) => RTS.testRtsAi(c.browser, c.base)],
+  ['testRtsLod', (c) => RTS.testRtsLod(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],
