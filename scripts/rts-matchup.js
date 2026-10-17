@@ -7,7 +7,7 @@
 //   node scripts/rts-matchup.js --a=aetheric --b=aetheric --seeds=24
 //
 // 參數：
-//   --a、--b            兩隊的陣營（castron｜aetheric｜random）；--swap＝每個種子另外再打一局交換位置（共 2 × seeds 局）
+//   --a、--b            兩隊的陣營（castron｜aetheric｜veerwell｜random）；--swap＝每個種子另外再打一局交換位置（共 2 × seeds 局）
 //   --seeds=24          種子數；--seed0=1 第一個種子（種子＝seed0、seed0+1…）
 //   --diff=normal       難度（兩邊一樣）
 //   --themes=…          主題輪流（預設 wasteland,snow,institute）
@@ -75,7 +75,7 @@ async function runGame(page, G) {
     });
     // AI 分批以鏡頭注視點為準：不算繪，固定在地圖中心（點對稱，兩隊一樣；docs 13.18）
     if (g.lodFrom) g.lodFrom.set(0, 0, 0);
-    window.__mx = { pop: [0, 0] };
+    window.__mx = { pop: [0, 0], air: [0, 0] };
   }, G);
   for (;;) {
     const st = await page.evaluate((max) => {
@@ -89,6 +89,14 @@ async function runGame(page, G) {
         g.fx.update(dt);
         g.rtsFogTick(dt);
         for (const i of [0, 1]) M.pop[i] = Math.max(M.pop[i], R.teams[i].pop);
+        // （R4）空中單位台數的最大值（每 2 秒量一次）
+        if (Math.floor(R.t / 2) !== Math.floor((R.t - dt) / 2))
+          for (const i of [0, 1]) {
+            let n = 0;
+            for (const e of R.units)
+              if (!e.dead && e.rtsTeam === i && !e.bld && e.flying && !e.rtsDriven) n++;
+            M.air[i] = Math.max(M.air[i], n);
+          }
       }
       return { t: R.t, over: !!R.over };
     }, MAX);
@@ -125,6 +133,19 @@ async function runGame(page, G) {
       }),
       killed: [0, 1].map((i) => R.stats[i].killed),
       lost: [0, 1].map((i) => R.stats[i].lost),
+      // （R4 維爾威）空投（成功／被擊落）、信標、收起、交易、空中單位台數的最大值
+      veer: [0, 1].map((i) => {
+        const A = R.ai.find((a) => a.team === i);
+        const st = R.stats[i];
+        return {
+          drops: st.drops || 0,
+          dropLost: st.dropLost || 0,
+          beacons: A ? A.fwdN || 0 : 0,
+          packs: st.packs || 0,
+          trades: st.trades || 0,
+          air: M.air[i],
+        };
+      }),
     };
     // 各層的平均耗時（毫秒／決策，含 rtsOrder）與結束時的狀態（沒分出勝負時看是誰佔優勢）
     res.layers = [0, 1].map((i) => {

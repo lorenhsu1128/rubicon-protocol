@@ -119,6 +119,7 @@ const DEFAULT_TIMES = {
   testRtsVeerHud: 45000,
   testRtsVeerUnits: 60000,
   testRtsThemes2: 25000,
+  testRtsVeerAi: 70000,
   server: 8089,
   'server:testServerModels': 32811,
   'server:testLevelsServer': 9780,

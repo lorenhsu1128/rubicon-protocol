@@ -162,6 +162,83 @@ export const RTS_AI_OPENERS = {
       fuse: { keep: 3, proto: true },
     },
   ],
+  // （R4 F 包，docs 15.6）維爾威：建築一律空投（rtsDropOrder），分礦是集貨站（角色 yard）；
+  // beacon：開局步驟的投放信標（fwd＝放在往對方出生點的路上、探索過的最遠處）；地面兵從投放艙降到信標
+  veerwell: [
+    {
+      id: 'air',
+      name: '空中優勢',
+      steps: [
+        { pop: 7, b: 'v_depot' },
+        { pop: 9, b: 'v_bay' },
+        { pop: 11, b: 'v_extractor' },
+        { pop: 12, b: 'v_hangar' },
+        { pop: 15, b: 'v_depot' },
+        { pop: 17, b: 'v_yard' },
+      ],
+      wk0: 14,
+      mix: { v_mt: 2, v_drone: 2 },
+      armyK: 1,
+      attackK: 1,
+      expandK: 1,
+      hero: 'h_skyhook',
+      heroes: ['h_skyhook', 'h_courier', 'h_vector'],
+      tech: { t2: 20, t3: 36 },
+      research: ['r_avio', 'r_kin', 'r_lift', 'r_avio', 'r_arm', 'r_flare', 'r_avio', 'r_burn'],
+      mix2: { v_heli: 2, v_rammer: 1, v_mt: 1, v_rack: 1 },
+      mix3: { v_heli: 2, v_jet: 1, v_mt: 1, v_rack: 0.5 },
+      towers: 2,
+    },
+    {
+      id: 'drop',
+      name: '空降速攻',
+      steps: [
+        { pop: 6, b: 'v_bay' },
+        { pop: 7, b: 'v_depot' },
+        { pop: 8, b: 'v_beacon', fwd: true },
+        { pop: 10, b: 'v_bay' },
+        { pop: 13, b: 'v_depot' },
+        { pop: 17, b: 'v_extractor' },
+      ],
+      wk0: 10,
+      mix: { v_mt: 1 },
+      armyK: 0.7,
+      attackK: 0.85,
+      expandK: 1.2,
+      hero: 'h_courier',
+      heroes: ['h_courier', 'h_vector', 'h_skyhook'],
+      tech: { t2: 24, t3: 42 },
+      research: ['r_pod', 'r_kin', 'r_jump', 'r_arm', 'r_kin', 'r_arm'],
+      mix2: { v_mt: 3, v_spacemt: 2 },
+      mix3: { v_mt: 2, v_spacemt: 2, v_jet: 1 },
+      towers: 1,
+    },
+    {
+      id: 'eco',
+      name: '物流擴張',
+      steps: [
+        { pop: 7, b: 'v_depot' },
+        { pop: 9, b: 'v_yard' },
+        { pop: 10, b: 'v_extractor' },
+        { pop: 12, b: 'v_bay' },
+        { pop: 15, b: 'v_yard' },
+        { pop: 17, b: 'v_hangar' },
+        { pop: 19, b: 'v_depot' },
+      ],
+      wk0: 22,
+      mix: { v_mt: 2, v_rack: 1 },
+      armyK: 1.25,
+      attackK: 1.15,
+      expandK: 0.6,
+      hero: 'h_vector',
+      heroes: ['h_vector', 'h_courier', 'h_skyhook'],
+      tech: { t2: 20, t3: 34 },
+      research: ['r_haul', 'r_kin', 'r_avio', 'r_arm', 'r_lift', 'r_avio', 'r_kin'],
+      mix2: { v_mt: 1, v_heli: 2, v_dropship: 1, v_spacemt: 1 },
+      mix3: { v_heli: 2, v_jet: 2, v_spacemt: 1 },
+      towers: 3,
+    },
+  ],
 };
 
 // 各陣營的建築角色（電腦對手用：補給、生產、抽取站、主堡）
@@ -203,6 +280,26 @@ export const RTS_AI_ROLES = {
     heavy: null,
     wall: null,
   },
+  // （R4 F 包，docs 15.6）yard＝分礦用的集貨站（便宜的回收點）、beacon＝投放信標；空投陣營沒有建造工人
+  veerwell: {
+    hq: 'v_hq',
+    hq2: 'v_hq2',
+    hq3: 'v_hq3',
+    depot: 'v_depot',
+    factory: 'v_bay',
+    factory2: 'v_hangar',
+    extractor: 'v_extractor',
+    works: 'v_lab',
+    pad: 'v_uplink',
+    market: 'v_market',
+    tower: 'v_sam',
+    flak: 'v_sam',
+    yard: 'v_yard',
+    beacon: 'v_beacon',
+    heavy: null,
+    wall: null,
+    node: null,
+  },
 };
 // 兵種專屬的研究（兵種比例裡沒有這個兵種時不研究；docs 14.6 最後一項）
 export const RTS_AI_RES_UNIT = {
@@ -215,6 +312,7 @@ export const RTS_AI_RES_UNIT = {
     r_bite: 'a_blob',
     r_proto: 'a_blob',
   },
+  veerwell: { r_jump: 'v_spacemt', r_burn: 'v_jet' },
 };
 
 // 難度：
@@ -230,8 +328,13 @@ export const RTS_AI_RES_UNIT = {
 //   cast 施放技能（'z'＝只用 Z、隨機時機；'rules'＝依 RTS_AI_CAST）、heroRetreat 英雄血量低於這個比例時撤回（0＝不撤）、
 //   markFocus 集火被標定的目標、towerMax 防禦塔上限、walls 防禦塔旁蓋城牆、militia 基地被打而部隊不足時動員工人
 // （R3 F 包）harass 派 4 台騷擾看得到的外圍導管節點（對方是艾瑟立克時；困難以上）
+// （R4 F 包，維爾威）fwdBeacon 進攻前在前線空投信標、投放艙降到那裡；trade 物流交易；packFlee 主基地的生產建築
+//   被打到 < 30% 而且打不過時收起撤到分礦；harass 也是運輸機載兵騷擾對方的礦脈
 export const RTS_AI_DIFFS = {
   easy: {
+    fwdBeacon: false,
+    trade: false,
+    packFlee: false,
     hero1T: 180,
     t2T: 540,
     t3T: 1e9,
@@ -269,6 +372,9 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   normal: {
+    fwdBeacon: true,
+    trade: true,
+    packFlee: false,
     hero1T: 105,
     t2T: 300,
     t3T: 660,
@@ -306,6 +412,9 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   hard: {
+    fwdBeacon: true,
+    trade: true,
+    packFlee: true,
     hero1T: 90,
     t2T: 240,
     t3T: 540,
@@ -344,6 +453,9 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   insane: {
+    fwdBeacon: true,
+    trade: true,
+    packFlee: true,
     hero1T: 90,
     t2T: 225,
     t3T: 510,
@@ -410,6 +522,17 @@ export const RTS_AI_CAST = {
   sk_mirror: { k: 'self', hp: 1, n: 3, r: 24 },
   sk_emp: { k: 'cluster', n: 4, r: 8, bld: 1 },
   sk_legion: { k: 'army', n: 8, r: 20 },
+  // 維爾威（docs 15.4；C 包放在 RTS_SKILLS 的 ai 欄位，這裡照抄）：'air'＝範圍 r 內敵方空中／低空單位 ≥ n；
+  // sk_drop 的 ally 是地點技能：r 內血量 < hp 的己方單位 ≥ n 的中心；sk_express 的 army＝進攻中把部隊送到記得的敵方分礦旁
+  sk_blitz: { k: 'line', n: 3 },
+  sk_drop: { k: 'ally', hp: 0.5, n: 3, r: 8 },
+  sk_express: { k: 'army', n: 8, r: 12 },
+  sk_pod: { k: 'cluster', n: 3, r: 4 },
+  sk_reinforce: { k: 'self', hp: 1, n: 3, r: 24 },
+  sk_carpet: { k: 'line', n: 6, bld: 1 },
+  sk_flak: { k: 'air', n: 2, r: 7 },
+  sk_jam: { k: 'mark' },
+  sk_squadron: { k: 'army', n: 6, r: 24 },
 };
 // 單位技能（電腦）：盾牆＝交戰中、敵人在 r 內；投擲貨櫃、火箭齊射＝範圍 r 內 n 台以上的敵方單位
 export const RTS_AI_ABILS = {
@@ -422,7 +545,19 @@ export const RTS_AI_ABILS = {
   ab_overcharge: { n: 2 },
   ab_bits: { r: 30 },
   ab_devour: { hp: 0.5, r: 6 },
+  // 維爾威（docs 15.6）：長程推進＝目標在高台上（高 hi m 以上）或跳到敵方的自走砲／迫擊砲旁；機動迴避＝直升機血量 < hp
+  // 而且剛被打；掃射＝範圍 r 內 n 台以上；臨時信標＝進攻中離集結點 > far m 的偵察無人機（每次進攻一台）；
+  // 緊急補給＝交戰中、r m 內受傷（< hp）的己方單位 ≥ n
+  ab_vjump: { hi: 4, defs: ['c_arty', 'c_mortar'] },
+  ab_evade: { hp: 0.5 },
+  ab_strafe: { n: 3, r: 8 },
+  ab_relay: { far: 60 },
+  ab_supply: { n: 5, r: 12, hp: 0.7 },
 };
 // 永久道具的購買順序（items 'all'；依陣營，沒有列的陣營用 castron 的）
 export const RTS_AI_ITEMS = ['i_fcs', 'i_plate', 'i_scope'];
-export const RTS_AI_ITEMS_FAC = { castron: RTS_AI_ITEMS, aetheric: ['i_lens', 'i_plate', 'i_fcs'] };
+export const RTS_AI_ITEMS_FAC = {
+  castron: RTS_AI_ITEMS,
+  aetheric: ['i_lens', 'i_plate', 'i_fcs'],
+  veerwell: ['i_ledger', 'i_fcs', 'i_plate'],
+};

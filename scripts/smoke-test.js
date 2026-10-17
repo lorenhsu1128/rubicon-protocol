@@ -15088,6 +15088,16 @@ const RTS_R4D = require('./smoke-rts-veer-d')({
   SHOT_DIR,
   path,
 });
+// R4 F 包（電腦對手：維爾威）
+const RTS_R4F = require('./smoke-rts-veer-f')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15189,6 +15199,7 @@ const STEPS = [
   ['testRtsVeerHud', (c) => RTS_R4E.testRtsVeerHud(c.browser, c.base)],
   ['testRtsVeerUnits', (c) => RTS_R4B.testRtsVeerUnits(c.browser, c.base)],
   ['testRtsThemes2', (c) => RTS_R4D.testRtsThemes2(c.browser, c.base)],
+  ['testRtsVeerAi', (c) => RTS_R4F.testRtsVeerAi(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],
