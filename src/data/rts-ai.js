@@ -84,6 +84,84 @@ export const RTS_AI_OPENERS = {
       towers: 3,
     },
   ],
+  // （R3 F 包，docs 14.6）艾瑟立克：建築要蓋在有電的導管範圍內（導管節點＝補給建築）；fuse＝{ keep: 留幾隻實驗體不融合,
+  // proto: 要不要做原型體 }。第二種生產建築（培養槽）用角色 factory2，兵工廠的上限是兩種合計
+  aetheric: [
+    {
+      id: 'grid',
+      name: '標準',
+      steps: [
+        { pop: 7, b: 'a_node' },
+        { pop: 9, b: 'a_foundry' },
+        { pop: 11, b: 'a_tap' },
+        { pop: 13, b: 'a_lab' },
+        { pop: 16, b: 'a_node' },
+        { pop: 19, b: 'a_node' },
+      ],
+      wk0: 13,
+      mix: { a_laser: 2, a_blob: 3 },
+      armyK: 1,
+      attackK: 1,
+      expandK: 1,
+      hero: 'h_prism',
+      heroes: ['h_prism', 'h_curator', 'h_veil'],
+      tech: { t2: 22, t3: 38 },
+      research: ['r_en', 'r_bio', 'r_grid', 'r_en', 'r_overload', 'r_bio', 'r_proto', 'r_en', 'r_reson'],
+      mix2: { a_laser: 2, a_blob: 3, a_beam: 1, a_parasite: 1, a_holo: 0.5 },
+      mix3: { a_laser: 2, a_beam: 2, a_blob: 3, a_reson: 1, a_bit: 1 },
+      towers: 2,
+      fuse: { keep: 3, proto: true },
+    },
+    {
+      id: 'swarm',
+      name: '實驗體速攻',
+      steps: [
+        { pop: 6, b: 'a_lab' },
+        { pop: 7, b: 'a_node' },
+        { pop: 9, b: 'a_lab' },
+        { pop: 12, b: 'a_node' },
+        { pop: 16, b: 'a_tap' },
+      ],
+      wk0: 9,
+      mix: { a_blob: 1 },
+      armyK: 0.75,
+      attackK: 0.9,
+      expandK: 1.2,
+      hero: 'h_curator',
+      heroes: ['h_curator', 'h_veil', 'h_prism'],
+      tech: { t2: 24, t3: 42 },
+      research: ['r_bite', 'r_bite', 'r_bio', 'r_brood', 'r_bite', 'r_bio', 'r_proto'],
+      mix2: { a_blob: 4, a_parasite: 2, a_laser: 1 },
+      mix3: { a_blob: 4, a_parasite: 1, a_beam: 1, a_bit: 1 },
+      towers: 1,
+      fuse: { keep: 6, proto: true },
+    },
+    {
+      id: 'tech',
+      name: 'Coral 科技',
+      steps: [
+        { pop: 7, b: 'a_node' },
+        { pop: 9, b: 'a_tap' },
+        { pop: 11, b: 'a_foundry' },
+        { pop: 13, b: 'a_hq' },
+        { pop: 16, b: 'a_node' },
+        { pop: 19, b: 'a_lab' },
+      ],
+      wk0: 20,
+      mix: { a_laser: 1 },
+      armyK: 1, // （docs 14.6 寫 ×1.2：雷射步兵吃 Coral、累積得慢，第一次進攻拖到 8～9 分鐘，改 ×1）
+      attackK: 1.1,
+      expandK: 0.65,
+      hero: 'h_veil',
+      heroes: ['h_veil', 'h_prism', 'h_curator'],
+      tech: { t2: 20, t3: 34 },
+      research: ['r_en', 'r_grid', 'r_en', 'r_holo', 'r_bio', 'r_reson', 'r_en', 'r_proto'],
+      mix2: { a_laser: 2, a_beam: 2, a_holo: 1 },
+      mix3: { a_laser: 1, a_beam: 2, a_reson: 2, a_bit: 2 },
+      towers: 3,
+      fuse: { keep: 3, proto: true },
+    },
+  ],
 };
 
 // 各陣營的建築角色（電腦對手用：補給、生產、抽取站、主堡）
@@ -104,6 +182,38 @@ export const RTS_AI_ROLES = {
     tower: 'c_tower',
     flak: 'c_flak',
     wall: 'c_wall',
+    factory2: null,
+    node: null,
+  },
+  // （R3 F 包，docs 14.6）factory2＝第二種生產建築（facMax 兩種合計）、node＝導管節點；null 的角色略過
+  aetheric: {
+    hq: 'a_hq',
+    hq2: 'a_hq2',
+    hq3: 'a_hq3',
+    depot: 'a_node',
+    node: 'a_node',
+    factory: 'a_foundry',
+    factory2: 'a_lab',
+    extractor: 'a_tap',
+    works: 'a_inst',
+    pad: 'a_hangar',
+    market: 'a_vault',
+    tower: 'a_fence',
+    flak: 'a_fence',
+    heavy: null,
+    wall: null,
+  },
+};
+// 兵種專屬的研究（兵種比例裡沒有這個兵種時不研究；docs 14.6 最後一項）
+export const RTS_AI_RES_UNIT = {
+  castron: { r_wall: 'c_shield', r_stomp: 'c_stomper', r_barrel: 'c_arty', r_shell: 'c_mortar' },
+  aetheric: {
+    r_overload: 'a_beam',
+    r_holo: 'a_holo',
+    r_brood: 'a_parasite',
+    r_reson: 'a_reson',
+    r_bite: 'a_blob',
+    r_proto: 'a_blob',
   },
 };
 
@@ -119,6 +229,7 @@ export const RTS_AI_ROLES = {
 //   items 買道具（'none'｜'kit' 修復套件｜'all' 再加永久道具）、tavern 雇用酒館英雄的機率（開局時決定）、
 //   cast 施放技能（'z'＝只用 Z、隨機時機；'rules'＝依 RTS_AI_CAST）、heroRetreat 英雄血量低於這個比例時撤回（0＝不撤）、
 //   markFocus 集火被標定的目標、towerMax 防禦塔上限、walls 防禦塔旁蓋城牆、militia 基地被打而部隊不足時動員工人
+// （R3 F 包）harass 派 4 台騷擾看得到的外圍導管節點（對方是艾瑟立克時；困難以上）
 export const RTS_AI_DIFFS = {
   easy: {
     hero1T: 180,
@@ -212,6 +323,7 @@ export const RTS_AI_DIFFS = {
     towerMax: 3,
     walls: true,
     militia: true,
+    harass: true,
     dt: 0.5,
     wkMax: 24,
     facMax: 3,
@@ -249,6 +361,7 @@ export const RTS_AI_DIFFS = {
     towerMax: 3,
     walls: true,
     militia: true,
+    harass: true,
     dt: 0.5,
     wkMax: 24,
     facMax: 4,
@@ -286,12 +399,30 @@ export const RTS_AI_CAST = {
   sk_rush: { k: 'ranged', defs: ['c_arty', 'c_mortar'], hp: 0.3 },
   sk_pile: { k: 'armor', arm: 'heavy' },
   sk_quake: { k: 'fan', n: 4, r: 14 },
+  // 艾瑟立克（docs 14.4）：'blobs'＝範圍內己方的實驗體（不含臨時的）≥ n；'army'＝交戰中、範圍內己方單位 ≥ n；
+  // ally 的 bio＝只挑生體單位（引導中的融合宿主優先：催化會立刻完成融合）
+  sk_refract: { k: 'line', n: 3, r: 4 },
+  sk_prism: { k: 'ally', hp: 0.6 },
+  sk_skylight: { k: 'cluster', n: 5, bld: 1, r: 14 },
+  sk_hatch: { k: 'self', hp: 1, n: 2, r: 20 },
+  sk_catalyze: { k: 'ally', hp: 0.5, bio: true },
+  sk_massfuse: { k: 'blobs', n: 6, r: 18 },
+  sk_mirror: { k: 'self', hp: 1, n: 3, r: 24 },
+  sk_emp: { k: 'cluster', n: 4, r: 8, bld: 1 },
+  sk_legion: { k: 'army', n: 8, r: 20 },
 };
 // 單位技能（電腦）：盾牆＝交戰中、敵人在 r 內；投擲貨櫃、火箭齊射＝範圍 r 內 n 台以上的敵方單位
 export const RTS_AI_ABILS = {
   ab_wall: { r: 22 },
   ab_crate: { n: 3, r: 4 },
   ab_rockets: { n: 3, r: 6 },
+  // 艾瑟立克（docs 14.6）：投影＝交戰中（r 內有敵方部隊）對自己部隊裡血量最高的；過載＝射程內 n 台以上；
+  // 浮游砲＝敵方英雄或血量最高的；吞噬＝原型體血量 < hp 而且 r 內有實驗體；纏附照 B 包的自動施放
+  ab_decoy: { r: 30 },
+  ab_overcharge: { n: 2 },
+  ab_bits: { r: 30 },
+  ab_devour: { hp: 0.5, r: 6 },
 };
-// 永久道具的購買順序（items 'all'）
+// 永久道具的購買順序（items 'all'；依陣營，沒有列的陣營用 castron 的）
 export const RTS_AI_ITEMS = ['i_fcs', 'i_plate', 'i_scope'];
+export const RTS_AI_ITEMS_FAC = { castron: RTS_AI_ITEMS, aetheric: ['i_lens', 'i_plate', 'i_fcs'] };

@@ -14,9 +14,9 @@ export const RTS_AETH = {
   tick: 0.5, // 導管加成、臨時導管到期的檢查間隔（秒）
   link: 32, // 導管節點的連線距離（m）
   gridAdd: 6, // 研究「導管增幅」：所有供電源的半徑 +6 m
-  regen: [2, 4], // 導管上的單位每秒回復（研究前／後）
+  regen: [1.5, 3], // 導管上的單位每秒回復（研究前／後；F 包的平衡：2／4 → 1.5／3）
   speed: [1.15, 1.25], // 導管上的單位移動速度
-  bldRegen: [0.004, 0.008], // 建築在導管裡、calm 秒沒受傷：每秒回復最大血量的比例
+  bldRegen: [0.0025, 0.005], // （F 包的平衡：0.4％／0.8％ → 0.25％／0.5％） // 建築在導管裡、calm 秒沒受傷：每秒回復最大血量的比例
   calm: 8,
   resonAdd: 8, // 研究「共振校準」：共振砲的導管射程再 +8（+16 → +24）
   fuseR: 3, // 材料要在宿主幾公尺內才開始引導
@@ -636,7 +636,7 @@ export const RTS_AETH_DEFS = {
     trains: ['a_worker'],
     upTo: 'a_hq2',
     conduit: { r: 26, root: true },
-    coralRate: 0.15,
+    coralRate: 0.25,
     abil: ['ab_aegis'],
     card: hqCard('a_hq2'),
   }),
@@ -660,7 +660,7 @@ export const RTS_AETH_DEFS = {
     from: 'a_hq',
     upTo: 'a_hq3',
     conduit: { r: 30, root: true },
-    coralRate: 0.25,
+    coralRate: 0.4,
     abil: ['ab_aegis'],
     card: hqCard('a_hq3'),
   }),
@@ -683,7 +683,7 @@ export const RTS_AETH_DEFS = {
     trains: ['a_worker'],
     from: 'a_hq2',
     conduit: { r: 34, root: true },
-    coralRate: 0.35,
+    coralRate: 0.55,
     abil: ['ab_aegis'],
     card: hqCard(null),
   }),

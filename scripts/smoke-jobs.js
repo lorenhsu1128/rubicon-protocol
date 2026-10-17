@@ -113,6 +113,7 @@ const DEFAULT_TIMES = {
   testRtsAethHero: 40000,
   testRtsAethHud: 40000,
   testRtsThemes: 15000,
+  testRtsAethAi: 90000,
   server: 8089,
   'server:testServerModels': 32811,
   'server:testLevelsServer': 9780,

@@ -15027,6 +15027,16 @@ const RTS_R3D = require('./smoke-rts-aeth-d')({
   SHOT_DIR,
   path,
 });
+// R3 F 包（電腦對手：艾瑟立克）
+const RTS_R3F = require('./smoke-rts-aeth-f')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15122,6 +15132,7 @@ const STEPS = [
   ['testRtsAethHero', (c) => RTS_R3C.testRtsAethHero(c.browser, c.base)],
   ['testRtsAethHud', (c) => RTS_R3E.testRtsAethHud(c.browser, c.base)],
   ['testRtsThemes', (c) => RTS_R3D.testRtsThemes(c.browser, c.base)],
+  ['testRtsAethAi', (c) => RTS_R3F.testRtsAethAi(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

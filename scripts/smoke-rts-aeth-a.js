@@ -132,8 +132,8 @@ module.exports = (H) => {
     });
     check(eco.all8 && eco.all10, `工人每趟：艾瑟立克 8（${eco.n0} 趟）、卡斯特隆 10（${eco.n1} 趟）`);
     check(
-      Math.abs(eco.dc0 - 6) < 0.3 && Math.abs(eco.dc1) < 1e-6,
-      `研究中樞自己產出 Coral：40 秒 +${eco.dc0.toFixed(2)}（0.15／秒）；卡斯特隆的主堡 +${eco.dc1}`,
+      Math.abs(eco.dc0 - 10) < 0.4 && Math.abs(eco.dc1) < 1e-6,
+      `研究中樞自己產出 Coral：40 秒 +${eco.dc0.toFixed(2)}（0.25／秒）；卡斯特隆的主堡 +${eco.dc1}`,
     );
 
     // ---------- 導管：範圍、節點、串接 ----------
@@ -290,8 +290,8 @@ module.exports = (H) => {
     });
     check(tap.tapPlaced && tap.done && tap.vent, '汲取塔蓋在湧出點上、30 秒自己長好');
     check(
-      tap.whyFar !== '' && tap.whyNear === '' && Math.abs(tap.rate - (1.25 + 0.15)) < 0.05,
-      `汲取塔是根：旁邊可以蓋（之前「${tap.whyFar}」）；Coral ${tap.rate.toFixed(2)}／秒（汲取塔 1.25＋研究中樞 0.15）`,
+      tap.whyFar !== '' && tap.whyNear === '' && Math.abs(tap.rate - (1.25 + 0.25)) < 0.05,
+      `汲取塔是根：旁邊可以蓋（之前「${tap.whyFar}」）；Coral ${tap.rate.toFixed(2)}／秒（汲取塔 1.25＋研究中樞 0.25）`,
     );
     check(
       tap.why0 !== '' && tap.why1 === '' && tap.placed && tap.why2 !== '' && tap.off,
@@ -390,7 +390,7 @@ module.exports = (H) => {
       return o;
     });
     check(
-      Math.abs(buf.speedK - 1.15) < 0.01 && Math.abs(buf.regen - 2) < 0.3,
+      Math.abs(buf.speedK - 1.15) < 0.01 && Math.abs(buf.regen - 1.5) < 0.3,
       `導管上的單位：速度 ×${buf.speedK.toFixed(2)}、每秒回 ${buf.regen.toFixed(2)} AP`,
     );
     check(!buf.outAt && Math.abs(buf.speedOut - 1) < 1e-6, '離開導管：加成過期');

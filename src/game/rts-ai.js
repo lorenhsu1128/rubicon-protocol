@@ -12,18 +12,24 @@
 // - 軍事（rtsAiMilitary）：部隊集結在自家坡道口；部隊到門檻（難度、時間）或偵查到對方弱時進攻（攻擊移動到記得的敵方建築，
 //   不知道時依序搜索出生點與礦脈）；基地被攻擊時回防（召回）；打不過時撤退；集火同一個目標；困難以上撤回受傷單位。
 // - 偵查（rtsAiScout）：scoutT 時派一個工人（之後是部隊）走對方的出生點候選。
+// - （R3 F 包，docs 14.6、14.17）艾瑟立克：導管（rtsAiGrid：要電的建築只蓋在有電的地方、找不到時先蓋導管節點、
+//   生產建築的備援、停擺時重蓋節點最優先）、融合（rtsAiFuse）、結晶護壁（取代民兵）、單位技能（投影、過載、浮游砲、吞噬）；
+//   兩個陣營共用：兵種相剋的權重（看過的敵方護甲）、打導管節點（rtsPowerDeps 加權）、對城甲弱的陣營先打部隊與分礦。
 // 測試與除錯：cfg.aiBoth（或 g.rtsAiBoth）＝兩邊都是電腦，cfg.aiOpener（或 g.rtsAiOpener）指定開局，g.rtsAiOff＝不啟動；
 // R.ai[i].ms／msMax 是決策的耗時，R.ai[i].log 是重要事件（進攻、撤退、開分礦…）。
-import { RTS_DEFS, RTS_FACTIONS, RTS_GATHER, RTS_POP_MAX } from '../data/rts-units.js';
+import { RTS_ABILS, RTS_DEFS, RTS_FACTIONS, RTS_GATHER, RTS_POP_MAX } from '../data/rts-units.js';
 import {
   RTS_AI_ABILS,
   RTS_AI_CAST,
   RTS_AI_DIFFS,
   RTS_AI_ITEMS,
+  RTS_AI_ITEMS_FAC,
   RTS_AI_OPENERS,
+  RTS_AI_RES_UNIT,
   RTS_AI_ROLES,
 } from '../data/rts-ai.js';
-import { RTS_RESEARCH } from '../data/rts-combat.js';
+import { RTS_FUSE } from '../data/rts-aetheric.js';
+import { RTS_RESEARCH, RTS_TYPE_K } from '../data/rts-combat.js';
 import { RTS_HERO_DEFS, RTS_HIRE, RTS_SKILLS, RTS_TAVERN, skillLv } from '../data/rts-heroes.js';
 import { RTS_ITEMS } from '../data/rts-items.js';
 import { Game } from './game.js';
@@ -83,10 +89,11 @@ Object.assign(Game.prototype, {
     for (const T of R.teams) {
       if (!T.ai || T.neutral) continue;
       const diff = (diffs && diffs[T.id]) || cfg.diff || 'normal';
+      const fac = RTS_AI_ROLES[T.faction] && RTS_AI_OPENERS[T.faction] ? T.faction : 'castron';
       const P = RTS_AI_DIFFS[diff] || RTS_AI_DIFFS.normal;
-      const roles = RTS_AI_ROLES[T.faction] || RTS_AI_ROLES.castron;
-      const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
-      const ops = RTS_AI_OPENERS[T.faction] || RTS_AI_OPENERS.castron;
+      const roles = RTS_AI_ROLES[fac];
+      const F = RTS_FACTIONS[fac];
+      const ops = RTS_AI_OPENERS[fac];
       const want = cfg.aiOpener || this.rtsAiOpener;
       const pickId = Array.isArray(want) ? want[T.id] : want;
       const op = ops.find((o) => o.id === pickId) || ops[Math.floor(Math.random() * ops.length) % ops.length];
@@ -105,6 +112,9 @@ Object.assign(Game.prototype, {
         P,
         op,
         roles,
+        fac, // 陣營（R3）
+        grid: !!F.grid, // 導管網（艾瑟立克）
+        militia: !!F.militia, // 主堡能動員民兵（卡斯特隆）
         worker: F.worker,
         base,
         steps,
@@ -155,6 +165,15 @@ Object.assign(Game.prototype, {
         casts: 0, // 施放技能的次數（測試）
         heroT: {},
         tierT: {}, // 升到各階的時間
+        // ---- R3（F 包） ----
+        armSeen: new Map(), // 看過的敵方單位 id → { t, arm, pop }（兵種相剋的權重，最近 3 分鐘）
+        fuseN: 0, // 下了幾組融合（測試）
+        fuseT: 0,
+        nodeLog: [], // 為了什麼蓋導管節點（除錯）
+        aegisN: 0,
+        foeGrid: false, // 對方有導管網（看過導管節點或汲取塔）
+        // 對方的陣營（開局時公開的資訊：選單、開局訊息、結果畫面都看得到）
+        foeFac: (R.teams.find((q) => !q.neutral && q.id !== T.id) || {}).faction || fac,
       };
       A.rally = this.rtsAiRallyPoint(A);
       A.explore = this.rtsAiExploreList(A);
@@ -165,8 +184,9 @@ Object.assign(Game.prototype, {
   // 下指令（記下花在核心 rtsOrder 的時間：大群體第一次走向新的目標時要算流場）
   rtsAiOrd(A, units, o, queue) {
     const t0 = performance.now();
-    this.rtsOrder(units, o, queue);
+    const r = this.rtsOrder(units, o, queue);
     A.ordMs += performance.now() - t0;
+    return r;
   },
   rtsAiClear() {
     if (this.rts) this.rts.ai = null;
@@ -174,7 +194,7 @@ Object.assign(Game.prototype, {
   rtsAiLog(A, s) {
     const t = this.rts ? this.rts.t : 0;
     A.log.push(`${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')} ${s}`);
-    if (A.log.length > 60) A.log.shift();
+    if (A.log.length > 200) A.log.shift();
   },
   // 集結點：自家坡道下往外 8 m（可以走的格子）
   rtsAiRallyPoint(A) {
@@ -243,19 +263,23 @@ Object.assign(Game.prototype, {
       'Intel',
       'HeroQueue', // 英雄的生產與復活（最優先的資源）
       'Economy',
+      'Grid', // 導管：停擺時重蓋節點、生產建築的備援（艾瑟立克；補給之後、部隊之前）
       'Tech',
       'Military',
+      'Fuse', // 融合（艾瑟立克）
       'Creep',
       'Heroes',
       'UnitAbils',
       'Scout',
     ];
     if (!A.pmax) A.pmax = {};
+    if (!A.psum) A.psum = {};
     for (const k of ph) {
       const t0 = performance.now();
       this['rtsAi' + k](A, S);
       const ms = performance.now() - t0;
       if (ms > (A.pmax[k] || 0)) A.pmax[k] = ms;
+      A.psum[k] = (A.psum[k] || 0) + ms; // 各層累計（除錯：哪一層花時間）
     }
   },
   // 自己的單位分類；派出去蓋的建築（pend）整理
@@ -292,6 +316,8 @@ Object.assign(Game.prototype, {
         }
         for (const q of e.bld.queue) S.queued[q.id] = (S.queued[q.id] || 0) + 1;
       } else if (D.worker) S.workers.push(e);
+      else if (e.rtsIllus || e.rtsTemp)
+        continue; // 幻象、孵化的臨時實驗體：不指揮（到期就消失）
       else if (e.hero) S.heroes.push(e);
       else if (isArmy(e)) S.army.push(e);
     }
@@ -380,6 +406,14 @@ Object.assign(Game.prototype, {
       }
       A.seen.set(e.id, { t: R.t, pow: unitPow(e) });
       if (e.flying) A.enemyAir = R.t;
+      // 兵種相剋的權重（docs 14.6）：看過的敵方部隊的護甲類型（人口加權，英雄算 5）
+      const D = defOf(e);
+      A.armSeen.set(e.id, { t: R.t, arm: e.hero ? 'hero' : D.arm || 'med', pop: e.hero ? 5 : D.pop || 1 });
+    }
+    if (R.t > (A.armPruneT || 0)) {
+      A.armPruneT = R.t + 10;
+      for (const [id, s] of A.armSeen) if (R.t - s.t > 180) A.armSeen.delete(id);
+      A.counterK = null;
     }
     for (const [id, s] of A.seen) {
       // 90 秒沒看到的忘掉；看著它被擊破的（最後看到之後 3 秒內死掉）也拿掉
@@ -388,6 +422,8 @@ Object.assign(Game.prototype, {
     }
     const kn = this.rtsFogKnown(A.team);
     A.known = kn.filter((k) => !k.gone);
+    // 對方有導管網（看過導管節點、汲取塔、研究中樞）：進攻時打節點
+    if (!A.foeGrid) A.foeGrid = A.known.some((k) => (RTS_DEFS[k.def] || {}).conduit);
     // 確認摧毀的敵方建築（進攻有沒有進展）
     if (!A.bldGone) A.bldGone = new Set();
     for (const k of kn)
@@ -420,7 +456,7 @@ Object.assign(Game.prototype, {
       ro = A.roles;
     const opening = A.si < A.steps.length;
     // 1. 人口快滿：蓋補給庫（開局期間只有快卡住時）
-    const facs = S.done[ro.factory] || 0;
+    const facs = (S.done[ro.factory] || 0) + (ro.factory2 ? S.done[ro.factory2] || 0 : 0);
     const rate = 2 + 2 * facs + S.hqs.length;
     const free = T.cap + S.capSoon - T.pop;
     const depBusy =
@@ -461,7 +497,7 @@ Object.assign(Game.prototype, {
     while (A.si < A.steps.length) {
       const s = A.steps[A.si];
       const D = RTS_DEFS[s.b];
-      const facOver = s.b === A.roles.factory && s.n > A.P.facMax;
+      const facOver = (s.b === A.roles.factory || s.b === A.roles.factory2) && s.n > A.P.facMax;
       const hqOver = s.b === A.roles.hq && s.n > A.P.hqMax;
       if ((S.count[s.b] || 0) >= s.n || facOver || hqOver || !D) {
         A.si++;
@@ -473,8 +509,12 @@ Object.assign(Game.prototype, {
       if (T.pop < s.pop && !stalled) return;
       const ok = s.b === A.roles.hq ? this.rtsAiExpand(A, S) : this.rtsAiBuild(A, S, s.b);
       // 錢不夠：保留資源，下次再試；找不到位置或工人：試幾次之後跳過這一步
-      if (ok === false) this.rtsAiReserve(A, D.cost);
-      else if (ok === null && (s.fail = (s.fail || 0) + 1) > 12) {
+      // （要電的建築在等導管節點時不算失敗：節點要 22 秒才長好）
+      // （艾瑟立克的 Coral 是瓶頸：礦石夠時連 Coral 一起保留，不然雷射步兵一直把 Coral 花掉、分礦開不出來）
+      if (ok === false) {
+        if (A.grid && T.ore >= (D.cost.ore || 0)) this.rtsAiKeep(A, D.cost);
+        else this.rtsAiReserve(A, D.cost);
+      } else if (ok === null && A.needNodeT !== this.rts.t && (s.fail = (s.fail || 0) + 1) > 12) {
         this.rtsAiLog(A, `略過開局步驟：${D.name}`);
         A.si++;
       }
@@ -516,7 +556,7 @@ Object.assign(Game.prototype, {
       active < P.hqMax &&
       (active < 2 || R.t > 600) && // 第三座主堡（後期換到新的礦脈、收入多一份）：10 分鐘以後
       (R.t > P.expandT * A.op.expandK || (low && R.t > 600)) &&
-      (S.workers.length >= sat * 0.8 || low) &&
+      (S.workers.length >= sat * 0.8 || low || (A.grid && T.ore > 700)) &&
       !A.threatArmy.length
     ) {
       // 分礦和升級主堡一樣保留資源（以前用 rtsAiReserve，Coral 不夠時不保留礦石：部隊一直把礦石花掉，
@@ -525,16 +565,30 @@ Object.assign(Game.prototype, {
       // （其他保留中的項目照算：升級主堡比分礦優先）
       if (this.rtsAiExpand(A, S, false, true) === false) this.rtsAiKeep(A, RTS_DEFS[ro.hq].cost, 'exp');
     }
-    // 兵工廠：上限依難度與主堡數；錢多時才蓋
-    const facN = S.count[ro.factory] || 0;
+    // 兵工廠：上限依難度與主堡數；錢多時才蓋（艾瑟立克：兵器廠與培養槽合計，依兵種比例挑一種）
+    const facN = (S.count[ro.factory] || 0) + (ro.factory2 ? S.count[ro.factory2] || 0 : 0);
     // 存款一直很多（生產跟不上收入）時多蓋（以前後期常常存著 1000 以上的礦石、部隊卻不多，兩邊僵持）
     const facWant = Math.min(
-      P.facMax + (T.ore > 900 ? 1 : 0) + (T.ore > 1600 ? 1 : 0),
-      1 + S.hqs.length + (T.ore > 700 ? 1 : 0),
+      P.facMax + (T.ore > 900 ? 1 : 0) + (T.ore > 1600 ? 1 : 0) + (A.grid && T.ore > 3000 ? 2 : 0),
+      1 + S.hqs.length + (T.ore > 700 ? 1 : 0) + (A.grid && T.ore > 3000 ? 2 : 0),
     );
-    const facBusy = A.pend.some((p) => p.def === ro.factory) || S.inprog.some((b) => b.rtsDef === ro.factory);
+    const isFac = (id) => id === ro.factory || (ro.factory2 && id === ro.factory2);
+    const facBusy = A.pend.some((p) => isFac(p.def)) || S.inprog.some((b) => isFac(b.rtsDef));
     if (facN < facWant && !facBusy && (facN === 0 || T.ore - A.res.ore > 320))
-      this.rtsAiBuild(A, S, ro.factory);
+      this.rtsAiBuild(A, S, this.rtsAiFacPick(A, S));
+  },
+  // 要多蓋哪一種生產建築（兩種時：目前兵種比例的權重 ÷（座數＋1）大的那種）
+  rtsAiFacPick(A, S) {
+    const ro = A.roles;
+    if (!ro.factory2) return ro.factory;
+    const mix = this.rtsAiMix(A);
+    const w = (b) => {
+      const tr = RTS_DEFS[b].trains || [];
+      let n = 0;
+      for (const id in mix) if (tr.includes(id)) n += mix[id];
+      return n / ((S.count[b] || 0) + 1);
+    };
+    return w(ro.factory2) > w(ro.factory) ? ro.factory2 : ro.factory;
   },
   // 工人的分配
   rtsAiWorkers(A, S) {
@@ -617,16 +671,17 @@ Object.assign(Game.prototype, {
         if (w) this.rtsAiOrd(A, [w], { k: 'gather', mine: under.id });
       }
     }
-    // 工地沒有人施工：派最近的工人續建
+    // 工地沒有人施工：派最近的工人續建（自己長的建築不必）
     for (const b of S.inprog) {
-      if (b.bld.builders.size) continue;
+      if (b.bld.builders.size || defOf(b).selfBuild) continue;
       if (S.workers.some((w) => w.orders[0] && w.orders[0].k === 'build' && w.orders[0].bid === b.id))
         continue;
       if (this.rtsAiThreatAt(A, b.pos.x, b.pos.z, 25)) continue;
       const w = this.rtsAiPickWorker(A, S, b.pos);
       if (w) this.rtsAiOrd(A, [w], { k: 'build', def: b.rtsDef, x: b.pos.x, z: b.pos.z, bid: b.id });
     }
-    // 修理：受損的建築（附近沒有敵方部隊時）
+    // 修理：受損的建築（附近沒有敵方部隊時；工人不能修理的陣營略過：艾瑟立克的建築在導管裡自己回血）
+    if ((RTS_DEFS[A.worker] || {}).noRepair) return;
     for (const [id, w] of A.repairs)
       if (w.dead || !w.orders[0] || w.orders[0].k !== 'repair' || w.orders[0].id !== id) A.repairs.delete(id);
     for (const b of S.blds) {
@@ -642,19 +697,31 @@ Object.assign(Game.prototype, {
   },
   // 可以蓋抽取站的 Coral 湧出點：自己的（地圖的 owner）或離自己的主堡 60 m 內、沒有抽取站、附近沒有敵人
   rtsAiVent(A, S) {
-    const plan = this.world.rts;
+    const plan = this.world.rts,
+      T = this.rts.teams[A.team];
     let best = null,
       bs = 1e9;
     this.rts.corals.forEach((v, i) => {
       if (v.amount <= 200 || (v.ext && !v.ext.dead)) return;
       if (A.pend.some((q) => q.def === A.roles.extractor && hyp(q.o.x, q.o.z, v.pos.x, v.pos.z) < 3)) return;
       // 自己的、或 3 分鐘以後自己這一側外圍的（Coral 只有一座抽取站時，升級、英雄、研究都卡在 Coral 上）
+      // （艾瑟立克：Coral 是瓶頸，汲取塔又是導管的根（前進基地）——2 分鐘就去拿自己這一側的）
       const own =
         plan.corals[i] &&
-        (plan.corals[i].owner === A.team || (plan.corals[i].near === A.team && this.rts.t > 180));
+        (plan.corals[i].owner === A.team ||
+          (plan.corals[i].near === A.team && this.rts.t > (A.grid ? 120 : 180)));
       let d = 1e9;
       for (const h of S.hqs) d = Math.min(d, hyp(h.pos.x, h.pos.z, v.pos.x, v.pos.z));
-      if (!own && d > 60) return;
+      // 艾瑟立克、礦石用不完（Coral 卡住）：對方那一側沒人用的湧出點也去拿（不在對方的出生點旁、附近沒有記得的敵方建築）
+      const far =
+        A.grid &&
+        T.ore > 1000 &&
+        this.rts.t > 600 &&
+        plan.corals[i] &&
+        plan.corals[i].owner === null &&
+        !plan.bases.some((b) => b.owner !== A.team && hyp(b.pos.x, b.pos.z, v.pos.x, v.pos.z) < 70) &&
+        !(A.known || []).some((k) => hyp(k.x, k.z, v.pos.x, v.pos.z) < 45);
+      if (!own && !far && d > 60) return;
       if (this.rtsAiThreatAt(A, v.pos.x, v.pos.z, 35)) return;
       if (d < bs) ((bs = d), (best = v));
     });
@@ -689,8 +756,17 @@ Object.assign(Game.prototype, {
       if (!v) return null;
       p = v.pos;
     }
+    if (!p && A.grid && def === A.roles.node) p = this.rtsAiNodeSpot(A, S, null);
     if (!p) p = this.rtsAiSpot(A, S, def);
-    if (!p) return null;
+    if (!p) {
+      // 要電的建築找不到有電的位置：先找一個不看導管的位置，之後在它旁邊蓋一座導管節點（rtsAiGrid）
+      if (A.grid && D.needPower) {
+        A.needNodeT = this.rts.t;
+        const q = this.rtsAiSpot(A, S, def, true);
+        A.wantSpot = q ? { x: q.x, z: q.z, w: D.foot[0], d: D.foot[1], def } : null;
+      }
+      return null;
+    }
     const w = this.rtsAiPickWorker(A, S, p);
     if (!w) return null;
     const o = { k: 'build', def, x: p.x, z: p.z, yaw };
@@ -704,7 +780,8 @@ Object.assign(Game.prototype, {
     return true;
   },
   // 蓋建築的位置：主基地平台上優先（平台滿了往外、再到分礦旁），四周留通道、不擋主堡與礦脈之間的路、離坡道遠一點
-  rtsAiSpot(A, S, def) {
+  // noPower＝不看導管（艾瑟立克：找不到有電的位置時，先決定位置、再在旁邊蓋導管節點）
+  rtsAiSpot(A, S, def, noPower = false) {
     const nav = this.world.nav,
       D = RTS_DEFS[def];
     const [w, d] = D.foot;
@@ -724,8 +801,15 @@ Object.assign(Game.prototype, {
     for (const h of S.hqs)
       if (hyp(h.pos.x, h.pos.z, A.base.pos.x, A.base.pos.z) > A.base.r + 10)
         centers.push({ c: h.pos, R: 34 });
-    centers.push({ c: A.rally, R: 40 }); // 都滿了：坡道下
-    const k = A.team + ':' + def;
+    // 艾瑟立克：要電的建築只能在有電的範圍裡（導管節點的範圍也是搜尋的中心）
+    const pw = A.grid && D.needPower && !noPower;
+    const fields = pw ? this.rtsPowerFields(A.team).filter((f) => f.on) : null;
+    if (pw)
+      for (const f of fields)
+        if (!f.root && hyp(f.x, f.z, A.base.pos.x, A.base.pos.z) > A.base.r + 10)
+          centers.push({ c: { x: f.x, z: f.z }, R: f.r + 6 });
+    if (!pw && !noPower) centers.push({ c: A.rally, R: 40 }); // 都滿了：坡道下
+    const k = A.team + ':' + def + (noPower ? ':np' : '');
     if (A.spotFail && A.spotFail[k] > this.rts.t) return null; // 剛剛找不到：過一下再找
     const spin = Math.atan2(A.base.pos.z, A.base.pos.x);
     let best = null,
@@ -755,9 +839,22 @@ Object.assign(Game.prototype, {
             }
           if (blocked) continue;
           if (!nav.buildable(x, z, w, d) || !nav.buildable(x, z, w + BLD_PAD, d + BLD_PAD)) continue;
+          // 導管：中心要在有電的範圍裡；只被一座節點覆蓋的扣分（備援：那座節點被拆就停擺）
+          let pk = 0;
+          if (pw) {
+            let n = 0,
+              root = false;
+            for (const f of fields)
+              if (hyp(f.x, f.z, x, z) <= f.r) {
+                n++;
+                if (f.root) root = true;
+              }
+            if (!n) continue;
+            if (!root && n < 2) pk = 8;
+          }
           // 主基地：平台上（高度差不多）優先
           const gy = this.world.terrainHeight(x, z);
-          const sc = s0 + (plat && Math.abs(gy - A.base.h) > 2 ? 25 : 0);
+          const sc = s0 + pk + (plat && Math.abs(gy - A.base.h) > 2 ? 25 : 0);
           if (sc < bs) ((bs = sc), (best = { x, z }));
         }
       }
@@ -813,10 +910,15 @@ Object.assign(Game.prototype, {
       if (!e || e.dead) A.atk.delete(id);
     }
     const cu = A.creep ? A.creep.units : null;
+    const hu = A.har ? A.har.ids : null;
     const atk = army.filter((e) => A.atk.has(e.id));
-    const home = army.filter((e) => !A.atk.has(e.id) && !(cu && cu.has(e.id)));
+    // 留守：不含融合中的（集合、引導）與騷擾中的
+    const home = army.filter(
+      (e) => !A.atk.has(e.id) && !(cu && cu.has(e.id)) && !(hu && hu.has(e.id)) && !e.rtsFusing,
+    );
     S.home = home;
     S.atk = atk;
+    this.rtsAiHarass(A, S, home);
     // 生產建築的集結點：坡道口
     for (const b of S.blds)
       if (b.bld.progress >= 1 && !b.bld.rally && isProducer(b))
@@ -868,13 +970,20 @@ Object.assign(Game.prototype, {
       if (idle.length) this.rtsAiOrd(A, idle, { k: 'amove', x: A.rally.x, z: A.rally.z });
     }
     if (A.mode === 'attack') this.rtsAiAttackTick(A, S, atk, home);
-    else if ((!threatened || !A.threatArmy.length) && !A.creep) this.rtsAiMaybeAttack(A, S, home);
+    else if ((!threatened || !A.threatArmy.length) && !A.creep && !A.har) this.rtsAiMaybeAttack(A, S, home);
   },
   // 生產部隊：每座生產建築的佇列保持 1 項（依開局的比例：T1＝mix、T2＝mix2、T3＝mix3；Coral 不夠時生產不用 Coral 的）
   rtsAiTrain(A, S) {
     const mix = this.rtsAiMix(A);
     let n = S.army.length + Object.keys(S.queued).reduce((s, k) => s + (isArmyDef(k) ? S.queued[k] : 0), 0);
-    const have = (id) => S.army.filter((e) => e.rtsDef === id).length + (S.queued[id] || 0);
+    // （融合掉的實驗體：嵌合體算 3 隻、原型體算 6 隻，兵種比例才不會一直補實驗體）
+    const fusedEq = { a_blob: { a_chimera: 3, a_proto: 6 } };
+    const have = (id) => {
+      let n = S.queued[id] || 0;
+      const fe = fusedEq[id];
+      for (const e of S.army) n += e.rtsDef === id ? 1 : fe && fe[e.rtsDef] ? fe[e.rtsDef] : 0;
+      return n;
+    };
     for (const b of S.blds) {
       const qMax = this.rts.teams[A.team].ore > 800 ? 2 : 1; // 錢多時佇列放兩項（不中斷）
       if (b.bld.progress < 1 || !isProducer(b) || b.bld.queue.length >= qMax) continue;
@@ -896,21 +1005,38 @@ Object.assign(Game.prototype, {
     }
   },
   // 兵種比例：依層級；看到對方的空中單位時加重對空（MT 地空都打、裝甲車有對空的加特林）
+  // （R3）兩個陣營都乘兵種相剋的權重（rtsAiCounterK：看過的敵方護甲）；艾瑟立克的對空是雷射步兵、浮游砲機
   rtsAiMix(A) {
     const tier = this.rtsTier(A.team),
-      op = A.op;
+      op = A.op,
+      cas = A.fac === 'castron';
     let mix =
       tier >= 3 && op.mix3
         ? op.mix3
         : tier >= 2 && op.mix2
           ? op.mix2
-          : A.si < A.steps.length
+          : A.si < A.steps.length || !cas
             ? op.mix
             : { ...op.mix, c_shield: Math.max(1, op.mix.c_shield || 0) };
+    mix = { ...mix };
     if (this.rts.t - A.enemyAir < 120) {
-      mix = { ...mix };
-      mix.c_mt = (mix.c_mt || 0) + 1;
-      if (tier >= 2) mix.c_tank = (mix.c_tank || 0) + 1;
+      if (cas) {
+        mix.c_mt = (mix.c_mt || 0) + 1;
+        if (tier >= 2) mix.c_tank = (mix.c_tank || 0) + 1;
+      } else {
+        mix.a_laser = (mix.a_laser || 0) + 1;
+        if (tier >= 3) mix.a_bit = (mix.a_bit || 0) + 0.5;
+      }
+    }
+    // 艾瑟立克：礦石多、Coral 不夠（Coral 是瓶頸）時多生產實驗體（Coral 佔得最少：50／10）
+    if (!cas && this.rtsHasBld(A.team, 'a_lab')) {
+      const T = this.rts.teams[A.team];
+      if (T.ore > 600 && T.coral < 80) mix.a_blob = (mix.a_blob || 0) + (T.ore > 2000 ? 6 : 2);
+    }
+    const K = this.rtsAiCounterK(A);
+    for (const id in mix) {
+      const D = RTS_DEFS[id];
+      if (D && D.atk && K[D.atk] !== undefined) mix[id] *= K[D.atk];
     }
     return mix;
   },
@@ -926,9 +1052,11 @@ Object.assign(Game.prototype, {
       P = A.P,
       T = R.teams[A.team];
     if (R.t < A.cool) return;
-    // 可以出動的：集結點附近的，加上沒有在交戰（攻擊指令）的留守部隊
+    // 可以出動的：集結點附近的，加上沒有在交戰（攻擊指令）的留守部隊（融合中的不算）
     const ready = home.filter(
-      (u) => hyp(u.pos.x, u.pos.z, A.rally.x, A.rally.z) < 40 || !(u.orders[0] && u.orders[0].k === 'attack'),
+      (u) =>
+        !u.rtsFusing &&
+        (hyp(u.pos.x, u.pos.z, A.rally.x, A.rally.z) < 40 || !(u.orders[0] && u.orders[0].k === 'attack')),
     );
     const n = ready.length;
     let need = A.need;
@@ -955,6 +1083,11 @@ Object.assign(Game.prototype, {
       if (ep * ep * 2.5 < powOf(ready) ** 2) why = '偵查到對方兵力薄弱';
     }
     if (!why) return;
+    // 艾瑟立克：出發前先把集結中的實驗體融合（引導約 4 秒；融合中的不跟著出發，下一次決策再出發）
+    if (A.grid && R.t > (A.preFuseT || 0) && this.rtsAiFuse(A, S, true) > 0) {
+      A.preFuseT = R.t + 40;
+      return;
+    }
     // 路上有野怪營地：先帶著這支部隊（和英雄）把它清掉再進攻（打不過的營地就照樣進攻）
     const obj0 = this.rtsAiObjective(A, centroid(ready));
     if (obj0 && R.t > (A.blockT || 0)) {
@@ -994,9 +1127,16 @@ Object.assign(Game.prototype, {
     from = from || A.rally;
     let best = null,
       bs = 1e9;
+    // （R3）導管節點與汲取塔依會讓幾座建築停擺加權（每座 25，最多 100）；
+    // 拆建築弱的陣營（艾瑟立克：能量對城甲 ×0.5）在有共振砲之前先打分礦（不在對方出生點的主堡）
+    const weak = this.rtsAiWeakSiege(A);
+    const mainOf = (k) =>
+      this.world.rts.bases.some((b) => b.owner !== A.team && hyp(k.x, k.z, b.pos.x, b.pos.z) < b.r + 25);
     for (const k of A.known || []) {
       const D = RTS_DEFS[k.def] || {};
-      const s = hyp(k.x, k.z, from.x, from.z) - (D.trains && D.trains.length ? 15 : 0);
+      let s = hyp(k.x, k.z, from.x, from.z) - (D.trains && D.trains.length ? 15 : 0);
+      if (D.conduit) s -= Math.min(100, 25 * this.rtsAiDeps(A, k));
+      if (weak) s += mainOf(k) ? 60 : D.dropoff ? -40 : 0;
       if (s < bs) ((bs = s), (best = k));
     }
     // 對方的出生點候選（地圖公開的）還沒去過、附近也不記得任何建築：主基地多半在那裡（高台上，從台下看不到；
@@ -1126,7 +1266,9 @@ Object.assign(Game.prototype, {
       const eng = (A.visN || []).find(
         (e) =>
           e.creep &&
-          (R.camps || []).some((q) => q.id === e.creep && q.st === 'fight') &&
+          (R.camps || []).some(
+            (q) => q.id === e.creep && q.st === 'fight' && !q.cleared && !A.campDone.has(q.id),
+          ) &&
           live.some((u) => hyp(e.pos.x, e.pos.z, u.pos.x, u.pos.z) < 30),
       );
       const camp = eng && (R.camps || []).find((q) => q.id === eng.creep);
@@ -1167,9 +1309,14 @@ Object.assign(Game.prototype, {
     const pool = crush ? near.filter((e) => e.bld) : near;
     // 壓倒性而且附近有好幾座建築：分頭拆（最多三座，每台去離自己最近的那座）
     if (crush && P.focus && pool.length >= 2 && live.length >= 10) {
+      // （R3）第一組先拆會讓建築停擺的導管節點
+      const dep = (b) => this.rtsAiDepsOf(A, b);
       const tb = pool
         .slice()
-        .sort((a, b) => hyp(a.pos.x, a.pos.z, c.x, c.z) - hyp(b.pos.x, b.pos.z, c.x, c.z))
+        .sort(
+          (a, b) =>
+            hyp(a.pos.x, a.pos.z, c.x, c.z) - 30 * dep(a) - (hyp(b.pos.x, b.pos.z, c.x, c.z) - 30 * dep(b)),
+        )
         .slice(0, 3);
       if (!A.apps) A.apps = new Map();
       const grp = new Map();
@@ -1271,6 +1418,8 @@ Object.assign(Game.prototype, {
   // 工人最後（小、會跑，機槍打不太中）。打了一陣子血量沒有掉的（被擋住、打不到）暫時不選
   rtsAiFocusPick(A, c, list) {
     const R = this.rts;
+    // 拆建築弱的（艾瑟立克在有共振砲之前）：部隊與工人優先、建築最後
+    const weak = this.rtsAiWeakSiege(A);
     // 盾牌 MT 擋在前面（後面的打不到、一直換目標）：先打盾牌
     const shieldFirst = R.t < (A.shieldT || 0);
     // 被自己標定的目標（困難以上集火：受到的傷害較高）
@@ -1285,9 +1434,12 @@ Object.assign(Game.prototype, {
       const s =
         hyp(e.pos.x, e.pos.z, c.x, c.z) * 0.6 +
         (e.bld
-          ? 120 + e.hp / 100 + (D.trains && D.trains.length ? -15 : 0)
+          ? (weak ? 220 : 120) +
+            e.hp / 100 +
+            (D.trains && D.trains.length ? -15 : 0) -
+            (D.conduit ? Math.min(60, 20 * this.rtsAiDepsOf(A, e)) : 0)
           : D.worker
-            ? 200 + e.hp / 40
+            ? (weak ? 110 : 200) + e.hp / 40
             : D.ai === 'shield'
               ? (shieldFirst ? 0 : 150) + e.hp / 40
               : (shieldFirst ? 150 : 0) + e.hp / 40) -
@@ -1300,6 +1452,21 @@ Object.assign(Game.prototype, {
       A.focusT = R.t;
     }
     return best;
+  },
+  // 技能可以動用多少保留中的 Coral：一般 60；艾瑟立克派出去蓋的建築要 Coral 時 0（工人走到工地時 Coral 不夠就蓋不成）
+  rtsAiDip(A) {
+    if (!A.grid) return 60;
+    for (const p of A.pend) if ((RTS_DEFS[p.def].cost.coral || 0) > 0) return 0;
+    return 30;
+  },
+  // 拆建築弱（主力是能量：對城甲 ×0.5）而且還沒有攻城的兵種（共振砲）：先打部隊、工人與分礦（docs 14.6）
+  rtsAiWeakSiege(A) {
+    const R = this.rts;
+    // （15 分鐘以後一律照常：拖到後期時拆建築才分得出勝負）
+    if (A.fac !== 'aetheric' || A.foeGrid || R.t > 900) return false;
+    if (A.wsT === R.t) return A.ws;
+    A.wsT = R.t;
+    return (A.ws = !R.units.some((e) => !e.dead && e.rtsTeam === A.team && e.rtsDef === 'a_reson'));
   },
   // 集火的目標打了 7 秒血量掉不到 4%：換別的（12 秒內不選）
   rtsAiFocusStale(A, e) {
@@ -1341,7 +1508,20 @@ Object.assign(Game.prototype, {
     if (!A.tierT[tier]) A.tierT[tier] = R.t;
     const has = (id) => (S.count[id] || 0) > 0;
     const done = (id) => (S.done[id] || 0) > 0;
-    const facDone = done(ro.factory);
+    // 需求的建築（艾瑟立克：研究院要兵器廠、深層研究院要培養槽＋研究所、研究所要兵器廠；速攻開局沒有兵器廠）
+    const reqBld = (id) => {
+      const r = id && RTS_DEFS[id] && RTS_DEFS[id].req;
+      const list = r ? (Array.isArray(r) ? r : r.blds || []) : [];
+      return list.find((b) => !done(b) && !(b === ro.hq && S.hqs.length)) || null;
+    };
+    const buildReq = (id, key) => {
+      const b = reqBld(id);
+      if (b && !has(b)) this.rtsAiBuildKept(A, S, b, key);
+      return !!b;
+    };
+    const facDone = A.grid
+      ? !reqBld(ro.works) && (done(ro.factory) || (ro.factory2 && done(ro.factory2)))
+      : done(ro.factory);
     const wantT2 = P.t2T < 1e8 && R.t >= P.t2T && (T.pop >= A.op.tech.t2 || R.t >= P.t2T + 90);
     const wantT3 = P.t3T < 1e8 && R.t >= P.t3T && (T.pop >= A.op.tech.t3 || R.t >= P.t3T + 90);
     // 0. 補給商店：有英雄之後（便宜、又是英雄回血的修復套件的來源：排在升級的存錢之前）
@@ -1354,6 +1534,10 @@ Object.assign(Game.prototype, {
     const nextT = tier === 1 ? P.t2T : tier === 2 ? P.t3T : 1e9;
     const U0 = RTS_DEFS[tier === 1 ? ro.hq2 : ro.hq3];
     // （需求還沒滿足時不存：T3 要先有重工廠與研究所，存了反而讓它們蓋不起來）
+    // 升級的需求建築（艾瑟立克的研究院要兵器廠：速攻開局沒有）在升級前 120 秒開始蓋
+    // （只有艾瑟立克：卡斯特隆照 R2 的順序，需求的重工廠與研究所由下面的步驟蓋）
+    if (A.grid && !upg && U0 && nextT < 1e8 && R.t >= nextT - 120 && this.rtsReqWhy(A.team, U0))
+      buildReq(tier === 1 ? ro.hq2 : ro.hq3, 'reqb');
     if (!upg && U0 && nextT < 1e8 && R.t >= nextT - 150 && R.t < nextT && !this.rtsReqWhy(A.team, U0)) {
       const U = U0;
       this.rtsAiClaim(A, 'upgc');
@@ -1361,6 +1545,8 @@ Object.assign(Game.prototype, {
     }
     if (!upg && !A.threatArmy.length) {
       const to = tier === 1 && wantT2 ? ro.hq2 : tier === 2 && wantT3 ? ro.hq3 : null;
+      // 升級的需求建築還沒有：先蓋（卡斯特隆的需求開局就有）
+      if (A.grid && to && this.rtsReqWhy(A.team, RTS_DEFS[to])) buildReq(to, 'reqb');
       if (to && !this.rtsReqWhy(A.team, RTS_DEFS[to])) {
         // 要升級的主堡：本來的那一階、離主基地最近的
         const from = to === ro.hq2 ? ro.hq : ro.hq2;
@@ -1383,8 +1569,9 @@ Object.assign(Game.prototype, {
       }
     }
     // 2. 工程研究所：研究、T3 的需求（T2 之前錢夠時先蓋；排在升級之後：升級優先拿資源）
-    if (ro.works && !has(ro.works) && facDone && (R.t > P.t2T - 90 || tier >= 2)) {
-      this.rtsAiBuildKept(A, S, ro.works, 'works', tier >= 2);
+    if (ro.works && !has(ro.works) && (R.t > P.t2T - 90 || tier >= 2)) {
+      if (facDone) this.rtsAiBuildKept(A, S, ro.works, 'works', tier >= 2);
+      else if (tier >= 2) buildReq(ro.works, 'reqw');
     }
     A.techWant = tier >= 2 && ((ro.heavy && !has(ro.heavy)) || (ro.works && !has(ro.works)));
     // 3. 重工廠（T2）、停機坪（T3，比例裡有直升機時）
@@ -1392,7 +1579,8 @@ Object.assign(Game.prototype, {
     if (ro.heavy && tier >= 2 && !has(ro.heavy)) {
       this.rtsAiBuildKept(A, S, ro.heavy, 'heavy');
     }
-    if (ro.pad && tier >= 3 && mix.c_heli && !has(ro.pad)) {
+    const padUnits = ro.pad ? RTS_DEFS[ro.pad].trains || [] : [];
+    if (ro.pad && tier >= 3 && padUnits.some((id) => mix[id]) && !has(ro.pad)) {
       this.rtsAiBuildKept(A, S, ro.pad, 'pad');
     }
     // 第二座重工廠：錢多時（困難以上）
@@ -1412,7 +1600,7 @@ Object.assign(Game.prototype, {
     const works = S.blds.find((b) => b.rtsDef === ro.works && b.bld.progress >= 1 && !b.bld.queue.length);
     if (!works) return;
     const mixAll = { ...A.op.mix, ...(A.op.mix2 || {}), ...(A.op.mix3 || {}) };
-    const need = { r_wall: 'c_shield', r_stomp: 'c_stomper', r_barrel: 'c_arty', r_shell: 'c_mortar' };
+    const need = RTS_AI_RES_UNIT[A.fac] || {};
     const want = [];
     const cnt = {};
     for (const id of A.op.research || []) {
@@ -1420,10 +1608,11 @@ Object.assign(Game.prototype, {
       want.push({ id, lv: cnt[id] });
     }
     const k = A.atkKinds;
-    if (k.pierce > 4 && k.pierce > k.kin) want.sort((a, b) => (b.id === 'r_arm') - (a.id === 'r_arm'));
+    if (A.fac === 'castron' && k.pierce > 4 && k.pierce > k.kin)
+      want.sort((a, b) => (b.id === 'r_arm') - (a.id === 'r_arm'));
     for (const w of want) {
       if (need[w.id] && !mixAll[need[w.id]]) continue;
-      if (P.resMax && (P.resMax[w.id] || 0) < w.lv) continue;
+      if (P.resMax && (P.resMax[w.id] || this.rtsAiResMax(A, w.id)) < w.lv) continue;
       if (this.rtsResLv(A.team, w.id) >= w.lv) continue;
       const inf = this.rtsResearchInfo(A.team, w.id, works);
       if (!inf || !inf.next) continue;
@@ -1433,6 +1622,16 @@ Object.assign(Game.prototype, {
       if (this.rtsResearch(works, w.id)) this.rtsAiLog(A, `研究：${RTS_RESEARCH[w.id].name} ${w.lv}`);
       return;
     }
+  },
+  // 難度的研究上限（resMax 用卡斯特隆的 id 寫）換到其他陣營：攻擊類（r_kin）＝開局研究順序裡的第一項、
+  // 裝甲類（r_arm）＝艾瑟立克的生體裝甲；其他沒列的不研究
+  rtsAiResMax(A, id) {
+    const P = A.P;
+    if (!P.resMax || A.fac === 'castron') return 0;
+    const first = (A.op.research || [])[0];
+    if (id === first) return P.resMax.r_kin || 0;
+    if (id === 'r_bio') return P.resMax.r_arm || 0;
+    return 0;
   },
   // 防禦塔：基地被攻擊兩次之後，在威脅的方向（沒有時朝坡道）蓋；對方有空中單位時蓋防空砲塔；城牆擋在塔的前面
   rtsAiTowers(A, S) {
@@ -1499,6 +1698,7 @@ Object.assign(Game.prototype, {
         const x = hq.pos.x + Math.cos(a0 + da) * r,
           z = hq.pos.z + Math.sin(a0 + da) * r;
         if (!nav.buildable(x, z, D.foot[0] + 3, D.foot[1] + 3)) continue;
+        if (A.grid && this.rtsPowerWhy(A.team, def, x, z)) continue; // 雷射網要在導管範圍內
         if (Math.abs(this.world.terrainHeight(x, z) - A.base.h) > 3) continue;
         if (this.rtsAiBlocksPath(A, S, x, z, D.foot[0] / 2)) continue;
         if (towers.some((b) => hyp(b.pos.x, b.pos.z, x, z) < 9)) continue;
@@ -1510,6 +1710,7 @@ Object.assign(Game.prototype, {
   rtsAiMilitia(A, S, home, tc, thPow) {
     const R = this.rts,
       P = A.P;
+    if (!A.militia) return this.rtsAiAegis(A, S, home, tc, thPow); // 沒有民兵的陣營（艾瑟立克）：結晶護壁
     if (!P.militia || typeof this.rtsMilitia !== 'function') return;
     const hq = S.hqs[0];
     if (!hq) return;
@@ -1774,7 +1975,7 @@ Object.assign(Game.prototype, {
     // 修復套件便宜又是英雄唯一的回血方式：不管保留的資源
     if (!owned('i_kit') && T.ore > RTS_ITEMS.i_kit.cost.ore + 10) item = 'i_kit';
     else if (P.items === 'all')
-      for (const id of RTS_AI_ITEMS) {
+      for (const id of RTS_AI_ITEMS_FAC[A.fac] || RTS_AI_ITEMS) {
         if (owned(id)) continue;
         const c = RTS_ITEMS[id].cost;
         if (T.ore - A.res.ore > c.ore + 250 && T.coral - A.res.coral > (c.coral || 0) + 40) item = id;
@@ -1836,7 +2037,7 @@ Object.assign(Game.prototype, {
       if (why) continue;
       // 保留中的 Coral（升級主堡、英雄、終極技）最多動用 60（技能是交戰中的關鍵，但不能一直拖慢升級）
       const cc = (skillLv(id, rec.sk[slot]) || {}).coral || 0;
-      if (slot < 3 && cc && R.teams[A.team].coral - cc < A.res.coral - 60) continue;
+      if (slot < 3 && cc && R.teams[A.team].coral - cc < A.res.coral - this.rtsAiDip(A)) continue;
       const tgt = this.rtsAiCastTarget(A, S, h, id, Sk, foes);
       if (!tgt) continue;
       const o = h.orders[0];
@@ -1898,7 +2099,19 @@ Object.assign(Game.prototype, {
     }
     if (k === 'ally') {
       const hpK = C ? C.hp : 0.5;
-      const list = [...S.heroes, ...S.army.filter((u) => !C || !C.units || C.units.includes(u.rtsDef))];
+      const bio = (C && C.bio) || Sk.bio;
+      const list = [
+        ...(bio ? [] : S.heroes),
+        ...S.army.filter((u) => (!C || !C.units || C.units.includes(u.rtsDef)) && (!bio || defOf(u).bio)),
+      ];
+      // 生體技能（催化）：引導中的融合宿主優先（立刻完成融合）
+      if (bio) {
+        const host = list.find((u) => {
+          const f = u.rtsFusing && this.rtsFuseOf && this.rtsFuseOf(u.rtsFusing);
+          return f && f.st === 'chan' && f.host === u && inR(u, range);
+        });
+        if (host) return { ent: host };
+      }
       let best = null,
         bs = 1e9;
       for (const u of list) {
@@ -1908,6 +2121,20 @@ Object.assign(Game.prototype, {
         if (s < bs) ((bs = s), (best = u));
       }
       return best ? { ent: best } : null;
+    }
+    if (k === 'blobs') {
+      // 群體融合：範圍內己方的實驗體（不含幻象、臨時的、融合中的）≥ n
+      let n = 0;
+      for (const u of S.army)
+        if (u.rtsDef === 'a_blob' && !u.rtsFusing && hyp(u.pos.x, u.pos.z, h.pos.x, h.pos.z) < C.r) n++;
+      return n >= C.n ? {} : null;
+    }
+    if (k === 'army') {
+      // 虛像軍團：交戰中（附近有敵方單位）、範圍內己方單位 ≥ n
+      if (!units.some((e) => inR(e, C.r + 15))) return null;
+      let n = 0;
+      for (const u of S.army) if (hyp(u.pos.x, u.pos.z, h.pos.x, h.pos.z) < C.r) n++;
+      return n >= C.n ? {} : null;
     }
     if (k === 'self') {
       const hpK = C && C.hp !== undefined ? C.hp : 1.01;
@@ -1982,7 +2209,11 @@ Object.assign(Game.prototype, {
     for (const u of S.army) {
       const D = defOf(u);
       const abil = D.abil || [];
-      if (!abil.length) continue;
+      if (!abil.length || u.rtsFusing) continue;
+      if (A.grid) {
+        this.rtsAiAethAbil(A, S, u, D, abil);
+        continue;
+      }
       if (wallOk && abil.includes('ab_wall')) {
         const near = this.rtsAiFoesNear(A, u.pos, RTS_AI_ABILS.ab_wall.r).filter((e) => !e.bld && isArmy(e));
         const o = u.orders[0];
@@ -2017,6 +2248,62 @@ Object.assign(Game.prototype, {
         if (back) this.rtsAiOrd(A, [u], back, true);
         A.casts++;
         break;
+      }
+    }
+  },
+  // 艾瑟立克的單位技能（docs 14.6）：投影＝交戰中、對自己部隊裡血量最高的；過載＝射程內 2 台以上；
+  // 浮游砲＝敵方英雄或血量最高的；吞噬＝原型體血量 < 50% 而且 6 m 內有實驗體；纏附是自動施放（B 包）、融合由 rtsAiFuse
+  rtsAiAethAbil(A, S, u, D, abil) {
+    const R = this.rts;
+    if (R.t < (u._aiAbT || 0)) return;
+    const o = u.orders[0];
+    const cast = (ab, tgt) => {
+      const back = o && (o.k === 'amove' || o.k === 'move') ? { k: 'amove', x: o.x, z: o.z } : null;
+      const ord = { k: 'ability', ab };
+      if (tgt) ord.id = tgt.id;
+      this.rtsAiOrd(A, [u], ord);
+      if (back) this.rtsAiOrd(A, [u], back, true);
+      u._aiAbT = R.t + 2;
+      A.casts++;
+      A.abLog = A.abLog || {};
+      A.abLog[ab] = (A.abLog[ab] || 0) + 1;
+      return true;
+    };
+    const T = R.teams[A.team];
+    for (const ab of abil) {
+      const C = RTS_AI_ABILS[ab];
+      if (!C || (u.rtsAbWhy && u.rtsAbWhy(ab))) continue;
+      const cc = (RTS_ABILS[ab] || {}).coral || 0;
+      if (cc && T.coral - cc < A.res.coral - this.rtsAiDip(A)) continue; // 不動用保留中的 Coral
+      if (ab === 'ab_decoy') {
+        if (!this.rtsAiFoesNear(A, u.pos, C.r).some((e) => !e.bld && isArmy(e))) continue;
+        let best = null;
+        for (const q of S.army)
+          if (!q.rtsFusing && hyp(q.pos.x, q.pos.z, u.pos.x, u.pos.z) < C.r && (!best || q.hp > best.hp))
+            best = q;
+        if (best && cast(ab, best)) return;
+      } else if (ab === 'ab_overcharge') {
+        const n = this.rtsAiFoesNear(A, u.pos, (D.range || 30) + 2).filter((e) => !e.bld).length;
+        if (n >= C.n && cast(ab, null)) return;
+      } else if (ab === 'ab_bits') {
+        let best = null,
+          bs = -1;
+        for (const e of this.rtsAiFoesNear(A, u.pos, C.r)) {
+          if (e.bld) continue;
+          const sc = (e.hero ? 1e5 : 0) + e.hp;
+          if (sc > bs) ((bs = sc), (best = e));
+        }
+        if (best && cast(ab, best)) return;
+      } else if (ab === 'ab_devour') {
+        if (u.hp >= u.maxHp * C.hp) continue;
+        let best = null,
+          bd = C.r;
+        for (const e of R.units) {
+          if (e.dead || e.rtsTeam !== A.team || e.rtsDef !== 'a_blob' || e.rtsIllus || e.rtsFusing) continue;
+          const d = hyp(e.pos.x, e.pos.z, u.pos.x, u.pos.z);
+          if (d < bd) ((bd = d), (best = e));
+        }
+        if (best && cast(ab, best)) return;
       }
     }
   },
@@ -2249,6 +2536,312 @@ Object.assign(Game.prototype, {
     out.sort((p, q) => (p.x - a.x) * dx + (p.z - a.z) * dz - ((q.x - a.x) * dx + (q.z - a.z) * dz));
     return out;
   },
+  // ================= R3（F 包）：艾瑟立克的導管、融合、結晶護壁；跨陣營 =================
+
+  // ---------- 導管（docs 14.6） ----------
+  // 每次決策：①有建築停擺 → 朝它重蓋導管節點（最優先，保留資源）；②要電的建築找不到有電的位置（rtsAiBuild 記下
+  // needNodeT）→ 在有電範圍的外緣蓋一座；③備援：生產建築與研究所要被 2 個以上的供電源覆蓋（或在根的範圍裡）
+  rtsAiGrid(A, S) {
+    if (!A.grid || !S.hqs.length) return;
+    const R = this.rts,
+      T = R.teams[A.team],
+      ro = A.roles,
+      ND = RTS_DEFS[ro.node];
+    const busy =
+      A.pend.filter((p) => p.def === ro.node).length + S.inprog.filter((b) => b.rtsDef === ro.node).length;
+    this.rtsAiClaim(A, 'node');
+    // ① 停擺：離主基地最近的那座
+    let off = null,
+      bd = 1e9;
+    A.offN = 0;
+    for (const b of S.blds)
+      if (b.bld.off) {
+        A.offN++;
+        const d = hyp(b.pos.x, b.pos.z, A.base.pos.x, A.base.pos.z);
+        if (d < bd) ((bd = d), (off = b));
+      }
+    if (off) {
+      if (busy >= 2 || this.rtsAiThreatAt(A, off.pos.x, off.pos.z, 30)) return;
+      const p = this.rtsAiNodeSpot(A, S, off.pos);
+      if (!p) return;
+      const ok = this.rtsAiBuild(A, S, ro.node, p, 0, 'fresh');
+      if (ok) this.rtsAiNodeLog(A, `重蓋導管節點（${RTS_DEFS[off.rtsDef].name} 停擺）`);
+      else if (ok === false) this.rtsAiKeep(A, ND.cost, 'node');
+      return;
+    }
+    if (busy) return;
+    // ② 要電的建築沒有位置
+    if (R.t - (A.needNodeT || -1e9) < 6) {
+      const ws = A.wantSpot;
+      const p = ws ? this.rtsAiNodeSpot(A, S, ws, false, ws) : this.rtsAiNodeSpot(A, S, null);
+      if (p && this.rtsAiBuild(A, S, ro.node, p, 0, true))
+        this.rtsAiNodeLog(A, ws ? `導管節點（給${RTS_DEFS[ws.def].name}）` : '擴大導管範圍');
+      A.needNodeT = -1e9;
+      return;
+    }
+    // ③ 備援（開局之後、錢夠時；20 秒一次）
+    if (A.si < A.steps.length || R.t < (A.redT || 0) || T.ore - A.res.ore < 160) return;
+    A.redT = R.t + 20;
+    const fields = this.rtsPowerFields(A.team).filter((f) => f.on);
+    for (const b of S.blds) {
+      if (b.bld.progress < 1 || !defOf(b).needPower) continue;
+      if (!isProducer(b) && b.rtsDef !== ro.works) continue;
+      let n = 0,
+        root = false;
+      for (const f of fields)
+        if (hyp(f.x, f.z, b.pos.x, b.pos.z) <= f.r) {
+          n++;
+          if (f.root) root = true;
+        }
+      if (root || n >= 2) continue;
+      const p = this.rtsAiNodeSpot(A, S, b.pos, true);
+      if (p && this.rtsAiBuild(A, S, ro.node, p))
+        this.rtsAiNodeLog(A, `備援導管節點（${RTS_DEFS[b.rtsDef].name}）`);
+      return;
+    }
+  },
+  rtsAiNodeLog(A, s) {
+    A.nodeLog.push(s);
+    if (A.nodeLog.length > 20) A.nodeLog.shift();
+    this.rtsAiLog(A, s);
+  },
+  // 導管節點的位置（要在有電的供電源 link 內）：tgt＝要供電的點（停擺或備援的建築：節點的範圍要涵蓋它；
+  // alt＝不要和現在覆蓋它的那座太近，被拆的時候才不會一起斷）；沒有 tgt＝往外擴大有電的範圍（離現有的供電源遠、
+  // 離主基地近、在主基地的平台上）。規則同 rtsAiSpot：四周留通道、不擋坡道與主堡到礦脈的路、角度從主基地的方位起算
+  // avoid＝{ x, z, w, d }：預定的建築位置（節點不要佔到它）
+  rtsAiNodeSpot(A, S, tgt, alt = false, avoid = null) {
+    const nav = this.world.nav,
+      ro = A.roles,
+      D = RTS_DEFS[ro.node];
+    const [w, d] = D.foot;
+    const cell = nav.cell,
+      Sz = this.world.size / 2;
+    const snap = (v, s) => Math.round((v - s / 2 + Sz) / cell) * cell - Sz + s / 2;
+    const fields = this.rtsPowerFields(A.team).filter((f) => f.on);
+    if (!fields.length) return null;
+    const rp = A.base.ramp;
+    const spin = Math.atan2(A.base.pos.z, A.base.pos.x);
+    const reach = (D.conduit.r || 18) - 3; // 節點的範圍要涵蓋 tgt（留一點餘裕）
+    const cov = tgt ? fields.filter((f) => hyp(f.x, f.z, tgt.x, tgt.z) <= f.r) : [];
+    let best = null,
+      bs = 1e9;
+    const tryAt = (x, z) => {
+      x = snap(x, w);
+      z = snap(z, d);
+      if (!nav.buildable(x, z, w + 3, d + 3)) return;
+      if (
+        avoid &&
+        Math.abs(x - avoid.x) < (avoid.w + w) / 2 + 3 &&
+        Math.abs(z - avoid.z) < (avoid.d + d) / 2 + 3
+      )
+        return;
+      if (this.rtsPowerWhy(A.team, ro.node, x, z)) return; // 要接得上
+      if (hyp(x, z, rp.top.x, rp.top.z) < 10 || hyp(x, z, rp.bottom.x, rp.bottom.z) < 8) return;
+      if (this.rtsAiBlocksPath(A, S, x, z, 2.5)) return;
+      let dn = 1e9;
+      for (const f of fields) dn = Math.min(dn, hyp(f.x, f.z, x, z));
+      const dh = Math.abs(this.world.terrainHeight(x, z) - A.base.h);
+      let sc;
+      if (tgt) {
+        const dt = hyp(x, z, tgt.x, tgt.z);
+        // 涵蓋得到 tgt 的優先；涵蓋不到時（鏈斷得遠）往 tgt 的方向接
+        sc = dt <= reach ? dt * 0.3 : 40 + dt;
+        if (alt) for (const f of cov) if (hyp(f.x, f.z, x, z) < 10) sc += 20;
+        if (dn < 6) sc += 10;
+      } else {
+        // 往外擴：離現有的供電源遠、在主基地平台的外圍（中間留給大建築）
+        const db = hyp(x, z, A.base.pos.x, A.base.pos.z);
+        sc =
+          -Math.min(dn, 26) * 1.2 -
+          Math.min(db, A.base.r) * 0.5 +
+          (db > A.base.r + 6 ? 25 : 0) +
+          (dh > 2 ? 30 : 0);
+      }
+      if (sc < bs) ((bs = sc), (best = { x, z }));
+    };
+    if (tgt)
+      for (let r = 4; r <= 16; r += 3)
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * 6.283 + spin + r * 0.37;
+          tryAt(tgt.x + Math.cos(a) * r, tgt.z + Math.sin(a) * r);
+        }
+    if (!best)
+      for (const f of fields)
+        for (let r = 12; r <= 30; r += 6)
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * 6.283 + spin + r * 0.37;
+            tryAt(f.x + Math.cos(a) * r, f.z + Math.sin(a) * r);
+          }
+    return best;
+  },
+
+  // ---------- 融合（docs 14.6） ----------
+  // T2＋培養槽之後，家裡閒置的實驗體超過 fuse.keep 隻時每 3 隻融合一組（Coral 不夠時不融合、先生產）；
+  // T3＋原型體協定而且 fuse.proto：2 隻閒置的嵌合體＋Coral 夠就融合原型體。pre＝進攻出發前（不留實驗體）。回傳下了幾組
+  rtsAiFuse(A, S, pre = false) {
+    if (!A.grid || !A.op.fuse) return 0;
+    const R = this.rts,
+      T = R.teams[A.team];
+    if (!pre && R.t < (A.fuseT || 0)) return 0;
+    const at = (u) =>
+      !A.atk.has(u.id) &&
+      !(A.creep && A.creep.units.has(u.id)) &&
+      !(A.har && A.har.ids.has(u.id)) &&
+      !u.rtsFusing &&
+      (hyp(u.pos.x, u.pos.z, A.base.pos.x, A.base.pos.z) < 50 ||
+        hyp(u.pos.x, u.pos.z, A.rally.x, A.rally.z) < 25) &&
+      (!u.orders.length || u.orders[0].k === 'amove' || u.orders[0].k === 'move');
+    let free = T.coral - Math.max(0, A.res.coral);
+    let n = 0;
+    const go = (recipe, list, keep) => {
+      const F = RTS_FUSE[recipe];
+      if (this.rtsFuseWhy(A.team, recipe)) return;
+      const k = Math.min(Math.floor((list.length - keep) / F.n), Math.floor(free / F.coral));
+      if (k <= 0) return;
+      // 集結點附近的先融合（離得近、集合快）
+      list.sort(
+        (a, b) => hyp(a.pos.x, a.pos.z, A.rally.x, A.rally.z) - hyp(b.pos.x, b.pos.z, A.rally.x, A.rally.z),
+      );
+      const g = this.rtsAiOrd(A, list.slice(0, k * F.n), { k: 'fuse', recipe }) || 0;
+      if (g > 0) {
+        n += g;
+        free -= g * F.coral;
+        A.fuseN += g;
+        this.rtsAiLog(A, `${F.name} ×${g}`);
+      }
+    };
+    go(
+      'fu_chimera',
+      S.army.filter((u) => u.rtsDef === 'a_blob' && at(u)),
+      pre ? 0 : A.op.fuse.keep,
+    );
+    if (A.op.fuse.proto)
+      go(
+        'fu_proto',
+        S.army.filter((u) => u.rtsDef === 'a_chimera' && at(u)),
+        0,
+      );
+    A.fuseT = R.t + 3;
+    return n;
+  },
+
+  // ---------- 結晶護壁（取代民兵；docs 14.6） ----------
+  // 基地的威脅戰力² > 留守² × 1.5、而且有建築的血量 < 60%：離它近（34 m 內）的研究中樞施放
+  rtsAiAegis(A, S, home, tc, thPow) {
+    if (!tc) return;
+    const mine = powOf(home) + powOf(S.heroes);
+    if (thPow * thPow <= mine * mine * 1.5) return;
+    let hurt = null;
+    for (const b of S.blds)
+      if (b.bld.progress >= 1 && b.hp < b.maxHp * 0.6 && hyp(b.pos.x, b.pos.z, tc.x, tc.z) < 50) {
+        hurt = b;
+        break;
+      }
+    if (!hurt) return;
+    const hq = S.hqs.find(
+      (h) => hyp(h.pos.x, h.pos.z, hurt.pos.x, hurt.pos.z) < 34 && !this.rtsFactionAegisWhy(h),
+    );
+    if (hq && this.rtsAiOrd(A, [hq], { k: 'ability', ab: 'ab_aegis' })) {
+      A.aegisN++;
+      this.rtsAiLog(A, '結晶護壁');
+    }
+  },
+
+  // ---------- 兵種相剋的權重（兩個陣營；docs 14.6） ----------
+  // 最近 3 分鐘看過的敵方單位的護甲（人口加權）：每種攻擊類型的平均相剋倍率（0.6～1.6）
+  // （鏡像對戰不加權：兩邊同樣的兵種，加權只會改變 R2 已經調好的卡斯特隆鏡像）
+  rtsAiCounterK(A) {
+    if (A.counterK) return A.counterK;
+    const R = this.rts;
+    if (A.foeFac === A.fac) {
+      A.counterK = {};
+      for (const atk in RTS_TYPE_K) A.counterK[atk] = 1;
+      return A.counterK;
+    }
+    const out = {};
+    let tot = 0;
+    const arms = {};
+    for (const s of A.armSeen.values()) {
+      arms[s.arm] = (arms[s.arm] || 0) + s.pop;
+      tot += s.pop;
+    }
+    // 記得的敵方建築（城甲）也算一點：後期對方的部隊打光了、剩下要拆建築時，攻城的兵種（爆發）變多
+    const nb = (A.known || []).length;
+    if (nb && R.t > 900) {
+      const w = nb * (tot < 12 ? 1.5 : 0.5);
+      arms.fort = (arms.fort || 0) + w;
+      tot += w;
+    }
+    for (const atk in RTS_TYPE_K) {
+      if (tot < 6) {
+        out[atk] = 1;
+        continue;
+      }
+      let k = 0;
+      for (const arm in arms)
+        k += (RTS_TYPE_K[atk][arm] === undefined ? 1 : RTS_TYPE_K[atk][arm]) * arms[arm];
+      out[atk] = Math.max(0.6, Math.min(1.6, k / tot));
+    }
+    return (A.counterK = out);
+  },
+
+  // ---------- 騷擾導管節點（困難以上，對方是艾瑟立克；docs 14.6） ----------
+  rtsAiHarass(A, S, home) {
+    const R = this.rts;
+    if (A.har) {
+      const us = [...A.har.ids].map((id) => this.rtsEnt(id)).filter((e) => e && !e.dead);
+      const alive = (A.known || []).some((k) => k.id === A.har.id);
+      if (!us.length || !alive || R.t - A.har.t0 > 75 || A.threatArmy.length) {
+        if (us.length) this.rtsAiOrd(A, us, { k: 'amove', x: A.rally.x, z: A.rally.z });
+        this.rtsAiLog(A, `騷擾結束（${alive ? '撤回' : '節點已拆'}）`);
+        A.har = null;
+        A.harT = R.t + 90;
+      }
+      return;
+    }
+    if (!A.P.harass || !A.foeGrid || A.mode !== 'home' || A.creep || R.t < (A.harT || 0)) return;
+    if (home.length < Math.max(6, A.need * 0.5)) return;
+    const hqs = (A.known || []).filter((k) => (RTS_DEFS[k.def] || {}).dropoff);
+    let best = null,
+      bd = 1e9;
+    for (const k of A.known || []) {
+      const D = RTS_DEFS[k.def] || {};
+      if (!D.conduit || D.conduit.root) continue;
+      if (hqs.some((h) => hyp(h.x, h.z, k.x, k.z) < 40)) continue; // 主堡旁的不算外圍
+      const d = hyp(k.x, k.z, A.rally.x, A.rally.z);
+      if (d < bd) ((bd = d), (best = k));
+    }
+    if (!best) return;
+    const us = home
+      .filter((u) => !u.rtsFusing && !defOf(u).melee)
+      .sort((a, b) => (defOf(b).speed || 0) - (defOf(a).speed || 0))
+      .slice(0, 4);
+    if (us.length < 4) return;
+    const p = this.rtsAiApproach(best.x, best.z, 2, centroid(us));
+    A.har = { ids: new Set(us.map((u) => u.id)), id: best.id, t0: R.t };
+    this.rtsAiOrd(A, us, { k: 'amove', x: p.x, z: p.z, nc: true });
+    this.rtsAiOrd(A, us, { k: 'attack', id: best.id }, true);
+    this.rtsAiLog(A, `騷擾導管節點：${best.id}`);
+  },
+  // 看得到的敵方建築（實體）→ 記得的紀錄的 rtsAiDeps
+  rtsAiDepsOf(A, e) {
+    if (!defOf(e).conduit) return 0;
+    const k = (A.known || []).find((q) => q.id === e.id);
+    return k ? this.rtsAiDeps(A, k) : 0;
+  },
+  // 拆掉這座（記得的）敵方建築會讓幾座建築停擺（只用記得的建築計算，不讀對方的導管網；結果快取到記得的建築有變化）
+  rtsAiDeps(A, k) {
+    const D = RTS_DEFS[k.def] || {};
+    if (!D.conduit || !this.rtsPowerDeps) return 0;
+    const key = (A.known || []).length + ':' + (A.bldGone ? A.bldGone.size : 0);
+    if (A.depsKey !== key) {
+      A.depsKey = key;
+      A.deps = new Map();
+    }
+    if (!A.deps.has(k.id)) A.deps.set(k.id, this.rtsPowerDeps(k, A.known || []));
+    return A.deps.get(k.id);
+  },
+
   // ---------- 偵查 ----------
   rtsAiScout(A, S) {
     const R = this.rts;
