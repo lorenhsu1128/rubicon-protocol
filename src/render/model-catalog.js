@@ -12,6 +12,7 @@ import { buildPod, buildStation } from './cine-sets.js';
 import { RTS_CATALOG } from './rts-models.js';
 import { RTS_NEUTRAL_CATALOG } from './rts-neutral-models.js';
 import { RTS_AETH_CATALOG } from './rts-aeth-models.js';
+import { RTS_VEER_CATALOG } from './rts-veer-models.js';
 import { FOE_CATALOG } from './foe-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
@@ -713,6 +714,10 @@ addPlain('small', 'proj_shell', '砲彈／榴彈', '發光彈體' + PROJ_NOTE, (
 
 // Coral 戰爭（RTS）的建築、礦脈、Coral 湧出點、工人、貨箱（render/rts-models.js）：目前只預覽，不接受 GLB
 for (const [cat, key, name, note, build] of [...RTS_CATALOG, ...RTS_NEUTRAL_CATALOG, ...RTS_AETH_CATALOG])
+  addPlain(cat, 'rts_' + key, name, note, build, { noGlb: true });
+
+// 維爾威（R4 B 包：render/rts-veer-models.js）
+for (const [cat, key, name, note, build] of RTS_VEER_CATALOG)
   addPlain(cat, 'rts_' + key, name, note, build, { noGlb: true });
 
 export const MODEL_CATALOG = entries;

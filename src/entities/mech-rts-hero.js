@@ -5,10 +5,12 @@
 // - rtsSkillDo(id, P, tgt)：技能的效果（Game.rtsSkillCast 檢查、扣 Coral、進冷卻之後呼叫）。傷害一律經過
 //   Game.rtsHeroDmg／rtsHeroSplash（→ 核心的 rtsHit／rtsSplash，乘施放者的 dmgMul）；數值用 rtsBuff。
 // - 實體端的暫存 e.hs：dash（衝刺）、leap（跳躍）、burrow（潛地）、chan（引導）、root（定身到的局內時間）、
-//   stealth（隱形到的時間）、high（高點射擊）、shield（緊急障壁）、kitT（修復套件）、alpha（目前的透明度）
+//   stealth（隱形到的時間）、high（高點射擊）、shield（緊急障壁）、kitT（修復套件）、alpha（目前的透明度）、
+//   blitz（COURIER 的急件突進：往地點直線衝刺）、flareT（熱焰彈：不能被鎖定到的時間）
 import { MechEntity } from './mech-entity.js';
 import { RTS_DEFS } from '../data/rts-units.js';
 import { RTS_HERO_DEFS, RTS_SKILLS } from '../data/rts-heroes.js';
+import { buildBomberMesh } from '../render/extra-models.js';
 
 const ZERO = new THREE.Vector3();
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -24,6 +26,7 @@ Object.assign(MechEntity.prototype, {
     const D = RTS_DEFS[this.rtsDef];
     const rt = this.rt;
     if (H.dash) return this.rtsHeroDashStep(dt);
+    if (H.blitz) return this.rtsHeroBlitzStep(dt);
     if (H.leap) return this.rtsHeroLeapStep(dt);
     if (H.burrow) return this.rtsHeroBurrowStep(dt);
     if (this.staggerT > 0 || R.over) return undefined;
@@ -118,8 +121,8 @@ Object.assign(MechEntity.prototype, {
         tgt = { x: t.pos.x, z: t.pos.z };
       }
       d = Math.hypot(tgt.x - this.pos.x, tgt.z - this.pos.z);
-      // 直線類（飽和砲擊）：任何距離都可以，朝那個方向
-      if (S.line) d = 0;
+      // 直線類（飽和砲擊）：任何距離都可以，朝那個方向；any（特快專送）：任何探索過的地方
+      if (S.line || S.any) d = 0;
     }
     const range = S.range || 0;
     if (S.kind !== 'self' && d > range) {
@@ -189,7 +192,9 @@ Object.assign(MechEntity.prototype, {
       return best || null;
     }
     const r = S.kind === 'unit' ? S.range : S.aiR || S.range || 12;
-    const foes = g.rtsHeroFoes(team, this.pos.x, this.pos.z, r).filter((t) => !t.noLock);
+    let foes = g.rtsHeroFoes(team, this.pos.x, this.pos.z, r).filter((t) => !t.noLock);
+    // 空爆彈幕（air）：只對空中與低空的敵人
+    if (S.air) foes = foes.filter((t) => !t.bld && (t.flying || (g.rtsLowAir && g.rtsLowAir(t))));
     if (!foes.length) return null;
     const eng = this.rt.engage && foes.includes(this.rt.engage) ? this.rt.engage : null;
     let t = eng;
@@ -252,6 +257,70 @@ Object.assign(MechEntity.prototype, {
       g.fx.dust(this.pos.clone(), 3, 10);
       return this.rtsHeroFinishJump(dt);
     }
+    return true;
+  },
+  // 急件突進（COURIER）：b.T 秒從 (x0, z0) 直線衝到 (x1, z1)，掃過的線段 w m 內的敵方單位各受一次傷害
+  rtsHeroBlitzStep(dt) {
+    const g = this.game,
+      w = g.world,
+      H = this.hs,
+      b = H.blitz;
+    b.t += dt;
+    const k = Math.min(1, b.t / b.T);
+    const px = this.pos.x,
+      pz = this.pos.z;
+    const x = b.x0 + (b.x1 - b.x0) * k,
+      z = b.z0 + (b.z1 - b.z0) * k;
+    this.pos.set(x, w.groundAt(x, z, this.pos.y + 2.5), z);
+    this.mesh.position.copy(this.pos);
+    if (g.rts) g.rts.hash.update(this, x, z);
+    // 這一格掃過的線段 (px, pz)→(x, z)
+    const sx = x - px,
+      sz = z - pz,
+      sl = Math.hypot(sx, sz);
+    for (const t of g.rtsHeroFoes(this.rtsTeam, (px + x) / 2, (pz + z) / 2, sl / 2 + b.P.w + 1, true)) {
+      if (b.hit.has(t.id) || t.dead) continue;
+      if (t.flying && !(g.rtsLowAir && g.rtsLowAir(t))) continue;
+      const u =
+        sl > 1e-4 ? Math.max(0, Math.min(1, ((t.pos.x - px) * sx + (t.pos.z - pz) * sz) / (sl * sl))) : 0;
+      const off = Math.hypot(t.pos.x - (px + sx * u), t.pos.z - (pz + sz * u)) - (t.radius || 1);
+      if (off > b.P.w) continue;
+      b.hit.add(t.id);
+      g.rtsHeroDmg(this, t, b.P.dmg, 'kin', 500);
+      if (g.rtsFxOk(t.pos)) g.fx.meleeHit(t.center(), 0x9be070, true, V(b.dx, 0, b.dz));
+    }
+    if (Math.random() < 0.7 && g.rtsFxOk(this.pos))
+      g.fx.boostFlame(this.center(), V(-b.dx, 0, -b.dz), 0x9be070);
+    if (k >= 1) {
+      H.blitz = null;
+      return this.rtsHeroFinishJump(dt);
+    }
+    return true;
+  },
+  // 拋物線跳到 p（最遠 range m；可以上高台）：SPIRE 的攀升、推進背包（維爾威的道具）共用
+  rtsHeroLeapTo(p, range, T = 0.8, h = 7) {
+    const g = this.game,
+      w = g.world;
+    let dx = p.x - this.pos.x,
+      dz = p.z - this.pos.z;
+    const L = Math.hypot(dx, dz);
+    if (L > range) ((dx *= range / L), (dz *= range / L));
+    const x1 = this.pos.x + dx,
+      z1 = this.pos.z + dz;
+    const [cx, cz] = w.collide(x1, z1, w.terrainHeight(x1, z1) + 0.5, this.radius || 1.5);
+    (this.hs || (this.hs = {})).leap = {
+      t: 0,
+      T,
+      x0: this.pos.x,
+      z0: this.pos.z,
+      y0: this.pos.y,
+      x1: cx,
+      z1: cz,
+      y1: w.groundAt(cx, cz, w.terrainHeight(cx, cz) + 2),
+      h,
+    };
+    this.orders.length = 0;
+    if (g.rtsFxOk(this.pos)) g.fx.dust(this.pos.clone(), 2.5, 8);
     return true;
   },
   // 潛地（SIROCCO 的沙中突襲）：隱藏、不能被攻擊，時間到從目標腳下鑽出
@@ -611,28 +680,7 @@ const SKILL_FX = {
   },
   // ===== SPIRE =====
   sk_climb(e, g, P, p) {
-    const S = RTS_SKILLS.sk_climb;
-    let dx = p.x - e.pos.x,
-      dz = p.z - e.pos.z;
-    const L = Math.hypot(dx, dz);
-    if (L > S.range) ((dx *= S.range / L), (dz *= S.range / L));
-    const x1 = e.pos.x + dx,
-      z1 = e.pos.z + dz;
-    const w = g.world;
-    const [cx, cz] = w.collide(x1, z1, w.terrainHeight(x1, z1) + 0.5, e.radius || 1.5);
-    e.hs.leap = {
-      t: 0,
-      T: 0.8,
-      x0: e.pos.x,
-      z0: e.pos.z,
-      y0: e.pos.y,
-      x1: cx,
-      z1: cz,
-      y1: w.groundAt(cx, cz, w.terrainHeight(cx, cz) + 2),
-      h: 7,
-    };
-    e.orders.length = 0;
-    g.fx.dust(e.pos.clone(), 2.5, 8);
+    e.rtsHeroLeapTo(p, RTS_SKILLS.sk_climb.range);
   },
   sk_high(e, g, P) {
     e.hs.high = { until: g.rts.t + P.t, k: P.k };
@@ -949,5 +997,230 @@ const SKILL_FX = {
       acid: true,
       fx: 'acid',
     });
+  },
+  // ===== COURIER（維爾威，docs 15.4） =====
+  // 急件突進：衝到 25 m 內的地點（0.4 秒）；途中碰到建築、障礙物、陡坡就停在前面
+  sk_blitz(e, g, P, p) {
+    const w = g.world,
+      S = RTS_SKILLS.sk_blitz;
+    let dx = p.x - e.pos.x,
+      dz = p.z - e.pos.z;
+    let L = Math.hypot(dx, dz);
+    if (L < 1) {
+      const f = e.rtsHeroFwd();
+      ((dx = f.x), (dz = f.z), (L = S.range));
+      dx *= L;
+      dz *= L;
+    }
+    const ux = dx / L,
+      uz = dz / L;
+    const len = Math.min(L, S.range);
+    const r = e.radius || 1.5;
+    let x = e.pos.x,
+      z = e.pos.z,
+      h = w.terrainHeight(x, z);
+    for (let s = 0.5; s <= len + 1e-6; s += 0.5) {
+      const nx = e.pos.x + ux * s,
+        nz = e.pos.z + uz * s;
+      const nh = w.terrainHeight(nx, nz);
+      if (nh - h > 2.5) break; // 斷崖往上
+      const [cx, cz] = w.collide(nx, nz, w.groundAt(nx, nz, nh + 2) + 0.5, r);
+      if (Math.hypot(cx - nx, cz - nz) > 0.05) break; // 建築、障礙物
+      ((x = nx), (z = nz), (h = nh));
+    }
+    const nav = w.nav;
+    if (nav) {
+      const c = nav.nearestCell(x, z, e.rtNavSize || 1, -1, 4);
+      if (c >= 0) {
+        const q = nav.center(c);
+        if (Math.hypot(q.x - x, q.z - z) < 4) ((x = q.x), (z = q.z));
+      }
+    }
+    if (Math.hypot(x - e.pos.x, z - e.pos.z) < 1) {
+      if (e.rtsTeam === 0) g.rtsSay('前方被擋住了');
+      return false;
+    }
+    e.hs.blitz = { x0: e.pos.x, z0: e.pos.z, x1: x, z1: z, dx: ux, dz: uz, t: 0, T: P.t, P, hit: new Set() };
+    e.yaw = e.aimYaw = Math.atan2(-ux, -uz);
+    e.mesh.rotation.y = e.yaw;
+    e.orders.length = 0;
+    if (g.rtsFxOk(e.pos)) g.fx.flash(e.center(), 2.2, 0x9be070, 0.15);
+  },
+  // 補給投放：1.5 秒後補給箱落地，8 m 內的己方單位 5 秒共回復 heal
+  sk_drop(e, g, P, p) {
+    const team = e.rtsTeam;
+    g.fx.warnCircle(P3(g, p.x, p.z, 0.1), P.R, P.delay, 0x9be070);
+    g.later(P.delay, () => {
+      if (!g.rts) return;
+      const q = P3(g, p.x, p.z, 0.8);
+      if (g.rtsFxOk(q)) {
+        g.fx.beam(q.clone().setY(q.y + 30), q, 0x9be070, 0.18);
+        g.fx.explosion(q, 1.6, 0x9be070);
+        g.fx.ring(P3(g, p.x, p.z, 0.25), P.R, 0x9be070);
+      }
+      for (const u of g.rtsHeroAllies(team, p.x, p.z, P.R)) {
+        if (u.rtsAboard) continue;
+        g.rtsBuff(u, { src: 'sk_drop', regen: P.heal / P.t }, P.t);
+      }
+    });
+  },
+  // 特快專送：運輸機的駕駛在 Game.rtsHeroExpressTick（rts-hero.js）
+  sk_express(e, g, P, p) {
+    if (!g.rtsBoard) return false;
+    if (g.rtsFogState && g.rtsFogState(e.rtsTeam, p.x, p.z) < 1) {
+      if (e.rtsTeam === 0) g.rtsSay('要送到探索過的地方');
+      return false;
+    }
+    return g.rtsHeroExpress(e, P, p.x, p.z);
+  },
+  // ===== SKYHOOK =====
+  // 強襲空投艙：預警後落地，範圍爆發＋暈眩，原地留下臨時投放信標
+  sk_pod(e, g, P, p) {
+    const team = e.rtsTeam;
+    g.fx.warnCircle(P3(g, p.x, p.z, 0.1), P.R, P.warn, 0x9be070);
+    g.later(P.warn, () => {
+      if (!g.rts) return;
+      const q = P3(g, p.x, p.z, 0.6);
+      if (g.rtsFxOk(q)) {
+        g.fx.beam(q.clone().setY(q.y + 40), q, 0xd8ffb0, 0.35);
+        g.fx.explosion(q, P.R * 0.8, 0xffb060);
+        g.fx.dust(P3(g, p.x, p.z), P.R, 12);
+        g.fx.shockwave(q, P.R, 0x9be070);
+      }
+      // 範圍內（外形算進去）的敵人一律全額；空中單位不受影響（低空的算）
+      for (const t of g.rtsHeroFoes(team, p.x, p.z, P.R)) {
+        if (t.flying && !(g.rtsLowAir && g.rtsLowAir(t))) continue;
+        g.rtsHeroDmg(e, t, P.dmg, 'exp', 600);
+        if (!t.bld) g.rtsStun(t, P.stun);
+      }
+      if (g.rtsBeaconAddTemp) g.rtsBeaconAddTemp(team, p.x, p.z, P.bcn);
+    });
+  },
+  // 緊急增援：2 秒後身邊落下空降 MT（臨時單位）
+  sk_reinforce(e, g, P) {
+    for (let i = 0; i < P.n; i++) {
+      const a = (e.yaw || 0) + (i / Math.max(1, P.n)) * Math.PI * 2 + 0.5;
+      g.fx.warnCircle(
+        P3(g, e.pos.x + Math.cos(a) * 3.2, e.pos.z + Math.sin(a) * 3.2, 0.1),
+        1.6,
+        P.delay,
+        0x9be070,
+      );
+    }
+    g.later(P.delay, () => {
+      if (!g.rts) return;
+      const list = g.rtsHeroTemp(e, 'v_mt', P.n, P.t);
+      for (const u of list)
+        if (g.rtsFxOk(u.pos)) {
+          g.fx.beam(u.center().setY(u.pos.y + 30), u.center(), 0xd8ffb0, 0.25);
+          g.fx.dust(u.pos.clone(), 2.5, 8);
+        }
+      e.hs.reinN = list.length; // 測試與 HUD 用
+    });
+  },
+  // 地毯轟炸：朝 p 的方向 60 m，預警後轟炸機（特效）沿線每 5 m 投一枚（地面的範圍傷害：空中單位不受影響）
+  sk_carpet(e, g, P, p) {
+    let dx = p.x - e.pos.x,
+      dz = p.z - e.pos.z;
+    let L = Math.hypot(dx, dz);
+    if (L < 0.5) {
+      const f = e.rtsHeroFwd();
+      ((dx = f.x), (dz = f.z), (L = 1));
+    }
+    dx /= L;
+    dz /= L;
+    const team = e.rtsTeam;
+    const x0 = e.pos.x + dx * 4,
+      z0 = e.pos.z + dz * 4;
+    const x1 = x0 + dx * P.len,
+      z1 = z0 + dz * P.len;
+    g.fx.warnLine(P3(g, x0, z0, 0.3), P3(g, x1, z1, 0.3), P.warn + 1, 0xff3020, 0.3);
+    if (g.rtsFogReveal) g.rtsFogReveal(team, (x0 + x1) / 2, (z0 + z1) / 2, P.len / 2 + 4, P.warn + 3);
+    const gap = 0.12; // 投彈的間隔（秒）
+    const sp = P.len / P.n / gap; // 轟炸機的速度
+    // 轟炸機：從線的起點前 40 m 進場，投完再飛 40 m
+    if (g.rtsFxOk({ x: (x0 + x1) / 2, z: (z0 + z1) / 2 })) {
+      const T0 = P.warn - 40 / sp,
+        dur = (P.len + 80) / sp;
+      const alt = gy(g, (x0 + x1) / 2, (z0 + z1) / 2) + 26;
+      g.later(Math.max(0, T0), () => {
+        if (!g.rts) return;
+        const bm = buildBomberMesh();
+        bm.scale.setScalar(0.8);
+        g.fx.add(bm, dur, (q, t) => {
+          const d = -40 + (P.len + 80) * t;
+          bm.position.set(x0 + dx * d, alt, z0 + dz * d);
+          bm.rotation.y = Math.atan2(dx, dz) + Math.PI; // 機頭（−Z）朝飛行方向
+        });
+      });
+    }
+    for (let i = 0; i < P.n; i++)
+      g.later(P.warn + i * gap, () => {
+        if (!g.rts) return;
+        const d = (i + 0.5) * (P.len / P.n);
+        const x = x0 + dx * d,
+          z = z0 + dz * d;
+        const q = P3(g, x, z, 0.6);
+        if (g.rtsFxOk(q)) {
+          g.fx.explosion(q, P.R * 0.7, 0xff9040);
+          g.fx.dust(P3(g, x, z), P.R * 0.6, 6);
+        }
+        g.rtsHeroSplash(e, x, z, P.R, P.dmg, 'exp', 300, team);
+      });
+  },
+  // ===== VECTOR =====
+  // 空爆彈幕：0.5 秒後空爆，空中與低空單位 100%、地面單位 gK
+  sk_flak(e, g, P, p) {
+    const team = e.rtsTeam;
+    g.fx.warnCircle(P3(g, p.x, p.z, 0.1), P.R, P.delay, 0xffd060);
+    if (g.rtsFxOk(e.pos)) g.fx.beam(e.center(), P3(g, p.x, p.z, 8), 0xffd060, 0.06);
+    g.later(P.delay, () => {
+      if (!g.rts) return;
+      const q = P3(g, p.x, p.z, 8);
+      if (g.rtsFxOk(q)) {
+        g.fx.flash(q, P.R * 0.8, 0xffe0a0, 0.15);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const o = V(Math.cos(a) * P.R * 0.5, (i % 3) - 1, Math.sin(a) * P.R * 0.5);
+          g.fx.explosion(q.clone().add(o), 1.6, 0xffc060);
+        }
+        g.fx.streaks(q, 14, 0xffe0a0, 16, 0.4, 10);
+      }
+      for (const t of g.rtsHeroFoes(team, p.x, p.z, P.R, true)) {
+        const air = t.flying || (g.rtsLowAir && g.rtsLowAir(t));
+        g.rtsHeroDmg(e, t, P.dmg * (air ? 1 : P.gK), 'pierce', 200);
+      }
+    });
+  },
+  // 干擾吊艙：單位射程 −40%、不能施放技能；建築的生產與研究暫停（同電磁脈衝的 bld.empT）
+  sk_jam(e, g, P, t) {
+    const R = g.rts;
+    if (g.rtsFxOk(t.pos)) {
+      g.fx.beam(e.center(), t.center(), 0xc080ff, 0.08);
+      g.fx.flash(t.center(), 2.2, 0xc080ff, 0.2);
+    }
+    if (t.bld) {
+      t.bld.empT = Math.max(t.bld.empT || 0, R.t + P.bld);
+      return;
+    }
+    const D = RTS_DEFS[t.rtsDef] || {};
+    g.rtsBuff(t, { src: 'sk_jam', range: -(D.range || 0) * (1 - P.rangeK) }, P.t);
+    t.rtsJamT = Math.max(t.rtsJamT || 0, R.t + P.t);
+    // 單位的技能（B 包的 rtsAbWhy 看 rtsCd）：干擾的期間當成冷卻中；英雄的技能由 Game.rtsSkillWhy 看 rtsJamT
+    if (!t.hero) {
+      const cd = t.rtsCd || (t.rtsCd = {});
+      for (const ab of D.abil || []) cd[ab] = Math.max(cd[ab] || 0, R.t + P.t);
+    }
+  },
+  // 無人機中隊：身邊 8 台偵察無人機（臨時單位），跟著 VECTOR 攻擊它的目標（Game.rtsHeroLeadTick）
+  sk_squadron(e, g, P) {
+    const list = g.rtsHeroTemp(e, 'v_drone', P.n, P.t);
+    if (!list.length) return false;
+    for (const u of list) {
+      u.rtsLead = e;
+      u.orders = [];
+    }
+    e.hs.squadN = list.length;
+    if (g.rtsFxOk(e.pos)) g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), 5, 0x9be070);
   },
 };

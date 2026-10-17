@@ -4,7 +4,7 @@
 // RTS_HERO_DEFS[id]：kind 'unit'、hero: true、faction、name、role（定位）、asm（AC_ROSTER／ACES 的組裝）、atk 'hero'、
 //   arm 'hero'、armor、hp、dps、range、speed、sight、pop 5、time 55、slots、grow { hp, dps, armor }（每升一級）、
 //   skills [4 個技能 id：Z X C V]、card（英雄的指令卡）、menus.learn（學習技能的子選單）
-// 卡斯特隆：h_bastion、h_rain、h_pile；艾瑟立克：h_prism、h_curator、h_veil（docs 14.4）；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
+// 卡斯特隆：h_bastion、h_rain、h_pile；艾瑟立克：h_prism、h_curator、h_veil（docs 14.4）；維爾威：h_courier、h_skyhook、h_vector（15.4）；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
 // 技能的行為在 entities/mech-rts-hero.js（施放）與 game/rts-hero.js（光環、區域、持續效果）。
 import { AC_ROSTER } from './enemies.js';
 import { ACES } from './foes.js';
@@ -613,6 +613,164 @@ export const RTS_SKILLS = {
     lv: [{ coral: 100, cd: 160, R: 20, max: 16, t: 20, dmg: 0.3, taken: 2 }],
     desc: '20 m 內每台己方一般單位（最多 16 台，不含英雄、工人與建築）旁邊出現一個幻象 20 秒（傷害 30%、受到的傷害 ×2）',
   },
+  // ===== COURIER（維爾威，docs 15.4）；ai＝電腦施放的條件（F 包的 RTS_AI_CAST 用同樣的格式） =====
+  sk_blitz: {
+    name: '急件突進',
+    slot: 0,
+    kind: 'point',
+    range: 25,
+    auto: true,
+    aiR: 24,
+    ai: { k: 'line', n: 3 },
+    lv: L3(
+      { coral: 15, cd: 10, dmg: 70, w: 3, t: 0.4 },
+      { coral: 20, cd: 10, dmg: 110, w: 3, t: 0.4 },
+      { coral: 25, cd: 10, dmg: 150, w: 3, t: 0.4 },
+    ),
+    desc: '0.4 秒衝到 25 m 內的地點，路線 3 m 內的敵人 70／110／150 實彈（穿過單位，不能穿過建築與障礙物）',
+  },
+  sk_drop: {
+    name: '補給投放',
+    slot: 1,
+    kind: 'point',
+    range: 40,
+    ai: { k: 'ally', hp: 0.5, n: 3, r: 8 },
+    lv: L3(
+      { coral: 20, cd: 18, delay: 1.5, R: 8, heal: 150, t: 5 },
+      { coral: 20, cd: 18, delay: 1.5, R: 8, heal: 250, t: 5 },
+      { coral: 20, cd: 18, delay: 1.5, R: 8, heal: 350, t: 5 },
+    ),
+    desc: '1.5 秒後補給箱落地，8 m 內的己方單位 5 秒共回復 150／250／350 AP',
+  },
+  sk_tempo: {
+    name: '時間就是錢',
+    slot: 2,
+    kind: 'aura',
+    r: 25,
+    lv: L3({ speed: 1.06, rof: 1.04 }, { speed: 1.1, rof: 1.07 }, { speed: 1.14, rof: 1.1 }),
+    desc: '光環 25 m：友軍移動速度 +6／10／14%、維爾威的單位射速 +4／7／10%',
+  },
+  sk_express: {
+    name: '特快專送',
+    slot: 3,
+    kind: 'point',
+    range: 999,
+    any: true, // 任何探索過的地方（不看距離）
+    ai: { k: 'army', n: 8, r: 12 },
+    lv: [
+      {
+        coral: 75,
+        cd: 120,
+        delay: 2,
+        R: 12,
+        max: 16,
+        hp: 1200,
+        speed: 40,
+        alt: 12,
+        land: 1.5,
+        dmg: 1.2,
+        t: 8,
+      },
+    ],
+    desc: '2 秒後一台空投運輸機（血量 1200）載走英雄與 12 m 內的己方地面單位（最多 16 人口），以 40 m/s 飛到探索過的地點、下降 1.5 秒卸下；落地後 8 秒傷害 +20%（運輸機被擊落時乘員受到最大血量 50% 的傷害）',
+  },
+  // ===== SKYHOOK =====
+  sk_pod: {
+    name: '強襲空投艙',
+    slot: 0,
+    kind: 'point',
+    range: 35,
+    auto: true,
+    aiR: 33,
+    ai: { k: 'cluster', n: 3, r: 4 },
+    lv: L3(
+      { coral: 20, cd: 12, warn: 1.2, R: 4, dmg: 100, stun: 1, bcn: 20 },
+      { coral: 25, cd: 12, warn: 1.2, R: 4, dmg: 160, stun: 1, bcn: 20 },
+      { coral: 30, cd: 12, warn: 1.2, R: 4, dmg: 220, stun: 1, bcn: 20 },
+    ),
+    desc: '預警 1.2 秒後投放艙落地：半徑 4 m 100／160／220 爆發＋暈眩 1 秒，原地留下臨時投放信標 20 秒',
+  },
+  sk_reinforce: {
+    name: '緊急增援',
+    slot: 1,
+    kind: 'self',
+    auto: true,
+    aiR: 24,
+    ai: { k: 'self', hp: 1, n: 3, r: 24 },
+    lv: L3(
+      { coral: 25, cd: 24, delay: 2, n: 2, t: 40 },
+      { coral: 30, cd: 24, delay: 2, n: 3, t: 40 },
+      { coral: 35, cd: 24, delay: 2, n: 4, t: 40 },
+    ),
+    desc: '2 秒後身邊落下 2／3／4 台空降 MT，40 秒後撤離（不佔人口、擊破不給經驗）',
+  },
+  sk_air: {
+    name: '空域管制',
+    slot: 2,
+    kind: 'aura',
+    r: 30,
+    lv: L3({ dmg: 1.08, range: 2 }, { dmg: 1.14, range: 3 }, { dmg: 1.2, range: 4 }),
+    desc: '光環 30 m：己方空中單位傷害 +8／14／20%、射程 +2／3／4',
+  },
+  sk_carpet: {
+    name: '地毯轟炸',
+    slot: 3,
+    kind: 'point',
+    range: 60,
+    line: true, // 朝指定方向（任何距離）
+    aiR: 55,
+    ai: { k: 'line', n: 6, bld: 1 },
+    lv: [{ coral: 90, cd: 140, warn: 2, len: 60, n: 12, R: 5, dmg: 120 }],
+    desc: '朝指定方向 60 m 的直線：預警 2 秒後轟炸機沿線每 5 m 投一枚（共 12 枚），每枚 5 m 120 爆發；空中單位不受影響',
+  },
+  // ===== VECTOR =====
+  sk_flak: {
+    name: '空爆彈幕',
+    slot: 0,
+    kind: 'point',
+    range: 40,
+    air: true, // 自動施放只對空中／低空的敵人
+    auto: true,
+    aiR: 38,
+    ai: { k: 'air', n: 2, r: 7 },
+    lv: L3(
+      { coral: 15, cd: 12, delay: 0.5, R: 7, dmg: 120, gK: 0.5 },
+      { coral: 20, cd: 12, delay: 0.5, R: 7, dmg: 180, gK: 0.5 },
+      { coral: 25, cd: 12, delay: 0.5, R: 7, dmg: 240, gK: 0.5 },
+    ),
+    desc: '半徑 7 m 0.5 秒後空爆：空中與低空單位 120／180／240 穿甲，地面單位 50%',
+  },
+  sk_jam: {
+    name: '干擾吊艙',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 35,
+    auto: true,
+    ai: { k: 'mark' },
+    lv: L3(
+      { coral: 20, cd: 16, t: 6, rangeK: 0.6, bld: 4 },
+      { coral: 20, cd: 16, t: 8, rangeK: 0.6, bld: 6 },
+      { coral: 20, cd: 16, t: 10, rangeK: 0.6, bld: 8 },
+    ),
+    desc: '敵方單位 6／8／10 秒射程 −40%、不能施放技能；建築的生產與研究暫停 4／6／8 秒',
+  },
+  sk_slip: {
+    name: '滑流',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ pierce: 0.9, speed: 1.05 }, { pierce: 0.8, speed: 1.1 }, { pierce: 0.7, speed: 1.15 }),
+    desc: '受到的穿甲傷害 −10／20／30%、移動速度 +5／10／15%',
+  },
+  sk_squadron: {
+    name: '無人機中隊',
+    slot: 3,
+    kind: 'self',
+    aiR: 24,
+    ai: { k: 'army', n: 6, r: 24 },
+    lv: [{ coral: 100, cd: 160, n: 8, t: 30 }],
+    desc: '身邊出現 8 台偵察無人機 30 秒，跟著 VECTOR 攻擊它的目標（不佔人口、擊破不給經驗）',
+  },
 };
 for (const id in RTS_SKILLS) RTS_SKILLS[id].id = id;
 
@@ -846,6 +1004,67 @@ export const RTS_HERO_DEFS = {
     grow: { hp: 70, dps: 2.6, armor: 0.3 },
     skills: ['sk_mirror', 'sk_emp', 'sk_phase', 'sk_legion'],
   }),
+  // ===== 維爾威（docs 15.4）：數值、組裝、技能照 15.4（R4 C 包）；配色由 rtsSpawn 依陣營（rtsPal('veerwell')） =====
+  h_courier: hero('h_courier', {
+    faction: 'veerwell',
+    name: 'COURIER',
+    role: '急件快遞',
+    desc: '英雄：急件快遞（突擊、機動）。急件突進、補給投放、時間就是錢、特快專送',
+    tier: 1,
+    asm: { ...AC('hornet'), legs: 'l_rj', rarm: 'w_mg', rback: 'bw_gat' },
+    slots: ['rarm', 'rback'],
+    hp: 1250,
+    armor: 2,
+    range: 22,
+    dps: 28,
+    speed: 10.5,
+    sight: 34,
+    grow: { hp: 85, dps: 2.8, armor: 0.4 },
+    skills: ['sk_blitz', 'sk_drop', 'sk_tempo', 'sk_express'],
+  }),
+  h_skyhook: hero('h_skyhook', {
+    faction: 'veerwell',
+    name: 'SKYHOOK',
+    role: '空降指揮',
+    desc: '英雄：空降指揮（召喚、轟炸）。強襲空投艙、緊急增援、空域管制、地毯轟炸',
+    tier: 1,
+    asm: { ...AE, head: 'h_std', core: 'c_std', arms: 'a_std', legs: 'l_bp', rarm: 'w_bz', larm: 'w_sg' },
+    slots: ['rarm'],
+    hp: 1350,
+    armor: 3,
+    range: 30,
+    dps: 24,
+    speed: 9,
+    sight: 36,
+    grow: { hp: 95, dps: 2.4, armor: 0.45 },
+    skills: ['sk_pod', 'sk_reinforce', 'sk_air', 'sk_carpet'],
+  }),
+  h_vector: hero('h_vector', {
+    faction: 'veerwell',
+    name: 'VECTOR',
+    role: '截擊管制',
+    desc: '英雄：截擊管制（對空、干擾）。空爆彈幕、干擾吊艙、滑流、無人機中隊',
+    tier: 1,
+    aa: 'both',
+    asm: {
+      ...AE,
+      head: 'h_scan',
+      core: 'c_lt',
+      arms: 'a_std',
+      legs: 'l_rj',
+      rarm: 'w_rifle',
+      rback: 'bw_ms',
+    },
+    slots: ['rarm', 'rback'],
+    hp: 1150,
+    armor: 2,
+    range: 36,
+    dps: 24,
+    speed: 9.5,
+    sight: 40,
+    grow: { hp: 80, dps: 2.6, armor: 0.3 },
+    skills: ['sk_flak', 'sk_jam', 'sk_slip', 'sk_squadron'],
+  }),
   // ===== 酒館的宿敵 AC（faction 'neutral'；全場唯一） =====
   t_rust: hero('t_rust', {
     faction: 'neutral',
@@ -1011,6 +1230,7 @@ export const RTS_TAVERN = [
 export const RTS_FACTION_HEROES = {
   castron: ['h_bastion', 'h_rain', 'h_pile'],
   aetheric: ['h_prism', 'h_curator', 'h_veil'],
+  veerwell: ['h_courier', 'h_skyhook', 'h_vector'],
 };
 
 // 經驗 → 等級（1～10）

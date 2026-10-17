@@ -31,6 +31,7 @@
 //         卡片的 req（同定義的 req）：不符合時灰掉（例：盾牆要研究 r_wall）
 import { RTS_RESEARCH } from './rts-combat.js';
 import { RTS_AETH_ABILS, RTS_AETH_DEFS, RTS_AETH_FACTION, RTS_AETH_RESEARCH } from './rts-aetheric.js';
+import { RTS_VEER_ABILS, RTS_VEER_DEFS, RTS_VEER_FACTION, RTS_VEER_RESEARCH } from './rts-veerwell.js';
 import { RTS_HERO_DEFS } from './rts-heroes.js';
 import { RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS } from './rts-neutral.js';
 
@@ -127,6 +128,8 @@ export const RTS_ABILS = {
 for (const id in RTS_ABILS) RTS_ABILS[id].id = id;
 // 艾瑟立克的技能（data/rts-aetheric.js；docs 14.3）
 Object.assign(RTS_ABILS, RTS_AETH_ABILS);
+// 維爾威的技能（data/rts-veerwell.js；docs 15.3）
+Object.assign(RTS_ABILS, RTS_VEER_ABILS);
 
 // ---------- 共用的指令卡 ----------
 const ORD = {
@@ -887,9 +890,9 @@ export const RTS_DEFS = {
     card: [train([0, 0], 'c_heli'), loop, cancel, rally],
   },
 };
-// 其他包的定義：英雄（C）、野怪與中立建築（D）、艾瑟立克（data/rts-aetheric.js）
-Object.assign(RTS_DEFS, RTS_HERO_DEFS, RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS, RTS_AETH_DEFS);
-Object.assign(RTS_RESEARCH, RTS_AETH_RESEARCH);
+// 其他包的定義：英雄（C）、野怪與中立建築（D）、艾瑟立克（data/rts-aetheric.js）、維爾威（data/rts-veerwell.js）
+Object.assign(RTS_DEFS, RTS_HERO_DEFS, RTS_CREEP_DEFS, RTS_NEUTRAL_DEFS, RTS_AETH_DEFS, RTS_VEER_DEFS);
+Object.assign(RTS_RESEARCH, RTS_AETH_RESEARCH, RTS_VEER_RESEARCH);
 // 指令卡的預設快捷鍵（依位置）與說明（建造、生產的名稱帶成本）
 const costTxt = (c) => `礦石 ${c.ore || 0}${c.coral ? '、Coral ' + c.coral : ''}`;
 const fixCard = (card) => {
@@ -910,7 +913,7 @@ for (const id in RTS_DEFS) {
   for (const m in D.menus || {}) fixCard(D.menus[m]);
 }
 
-// ---------- 陣營（四個，R2 只有卡斯特隆可以選） ----------
+// ---------- 陣營（四個；R4 起卡斯特隆、艾瑟立克、維爾威可以選） ----------
 export const RTS_FACTIONS = {
   castron: {
     name: '卡斯特隆重工',
@@ -959,7 +962,14 @@ export const RTS_FACTIONS = {
     pal: 'aetheric',
     ...RTS_AETH_FACTION,
   },
-  veerwell: { name: '維爾威動態', leader: '派克', style: '機動、空中、物流', avail: false, pal: 'veerwell' },
+  // 維爾威（docs 15.2；hq／worker／units／blds／heroes／airdrop… 在 data/rts-veerwell.js 的 RTS_VEER_FACTION）
+  veerwell: {
+    name: '維爾威動態',
+    leader: '派克',
+    style: '機動、空中、物流',
+    pal: 'veerwell',
+    ...RTS_VEER_FACTION,
+  },
   sancta: { name: '聖域互助同盟', leader: '諾拉', style: '便宜、數量、回收', avail: false, pal: 'castron' },
 };
 // 主堡（有 heroes 的建築）的英雄子選單：依陣營的英雄產生

@@ -9,6 +9,9 @@
 //   防禦塔（有 range 的建築）可以接 attack／stop（B 包的 rtsTowerAI 讀 b.orders[0]）；親自駕駛中的英雄不接指令。
 // - R3（docs 14.2）：fuse（融合：選取中的材料分組，rts-grid.js 的 rtsFuseIssue；回傳組數）、建築的技能（結晶護壁：
 //   選取中有這個技能的建築 rtsBldAbility）；不能修理的工人（定義的 noRepair）右鍵受損的建築＝走過去。
+// - R4（docs 15.2、15.3；rts-veer.js）：沒有建造工人的陣營（airdrop）的 build＝空投 rtsDropOrder（不派工人）；
+//   drop（空投）、pack（收起）、unpack（展開到地點）、trade（物流交易）、load（運輸機載運：指定的單位走過來登機）、
+//   unload（運輸機卸載）、board（單位登機）；收好的建築接受 move；建築的地點技能（緊急補給）只由一座施放。
 import { Game } from './game.js';
 import { RTS_ABILS, RTS_DEFS, RTS_GATHER } from '../data/rts-units.js';
 
@@ -22,15 +25,59 @@ Object.assign(Game.prototype, {
     const R = this.rts;
     if (!R || !order) return;
     const k = order.k;
+    const team0 = (units || []).find((e) => e && !e.dead && e.rtsTeam !== undefined);
+    const team = order.team !== undefined ? order.team : team0 ? team0.rtsTeam : undefined;
     if (k === 'ability') {
-      // 融合類的技能＝融合指令；建築的技能（結晶護壁）由 rts-grid.js 的 rtsBldAbility 施放
+      // 融合類的技能＝融合指令；建築的技能（結晶護壁、緊急補給）由 rts-grid.js 的 rtsBldAbility 施放
       const A = RTS_ABILS[order.ab];
       if (A && A.fuse) return this.rtsOrder(units, { k: 'fuse', recipe: A.fuse }, queue);
+      // 維爾威的載運／卸載＝指令（docs 15.3）
+      if (A && A.order === 'load') return this.rtsOrder(units, { k: 'load', id: order.id }, queue);
+      if (A && A.order === 'unload')
+        return this.rtsOrder(units, { k: 'unload', x: order.x, z: order.z }, queue);
       let nb = 0;
+      const pt = A && A.target === 'point';
       for (const b of units || [])
-        if (b && !b.dead && b.bld && ((RTS_DEFS[b.rtsDef] || {}).abil || []).includes(order.ab))
-          nb += this.rtsBldAbility && this.rtsBldAbility(b, order.ab) ? 1 : 0;
+        if (b && !b.dead && b.bld && ((RTS_DEFS[b.rtsDef] || {}).abil || []).includes(order.ab)) {
+          if (pt && nb) break; // 地點技能只由一座施放
+          nb += this.rtsBldAbility && this.rtsBldAbility(b, order.ab, order) ? 1 : 0;
+        }
       if (A && A.bld) return nb;
+    }
+    // ---------- 維爾威（rts-veer.js） ----------
+    if ((k === 'build' && team !== undefined && this.rtsVeerTeam && this.rtsVeerTeam(team)) || k === 'drop') {
+      // 空投：不派工人（管家、電腦對手照舊下 build 也會轉過來）
+      if (team === undefined || !this.rtsDropOrder) return null;
+      return this.rtsDropOrder(team, order.def || order.id, order.x, order.z, order.yaw || 0, order);
+    }
+    if (k === 'pack') {
+      let n = 0;
+      for (const b of units || [])
+        if (b && !b.dead && b.bld && !b.bld.packed && this.rtsPack && this.rtsPack(b)) n++;
+      return n;
+    }
+    if (k === 'unpack') {
+      let n = 0;
+      for (const b of units || [])
+        if (
+          b &&
+          !b.dead &&
+          b.bld &&
+          b.bld.packed &&
+          this.rtsUnpack &&
+          this.rtsUnpack(b, order.x, order.z, order.yaw)
+        )
+          n++;
+      return n;
+    }
+    if (k === 'trade') return team !== undefined && this.rtsTrade ? this.rtsTrade(team, order.dir) : false;
+    if (k === 'move' || k === 'amove') {
+      // 收好的建築：飛過去（取消展開的地點）
+      for (const b of units || [])
+        if (b && !b.dead && b.bld && b.bld.packed === 2) {
+          b.bld.unpackTo = null;
+          b.orders = [{ k: 'move', x: order.x, z: order.z }];
+        }
     }
     if (k === 'attack' || k === 'stop') {
       // 防禦塔：指定目標／停止
@@ -38,7 +85,10 @@ Object.assign(Game.prototype, {
         if (b && !b.dead && b.bld && RTS_DEFS[b.rtsDef] && RTS_DEFS[b.rtsDef].range)
           b.orders = k === 'attack' ? [{ ...order }] : [];
     }
-    const list = (units || []).filter((e) => e && !e.dead && !e.bld && e.rtsDef && !e.rtsPiloted);
+    // 不接指令：親自駕駛中的英雄、運輸機上的乘員、空投運輸機（rts-veer.js 駕駛）
+    const list = (units || []).filter(
+      (e) => e && !e.dead && !e.bld && e.rtsDef && !e.rtsPiloted && !e.rtsAboard && !e.rtsDriven,
+    );
     if (!list.length) return;
     if (k === 'stop') {
       for (const e of list) this.rtsSetOrders(e, []);
@@ -66,6 +116,30 @@ Object.assign(Game.prototype, {
       return;
     }
     if (k === 'fuse') return this.rtsFuseIssue ? this.rtsFuseIssue(list, order.recipe) : 0;
+    if (k === 'load') {
+      // 運輸機（選取中的第一台有空位的）＋指定的己方單位走過來登機
+      const t = this.rtsEnt(order.id);
+      const ship = list.find((e) => RTS_DEFS[e.rtsDef].cargo);
+      if (!t || !ship || t === ship) return 0;
+      const why = this.rtsBoardWhy ? this.rtsBoardWhy(t, ship) : '';
+      if (why) return (t.rtsTeam === 0 && this.rtsSay(why), 0);
+      this.rtsSetOrders(t, [{ k: 'board', id: ship.id }]);
+      return 1;
+    }
+    if (k === 'board') {
+      const ship = this.rtsEnt(order.id);
+      if (!ship) return 0;
+      let n = 0;
+      for (const e of list) if (e !== ship && !e.flying) (give(e, { k: 'board', id: ship.id }), n++);
+      return n;
+    }
+    if (k === 'unload') {
+      let n = 0;
+      for (const e of list)
+        if (RTS_DEFS[e.rtsDef].cargo && e.cargo && e.cargo.length)
+          (give(e, { k: 'unload', x: order.x, z: order.z }), n++);
+      return n;
+    }
     if (k === 'gather' || k === 'repair') {
       for (const e of list) {
         const D = RTS_DEFS[e.rtsDef];
@@ -124,7 +198,11 @@ Object.assign(Game.prototype, {
       }
       const slots = this.rtsFormation(order.x, order.z, list);
       for (const [size, grp] of by) {
-        const flow = grp.length >= FLOW_MIN && nav ? nav.flowField(order.x, order.z, size) : null;
+        // 空中單位直線飛、不用流場（R4 B 包：只算地面單位的台數）
+        const flow =
+          grp.filter((e) => !e.flying).length >= FLOW_MIN && nav
+            ? nav.flowField(order.x, order.z, size)
+            : null;
         for (const e of grp) {
           const s = slots.get(e);
           const o = { ...order, flow };
@@ -210,19 +288,28 @@ Object.assign(Game.prototype, {
     if (!target) mine = this.rtsMineAt(x, z, RTS_GATHER.mineR + 1.5);
     const ent = this.rtsIsEntity(target) ? target : null;
     if (!mob.length) {
+      // 收好的建築（維爾威）：右鍵地面＝飛過去
+      const packed = blds.filter((b) => b.bld.packed === 2);
+      if (packed.length) this.rtsOrder(packed, { k: 'move', x, z }, queue);
       // 集結點（點礦脈＝之後生產的工人自動採集）
       for (const b of blds)
-        b.bld.rally =
-          ent && ent !== b
-            ? { x: ent.pos.x, z: ent.pos.z, id: ent.id }
-            : mine
-              ? { x: mine.pos.x, z: mine.pos.z, mine: mine.id }
-              : { x, z };
+        if (!b.bld.packed)
+          b.bld.rally =
+            ent && ent !== b
+              ? { x: ent.pos.x, z: ent.pos.z, id: ent.id }
+              : mine
+                ? { x: mine.pos.x, z: mine.pos.z, mine: mine.id }
+                : { x, z };
       return;
     }
     const team = mob[0].rtsTeam;
     if (ent && ent.rtsTeam !== undefined && ent.rtsTeam !== team)
       return this.rtsOrder(mob, { k: 'attack', id: ent.id }, queue);
+    // 己方的運輸機（維爾威）：地面單位走過去登機
+    if (ent && ent.rtsTeam === team && !ent.bld && RTS_DEFS[ent.rtsDef] && RTS_DEFS[ent.rtsDef].cargo) {
+      const ground = mob.filter((e) => e !== ent && !e.flying);
+      if (ground.length) return this.rtsOrder(ground, { k: 'board', id: ent.id }, queue);
+    }
     const workers = mob.filter((e) => RTS_DEFS[e.rtsDef].worker),
       others = mob.filter((e) => !RTS_DEFS[e.rtsDef].worker);
     if (mine && mine.kind === 'mine' && mine.amount > 0) {

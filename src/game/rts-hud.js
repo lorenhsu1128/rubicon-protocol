@@ -7,6 +7,11 @@
 // 建築上的斷電圖示、小地圖閃紅框、選取面板「無導管供電」）、融合卡片（rtsFuseWhy／rtsFuseGroups：組數、引導進度）、
 // 建築的技能（結晶護壁：rtsCardAbilityAct 把選取中的建築傳給 rtsOrder）、自己的幻象標「幻」（敵方的不顯示）。
 // 導管範圍圈畫在 rts-input.js（rtsHudRings）。
+// R4 維爾威（docs 15.15）：資源列的空投狀態 #rtsLift（rtsHudDrop：空投中／可同時空投數、投放艙倒數；點一下跳到空投或投放艙）、
+// 卡片動作 drop（空投預覽）／pack（收起；收好的建築＝展開的目標模式）／trade／load／unload、收起的建築的卡片（移動、展開）、
+// 空投運輸機的「取消空投」、選取面板（收起／展開進度、集貨站庫存、信標、投放點、空投運輸機、運輸機的乘員與卸載）、
+// 畫面上的疊加（空中單位到地面的細線與圓點、投放艙的倒數、空投的落點）、小地圖（空中單位三角形、收好的建築空心方塊、
+// 空投落點、投放艙、信標）。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
 import { escHtml } from '../core/html.js';
@@ -35,6 +40,7 @@ import {
 import { RTS_HERO_XP, RTS_REVIVE, RTS_SKILLS, skillLvReq, skillMax } from '../data/rts-heroes.js';
 import { RTS_ITEMS, RTS_SHOP, RTS_SHOP_CARD } from '../data/rts-items.js';
 import { RTS_FUSE } from '../data/rts-aetheric.js';
+import { RTS_VEER } from '../data/rts-veerwell.js';
 
 const RTS_ME = 0;
 const KEYS = CARD_KEYS.flat();
@@ -90,6 +96,7 @@ Object.assign(Game.prototype, {
         <span class="rtsRes coral" title="Coral"><i></i><b id="rtsCoral">0</b></span>
         <span class="rtsRes pop" title="人口／上限"><i></i><b id="rtsPop">0/0</b></span>
         <button id="rtsPower" type="button" hidden title="導管網：供電源的數量；有建築停擺時變紅，點一下跳到停擺的建築">導管</button>
+        <button id="rtsLift" type="button" hidden title="空投：使用中的運輸機／可同時空投數、降落中的投放艙；點一下跳到空投的落點或投放艙">空投</button>
         <span id="rtsUpkeep" title="維持費：人口越多，礦石收入越少">無維持費</span>
         <button id="rtsButlerBtn" type="button" title="自動管家（親自駕駛時一律啟動）">管家</button>
       </div>
@@ -140,6 +147,7 @@ Object.assign(Game.prototype, {
       this.rtsButlerDraw(true);
     };
     document.getElementById('rtsPower').onclick = () => this.rtsHudPowerJump();
+    document.getElementById('rtsLift').onclick = () => this.rtsHudLiftJump();
     document.getElementById('rtsIdleW').onclick = (e) =>
       this.rtsIdleSelect('worker', e.shiftKey || e.ctrlKey);
     document.getElementById('rtsIdleA').onclick = () => this.rtsIdleSelect('army', true);
@@ -285,11 +293,17 @@ Object.assign(Game.prototype, {
     const grid = typeof this.rtsPowerTeam === 'function' && this.rtsPowerTeam(RTS_ME);
     const pw = document.getElementById('rtsPower');
     if (pw) pw.hidden = !grid;
+    const veer = !!(this.rtsVeerTeam && this.rtsVeerTeam(RTS_ME));
+    const lf = document.getElementById('rtsLift');
+    if (lf) lf.hidden = !veer;
+    this._rtsLiftSig = '';
     const co = document.querySelector('#rtsTop .rtsRes.coral');
     if (co)
       co.title = grid
         ? 'Coral（汲取塔每秒 1.25、研究中樞自己產出；艾瑟立克的主要資源）'
-        : 'Coral（抽取站每秒 0.8）';
+        : veer
+          ? 'Coral（抽取站每秒 0.8；調度中心的物流交易可以用礦石買）'
+          : 'Coral（抽取站每秒 0.8）';
     if (R.ui) R.ui.ringKey = '';
     this._rtsPowSig = '';
     this.rtsHudDirty = true;
@@ -356,6 +370,240 @@ Object.assign(Game.prototype, {
     el.title =
       `導管網：有電的供電源 ${on}／${srcs.length}` +
       (off ? `；${off} 座建築斷電停擺（點一下跳過去）` : '；點一下依序跳到導管的供電源');
+  },
+  // ---------- 維爾威（R4：docs 15.15） ----------
+  // 空投的任務狀態或同時空投數改變（A 包 rts-veer.js 的掛勾）：資源列與卡片下一格重畫
+  rtsHudDrop(teamId) {
+    if (teamId !== RTS_ME || !this.rts) return;
+    this._rtsLiftSig = '';
+    this.rtsHudDirty = true;
+  },
+  // 資源列的空投狀態：{ n 使用中的運輸機, max, pods 降落中的投放艙, next 最快落地的秒數 }
+  rtsHudLiftInfo() {
+    const R = this.rts;
+    const L = this.rtsDropLift ? this.rtsDropLift(RTS_ME) : { n: 0, max: 0 };
+    const pods = ((R && R.pods) || []).filter((p) => p.team === RTS_ME);
+    let next = 1e9;
+    for (const p of pods) next = Math.min(next, p.t - (R.t || 0));
+    return { n: L.n, max: L.max, pods: pods.length, next: pods.length ? Math.max(0, next) : 0 };
+  },
+  rtsHudLiftDraw() {
+    const el = document.getElementById('rtsLift');
+    if (!el || el.hidden || !this.rts) return;
+    const I = this.rtsHudLiftInfo();
+    const txt = `空投 ${I.n}／${I.max}` + (I.pods ? `・艙 ${I.pods}（${Math.ceil(I.next)}s）` : '');
+    if (txt === this._rtsLiftSig) return;
+    this._rtsLiftSig = txt;
+    el.textContent = txt;
+    el.classList.toggle('full', I.max > 0 && I.n >= I.max);
+    el.classList.toggle('busy', I.n > 0 || I.pods > 0);
+    el.title =
+      `空投：運輸機 ${I.n}／${I.max}（飛回起飛點的也算）` +
+      (I.pods ? `；投放艙 ${I.pods} 台降落中` : '') +
+      '；點一下依序跳到空投的落點與投放艙';
+  },
+  // 點資源列的空投：依序跳到己方空投的落點、投放艙
+  rtsHudLiftJump() {
+    const R = this.rts;
+    if (!R || !R.ui || this.state !== 'rts') return;
+    const list = [
+      ...(R.drops || []).filter((d) => d.team === RTS_ME && d.st !== 'back'),
+      ...(R.pods || []).filter((p) => p.team === RTS_ME),
+    ];
+    if (!list.length) return this.rtsMsg('沒有進行中的空投', 0xbfd0e0, 1.2);
+    R.ui.liftI = ((R.ui.liftI === undefined ? -1 : R.ui.liftI) + 1) % list.length;
+    const p = list[R.ui.liftI];
+    this.rtsCamJump(p.x, p.z);
+  },
+  // 空投卡（子選單的建築）：需求、資源、運輸機都在任務中、信標上限、沒有起飛點；地點的原因在預覽（rtsDropWhy）
+  rtsCardDrop(it, a) {
+    const R = this.rts;
+    const D = this.rtsUiDef(a.id) || {};
+    const L = this.rtsDropLift ? this.rtsDropLift(RTS_ME) : { n: 0, max: 0 };
+    it.label = it.c.name || D.name || a.id;
+    it.note = `運輸機 ${L.n}／${L.max}` + (D.beacon ? `；信標最多 ${RTS_VEER.beacon.max} 座` : '');
+    it.pop = 0;
+    if (!it.dis && L.n >= L.max) it.dis = `運輸機都在任務中（${L.n}／${L.max}）`;
+    if (!it.dis && D.beacon) {
+      let n = 0;
+      for (const e of R.units) if (!e.dead && e.rtsTeam === RTS_ME && e.rtsDef === a.id) n++;
+      for (const d of R.drops || []) if (d.team === RTS_ME && d.def === a.id && d.st !== 'back') n++;
+      if (n >= RTS_VEER.beacon.max) it.dis = `投放信標最多 ${RTS_VEER.beacon.max} 座`;
+    }
+    if (!it.dis && this.rtsDropOrigin && R.cam && !this.rtsDropOrigin(RTS_ME, R.cam.x, R.cam.z))
+      it.dis = '沒有可以起飛的調度中心或機庫';
+  },
+  // 收起／展開卡：收好（或收起中）的建築＝展開（目標模式），否則＝收起（rtsPackWhy）
+  rtsCardPack(it, G) {
+    const bs = G.filter((b) => b.bld && this.rtsOwn(b) && (RTS_DEFS[b.rtsDef] || {}).pack);
+    if (!bs.length) {
+      it.dis = '這座建築不能收起';
+      return;
+    }
+    if (bs.some((b) => (b.bld.packed === 1 || b.bld.packed === 2) && !b.bld.unpackTo)) {
+      it.label = '展開';
+      it.tip = '選擇展開的地點（要探索過、能蓋、離敵方建築 30 m 以上）；展開中受到的傷害 ×1.25';
+      it.dis = '';
+      return;
+    }
+    if (bs.every((b) => b.bld.packed)) {
+      const un = bs.some((b) => b.bld.packed === 3);
+      it.label = un ? '展開中' : '前往展開';
+      it.dis = un ? '展開中' : '正在飛往展開的地點';
+      return;
+    }
+    it.label = '收起';
+    const ws = bs.filter((b) => !b.bld.packed).map((b) => (this.rtsPackWhy ? this.rtsPackWhy(b) : ''));
+    it.dis = ws.some((w) => !w) ? '' : ws[0] || '不能收起';
+    const D = RTS_DEFS[bs[0].rtsDef] || {};
+    if (D.pack) it.note = `收起 ${D.pack.t} 秒、展開 ${D.pack.ut} 秒、收好的速度 ${D.pack.speed} m/s`;
+  },
+  // 物流交易卡：比例、冷卻（共用）、原因（rtsTradeWhy）
+  rtsCardTrade(it, a) {
+    const R = this.rts,
+      T = R.teams[RTS_ME];
+    const [give, get] = this.rtsTradeRate ? this.rtsTradeRate(RTS_ME, a.dir) : [0, 0];
+    it.label = a.dir === 'sell' ? '賣 Coral' : '買 Coral';
+    it.cost = a.dir === 'sell' ? { coral: give } : { ore: give };
+    it.lvTxt = a.dir === 'sell' ? `Coral ${give} → 礦石 ${get}` : `礦石 ${give} → Coral ${get}`;
+    it.dis = this.rtsTradeWhy ? this.rtsTradeWhy(RTS_ME, a.dir) : '';
+    const cd = Math.max(0, (T.tradeT || 0) - (R.t || 0));
+    it.ab = { cd, cdMax: RTS_VEER.trade.cd };
+  },
+  // 載運／卸載卡：乘員人口
+  rtsCardCargo(it, a, G) {
+    const ships = G.filter((e) => !e.bld && ((RTS_DEFS[e.rtsDef] || {}).cargo || e.rtsCargoMax));
+    if (!ships.length) {
+      it.dis = '沒有運輸機';
+      return;
+    }
+    const s = ships[0];
+    const used = this.rtsCargoUsed ? this.rtsCargoUsed(s) : (s.cargo || []).length;
+    const max = this.rtsCargoMax ? this.rtsCargoMax(s) : RTS_VEER.cargo;
+    it.lvTxt = `${used}／${max}`;
+    it.label = it.c.name || (a.k === 'load' ? '載運' : '卸載');
+    if (a.k === 'load' && ships.every((e) => (this.rtsCargoUsed ? this.rtsCargoUsed(e) : 0) >= max))
+      it.dis = `運輸機滿了（${used}／${max}）`;
+    if (a.k === 'unload' && !ships.some((e) => e.cargo && e.cargo.length)) it.dis = '運輸機上沒有單位';
+  },
+  // 收起的建築的卡片：收好＝Q 移動、S 展開；收起中＝S 展開（選地點）；展開中＝S（灰掉）
+  rtsHudPackCard(e) {
+    const out = [];
+    if (e.bld.packed === 2)
+      out.push({
+        at: [0, 0],
+        key: 'Q',
+        alt: 'M',
+        name: '移動',
+        tip: '飛到指定地點（右鍵地面也可以）',
+        act: { k: 'order', o: 'move', target: 'point' },
+      });
+    out.push({ at: [1, 1], key: 'S', name: '展開', tip: '', act: { k: 'pack' } });
+    return out;
+  },
+  // 收起／展開卡按下去：有收好的＝進入展開的預覽；否則收起選取中可以收起的
+  rtsHudPackAct(G) {
+    const bs = G.filter((b) => b.bld && this.rtsOwn(b) && (RTS_DEFS[b.rtsDef] || {}).pack);
+    const pk = bs.find((b) => (b.bld.packed === 1 || b.bld.packed === 2) && !b.bld.unpackTo);
+    if (pk) return this.rtsSetMode({ k: 'build', def: pk.rtsDef, D: this.rtsUiDef(pk.rtsDef), unpack: true });
+    const ok = bs.filter((b) => !b.bld.packed && !(this.rtsPackWhy && this.rtsPackWhy(b)));
+    const n = ok.length && typeof this.rtsOrder === 'function' ? this.rtsOrder(ok, { k: 'pack' }) : 0;
+    if (!n) this.rtsMsg((bs[0] && this.rtsPackWhy && this.rtsPackWhy(bs[0])) || '不能收起', 0xff8a8a);
+    else this.rtsMsg(`收起 ${n} 座建築`, 0x9be070, 1.2);
+    this.rtsHudDirty = true;
+  },
+  // 選取面板的維爾威資訊：rows／warn 加行，回傳 { prog（進度條 html）, cargo（乘員 html） }
+  rtsHudVeerRows(e, own, rows, warn) {
+    const R = this.rts,
+      D = this.rtsUiDef(e) || {};
+    const out = { prog: '', cargo: '' };
+    const bar = (lab, p) =>
+      `<div class="rtsProg pack"><label>${escHtml(lab)} ${Math.floor(p * 100)}%</label><i style="width:${Math.round(p * 100)}%"></i></div>`;
+    if (e.bld) {
+      const B = e.bld;
+      const pk = clamp((B.packT || 0) / (B.packDur || 1), 0, 1);
+      if (B.packed === 1) out.prog = bar('收起中', pk);
+      else if (B.packed === 3) out.prog = bar('展開中', pk);
+      else if (B.packed === 2) {
+        const fold = this.rtsResLv && this.rtsResLv(e.rtsTeam, 'r_fold');
+        const sp = D.pack ? D.pack.speed * (fold ? 1.3 : 1) : 0;
+        rows.push(`收好：飛行中（${Math.round(sp * 10) / 10} m/s）`);
+        if (own) rows.push(B.unpackTo ? '前往展開的地點' : '右鍵地面＝移動、S＝選地點展開');
+      }
+      if (B.packed && own) warn.push('收起中：生產、研究暫停（人口照給）');
+      else if (D.pack && own && B.unpackT !== undefined && R.t < B.unpackT + RTS_VEER.repack)
+        rows.push(`${Math.ceil(B.unpackT + RTS_VEER.repack - R.t)} 秒後才能再收起`);
+      if (D.haul && this.rtsHaulInfo && B.progress >= 1) {
+        const H = this.rtsHaulInfo(e);
+        rows.push(
+          `庫存 ${Math.floor(H.stock)}／${H.cap}` + (B.packed ? '' : `、${Math.ceil(H.next)} 秒後運走`),
+        );
+      }
+      if (D.beacon) {
+        let n = 0;
+        if (own)
+          for (const b of R.units) {
+            const rl = !b.dead && b.bld && b !== e && b.rtsTeam === e.rtsTeam && b.bld.rally;
+            if (rl && Math.hypot(rl.x - e.pos.x, rl.z - e.pos.z) <= D.beacon.r) n++;
+          }
+        rows.push(`投放半徑 ${D.beacon.r} m` + (own ? `、${n} 座建築以它為集結點` : ''));
+      }
+      if (own && B.progress >= 1 && !B.packed) {
+        if ((D.trains || []).some((id) => (RTS_DEFS[id] || {}).dropIn) && this.rtsDropPoint) {
+          const P = this.rtsDropPoint(e);
+          const via =
+            { beacon: '信標內的集結點', orbit: '軌道投放（集結點）', bld: '建築正面' }[P.via] || P.via;
+          rows.push('投放點：' + via);
+          const np = (R.pods || []).filter((p) => p.b === e.id).length;
+          if (np) rows.push(`投放艙 ${np} 台降落中`);
+        }
+        if (D.heroes && D.faction === 'veerwell' && this.rtsDropLift) {
+          const L = this.rtsDropLift(e.rtsTeam);
+          rows.push(`空投運輸機 ${L.n}／${L.max}`);
+        }
+        if (D.tradeHq) {
+          const T = R.teams[e.rtsTeam];
+          if (T.tradeT > R.t) rows.push(`物流交易冷卻 ${Math.ceil(T.tradeT - R.t)} 秒`);
+        }
+      }
+      return out;
+    }
+    // 空投運輸機：吊掛的建築與狀態
+    if (e.rtsDrop && this.rtsDropOf) {
+      const rec = this.rtsDropOf(e.rtsDrop);
+      if (rec) {
+        const st =
+          { wait: '待命', fly: '飛行中', land: '下降中（低空）', back: '飛回起飛點' }[rec.st] || rec.st;
+        rows.push(`空投：${this.rtsUiName(rec.def)}（${st}）`);
+      }
+    } else if (e.rtsExpress) rows.push('特快專送（COURIER 的終極技）');
+    else if (D.carrier) rows.push('飛回起飛點');
+    // 運輸機的乘員
+    if (D.cargo || e.rtsCargoMax) {
+      const list = this.rtsCargoOf ? this.rtsCargoOf(e) : [];
+      const used = this.rtsCargoUsed ? this.rtsCargoUsed(e) : list.length;
+      const max = this.rtsCargoMax ? this.rtsCargoMax(e) : D.cargo || RTS_VEER.cargo;
+      const o = e.orders && e.orders[0];
+      if (o && o.k === 'unload') rows.push('卸載中');
+      const cells = list
+        .map((u) => {
+          const pct = clamp(u.hp / u.maxHp, 0, 1);
+          const tip = this.rtsUiName(u) + '　' + Math.ceil(u.hp) + '／' + Math.round(u.maxHp);
+          return `<span class="rtsCg${u.hero ? ' hero' : ''}" title="${escHtml(tip)}">${escHtml(this.rtsAbbr(this.rtsUiName(u)))}<i style="width:${pct * 100}%;background:${this.rtsHpCol(pct)}"></i></span>`;
+        })
+        .join('');
+      out.cargo =
+        `<div class="rtsCargo"><label>載運 ${used}／${max}</label><div class="rtsCgs">` +
+        (cells || '<small>空的 — Z 載運，或選地面單位右鍵運輸機</small>') +
+        `</div>` +
+        (own && list.length ? `<button type="button" class="rtsCgOut">卸載（X）</button>` : '') +
+        `</div>`;
+    }
+    if (e.rtsLow && !e.bld) rows.push('低空：地面武器也打得到');
+    // C 包的干擾吊艙（VECTOR）
+    if (e.rtsJamT > (R.t || 0))
+      warn.push(`受到干擾 ${Math.ceil(e.rtsJamT - R.t)} 秒：射程 −40%、不能施放技能`);
+    return out;
   },
   // 選取中可以融合的組數與原因（卡片與說明）：{ why, groups, left, mats, F }
   rtsHudFuseInfo(recipe) {
@@ -431,21 +679,30 @@ Object.assign(Game.prototype, {
       }
       this.rtsButlerDraw();
       this.rtsAlertScan();
+      // 滑鼠停留的實體（空中單位到地面的細線）
+      R.ui.hover = !pilot && R.ui.mouseIn && R.ui.mx >= 0 ? this.rtsPickAt(R.ui.mx, R.ui.my) : null;
       const hint = document.getElementById('rtsModeHint');
       const m = R.ui.mode;
+      const gw = R.ui.ghost && R.ui.ghost.g.visible && !R.ui.ghost.ok && R.ui.ghost.why;
+      const LI = this.rtsHudLiftInfo();
       const txt =
-        m && !pilot
-          ? m.k === 'build'
-            ? '放置 ' +
-              this.rtsUiName(m.def) +
-              '：左鍵放置、Shift 連續放' +
-              (m.D && m.D.wall ? '（Shift＋拖曳蓋一排）' : '') +
-              '、右鍵或 Esc 取消' +
-              (R.ui.ghost && R.ui.ghost.g.visible && !R.ui.ghost.ok && R.ui.ghost.why
-                ? '　— ' + R.ui.ghost.why
-                : '')
-            : m.label + '：左鍵選擇目標、右鍵或 Esc 取消'
-          : '';
+        m && !pilot && m.k === 'build' && (m.drop || m.unpack)
+          ? (m.drop
+              ? `空投 ${this.rtsUiName(m.def)}（運輸機 ${LI.n}／${LI.max}）：左鍵投放、Shift 連續放、右鍵或 Esc 取消`
+              : `展開 ${this.rtsUiName(m.def)}：左鍵選擇展開的地點、右鍵或 Esc 取消`) +
+            (gw ? '　— ' + gw : '')
+          : m && !pilot
+            ? m.k === 'build'
+              ? '放置 ' +
+                this.rtsUiName(m.def) +
+                '：左鍵放置、Shift 連續放' +
+                (m.D && m.D.wall ? '（Shift＋拖曳蓋一排）' : '') +
+                '、右鍵或 Esc 取消' +
+                (R.ui.ghost && R.ui.ghost.g.visible && !R.ui.ghost.ok && R.ui.ghost.why
+                  ? '　— ' + R.ui.ghost.why
+                  : '')
+              : m.label + '：左鍵選擇目標、右鍵或 Esc 取消'
+            : '';
       if (hint.textContent !== txt) {
         hint.textContent = txt;
         hint.classList.toggle('on', !!txt);
@@ -486,6 +743,7 @@ Object.assign(Game.prototype, {
     const bb = document.getElementById('rtsButlerBtn');
     if (bb) bb.classList.toggle('on', !!(R.butler && (R.butler.on || R.pilot)));
     this.rtsHudPowerDraw();
+    this.rtsHudLiftDraw();
   },
   // 管家的設定面板（資源列的「管家」按鈕）
   rtsButlerDraw(force) {
@@ -621,8 +879,10 @@ Object.assign(Game.prototype, {
   rtsIdleList(kind) {
     const R = this.rts;
     return R.units.filter((e) => {
-      if (e.dead || e.bld || e.rtsTeam !== RTS_ME || e.rtsPiloted || e.hero) return false;
+      if (e.dead || e.bld || e.rtsTeam !== RTS_ME || e.rtsPiloted || e.hero || e.rtsAboard || e.rtsDriven)
+        return false;
       const D = RTS_DEFS[e.rtsDef] || {};
+      if (D.carrier) return false;
       if (kind === 'worker') return !!D.worker && !e.rtsMilFrom && !e.orders.length;
       return !D.worker && D.kind === 'unit' && !e.orders.length;
     });
@@ -712,6 +972,24 @@ Object.assign(Game.prototype, {
     if (ui.menu === 'shop' && e.hero) list = this.rtsHudShopCard(e);
     else if (ui.menu && D.menus && D.menus[ui.menu]) list = D.menus[ui.menu];
     else ui.menu = null;
+    // 維爾威（R4）：收起的建築只有移動與展開；空投運輸機只有「取消空投」
+    if (e.bld && e.bld.packed && e.rtsTeam === RTS_ME) {
+      list = this.rtsHudPackCard(e);
+      ui.menu = null;
+    }
+    if (D.carrier && e.rtsTeam === RTS_ME && e.rtsExpress)
+      list = []; // C 包的特快專送：不能下指令
+    else if (D.carrier && e.rtsTeam === RTS_ME)
+      list = [
+        {
+          at: [2, 3],
+          key: 'V',
+          alt: 'Escape',
+          name: '取消空投',
+          tip: '運輸機折返：起飛後取消退還 75%',
+          act: { k: 'dropcancel' },
+        },
+      ];
     const building = !!(e.bld && e.bld.progress < 1 && e.rtsTeam === RTS_ME);
     if (building)
       list = [
@@ -736,7 +1014,7 @@ Object.assign(Game.prototype, {
     const e = G[0];
     const a = c.act || {};
     const ref =
-      a.k === 'train' || a.k === 'build' || a.k === 'hero'
+      a.k === 'train' || a.k === 'build' || a.k === 'hero' || a.k === 'drop'
         ? this.rtsUiDef(a.id) || {}
         : a.k === 'upgrade'
           ? this.rtsUiDef(a.to) || {}
@@ -802,6 +1080,24 @@ Object.assign(Game.prototype, {
       case 'fuse':
         this.rtsCardFuse(it, a);
         break;
+      case 'drop':
+        this.rtsCardDrop(it, a);
+        break;
+      case 'pack':
+        this.rtsCardPack(it, G);
+        break;
+      case 'trade':
+        this.rtsCardTrade(it, a);
+        break;
+      case 'load':
+      case 'unload':
+        this.rtsCardCargo(it, a, G);
+        break;
+      case 'dropcancel': {
+        const rec = e.rtsDrop && this.rtsDropOf ? this.rtsDropOf(e.rtsDrop) : null;
+        it.dis = !rec || rec.st === 'back' ? '已經放下（飛回中）' : '';
+        break;
+      }
       case 'loop':
         it.on = G.some((b) => b.bld && b.bld.loop);
         it.label = c.name || '循環生產';
@@ -1156,6 +1452,28 @@ Object.assign(Game.prototype, {
       }
       case 'build':
         return this.rtsSetMode({ k: 'build', def: a.id, D: this.rtsUiDef(a.id) });
+      // ---------- 維爾威（R4） ----------
+      case 'drop':
+        return this.rtsSetMode({ k: 'build', def: a.id, D: this.rtsUiDef(a.id), drop: true });
+      case 'pack':
+        return this.rtsHudPackAct(G);
+      case 'trade': {
+        const hq = G.filter((b) => b.bld && this.rtsOwn(b));
+        if (typeof this.rtsOrder === 'function') this.rtsOrder(hq, { k: 'trade', dir: a.dir, team: RTS_ME });
+        this.rtsHudDirty = true;
+        return;
+      }
+      case 'load':
+        return this.rtsSetMode({ k: 'target', order: 'load', target: 'unit', label: c.name || '載運' });
+      case 'unload':
+        return this.rtsSetMode({ k: 'target', order: 'unload', target: 'point', label: c.name || '卸載' });
+      case 'dropcancel': {
+        const rec = e && e.rtsDrop && this.rtsDropOf ? this.rtsDropOf(e.rtsDrop) : null;
+        if (rec && this.rtsDropCancel && this.rtsDropCancel(rec))
+          this.rtsMsg('空投取消：運輸機折返', 0xffd070);
+        this.rtsHudDirty = true;
+        return;
+      }
       case 'menu':
         ui.menu = a.menu;
         this.rtsHudDirty = true;
@@ -1314,6 +1632,8 @@ Object.assign(Game.prototype, {
           ((ui.mode &&
             (ui.mode.order === it.cmd ||
               'build:' + ui.mode.def === it.cmd ||
+              (ui.mode.drop && 'drop:' + ui.mode.def === it.cmd) ||
+              (ui.mode.unpack && it.cmd === 'pack') ||
               'ability:' + ui.mode.ab === it.cmd)) ||
             it.on)
         ),
@@ -1373,6 +1693,7 @@ Object.assign(Game.prototype, {
       (cost ? `<div class="cost">${escHtml(cost)}</div>` : '') +
       (type ? `<div class="type">${escHtml(type)}</div>` : '') +
       (it.tip ? `<div>${escHtml(it.tip)}</div>` : '') +
+      (it.note ? `<div class="note">${escHtml(it.note)}</div>` : '') +
       (it.ab && it.ab.autoable
         ? `<div class="auto">右鍵：自動施放（${it.ab.auto ? '開' : '關'}）</div>`
         : '') +
@@ -1515,6 +1836,7 @@ Object.assign(Game.prototype, {
       let typeRow = '';
       if (arm)
         typeRow = `<div class="rtsType" title="${escHtml(this.rtsTypeTip(atk, arm))}">${atk ? '攻擊 ' + escHtml(RTS_ATK_NAME[atk] || atk) + '／' : ''}護甲 ${escHtml(RTS_ARM_NAME[arm] || arm)} ${armor}</div>`;
+      const vr = this.rtsHudVeerRows(e, own, rows, warn); // 維爾威（R4）
       const rt = this.rtsResTxt(e);
       if (rt && !e.bld) rows.push('研究 ' + rt);
       if (e.carry && e.carry.n)
@@ -1604,7 +1926,9 @@ Object.assign(Game.prototype, {
         '|' +
         typeRow +
         '|' +
-        invSig;
+        invSig +
+        vr.prog +
+        vr.cargo;
       html =
         `<div class="rtsOne"><div class="rtsPic ${own ? 'own' : e.rtsTeam === RTS_NEUTRAL ? 'neu' : 'foe'}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}</div>` +
         `<div class="rtsInfo"><b>${escHtml(this.rtsUiName(e) + illus)}</b>` +
@@ -1612,7 +1936,7 @@ Object.assign(Game.prototype, {
         typeRow +
         rows.map((r) => `<div>${escHtml(r)}</div>`).join('') +
         warn.map((r) => `<div class="rtsWarn">${escHtml(r)}</div>`).join('') +
-        `</div>${hx}${q || fq ? `<div class="rtsProd">${q}${fq}</div>` : ''}</div>`;
+        `</div>${hx}${vr.cargo}${q || fq || vr.prog ? `<div class="rtsProd">${vr.prog}${q}${fq}</div>` : ''}</div>`;
     } else {
       const act = this.rtsActiveGroup();
       sig = 'm' + sel.map((e) => e.id + ':' + Math.round((e.hp / e.maxHp) * 20)).join() + '|' + ui.sub;
@@ -1637,6 +1961,9 @@ Object.assign(Game.prototype, {
         else if (ev.ctrlKey) this.rtsSetSel(sel.filter((u) => u.rtsDef === e.rtsDef));
         else this.rtsSetSel([e]);
       };
+    const cgo = el.querySelector('.rtsCgOut');
+    if (cgo)
+      cgo.onclick = () => this.rtsSetMode({ k: 'target', order: 'unload', target: 'point', label: '卸載' });
     for (const b of el.querySelectorAll('.rtsQ'))
       b.onclick = () => {
         if (typeof this.rtsCancel === 'function') this.rtsCancel(sel[0], +b.dataset.q);
@@ -1780,13 +2107,16 @@ Object.assign(Game.prototype, {
     // 人口將滿：剩 4 以內、沒有補給庫在蓋
     if (T && (T.cap || 0) < RTS_POP_MAX && (T.cap || 0) - (T.pop || 0) <= 4 && (T.cap || 0) > 0) {
       const F = RTS_FACTIONS[T.faction] || RTS_FACTIONS.castron;
-      const building = R.units.some(
-        (b) =>
-          !b.dead &&
-          b.rtsTeam === RTS_ME &&
-          ((b.bld && b.bld.progress < 1 && (RTS_DEFS[b.rtsDef] || {}).popCap) ||
-            (!b.bld && b.orders && b.orders.some((o) => o.k === 'build' && (RTS_DEFS[o.def] || {}).popCap))),
-      );
+      const building =
+        R.units.some(
+          (b) =>
+            !b.dead &&
+            b.rtsTeam === RTS_ME &&
+            ((b.bld && b.bld.progress < 1 && (RTS_DEFS[b.rtsDef] || {}).popCap) ||
+              (!b.bld &&
+                b.orders &&
+                b.orders.some((o) => o.k === 'build' && (RTS_DEFS[o.def] || {}).popCap))),
+        ) || (R.drops || []).some((d) => d.team === RTS_ME && (RTS_DEFS[d.def] || {}).popCap);
       const hq = R.units.find(
         (b) => !b.dead && b.bld && b.rtsTeam === RTS_ME && (RTS_DEFS[b.rtsDef] || {}).dropoff,
       );
@@ -1933,6 +2263,7 @@ Object.assign(Game.prototype, {
         c.fillText(`${this.rtsUiName(e)} Lv${(e.hero && e.hero.lv) || 1}`, s.x, top - 4);
       }
     }
+    this.rtsHudVeerOverlay(c);
     const d = ui.drag;
     if (d && d.moved) {
       const x = Math.min(d.x0, d.x1),
@@ -1944,6 +2275,177 @@ Object.assign(Game.prototype, {
       c.strokeStyle = 'rgba(76,255,122,0.9)';
       c.lineWidth = 1;
       c.strokeRect(x + 0.5, y + 0.5, w, h);
+    }
+  },
+
+  // ---------- 疊加與小地圖（R4） ----------
+  // 疊加：空中單位（選取或滑鼠停留）到地面的細線與圓點、投放艙的倒數（自己的綠、看得到的敵方紅）、己方空投的落點、
+  // 選取中運輸機的乘員數
+  rtsHudVeerOverlay(c) {
+    const R = this.rts,
+      ui = R.ui;
+    const v = (this._rtsVv = this._rtsVv || new THREE.Vector3());
+    const proj = (x, y, z) => {
+      v.set(x, y, z).project(this.camera);
+      if (!(v.z < 1 && v.z > -1)) return null;
+      return { x: ((v.x + 1) / 2) * innerWidth, y: ((-v.y + 1) / 2) * innerHeight };
+    };
+    const th = (x, z) => this.world.terrainHeight(x, z);
+    const air = R.sel.filter((e) => !e.dead && (e.flying || (this.rtsLowAir && this.rtsLowAir(e))));
+    const hv = ui.hover;
+    if (hv && this.rtsIsEnt(hv) && !hv.dead && hv.flying && !air.includes(hv)) air.push(hv);
+    let n = 0;
+    for (const e of air) {
+      if (!this.rtsSeen(e)) continue;
+      const a = proj(e.pos.x, e.pos.y, e.pos.z),
+        b = proj(e.pos.x, th(e.pos.x, e.pos.z) + 0.1, e.pos.z);
+      if (!a || !b) continue;
+      const own = this.rtsOwn(e);
+      c.strokeStyle = own ? 'rgba(124,255,150,0.75)' : 'rgba(255,110,90,0.75)';
+      c.lineWidth = 1;
+      c.setLineDash([3, 3]);
+      c.beginPath();
+      c.moveTo(a.x, a.y);
+      c.lineTo(b.x, b.y);
+      c.stroke();
+      c.setLineDash([]);
+      c.fillStyle = own ? '#7cff96' : '#ff6e5a';
+      c.beginPath();
+      c.arc(b.x, b.y, 2.5, 0, Math.PI * 2);
+      c.fill();
+      n++;
+    }
+    this._rtsAirLines = n;
+    // 特快專送（COURIER 的終極技）的目標模式：從英雄畫一條到游標地點的直線（運輸機的航線）＋距離
+    const md = ui.mode;
+    this._rtsExpressLine = false;
+    if (md && md.k === 'target' && md.ab === 'sk_express') {
+      const h = this.rtsActiveGroup().find((e) => !e.dead && e.hero && this.rtsOwn(e));
+      const gp = h && this.rtsGroundAt(ui.mx, ui.my);
+      const a = h && proj(h.pos.x, h.pos.y + 1, h.pos.z),
+        b = gp && proj(gp.x, th(gp.x, gp.z) + 0.1, gp.z);
+      if (a && b) {
+        c.strokeStyle = 'rgba(200,255,90,0.85)';
+        c.lineWidth = 2;
+        c.setLineDash([8, 6]);
+        c.beginPath();
+        c.moveTo(a.x, a.y);
+        c.lineTo(b.x, b.y);
+        c.stroke();
+        c.setLineDash([]);
+        c.beginPath();
+        c.arc(b.x, b.y, 6, 0, Math.PI * 2);
+        c.stroke();
+        c.font = 'bold 11px sans-serif';
+        c.textAlign = 'center';
+        c.fillStyle = '#c8ff5a';
+        c.fillText(`${Math.round(Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z))} m`, b.x, b.y - 10);
+        this._rtsExpressLine = true;
+      }
+    }
+    // 受到干擾的單位（C 包的干擾吊艙）：紫色的「干」
+    c.font = 'bold 11px sans-serif';
+    c.textAlign = 'center';
+    for (const e of R.units) {
+      if (e.dead || !(e.rtsJamT > (R.t || 0)) || !this.rtsSeen(e)) continue;
+      const s = proj(e.pos.x, e.pos.y + (e.height || 3) * 0.9, e.pos.z);
+      if (!s) continue;
+      c.fillStyle = 'rgba(0,0,0,0.6)';
+      c.fillRect(s.x - 8, s.y - 22, 16, 15);
+      c.fillStyle = '#d0a0ff';
+      c.fillText('干', s.x, s.y - 10);
+    }
+    if (!R.pods || !R.drops) return;
+    c.font = 'bold 12px Chakra Petch, sans-serif';
+    c.textAlign = 'center';
+    // 投放艙：倒數（自己的全部；敵方的只畫看得到那一格的）
+    let np = 0;
+    for (const p of this.rtsPodsSeen ? this.rtsPodsSeen(RTS_ME) : []) {
+      const s = proj(p.x, th(p.x, p.z) + 0.5, p.z);
+      if (!s) continue;
+      const own = p.team === RTS_ME;
+      const left = Math.max(0, p.t - (R.t || 0));
+      c.fillStyle = 'rgba(0,0,0,0.6)';
+      c.beginPath();
+      c.arc(s.x, s.y - 18, 11, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = own ? '#7ee081' : '#ff5040';
+      c.lineWidth = 2;
+      const k = clamp(left / Math.max(0.1, p.t - (p.t0 || 0)), 0, 1);
+      c.beginPath();
+      c.arc(s.x, s.y - 18, 11, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+      c.stroke();
+      c.fillStyle = own ? '#d8ffe0' : '#ffd0c8';
+      c.fillText(left >= 1 ? String(Math.ceil(left)) : '!', s.x, s.y - 14);
+      if (own) {
+        c.font = '10px sans-serif';
+        c.fillText(this.rtsAbbr(this.rtsUiName(p.def), 4), s.x, s.y - 33);
+        c.font = 'bold 12px Chakra Petch, sans-serif';
+      }
+      np++;
+    }
+    this._rtsPodMarks = np;
+    // 己方空投的落點：名稱與預計抵達的秒數
+    const land = RTS_VEER.ship.land;
+    for (const d of R.drops) {
+      if (d.team !== RTS_ME || d.st === 'back') continue;
+      const s = proj(d.x, th(d.x, d.z) + 1, d.z);
+      if (!s) continue;
+      const ship = this.rtsEnt ? this.rtsEnt(d.ship) : null;
+      let eta = 0;
+      if (d.st === 'fly' && ship) {
+        const sp = RTS_VEER.ship.speed * (this.rtsResLv && this.rtsResLv(RTS_ME, 'r_lift') ? 1.25 : 1);
+        eta = Math.hypot(ship.pos.x - d.x, ship.pos.z - d.z) / sp + land;
+      } else if (d.st === 'land') eta = Math.max(0, land - ((R.t || 0) - (d.tl || 0)));
+      const txt = '▼ ' + this.rtsUiName(d.def) + (eta ? ' ' + Math.ceil(eta) + 's' : '');
+      const w = c.measureText(txt).width + 8;
+      c.fillStyle = 'rgba(0,0,0,0.6)';
+      c.fillRect(s.x - w / 2, s.y - 30, w, 16);
+      c.fillStyle = d.st === 'land' ? '#ffb060' : '#ffd860';
+      c.fillText(txt, s.x, s.y - 18);
+    }
+    // 運輸機的乘員數
+    for (const e of R.sel) {
+      if (e.dead || !e.cargo || !e.cargo.length || !this.rtsOwn(e)) continue;
+      const s = proj(e.pos.x, e.pos.y + 2.5, e.pos.z);
+      if (!s) continue;
+      c.fillStyle = '#d8ffe0';
+      c.fillText('載 ' + (this.rtsCargoUsed ? this.rtsCargoUsed(e) : e.cargo.length), s.x, s.y - 8);
+    }
+  },
+  // 小地圖：己方空投的落點（黃 ×）、看得到的投放艙（綠／紅圈）、己方的投放範圍（萊姆綠細圈）
+  rtsHudVeerMini(g, X, Z, dpr) {
+    const R = this.rts;
+    if (!R.drops || !R.pods) return;
+    g.lineWidth = 1.5 * dpr;
+    g.strokeStyle = '#ffd860';
+    for (const d of R.drops) {
+      if (d.team !== RTS_ME || d.st === 'back') continue;
+      const x = X(d.x),
+        z = Z(d.z),
+        r = 3 * dpr;
+      g.beginPath();
+      g.moveTo(x - r, z - r);
+      g.lineTo(x + r, z + r);
+      g.moveTo(x + r, z - r);
+      g.lineTo(x - r, z + r);
+      g.stroke();
+    }
+    for (const p of this.rtsPodsSeen ? this.rtsPodsSeen(RTS_ME) : []) {
+      g.strokeStyle = p.team === RTS_ME ? '#7ee081' : '#ff5040';
+      g.beginPath();
+      g.arc(X(p.x), Z(p.z), 3.2 * dpr, 0, Math.PI * 2);
+      g.stroke();
+    }
+    if (this.rtsVeerTeam && this.rtsVeerTeam(RTS_ME) && this.rtsBeacons) {
+      const k = X(1) - X(0);
+      g.strokeStyle = 'rgba(158,255,77,0.55)';
+      g.lineWidth = dpr;
+      for (const b of this.rtsBeacons(RTS_ME)) {
+        g.beginPath();
+        g.arc(X(b.x), Z(b.z), b.r * k, 0, Math.PI * 2);
+        g.stroke();
+      }
     }
   },
 
@@ -2093,10 +2595,27 @@ Object.assign(Game.prototype, {
           heroes.push([e, sel ? '#ffffff' : col]);
           continue;
         }
-        if (e.bld) {
+        if (e.bld && e.bld.packed === 2) {
+          // 收好在飛的建築（R4）：空心方塊
+          const s = Math.max(3 * dpr, this.rtsRadius(e) * 1.1 * k);
+          g.strokeStyle = g.fillStyle;
+          g.lineWidth = 1.5 * dpr;
+          g.strokeRect(X(e.pos.x) - s / 2, Z(e.pos.z) - s / 2, s, s);
+        } else if (e.bld) {
           const s = Math.max(3 * dpr, this.rtsRadius(e) * 1.4 * k);
           g.fillRect(X(e.pos.x) - s / 2, Z(e.pos.z) - s / 2, s, s);
           if (own && e.bld.off) offs.push([X(e.pos.x), Z(e.pos.z), s]);
+        } else if (e.flying) {
+          // 空中單位：小三角形
+          const x = X(e.pos.x),
+            z = Z(e.pos.z),
+            r = 2.4 * dpr;
+          g.beginPath();
+          g.moveTo(x, z - r);
+          g.lineTo(x + r, z + r * 0.8);
+          g.lineTo(x - r, z + r * 0.8);
+          g.closePath();
+          g.fill();
         } else {
           const s = 2.2 * dpr;
           g.fillRect(X(e.pos.x) - s / 2, Z(e.pos.z) - s / 2, s, s);
@@ -2127,6 +2646,7 @@ Object.assign(Game.prototype, {
         g.stroke();
       }
     }
+    if (mode !== 2) this.rtsHudVeerMini(g, X, Z, dpr);
     // 警示與信號的擴散圈（3 秒）
     const pings = (ui && ui.pings) || [];
     for (let i = pings.length - 1; i >= 0; i--) {

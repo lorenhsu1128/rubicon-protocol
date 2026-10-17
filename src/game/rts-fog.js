@@ -8,6 +8,9 @@
 // （不直接改 visible，所以和迷彩、隧道、潛航等自己改 visible 的機制不衝突）；
 // 敵方建築在看不到時留下殘影（當時的模型複本換成暗色材質），重新看到該處時才更新或消失。
 // 實體的 noLock：任何敵對隊伍都看不到時設為 true（鎖定、名牌、一般 AI 找目標都會略過），由這裡設定的才由這裡清掉。
+// R4（docs 15.2）：對空的視野 visAir——同樣的觀察者與半徑、不看高度（場上有空中／低空的實體時才算）；
+// 空中（flying）與低空（rtsLowAir）的實體查 visAir，所以斷崖下的單位看得到台上的空中單位、看不到台上的地面單位。
+// 收起搬走的建築：在飛時不記成殘影（它是單位的狀態）；記得的位置重新看到、建築不在那裡時拿掉。運輸機上的乘員不提供視野。
 import { Game } from './game.js';
 import { isOutline } from '../render/geometry.js';
 import { FAR_R } from '../world/edges.js';
@@ -116,6 +119,8 @@ Object.assign(Game.prototype, {
     const teams = (R.teams || []).map((t) => ({
       id: t.id,
       vis: new Uint8Array(N),
+      visAir: new Uint8Array(N), // 對空的視野（不看高度）
+      airOk: false, // visAir 這一輪有算（場上有空中／低空的實體）
       exp: new Uint8Array(N),
       cheat: !!(t.fogCheat || (t.ai && diff === 'insane')), // 「瘋狂」難度的電腦不受迷霧限制
       mem: new Map(), // 記得的敵方建築：id → { e, id, def, team, x, z, gone, ghost }
@@ -337,17 +342,28 @@ Object.assign(Game.prototype, {
     const R = this.rts,
       { W, N, hc } = F;
     const units = R.units || [];
+    // 場上有沒有空中／低空的實體（沒有時不算 visAir）
+    let anyAir = false;
+    for (const e of units)
+      if (e && !e.dead && !e.rtsAboard && (e.flying || (this.rtsLowAir && this.rtsLowAir(e)))) {
+        anyAir = true;
+        break;
+      }
     for (const T of F.teams) {
       const vis = T.vis,
-        exp = T.exp;
+        exp = T.exp,
+        va = T.visAir;
       vis.fill(0);
+      T.airOk = anyAir;
+      if (anyAir) va.fill(0);
       if (T.cheat) {
         vis.fill(1);
         exp.fill(1);
+        va.fill(1);
         continue;
       }
       for (const e of units) {
-        if (!e || e.dead || e.rtsTeam !== T.id || !e.pos) continue;
+        if (!e || e.dead || e.rtsTeam !== T.id || !e.pos || e.rtsAboard) continue;
         const r = this.rtsFogVision(e);
         if (!(r > 0)) continue;
         const c = this.rtsFogCell(F, e.pos.x, e.pos.z);
@@ -355,11 +371,15 @@ Object.assign(Game.prototype, {
         let oh = e.pos.y;
         if (!(oh > -1e6)) oh = this.world.terrainHeight(e.pos.x, e.pos.z);
         this.rtsFogStamp(vis, hc, W, c, r / F.cell, oh + FOG_UP, false);
+        if (anyAir) this.rtsFogStamp(va, hc, W, c, r / F.cell, 0, true);
       }
       for (const rv of F.reveals)
         if (rv.team === T.id) {
           const c = this.rtsFogCell(F, rv.x, rv.z);
-          if (c >= 0) this.rtsFogStamp(vis, hc, W, c, rv.r / F.cell, 0, true);
+          if (c >= 0) {
+            this.rtsFogStamp(vis, hc, W, c, rv.r / F.cell, 0, true);
+            if (anyAir) this.rtsFogStamp(va, hc, W, c, rv.r / F.cell, 0, true);
+          }
         }
       for (let i = 0; i < N; i++) if (vis[i]) exp[i] = 1;
     }
@@ -368,8 +388,21 @@ Object.assign(Game.prototype, {
     for (const T of F.teams) {
       for (const e of units) {
         if (!e || !e.bld || e.rtsTeam === T.id || !e.pos) continue;
-        const seen = !e.dead && this.rtsFogSees(F, T, e);
+        // 收好在飛的建築（維爾威）：當成單位，不更新記得的位置
+        const fly = e.bld.packed === 2;
+        const seen = !e.dead && !fly && this.rtsFogSees(F, T, e);
         let rec = T.mem.get(e.id);
+        // 記得的位置重新看到、建築已經不在那裡（收起搬走）：忘掉
+        if (
+          rec &&
+          !rec.gone &&
+          !seen &&
+          !e.dead &&
+          (fly || Math.hypot(e.pos.x - rec.x, e.pos.z - rec.z) > 2)
+        ) {
+          const c = this.rtsFogCell(F, rec.x, rec.z);
+          if (c >= 0 && T.vis[c]) rec.gone = true;
+        }
         if (seen) {
           if (!rec) T.mem.set(e.id, (rec = { e, id: e.id, def: e.rtsDef, team: e.rtsTeam, gone: false }));
           rec.x = e.pos.x;
@@ -452,8 +485,10 @@ Object.assign(Game.prototype, {
   // 隊伍 T 看不看得到實體 e（建築看佔地範圍內的幾個點）
   rtsFogSees(F, T, e) {
     if (T.cheat) return true;
+    // 空中與低空的實體查對空的視野（不看高度）
+    const V = T.airOk && (e.flying || (this.rtsLowAir && this.rtsLowAir(e))) ? T.visAir : T.vis;
     const c = this.rtsFogCell(F, e.pos.x, e.pos.z);
-    if (c >= 0 && T.vis[c]) return true;
+    if (c >= 0 && V[c]) return true;
     if (e.bld) {
       const r = this.rtsFogBldR(e);
       for (const [u, v] of [
@@ -463,7 +498,7 @@ Object.assign(Game.prototype, {
         [-1, -1],
       ]) {
         const i = this.rtsFogCell(F, e.pos.x + u * r, e.pos.z + v * r);
-        if (i >= 0 && T.vis[i]) return true;
+        if (i >= 0 && V[i]) return true;
       }
     }
     return false;
@@ -482,7 +517,7 @@ Object.assign(Game.prototype, {
     hide.length = 0;
     const me = F.teams.find((q) => q.id === F.me);
     for (const e of units) {
-      if (!e || !e.pos) continue;
+      if (!e || !e.pos || e.rtsAboard) continue; // 運輸機上的乘員：不在場景裡
       // noLock：所有敵對隊伍都看不到
       let seenByFoe = false,
         anyFoe = false;
@@ -510,7 +545,7 @@ Object.assign(Game.prototype, {
         const rec = me.mem.get(e.id);
         if (sees) {
           if (rec && rec.ghost) this.rtsFogDropGhost(F, rec);
-        } else if (rec && !rec.ghost) this.rtsFogMakeGhost(F, rec, e);
+        } else if (rec && !rec.ghost && !rec.gone && !e.bld.packed) this.rtsFogMakeGhost(F, rec, e);
       }
     }
     // 資源點：探索過後一直顯示

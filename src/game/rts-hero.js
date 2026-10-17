@@ -3,7 +3,9 @@
 //   ent, st 'alive'｜'dead', deadT, src 'hq'｜'tavern', stack（RUST 的成長層數） }；實體 e.hero＝紀錄。
 // - 核心（rts.js）呼叫的掛勾：rtsHeroInit／rtsHeroTick／rtsHeroClear、rtsHeroSpawned(e, q)、rtsXpOnKill(e, from)、
 //   rtsHeroDied(e)、rtsHeroWhy／rtsHeroCost／rtsHeroReviveCost。
-// - 給 E（HUD、輸入、親自駕駛）、D（中立）、F（電腦）的 API 見 docs 13.14。
+// - 給 E（HUD、輸入、親自駕駛）、D（中立）、F（電腦）的 API 見 docs 13.14（艾瑟立克 14.13、維爾威 15.13）。
+// - 維爾威（R4）：特快專送的運輸機（rtsHeroExpress／rtsHeroExpressTick，用 A 包 rts-veer.js 的 rtsBoard／rtsDisembark）、
+//   無人機中隊的跟隨（rtsHeroLeadTick）、專屬道具（熱焰彈、推進背包、攜帶式信標、運費帳簿）、物流倉庫收起時不能買。
 // - 技能的施放與實體端的狀態（衝刺、跳躍、潛地、引導）在 entities/mech-rts-hero.js；這裡是持續的效果：
 //   光環、地面區域（煙幕、腐蝕、吸引、緩速）、持續傷害、標定的揭露、臨時牆的導航佔用、道具、商店、酒館。
 // - 傷害一律經過核心的 rtsHit／rtsSplash（rtsHeroDmg／rtsHeroSplash 先乘施放者的 dmgMul）；數值用 rtsBuff 與數值層。
@@ -50,7 +52,8 @@ const _v = new THREE.Vector3();
 // 補給商店的貨架卡片（rts-units.js 的 c_market 留空給 C／E）
 if (RTS_DEFS.c_market && !(RTS_DEFS.c_market.card || []).length) RTS_DEFS.c_market.card = RTS_SHOP_CARD;
 if (RTS_DEFS.c_market) RTS_DEFS.c_market.shopItems = RTS_FAC_SHOP.castron;
-// 陣營商店（shopFac，例如艾瑟立克的樣本保管庫 a_vault）：貨架 shopItems 與卡片（12 格依序、2／3 階帶層級需求）
+// 陣營商店（shopFac，例如艾瑟立克的樣本保管庫 a_vault、維爾威的物流倉庫 v_market）：貨架 shopItems 與卡片（12 格依序、
+// 2／3 階帶層級需求）
 for (const id in RTS_DEFS) {
   const D = RTS_DEFS[id];
   if (!D || D.kind !== 'bld' || !D.shop || !D.shopFac || !RTS_FAC_SHOP[D.shopFac]) continue;
@@ -97,6 +100,7 @@ Object.assign(Game.prototype, {
       nl: new Set(),
       shields: new Set(), // 稜鏡屏障（e.rtsShield）的實體
       summit: {},
+      express: [], // 特快專送（COURIER）的運輸機
       tick: 0,
       pick: 0,
       zoneSeq: 0,
@@ -129,6 +133,12 @@ Object.assign(Game.prototype, {
         const e = h.ent;
         if (!e || e.dead || h.st !== 'alive') continue;
         const H = e.hs || (e.hs = {});
+        // 親自駕駛中（rtsHeroAI 不跑）：突進、跳躍（推進背包）、衝刺照樣推進
+        if (e.rtsPiloted) {
+          if (H.blitz) e.rtsHeroBlitzStep(dt);
+          else if (H.leap) e.rtsHeroLeapStep(dt);
+          else if (H.dash) e.rtsHeroDashStep(dt);
+        }
         this.rtsHeroPhase(h, e, H);
         const st = H.stealth > R.t || !!H.burrow;
         if (st) {
@@ -153,6 +163,17 @@ Object.assign(Game.prototype, {
           this.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), 3, 0x9fe8ff);
         }
       }
+    // 熱焰彈（維爾威的道具）：不能被鎖定
+    for (const T of R.teams)
+      for (const h of T.heroes || []) {
+        const e = h.ent;
+        if (e && !e.dead && e.hs && e.hs.flareT > R.t && !e.noLock) {
+          e.noLock = true;
+          F.nl.add(e);
+        }
+      }
+    // 特快專送的運輸機（每格駕駛）
+    if (F.express.length) this.rtsHeroExpressTick(dt);
     // 吸引區（每格拉動）
     for (const z of F.zones) if (z.pull && z.until > R.t) this.rtsHeroPull(z, dt);
     // 臨時傭兵到期
@@ -183,6 +204,7 @@ Object.assign(Game.prototype, {
     this.rtsHeroNoLock();
     this.rtsHeroPassiveTick();
     this.rtsHeroShields();
+    this.rtsHeroLeadTick();
   },
   // VEIL 的相位迷彩（被動）：idle 秒沒有開火（打中敵人）、沒有施放技能就隱形；開火或施放現形（hs.actT＝最後一次）
   rtsHeroPhase(h, e, H) {
@@ -397,6 +419,7 @@ Object.assign(Game.prototype, {
       if (id === 'sk_eye') o.sight = (o.sight || 0) + P.sight;
       if (id === 'sk_longms') o.range = (o.range || 0) + P.range;
       if (id === 'sk_regen') o.regen = (o.regen || 0) + P.regen;
+      if (id === 'sk_slip') o.speed = (o.speed || 1) * P.speed; // 滑流的穿甲減傷在 rtsHeroOnHurt
       if (id === 'sk_salvage') o.dmg *= 1 + P.per * Math.min(rec.stack || 0, P.max);
     });
     e.rtsMods.hero = o;
@@ -433,6 +456,15 @@ Object.assign(Game.prototype, {
       }
     }
     const D = RTS_DEFS[dead.rtsDef] || {};
+    // 運費帳簿（維爾威）：英雄擊破單位時隊伍得到它礦石成本的 15%（幻象、臨時單位不算）
+    if (from.hero && !dead.bld && !dead.rtsIllus && !dead.rtsTemp && this.rtsHeroHas(from.hero, 'i_ledger')) {
+      const n = Math.round(((D.cost && D.cost.ore) || 0) * RTS_ITEMS.i_ledger.ledger);
+      if (n > 0) {
+        this.rtsGrant(from.rtsTeam, n, 0);
+        const T = R.teams[from.rtsTeam];
+        T.ledger = (T.ledger || 0) + n; // 統計（測試與 HUD）
+      }
+    }
     const base = dead.hero
       ? RTS_XP_HERO[dead.hero.lv] || 0
       : dead.bld
@@ -548,7 +580,10 @@ Object.assign(Game.prototype, {
     if (S.kind === 'aura' || S.kind === 'passive') return '被動技能';
     if (!rec.sk[slot]) return '還沒學';
     if ((rec.cd[slot] || 0) > R.t + 1e-6) return '冷卻中';
-    if (e.hs && (e.hs.dash || e.hs.leap || e.hs.burrow)) return '施放中';
+    if (e.rtsAboard) return '搭乘中';
+    if (e.hs && (e.hs.dash || e.hs.leap || e.hs.burrow || e.hs.blitz)) return '施放中';
+    if (e.rtsJamT > R.t) return '受到干擾';
+    if (S.any && e.rtsPiloted) return '親自駕駛中不能施放';
     const P = skillLv(id, rec.sk[slot]);
     const c = Math.ceil((P.coral || 0) * this.rtsHeroCoralK(rec));
     if (R.teams[e.rtsTeam].coral + 1e-6 < c) return 'Coral 不足';
@@ -847,7 +882,7 @@ Object.assign(Game.prototype, {
       F = R.hfx;
     for (const e of [...F.nl]) {
       const H = e.hs || {};
-      const keep = !e.dead && (H.stealth > R.t || H.burrow || e.hSmokeT > R.t);
+      const keep = !e.dead && (H.stealth > R.t || H.burrow || e.hSmokeT > R.t || H.flareT > R.t);
       if (!keep) {
         if (!e.dead) e.noLock = false;
         F.nl.delete(e);
@@ -882,7 +917,7 @@ Object.assign(Game.prototype, {
     for (const T of R.teams)
       for (const h of T.heroes || []) {
         const e = h.ent;
-        if (!e || e.dead || h.st !== 'alive') continue;
+        if (!e || e.dead || h.st !== 'alive' || e.rtsAboard) continue; // 運輸機上的英雄沒有光環
         const D = RTS_HERO_DEFS[h.def];
         D.skills.forEach((id, i) => {
           const S = RTS_SKILLS[id];
@@ -905,12 +940,20 @@ Object.assign(Game.prototype, {
           if (a.key === 'sk_link' && !((D.range || 0) >= 30)) continue;
           if (a.key === 'sk_reso' && !(D.atk === 'en' || D.atkEn)) continue; // 共振場：能量攻擊的友軍
           if (a.key === 'sk_symb' && !D.bio) continue; // 共生：生體單位
+          if (a.key === 'sk_air' && !e.flying) continue; // 空域管制：己方空中單位
           best = best || {};
           if (!best[a.key] || best[a.key].lv < a.lv) best[a.key] = a;
         }
       }
       const o = {};
-      if (best) for (const k in best) addMods(o, best[k].m);
+      if (best)
+        for (const k in best) {
+          const m = best[k].m;
+          // 時間就是錢：射速只給維爾威的單位
+          if (k === 'sk_tempo' && (RTS_DEFS[e.rtsDef] || {}).faction !== 'veerwell')
+            addMods(o, { speed: m.speed });
+          else addMods(o, m);
+        }
       if (!sameMods(o, e.rtsMods.aura)) {
         e.rtsMods.aura = o;
         this.rtsModsApply(e);
@@ -929,7 +972,7 @@ Object.assign(Game.prototype, {
         return td.call(this, dmg, impact, from, at, dir, melee, wid, attr);
       if (from && from.hero && !from.dead && from !== this && from.rtsTeam !== this.rtsTeam)
         dmg = g.rtsHeroOnHit(from, this, dmg);
-      if (this.hero) dmg = g.rtsHeroOnHurt(this, dmg, from);
+      if (this.hero) dmg = g.rtsHeroOnHurt(this, dmg, from, this._rtsAtk || g.rtsAtkOf(from, wid, attr));
       if (this.rtsShield && dmg > 0) dmg = g.rtsShieldAbsorb(this, dmg, from, wid, attr);
       if (!(dmg > 0)) return;
       return td.call(this, dmg, impact, from, at, dir, melee, wid, attr);
@@ -978,10 +1021,17 @@ Object.assign(Game.prototype, {
     return dmg;
   },
   // 英雄被打：潛地中無敵、緊急障壁吸收、修復套件與回城信標中斷
-  rtsHeroOnHurt(e, dmg, from) {
+  rtsHeroOnHurt(e, dmg, from, atk) {
     const R = this.rts,
       H = e.hs || {};
     if (H.burrow) return 0;
+    // VECTOR 的滑流：受到的穿甲傷害減少
+    if (atk === 'pierce') {
+      const D = RTS_HERO_DEFS[e.hero.def];
+      const i = D ? D.skills.indexOf('sk_slip') : -1;
+      const P = i >= 0 && skillLv('sk_slip', e.hero.sk[i]);
+      if (P) dmg *= P.pierce;
+    }
     if (H.shield && H.shield.until > R.t && H.shield.hp > 0) {
       const a = Math.min(H.shield.hp, dmg);
       H.shield.hp -= a;
@@ -1031,7 +1081,8 @@ Object.assign(Game.prototype, {
     if (I.kind !== 'use') return '永久道具';
     if (e.dead) return '英雄陣亡';
     if (s.cd > R.t) return '冷卻中';
-    if (e.hs && (e.hs.chan || e.hs.dash || e.hs.leap || e.hs.burrow)) return '施放中';
+    if (e.rtsAboard) return '搭乘中';
+    if (e.hs && (e.hs.chan || e.hs.dash || e.hs.leap || e.hs.burrow || e.hs.blitz)) return '施放中';
     return '';
   },
   // 使用（tgt：point 類的地點 { x, z }；沒給時用英雄的位置）
@@ -1111,6 +1162,39 @@ Object.assign(Game.prototype, {
         this.fx.beam(e.center(), p, 0x8fd8ff, 0.1);
         break;
       }
+      // ===== 維爾威的專屬道具（docs 15.4） =====
+      case 'i_flare':
+        H.flareT = R.t + I.t;
+        e.noLock = true;
+        R.hfx.nl.add(e);
+        if (this.rtsFxOk(e.pos)) {
+          this.fx.streaks(e.center(), 12, 0xffd080, 10, 0.6, 6);
+          this.fx.flash(e.center(), 2.4, 0xffd080, 0.2);
+        }
+        break;
+      case 'i_jetpack': {
+        const p = tgt
+          ? at
+          : { x: e.pos.x - Math.sin(e.yaw) * I.range, z: e.pos.z - Math.cos(e.yaw) * I.range };
+        if (Math.hypot(p.x - e.pos.x, p.z - e.pos.z) > I.range + 0.5) {
+          if (team === ME) this.rtsSay(`要在 ${I.range} m 內`);
+          return false;
+        }
+        e.rtsHeroLeapTo(p, I.range);
+        break;
+      }
+      case 'i_beacon2': {
+        const d = Math.hypot(at.x - e.pos.x, at.z - e.pos.z);
+        if (d > I.range + 0.5 || !this.rtsBeaconAddTemp) {
+          if (team === ME) this.rtsSay(`要在 ${I.range} m 內`);
+          return false;
+        }
+        this.rtsBeaconAddTemp(team, at.x, at.z, I.t, I.r);
+        const p = new THREE.Vector3(at.x, this.world.terrainHeight(at.x, at.z) + 0.4, at.z);
+        this.fx.ring(p, I.r, 0x9be070);
+        this.fx.beam(e.center(), p, 0x9be070, 0.1);
+        break;
+      }
       default:
         return false;
     }
@@ -1120,6 +1204,161 @@ Object.assign(Game.prototype, {
       if (s.ch <= 0) this.rtsItemTake(rec, slot);
     }
     return true;
+  },
+  // ================= 維爾威：特快專送（COURIER 的終極技）、無人機中隊的跟隨 =================
+  // 特快專送：英雄上方生成一台空投運輸機（v_carrier，血量 P.hp、不跑單位 AI：rts-veer.js 的 rtsDriven），P.delay 秒內
+  // 下降到低空（地面武器打得到）→ 載走英雄與 P.R m 內己方的地面單位（最多 P.max 人口，A 的 rtsBoard；ship.rtsCargoMax）→
+  // 爬升、以 P.speed m/s 直線飛到 (x, z) → 下降 P.land 秒（低空）→ 全部卸下（rtsDisembark）、P.t 秒傷害 ×P.dmg →
+  // 爬升後安靜地移除。運輸機被擊落時 A 的 rtsVeerOnDeath → rtsCargoCrash（乘員彈出、各受最大血量 50%）。
+  // 紀錄 R.hfx.express＝[{ ship, hero, x, z, st 'pick'|'fly'|'land'|'leave', t0, P, n（卸下的台數）, pop }]；回傳 true＝放出去了
+  rtsHeroExpress(e, P, x, z) {
+    const R = this.rts;
+    const ship = this.rtsSpawn(e.rtsTeam, 'v_carrier', e.pos.x, e.pos.z, e.yaw);
+    if (!ship) return false;
+    R.stats[e.rtsTeam].made--; // 不是生產的單位
+    ship.rtsDriven = true;
+    ship.noPush = true;
+    ship.rtsCargoMax = P.max;
+    ship.rtsExpress = true;
+    if (ship.rtsBase) {
+      ship.rtsBase.hp = P.hp;
+      this.rtsModsApply(ship);
+      ship.hp = ship.maxHp;
+    }
+    const rec = { ship, hero: e, x, z, st: 'pick', t0: R.t, P, n: 0, pop: 0, alt: P.alt };
+    R.hfx.express.push(rec);
+    this.rtsHeroShipAt(rec, e.pos.x, e.pos.z, P.alt);
+    if (this.rtsFxOk(e.pos)) this.fx.warnCircle(e.pos.clone(), P.R, P.delay, 0x9be070);
+    return true;
+  },
+  // 運輸機放到 (x, z)、離地 alt（直接設定位置；朝向前進方向）
+  rtsHeroShipAt(rec, x, z, alt, dx = 0, dz = 0) {
+    const s = rec.ship,
+      w = this.world;
+    rec.alt = alt;
+    s.hoverH = alt;
+    s.pos.set(x, w.groundAt(x, z, 1e4) + alt, z);
+    if (dx || dz) s.yaw = s.aimYaw = Math.atan2(-dx, -dz);
+    s.mesh.position.copy(s.pos);
+    s.mesh.rotation.y = s.yaw;
+    if (this.rts) this.rts.hash.update(s, x, z);
+  },
+  rtsHeroExpressTick(dt) {
+    const R = this.rts,
+      F = R.hfx;
+    for (let i = F.express.length - 1; i >= 0; i--) {
+      const q = F.express[i],
+        s = q.ship,
+        P = q.P;
+      if (s.dead) {
+        F.express.splice(i, 1);
+        continue;
+      }
+      const tt = R.t - q.t0;
+      if (q.st === 'pick') {
+        // 下降到英雄上方（低空），時間到載走
+        const h = q.hero;
+        const px = h && !h.dead && !h.rtsAboard ? h.pos.x : s.pos.x,
+          pz = h && !h.dead && !h.rtsAboard ? h.pos.z : s.pos.z;
+        s.rtsLow = true;
+        this.rtsHeroShipAt(q, px, pz, P.alt + (4 - P.alt) * Math.min(1, tt / P.delay));
+        if (tt >= P.delay) {
+          this.rtsHeroExpressBoard(q);
+          q.st = q.pop > 0 ? 'fly' : 'leave';
+          q.t0 = R.t;
+          s.rtsLow = false;
+        }
+      } else if (q.st === 'fly') {
+        const dx = q.x - s.pos.x,
+          dz = q.z - s.pos.z;
+        const d = Math.hypot(dx, dz);
+        const alt = Math.min(P.alt, q.alt + 6 * dt); // 爬升
+        const step = P.speed * dt;
+        if (d <= step) {
+          this.rtsHeroShipAt(q, q.x, q.z, alt, dx, dz);
+          q.st = 'land';
+          s.rtsLow = true;
+          q.t0 = R.t;
+          q.alt0 = alt;
+        } else this.rtsHeroShipAt(q, s.pos.x + (dx / d) * step, s.pos.z + (dz / d) * step, alt, dx, dz);
+        if (s.vel) s.vel.set((dx / (d || 1)) * P.speed, 0, (dz / (d || 1)) * P.speed);
+      } else if (q.st === 'land') {
+        s.rtsLow = true;
+        if (s.vel) s.vel.set(0, 0, 0);
+        const k = Math.min(1, tt / P.land);
+        this.rtsHeroShipAt(q, q.x, q.z, q.alt0 + (3 - q.alt0) * k);
+        if (k >= 1) {
+          this.rtsHeroExpressUnload(q);
+          q.st = 'leave';
+          q.t0 = R.t;
+        }
+      } else if (q.st === 'leave') {
+        s.rtsLow = false;
+        this.rtsHeroShipAt(q, s.pos.x, s.pos.z, q.alt + 8 * dt);
+        if (tt >= 1.5) {
+          F.express.splice(i, 1);
+          s.rtsQuiet = true;
+          s.die(null);
+        }
+      }
+    }
+  },
+  // 登機：英雄＋P.R m 內己方的地面單位（依距離，滿了就略過大的）
+  rtsHeroExpressBoard(q) {
+    const s = q.ship,
+      P = q.P,
+      h = q.hero;
+    const list = [];
+    if (h && !h.dead && !h.rtsAboard) list.push(h);
+    const cx = h && !h.dead ? h.pos.x : s.pos.x,
+      cz = h && !h.dead ? h.pos.z : s.pos.z;
+    const near = this.rtsHeroAllies(s.rtsTeam, cx, cz, P.R)
+      .filter((u) => u !== h && u !== s && !u.flying && !u.rtsAboard && !u.rtsDriven && !u.rtsPiloted)
+      .sort((a, b) => Math.hypot(a.pos.x - cx, a.pos.z - cz) - Math.hypot(b.pos.x - cx, b.pos.z - cz));
+    list.push(...near);
+    for (const u of list) {
+      if (this.rtsBoardWhy(u, s)) continue;
+      if (this.rtsBoard(u, s)) q.pop += this.rtsCargoPop(u);
+    }
+    q.ids = (s.cargo || []).slice();
+    if (s.rtsTeam === ME && q.pop && this.rtsEvent) this.rtsEvent(q.x, q.z, '特快專送：前往目的地');
+  },
+  // 卸下：圍成一圈放下、落地後 P.t 秒傷害 ×P.dmg
+  rtsHeroExpressUnload(q) {
+    const s = q.ship,
+      P = q.P;
+    const list = this.rtsCargoOf(s);
+    let k = 0;
+    for (const u of list) {
+      const a = (k / Math.max(1, list.length)) * Math.PI * 2;
+      const r = k ? 2.5 + Math.floor(k / 8) * 2.5 : 0;
+      k++;
+      if (!this.rtsDisembark(u, q.x + Math.cos(a) * r, q.z + Math.sin(a) * r)) continue;
+      this.rtsBuff(u, { src: 'sk_express', dmg: P.dmg }, P.t);
+      q.n++;
+    }
+    if (this.rtsFxOk(s.pos)) {
+      this.fx.dust(new THREE.Vector3(q.x, this.world.terrainHeight(q.x, q.z), q.z), 6, 14);
+      this.fx.ring(new THREE.Vector3(q.x, this.world.terrainHeight(q.x, q.z) + 0.3, q.z), 6, 0x9be070);
+    }
+  },
+  // 無人機中隊：跟著 VECTOR（e.rtsLead）攻擊它的目標；沒有目標時跟在身邊（每 0.5 秒）
+  rtsHeroLeadTick() {
+    const F = this.rts.hfx;
+    for (const q of F.temps) {
+      const u = q.e,
+        L = u.rtsLead;
+      if (!L || u.dead) continue;
+      if (L.dead || L.rtsAboard) continue;
+      const t = L.rt && L.rt.engage;
+      const o = u.orders[0];
+      if (t && !t.dead) {
+        if (!o || o.k !== 'attack' || o.id !== t.id) u.orders = [{ k: 'attack', id: t.id }];
+      } else if (Math.hypot(u.pos.x - L.pos.x, u.pos.z - L.pos.z) > 10) {
+        const a = (u.id % 8) * 0.785;
+        u.orders = [{ k: 'amove', x: L.pos.x + Math.cos(a) * 4, z: L.pos.z + Math.sin(a) * 4 }];
+      } else if (o && o.k === 'attack') u.orders = [];
+    }
   },
   // 臨時的單位（CURATOR 的孵化、實驗體樣本）：英雄身邊 n 台 defId，sec 秒後安靜地移除；不佔人口、擊破不給經驗
   // （rtsQuiet）、不算生產。回傳實體的陣列
@@ -1356,7 +1595,13 @@ Object.assign(Game.prototype, {
   },
   // 商店停擺（艾瑟立克的保管庫沒有導管供電，或被電磁脈衝打中）
   rtsBuyOff(shop) {
+    if (shop && shop.bld && shop.bld.packed) return true; // 維爾威的物流倉庫收起中
     return !!(this.rtsBldOff && shop && shop.bld && this.rtsBldOff(shop));
+  },
+  // 停擺的原因（HUD 的提示）
+  rtsBuyOffWhy(shop) {
+    if (shop && shop.bld && shop.bld.packed) return '商店停擺（倉庫收起中）';
+    return '商店停擺（沒有導管供電）';
   },
   // 英雄 r（12）m 內最近的商店（沒有＝null）
   rtsBuyShopNear(e, r = RTS_SHOP.r) {
@@ -1388,7 +1633,7 @@ Object.assign(Game.prototype, {
       I = RTS_ITEMS[item];
     if (!R || !I || I.drop) return '這個道具不能購買';
     if (!hero || !hero.hero || hero.dead) return '附近沒有英雄';
-    if (shop && this.rtsBuyOff(shop)) return '商店停擺（沒有導管供電）';
+    if (shop && this.rtsBuyOff(shop)) return this.rtsBuyOffWhy(shop);
     if (!shop || !this.rtsBuyShopOk(shop, hero.rtsTeam)) return '附近沒有商店';
     if (this.rtsBuyDist(hero, shop) > RTS_SHOP.r + 0.5) return `英雄要在商店 ${RTS_SHOP.r} m 內`;
     if (!this.rtsBuyList(shop, hero.rtsTeam).includes(item))
@@ -1449,7 +1694,7 @@ Object.assign(Game.prototype, {
           this.rtsBuyOff(s) &&
           this.rtsBuyDist(ent, s) <= RTS_SHOP.r,
       );
-      return off ? '商店停擺（沒有導管供電）' : '附近沒有商店';
+      return off ? this.rtsBuyOffWhy(off) : '附近沒有商店';
     }
     const buyer = this.rtsBuyer(ent, ent.rtsTeam === RTS_NEUTRAL ? teamId : ent.rtsTeam);
     return buyer ? this.rtsBuyWhyAt(buyer, ent, item) : '附近沒有英雄';

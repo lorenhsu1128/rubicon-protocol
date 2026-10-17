@@ -1,16 +1,22 @@
-// RTS 地圖產生器與導航格的自測（node scripts/rts-map-test.js [種子數，預設 100] [--theme=wasteland|snow|institute|all]）：
+// RTS 地圖產生器與導航格的自測（node scripts/rts-map-test.js [種子數，預設 100] [--theme=wasteland|snow|institute|spaceport|grid086|all]）：
 // 每個種子產生地圖 → 對稱（高度圖、障礙物、點位轉 180° 相同）、可達與路徑長度相等（產生器自己的檢查）、產生耗時；
 // 最後量 400 m、cell 2 的 findPath 與 flowField 耗時（含 120 個單位同時下指令）。
-// 荒野另外比對 100 個種子的地圖雜湊（WASTELAND_HASH：R3 加主題之前的結果；主題的附加地形不能改到荒野）；
-// 冰原檢查冰湖（在通道上、冰面高度、不在主基地與資源 20 m 內），技研都市檢查湧出點 6 個。
+// 荒野、冰原、技研都市另外比對 100 個種子的地圖雜湊（HASHES：R4 加主題之前的結果；新主題的附加地形不能改到它們）；
+// 冰原檢查冰湖（在通道上、冰面高度、不在主基地與資源 20 m 內），技研都市檢查湧出點 6 個；
+// 舊宇宙港外圍檢查發射台（頂面高度、可以蓋、發射塔）與防爆牆列（離通道 WALL_GAP 以上），Grid 086 地表檢查構造體台階
+// （兩層的高度、頂層可以蓋、從主基地到得了）；R4 的兩個主題第一次就合格的比例要 60% 以上。
 'use strict';
 const path = require('path');
 const { pathToFileURL } = require('url');
 
 const crypto = require('crypto');
 const src = (p) => pathToFileURL(path.join(__dirname, '..', 'src', p)).href;
-// 荒野 100 個種子（s × 7919）的地圖雜湊（高度圖＋其他欄位的 JSON，不含耗時與檢查結果）
-const WASTELAND_HASH = 'dbdb9dc2c7e03e5ade9c311c60ed051797a5320f';
+// 100 個種子（s × 7919）的地圖雜湊（高度圖＋其他欄位的 JSON，不含耗時與檢查結果）：荒野是 R3 之前、冰原與技研都市是 R4 之前的結果
+const HASHES = {
+  wasteland: 'dbdb9dc2c7e03e5ade9c311c60ed051797a5320f',
+  snow: '5299d75d5540fdc062c78b0dabb50634ce8429a1',
+  institute: '60a6b81654ebc1d78e7a2b652b667a96ec5e5374',
+};
 const planHash = (p) => {
   const hs = crypto.createHash('sha1');
   hs.update(Buffer.from(p.h.buffer));
@@ -23,7 +29,9 @@ const planHash = (p) => {
 };
 
 (async () => {
-  const { planRtsMap, rtsShim, rtsOnLake, RTS_THEMES, RTS_ICE_Y } = await import(src('world/rts-map.js'));
+  const { planRtsMap, rtsShim, rtsOnLake, RTS_THEMES, RTS_ICE_Y, wallsBad, WALL_GAP } = await import(
+    src('world/rts-map.js')
+  );
   const { NavGrid } = await import(src('world/nav.js'));
   const N = +process.argv.slice(2).find((a) => /^\d+$/.test(a)) || 100;
   const targ = (process.argv.find((a) => a.startsWith('--theme=')) || '--theme=wasteland').slice(8);
@@ -94,6 +102,36 @@ const planHash = (p) => {
       } else if (theme === 'snow') errs.push('沒有冰湖');
       if (theme === 'institute' && plan.corals.length !== 6) errs.push('湧出點 ' + plan.corals.length);
       if (plan.decor) symList('裝飾', plan.decor, (o) => o);
+      // R4：發射台與防爆牆列、構造體台階
+      const thR = rtsShim(plan).terrainHeight;
+      const nav4 = plan.nav;
+      const topOk = (x, z) =>
+        nav4 &&
+        [0, 2, -2, 4, -4].some((ox) => [0, 2, -2, 4, -4].some((oz) => nav4.buildable(x + ox, z + oz, 8, 8)));
+      if (theme === 'spaceport') {
+        const pads = plan.pads || [];
+        if (pads.length !== 2) errs.push('發射台數 ' + pads.length);
+        symList('發射台', pads, (o) => o.pos);
+        for (const q of pads) {
+          if (Math.abs(thR(q.pos.x, q.pos.z) - q.h) > 0.4) errs.push('發射台高度');
+          if (!topOk(q.pos.x, q.pos.z)) errs.push('發射台頂面不能蓋');
+        }
+        if (plan.obstacles.filter((o) => o.model === 'launchtower').length !== 2) errs.push('發射塔');
+        const rows = plan.obstacles.filter((o) => o.row);
+        if (rows.length < 12) errs.push('防爆牆段數 ' + rows.length);
+        if (wallsBad(plan).size) errs.push('防爆牆離通道不到 ' + WALL_GAP + ' m');
+        stat.walls = (stat.walls || 0) + rows.length / 2;
+      }
+      if (theme === 'grid086') {
+        const st = plan.steps || [];
+        if (st.length !== 4) errs.push('台階數 ' + st.length);
+        symList('台階', st, (o) => o.pos);
+        for (const q of st) {
+          if (Math.abs(thR(q.top.x, q.top.z) - q.h1 - q.h2) > 0.4) errs.push('台階上層高度');
+          if (!topOk(q.top.x, q.top.z)) errs.push('台階上層不能蓋');
+        }
+        if (!(plan.decor || []).some((d) => d.model === 'g86wall')) errs.push('沒有金屬牆');
+      }
       if (plan.tries === 1) stat.first = (stat.first || 0) + 1;
       if (plan.camps.length < 6 || plan.camps.length > 10) errs.push('營地數 ' + plan.camps.length);
       if (plan.lanes.length < 2) errs.push('通道數 ' + plan.lanes.length);
@@ -127,15 +165,19 @@ const planHash = (p) => {
     );
     console.log(`兩邊路徑代價最大差：${(worst * 100).toFixed(3)}%`);
     console.log(
-      `第一次就合格：${stat.first || 0}／${N}${stat.lakes ? `；冰湖（半張圖）平均 ${(stat.lakes / N).toFixed(2)} 個` : ''}`,
+      `第一次就合格：${stat.first || 0}／${N}${stat.lakes ? `；冰湖（半張圖）平均 ${(stat.lakes / N).toFixed(2)} 個` : ''}${stat.walls ? `；防爆牆（半張圖）平均 ${(stat.walls / N).toFixed(1)} 段` : ''}`,
     );
     const hAll = hsAll.digest('hex');
-    if (theme === 'wasteland' && N === 100) {
-      const same = !WASTELAND_HASH || hAll === WASTELAND_HASH;
+    if (HASHES[theme] && N === 100) {
+      const same = hAll === HASHES[theme];
       console.log(
-        `荒野 100 個種子的地圖雜湊 ${hAll}：${same ? '和 R3 之前相同' : '不同！（荒野的地圖改變了）'}`,
+        `${RTS_THEMES[theme].name} 100 個種子的地圖雜湊 ${hAll}：${same ? '和之前相同' : '不同！（這個主題的地圖改變了）'}`,
       );
       if (!same) bad++;
+    }
+    if ((theme === 'spaceport' || theme === 'grid086') && (stat.first || 0) < N * 0.6) {
+      console.log(`第一次就合格的比例 ${stat.first || 0}／${N} 低於 60%`);
+      bad++;
     }
     if (theme !== themes[themes.length - 1]) return bad;
 

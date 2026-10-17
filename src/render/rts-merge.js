@@ -258,6 +258,7 @@ function mergeOnce(rig, ctx) {
   // 動作會改的材質（rig 參照到的；rig.mats 是受擊閃光用的，照樣合併）
   const keep = rigMats(rig);
   for (const m of rig.mats || []) keep.delete(m);
+  if (ctx.pulse) for (const m of ctx.pulse.keys()) keep.delete(m); // 脈動的發光材質照樣併進來（頻道＝skinIndex.y；R4 B 包修正）
   keep.delete(ctx.mat);
   const solids = [],
     outlines = [],

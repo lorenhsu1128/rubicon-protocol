@@ -10,6 +10,7 @@
 // 最短射程、對空（aa／slotAa）、空中單位直線飛行、防禦塔（rtsTowerAI）、民兵的外觀（rtsMorph）；
 // 野怪（D 包 rtsCreepAI）與英雄（C 包 rtsHeroAI）在 rtsUnitAI 開頭轉過去。
 import { MechEntity } from './mech-entity.js';
+import { clamp } from '../core/math.js';
 import { targetNear } from '../world/prop-hit.js';
 import { Projectile } from './projectile.js';
 import { SFX } from '../audio/audio.js';
@@ -134,6 +135,14 @@ Object.assign(MechEntity.prototype, {
           // 融合（R3 A 包：rts.js 的 rtsFuseStep；宿主原地等、材料走向宿主）
           done = g.rtsFuseStep ? g.rtsFuseStep(this, o, dt) : true;
           break;
+        case 'board':
+          // 登機（R4 A 包：rts-veer.js 的 rtsBoardStep；走到運輸機 4 m 內）
+          done = g.rtsBoardStep ? g.rtsBoardStep(this, o, dt) : true;
+          break;
+        case 'unload':
+          // 運輸機卸載（R4 A 包：rts-veer.js 的 rtsUnloadStep；飛過去、下降、逐台放下）
+          done = g.rtsUnloadStep ? g.rtsUnloadStep(this, o, dt) : true;
+          break;
         default:
           done = true;
       }
@@ -191,11 +200,16 @@ Object.assign(MechEntity.prototype, {
       if (this.rtsSiege.st === 'down') this.rtsAbSiege(false);
       return false;
     }
-    // 空中單位：直線飛過去（不用導航格；高度由 move 依地形維持）
+    // 空中單位：直線飛過去（不用導航格；高度由 move 依地形維持）；目標點限制在 lim − 4 內（R4 B 包：不飛出邊緣的斷崖外）
     if (this.flying) {
       rt.nav = null;
-      const k = slow ? Math.min(1, 0.35 + d / 4) : 1;
-      rt.wish.set((dx / d) * k, 0, (dz / d) * k);
+      const lim = g.world.lim - 4;
+      const fx = Math.max(-lim, Math.min(lim, x)) - px,
+        fz = Math.max(-lim, Math.min(lim, z)) - pz;
+      const fd = Math.hypot(fx, fz);
+      if (fd < arrive) return true;
+      const k = slow ? Math.min(1, 0.35 + fd / 4) : 1;
+      rt.wish.set((fx / fd) * k, 0, (fz / fd) * k);
       return false;
     }
     let N = rt.nav;
@@ -284,6 +298,15 @@ Object.assign(MechEntity.prototype, {
       L = w.groundAt(px + dx * s, pz + dz * s, 1e4);
       if (L + 3 > want) want = L + 3;
     }
+    // 圓柱障礙物（RTS 地圖的煙囪、天線桿…，world.js 的 buildRts 記了 top）：前方 10 m 的航線旁有比飛行高度高的就爬升
+    const pad = this.radius + 1;
+    for (const o of w.obstacles) {
+      if (o.kind !== 'circle' || o.top === undefined || o.top + 3 <= want) continue;
+      const ox = o.x - px,
+        oz = o.z - pz;
+      const t = clamp(ox * dx + oz * dz, 0, 10);
+      if (Math.hypot(ox - dx * t, oz - dz * t) < o.r + pad) want = o.top + 3;
+    }
     this.hoverH = Math.max(2, want - here);
   },
   // 走到建築旁邊：外形上離自己最近的點往外 1.2 m
@@ -331,12 +354,14 @@ Object.assign(MechEntity.prototype, {
     let best = null,
       bs = 1e9;
     const nc = this.rt && this.rt.nc && this.orders[0] && this.orders[0].k === 'amove';
+    const vAir = D.faction === 'veerwell' && D.slotAa && Object.values(D.slotAa).includes('air');
     for (const t of list) {
       if (!this.rtsHostileOk(t) || !this.rtsAbCanHit(D, t)) continue;
       if (nc && t.creep && this.rtsCreepCalm(t)) continue;
       const d = this.rtsDistTo(t);
       if (d > r || (D.minRange && d < D.minRange)) continue;
-      const s = d + (t.bld ? 25 : 0) + (t.rtsDef && RTS_DEFS[t.rtsDef] && RTS_DEFS[t.rtsDef].worker ? 6 : 0);
+      let s = d + (t.bld ? 25 : 0) + (t.rtsDef && RTS_DEFS[t.rtsDef] && RTS_DEFS[t.rtsDef].worker ? 6 : 0);
+      if (vAir && t.flying) s -= 12; // 維爾威的誘導飛彈架（對空的槽比較強）：空中目標優先（R4 B 包）
       if (s < bs) {
         bs = s;
         best = t;
@@ -492,7 +517,12 @@ Object.assign(MechEntity.prototype, {
       const wd = w && w.def;
       if (!wd || wd.type === 'none' || wd.type === 'shield' || wd.type === 'melee' || w.dropped) continue;
       const aa = (D.slotAa && D.slotAa[s]) || D.aa || 'ground';
-      if (aa !== 'both' && (aa === 'air') !== !!t.flying) continue;
+      if (
+        aa !== 'both' &&
+        (aa === 'air') !== !!t.flying &&
+        !(t.flying && this.game.rtsLowAir && this.game.rtsLowAir(t))
+      )
+        continue;
       if (wd.ammo && w.ammo < wd.ammo * 0.5) w.ammo = wd.ammo; // RTS：彈藥不會用完
       if (wd.mag) w.mag = wd.mag; // 也不換彈匣（rts.js 的 dps 換算只看兩發的間隔）
       if (w.cd > 0 || w.reloadT > 0) continue;
@@ -739,7 +769,9 @@ Object.assign(MechEntity.prototype, {
     if (rt.dT < RTS_GATHER.drop) return false;
     rt.dT = 0;
     if (this.carry && this.carry.n) {
-      g.rtsDeposit(this.rtsTeam, this.carry.kind, this.carry.n);
+      // 維爾威的集貨站（R4 A 包）：放進庫存、延遲入帳；其他回收點立刻入帳
+      if (!(g.rtsHaulDeposit && g.rtsHaulDeposit(b, this.carry)))
+        g.rtsDeposit(this.rtsTeam, this.carry.kind, this.carry.n);
       R.stats[this.rtsTeam].ore += this.carry.n;
     }
     this.carry = null;
@@ -854,12 +886,15 @@ Object.assign(MechEntity.prototype, {
       (this.sx || (this.sx = {})).rtsLegs = legs; // sx 參照到的節點在 RTS 合併時當骨頭（render/rts-merge.js）
     }
     if (this.rtsAethInit) this.rtsAethInit(D); // 艾瑟立克（R3 B 包：entities/mech-rts-aeth.js）
+    if (this.rtsVeerInit) this.rtsVeerInit(D); // 維爾威（R4 B 包：entities/mech-rts-veer.js）
   },
   // 每格：回傳 true＝這一格不動也不開火（架設／收起中）
   rtsAbTick(dt, D) {
     const R = this.game.rts;
     // 艾瑟立克（R3 B 包）：引導、撲上、纏附中接手（回傳 true＝這一格不動也不開火）
     if (this.rtsAethTick && this.rtsAethTick(dt, D)) return true;
+    // 維爾威（R4 B 包）：推進跳躍、衝撞、卸載、搭乘中接手
+    if (this.rtsVeerTick && this.rtsVeerTick(dt, D)) return true;
     // 叉架 MT：丟出貨櫃 20 秒後舉回新的貨櫃
     if (this.rtsCrateT !== undefined && !(this.bossVis & 1) && R.t >= this.rtsCrateT) this.bossVis |= 1;
     // 盾牆：每 0.5 秒掩護身後的友軍
@@ -967,7 +1002,8 @@ Object.assign(MechEntity.prototype, {
     else if (ab === 'ab_flare') this.rtsAbFlare(o.x, o.z);
     else if (ab === 'ab_rockets') this.rtsAbRockets(o.x, o.z);
     // 艾瑟立克的技能（R3 B 包的 rtsAethAb：true＝施放了，費用與冷卻在這裡扣）
-    else if (!(this.rtsAethAb && this.rtsAethAb(ab, o))) return;
+    // 維爾威的技能（R4 B 包的 rtsVeerAb，同上）
+    else if (!(this.rtsAethAb && this.rtsAethAb(ab, o)) && !(this.rtsVeerAb && this.rtsVeerAb(ab, o))) return;
     R.teams[this.rtsTeam].coral -= A.coral || 0;
     this.rtsCd[ab] = R.t + (A.cd || 0);
   },
@@ -1220,6 +1256,9 @@ Object.assign(MechEntity.prototype, {
   // 這個單位（或防禦塔的武器設定）打得到 t 嗎：aa（'both'｜'air'，沒有＝只打地面）＋各槽的 slotAa
   rtsAbCanHit(D, t) {
     if (!D || !t) return false;
+    // 低空（R4：衝撞無人機、下降中的運輸機、收起的建築…）地面與對空的武器都打得到
+    const g = this.game;
+    if (t.flying && g.rtsLowAir && g.rtsLowAir(t)) return !!(D.aa || D.slotAa || D.range || D.dps);
     const fly = !!t.flying;
     const ok = (aa) => aa === 'both' || (aa === 'air') === fly;
     if (ok(D.aa || 'ground')) return true;
@@ -1252,6 +1291,7 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       D = RTS_DEFS[this.rtsDef];
     if (!D || this.dead) return;
+    if (this.rtsVeerTower && this.rtsVeerTower(dt)) return; // 維爾威的飛彈防禦塔（R4 B 包：對空與對地的射程不同）
     const gun = D.range ? D : D.fortGun;
     if (!gun) return;
     const range = g.rtsBldRange(this);

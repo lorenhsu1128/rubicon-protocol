@@ -100,6 +100,64 @@ export const RTS_THEMES = {
     },
     after: coralVeins,
   },
+  // R4（docs 15.8、15.14）：舊宇宙港外圍（發射台的台地＋防爆牆列、寬廣的平地）與 Grid 086 地表（兩層的構造體台階）
+  spaceport: {
+    name: '舊宇宙港外圍',
+    baseH: [6.5, 8.5],
+    ridgeH: [10, 13],
+    mesaH: [8, 11],
+    watchH: [4.5, 6],
+    rimH: 22,
+    rough: 0.4,
+    rocks: {
+      model: 'blastwall',
+      box: [8, 4, 2],
+      boxW: [6, 8],
+      boxH: [3, 4],
+      boxD: [1.2, 2],
+      sink: 0.1,
+    },
+    wrecks: [
+      { model: 'cargopod', box: [2.8, 2.7, 6], sink: 0.05 },
+      { model: 'fueltruck', box: [2.6, 3.2, 8], sink: 0.05 },
+    ],
+    lights: { model: 'mast', r: 0.5, h: [11, 15], sink: 0.1 },
+    counts: { rocks: [10, 16], wrecks: [5, 8], lights: [3, 5] },
+    look: {
+      ground: 0x6c7073,
+      slope: 0x55595c,
+      rock: 0x4c5053,
+      sky: 0xc6ccd0,
+      fog: 0xbcc1c4,
+      sun: 0xfff8f0,
+      amb: 0x8a9298,
+      sunI: 0.95,
+      hemiI: 0.9,
+      fogNear: 70,
+      fogFar: 230,
+      weather: null,
+    },
+    after: padsAfter,
+  },
+  grid086: {
+    name: 'Grid 086 地表',
+    baseH: [8, 10],
+    ridgeH: [13, 17],
+    mesaH: [12, 16],
+    watchH: [6, 7],
+    rimH: 26,
+    rough: 0.5,
+    rocks: { model: 'scrap', r: [1.8, 2.8], h: [2.2, 3.2], sink: 0.2 },
+    wrecks: [
+      { model: 'shack', box: [6, 4.3, 4.8], sink: 0.05 },
+      { model: 'pipestack', box: [3.2, 9, 1], sink: 0.05 },
+      { model: 'chimney', r: [1.2, 1.6], h: [16, 24], sink: 0.1 },
+    ],
+    lights: { model: 'barrels', r: 1.1, h: [3.4, 3.4], sink: 0.05 },
+    counts: { rocks: [16, 24], wrecks: [5, 8], lights: [3, 5] },
+    look: { sunI: 0.8, hemiI: 1.0, fogNear: 50, fogFar: 170, weather: 'ash' },
+    after: stepsAfter,
+  },
 };
 
 const AMOUNT = { main: 12000, natural: 10000, outer: 8000, rich: 15000, coralBase: 6000, coralMid: 10000 };
@@ -698,7 +756,7 @@ function genOnce(sub, theme, size) {
   if (campsOut.length < 6 || campsOut.length > 10) return fail(plan, `營地數 ${campsOut.length}`);
   if (outer.length < 2) return fail(plan, '外圍分礦不足');
   // 主題的附加地形（冰湖…）：在高度圖與障礙物之後、檢查之前；自己的亂數串 makeRng(sub × 53 ＋ 19)
-  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse };
+  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse, sub };
   if (TH.extra) {
     const why = TH.extra(plan, ctx);
     if (why) return fail(plan, why);
@@ -911,6 +969,549 @@ function coralVeins(plan, c) {
   return '';
 }
 
+// ---------- R4 的附加地形（docs 15.8、15.14）：舊宇宙港外圍的發射台與防爆牆列、Grid 086 地表的構造體台階 ----------
+// 共用：通道（plan.lanes）加密成每 2 m 一點；結構的高度函式 F(x, z)（0＝沒有）＋鏡像，寫進高度圖時取 max
+// （k 與 N²−1−k 同值，維持對稱），結構蓋到的障礙物成對移除，改了地形所以整個重新 validate。
+const STRUCT_SLOPE = 0.36; // 結構坡道的坡度（地形的坡道 0.27；NAV_SLOPE 0.6 以下都能走）
+function laneDots(plan) {
+  const out = [];
+  for (const ln of plan.lanes)
+    for (let k = 1; k < ln.length; k++) {
+      const a = ln[k - 1],
+        b = ln[k];
+      const m = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2));
+      for (let s = 0; s < m; s++)
+        out.push({ x: a.x + ((b.x - a.x) * s) / m, z: a.z + ((b.z - a.z) * s) / m });
+    }
+  return out;
+}
+// 通道上 f（0～1，依長度）的位置與方向（單位向量）
+function laneAt(lane, f) {
+  let tot = 0;
+  for (let k = 1; k < lane.length; k++)
+    tot += Math.hypot(lane[k].x - lane[k - 1].x, lane[k].z - lane[k - 1].z);
+  let want = tot * f;
+  for (let k = 1; k < lane.length; k++) {
+    const a = lane[k - 1],
+      b = lane[k];
+    const sl = Math.hypot(b.x - a.x, b.z - a.z);
+    if (want > sl && k < lane.length - 1) {
+      want -= sl;
+      continue;
+    }
+    const t = sl ? Math.min(1, want / sl) : 0;
+    return {
+      x: a.x + (b.x - a.x) * t,
+      z: a.z + (b.z - a.z) * t,
+      dx: (b.x - a.x) / (sl || 1),
+      dz: (b.z - a.z) / (sl || 1),
+    };
+  }
+  return null;
+}
+// 不能靠近的點（{ p, r }：結構的高度函式在這個圓上要是 0）
+function structKeep(plan, m) {
+  const keep = [];
+  for (const b of plan.highs) {
+    const base = b.kind === 'base';
+    keep.push({ p: b.pos, r: b.r + (base ? m.base : 8) });
+    keep.push({ p: b.ramp.bottom, r: base ? 14 : 10 }, { p: b.ramp.top, r: 8 });
+  }
+  for (const q of plan.mines) keep.push({ p: q.pos, r: m.res });
+  for (const q of plan.corals) keep.push({ p: q.pos, r: m.res });
+  for (const q of plan.camps) keep.push({ p: q.pos, r: m.camp });
+  for (const q of plan.neutrals) keep.push({ p: q.pos, r: m.neutral });
+  for (const q of plan.chokes) keep.push({ p: q.pos, r: q.w / 2 + 6 });
+  return keep;
+}
+// 高度圖寫入（all＝含鏡像的結構，各有 F(x, z)）
+function stampStructs(plan, all) {
+  const n = plan.n,
+    h = plan.h,
+    S = plan.size / 2,
+    half = (n * n - 1) / 2;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      if (k > half) continue;
+      const v = structH(all, i * RTS_CELL - S, j * RTS_CELL - S);
+      if (v <= h[k]) continue;
+      h[k] = v;
+      h[n * n - 1 - k] = v;
+    }
+}
+function structH(all, x, z) {
+  let v = 0;
+  for (const s of all)
+    if (!(x < s.bb[0] || x > s.bb[1] || z < s.bb[2] || z > s.bb[3])) v = Math.max(v, s.F(x, z));
+  return v;
+}
+// 結構蓋到的障礙物移除（中心與外圍 4 點有高度＝蓋到；結構是對稱的，所以成對移除）
+function clearUnder(plan, all, pad = 2) {
+  plan.obstacles = plan.obstacles.filter((o) => {
+    const r = (o.r || Math.hypot(o.w || 0, o.d || 0) / 2) + pad;
+    for (const [dx, dz] of [
+      [0, 0],
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ])
+      if (structH(all, o.x + dx, o.z + dz) > 0.05) return false;
+    return true;
+  });
+}
+// 圓形台地＋一條坡道（發射台）：頂面平（H）、邊緣 cw 公尺的斷崖、坡道沿 ang 往外
+function padStruct(c, r, H, ang, rw) {
+  const cw = 2.5;
+  const dx = Math.cos(ang),
+    dz = Math.sin(ang);
+  const len = H / STRUCT_SLOPE;
+  const rs = P(c.x + dx * (r - 1), c.z + dz * (r - 1));
+  const re = P(rs.x + dx * len, rs.z + dz * len);
+  const ext = r + cw + len + rw;
+  return {
+    c,
+    r,
+    H,
+    ramp: { top: rs, bottom: re, w: rw, len, dir: Math.atan2(dx, dz), ang },
+    bb: [c.x - ext, c.x + ext, c.z - ext, c.z + ext],
+    F(x, z) {
+      let t = sm((r + cw - Math.hypot(x - c.x, z - c.z)) / cw);
+      if (t < 1) {
+        const px = x - rs.x,
+          pz = z - rs.z;
+        const al = px * dx + pz * dz,
+          lat = Math.abs(-px * dz + pz * dx);
+        if (al > -3 && al < len && lat < rw / 2 + 2) {
+          const rt = 1 - clamp(al / len, 0, 1);
+          t = Math.max(t, rt * clamp((rw / 2 + 2 - lat) / 2, 0, 1));
+        }
+      }
+      return t * H;
+    },
+  };
+}
+// 兩層的長方形台階（構造體）：本地 u 沿長軸（phi 方向）、v 橫向；下層 L×W 高 H1，上層在 +u 端（長 Lu）高 H1＋H2；
+// 地面坡道接在 −u 端往外（橫向位置 vb、寬 rw1），上層坡道在下層上沿 +u 爬升到上層（橫向位置 vr、寬 rw2）
+function stepStruct(o) {
+  const { c, phi, L, W, H1, H2, Lu, vb, rw1, vr, rw2 } = o;
+  const cw = 2;
+  const cs = Math.cos(phi),
+    sn = Math.sin(phi);
+  const len1 = H1 / STRUCT_SLOPE,
+    len2 = H2 / STRUCT_SLOPE;
+  const u2 = L / 2 - Lu; // 上層的起點
+  const ext = Math.hypot(L / 2 + len1 + cw, W / 2 + cw) + 1;
+  const toW = (u, v) => P(c.x + u * cs - v * sn, c.z + u * sn + v * cs);
+  const lm = (d, w) => clamp((w / 2 + 2.5 - d) / 2.5, 0, 1);
+  return {
+    ...o,
+    len1,
+    len2,
+    u2,
+    toW,
+    ramp1: { bottom: toW(-L / 2 - len1, vb), top: toW(-L / 2, vb), w: rw1 },
+    ramp2: { bottom: toW(u2 - len2, vr), top: toW(u2, vr), w: rw2 },
+    top: toW(u2 + Lu / 2, 0),
+    bb: [c.x - ext, c.x + ext, c.z - ext, c.z + ext],
+    F(x, z) {
+      const dx = x - c.x,
+        dz = z - c.z;
+      const u = dx * cs + dz * sn,
+        v = -dx * sn + dz * cs;
+      const au = Math.abs(u),
+        av = Math.abs(v);
+      let h = H1 * sm((Math.min(L / 2 - au, W / 2 - av) + cw) / cw);
+      const up = sm((Math.min(Lu / 2 - Math.abs(u - (u2 + Lu / 2)), W / 2 - av) + cw) / cw);
+      if (up > 0) h = Math.max(h, (H1 + H2) * up);
+      // 地面坡道（−u 端往外）
+      if (u < -L / 2 + 1 && u > -L / 2 - len1 - 1) {
+        const k = lm(Math.abs(v - vb), rw1);
+        if (k > 0) h = Math.max(h, H1 * (1 - clamp((-L / 2 - u) / len1, 0, 1)) * k);
+      }
+      // 上層坡道（在下層上）
+      if (u > u2 - len2 - 1 && u < u2 + 1 && au < L / 2 && av < W / 2) {
+        const k = lm(Math.abs(v - vr), rw2);
+        if (k > 0) h = Math.max(h, H1 + H2 * clamp((u - (u2 - len2)) / len2, 0, 1) * k);
+      }
+      return h;
+    },
+  };
+}
+// 放得下：keep 的圓上與中心沒有高度、離通道 laneGap 以上、不碰到其他結構與自己的鏡像、取樣點都在低地與範圍裡
+function structFits(s, c, m, keep, dots, laneGap, others) {
+  const outline = s.samples(0);
+  for (const k of keep) {
+    if (s.F(k.p.x, k.p.z) > 0.02) return false;
+    for (const [x, z] of outline) if (Math.hypot(x - k.p.x, z - k.p.z) < k.r) return false;
+  }
+  for (const d of dots) if (s.near(d.x, d.z, laneGap)) return false;
+  for (const o of others)
+    for (const [x, z] of outline) if (o.near(x, z, 8) || o.near(-x, -z, 8)) return false;
+  const mi = s.mirror();
+  for (const [x, z] of s.samples(m)) {
+    const p = P(x, z);
+    if (!c.inUse(p, 6)) return false;
+    if (c.high(p) > 0.05) return false;
+    if (mi.F(x, z) > 0.02) return false;
+  }
+  return true;
+}
+
+// 舊宇宙港外圍：發射台（每半張圖 1 個圓形台地＋坡道，頂面可以蓋，台上一角是發射塔）→ 重新檢查 →
+// 防爆牆列（另一條亂數串）→ 再檢查（新的通道離防爆牆 6 m 以上）
+function padsAfter(plan, c) {
+  const r = c.rng;
+  const R = (a, b) => a + (b - a) * r();
+  const keep = structKeep(plan, { base: 25, res: 20, camp: 12, neutral: 15 });
+  const dots = laneDots(plan);
+  let pad = null;
+  for (let t = 0; t < 300 && !pad; t++) {
+    const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+    if (!lane || lane.length < 2) return '通道不足';
+    const q = laneAt(lane, R(0.25, 0.65));
+    const rad = R(14, 18),
+      H = R(6, 8),
+      rw = R(12, 14),
+      side = r() < 0.5 ? 1 : -1;
+    const off = rad + R(8, 22);
+    const cc = P(q.x - q.dz * side * off, q.z + q.dx * side * off);
+    // 坡道順著通道（往前或往後）或背向通道，不橫越通道（三個方向依序試，不另外用亂數）
+    const a0 = Math.atan2(q.dz, q.dx);
+    for (const ang of [a0, a0 + Math.PI, Math.atan2(cc.z - q.z, cc.x - q.x)]) {
+      const s = padStruct(cc, rad, H, ang, rw);
+      s.R = rad + s.ramp.len;
+      s.mirror = () => padStruct(neg(cc), rad, H, ang + Math.PI, rw);
+      s.near = (x, z, m) => s.F(x, z) > 0.02 || Math.hypot(x - cc.x, z - cc.z) < rad + m;
+      s.samples = (m) => {
+        const out = [[cc.x, cc.z]];
+        for (let a = 0; a < 16; a++) {
+          const th = (a / 16) * Math.PI * 2;
+          out.push([cc.x + Math.cos(th) * (rad + m), cc.z + Math.sin(th) * (rad + m)]);
+        }
+        const rp = s.ramp;
+        for (let f = 0; f <= 1; f += 0.25)
+          for (const sd of [-1, 1])
+            out.push([
+              rp.top.x + (rp.bottom.x - rp.top.x) * f - Math.sin(ang) * sd * (rw / 2 + m),
+              rp.top.z + (rp.bottom.z - rp.top.z) * f + Math.cos(ang) * sd * (rw / 2 + m),
+            ]);
+        return out;
+      };
+      if (Math.hypot(cc.x, cc.z) < s.R + 12) continue;
+      if (structFits(s, c, 3, keep, dots, 6, [])) {
+        pad = s;
+        break;
+      }
+    }
+  }
+  if (!pad) return '發射台放不下';
+  const all = [pad, pad.mirror()];
+  stampStructs(plan, all);
+  clearUnder(plan, all);
+  // 發射塔（縮小 0.55）：頂面上、坡道的反側一角；方塊碰撞＝塔＋火箭的外框（朝向以 90° 為單位）
+  const ts = 0.55;
+  const q4 = Math.floor(r() * 4);
+  const [tw, td] = q4 & 1 ? [6.4 * ts, 13.2 * ts] : [13.2 * ts, 6.4 * ts];
+  const back = pad.ramp.ang + Math.PI + R(-0.6, 0.6);
+  const td0 = pad.r - Math.hypot(tw, td) / 2 - 1.5;
+  const tx = pad.c.x + Math.cos(back) * td0,
+    tz = pad.c.z + Math.sin(back) * td0;
+  const tower = {
+    model: 'launchtower',
+    kind: 'box',
+    x: tx,
+    z: tz,
+    w: tw,
+    d: td,
+    h: 46 * ts,
+    y: pad.H - 0.1,
+    top: pad.H - 0.1 + 46 * ts,
+    yaw: q4 * (Math.PI / 2),
+    s: ts,
+  };
+  plan.obstacles.push(tower, { ...tower, x: -tx, z: -tz, yaw: tower.yaw + Math.PI });
+  plan.pads = all.map((s, k) => ({
+    pos: s.c,
+    r: s.r,
+    h: s.H,
+    near: k,
+    ramp: { top: s.ramp.top, bottom: s.ramp.bottom, w: s.ramp.w, len: s.ramp.len, dir: s.ramp.dir },
+  }));
+  if (!validate(plan).ok) return plan.fail;
+  // 防爆牆列：每半張圖 2～3 列、每列 3～5 段（8 × 4 × 1.2 m），雁行斜放（每段沿列錯開）在通道旁，
+  // 離通道的路徑 6 m 以外（不擋中線）
+  const wr = makeRng((c.sub * 61 + 29) >>> 0);
+  const WR = (a, b) => a + (b - a) * wr();
+  const dots2 = laneDots(plan);
+  const keep2 = structKeep(plan, { base: 8, res: 12, camp: 10, neutral: 12 });
+  const hAt = heightSampler(plan.h, plan.n, plan.size);
+  const segFree = (x, z, w, d, rows) => {
+    const hw = w / 2,
+      hd = d / 2,
+      hr = Math.hypot(hw, hd);
+    for (const p of dots2)
+      if (Math.max(Math.abs(p.x - x) - hw, 0) ** 2 + Math.max(Math.abs(p.z - z) - hd, 0) ** 2 < 64)
+        return false;
+    for (const k of keep2) if (Math.hypot(k.p.x - x, k.p.z - z) < k.r + hr) return false;
+    for (const o of plan.obstacles)
+      if (Math.hypot(o.x - x, o.z - z) < (o.r || Math.hypot(o.w, o.d) / 2) + hr + 2) return false;
+    for (const q of rows) if (Math.hypot(q.x - x, q.z - z) < 2 * hr + 1 && !q.same) return false;
+    if (Math.hypot(x, z) < hr + 6) return false; // 自己的鏡像
+    for (const s of all) if (Math.hypot(x - s.c.x, z - s.c.z) < s.r + 8 || s.F(x, z) > 0.02) return false;
+    for (const [ox, oz] of [
+      [0, 0],
+      [-hw, -hd],
+      [hw, -hd],
+      [-hw, hd],
+      [hw, hd],
+    ]) {
+      const p = P(x + ox, z + oz);
+      if (!c.inUse(p, 6) || c.high(p) > 0.05 || structH(all, p.x, p.z) > 0.02) return false;
+    }
+    return Math.abs(hAt(x - hw, z - hd) - hAt(x + hw, z + hd)) < 1.2;
+  };
+  const nRows = wr() < 0.5 ? 2 : 3;
+  const walls = [];
+  for (let k = 0, t = 0; k < nRows && t < 200; t++) {
+    const lane = plan.lanes[Math.floor(wr() * plan.lanes.length)];
+    const q = laneAt(lane, WR(0.08, 0.5));
+    if (!q) continue;
+    const side = wr() < 0.5 ? 1 : -1;
+    const off = WR(10, 20);
+    const nSeg = 3 + Math.floor(wr() * 3);
+    // 列的方向：以 90° 為單位、最接近通道方向（障礙物的碰撞是軸對齊的方塊）；雁行錯開 stag
+    const alongX = Math.abs(q.dx) >= Math.abs(q.dz);
+    const stag = WR(1.2, 2.2) * (wr() < 0.5 ? 1 : -1);
+    const [w, d] = alongX ? [8, 1.2] : [1.2, 8];
+    const cx = q.x - q.dz * side * off,
+      cz = q.z + q.dx * side * off;
+    const segs = [];
+    for (let s = 0; s < nSeg; s++) {
+      const a = (s - (nSeg - 1) / 2) * 8.6,
+        b = (s - (nSeg - 1) / 2) * stag;
+      const x = alongX ? cx + a : cx + b,
+        z = alongX ? cz + b : cz + a;
+      if (!segFree(x, z, w, d, [...walls, ...segs.map((p) => ({ ...p, same: true }))])) break;
+      segs.push({ x, z });
+    }
+    if (segs.length < 3) continue; // 放不滿的列至少 3 段
+    for (const p of segs) {
+      const y = hAt(p.x, p.z) - 0.1;
+      const o = {
+        model: 'blastwall',
+        kind: 'box',
+        x: p.x,
+        z: p.z,
+        w,
+        d,
+        h: 4,
+        y,
+        top: y + 4,
+        yaw: alongX ? 0 : Math.PI / 2,
+        row: k + 1,
+      };
+      plan.obstacles.push(o, { ...o, x: -p.x, z: -p.z, yaw: o.yaw + Math.PI });
+      walls.push(p);
+    }
+    k++;
+  }
+  if (walls.length < 6) return '防爆牆放不下';
+  // 重新檢查；新的通道（繞過防爆牆）離某一列不到 WALL_GAP 時拿掉那一列（成對）再檢查，最多兩次
+  for (let it = 0; ; it++) {
+    if (!validate(plan).ok) return plan.fail;
+    const bad = wallsBad(plan);
+    if (!bad.size) break;
+    if (it >= 2) return '防爆牆擋到通道';
+    plan.obstacles = plan.obstacles.filter((o) => !bad.has(o.row));
+  }
+  return plan.obstacles.filter((o) => o.row).length >= 12 ? '' : '防爆牆放不下';
+}
+// 防爆牆列（row）離通道的路徑：WALL_GAP 公尺以內的列（放的時候離檢查前的通道 8 m 以上；通道會繞過防爆牆，所以重新算的
+// 通道只要求 WALL_GAP）
+export const WALL_GAP = 3;
+export function wallsBad(plan, gap = WALL_GAP) {
+  const dots = laneDots(plan);
+  const bad = new Set();
+  for (const o of plan.obstacles) {
+    if (!o.row || bad.has(o.row)) continue;
+    for (const p of dots)
+      if (
+        Math.max(Math.abs(p.x - o.x) - o.w / 2, 0) ** 2 + Math.max(Math.abs(p.z - o.z) - o.d / 2, 0) ** 2 <
+        gap * gap - 1e-6
+      ) {
+        bad.add(o.row);
+        break;
+      }
+  }
+  return bad;
+}
+
+// Grid 086 地表：每半張圖 2 組兩層的構造體台階（順著通道、放在通道旁），頂層可以蓋；
+// 邊緣的金屬牆（地形的斷崖外側，裝飾）＋地面的鋼板接縫與排水溝（裝飾）
+function stepsAfter(plan, c) {
+  const r = c.rng;
+  const R = (a, b) => a + (b - a) * r();
+  const keep = structKeep(plan, { base: 20, res: 20, camp: 12, neutral: 15 });
+  const dots = laneDots(plan);
+  const steps = [];
+  for (let t = 0; t < 400 && steps.length < 2; t++) {
+    const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+    if (!lane || lane.length < 2) return '通道不足';
+    const q = laneAt(lane, R(0.12, 0.8));
+    const H1 = R(4, 5),
+      H2 = R(4, 5);
+    const len2 = H2 / STRUCT_SLOPE;
+    // 下層：地面坡道上來的平台（landing 3 m）＋上層坡道（整個寬度）；上層 Lu ≥ 14 m（頂層才放得下 8×8 的建築）
+    const L = R(Math.max(24, len2 + 17), 38),
+      W = R(16, 20);
+    const Lu = L - len2 - 3;
+    const rw1 = R(11, 13);
+    const vb = R(-0.5, 0.5) * Math.max(0, W / 2 - rw1 / 2 - 0.5);
+    const off = W / 2 + R(6, 24);
+    let got = null;
+    // 通道的兩側 × 兩個方向依序試（不另外用亂數）
+    for (const side of [1, -1])
+      for (const flip of [0, Math.PI]) {
+        if (got) break;
+        const cc = P(q.x - q.dz * side * off, q.z + q.dx * side * off);
+        const s = stepStruct({
+          c: cc,
+          phi: Math.atan2(q.dz, q.dx) + flip,
+          L,
+          W,
+          H1,
+          H2,
+          Lu,
+          vb,
+          rw1,
+          vr: 0,
+          rw2: W + 4,
+        });
+        s.R = Math.hypot(L / 2 + s.len1, W / 2);
+        s.mirror = () => stepStruct({ ...s, c: neg(cc), phi: s.phi + Math.PI });
+        const cs = Math.cos(s.phi),
+          sn = Math.sin(s.phi);
+        s.near = (x, z, m) => {
+          const dx = x - cc.x,
+            dz = z - cc.z;
+          const u = dx * cs + dz * sn,
+            v = -dx * sn + dz * cs;
+          return u > -L / 2 - s.len1 - m && u < L / 2 + m && Math.abs(v) < W / 2 + m;
+        };
+        s.samples = (m) => {
+          const out = [];
+          const su = (L + s.len1 + 2 * m) / 8,
+            sv = (W + 2 * m) / 4;
+          for (let u = -L / 2 - s.len1 - m; u <= L / 2 + m + 1e-6; u += su)
+            for (let v = -W / 2 - m; v <= W / 2 + m + 1e-6; v += sv) {
+              const p = s.toW(u, v);
+              out.push([p.x, p.z]);
+            }
+          return out;
+        };
+        if (Math.hypot(cc.x, cc.z) < s.R + 12) continue;
+        if (structFits(s, c, 3, keep, dots, 5, steps)) got = s;
+      }
+    if (got) steps.push(got);
+  }
+  if (steps.length < 2) return '構造體台階放不下';
+  const all = [];
+  for (const s of steps) all.push(s, s.mirror());
+  stampStructs(plan, all);
+  clearUnder(plan, all);
+  plan.steps = all.map((s, k) => ({
+    pos: s.c,
+    yaw: s.phi,
+    L: s.L,
+    W: s.W,
+    h1: s.H1,
+    h2: s.H2,
+    near: k & 1,
+    top: s.top,
+    ramps: [
+      { bottom: s.ramp1.bottom, top: s.ramp1.top, w: s.ramp1.w },
+      { bottom: s.ramp2.bottom, top: s.ramp2.top, w: s.ramp2.w },
+    ],
+  }));
+  if (!validate(plan).ok) return plan.fail;
+  // 金屬牆：斷崖（cw 2 m）的中段、坡道接上的地方留空；每段約 6 m
+  const decor = [];
+  const wallRun = (s, a0, a1, fixed, alongU, hBot, hTop, skip) => {
+    const L0 = Math.abs(a1 - a0);
+    const nSeg = Math.max(1, Math.round(L0 / 6));
+    const sl = L0 / nSeg;
+    for (let k = 0; k < nSeg; k++) {
+      const m = Math.min(a0, a1) + sl * (k + 0.5);
+      if (skip && skip(m)) continue;
+      const p = alongU ? s.toW(m, fixed) : s.toW(fixed, m);
+      const hh = hTop - hBot;
+      decor.push({
+        model: 'g86wall',
+        x: p.x,
+        z: p.z,
+        y: hBot + hh / 2 - 0.3,
+        len: sl + 0.05,
+        h: hh + 0.6,
+        yaw: alongU ? -s.phi : -s.phi + Math.PI / 2,
+      });
+    }
+  };
+  for (const s of steps) {
+    const { L, W, H1, H2, u2, vb, rw1, vr, rw2 } = s;
+    const o = 1.0;
+    wallRun(s, -L / 2, u2, W / 2 + o, true, 0, H1);
+    wallRun(s, -L / 2, u2, -W / 2 - o, true, 0, H1);
+    wallRun(s, -W / 2, W / 2, -L / 2 - o, false, 0, H1, (v) => Math.abs(v - vb) < rw1 / 2 + 2);
+    wallRun(s, u2, L / 2, W / 2 + o, true, 0, H1 + H2);
+    wallRun(s, u2, L / 2, -W / 2 - o, true, 0, H1 + H2);
+    wallRun(s, -W / 2, W / 2, L / 2 + o, false, 0, H1 + H2);
+    wallRun(s, -W / 2, W / 2, u2 - o, false, H1, H1 + H2, (v) => Math.abs(v - vr) < rw2 / 2 + 2);
+  }
+  const n0 = decor.length;
+  for (let k = 0; k < n0; k++) {
+    const d = decor[k];
+    decor.push({ ...d, x: -d.x, z: -d.z, yaw: d.yaw + Math.PI });
+  }
+  // 鋼板接縫與排水溝：沿通道（A 側前半段）每 9～16 m 一段，避開礦脈、湧出點、中立建築、障礙物、結構與坡（另一條亂數串）
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  const DR = (a, b) => a + (b - a) * dr();
+  const th = heightSampler(plan.h, plan.n, plan.size);
+  const seams = [];
+  const ok = (x, z, len, yaw) => {
+    for (const m of plan.mines) if (Math.hypot(m.pos.x - x, m.pos.z - z) < 10 + len / 2) return false;
+    for (const q of plan.corals) if (Math.hypot(q.pos.x - x, q.pos.z - z) < 8 + len / 2) return false;
+    for (const q of plan.neutrals) if (Math.hypot(q.pos.x - x, q.pos.z - z) < 12 + len / 2) return false;
+    for (const o of plan.obstacles)
+      if (Math.hypot(o.x - x, o.z - z) < (o.r || Math.hypot(o.w, o.d) / 2) + len / 2 + 1) return false;
+    for (const d of seams) if (Math.hypot(d.x - x, d.z - z) < 5) return false;
+    if (structH(all, x, z) > 0.02) return false;
+    const ex = (Math.cos(yaw) * len) / 2,
+      ez = (-Math.sin(yaw) * len) / 2;
+    return Math.abs(th(x + ex, z + ez) - th(x - ex, z - ez)) < 0.4 && Math.hypot(x, z) > len;
+  };
+  for (const lane of plan.lanes) {
+    let tot = 0;
+    for (let k = 1; k < lane.length; k++)
+      tot += Math.hypot(lane[k].x - lane[k - 1].x, lane[k].z - lane[k - 1].z);
+    for (let at = DR(5, 12); at < tot / 2; at += DR(9, 16)) {
+      const q = laneAt(lane, at / tot);
+      const sd = DR(-6, 6);
+      const x = q.x - q.dz * sd,
+        z = q.z + q.dx * sd;
+      const drain = dr() < 0.3;
+      const len = drain ? DR(3, 5) : DR(6, 12);
+      const yaw = Math.atan2(-q.dz, q.dx) + (drain ? Math.PI / 2 : 0) + DR(-0.1, 0.1);
+      if (!ok(x, z, len, yaw)) continue;
+      const d = { model: drain ? 'drain' : 'seam', x, z, y: th(x, z) + 0.03, len, yaw };
+      seams.push(d, { ...d, x: -x, z: -z, yaw: yaw + Math.PI });
+    }
+  }
+  plan.decor = [...decor, ...seams];
+  return '';
+}
+
 function fail(plan, why) {
   plan.ok = false;
   plan.fail = why;
@@ -958,6 +1559,9 @@ export function validate(plan, nav) {
       keys.push([q.kind, P(q.pos.x + (bA.pos.x / off) * fd, q.pos.z + (bA.pos.z / off) * fd)]);
   }
   for (const c of plan.chokes.filter((_, i) => i % 2 === 0)) keys.push(['choke', c.pos]);
+  // R4 的結構（只有舊宇宙港外圍、Grid 086 地表有）：發射台的頂面、台階的上層
+  for (const q of plan.pads || []) if (q.near === 0) keys.push(['pad', q.pos]);
+  for (const q of plan.steps || []) if (q.near === 0) keys.push(['step', q.top]);
   keys.push(['enemyBase', bB.pos]);
   let worst = 0;
   const costs = [];

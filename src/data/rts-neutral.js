@@ -420,7 +420,137 @@ RTS_CREEP_DEFS.cr_ac_specimen = themeAce('specimen', {
   slots: ['rarm', 'rback'],
   slotAtk: { rback: 'exp' },
 });
+RTS_CREEP_DEFS.cr_ac_countdown = themeAce('countdown', {
+  atk: 'kin',
+  slots: ['rarm', 'rback'],
+  slotAtk: { rback: 'exp' },
+});
+RTS_CREEP_DEFS.cr_ac_spire = themeAce('spire', {
+  atk: 'pierce',
+  slots: ['rarm', 'larm'],
+  slotAtk: { larm: 'kin' },
+});
 
+// ---------- R4 的主題野怪（docs 15.8、15.14）：舊宇宙港外圍、Grid 086 地表；特殊行為不做（試車台不移動、
+// 誘導飛彈架地空都打是例外）。仍然沒有飛行的野怪 ----------
+Object.assign(RTS_CREEP_DEFS, {
+  cr_testrig: creep({
+    name: '推進器試車台',
+    desc: '野怪：不會移動，噴口前方 10 m 噴火（爆發）',
+    etype: 'testrig',
+    lv: 3,
+    dps: 18,
+    atk: 'exp',
+    arm: 'fort',
+    armor: 2,
+    range: 10,
+    splash: 2.5,
+    rof: 0.3,
+    speed: 0.01, // 不移動（0 會被當成沒有設定）
+    radius: 2,
+    modelKind: 'boss',
+    vehKey: 'testrig',
+    asm: { ...HEAVY, rarm: 'w_sg' },
+  }),
+  cr_spacemt: creep({
+    name: '舊式宇宙用 MT',
+    desc: '野怪：步槍的舊式宇宙用 MT',
+    etype: 'spacemt',
+    lv: 2,
+    atk: 'kin',
+    arm: 'med',
+    armor: 1,
+    range: 26,
+    rof: 0.4,
+    speed: 7,
+    radius: 1.3,
+    modelKind: 'boss',
+    vehKey: 'spacemt',
+    asm: { ...LIGHT, rarm: 'w_rifle' },
+  }),
+  cr_fueler: creep({
+    name: '燃料洩漏車',
+    desc: '野怪：噴灑燃料的車輛（爆發）',
+    etype: 'fueler',
+    lv: 3,
+    atk: 'exp',
+    arm: 'heavy',
+    armor: 2,
+    range: 16,
+    rof: 0.3,
+    speed: 5,
+    radius: 1.8,
+    modelKind: 'boss',
+    vehKey: 'fueler',
+    asm: { ...HEAVY, rarm: 'w_mg' },
+  }),
+  cr_rack: creep({
+    name: '誘導飛彈架',
+    desc: '野怪：穿甲飛彈，地空都打',
+    etype: 'missilerack',
+    lv: 4,
+    atk: 'pierce',
+    arm: 'light',
+    armor: 1,
+    aa: 'both',
+    range: 34,
+    rof: 0.8,
+    speed: 5,
+    radius: 2,
+    modelKind: 'boss',
+    vehKey: 'missilerack',
+    slots: ['rback'],
+    asm: { ...HEAVY, rback: 'bw_ms' },
+  }),
+  cr_crawler: creep({
+    name: '構造體爬行機',
+    desc: '野怪：近距離霰彈的爬行機',
+    etype: 'crawler',
+    lv: 2,
+    atk: 'kin',
+    arm: 'light',
+    armor: 0,
+    range: 12,
+    rof: 0.6,
+    speed: 8,
+    radius: 1.3,
+    modelKind: 'boss',
+    vehKey: 'crawler',
+    asm: { ...LIGHT, rarm: 'w_sg' },
+  }),
+  cr_zipline: creep({
+    name: '滑索突擊兵',
+    desc: '野怪：快速的霰彈突擊兵',
+    etype: 'zipline',
+    lv: 3,
+    atk: 'kin',
+    arm: 'med',
+    armor: 1,
+    range: 14,
+    rof: 0.6,
+    speed: 9,
+    radius: 1.2,
+    modelKind: 'boss',
+    vehKey: 'zipline',
+    asm: { ...LIGHT, rarm: 'w_sg' },
+  }),
+  cr_anchor: creep({
+    name: '重力錨',
+    desc: '野怪：重力波的能量砲台，慢',
+    etype: 'anchor',
+    lv: 4,
+    atk: 'en',
+    arm: 'heavy',
+    armor: 2,
+    range: 26,
+    rof: 0.5,
+    speed: 4,
+    radius: 1.7,
+    modelKind: 'boss',
+    vehKey: 'anchor',
+    asm: { ...HEAVY, rarm: 'w_lr' },
+  }),
+});
 // 大營地的落單具名 AC（AC_ROSTER；依營地的亂數挑一台，兩邊對稱的營地挑同一台）：只用射擊武器的
 export const RTS_CAMP_ACES = {
   longshot: { atk: 'en', slotAtk: { larm: 'kin' } },
@@ -527,12 +657,65 @@ for (const id of [
   'm_chimera',
 ])
   RTS_MERC_DEFS[id].desc = '傭兵：' + RTS_MERC_DEFS[id].desc.replace(/^野怪：/, '');
+// R4 的主題傭兵（docs 15.8）：誘導飛彈架是對空的傭兵；試車台不能移動（雇用時落在傭兵營前方、之後只能守點）
+const R4_MERCS = {
+  m_spacemt: merc('cr_spacemt', {
+    name: '舊式宇宙用 MT（傭兵）',
+    cost: { ore: 140, coral: 30 },
+    pop: 2,
+    time: 0,
+  }),
+  m_fueler: merc('cr_fueler', { name: '燃料洩漏車（傭兵）', cost: { ore: 170, coral: 50 }, pop: 2, time: 0 }),
+  m_rack: merc('cr_rack', {
+    name: '誘導飛彈架（傭兵）',
+    cost: { ore: 210, coral: 70 },
+    pop: 3,
+    time: 0,
+    ...byLv(3),
+  }),
+  m_testrig: merc('cr_testrig', {
+    name: '推進器試車台（傭兵）',
+    cost: { ore: 160, coral: 40 },
+    pop: 2,
+    time: 0,
+  }),
+  m_crawler: merc('cr_crawler', {
+    name: '構造體爬行機（傭兵）',
+    cost: { ore: 130, coral: 20 },
+    pop: 2,
+    time: 0,
+  }),
+  m_zipline: merc('cr_zipline', {
+    name: '滑索突擊兵（傭兵）',
+    cost: { ore: 160, coral: 40 },
+    pop: 2,
+    time: 0,
+  }),
+  m_anchor: merc('cr_anchor', {
+    name: '重力錨（傭兵）',
+    cost: { ore: 220, coral: 80 },
+    pop: 3,
+    time: 0,
+    ...byLv(3),
+  }),
+  m_mth: merc('cr_mth', {
+    name: 'MT 重型（傭兵）',
+    cost: { ore: 180, coral: 40 },
+    pop: 3,
+    time: 0,
+    ...byLv(3),
+  }),
+};
+for (const id in R4_MERCS) R4_MERCS[id].desc = '傭兵：' + R4_MERCS[id].desc.replace(/^野怪：/, '');
+Object.assign(RTS_MERC_DEFS, R4_MERCS);
 Object.assign(RTS_CREEP_DEFS, RTS_MERC_DEFS);
 // 各主題的傭兵（傭兵營的名單與卡片順序）與庫存規則（兩隊共用）
 export const RTS_MERCS = {
   wasteland: ['m_scav', 'm_junk', 'm_harpoon', 'm_smoker'],
   snow: ['m_lurker', 'm_skater', 'm_cryo', 'm_icemortar'],
   institute: ['m_blob', 'm_parasite', 'm_holo', 'm_chimera'],
+  spaceport: ['m_spacemt', 'm_fueler', 'm_rack', 'm_testrig'],
+  grid086: ['m_crawler', 'm_zipline', 'm_anchor', 'm_mth'],
 };
 export const RTS_MERC_RULE = { stock: 2, restock: 60, r: 14 };
 // 酒館：己方單位離酒館多近可以雇用（C 包的 RTS_HIRE.r 相同）
@@ -584,6 +767,36 @@ export const RTS_CAMPS = {
     [
       ['@ac', 'cr_chimera', 'cr_chimera', 'cr_blob'],
       ['cr_ac_specimen', 'cr_chimera', 'cr_blob', 'cr_blob', 'cr_blob', 'cr_laserpost'],
+    ],
+  ],
+  // 舊宇宙港外圍（docs 15.8；大營地多一台，lv 合計才在 17～21）
+  spaceport: [
+    [
+      ['cr_testrig', 'cr_spacemt', 'cr_spacemt'],
+      ['cr_fueler', 'cr_mt', 'cr_mt'],
+    ],
+    [
+      ['cr_rack', 'cr_spacemt', 'cr_spacemt', 'cr_testrig'],
+      ['cr_fueler', 'cr_fueler', 'cr_mth'],
+    ],
+    [
+      ['@ac', 'cr_rack', 'cr_rack', 'cr_spacemt', 'cr_spacemt'],
+      ['cr_ac_countdown', 'cr_fueler', 'cr_spacemt', 'cr_spacemt', 'cr_rack'],
+    ],
+  ],
+  // Grid 086 地表
+  grid086: [
+    [
+      ['cr_crawler', 'cr_crawler', 'cr_mt'],
+      ['cr_zipline', 'cr_zipline', 'cr_scout'],
+    ],
+    [
+      ['cr_anchor', 'cr_crawler', 'cr_crawler', 'cr_zipline'],
+      ['cr_mth', 'cr_crawler', 'cr_zipline', 'cr_zipline'],
+    ],
+    [
+      ['@ac', 'cr_anchor', 'cr_crawler', 'cr_crawler', 'cr_mth'],
+      ['cr_ac_spire', 'cr_zipline', 'cr_zipline', 'cr_anchor', 'cr_crawler'],
     ],
   ],
 };

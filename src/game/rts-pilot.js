@@ -13,6 +13,10 @@
 // R3 艾瑟立克（docs 14.15）：幻象不能親自駕駛；友軍技能的目標＝範圍內血量比例最低的合格友軍（只給生體單位的技能挑
 //   bio，引導中的融合宿主優先）；管家的補給＝陣營的 node（導管節點，rtsAutoSpot 已經看 rtsPowerWhy）、
 //   工人不能修理的陣營（定義的 noRepair）不派修理。
+// R4 維爾威（docs 15.15）：沒有建造工人的陣營（airdrop）管家的補給艙改用空投（rtsDropOrder，地點用 rtsAutoSpot、不行時
+//   在主基地附近找 rtsDropWhy＝'' 的地方；空投中的也算「在蓋」）；親自駕駛＋新部隊跟隨時，英雄在投放範圍內
+//   （信標、調度中心、有軌道通訊站時任何探索過的地方）就把軌道調度所的集結點移到英雄身邊，投放艙直接降在英雄旁
+//   （離開時還原集結點）；在運輸機上的英雄不能親自駕駛。
 import { Game } from './game.js';
 import { RTS_DEFS, RTS_FACTIONS, RTS_GATHER, RTS_POP_MAX } from '../data/rts-units.js';
 import { RTS_SKILLS } from '../data/rts-heroes.js';
@@ -43,8 +47,9 @@ Object.assign(Game.prototype, {
     const R = this.rts;
     if (R && e && !e.dead && e.rtsIllus && e.rtsTeam === RTS_ME) return '幻象不能親自駕駛';
     if (!R || R.over || !e || e.dead || !e.hero || e.rtsTeam !== RTS_ME || e.bld) return '';
+    if (e.rtsAboard) return '在運輸機上不能親自駕駛';
     const H = e.hs; // C 包：施放中（衝刺、跳躍、潛地、引導）
-    if (H && (H.dash || H.leap || H.burrow || H.chan)) return '施放技能中';
+    if (H && (H.dash || H.leap || H.burrow || H.chan || H.blitz)) return '施放技能中';
     return 'ok';
   },
   rtsPilotEnter(e) {
@@ -137,6 +142,7 @@ Object.assign(Game.prototype, {
     const hud = document.getElementById('rtsHud');
     if (hud) hud.classList.remove('pilot');
     this.rtsPilotBtn(false);
+    this.rtsButlerRallyBack();
     if (why === 'clear') return true;
     // 回到指揮：鏡頭回到進入前的設定、注視點移到英雄的位置，選取＝這位英雄
     const C = (R.cam = { ...P.cam });
@@ -536,14 +542,17 @@ Object.assign(Game.prototype, {
         return D && D.popCap && !D.dropoff && !D.heroes;
       });
     if (!depot) return;
-    // 已經在蓋（工地，或工人正要去蓋）
+    // 已經在蓋（工地，或工人正要去蓋，或空投中）
     for (const e of R.units) {
       if (e.dead || e.rtsTeam !== RTS_ME) continue;
       if (e.bld && e.rtsDef === depot && e.bld.progress < 1) return;
       if (!e.bld && e.orders.some((o) => o.k === 'build' && o.def === depot)) return;
     }
+    if ((R.drops || []).some((d) => d.team === RTS_ME && d.def === depot && d.st !== 'back')) return;
     const D = RTS_DEFS[depot];
     if (this.rtsAfford && !this.rtsAfford(RTS_ME, D.cost)) return;
+    // 維爾威：空投（不派工人）
+    if (F.airdrop) return this.rtsButlerDrop(depot);
     const spot = this.rtsAutoSpot ? this.rtsAutoSpot(RTS_ME, depot) : null;
     if (!spot) return;
     // 工人：沒帶著礦、離工地最近的（閒置的優先）
@@ -565,6 +574,73 @@ Object.assign(Game.prototype, {
     B._depotT = R.t + 8;
     if (R.pilot && this.rtsHudPilotNote)
       this.rtsHudPilotNote('管家：蓋' + ((RTS_DEFS[depot] || {}).name || '補給庫'), 0xffd070, 'depot');
+  },
+  // 空投陣營的補給艙：rtsAutoSpot 的位置（rtsDropWhy 不行時在主基地 50 m 內找可以投放的地方）→ rtsDropOrder
+  rtsButlerDrop(defId) {
+    const R = this.rts,
+      B = R.butler;
+    if (!this.rtsDropOrder || !this.rtsDropWhy) return null;
+    const L = this.rtsDropLift ? this.rtsDropLift(RTS_ME) : null;
+    if (L && L.n >= L.max) return null; // 運輸機都在任務中：下一秒再試
+    let spot = this.rtsAutoSpot ? this.rtsAutoSpot(RTS_ME, defId) : null;
+    if (spot && this.rtsDropWhy(RTS_ME, defId, spot.x, spot.z, 0)) spot = null;
+    if (!spot) {
+      const hq = R.units.find(
+        (e) => !e.dead && e.bld && e.rtsTeam === RTS_ME && (RTS_DEFS[e.rtsDef] || {}).heroes && !e.bld.packed,
+      );
+      if (!hq) return null;
+      for (let r = 14; r <= 50 && !spot; r += 4)
+        for (let a = 0; a < 16; a++) {
+          const x = hq.pos.x + Math.cos((a / 16) * Math.PI * 2) * r,
+            z = hq.pos.z + Math.sin((a / 16) * Math.PI * 2) * r;
+          if (!this.rtsDropWhy(RTS_ME, defId, x, z, 0)) {
+            spot = { x, z };
+            break;
+          }
+        }
+    }
+    if (!spot) return null;
+    const rec = this.rtsDropOrder(RTS_ME, defId, spot.x, spot.z, 0, { quiet: true });
+    if (!rec) return null;
+    B._depotT = R.t + 8;
+    if (R.pilot && this.rtsHudPilotNote)
+      this.rtsHudPilotNote('管家：空投' + ((RTS_DEFS[defId] || {}).name || '補給艙'), 0xffd070, 'depot');
+    return rec;
+  },
+  // 親自駕駛＋跟隨（維爾威）：英雄在投放範圍內時，軌道調度所的集結點移到英雄身邊（投放艙直接降在旁邊）
+  rtsButlerRally(h) {
+    const R = this.rts;
+    if (!this.rtsVeerTeam || !this.rtsVeerTeam(RTS_ME) || !this.rtsBeaconAt) return 0;
+    const inRange =
+      !!this.rtsBeaconAt(RTS_ME, h.pos.x, h.pos.z) ||
+      (this.rtsHasOrbit &&
+        this.rtsHasOrbit(RTS_ME) &&
+        (!this.rtsFogState || this.rtsFogState(RTS_ME, h.pos.x, h.pos.z) >= 1));
+    let n = 0;
+    for (const b of R.units) {
+      if (b.dead || !b.bld || b.rtsTeam !== RTS_ME || b.bld.progress < 1) continue;
+      const D = RTS_DEFS[b.rtsDef] || {};
+      if (!(D.trains || []).some((id) => (RTS_DEFS[id] || {}).dropIn)) continue;
+      if (inRange) {
+        if (!b._bRally) b._bRally = { r: b.bld.rally ? { ...b.bld.rally } : null };
+        b.bld.rally = { x: h.pos.x, z: h.pos.z };
+        n++;
+      } else if (b._bRally) {
+        b.bld.rally = b._bRally.r;
+        b._bRally = null;
+      }
+    }
+    return n;
+  },
+  // 離開親自駕駛：還原管家改過的集結點
+  rtsButlerRallyBack() {
+    const R = this.rts;
+    if (!R) return;
+    for (const b of R.units)
+      if (b._bRally) {
+        if (b.bld) b.bld.rally = b._bRally.r;
+        b._bRally = null;
+      }
   },
   // 基地防衛：敵人進入己方建築 42 m 內 → 附近閒置的戰鬥單位攻擊移動過去（威脅消失後回原位）；被攻擊的建築派 2 個工人修理
   rtsButlerDefend(T) {
@@ -670,6 +746,7 @@ Object.assign(Game.prototype, {
       return !e.dead && !e.bld && e.rtsTeam === RTS_ME && !D.worker && !e.hero && D.kind === 'unit';
     };
     for (const u of B._fresh || []) if (combat(u)) u._bFollow = true;
+    this.rtsButlerRally(h); // 維爾威：投放艙降在英雄旁
     const go = R.units.filter(
       (u) =>
         u._bFollow && combat(u) && !u.orders.length && Math.hypot(u.pos.x - h.pos.x, u.pos.z - h.pos.z) > 14,

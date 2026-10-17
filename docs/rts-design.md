@@ -1761,3 +1761,176 @@ export const RTS_VEER = {
 - D：發射台與台階改了地形後的 `validate`（同冰湖）；新主題的 `look` 在 `buildRts` 覆寫（舊宇宙港原本的 `planTerrain`／`buildStructures` 不用）；`blast_wall`、`doser_shack` 的碰撞用外框。
 - E：建造預覽目前看 `nav.buildable`＋`rtsPowerWhy`，加 `rtsDropWhy`（沒有工人時建造模式由調度中心的卡片進入）；指令卡的「收起」與商店貨架的格子不衝突；管家的 `depot` 改用 `rtsDropOrder`。
 - F：`rts-ai.js` 裡「派工人去蓋」「沒有工人施工的工地派人續建」「修理」各層對 `airdrop` 的陣營要改走空投或略過；寫死的陣營角色照 14.6 的表。
+
+### 15.11 A 包（核心與資料）的實作結果與掛勾
+
+> A 包已完成（2026-10-17）。B～E 以這一節為準接上；和 15.1～15.10 不同的地方都列在「規格的修改」。
+
+- **檔案**：`data/rts-veerwell.js`（新：`RTS_VEER`、`RTS_VEER_ABILS`、`RTS_VEER_RESEARCH`、`RTS_VEER_DEFS`、`RTS_VEER_FACTION`）、**`game/rts-veer.js`（新 mixin，`main.js` 一行 import）**、`data/rts-units.js`（合併、`RTS_FACTIONS.veerwell` 開放）、`game/rts.js`、`game/rts-orders.js`、`game/rts-fog.js`、`game/rts-grid.js`（`rtsBldAbility(b, ab, o)` 多一個參數、轉給維爾威的建築技能）、`scripts/rts-bench.js`、`scripts/smoke-rts-veer-a.js`（`testRtsVeer`）。別包的檔案（最少行，各包接手時保留或改寫）：
+  - `data/rts-heroes.js`（C）：`RTS_FACTION_HEROES.veerwell` 與三位英雄的**空殼** `h_courier`／`h_skyhook`／`h_vector`（15.4 的數值、組裝、`slots`；**技能暫時借卡斯特隆的**，C 換成 15.4 的 12 個）。
+  - `entities/mech-rts.js`（B）：15.1 的四個分派都放好了（`rtsAbInit` 結尾 `rtsVeerInit(D)`、`rtsAbTick` 開頭 `rtsVeerTick(dt, D)`、`rtsAbCast` 在 `rtsAethAb` 之後問 `rtsVeerAb(ab, o)`）；指令 `board`／`unload` 轉給 `g.rtsBoardStep`／`g.rtsUnloadStep`；`rtsAbCanHit` 與 `rtsFire` 的對空判斷對**低空**一律打得到；`rtsGather` 交貨先問 `g.rtsHaulDeposit(b, carry)`（集貨站）。
+- **核心 API（rts-veer.js）**：
+  - 共用：`rtsVeerTeam(t)`（陣營有 `airdrop`）、`rtsLowAir(e)`（定義 `lowAir`、`e.rtsLow`、收好在飛的建築）、`rtsVeerTakenK(atk, t)`（rtsDmgK 乘上：展開中 ×1.25、熱焰彈）、`rtsDropSiteWhy(t, defId, x, z, yaw, out?)`（地點限制 1～3＋湧出點，展開也用；`out` 拿到吸附後的位置）、`rtsKnownDist(t, x, z, half)`。
+  - 空投：`rtsDropWhy(t, defId, x, z, yaw)`、`rtsDropOrder(t, defId, x, z, yaw, { via, quiet })`→紀錄｜null、`rtsDropCancel(id｜紀錄)`、`rtsDropLift(t)`→`{ n, max }`（n 含飛回中的）、`rtsDropOrigin(t, x, z)`、`rtsDropOf(id)`、`rtsDropNow(t, defId, x, z, yaw)`（除錯：直接放地基）、`rtsPushOut(b)`、`rtsVeerFindSpot(x, z, w, d, maxR)`。紀錄 `R.drops = [{ id, team, def, x, z, yaw, st 'wait'|'fly'|'land'|'back', ship（實體 id）, cost, t0, via, ox, oz, bld }]`。
+  - 投放艙與信標：`rtsDropPoint(b)`→`{ x, z, via }`、`rtsDropUnit(b, id, q)`、`rtsPodsSeen(t)`（對手看得到的投放艙）、`rtsBeacons(t)`→`[{ x, z, r, e?, temp? }]`、`rtsBeaconAt(t, x, z)`、`rtsBeaconAddTemp(t, x, z, 秒, r = 14)`、`rtsHasOrbit(t)`。`R.pods = [{ id, team, def, x, z, t（落地的局內時間）, t0, q, via, b, rally, pop }]`；臨時信標在 `T.bcn`。
+  - 機動建築：`rtsPackWhy(b)`、`rtsPack(b)`、`rtsUnpackWhy(b, x, z, yaw)`、`rtsUnpack(b, x, z, yaw)`、`rtsPackStep(b, dt)`（rtsBuildings 對 packed 的建築呼叫）、`rtsPackRelease(b)`、`rtsPackLand(b)`、`rtsPackFly(b, dt)`（預設的飛行）。建築的 `bld.packed` 0／1 收起中／2 收好在飛／3 展開中、`bld.packT`／`packDur`、`bld.unpackTo`、`bld.unpackT`（展開完成的時間）；收好時 `flying`、`shape` 是 null、`rtsOb` 是 null、buff `{ src: 'pack', sight }`。收好的建築的移動指令是 `b.orders = [{ k: 'move', x, z }]`。
+  - 集貨站：`rtsHaulDeposit(b, carry)`、`rtsHaulInfo(b)`→`{ stock, cap, next }`、`rtsHaulLose(b)`、`rtsHaulCap(t)`；`bld.stock`、`bld.haulT`；運送中的在 `R.hauls`。
+  - 交易：`rtsTradeWhy(t, dir)`、`rtsTrade(t, dir)`（'buy'｜'sell'）、`rtsTradeRate(t, dir)`→[給, 得]、`rtsTradeHq(t)`；冷卻 `T.tradeT`。
+  - 載運：`rtsBoardWhy(e, ship)`、`rtsBoard(e, ship)`、`rtsDisembark(e, x, z)`、`rtsCargoOf(ship)`、`rtsCargoUsed(ship)`、`rtsCargoMax(ship)`（`ship.rtsCargoMax` 優先：C 的特快專送 16）、`rtsCargoPop(e)`、`rtsCargoCrash(ship)`、`rtsBoardStep`、`rtsUnloadStep`／`rtsUnloadEnd`。登機中 `e.rtsAboard = 運輸機 id`、`ship.cargo = [id…]`。
+  - 緊急補給：`rtsVeerSupplyWhy(hq, x, z)`、`rtsVeerSupply(hq, x, z)`（`rtsBldAbility` 的 `ab_supply`）；延遲事件 `R.vtasks`。
+  - 每格 `rtsVeerTick(dt)`（rtsSim 在融合之後）、死亡 `rtsVeerOnDeath(e)`（rtsOnDeath）。
+  - 指令（rts-orders.js）：`{ k: 'drop', def, x, z, yaw }`／空投陣營的 `{ k: 'build' }`＝`rtsDropOrder`（回傳紀錄；管家與電腦照舊下 build 也會轉過來）、`{ k: 'pack' }`（回傳收起的座數）、`{ k: 'unpack', x, z, yaw }`、`{ k: 'trade', dir }`、`{ k: 'load', id: 單位 }`（選取運輸機）、`{ k: 'board', id: 運輸機 }`（選取地面單位）、`{ k: 'unload', x, z }`；技能 `ab_load`／`ab_unload` 轉成 load／unload；收好的建築接受 `move`（`rtsSmart` 右鍵地面也是）；`rtsSmart` 地面單位右鍵己方運輸機＝board。
+- **給各包的掛勾（A 已經呼叫，沒實作時略過）**：
+
+| 包 | 方法 | 呼叫的地方 |
+|---|---|---|
+| B | `b.model.setPack(p)` | 收起中（0→1）、收好（1）、展開中（1→0）每格 |
+| B | `b.model.setStock(k)` | 集貨站的庫存改變（0～1）、運走、損失 |
+| B | `e.rtsVeerInit(D)` | 經由 `rtsAbInit`；空投運輸機生成時 A 直接呼叫 `ship.rtsAbInit(RTS_DEFS.v_carrier)`（運輸機的 `rtsDrop`＝紀錄 id，`g.rtsDropOf(id).def` 是吊掛的建築） |
+| B | `ship.rtsVeerCarrierMove(dt, x, z, alt)` | 空投運輸機的飛行（回傳 true＝到達）；沒有時 A 的 `rtsDropFly` 直線飛、依前方的建築爬升 |
+| B | `ship.rtsVeerCargoDrop(b)` | 放下地基的那一格（吊掛的貨櫃離開） |
+| B | `ship.rtsVeerBoarded(e)` | 有單位登機 |
+| B | `b.rtsVeerPackMove(dt)` | 收好的建築每格（沿 `b.bld.unpackTo` 或 `b.orders[0]` 的 move）；沒有時 A 的 `rtsPackFly`；到達 `unpackTo` 0.6 m 內由 A 落地 |
+| B | `this.rtsVeerPodFx(pod, 'fall'｜'land')` | 投放艙開始落下／著地（沒有時 A 畫 `warnCircle`、爆炸與塵土；落下的預警只畫給看得到那一格的玩家） |
+| B | `this.rtsVeerHaulFx(yard, hq, 秒)` | 物流無人機出發（A 沒有預設外觀） |
+| B | `e.rtsVeerTick`／`rtsVeerAb`／`rtsVeerTower` | mech-rts.js 的分派（`rtsVeerTower` 由 B 自己在 `rtsTowerAI` 開頭加，飛彈防禦塔對空 26／38、對地 `groundDps`／`groundRange`） |
+| C | `rtsBeaconAddTemp`、`rtsBoard`／`rtsDisembark`（特快專送設 `ship.rtsCargoMax = 16`） | C 呼叫 |
+| E | `this.rtsHudDrop(teamId)` | 空投下單、起飛、開始下降、放下、取消、飛回移除、被擊落 |
+| E | `this.rtsHudFaction()` | `rtsStart` 最後（照舊） |
+
+- **規格的修改**：
+  - **同時空投數算到運輸機飛回起飛點**（`st 'back'` 也佔一台），所以同時在飛的空投運輸機一隊最多 4～5 台。起飛點（展開好的調度中心或機庫）都沒有時多一個原因「沒有可以起飛的調度中心或機庫」（下單後同一格起飛點被拆＝全額退還）。原因的順序：陣營／需求 → 信標上限 → 地點（探索、湧出點／能不能蓋、敵方建築與防禦塔）→ 運輸機 → 起飛點 → 資源。
+  - **空投運輸機不跑單位 AI**（`e.rtsDriven`，rtsSim 略過，A 每格以 `move` 駕駛；`rtsOrder` 也不給它指令）；生成時 `R.stats.made` 不加。下降中 `ship.rtsLow = true`（低空）。
+  - **展開中 ×1.25** 同時用在空投的地基（維爾威的建築 `progress < 1`）與搬家後的展開（`packed 3`）。收起的冷卻只在「搬家後展開完成」起算（空投的地基長好後可以立刻收起）。
+  - **投放點的「建築正面」**＝佔地較長邊的一半＋6 m（朝集結點那一側；沒有集結點時朝建築的正面）。展開好的維爾威調度中心本身是半徑 20 m 的信標（`rtsBeacons` 會列出）。
+  - **集貨站**：庫存滿了之後交來的礦石**損失**（不入帳）；只有展開好的調度中心收物流無人機。交到集貨站的礦石在交貨時就算進統計的「採集的礦石」。
+  - **交易**：買進的 Coral 直接加（不乘「瘋狂」難度的收入倍率）；賣出的礦石經過 `rtsDeposit`（維持費與收入倍率都套）。
+  - **低空的命中**：`rtsAbCanHit` 對低空的目標只要攻擊方有武器就是 true（含近戰）；`rtsFire` 的每個武器槽也不看對空設定。**`rtsSplash` 對空中單位（flying、不是低空）一律略過**——以前是看高度差（半徑＋3 m 內也會被打到），卡斯特隆的武裝直升機、艾瑟立克的浮游砲機從此不受地面的範圍傷害（15.2 的規則）。
+  - **visAir 對所有陣營的空中單位都適用**：卡斯特隆的武裝直升機、艾瑟立克的浮游砲機也從斷崖下看得到。visAir 只在場上有空中／低空的實體時算（同一輪 0.2 秒的迴圈多蓋一次不看高度的樣板）。
+  - **登機的單位**：從場景（`mesh` 拿出場景）、空間索引、`allies`／`enemies`、`R.hostile`、`R.sel` 拿掉；編隊 `R.groups` 保留（E 顯示時略過 `rtsAboard`）。不提供視野、人口照算。卸載點用 `nav.nearestCell(…, comp -1)`，可以落在不連通的高台。卸載中斷（換了指令）時運輸機恢復高度。
+  - **兵種的資料**：攻擊直升機的穿甲武器改放在左手 `larm: 'w_bz'`（`slots: ['rarm', 'larm']`；15.3 寫的 rback 放手持武器不保險）；誘導飛彈架只有一個 `rof`（0.8），對空／對地的 dps 用 `slotDps`；衝撞無人機的右手是 `w_mg`（FOES 的模型沒有武器）。飛彈防禦塔在 B 之前照一般的「主堡砲座」分支打地空（dps 26、射程 38），`groundDps`／`groundRange` 給 B 的 `rtsVeerTower`。運輸機的卡片：Q 移動、W 守住、E 巡邏、S 停止、Z 載運 `{ k: 'load' }`、X 卸載 `{ k: 'unload' }`。物流 MT 的定義多 `noBuild`。
+  - **選單**：維爾威可以選、「隨機」三選一（`makeRng(seed × 7 + 3)` 不變）。電腦是維爾威時 F 之前沿用卡斯特隆的角色表（不會出錯，但下的建造都被空投拒絕、什麼也蓋不了）。
+  - **效能基準**：`--faction=veerwell`、`--faction=castron,veerwell`（a,b＝友軍 a、敵軍 b；`mix` 照舊）。維爾威的編成是一般任務的同名敵人（mt、missilerack、drone、spacemt、heli、rammer、dropship），B 的 `rtsVeerReskin(defId, team)` 有了之後換成 RTS 定義的外觀。另外修了擺放時區域變數 `L` 被兵種清單蓋掉的錯（R3 起位置是 NaN，之前的 mix 數字要重量）。
+- **測試** `testRtsVeer`（約 17 秒，61 項）：開局、英雄與空投子選單、工人的 build 轉成空投、每趟 10；`rtsDropWhy` 的五種原因；扣款、從調度中心／最近的機庫起飛、飛行時間（距離／22）、飛行中地面武器打不到、下降時低空打得到、地基 10% 自己展開、×1.25、飛回移除；被擊落退 50%、起飛後取消退 75%、同時空投數 2／3／4／5；投放艙（信標內、4 秒、人口照算、0.5 秒不能動、對手看得到、建築正面、臨時信標到期、軌道 6 秒、強襲 2.5 秒＋傷害與暈眩）；信標上限 6、被拆退回；收起（條件、碰撞與導航格、低空、人口、視野 ×0.6、生產暫停、移動 8 m/s、展開推開單位、×1.25、20 秒冷卻）；集貨站（工人交貨、15 秒＋3 秒入帳、上限 300／500、被拆損失）；交易（30／35、冷卻、賣出套維持費）；緊急補給；載運（8 人口、第 5 台滿、卸載、墜毀 50%）；visAir；只剩收起的建築 90 秒後揭露；「隨機」抽到三個陣營；卡斯特隆與艾瑟立克的開局不變。截圖 `rts-r4a-drop.png`、`rts-r4a-pod.png`、`rts-r4a-pack.png`（B 之前的建築是卡斯特隆的預設外觀）。
+- **沒做的**：所有外觀（B）、技能行為（B：臨時信標、長程推進、機動迴避、衝撞、掃射）、英雄的 12 個技能與專屬道具（C）、物流倉庫的貨架（C：`RTS_FAC_SHOP.veerwell` 沒有之前用中立商店的貨架）、地圖主題（D）、HUD 的空投預覽與卡片動作 `drop`／`pack`／`trade`／`load`／`unload`（E）、電腦對手（F）。
+
+### 15.12 B 包（維爾威的兵種行為與模型）的實作結果
+
+> B 包已完成（2026-10-17）。新檔：`entities/mech-rts-veer.js`（MechEntity 擴充，方法 `rtsVeer*`；另外在 `Game.prototype` 放外觀的 `rtsVeerPodFx`／`rtsVeerHaulFx`／`rtsVeerTempBeaconFx`／`rtsVeerMissileFx`／`rtsVeerSeen`；`main.js` 一行 import）、`render/rts-veer-models.js`（建築、`addPackRig`、投放艙 `buildDropPod`、`addCarrierCargo`、物流無人機 `buildHaulDrone`、臨時信標 `buildTempBeacon`、物流 MT 的 `addVeerWorkerKit`；`RTS_VEER_CATALOG`）、`scripts/smoke-rts-veer-b.js`（`testRtsVeerUnits`）。改了的既有檔：`entities/mech-rts.js`（`rtsGo` 的空中分支：目標點夾在 `lim − 4` 內、夾過之後到了就算到達；`rtsScan`：維爾威有對空槽的兵種（誘導飛彈架）空中目標優先；`rtsTowerAI` 開頭轉給 `rtsVeerTower`）、`render/rts-models.js`（`buildRtsBuilding` 遇到 `v_` 轉給新檔、`addWorkerKit` 的 `'veerwell'`）、`render/model-catalog.js`（目錄兩行）。別包的檔案（最少行）：`game/rts-orders.js` 一處（移動指令的流場只看地面單位的台數：空中單位直線飛、本來就不用流場，全是空中單位的群組不再算流場）、`render/rts-merge.js` 一行（脈動的發光材質照樣合併，見下面的效能）、`scripts/rts-bench.js` 一行（艾瑟立克編成會自己生成實體的 AI）、`smoke-test.js`／`smoke-jobs.js` 各加一行。
+
+- **實例覆寫**（`rtsVeerInit`，維爾威的單位、不含英雄）：`move`（推進跳躍與衝撞中位置由技能決定：照常跑一次物理與動作、之後改回技能的位置；突擊機的方向有轉向上限、機頭一律朝飛行方向）、`aiBatchable`（技能進行中與突擊機每格都跑）、`rtsAbCast`（研究改的冷卻：長程推進 20 → 12、掃射 16 → 11，在 `rtsAbCast` 扣完之後改）、突擊機的 `rtsFight`。
+- **長程推進**（`ab_vjump`）：1.5 秒的拋物線（高度 6 m＋高低差 × 0.6），期間 `flying`＋`rtsLow`（低空：地面與對空的武器都打得到、範圍傷害也算）、`noPush`；落點＝`nav.nearestCell(…, comp −1, 8)`，可以是和主基地不連通的高台；落地 3 m 40 爆發（`rtsSplash`）、`rt.home` 換成落點。研究 `r_jump` 後 40 m：`rtsVeerTick` 看到 40 m 內的 `ab_vjump` 指令直接施放（`rtsAbOrder` 只會走到定義的 30 m）。
+- **衝撞**（`ab_ram`，自動預設開；每 0.3 秒找交戰中的目標或 18 m 內最近的地面／低空單位）：預警線 0.6 秒（自己的黃、別人的紅，只畫給看得到的）→ 42 m/s 沿線衝到 18 m，每 0.8 m 檢查：撞到障礙物停下、第一個碰到的敵人（建築也算）＝`rtsHit` 90 實彈＋`rtsHeroShift` 擊退 6 m＋`rtsStun` 0.5 秒；建築 ×0.5、不擊退。
+- **機動迴避**（`ab_evade`）：`rtsBuff({ src: 'evade', taken: 0.5, speed: 1.4 }, 3)`。**臨時信標**（`ab_relay`）：`rtsBeaconAddTemp(隊伍, x, z, 40)`＋外觀（`rtsVeerTempBeaconFx`：三腳架與綠色頻閃燈，只畫給看得到那一格的）、無人機 `rtsQuiet` 移除。
+- **高速突擊機**：沒有指令時繞圈（速度 75%）、有移動輸入時以每秒 2.6 弧度的上限轉向，靠近地圖邊緣（`lim − 8`）往內轉；交戰＝直衝目標、目標在機頭 ±1.0 弧度的錐形內才開火，衝過頭再繞回來。開火的時間約 37%，所以通過時的傷害 ×1.9（`JET.burst`），平均約定義的 70%（量到 17～18／26）。**掃射**（`ab_strafe`）：以地點為中心、沿突擊機 → 地點的方向 30 m，預警線 1 秒（期間飛向起點）→ 每 0.08 秒一發（共 10 發，`later`）各 `rtsSplash` 2 m 40 實彈（沿線飛）→ `rtsBuff({ src: 'strafe', speed: 0.6 }, 2)`。
+- **飛彈防禦塔**（`rtsVeerTower`，`groundDps` 的建築）：空中與低空的目標優先（射程 38＋`rtsRangeAdd`、dps 26），沒有時打地面（`groundRange` 30、`groundDps` 10）；收起中、展開中不開火。飛彈是粒子批次的彈體（`fx.P('ba')`，弧線＋煙），飛行時間（距離／70 m/s）後 `later` 以 `rtsHit` 命中（不會打偏，目標死了就算了）；`rig.turret`／`rig.gun` 朝目標轉。
+- **掛勾**：空投運輸機 `rtsVeerInit` 時（A 在生成後直接呼叫 `rtsAbInit`）以 `g.rtsDropOf(this.rtsDrop).def` 決定吊掛貨櫃的大小（`addCarrierCargo`：吊架、四條吊索、警示條貨櫃，`rig.rtsCargo`）；`rtsVeerCarrierMove`（同 A 的預設：直線、依前方爬升，下降中不爬升；貨櫃跟著加減速擺動）、`rtsVeerCargoDrop`（貨櫃隱藏、塵土）、`rtsVeerBoarded`（運輸機也有同樣的吊掛貨櫃，載著單位時顯示）、`rtsVeerPackMove`（呼叫 A 的 `rtsPackFly`，再加 4 具風扇往下的噴焰 `fx.boostFlame`）。
+- **投放艙**（`rtsVeerPodFx`）：'fall'＝預警圈（自己綠、別人紅，只畫給看得到那一格的）＋投放艙模型（依隊伍快取的模板 `clone`，掛在 `R.g`）最後 1.1 秒從 60 m 落下、底部的減速噴焰；'land'＝爆炸、塵土、圓環（強襲投放艙時是 4 m），艙門 0.5 秒打開、3 秒後縮小消失。外觀的狀態記在 A 的紀錄上（`pod.vis`），時間一律看 `R.t`（`fx.task` 只負責每格更新），沒收到著地也會在 1 秒後收掉。**物流無人機**（`rtsVeerHaulFx`）：小型四旋翼帶貨箱，`sec` 秒從集貨站沿弧線飛到調度中心。
+- **建築模型**（`buildVeerBuilding`；rig 同卡斯特隆，多 `veer: true`）：調度中心（降落平台＋H 標、管制塔、側面的貨櫃與燃料槽；T2 兩座貨櫃吊臂與堆疊的貨櫃、T3 天線桅與碟形天線；雷達是不合併的獨立網格、`onBeforeRender` 自己轉）、補給艙（疊起來的居住艙）、集貨站（平台＋門型吊車；`setStock(k)`＝0～6 堆貨箱，`rig.stacks` 是骨頭、只切 `visible`，不必重新合併）、抽取站（鑽塔＋Coral 儲槽）、軌道調度所（傾斜的發射架與投放艙、接收環）、機庫（半圓拱頂、跑道標線）、工程研究室（貨櫃組成＋小碟形天線）、投放信標（三腳架＋綠色頻閃燈 `rig.strobe`）、飛彈防禦塔（底座＋`turret`／`gun`／`muzzle`）、物流倉庫（開放式貨架與堆高機）、軌道通訊站（大型碟形天線 `rig.dish`，慢慢轉）。碟形天線是有厚度的 Lathe（兩面都看得到）。
+  - **機動建築的底座**（`addPackRig`，定義有 `pack` 的建築）：四角的起落架（黃黑支柱與腳墊，收起時縮到 20%）、4 具涵道風扇（展開好時貼著側面的外牆直立、收好時以外牆的鉸鏈轉成水平往外伸；葉片是不合併的網格，`p > 0.55` 才顯示並自己轉，所以平常不多 draw call）、正面兩片貨櫃板（展開好時放平當斜坡、收起時闔上）。都是骨頭，`setPack(p)` 每格改旋轉與縮放，不必重新合併。
+  - **空投展開中的地基**（`setProgress`）：沒有鷹架；地基是攤平的貨櫃底板＋四片牆板（`rig.panels`，依進度每片佔約 1/4 從平放翻到直立），本體照舊從 6% 長高，完成時底板與牆板隱藏。
+  - `setTier` 同前兩個陣營（unmerge → 切子群組 → remerge）；隊伍色在塗裝帶與燈，黃黑警示條固定。
+- **物流 MT**（`addVeerWorkerKit`）：背上的貨架與兩個小貨箱、黃黑吊臂、吊索（`rig.rtsCable`，長度＝scale.y）與吊鉤（`rig.rtsHook`）、萊姆綠信號燈、右手的絞盤（`rig.rtsDrill`，採集與修理時轉）、礦石貨箱（`rig.rtsCrate`）；`rig.setHook(f)`：採集（`rt.gp === 'mine'`）與修理時 `rtsVeerTick` 把吊鉤放下。
+- **效能**：
+  - `rtsVeerReskin(defId, 隊伍)`（`scripts/rts-bench.js` 的 `--faction` 換上 RTS 定義的模型：`boss`＝`buildBossModel(…, { raw })`、`drone`、`heli`（＋運輸機的吊掛，隱藏））；一般任務的運輸機 AI 會投放增援（量測中一直 `spawnEnemy`＋編譯著色器，1% low 只有 4～7），reskin 時改成直升機的 AI。同樣的原因，`rts-bench.js` 加一行：艾瑟立克編成的全像投影器（`holoproj`，分身）與實驗體（`blob`，融合）的 AI 換成 `mt`（RTS 裡沒有這些行為）。
+  - 偵察無人機、宇宙用 MT、突擊機的 `nozzles` 是半透明的加色噴焰錐（獨立網格），RTS 的鏡頭看不清楚：`slimNozzles` 不畫（推進器的光暈照常）。
+  - **`render/rts-merge.js` 一行修正**：脈動的發光材質（`rig.rtsPulseMats`，14.16）同時被 `rigMats(rig)` 收進「動作會改的材質」而不合併，每台多 1～2 個 draw call（宇宙用 MT、衝撞無人機、艾瑟立克的實驗體類、地圖專屬敵人的野怪都是）；現在 `ctx.pulse` 的材質從 `keep` 拿掉，照 14.16 的設計併進單一材質（頻道＝`skinIndex.y`）。
+  - 量測（RTX 5070 Ti Laptop，`--rts --hp --hud=rts --counts=120 --heroes=6 --camps --cam=near`，各 6 秒；其他 agent 同時在跑測試時數字會掉 30% 以上，下表是比較安靜時量的）：
+
+| 編成 | FPS（1% low） | 更新 ms | 渲染 ms | draw calls |
+|---|---|---|---|---|
+| veerwell（B 之前：同名敵人的外觀） | 36.4（4.5） | 15.4 | 11.5 | 578 |
+| castron | 55.3（30.4） | 10.1 | 7.5 | 366 |
+| veerwell | 64.3～65.0（46.5～47） | 8.7～8.8 | 6.2 | 363～372 |
+| castron,veerwell | 58.6（36.1） | 9.4 | 7.3 | 375 |
+| mix（castron,aetheric） | 56.5～58.1（33～36） | 9.6～9.8 | 7.1～7.4 | 365～374 |
+| aetheric | 65.0（39.1） | 8.2 | 6.7 | 383 |
+
+  - mix 在 rts-merge.js 的修正與 bench 的那一行之前是 49.4（8.8）／480 draw calls（全像投影器的分身一直生成）。
+
+- **測試** `testRtsVeerUnits`（約 13 秒，50 項）：調度中心三階、8 種生產的兵種（投放艙 3 種、機庫 5 種）與投放艙的外觀、空中單位分層的高度（2 秒平均）、移動、單一材質合併（每台 ≤ 8 個網格）、8 組實際 dps（突擊機 70%、誘導飛彈架對空 30／對地 10）、對空與低空的命中規則、範圍傷害（空中 0、低空有）、`lim − 4`、同種推擠與高度差 3 m 以上不推擠、長程推進（從低處跳上地面走不上去的高台、跳躍中是低空、落地傷害、冷卻、研究後 40 m 與 12 秒）、衝撞（自動、預警、90、擊退 6 m、暈眩、建築 ×0.5 不擊退）、機動迴避、掃射（預警、線上三台都受傷、Coral 15、減速、冷卻 16／11）、臨時信標（40 秒）、運輸機（登機、吊掛的貨櫃、卸在地面走不上去的高台、卸載中是低空）、飛彈防禦塔（對空 26、對地 10、對地射程 30、空中優先、轉向）、收起／飛行／展開的 `setPack`、集貨站的貨箱、空投運輸機的吊掛與放下、投放艙落下／著地／消失、全部建築的模型與合併；截圖 `rts-r4-blds.png`、`rts-r4-units.png`、`rts-r4-drop.png`、`rts-r4-pack.png`。
+- **沒做的**：空中單位的假影子依高度深淺（`BlobShadows` 在 render-setup.js，不是 B 的檔案；目前照原本的離地越高越淡，低空的衝撞無人機本來就比較深）；`rtsFlyAlt` 不會為了收起在飛的建築爬升（它已經不在 `world.obstacles` 裡，低空的衝撞無人機會從它下面穿過）；不同種類的空中單位高度只差 1～3 m 時（偵察無人機 6、直升機 7），A 的 `rtsSeparate`（高度差 3 m 內才推擠）照樣會推擠。
+
+### 15.13 C 包（維爾威的英雄與道具）的實作結果
+
+> C 包已完成（2026-10-17）。檔案：`data/rts-heroes.js`（12 個技能、三位英雄的 `skills`）、`data/rts-items.js`（4 種專屬道具、`RTS_FAC_SHOP.veerwell`）、`game/rts-hero.js`（特快專送、無人機中隊的跟隨、道具、光環與被動、物流倉庫收起時不能買）、`entities/mech-rts-hero.js`（`SKILL_FX` 加 9 項；時間就是錢、空域管制、滑流是光環／被動）、`scripts/smoke-rts-veer-c.js`（`testRtsVeerHero`）。別包的檔案只動了：`smoke-test.js` 的 require 與 `STEPS` 各一段、`smoke-jobs.js` 的 `DEFAULT_TIMES` 一行；A 的檔案沒有改。
+
+- **英雄**：`h_courier`／`h_skyhook`／`h_vector` 的數值、組裝照 15.4（A 的空殼），技能換成 15.4 的 12 個；配色由 `rtsSpawn` 依陣營（`rtsPal('veerwell')`）。技能的參數在 `RTS_SKILLS` 的 `lv`：`sk_blitz { dmg, w, t }`、`sk_drop { delay, R, heal, t }`、`sk_tempo { speed, rof }`、`sk_express { delay, R, max, hp, speed, alt, land, dmg, t }`、`sk_pod { warn, R, dmg, stun, bcn }`、`sk_reinforce { delay, n, t }`、`sk_air { dmg, range }`、`sk_carpet { warn, len, n, R, dmg }`、`sk_flak { delay, R, dmg, gK }`、`sk_jam { t, rangeK, bld }`、`sk_slip { pierce, speed }`、`sk_squadron { n, t }`。
+- **電腦施放的條件**：每個主動技能多一個 `ai` 欄位（15.4 的 `RTS_AI_CAST` 同樣的格式：`sk_blitz { k: 'line', n: 3 }`、`sk_drop { k: 'ally', hp: 0.5, n: 3, r: 8 }`、`sk_express { k: 'army', n: 8, r: 12 }`、`sk_pod { k: 'cluster', n: 3, r: 4 }`、`sk_reinforce { k: 'self', hp: 1, n: 3, r: 24 }`、`sk_carpet { k: 'line', n: 6, bld: 1 }`、`sk_flak { k: 'air', n: 2, r: 7 }`、`sk_jam { k: 'mark' }`、`sk_squadron { k: 'army', n: 6, r: 24 }`）；F 把它們抄進 `RTS_AI_CAST`（或在 `RTS_AI_CAST` 沒有時讀 `RTS_SKILLS[id].ai`）。新的 k：`'air'`＝範圍內敵方空中／低空單位 ≥ n。
+- **做法與規格的差異**：
+  - 急件突進：`hs.blitz`（`rtsHeroBlitzStep`）0.4 秒直線衝到地點；出發前每 0.5 m 檢查，碰到建築與障礙物（`world.collide` 有推開）或往上 2.5 m 以上的陡坡就停在前面（擋住＝不施放、不扣 Coral）；每格以這一格掃過的線段判定，3 m 內的敵方地面與低空單位各受一次 70／110／150 實彈。
+  - 補給投放：落地時 8 m 內的己方單位 `rtsBuff` regen＝heal／5 秒（buff 每 0.5 秒才清，所以實際最多多回 0.5 秒）。
+  - 時間就是錢：速度給所有友軍、射速只給 `faction 'veerwell'` 的單位（`rtsHeroAuras` 的分支）。空域管制只給 `flying` 的己方單位。運輸機上的英雄沒有光環。
+  - **特快專送**（`Game.rtsHeroExpress(英雄, P, x, z)`，`R.hfx.express`）：施放時在英雄上方生成一台 `v_carrier`（血量 1200、`rtsDriven`：不跑單位 AI、不算生產、`noPush`、`ship.rtsCargoMax = 16`、`ship.rtsExpress`），2 秒內跟著英雄下降到 4 m（低空），時間到 `rtsBoard` 英雄＋12 m 內的己方地面單位（依距離，放不下的略過）→ 爬升、40 m/s 直線飛（直接設定位置，`rtsHeroShipAt`）→ 到達後 1.5 秒下降到 3 m（低空）→ 圍一圈 `rtsDisembark`、各 `rtsBuff` dmg ×1.2 8 秒 → 爬升 1.5 秒後安靜移除。被擊落時照 A 的 `rtsVeerOnDeath` → `rtsCargoCrash`（乘員彈出、各受最大血量 50%）。目的地要探索過（`rtsFogState ≥ 1`），否則不施放；親自駕駛中、搭乘中不能施放。紀錄的 `ids`＝登機的單位、`pop`＝人口、`n`＝卸下的台數。
+  - 強襲空投艙：範圍內（外形算進去）的敵方地面與低空一律全額（不是 `rtsSplash` 的邊緣 40%）、單位暈眩 1 秒，落地後 `rtsBeaconAddTemp(隊伍, x, z, 20)`。
+  - 緊急增援／無人機中隊：`rtsHeroTemp(英雄, 'v_mt'｜'v_drone', n, 秒)`（`v_drone` 由 `rtsSpawn` 依定義的 `hoverH` 生成在空中）；無人機的 `u.rtsLead = VECTOR`，`rtsHeroLeadTick`（每 0.5 秒）：VECTOR 有交戰目標（`rt.engage`）時 `{ k: 'attack', id }`，沒有而且離開 10 m 以上時 `amove` 回到身邊。`e.hs.reinN`／`e.hs.squadN`＝實際的數量。
+  - 地毯轟炸：`line: true`（同飽和砲擊），從英雄前方 4 m 起 60 m；預警 2 秒後每 0.12 秒一枚（`rtsHeroSplash`，地面的範圍傷害本來就不打 `flying`）；轟炸機是 `buildBomberMesh` 的特效（`fx.add`，不是實體）。
+  - 空爆彈幕：0.5 秒後範圍內的敵方單位（不含建築）空中／低空 100%、地面 50%（穿甲）；`air: true`＝自動施放只找空中與低空的敵人。
+  - 干擾吊艙：單位 `rtsBuff` range −40%（定義的射程）、`e.rtsJamT`；一般單位的技能以 `rtsCd[每個 abil]` 延到干擾結束（B 的 `rtsAbWhy` 顯示「冷卻中」）、英雄的技能 `rtsSkillWhy` 回傳「受到干擾」；建築 `bld.empT`（同電磁脈衝）。
+  - 滑流：速度在英雄的數值層 `hero.speed`；穿甲減傷在 `rtsHeroOnHurt(e, dmg, from, atk)`（`rtsHeroWrap` 多傳攻擊類型）。
+  - 親自駕駛中（`rtsHeroAI` 不跑）由 `rtsHeroTick` 推進 `blitz`／`leap`／`dash`（以前 SPIRE 的攀升在親自駕駛中會停住）。
+- **專屬道具**（`fac: 'veerwell'`）：`i_flare`（`hs.flareT`：4 秒 noLock，`rtsHeroNoLock` 到期還原）、`i_jetpack`（`target: 'point'`、20 m，`e.rtsHeroLeapTo(p, 20)`＝攀升共用的拋物線，可以上高台；沒給地點時往前 20 m）、`i_beacon2`（`target: 'point'`、15 m，`rtsBeaconAddTemp(隊伍, x, z, 60, 14)`）、`i_ledger`（`ledger: 0.15`；`rtsXpOnKill` 裡：擊破者是帶著它的英雄、死的不是建築、不是幻象 `rtsIllus`、不是臨時單位 `rtsTemp` 時 `rtsGrant` 礦石成本 ×15%，隊伍的 `T.ledger` 累計）。
+- **物流倉庫**：`RTS_FAC_SHOP.veerwell` 照 15.4 的 12 格，`v_market` 的 `shopItems` 與卡片由 `rts-hero.js` 載入時依 `shopFac` 填（卡片 12 格依序、2／3 階帶 `req: { tier }`）。收起中（`bld.packed` 非 0）的倉庫 `rtsBuyOff` 為 true；原因文字 `rtsBuyOffWhy(商店)`＝「商店停擺（倉庫收起中）」（導管斷電照舊「商店停擺（沒有導管供電）」）。
+- **給 E 的**：技能卡照 13.14（`rtsSkillInfo`／`rtsSkillWhy`／`rtsSkillCast`／`rtsSkillOrder`／`rtsSkillAuto`）；特快專送與地毯轟炸是 `kind 'point'`，特快專送的定義有 `any: true`（任何距離、目的地要探索過；預覽可以畫到目的地的直線）、地毯轟炸 `line: true`（朝那個方向 60 m）；施放中的旗標多 `hs.blitz`（親自駕駛的 `rtsPilotCan` 可以一起擋）；道具 `i_jetpack`、`i_beacon2` 的 `rtsItemInfo(...).target === 'point'`；被干擾的單位 `e.rtsJamT > R.t`（可以畫圖示）；特快專送的運輸機 `ship.rtsExpress`（選取面板顯示乘員：A 的 `rtsCargoOf`）；`rtsBuyOffWhy(商店)`。
+- **給 F 的**：上面的 `ai` 條件；自動施放（`rtsSkillAuto`）可以用的有急件突進、強襲空投艙、緊急增援、空爆彈幕（只找空中）、干擾吊艙（只找單位）；補給投放、終極技（特快專送、地毯轟炸、無人機中隊）沒有 `auto`。特快專送要給探索過的目的地（`rtsFogState(隊伍, x, z) ≥ 1`），之後 `R.hfx.express` 的紀錄可以看狀態（`st` 'pick'｜'fly'｜'land'｜'leave'）。
+- **測試** `testRtsVeerHero`（約 9 秒，32 項）：只給維爾威、技能卡、調度中心生產 COURIER（55 秒、1250）、急件突進（Coral、冷卻、衝刺中不能施放、路線上 70、旁邊沒打到、移動 20 m）、時間就是錢（維爾威 ×1.06／×1.04、卡斯特隆只有速度）、補給投放、特快專送（1200 血、低空下降、親自駕駛不能、載走 15／16 人口放不下第 6 台、12 m 外的不載、40 m/s、卸在目的地、+20% 8 秒、運輸機離開、被擊落 50%）、強襲空投艙（預警、100 爆發、暈眩、臨時信標 20 秒）、緊急增援（2 台、人口 0、40 秒）、空域管制、地毯轟炸（沿線 4 台、直升機沒有）、滑流（×1.05、穿甲 ×0.9）、空爆彈幕（120／60）、干擾吊艙（射程 −40%、技能、英雄、建築 4 秒）、無人機中隊（8 台、跟著攻擊、30 秒）、物流倉庫的貨架與卡片、其他商店沒有、層級 5／10／12、買 4 種、收起不能買、熱焰彈、推進背包上高台、攜帶式信標讓投放點變 beacon（60 秒後回到 bld）、運費帳簿（MT +20、臨時單位 0）；截圖 `rts-r4-hero.png`。
+- **沒做的**：技能的專屬音效；特快專送的運輸機不跑 B 的飛行動作（`rtsVeerCarrierMove`，位置直接設定，旋翼的動作看 B 的模型是否自己轉）；強襲空投艙、緊急增援沒有用 B 的投放艙外觀（`rtsVeerPodFx` 的參數是投放艙紀錄，C 用光束＋爆炸代替）。
+
+### 15.14 D 包（地圖主題與中立）的實作結果
+
+> D 包已完成（2026-10-17）。檔案：`world/rts-map.js`（`RTS_THEMES.spaceport`／`grid086`、附加地形 `padsAfter`／`stepsAfter`、`validate` 的兩種新要點、`wallsBad`／`WALL_GAP`）、`world/rts-props.js`（新障礙物與裝飾的建模）、`data/rts-neutral.js`（主題的野怪、主題 AC、傭兵、營地編成）、`game/rts-neutral.js`（不能移動的野怪與傭兵設 `edHold`）、`scripts/rts-map-test.js`（`--theme=…|spaceport|grid086|all`、三個既有主題的雜湊 `HASHES`、新主題的檢查與 60% 門檻）、`scripts/smoke-rts-veer-d.js`（新：`testRtsThemes2`）。`world/world.js` 的 `buildRts` 不用改（障礙物、`plan.decor`、`themeOver` 都是既有的通用路徑）。別包的檔案只在 `smoke-test.js`（require 與 `STEPS` 各一段）、`smoke-jobs.js`（`DEFAULT_TIMES` 一行）加行；A 的檔案沒動。
+
+- **既有主題不變**：附加地形都在新主題的 `after` 裡；`ctx` 多一個 `sub`（給另一條亂數串 `makeRng(sub × 61 ＋ 29)`）；`validate` 的新要點只在 `plan.pads`／`plan.steps` 存在時加。`rts-map-test.js` 比對荒野、冰原、技研都市 100 個種子的地圖雜湊，和 R4 之前相同（改之前先存了冰原 `5299d75d…`、技研都市 `60a6b816…`）。
+- **共用的做法**（15.8 的「整個重新 `validate`」）：結構是高度函式 F(x, z)（A 側＋轉 180° 的鏡像），寫進高度圖時取 max、k 與 N²−1−k 同值；結構蓋到的障礙物成對移除（`clearUnder`）；位置在第一次檢查算出的通道（`plan.lanes`）旁、順著通道，條件用結構的取樣點（`structFits`：`structKeep` 的點與半徑、離通道、低地與範圍、不碰到自己的鏡像與其他結構）。結構的坡道坡度 0.36（`STRUCT_SLOPE`；地形的坡道 0.27，可通行上限 0.6）。`validate` 多兩種要點：發射台的頂面 `pad`、台階的上層 `step`（大型單位到得了、兩邊路徑代價相等）。
+- **舊宇宙港外圍 `spaceport`**：地形照 15.8，只有 `baseH` 改成 [6.5, 8.5]（同冰原：[6, 8] 時主基地與坡道下的高低差有些種子不到 6 m）。`look`＝灰色混凝土（地面 0x6c7073；更亮的時候俯視的平均亮度 0.72，整片發白）、偏白的陽光 0.95、霧 70～230、沒有天候（`weather: null`）。
+  - **發射台**（`padsAfter`）：每半張圖 1 個，半徑 14～18、高 6～8 m、坡道寬 12～14（15.8 的 10～12 對大型單位太窄）；通道 25～65% 的位置往旁邊偏 半徑＋8～22 m，坡道依序試「順著通道往前、往後、背向通道」三個方向（不橫越通道）；離主基地 25 m、礦脈與湧出點 **20 m**（15.8 是 25；25 m 時第一次就合格只有 4 成）、營地 12、中立建築 15、窄路口、瞭望高地（＋8）。台上反側一角是發射塔 `launchtower`（主線的 `launch_tower` 縮 0.55，方塊碰撞＝塔＋火箭的外框 7.3×3.5、高 25 m，朝向 90° 為單位）。`plan.pads`＝[{ pos, r, h, near, ramp }]（成對）。
+  - **防爆牆列**：另一條亂數串；每半張圖 2～3 列、每列 3～5 段（8×4×1.2 m 的 `blast_wall`，`row` 標列號），**雁行**（每段沿列錯開 1.2～2.2 m）斜放在通道 8～50% 處的旁邊 10～20 m；障礙物的碰撞是軸對齊的方塊，所以列的方向以 90° 為單位（最接近通道的方向）。放的時候離通道 8 m 以上；重新檢查後的通道會繞過防爆牆，所以只要求離新的通道 `WALL_GAP`（3 m）以上，不到的列成對拿掉再檢查（最多兩次），剩不到 6 段＝不合格。
+  - 障礙物：岩石＝防爆牆碎塊 `blastwall`（方塊 6～8 × 3～4 × 1.2～2，依尺寸縮放模型）、殘骸＝貨物艙 `cargopod`（2.8×2.7×6）與燃料車 `fueltruck`（2.6×3.2×8）、燈＝天線桿 `mast`；`counts` 照 15.8。100 個種子第一次就合格 73%，防爆牆平均每半張圖 8.1 段。
+- **Grid 086 地表 `grid086`**：地形照 15.8；`look`＝`sunI` 0.8、霧 50～170、天候 `ash`（顏色沿用主線主題）。
+  - **構造體台階**（`stepsAfter`）：每半張圖 2 組，下層 H1 4～5 m、上層 H1＋H2（H2 4～5 m）；下層是地面坡道（−u 端往外，寬 11～13）上來的平台（3 m）＋**整個寬度的上層坡道**，上層長 Lu＝L − 坡道 − 3 ≥ 14 m。15.8 的寬 14～20、長 24～36 改成寬 16～20、長 max(24, 坡道＋17)～38（上層要放得下 8×8 的建築；側邊的窄坡道（寬 6.5～8）大型單位常常上不去，所以改成整個寬度）。通道 12～80% 處的旁邊 W/2＋6～24 m，兩側 × 兩個方向依序試；離主基地、礦脈、湧出點 20 m、營地 12、中立建築 15。`plan.steps`＝[{ pos, yaw, L, W, h1, h2, near, top（上層中央）, ramps: [地面坡道, 上層坡道] }]。
+  - 裝飾（`plan.decor`，不碰撞、和障礙物一起合併、迷霧著色照樣隱藏）：台階斷崖外側的金屬牆 `g86wall`（主題的 `buildThemeWall('grid086')`，每段約 6 m，坡道接上的地方留空）；沿通道 A 側前半段的鋼板接縫 `seam`（6～12 m）與排水溝 `drain`（3～5 m，橫放），另一條亂數串。
+  - 障礙物：岩石＝廢料堆 `scrap`（圓柱）、殘骸＝Doser 棚屋 `shack`（放大 1.2，方塊 6×4.3×4.8；15.8 寫的 `boxW` 5～7 改成固定尺寸的殘骸）、管線束 `pipestack`（3.2×9×1）、排氣煙囪 `chimney`（半徑 1.2～1.6、高 16～24）、燈＝油桶群＋低矮的鈉燈 `barrels`。100 個種子第一次就合格 65%。
+- **野怪**（數值照 13.6 的 lv 公式；模型借主題敵人，特殊行為不做）：舊宇宙港 `cr_testrig`（3，爆發 dps 18、射程 10、範圍 2.5 m、`speed: 0.01`）、`cr_spacemt`（2）、`cr_fueler`（3，爆發）、`cr_rack`（4，穿甲、`aa: 'both'`：野怪也打空中單位）；Grid 086 `cr_crawler`（2，霰彈）、`cr_zipline`（3，霰彈）、`cr_anchor`（4，能量）；主題 AC `cr_ac_countdown`、`cr_ac_spire`（不加進 `RTS_CAMP_ACES`）。仍然沒有飛行的野怪。**不能移動的**（`speed ≤ 0.05`：試車台、技研都市的保全雷射網、傭兵的試車台）生成時設 `e.edHold`（`MechEntity.move` 不移動、不 QB，只轉向與開火；以前 `speed: 0.01` 的單位下了移動指令還是會慢慢挪動）；被其他單位推擠照舊。
+- **營地編成**（`RTS_CAMPS.spaceport`／`grid086`）照 15.8，大營地 lv 合計不夠的多一台：舊宇宙港「AC＋飛彈架×2＋宇宙用 MT×2」、「COUNTDOWN＋燃料洩漏車＋宇宙用 MT×2＋飛彈架」；Grid 086「AC＋重力錨＋爬行機×2＋MT 重型」、「SPIRE＋滑索突擊兵×2＋重力錨＋爬行機」。
+- **傭兵**（費用照 15.8）：`m_spacemt`、`m_fueler`、`m_rack`（lv 3，對空的傭兵）、`m_testrig`（落在傭兵營前方、之後只能守點）；`m_crawler`、`m_zipline`、`m_anchor`（lv 3）、`m_mth`（lv 3）。傭兵營的卡片照 14.14 由 `mercCard(主題)` 換上。
+- **測試** `testRtsThemes2`（約 14 秒，65 項）：舊宇宙港、Grid 086 各 3 個種子（7、23、101）開局：主題覆寫（沒有岩頂、不疊加時間、天候）、對稱（高度、障礙物、資源、營地、中立建築、發射台、台階、裝飾）、尋路（兩邊到營地、礦脈、發射台頂面與台階上層的路徑代價差 < 3%）、頂面（高度、8×8 可以蓋、大型單位從坡道下上得去）、防爆牆（≥ 12 段、離通道 3 m 以上）、發射塔與金屬牆在合併的網格裡、裝飾不碰撞、主題的野怪、傭兵營的名單與卡片、靜態合併與迷霧著色；第一個種子另測 4 種傭兵的雇用、試車台不會走向移動指令的地點、營地出動交戰、誘導飛彈架的野怪打武裝直升機、俯視與近景的亮度（舊宇宙港 0.65、Grid 086 0.37）。截圖 `rts-r4-map-{spaceport,grid086}.png`、`-near.png`。`rts-map-test.js --theme=all` 五個主題各 100 個種子通過。
+- **效能**（AMD Radeon 880M、1920×1080、`--force_high_performance_gpu`、RTS 渲染、兩隊各 60 台在中央互打＋全部野怪、鏡頭 60 m，各量 8 秒兩輪）：荒野 40.5／39.9 FPS、舊宇宙港 38.6／41.8、Grid 086 40.3／44.1（同一輪的差在量測的誤差內）。
+- **給其他包的**：發射台與台階的頂面是「低處看不到高處」的高地，空投（A）與長程推進（B）的好位置；發射塔高 25 m、排氣煙囪高 16～24 m，空中單位（`hoverH` 6～7 m）的飛行高度（B 的 `rtsFlyAlt`）要考慮。勝率腳本（F 的 `rts-matchup.js`）的主題預設只有 R3 的三個，要輪到五個主題時改 `--themes`。
+- **沒做的**：野怪的特殊行為（爬牆、噴火的預警、燃料區、重力場、滑索）；防爆牆斜放的角度（碰撞是軸對齊的方塊，改成雁行）。
+
+### 15.15 E 包（維爾威的 HUD、輸入、親自駕駛）的實作結果
+
+> E 包已完成（2026-10-17）。檔案：`game/rts-hud.js`、`game/rts-input.js`、`game/rts-pilot.js`、`styles.css` 的 RTS 區塊（R4 的一段在檔尾）、`scripts/smoke-rts-veer-e.js`（`testRtsVeerHud`）。別包的檔案只在 `smoke-test.js`（require 與 `STEPS` 各一段）／`smoke-jobs.js`（`DEFAULT_TIMES` 一行）加行；A 的檔案沒有改。
+
+- **資源列**：`#rtsLift`（`rtsHudFaction` 依 `rtsVeerTeam(0)` 顯示）＝「空投 n／m」（`rtsDropLift`，飛回中的也算）＋降落中的投放艙「艙 k（最快 s 秒）」；滿了變黃（`.full`）、有空投或投放艙時亮（`.busy`）；點一下依序跳到己方空投的落點與投放艙（`rtsHudLiftJump`）。A 的掛勾 `rtsHudDrop(teamId)` 只讓資源列與卡片下一格重畫。Coral 的說明多一句物流交易。
+- **卡片動作**（`rtsCardItem`／`rtsCardAct`）：
+  - `drop`：說明框多一行 `note`「運輸機 n／m」（信標另寫上限）；灰掉的原因依序是需求／資源（`rtsWhyNot`）、運輸機都在任務中、信標最多 6 座、沒有起飛點（地點的原因在預覽）。按下去＝建造預覽 `{ k: 'build', def, D, drop: true }`。
+  - `pack`：有收起中／收好、還沒指定地點的＝「展開」（預覽 `{ k: 'build', unpack: true }`，對象是 `rtsHudUnpackBld()`＝作用中子群組的第一座）；否則＝「收起」（原因用 `rtsPackWhy`，按下去 `rtsOrder(可以收起的, { k: 'pack' })`）；展開中／飛往展開點時灰掉。說明框寫收起／展開秒數與速度。
+  - `trade`：標籤「買 Coral／賣 Coral」、比例（`rtsTradeRate`，T2 起 35）、費用、原因 `rtsTradeWhy`，共用冷卻用技能格的冷卻扇形（`it.ab`）。按下去＝`rtsOrder(選取中的調度中心, { k: 'trade', dir, team: 0 })`。
+  - `load`（目標模式點己方地面單位＝`{ k: 'load', id }`，不能登機時提示 `rtsBoardWhy`）／`unload`（地點＝`{ k: 'unload', x, z }`）；格子的 `lvTxt` 是乘員人口「n／8」，滿了／空的時灰掉。選運輸機右鍵己方地面單位＝載運（`rtsRightAt`；地面單位右鍵運輸機＝登機是 A 的 `rtsSmart`）。
+  - 收起的建築（`bld.packed` 1～3）換成自己的卡片（`rtsHudPackCard`）：收好時 Q 移動（目標模式，`rtsOrder` 的 move 對收好的建築＝飛過去）、S 展開；其他卡片（生產、研究、升級）不顯示。右鍵地面照 A 的 `rtsSmart`。
+  - 空投運輸機（定義的 `carrier`）只有 V「取消空投」（`rtsDropCancel`，飛回中灰掉）。
+- **建造預覽**（`rtsGhostUpdate`）：空投模式的原因全部用 `rtsDropWhy(0, def, x, z, 0)`（探索過、能不能蓋／湧出點、敵方建築與防禦塔、運輸機、起飛點、資源），展開模式用 `rtsUnpackWhy(建築, x, z, 0)`（不看資源、沒探索過的原因由它給）；原因接在模式提示後面（「空投 補給艙（運輸機 0／2）：左鍵投放…　— 要投放在探索過的地方」）。左鍵 `rtsBuildAt`：空投＝`rtsOrder([], { k: 'drop', def, x, z, yaw: 0, team: 0 })`（不派工人，Shift 連續放）；展開＝`rtsOrder([建築], { k: 'unpack', x, z, yaw: 0 })`。
+- **投放範圍圈**（`rts-input.js` 的 `rtsHudVeerRings`，一組貼著地形的線段，每 0.2 秒或內容改變時重建；`ui.vInfo` 記數量給測試）：空投／展開模式或選了軌道調度所、信標、調度中心時畫己方全部的投放範圍（`rtsBeacons`，萊姆綠，臨時信標虛線）；選中的軌道調度所畫投放點（`rtsDropPoint`：綠＝信標、紫＝軌道、灰＝建築正面）與連線；己方空投中的落點畫佔地框（黃，下降中橘）；空投模式另外畫記得的敵方建築的禁投範圍（紅色虛線，`rtsFogKnown`）；預覽的是信標時畫它的 14 m。
+- **對手看得到的預警**：投放艙落下的預警圈本身是 A／B 的 `rtsVeerPodFx`（只畫給看得到那一格的玩家）；E 在 HUD 畫布上畫看得到的投放艙（`rtsPodsSeen(0)`）的倒數圈（自己的綠＋兵種縮寫、敵方的紅），小地圖也畫（綠／紅小圈）。己方空投的落點在畫面上標「▼ 名稱 n s」（預計抵達：距離／運輸機速度＋下降 2.5 秒），小地圖畫黃色 ×。
+- **選取面板**：收起中／展開中的進度條（綠，`.rtsProg.pack`）、收好「飛行中（m/s）」與「右鍵地面＝移動、S＝選地點展開」、收起時紅字「生產、研究暫停（人口照給）」、展開後的再收起倒數；集貨站「庫存 n／300、s 秒後運走」（`rtsHaulInfo`）；信標「投放半徑 14 m、n 座建築以它為集結點」；軌道調度所「投放點：信標內的集結點／軌道投放／建築正面」與降落中的投放艙數；調度中心「空投運輸機 n／m」與交易冷卻；空投運輸機「空投：建築（飛行中／下降中（低空）／飛回起飛點）」；低空的單位「低空：地面武器也打得到」。運輸機的乘員面板 `.rtsCargo`：「載運 n／8」、每位乘員一格（名稱縮寫、血條，英雄金框）、「卸載（X）」按鈕（＝卸載的目標模式）；畫面上選取中的運輸機標「載 n」。
+- **選取與空中單位**：`rtsSeen` 對登機的單位（`rtsAboard`）一律 false（點選、框選、疊加、小地圖都略過）；編隊叫出時略過登機的（編隊本身保留，卸載後回來）；框選框到其他東西時不選空投運輸機（`rtsDriven`）；閒置部隊不含空投運輸機與乘員。空中單位的點選與框選照舊用模型的投影（`rtsScreen` 用 `pos.y`，高度 10 m 的突擊機在 55° 俯角下框得到）；選取或滑鼠停留（`ui.hover`，每 0.1 秒 `rtsPickAt`）的空中／低空單位在 HUD 畫布畫一條到地面的虛線＋地面圓點；小地圖的空中單位是小三角形、收好在飛的建築是空心方塊。
+- **自動管家**（`rts-pilot.js`）：陣營有 `airdrop` 時 `rtsButlerDepot` 改呼叫 `rtsButlerDrop(補給艙)`：位置先用 A 的 `rtsAutoSpot`（再以 `rtsDropWhy` 檢查），不行時在調度中心 14～50 m 找 `rtsDropWhy`＝'' 的點，`rtsDropOrder(..., { quiet: true })`；運輸機都在任務中時下一秒再試；空投中的同種建築（`R.drops`）算「在蓋」，不重複下單。人口將滿的警示也把空投中的補給艙算進「在蓋」。修理照舊（物流 MT 可以修理）。
+- **親自駕駛**：維爾威英雄照 13.16 的流程（技能、道具、換英雄都走 C 的 `rtsSkillCast`／`rtsItemUse`；特快專送 `S.any` 在親自駕駛中由 C 擋下）。`rtsPilotCan` 多一個原因「在運輸機上不能親自駕駛」。管家的「新部隊跟隨英雄」在維爾威時另外呼叫 `rtsButlerRally(英雄)`：英雄在投放範圍內（`rtsBeaconAt`，或有軌道通訊站且探索過）就把軌道調度所的集結點移到英雄身邊（原本的記在 `b._bRally`），投放艙直接降在英雄旁；英雄離開範圍或離開親自駕駛（`rtsButlerRallyBack`）時還原。資源列的空投狀態在親自駕駛時照樣顯示。
+- **測試** `testRtsVeerHud`（約 12 秒，55 項）：資源列（陣營、「空投 0／2」、沒有導管）、物流 MT 的卡片（沒有建造）、空投子選單 11 種與「運輸機 0／2」、調度中心的卡片；空投預覽（綠、原因和 `rtsDropWhy` 一致、模式提示、範圍圈、沒探索過紅、扣款、Shift 連續、運輸機都在任務中灰掉、落點框、完成後歸零）；投放點（面板、範圍圈、信標面板）、投放艙（資源列「艙 1」、畫面上的倒數）；收起（卡片、進度、收好的卡片、移動、展開預覽紅／綠、落地、再收起的冷卻）；交易（比例、扣款、冷卻）；運輸機（載運卡、目標模式、右鍵己方單位、乘員面板、點不到乘員、編隊、卸載）；空中單位（框選、細線、不選空投運輸機、取消空投退 75%）；管家（空投補給艙、不重複）；親自駕駛（在運輸機上不能、進入與離開、Z 急件突進、集結點跟著英雄與還原）；三種大小（`rts-r4-hud-{1920,1180,844}.png`，另有 `rts-r4-hud-cargo.png`）。
+- **和 B／C 的介面（還沒接上或要注意的）**：
+  - B：投放艙落下的預警圈與敵方看得到的規則在 B 的 `rtsVeerPodFx`（沒有時 A 畫 `warnCircle`）；E 只畫 HUD 的倒數，不畫 3D 預警。運輸機下降、收起建築的外觀、空投運輸機的吊掛都是 B 的；E 沒有呼叫 B 的任何方法。收好的建築的移動（`rtsVeerPackMove`）若改了 `b.orders` 的格式，`rtsHudVeerRows` 的「前往展開的地點」只看 `bld.unpackTo`，不受影響。
+  - C（15.13 已對上）：物流倉庫（`v_market`）的貨架卡片由 C 填，E 照商店的方式顯示 `buy` 卡（收起中的倉庫整張換成收起的卡片）；`rtsPilotCan` 也擋 `hs.blitz`（急件突進中）；被干擾（`e.rtsJamT`）的單位在畫面上標紫色「干」、面板紅字「受到干擾 n 秒」；特快專送的運輸機（`ship.rtsExpress`）沒有卡片、面板寫「特快專送」並顯示乘員（16 人口）。親自駕駛的技能目標：`sk_carpet`（`line`）照一般地點技能拉回射程 60 m 當方向；`sk_jam` 是 `unit`＋`tgt 'enemy'`＝鎖定的目標；`sk_express`（`any`）不拉回射程，親自駕駛中由 C 的 `rtsSkillWhy` 擋下。還沒做：特快專送的目標模式沒有畫到目的地的直線。
+- **沒做的**：同時選多座收好的建築按 S 時一次只展開一座（Shift 連續點）；集貨站的庫存沒有畫在建築上方（只在面板；外觀是 B 的 `setStock`）；投放範圍圈沒有照迷霧隱藏敵方的資訊（只畫自己的範圍與記得的敵方建築）。
+
+### 15.16 整合（A～E 合併）
+
+> A～E 在同一個工作目錄平行完成後一起整合、測試、提交（2026-10-17）。電腦對手（F）下一步做；現在電腦選維爾威時不行動是已知狀態。
+
+- **假影子**（`fx/batch.js` 的 `BlobShadows`）：在飛的實體（`flying`：空中、低空、收好在飛的建築）濃度一律上限 0.4（×`alpha`），不再依離地高度變淡，所以低空的衝撞無人機（3 m）不會比 12 m 的空投運輸機深；地面單位跳起來時照舊依高度變淡。
+- **空中單位的高度層**（`game/rts.js` 的 `rtsSeparate`）：兩台都在飛時，定義的 `hoverH` 差 1 m 以上就不互推（偵察無人機 6、直升機 7、運輸機 9、突擊機 10、空投運輸機 12），同種照舊推擠（上下浮動 ±0.6 m 不影響）；空中對地面照舊是高度差 3 m 內才推。
+- **飛越地圖障礙物**：RTS 地圖的圓柱障礙物（煙囪、天線桿、岩柱）在 `World.buildRts` 記 `top`（底＋高），所以 `collide` 對飛在上方的不擋；`rtsFlyAlt` 另外看前方 10 m 航線旁的圓柱，比飛行高度高就爬到頂上 3 m（方塊的發射塔本來就經過 `groundAt`）；收好在飛的建築（`rtsPackFly`）經過圓柱時升到頂上 2 m。
+- **展開多座收起的建築**：展開預覽的對象 `rtsHudUnpackBld` 先找作用中的子群組、再找整個選取；每點一下指定一座，預覽換成下一座的佔地，全部指定完才離開展開模式（不必按 Shift）。
+- **特快專送的目標模式**：`rtsHudVeerOverlay` 從英雄畫一條虛線到游標的地點（運輸機的航線）＋距離（`g._rtsExpressLine`）。
+- **測試**：testRtsVeerUnits 多「不同高度層不互推」；testRtsThemes2 第一個種子多「攻擊直升機飛越最高的障礙物」（舊宇宙港＝發射塔、Grid 086＝排氣煙囪）；testRtsVeerHud 多「多座收好的建築依序展開」與「特快專送的直線」。全部 testRts* 818 項通過（卡斯特隆、艾瑟立克沒有退步）。
+- **整合後的驗收**：完整 `npm test` 1806 項全部通過；`npm run bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps --faction=mix` near 55.1 FPS（1% low 33、draw calls 383）。

@@ -9,6 +9,10 @@ import {
   buildRadarDish,
   buildRockSpire,
   buildStorageTank,
+  buildThemeWall,
+  box,
+  cyl,
+  mat,
 } from './prop-models.js';
 import {
   buildCoralCrystal,
@@ -17,13 +21,79 @@ import {
   buildLab,
   buildPipeRun,
 } from './themes/institute.js';
+import {
+  buildAntennaMast,
+  buildBlastWall,
+  buildCargoPod,
+  buildFuelTruck,
+  buildLaunchTower,
+} from './themes/spaceport.js';
+import { buildBarrels, buildChimney, buildPipeStack, buildScrapHeap, buildShack } from './themes/grid086.js';
 import { attrSig, mergeList } from '../render/mesh-merge.js';
 import { styleCat } from '../render/style/shader.js';
 
 const HOPPER_COL = [0xb08a3e, 0x8c8f86, 0xa0522d],
   TANK_COL = [0x8a5a3a, 0x9a8f7a, 0x6f7a80],
   QUONSET_COL = [0x6b7d6a, 0xd7a23c, 0x8a949c],
-  RADAR_COL = [0x9aa4ad, 0xb8bec4, 0x7d8790];
+  RADAR_COL = [0x9aa4ad, 0xb8bec4, 0x7d8790],
+  POD_COL = [0xe6e8ea, 0xd8a020, 0xb04a2a],
+  SHACK_COL = [0x6a6a5a, 0x5a6470, 0x7a5a3a];
+// 發射塔（舊宇宙港的 launch_tower 縮小 o.s）：碰撞的方塊（plan 的外框）＝塔＋火箭，中心在群組原點
+function launchTower(o) {
+  const g = new THREE.Group();
+  const m = buildLaunchTower();
+  m.scale.setScalar(o.s || 0.55);
+  m.position.x = 3.4 * (o.s || 0.55); // 塔（x −10～−4）與火箭（−3.2～3.2）的中心 −3.4 移到原點
+  g.add(m);
+  return g;
+}
+// 依 plan 的方塊尺寸縮放（模型原本的尺寸 [w, h, d]）
+function scaled(m, o, w0, h0, d0) {
+  const [w, d] = unrot(o);
+  m.scale.set(w / w0, o.h / h0, d / d0);
+  const g = new THREE.Group();
+  g.add(m);
+  return g;
+}
+// Grid 086 的油桶群＋低矮的鈉燈
+function barrelsLamp(o) {
+  const g = new THREE.Group();
+  g.add(buildBarrels());
+  const pole = mat(0x3a3836, { roughness: 0.8, metalness: 0.4 });
+  g.add(cyl(0.08, 0.1, o.h - 0.3, pole, 0.9, (o.h - 0.3) / 2, -0.6, 6));
+  g.add(box(0.7, 0.18, 0.3, pole, 0.65, o.h - 0.25, -0.6));
+  g.add(
+    box(
+      0.5,
+      0.08,
+      0.22,
+      mat(0xffb050, { emissive: 0xff8a20, emissiveIntensity: 1.6 }),
+      0.55,
+      o.h - 0.36,
+      -0.6,
+    ),
+  );
+  return g;
+}
+// 地面的鋼板接縫（沿本地 X 的細長板＋兩側的暗線）與排水溝（格柵）：plan.decor，不碰撞
+function seam(o) {
+  const g = new THREE.Group();
+  const plate = mat(0x55504a, { roughness: 0.7, metalness: 0.6 }),
+    dk = mat(0x1e1c1a, { roughness: 1 });
+  g.add(box(o.len, 0.06, 1.6, plate, 0, 0.03, 0));
+  for (const s of [-1, 1]) g.add(box(o.len, 0.07, 0.12, dk, 0, 0.035, s * 0.86));
+  for (let x = -o.len / 2 + 1; x < o.len / 2; x += 2) g.add(box(0.1, 0.075, 1.6, dk, x, 0.04, 0));
+  return g;
+}
+function drain(o) {
+  const g = new THREE.Group();
+  const dk = mat(0x161412, { roughness: 1 }),
+    st = mat(0x6a645c, { roughness: 0.6, metalness: 0.7 });
+  g.add(box(o.len, 0.05, 1.1, dk, 0, 0.02, 0));
+  for (let x = -o.len / 2 + 0.2; x < o.len / 2; x += 0.35) g.add(box(0.08, 0.08, 1.1, st, x, 0.05, 0));
+  for (const s of [-1, 1]) g.add(box(o.len + 0.2, 0.1, 0.12, st, 0, 0.05, s * 0.6));
+  return g;
+}
 // 冰柱（冰原的岩石）：主線冰原的冰塊（buildIceChunk，模型槽 prop/ice_chunk）拉高成柱狀
 function iceSpire(o) {
   const g = new THREE.Group();
@@ -53,12 +123,34 @@ export const RTS_PROPS = {
   coraltank: () => buildCoralTank(),
   piperun: () => buildPipeRun(),
   crystal: (o) => buildCoralCrystal(o.h / 4),
+  // 舊宇宙港外圍（R4）：防爆牆（rocks 的方塊與防爆牆列）、貨物艙、燃料車、天線桿、發射台上的發射塔
+  blastwall: (o) => scaled(buildBlastWall(), o, 8, 4, 1.2),
+  cargopod: (o) => buildCargoPod(POD_COL[o.color || 0]),
+  fueltruck: () => buildFuelTruck(),
+  mast: (o) => buildAntennaMast(o.h),
+  launchtower: launchTower,
+  // Grid 086 地表（R4）：廢料堆、Doser 棚屋（放大 1.2）、管線束、排氣煙囪、油桶群＋鈉燈
+  scrap: (o) => buildScrapHeap(o.r / 2.5),
+  shack: (o) => {
+    const g = new THREE.Group();
+    const m = buildShack(SHACK_COL[o.color || 0]);
+    m.scale.setScalar(1.2);
+    g.add(m);
+    return g;
+  },
+  pipestack: (o) => buildPipeStack(o.h),
+  chimney: (o) => buildChimney(o.r, o.h),
+  barrels: barrelsLamp,
   // 裝飾（plan.decor：不碰撞）
   coralvein: (o) => {
     const g = buildCoralVein(o.len);
     g.scale.z = 2.5; // RTS 的鏡頭遠：加寬才看得到
     return g;
   },
+  // Grid 086 的構造體台階：斷崖外側的金屬牆（主題的 wall 外觀，原點在中心）、鋼板接縫、排水溝
+  g86wall: (o) => buildThemeWall('grid086', o.len, o.h, 0.6),
+  seam,
+  drain,
 };
 export function rtsPropMesh(o, T) {
   const f = RTS_PROPS[o.model];

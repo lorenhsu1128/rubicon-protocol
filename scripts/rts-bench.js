@@ -25,7 +25,9 @@
 //   --heroes=6            另外加英雄（兩隊各一半，卡斯特隆三位英雄的 AC：BASTION、RAIN、PILEDRIVER；docs 13.10）
 //   --camps               另外加全部的野怪營地（地圖外圈 8 個營地、小／中／大的編成，待在原地不動；D 包有
 //                         rtsCampSpawnAll 時改用它）
-//   --faction=castron|aetheric|mix  兩隊的兵種（R3，docs 14.9）：castron＝卡斯特隆風格的編成（預設，同以前）、
+//   --faction=castron|aetheric|veerwell|mix|a,b  兩隊的兵種（R3，docs 14.9；R4 15.9）：castron＝卡斯特隆風格的編成（預設，同以前）、
+//                         veerwell＝維爾威風格（空降 MT、誘導飛彈架、偵察無人機、宇宙用 MT、攻擊直升機、衝撞無人機、運輸機）、
+//                         a,b＝友軍 a、敵軍 b（例：castron,veerwell）、
 //                         aetheric＝艾瑟立克風格（實驗體、寄生纏附體、嵌合體、全像投影器、浮游砲機、雷射 MT…）、
 //                         mix＝友軍卡斯特隆、敵軍艾瑟立克；英雄照舊用 --heroes 的 AC
 //   --tag=名稱            輸出檔名的標記（預設 gpu／swiftshader＋鏡頭）
@@ -321,20 +323,47 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           mth: 'a_beam',
           ac: 'a_reson',
         };
-        const typesOf = (team) =>
-          faction === 'aetheric' || (faction === 'mix' && team === 'enemy') ? AETH : TYPES;
+        // 維爾威的編成（docs 15.3 的模型：一般任務的同名敵人；B 包的 rtsVeerReskin 換成 RTS 定義的外觀）
+        const VEER = [
+          'mt',
+          'mt',
+          'missilerack',
+          'drone',
+          'spacemt',
+          'heli',
+          'rammer',
+          'mt',
+          'dropship',
+          'ac',
+        ];
+        const VEER_DEF = {
+          mt: 'v_mt',
+          missilerack: 'v_rack',
+          drone: 'v_drone',
+          spacemt: 'v_spacemt',
+          heli: 'v_heli',
+          rammer: 'v_rammer',
+          dropship: 'v_dropship',
+          ac: 'v_jet',
+        };
+        const LISTS = { castron: TYPES, aetheric: AETH, veerwell: VEER };
+        const typesOf = (team) => LISTS[faction[team === 'enemy' ? 1 : 0]] || TYPES;
         const half = N / 2;
         const spread = Math.min(L * 0.85, 14 + Math.sqrt(half) * 3.2);
         const mk = (i, team) => {
-          const L = typesOf(team);
-          const t = L[i % L.length];
+          const TL = typesOf(team);
+          const t = TL[i % TL.length];
           const side = team === 'enemy' ? 1 : -1;
           const x = Math.max(-L * 0.95, Math.min(L * 0.95, side * (10 + rand() * spread * 0.9)));
           const z = Math.max(-L * 0.95, Math.min(L * 0.95, (rand() * 2 - 1) * spread));
           const [qx, qz] = w.collide(x, z, 50, 1.8);
           const at = new THREE.Vector3(qx, w.groundAt(qx, qz, 99), qz);
           const e = g.spawnType(t, g.scaleHp * 25, g.scaleDmg, at, 1);
-          if (e && L === AETH && e.rtsAethReskin) e.rtsAethReskin(AETH_DEF[t], team === 'enemy' ? 1 : 0);
+          if (e && TL === AETH && e.rtsAethReskin) e.rtsAethReskin(AETH_DEF[t], team === 'enemy' ? 1 : 0);
+          if (e && TL === VEER && e.rtsVeerReskin && VEER_DEF[t])
+            e.rtsVeerReskin(VEER_DEF[t], team === 'enemy' ? 1 : 0);
+          // 一般任務的 AI 會自己生成實體（全像投影器的分身、實驗體融合；RTS 裡沒有這些行為）：編成不能在量測中變多（R4 B 包）
+          if (e && (e.ai === 'holoproj' || e.ai === 'blob')) e.ai = 'mt';
           if (team === 'ally') {
             const k = g.enemies.indexOf(e);
             if (k >= 0) g.enemies.splice(k, 1);
@@ -418,7 +447,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         seed: SEED,
         heroes: +(args.heroes || 0),
         camps: !!args.camps,
-        faction: ['aetheric', 'mix'].includes(args.faction) ? args.faction : 'castron',
+        // 兩隊的陣營 [友軍, 敵軍]：mix＝卡斯特隆對艾瑟立克、a,b＝各自一個、單一個＝兩隊相同
+        faction: (() => {
+          const ok = (f) => (['castron', 'aetheric', 'veerwell'].includes(f) ? f : 'castron');
+          const a = String(args.faction || 'castron');
+          if (a === 'mix') return ['castron', 'aetheric'];
+          const p = a.split(',');
+          return [ok(p[0]), ok(p[1] || p[0])];
+        })(),
       },
     );
     await sleep(WARM * 1000);

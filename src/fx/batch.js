@@ -270,7 +270,9 @@ export class BlobShadows {
     for (const e of list) {
       const gy = ground(e);
       const h = e.pos.y - gy;
-      const a = this.alpha * Math.max(0.25, Math.min(1, 1 - h / 25));
+      // 空中（flying：空中單位、低空、收好在飛的建築）一律用同一個淡的濃度（低空的不會比較深），
+      // 地面單位跳起來時才依離地高度變淡
+      const a = this.alpha * Math.max(0.25, Math.min(e.flying ? 0.4 : 1, 1 - h / 25));
       const r = Math.max(1.1, (e.radius || 1.3) * 1.4) * (h > 1 ? 1 + Math.min(h, 20) * 0.02 : 1);
       const o = n * 16;
       M[o] = r;

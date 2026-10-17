@@ -842,14 +842,14 @@ module.exports = (H) => {
       info: document.getElementById('rtsPrevInfo').textContent,
       state: window.__game.state,
     }));
-    // R3（docs 14.7）：卡斯特隆、艾瑟立克可以選，另有「隨機」
+    // R3（docs 14.7）：卡斯特隆、艾瑟立克可以選，另有「隨機」；R4（15.7）起維爾威也可以選
     check(
       menu.facs.length === 5 &&
         menu.facs
           .filter((f) => !f[1])
           .map((f) => f[0])
-          .join() === 'castron,aetheric,random',
-      `陣營四個＋隨機、卡斯特隆與艾瑟立克可以選（${menu.facs.map((f) => f[0] + (f[1] ? '×' : '')).join('、')}）`,
+          .join() === 'castron,aetheric,veerwell,random',
+      `陣營四個＋隨機、卡斯特隆、艾瑟立克、維爾威可以選（${menu.facs.map((f) => f[0] + (f[1] ? '×' : '')).join('、')}）`,
     );
     check(/礦脈 \d+/.test(menu.info) && menu.state === 'rtsmenu', `地圖預覽（${menu.info}）`);
     await page.screenshot({ path: path.join(SHOT_DIR, 'rts-menu.png') });

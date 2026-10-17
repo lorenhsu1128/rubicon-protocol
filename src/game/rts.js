@@ -9,6 +9,8 @@
 //   rts-input.js／rts-hud.js（rtsCamUpdate），戰爭迷霧在 rts-fog.js（rtsFogTick），電腦對手在 rts-ai.js（rtsAiTick）。
 // - 敵人 AI 導演、感知、增援波次、據點、過關條件卡片在 RTS 都不啟動（rtsTick 不呼叫它們）。
 // - 冒煙測試：rtsSim(dt) 只推進模擬（不算繪），rtsPerf 記錄每格的耗時。
+// - R4（docs 15.2）：維爾威的空投、投放艙、機動建築、集貨站、交易、搭乘在 rts-veer.js（rtsVeerTick 每格）；這裡的呼叫點：
+//   rtsTrained 的投放艙、rtsBuildings 的收起中建築、rtsDmgK 的 rtsVeerTakenK、rtsSplash 的低空、rtsOnDeath 的 rtsVeerOnDeath。
 import { SFX } from '../audio/audio.js';
 import { clamp, makeRng } from '../core/math.js';
 import { escHtml } from '../core/html.js';
@@ -62,6 +64,11 @@ const REC_KEY = 'rubicon_rts_rec'; // 遭遇戰的戰績（R3：{ '<我方陣營
 const BLD_ASM = RTS_DEFS.c_worker.asm; // 建築的 MechEntity 只用來算數值（沒有武器）
 const END_DELAY = 2.5; // 勝敗決定後幾秒顯示結果
 const _q = [];
+// 空中單位的高度層：定義的飛行高度（沒有時用目前的 hoverH）
+const rtsLayer = (e) => {
+  const D = RTS_DEFS[e.rtsDef];
+  return (D && D.hoverH) || e.hoverH || 0;
+};
 
 const loadJson = (k, d) => {
   try {
@@ -353,6 +360,8 @@ Object.assign(Game.prototype, {
         tech: { tier: 1, res: {}, busy: {} }, // 13.2：主堡層級、研究的級數、研究中的項目
         heroes: [], // 英雄紀錄（C 包，13.4）
         power: { srcs: [], temp: [], ver: 0, deps: null }, // 導管網（docs 14.2；rts-grid.js）
+        bcn: [], // 臨時投放信標（維爾威，docs 15.2；rts-veer.js）
+        tradeT: 0, // 物流交易的冷卻到這個局內時間
       })),
       units: [],
       byId: new Map(),
@@ -375,6 +384,12 @@ Object.assign(Game.prototype, {
         blds: 0,
         fused: 0,
         offT: 0,
+        drops: 0, // 維爾威（docs 15.7、15.9）：空投成功、被擊落、投放艙、收起、交易、空中單位人口的最大值
+        dropLost: 0,
+        pods: 0,
+        packs: 0,
+        trades: 0,
+        airMax: 0,
       })),
       hostile: [[], [], []], // 每個隊伍的敵對實體（rtsSim 每格重建；game.js 的 hostilesOfEnt 用它）
       items: [], // 地上的道具（C 包）
@@ -387,6 +402,13 @@ Object.assign(Game.prototype, {
       fuses: [], // 融合中的組（rts-grid.js）
       fuseN: 0,
       illus: [[], [], []], // 每隊的幻象（最舊的在前面）
+      drops: [], // 空投（rts-veer.js）：{ id, team, def, x, z, yaw, st 'wait'|'fly'|'land'|'back', ship, cost, t0 }
+      dropN: 0,
+      pods: [], // 投放艙：{ id, team, def, x, z, t（落地的局內時間）, q, via, b, rally, pop }
+      podN: 0,
+      hauls: [], // 集貨站的物流無人機（到達時入帳）
+      vtasks: [], // 延遲事件（緊急補給）
+      veerT: 0,
       g: new THREE.Group(),
       perf: { ai: 0, sim: 0, n: 0 },
       endT: 0,
@@ -407,6 +429,8 @@ Object.assign(Game.prototype, {
       tech: { tier: 1, res: {}, busy: {} },
       heroes: [],
       power: { srcs: [], temp: [], ver: 0, deps: null },
+      bcn: [],
+      tradeT: 0,
     };
     R.g.userData.helper = true;
     this.scene.add(R.g);
@@ -789,7 +813,9 @@ Object.assign(Game.prototype, {
   // 對 t 的傷害倍率：相剋 × 護甲 × 受到的傷害倍率
   rtsDmgK(atk, t) {
     if (atk === 'none') return t.rtsTakenK || 1;
-    return typeK(atk, t.rtsArm) * armorK(t.rtsArmor || 0) * (t.rtsTakenK || 1);
+    // 維爾威（rts-veer.js）：展開中的建築 ×1.25、熱焰彈（空中單位受到的穿甲 −20%）
+    const vk = this.rtsVeerTakenK ? this.rtsVeerTakenK(atk, t) : 1;
+    return typeK(atk, t.rtsArm) * armorK(t.rtsArmor || 0) * (t.rtsTakenK || 1) * vk;
   },
   // 技能與範圍傷害的入口（docs 13.3）：atk 明確指定、src 是施放者（擊破的經驗照常算給它）；回傳實際扣的血量
   rtsHit(t, dmg, impact, src, atk = 'kin', at = null) {
@@ -808,7 +834,7 @@ Object.assign(Game.prototype, {
     return Math.max(0, hp0 - Math.max(0, t.hp));
   },
   // 範圍傷害：中心 100% 線性降到邊緣 40%（建築以外形最近點算距離）；team＝攻擊方的隊伍（沒有 src 時用）；
-  // 只打敵對的、高度差在半徑＋3 m 以內（空中單位不會被地面爆炸波及）。回傳命中的數量
+  // 只打敵對的、高度差在半徑＋3 m 以內；空中單位（flying）不會被波及，低空的（rtsLowAir）一律算。回傳命中的數量
   rtsSplash(x, z, r, dmg, impact, src, atk = 'exp', team) {
     const R = this.rts;
     if (!R || !(r > 0)) return 0;
@@ -823,7 +849,10 @@ Object.assign(Game.prototype, {
         ? targetDist(t, p)
         : Math.max(0, Math.hypot(t.pos.x - x, t.pos.z - z) - (t.radius || 1));
       if (d > r) continue;
-      if (!t.bld && Math.abs(t.pos.y - y) > r + 3) continue;
+      // 空中單位不受地面的範圍傷害；低空（維爾威的衝撞無人機、下降中的運輸機、收起的建築…）一律算（docs 15.2）
+      const low = this.rtsLowAir ? this.rtsLowAir(t) : false;
+      if (!low && t.flying) continue;
+      if (!t.bld && !low && Math.abs(t.pos.y - y) > r + 3) continue;
       const k = 1 - 0.6 * Math.min(1, d / r);
       this.rtsHit(t, dmg * k, (impact || 0) * k, src, atk);
       n++;
@@ -844,7 +873,7 @@ Object.assign(Game.prototype, {
     const H = R.hostile;
     for (let i = 0; i < R.teams.length; i++) (H[i] || (H[i] = [])).length = 0;
     for (const e of R.units) {
-      if (e.dead) continue;
+      if (e.dead || e.rtsAboard) continue; // 運輸機上的乘員（docs 15.3）不能被打
       for (let i = 0; i < R.teams.length; i++) if (i !== e.rtsTeam) H[i].push(e);
     }
   },
@@ -913,12 +942,19 @@ Object.assign(Game.prototype, {
     }
     return best;
   },
-  // 最近的回收點（蓋好的主堡）
+  // 最近的回收點（蓋好的主堡；維爾威的集貨站也是，交貨時由 rts-veer.js 的 rtsHaulDeposit 放進庫存）
   rtsDropoff(teamId, x, z) {
     let best = null,
       bd = 1e9;
     for (const e of this.rts.units) {
-      if (e.dead || !e.bld || e.rtsTeam !== teamId || e.bld.progress < 1 || !RTS_DEFS[e.rtsDef].dropoff)
+      if (
+        e.dead ||
+        !e.bld ||
+        e.rtsTeam !== teamId ||
+        e.bld.progress < 1 ||
+        e.bld.packed || // 收起的建築（維爾威）不收貨
+        !RTS_DEFS[e.rtsDef].dropoff
+      )
         continue;
       const d = Math.hypot(e.pos.x - x, e.pos.z - z);
       if (d < bd) ((bd = d), (best = e));
@@ -993,6 +1029,8 @@ Object.assign(Game.prototype, {
           T.pop += q.pop !== undefined ? q.pop : (RTS_DEFS[q.id] || {}).pop || 0;
       } else if (!e.rtsIllus && !e.rtsNoPop) T.pop += e.rtsPopFuse !== undefined ? e.rtsPopFuse : D.pop || 0; // 幻象與臨時單位（C 包的孵化）不佔人口、融合中的宿主算結果的人口
     }
+    // 投放艙還在落下的單位（維爾威）：生產已經完成，人口照算
+    for (const p of R.pods || []) if (R.teams[p.team]) R.teams[p.team].pop += p.pop || 0;
     for (const T of R.teams) {
       T.cap = Math.min(RTS_POP_MAX, T.cap);
       T.upk = upkeepOf(T.pop).lv;
@@ -1437,17 +1475,21 @@ Object.assign(Game.prototype, {
       rev = (R.simN = (R.simN || 0) + 1) & 1;
     for (let i = 0; i < n; i++) {
       const e = U[rev ? n - 1 - i : i];
-      if (!e.dead && !e.bld && !e.rtsPiloted) this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
+      // 運輸機上的乘員、rts-veer.js 駕駛的空投運輸機不跑單位 AI
+      if (!e.dead && !e.bld && !e.rtsPiloted && !e.rtsAboard && !e.rtsDriven)
+        this.aiStep ? this.aiStep(e, dt, batch) : e.updateAI(dt);
     }
     const t2 = performance.now();
     this.rtsSeparate();
-    for (const e of R.units) if (!e.dead && !e.bld) R.hash.update(e, e.pos.x, e.pos.z);
+    for (const e of R.units) if (!e.dead && !e.bld && !e.rtsAboard) R.hash.update(e, e.pos.x, e.pos.z);
     const t3 = performance.now();
     this.rtsBuildings(dt);
     this.rtsModsTick(dt);
     // 艾瑟立克（rts-grid.js）：導管的加成與臨時導管、融合的集合與引導
     if (this.rtsPowerTick) this.rtsPowerTick(dt);
     if (this.rtsFuseTick) this.rtsFuseTick(dt);
+    // 維爾威（rts-veer.js）：空投、投放艙、集貨站、乘員、臨時信標、只剩收起的建築的揭露
+    if (this.rtsVeerTick) this.rtsVeerTick(dt);
     // 其他包的每格（還沒實作時略過）：英雄（經驗、光環、復活）、中立（營地、商店補貨）、自動管家
     if (this.rtsHeroTick) this.rtsHeroTick(dt);
     if (this.rtsNeutralTick) this.rtsNeutralTick(dt);
@@ -1480,7 +1522,7 @@ Object.assign(Game.prototype, {
   rtsSeparate() {
     const R = this.rts;
     for (const a of R.units) {
-      if (a.dead || a.bld || a.noPush) continue;
+      if (a.dead || a.bld || a.noPush || a.rtsAboard) continue;
       const near = R.hash.query(a.pos.x, a.pos.z, a.radius + 3, _q);
       const ag = a.orders[0] && a.orders[0].k === 'gather';
       for (let i = 0; i < near.length; i++) {
@@ -1488,6 +1530,8 @@ Object.assign(Game.prototype, {
         if (b === a || b.id < a.id || b.dead || b.bld || b.noPush) continue;
         if (ag && b.orders[0] && b.orders[0].k === 'gather' && a.rtsTeam === b.rtsTeam) continue;
         if (Math.abs(a.pos.y - b.pos.y) > 3) continue;
+        // 空中單位依高度層分開：兩台都在飛、定義的飛行高度（hoverH）差 1 m 以上就不推擠（偵察無人機 6、直升機 7…）
+        if (a.flying && b.flying && Math.abs(rtsLayer(a) - rtsLayer(b)) >= 1) continue;
         const dx = b.pos.x - a.pos.x,
           dz = b.pos.z - a.pos.z;
         let d = Math.hypot(dx, dz);
@@ -1539,6 +1583,11 @@ Object.assign(Game.prototype, {
           if (b.rtsTeam === ME && this.rtsEvent) this.rtsEvent(b.pos.x, b.pos.z, '建造完成：' + D.name);
           if (D.conduit && this.rtsPowerRebuild) this.rtsPowerRebuild(b.rtsTeam); // 新的供電源
         }
+        continue;
+      }
+      // 機動建築（維爾威）：收起中、收好在飛、展開中——生產、研究、防禦塔都停止（佇列與計時保留）
+      if (B.packed) {
+        if (this.rtsPackStep) this.rtsPackStep(b, dt);
         continue;
       }
       // Coral：抽取站／汲取塔（蓋在湧出點上，消耗湧出點）；沒有 on 'coral' 的（研究中樞）自己產出
@@ -1601,10 +1650,11 @@ Object.assign(Game.prototype, {
   },
   // 生產完成：在建築正面出來，前往集結點（點了礦脈的集結點：工人自動採集）；工人沒有集結點時自動去採最近的礦
   // q＝佇列項目（英雄：C 包的 rtsHeroSpawned(e, q) 套回等級與道具；q.revive＝復活）
+  // 定義 dropIn 的單位（維爾威的軌道調度所，docs 15.2）改成投放艙（rts-veer.js 的 rtsDropUnit）
   rtsTrained(b, id, q = null) {
-    const R = this.rts,
-      D = RTS_DEFS[id],
+    const D = RTS_DEFS[id],
       nav = this.world.nav;
+    if (D.dropIn && this.rtsDropUnit) return this.rtsDropUnit(b, id, q);
     const B = b.bld;
     const fx = Math.sin(b.yaw),
       fz = Math.cos(b.yaw);
@@ -1623,6 +1673,13 @@ Object.assign(Game.prototype, {
     const u = this.rtsSpawn(b.rtsTeam, id, x, z, Math.atan2(-(x - b.pos.x), -(z - b.pos.z)) + Math.PI);
     if (!u) return;
     if (D.hero && this.rtsHeroSpawned) this.rtsHeroSpawned(u, q || { id });
+    this.rtsRallyUnit(b, u, D, rl);
+    if (b.rtsTeam === ME && this.rtsEvent && !D.worker) this.rtsEvent(u.pos.x, u.pos.z, '');
+  },
+  // 剛生產（或投放艙落地）的單位前往集結點 rl（rtsTrained、rts-veer.js 的投放艙共用；b 可以是 null）
+  rtsRallyUnit(b, u, D, rl) {
+    const x = u.pos.x,
+      z = u.pos.z;
     const m =
       rl && rl.mine
         ? this.rtsMine(rl.mine)
@@ -1633,12 +1690,10 @@ Object.assign(Game.prototype, {
     else if (rl && rl.id !== undefined && this.rtsEnt(rl.id) && !this.rtsEnt(rl.id).dead)
       this.rtsSmart([u], rl.x, rl.z, this.rtsEnt(rl.id));
     else if (rl) u.orders = [{ k: 'move', x: rl.x, z: rl.z }];
-    else if (D.worker) {
+    else if (D.worker && b) {
       const n = this.rtsNearestMine(x, z, b.rtsTeam, null, true) || this.rtsNearestMine(x, z, b.rtsTeam);
       if (n && Math.hypot(n.pos.x - x, n.pos.z - z) < 60) u.orders = [{ k: 'gather', mine: n.id }];
     }
-    if (b.rtsTeam === ME && this.rtsEvent && !D.worker) this.rtsEvent(u.pos.x, u.pos.z, '');
-    void R;
   },
   // 死亡（mech-rts.js 的 rtsDie 呼叫）：統計、建築倒塌、解除碰撞與導航佔用
   rtsOnDeath(e, from) {
@@ -1651,6 +1706,8 @@ Object.assign(Game.prototype, {
       if (this.rtsLootOnKill) this.rtsLootOnKill(e, from);
     }
     if (e.hero && this.rtsHeroDied) this.rtsHeroDied(e);
+    // 維爾威（rts-veer.js）：空投運輸機被擊落（退 50%）、運輸機墜毀（乘員彈出）、信標被摧毀、集貨站的庫存
+    if (this.rtsVeerOnDeath) this.rtsVeerOnDeath(e, from);
     const c = e.center();
     if (!e.rtsQuiet) {
       R.stats[e.rtsTeam].lost++;
@@ -1808,6 +1865,7 @@ Object.assign(Game.prototype, {
           ${row('採集的礦石', Math.round(S[0].ore), Math.round(S[1].ore))}
           ${row('抽取的 Coral', Math.round(S[0].coral), Math.round(S[1].coral))}
           ${S[0].fused || S[1].fused ? row('融合用掉的單位', S[0].fused, S[1].fused) : ''}
+          ${S[0].drops || S[1].drops || S[0].dropLost || S[1].dropLost ? row('空投（成功／被擊落）', `${S[0].drops}／${S[0].dropLost}`, `${S[1].drops}／${S[1].dropLost}`) : ''}
         </table>
         <div class="row">
           <button type="button" class="primary" id="rtsEndMenu">回 Coral 戰爭選單</button>

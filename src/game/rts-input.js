@@ -6,9 +6,14 @@
 // R3 艾瑟立克（docs 14.15）：建造預覽多看 rtsPowerWhy（導管範圍；原因顯示在模式提示）；導管的範圍圈 rtsHudRings
 // （建造要電／供電的建築、選取己方的導管建築時，貼著地形畫己方全部的供電範圍：有電青色、沒電灰色、選中的較亮；
 // 導管重算（rtsHudPower）或選取改變時才重建網格）；預覽的建築是供電源時另外畫它自己的範圍與連接距離。
+// R4 維爾威（docs 15.15）：空投的建造預覽（模式 { k: 'build', drop: true }，原因用 rtsDropWhy）、收好的建築的展開預覽
+// （{ k: 'build', unpack: true }，rtsUnpackWhy）、目標模式 load（點己方地面單位）／unload（地點）、運輸機右鍵己方地面單位＝載運、
+// 投放範圍圈 rtsHudVeerRings（信標、軌道調度所的投放點、空投中的落點、空投模式時記得的敵方建築的禁投範圍）、
+// 登機的單位不能點選（rtsSeen）、框選不選空投運輸機。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
 import { RTS_DEFS, RTS_SEL_MAX } from '../data/rts-units.js';
+import { RTS_VEER } from '../data/rts-veerwell.js';
 
 const RTS_ME = 0; // 玩家的隊伍編號（rts.teams[0]）
 const PITCH0 = 0.96; // 預設俯角（約 55°）
@@ -237,7 +242,7 @@ Object.assign(Game.prototype, {
   },
   // 玩家看得到的實體（自己的一律看得到；別人的要在可見的格子裡、模型有顯示）
   rtsSeen(e) {
-    if (!e || e.dead) return false;
+    if (!e || e.dead || e.rtsAboard) return false; // 運輸機上的乘員（R4）
     if (e.rtsTeam === RTS_ME) return true;
     if (e.group && e.group.visible === false) return false;
     if (typeof this.rtsVisible === 'function') return this.rtsVisible(RTS_ME, e); // 戰爭迷霧（rts-fog.js）
@@ -361,7 +366,9 @@ Object.assign(Game.prototype, {
       this.rtsScreen(e, s);
       return s.in && s.x >= a && s.x <= b && s.y >= c && s.y <= d;
     };
-    const own = (this.rts.units || []).filter((e) => this.rtsOwn(e) && inBox(e));
+    let own = (this.rts.units || []).filter((e) => this.rtsOwn(e) && !e.rtsAboard && inBox(e));
+    // 空投運輸機（不能下指令）：框到別的東西時不選
+    if (own.some((e) => !e.rtsDriven)) own = own.filter((e) => !e.rtsDriven);
     let pick = own.filter((e) => !e.bld);
     if (!pick.length) pick = own;
     if (!pick.length) {
@@ -506,6 +513,24 @@ Object.assign(Game.prototype, {
     const units = this.rtsCommandUnits();
     if (!units.length) return;
     const tgt = hit || null;
+    // 維爾威的運輸機：右鍵己方地面單位＝載運（rtsSmart 只處理地面單位右鍵運輸機）
+    const ships = units.filter((e) => !e.bld && (RTS_DEFS[e.rtsDef] || {}).cargo);
+    if (
+      ships.length &&
+      ships.length === units.length &&
+      this.rtsIsEnt(tgt) &&
+      this.rtsOwn(tgt) &&
+      !tgt.bld &&
+      !tgt.flying &&
+      typeof this.rtsOrder === 'function'
+    ) {
+      if (!this.rtsOrder(ships, { k: 'load', id: tgt.id }, shift)) {
+        const why = this.rtsBoardWhy ? this.rtsBoardWhy(tgt, ships[0]) : '';
+        if (why) this.rtsMsg(why, 0xff8a8a, 1.2);
+      }
+      this.rtsMark(tgt.pos.x, tgt.pos.z, 'gather');
+      return;
+    }
     const kind = this.rtsSmartKind(units, tgt);
     if (typeof this.rtsSmart === 'function') this.rtsSmart(units, x, z, tgt, shift);
     else if (typeof this.rtsOrder === 'function') this.rtsOrder(units, { k: 'move', x, z }, shift);
@@ -602,6 +627,30 @@ Object.assign(Game.prototype, {
         if (!shift) this.rtsSetMode(null);
         return;
       }
+      case 'load': {
+        // 運輸機的載運（R4）：點己方地面單位
+        if (!ent || !this.rtsOwn(ent) || ent.bld || ent.flying) {
+          this.rtsMsg('要點己方的地面單位', 0xff8a8a, 1);
+          return;
+        }
+        const ships = units.filter((e) => (RTS_DEFS[e.rtsDef] || {}).cargo);
+        const n = typeof this.rtsOrder === 'function' ? this.rtsOrder(ships, { k: 'load', id: ent.id }) : 0;
+        if (!n) {
+          const why = this.rtsBoardWhy && ships[0] ? this.rtsBoardWhy(ent, ships[0]) : '';
+          this.rtsMsg(why || '不能登機', 0xff8a8a, 1.2);
+        } else this.rtsMark(ent.pos.x, ent.pos.z, 'gather');
+        if (!shift) this.rtsSetMode(null);
+        return;
+      }
+      case 'unload': {
+        const ships = units.filter((e) => (RTS_DEFS[e.rtsDef] || {}).cargo);
+        const n =
+          typeof this.rtsOrder === 'function' ? this.rtsOrder(ships, { k: 'unload', x, z }, shift) : 0;
+        if (!n) this.rtsMsg('運輸機上沒有單位', 0xff8a8a, 1.2);
+        else this.rtsMark(x, z, 'move');
+        if (!shift) this.rtsSetMode(null);
+        return;
+      }
       case 'rally':
         // 集結點：交給智慧指令（只有建築時＝設集結點，點礦脈＝工人自動採集）
         if (typeof this.rtsSmart === 'function')
@@ -638,6 +687,10 @@ Object.assign(Game.prototype, {
       ui = R.ui,
       m = ui.mode;
     if (!m || m.k !== 'build') return this.rtsGhostHide();
+    const pk = m.unpack ? this.rtsHudUnpackBld() : null;
+    if (m.unpack && !pk) return this.rtsSetMode(null);
+    // 同時選了多座收起的建築：依序展開，預覽換成下一座還沒指定地點的
+    if (pk && pk.rtsDef !== m.def) ((m.def = pk.rtsDef), (m.D = this.rtsUiDef(pk.rtsDef)));
     const D = m.D;
     const [w, d] = this.rtsFootprint(D);
     const gp = this.rtsGroundAt(ui.mx, ui.my);
@@ -665,17 +718,35 @@ Object.assign(Game.prototype, {
       ok = nav ? nav.buildable(x, z, w, d) : true;
       why = ok ? '' : '這裡不能建造';
     }
+    // 維爾威（R4）：空投＝rtsDropWhy（探索過、能不能蓋、敵方建築、運輸機、起飛點、資源）；展開＝rtsUnpackWhy
+    if (m.drop || m.unpack) {
+      const vw = m.unpack
+        ? this.rtsUnpackWhy
+          ? this.rtsUnpackWhy(pk, x, z, 0)
+          : ''
+        : this.rtsDropWhy
+          ? this.rtsDropWhy(RTS_ME, m.def, x, z, 0)
+          : '';
+      ok = !vw;
+      why = vw;
+    }
     // 導管（艾瑟立克：要電的建築在有電的範圍內、節點在有電的導管 32 m 內）
-    if (ok && typeof this.rtsPowerWhy === 'function') {
+    else if (ok && typeof this.rtsPowerWhy === 'function') {
       const pw = this.rtsPowerWhy(RTS_ME, m.def, x, z);
       if (pw) ((ok = false), (why = pw));
     }
     // 沒探索過的地方不能蓋（照魔獸3）
-    if (ok && typeof this.rtsFogState === 'function' && this.rtsFogState(RTS_ME, x, z) === 0) {
+    if (ok && !m.unpack && typeof this.rtsFogState === 'function' && this.rtsFogState(RTS_ME, x, z) === 0) {
       ok = false;
       why = '不能蓋在沒探索過的地方';
     }
-    if (ok && typeof this.rtsAfford === 'function' && D.cost && !this.rtsAfford(RTS_ME, D.cost)) {
+    if (
+      ok &&
+      !m.unpack &&
+      typeof this.rtsAfford === 'function' &&
+      D.cost &&
+      !this.rtsAfford(RTS_ME, D.cost)
+    ) {
       ok = false;
       why = this.rtsCostWhy(D.cost);
     }
@@ -743,6 +814,29 @@ Object.assign(Game.prototype, {
     if (!G || !G.g.visible) return;
     if (!G.ok) {
       this.flashMsg(G.why || '這裡不能建造', 0xff8a8a, 1.2);
+      return;
+    }
+    // 維爾威：空投（不派工人）、收好的建築展開到這裡
+    if (m.drop) {
+      const rec =
+        typeof this.rtsOrder === 'function'
+          ? this.rtsOrder([], { k: 'drop', def: m.def, x: G.x, z: G.z, yaw: 0, team: RTS_ME }, shift)
+          : null;
+      if (rec) this.rtsMark(G.x, G.z, 'gather');
+      if (!shift || !rec) this.rtsSetMode(null);
+      this.rtsHudDirty = true;
+      return;
+    }
+    if (m.unpack) {
+      const b = this.rtsHudUnpackBld();
+      const n =
+        b && typeof this.rtsOrder === 'function'
+          ? this.rtsOrder([b], { k: 'unpack', x: G.x, z: G.z, yaw: 0 })
+          : 0;
+      if (n) this.rtsMark(G.x, G.z, 'move');
+      // 選了多座收起的建築時依序指定地點（每點一下一座），全部指定完才離開展開模式
+      if (!n || !this.rtsHudUnpackBld()) this.rtsSetMode(null);
+      this.rtsHudDirty = true;
       return;
     }
     // 派最近的一個工人（Shift 排隊時沿用上一次的工人）
@@ -881,6 +975,7 @@ Object.assign(Game.prototype, {
     for (; i < ui.rings.length; i++) ui.rings[i].visible = false;
     if (ui.mode && ui.mode.k === 'build') this.rtsGhostUpdate();
     this.rtsHudRings();
+    this.rtsHudVeerRings(dt);
   },
   // ---------- 導管的範圍圈（R3） ----------
   // 要不要顯示：建造模式的建築要電或是供電源、選取中有己方的導管建築（要電的建築、供電源）
@@ -1058,6 +1153,155 @@ Object.assign(Game.prototype, {
     l.visible = true;
   },
 
+  // ---------- 維爾威（R4）：展開預覽的對象、投放範圍圈 ----------
+  // 展開模式的對象：己方收起中／收好、還沒指定展開地點的建築
+  // （作用中的子群組先，再來整個選取：選了不同種的收起建築時依序展開）
+  rtsHudUnpackBld() {
+    const f = (b) =>
+      !b.dead && this.rtsOwn(b) && b.bld && (b.bld.packed === 1 || b.bld.packed === 2) && !b.bld.unpackTo;
+    return this.rtsActiveGroup().find(f) || this.rts.sel.find(f) || null;
+  },
+  // 投放範圍圈（貼著地形的線段，每 0.2 秒或內容改變時重建）：
+  //   信標（空投／展開模式、選了軌道調度所／信標／調度中心時）＝己方全部的投放範圍（萊姆綠，臨時信標虛線）；
+  //   選中的軌道調度所＝它的投放點（綠＝信標、紫＝軌道、灰＝建築正面）與連線；空投中的落點＝黃色的佔地框；
+  //   空投模式＝記得的敵方建築的禁投範圍（紅色虛線）；預覽的是信標時畫它的範圍
+  rtsHudVeerRings(dt = 0) {
+    const R = this.rts,
+      ui = R.ui;
+    const on = !R.pilot && this.state === 'rts' && !!(this.rtsVeerTeam && this.rtsVeerTeam(RTS_ME));
+    const m = ui.mode;
+    const dropMode = !!(on && m && m.k === 'build' && (m.drop || m.unpack));
+    const selB = on ? R.sel.filter((e) => this.rtsOwn(e) && e.bld) : [];
+    const isBay = (b) => ((RTS_DEFS[b.rtsDef] || {}).trains || []).some((id) => (RTS_DEFS[id] || {}).dropIn);
+    const bays = selB.filter((b) => isBay(b) && b.bld.progress >= 1);
+    const showB =
+      dropMode ||
+      bays.length > 0 ||
+      selB.some((b) => {
+        const D = RTS_DEFS[b.rtsDef] || {};
+        return D.beacon || (D.heroes && D.faction === 'veerwell');
+      });
+    const drops = on ? (R.drops || []).filter((d) => d.team === RTS_ME && d.st !== 'back') : [];
+    if (!on || (!showB && !drops.length)) {
+      if (ui.vRings) ui.vRings.visible = false;
+      return false;
+    }
+    const G = ui.ghost;
+    const key = [
+      m ? m.def + (m.drop ? 'd' : 'u') : '',
+      dropMode && G && G.g.visible ? Math.round(G.x) + ',' + Math.round(G.z) : '',
+      selB
+        .map(
+          (b) =>
+            b.id + (b.bld.rally ? ':' + Math.round(b.bld.rally.x) + ',' + Math.round(b.bld.rally.z) : ''),
+        )
+        .join(),
+      drops.map((d) => d.id).join(),
+    ].join('|');
+    ui.vT = (ui.vT || 0) - dt;
+    if (!ui.vRings) {
+      const geo = new THREE.BufferGeometry();
+      const l = new THREE.LineSegments(
+        geo,
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.95,
+          depthWrite: false,
+        }),
+      );
+      l.userData.helper = true;
+      l.renderOrder = 6;
+      l.frustumCulled = false;
+      this.scene.add(l);
+      ui.vRings = l;
+      ui.vKey = '';
+    }
+    const L = ui.vRings;
+    L.visible = true;
+    if (ui.vKey === key && ui.vT > 0) return true;
+    ui.vKey = key;
+    ui.vT = 0.2;
+    const pos = [],
+      col = [];
+    const th = (x, z) => this.world.terrainHeight(x, z) + RING_LIFT + 0.08;
+    const seg = (x0, z0, x1, z1, c) => {
+      pos.push(x0, th(x0, z0), z0, x1, th(x1, z1), z1);
+      col.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+    };
+    const circle = (x, z, r, c, dash) => {
+      const n = Math.max(16, Math.min(RING_SEG, Math.round(r * 3)));
+      for (let i = 0; i < n; i++) {
+        if (dash && i % 2) continue;
+        const a0 = (i / n) * Math.PI * 2,
+          a1 = ((i + 1) / n) * Math.PI * 2;
+        seg(x + Math.cos(a0) * r, z + Math.sin(a0) * r, x + Math.cos(a1) * r, z + Math.sin(a1) * r, c);
+      }
+    };
+    const rect = (x, z, w, d, c) => {
+      const a = [
+        [x - w / 2, z - d / 2],
+        [x + w / 2, z - d / 2],
+        [x + w / 2, z + d / 2],
+        [x - w / 2, z + d / 2],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const p = a[i],
+          q = a[(i + 1) % 4];
+        // 長邊切成幾段（貼著地形）
+        const k = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / 3));
+        for (let j = 0; j < k; j++)
+          seg(
+            p[0] + ((q[0] - p[0]) * j) / k,
+            p[1] + ((q[1] - p[1]) * j) / k,
+            p[0] + ((q[0] - p[0]) * (j + 1)) / k,
+            p[1] + ((q[1] - p[1]) * (j + 1)) / k,
+            c,
+          );
+      }
+    };
+    const LIME = [0.62, 1, 0.3],
+      VIA = { beacon: [0.4, 1, 0.5], orbit: [0.78, 0.56, 1], bld: [0.62, 0.66, 0.72] };
+    let nb = 0;
+    if (showB && this.rtsBeacons)
+      for (const b of this.rtsBeacons(RTS_ME)) {
+        circle(b.x, b.z, b.r, LIME, !!b.temp);
+        nb++;
+      }
+    for (const b of bays) {
+      if (!this.rtsDropPoint) break;
+      const P = this.rtsDropPoint(b);
+      const c = VIA[P.via] || VIA.bld;
+      circle(P.x, P.z, 3, c, false);
+      circle(P.x, P.z, 1.2, c, false);
+      seg(b.pos.x, b.pos.z, P.x, P.z, c);
+    }
+    if (dropMode && m.drop) {
+      const D = RTS_DEFS[m.def] || {};
+      const half = D.foot ? Math.max(D.foot[0], D.foot[1]) / 2 : 3;
+      for (const r of this.rtsFogKnown ? this.rtsFogKnown(RTS_ME) : []) {
+        if (r.gone) continue;
+        const KD = RTS_DEFS[r.def];
+        const h = KD && KD.foot ? Math.max(KD.foot[0], KD.foot[1]) / 2 : 3;
+        circle(r.x, r.z, h + RTS_VEER.noDropR + half, [1, 0.32, 0.28], true);
+      }
+      if (D.beacon && G && G.g.visible) circle(G.x, G.z, D.beacon.r, G.ok ? LIME : [1, 0.3, 0.3], true);
+    }
+    for (const d of drops) {
+      const D = RTS_DEFS[d.def] || {};
+      const f = D.foot || [6, 6];
+      const q = Math.round((d.yaw || 0) / (Math.PI / 2)) & 1;
+      rect(d.x, d.z, q ? f[1] : f[0], q ? f[0] : f[1], d.st === 'land' ? [1, 0.6, 0.2] : [1, 0.86, 0.3]);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    L.geometry.dispose();
+    L.geometry = geo;
+    ui.vInfo = { beacons: nb, bays: bays.length, drops: drops.length, segs: pos.length / 6 };
+    return true;
+  },
+
   // 離開 RTS 時清掉 3D 標示（核心的 rtsEnd／clearMission 呼叫）
   rtsInputClear() {
     const ui = this.rts && this.rts.ui;
@@ -1078,6 +1322,11 @@ Object.assign(Game.prototype, {
       this.scene.remove(ui.gRing);
       ui.gRing.geometry.dispose();
       ui.gRing = null;
+    }
+    if (ui.vRings) {
+      this.scene.remove(ui.vRings);
+      ui.vRings.geometry.dispose();
+      ui.vRings = null;
     }
     ui.rings = [];
     ui.marks = [];
@@ -1161,18 +1410,20 @@ Object.assign(Game.prototype, {
         this.rtsHudDirty = true;
         return;
       }
+      // 運輸機上的乘員留在編隊裡（卸載後放回），選取時略過
       const g = (R.groups[n] || []).filter((u) => !u.dead);
       R.groups[n] = g;
-      if (!g.length) return;
+      const gs = g.filter((u) => !u.rtsAboard);
+      if (!gs.length) return;
       const t = performance.now() / 1000;
       if (ui.lastGroup.n === n && t - ui.lastGroup.t < DBL_T) {
         let cx = 0,
           cz = 0;
-        for (const u of g) ((cx += u.pos.x), (cz += u.pos.z));
-        this.rtsCamJump(cx / g.length, cz / g.length);
+        for (const u of gs) ((cx += u.pos.x), (cz += u.pos.z));
+        this.rtsCamJump(cx / gs.length, cz / gs.length);
       }
       ui.lastGroup = { n, t };
-      this.rtsSetSel(g);
+      this.rtsSetSel(gs);
       return;
     }
     if (ctrl || e.altKey) return;

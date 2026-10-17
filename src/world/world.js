@@ -368,9 +368,17 @@ export class World {
       const g = rtsPropMesh(o, T);
       if (!g) continue;
       g.rotation.y = o.yaw || 0;
-      rp.push(
-        this.addSmall(g, o.x, o.y, o.z, o.kind === 'box' ? { w: o.w, h: o.h, d: o.d } : { r: o.r, h: o.h }),
+      const ob = this.addSmall(
+        g,
+        o.x,
+        o.y,
+        o.z,
+        o.kind === 'box' ? { w: o.w, h: o.h, d: o.d } : { r: o.r, h: o.h },
       );
+      // 圓柱（煙囪、天線桿、岩柱）也記頂面高度：空中單位飛過上方時不碰撞（collide 看 top），
+      // rtsFlyAlt 依它爬升（groundAt 只看方塊）
+      if (ob.kind === 'circle' && o.h) ob.top = o.y + o.h;
+      rp.push(ob);
     }
     // 裝飾（plan.decor：技研都市的 Coral 脈）：不碰撞，和障礙物一起合併（迷霧的著色器同樣隱藏沒探索過的）
     for (const o of P.decor || []) {

@@ -15037,6 +15037,57 @@ const RTS_R3F = require('./smoke-rts-aeth-f')({
   SHOT_DIR,
   path,
 });
+// R4 A 包（維爾威的核心與資料）
+const RTS_R4A = require('./smoke-rts-veer-a')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R4 E 包（維爾威的 HUD、輸入、親自駕駛）
+const RTS_R4E = require('./smoke-rts-veer-e')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+  watch,
+});
+// R4 C 包（維爾威的英雄與道具）
+const RTS_R4C = require('./smoke-rts-veer-c')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R4 B 包（維爾威的兵種行為與模型）
+const RTS_R4B = require('./smoke-rts-veer-b')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R4 D 包（地圖主題：舊宇宙港外圍、Grid 086 地表；主題的營地與傭兵）
+const RTS_R4D = require('./smoke-rts-veer-d')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15133,6 +15184,11 @@ const STEPS = [
   ['testRtsAethHud', (c) => RTS_R3E.testRtsAethHud(c.browser, c.base)],
   ['testRtsThemes', (c) => RTS_R3D.testRtsThemes(c.browser, c.base)],
   ['testRtsAethAi', (c) => RTS_R3F.testRtsAethAi(c.browser, c.base)],
+  ['testRtsVeer', (c) => RTS_R4A.testRtsVeer(c.browser, c.base)],
+  ['testRtsVeerHero', (c) => RTS_R4C.testRtsVeerHero(c.browser, c.base)],
+  ['testRtsVeerHud', (c) => RTS_R4E.testRtsVeerHud(c.browser, c.base)],
+  ['testRtsVeerUnits', (c) => RTS_R4B.testRtsVeerUnits(c.browser, c.base)],
+  ['testRtsThemes2', (c) => RTS_R4D.testRtsThemes2(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

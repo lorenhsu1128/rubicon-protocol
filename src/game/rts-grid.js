@@ -251,9 +251,13 @@ Object.assign(Game.prototype, {
 
   // ---------- 建築的技能（rtsOrder 的 ability 對選取中的建築） ----------
   // 回傳 true＝施放了
-  rtsBldAbility(b, ab) {
+  rtsBldAbility(b, ab, o = {}) {
     if (ab === 'ab_aegis') return this.rtsFactionAegis(b);
-    return !!(b && b.rtsAethAb && b.rtsAethAb(ab, {})); // 其他建築技能（B 包）
+    // 維爾威（rts-veer.js，docs 15.3）：緊急補給（地點）、收起／展開、物流交易（卡片另外有 pack／trade 的動作）
+    if (ab === 'ab_supply') return !!(this.rtsVeerSupply && this.rtsVeerSupply(b, o.x, o.z));
+    if (ab === 'ab_pack') return !!(this.rtsPack && b && b.bld && !b.bld.packed && this.rtsPack(b));
+    if (ab === 'ab_trade') return !!(this.rtsTrade && b && this.rtsTrade(b.rtsTeam, o.dir || 'buy'));
+    return !!(b && b.rtsAethAb && b.rtsAethAb(ab, o)); // 其他建築技能（B 包）
   },
   // 結晶護壁不能施放的原因（''＝可以）
   rtsFactionAegisWhy(hq) {
