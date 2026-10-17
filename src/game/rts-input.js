@@ -10,10 +10,14 @@
 // （{ k: 'build', unpack: true }，rtsUnpackWhy）、目標模式 load（點己方地面單位）／unload（地點）、運輸機右鍵己方地面單位＝載運、
 // 投放範圍圈 rtsHudVeerRings（信標、軌道調度所的投放點、空投中的落點、空投模式時記得的敵方建築的禁投範圍）、
 // 登機的單位不能點選（rtsSeen）、框選不選空投運輸機。
+// R5 聖域（docs 16.15）：殘骸可以點選（rtsPickAt：實體之後、礦脈之前；只有看過的，地圖殘骸探索過就算）、右鍵殘骸＝拾荒
+// （A 的 rtsSmart）、目標模式 salvage（只點殘骸）、採集模式點殘骸＝拾荒；改裝站與殘骸的範圍圈 rtsHudSancRings（改裝子選單
+// 開著或選了改裝站時畫改裝站的範圍、拾荒模式時圈出看過的殘骸）。點到的東西沒有 pos（殘骸紀錄是 x／z）時用 rtsHudHitXZ。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
 import { RTS_DEFS, RTS_SEL_MAX } from '../data/rts-units.js';
 import { RTS_VEER } from '../data/rts-veerwell.js';
+import { RTS_SKILLS, skillLv } from '../data/rts-heroes.js';
 
 const RTS_ME = 0; // 玩家的隊伍編號（rts.teams[0]）
 const PITCH0 = 0.96; // 預設俯角（約 55°）
@@ -294,6 +298,20 @@ Object.assign(Game.prototype, {
       }
     }
     if (best) return best;
+    // 殘骸（聖域，R5）：玩家看過的（地圖殘骸探索過就算），比礦脈優先
+    if (R.wrecks && R.wrecks.length && this.rtsHudWrecks) {
+      const v = (this._rtsWv = this._rtsWv || new THREE.Vector3());
+      for (const w of this.rtsHudWrecks(false)) {
+        if (!w.map && !(w.ore > 0)) continue;
+        v.set(w.x, (w.y || 0) + 0.6, w.z);
+        const rpx = Math.max(14, (w.r || 1) * this.rtsPxPerM(v) * 1.2);
+        const p = v.project(this.camera);
+        if (!(p.z < 1 && p.z > -1)) continue;
+        const d = Math.hypot(((p.x + 1) / 2) * innerWidth - sx, ((-p.y + 1) / 2) * innerHeight - sy) / rpx;
+        if (d <= 1 && d < bd) ((bd = d), (best = w));
+      }
+      if (best) return best;
+    }
     for (const m of [...(R.mines || []), ...(R.corals || [])]) {
       if (!m || !m.pos || (m.amount !== undefined && m.amount <= 0 && !m.ext)) continue;
       if (typeof this.rtsFogState === 'function' && !this.rtsFogState(RTS_ME, m.pos.x, m.pos.z)) continue;
@@ -317,6 +335,12 @@ Object.assign(Game.prototype, {
   },
   rtsIsEnt(o) {
     return !!(o && o.pos && (o.rtsDef !== undefined || o.hp !== undefined) && o.maxHp !== undefined);
+  },
+  // 點到的東西的地面座標（實體、礦脈有 pos；殘骸紀錄是 x／z）
+  rtsHudHitXZ(hit) {
+    if (!hit) return null;
+    if (hit.pos) return { x: hit.pos.x, z: hit.pos.z };
+    return hit.x !== undefined ? { x: hit.x, z: hit.z } : null;
   },
 
   // ---------- 選取 ----------
@@ -431,7 +455,8 @@ Object.assign(Game.prototype, {
       if (ui.mode) return this.rtsCancelMode();
       const gp = this.rtsGroundAt(e.clientX, e.clientY);
       const hit = this.rtsPickAt(e.clientX, e.clientY);
-      if (gp || hit) this.rtsRightAt(gp ? gp.x : hit.pos.x, gp ? gp.z : hit.pos.z, hit, e.shiftKey);
+      const hp = gp || this.rtsHudHitXZ(hit);
+      if (hp) this.rtsRightAt(hp.x, hp.z, hit, e.shiftKey);
       return;
     }
     if (e.button !== 0) return;
@@ -447,7 +472,8 @@ Object.assign(Game.prototype, {
       }
       const gp = this.rtsGroundAt(e.clientX, e.clientY);
       const hit = this.rtsPickAt(e.clientX, e.clientY);
-      if (gp || hit) this.rtsModeAt(gp ? gp.x : hit.pos.x, gp ? gp.z : hit.pos.z, hit, e.shiftKey);
+      const hp = gp || this.rtsHudHitXZ(hit);
+      if (hp) this.rtsModeAt(hp.x, hp.z, hit, e.shiftKey);
       return;
     }
     ui.drag = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false };
@@ -534,7 +560,12 @@ Object.assign(Game.prototype, {
     const kind = this.rtsSmartKind(units, tgt);
     if (typeof this.rtsSmart === 'function') this.rtsSmart(units, x, z, tgt, shift);
     else if (typeof this.rtsOrder === 'function') this.rtsOrder(units, { k: 'move', x, z }, shift);
-    this.rtsMark(tgt && tgt.pos ? tgt.pos.x : x, tgt && tgt.pos ? tgt.pos.z : z, kind);
+    const tp = this.rtsHudHitXZ(tgt) || { x, z };
+    // 殘骸：會拾荒的工人拆＝黃色標記，其他單位走過去＝綠色
+    const salvager = (u) =>
+      !u.bld && (RTS_DEFS[u.rtsDef] || {}).salvager && (RTS_DEFS[u.rtsDef] || {}).worker;
+    const mk = tgt && tgt.wreck ? (units.some(salvager) ? 'gather' : 'move') : kind;
+    this.rtsMark(tp.x, tp.z, mk);
   },
   // 標記的顏色：攻擊＝紅、採集／修理＝黃、其他＝綠
   rtsSmartKind(units, tgt) {
@@ -593,8 +624,24 @@ Object.assign(Game.prototype, {
         order = { k: 'patrol', x, z, x0: cx / units.length, z0: cz / units.length };
         break;
       }
+      case 'salvage': {
+        // 拾荒（聖域，R5）：只點殘骸（沒點到時看地上 3 m 內看過的殘骸）
+        let w = hit && hit.wreck ? hit : null;
+        if (!w && !ent && this.rtsWreckAt) w = this.rtsWreckAt(x, z, 3, { team: RTS_ME })[0] || null;
+        if (!w || !(w.ore > 0)) {
+          this.rtsMsg(w ? '這個殘骸已經拆完了' : '要點殘骸', 0xff8a8a, 1);
+          return;
+        }
+        const n =
+          typeof this.rtsOrder === 'function' ? this.rtsOrder(units, { k: 'salvage', wid: w.id }, shift) : 0;
+        if (!n) this.rtsMsg('選取中沒有會拾荒的工人', 0xff8a8a, 1.2);
+        this.rtsMark(w.x, w.z, n ? 'gather' : 'move');
+        if (!shift) this.rtsSetMode(null);
+        return;
+      }
       case 'gather':
-        if (hit && !ent) ((order = { k: 'gather', mine: hit.id }), (mk = 'gather'));
+        if (hit && hit.wreck) ((order = { k: 'gather', wid: hit.id }), (mk = 'gather'));
+        else if (hit && !ent) ((order = { k: 'gather', mine: hit.id }), (mk = 'gather'));
         else if (ent && this.rtsOwn(ent) && (this.rtsUiDef(ent) || {}).on === 'coral')
           ((order = { k: 'gather', mine: ent.id }), (mk = 'gather'));
         break;
@@ -669,11 +716,17 @@ Object.assign(Game.prototype, {
         order = { k: 'move', x, z };
     }
     if (!order) {
-      this.flashMsg(m.order === 'gather' ? '要點礦脈或抽取站' : '目標不對', 0xff8a8a, 1);
+      const sanc = this.rtsHudSancOn && this.rtsHudSancOn();
+      this.flashMsg(
+        m.order === 'gather' ? (sanc ? '要點礦脈、抽取站或殘骸' : '要點礦脈或抽取站') : '目標不對',
+        0xff8a8a,
+        1,
+      );
       return;
     }
     if (typeof this.rtsOrder === 'function') this.rtsOrder(units, order, shift);
-    this.rtsMark(ent ? ent.pos.x : x, ent ? ent.pos.z : z, mk);
+    const op = ent ? ent.pos : this.rtsHudHitXZ(hit && hit.wreck ? hit : null) || { x, z };
+    this.rtsMark(op.x, op.z, mk);
     if (!shift) this.rtsSetMode(null);
   },
 
@@ -748,7 +801,7 @@ Object.assign(Game.prototype, {
       !this.rtsAfford(RTS_ME, D.cost)
     ) {
       ok = false;
-      why = this.rtsCostWhy(D.cost);
+      why = (this.rtsCostWhy && this.rtsCostWhy(RTS_ME, D.cost)) || '資源不足';
     }
     // 單位擋住：仍可放（工人到了會等），只在建築格判斷
     if (!ui.ghost) {
@@ -798,13 +851,6 @@ Object.assign(Game.prototype, {
     if (g) g.g.visible = false;
     const gr = this.rts && this.rts.ui && this.rts.ui.gRing;
     if (gr) gr.visible = false;
-  },
-  rtsCostWhy(cost) {
-    const T = this.rts.teams[RTS_ME];
-    if (cost.ore && T.ore < cost.ore) return '礦石不足';
-    if (cost.coral && T.coral < cost.coral) return 'Coral 不足';
-    if (cost.pop && T.cap !== undefined && T.pop + cost.pop > T.cap) return '人口不足';
-    return '資源不足';
   },
   rtsBuildAt(shift) {
     const ui = this.rts.ui,
@@ -976,6 +1022,8 @@ Object.assign(Game.prototype, {
     if (ui.mode && ui.mode.k === 'build') this.rtsGhostUpdate();
     this.rtsHudRings();
     this.rtsHudVeerRings(dt);
+    this.rtsHudSancRings(dt);
+    this.rtsHudPointRing();
   },
   // ---------- 導管的範圍圈（R3） ----------
   // 要不要顯示：建造模式的建築要電或是供電源、選取中有己方的導管建築（要電的建築、供電源）
@@ -1302,6 +1350,175 @@ Object.assign(Game.prototype, {
     return true;
   },
 
+  // ---------- 聖域（R5）：改裝站與殘骸的範圍圈 ----------
+  // 改裝子選單開著、或選了改裝站（聚落中心、改裝工坊、展開的回收拖車、帶工具箱的英雄）時：己方全部的改裝站範圍
+  // （橘色虛線；選中的、或選取中的單位在範圍內的站是實線、較亮）；拾荒模式時：看過的殘骸（鏽色小圈）。
+  // 每 0.25 秒或內容改變時重建；ui.sInfo 記數量給測試
+  rtsHudSancRings(dt = 0) {
+    const R = this.rts,
+      ui = R.ui;
+    const on = !R.pilot && this.state === 'rts' && !!(this.rtsHudSancOn && this.rtsHudSancOn());
+    const m = ui.mode;
+    const salvMode = !!(on && m && m.k === 'target' && m.order === 'salvage');
+    const st = on && this.rtsRefitStations ? this.rtsRefitStations(RTS_ME) : [];
+    const own = on ? R.sel.filter((e) => this.rtsOwn(e)) : [];
+    const selSt = st.filter((s) => own.includes(s.e));
+    const refitMode = on && ui.menu === 'refit';
+    const showSt = refitMode || selSt.length > 0;
+    if (!on || (!showSt && !salvMode)) {
+      if (ui.sRings) ui.sRings.visible = false;
+      ui.sInfo = { st: 0, wrecks: 0 };
+      return false;
+    }
+    if (!ui.sRings) {
+      const l = new THREE.LineSegments(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.95,
+          depthWrite: false,
+        }),
+      );
+      l.userData.helper = true;
+      l.renderOrder = 6;
+      l.frustumCulled = false;
+      this.scene.add(l);
+      ui.sRings = l;
+      ui.sKey = '';
+    }
+    const L = ui.sRings;
+    L.visible = true;
+    const key = [
+      showSt ? st.map((s) => s.e.id + ':' + Math.round(s.e.pos.x) + ',' + Math.round(s.e.pos.z)).join() : '',
+      selSt.map((s) => s.e.id).join(),
+      refitMode ? own.map((u) => u.id + ':' + Math.round(u.pos.x) + ',' + Math.round(u.pos.z)).join() : '',
+      salvMode ? R.wrecks.length + ':' + (R.wreckN || 0) : '',
+    ].join('|');
+    ui.sT = (ui.sT || 0) - dt;
+    if (ui.sKey === key && ui.sT > 0) return true;
+    ui.sKey = key;
+    ui.sT = 0.25;
+    const pos = [],
+      col = [];
+    const th = (x, z) => this.world.terrainHeight(x, z) + RING_LIFT + 0.1;
+    const circle = (x, z, r, c, dash) => {
+      const n = Math.max(16, Math.min(RING_SEG, Math.round(r * 3)));
+      for (let i = 0; i < n; i++) {
+        if (dash && i % 2) continue;
+        const a0 = (i / n) * Math.PI * 2,
+          a1 = ((i + 1) / n) * Math.PI * 2;
+        const x0 = x + Math.cos(a0) * r,
+          z0 = z + Math.sin(a0) * r,
+          x1 = x + Math.cos(a1) * r,
+          z1 = z + Math.sin(a1) * r;
+        pos.push(x0, th(x0, z0), z0, x1, th(x1, z1), z1);
+        col.push(c[0], c[1], c[2], c[0], c[1], c[2]);
+      }
+    };
+    let ns = 0,
+      nw = 0;
+    if (showSt)
+      for (const s of st) {
+        const b = s.e;
+        // 建築的範圍從佔地邊緣算：畫成（佔地半寬＋r）的圓近似
+        const half = b.bld ? Math.max(b.bld.w || 0, b.bld.d || 0) / 2 : 0;
+        const lit =
+          selSt.includes(s) ||
+          (refitMode && own.some((u) => !u.bld && this.rtsRefitNear && this.rtsRefitNear(u, [s])));
+        circle(b.pos.x, b.pos.z, half + s.r, lit ? [1, 0.78, 0.4] : [0.85, 0.55, 0.3], !lit);
+        ns++;
+      }
+    if (salvMode)
+      for (const w of this.rtsHudWrecks ? this.rtsHudWrecks(false) : []) {
+        if (!(w.ore > 0)) continue;
+        circle(w.x, w.z, (w.r || 1) + 0.6, [0.95, 0.62, 0.35], false);
+        nw++;
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    L.geometry.dispose();
+    L.geometry = geo;
+    ui.sInfo = { st: ns, wrecks: nw };
+    return true;
+  },
+
+  // 英雄的地點技能（緊急處置、布雷區…，技能等級的 R）在目標模式時，滑鼠所在的地面畫效果範圍（貼地形的圓）；
+  // 超出施放距離時變紅。ui.pInfo 給測試
+  rtsHudPointRing() {
+    const R = this.rts,
+      ui = R.ui;
+    const m = ui.mode;
+    const S = m && m.k === 'target' && m.order === 'ability' && RTS_SKILLS[m.ab];
+    let h = null,
+      L = null;
+    if (S && S.kind === 'point' && !R.pilot && this.state === 'rts')
+      for (const e of R.sel) {
+        if (!e.hero || e.dead || !this.rtsOwn(e)) continue;
+        const D = RTS_DEFS[e.rtsDef] || {};
+        const i = (D.skills || []).indexOf(m.ab);
+        const P = i >= 0 && skillLv(m.ab, (e.hero.sk && e.hero.sk[i]) || 0);
+        if (P && P.R > 0) {
+          h = e;
+          L = P;
+          break;
+        }
+      }
+    const gp = h && ui.mouseIn !== false && this.rtsGroundAt(ui.mx, ui.my);
+    if (!gp) {
+      if (ui.pRing) ui.pRing.visible = false;
+      ui.pInfo = null;
+      return false;
+    }
+    if (!ui.pRing) {
+      const l = new THREE.LineSegments(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false }),
+      );
+      l.userData.helper = true;
+      l.renderOrder = 6;
+      l.frustumCulled = false;
+      this.scene.add(l);
+      ui.pRing = l;
+    }
+    const far = S.range > 0 && Math.hypot(gp.x - h.pos.x, gp.z - h.pos.z) > S.range;
+    const r = L.R;
+    const key = Math.round(gp.x * 4) + ',' + Math.round(gp.z * 4) + ',' + r;
+    const Lm = ui.pRing;
+    Lm.visible = true;
+    Lm.material.color.setHex(far ? 0xff6a5a : 0x9fe8ff);
+    ui.pInfo = { x: gp.x, z: gp.z, r, far, ab: m.ab };
+    if (ui.pKey === key) return true;
+    ui.pKey = key;
+    const n = Math.max(24, Math.min(RING_SEG, Math.round(r * 5)));
+    const pos = new Float32Array(n * 6);
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2,
+        a1 = ((i + 1) / n) * Math.PI * 2;
+      const x0 = gp.x + Math.cos(a0) * r,
+        z0 = gp.z + Math.sin(a0) * r,
+        x1 = gp.x + Math.cos(a1) * r,
+        z1 = gp.z + Math.sin(a1) * r;
+      pos.set(
+        [
+          x0,
+          this.world.terrainHeight(x0, z0) + RING_LIFT + 0.1,
+          z0,
+          x1,
+          this.world.terrainHeight(x1, z1) + RING_LIFT + 0.1,
+          z1,
+        ],
+        i * 6,
+      );
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    Lm.geometry.dispose();
+    Lm.geometry = geo;
+    return true;
+  },
+
   // 離開 RTS 時清掉 3D 標示（核心的 rtsEnd／clearMission 呼叫）
   rtsInputClear() {
     const ui = this.rts && this.rts.ui;
@@ -1327,6 +1544,16 @@ Object.assign(Game.prototype, {
       this.scene.remove(ui.vRings);
       ui.vRings.geometry.dispose();
       ui.vRings = null;
+    }
+    if (ui.pRing) {
+      this.scene.remove(ui.pRing);
+      ui.pRing.geometry.dispose();
+      ui.pRing = null;
+    }
+    if (ui.sRings) {
+      this.scene.remove(ui.sRings);
+      ui.sRings.geometry.dispose();
+      ui.sRings = null;
     }
     ui.rings = [];
     ui.marks = [];

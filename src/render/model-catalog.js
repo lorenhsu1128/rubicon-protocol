@@ -13,6 +13,7 @@ import { RTS_CATALOG } from './rts-models.js';
 import { RTS_NEUTRAL_CATALOG } from './rts-neutral-models.js';
 import { RTS_AETH_CATALOG } from './rts-aeth-models.js';
 import { RTS_VEER_CATALOG } from './rts-veer-models.js';
+import { RTS_SANC_CATALOG } from './rts-sancta-models.js';
 import { FOE_CATALOG } from './foe-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
 import { PALETTES } from './materials.js';
@@ -718,6 +719,9 @@ for (const [cat, key, name, note, build] of [...RTS_CATALOG, ...RTS_NEUTRAL_CATA
 
 // 維爾威（R4 B 包：render/rts-veer-models.js）
 for (const [cat, key, name, note, build] of RTS_VEER_CATALOG)
+  addPlain(cat, 'rts_' + key, name, note, build, { noGlb: true });
+// 聖域（R5 B 包：render/rts-sancta-models.js）
+for (const [cat, key, name, note, build] of RTS_SANC_CATALOG)
   addPlain(cat, 'rts_' + key, name, note, build, { noGlb: true });
 
 export const MODEL_CATALOG = entries;

@@ -25,6 +25,7 @@ module.exports = (H) => {
       const g = window.__game;
       g.rtsAiOff = true;
       g.rtsCampsOff = true;
+      g.rtsPathMs = Infinity; // 尋路不依實際耗時截斷（負載高時同一個種子的結果才會相同）
       g.rtsStart({
         theme: 'wasteland',
         seed: 7,

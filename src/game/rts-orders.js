@@ -12,6 +12,9 @@
 // - R4（docs 15.2、15.3；rts-veer.js）：沒有建造工人的陣營（airdrop）的 build＝空投 rtsDropOrder（不派工人）；
 //   drop（空投）、pack（收起）、unpack（展開到地點）、trade（物流交易）、load（運輸機載運：指定的單位走過來登機）、
 //   unload（運輸機卸載）、board（單位登機）；收好的建築接受 move；建築的地點技能（緊急補給）只由一座施放。
+// - R5（docs 16.2；rts-sancta.js）：salvage（拾荒：{ wid } 或地點；會拾荒的工人拆、其他的走過去）、gather 帶 wid＝拾荒、
+//   refit（改裝：rtsRefit，回傳台數）、scrap（拆除選取中的建築，回傳座數）；rtsSmart 右鍵殘骸（target 是殘骸紀錄，
+//   或沒有點到東西時地上有這一隊看過的殘骸）＝拾荒（優先於礦脈）。
 import { Game } from './game.js';
 import { RTS_ABILS, RTS_DEFS, RTS_GATHER } from '../data/rts-units.js';
 
@@ -71,6 +74,22 @@ Object.assign(Game.prototype, {
       return n;
     }
     if (k === 'trade') return team !== undefined && this.rtsTrade ? this.rtsTrade(team, order.dir) : false;
+    // ---------- 聖域（rts-sancta.js） ----------
+    if (k === 'scrap') {
+      let n = 0;
+      for (const b of units || []) if (b && !b.dead && b.bld && this.rtsScrapBld && this.rtsScrapBld(b)) n++;
+      return n;
+    }
+    if (k === 'refit') return this.rtsRefit ? this.rtsRefit(units, order.rf) : 0;
+    if (k === 'salvage' || (k === 'gather' && order.wid !== undefined)) {
+      const mob = (units || []).filter(
+        (e) => e && !e.dead && !e.bld && e.rtsDef && !e.rtsPiloted && !e.rtsAboard && !e.rtsDriven,
+      );
+      let w = order.wid !== undefined && this.rtsWreckById ? this.rtsWreckById(order.wid) : null;
+      if (!w && order.x !== undefined && this.rtsWreckAt && team !== undefined)
+        w = this.rtsWreckAt(order.x, order.z, 3, { team })[0] || null;
+      return w && this.rtsSalvageOrder ? this.rtsSalvageOrder(mob, w, queue) : 0;
+    }
     if (k === 'move' || k === 'amove') {
       // 收好的建築：飛過去（取消展開的地點）
       for (const b of units || [])
@@ -283,7 +302,18 @@ Object.assign(Game.prototype, {
     const sel = (units || []).filter((e) => e && !e.dead);
     const blds = sel.filter((e) => e.bld);
     const mob = sel.filter((e) => !e.bld && e.rtsDef);
+    // 殘骸（聖域，docs 16.2）：會拾荒的工人拆（點到殘骸紀錄，或沒有點到東西時地上有這一隊看過的殘骸）
+    const salv = mob.filter((e) => RTS_DEFS[e.rtsDef].salvager && RTS_DEFS[e.rtsDef].worker);
+    if (salv.length && mob[0].rtsTeam !== undefined) {
+      let w = target && target.wreck ? target : null;
+      if (!w && !target && this.rtsWreckAt)
+        w = this.rtsWreckAt(x, z, 1.5, { team: mob[0].rtsTeam })[0] || null;
+      if (w && !w.gone && w.ore > 0) return this.rtsSalvageOrder(mob, w, queue);
+    }
+    if (mob.length && target && target.wreck)
+      return this.rtsOrder(mob, { k: 'move', x: target.x, z: target.z }, queue);
     // 礦脈：沒有點到東西時看地上有沒有礦脈
+    if (target && target.wreck) target = null; // 只選了建築：殘骸當作地面（集結點）
     let mine = target && !this.rtsIsEntity(target) ? target : null;
     if (!target) mine = this.rtsMineAt(x, z, RTS_GATHER.mineR + 1.5);
     const ent = this.rtsIsEntity(target) ? target : null;

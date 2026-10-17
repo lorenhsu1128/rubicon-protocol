@@ -27,6 +27,7 @@ module.exports = (H) => {
       const g = window.__game;
       g.rtsAiOff = true;
       g.rtsCampsOff = true;
+      g.rtsPathMs = Infinity; // 尋路不依實際耗時截斷（負載高時同一個種子的結果才會相同）
       g.rtsStart({
         theme: 'wasteland',
         seed: 7,
@@ -422,6 +423,8 @@ module.exports = (H) => {
         A = window.__A;
       const o = {};
       const rm = window.__mk(0, 'v_rammer', A.x, A.z + 7);
+      // 只量衝撞：停掉衝撞無人機自己的機槍（不然 1.5 秒內的總傷害偶爾超過上限）
+      for (const s in rm.weapons) if (rm.weapons[s]) rm.weapons[s].cd = 1e9;
       const t = window.__dummy(1, 'c_stomper', A.x, A.z - 7);
       t.maxHp = t.hp = 1e6;
       window.__sim(0.35);

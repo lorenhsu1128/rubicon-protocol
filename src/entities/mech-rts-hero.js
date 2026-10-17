@@ -6,7 +6,9 @@
 //   Game.rtsHeroDmg／rtsHeroSplash（→ 核心的 rtsHit／rtsSplash，乘施放者的 dmgMul）；數值用 rtsBuff。
 // - 實體端的暫存 e.hs：dash（衝刺）、leap（跳躍）、burrow（潛地）、chan（引導）、root（定身到的局內時間）、
 //   stealth（隱形到的時間）、high（高點射擊）、shield（緊急障壁）、kitT（修復套件）、alpha（目前的透明度）、
-//   blitz（COURIER 的急件突進：往地點直線衝刺）、flareT（熱焰彈：不能被鎖定到的時間）
+//   blitz（COURIER 的急件突進：往地點直線衝刺）、flareT（熱焰彈：不能被鎖定到的時間）、
+//   聖域（docs 16.4）：reviveN（重新站起來的台數）、golemN（臨時巨像用掉的殘骸）、mailN（廢鐵外殼吸的殘骸）、
+//   mineN（布雷區放下的地雷）、triageN（緊急處置的台數）、refuge（最後的避難所的區域 id）
 import { MechEntity } from './mech-entity.js';
 import { RTS_DEFS } from '../data/rts-units.js';
 import { RTS_HERO_DEFS, RTS_SKILLS } from '../data/rts-heroes.js';
@@ -15,6 +17,8 @@ import { buildBomberMesh } from '../render/extra-models.js';
 const ZERO = new THREE.Vector3();
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const AUTO_DT = 0.5; // 自動施放的檢查間隔
+// 緊急處置不清掉的「速度 0」：施放者自己的定身（不落要塞、最後的避難所）
+const SELF_ROOT = new Set(['sk_fortress', 'sk_refuge']);
 
 Object.assign(MechEntity.prototype, {
   // ---------- 每格 ----------
@@ -195,6 +199,8 @@ Object.assign(MechEntity.prototype, {
     let foes = g.rtsHeroFoes(team, this.pos.x, this.pos.z, r).filter((t) => !t.noLock);
     // 空爆彈幕（air）：只對空中與低空的敵人
     if (S.air) foes = foes.filter((t) => !t.bld && (t.flying || (g.rtsLowAir && g.rtsLowAir(t))));
+    // 磁吸（ground）：只對地面單位
+    if (S.ground) foes = foes.filter((t) => !t.bld && !t.flying);
     if (!foes.length) return null;
     const eng = this.rt.engage && foes.includes(this.rt.engage) ? this.rt.engage : null;
     let t = eng;
@@ -1222,5 +1228,194 @@ const SKILL_FX = {
     }
     e.hs.squadN = list.length;
     if (g.rtsFxOk(e.pos)) g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), 5, 0x9be070);
+  },
+  // ===== MENDER（聖域，docs 16.4） =====
+  // 修復光束：4 秒共回復 heal（建築 bldK），目標離開 brk m 中斷（Game.rtsHeroMends 每 0.5 秒）
+  sk_mend(e, g, P, t) {
+    if (t.bld && t.bld.progress < 1) return false;
+    g.rtsHeroMendAdd(e, t, P);
+  },
+  // 緊急處置：半徑 R 的己方單位立刻回復最大血量的 heal，解除暈眩、緩速、纏附、釘住
+  sk_triage(e, g, P, p) {
+    const list = g.rtsHeroAllies(e.rtsTeam, p.x, p.z, P.R).filter((u) => !u.rtsAboard && !u.rtsIllus);
+    for (const u of list) {
+      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * P.heal);
+      u.staggerT = 0;
+      if (u.rtsMods) {
+        const L = u.rtsMods.buff;
+        const keep = L.filter((b) => !(b.speed !== undefined && b.speed < 1 && !SELF_ROOT.has(b.src)));
+        if (keep.length !== L.length) {
+          u.rtsMods.buff = keep;
+          g.rtsModsApply(u);
+        }
+      }
+      if (u.clearStatus) for (const k of ['latch', 'slow', 'net', 'hook']) u.clearStatus(k);
+      u.rtsPinT = 0; // 釘住（B 包的 ab_pin 用 rtsBuff speed 0 時上面就清掉了）
+      if (g.rtsFxOk(u.pos)) g.fx.flash(u.center(), 1.6, 0x80ffb0, 0.2);
+    }
+    const q = P3(g, p.x, p.z, 0.3);
+    if (g.rtsFxOk(q)) {
+      g.fx.ring(q, P.R, 0x80ffb0);
+      g.fx.beam(e.center(), q, 0x80ffb0, 0.08);
+    }
+    e.hs.triageN = list.length;
+  },
+  // 重新站起來：R m 內 t 秒內陣亡的己方一般單位（殘骸紀錄 list 的 { team, def, t0 }）在殘骸上重新組起來
+  sk_lazarus(e, g, P) {
+    const R = g.rts,
+      team = e.rtsTeam,
+      T = R.teams[team];
+    if (!g.rtsWreckAt) return false;
+    const cand = [];
+    for (const w of g.rtsWreckAt(e.pos.x, e.pos.z, P.R, { map: false, all: true }))
+      for (const it of w.list || []) {
+        const D = RTS_DEFS[it.def];
+        if (it.team !== team || !D || D.kind === 'bld' || D.hero || D.carrier || R.t - it.t0 > P.t) continue;
+        cand.push({ w, it, D });
+      }
+    const used = new Set();
+    let n = 0;
+    for (const c of cand) {
+      if (n >= P.max) break;
+      g.rtsRecount();
+      if (T.pop + (c.D.pop || 0) > T.cap) continue; // 人口不夠的不起來
+      const a = Math.random() * Math.PI * 2;
+      let x = c.w.x + Math.cos(a) * 0.8,
+        z = c.w.z + Math.sin(a) * 0.8;
+      const nav = g.world.nav;
+      if (nav) {
+        const k = nav.nearestCell(x, z, c.D.size || 0, -1, 8);
+        if (k >= 0) ({ x, z } = nav.center(k));
+      }
+      const u = g.rtsSpawn(team, c.it.def, x, z, e.yaw);
+      if (!u) continue;
+      R.stats[team].made--;
+      R.stats[team].revived = (R.stats[team].revived || 0) + 1;
+      u.hp = u.maxHp * P.hp;
+      used.add(c.w);
+      n++;
+      if (g.rtsFxOk(u.pos)) {
+        g.fx.beam(e.center(), u.center(), 0x80ffb0, 0.1);
+        g.fx.flash(u.center(), 2, 0x80ffb0, 0.3);
+        g.fx.dust(u.pos.clone(), 2, 8, 0x8a7a60);
+      }
+    }
+    g.rtsRecount();
+    if (!n) {
+      if (team === 0) g.rtsSay(cand.length ? '人口不足' : '附近沒有可以重新站起來的殘骸');
+      return false;
+    }
+    for (const w of used) g.rtsWreckRemove(w);
+    g.fx.shockwave(e.center(), P.R, 0x80ffb0);
+    g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), P.R, 0x80ffb0);
+    e.hs.reviveN = n;
+  },
+  // ===== SALVOR =====
+  // 磁吸：把敵方地面單位拉到身邊 d m＋暈眩
+  sk_magnet(e, g, P, t) {
+    if (t.bld || t.flying) return false;
+    const dx = t.pos.x - e.pos.x,
+      dz = t.pos.z - e.pos.z;
+    const L = Math.hypot(dx, dz) || 1;
+    const d = Math.min(L, P.d);
+    if (g.rtsFxOk(t.pos) || g.rtsFxOk(e.pos)) {
+      g.fx.beam(e.center(), t.center(), 0xc8a060, 0.14);
+      g.fx.spark(t.center(), 0xffd090);
+    }
+    if (!t.noPush) g.rtsHeroShift(t, e.pos.x + (dx / L) * d, e.pos.z + (dz / L) * d);
+    g.rtsStun(t, P.stun);
+    if (g.rtsFxOk(t.pos)) g.fx.dust(t.pos.clone(), 1.8, 6, 0x8a7a60);
+  },
+  // 廢鐵外殼：吸 R m 內的殘骸 n 個（每個最多 take 礦石），每個 shield 吸收＋隊伍 parts 零件
+  sk_scrapmail(e, g, P) {
+    const list = g.rtsWreckAt ? g.rtsWreckAt(e.pos.x, e.pos.z, P.R, { team: e.rtsTeam }).slice(0, P.n) : [];
+    if (!list.length) {
+      if (e.rtsTeam === 0) g.rtsSay('附近沒有殘骸');
+      return false;
+    }
+    let n = 0;
+    for (const w of list) {
+      const c = g.rtsWreckTake(w, P.take);
+      if (!(c.ore > 0)) continue;
+      n++;
+      if (g.rtsFxOk(e.pos)) g.fx.beam(P3(g, w.x, w.z, 0.5), e.center(), 0xc8a060, 0.1);
+    }
+    if (!n) return false;
+    g.rtsShieldAdd(e, n * P.shield, P.t);
+    if (g.rtsPartsAdd) g.rtsPartsAdd(e.rtsTeam, n * P.parts);
+    if (g.rtsFxOk(e.pos)) g.fx.ring(e.pos.clone().setY(e.pos.y + 0.4), (e.radius || 1.5) + 1.2, 0xc8a060);
+    e.hs.mailN = n;
+  },
+  // 臨時巨像：用掉 R m 內的殘骸（min～max 個）拼出一台拼裝巨像（臨時單位），每個殘骸最大血量 +per
+  sk_golem(e, g, P) {
+    const list = g.rtsWreckAt
+      ? g.rtsWreckAt(e.pos.x, e.pos.z, P.R, { team: e.rtsTeam, map: false }).slice(0, P.max)
+      : [];
+    if (list.length < P.min) {
+      if (e.rtsTeam === 0) g.rtsSay(`附近的殘骸不夠（要 ${P.min} 個）`);
+      return false;
+    }
+    const u = g.rtsHeroTemp(e, 's_colossus', 1, P.t)[0];
+    if (!u) return false;
+    const k = 1 + Math.min(1, list.length * P.per);
+    g.rtsBuff(u, { src: 'sk_golem', hpK: k }, P.t + 5);
+    u.hp = u.maxHp;
+    for (const w of list) {
+      if (g.rtsFxOk(u.pos)) g.fx.beam(P3(g, w.x, w.z, 0.5), u.center(), 0xc8a060, 0.14);
+      g.rtsWreckRemove(w);
+    }
+    if (g.rtsFxOk(u.pos)) {
+      g.fx.dust(u.pos.clone(), 4, 14, 0x8a7a60);
+      g.fx.shockwave(u.center(), 5, 0xc8a060);
+    }
+    e.hs.golemN = list.length;
+  },
+  // ===== HAVEN =====
+  // 布雷區：半徑 R 立刻布下 n 顆地雷（A 的 rtsLandMineAdd，noCap、life 秒）
+  sk_minefield(e, g, P, p) {
+    if (!g.rtsLandMineAdd) return false;
+    const w = g.world,
+      lim = w.lim !== undefined ? w.lim : w.size / 2;
+    let n = 0;
+    for (let i = 0; i < P.n; i++) {
+      const a = i * 2.39996 + 0.3,
+        r = P.R * 0.8 * Math.sqrt((i + 0.5) / P.n);
+      const x = Math.max(-lim, Math.min(lim, p.x + Math.cos(a) * r)),
+        z = Math.max(-lim, Math.min(lim, p.z + Math.sin(a) * r));
+      if (g.rtsLandMineAdd(e.rtsTeam, x, z, { owner: e, noCap: true, life: P.life, dmg: P.dmg })) n++;
+      if (g.rtsFxOk(e.pos) && i < 4) g.fx.beam(e.center(), P3(g, x, z, 0.3), 0xf0d8a0, 0.05);
+    }
+    if (g.rtsFxOk(e.pos)) g.fx.ring(P3(g, p.x, p.z, 0.25), P.R, 0xf0d8a0);
+    e.hs.mineN = n;
+    return n > 0;
+  },
+  // 避難護盾：目標身上半徑 R 的圓頂 t 秒，吸收外面打進來的傷害（上限 cap，研究圓頂強化 ×res）
+  sk_haven(e, g, P, t) {
+    if (t.bld) return false;
+    const res = g.rtsResLv && g.rtsResLv(e.rtsTeam, 'r_canopy') ? P.res : 1;
+    g.rtsHeroDomeAdd(t, e.rtsTeam, P.R, P.cap * res, P.t);
+    if (g.rtsFxOk(t.pos)) g.fx.beam(e.center(), t.center(), 0xf0d8a0, 0.08);
+  },
+  // 最後的避難所：t 秒的大圓頂（HAVEN 不能移動）：己方單位與建築受到的傷害 ×taken、敵方單位速度 ×speed
+  sk_refuge(e, g, P) {
+    const R = g.rts;
+    e.hs.root = R.t + P.t;
+    e.orders.length = 0;
+    g.rtsBuff(e, { src: 'sk_refuge', speed: 0 }, P.t);
+    e.hs.refuge = g.rtsHeroZone({
+      x: e.pos.x,
+      z: e.pos.z,
+      r: P.R,
+      t: P.t,
+      src: e,
+      team: e.rtsTeam,
+      ally: { taken: P.taken },
+      bld: true,
+      foe: { speed: P.speed },
+      fx: null,
+    });
+    g.rtsHeroDomeFx({ host: e, r: P.R, until: R.t + P.t, gone: false }, P.t, 0xffe0a0);
+    g.fx.shockwave(e.center(), P.R, 0xffe0a0);
+    g.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), P.R, 0xffe0a0);
   },
 };

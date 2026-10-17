@@ -173,7 +173,7 @@ Object.assign(Game.prototype, {
       if (!e) return;
       e.creep = camp.id;
       e.rtsCamp = camp;
-      if (D.speed <= 0.05) e.edHold = true; // 不能移動的野怪（試車台、保全雷射網）：move 不移動、不 QB
+      this.rtsCampFlags(e, D); // 不能移動的（試車台、保全雷射網、水雷浮標、閘門砲台）、兩棲
 
       e.rtsHome = { x, z, a };
       // mech-rts.js（B）的 rtsUnitAI 會轉給 rtsCreepAI；在實體上也掛一份，順序不影響
@@ -181,6 +181,13 @@ Object.assign(Game.prototype, {
       camp.ents.add(e);
     });
     return camp.ents.size;
+  },
+  // 野怪與傭兵的生成旗標：speed ≤ 0.05 的不能移動（edHold：move 不移動、不 QB，只轉向與開火）；
+  // amphib＝兩棲（MechEntity.waterK 讀 opts.amphib：涉水 ×1.1，其他地面單位 ×0.85）
+  rtsCampFlags(e, D) {
+    if (!e || !D) return;
+    if (D.speed <= 0.05) e.edHold = true;
+    if (D.amphib) e.opts = { ...e.opts, amphib: true };
   },
   // 生成全部營地（開局已經生成；效能基準 scripts/rts-bench.js 的 --camps 也呼叫）：回傳野怪的數量。
   // 不在 RTS 時（效能基準的一般任務）：在地圖外圈放 8 個營地（小／中／大輪流，原型用 spawnType），待在原地不動
@@ -500,7 +507,7 @@ Object.assign(Game.prototype, {
     if (cell >= 0) ({ x, z } = nav.center(cell));
     const e = this.rtsSpawn(teamId, id, x, z, 0);
     if (e) e.rtsMerc = true;
-    if (e && RTS_DEFS[id].speed <= 0.05) e.edHold = true; // 不能移動的（試車台）
+    if (e) this.rtsCampFlags(e, RTS_DEFS[id]);
     return e;
   },
   // 雇用：扣款、扣庫存，立刻出現在傭兵營的正面（屬於雇用的隊伍、照一般單位的指令）；回傳實體或 null
@@ -533,7 +540,7 @@ Object.assign(Game.prototype, {
       const u = this.rtsSpawn(teamId, id, qx, qz, yaw);
       if (!u) continue;
       u.rtsMerc = true;
-      if (D.speed <= 0.05) u.edHold = true; // 不能移動的（試車台）：move 不移動、不 QB（只轉向與開火）
+      this.rtsCampFlags(u, D);
       if (!e) e = u;
     }
     if (!e) return null;

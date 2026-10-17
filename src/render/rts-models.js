@@ -11,6 +11,7 @@ import { DETAIL, PK, hazard, ladder, mat, railing, truss } from '../world/prop-m
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
 import { addAethWorkerKit, buildAethBuilding, isAethBuilding } from './rts-aeth-models.js';
 import { addVeerWorkerKit, buildVeerBuilding, isVeerBuilding } from './rts-veer-models.js';
+import { addSancWorkerKit, buildSancBuilding, isSancBuilding } from './rts-sancta-models.js';
 
 // ---------- 陣營色 ----------
 const PAL_CACHE = {};
@@ -463,6 +464,7 @@ function scaffold(w, d, h, M) {
 export function buildRtsBuilding(id, pal) {
   if (isAethBuilding(id)) return buildAethBuilding(id, pal); // 艾瑟立克（R3 B 包：render/rts-aeth-models.js）
   if (isVeerBuilding(id)) return buildVeerBuilding(id, pal); // 維爾威（R4 B 包：render/rts-veer-models.js）
+  if (isSancBuilding(id)) return buildSancBuilding(id, pal); // 聖域（R5 B 包：render/rts-sancta-models.js）
   const D = RTS_DEFS[id];
   const M = mats(pal);
   const group = new THREE.Group();
@@ -671,6 +673,7 @@ export function buildCoralVent() {
 export function addWorkerKit(rig, pal, faction) {
   if (faction === 'aetheric') return addAethWorkerKit(rig, pal, buildOreCrate); // 研究作業機的採樣套件（R3）
   if (faction === 'veerwell') return addVeerWorkerKit(rig, pal, buildOreCrate); // 物流 MT 的貨架與吊鉤（R4）
+  if (faction === 'sancta') return addSancWorkerKit(rig, pal, buildOreCrate); // 互助作業機的拾荒網籃與磁吸臂（R5）
   const t = rig.torso || rig.group;
   const kit = new THREE.Group();
   const k = new PK();

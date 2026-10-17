@@ -17,9 +17,13 @@
 //   在主基地附近找 rtsDropWhy＝'' 的地方；空投中的也算「在蓋」）；親自駕駛＋新部隊跟隨時，英雄在投放範圍內
 //   （信標、調度中心、有軌道通訊站時任何探索過的地方）就把軌道調度所的集結點移到英雄身邊，投放艙直接降在英雄旁
 //   （離開時還原集結點）；在運輸機上的英雄不能親自駕駛。
+// R5 聖域（docs 16.15）：自動採集對有拾荒的陣營另外派閒置工人拆回收點 45 m 內看過的殘骸（最多工人的 1/4、至少 2 台；
+//   20 m 內看得到敵人的不去；價值 ÷（距離＋20）挑）；閒置的回收拖車開到殘骸多的地方展開（rtsButlerHaul），附近拆完了收起
+//   換地方；親自駕駛時 HUD 標出英雄 25 m 內的殘骸（rts-hud.js 的 rtsHudPilotWrecks）。
 import { Game } from './game.js';
 import { RTS_DEFS, RTS_FACTIONS, RTS_GATHER, RTS_POP_MAX } from '../data/rts-units.js';
 import { RTS_SKILLS } from '../data/rts-heroes.js';
+import { RTS_SANC } from '../data/rts-sancta.js';
 
 const RTS_ME = 0;
 const HOLD_EXIT = 0.6; // 長按 F 幾秒離開
@@ -30,6 +34,11 @@ const DEFEND_R = 42; // 敵人進入己方建築多遠內算基地被攻擊
 const DEFEND_POOL = 70; // 回防的部隊：離被攻擊的建築多遠內的閒置部隊
 const DEPOT_LEFT = 6; // 人口剩幾格時蓋補給庫
 const PREF_KEY = 'rubicon_rts';
+const SALV_R = 45; // 管家的拾荒：回收點多遠內的殘骸
+const SALV_SAFE = 20; // 殘骸這麼近有看得到的敵人時不去
+const HAUL_R = 50; // 回收拖車：多遠內找殘骸堆
+const HAUL_MIN = 60; // 展開的門檻：10 m 內合計的礦石
+const HAUL_IDLE = 8; // 展開後附近沒有殘骸幾秒就換地方
 const NO_ALLIES = [];
 const BUTLER_KEYS = ['gather', 'loop', 'depot', 'defend', 'follow'];
 const BUTLER_NAME = {
@@ -253,7 +262,9 @@ Object.assign(Game.prototype, {
     if (S.kind === 'unit') {
       tgt = S.tgt === 'ally' ? this.rtsPilotAlly(e, S) : aim && aim.ent;
       if (!tgt) return (this.rtsMsg('先鎖定目標', 0xff8a8a), false);
-      const d = Math.hypot(tgt.pos.x - e.pos.x, tgt.pos.z - e.pos.z);
+      const d =
+        Math.hypot(tgt.pos.x - e.pos.x, tgt.pos.z - e.pos.z) -
+        (tgt.bld ? Math.max(tgt.bld.w || 0, tgt.bld.d || 0) / 2 : 0);
       if (S.range && d > S.range + 1) return (this.rtsMsg(`太遠（射程 ${S.range} m）`, 0xff8a8a), false);
     } else if (S.kind === 'point' && aim) {
       let dx = aim.x - e.pos.x,
@@ -268,7 +279,7 @@ Object.assign(Game.prototype, {
     if (!ok) this.rtsMsg('不能施放：' + S.name, 0xff8a8a);
     return !!ok;
   },
-  // 友軍技能的目標：範圍內（含英雄自己）血量比例最低的合格友軍；生體技能（S.bio）只挑 bio 單位，引導中的融合宿主優先
+  // 友軍技能的目標：範圍內（含英雄自己）血量比例最低的合格友軍（技能有 bld 時含蓋好的己方建築）；生體技能（S.bio）只挑 bio 單位，引導中的融合宿主優先
   //   （CURATOR 的催化會立刻完成融合）；都沒有時是英雄自己（C 包會判斷能不能施放）
   rtsPilotAlly(e, S) {
     const R = this.rts;
@@ -277,10 +288,13 @@ Object.assign(Game.prototype, {
     let best = bio ? null : e,
       bs = bio ? 1e9 : e.hp / Math.max(1, e.maxHp) + 0.001;
     for (const u of R.units) {
-      if (u === e || u.dead || u.bld || u.rtsTeam !== RTS_ME || u.rtsIllus) continue;
+      if (u === e || u.dead || u.rtsTeam !== RTS_ME || u.rtsIllus) continue;
+      // 建築：技能定義的 bld（MENDER 的修復光束，R5）才挑蓋好的己方建築，距離從佔地邊緣算
+      if (u.bld && (!S.bld || u.bld.progress < 1 || u.rtsInv)) continue;
       const D = RTS_DEFS[u.rtsDef] || {};
       if (bio && !D.bio) continue;
-      if (range > 1 && Math.hypot(u.pos.x - e.pos.x, u.pos.z - e.pos.z) > range) continue;
+      const half = u.bld ? Math.max(u.bld.w || 0, u.bld.d || 0) / 2 : 0;
+      if (range > 1 && Math.hypot(u.pos.x - e.pos.x, u.pos.z - e.pos.z) - half > range) continue;
       const chan = u.rtsFusing && u.orders[0] && u.orders[0].k === 'fuse';
       const sc = u.hp / Math.max(1, u.maxHp) - (chan ? 2 : 0);
       if (sc < bs) ((bs = sc), (best = u));
@@ -364,6 +378,8 @@ Object.assign(Game.prototype, {
     } finally {
       this.allies = al;
     }
+    // 聖域（R5）：英雄附近的殘骸
+    if (this.rtsHudPilotWrecks && R.wrecks) this.rtsHudPilotWrecks(this.hctx);
     if (this.rtsHudTick) this.rtsHudTick(dt);
     // 長按 F 的進度
     if (P.hold > 0.08) {
@@ -418,6 +434,8 @@ Object.assign(Game.prototype, {
     this.rtsHudDirty = true;
   },
   rtsButlerName(k) {
+    if (k === 'gather' && this.rtsSalvageTeam && this.rts && this.rtsSalvageTeam(RTS_ME))
+      return '自動採集與拾荒';
     return BUTLER_NAME[k] || k;
   },
   rtsButlerActive() {
@@ -445,6 +463,7 @@ Object.assign(Game.prototype, {
     if (B.loop) this.rtsButlerLoop(T);
     if (!this.rtsButlerActive()) return;
     if (B.gather) this.rtsButlerGather(step);
+    if (B.gather && R.salvage && this.rtsSalvageTeam && this.rtsSalvageTeam(RTS_ME)) this.rtsButlerHaul(step);
     if (B.depot) this.rtsButlerDepot(T);
     if (B.defend) this.rtsButlerDefend(T);
     if (B.follow && R.pilot) this.rtsButlerFollow();
@@ -509,9 +528,19 @@ Object.assign(Game.prototype, {
     const near = (m) => drops.some((b) => Math.hypot(b.pos.x - m.pos.x, b.pos.z - m.pos.z) <= MINE_R);
     const sat = RTS_GATHER.sat || 5;
     const ok = (m) => m && m.amount > 0 && near(m) && m.miners.size < sat;
+    const salv = this.rtsButlerSalvPlan(drops);
     for (const e of R.units) {
       if (e.dead || e.bld || e.rtsTeam !== RTS_ME || !(RTS_DEFS[e.rtsDef] || {}).worker) continue;
       if ((e._bIdle || 0) < IDLE_T || e.orders.length) continue;
+      // 聖域：拾荒工還沒滿時先拆殘骸
+      if (salv && salv.left > 0 && (RTS_DEFS[e.rtsDef] || {}).salvager) {
+        const w = this.rtsButlerSalvPick(e, salv);
+        if (w && this.rtsOrder && this.rtsOrder([e], { k: 'salvage', wid: w.id })) {
+          salv.left--;
+          e._bIdle = 0;
+          continue;
+        }
+      }
       let m = e._bMine !== undefined && this.rtsMine ? this.rtsMine(e._bMine) : null;
       if (!ok(m)) {
         m = null;
@@ -526,6 +555,108 @@ Object.assign(Game.prototype, {
       this.rtsOrder([e], { k: 'gather', mine: m.id });
       e._bIdle = 0;
     }
+  },
+  // 聖域的拾荒計畫：{ list（回收點 45 m 內看過、有價值、附近沒有敵人的殘骸）, left（還能再派幾台拾荒工） }；不是聖域＝null
+  rtsButlerSalvPlan(drops) {
+    const R = this.rts;
+    if (!R.salvage || !this.rtsWreckAt || !this.rtsSalvageTeam || !this.rtsSalvageTeam(RTS_ME)) return null;
+    const seen = new Set();
+    const list = [];
+    for (const b of drops)
+      for (const w of this.rtsWreckAt(b.pos.x, b.pos.z, SALV_R, { team: RTS_ME })) {
+        if (seen.has(w) || !(w.ore > 0)) continue;
+        seen.add(w);
+        list.push(w);
+      }
+    if (!list.length) return { list, left: 0, pend: new Map() };
+    const foes =
+      typeof this.rtsFogEnemies === 'function'
+        ? this.rtsFogEnemies(RTS_ME).filter((f) => !f.dead && !f.bld && !f.rtsInv)
+        : [];
+    const safe = list.filter((w) => !foes.some((f) => Math.hypot(f.pos.x - w.x, f.pos.z - w.z) < SALV_SAFE));
+    let workers = 0,
+      busy = 0;
+    const pend = new Map();
+    for (const e of R.units) {
+      if (e.dead || e.bld || e.rtsTeam !== RTS_ME || !(RTS_DEFS[e.rtsDef] || {}).worker) continue;
+      workers++;
+      const o = e.orders[0];
+      if (o && o.k === 'salvage') {
+        busy++;
+        const w = this.rtsWreckById && this.rtsWreckById(o.wid);
+        if (w && !(w.takers && w.takers.has(e.id))) pend.set(w, (pend.get(w) || 0) + 1); // 走過去中的也算
+      }
+    }
+    const max = Math.max(2, Math.ceil(workers / 4));
+    return { list: safe, left: Math.max(0, max - busy), pend };
+  },
+  // 給這個工人挑殘骸：價值 ÷（距離＋20），還沒飽和的（地圖殘骸 2 人、其他 3 人）
+  rtsButlerSalvPick(e, plan) {
+    let best = null,
+      bs = -1;
+    for (const w of plan.list) {
+      if (w.gone || !(w.ore > 0)) continue;
+      const sat = w.map ? RTS_SANC.wreck.map.sat : RTS_SANC.salvage.sat;
+      const n = (w.takers ? w.takers.size : 0) + (plan.pend.get(w) || 0);
+      if (n >= sat) continue;
+      const sc = w.ore / (Math.hypot(w.x - e.pos.x, w.z - e.pos.z) + 20);
+      if (sc > bs) ((bs = sc), (best = w));
+    }
+    if (best) plan.pend.set(best, (plan.pend.get(best) || 0) + 1); // 同一次分派裡先算進去（走到了 takers 才會加）
+    return best;
+  },
+  // 回收拖車：閒置、收起的開到 50 m 內殘骸最多的地方（10 m 內合計 ≥ 60 礦石）展開；展開後附近沒有殘骸 8 秒就收起換地方
+  rtsButlerHaul(step) {
+    const R = this.rts;
+    if (!this.rtsWreckAt || !this.rtsOrder) return 0;
+    const H = RTS_SANC.hauler;
+    const foes =
+      typeof this.rtsFogEnemies === 'function'
+        ? this.rtsFogEnemies(RTS_ME).filter((f) => !f.dead && !f.bld && !f.rtsInv)
+        : [];
+    let n = 0;
+    for (const e of R.units) {
+      if (e.dead || e.bld || e.rtsTeam !== RTS_ME || e.rtsAboard || e.rtsPiloted) continue;
+      if (!(RTS_DEFS[e.rtsDef] || {}).hauler) continue;
+      const o = e.orders[0];
+      if (o && !(e._bHaul && o.k === 'move')) continue; // 玩家下了別的指令
+      if (e.rtsHaulOn) {
+        e._bHaul = null;
+        const near = this.rtsWreckAt(e.pos.x, e.pos.z, H.r, { team: RTS_ME }).some((w) => w.ore > 0);
+        e._bHaulIdle = near ? 0 : (e._bHaulIdle || 0) + step;
+        if (e._bHaulIdle < HAUL_IDLE) continue;
+      }
+      // 找殘骸堆：每個殘骸當中心，10 m 內合計的礦石
+      let best = null,
+        bs = HAUL_MIN - 1;
+      for (const w of this.rtsWreckAt(e.pos.x, e.pos.z, HAUL_R, { team: RTS_ME })) {
+        if (!(w.ore > 0)) continue;
+        if (foes.some((f) => Math.hypot(f.pos.x - w.x, f.pos.z - w.z) < SALV_SAFE + 5)) continue;
+        let sum = 0;
+        for (const q of this.rtsWreckAt(w.x, w.z, H.r - 2, { team: RTS_ME })) sum += q.ore;
+        const sc = sum - Math.hypot(w.x - e.pos.x, w.z - e.pos.z) * 0.5;
+        if (sc > bs) ((bs = sc), (best = w));
+      }
+      if (!best) continue;
+      const d = Math.hypot(best.x - e.pos.x, best.z - e.pos.z);
+      if (d > 5) {
+        if (e.rtsHaulOn && e._bHaulIdle < HAUL_IDLE) continue;
+        // 移動指令會自動收起（B 包）
+        if (!o) {
+          this.rtsOrder([e], { k: 'move', x: best.x, z: best.z });
+          e._bHaul = { x: best.x, z: best.z };
+          n++;
+        }
+      } else if (!e.rtsHaulOn && !o && !(e._bHaulCastT > R.t)) {
+        // 到了：展開（ab_haul 是切換，冷卻 2 秒；4 秒內不重複下）
+        this.rtsOrder([e], { k: 'ability', ab: 'ab_haul' });
+        e._bHaulCastT = R.t + 4;
+        e._bHaul = null;
+        e._bHaulIdle = 0;
+        n++;
+      }
+    }
+    return n;
   },
   // 補給庫：人口剩 6 以內、上限 < 150、沒有補給庫在蓋時，派一個工人在主堡附近蓋
   rtsButlerDepot(T) {

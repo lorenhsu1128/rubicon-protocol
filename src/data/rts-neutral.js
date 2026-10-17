@@ -425,6 +425,18 @@ RTS_CREEP_DEFS.cr_ac_countdown = themeAce('countdown', {
   slots: ['rarm', 'rback'],
   slotAtk: { rback: 'exp' },
 });
+RTS_CREEP_DEFS.cr_ac_marsh = themeAce('marsh', {
+  atk: 'kin',
+  slots: ['rarm', 'rback'],
+  slotAtk: { rback: 'exp' },
+  range: 24,
+  amphib: true,
+});
+RTS_CREEP_DEFS.cr_ac_sluice = themeAce('sluice', {
+  atk: 'en',
+  slots: ['rarm', 'rback'],
+  slotAtk: { rback: 'kin' },
+});
 RTS_CREEP_DEFS.cr_ac_spire = themeAce('spire', {
   atk: 'pierce',
   slots: ['rarm', 'larm'],
@@ -549,6 +561,130 @@ Object.assign(RTS_CREEP_DEFS, {
     modelKind: 'boss',
     vehKey: 'anchor',
     asm: { ...HEAVY, rarm: 'w_lr' },
+  }),
+});
+// ---------- R5 的主題野怪（docs 16.8、16.14）：汙染水沒市街、多重水壩；特殊行為（潛航、腐蝕區、水雷、水流、吸入）
+// 不做，只借模型與數值。不能移動的（漂流水雷浮標、閘門砲台、渦輪吸入機）speed 0.01＝edHold；仍然沒有飛行的野怪。
+// amphib＝兩棲（涉水 ×1.1，game/rts-neutral.js 生成時設 opts.amphib） ----------
+Object.assign(RTS_CREEP_DEFS, {
+  cr_gunboat: creep({
+    name: '潛航砲艇',
+    desc: '野怪：發射魚雷的砲艇（爆發），兩棲',
+    etype: 'gunboat',
+    lv: 2,
+    atk: 'exp',
+    arm: 'light',
+    armor: 1,
+    range: 22,
+    splash: 2,
+    rof: 0.6,
+    speed: 7,
+    radius: 1.5,
+    amphib: true,
+    modelKind: 'boss',
+    vehKey: 'gunboat',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_sprayer: creep({
+    name: '汙染噴射 MT',
+    desc: '野怪：近距離噴灑汙染液（爆發、小範圍）',
+    etype: 'sprayer',
+    lv: 3,
+    atk: 'exp',
+    arm: 'med',
+    armor: 1,
+    range: 14,
+    splash: 2,
+    rof: 0.3,
+    speed: 6,
+    radius: 1.6,
+    modelKind: 'boss',
+    vehKey: 'sprayer',
+    asm: { ...HEAVY, rarm: 'w_mg' },
+  }),
+  cr_buoy: creep({
+    name: '漂流水雷浮標',
+    desc: '野怪：不會移動，靠近 6 m 內爆炸（爆發）',
+    etype: 'buoy',
+    lv: 1,
+    dps: 16,
+    atk: 'exp',
+    arm: 'light',
+    armor: 0,
+    range: 6,
+    splash: 3,
+    rof: 0.5,
+    speed: 0.01, // 不移動（0 會被當成沒有設定）
+    radius: 0.9,
+    modelKind: 'boss',
+    vehKey: 'mine_buoy',
+    asm: { ...LIGHT, rarm: 'w_sg' },
+  }),
+  cr_patrol: creep({
+    name: '壩頂巡邏砲車',
+    desc: '野怪：居高臨下的砲車（爆發）',
+    etype: 'patrol',
+    lv: 2,
+    atk: 'exp',
+    arm: 'light',
+    armor: 1,
+    range: 28,
+    splash: 2,
+    rof: 0.8,
+    speed: 6,
+    radius: 1.6,
+    modelKind: 'boss',
+    vehKey: 'patrol_cart',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_watercannon: creep({
+    name: '高壓水砲車',
+    desc: '野怪：衝擊很大的水柱（實彈）',
+    etype: 'watercannon',
+    lv: 3,
+    atk: 'kin',
+    arm: 'heavy',
+    armor: 2,
+    range: 22,
+    rof: 0.5,
+    speed: 5,
+    radius: 2,
+    modelKind: 'boss',
+    vehKey: 'water_cannon',
+    asm: { ...HEAVY, rarm: 'w_mg' },
+  }),
+  cr_gategun: creep({
+    name: '閘門砲台',
+    desc: '野怪：不會移動的混凝土砲座（爆發）',
+    etype: 'gategun',
+    lv: 4,
+    atk: 'exp',
+    arm: 'fort',
+    armor: 3,
+    range: 30,
+    splash: 2.5,
+    rof: 0.9,
+    speed: 0.01,
+    radius: 2,
+    modelKind: 'boss',
+    vehKey: 'gate_turret',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_turbine: creep({
+    name: '渦輪吸入機',
+    desc: '野怪：不會移動的渦輪（機槍）',
+    etype: 'turbine',
+    lv: 3,
+    atk: 'kin',
+    arm: 'fort',
+    armor: 2,
+    range: 20,
+    rof: 0.25,
+    speed: 0.01,
+    radius: 2.2,
+    modelKind: 'boss',
+    vehKey: 'turbine',
+    asm: { ...HEAVY, rarm: 'w_mg' },
   }),
 });
 // 大營地的落單具名 AC（AC_ROSTER；依營地的亂數挑一台，兩邊對稱的營地挑同一台）：只用射擊武器的
@@ -706,6 +842,43 @@ const R4_MERCS = {
     ...byLv(3),
   }),
 };
+// R5 的主題傭兵（docs 16.8）：拾荒 MT 沿用荒野的 m_scav；漂流水雷浮標與閘門砲台不能移動
+Object.assign(R4_MERCS, {
+  m_gunboat: merc('cr_gunboat', { name: '潛航砲艇（傭兵）', cost: { ore: 150, coral: 30 }, pop: 2, time: 0 }),
+  m_sprayer: merc('cr_sprayer', {
+    name: '汙染噴射 MT（傭兵）',
+    cost: { ore: 160, coral: 40 },
+    pop: 2,
+    time: 0,
+  }),
+  m_buoy: merc('cr_buoy', {
+    name: '漂流水雷浮標（傭兵）',
+    cost: { ore: 120, coral: 40 },
+    pop: 1,
+    time: 0,
+    ...byLv(2),
+    dps: 22,
+  }),
+  m_patrol: merc('cr_patrol', {
+    name: '壩頂巡邏砲車（傭兵）',
+    cost: { ore: 150, coral: 30 },
+    pop: 2,
+    time: 0,
+  }),
+  m_watercannon: merc('cr_watercannon', {
+    name: '高壓水砲車（傭兵）',
+    cost: { ore: 190, coral: 60 },
+    pop: 3,
+    time: 0,
+  }),
+  m_gategun: merc('cr_gategun', {
+    name: '閘門砲台（傭兵）',
+    cost: { ore: 200, coral: 60 },
+    pop: 2,
+    time: 0,
+    ...byLv(3),
+  }),
+});
 for (const id in R4_MERCS) R4_MERCS[id].desc = '傭兵：' + R4_MERCS[id].desc.replace(/^野怪：/, '');
 Object.assign(RTS_MERC_DEFS, R4_MERCS);
 Object.assign(RTS_CREEP_DEFS, RTS_MERC_DEFS);
@@ -716,6 +889,8 @@ export const RTS_MERCS = {
   institute: ['m_blob', 'm_parasite', 'm_holo', 'm_chimera'],
   spaceport: ['m_spacemt', 'm_fueler', 'm_rack', 'm_testrig'],
   grid086: ['m_crawler', 'm_zipline', 'm_anchor', 'm_mth'],
+  flooded: ['m_gunboat', 'm_sprayer', 'm_buoy', 'm_scav'],
+  dam: ['m_patrol', 'm_watercannon', 'm_gategun', 'm_mth'],
 };
 export const RTS_MERC_RULE = { stock: 2, restock: 60, r: 14 };
 // 酒館：己方單位離酒館多近可以雇用（C 包的 RTS_HIRE.r 相同）
@@ -797,6 +972,36 @@ export const RTS_CAMPS = {
     [
       ['@ac', 'cr_anchor', 'cr_crawler', 'cr_crawler', 'cr_mth'],
       ['cr_ac_spire', 'cr_zipline', 'cr_zipline', 'cr_anchor', 'cr_crawler'],
+    ],
+  ],
+  // 汙染水沒市街（docs 16.8；lv 合計不夠的多一台：中營地 2、大營地兩套）
+  flooded: [
+    [
+      ['cr_gunboat', 'cr_gunboat', 'cr_sprayer'],
+      ['cr_buoy', 'cr_buoy', 'cr_mt', 'cr_mt'],
+    ],
+    [
+      ['cr_sprayer', 'cr_sprayer', 'cr_gunboat', 'cr_mth'],
+      ['cr_buoy', 'cr_gunboat', 'cr_gunboat', 'cr_scav', 'cr_sprayer'],
+    ],
+    [
+      ['@ac', 'cr_gunboat', 'cr_gunboat', 'cr_sprayer', 'cr_mth'],
+      ['cr_ac_marsh', 'cr_sprayer', 'cr_sprayer', 'cr_gunboat', 'cr_mth'],
+    ],
+  ],
+  // 多重水壩
+  dam: [
+    [
+      ['cr_patrol', 'cr_patrol', 'cr_mt'],
+      ['cr_watercannon', 'cr_mt', 'cr_mt'],
+    ],
+    [
+      ['cr_gategun', 'cr_patrol', 'cr_patrol', 'cr_mt'],
+      ['cr_turbine', 'cr_watercannon', 'cr_mth'],
+    ],
+    [
+      ['@ac', 'cr_gategun', 'cr_patrol', 'cr_patrol', 'cr_mth'],
+      ['cr_ac_sluice', 'cr_watercannon', 'cr_watercannon', 'cr_patrol', 'cr_gategun'],
     ],
   ],
 };

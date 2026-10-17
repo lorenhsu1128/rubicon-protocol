@@ -4,6 +4,7 @@ import {
   buildBeacon,
   buildFloodlight,
   buildIceChunk,
+  buildLampPost,
   buildOreHopper,
   buildQuonset,
   buildRadarDish,
@@ -29,6 +30,15 @@ import {
   buildLaunchTower,
 } from './themes/spaceport.js';
 import { buildBarrels, buildChimney, buildPipeStack, buildScrapHeap, buildShack } from './themes/grid086.js';
+import {
+  buildBentLamp,
+  buildFloatJunk,
+  buildRuinTower,
+  buildSunkBus,
+  buildWreckCar,
+} from './themes/flooded.js';
+import { buildDamGate, buildTetrapod } from './themes/dam.js';
+import { buildQuayCrane } from './variants.js';
 import { attrSig, mergeList } from '../render/mesh-merge.js';
 import { styleCat } from '../render/style/shader.js';
 
@@ -102,6 +112,97 @@ function iceSpire(o) {
   g.add(m);
   return g;
 }
+// ---------- R5（docs 16.8、16.14）：汙染水沒市街、多重水壩 ----------
+const BUS_COL = [0xb08a2a, 0x5a7a8a, 0x8a3a2a],
+  CAR_COL = [0x7a3a2a, 0x4a5a6a, 0x8a8478];
+const tilted = (m, rx, rz) => {
+  const g = new THREE.Group();
+  m.rotation.x = rx || 0;
+  m.rotation.z = rz || 0;
+  g.add(m);
+  return g;
+};
+// 傾倒的建築殘段（主線的大樓廢墟，方塊碰撞＝plan 的外框；頂部崩塌、微微傾斜）
+// 窗戶貼圖每個都是複本（uuid 不同就不能靜態合併）：依來源與重複次數共用一份
+const RUIN_TEX = new Map();
+function ruinBlock(o) {
+  const [w, d] = unrot(o);
+  const m = buildRuinTower(w, o.h, d, true, ((o.color || 0) % 3) + 1);
+  m.traverse((n) => {
+    const t = n.isMesh && n.material && n.material.map;
+    if (!t || Array.isArray(n.material)) return;
+    const k = `${(o.color || 0) % 3}|${t.repeat.x}|${t.repeat.y}`;
+    if (!RUIN_TEX.has(k)) RUIN_TEX.set(k, t);
+    if (n.material.emissiveMap === t) n.material.emissiveMap = RUIN_TEX.get(k);
+    n.material.map = RUIN_TEX.get(k);
+  });
+  return tilted(m, 0, ((o.color || 0) % 7) * 0.008 - 0.024);
+}
+// 水窪裡半沉的街區（裝飾）：車頂、歪斜的路燈、號誌、漂浮雜物
+function poolSign(o) {
+  const g = new THREE.Group();
+  const pole = mat(0x6a6e70, { roughness: 0.6, metalness: 0.5 });
+  g.add(cyl(0.07, 0.08, 3.6, pole, 0, 1.8, 0, 6));
+  g.add(
+    box(1.1, 0.75, 0.06, mat([0x2a5aa0, 0xc8a020, 0xa02a2a][o.color || 0], { roughness: 0.5 }), 0, 3.3, 0.06),
+  );
+  g.add(box(0.95, 0.06, 0.07, mat(0xe8e8e0, { roughness: 0.5 }), 0, 3.3, 0.08));
+  return tilted(g, o.tilt || 0, (o.tilt || 0) * 0.6);
+}
+// 消波塊群（方塊碰撞＝plan 的外框）：格子排列＋依 color 的固定偏移與轉向（不用亂數）
+function tetrapods(o) {
+  const g = new THREE.Group();
+  const [w, d] = unrot(o);
+  const nx = Math.max(2, Math.round(w / 2.4)),
+    nz = Math.max(1, Math.round(d / 2.4));
+  let h = (o.color || 1) >>> 0;
+  const nr = () => (h = (h * 1103515245 + 12345) >>> 0) / 4294967296;
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < nz; j++) {
+      const t = buildTetrapod();
+      const s = 0.85 + nr() * 0.2;
+      t.scale.setScalar(s);
+      t.position.set(
+        (i - (nx - 1) / 2) * (w / nx) + (nr() - 0.5) * 0.5,
+        0,
+        (j - (nz - 1) / 2) * (d / nz) + (nr() - 0.5) * 0.5,
+      );
+      t.rotation.y = nr() * 6.28;
+      g.add(t);
+    }
+  return g;
+}
+// 閘門零件：主線的閘門（原點在壩頂中心、往下 8.2 m）縮 0.46、立在地面、微微傾斜
+function gateWreck() {
+  const m = buildDamGate(10);
+  m.scale.setScalar(0.46);
+  m.position.y = 8.2 * 0.46;
+  return tilted(m, 0, 0.07);
+}
+// 起重機的殘骸：岸壁起重機縮 0.3、往吊臂的反方向傾斜（碰撞是四支腳的外框）
+function craneWreck() {
+  const m = buildQuayCrane();
+  m.scale.setScalar(0.3);
+  return tilted(m, 0, 0.09);
+}
+// 壩頂的護欄（裝飾，沿本地 X）：每 2 m 一支柱＋兩道欄杆
+function damRail(o) {
+  const g = new THREE.Group();
+  const st = mat(0x8a8e90, { roughness: 0.5, metalness: 0.6 }),
+    yel = mat(0xd8a020, { roughness: 0.6 });
+  for (let x = -o.len / 2 + 0.2; x <= o.len / 2; x += 2) g.add(box(0.12, 1.1, 0.12, st, x, 0.55, 0));
+  g.add(box(o.len, 0.08, 0.1, yel, 0, 1.08, 0));
+  g.add(box(o.len, 0.06, 0.08, st, 0, 0.6, 0));
+  return g;
+}
+// 燈（障礙物的燈與壩頂的燈）：主線的路燈（原點在中心）立在地面
+function damLamp(o) {
+  const g = new THREE.Group();
+  const m = buildLampPost(o.h || 7, mat(0x6e7274, { roughness: 0.6, metalness: 0.5 }));
+  m.position.y = (o.h || 7) / 2;
+  g.add(m);
+  return g;
+}
 // 方塊的障礙物：plan 旋轉 90° 的倍數時寬深已對調，建模用旋轉前的尺寸
 const unrot = (o) => ((Math.round((o.yaw || 0) / (Math.PI / 2)) & 1) === 1 ? [o.d, o.w] : [o.w, o.d]);
 // 障礙物（world/rts-map.js 的 RTS_THEMES 的 model）；全部沿用主線主題的物件（已登記在模型庫，GLB 也照用）
@@ -151,6 +252,22 @@ export const RTS_PROPS = {
   g86wall: (o) => buildThemeWall('grid086', o.len, o.h, 0.6),
   seam,
   drain,
+  // 汙染水沒市街（R5）：傾倒的建築殘段、沉沒的公車與汽車（地圖殘骸）、彎折的路燈；水窪裡的裝飾
+  ruinblock: ruinBlock,
+  sunkbus: (o) => tilted(buildSunkBus(BUS_COL[o.color || 0]), 0, 0.05),
+  wreckcar: (o) => buildWreckCar(CAR_COL[o.color || 0]),
+  bentlamp: (o) => buildBentLamp(o.h),
+  poolcar: (o) => tilted(buildWreckCar(CAR_COL[o.color || 0]), o.tilt || 0, 0.12),
+  poollamp: (o) => tilted(buildBentLamp(6.5), (o.tilt || 0) + 0.15, 0),
+  poolsign: poolSign,
+  pooljunk: () => buildFloatJunk(),
+  // 多重水壩（R5）：消波塊群、閘門零件、起重機的殘骸、燈；裝飾的壩面（主題的 wall 外觀）、護欄、壩頂的燈
+  tetrapods,
+  gatewreck: gateWreck,
+  cranewreck: craneWreck,
+  damlamp: damLamp,
+  damwall: (o) => buildThemeWall('dam', o.len, o.h, 0.8),
+  damrail: damRail,
 };
 export function rtsPropMesh(o, T) {
   const f = RTS_PROPS[o.model];

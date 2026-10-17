@@ -4,7 +4,8 @@
 // RTS_HERO_DEFS[id]：kind 'unit'、hero: true、faction、name、role（定位）、asm（AC_ROSTER／ACES 的組裝）、atk 'hero'、
 //   arm 'hero'、armor、hp、dps、range、speed、sight、pop 5、time 55、slots、grow { hp, dps, armor }（每升一級）、
 //   skills [4 個技能 id：Z X C V]、card（英雄的指令卡）、menus.learn（學習技能的子選單）
-// 卡斯特隆：h_bastion、h_rain、h_pile；艾瑟立克：h_prism、h_curator、h_veil（docs 14.4）；維爾威：h_courier、h_skyhook、h_vector（15.4）；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
+// 卡斯特隆：h_bastion、h_rain、h_pile；艾瑟立克：h_prism、h_curator、h_veil（docs 14.4）；維爾威：h_courier、h_skyhook、h_vector（15.4）；
+// 聖域：h_mender、h_salvor、h_haven（16.4）；酒館（faction 'neutral'）：RTS_TAVERN 的 8 位。
 // 技能的行為在 entities/mech-rts-hero.js（施放）與 game/rts-hero.js（光環、區域、持續效果）。
 import { AC_ROSTER } from './enemies.js';
 import { ACES } from './foes.js';
@@ -771,6 +772,147 @@ export const RTS_SKILLS = {
     lv: [{ coral: 100, cd: 160, n: 8, t: 30 }],
     desc: '身邊出現 8 台偵察無人機 30 秒，跟著 VECTOR 攻擊它的目標（不佔人口、擊破不給經驗）',
   },
+  // ===== MENDER（聖域，docs 16.4）；ai＝電腦施放的條件（同維爾威） =====
+  sk_mend: {
+    name: '修復光束',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'ally',
+    bld: true, // 也可以對己方建築
+    range: 20,
+    auto: true,
+    ai: { k: 'ally', hp: 0.5 },
+    lv: L3(
+      { coral: 10, cd: 8, heal: 200, t: 4, bldK: 0.5, brk: 26 },
+      { coral: 15, cd: 8, heal: 320, t: 4, bldK: 0.5, brk: 26 },
+      { coral: 20, cd: 8, heal: 440, t: 4, bldK: 0.5, brk: 26 },
+    ),
+    desc: '友軍單位或建築 4 秒共回復 200／320／440 AP（建築 50%）；目標離開 26 m 中斷',
+  },
+  sk_triage: {
+    name: '緊急處置',
+    slot: 1,
+    kind: 'point',
+    range: 30,
+    ai: { k: 'ally', hp: 0.6, n: 3, r: 8 },
+    lv: L3(
+      { coral: 20, cd: 16, R: 8, heal: 0.15 },
+      { coral: 25, cd: 16, R: 8, heal: 0.22 },
+      { coral: 30, cd: 16, R: 8, heal: 0.3 },
+    ),
+    desc: '半徑 8 m 的己方單位立刻回復最大血量的 15／22／30%，解除暈眩、緩速、纏附、釘住',
+  },
+  sk_names: {
+    name: '記下名字',
+    slot: 2,
+    kind: 'aura',
+    r: 25,
+    lv: L3({ regen: 1, ore: 0.1 }, { regen: 2, ore: 0.15 }, { regen: 3, ore: 0.2 }),
+    desc: '光環 25 m：己方單位每秒回復 1／2／3 AP；範圍內己方一般單位陣亡時隊伍得到它礦石成本的 10／15／20%',
+  },
+  sk_lazarus: {
+    name: '重新站起來',
+    slot: 3,
+    kind: 'self',
+    aiR: 20,
+    ai: { k: 'wrecks', own: true, t: 60, n: 4, r: 20 },
+    lv: [{ coral: 100, cd: 160, R: 20, t: 60, max: 8, hp: 0.5 }],
+    desc: '20 m 內 60 秒內陣亡的己方一般單位（最多 8 台）在殘骸上重新組起來：血量 50%、佔人口（人口不夠的不起來），用掉那些殘骸',
+  },
+  // ===== SALVOR =====
+  sk_magnet: {
+    name: '磁吸',
+    slot: 0,
+    kind: 'unit',
+    tgt: 'enemy',
+    range: 24,
+    auto: true,
+    ground: true, // 只能對地面單位（不能拉建築、空中單位）
+    ai: { k: 'ranged' },
+    lv: L3(
+      { coral: 15, cd: 12, d: 3, stun: 1 },
+      { coral: 20, cd: 12, d: 3, stun: 1.5 },
+      { coral: 25, cd: 12, d: 3, stun: 2 },
+    ),
+    desc: '把 24 m 內的敵方地面單位拉到身邊 3 m＋暈眩 1／1.5／2 秒（不能拉建築、空中單位）',
+  },
+  sk_scrapmail: {
+    name: '廢鐵外殼',
+    slot: 1,
+    kind: 'self',
+    r: 15,
+    ai: { k: 'self', hp: 0.7, n: 2, r: 15, wrecks: 1 },
+    lv: L3(
+      { coral: 15, cd: 18, R: 15, n: 3, take: 40, shield: 120, parts: 2, t: 15 },
+      { coral: 15, cd: 18, R: 15, n: 4, take: 40, shield: 120, parts: 2, t: 15 },
+      { coral: 15, cd: 18, R: 15, n: 5, take: 40, shield: 120, parts: 2, t: 15 },
+    ),
+    desc: '吸 15 m 內的殘骸 3／4／5 個（每個用掉最多 40 礦石的價值）：每個給自己 120 吸收（15 秒）＋隊伍 2 零件；附近沒有殘骸不能施放',
+  },
+  sk_scrounge: {
+    name: '拾荒本能',
+    slot: 2,
+    kind: 'passive',
+    lv: L3({ k: 0.25, parts: 3 }, { k: 0.5, parts: 4 }, { k: 0.75, parts: 5 }),
+    desc: 'SALVOR 擊破的敵方單位留下的殘骸價值 +25／50／75%；每擊破一台隊伍 +3／4／5 零件',
+  },
+  sk_golem: {
+    name: '臨時巨像',
+    slot: 3,
+    kind: 'self',
+    aiR: 20,
+    ai: { k: 'wrecks', n: 3, r: 20 },
+    lv: [{ coral: 90, cd: 140, R: 20, min: 3, max: 10, per: 0.1, t: 45 }],
+    desc: '用掉 20 m 內的殘骸（至少 3 個、最多 10 個）拼出一台拼裝巨像 45 秒（不佔人口、擊破不給經驗）；每個殘骸最大血量 +10%（最多 +100%）',
+  },
+  // ===== HAVEN =====
+  sk_minefield: {
+    name: '布雷區',
+    slot: 0,
+    kind: 'point',
+    range: 30,
+    auto: true,
+    aiR: 28,
+    ai: { k: 'cluster', n: 3, r: 10 },
+    lv: L3(
+      { coral: 20, cd: 18, R: 8, n: 4, dmg: 80, life: 60 },
+      { coral: 25, cd: 18, R: 8, n: 6, dmg: 100, life: 60 },
+      { coral: 30, cd: 18, R: 8, n: 8, dmg: 120, life: 60 },
+    ),
+    desc: '半徑 8 m 立刻布下 4／6／8 顆地雷（80／100／120 爆發，60 秒後消失；不算布雷無人機的上限）',
+  },
+  sk_haven: {
+    name: '避難護盾',
+    slot: 1,
+    kind: 'unit',
+    tgt: 'ally',
+    range: 20,
+    auto: true,
+    ai: { k: 'ally', hp: 0.6, n: 3, r: 8 },
+    lv: L3(
+      { coral: 20, cd: 20, R: 8, t: 8, cap: 400, res: 1.25 },
+      { coral: 20, cd: 20, R: 8, t: 10, cap: 600, res: 1.25 },
+      { coral: 20, cd: 20, R: 8, t: 12, cap: 800, res: 1.25 },
+    ),
+    desc: '友軍單位身上張開半徑 8 m 的圓頂 8／10／12 秒：外面打進來的傷害由圓頂吸收，上限 400／600／800（研究圓頂強化 +25%）',
+  },
+  sk_hold: {
+    name: '守住家園',
+    slot: 2,
+    kind: 'aura',
+    r: 30,
+    lv: L3({ armor: 1, near: 30 }, { armor: 2, near: 30 }, { armor: 3, near: 30 }),
+    desc: '光環 30 m：己方建築 30 m 內的己方單位護甲 +1／2／3；範圍內的己方建築護甲 +1／2／3',
+  },
+  sk_refuge: {
+    name: '最後的避難所',
+    slot: 3,
+    kind: 'self',
+    aiR: 18,
+    ai: { k: 'army', n: 8, r: 18 },
+    lv: [{ coral: 100, cd: 150, R: 18, t: 15, taken: 0.4, speed: 0.6 }],
+    desc: '15 秒的大圓頂（半徑 18 m，HAVEN 不能移動）：裡面的己方單位與建築受到的傷害 ×0.4，敵方單位在裡面速度 ×0.6',
+  },
 };
 for (const id in RTS_SKILLS) RTS_SKILLS[id].id = id;
 
@@ -1065,6 +1207,75 @@ export const RTS_HERO_DEFS = {
     grow: { hp: 80, dps: 2.6, armor: 0.3 },
     skills: ['sk_flak', 'sk_jam', 'sk_slip', 'sk_squadron'],
   }),
+  // ===== 聖域（docs 16.4）：數值、組裝、技能照 16.4（R5 C 包）；配色由 rtsSpawn 依陣營（rtsPal('sancta')） =====
+  h_mender: hero('h_mender', {
+    faction: 'sancta',
+    name: 'MENDER',
+    role: '野戰醫護',
+    desc: '英雄：野戰醫護（修理、支援）。修復光束、緊急處置、記下名字、重新站起來',
+    tier: 1,
+    asm: {
+      ...AE,
+      head: 'h_scan',
+      core: 'c_std',
+      arms: 'a_lt',
+      legs: 'l_bp2',
+      rarm: 'w_rifle',
+      lback: 'bw_sh',
+    },
+    slots: ['rarm'],
+    hp: 1150,
+    armor: 2,
+    range: 28,
+    dps: 20,
+    speed: 9,
+    sight: 36,
+    grow: { hp: 80, dps: 2.2, armor: 0.35 },
+    skills: ['sk_mend', 'sk_triage', 'sk_names', 'sk_lazarus'],
+  }),
+  h_salvor: hero('h_salvor', {
+    faction: 'sancta',
+    name: 'SALVOR',
+    role: '拾荒工頭',
+    desc: '英雄：拾荒工頭（近戰、拾荒）。磁吸、廢鐵外殼、拾荒本能、臨時巨像',
+    tier: 1,
+    asm: AC('gravel'),
+    slots: ['rarm', 'larm'],
+    hp: 1500,
+    armor: 3,
+    range: 14,
+    dps: 28,
+    speed: 8,
+    sight: 32,
+    grow: { hp: 105, dps: 2.8, armor: 0.5 },
+    skills: ['sk_magnet', 'sk_scrapmail', 'sk_scrounge', 'sk_golem'],
+  }),
+  h_haven: hero('h_haven', {
+    faction: 'sancta',
+    name: 'HAVEN',
+    role: '避難所守衛',
+    desc: '英雄：避難所守衛（防守、布雷）。布雷區、避難護盾、守住家園、最後的避難所',
+    tier: 1,
+    asm: {
+      ...AE,
+      head: 'h_hv',
+      core: 'c_hv',
+      arms: 'a_hv',
+      legs: 'l_tk',
+      rarm: 'w_mg',
+      rback: 'bw_sh',
+      lback: 'bw_gr',
+    },
+    slots: ['rarm', 'lback'],
+    hp: 1700,
+    armor: 4,
+    range: 26,
+    dps: 22,
+    speed: 6.5,
+    sight: 34,
+    grow: { hp: 115, dps: 2.0, armor: 0.6 },
+    skills: ['sk_minefield', 'sk_haven', 'sk_hold', 'sk_refuge'],
+  }),
   // ===== 酒館的宿敵 AC（faction 'neutral'；全場唯一） =====
   t_rust: hero('t_rust', {
     faction: 'neutral',
@@ -1231,6 +1442,7 @@ export const RTS_FACTION_HEROES = {
   castron: ['h_bastion', 'h_rain', 'h_pile'],
   aetheric: ['h_prism', 'h_curator', 'h_veil'],
   veerwell: ['h_courier', 'h_skyhook', 'h_vector'],
+  sancta: ['h_mender', 'h_salvor', 'h_haven'],
 };
 
 // 經驗 → 等級（1～10）

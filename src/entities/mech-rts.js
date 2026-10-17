@@ -92,6 +92,7 @@ Object.assign(MechEntity.prototype, {
       rt.engage = null;
       rt.home = null;
       rt.gp = null;
+      rt.sp = null; // 拾荒（R5 A 包）
     }
     if (!o) {
       // 盾牆、架設好的自走砲：待命時不離開原地（只打射程內）
@@ -143,6 +144,14 @@ Object.assign(MechEntity.prototype, {
           // 運輸機卸載（R4 A 包：rts-veer.js 的 rtsUnloadStep；飛過去、下降、逐台放下）
           done = g.rtsUnloadStep ? g.rtsUnloadStep(this, o, dt) : true;
           break;
+        case 'salvage':
+          // 拾荒（R5 A 包：rts-sancta.js 的 rtsSalvageStep；拆殘骸、帶回回收點）
+          done = g.rtsSalvageStep ? g.rtsSalvageStep(this, o, dt) : true;
+          break;
+        case 'shelter':
+          // 避難警報（R5 A 包：rts-sancta.js 的 rtsShelterStep；走到避難建築躲進去）
+          done = g.rtsShelterStep ? g.rtsShelterStep(this, o, dt) : true;
+          break;
         default:
           done = true;
       }
@@ -176,6 +185,7 @@ Object.assign(MechEntity.prototype, {
       this.rt.buildOn = null;
     }
     if (this.model.rtsDrill) this.model.rtsDrill.rotation.y = 0;
+    if (this.rt.salvW && this.game.rtsSalvageLeave) this.game.rtsSalvageLeave(this); // 拾荒中的殘骸（R5 A 包）
     void o;
   },
 
@@ -509,6 +519,7 @@ Object.assign(MechEntity.prototype, {
     if (this.rtsSiege && !this.deployed) return; // 自走砲：只有架設好才能開火
     if (D.melee) return this.rtsAethMelee ? this.rtsAethMelee(t, this.game.rts.dt || 0.05, D) : undefined; // 近戰（R3 B 包）
     const n0 = this.game.projectiles.length;
+    const R = this.game.rts;
     // 只用定義的 slots 開火（預設 rarm）；各槽的傷害倍率 rtsSlotK（rts.js 依 dps 換算）、對空設定 slotAa／aa、
     // 開火間隔乘數值層的 rtsRofK
     const dm = this.dmgMul;
@@ -516,7 +527,14 @@ Object.assign(MechEntity.prototype, {
       const w = this.weapons[s];
       const wd = w && w.def;
       if (!wd || wd.type === 'none' || wd.type === 'shield' || wd.type === 'melee' || w.dropped) continue;
-      const aa = (D.slotAa && D.slotAa[s]) || D.aa || 'ground';
+      const aa0 = (D.slotAa && D.slotAa[s]) || D.aa || 'ground';
+      // 對空支架（R5 改裝）：地面武器也打空中，對空時傷害 ×rtsAaK
+      const aaFix =
+        this.rtsAa === 'both' &&
+        aa0 === 'ground' &&
+        t.flying &&
+        !(this.game.rtsLowAir && this.game.rtsLowAir(t)); // 低空本來就打得到（不打折）
+      const aa = aaFix ? 'both' : aa0;
       if (
         aa !== 'both' &&
         (aa === 'air') !== !!t.flying &&
@@ -525,17 +543,25 @@ Object.assign(MechEntity.prototype, {
         continue;
       if (wd.ammo && w.ammo < wd.ammo * 0.5) w.ammo = wd.ammo; // RTS：彈藥不會用完
       if (wd.mag) w.mag = wd.mag; // 也不換彈匣（rts.js 的 dps 換算只看兩發的間隔）
-      if (w.cd > 0 || w.reloadT > 0) continue;
-      // 開火間隔＝定義的 rof 與武器的 rof 取慢的（同 rts.js 的換算）× 數值層；上一發晚了多少（cd 已經是負的）
-      // 從下一發扣回，平均射速才不受每格的時間間隔影響
+      // 下一發的時間 w.rtsDue（局內時間）：move 的 cd 只減到 0 以下一格就停，AI 分批（每 2 格跑一次）時晚了多少看不出來，
+      // 射速剛好是格長倍數的武器會多等一格（民兵 MT 只有 83%），所以用局內時間判斷、晚了多少從下一發扣回
+      const now = R ? R.t : 0;
+      if (w.rtsDue !== undefined && R) {
+        // 別處把 cd 設大（暫停開火）時照舊等它
+        if (now < w.rtsDue - 1e-6 || w.reloadT > 0 || w.cd > Math.max(0, w.rtsDue - now) + 0.5) continue;
+        if (w.cd > 0) w.cd = 0;
+      } else if (w.cd > 0 || w.reloadT > 0) continue;
+      // 開火間隔＝定義的 rof 與武器的 rof 取慢的（同 rts.js 的換算）× 數值層
       const gap = Math.max(D.rof || 0, wd.rof || 0.1) * (this.rtsRofK || 1);
-      const late = Math.max(-gap, Math.min(0, w.cd));
-      this.dmgMul = dm * ((this.rtsSlotK && this.rtsSlotK[s]) || 1);
+      const late = Math.max(-gap, Math.min(0, w.rtsDue !== undefined && R ? w.rtsDue - now : w.cd));
+      this.dmgMul = dm * ((this.rtsSlotK && this.rtsSlotK[s]) || 1) * (aaFix ? this.rtsAaK || 1 : 1);
       const ok = this.fire(s, _aim, t);
       this.dmgMul = dm;
       if (ok) {
         w.cd = gap + late;
+        w.rtsDue = now + gap + late;
         w.reloadT = 0;
+        if (D.sub && this.rtsSancTorpedo) this.rtsSancTorpedo(n0, t); // 潛航砲艇：魚雷的彈體（R5）
       }
     }
     if (D.splash) this.rtsAbLob(n0, D);
@@ -768,7 +794,10 @@ Object.assign(MechEntity.prototype, {
     rt.dT = (rt.dT || 0) + dt;
     if (rt.dT < RTS_GATHER.drop) return false;
     rt.dT = 0;
-    if (this.carry && this.carry.n) {
+    if (this.carry && this.carry.n && this.carry.kind === 'salv' && g.rtsSalvageDeposit) {
+      // 拾荒帶回來的（R5 A 包）：礦石的維持費只套一半、Coral、零件
+      g.rtsSalvageDeposit(this.rtsTeam, this.carry);
+    } else if (this.carry && this.carry.n) {
       // 維爾威的集貨站（R4 A 包）：放進庫存、延遲入帳；其他回收點立刻入帳
       if (!(g.rtsHaulDeposit && g.rtsHaulDeposit(b, this.carry)))
         g.rtsDeposit(this.rtsTeam, this.carry.kind, this.carry.n);
@@ -869,7 +898,8 @@ Object.assign(MechEntity.prototype, {
     if (!this.rtsAuto) this.rtsAuto = {};
     const abil = D.abil || [];
     for (const ab of abil)
-      if (RTS_ABILS[ab] && RTS_ABILS[ab].auto && this.rtsAuto[ab] === undefined) this.rtsAuto[ab] = true;
+      if (RTS_ABILS[ab] && RTS_ABILS[ab].auto && this.rtsAuto[ab] === undefined)
+        this.rtsAuto[ab] = !RTS_ABILS[ab].autoOff; // autoOff：可以自動施放、預設關（R5 的布雷）
     if (abil.includes('ab_wall') || abil.includes('ab_crate')) this.specialDefense = rtsSpecialDefense;
     if (abil.includes('ab_crate') && this.rtsCrateT === undefined) {
       this.rtsCrateT = 0;
@@ -887,6 +917,7 @@ Object.assign(MechEntity.prototype, {
     }
     if (this.rtsAethInit) this.rtsAethInit(D); // 艾瑟立克（R3 B 包：entities/mech-rts-aeth.js）
     if (this.rtsVeerInit) this.rtsVeerInit(D); // 維爾威（R4 B 包：entities/mech-rts-veer.js）
+    if (this.rtsSancInit) this.rtsSancInit(D); // 聖域（R5 B 包：entities/mech-rts-sancta.js）
   },
   // 每格：回傳 true＝這一格不動也不開火（架設／收起中）
   rtsAbTick(dt, D) {
@@ -895,6 +926,9 @@ Object.assign(MechEntity.prototype, {
     if (this.rtsAethTick && this.rtsAethTick(dt, D)) return true;
     // 維爾威（R4 B 包）：推進跳躍、衝撞、卸載、搭乘中接手
     if (this.rtsVeerTick && this.rtsVeerTick(dt, D)) return true;
+    // 聖域：改裝的引導 2 秒不動（R5 A 包：rts-sancta.js）；展開中、潛航轉換、吸附中（R5 B 包）
+    if (this.game.rtsRefitHold && this.game.rtsRefitHold(this)) return true;
+    if (this.rtsSancTick && this.rtsSancTick(dt, D)) return true;
     // 叉架 MT：丟出貨櫃 20 秒後舉回新的貨櫃
     if (this.rtsCrateT !== undefined && !(this.bossVis & 1) && R.t >= this.rtsCrateT) this.bossVis |= 1;
     // 盾牆：每 0.5 秒掩護身後的友軍
@@ -1002,8 +1036,13 @@ Object.assign(MechEntity.prototype, {
     else if (ab === 'ab_flare') this.rtsAbFlare(o.x, o.z);
     else if (ab === 'ab_rockets') this.rtsAbRockets(o.x, o.z);
     // 艾瑟立克的技能（R3 B 包的 rtsAethAb：true＝施放了，費用與冷卻在這裡扣）
-    // 維爾威的技能（R4 B 包的 rtsVeerAb，同上）
-    else if (!(this.rtsAethAb && this.rtsAethAb(ab, o)) && !(this.rtsVeerAb && this.rtsVeerAb(ab, o))) return;
+    // 維爾威的技能（R4 B 包的 rtsVeerAb，同上）、聖域的技能（R5 B 包的 rtsSancAb，同上）
+    else if (
+      !(this.rtsAethAb && this.rtsAethAb(ab, o)) &&
+      !(this.rtsVeerAb && this.rtsVeerAb(ab, o)) &&
+      !(this.rtsSancAb && this.rtsSancAb(ab, o))
+    )
+      return;
     R.teams[this.rtsTeam].coral -= A.coral || 0;
     this.rtsCd[ab] = R.t + (A.cd || 0);
   },
@@ -1259,6 +1298,8 @@ Object.assign(MechEntity.prototype, {
     // 低空（R4：衝撞無人機、下降中的運輸機、收起的建築…）地面與對空的武器都打得到
     const g = this.game;
     if (t.flying && g.rtsLowAir && g.rtsLowAir(t)) return !!(D.aa || D.slotAa || D.range || D.dps);
+    // 聖域的對空支架（R5：rts-sancta.js 的改裝設 e.rtsAa＝'both'）：自己的武器（不是防禦塔的設定）地空都打
+    if (this.rtsAa === 'both' && !this.bld && (D.range || D.dps)) return true;
     const fly = !!t.flying;
     const ok = (aa) => aa === 'both' || (aa === 'air') === fly;
     if (ok(D.aa || 'ground')) return true;

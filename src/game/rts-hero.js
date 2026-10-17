@@ -78,6 +78,10 @@ const sameMods = (a, b) => {
   for (const k of ka) if (Math.abs((a[k] || 0) - ((b || {})[k] || 0)) > 1e-6) return false;
   return true;
 };
+// 光環的數值層（記下名字只有回血、守住家園只有護甲；其他照技能的參數）
+const HOLD_NEAR = RTS_SKILLS.sk_hold.lv[0].near; // 守住家園：己方建築幾公尺內的單位
+const auraMods = (id, P) =>
+  id === 'sk_names' ? { regen: P.regen } : id === 'sk_hold' ? { armor: P.armor } : P;
 const isTavernBld = (e) => e && e.bld && (e.rtsDef === 'n_tavern' || (RTS_DEFS[e.rtsDef] || {}).tavernBld);
 const isShopBld = (e) =>
   e && e.bld && !e.dead && (e.rtsDef === 'n_shop' || !!(RTS_DEFS[e.rtsDef] || {}).shop);
@@ -101,6 +105,8 @@ Object.assign(Game.prototype, {
       shields: new Set(), // 稜鏡屏障（e.rtsShield）的實體
       summit: {},
       express: [], // 特快專送（COURIER）的運輸機
+      mends: [], // 修復光束（MENDER）：{ src, t, per, n, brk }
+      domes: [], // 避難護盾（HAVEN）：{ id, host, team, r, n, n0, until, gone }
       tick: 0,
       pick: 0,
       zoneSeq: 0,
@@ -205,6 +211,8 @@ Object.assign(Game.prototype, {
     this.rtsHeroPassiveTick();
     this.rtsHeroShields();
     this.rtsHeroLeadTick();
+    this.rtsHeroMends();
+    this.rtsHeroDomes();
   },
   // VEIL 的相位迷彩（被動）：idle 秒沒有開火（打中敵人）、沒有施放技能就隱形；開火或施放現形（hs.actT＝最後一次）
   rtsHeroPhase(h, e, H) {
@@ -241,6 +249,173 @@ Object.assign(Game.prototype, {
     e.rtsShield = { n, t: this.rts.t + sec };
     this.rts.hfx.shields.add(e);
     if (this.rtsFxOk(e.pos)) this.fx.flash(e.center(), 2.6, 0x8fe8ff, 0.3);
+  },
+
+  // ================= 聖域（docs 16.4）：修復光束、避難護盾、陣亡的回饋、殘骸價值 =================
+  // 修復光束（MENDER）：每 0.5 秒回復一次，目標離開 brk m 或任一方陣亡就中斷
+  rtsHeroMendAdd(src, t, P) {
+    const F = this.rts.hfx;
+    F.mends = F.mends.filter((m) => m.t !== t || m.src !== src);
+    const n = Math.max(1, Math.round(P.t / TICK));
+    const per = (P.heal * (t.bld ? P.bldK : 1)) / n;
+    F.mends.push({ src, t, per, n, brk: P.brk });
+    if (this.rtsFxOk(t.pos)) {
+      this.fx.beam(src.center(), t.center(), 0x80ffb0, 0.12);
+      this.fx.flash(t.center(), 2, 0x80ffb0, 0.2);
+    }
+  },
+  rtsHeroMends() {
+    const F = this.rts.hfx;
+    for (let i = F.mends.length - 1; i >= 0; i--) {
+      const m = F.mends[i];
+      const d = m.t && m.src ? m.src.rtsDistTo(m.t) : 1e9;
+      if (!m.src || m.src.dead || !m.t || m.t.dead || m.n <= 0 || d > m.brk) {
+        if (m.n > 0 && m.src && !m.src.dead && m.src.rtsTeam === ME && d > m.brk)
+          this.rtsSay('修復光束中斷了');
+        F.mends.splice(i, 1);
+        continue;
+      }
+      m.n--;
+      m.t.hp = Math.min(m.t.maxHp, m.t.hp + m.per);
+      m.healed = (m.healed || 0) + m.per;
+      if (this.rtsFxOk(m.t.pos)) this.fx.beam(m.src.center(), m.t.center(), 0x80ffb0, 0.07);
+    }
+  },
+  // 避難護盾（HAVEN）：跟著 host 的半徑 r 圓頂，外面打進來的傷害由它吸收（上限 n）
+  rtsHeroDomeAdd(host, team, r, n, sec) {
+    const R = this.rts,
+      F = R.hfx;
+    for (const d of F.domes) if (d.host === host) d.gone = true; // 同一個目標取代舊的
+    F.domes = F.domes.filter((d) => !d.gone);
+    const d = { id: ++F.zoneSeq, host, team, r, n, n0: n, until: R.t + sec, gone: false };
+    F.domes.push(d);
+    this.rtsHeroDomeFx(d, sec, 0xf0d8a0);
+    return d;
+  },
+  // 圓頂的外觀：半透明的半球，跟著 host；破掉或到期時淡出
+  rtsHeroDomeFx(d, sec, color) {
+    const geo = new THREE.SphereGeometry(1, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.renderOrder = 3;
+    m.userData.helper = true;
+    const g = this;
+    let fade = 1;
+    this.fx.add(m, sec + 0.6, (q, k, dt) => {
+      const h = d.host;
+      if (h && !h.dead) m.position.set(h.pos.x, g.world.terrainHeight(h.pos.x, h.pos.z) - 0.3, h.pos.z);
+      else if (d.x !== undefined) m.position.set(d.x, g.world.terrainHeight(d.x, d.z) - 0.3, d.z);
+      const end = d.gone || !g.rts || g.rts.t >= d.until || (h && h.dead);
+      if (end) fade = Math.max(0, fade - (dt || 0.016) * 3);
+      m.scale.setScalar(d.r * (0.7 + 0.3 * Math.min(1, k * sec * 4)));
+      const hit = d.flashT && g.rts && g.rts.t - d.flashT < 0.15 ? 0.16 : 0;
+      mat.opacity = (0.14 + hit + 0.04 * Math.sin(k * sec * 6)) * fade;
+      m.visible = fade > 0.01 && !(h && h.fogHid);
+    });
+  },
+  rtsHeroDomes() {
+    const R = this.rts,
+      F = R.hfx;
+    for (let i = F.domes.length - 1; i >= 0; i--) {
+      const d = F.domes[i];
+      if (d.gone || d.until <= R.t || d.n <= 0 || (d.host && d.host.dead)) {
+        d.gone = true;
+        F.domes.splice(i, 1);
+      }
+    }
+  },
+  // 圓頂吸收：目標在圓頂裡、攻擊者在圓頂外（沒有攻擊者也算外面）；以相剋與護甲之後的實際傷害計算
+  rtsHeroDomeAbsorb(e, dmg, from, wid, attr) {
+    const R = this.rts;
+    for (const d of R.hfx.domes) {
+      if (d.gone || d.team !== e.rtsTeam || d.n <= 0 || d.until <= R.t) continue;
+      const h = d.host;
+      if (!h || h.dead) continue;
+      if (Math.hypot(e.pos.x - h.pos.x, e.pos.z - h.pos.z) > d.r) continue;
+      if (from && from.pos && Math.hypot(from.pos.x - h.pos.x, from.pos.z - h.pos.z) <= d.r) continue;
+      const k = Math.max(0.05, this.rtsDmgK(e._rtsAtk || this.rtsAtkOf(from, wid, attr), e) || 1);
+      const a = Math.min(d.n, dmg * k);
+      d.n -= a;
+      d.flashT = R.t;
+      if (d.n <= 0) {
+        d.gone = true;
+        if (this.rtsFxOk(h.pos)) this.fx.shockwave(h.center(), d.r, 0xf0d8a0);
+      }
+      dmg -= a / k;
+      if (!(dmg > 1e-6)) return 0;
+    }
+    return dmg;
+  },
+  // 己方一般單位陣亡（rtsXpOnKill）：記下名字的礦石、聚落名冊的零件（各取最好的一個，不疊加）；SALVOR 擊破的零件
+  rtsHeroSancDeath(dead, from) {
+    const R = this.rts;
+    const D = RTS_DEFS[dead.rtsDef] || {};
+    let ore = 0,
+      parts = 0;
+    for (const h of this.rtsHeroRecs(dead.rtsTeam)) {
+      const e = h.ent;
+      if (!e || e.dead || h.st !== 'alive' || e === dead || e.rtsAboard) continue;
+      const d = Math.hypot(e.pos.x - dead.pos.x, e.pos.z - dead.pos.z);
+      const i = RTS_HERO_DEFS[h.def].skills.indexOf('sk_names');
+      const P = i >= 0 && skillLv('sk_names', h.sk[i]);
+      if (P && d <= RTS_SKILLS.sk_names.r) ore = Math.max(ore, ((D.cost && D.cost.ore) || 0) * P.ore);
+      if (this.rtsHeroHas(h, 'i_logbook') && d <= RTS_ITEMS.i_logbook.r)
+        parts = Math.max(parts, RTS_ITEMS.i_logbook.parts);
+    }
+    const T = R.teams[dead.rtsTeam];
+    ore = Math.floor(ore + 1e-9);
+    if (ore > 0) {
+      this.rtsGrant(dead.rtsTeam, ore, 0);
+      T.names = (T.names || 0) + ore; // 統計（測試與 HUD）
+    }
+    if (parts > 0 && this.rtsPartsAdd) T.logbook = (T.logbook || 0) + this.rtsPartsAdd(dead.rtsTeam, parts);
+    // 拾荒本能：SALVOR 擊破敵方單位 +零件
+    if (
+      from &&
+      from.hero &&
+      from.rtsTeam !== undefined &&
+      from.rtsTeam !== dead.rtsTeam &&
+      this.rtsPartsAdd
+    ) {
+      const P = this.rtsHeroPassive(from, 'sk_scrounge');
+      if (P) {
+        const n = this.rtsPartsAdd(from.rtsTeam, P.parts);
+        const F = R.teams[from.rtsTeam];
+        F.scrounge = (F.scrounge || 0) + n;
+      }
+    }
+  },
+  // 英雄學了的被動技能的這一級參數（沒有＝null）
+  rtsHeroPassive(e, id) {
+    const rec = e && e.hero,
+      D = rec && RTS_HERO_DEFS[rec.def];
+    const i = D ? D.skills.indexOf(id) : -1;
+    return (i >= 0 && rec.sk[i] && skillLv(id, rec.sk[i])) || null;
+  },
+  // A 的掛勾（rtsWreckValue）：殘骸價值的倍率＝拾荒本能（SALVOR 擊破的敵方單位）× 聚落名冊（附近的英雄帶著）
+  rtsHeroWreckK(e, from) {
+    if (!this.rts || !e || e.bld) return 1;
+    let k = 1;
+    if (from && from.hero && from.rtsTeam !== e.rtsTeam) {
+      const P = this.rtsHeroPassive(from, 'sk_scrounge');
+      if (P) k *= 1 + P.k;
+    }
+    if (!e.hero)
+      for (const h of this.rtsHeroRecs(e.rtsTeam)) {
+        const q = h.ent;
+        if (!q || q.dead || h.st !== 'alive' || q.rtsAboard || !this.rtsHeroHas(h, 'i_logbook')) continue;
+        if (Math.hypot(q.pos.x - e.pos.x, q.pos.z - e.pos.z) > RTS_ITEMS.i_logbook.r) continue;
+        k *= RTS_ITEMS.i_logbook.wreckK;
+        break;
+      }
+    return k;
   },
 
   // ================= 紀錄與查詢 =================
@@ -445,6 +620,8 @@ Object.assign(Game.prototype, {
       F.wrecks.push({ x: dead.pos.x, z: dead.pos.z, t: R.t });
       if (F.wrecks.length > 80) F.wrecks.shift();
     }
+    // 聖域：記下名字（MENDER）、聚落名冊（己方一般單位陣亡）、拾荒本能（SALVOR 擊破）
+    if (!dead.bld && !dead.hero && !dead.rtsIllus && !dead.rtsTemp) this.rtsHeroSancDeath(dead, from);
     if (!from || from.rtsTeam === undefined || from.rtsTeam === dead.rtsTeam) return;
     // RUST 的回收再利用：擊破時永久傷害 +1%
     if (from.hero && !from.dead) {
@@ -601,7 +778,12 @@ Object.assign(Game.prototype, {
     if (S.kind === 'unit') {
       if (!tgt || !tgt.pos || tgt.dead) return false;
       const ally = S.tgt === 'ally';
-      if (ally ? tgt.rtsTeam !== e.rtsTeam || tgt.bld : tgt.rtsTeam === e.rtsTeam || tgt.rtsInv) return false;
+      if (ally ? tgt.rtsTeam !== e.rtsTeam || (tgt.bld && !S.bld) : tgt.rtsTeam === e.rtsTeam || tgt.rtsInv)
+        return false;
+      if (S.ground && (tgt.bld || tgt.flying)) {
+        if (e.rtsTeam === ME) this.rtsSay('不能對建築與空中單位施放');
+        return false; // 磁吸：只能拉地面單位
+      }
       if (S.bio && !(RTS_DEFS[tgt.rtsDef] || {}).bio) return false; // 催化：只對生體單位
     }
     if (S.kind === 'point') {
@@ -776,7 +958,7 @@ Object.assign(Game.prototype, {
           if (Object.keys(b).length) this.rtsBuff(t, { src: 'z' + z.id, ...b }, TICK + 0.15);
         }
       if (z.ally || z.smoke)
-        for (const t of this.rtsHeroAllies(z.team, z.x, z.z, z.r)) {
+        for (const t of this.rtsHeroAllies(z.team, z.x, z.z, z.r, !!z.bld)) {
           if (z.ally) this.rtsBuff(t, { src: 'z' + z.id, ...z.ally }, TICK + 0.15);
           if (z.smoke) {
             t.hSmokeT = R.t + TICK + 0.15;
@@ -922,7 +1104,14 @@ Object.assign(Game.prototype, {
         D.skills.forEach((id, i) => {
           const S = RTS_SKILLS[id];
           if (S.kind !== 'aura' || !h.sk[i]) return;
-          src[T.id].push({ key: id, lv: h.sk[i], x: e.pos.x, z: e.pos.z, r: S.r, m: skillLv(id, h.sk[i]) });
+          src[T.id].push({
+            key: id,
+            lv: h.sk[i],
+            x: e.pos.x,
+            z: e.pos.z,
+            r: S.r,
+            m: auraMods(id, skillLv(id, h.sk[i])),
+          });
         });
         if (this.rtsHeroHas(h, 'i_antenna')) {
           const A = RTS_ITEMS.i_antenna.aura;
@@ -941,6 +1130,7 @@ Object.assign(Game.prototype, {
           if (a.key === 'sk_reso' && !(D.atk === 'en' || D.atkEn)) continue; // 共振場：能量攻擊的友軍
           if (a.key === 'sk_symb' && !D.bio) continue; // 共生：生體單位
           if (a.key === 'sk_air' && !e.flying) continue; // 空域管制：己方空中單位
+          if (a.key === 'sk_hold' && !this.rtsHeroNearBld(e, HOLD_NEAR)) continue; // 守住家園：己方建築附近的單位
           best = best || {};
           if (!best[a.key] || best[a.key].lv < a.lv) best[a.key] = a;
         }
@@ -959,6 +1149,38 @@ Object.assign(Game.prototype, {
         this.rtsModsApply(e);
       }
     }
+    this.rtsHeroBldAuras(src);
+  },
+  // 守住家園（HAVEN）：光環範圍內的己方建築護甲（建築只吃這一種光環；有來源或身上還有時才走）
+  rtsHeroBldAuras(src) {
+    const R = this.rts;
+    const has = src.map((L) => L.some((a) => a.key === 'sk_hold'));
+    for (const e of R.units) {
+      if (e.dead || !e.bld || !e.rtsMods) continue;
+      const cur = e.rtsMods.aura;
+      if (!has[e.rtsTeam] && !(cur && Object.keys(cur).length)) continue;
+      let best = null;
+      if (has[e.rtsTeam])
+        for (const a of src[e.rtsTeam]) {
+          if (a.key !== 'sk_hold') continue;
+          const r = Math.max(e.bld.w, e.bld.d) / 2;
+          if (Math.hypot(a.x - e.pos.x, a.z - e.pos.z) - r > a.r) continue;
+          if (!best || best.lv < a.lv) best = a;
+        }
+      const o = best ? { armor: best.m.armor } : {};
+      if (!sameMods(o, cur)) {
+        e.rtsMods.aura = o;
+        this.rtsModsApply(e);
+      }
+    }
+  },
+  // 單位的 r m 內（建築從佔地邊緣算）有己方蓋好的建築
+  rtsHeroNearBld(e, r) {
+    for (const b of this.rtsNear(e.pos.x, e.pos.z, r + 12)) {
+      if (!b || b.dead || !b.bld || b.rtsTeam !== e.rtsTeam || b.bld.progress < 1) continue;
+      if (Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) - Math.max(b.bld.w, b.bld.d) / 2 <= r) return true;
+    }
+    return false;
   },
 
   // ================= 命中的掛勾（rtsHook 之後包一層） =================
@@ -974,6 +1196,7 @@ Object.assign(Game.prototype, {
         dmg = g.rtsHeroOnHit(from, this, dmg);
       if (this.hero) dmg = g.rtsHeroOnHurt(this, dmg, from, this._rtsAtk || g.rtsAtkOf(from, wid, attr));
       if (this.rtsShield && dmg > 0) dmg = g.rtsShieldAbsorb(this, dmg, from, wid, attr);
+      if (dmg > 0 && g.rts.hfx.domes.length) dmg = g.rtsHeroDomeAbsorb(this, dmg, from, wid, attr);
       if (!(dmg > 0)) return;
       return td.call(this, dmg, impact, from, at, dir, melee, wid, attr);
     };
@@ -1195,6 +1418,34 @@ Object.assign(Game.prototype, {
         this.fx.beam(e.center(), p, 0x9be070, 0.1);
         break;
       }
+      // ===== 聖域的專屬道具（docs 16.4） =====
+      case 'i_magnet': {
+        let best = null;
+        for (const w of this.rtsWreckAt ? this.rtsWreckAt(e.pos.x, e.pos.z, I.r, { team }) : [])
+          if (!best || w.ore > best.ore) best = w;
+        if (!best) return (team === ME && this.rtsSay('附近沒有殘骸'), false);
+        const c = this.rtsWreckTake(best, Infinity);
+        const got = {
+          ore: Math.floor(c.ore * I.k + 1e-9),
+          coral: Math.floor(c.coral * I.k + 1e-9),
+          parts: Math.floor(c.parts * I.k + 1e-9),
+        };
+        this.rtsSalvageDeposit(team, got);
+        H.magnetGot = got; // 測試與 HUD 用
+        if (this.rtsFxOk(e.pos)) {
+          const p = new THREE.Vector3(best.x, this.world.terrainHeight(best.x, best.z) + 0.6, best.z);
+          this.fx.beam(p, e.center(), 0xc8a060, 0.12);
+          this.fx.dust(p, 2, 8, 0x8a7a60);
+        }
+        break;
+      }
+      case 'i_bandage':
+        for (const u of [e, ...this.rtsHeroAllies(team, e.pos.x, e.pos.z, I.r)]) {
+          if (u !== e && (u.rtsAboard || u.rtsIllus)) continue;
+          this.rtsBuff(u, { src: 'i_bandage', regen: I.heal / I.t }, I.t);
+        }
+        if (this.rtsFxOk(e.pos)) this.fx.ring(e.pos.clone().setY(e.pos.y + 0.3), I.r, 0xf0e0b0);
+        break;
       default:
         return false;
     }

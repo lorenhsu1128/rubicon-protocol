@@ -1,10 +1,12 @@
-// RTS 地圖產生器與導航格的自測（node scripts/rts-map-test.js [種子數，預設 100] [--theme=wasteland|snow|institute|spaceport|grid086|all]）：
+// RTS 地圖產生器與導航格的自測（node scripts/rts-map-test.js [種子數，預設 100] [--theme=wasteland|snow|institute|spaceport|grid086|flooded|dam|all]）：
 // 每個種子產生地圖 → 對稱（高度圖、障礙物、點位轉 180° 相同）、可達與路徑長度相等（產生器自己的檢查）、產生耗時；
 // 最後量 400 m、cell 2 的 findPath 與 flowField 耗時（含 120 個單位同時下指令）。
 // 荒野、冰原、技研都市另外比對 100 個種子的地圖雜湊（HASHES：R4 加主題之前的結果；新主題的附加地形不能改到它們）；
 // 冰原檢查冰湖（在通道上、冰面高度、不在主基地與資源 20 m 內），技研都市檢查湧出點 6 個；
 // 舊宇宙港外圍檢查發射台（頂面高度、可以蓋、發射塔）與防爆牆列（離通道 WALL_GAP 以上），Grid 086 地表檢查構造體台階
-// （兩層的高度、頂層可以蓋、從主基地到得了）；R4 的兩個主題第一次就合格的比例要 60% 以上。
+// （兩層的高度、頂層可以蓋、從主基地到得了）；R5 的汙染水沒市街檢查水窪（成對、水深 0.9～1.2 m、每條通道都經過），
+// 多重水壩檢查壩體（壩頂高度、可以蓋、四條坡道成對、河道水深 0.8 m）；兩個主題整張圖的水深都不超過 1.4 m；
+// R4、R5 的四個主題第一次就合格的比例要 60% 以上。既有五個主題比對地圖雜湊（HASHES）。
 'use strict';
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -16,6 +18,9 @@ const HASHES = {
   wasteland: 'dbdb9dc2c7e03e5ade9c311c60ed051797a5320f',
   snow: '5299d75d5540fdc062c78b0dabb50634ce8429a1',
   institute: '60a6b81654ebc1d78e7a2b652b667a96ec5e5374',
+  // R5 之前（R4 的結果）
+  spaceport: 'dcf836115e5c33f655977620217b4144fd8a9fe0',
+  grid086: '29de65975c8b0da7f79dddb2d3ab9f8b8f51ade7',
 };
 const planHash = (p) => {
   const hs = crypto.createHash('sha1');
@@ -29,9 +34,17 @@ const planHash = (p) => {
 };
 
 (async () => {
-  const { planRtsMap, rtsShim, rtsOnLake, RTS_THEMES, RTS_ICE_Y, wallsBad, WALL_GAP } = await import(
-    src('world/rts-map.js')
-  );
+  const {
+    planRtsMap,
+    rtsShim,
+    rtsOnLake,
+    rtsInPool,
+    RTS_THEMES,
+    RTS_ICE_Y,
+    RTS_WATER_Y,
+    wallsBad,
+    WALL_GAP,
+  } = await import(src('world/rts-map.js'));
   const { NavGrid } = await import(src('world/nav.js'));
   const N = +process.argv.slice(2).find((a) => /^\d+$/.test(a)) || 100;
   const targ = (process.argv.find((a) => a.startsWith('--theme=')) || '--theme=wasteland').slice(8);
@@ -132,6 +145,55 @@ const planHash = (p) => {
         }
         if (!(plan.decor || []).some((d) => d.model === 'g86wall')) errs.push('沒有金屬牆');
       }
+      // R5：水面主題（全部可以走：水深最多 1.4 m）
+      if (plan.waterY !== undefined) {
+        let deep = 0;
+        for (let k = 0; k < n * n; k++) deep = Math.max(deep, plan.waterY - h[k]);
+        if (deep > 1.4 + 1e-3) errs.push('水太深 ' + deep.toFixed(2));
+        stat.deep = Math.max(stat.deep || 0, deep);
+      }
+      if (theme === 'flooded') {
+        const pools = plan.pools || [];
+        if (pools.length < 6 || pools.length > 10) errs.push('水窪數 ' + pools.length);
+        symList('水窪', pools, (o) => o);
+        for (const q of pools) {
+          const d = RTS_WATER_Y - thR(q.x, q.z);
+          if (d < 0.85 || d > 1.25) errs.push('水窪深度 ' + d.toFixed(2));
+        }
+        for (const ln of plan.lanes) {
+          let hit = false;
+          for (let k = 1; k < ln.length && !hit; k++)
+            for (let s2 = 0; s2 <= 20 && !hit; s2++)
+              hit = rtsInPool(
+                plan,
+                ln[k - 1].x + ((ln[k].x - ln[k - 1].x) * s2) / 20,
+                ln[k - 1].z + ((ln[k].z - ln[k - 1].z) * s2) / 20,
+              );
+          if (!hit) errs.push('通道沒有經過水窪');
+        }
+        if (plan.obstacles.some((o) => rtsInPool(plan, o.x, o.z))) errs.push('水窪裡有障礙物');
+        stat.pools = (stat.pools || 0) + pools.length / 2;
+      }
+      if (theme === 'dam') {
+        const D = plan.dam;
+        if (!D) errs.push('沒有壩體');
+        else {
+          if (D.ramps.length !== 4) errs.push('坡道數 ' + D.ramps.length);
+          symList('坡道', D.ramps, (o) => o.top);
+          for (const q of D.tops) {
+            if (Math.abs(thR(q.x, q.z) - D.h) > 0.4) errs.push('壩頂高度');
+            if (!topOk(q.x, q.z)) errs.push('壩頂不能蓋');
+          }
+          const ax = Math.cos(plan.axis),
+            az = Math.sin(plan.axis);
+          // 中央平台與坡道之間（v＝平台＋8）的河道中央
+          const u = D.river.u0 + D.river.w / 2,
+            v = D.plaza + 8;
+          const rd = RTS_WATER_Y - thR(u * ax - v * az, u * az + v * ax);
+          if (Math.abs(rd - 0.8) > 0.15) errs.push('河道水深 ' + rd.toFixed(2));
+          if (!(plan.decor || []).some((d) => d.model === 'damwall')) errs.push('沒有壩面');
+        }
+      }
       if (plan.tries === 1) stat.first = (stat.first || 0) + 1;
       if (plan.camps.length < 6 || plan.camps.length > 10) errs.push('營地數 ' + plan.camps.length);
       if (plan.lanes.length < 2) errs.push('通道數 ' + plan.lanes.length);
@@ -175,7 +237,9 @@ const planHash = (p) => {
       );
       if (!same) bad++;
     }
-    if ((theme === 'spaceport' || theme === 'grid086') && (stat.first || 0) < N * 0.6) {
+    if (stat.deep !== undefined) console.log(`最深的水 ${stat.deep.toFixed(2)} m`);
+    if (stat.pools) console.log(`水窪（半張圖）平均 ${(stat.pools / N).toFixed(2)} 個`);
+    if (['spaceport', 'grid086', 'flooded', 'dam'].includes(theme) && (stat.first || 0) < N * 0.6) {
       console.log(`第一次就合格的比例 ${stat.first || 0}／${N} 低於 60%`);
       bad++;
     }

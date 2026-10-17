@@ -11,6 +11,8 @@
 // R4（docs 15.2）：對空的視野 visAir——同樣的觀察者與半徑、不看高度（場上有空中／低空的實體時才算）；
 // 空中（flying）與低空（rtsLowAir）的實體查 visAir，所以斷崖下的單位看得到台上的空中單位、看不到台上的地面單位。
 // 收起搬走的建築：在飛時不記成殘影（它是單位的狀態）；記得的位置重新看到、建築不在那裡時拿掉。運輸機上的乘員不提供視野。
+// R5（docs 16.2；rts-sancta.js）：每 0.2 秒的迴圈裡殘骸的「看過」與殘影（rtsWreckFog）、地雷的可見度（rtsLandMineFog）；
+// 潛航中的實體（e.rtsSub）只有 6 m 內有敵方實體或被照明、揭露時看得到（rtsSubSeen）；迷霧網格貼著 max(地形, 水面)。
 import { Game } from './game.js';
 import { isOutline } from '../render/geometry.js';
 import { FAR_R } from '../world/edges.js';
@@ -259,7 +261,10 @@ Object.assign(Game.prototype, {
       uv = geo.attributes.uv;
     const TW = F.W + 2,
       full = TW * F.cell;
-    const fh = w.farHeight ? (x, z) => w.farHeight(x, z) : (x, z) => w.terrainHeight(x, z);
+    const fh0 = w.farHeight ? (x, z) => w.farHeight(x, z) : (x, z) => w.terrainHeight(x, z);
+    // 有水面時貼著 max(地形, 水面)（R5：汙染水沒市街、多重水壩；沒探索過的水面也要黑）
+    const wl = w.waterMesh && w.theme && w.theme.water ? w.theme.water.level : null;
+    const fh = wl === null || wl === undefined ? fh0 : (x, z) => Math.max(fh0(x, z), wl);
     for (let k = 0; k < pos.count; k++) {
       const x = pos.getX(k),
         z = pos.getZ(k);
@@ -422,6 +427,9 @@ Object.assign(Game.prototype, {
         }
       }
     }
+    // 聖域（rts-sancta.js）：殘骸的「看過」與殘影、地雷的可見度
+    if (this.rtsWreckFog) this.rtsWreckFog(F);
+    if (this.rtsLandMineFog) this.rtsLandMineFog(F);
     // 未探索處的地圖物件
     const me = F.teams.find((q) => q.id === F.me);
     F.hideProps = [];
@@ -485,6 +493,8 @@ Object.assign(Game.prototype, {
   // 隊伍 T 看不看得到實體 e（建築看佔地範圍內的幾個點）
   rtsFogSees(F, T, e) {
     if (T.cheat) return true;
+    // 潛航中（R5，B 包設 e.rtsSub）：敵方 6 m 內沒有實體、沒有被照明或揭露時看不到
+    if (e.rtsSub && T.id !== e.rtsTeam && this.rtsSubSeen && !this.rtsSubSeen(F, T, e)) return false;
     // 空中與低空的實體查對空的視野（不看高度）
     const V = T.airOk && (e.flying || (this.rtsLowAir && this.rtsLowAir(e))) ? T.visAir : T.vis;
     const c = this.rtsFogCell(F, e.pos.x, e.pos.z);

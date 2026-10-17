@@ -84,9 +84,11 @@ import './game/rts.js'; // Coral 戰爭的核心：選單、開局、資源、�
 import './game/rts-orders.js'; // Coral 戰爭的指令發佈、尋路排隊
 import './game/rts-grid.js'; // Coral 戰爭 R3：艾瑟立克的導管網、融合、幻象、結晶護壁
 import './game/rts-veer.js'; // Coral 戰爭 R4：維爾威的空投、投放艙、機動建築、集貨站、交易、搭乘
+import './game/rts-sancta.js'; // Coral 戰爭 R5：聖域的殘骸、拾荒、零件、改裝、避難警報、拆除、地雷
 import './entities/mech-rts.js'; // Coral 戰爭的單位行為
 import './entities/mech-rts-aeth.js'; // Coral 戰爭 R3：艾瑟立克的兵種行為（近戰、技能、雷射網、融合的外觀）
 import './entities/mech-rts-veer.js'; // Coral 戰爭 R4：維爾威的兵種行為（推進跳躍、衝撞、掃射、飛彈防禦塔、空投與投放艙的外觀）
+import './entities/mech-rts-sancta.js'; // Coral 戰爭 R5：聖域的兵種行為（回收拖車、釘住、修理、布雷、潛航、外殼、圓頂、重組；殘骸與地雷的外觀）
 import './game/rts-ai.js'; // Coral 戰爭的電腦對手
 import './game/rts-pilot.js'; // Coral 戰爭的親自駕駛、自動管家
 import './game/rts-neutral.js'; // Coral 戰爭的中立：野怪營地、酒館、商店、傭兵營

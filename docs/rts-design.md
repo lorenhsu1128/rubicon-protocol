@@ -229,6 +229,7 @@
   - 剩下的大項（120 台、far）：`move` 約 3.7 ms（動作、碰撞、推進器）、單位 AI 其餘約 0.8 ms、骨架的節點矩陣約 1.5 ms、粒子更新與寫入約 2 ms、投射物約 1 ms。要再快可以做同型單位的 InstancedMesh（骨架改成每台幾個實例矩陣）與遠處的低面數模型（120 台約 80～100 萬個三角形）。
 
 - **R2 A 包（2026-10-17）**：`--heroes=6 --camps`（120 台＋6 個英雄＋26 台野怪，`--hud=rts`）near 53.9 FPS（1% low 37.7）、更新 10.3／渲染 7.8 ms、379 draw calls（13.12）。
+- **R5 A 包（2026-10-17，AMD Radeon 880M、`--rts --hp --hud=rts --counts=120 --heroes=6 --camps`、near、各量 6 秒）**：卡斯特隆 53.2 FPS／370 draw calls；`--faction=sancta`（B 包的 `rtsSancReskin` 之前是一般任務的同名敵人模型）53.3 FPS／416；`--faction=castron,sancta` 56.6 FPS／393；`--faction=sancta --wrecks=140` 54.7 FPS／426（B 包之前殘骸沒有外觀，只量到紀錄）。殘骸的產生一次約 0.004 ms、迷霧的「看過」140 個殘骸一輪約 0.02 ms（`testRtsSanc` 量）。聖域的 draw calls 多 12%，B 包換成 RTS 定義的外觀後重量。
 
 ### 8.4 和現有系統的關係
 
@@ -2356,3 +2357,176 @@ export const RTS_SANC = {
 - **E**：殘骸的點選（螢幕投影距離，只有看過的）；右鍵的優先序（敵人 > 殘骸 > 礦脈 > 地面）；第三種資源只有聖域顯示；改裝的子選單和技能格不衝突（C 改裝、Z 技能）；拆除用 `uiConfirm`（不用瀏覽器的 confirm）。
 - **F**：`rts-ai.js` 裡以台數比較部隊的地方（門檻、上限、撤退）對聖域改成人口；拾荒工不算進工人上限；改裝中的單位不出擊；寫死的陣營角色照 14.6 的表。
 - **待定**（R6）：爆發攻擊能不能炸散殘骸（讓對手能「拒絕」聖域的收入）；殘骸要不要擋路；地圖殘骸拆完要不要換外觀（障礙物已經靜態合併，換外觀要拆開合併）。
+
+### 16.11 A 包（核心與資料）的實作結果與掛勾
+
+> A 包已完成（2026-10-17）。B～E 以這一節為準接上；和 16.1～16.10 不同的地方都列在「規格的修改」。
+
+- **檔案**：`data/rts-sancta.js`（新：`RTS_SANC`、`RTS_REFITS`／`RTS_REFIT_IDS`、`RTS_SANC_ABILS`、`RTS_SANC_RESEARCH`、`RTS_SANC_DEFS`、`RTS_SANC_FACTION`）、**`game/rts-sancta.js`（新 mixin，`main.js` 一行 import）**、`data/rts-units.js`（合併、`RTS_FACTIONS.sancta` 開放、`costTxt` 改成 export 並顯示零件）、`game/rts.js`、`game/rts-orders.js`、`game/rts-fog.js`、`game/rts-grid.js`（`rtsBldAbility` 多 `ab_shelter`／`ab_unshelter`）、`scripts/rts-bench.js`、`scripts/smoke-rts-sanc-a.js`（`testRtsSanc`）、`scripts/smoke-rts.js`（選單的陣營檢查改成四個都能選）。別包的檔案（最少行，各包接手時保留或改寫）：
+  - `data/rts-heroes.js`（C）：`RTS_FACTION_HEROES.sancta` 與三位英雄的**空殼** `h_mender`／`h_salvor`／`h_haven`（16.4 的數值、組裝、`slots`；**技能暫時借卡斯特隆的**：MENDER＝BASTION、SALVOR＝PILEDRIVER、HAVEN＝RAIN 的四個，C 換成 16.4 的 12 個）。
+  - `entities/mech-rts.js`（B）：16.1 的分派都放好了（`rtsAbInit` 結尾 `rtsSancInit(D)`、`rtsAbTick` 在維爾威之後先問 A 的 `g.rtsRefitHold(this)`（改裝的引導 2 秒不動）再問 `rtsSancTick(dt, D)`、`rtsAbCast` 在 `rtsVeerAb` 之後問 `rtsSancAb(ab, o)`）；指令 `salvage`／`shelter` 轉給 `g.rtsSalvageStep`／`g.rtsShelterStep`；`rtsLeaveOrder` 放開拾荒中的殘骸；換指令時清 `rt.sp`；`rtsGather` 交貨時 `carry.kind === 'salv'` 改走 `g.rtsSalvageDeposit`；`rtsAbInit` 的自動施放讀 `autoOff`（布雷預設關）；**對空支架**：`rtsAbCanHit` 對 `this.rtsAa === 'both'`（自己的武器）一律 true、`rtsFire` 的地面槽打空中目標時傷害乘 `this.rtsAaK`（`rtsScan` 不用改：它經過 `rtsAbCanHit`）。
+- **核心 API（rts-sancta.js）**：
+  - 共用：`rtsSalvageTeam(t)`（陣營有 `salvage`）、`rtsSalvageInit()`（rtsStart 呼叫：`R.salvage`、`R.wrecks`、`R.wreckMap`、`R.wreckGrid`、`R.wreckGone`、`R.lmines`、`T.parts`、地圖殘骸）。
+  - 殘骸：紀錄 `{ id 'w<n>', wreck: true, x, z, y, r, ore, coral, parts, ore0, size 0～3, bld, map, ob（地圖殘骸的障礙物）, def, team（原本的隊伍，地圖殘骸 −1）, t0, life, end（地圖殘骸 Infinity）, rise（冒出來的局內時間：單位 +0.8、建築 +2.4、拆除 +0.3）, takers（實體 id 的 Set）, seen（位元）, known: { 隊伍: { ore, size } }, list: [{ team, def, t0 }]（合併進來的每一台）, gone, ghost（還記得它的隊伍，位元）, fx（B 自由使用）}`。`rtsWreckAdd(e, from, { scrap })`、`rtsWreckPut(x, z, v)`、`rtsWreckSpawn(x, z, { ore, coral, parts, size, team, def, life })`（除錯）、`rtsWreckRemove(w)`、`rtsWreckAt(x, z, r, { team, own, t, map, all })`（由近到遠；`team`＝這一隊看過的，地圖殘骸一律算；`own`＝原本是這一隊的；`t`＝幾秒內產生的）、`rtsWreckTake(w, maxOre)`→`{ ore, coral, parts }`（零件與 Coral 依比例無條件進位；拆完移除，地圖殘骸只歸零）、`rtsWreckById(id)`、`rtsWreckKnown(t)`→`[{ id, x, z, ore, size, map, team, gone }]`（電腦只用它）、`rtsWreckValue(e, from, scrap)`、`rtsWreckFog(F)`（rts-fog.js 呼叫）、`rtsWreckBench(n, cx, cz)`（效能基準）。
+  - 拾荒：`rtsSalvageStep(e, o, dt)`、`rtsSalvageOrder(units, w, queue)`、`rtsSalvageTrip(t, hauler)`（12／15／18、回收拖車 30／38／45）、`rtsSalvageDeposit(t, { ore, coral, parts })`（B 的回收拖車自己拆的也用它）、`rtsSalvageNext(e, x, z)`、`rtsSalvageLeave(e)`、`rtsSalvageDropoff(t, x, z)`。工人的暫存在 `e.rt`：`sp` 'to'｜'work'｜'back'、`salvW`（拆中的殘骸）。
+  - 零件：`T.parts`、`rtsPartsCap(t)`、`rtsPartsAdd(t, n)`→實際加的；費用 `rtsAfford`／`rtsPay`／`rtsRefund`（rts.js）認 `cost.parts`，`rtsCostWhy(t, cost)`→'礦石不足'｜'Coral 不足'｜'零件不足'｜''（rtsPlace／rtsQueue／rtsUpgrade 的提示都改用它）。
+  - 改裝：`rtsRefitWhy(e, rf, { noRange, noCost })`、`rtsRefit(units, rf)`→台數、`rtsRefitCost(t, rf, e)`→`{ parts, ore }`、`rtsRefitStations(t)`→`[{ e, r, tool }]`、`rtsRefitNear(e)`、`rtsRefitOk(e, rf)`、`rtsRefitHold(e)`、`rtsRefitApply(e, rf)`。單位上：`e.rtsRefit`（裝好的）、`e.rtsRefitTo`／`e.rtsRefitT`（引導中）、`e.rtsAa`／`e.rtsAaK`（對空支架）、數值層 `e.rtsMods.item`。
+  - 避難：`rtsShelterWhy(hq)`、`rtsShelter(hq)`→派出的工人數、`rtsUnshelter(b)`（聚落中心＝全隊；避難屋與瞭望塔的「放出工人」只放那一座）、`rtsShelterIn(e, b, end)`、`rtsShelterOut(e, hurtK)`、`rtsShelterCap(b)`。建築上：`b.bld.shel`（躲著的實體 id）、`b.bld.shelRes`（跑過去中的保留數）。工人：`e.rtsShelter`＝建築（實體）、`e.rtsAboard`＝'sh'＋建築 id、`e.rtsShelT`（出來的局內時間）、`e.rtsShelPrev`（原本的指令）。
+  - 拆除：`rtsScrapWhy(b)`、`rtsScrapBld(b)`（`b.bld.scrapT`＝消失的局內時間）。
+  - 地雷：紀錄 `R.lmines = [{ id 'lm<n>', team, x, z, y, owner（實體 id）, free, dmg, r, armT, t0, end, vis（現在看得到的隊伍，位元）, seen, fx }]`；`rtsLandMineAdd(t, x, z, { owner, dmg, arm, life, r, noCap })`、`rtsLandMineRemove(m, kind)`、`rtsLandMineBoom(m)`、`rtsLandMinesOf(t)`、`rtsLandMinesSeen(t)`、`rtsLandMineFog(F)`。
+  - 潛航：`rtsSubSeen(F, T, e)`（rts-fog.js 的 `rtsFogSees` 對 `e.rtsSub` 的實體呼叫）。
+  - 每格 `rtsSalvageTick(dt)`（rtsSim 在維爾威之後：殘骸過期、地雷、避難與開火、改裝完成、拆除、每 0.5 秒診療所與互助網）；死亡 `rtsSalvageOnDeath(e, from)`（rtsOnDeath 在 `rtsVeerOnDeath` 之後：自爆裝藥、避難的工人彈出、撿零件的掛勾、殘骸）。
+  - 指令（rts-orders.js）：`{ k: 'salvage', wid }`（或 `{ k: 'salvage', x, z }`：地點附近這一隊看過的殘骸；會拾荒的工人拆、其他的走過去；回傳拆的台數）、`{ k: 'gather', wid }`＝salvage、`{ k: 'refit', rf }`（回傳台數）、`{ k: 'scrap' }`（選取中的建築，回傳座數）；避難的兩格照舊是建築技能 `{ k: 'ability', ab: 'ab_shelter'｜'ab_unshelter' }`。`rtsSmart`：target 是殘骸紀錄（`w.wreck`），或沒有點到東西時地上（1.5 m）有這一隊看過的殘骸＝會拾荒的工人拆（優先於礦脈），其他單位走過去；只選建築時殘骸當作地面（集結點）。
+- **給各包的掛勾（A 已經呼叫，沒實作時略過）**：
+
+| 包 | 方法 | 呼叫的地方 |
+|---|---|---|
+| B | `this.rtsSancWreckFx(w, 'add'｜'set'｜'del'｜'seen')` | 產生（合併時是 'set'）、價值改變、移除（玩家看不到那一格時延到重新看到才 'del'）、玩家第一次看到；`w.rise`＝冒出來的時間、`w.end − 30`＝開始沉下去；`rtsWreckBench` 在**沒有 this.rts** 的一般任務裡也會呼叫（效能基準），外觀要能自己建批次 |
+| B | `u.rtsSancNearDeath(e)` | 12 m 內有單位（不是建築、quiet、幻象）死掉時，附近每台有這個方法的實體（不分敵我，B 自己判斷） |
+| B | `t.rtsSancDefense(dmg, from, atk)` → 新的傷害 | `rtsHook` 的 takeDamage：相剋與護甲之後（C 的 `rtsHeroWrap` 在外層，稜鏡屏障等先吸收） |
+| B | `e.rtsSancInit(D)`、`e.rtsSancTick(dt, D)`、`e.rtsSancAb(ab, o)` | mech-rts.js 的分派（上面） |
+| B | `e.rtsSancRefitFx(rf, prev)` | 改裝完成（換掉的是 prev） |
+| B | `this.rtsSancMineFx(m, 'add'｜'boom'｜'seen'｜'del')` | 放下、引爆（沒有 B 時 A 畫爆炸）、**玩家的可見度改變（看得到或看不到都呼叫，讀 `m.vis`）**、移除（上限、過期） |
+| B | `e.rtsHaulOn`（B 設定） | 展開好的回收拖車：A 的 `rtsDropoff` 當回收點、`rtsRefitStations` 當 8 m 改裝站 |
+| B | `e.rtsSub`（B 設定） | 潛航中：迷霧的 `rtsSubSeen` |
+| C | `this.rtsHeroWreckK(e, from)` → 倍率 | 殘骸的價值（拾荒本能、聚落名冊）；C 用 `rtsWreckAt`／`rtsWreckTake`／`rtsWreckRemove`／`rtsLandMineAdd(t, x, z, { noCap: true, life: 60, dmg })`／`rtsSalvageDeposit`，重新站起來讀 `w.list` 的 `{ team, def, t0 }`、`R.stats[t].revived` 自己加 |
+| C | `rtsHeroHas(h.hero, 'i_toolbox')` | `rtsRefitStations`：帶拼裝工具箱的英雄 10 m 內是改裝站、零件 ×0.75 |
+| E | `this.rtsHudSanc(teamId)` | 零件改變、拾荒入帳、改裝開始／完成、避難進出 |
+| E | 卡片 | 作業機的 V＝`{ k: 'salvage', target: 'wreck' }`（目標模式：只點殘骸）；改裝子選單 `menus.refit` 的 `{ k: 'refit', rf }`（卡片有 `req: { tier }`，原因用 `rtsRefitWhy`、費用 `rtsRefitCost`）；拆除按鈕 `rtsOrder(sel, { k: 'scrap' })`＋`rtsScrapWhy` |
+
+- **規格的修改**：
+  - **殘骸的價值無條件捨去**（MT 135 × 0.3＝40.5 → 40，同 16.2 的例子）。礦石 < 10 不產生。殘骸的半徑（點選、拾荒的距離）小 1、中 1.5、大 2、瓦礫 4 m；地圖殘骸用障礙物的大小。拆除的殘骸 0.3 秒冒出來。
+  - **地圖殘骸**只在 `R.salvage` 時登記；價值歸零後紀錄留著（`rtsWreckAt` 預設略過、`all: true` 才列出），`rtsWreckKnown` 不再列出。殘骸的保留時間在產生時決定（場上聖域隊伍的拾荒效率最高級數 × 60 秒）。
+  - **合併**時殘骸的 `team`／`def`／`t0` 換成最新的那台，`list` 記每一台（重新站起來用）。上限是動態殘骸的數量（不含地圖殘骸），超過時移除價值最低的（不管有沒有人在拆）。
+  - **避難**：躲著的工人 `e.rtsAboard` 是字串 `'sh' + 建築 id`（實體的 id 可能是 0，數字 0 會讓 `if (e.rtsAboard)` 判斷錯；rts-veer.js 的運輸機照舊用數字 id），`e.rtsShelter` 是建築實體本身。**有工人躲著的建築開火由 A 實作**（`rtsShelterFire`：每 0.5 秒一發，曳光＋`rtsHit`，聚落中心與避難屋射程 22、瞭望塔用自己的射程；瞭望塔本身的砲照舊由 `rtsTowerAI` 開火，兩者相加），B 的 `rtsSancTower` 不必處理避難。45 秒從警報的那一刻算（不是各自躲進去的時間）。拆除時躲著的工人出來、不受傷。
+  - **拆除**只能拆蓋好的建築（工地用取消，退 75%）；拆除中的建築照常被打、生產照常（3 秒）。
+  - **地雷**的觸發：離地 3 m 以內的地面單位（低空 6 m），踩到的半徑 2 m＋單位半徑的一半；中立的野怪也會踩到。上限：同一台布雷無人機 6／9（`noCap` 的不算）、一隊 40，超過時最舊的消失。
+  - **互助網**：12 m 內的己方實體（不含建築與避難中的工人，含英雄）4 台以上，buff 只給一般單位（不含英雄、幻象）。**診療所**的 14 m 從佔地邊緣算，英雄也回血。
+  - **改裝**的「不在改裝站附近」提示一律是「要在改裝工坊 12 m 內」（16.2 的文字）；`refitOk` 沒寫時：拼裝槍管、加高天線＝有攻擊（`range` 與 `dps`）、對空支架＝有攻擊的地面單位而且 `aa` 不是 both／air、自爆裝藥＝地面單位。原因的順序：陣營 → 種類（建築、英雄、工人、臨時、搭乘、改裝中）→ 能不能裝 → 已經裝了 → 層級 → 範圍 → 零件 → 礦石。
+  - **潛航**的「6 m 內」看敵方的任何實體（含建築）中心距離 ≤ 6＋它的半徑。
+  - **迷霧網格**：`world.waterMesh` 存在時貼著 `max(地形或遠景, theme.water.level)`；既有主題沒有水面，不變。D 的水面覆寫照 16.8（A 不用另外的掛勾：迷霧讀 World 合併後的 `theme.water`）。
+  - **英雄的空殼**照上面（C 換掉）。互助市集 `s_market` 是 `shop: true`＋`shopFac: 'sancta'`（C 依 `RTS_FAC_SHOP.sancta` 填）；C 之前沒有貨架。
+  - **電腦是聖域**時 F 之前沿用卡斯特隆的角色表（不會出錯，但 `c_*` 的建造都被 `rtsPlace` 拒絕）。
+  - **效能基準**：`--faction=sancta`（編成是一般任務的同名敵人：mt、scav、riveter、repair、junk、mt_dome、gunboat；B 的 `rtsSancReskin(defId, team)` 有了之後換成 RTS 定義的外觀）、`--faction=castron,sancta`、`--wrecks=N`（`rtsWreckBench`：戰場中心 40 m 內 N 個殘骸紀錄＋B 的外觀；B 之前沒有外觀）。
+- **測試** `testRtsSanc`（約 11 秒，67 項）：開局、英雄與建造子選單、作業機與聚落中心的卡片、巨像的零件說明、地圖殘骸（荒野種子 7：10 個）；採礦每趟 8、90 秒的採礦量聖域／卡斯特隆＝0.83；成本效率 1.03／1.14；殘骸的價值（MT 40／4、盾牌 MT 51／6／6、野怪 44／4、補給庫 27／10／瓦礫／360 秒、升級過的主堡 205／54／14）、不產生的六種、空中單位落地、240 秒；合併與 400、上限 140、過期；產生一個 0.004 ms、迷霧的看過 140 個 0.02 ms；拾荒（12、零件與 Coral 各 2、3 人飽和、拆完找下一個、回去採礦、右鍵、研究 15／18／45）；回收站與展開的回收拖車、維持費 70／85／70、零件上限 200／300；地圖殘骸 2 人、歸零、障礙物不變；迷霧（看到之前不知道、殘影）；零件的費用（路障、取消退 75%、巨像 40 與退還）；改裝（扣 6＋10、引導、6 種的數值、換掉、已經裝了、T2、不能裝的、範圍、零件不夠停在第 2 台、工具箱 5／4）；對空支架打直升機、自爆裝藥（暈眩、不打自己人）；避難（10 台、冷卻、dps 40、解除、45 秒、避難屋 5、被拆彈出 50%）；修理半價；拆除（3 秒、佇列退還、70／6 的瓦礫、卡斯特隆不能拆）；地雷（啟動、觸發、自己人與空中不觸發、6／9／120／40、6 m 才看得到）；潛航；互助網；診療所；結果畫面兩列；選單與「隨機」抽到聖域；卡斯特隆對艾瑟立克沒有殘骸、維爾威對聖域的開局。截圖 `rts-r5a-wrecks.png`（B 的外觀之前是測試畫的方塊標記）。
+- **沒做的**：所有外觀（B：殘骸批次、地雷、改裝零件、建築與工人套件、潛航的半透明）、兵種技能（B：回收拖車的展開與自己拾荒、撿零件、釘住、修理無人機、布雷無人機的移動與自動布雷、潛航、外殼與吸附、護盾產生器、廢鐵重組）、英雄的 12 個技能與專屬道具（C）、地圖主題（D）、HUD 與卡片動作 `salvage`／`refit`／`scrap`（E）、電腦對手（F）。
+
+### 16.12 B 包（聖域的兵種行為與模型）的實作結果
+
+> B 包已完成（2026-10-18）。新檔：`entities/mech-rts-sancta.js`（MechEntity 擴充 `rtsSanc*`；`Game.prototype` 的殘骸、地雷、圓頂外觀 `rtsSancWreckFx`／`rtsSancWreckTick`／`rtsSancWreckCalls`、`rtsSancMineFx`、`rtsSancDomeAdd`／`Del`／`Absorb`／`Regen`；`main.js` 一行 import）、`render/rts-sancta-models.js`（建築 `buildSancBuilding`、木架＋帆布的施工架、`addSancWorkerKit`、`addHaulerKit`、`addColossusKit`、`addRefitKits`／`addRefitKit`、`buildWreckBatch`、`buildMineBatch`；`RTS_SANC_CATALOG`）、`scripts/smoke-rts-sanc-b.js`（`testRtsSancUnits`）。改了的既有檔：`render/rts-models.js`（`buildRtsBuilding` 遇到 `s_` 轉給新檔、`addWorkerKit` 的 `'sancta'`）、`render/materials.js`（`PALETTES.sancta`）、`render/model-catalog.js`（目錄一段）。A 的檔案只加一行：`game/rts.js` 的 `rtsSpawn` 在 `rtsAethModel` 之後 `if (e.rtsSancModel) e.rtsSancModel(D)`（零件要在網格合併之前加；單位在 `rtsBuildings` 生產、第一次 `rtsUnitAI` 常在第一次算繪之後）。`smoke-test.js`／`smoke-jobs.js` 各加一行。mech-rts.js 沒有再改（A 放好的分派照用；`rtsTowerAI` 不用轉給 B：瞭望塔走一般的砲座＋`rig.aimAt`，避難的開火是 A 的）。
+
+- **模型**（16.5）：建築全部是純函式，鏽紅補丁＋白色互助圓環固定、隊伍色只在塗裝帶與燈；聚落中心三階 `setTier`（T2 廢車圍牆＋瞭望台、T3 混凝土外牆＋大水塔＋無線電天線，unmerge／remerge 同前三個陣營）；回收站的磁吸吊車、改裝工坊的焊接火花是不合併的獨立網格（`onBeforeRender` 自己轉／閃）；瞭望塔 `turret`／`gun`／`muzzle`＋`aimAt`；**廢鐵路障**的 4 種外觀是骨頭（只切 visible），模型建好時還不知道位置，所以掛一個不畫顏色的小網格，第一次算繪時依世界座標的雜湊 `setVariant` 後隱藏自己（兩邊同一個位置同一種）。施工時鷹架換成木架＋帆布（`scaf`）。
+- **單位的零件**：作業機＝拾荒網籃、磁吸臂（`rtsDrill`）、補丁板、暖色信號燈；回收拖車＝裝甲車的砲塔網格拿掉，換成貨斗、吊臂、吊索與磁鐵、四支支腳（`rig.setHaul(f)`：吊臂放下、支腳伸出，都是骨頭）；拼裝巨像＝`junk` 的模型 ×1.5＋背上的貨櫃與 GL-90、車門補丁（`addColossusKit`，位置依模型的外框）。**改裝零件 6 種在 `rtsSancModel` 一次建好、隱藏**（`rig.rtsRefitKits`，依 `refitOk` 只建能裝的；位置依模型在 torso 座標的外框），`rtsSancRefitFx(rf, prev)` 只切 visible——合併後隱藏的骨頭矩陣歸零，**不必 unmerge／remerge**（量到 0.00 ms；之後才加的網格不會進 rts-merge.js 的 `only`，所以不能合併後再加）。
+- **合併的 draw call**：`rtsSancModel` 把 rig／`rig.extra` 參照的材質（一般任務的動作會改的發光材質：鉚釘機的槍口與面罩）換成不在網格上的替身 `DUMMY_MAT`（一般任務的行為端照樣可以改它，`rts-bench` 的同名敵人 AI 不會出錯），所以照樣併進單一材質；無人機加色的噴焰錐不畫（同維爾威的 `slimNozzles`）。每台 2 個網格（本體＋描邊；之前鉚釘機 4、無人機 3）。
+- **殘骸**（`buildWreckBatch`）：4 種廢鐵堆（小 1.2 m、中 2 m、大 3 m、建築瓦礫 6 m；24～46 個方塊＋瓦礫的鋼梁，頂點色）各一個 InstancedMesh（容量 160，共用材質，`instanceColor`＝`0xd2b49a` 混 30% 原本的隊伍色；**`instanceColor` 要依容量自己建**，`setColorAt` 會依當下的 `count`（0）建立空陣列＝全黑）。批次掛在 `fx.add`（每格的 fn 跑動畫；`clearMission` 的 `fx.clear` 拿掉後、或 `this.rts` 換了時重建；沒有 `this.rts` 的效能基準也能用）。實例的大小＝0.4＋0.6×(剩下的礦石／原本的礦石)，玩家沒看過的（`seen` 沒有隊伍 0）縮成 0、看不到時被拆完的用 `known[0]`；冒出來 0.6 秒（`w.rise` 之後）、拆完沉下去 0.7 秒後釋放實例、壽命最後 30 秒慢慢沉（每 0.25 秒）；地圖殘骸不畫（本身是障礙物）。`count` 只到用到的最高編號，空的不顯示：140 個殘骸＝4 個 draw call。
+- **地雷**（`buildMineBatch`）：一個 InstancedMesh（容量 120），自己的一律畫、敵方的只畫 `m.vis` 有隊伍 0 的；還沒啟動的暗一點；'boom' 畫爆炸（A 在有 B 時不畫）。
+- **技能**：
+  - 回收拖車 `ab_haul`：展開 2 秒（`rtsSancTick` 回傳 true，不動）→ `e.rtsHaulOn`、`noPush`；每 5 秒 `rtsWreckAt(…, 10, { team })` 最近的一個 `rtsWreckTake(w, rtsSalvageTrip(t, true))` → `rtsSalvageDeposit`；展開中的指令：同一個技能＝收起、守住／停止丟掉、自己的技能照常、其他（會移動的）先收起 1 秒（指令留著，收好了再執行）。
+  - 撿零件：`rtsSancNearDeath` → `e.rtsScavN`（最多 5）＋`rtsBuff({ src: 'scav', dmg: 1＋0.05n, hp: 25n }, 1e9)`。
+  - 釘住 `ab_pin`：`rtsBuff({ src: 'pin', speed: 0.01 }, 2.5／英雄 1.5)`＋`t.rtsPinT`（C 的緊急處置清 `speed < 1` 的 buff 與 `rtsPinT`）；ACS 穩定器抵消（同 `rtsStun`）；自動：每 0.3 秒看交戰中的目標（或攻擊指令的目標）。
+  - 修理無人機：狀態 `e.rtsSanc.rep`（`tgt`、`focus`），同一個目標最多 2 台（數附近無人機的 `rep.tgt`）；`ab_focus` 的對象跟到 5 m 內，滿血、死掉或有新指令時結束。
+  - 布雷 `ab_mine`：`rtsLandMineAdd(t, x, z, { owner })`；自動（預設關）：沒有指令時以第一次閒置的位置為中心向日葵排列補到上限。
+  - 潛航：開火＝武器槽的 `cd` 變大；`e.rtsSub`＋`rtsBuff({ src: 'sub', speed })`、`bossVis` 位元 1（魚雷管的蓋子）；自己的隊伍 `applyCloak(0.4)`（合併後才改）；實例覆寫的 `move` 讓模型浮在水面（潛航時水面下 1.4 m、浮出 0.55 m），航跡是 `fx.dust`。**魚雷照用 w_bz 的彈體**（沒換成 `torpedoShot`）。
+  - 外殼：`e.rtsSanc.shell`（400／`r_hull` 600，研究時依比例換算）；`rtsSancDefense` 吃 70%；模型的 `shell` 依比例縮放、`bossVis`＝0～15。吸附：最多 80（研究 ×1.5）礦石的價值 → +200（研究 ×1.5）。
+  - 護盾產生器的圓頂：`R.sancDomes` 的紀錄 `{ team, x, z, r, hp, max, follow, end, regen, calm, recharge, reT, absorbed }`（`rtsSancDomeAdd(team, x, z, r, hp, o)`，跟著 `follow`）；`rtsSancDefense` 先問 `rtsSancDomeAbsorb`：目標在圓頂裡、攻擊者在外（沒有攻擊者＝不吸收），傷害全額扣圓頂，打破時 `recharge` 秒後回滿。外觀是加色的半透明扁球（`fx.add`，被打時亮一下）。C 的避難護盾用自己的 `R.hfx.domes`（16.13），兩套同時罩住時兩個都會扣。
+  - 廢鐵重組：`rtsWreckAt(…, 12, { team })` 依序拿（每個最多 100、只拿缺的血量）× 4 AP，上限 600。
+- **效能**（RTX 5070 Ti Laptop，`--rts --hp --hud=rts --counts=120 --heroes=6 --camps --cam=near`，各 10 秒；其他 agent 同時跑測試時 FPS 會掉到 30 左右，下表是比較安靜時量的）：
+
+| 編成 | FPS（1% low） | 更新 ms | 渲染 ms | draw calls |
+|---|---|---|---|---|
+| castron（兩次） | 51.9～56.3（36.7～40） | 9.9～10.8 | 7.4～8.0 | 339～350 |
+| sancta（A 量的：同名敵人的外觀） | — | — | — | 416 |
+| sancta | 57.3（37.4） | 9.7 | 7.3 | 351 |
+| sancta --wrecks=140 | 54.3（39.0） | 10.3 | 7.7 | 362 |
+| mix --wrecks=140 | 57.3（34.5） | 9.6 | 7.3 | 376 |
+| castron,sancta | 52.9（34.3） | 10.6 | 7.7 | 336 |
+
+  - A 量到的 416 draw calls 是一般任務的同名敵人的外觀（鉚釘機的發光材質、無人機的噴焰、護盾產生器的 `specialFx` 護盾球）；現在 `rtsSancReskin` 換成 RTS 定義的模型，一般任務的 gunboat／junk／dome／repair／minelayer AI 換成 `mt`（會隱藏或畫額外的球）。
+- **測試** `testRtsSancUnits`（約 12 秒，48 項）：聚落中心三階、4 座生產建築、11 種兵種都生產出來、移動、合併（每台 2 個網格）、改裝零件與回收拖車／巨像的零件；6 組實際 dps（民兵 7.9／8（量的那一台不分批）、拾荒 MT 10.8、鉚釘機 15、潛航砲艇 18、外殼機 18.1、巨像 28.8）；撿零件 5 層（×1.25、+125）、12 m 外不算；釘住（Coral 5、2.5 秒、冷卻 12、建築不行、英雄 1.5、自動）；修理 8／12、建築 4、同一個目標 2 台、專心修理；布雷 1 顆與自動補到 6；潛航（×1.3、開火浮出）；外殼 0.7／0.3、吸附、600；圓頂（展開、外面 0、裡面照打、15 秒重新展開、移動時收起）；重組 600；回收拖車（回收點、改裝站、自己拆 30＋零件 3、收起）；改裝零件的切換 < 6 ms、不增加網格；殘骸 140 個 4 個 draw call、依價值縮放、沒看過的 0、拆完釋放；全部建築與施工架、路障的外觀、瞭望塔的砲塔。截圖 `rts-r5-blds.png`、`rts-r5-units.png`、`rts-r5-wrecks.png`、`rts-r5-refit.png`。
+- **核心的射速問題（沒改，記給 R6）**：AI 分批（離鏡頭注視點遠時每 2 格跑一次 `updateAI`）加上 `fire()` 自己也看 `cd > 0`，射速剛好是格長倍數的武器（民兵 MT 的 0.25 秒＝5 格）浮點誤差會多等一格，實際只有 83%（6.8／8）；把 mech-rts.js 的 `rtsFire` 改成容許 1e-6 會讓 `testRtsAi2`／`testRtsVeerAi` 的時間點跑掉，所以沒改，`testRtsSancUnits` 量 dps 時關掉那一台的分批（`aiBatchable`）。`testRtsVeerUnits` 的衝撞量 1.5 秒內的總傷害，衝撞無人機自己的機槍偶爾讓它超過 100（不穩定，和 R5 無關）。
+- **沒做的**：魚雷的彈體（`torpedo`）；修理無人機飛得比定義的速度慢（空中單位的加速，量到移動指令 1.5 秒只走 6 m；不是 B 的檔案）；殘骸被爆發攻擊炸散（16.10 的待定）。
+
+### 16.13 C 包（聖域的英雄與道具）的實作結果
+
+> C 包已完成（2026-10-17）。檔案：`data/rts-heroes.js`（12 個技能、三位英雄的 `skills` 換掉 A 的空殼）、`data/rts-items.js`（4 種專屬道具、`RTS_FAC_SHOP.sancta`）、`game/rts-hero.js`（修復光束、避難護盾的圓頂、記下名字／聚落名冊／拾荒本能的陣亡回饋、`rtsHeroWreckK`、守住家園的建築光環、道具）、`entities/mech-rts-hero.js`（`SKILL_FX` 加 11 項；記下名字、守住家園是光環，拾荒本能是被動）、`scripts/smoke-rts-sanc-c.js`（`testRtsSancHero`）。別包的檔案只動了：`smoke-test.js` 的 require 與 `STEPS` 各一段、`smoke-jobs.js` 的 `DEFAULT_TIMES` 一行；A 的檔案沒有改。
+
+- **英雄**：`h_mender`／`h_salvor`／`h_haven` 的數值、組裝照 16.4（A 的空殼），配色由 `rtsSpawn` 依陣營（`rtsPal('sancta')`）。技能的參數在 `RTS_SKILLS` 的 `lv`：`sk_mend { heal, t, bldK, brk }`、`sk_triage { R, heal }`、`sk_names { regen, ore }`、`sk_lazarus { R, t, max, hp }`、`sk_magnet { d, stun }`、`sk_scrapmail { R, n, take, shield, parts, t }`、`sk_scrounge { k, parts }`、`sk_golem { R, min, max, per, t }`、`sk_minefield { R, n, dmg, life }`、`sk_haven { R, t, cap, res }`、`sk_hold { armor, near }`、`sk_refuge { R, t, taken, speed }`。
+- **電腦施放的條件**：每個主動技能的 `ai` 照 16.4 的表（`sk_mend { k: 'ally', hp: 0.5 }`、`sk_triage { k: 'ally', hp: 0.6, n: 3, r: 8 }`、`sk_lazarus { k: 'wrecks', own: true, t: 60, n: 4, r: 20 }`、`sk_magnet { k: 'ranged' }`、`sk_scrapmail { k: 'self', hp: 0.7, n: 2, r: 15, wrecks: 1 }`、`sk_golem { k: 'wrecks', n: 3, r: 20 }`、`sk_minefield { k: 'cluster', n: 3, r: 10 }`、`sk_haven { k: 'ally', hp: 0.6, n: 3, r: 8 }`、`sk_refuge { k: 'army', n: 8, r: 18 }`）。新的 k：`'wrecks'`＝範圍內這一隊看過的殘骸（`rtsWreckAt(x, z, r, { team })`；`own`＋`t` 時改看殘骸 `list` 裡原本是這一隊、t 秒內陣亡的台數）≥ n；`wrecks: 1`＝附近至少一個殘骸。自動施放（`auto`）：修復光束、磁吸、布雷區、避難護盾。
+- **做法與規格的差異**：
+  - 修復光束：技能定義多 `bld: true`（`rtsSkillCast` 的 ally 目標可以是蓋好的己方建築）；紀錄在 `R.hfx.mends`（`{ src, t, per, n, healed }`），每 0.5 秒回復 heal／8（建築 ×0.5），施放者與目標的 `rtsDistTo` > 26 m 或任一方陣亡就中斷（玩家的英雄提示「修復光束中斷了」）。
+  - 緊急處置：解除＝`staggerT` 歸零、拿掉 `speed < 1` 的 buff（B 的釘住若用 `rtsBuff({ speed: 0 })` 一起清掉；施放者自己的 `sk_fortress`／`sk_refuge` 不清）、`clearStatus` latch／slow／net／hook，並把 `e.rtsPinT` 歸零（B 若用這個欄位）。不含幻象、搭乘中。
+  - 記下名字：光環的數值層只有 `regen`；陣亡的礦石在 `rtsXpOnKill`（只有不是 quiet 的死亡）→ `rtsHeroSancDeath`：死的是己方一般單位（不是建築、英雄、幻象、臨時單位；工人算），25 m 內學了的 MENDER 取最高級一次（不疊加），`rtsGrant` 礦石成本 × ore（無條件捨去），統計 `T.names`。聚落名冊同一處（+5 零件，`T.logbook`）。
+  - 重新站起來：`rtsWreckAt(x, z, 20, { map: false, all: true })` 的每個殘骸的 `list` 逐台看（合併的殘骸也一台一台起來）；每台起來前 `rtsRecount`，人口不夠的略過；`rtsSpawn`＋`R.stats.made−−`、`R.stats[t].revived++`、血量 50%；用到的殘骸整個 `rtsWreckRemove`。一台都沒起來＝不施放（提示「附近沒有可以重新站起來的殘骸」或「人口不足」）。
+  - 磁吸：技能定義 `ground: true`（`rtsSkillCast` 拒絕建築與空中單位，提示「不能對建築與空中單位施放」，不扣 Coral）；拉到身邊 3 m（`rtsHeroShift`；`noPush` 的不拉、照樣暈眩）。
+  - 廢鐵外殼：`rtsWreckAt(…, 15, { team })` 由近到遠取 n 個（含地圖殘骸），各 `rtsWreckTake(w, 40)`（用掉、不入帳）；吸收是 `rtsShieldAdd(英雄, n×120, 15)`（取代原本的屏障），零件 `rtsPartsAdd(隊伍, n×2)`；`e.hs.mailN`。
+  - 拾荒本能：`rtsHeroWreckK(e, from)`（A 的 `rtsWreckValue` 呼叫）：擊破者是學了它的英雄、不同隊伍、不是建築 → ×(1＋k)；零件在 `rtsHeroSancDeath`（`T.scrounge`）。
+  - 臨時巨像：`rtsWreckAt(…, 20, { team, map: false })` 最多 10 個；`rtsHeroTemp(英雄, 's_colossus', 1, 45)`＋`rtsBuff({ src: 'sk_golem', hpK })`（血量直接回滿）；殘骸 `rtsWreckRemove`；`e.hs.golemN`。
+  - 布雷區：`rtsLandMineAdd(隊伍, x, z, { owner: 英雄, noCap: true, life: 60, dmg })`，在半徑 8 m 的 0.8 倍內以向日葵排列；啟動時間照 A 的預設；`e.hs.mineN`。
+  - **避難護盾是 C 自己的圓頂**（不用 B 的 `rtsSancDefense`）：`R.hfx.domes`＝`[{ id, host, team, r, n, n0, until, gone, flashT }]`，跟著 host；`rtsHeroWrap`（在 `rtsShieldAbsorb` 之後）對每個實體呼叫 `rtsHeroDomeAbsorb`：目標在圓頂裡、攻擊者在圓頂外（沒有攻擊者算外面）就以相剋與護甲之後的傷害吸收；同一個目標再放一次取代舊的；圓頂強化（`r_canopy`）×1.25。外觀 `rtsHeroDomeFx(d, 秒, 顏色)`：加色的半透明半球（`fx.add`），被打時亮一下、破掉或到期淡出。
+  - 守住家園：單位＝光環範圍內、而且 30 m 內（建築從佔地邊緣算）有己方蓋好的建築（`rtsHeroNearBld`）；建築另外由 `rtsHeroBldAuras`（`rtsHeroAuras` 結尾）寫建築的 `rtsMods.aura`（只有這一種光環會寫到建築）。
+  - 最後的避難所：`rtsHeroZone` 多一個 `bld: true`（友軍效果也給建築）；HAVEN `hs.root`＋`rtsBuff({ src: 'sk_refuge', speed: 0 })`（同不落要塞）；`e.hs.refuge`＝區域 id；外觀同避難護盾（不吸收）。
+- **專屬道具**（`fac: 'sancta'`）：`i_magnet`（3 次：12 m 內這一隊看過、`ore` 最高的殘骸 `rtsWreckTake(w, Infinity)`，各項 ×0.6 無條件捨去後 `rtsSalvageDeposit`；`e.hs.magnetGot`）、`i_bandage`（2 次：英雄與 8 m 內的己方單位 `rtsBuff({ src: 'i_bandage', regen: 30 }, 5)`，受傷不中斷）、`i_toolbox`（永久、沒有數值層；A 的 `rtsRefitStations` 讀 `rtsHeroHas`）、`i_logbook`（永久：`r` 25、`parts` 5、`wreckK` 1.25）。
+- **互助市集**：`RTS_FAC_SHOP.sancta` 照 16.4 的 12 格，`s_market` 的 `shopItems` 與卡片由 `rts-hero.js` 載入時依 `shopFac` 填（同 15.13）。
+- **給 E 的**：技能卡照 13.14（`rtsSkillInfo`／`rtsSkillWhy`／`rtsSkillCast`／`rtsSkillOrder`／`rtsSkillAuto`）；修復光束的目標可以是己方建築（`RTS_SKILLS.sk_mend.bld`）、磁吸只能點敵方地面單位（`.ground`）；緊急處置與布雷區是 `kind 'point'`（半徑 8，可以畫範圍圈）；圓頂 `R.hfx.domes`（剩下的吸收 `n／n0` 可以畫在選取面板）；進行中的修復光束 `R.hfx.mends`；廢鐵外殼的吸收是 `e.rtsShield`（同稜鏡屏障）；道具 `i_magnet`、`i_bandage` 都是立刻使用（沒有 target）。
+- **給 F 的**：上面的 `ai` 條件（`'wrecks'` 用 `rtsWreckKnown` 或 `rtsWreckAt(…, { team })`；`own`／`t` 看殘骸紀錄的 `list`）；重新站起來要有人口空間；磁吸的目標不能是建築與空中單位；最後的避難所施放後 HAVEN 15 秒不能動。
+- **測試** `testRtsSancHero`（約 9 秒，27 項）：只給聖域、技能卡、聚落中心生產 MENDER（55 秒、1150）、修復光束（Coral 10、冷卻 8、200、建築 100、26 m 外中斷）、緊急處置（+15%、解除暈眩與釘住、8 m 外沒有）、記下名字（每秒 1、陣亡 +13、25 m 外 0）、重新站起來（合併的殘骸 3 台、人口 +3、made 不變、revived 3、50%、殘骸用掉、沒有殘骸不施放）、磁吸（3 m、暈眩、建築不行）、廢鐵外殼（沒有殘骸不施放、3 個 → 360 吸收、+6 零件、擋下 200）、拾荒本能（MT 殘骸 50／40、+3 零件）、臨時巨像（2 個不夠、5 個 → 3300 血、不佔人口、殘骸用掉、45 秒）、布雷區（4 顆、80、60 秒、noCap）、避難護盾（外面 0、裡面打得到、打破）、守住家園（單位與建築 +1、離建築遠的 0）、最後的避難所（×0.4、敵人 ×0.6、HAVEN 不能動、15 秒後恢復）、互助市集的貨架、磁吸手套（60／6、剩 2 次）、急救包（受傷不中斷）、拼裝工具箱的改裝站、聚落名冊（+5 零件、殘骸 48／39）；截圖 `rts-r5-hero.png`。
+- **沒做的**：技能的專屬音效；臨時巨像、重新站起來的拼裝演出只有光束與塵土（B 的模型動作之後可以接）；避難護盾和 B 的護盾產生器（`rtsSancDefense`）是兩套吸收，同時罩住時兩個都會扣。
+
+### 16.14 D 包（地圖主題與中立）的實作結果
+
+> D 包已完成（2026-10-18）。檔案：`world/rts-map.js`（`RTS_THEMES.flooded`／`dam`、前置地形掛勾 `pre`（`damPre`）、附加地形 `poolsAfter`／`damAfter`、`rtsReserveWater`、`rtsInPool`、`RTS_WATER_Y`、`validate` 的水與壩頂）、`world/rts-props.js`（新障礙物與裝飾的建模）、`world/world.js` 的 `buildRts`（一行：水裡不能蓋）、`data/rts-neutral.js`（主題的野怪、主題 AC、傭兵、營地編成）、`game/rts-neutral.js`（`rtsCampFlags`：不能移動＝`edHold`、兩棲＝`opts.amphib`）、`scripts/rts-map-test.js`（`--theme=…|flooded|dam|all`、`HASHES` 加舊宇宙港與 Grid 086、水與壩體的檢查、R4／R5 四個主題的 60% 門檻）、`scripts/smoke-rts-sanc-d.js`（新：`testRtsThemes3`）。別包的檔案只在 `smoke-test.js`（require 與 `STEPS` 各一段）、`smoke-jobs.js`（`DEFAULT_TIMES` 一行）加行；A 的檔案沒動。
+
+- **既有主題不變**：`genOnce` 多了 `TH.pre`（只有水壩有；自己的亂數串 `makeRng(sub × 67 ＋ 31)`）與幾個只在 `PRE` 存在時才走的分支（`isLow`／`free` 先問 `PRE.block`、低地高度 `PRE.low`、商店／傭兵營／中立 Coral／外圍分礦的範圍 `PRE.range`、找不到就換子種子）；山脊的位置改成 `RA(TH.ridgeU || [0.42, 0.5])`（同樣一次亂數、同樣的值）；`plan.waterY`、`plan.dam` 只有新主題有。`rts-map-test.js --theme=all` 七個主題各 100 個種子通過，荒野、冰原、技研都市、舊宇宙港、Grid 086 的地圖雜湊和 R5 之前相同（改之前先存了舊宇宙港 `dcf83611…`、Grid 086 `29de6597…`）。
+- **水面**：`look.water`＝{ level −0.4（`RTS_WATER_Y`）, 顏色, opacity }，`buildRts` 的 `themeOver` 合併後蓋掉 World 主題原本的水面（水沒市街 0.2、水壩 −2），照既有的 `addWater` 畫；水深 > 0.3 m 的導航格 `res`＋1（`rtsReserveWater`：`buildRts` 與 `validate` 共用，只影響 `buildable`；空投、展開、電腦的建造都經過它）。水深最多 1.2 m（水窪）／0.8 m（河道），`NavGrid` 的 `maxWater` 1.8 以內，全部可以走。涉水：`MechEntity.waterK` 在 RTS 的 `move` 照樣套用（`w.theme.water` 合併後成立），不用 `rtsBuff`；量到的速度乾地 7.50、水裡 6.38 m／秒（×0.85），兩棲的潛航砲艇 ×1.10。迷霧網格貼著 `max(地形, 水面)`（A 已做，測試確認水窪中心與河道上的迷霧頂點都在水面上）。
+- **汙染水沒市街 `flooded`**：地形照 16.8。`look`＝暗綠灰的天空與霧（0x7f8c80／0x77847a）、偏黃綠的陽光 0.8、霧 45～160、天候 `rain`、水色 0x26332b。
+  - **水窪**（`poolsAfter`，`ctx.rng`）：每條主要通道先放一個橫跨的（通道 A 側 8～45% 處，長軸和通道垂直 ±0.3 rad；16.8 寫的 15～60%／A 側時常落在山脊的路口上放不下），長軸 20～40 m（試不到時縮成 28／22 m），其他放在通道旁補到每半張圖 3～5 個；底部 −1.3～−1.6 m（水深 0.9～1.2）、5 m 過渡帶（取 min，成對）；離主基地平台 18 m、坡道上下 18 m、礦脈與湧出點 14、營地 10、中立建築 12；水窪裡的障礙物成對移除 → 整個重新 `validate` → 每條重新算出的通道都要經過水窪（不然換子種子）。`plan.pools`＝[{ x, z, rx, rz, rot, y }]（成對）。100 個種子第一次就合格 63%、水窪平均每半張圖 3.8 個。
+  - 半沉的街區（`plan.decor`，另一條亂數串 `makeRng(sub × 61 ＋ 29)`）：每個水窪 1～3 個：車頂 `poolcar`、歪斜的路燈 `poollamp`、號誌 `poolsign`、浮在水面的雜物 `pooljunk`。
+  - 障礙物：岩石＝傾倒的建築殘段 `ruinblock`（主線的 `buildRuinTower`，方塊；窗戶貼圖依「顏色 × 重複次數」共用一份，否則每棟一個 uuid、不能靜態合併）、殘骸＝沉沒的公車 `sunkbus`（2.8×2.6×10）與汽車 `wreckcar`（2.1×1.6×4.4）、燈＝彎折的路燈 `bentlamp`；殘骸 `counts` [8, 12]（水窪拿掉一些後每張圖 12～20 個地圖殘骸）。
+- **多重水壩 `dam`**：地形照 16.8，山脊 `ridgeU` [0.46, 0.54]（中央讓給壩體與河道）。`look`＝混凝土灰（地面 0x696862；更亮時俯視整片發白）、陽光 0.95、霧 60～200、沒有天候、水色 0x2e4a56。
+  - **壩體**（`damPre`：在點位與障礙物之前，壩體與坡道是半張圖特徵 `feats`，所以點位、營地、障礙物自動避開）：通過中心、垂直主軸的高地，頂寬 18～22、高 7～9、斷崖 2.5 m，兩端接到邊緣的斷崖；中央多一個半徑 20～22 m 的圓形平台（酒館在正中央，平台太小時酒館把壩頂切斷、大型單位到不了）。
+  - **坡道**（16.8 的「壩的兩側各一條」）：沿著壩的外側（坡面在斷崖外 u＝hw＋cw 起、寬 12～14、坡度 `STRUCT_SLOPE`），在 ±(30～45)% 處（`v1`），兩組互為 180° 的鏡像；上端先有 10 m 的平台往內延伸到壩頂（往下 6 m 內收回斷崖外）——沒有平台時坡面和壩頂的接口只有 2 m，大型單位上不去；坡道的下端落在河道裡（河床 −1.2），下來之後要涉水。
+  - **河道**（`PRE.low`）：壩腳兩側各一條、寬 10～14、河床 −1.2（水深 0.8）、2 m 過渡，沿著整道壩。點位不能放在 `PRE.block`（壩中心 ±(hw＋cw＋max(河寬, 坡寬)＋3)）以內；商店、傭兵營、中立 Coral、外圍分礦改用河道外的範圍 `PRE.range`。
+  - `damAfter`：四條坡道堵住後兩邊主基地不通（坡道以外沒有路）、每條通道都經過壩頂；裝飾（另一條亂數串）：壩體兩側的混凝土壩面 `damwall`（主題的 `buildThemeWall('dam')`，每段 8 m，坡道接上的地方留空）、中央平台的壩面、壩頂的護欄 `damrail`、壩頂的燈 `damlamp`；每張圖約 190～210 個裝飾（靜態合併後沒有額外的 draw call）。`validate` 的要點多「兩組坡道上去的壩頂」（`plan.dam.tops`）。`plan.dam`＝{ hw, h, cw, plaza, v1, vEnd, zone, river: { u0, w, y }, ramps: [{ top, bottom, w, len, land, side, vt, dd }], tops }。100 個種子第一次就合格 71%。
+  - 障礙物：岩石＝消波塊群 `tetrapods`（方塊，依外框排 2～6 個 `buildTetrapod`）、殘骸＝閘門零件 `gatewreck`（`buildDamGate(10)` 縮 0.46）與起重機的殘骸 `cranewreck`（岸壁起重機縮 0.3、傾斜；碰撞是四支腳的外框，吊臂在 8 m 高可以從下面過）、燈＝路燈 `damlamp`。
+- **野怪**（數值照 13.6 的 lv 公式；特殊行為不做；仍然沒有飛行的野怪：漂流水雷浮標在 FOES 是 `flying` 的，RTS 的定義不帶）：水沒市街 `cr_gunboat`（2，爆發、射程 22、`amphib`）、`cr_sprayer`（3，爆發、射程 14、範圍 2）、`cr_buoy`（1，不移動、射程 6、範圍 3）；水壩 `cr_patrol`（2，爆發）、`cr_watercannon`（3，實彈）、`cr_gategun`（4，不移動、爆發）、`cr_turbine`（3，不移動、實彈）；主題 AC `cr_ac_marsh`（`amphib`）、`cr_ac_sluice`（不加進 `RTS_CAMP_ACES`）。`game/rts-neutral.js` 的 `rtsCampFlags(e, D)` 在營地、雇用、傭兵合約三處設 `edHold`（`speed ≤ 0.05`）與 `opts.amphib`（`MechEntity.waterK` 讀它）。潛航砲艇的野怪不潛航（只借模型；B 的聖域潛航砲艇照 A 的潛航規則，和野怪無關）。
+- **營地編成**（`RTS_CAMPS.flooded`／`dam`，16.8 的組合，lv 合計不夠的多一台）：水沒市街 中「水雷浮標＋潛航砲艇×2＋拾荒 MT＋汙染噴射 MT」、大「AC＋潛航砲艇×2＋汙染噴射 MT＋MT 重型」「MARSH＋汙染噴射 MT×2＋潛航砲艇＋MT 重型」；水壩 中「閘門砲台＋巡邏砲車×2＋MT」、大「AC＋閘門砲台＋巡邏砲車×2＋MT 重型」「SLUICE＋高壓水砲車×2＋巡邏砲車＋閘門砲台」。
+- **傭兵**（費用照 16.8）：水沒市街 `m_gunboat`、`m_sprayer`、`m_buoy`（lv 2、不能移動、人口 1）、拾荒 MT 沿用荒野的 `m_scav`（120／0，16.8 寫 110）；水壩 `m_patrol`、`m_watercannon`、`m_gategun`（lv 3、不能移動）、`m_mth`。
+- **測試** `testRtsThemes3`（約 15 秒，74 項）：兩個主題各 3 個種子（7、23、101）：主題覆寫（水面 −0.4、水面網格、沒有岩頂、不疊加時間、天候）、對稱（高度、障礙物、資源、營地、中立建築、水窪、坡道、裝飾）、兩邊的路徑代價差、水深最多 1.4 m 與水裡不能蓋、迷霧網格貼著水面、水窪橫跨每條通道與地圖殘骸數、壩體（壩頂高度、基地到基地的路徑經過壩頂、坡道以外沒有路、大型單位上得去、壩面）、主題的野怪（不能移動的 edHold、兩棲）、傭兵營的名單與卡片、靜態合併與迷霧著色、裝飾不碰撞；第一個種子另測涉水 ×0.85（MT）與兩棲 ×1.1（雇用的潛航砲艇）、4 種傭兵的雇用、不能移動的傭兵、營地出動交戰、俯視與近景的亮度（水沒市街 0.50／0.48、水壩 0.64／0.63）。截圖 `rts-r5-map-{flooded,dam}.png`、`-near.png`。
+- **效能**（AMD Radeon 880M、1920×1080、`--force_high_performance_gpu`、RTS 渲染、兩隊各 60 台 MT 在中央互打（無敵）、鏡頭 60 m，各量 8 秒兩輪）：荒野 37.4／39.8 FPS、水沒市街 37.1／40.6、水壩 42.0／41.7（水面是一張半透明平面，沒有差別）。
+- **給其他包的**：壩頂是「低處看不到高處」的高地，只有四條坡道上得去（坡道下端在河道裡，涉水的關口）；中央平台有酒館。勝率腳本的主題預設不含 R5 的兩個（R5 不跑）。
+- **沒做的**：野怪的特殊行為（潛航、腐蝕區、水雷、水流、吸入）；閘門與水流；壩體上游的水庫（RTS 的水面是一個高度）。
+
+### 16.15 E 包（聖域的 HUD、輸入、親自駕駛）的實作結果
+
+> E 包已完成（2026-10-18）。檔案：`game/rts-hud.js`、`game/rts-input.js`、`game/rts-pilot.js`、`styles.css` 的 RTS 區塊（R5 的一段在檔尾）、`scripts/smoke-rts-sanc-e.js`（`testRtsSancHud`）。別包的檔案只在 `smoke-test.js`（require 與 `STEPS` 各一段）／`smoke-jobs.js`（`DEFAULT_TIMES` 一行）加行；A 的檔案沒有改。
+
+- **資源列**：`#rtsPartsBox`（零件，上限時變黃）與 `#rtsSalv`（「殘骸 n」＝玩家看過、還有價值的殘骸，避難中多「・避難 n（s）」），`rtsHudFaction` 依 `rtsSalvageTeam(0)` 顯示；A 的掛勾 `rtsHudSanc(t)` 只讓它們與卡片、面板下一格重畫。點殘骸數依序跳到有人躲著的建築、價值高的殘骸（殘骸＝`ui.focus`）。
+- **殘骸的點選**：`rtsPickAt` 在實體之後、礦脈之前找殘骸（`rtsHudWrecks`：`seen` 有玩家的位元；地圖殘骸探索過就算），所以右鍵的優先序＝敵人／實體 > 殘骸 > 礦脈 > 地面；點到的東西沒有 `pos` 時一律用 `rtsHudHitXZ`。點殘骸＝面板顯示名稱、價值、拾荒人數、來源、剩下的秒數（看不到那一格時只有最後看到的礦石）；滑鼠停留（`ui.hover`）在 HUD 畫布畫同樣的說明（不會被下方列蓋住）。
+- **卡片動作**：作業機的 V `{ k: 'salvage', target: 'wreck' }`＝目標模式 `order 'salvage'`（點殘骸或地上 3 m 內看過的殘骸 → `rtsOrder(…, { k: 'salvage', wid })`；沒有看過的殘骸時灰掉）；採集模式點殘骸＝`{ k: 'gather', wid }`；右鍵殘骸交給 A 的 `rtsSmart`（工人黃色標記、其他單位綠色）。改裝 `{ k: 'refit', rf }`（卡片的 cmd 是 `refit:<rf>`）：費用＝`rtsRefitCost`（含倉儲、工具箱的折扣，卡片右下角 `⚙n` 是零件），說明寫選取中能裝／在改裝站附近／已經裝了的台數，灰掉的原因從 `rtsRefitWhy` 挑（零件／礦石不足 > 要在改裝站附近 > 其他），全部裝好時亮起；按下去 `rtsOrder(選取中的單位, { k: 'refit', rf })`（提示由 A 的 `rtsRefit` 說）。避難警報／解除避難照建築技能，原因用 `rtsShelterWhy`，`lvTxt`＝「躲 n／空位」；解除沒有人躲著時灰掉。零件的費用：`rtsWhyNot` 多「零件不足」、`rtsTipShow` 多「零件 n」。
+- **建造預覽的修正**：rts-input.js 原本的 `rtsCostWhy(cost)` 被 rts.js 後載入的 `rtsCostWhy(teamId, cost)` 蓋掉（預覽付不起時沒有原因），拿掉 E 的、改呼叫 `rtsCostWhy(0, cost)`，所以也會顯示「零件不足」。
+- **範圍圈** `rtsHudSancRings`（rts-input.js，一組貼地的線段，每 0.25 秒或內容改變時重建；`ui.sInfo` 給測試）：改裝子選單開著或選了改裝站時畫 `rtsRefitStations(0)` 的範圍（建築從佔地邊緣算，畫成半寬＋r 的圓；選中的、或選取中的單位在範圍內的站是亮的實線，其他虛線）；拾荒模式時圈出看過的殘骸。
+- **選取面板**（`rtsHudSancRows`）：建築＝避難 n／上限（在路上的人數）、躲著的工人開火的 dps、改裝站、診療所、回收點；拆除按鈕 `.rtsScrap`（自己的、蓋好的聖域建築；原因 `rtsScrapWhy`）→ `uiConfirm`（寫出 `rtsWreckValue(b, null, true)` 的礦石與零件、退還的佇列、出來的工人）→ `rtsOrder([b], { k: 'scrap' })`；拆除中＝倒數的進度條（按鈕拿掉）。單位＝改裝中的進度條、裝了什麼、撿零件的層數（`e.rtsScavN`）、潛航（`e.rtsSub`）、回收拖車的展開（`e.rtsHaulOn`）、布雷無人機的地雷數、拾荒的對象、攜帶的礦石／Coral／零件；C 包的避難護盾（`R.hfx.domes` 的 host）剩下的吸收與秒數、被修復光束（`R.hfx.mends` 的 t）。
+- **畫面上的疊加**（`rtsHudSancOverlay`）：有人躲著的建築上方「避 n」、拆除中「拆 s」、改裝中的單位小進度條「改」、自己潛航中的單位「潛」；`_rtsSancMarks` 給測試。
+- **小地圖**（`rtsHudSancMini`）：看過的殘骸（鏽色小方塊；地圖殘骸大一號、拆完變灰；殘影淡）、自己的地雷（紅點）、看得到的敵方地雷（`rtsLandMinesSeen(0)`，橘色 ×；看不到的不畫）。
+- **自動管家**（`rts-pilot.js`）：有拾荒的陣營「自動採集」改名「自動採集與拾荒」：閒置工人先看回收點 45 m 內看過的殘骸（20 m 內看得到敵人的不去），拾荒工最多工人數的 1/4（至少 2），價值 ÷（距離＋20）挑、每個殘骸照飽和人數（走過去中的也算）；其他照舊採礦。`rtsButlerHaul`：閒置、收起的回收拖車開到 50 m 內殘骸最多的地方（10 m 內合計 ≥ 60 礦石），到了下 `ab_haul` 展開（4 秒內不重下）；展開後附近 8 秒沒有殘骸就換地方（移動指令由 B 自動收起）。
+- **親自駕駛**：聖域英雄照 13.16 的流程（技能與道具走 C 的 `rtsSkillCast`／`rtsItemUse`）；`rtsPilotView` 另外畫英雄 25 m 內看過的殘骸（地面的菱形＋「殘骸 n（25 m 內）」，`rtsHudPilotWrecks`），給 SALVOR 的廢鐵外殼、臨時巨像等要殘骸的技能。
+- **測試** `testRtsSancHud`（約 15 秒，47 項）：資源列、看過的殘骸才算與才點得到、面板與滑鼠停留的說明、小地圖；拾荒卡與目標模式（提示、殘骸的範圍圈、點地面不動作）、右鍵（工人拾荒、民兵走過去）、採集模式、帶回來的零件；零件的費用（卡片 ⚙、預覽的「零件不足」）；改裝（費用、可以改的台數、零件不足、不在改裝站附近、T2、改裝站的範圍圈、引導、完成、已經裝了）；避難（卡片、躲進去、資源列、建築上的人數、面板、冷卻、解除）；拆除（按鈕、uiConfirm 取消與確定、拆除中、瓦礫、敵方沒有按鈕）；小地圖的地雷；管家（拾荒工、回收拖車開過去展開）；親自駕駛 SALVOR（進入與離開、殘骸標示）；三種大小 `rts-r5-hud-{1920,1180,844}.png`。
+- **和 B／C 的介面**：
+  - B：潛航、外殼、撿零件的層數、回收拖車的展開都只讀 B 設的欄位（`e.rtsSub`、`e.rtsScavN`、`e.rtsHaulOn`）；拾荒外殼機的外殼量、護盾產生器的圓頂剩下多少還沒顯示（B 沒有公開的欄位名稱，之後在 `rtsHudSancRows` 加一行）。殘骸、地雷的 3D 外觀與預警全在 B，E 只畫 HUD 與小地圖。
+  - C（16.13 已對上）：避難護盾與修復光束顯示在面板；技能卡照 13.14。還沒做：緊急處置與布雷區（`kind 'point'`、半徑 8）的目標模式沒有畫範圍圈；親自駕駛時 `sk_mend` 的友軍目標只挑單位（不挑建築）。
+- **沒做的**：多選建築時的拆除按鈕（只有單選）；殘影的說明只寫最後看到的礦石。
+
+### 16.16 整合
+
+> A～E 五包平行完成後的整合（2026-10-18）。只改下面列的地方；各包的實作紀錄（16.11～16.15）裡「沒做的」有一部分在這裡補上。
+
+- **兩套圓頂依序吸收**：C 的避難護盾（`R.hfx.domes`）在 `rtsHeroWrap`（外層）以相剋後的實際傷害吸收、回傳剩下的原始傷害，剩下的才進 `rtsHook`，再由 B 的 `rtsSancDefense` → `rtsSancDomeAbsorb`（護盾產生器的圓頂）吸收，最後才扣外殼與血量；所以兩個圓頂同時罩住時是「先避難護盾、剩下的給產生器的圓頂」，不會重複扣（16.12／16.13 記的「兩個都會扣」實際上不成立，測試補上：避難護盾吸滿＋100 → 產生器的圓頂 300 剩 200、機體不受傷；再 250 → 圓頂破、機體受 50）。
+- **開火間隔改用局內時間**（核心，16.12 記的射速問題）：`move` 的武器 `cd` 減到 0 以下一格就停，AI 分批（每 2 格跑一次 `updateAI`）時看不出晚了多少，射速剛好是格長倍數的武器（民兵 MT 的 0.25 秒）浮點誤差多等一格，只有 83%。`rtsFire` 改成記下一發的局內時間 `w.rtsDue`，到了才開火、晚了多少從下一發扣回（上限一個間隔）；別處把 `cd` 設得比剩下的時間多 0.5 秒以上（暫停開火）時照舊等它。民兵 MT 在分批下量到 7.9／8（`testRtsSancUnits` 拿掉「這一台不分批」的特例）。
+  - 這讓單位的實際火力變正確（約 +0～20%），電腦對手測試的局勢跟著變（決定性的，但是混沌）：`testRtsAethAi` 的 grid／swarm 兩局在 12 分鐘內都沒有融合（部隊一直在打野與進攻、實驗體很少閒在基地；以前 grid 也要到 11:39），改成 12 分鐘時沒有融合就再推進到 17 分鐘（16:08、15:34）；grid 的第一次進攻以前是 6:22 的「偵查到對方兵力薄弱」，現在打野打得過、在 T2 之後才進攻（8:44），上限改成 9:30。`testRtsAi2` 的「出發後 30 秒內英雄在部隊旁一半以上」：這個種子的英雄出發時剛打完野、在 78 m 外，約 20 秒後趕上，改成「30 秒內趕上部隊（30 m 內）」（比例照樣印出）。`testRtsAi`、`testRtsVeerAi` 不受影響。
+- **空中單位的速度**：`MechEntity.move` 對不在地面的機體把目標速度乘 0.85（跳躍與懸浮的手感），RTS 的空中單位一直在空中，所以修理無人機、直升機都只有定義速度的 85%（16.12 記的「飛得慢」；量到的 1.5 秒 6 m 是加速加上 `__sim` 的迴圈多跑一格）。`flying && rtsDef` 不再乘（一般任務的無人機與直升機不變）；修理無人機量到 11／11。
+- **潛航砲艇的魚雷**：`rtsFire` 開火後 `D.sub` 的單位呼叫 B 的 `rtsSancTorpedo(n0, t)`，把剛射出的火箭彈換成主線的魚雷彈體（kind 'torpedo'、速度 26、貼著水面或地面／目標的高度直線前進，到目標的位置還沒打中就在那裡爆炸），傷害、範圍、攻擊類型照原本的；實際 dps 18.1／18。
+- **E 沒接上的部分**：面板的拾荒外殼機的外殼（`e.rtsSanc.shell／shellMax`）、護盾產生器的圓頂（`e.rtsSanc.dome.rec` 的 `hp／max`、打破後的倒數、展開中／收起）；英雄的地點技能（技能等級有 `R` 的：緊急處置、布雷區，其他陣營的也一樣）在目標模式時滑鼠所在的地面畫範圍圈（`rtsHudPointRing`，超出施放距離時變紅，`ui.pInfo` 給測試）；親自駕駛時 `bld` 的友軍技能（修復光束）也挑蓋好的己方建築（`rtsPilotAlly`，距離從佔地邊緣算）；多選自己的聖域建築時面板有「拆除 n 座」（`rtsHudScrapAskMany`：合計殘骸的價值、退還的佇列、出來的工人，`uiConfirm` 後一起 `rtsOrder({ k: 'scrap' })`）。
+- **E 截圖裡的白色煙塵**：測試只呼叫 `rtsSim` 快轉（粒子只在主迴圈的 `fx.update` 老化），快轉期間產生的施工煙塵、碎片全部疊在截圖上；遊戲本身沒有這個問題（照主迴圈推進 12 秒的施工截圖是乾淨的）。`testRtsSancHero`／`testRtsSancHud` 的 `__sim` 一併 `g.fx.update(dt)`。
+- **不穩定的測試**：`testRtsVeerUnits` 的衝撞量 1.5 秒內的總傷害，衝撞無人機自己的機槍偶爾讓它超過上限 → 量之前把它的武器 `cd` 設成很大（只量衝撞）。`testRtsSancHero`／`testRtsSancUnits`（以及 R5 的其他測試、`testRtsVeerUnits`／`testRtsVeerHero`）平行時偶爾失敗：`rtsPathService` 預設依實際耗時（3 ms）截斷每格的尋路，負載高時同一個種子的單位晚幾格才開始走（釘住、專心修理、回收拖車的位置跟著變）→ 開局前設 `g.rtsPathMs = Infinity`（同 F 包的測試）。
+- **前三陣營**：全部 `testRts*`（1100 項以上）照常通過。
+- **測試與效能**：完整 `npm test` 2095 項全部通過；`bench:rts -- --rts --hp --hud=rts --counts=120 --heroes=6 --camps --faction=mix --wrecks=140`（RTX 5070 Ti Laptop、near）：60.1 FPS（1% low 37.7）、更新 9.22 ms、渲染 6.88 ms、355 draw calls。

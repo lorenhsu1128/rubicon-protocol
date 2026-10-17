@@ -158,7 +158,79 @@ export const RTS_THEMES = {
     look: { sunI: 0.8, hemiI: 1.0, fogNear: 50, fogFar: 170, weather: 'ash' },
     after: stepsAfter,
   },
+  // R5（docs 16.8、16.14）：汙染水沒市街（淺水窪橫過通道、地圖殘骸多）與多重水壩（點對稱的壩體高地＋兩組坡道＋壩腳的
+  // 淺水河道）。水面一律 RTS_WATER_Y（look.water 覆寫 World 主題原本的水面）；水深最多 1.4 m（全部可以走、涉水 ×0.85），
+  // 水深 > 0.3 m 的格子不能蓋（World.buildRts 與 validate 的 waterY）
+  flooded: {
+    name: '汙染水沒市街',
+    baseH: [6.5, 8.5],
+    ridgeH: [10, 14],
+    mesaH: [9, 12],
+    watchH: [4.5, 6],
+    rimH: 22,
+    rough: 0.5,
+    rocks: { model: 'ruinblock', box: [8, 6, 7], boxW: [6, 9], boxH: [4, 8], boxD: [5, 8], sink: 0.3 },
+    wrecks: [
+      { model: 'sunkbus', box: [2.8, 2.6, 10], sink: 0.3 },
+      { model: 'wreckcar', box: [2.1, 1.6, 4.4], sink: 0.1 },
+    ],
+    lights: { model: 'bentlamp', r: 0.5, h: [6, 8], sink: 0.2 },
+    counts: { rocks: [11, 17], wrecks: [8, 12], lights: [3, 5] },
+    waterY: -0.4,
+    look: {
+      ground: 0x55594f,
+      slope: 0x44483f,
+      rock: 0x3a403a,
+      sky: 0x7f8c80,
+      fog: 0x77847a,
+      sun: 0xd6dca2,
+      amb: 0x5d6a62,
+      sunI: 0.8,
+      hemiI: 0.95,
+      fogNear: 45,
+      fogFar: 160,
+      weather: 'rain',
+      water: { level: -0.4, color: 0x26332b, opacity: 0.9, rough: 0.12 },
+    },
+    after: poolsAfter,
+  },
+  dam: {
+    name: '多重水壩',
+    baseH: [7, 9],
+    ridgeH: [12, 16],
+    mesaH: [10, 14],
+    watchH: [5, 6.5],
+    rimH: 24,
+    rough: 0.7,
+    rocks: { model: 'tetrapods', box: [6, 2.6, 5], boxW: [5, 7], boxH: [2.4, 2.8], boxD: [4, 6], sink: 0.2 },
+    wrecks: [
+      { model: 'gatewreck', box: [4.6, 6.4, 4.6], sink: 0.1 },
+      { model: 'cranewreck', box: [4.4, 8, 5.4], sink: 0.05 },
+    ],
+    lights: { model: 'damlamp', r: 0.5, h: [7, 9], sink: 0.1 },
+    counts: { rocks: [10, 16], wrecks: [5, 8], lights: [3, 5] },
+    ridgeU: [0.46, 0.54], // 山脊離中心遠一點（中央是壩體與河道）
+    waterY: -0.4,
+    look: {
+      ground: 0x696862,
+      slope: 0x54534e,
+      rock: 0x52504b,
+      sky: 0xb4bcc0,
+      fog: 0xa9b0b2,
+      sun: 0xfff4e6,
+      amb: 0x8b929a,
+      sunI: 0.95,
+      hemiI: 0.95,
+      fogNear: 60,
+      fogFar: 200,
+      weather: null,
+      water: { level: -0.4, color: 0x2e4a56, opacity: 0.88, rough: 0.1 },
+    },
+    pre: damPre,
+    after: damAfter,
+  },
 };
+export const RTS_WATER_Y = -0.4;
 
 const AMOUNT = { main: 12000, natural: 10000, outer: 8000, rich: 15000, coralBase: 6000, coralMid: 10000 };
 
@@ -335,7 +407,10 @@ function genOnce(sub, theme, size) {
   };
   const high = (p) => Math.max(F(p.x, p.z), F(-p.x, -p.z));
   // 低地（四周 m 公尺內都沒有地形特徵）
+  // 主題的前置地形（多重水壩：壩體、坡道、河道）：在其他特徵與點位之前，自己的亂數串；其他主題不呼叫、不改任何東西
+  const PRE = TH.pre ? TH.pre({ W, L, S, U, feats }, sub) : null;
   const isLow = (p, m = 4) => {
+    if (PRE && PRE.block(p, m)) return false;
     for (const [ox, oz] of [
       [0, 0],
       [m, 0],
@@ -381,7 +456,7 @@ function genOnce(sub, theme, size) {
 
   // 山脊（主軸 u＝U1，橫跨地圖）＋ 2～3 個窄路口
   const [uNat] = L(natural);
-  const U1 = Math.min(uNat - 32, Rb * R(0.42, 0.5));
+  const U1 = Math.min(uNat - 32, Rb * RA(TH.ridgeU || [0.42, 0.5]));
   let vmin = 0,
     vmax = 0;
   for (let v = 0; v > -size * 1.5; v -= 2) if (inUse(W(U1, v), -40)) vmin = v;
@@ -416,7 +491,9 @@ function genOnce(sub, theme, size) {
   addKeep(P(0, 0), 34);
   for (const c of chokes) addKeep(c.pos, c.w / 2 + 16);
   const free = (p, r) =>
-    keep.every((k) => dist(p, k.p) > k.r + r && dist(neg(p), k.p) > k.r + r) && dist(p, neg(p)) > 2 * r + 10;
+    (!PRE || !PRE.block(p, r)) &&
+    keep.every((k) => dist(p, k.p) > k.r + r && dist(neg(p), k.p) > k.r + r) &&
+    dist(p, neg(p)) > 2 * r + 10;
   const nMesa = rng() < 0.5 ? 1 : 2;
   for (let k = 0, tries = 0; k < nMesa && tries < 40; tries++) {
     const r = R(9, 15);
@@ -465,17 +542,21 @@ function genOnce(sub, theme, size) {
     put(back, 14);
   }
   for (let k = 0; k < nOuterMid; k++) {
-    const p = findLow([12, U1 - 22], [55, 170], 12);
+    const p = findLow(PRE ? PRE.range.outer(U1) : [12, U1 - 22], [55, 170], 12);
     if (!p) continue;
     outer.push({ p, rich: k === 0 });
     put(p, 14);
   }
   // 中立區：酒館在正中央；商店、傭兵營、中立的 Coral 成對（p 與 −p）
-  const shop = findLow([-12, 12], [24, 46], 8) || W(0, 34);
+  // 多重水壩：中央是壩體，商店、傭兵營、中立的 Coral 放在河道外的低地（PRE.range；找不到就換子種子）
+  const shop = PRE ? findLow(...PRE.range.shop, 8) : findLow([-12, 12], [24, 46], 8) || W(0, 34);
+  if (!shop) return fail({ sub }, '商店放不下');
   put(shop, 10);
-  const merc = findLow([-25, 25], [30, 70], 8) || W(0, -54);
+  const merc = PRE ? findLow(...PRE.range.merc, 8) : findLow([-25, 25], [30, 70], 8) || W(0, -54);
+  if (!merc) return fail({ sub }, '傭兵營放不下');
   put(merc, 10);
-  const coralMid = findLow([-20, 30], [60, 110], 8) || W(10, 80);
+  const coralMid = PRE ? findLow(...PRE.range.coral, 8) : findLow([-20, 30], [60, 110], 8) || W(10, 80);
+  if (!coralMid) return fail({ sub }, '中立的 Coral 放不下');
   put(coralMid, 10);
   // 主題的中立 Coral 多幾對（技研都市：corals.mid 2）：獨立的亂數串，荒野不呼叫
   const coralMids = [coralMid];
@@ -539,7 +620,8 @@ function genOnce(sub, theme, size) {
       const x = i * RTS_CELL - S,
         z = j * RTS_CELL - S;
       const hi = Math.max(F(x, z), F(-x, -z));
-      const lo = 0.5 * (lowN(x, z) + lowN(-x, -z));
+      let lo = 0.5 * (lowN(x, z) + lowN(-x, -z));
+      if (PRE) lo = PRE.low(x, z, lo); // 多重水壩：壩腳的河道（低地往河床拉）
       const e = Math.max(Math.abs(x), Math.abs(z));
       const rim = TH.rimH * clamp((e - (S - EDGE)) / EDGE, 0, 1);
       const v = lo * (1 - clamp(hi / 4, 0, 0.8)) + hi + rim;
@@ -753,10 +835,13 @@ function genOnce(sub, theme, size) {
     chokes: chokesOut,
     lanes: [],
   };
+  // R5 的水面主題：水深 > 0.3 m 的格子不能蓋（validate）；多重水壩的壩體與坡道
+  if (TH.waterY !== undefined) plan.waterY = TH.waterY;
+  if (PRE) plan.dam = PRE.plan;
   if (campsOut.length < 6 || campsOut.length > 10) return fail(plan, `營地數 ${campsOut.length}`);
   if (outer.length < 2) return fail(plan, '外圍分礦不足');
   // 主題的附加地形（冰湖…）：在高度圖與障礙物之後、檢查之前；自己的亂數串 makeRng(sub × 53 ＋ 19)
-  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse, sub };
+  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse, sub, pre: PRE };
   if (TH.extra) {
     const why = TH.extra(plan, ctx);
     if (why) return fail(plan, why);
@@ -1512,6 +1597,398 @@ function stepsAfter(plan, c) {
   return '';
 }
 
+// ---------- R5 的附加地形（docs 16.8、16.14）：汙染水沒市街的淺水窪、多重水壩的壩體與河道 ----------
+// 水深 > 0.3 m 的格子不能蓋（res＋1，同資源點的保留區；只影響 buildable）：World.buildRts 與 validate 共用
+export function rtsReserveWater(nav, level, minDepth = 0.3) {
+  let n = 0;
+  for (let i = 0; i < nav.N; i++)
+    if (level - nav.hgt[i] > minDepth) {
+      nav.res[i] = Math.min(255, nav.res[i] + 1);
+      n++;
+    }
+  return n;
+}
+const reserveWater = rtsReserveWater;
+const POOL_BAND = 5; // 水窪邊緣的過渡（m）
+export const rtsInPool = (plan, x, z) => (plan.pools || []).some((L) => lakeQ(L, x, z) < 1);
+// 線段（2 m 一點）有沒有經過 test(x, z)
+function laneHits(lane, test) {
+  for (let k = 1; k < lane.length; k++) {
+    const a = lane[k - 1],
+      b = lane[k];
+    const m = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2));
+    for (let s = 0; s <= m; s++)
+      if (test(a.x + ((b.x - a.x) * s) / m, a.z + ((b.z - a.z) * s) / m)) return true;
+  }
+  return false;
+}
+// 汙染水沒市街：每半張圖 3～5 個橢圓的淺水窪（長軸 20～40 m、底部 −1.3～−1.6 m＝水深 0.9～1.2 m、5 m 的過渡帶）；
+// 每條主要通道（A 側 8～45% 處）至少一個橫跨（長軸和通道垂直：涉水的捷徑，繞過去比較遠），其他放在通道旁當側翼；
+// 離主基地與坡道 18 m、礦脈與湧出點 14 m、營地 10 m、中立建築 12 m；水窪裡的障礙物移除 → 整個重新檢查 →
+// 每條重新算出的通道都經過水窪 → 半沉的街區（裝飾：路燈、車頂、號誌、漂浮雜物；另一條亂數串）
+function poolsAfter(plan, c) {
+  const r = c.rng;
+  const R = (a, b) => a + (b - a) * r();
+  const keep = [];
+  for (const b of plan.highs) {
+    keep.push([b.pos, b.r + (b.kind === 'base' ? 18 : 6)], [b.ramp.bottom, 18], [b.ramp.top, 18]);
+  }
+  for (const m of plan.mines) keep.push([m.pos, 14]);
+  for (const q of plan.corals) keep.push([q.pos, 14]);
+  for (const q of plan.camps) keep.push([q.pos, 10]);
+  for (const q of plan.neutrals) keep.push([q.pos, 12]);
+  const pools = [];
+  const fits = (L) => {
+    const big = Math.max(L.rx, L.rz),
+      small = Math.min(L.rx, L.rz);
+    if (Math.hypot(L.x, L.z) < big + 8) return false; // 不碰到自己的鏡像
+    for (const [p, rr] of keep) {
+      const q = lakeQ(L, p.x, p.z);
+      if (q < 1 || Math.hypot(p.x - L.x, p.z - L.z) * (1 - 1 / q) < rr + POOL_BAND) return false;
+    }
+    for (const o of pools)
+      for (const sg of [1, -1])
+        if (Math.hypot(L.x - sg * o.x, L.z - sg * o.z) < big + Math.max(o.rx, o.rz) + 10) return false;
+    const sc = 1 + (POOL_BAND + 2) / small;
+    const cs = Math.cos(L.rot),
+      sn = Math.sin(L.rot);
+    for (const k of [0, 0.55, sc])
+      for (let a = 0; a < (k ? 16 : 1); a++) {
+        const t = (a / 16) * Math.PI * 2,
+          lx = Math.cos(t) * L.rx * k,
+          lz = Math.sin(t) * L.rz * k;
+        const p = { x: L.x + lx * cs - lz * sn, z: L.z + lx * sn + lz * cs };
+        if (!c.inUse(p, 6) || c.high(p) > 0.05) return false;
+      }
+    return true;
+  };
+  const make = (x, z, rot, rMax) => {
+    const rx = R(10, rMax);
+    return { x, z, rx, rz: rx * R(0.5, 0.8), rot, y: -R(1.3, 1.6) };
+  };
+  const onPool = (L) => (x, z) => lakeQ(L, x, z) < 1;
+  // 橫跨通道的：每條通道一個（已經被前面的水窪跨過的通道略過）
+  for (const lane of plan.lanes) {
+    if (!lane || lane.length < 2) continue;
+    if (pools.some((L) => laneHits(lane, onPool(L)) || laneHits(lane, onPool({ ...L, x: -L.x, z: -L.z }))))
+      continue;
+    let got = null;
+    for (let t = 0; t < 120 && !got; t++) {
+      const q = laneAt(lane, R(0.08, 0.45));
+      if (!q) break;
+      const side = R(-3, 3);
+      const L = make(
+        q.x - q.dz * side,
+        q.z + q.dx * side,
+        Math.atan2(q.dz, q.dx) + Math.PI / 2 + R(-0.3, 0.3),
+        t < 50 ? 20 : t < 90 ? 14 : 11,
+      );
+      if (fits(L)) got = L;
+    }
+    if (!got) return '水窪放不下';
+    pools.push(got);
+  }
+  // 側翼的：補到 3～5 個
+  const want = 3 + Math.floor(r() * 3);
+  for (let t = 0; t < 120 && pools.length < want; t++) {
+    const p = c.W(R(10, c.U1 + 40), R(-0.9, 0.9) * c.S);
+    const L = make(p.x, p.z, R(0, Math.PI), 20);
+    if (fits(L)) pools.push(L);
+  }
+  if (pools.length < 3) return '水窪不足';
+  const all = [];
+  for (const L of pools) all.push(L, { ...L, x: -L.x, z: -L.z });
+  // 高度：水窪底部，邊緣 POOL_BAND 公尺平滑過渡（k 與 N²−1−k 同值，維持對稱）
+  const n = plan.n,
+    h = plan.h,
+    S = plan.size / 2,
+    half = (n * n - 1) / 2;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      if (k > half) continue;
+      const x = i * RTS_CELL - S,
+        z = j * RTS_CELL - S;
+      let v = h[k];
+      for (const L of all) {
+        const e = L.rx + POOL_BAND + 1;
+        if (Math.abs(x - L.x) > e || Math.abs(z - L.z) > e) continue;
+        const q = lakeQ(L, x, z);
+        const w = q <= 1 ? 1 : 1 - sm(((q - 1) * Math.min(L.rx, L.rz)) / POOL_BAND);
+        if (w > 0) v = Math.min(v, h[k] + (L.y - h[k]) * w);
+      }
+      h[k] = v;
+      h[n * n - 1 - k] = v;
+    }
+  plan.obstacles = plan.obstacles.filter((o) => {
+    const or = o.r || Math.hypot(o.w || 0, o.d || 0) / 2;
+    return all.every((L) => lakeQ(L, o.x, o.z) > 1 + (or + POOL_BAND + 1) / Math.min(L.rx, L.rz));
+  });
+  plan.pools = all.map((L) => ({ x: L.x, z: L.z, rx: L.rx, rz: L.rz, rot: L.rot, y: L.y }));
+  if (!validate(plan).ok) return plan.fail;
+  for (const lane of plan.lanes)
+    if (!laneHits(lane, (x, z) => rtsInPool(plan, x, z))) return '水窪不在通道上';
+  // 半沉的街區（不碰撞，和障礙物一起合併）：每個水窪 1～3 個，水窪的內側 60%
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  const DR = (a, b) => a + (b - a) * dr();
+  const KINDS = ['poolcar', 'poollamp', 'poolsign', 'pooljunk'];
+  const decor = [];
+  for (const L of pools) {
+    const cnt = 1 + Math.floor(dr() * 3);
+    const cs = Math.cos(L.rot),
+      sn = Math.sin(L.rot);
+    for (let k = 0, t = 0; k < cnt && t < 12; t++) {
+      const a = DR(0, Math.PI * 2),
+        f = DR(0, 0.6);
+      const lx = Math.cos(a) * L.rx * f,
+        lz = Math.sin(a) * L.rz * f;
+      const x = L.x + lx * cs - lz * sn,
+        z = L.z + lx * sn + lz * cs;
+      if (decor.some((d) => Math.hypot(d.x - x, d.z - z) < 4)) continue;
+      const model = KINDS[Math.floor(dr() * KINDS.length)];
+      const y = model === 'pooljunk' ? RTS_WATER_Y - 0.05 : L.y;
+      const d = {
+        model,
+        x,
+        z,
+        y,
+        yaw: DR(0, Math.PI * 2),
+        tilt: DR(-0.25, 0.25),
+        color: Math.floor(dr() * 3),
+      };
+      decor.push(d, { ...d, x: -x, z: -z, yaw: d.yaw + Math.PI });
+      k++;
+    }
+  }
+  plan.decor = decor;
+  return '';
+}
+
+// 多重水壩：通過地圖中心、和兩邊主基地的連線垂直的壩體高地（寬 18～22 m、高 7～9 m、頂面平、兩端接到邊緣的斷崖；
+// 中央是放酒館的圓形平台），兩組坡道（每組在壩的兩側各一條，沿著壩、寬 12～14 m、坡度 STRUCT_SLOPE，在離中心
+// ±(30～45)% 處、兩組互為 180° 的鏡像），壩腳兩側各一條淺水河道（寬 10～14 m、水深 0.8 m）：坡道的下端落在河道裡
+// （涉水的關口）。在其他特徵與點位之前（genOnce 的 PRE）：壩體與坡道是半張圖特徵（feats，點位與障礙物自動避開）、
+// 河道改低地的高度（PRE.low）、河道外的範圍不能放東西（PRE.block）、中立建築與外圍分礦的範圍（PRE.range）。
+// 自己的亂數串 makeRng(sub × 67 ＋ 31)
+const DAM_RIVER_Y = -1.2; // 河床（水面 −0.4：水深 0.8 m）
+function damPre(c, sub) {
+  const r = makeRng((sub * 67 + 31) >>> 0);
+  const R = (a, b) => a + (b - a) * r();
+  const { W, L, S, feats } = c;
+  const o = W(1, 0),
+    ax = o.x,
+    az = o.z;
+  const hw = R(9, 11),
+    H = R(7, 9),
+    cw = 2.5,
+    rw = R(12, 14),
+    rwid = R(10, 14),
+    plaza = R(20, 22);
+  const len = H / STRUCT_SLOPE;
+  const vEnd = (S - EDGE) / Math.max(Math.abs(ax), Math.abs(az));
+  const v1 = R(0.3, 0.45) * vEnd;
+  const d = r() < 0.5 ? 1 : -1; // +v1 那一組往 +v（離中心）或 −v 下坡
+  const big = S * 3;
+  feats.push({
+    bb: [-big, big, -big, big],
+    H,
+    f(x, z) {
+      const u = Math.abs(x * ax + z * az);
+      const t = sm((hw + cw - u) / cw);
+      if (t >= 1) return 1;
+      return Math.max(t, sm((plaza + cw - Math.hypot(x, z)) / cw));
+    },
+  });
+  // 坡道：側 s（壩的哪一側，u 的正負）、上端 vt、下坡方向 dd（沿 v）；內側和壩頂重疊 1 m；上端先有 LAND 公尺的平台
+  // （和壩頂同高，接口才夠寬：大型單位上得去）
+  // 坡面在壩的斷崖外側（u＝hw＋cw 起、寬 rw）；上端的平台往內延伸到壩頂（hw − 1），往下 6 m 內漸漸收回斷崖外
+  const uc = hw + cw + rw / 2 - 0.5,
+    LAND = 10;
+  const ramps = [];
+  for (const g of [1, -1])
+    for (const s of [1, -1]) {
+      const vt = g * v1,
+        dd = g * d;
+      const cs = [
+        W(s * (hw - 4), vt - dd * (LAND + 3)),
+        W(s * (hw + cw + rw + 3), vt - dd * (LAND + 3)),
+        W(s * (hw - 4), vt + dd * (len + 1)),
+        W(s * (hw + cw + rw + 3), vt + dd * (len + 1)),
+      ];
+      const bb = [
+        Math.min(...cs.map((p) => p.x)),
+        Math.max(...cs.map((p) => p.x)),
+        Math.min(...cs.map((p) => p.z)),
+        Math.max(...cs.map((p) => p.z)),
+      ];
+      feats.push({
+        bb,
+        H,
+        f(x, z) {
+          const [u, v] = L({ x, z });
+          const al = (v - vt) * dd,
+            su = s * u;
+          if (al < -LAND - 2 || al > len) return 0;
+          const ui = hw - 1 + clamp(al / 6, 0, 1) * (cw + 0.5),
+            uo = hw + cw + rw - 0.5;
+          const lm = Math.min(clamp((su - ui + 2) / 2, 0, 1), clamp((uo + 2 - su) / 2, 0, 1));
+          return lm > 0 ? (1 - clamp(al / len, 0, 1)) * lm : 0;
+        },
+      });
+      ramps.push({
+        g,
+        side: s,
+        vt,
+        dd,
+        top: W(s * uc, vt),
+        bottom: W(s * uc, vt + dd * len),
+        w: rw,
+        len,
+        land: LAND,
+      });
+    }
+  const Zb = hw + cw + Math.max(rwid, rw) + 3;
+  const rc = hw + cw + rwid / 2,
+    rh = rwid / 2;
+  return {
+    block: (p, m) => Math.abs(p.x * ax + p.z * az) < Zb + m,
+    low(x, z, lo) {
+      const u = Math.abs(x * ax + z * az);
+      const w = sm((rh + 2 - Math.abs(u - rc)) / 2);
+      return w > 0 ? lo + (DAM_RIVER_Y - lo) * w : lo;
+    },
+    range: {
+      outer: (U1) => [Zb + 12, U1 - 14],
+      shop: [
+        [Zb + 9, Zb + 30],
+        [10, 90],
+      ],
+      merc: [
+        [Zb + 9, Zb + 34],
+        [30, 120],
+      ],
+      coral: [
+        [Zb + 10, Zb + 44],
+        [50, 140],
+      ],
+    },
+    plan: {
+      hw,
+      h: H,
+      cw,
+      plaza,
+      v1,
+      vEnd,
+      zone: Zb,
+      river: { u0: hw + cw, w: rwid, y: DAM_RIVER_Y },
+      ramps: ramps.map((q) => ({
+        top: q.top,
+        bottom: q.bottom,
+        w: q.w,
+        len: q.len,
+        land: q.land,
+        side: q.side,
+        vt: q.vt,
+        dd: q.dd,
+      })),
+      // 兩組坡道上去的壩頂（validate 的要點）
+      tops: [W(0, v1 - d * 4), W(0, -(v1 - d * 4))],
+    },
+  };
+}
+// 多重水壩（檢查之後）：坡道以外沒有路（四條坡道堵住後兩邊主基地不通）、每條通道都經過壩頂 →
+// 裝飾（另一條亂數串）：壩體兩側的混凝土壩面（主題的 wall 外觀，坡道接上的地方留空）、中央平台的壩面、壩頂的護欄與燈
+function damAfter(plan, c) {
+  const D = plan.dam,
+    nav = plan.nav;
+  const ax = Math.cos(plan.axis),
+    az = Math.sin(plan.axis);
+  const uOf = (x, z) => x * ax + z * az;
+  const Wp = (u, v) => P(u * ax - v * az, u * az + v * ax);
+  const [bA, bB] = plan.bases;
+  const fyaw = (dd) => Math.atan2(-az * dd, ax * dd); // 沿 +v（×dd）的朝向（nav.block 的 yaw：前方＝(sin, cos)）
+  for (const q of D.ramps)
+    nav.block((q.top.x + q.bottom.x) / 2, (q.top.z + q.bottom.z) / 2, q.w + 8, q.len + 6, fyaw(q.dd), true);
+  const sealed = !nav.reachable(bA.pos, bB.pos, 0);
+  for (const q of D.ramps)
+    nav.block((q.top.x + q.bottom.x) / 2, (q.top.z + q.bottom.z) / 2, q.w + 8, q.len + 6, fyaw(q.dd), false);
+  if (!sealed) return '壩體有坡道以外的路';
+  const hAt = heightSampler(plan.h, plan.n, plan.size);
+  for (const lane of plan.lanes)
+    if (!laneHits(lane, (x, z) => Math.abs(uOf(x, z)) < D.hw - 1 && hAt(x, z) > D.h - 1))
+      return '通道沒有經過壩頂';
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  const decor = [];
+  const SEG = 8;
+  const wallYaw = Math.atan2(-ax, -az); // 本地 X 沿 +v
+  const yb = DAM_RIVER_Y - 0.4,
+    yt = D.h + 0.3;
+  const onRamp = (s, v, m) =>
+    D.ramps.some((q) => {
+      if (q.side !== s) return false;
+      const a = q.vt - q.dd * (q.land + m),
+        b = q.vt + q.dd * (q.len + m);
+      return v > Math.min(a, b) && v < Math.max(a, b);
+    });
+  // A 半（v > 0）兩側都放，轉 180° 複製到 v < 0
+  for (let v = SEG / 2; v < D.vEnd - 2; v += SEG) {
+    if (v < D.plaza + D.cw + 2) continue;
+    for (const s of [1, -1]) {
+      if (!onRamp(s, v, 3)) {
+        const p = Wp(s * (D.hw + D.cw * 0.55), v);
+        decor.push({
+          model: 'damwall',
+          x: p.x,
+          z: p.z,
+          y: (yb + yt) / 2,
+          len: SEG + 0.05,
+          h: yt - yb,
+          yaw: wallYaw,
+        });
+        const q = Wp(s * (D.hw - 0.35), v);
+        decor.push({ model: 'damrail', x: q.x, z: q.z, y: hAt(q.x, q.z), len: SEG - 0.3, yaw: wallYaw });
+      }
+    }
+  }
+  // 中央平台的壩面（圓周上、壩體以外的部分，每段約 6 m）：角度 0～π，轉 180° 複製
+  const pr = D.plaza + D.cw * 0.55;
+  const nA = Math.round((Math.PI * pr) / 6);
+  for (let k = 0; k < nA; k++) {
+    const a = ((k + 0.5) / nA) * Math.PI;
+    const ul = Math.cos(a) * pr,
+      vl = Math.sin(a) * pr;
+    if (Math.abs(ul) < D.hw + D.cw) continue;
+    const p = Wp(ul, vl);
+    // 切線方向（世界）：d/da (ul, vl) = (−sin a, cos a) → 世界向量
+    const tx = -Math.sin(a) * ax - Math.cos(a) * az,
+      tz = -Math.sin(a) * az + Math.cos(a) * ax;
+    decor.push({
+      model: 'damwall',
+      x: p.x,
+      z: p.z,
+      y: (yb + yt) / 2,
+      len: (Math.PI * pr) / nA + 0.3,
+      h: yt - yb,
+      yaw: Math.atan2(-tz, tx),
+    });
+  }
+  // 壩頂的燈（不碰撞）：每 30～40 m，兩側交錯
+  let side = dr() < 0.5 ? 1 : -1;
+  for (let v = D.plaza + 8 + dr() * 10; v < D.vEnd - 6; v += 30 + dr() * 10) {
+    side = -side;
+    if (onRamp(side, v, 2)) continue;
+    const p = Wp(side * (D.hw - 1.2), v);
+    decor.push({ model: 'damlamp', x: p.x, z: p.z, y: hAt(p.x, p.z), h: 7, yaw: wallYaw });
+  }
+  const n0 = decor.length;
+  for (let k = 0; k < n0; k++) {
+    const d = decor[k];
+    decor.push({ ...d, x: -d.x, z: -d.z, yaw: d.yaw + Math.PI });
+  }
+  plan.decor = decor;
+  return '';
+}
+
 function fail(plan, why) {
   plan.ok = false;
   plan.fail = why;
@@ -1524,6 +2001,7 @@ export function validate(plan, nav) {
   nav = nav || new NavGrid(rtsShim(plan), { cell: NAV_CELL });
   for (const m of plan.mines) nav.reserve(m.pos.x, m.pos.z, 7);
   for (const c of plan.corals) nav.reserve(c.pos.x, c.pos.z, 5);
+  if (plan.waterY !== undefined) reserveWater(nav, plan.waterY); // R5：水裡不能蓋（同 World.buildRts）
   // 中立建築（酒館、商店、傭兵營）佔地：不能壓在斷崖上，檢查與通道都要繞過它們
   for (const q of plan.neutrals) {
     const [fw, fd] = neutralFoot(q);
@@ -1562,6 +2040,8 @@ export function validate(plan, nav) {
   // R4 的結構（只有舊宇宙港外圍、Grid 086 地表有）：發射台的頂面、台階的上層
   for (const q of plan.pads || []) if (q.near === 0) keys.push(['pad', q.pos]);
   for (const q of plan.steps || []) if (q.near === 0) keys.push(['step', q.top]);
+  // R5 的多重水壩：兩組坡道上去的壩頂（兩邊都要到得了、代價相等）
+  for (const q of (plan.dam && plan.dam.tops) || []) keys.push(['dam', q]);
   keys.push(['enemyBase', bB.pos]);
   let worst = 0;
   const costs = [];

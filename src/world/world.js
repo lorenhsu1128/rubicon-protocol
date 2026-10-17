@@ -64,6 +64,7 @@ import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 import { NavGrid } from './nav.js';
 import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
+import { rtsReserveWater } from './rts-map.js';
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -408,6 +409,8 @@ export class World {
     this.nav = new NavGrid(this, { cell: 2 });
     for (const m of P.mines || []) this.nav.reserve(m.pos.x, m.pos.z, 7);
     for (const c of P.corals || []) this.nav.reserve(c.pos.x, c.pos.z, 5);
+    // R5 的水面主題（汙染水沒市街、多重水壩）：水深 > 0.3 m 的格子不能蓋建築（同 validate；空投、展開都看 buildable）
+    if (P.waterY !== undefined && T.water) rtsReserveWater(this.nav, T.water.level);
     // 冰湖不能蓋建築：沿長軸放幾個圓
     for (const L of P.ice || []) {
       const n = Math.ceil(L.rx / L.rz) + 1;

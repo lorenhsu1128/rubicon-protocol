@@ -25,11 +25,15 @@
 //   --heroes=6            另外加英雄（兩隊各一半，卡斯特隆三位英雄的 AC：BASTION、RAIN、PILEDRIVER；docs 13.10）
 //   --camps               另外加全部的野怪營地（地圖外圈 8 個營地、小／中／大的編成，待在原地不動；D 包有
 //                         rtsCampSpawnAll 時改用它）
-//   --faction=castron|aetheric|veerwell|mix|a,b  兩隊的兵種（R3，docs 14.9；R4 15.9）：castron＝卡斯特隆風格的編成（預設，同以前）、
+//   --faction=castron|aetheric|veerwell|sancta|mix|a,b  兩隊的兵種（R3，docs 14.9；R4 15.9；R5 16.9）：castron＝卡斯特隆風格的編成（預設，同以前）、
 //                         veerwell＝維爾威風格（空降 MT、誘導飛彈架、偵察無人機、宇宙用 MT、攻擊直升機、衝撞無人機、運輸機）、
+//                         sancta＝聖域風格（民兵 MT、拾荒 MT、鉚釘機、修理無人機、拾荒外殼機、護盾產生器、潛航砲艇；B 包的
+//                         rtsSancReskin 換成 RTS 定義的外觀）、
 //                         a,b＝友軍 a、敵軍 b（例：castron,veerwell）、
 //                         aetheric＝艾瑟立克風格（實驗體、寄生纏附體、嵌合體、全像投影器、浮游砲機、雷射 MT…）、
 //                         mix＝友軍卡斯特隆、敵軍艾瑟立克；英雄照舊用 --heroes 的 AC
+//   --wrecks=140          另外在戰場中心附近放 N 個殘骸（R5，docs 16.9：game/rts-sancta.js 的 rtsWreckBench，外觀是 B 包的
+//                         rtsSancWreckFx 批次；B 包之前只有紀錄、沒有外觀）
 //   --tag=名稱            輸出檔名的標記（預設 gpu／swiftshader＋鏡頭）
 //   --seed=1              擺放位置的亂數種子
 // 輸出：test-results/rts-bench-<tag>.json（以及截圖、profile）。需要先 npm run build；瀏覽器可用 BENCH_BROWSER 指定。
@@ -286,7 +290,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const results = [];
   for (const N of COUNTS) {
     const info = await page.evaluate(
-      ({ N, seed, heroes, camps, faction }) => {
+      ({ N, seed, heroes, camps, faction, wrecks }) => {
         const g = window.__game;
         const w = g.world;
         let s = (seed * 2654435761 + N * 97) >>> 0 || 1;
@@ -346,7 +350,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           dropship: 'v_dropship',
           ac: 'v_jet',
         };
-        const LISTS = { castron: TYPES, aetheric: AETH, veerwell: VEER };
+        // 聖域的編成（docs 16.3 的模型：一般任務的同名敵人；B 包的 rtsSancReskin 換成 RTS 定義的外觀）
+        const SANC = ['mt', 'mt', 'scav', 'riveter', 'mt', 'repair', 'junk', 'mt_dome', 'gunboat', 'scav'];
+        const SANC_DEF = {
+          mt: 's_militia',
+          scav: 's_scav',
+          riveter: 's_rivet',
+          repair: 's_repair',
+          junk: 's_junk',
+          mt_dome: 's_dome',
+          gunboat: 's_gunboat',
+        };
+        const LISTS = { castron: TYPES, aetheric: AETH, veerwell: VEER, sancta: SANC };
         const typesOf = (team) => LISTS[faction[team === 'enemy' ? 1 : 0]] || TYPES;
         const half = N / 2;
         const spread = Math.min(L * 0.85, 14 + Math.sqrt(half) * 3.2);
@@ -362,6 +377,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           if (e && TL === AETH && e.rtsAethReskin) e.rtsAethReskin(AETH_DEF[t], team === 'enemy' ? 1 : 0);
           if (e && TL === VEER && e.rtsVeerReskin && VEER_DEF[t])
             e.rtsVeerReskin(VEER_DEF[t], team === 'enemy' ? 1 : 0);
+          if (e && TL === SANC && e.rtsSancReskin && SANC_DEF[t])
+            e.rtsSancReskin(SANC_DEF[t], team === 'enemy' ? 1 : 0);
           // 一般任務的 AI 會自己生成實體（全像投影器的分身、實驗體融合；RTS 裡沒有這些行為）：編成不能在量測中變多（R4 B 包）
           if (e && (e.ai === 'holoproj' || e.ai === 'blob')) e.ai = 'mt';
           if (team === 'ally') {
@@ -436,20 +453,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         }
         g.waves = [];
         g.wavePend = null;
+        // 殘骸（R5）：戰場中心附近 N 個（紀錄＋B 包的外觀）
+        let wn = 0;
+        if (wrecks > 0 && g.rtsWreckBench) wn = g.rtsWreckBench(wrecks, 0, 0).length;
         if (g.rtsR) g.rtsRenderTick(); // RTS 渲染設定：網格合併在第一次算繪前（render/rts-merge.js）
         let meshes = 0;
         for (const e of [...g.enemies, ...g.allies])
           e.mesh.traverse((o) => o.isMesh && o.visible && o.layers.mask && meshes++);
-        return { en: g.enemies.length, al: g.allies.length, spread: Math.round(spread), meshes, creeps };
+        return {
+          en: g.enemies.length,
+          al: g.allies.length,
+          spread: Math.round(spread),
+          meshes,
+          creeps,
+          wrecks: wn,
+        };
       },
       {
         N,
         seed: SEED,
         heroes: +(args.heroes || 0),
         camps: !!args.camps,
+        wrecks: +(args.wrecks || 0),
         // 兩隊的陣營 [友軍, 敵軍]：mix＝卡斯特隆對艾瑟立克、a,b＝各自一個、單一個＝兩隊相同
         faction: (() => {
-          const ok = (f) => (['castron', 'aetheric', 'veerwell'].includes(f) ? f : 'castron');
+          const ok = (f) => (['castron', 'aetheric', 'veerwell', 'sancta'].includes(f) ? f : 'castron');
           const a = String(args.faction || 'castron');
           if (a === 'mix') return ['castron', 'aetheric'];
           const p = a.split(',');

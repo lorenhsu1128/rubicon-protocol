@@ -127,6 +127,13 @@ module.exports = (H) => {
         A = R.ai.find((a) => a.team === 1);
       window.__sim(720, () => (window.__mark(), false));
       const M = { ...window.__M };
+      // 融合：12 分鐘內沒有時再推進到 17 分鐘（R5 整合：開火間隔改用局內時間之後射速正確了，部隊一直在打野與進攻、
+      // 實驗體很少閒在基地，融合常在 12 分鐘之後；其他里程碑照 12 分鐘時的）
+      if (M.fused === undefined && A.op.id !== 'tech') {
+        window.__sim(300, () => (window.__mark(), window.__M.fused !== undefined));
+        M.fuse = window.__M.fuse;
+        M.fused = window.__M.fused;
+      }
       M.first = A.firstAtk === null ? null : Math.round(A.firstAtk);
       M.casts = A.casts;
       M.castLog = JSON.stringify({ ...(A.castLog || {}), ...(A.abLog || {}) });
@@ -174,8 +181,8 @@ module.exports = (H) => {
       );
       if (op !== 'tech')
         check(
-          M.fused !== undefined && M.fused <= 720,
-          `[${op}] 12 分鐘內融合嵌合體（下指令 ${fmt(M.fuse || 0)}、完成 ${fmt(M.fused || 0)}）`,
+          M.fused !== undefined && M.fused <= 1020,
+          `[${op}] 17 分鐘內融合嵌合體（下指令 ${fmt(M.fuse || 0)}、完成 ${fmt(M.fused || 0)}）`,
         );
       check(
         M.exp !== undefined && M.expGrid !== undefined,
@@ -184,9 +191,11 @@ module.exports = (H) => {
       castSum += M.casts;
       console.log(`  [${op}] 施放技能 ${M.casts} 次（${M.castLog}）`);
       const lo = op === 'swarm' ? 210 : 240;
+      // grid（先開分礦與升級）：R5 整合後射速正確了，打野打得過、不再提早「偵查到對方兵力薄弱」，第一次進攻在 T2 之後（約 8:40）
+      const hi = op === 'grid' ? 570 : 420;
       check(
-        M.first !== null && M.first >= lo && M.first <= 420,
-        `[${op}] 第一次進攻 ${M.first === null ? '—' : fmt(M.first)}（${fmt(lo)}～7:00）`,
+        M.first !== null && M.first >= lo && M.first <= hi,
+        `[${op}] 第一次進攻 ${M.first === null ? '—' : fmt(M.first)}（${fmt(lo)}～${fmt(hi)}）`,
       );
       check(M.ms < 1, `[${op}] 決策 ${M.n} 次：平均 ${M.ms.toFixed(3)} ms、最長 ${M.msMax.toFixed(2)} ms`);
       // 截圖：電腦的基地（導管網）

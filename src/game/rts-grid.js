@@ -257,6 +257,9 @@ Object.assign(Game.prototype, {
     if (ab === 'ab_supply') return !!(this.rtsVeerSupply && this.rtsVeerSupply(b, o.x, o.z));
     if (ab === 'ab_pack') return !!(this.rtsPack && b && b.bld && !b.bld.packed && this.rtsPack(b));
     if (ab === 'ab_trade') return !!(this.rtsTrade && b && this.rtsTrade(b.rtsTeam, o.dir || 'buy'));
+    // 聖域（rts-sancta.js，docs 16.2）：避難警報、解除避難（瞭望塔與避難屋的「放出工人」只放出那一座的）
+    if (ab === 'ab_shelter') return !!(this.rtsShelter && this.rtsShelter(b));
+    if (ab === 'ab_unshelter') return !!(this.rtsUnshelter && (this.rtsUnshelter(b), true));
     return !!(b && b.rtsAethAb && b.rtsAethAb(ab, o)); // 其他建築技能（B 包）
   },
   // 結晶護壁不能施放的原因（''＝可以）

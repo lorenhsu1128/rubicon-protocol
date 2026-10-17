@@ -11,6 +11,9 @@
 // - 冒煙測試：rtsSim(dt) 只推進模擬（不算繪），rtsPerf 記錄每格的耗時。
 // - R4（docs 15.2）：維爾威的空投、投放艙、機動建築、集貨站、交易、搭乘在 rts-veer.js（rtsVeerTick 每格）；這裡的呼叫點：
 //   rtsTrained 的投放艙、rtsBuildings 的收起中建築、rtsDmgK 的 rtsVeerTakenK、rtsSplash 的低空、rtsOnDeath 的 rtsVeerOnDeath。
+// - R5（docs 16.2）：聖域的殘骸、拾荒、零件、改裝、避難警報、拆除、地雷在 rts-sancta.js（rtsSalvageTick 每格）；這裡的呼叫點：
+//   rtsStart 的 rtsSalvageInit、rtsHook 的 rtsSancDefense（B）、費用的 parts（rtsAfford／rtsPay／rtsRefund／rtsCostWhy）、
+//   rtsDeposit 的 { salvage: true }（維持費減半）、rtsDropoff 的展開回收拖車、rtsRepairStep 的半價、rtsOnDeath 的 rtsSalvageOnDeath。
 import { SFX } from '../audio/audio.js';
 import { clamp, makeRng } from '../core/math.js';
 import { escHtml } from '../core/html.js';
@@ -43,6 +46,7 @@ import {
   researchMods,
   typeK,
 } from '../data/rts-combat.js';
+import { RTS_SANC } from '../data/rts-sancta.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import {
   CORAL_GLOW,
@@ -352,6 +356,7 @@ Object.assign(Game.prototype, {
         faction: fac[i],
         ore: RTS_START.ore,
         coral: RTS_START.coral,
+        parts: 0, // 零件（聖域，docs 16.2；rts-sancta.js）
         pop: 0,
         cap: 0,
         ai: i !== ME,
@@ -390,6 +395,11 @@ Object.assign(Game.prototype, {
         packs: 0,
         trades: 0,
         airMax: 0,
+        salvOre: 0, // 聖域（docs 16.7）：拾荒的礦石／Coral／零件、改裝、重新站起來的單位
+        salvCoral: 0,
+        salvParts: 0,
+        refits: 0,
+        revived: 0,
       })),
       hostile: [[], [], []], // 每個隊伍的敵對實體（rtsSim 每格重建；game.js 的 hostilesOfEnt 用它）
       items: [], // 地上的道具（C 包）
@@ -421,6 +431,7 @@ Object.assign(Game.prototype, {
       neutral: true,
       ore: 0,
       coral: 0,
+      parts: 0,
       pop: 0,
       cap: 0,
       ai: false,
@@ -512,6 +523,8 @@ Object.assign(Game.prototype, {
     // 其他包的開局（還沒實作時略過）：中立（野怪營地、酒館、商店、傭兵營）、英雄
     if (this.rtsNeutralInit) this.rtsNeutralInit();
     if (this.rtsHeroInit) this.rtsHeroInit();
+    // 聖域（rts-sancta.js）：殘骸、地雷的紀錄、地圖殘骸（場上有聖域時）
+    if (this.rtsSalvageInit) this.rtsSalvageInit();
     this.rtsHostileRebuild();
     // 鏡頭、迷霧、輸入、HUD、電腦對手（各自的檔案；還沒有時略過）
     const cam = this.camera;
@@ -609,6 +622,7 @@ Object.assign(Game.prototype, {
     e.mesh.rotation.y = yaw;
     if (D.worker) addWorkerKit(e.model, pal, T.faction); // 第 3 個參數：陣營的套件（B 包，R3）
     if (e.rtsAethModel) e.rtsAethModel(D); // 艾瑟立克的外加零件（原型體；B 包，在網格合併之前）
+    if (e.rtsSancModel) e.rtsSancModel(D); // 聖域的外加零件（回收拖車、巨像、改裝零件；R5 B 包，在網格合併之前）
     this.rtsHook(e);
     (teamId === ME ? this.allies : this.enemies).push(e);
     this.rtsAddEnt(e, x, z);
@@ -793,6 +807,8 @@ Object.assign(Game.prototype, {
       if (from && this.rtsHurtBy) this.rtsHurtBy(from);
       // 原本的 takeDamage 把傷害四捨五入成整數：RTS 每發的傷害小（機槍約 2.4），改成依小數部分的機率進位，平均才不會偏掉（B 包）
       let v = dmg * g.rtsDmgK(atk, this);
+      // 聖域（B 包）：拾荒外殼機的外殼、護盾產生器的圓頂（回傳新的傷害）
+      if (v > 0 && this.rtsSancDefense) v = this.rtsSancDefense(v, from, atk);
       if (v > 0) v = Math.floor(v) + (Math.random() < v - Math.floor(v) ? 1 : 0);
       if (v > 0 && g.rts) this.rtsHurtT = g.rts.t; // 最後一次受傷的局內時間（導管裡的建築 8 秒沒受傷才回血）
       return td.call(this, v, (impact || 0) * (this.rtsImpK || 1), from, at, dir, melee, wid, 'none');
@@ -942,15 +958,16 @@ Object.assign(Game.prototype, {
     }
     return best;
   },
-  // 最近的回收點（蓋好的主堡；維爾威的集貨站也是，交貨時由 rts-veer.js 的 rtsHaulDeposit 放進庫存）
+  // 最近的回收點（蓋好的主堡；維爾威的集貨站也是，交貨時由 rts-veer.js 的 rtsHaulDeposit 放進庫存；
+  // 聖域的回收站、展開的回收拖車 e.rtsHaulOn（會動的實體，docs 16.2））
   rtsDropoff(teamId, x, z) {
     let best = null,
       bd = 1e9;
     for (const e of this.rts.units) {
-      if (
-        e.dead ||
-        !e.bld ||
-        e.rtsTeam !== teamId ||
+      if (e.dead || e.rtsTeam !== teamId) continue;
+      if (!e.bld) {
+        if (!e.rtsHaulOn || e.rtsAboard) continue;
+      } else if (
         e.bld.progress < 1 ||
         e.bld.packed || // 收起的建築（維爾威）不收貨
         !RTS_DEFS[e.rtsDef].dropoff
@@ -976,33 +993,52 @@ Object.assign(Game.prototype, {
   },
 
   // ---------- 資源 ----------
+  // 費用 { ore, coral, parts?, pop? }：零件（聖域，docs 16.2）只有定義的費用有 parts 時才看
   rtsAfford(teamId, cost) {
     const T = this.rts && this.rts.teams[teamId];
     if (!T || !cost) return !!T;
     if ((cost.ore || 0) > T.ore + 1e-6 || (cost.coral || 0) > T.coral + 1e-6) return false;
+    if ((cost.parts || 0) > (T.parts || 0) + 1e-6) return false;
     if (cost.pop && T.pop + cost.pop > T.cap) return false;
     return true;
+  },
+  // 付不起的原因（''＝付得起）：礦石 → Coral → 零件
+  rtsCostWhy(teamId, cost) {
+    const T = this.rts && this.rts.teams[teamId];
+    if (!T || !cost) return '';
+    if ((cost.ore || 0) > T.ore + 1e-6) return '礦石不足';
+    if ((cost.coral || 0) > T.coral + 1e-6) return 'Coral 不足';
+    if ((cost.parts || 0) > (T.parts || 0) + 1e-6) return '零件不足';
+    return '';
   },
   rtsPay(teamId, cost) {
     if (!this.rtsAfford(teamId, cost)) return false;
     const T = this.rts.teams[teamId];
     T.ore -= cost.ore || 0;
     T.coral -= cost.coral || 0;
+    if (cost.parts) T.parts = (T.parts || 0) - cost.parts;
     return true;
   },
   rtsRefund(teamId, cost, k = 1) {
     const T = this.rts.teams[teamId];
     T.ore += Math.floor((cost.ore || 0) * k);
     T.coral += Math.floor((cost.coral || 0) * k);
+    if (cost.parts) {
+      const cap = this.rtsPartsCap ? this.rtsPartsCap(teamId) : Infinity;
+      T.parts = Math.min(cap, (T.parts || 0) + Math.floor(cost.parts * k));
+    }
   },
-  // 繳交資源：礦石套維持費（人口 60／100 以上收入 70%／40%），Coral 不受影響；回傳實際入帳的量
-  rtsDeposit(teamId, kind, n) {
+  // 繳交資源：礦石套維持費（人口 60／100 以上收入 70%／40%），Coral 不受影響；回傳實際入帳的量。
+  // o.salvage＝拾荒的礦石（聖域，docs 16.2）：維持費只套一半（100%／85%／70%）
+  rtsDeposit(teamId, kind, n, o = null) {
     const T = this.rts.teams[teamId];
     if (kind === 'coral') {
       T.coral += n * (T.income || 1);
       return n * (T.income || 1);
     }
-    const v = n * upkeepOf(T.pop).k * (T.income || 1); // T.income：電腦「瘋狂」難度的收入倍率（rts-ai.js）
+    const up = upkeepOf(T.pop);
+    const k = o && o.salvage ? RTS_SANC.salvage.upkeep[up.lv] : up.k;
+    const v = n * k * (T.income || 1); // T.income：電腦「瘋狂」難度的收入倍率（rts-ai.js）
     T.ore += v;
     return v;
   },
@@ -1171,7 +1207,7 @@ Object.assign(Game.prototype, {
     const why = this.rtsReqWhy(b.rtsTeam, U);
     if (why) return (me && this.rtsSay(why), false);
     if (!this.rtsPay(b.rtsTeam, U.cost)) {
-      if (me) this.rtsSay(R.teams[b.rtsTeam].ore < (U.cost.ore || 0) ? '礦石不足' : 'Coral 不足');
+      if (me) this.rtsSay(this.rtsCostWhy(b.rtsTeam, U.cost) || '資源不足');
       return false;
     }
     b.bld.queue.push({ id: toId, t: 0, on: true, upg: true, time: U.time, cost: { ...U.cost } });
@@ -1349,20 +1385,21 @@ Object.assign(Game.prototype, {
       const [fw, fd] = q ? [D.foot[1], D.foot[0]] : D.foot;
       if (!nav.buildable(x, z, fw, fd)) return (say('這裡不能建造'), null);
     }
-    if (!this.rtsPay(teamId, D.cost))
-      return (say(R.teams[teamId].ore < (D.cost.ore || 0) ? '礦石不足' : 'Coral 不足'), null);
+    if (!this.rtsPay(teamId, D.cost)) return (say(this.rtsCostWhy(teamId, D.cost) || '資源不足'), null);
     const b = this.rtsSpawnBld(teamId, defId, x, z, yaw, 0);
     if (builder) b.bld.builders.add(builder);
     if (teamId === ME && this.rtsEvent) this.rtsEvent(x, z, '');
     return b;
   },
-  // 修理一格：補血並扣礦石；資源不足時回傳 false
+  // 修理一格：補血並扣礦石；資源不足時回傳 false。聖域（docs 16.2）：費用 ×0.5、研究野戰修理後速度 ×1.5
   rtsRepairStep(b, w, dt) {
     const D = RTS_DEFS[b.rtsDef],
       T = this.rts.teams[b.rtsTeam];
-    const dh = Math.min((b.maxHp / (D.time * RTS_REPAIR.timeK)) * dt, b.maxHp - b.hp);
+    const sanc = this.rtsSalvageTeam ? this.rtsSalvageTeam(b.rtsTeam) : false;
+    const spd = sanc && this.rtsResLv(b.rtsTeam, 'r_mend') ? RTS_SANC.mendK : 1;
+    const dh = Math.min((b.maxHp / (D.time * RTS_REPAIR.timeK)) * dt * spd, b.maxHp - b.hp);
     if (dh <= 0) return true;
-    const cost = ((D.cost.ore || 0) * RTS_REPAIR.costK * dh) / b.maxHp;
+    const cost = ((D.cost.ore || 0) * RTS_REPAIR.costK * (sanc ? RTS_SANC.repairK : 1) * dh) / b.maxHp;
     if (T.ore < cost) {
       if (b.rtsTeam === ME) this.rtsSay('礦石不足，無法修理');
       return false;
@@ -1395,10 +1432,11 @@ Object.assign(Game.prototype, {
       if (hero) cost = this.rtsHeroPrice(b.rtsTeam, defId);
     }
     if (!this.rtsPay(b.rtsTeam, cost)) {
-      if (me) this.rtsSay(this.rts.teams[b.rtsTeam].ore < (cost.ore || 0) ? '礦石不足' : 'Coral 不足');
+      if (me) this.rtsSay(this.rtsCostWhy(b.rtsTeam, cost) || '資源不足');
       return false;
     }
     const it = { id: defId, t: 0, cost: { ore: cost.ore || 0, coral: cost.coral || 0 } };
+    if (cost.parts) it.cost.parts = cost.parts; // 零件（聖域的拼裝巨像）：取消時一起退還
     if (time !== undefined) it.time = time;
     if (o.revive) it.revive = true;
     b.bld.queue.push(it);
@@ -1490,6 +1528,8 @@ Object.assign(Game.prototype, {
     if (this.rtsFuseTick) this.rtsFuseTick(dt);
     // 維爾威（rts-veer.js）：空投、投放艙、集貨站、乘員、臨時信標、只剩收起的建築的揭露
     if (this.rtsVeerTick) this.rtsVeerTick(dt);
+    // 聖域（rts-sancta.js）：殘骸的過期、地雷、避難、改裝、拆除、診療所與互助網
+    if (this.rtsSalvageTick) this.rtsSalvageTick(dt);
     // 其他包的每格（還沒實作時略過）：英雄（經驗、光環、復活）、中立（營地、商店補貨）、自動管家
     if (this.rtsHeroTick) this.rtsHeroTick(dt);
     if (this.rtsNeutralTick) this.rtsNeutralTick(dt);
@@ -1708,6 +1748,8 @@ Object.assign(Game.prototype, {
     if (e.hero && this.rtsHeroDied) this.rtsHeroDied(e);
     // 維爾威（rts-veer.js）：空投運輸機被擊落（退 50%）、運輸機墜毀（乘員彈出）、信標被摧毀、集貨站的庫存
     if (this.rtsVeerOnDeath) this.rtsVeerOnDeath(e, from);
+    // 聖域（rts-sancta.js，在維爾威之後：運輸機墜毀時乘員先彈出、各自死亡的才有殘骸）：自爆裝藥、避難的工人彈出、殘骸
+    if (this.rtsSalvageOnDeath) this.rtsSalvageOnDeath(e, from);
     const c = e.center();
     if (!e.rtsQuiet) {
       R.stats[e.rtsTeam].lost++;
@@ -1866,6 +1908,8 @@ Object.assign(Game.prototype, {
           ${row('抽取的 Coral', Math.round(S[0].coral), Math.round(S[1].coral))}
           ${S[0].fused || S[1].fused ? row('融合用掉的單位', S[0].fused, S[1].fused) : ''}
           ${S[0].drops || S[1].drops || S[0].dropLost || S[1].dropLost ? row('空投（成功／被擊落）', `${S[0].drops}／${S[0].dropLost}`, `${S[1].drops}／${S[1].dropLost}`) : ''}
+          ${R.salvage ? row('拾荒（礦石／零件）', `${Math.round(S[0].salvOre || 0)}／${Math.round(S[0].salvParts || 0)}`, `${Math.round(S[1].salvOre || 0)}／${Math.round(S[1].salvParts || 0)}`) : ''}
+          ${R.salvage ? row('改裝', S[0].refits || 0, S[1].refits || 0) : ''}
         </table>
         <div class="row">
           <button type="button" class="primary" id="rtsEndMenu">回 Coral 戰爭選單</button>

@@ -12,6 +12,11 @@
 // 空投運輸機的「取消空投」、選取面板（收起／展開進度、集貨站庫存、信標、投放點、空投運輸機、運輸機的乘員與卸載）、
 // 畫面上的疊加（空中單位到地面的細線與圓點、投放艙的倒數、空投的落點）、小地圖（空中單位三角形、收好的建築空心方塊、
 // 空投落點、投放艙、信標）。
+// R5 聖域（docs 16.15）：資源列的零件與殘骸數（rtsHudSanc：A 包的掛勾；點殘骸數依序跳到看過的殘骸、避難中跳到聚落中心）、
+// 卡片動作 salvage（目標模式：只點殘骸）／refit（改裝子選單：費用含零件、可以改的台數、原因 rtsRefitWhy）、避難警報的卡片
+// （rtsShelterWhy、躲著的人數）、選取面板（殘骸的價值與拾荒人數、改裝與改裝中、避難、拆除按鈕＋uiConfirm、地雷數、潛航、
+// 撿零件的層數）、畫面上的疊加（殘骸的滑鼠停留提示、避難的人數、改裝的引導、潛航、拆除倒數）、小地圖（殘骸、地雷）、
+// 親自駕駛時英雄附近的殘骸標示（rtsHudPilotWrecks）。改裝站與殘骸的範圍圈畫在 rts-input.js（rtsHudSancRings）。
 import { Game } from './game.js';
 import { clamp } from '../core/math.js';
 import { escHtml } from '../core/html.js';
@@ -41,6 +46,7 @@ import { RTS_HERO_XP, RTS_REVIVE, RTS_SKILLS, skillLvReq, skillMax } from '../da
 import { RTS_ITEMS, RTS_SHOP, RTS_SHOP_CARD } from '../data/rts-items.js';
 import { RTS_FUSE } from '../data/rts-aetheric.js';
 import { RTS_VEER } from '../data/rts-veerwell.js';
+import { RTS_REFITS, RTS_SANC } from '../data/rts-sancta.js';
 
 const RTS_ME = 0;
 const KEYS = CARD_KEYS.flat();
@@ -61,6 +67,8 @@ const ORDER_NAME = {
   ability: '技能',
   pickup: '撿道具',
   shop: '前往商店',
+  salvage: '拾荒',
+  shelter: '避難',
 };
 const MINI_MODES = ['敵我', '隊伍', '地形'];
 const NEU_ICON = { tavern: '酒', shop: '商', merc: '傭' };
@@ -97,6 +105,8 @@ Object.assign(Game.prototype, {
         <span class="rtsRes pop" title="人口／上限"><i></i><b id="rtsPop">0/0</b></span>
         <button id="rtsPower" type="button" hidden title="導管網：供電源的數量；有建築停擺時變紅，點一下跳到停擺的建築">導管</button>
         <button id="rtsLift" type="button" hidden title="空投：使用中的運輸機／可同時空投數、降落中的投放艙；點一下跳到空投的落點或投放艙">空投</button>
+        <span class="rtsRes parts" id="rtsPartsBox" hidden title="零件（拾荒取得；改裝、廢鐵路障、拼裝巨像）"><i></i><b id="rtsParts">0</b></span>
+        <button id="rtsSalv" type="button" hidden title="看過的殘骸；點一下依序跳到價值高的殘骸">殘骸</button>
         <span id="rtsUpkeep" title="維持費：人口越多，礦石收入越少">無維持費</span>
         <button id="rtsButlerBtn" type="button" title="自動管家（親自駕駛時一律啟動）">管家</button>
       </div>
@@ -148,6 +158,7 @@ Object.assign(Game.prototype, {
     };
     document.getElementById('rtsPower').onclick = () => this.rtsHudPowerJump();
     document.getElementById('rtsLift').onclick = () => this.rtsHudLiftJump();
+    document.getElementById('rtsSalv').onclick = () => this.rtsHudSalvJump();
     document.getElementById('rtsIdleW').onclick = (e) =>
       this.rtsIdleSelect('worker', e.shiftKey || e.ctrlKey);
     document.getElementById('rtsIdleA').onclick = () => this.rtsIdleSelect('army', true);
@@ -297,13 +308,21 @@ Object.assign(Game.prototype, {
     const lf = document.getElementById('rtsLift');
     if (lf) lf.hidden = !veer;
     this._rtsLiftSig = '';
+    const sanc = this.rtsHudSancOn();
+    for (const id of ['rtsPartsBox', 'rtsSalv']) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = !sanc;
+    }
+    this._rtsSalvSig = '';
     const co = document.querySelector('#rtsTop .rtsRes.coral');
     if (co)
       co.title = grid
         ? 'Coral（汲取塔每秒 1.25、研究中樞自己產出；艾瑟立克的主要資源）'
         : veer
           ? 'Coral（抽取站每秒 0.8；調度中心的物流交易可以用礦石買）'
-          : 'Coral（抽取站每秒 0.8）';
+          : sanc
+            ? 'Coral（抽取站每秒 0.8；殘骸也拆得出 Coral）'
+            : 'Coral（抽取站每秒 0.8）';
     if (R.ui) R.ui.ringKey = '';
     this._rtsPowSig = '';
     this.rtsHudDirty = true;
@@ -640,6 +659,525 @@ Object.assign(Game.prototype, {
         : '');
   },
 
+  // ---------- 聖域（R5：docs 16.15） ----------
+  // 玩家的陣營有殘骸與拾荒
+  rtsHudSancOn() {
+    return !!(this.rts && this.rtsSalvageTeam && this.rtsSalvageTeam(RTS_ME));
+  },
+  // A 包的掛勾（零件改變、拾荒入帳、改裝開始／完成、避難進出）：資源列、卡片、面板下一格重畫
+  rtsHudSanc(teamId) {
+    if (teamId !== RTS_ME || !this.rts) return;
+    this._rtsSalvSig = '';
+    this.rtsHudDirty = true;
+  },
+  // 玩家看過的殘骸（地圖殘骸是公開資訊：探索過就算）；ghosts＝也列出殘影（看不到時已經不在的）
+  rtsHudWrecks(ghosts) {
+    const R = this.rts;
+    if (!R || !R.wrecks) return [];
+    const fog = typeof this.rtsFogState === 'function';
+    const bit = 1 << RTS_ME;
+    const out = [];
+    for (const w of R.wrecks) {
+      if (w.map ? fog && !this.rtsFogState(RTS_ME, w.x, w.z) : !(w.seen & bit)) continue;
+      out.push(w);
+    }
+    if (ghosts) for (const w of R.wreckGone || []) if (w.ghost & bit) out.push(w);
+    return out;
+  },
+  // 殘骸的說明：現在看得到那一格時是真正的價值與拾荒人數，否則是最後看到的礦石
+  rtsHudWreckInfo(w) {
+    const R = this.rts;
+    const fog = typeof this.rtsFogState === 'function';
+    const vis = !w.gone && (w.map || !fog || this.rtsFogState(RTS_ME, w.x, w.z) === 2);
+    const k = (w.known && w.known[RTS_ME]) || { ore: w.ore, size: w.size };
+    const name = w.map
+      ? '地圖殘骸'
+      : w.bld
+        ? '建築瓦礫'
+        : ['小型殘骸', '殘骸', '大型殘骸', '建築瓦礫'][vis ? w.size : k.size] || '殘骸';
+    let takers = 0,
+      own = 0;
+    if (vis)
+      for (const id of w.takers || []) {
+        const u = this.rtsEnt ? this.rtsEnt(id) : null;
+        if (!u || u.dead) continue;
+        takers++;
+        if (u.rtsTeam === RTS_ME) own++;
+      }
+    return {
+      name,
+      vis,
+      ghost: !!w.gone,
+      ore: Math.floor(vis ? w.ore : k.ore),
+      coral: vis ? Math.floor(w.coral) : null,
+      parts: vis ? Math.floor(w.parts) : null,
+      takers,
+      own,
+      sat: w.map ? RTS_SANC.wreck.map.sat : RTS_SANC.salvage.sat,
+      left: w.map ? Infinity : Math.max(0, (w.end || 0) - ((R && R.t) || 0)),
+      from: w.def ? this.rtsUiName(w.def) : '',
+    };
+  },
+  // 說明的文字（面板、滑鼠停留）：[標題, 行…, info]
+  rtsHudWreckLines(w) {
+    const I = this.rtsHudWreckInfo(w);
+    const L = [];
+    if (I.ghost) L.push('最後看到：礦石 ' + I.ore + '（可能已經不在）');
+    else if (!I.vis) L.push('最後看到：礦石 ' + I.ore);
+    else {
+      L.push(`礦石 ${I.ore}` + (I.coral ? `、Coral ${I.coral}` : '') + `、零件 ${I.parts}`);
+      L.push(`拾荒 ${I.takers}／${I.sat} 人` + (I.own && I.own !== I.takers ? `（己方 ${I.own}）` : ''));
+    }
+    if (I.from) L.push('來自 ' + I.from);
+    if (!I.ghost) L.push(I.left === Infinity ? '不會消失（拆完只剩外觀）' : `${Math.ceil(I.left)} 秒後消失`);
+    return [I.name, L, I];
+  },
+  // 躲著的工人：{ n, left（最晚出來的秒數）, blds（有人躲著的建築） }
+  rtsHudShelterInfo() {
+    const R = this.rts;
+    const out = { n: 0, left: 0, blds: [] };
+    if (!R) return out;
+    for (const e of R.units) {
+      if (e.dead || e.rtsTeam !== RTS_ME) continue;
+      if (e.rtsShelter) {
+        out.n++;
+        out.left = Math.max(out.left, (e.rtsShelT || 0) - (R.t || 0));
+      } else if (e.bld && e.bld.shel && e.bld.shel.length) out.blds.push(e);
+    }
+    return out;
+  },
+  // 資源列：零件（上限時變黃）、殘骸數（避難中另外顯示人數與秒數）
+  rtsHudSalvDraw() {
+    const el = document.getElementById('rtsSalv');
+    const R = this.rts;
+    if (!el || el.hidden || !R) return;
+    const T = R.teams[RTS_ME];
+    const cap = this.rtsPartsCap ? this.rtsPartsCap(RTS_ME) : RTS_SANC.parts.cap;
+    const p = Math.floor((T && T.parts) || 0);
+    const ws = this.rtsHudWrecks(false).filter((w) => w.ore > 0);
+    let ore = 0;
+    for (const w of ws) ore += this.rtsHudWreckInfo(w).ore;
+    const sh = this.rtsHudShelterInfo();
+    const txt = `殘骸 ${ws.length}` + (sh.n ? `・避難 ${sh.n}（${Math.ceil(sh.left)}s）` : '');
+    const sig = p + '|' + cap + '|' + txt + '|' + Math.round(ore / 10);
+    if (sig === this._rtsSalvSig) return;
+    this._rtsSalvSig = sig;
+    const pb = document.getElementById('rtsParts');
+    if (pb) pb.textContent = String(p);
+    const box = document.getElementById('rtsPartsBox');
+    if (box) {
+      box.classList.toggle('full', p >= cap);
+      box.title =
+        `零件 ${p}／${cap}（拾荒取得；改裝、廢鐵路障、拼裝巨像）` + (p >= cap ? '：已滿，多的會丟掉' : '');
+    }
+    el.textContent = txt;
+    el.classList.toggle('busy', sh.n > 0);
+    el.classList.toggle('on', ws.length > 0);
+    el.title =
+      `看過的殘骸 ${ws.length} 個（約礦石 ${ore}）；工人或回收拖車拆回來：礦石、Coral 與零件` +
+      (sh.n ? `；${sh.n} 台工人避難中` : '') +
+      '；點一下依序跳到' +
+      (sh.n ? '避難的建築與' : '') +
+      '價值高的殘骸';
+  },
+  // 點資源列的殘骸數：依序跳到有人躲著的建築、價值高的殘骸（殘骸＝選中顯示說明）
+  rtsHudSalvJump() {
+    const R = this.rts;
+    if (!R || !R.ui || this.state !== 'rts') return;
+    const sh = this.rtsHudShelterInfo();
+    const ws = this.rtsHudWrecks(false)
+      .filter((w) => w.ore > 0)
+      .sort((a, b) => this.rtsHudWreckInfo(b).ore - this.rtsHudWreckInfo(a).ore);
+    const list = [...sh.blds, ...ws];
+    if (!list.length) return this.rtsMsg('還沒有看過的殘骸', 0xbfd0e0, 1.2);
+    R.ui.salvI = ((R.ui.salvI === undefined ? -1 : R.ui.salvI) + 1) % list.length;
+    const o = list[R.ui.salvI];
+    if (o.wreck) {
+      this.rtsCamJump(o.x, o.z);
+      R.sel = [];
+      R.ui.focus = o;
+      this.rtsHudDirty = true;
+    } else {
+      this.rtsCamJump(o.pos.x, o.pos.z);
+      this.rtsSetSel([o]);
+    }
+  },
+  // 拾荒卡（作業機的 V）：目標模式只點殘骸
+  rtsHudSalvCard(it) {
+    const n = this.rtsHudWrecks(false).filter((w) => w.ore > 0).length;
+    const trip = this.rtsSalvageTrip ? this.rtsSalvageTrip(RTS_ME) : RTS_SANC.salvage.trip;
+    it.lvTxt = `殘骸 ${n}`;
+    it.note = `每趟 ${trip} 礦石（零件、Coral 依比例）；同一個殘骸最多 ${RTS_SANC.salvage.sat} 人；拾荒的礦石維持費只套一半`;
+    if (!n) it.dis = '還沒有看過的殘骸';
+  },
+  // 改裝卡（子選單 menus.refit）：費用（零件 × 倉儲、工具箱的折扣）、可以改的台數、原因（rtsRefitWhy）
+  rtsHudRefitCard(it, a, G) {
+    const F = RTS_REFITS[a.rf];
+    if (!F) return;
+    const units = G.filter((e) => this.rtsOwn(e) && !e.bld);
+    const st = this.rtsRefitStations ? this.rtsRefitStations(RTS_ME) : [];
+    const e0 = units.find((e) => this.rtsRefitNear && this.rtsRefitNear(e, st)) || units[0] || null;
+    const c = this.rtsRefitCost ? this.rtsRefitCost(RTS_ME, a.rf, e0, st) : F.cost;
+    it.cost = { ore: c.ore, parts: c.parts };
+    it.time = RTS_SANC.refit.time;
+    it.label = F.name;
+    it.tip = F.desc + (c.parts < F.cost.parts ? `（零件 ${F.cost.parts} → ${c.parts}）` : '');
+    if (!this.rtsRefitWhy) {
+      it.dis = '還不能改裝';
+      return;
+    }
+    const whys = units.map((e) => this.rtsRefitWhy(e, a.rf, { st }));
+    const ok = whys.filter((w) => !w).length;
+    const fit = units.filter((e) => e.rtsRefit === a.rf).length;
+    const can = units.filter((e) => !this.rtsRefitWhy(e, a.rf, { st, noRange: true, noCost: true })).length;
+    const near = units.filter((e) => this.rtsRefitNear && this.rtsRefitNear(e, st)).length;
+    it.lvTxt = ok ? `${ok} 台可改` : fit ? `已裝 ${fit}` : '';
+    it.on = units.length > 0 && fit === units.length;
+    it.note =
+      `選取中 ${units.length} 台：能裝 ${can}、在改裝站附近 ${near}` +
+      (fit ? `、已經裝了 ${fit}` : '') +
+      `。改裝站＝聚落中心與改裝工坊 ${RTS_SANC.refit.r} m、展開的回收拖車 ${RTS_SANC.hauler.refitR} m` +
+      `、帶拼裝工具箱的英雄 ${RTS_SANC.refit.heroR} m；換掉不退費`;
+    if (ok) {
+      it.dis = '';
+      return;
+    }
+    it.dis =
+      whys.find((w) => w === '零件不足' || w === '礦石不足') ||
+      whys.find((w) => /^要在改裝/.test(w)) ||
+      whys.find((w) => w && w !== '已經裝了') ||
+      whys[0] ||
+      '沒有可以改裝的單位';
+  },
+  // 避難警報／解除避難的卡片（建築技能）：原因（rtsShelterWhy）、躲著的人數
+  rtsHudShelterCard(it, a, bs) {
+    const R = this.rts;
+    const sh = this.rtsHudShelterInfo();
+    let cap = 0;
+    for (const b of R.units)
+      if (!b.dead && b.bld && b.rtsTeam === RTS_ME && this.rtsShelterCap) cap += this.rtsShelterCap(b);
+    const going = (u) =>
+      !u.dead && !u.bld && u.rtsTeam === RTS_ME && u.orders[0] && u.orders[0].k === 'shelter';
+    it.lvTxt = `躲 ${sh.n}／${cap}`;
+    if (a.ab === 'ab_shelter') {
+      const ws = bs.map((b) => this.rtsShelterWhy(b));
+      it.dis = ws.some((w) => !w) ? '' : ws[0] || '沒有可以施放的建築';
+      const C = RTS_SANC.shelter;
+      it.note =
+        `避難空位 ${cap}（聚落中心 ${C.cap.s_hq}、避難屋 ${C.cap.s_depot}、瞭望塔 ${C.cap.s_tower}）` +
+        `；躲著的工人每人 dps ${C.dps}、${C.t} 秒後出來`;
+      return;
+    }
+    // 解除：聚落中心＝全隊；避難屋與瞭望塔＝只有這一座
+    const all = bs.some((b) => ((RTS_DEFS[b.rtsDef] || {}).abil || []).includes('ab_shelter'));
+    let n = 0;
+    if (all) n = sh.n + R.units.filter(going).length;
+    else
+      for (const b of bs)
+        n +=
+          ((b.bld.shel && b.bld.shel.length) || 0) +
+          R.units.filter((u) => going(u) && u.orders[0].id === b.id).length;
+    it.lvTxt = `躲 ${n}`;
+    if (!n) it.dis = '沒有躲著的工人';
+  },
+  // 選取面板的聖域資訊：rows／warn 加行，回傳 { prog（進度條）, btn（拆除按鈕） }
+  rtsHudSancRows(e, own, rows, warn) {
+    const R = this.rts,
+      D = this.rtsUiDef(e) || {};
+    const out = { prog: '', btn: '' };
+    if (!R.salvage && !e.rtsRefit && !e.rtsRefitTo) return out;
+    const t = R.t || 0;
+    const bar = (cls, lab, p) =>
+      `<div class="rtsProg ${cls}"><label>${escHtml(lab)} ${Math.floor(p * 100)}%</label><i style="width:${Math.round(p * 100)}%"></i></div>`;
+    if (e.bld) {
+      const B = e.bld;
+      if (D.shelter && B.progress >= 1) {
+        const n = (B.shel && B.shel.length) || 0;
+        rows.push(`避難 ${n}／${D.shelter}` + (B.shelRes ? `（${B.shelRes} 台在路上）` : ''));
+        if (n)
+          rows.push(
+            `躲著的工人開火：每秒 ${Math.min(RTS_SANC.shelter.dpsMax || 40, RTS_SANC.shelter.dps * n)}`,
+          );
+      }
+      if (D.faction === 'sancta' && B.progress >= 1) {
+        if (D.refitSt) rows.push(`改裝站：${D.refitSt} m 內的單位可以改裝`);
+        if (D.clinic) {
+          const mend = this.rtsResLv && this.rtsResLv(e.rtsTeam, 'r_mend');
+          const C = RTS_SANC.clinic;
+          rows.push(`診療：${C.r} m 內的己方單位每秒回 ${mend ? C.regenRes : C.regen} AP`);
+        }
+        if (D.dropoff) rows.push('回收點：礦石與殘骸');
+      }
+      if (B.scrapT) {
+        const left = Math.max(0, B.scrapT - t);
+        out.prog = bar('scrap', `拆除中（${Math.ceil(left)} 秒）`, clamp(1 - left / RTS_SANC.scrap.t, 0, 1));
+        warn.push('拆除中：完成後留下殘骸、佇列全額退還');
+      } else if (own && B.progress >= 1 && !e.rtsInv && this.rtsScrapWhy && this.rtsSalvageTeam(e.rtsTeam)) {
+        const why = this.rtsScrapWhy(e);
+        const tip = why || '拆除：3 秒後建築消失，原地留下價值 50% 的殘骸（要工人拆回來）；佇列全額退還';
+        out.btn = `<button type="button" class="rtsScrap"${why ? ' disabled' : ''} title="${escHtml(tip)}">拆除</button>`;
+      }
+      return out;
+    }
+    if (e.rtsRefitTo && RTS_REFITS[e.rtsRefitTo]) {
+      const p = clamp(1 - ((e.rtsRefitT || 0) - t) / RTS_SANC.refit.time, 0, 1);
+      out.prog = bar('refit', '改裝中：' + RTS_REFITS[e.rtsRefitTo].name, p);
+    }
+    if (e.rtsRefit && RTS_REFITS[e.rtsRefit]) {
+      const F = RTS_REFITS[e.rtsRefit];
+      rows.push(`改裝：${F.name}（${F.desc}）`);
+    }
+    // C 包（16.13）：避難護盾的圓頂、修復光束
+    const F = R.hfx || {};
+    for (const d of F.domes || [])
+      if (d && !d.gone && d.host === e && d.until > t)
+        rows.push(`避難護盾 ${Math.ceil(d.n)}／${Math.round(d.n0)}（${Math.ceil(d.until - t)} 秒）`);
+    for (const m of F.mends || [])
+      if (m && m.t === e && m.n > 0) rows.push('修復光束中（' + this.rtsUiName(m.src) + '）');
+    // B 包（16.12）：拾荒外殼機的外殼（e.rtsSanc.shell／shellMax）、護盾產生器的圓頂（e.rtsSanc.dome.rec＝R.sancDomes 的紀錄）
+    const SB = e.rtsSanc;
+    if (SB && SB.shell !== undefined)
+      rows.push(`外殼 ${Math.ceil(SB.shell)}／${Math.round(SB.shellMax)}（吃掉 70% 的傷害）`);
+    if (SB && SB.dome) {
+      const dr = SB.dome.rec;
+      if (dr && dr.reT) rows.push(`圓頂打破：${Math.ceil(Math.max(0, dr.reT - t))} 秒後重新展開`);
+      else if (dr) rows.push(`圓頂 ${Math.ceil(dr.hp)}／${Math.round(dr.max)}（半徑 ${dr.r} m）`);
+      else rows.push(SB.dome.st === 'deploying' ? '圓頂展開中' : '圓頂收起（移動時收起）');
+    }
+    if (e.rtsScavN) rows.push(`撿零件 ${e.rtsScavN}／${RTS_SANC.scav.max} 層（傷害 +${e.rtsScavN * 5}%）`);
+    if (e.rtsSub) rows.push('潛航中：敵方看不到（6 m 內有敵方或被照明時例外）');
+    if (D.hauler)
+      rows.push(
+        e.rtsHaulOn ? '展開：回收點、改裝站 8 m、自己拆 10 m 內的殘骸' : '收起：Z 展開成回收點與改裝站',
+      );
+    if (D.minelayer && this.rtsLandMinesOf) {
+      const n = this.rtsLandMinesOf(e.rtsTeam).filter((m) => m.owner === e.id && !m.free).length;
+      const res = this.rtsResLv && this.rtsResLv(e.rtsTeam, 'r_mines');
+      rows.push(`地雷 ${n}／${res ? RTS_SANC.mine.perRes : RTS_SANC.mine.per}`);
+    }
+    const o = e.orders && e.orders[0];
+    if (own && o && o.k === 'salvage' && e.rt && e.rt.salvW)
+      rows.push('拾荒：' + this.rtsHudWreckInfo(e.rt.salvW).name);
+    return out;
+  },
+  // 拆除（面板的按鈕）：uiConfirm 確認（手把也能按）後 rtsOrder({ k: 'scrap' })
+  rtsHudScrapAsk(b) {
+    if (Array.isArray(b)) return this.rtsHudScrapAskMany(b);
+    if (!b || b.dead || !this.rtsOwn(b)) return false;
+    const why = this.rtsScrapWhy ? this.rtsScrapWhy(b) : '不能拆除';
+    if (why) return (this.rtsMsg(why, 0xff8a8a), false);
+    const v = this.rtsWreckValue ? this.rtsWreckValue(b, null, true) : null;
+    const q = (b.bld.queue && b.bld.queue.length) || 0;
+    const sh = (b.bld.shel && b.bld.shel.length) || 0;
+    const txt =
+      `拆除${this.rtsUiName(b)}？${RTS_SANC.scrap.t} 秒後建築消失，原地留下殘骸` +
+      (v ? `（礦石 ${v.ore}、零件 ${v.parts}，要工人拆回來）` : '') +
+      (q ? `；生產佇列的 ${q} 項全額退還` : '') +
+      (sh ? `；躲著的 ${sh} 台工人出來` : '') +
+      '。';
+    const go = () => {
+      if (b.dead) return;
+      const n = typeof this.rtsOrder === 'function' ? this.rtsOrder([b], { k: 'scrap' }) : 0;
+      if (!n) this.rtsMsg((this.rtsScrapWhy && this.rtsScrapWhy(b)) || '不能拆除', 0xff8a8a);
+      this.rtsHudDirty = true;
+    };
+    if (typeof this.uiConfirm === 'function') this.uiConfirm(txt, go, '拆除', '取消');
+    else go();
+    return true;
+  },
+  // 多選的拆除：能拆的建築一起拆（礦石與零件合計、佇列與躲著的工人）
+  rtsHudScrapAskMany(list) {
+    const bs = list.filter(
+      (b) => b && !b.dead && b.bld && this.rtsOwn(b) && this.rtsScrapWhy && !this.rtsScrapWhy(b),
+    );
+    if (!bs.length) return (this.rtsMsg('沒有可以拆除的建築', 0xff8a8a), false);
+    if (bs.length === 1) return this.rtsHudScrapAsk(bs[0]);
+    let ore = 0,
+      parts = 0,
+      q = 0,
+      sh = 0;
+    for (const b of bs) {
+      const v = this.rtsWreckValue ? this.rtsWreckValue(b, null, true) : null;
+      if (v) ((ore += v.ore || 0), (parts += v.parts || 0));
+      q += (b.bld.queue && b.bld.queue.length) || 0;
+      sh += (b.bld.shel && b.bld.shel.length) || 0;
+    }
+    const txt =
+      `拆除選取中的 ${bs.length} 座建築？${RTS_SANC.scrap.t} 秒後消失，原地留下殘骸` +
+      `（合計礦石 ${ore}、零件 ${parts}，要工人拆回來）` +
+      (q ? `；生產佇列的 ${q} 項全額退還` : '') +
+      (sh ? `；躲著的 ${sh} 台工人出來` : '') +
+      '。';
+    const go = () => {
+      const live = bs.filter((b) => !b.dead);
+      const n = live.length && typeof this.rtsOrder === 'function' ? this.rtsOrder(live, { k: 'scrap' }) : 0;
+      if (!n) this.rtsMsg('不能拆除', 0xff8a8a);
+      this.rtsHudDirty = true;
+    };
+    if (typeof this.uiConfirm === 'function') this.uiConfirm(txt, go, '拆除', '取消');
+    else go();
+    return true;
+  },
+  // 畫面上的疊加：避難的人數、改裝的引導、潛航、拆除倒數、殘骸的滑鼠停留提示
+  rtsHudSancOverlay(c) {
+    const R = this.rts,
+      ui = R.ui;
+    this._rtsWreckTip = null;
+    if (!R.wrecks) return;
+    const t = R.t || 0;
+    const v = (this._rtsSv = this._rtsSv || new THREE.Vector3());
+    const proj = (x, y, z) => {
+      v.set(x, y, z).project(this.camera);
+      if (!(v.z < 1 && v.z > -1)) return null;
+      return { x: ((v.x + 1) / 2) * innerWidth, y: ((-v.y + 1) / 2) * innerHeight };
+    };
+    c.textAlign = 'center';
+    let nSh = 0,
+      nRf = 0;
+    for (const e of R.units) {
+      if (e.dead || e.rtsTeam !== RTS_ME) continue;
+      if (e.bld) {
+        const n = (e.bld.shel && e.bld.shel.length) || 0;
+        const sc = e.bld.scrapT ? Math.max(0, e.bld.scrapT - t) : -1;
+        if (!n && sc < 0) continue;
+        const D = RTS_DEFS[e.rtsDef] || {};
+        const s = proj(e.pos.x, e.pos.y + (D.height || 6) + 1, e.pos.z);
+        if (!s) continue;
+        const txt =
+          (n ? `避 ${n}` : '') + (n && sc >= 0 ? '・' : '') + (sc >= 0 ? `拆 ${Math.ceil(sc)}` : '');
+        c.font = 'bold 12px sans-serif';
+        const w = c.measureText(txt).width + 10;
+        c.fillStyle = 'rgba(0,0,0,0.65)';
+        c.fillRect(s.x - w / 2, s.y - 16, w, 17);
+        c.fillStyle = sc >= 0 ? '#ffb070' : '#ffe08a';
+        c.fillText(txt, s.x, s.y - 3);
+        if (n) nSh++;
+        continue;
+      }
+      if (!e.rtsRefitTo && !e.rtsSub) continue;
+      const s = proj(e.pos.x, e.pos.y + (e.height || 3) * 1.05, e.pos.z);
+      if (!s) continue;
+      c.font = 'bold 11px sans-serif';
+      if (e.rtsRefitTo) {
+        const p = clamp(1 - ((e.rtsRefitT || 0) - t) / RTS_SANC.refit.time, 0, 1);
+        c.fillStyle = 'rgba(0,0,0,0.65)';
+        c.fillRect(s.x - 15, s.y - 4, 30, 5);
+        c.fillStyle = '#ffb860';
+        c.fillRect(s.x - 14, s.y - 3, 28 * p, 3);
+        c.fillText('改', s.x - 22, s.y + 1);
+        nRf++;
+      }
+      if (e.rtsSub) {
+        c.fillStyle = '#7fd0ff';
+        c.fillText('潛', s.x + (e.rtsRefitTo ? 22 : 0), s.y - 8);
+      }
+    }
+    this._rtsSancMarks = { shelter: nSh, refit: nRf };
+    // 滑鼠停留在殘骸上：名稱、價值、拾荒的人數
+    const hv = ui.hover;
+    if (hv && hv.wreck && !ui.drag) {
+      const [title, lines] = this.rtsHudWreckLines(hv);
+      c.font = '12px sans-serif';
+      let w = c.measureText(title).width + 10;
+      for (const l of lines) w = Math.max(w, c.measureText(l).width);
+      w += 14;
+      const h = 22 + lines.length * 15;
+      const x0 = clamp(ui.mx + 16, 4, innerWidth - w - 4),
+        bot = document.getElementById('rtsBottom'),
+        yMax = (bot ? bot.getBoundingClientRect().top : innerHeight) - h - 4, // 不要被下方列蓋住
+        y0 = clamp(ui.my + 14 > yMax ? ui.my - h - 10 : ui.my + 14, 40, Math.max(40, yMax));
+      c.fillStyle = 'rgba(8,12,18,0.88)';
+      c.fillRect(x0, y0, w, h);
+      c.strokeStyle = 'rgba(200,150,100,0.8)';
+      c.lineWidth = 1;
+      c.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+      c.textAlign = 'left';
+      c.font = 'bold 12px sans-serif';
+      c.fillStyle = '#ffc890';
+      c.fillText(title, x0 + 7, y0 + 15);
+      c.font = '12px sans-serif';
+      c.fillStyle = '#e0e6ee';
+      lines.forEach((l, i) => c.fillText(l, x0 + 7, y0 + 31 + i * 15));
+      c.textAlign = 'center';
+      this._rtsWreckTip = [title, ...lines].join('|');
+    }
+  },
+  // 小地圖：看過的殘骸（鏽色；地圖殘骸大一號、拆完變灰；殘影淡）、地雷（己方紅點、看得到的敵方橘色 ×）
+  rtsHudSancMini(g, X, Z, dpr) {
+    const R = this.rts;
+    let nw = 0,
+      nm = 0;
+    if (R.wrecks)
+      for (const w of this.rtsHudWrecks(true)) {
+        const s = (w.map ? 3.4 : w.bld ? 3 : 2.2) * dpr;
+        g.fillStyle = w.gone ? 'rgba(192,132,78,0.35)' : w.map && w.ore <= 0 ? '#6c6660' : '#c0844e';
+        g.fillRect(X(w.x) - s / 2, Z(w.z) - s / 2, s, s);
+        nw++;
+      }
+    if (R.lmines && R.lmines.length) {
+      g.fillStyle = '#ff5a4a';
+      for (const m of R.lmines) {
+        if (m.team !== RTS_ME) continue;
+        g.beginPath();
+        g.arc(X(m.x), Z(m.z), 1.4 * dpr, 0, Math.PI * 2);
+        g.fill();
+        nm++;
+      }
+      g.strokeStyle = '#ffa040';
+      g.lineWidth = dpr;
+      for (const m of this.rtsLandMinesSeen ? this.rtsLandMinesSeen(RTS_ME) : []) {
+        const x = X(m.x),
+          z = Z(m.z),
+          r = 2 * dpr;
+        g.beginPath();
+        g.moveTo(x - r, z - r);
+        g.lineTo(x + r, z + r);
+        g.moveTo(x + r, z - r);
+        g.lineTo(x - r, z + r);
+        g.stroke();
+        nm++;
+      }
+    }
+    this._rtsSancMini = { wrecks: nw, mines: nm };
+  },
+  // 親自駕駛：英雄 25 m 內看過的殘骸（地面的小菱形＋數量；SALVOR 的廢鐵外殼、臨時巨像等技能要殘骸）
+  rtsHudPilotWrecks(c) {
+    const R = this.rts,
+      P = R && R.pilot;
+    this._rtsPilotWrk = 0;
+    if (!P || !c || !R.wrecks || !R.wrecks.length || !this.rtsWreckAt) return 0;
+    const e = P.e;
+    const v = (this._rtsSv = this._rtsSv || new THREE.Vector3());
+    let n = 0;
+    c.save();
+    c.strokeStyle = 'rgba(255,190,120,0.9)';
+    c.lineWidth = 1.5;
+    for (const w of this.rtsWreckAt(e.pos.x, e.pos.z, 25, { team: RTS_ME })) {
+      n++;
+      v.set(w.x, w.y + 0.6, w.z).project(this.camera);
+      if (!(v.z < 1 && v.z > -1)) continue;
+      const x = ((v.x + 1) / 2) * innerWidth,
+        y = ((-v.y + 1) / 2) * innerHeight;
+      const r = 5 + (w.size || 0) * 1.5;
+      c.beginPath();
+      c.moveTo(x, y - r);
+      c.lineTo(x + r, y);
+      c.lineTo(x, y + r);
+      c.lineTo(x - r, y);
+      c.closePath();
+      c.stroke();
+    }
+    if (n) {
+      c.font = 'bold 12px sans-serif';
+      c.textAlign = 'center';
+      c.fillStyle = '#ffc890';
+      c.fillText(`殘骸 ${n}（25 m 內）`, innerWidth / 2, innerHeight * 0.7);
+    }
+    c.restore();
+    this._rtsPilotWrk = n;
+    return n;
+  },
+
   // ---------- 每格 ----------
   rtsHudTick(dt) {
     const R = this.rts;
@@ -660,6 +1198,9 @@ Object.assign(Game.prototype, {
       R.sel = [];
       this.rtsHudDirty = true;
     }
+    // 選中的殘骸被拆完或過期（聖域）
+    if (R.ui.focus && R.ui.focus.wreck && R.ui.focus.gone && !(R.ui.focus.ghost & (1 << RTS_ME)))
+      R.ui.focus = null;
     if (!pilot) this.rtsDrawOverlay(); // 親自駕駛時 HUD 畫布是動作 HUD（drawHud）
     this._rtsT = (this._rtsT || 0) + dt;
     this._rtsMiniT = (this._rtsMiniT || 0) + dt;
@@ -701,7 +1242,9 @@ Object.assign(Game.prototype, {
                 (R.ui.ghost && R.ui.ghost.g.visible && !R.ui.ghost.ok && R.ui.ghost.why
                   ? '　— ' + R.ui.ghost.why
                   : '')
-              : m.label + '：左鍵選擇目標、右鍵或 Esc 取消'
+              : m.order === 'salvage'
+                ? m.label + '：左鍵點殘骸、Shift 排隊、右鍵或 Esc 取消'
+                : m.label + '：左鍵選擇目標、右鍵或 Esc 取消'
             : '';
       if (hint.textContent !== txt) {
         hint.textContent = txt;
@@ -744,6 +1287,7 @@ Object.assign(Game.prototype, {
     if (bb) bb.classList.toggle('on', !!(R.butler && (R.butler.on || R.pilot)));
     this.rtsHudPowerDraw();
     this.rtsHudLiftDraw();
+    this.rtsHudSalvDraw();
   },
   // 管家的設定面板（資源列的「管家」按鈕）
   rtsButlerDraw(force) {
@@ -1025,7 +1569,17 @@ Object.assign(Game.prototype, {
         a.k === 'order'
           ? a.o
           : a.k +
-            (a.id ? ':' + a.id : a.menu ? ':' + a.menu : a.ab ? ':' + a.ab : a.item ? ':' + a.item : ''),
+            (a.id
+              ? ':' + a.id
+              : a.menu
+                ? ':' + a.menu
+                : a.ab
+                  ? ':' + a.ab
+                  : a.item
+                    ? ':' + a.item
+                    : a.rf
+                      ? ':' + a.rf
+                      : ''),
       label: c.name || (ref && ref.name) || a.k,
       key: c.key,
       alt: c.alt,
@@ -1098,6 +1652,13 @@ Object.assign(Game.prototype, {
         it.dis = !rec || rec.st === 'back' ? '已經放下（飛回中）' : '';
         break;
       }
+      // ---------- 聖域（R5） ----------
+      case 'salvage':
+        this.rtsHudSalvCard(it);
+        break;
+      case 'refit':
+        this.rtsHudRefitCard(it, a, G);
+        break;
       case 'loop':
         it.on = G.some((b) => b.bld && b.bld.loop);
         it.label = c.name || '循環生產';
@@ -1149,7 +1710,9 @@ Object.assign(Game.prototype, {
       if (a.ab === 'ab_aegis' && typeof this.rtsFactionAegisWhy === 'function') {
         const ws = bs.map((b) => this.rtsFactionAegisWhy(b));
         it.dis = ws.some((w) => !w) ? '' : ws[0] || '沒有可以施放的建築';
-      } else if (!bs.length) it.dis = '沒有可以施放的建築';
+      } else if ((a.ab === 'ab_shelter' || a.ab === 'ab_unshelter') && this.rtsShelterWhy && bs.length)
+        this.rtsHudShelterCard(it, a, bs); // 聖域的避難警報（R5）
+      else if (!bs.length) it.dis = '沒有可以施放的建築';
     }
   },
   // 英雄的技能資訊：{ id, S, lv, max, coral, cd（剩餘秒）, cdMax, auto, autoable, why }
@@ -1467,6 +2030,16 @@ Object.assign(Game.prototype, {
         return this.rtsSetMode({ k: 'target', order: 'load', target: 'unit', label: c.name || '載運' });
       case 'unload':
         return this.rtsSetMode({ k: 'target', order: 'unload', target: 'point', label: c.name || '卸載' });
+      // ---------- 聖域（R5） ----------
+      case 'salvage':
+        return this.rtsSetMode({ k: 'target', order: 'salvage', target: 'wreck', label: c.name || '拾荒' });
+      case 'refit': {
+        const units = G.filter((u) => this.rtsOwn(u) && !u.bld);
+        if (units.length && typeof this.rtsOrder === 'function')
+          this.rtsOrder(units, { k: 'refit', rf: a.rf });
+        this.rtsHudDirty = true;
+        return;
+      }
       case 'dropcancel': {
         const rec = e && e.rtsDrop && this.rtsDropOf ? this.rtsDropOf(e.rtsDrop) : null;
         if (rec && this.rtsDropCancel && this.rtsDropCancel(rec))
@@ -1552,6 +2125,7 @@ Object.assign(Game.prototype, {
     if (D.cost) {
       if (D.cost.ore && (T.ore || 0) < D.cost.ore) return '礦石不足';
       if (D.cost.coral && (T.coral || 0) < D.cost.coral) return 'Coral 不足';
+      if (D.cost.parts && (T.parts || 0) < D.cost.parts) return '零件不足'; // 聖域（R5）
     }
     if (unit && D.pop && T.cap !== undefined && (T.pop || 0) + D.pop > T.cap) return '人口不足';
     return '';
@@ -1643,7 +2217,9 @@ Object.assign(Game.prototype, {
       b.querySelector('em').textContent = it ? it.key || KEYS[i] : KEYS[i];
       const c = it && it.cost;
       b.querySelector('small').textContent = c
-        ? [c.ore ? c.ore : '', c.coral ? '◆' + c.coral : ''].filter(Boolean).join(' ')
+        ? [c.ore ? c.ore : '', c.coral ? '◆' + c.coral : '', c.parts ? '⚙' + c.parts : '']
+            .filter(Boolean)
+            .join(' ')
         : '';
       // 冷卻扇形（剩餘的比例）與秒數、技能的級數點
       const f = b.querySelector('.cdf');
@@ -1672,6 +2248,7 @@ Object.assign(Game.prototype, {
     const cost = [
       c.ore ? '礦石 ' + c.ore : '',
       c.coral ? 'Coral ' + c.coral : '',
+      c.parts ? '零件 ' + c.parts : '',
       it.time ? it.time + ' 秒' : '',
       it.pop ? '人口 ' + it.pop : '',
       it.ab && it.ab.cdMax > 1 ? '冷卻 ' + it.ab.cdMax + ' 秒' : '',
@@ -1757,7 +2334,16 @@ Object.assign(Game.prototype, {
     const el = document.getElementById('rtsPanel');
     const sel = R.sel.filter((e) => !e.dead);
     let sig, html;
-    if (!sel.length && ui.focus) {
+    if (!sel.length && ui.focus && ui.focus.wreck) {
+      // 殘骸（聖域，R5）：名稱、價值、拾荒的人數、剩下的時間
+      const w = ui.focus;
+      const [title, lines] = this.rtsHudWreckLines(w);
+      sig = 'w' + w.id + '|' + lines.join();
+      html =
+        `<div class="rtsOne"><div class="rtsPic wreck">殘</div><div class="rtsInfo"><b>${escHtml(title)}</b>` +
+        lines.map((l) => `<div>${escHtml(l)}</div>`).join('') +
+        `<div class="rtsDim">右鍵：工人拾荒（其他單位走過去）</div></div></div>`;
+    } else if (!sel.length && ui.focus) {
       const m = ui.focus;
       const coral = (R.corals || []).includes(m);
       sig = 'f' + (m.id || '') + '|' + Math.floor(m.amount || 0);
@@ -1837,9 +2423,16 @@ Object.assign(Game.prototype, {
       if (arm)
         typeRow = `<div class="rtsType" title="${escHtml(this.rtsTypeTip(atk, arm))}">${atk ? '攻擊 ' + escHtml(RTS_ATK_NAME[atk] || atk) + '／' : ''}護甲 ${escHtml(RTS_ARM_NAME[arm] || arm)} ${armor}</div>`;
       const vr = this.rtsHudVeerRows(e, own, rows, warn); // 維爾威（R4）
+      const sr = this.rtsHudSancRows(e, own, rows, warn); // 聖域（R5）
       const rt = this.rtsResTxt(e);
       if (rt && !e.bld) rows.push('研究 ' + rt);
-      if (e.carry && e.carry.n)
+      if (e.carry && e.carry.kind === 'salv' && e.carry.n)
+        rows.push(
+          `攜帶 礦石 ${Math.floor(e.carry.ore || e.carry.n)}` +
+            (e.carry.coral ? `、Coral ${e.carry.coral}` : '') +
+            (e.carry.parts ? `、零件 ${e.carry.parts}` : ''),
+        );
+      else if (e.carry && e.carry.n)
         rows.push('攜帶 ' + (e.carry.kind === 'coral' ? 'Coral ' : '礦石 ') + e.carry.n);
       const ord = e.orders && e.orders[0];
       if (own && ord) rows.push('指令：' + (ORDER_NAME[ord.k] || ord.k));
@@ -1928,7 +2521,9 @@ Object.assign(Game.prototype, {
         '|' +
         invSig +
         vr.prog +
-        vr.cargo;
+        vr.cargo +
+        sr.prog +
+        sr.btn;
       html =
         `<div class="rtsOne"><div class="rtsPic ${own ? 'own' : e.rtsTeam === RTS_NEUTRAL ? 'neu' : 'foe'}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}</div>` +
         `<div class="rtsInfo"><b>${escHtml(this.rtsUiName(e) + illus)}</b>` +
@@ -1936,10 +2531,28 @@ Object.assign(Game.prototype, {
         typeRow +
         rows.map((r) => `<div>${escHtml(r)}</div>`).join('') +
         warn.map((r) => `<div class="rtsWarn">${escHtml(r)}</div>`).join('') +
-        `</div>${hx}${vr.cargo}${q || fq || vr.prog ? `<div class="rtsProd">${vr.prog}${q}${fq}</div>` : ''}</div>`;
+        `</div>${hx}${vr.cargo}${q || fq || vr.prog || sr.prog || sr.btn ? `<div class="rtsProd">${vr.prog}${sr.prog}${q}${fq}${sr.btn}</div>` : ''}</div>`;
     } else {
       const act = this.rtsActiveGroup();
-      sig = 'm' + sel.map((e) => e.id + ':' + Math.round((e.hp / e.maxHp) * 20)).join() + '|' + ui.sub;
+      // 多選自己的聖域建築（R5）：一起拆除（能拆的才算）
+      const sb = sel.filter(
+        (b) =>
+          b.bld &&
+          this.rtsOwn(b) &&
+          b.bld.progress >= 1 &&
+          this.rtsSalvageTeam &&
+          this.rtsSalvageTeam(b.rtsTeam),
+      );
+      const sOk = this.rtsScrapWhy ? sb.filter((b) => !this.rtsScrapWhy(b)) : [];
+      sig =
+        'm' +
+        sel.map((e) => e.id + ':' + Math.round((e.hp / e.maxHp) * 20)).join() +
+        '|' +
+        ui.sub +
+        '|' +
+        sb.length +
+        ':' +
+        sOk.length;
       html =
         '<div class="rtsMulti">' +
         sel
@@ -1948,7 +2561,10 @@ Object.assign(Game.prototype, {
             return `<button type="button" class="rtsU${act.includes(e) ? ' act' : ''}${e.hero ? ' hero' : ''}${e.rtsIllus && this.rtsOwn(e) ? ' illus' : ''}" data-i="${i}" title="${escHtml(this.rtsUiName(e))}">${escHtml(this.rtsAbbr(this.rtsUiName(e)))}<i style="width:${pct * 100}%;background:${this.rtsHpCol(pct)}"></i></button>`;
           })
           .join('') +
-        '</div>';
+        '</div>' +
+        (sb.length
+          ? `<div class="rtsProd"><button type="button" class="rtsScrap"${sOk.length ? '' : ' disabled'} title="${escHtml(sOk.length ? `拆除選取中的 ${sOk.length} 座建築：3 秒後消失，原地留下價值 50% 的殘骸` : this.rtsScrapWhy(sb[0]) || '不能拆除')}">拆除 ${sOk.length} 座</button></div>`
+          : '');
     }
     if (sig === this._rtsPanelSig) return;
     this._rtsPanelSig = sig;
@@ -1961,6 +2577,8 @@ Object.assign(Game.prototype, {
         else if (ev.ctrlKey) this.rtsSetSel(sel.filter((u) => u.rtsDef === e.rtsDef));
         else this.rtsSetSel([e]);
       };
+    const scr = el.querySelector('.rtsScrap');
+    if (scr) scr.onclick = () => this.rtsHudScrapAsk(sel.length > 1 ? sel : sel[0]);
     const cgo = el.querySelector('.rtsCgOut');
     if (cgo)
       cgo.onclick = () => this.rtsSetMode({ k: 'target', order: 'unload', target: 'point', label: '卸載' });
@@ -2264,6 +2882,7 @@ Object.assign(Game.prototype, {
       }
     }
     this.rtsHudVeerOverlay(c);
+    this.rtsHudSancOverlay(c);
     const d = ui.drag;
     if (d && d.moved) {
       const x = Math.min(d.x0, d.x1),
@@ -2647,6 +3266,7 @@ Object.assign(Game.prototype, {
       }
     }
     if (mode !== 2) this.rtsHudVeerMini(g, X, Z, dpr);
+    if (mode !== 2) this.rtsHudSancMini(g, X, Z, dpr);
     // 警示與信號的擴散圈（3 秒）
     const pings = (ui && ui.pings) || [];
     for (let i = pings.length - 1; i >= 0; i--) {

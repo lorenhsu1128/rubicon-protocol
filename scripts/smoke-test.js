@@ -15047,6 +15047,47 @@ const RTS_R4A = require('./smoke-rts-veer-a')({
   SHOT_DIR,
   path,
 });
+// R5 A 包（聖域的核心與資料）
+// R5 E 包（聖域的 HUD、輸入、親自駕駛）
+const RTS_R5E = require('./smoke-rts-sanc-e')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+  watch,
+});
+const RTS_R5A = require('./smoke-rts-sanc-a')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R5 C 包（聖域的英雄與道具）
+// R5 B 包（聖域的兵種行為與模型）
+const RTS_R5B = require('./smoke-rts-sanc-b')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+const RTS_R5C = require('./smoke-rts-sanc-c')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 // R4 E 包（維爾威的 HUD、輸入、親自駕駛）
 const RTS_R4E = require('./smoke-rts-veer-e')({
   check,
@@ -15070,6 +15111,16 @@ const RTS_R4C = require('./smoke-rts-veer-c')({
 });
 // R4 B 包（維爾威的兵種行為與模型）
 const RTS_R4B = require('./smoke-rts-veer-b')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R5 D 包（地圖主題：汙染水沒市街、多重水壩；水面與涉水、主題的營地與傭兵）
+const RTS_R5D = require('./smoke-rts-sanc-d')({
   check,
   newPage,
   freezeLoop,
@@ -15200,6 +15251,11 @@ const STEPS = [
   ['testRtsVeerUnits', (c) => RTS_R4B.testRtsVeerUnits(c.browser, c.base)],
   ['testRtsThemes2', (c) => RTS_R4D.testRtsThemes2(c.browser, c.base)],
   ['testRtsVeerAi', (c) => RTS_R4F.testRtsVeerAi(c.browser, c.base)],
+  ['testRtsSanc', (c) => RTS_R5A.testRtsSanc(c.browser, c.base)],
+  ['testRtsSancHero', (c) => RTS_R5C.testRtsSancHero(c.browser, c.base)],
+  ['testRtsSancHud', (c) => RTS_R5E.testRtsSancHud(c.browser, c.base)],
+  ['testRtsSancUnits', (c) => RTS_R5B.testRtsSancUnits(c.browser, c.base)],
+  ['testRtsThemes3', (c) => RTS_R5D.testRtsThemes3(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

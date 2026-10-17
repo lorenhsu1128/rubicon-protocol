@@ -716,6 +716,17 @@ export const PALETTES = {
     visor: 0xb0ff80,
     glow: 0xc8ff9a,
   },
+  // 聖域互助同盟（Coral 戰爭 R5，docs/rts-design.md 16.5）：褪色米白、灰褐、淺米、深底、鏽紅、暖色燈（不用黃色）
+  sancta: {
+    main: 0xa89c7e,
+    main2: 0x5e5848,
+    main3: 0xc0b494,
+    sub: 0x2a2620,
+    acc: 0x9a4a32,
+    joint: 0x2a2620,
+    visor: 0xffd890,
+    glow: 0xffd890,
+  },
   ally: {
     main: 0x3f7f5a,
     main2: 0x2e5f44,

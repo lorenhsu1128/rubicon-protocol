@@ -1504,8 +1504,10 @@ export class MechEntity {
       }
       this.boost = true;
     } else {
-      // 起跳後一小段時間維持地面的速度與轉向（跳躍要輕快）
-      target.copy(wish).multiplyScalar(spd * (this.grounded || this.jumpT > 0 ? 1 : 0.85));
+      // 起跳後一小段時間維持地面的速度與轉向（跳躍要輕快）；Coral 戰爭的空中單位一直在空中，照定義的速度（R5）
+      target
+        .copy(wish)
+        .multiplyScalar(spd * (this.grounded || this.jumpT > 0 || (this.flying && this.rtsDef) ? 1 : 0.85));
       this.boost = false;
     }
     // 電磁牽引：往牽引源拉（16 m/s；自己往反方向移動或 QB 可以抵銷）

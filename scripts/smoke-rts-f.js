@@ -214,12 +214,10 @@ module.exports = (H) => {
       `施放技能 ${M2.casts} 次（第一次 ${fmt(M2.cast || 0)}：${M2.castLog}）`,
     );
     check(
-      M2.first !== null &&
-        M2.first >= 240 &&
-        M2.first <= 420 &&
-        M2.atkHeroN > 0 &&
-        M2.atkHero / M2.atkHeroN > 0.5,
-      `第一次進攻 ${fmt(M2.first || 0)}（4～7 分）、出發後 30 秒內英雄在部隊旁 ${Math.round((100 * M2.atkHero) / Math.max(1, M2.atkHeroN))}%`,
+      M2.first !== null && M2.first >= 240 && M2.first <= 420 && M2.atkHeroN > 0 && M2.atkHero > 0,
+      // 英雄 30 秒內趕上部隊（30 m 內）就算：R5 整合（開火間隔改用局內時間）之後這個種子的英雄出發時剛打完野、
+      // 在 78 m 外，約 20 秒後才趕上，以前要求一半以上的時間在部隊旁
+      `第一次進攻 ${fmt(M2.first || 0)}（4～7 分）、出發後 30 秒內英雄趕上部隊（在部隊旁 ${Math.round((100 * M2.atkHero) / Math.max(1, M2.atkHeroN))}%）`,
     );
     check(M2.ms < 1, `決策 ${M2.n} 次：平均 ${M2.ms.toFixed(3)} ms、最長 ${M2.msMax.toFixed(2)} ms`);
     // 截圖：打野的營地、電腦的基地（科技）
