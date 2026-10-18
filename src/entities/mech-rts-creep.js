@@ -17,6 +17,10 @@
 //        方向固定在預警時）→ 休息 1 秒；噴火的每秒傷害＝定義的 dps × 循環 ÷ 噴火時間（平均和一般開火相同）
 //   gravity 重力錨：交戰中每 12 秒，預警 1 秒後在目標處 8 m 重力場 5 秒（'nojump'：長程推進、空降 MT 的跳躍停用）
 //   alarm 保全雷射網：被打或敵方進入 14 m 時「警報」：同營地立刻出動（不等出動半徑）
+//   cart 炸藥礦車（R6 之後的 D 包，docs 18.4）：取代一般的近戰：營地出動時全速衝向目標（攻擊者＞最近的敵方地面單位；
+//        建築也可以，但 rtsScan 單位優先；空中的追不到、換最近的地面單位），外緣 arm m 內停下點火：閃紅燈＋嗶聲、
+//        地面預警圈（只畫玩家看得到的）fuse 秒 → rtsSplash 爆發（中心 dmg、半徑 r），自己死亡（擊破算給攻擊者／目標：
+//        經驗與掉寶照一般野怪）；點火後硬直、營地回營都不中斷。被打死（還沒爆）時小爆炸 dDmg／dR。
 import { MechEntity } from './mech-entity.js';
 import { SFX } from '../audio/audio.js';
 import { RTS_DEFS } from '../data/rts-units.js';
@@ -33,6 +37,9 @@ const CREEP_CX = {
   cr_testrig: { kind: 'flame', warn: 1.5, fire: 2.5, rest: 1, len: 14, w: 3.5 },
   cr_anchor: { kind: 'gravity', every: 12, first: 4, warn: 1, r: 8, t: 5 },
   cr_laserpost: { kind: 'alarm', r: 14 },
+  // 數值（lv 2 的野怪：一般開火 16 dps、血量 750）：自爆 200 爆發／4.5 m（中心 100% → 邊緣 40%）≈ 一般開火 12 秒的輸出（自爆後就沒了）；
+  // 中心（護甲前）：英雄（hero 甲 ×0.5）−100、工人（none ×1.25）−250、MT（med ×0.75）−150、建築（fort ×1.5）−300
+  cr_cart: { kind: 'cart', arm: 2.2, fuse: 1.2, r: 4.5, dmg: 200, imp: 260, dR: 3, dDmg: 60, dImp: 120 },
 };
 
 Object.assign(MechEntity.prototype, {
@@ -40,6 +47,8 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       R = g.rts;
     if (this.dead || !R) return true;
+    // 炸藥礦車點火中：硬直、回營都不中斷
+    if (this.rtc && this.rtc.ph === 1 && this.rtc.cart && !R.over) return this.rtsCreepCartFuse(dt);
     const D = RTS_DEFS[this.rtsDef];
     const rt = this.rt;
     const camp = this.rtsCamp;
@@ -125,6 +134,7 @@ Object.assign(MechEntity.prototype, {
     camp.tgt = t;
     camp.seenT = R.t;
     if (cx && cx.kind === 'flame') this.rtsCreepFlame(t, dt, D, cx);
+    else if (cx && cx.kind === 'cart') this.rtsCreepCart(t, dt, D, cx);
     else this.rtsFight(t, dt, D, true);
     if (cx && (cx.kind === 'acid' || cx.kind === 'gravity')) this.rtsCreepCast(t, dt, cx);
     // 打到敵人（目標的血量變少）：營地的放棄計時重來
@@ -138,6 +148,7 @@ Object.assign(MechEntity.prototype, {
     if (this._rtcx !== undefined) return this._rtcx;
     const base = CREEP_CX[this.rtsDef];
     this._rtcx = base || (D && D.cx) ? { ...(base || {}), ...((D && D.cx) || {}) } : null;
+    if (this._rtcx && this._rtcx.kind === 'cart') this.rtsCreepCartArm();
     return this._rtcx;
   },
   // 玩家（隊伍 0）看得到 (x, z) 而且在鏡頭附近：預警與特效只畫這種
@@ -440,5 +451,104 @@ Object.assign(MechEntity.prototype, {
       }
     }
     this.bossVis = ((this.bossVis || 0) & ~3) | s.ph; // 模型：1 預警、2 噴火（foe-models.js 的 testrig）
+  },
+
+  // ---------- 炸藥礦車（docs 18.4） ----------
+  // 實例的 die 包一層：還沒爆就被打死時小爆炸（測試的清場 rtsQuiet、局結束、g.rtsCreepFxOff 時不爆）
+  rtsCreepCartArm() {
+    if (this._rtcDie) return;
+    this._rtcDie = true;
+    const d0 = this.die;
+    this.die = function (from) {
+      const g = this.game;
+      if (!this.dead && !this.rtsQuiet && g.rts && !g.rts.over && !g.rtsCreepFxOff) this.rtsCreepBoom(false);
+      return d0.call(this, from);
+    };
+  },
+  // 衝鋒：全速衝向目標，外緣 arm m 內停下點火
+  rtsCreepCart(t, dt, D, cx) {
+    const g = this.game,
+      R = g.rts,
+      rt = this.rt;
+    const s = this.rtc || (this.rtc = { chk: 0 });
+    s.cart = true;
+    // 空中的追不到：換視野內最近的地面單位（rtsScan 只找打得到的），沒有就停著
+    if (t.flying && !(g.rtsLowAir && g.rtsLowAir(t))) {
+      const u = this.rtsScan(D.sight, D);
+      if (!u || (u.flying && !(g.rtsLowAir && g.rtsLowAir(u)))) return;
+      rt.engage = t = u;
+      rt.tgtHp = u.hp;
+    }
+    rt.face = rt.faceV.copy(t.center());
+    if (this.rtsDistTo(t) <= cx.arm && this.staggerT <= 0) {
+      const x = this.pos.x,
+        z = this.pos.z,
+        y = g.world.groundAt(x, z, this.pos.y + 1);
+      s.ph = 1;
+      s.pt = cx.fuse;
+      s.fxT = 0;
+      s.tgt = t;
+      s.fuses = (s.fuses || 0) + 1;
+      s.fuseT = R.t;
+      s.seen = this.rtsCreepSeen(x, z);
+      rt.nav = null;
+      if (s.seen) g.fx.warnCircle(new THREE.Vector3(x, y, z), cx.r, cx.fuse, 0xff3020);
+      return;
+    }
+    this.rtsGo(t.pos.x, t.pos.z, 0.3, dt, null, false);
+  },
+  // 點火中（rtsCreepAI 開頭）：不動、每 0.2 秒閃紅燈＋嗶聲（越來越急），時間到就爆
+  rtsCreepCartFuse(dt) {
+    const g = this.game,
+      s = this.rtc,
+      cx = this._rtcx;
+    this.rt.wish.set(0, 0, 0);
+    s.pt -= dt;
+    s.fxT -= dt;
+    if (s.fxT <= 0) {
+      const k = 1 - Math.max(0, s.pt) / cx.fuse;
+      s.fxT = 0.22 - 0.1 * k;
+      if (s.seen) {
+        const c = this.center();
+        g.fx.flash(c, 1.3, 0xff2020, 0.1);
+        SFX.play('bell', 0.35, 1.6 + 0.8 * k, 0, 0, c);
+      }
+    }
+    if (s.pt <= 0) {
+      this.rtsCreepBoom(true);
+      return true;
+    }
+    this.move(dt, ZERO, false, false, false, null);
+    return true;
+  },
+  // 爆炸：full＝自爆（之後自己死亡），否則是被打死時的小爆炸。紀錄在 this.rtcBoom（測試）
+  rtsCreepBoom(full) {
+    const g = this.game,
+      R = g.rts,
+      s = this.rtc || (this.rtc = { chk: 0 }),
+      cx = this._rtcx;
+    if (!R || !cx || s.boomed) return;
+    s.boomed = true;
+    s.ph = 2;
+    const x = this.pos.x,
+      z = this.pos.z;
+    const r = full ? cx.r : cx.dR;
+    const dmg = (full ? cx.dmg : cx.dDmg) * (this.dmgMul || 1);
+    const n = g.rtsSplash(x, z, r, dmg, full ? cx.imp : cx.dImp, this, 'exp'); // 爆發：也炸散殘骸（rtsWreckBlast）
+    this.rtcBoom = { full, n, t: R.t, x, z };
+    if (this.rtsCreepSeen(x, z)) {
+      const c = this.center();
+      g.fx.explosion(c, r * (full ? 0.9 : 0.7), 0xffa040, full);
+      g.fx.dust(new THREE.Vector3(x, g.world.terrainHeight(x, z) + 0.3, z), r, full ? 14 : 8, 0x8a7a60);
+      SFX.explode(full, c);
+    }
+    if (!full) return;
+    // 自己死亡：擊破算給最近 4 秒的攻擊者，否則是點火時的目標（經驗與營地的掉寶照一般野怪）
+    const h = this.rt.hurtBy;
+    const credit =
+      h && h.rtsTeam !== undefined && h.rtsTeam !== this.rtsTeam && R.t - (this.rt.hurtT || -99) < 4
+        ? h
+        : s.tgt || h || null;
+    this.die(credit);
   },
 });

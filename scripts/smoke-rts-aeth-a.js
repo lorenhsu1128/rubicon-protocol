@@ -132,8 +132,8 @@ module.exports = (H) => {
     });
     check(eco.all8 && eco.all10, `工人每趟：艾瑟立克 8（${eco.n0} 趟）、卡斯特隆 10（${eco.n1} 趟）`);
     check(
-      Math.abs(eco.dc0 - 10) < 0.4 && Math.abs(eco.dc1) < 1e-6,
-      `研究中樞自己產出 Coral：40 秒 +${eco.dc0.toFixed(2)}（0.25／秒）；卡斯特隆的主堡 +${eco.dc1}`,
+      Math.abs(eco.dc0 - 28) < 0.6 && Math.abs(eco.dc1) < 1e-6,
+      `研究中樞自己產出 Coral：40 秒 +${eco.dc0.toFixed(2)}（0.7／秒，docs 18.1）；卡斯特隆的主堡 +${eco.dc1}`,
     );
 
     // ---------- 導管：範圍、節點、串接 ----------
@@ -290,8 +290,8 @@ module.exports = (H) => {
     });
     check(tap.tapPlaced && tap.done && tap.vent, '汲取塔蓋在湧出點上、30 秒自己長好');
     check(
-      tap.whyFar !== '' && tap.whyNear === '' && Math.abs(tap.rate - (1.25 + 0.25)) < 0.05,
-      `汲取塔是根：旁邊可以蓋（之前「${tap.whyFar}」）；Coral ${tap.rate.toFixed(2)}／秒（汲取塔 1.25＋研究中樞 0.25）`,
+      tap.whyFar !== '' && tap.whyNear === '' && Math.abs(tap.rate - (1.25 + 0.7)) < 0.05,
+      `汲取塔是根：旁邊可以蓋（之前「${tap.whyFar}」）；Coral ${tap.rate.toFixed(2)}／秒（汲取塔 1.25＋研究中樞 0.7）`,
     );
     check(
       tap.why0 !== '' && tap.why1 === '' && tap.placed && tap.why2 !== '' && tap.off,

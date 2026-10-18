@@ -82,6 +82,11 @@ const powOf = (list) => list.reduce((s, e) => s + unitPow(e), 0);
 // 打得到空中的兵種（aa 'both'｜'air'，或某個武器槽對空）
 const aaUnit = (D) =>
   !!D && (D.aa === 'both' || D.aa === 'air' || !!(D.slotAa && Object.values(D.slotAa).includes('air')));
+// （18.2）單體的治療技能（修復光束：友軍單位、有回復量 heal）
+const rtsAiHealSk = (id) => {
+  const Sk = RTS_SKILLS[id];
+  return !!Sk && Sk.kind === 'unit' && Sk.tgt === 'ally' && !Sk.bio && !!(skillLv(id, 1) || {}).heal;
+};
 const centroid = (list) => {
   let x = 0,
     z = 0;
@@ -399,6 +404,8 @@ Object.assign(Game.prototype, {
           if (!c.cleared && !c.off && d < cd) ((cd = d), (cb = c));
         }
         if (cb) (A.campPri = A.campPri || new Set()).add(cb.id);
+        // （18.2）以為清除了的營地（埋著的野怪）：工人在旁邊被打＝還沒清，重新排進打野
+        if (cb && !cb.cleared) A.campDone.delete(cb.id);
         this.rtsAiLog(
           A,
           `派去蓋${RTS_DEFS[p.def].name}的工人在路上被打${cb ? '（營地 ' + cb.id + '）' : ''}`,
@@ -579,8 +586,9 @@ Object.assign(Game.prototype, {
     // 3. 工人
     const need = 5 * Math.max(1, S.mines.length) + 2;
     // （聖域：工人上限之外另外保留 salvMax 個拾荒工；開局的 2.5 分鐘之後）
-    const cap = (A.wkCap =
-      Math.min(opening ? A.op.wk0 : P.wkMax, P.wkMax, need) + (A.sanc && R.t > 150 ? P.salvMax || 0 : 0));
+    // （18.2）第一次進攻出發之前拾荒工最多 4 個（困難以上的 6 個：多的 2 個工人讓第一次進攻比普通晚半分鐘以上）
+    const salv = A.sanc && R.t > 150 ? Math.min(P.salvMax || 0, A.firstAtk === null ? 4 : 99) : 0;
+    const cap = (A.wkCap = Math.min(opening ? A.op.wk0 : P.wkMax, P.wkMax, need) + salv);
     let wk = S.workers.length + S.shelN + (S.queued[A.worker] || 0);
     const wc = RTS_DEFS[A.worker].cost;
     for (const h of S.hqs) {
@@ -748,9 +756,11 @@ Object.assign(Game.prototype, {
     // 兵工廠：上限依難度與主堡數；錢多時才蓋（艾瑟立克：兵器廠與培養槽合計，依兵種比例挑一種）
     const facN = (S.count[ro.factory] || 0) + (ro.factory2 ? S.count[ro.factory2] || 0 : 0);
     // 存款一直很多（生產跟不上收入）時多蓋（以前後期常常存著 1000 以上的礦石、部隊卻不多，兩邊僵持）
+    // （18.2，艾瑟立克）礦石存到 1200 以上（Coral 卡住、礦石用不完）：多一座（培養槽：實驗體的 Coral 最少）
+    const gridX = A.grid ? (T.ore > 3000 ? 2 : 0) + (T.ore - A.res.ore > 1200 ? 1 : 0) : 0;
     const facWant = Math.min(
-      P.facMax + (T.ore > 900 ? 1 : 0) + (T.ore > 1600 ? 1 : 0) + (A.grid && T.ore > 3000 ? 2 : 0),
-      1 + S.hqs.length + (T.ore > 700 ? 1 : 0) + (A.grid && T.ore > 3000 ? 2 : 0),
+      P.facMax + (T.ore > 900 ? 1 : 0) + (T.ore > 1600 ? 1 : 0) + gridX,
+      1 + S.hqs.length + (T.ore > 700 ? 1 : 0) + gridX,
     );
     const isFac = (id) => id === ro.factory || (ro.factory2 && id === ro.factory2);
     const facBusy =
@@ -1067,9 +1077,14 @@ Object.assign(Game.prototype, {
             if (!n) continue;
             if (!root && n < 2) pk = 8;
           }
-          // 主基地：平台上（高度差不多）優先
+          // 主基地：只找平台上（高度差不多）的位置。（18.2：以前平台下的位置只扣 25 分，平台蓋滿時會挑到主基地背後的
+          // 斷崖下，工人要繞過坡道走一大圈，50 秒走不到就取消（瘋狂的卡斯特隆兵工廠兩次蓋不起來）；平台滿了交給
+          // 坡道下的搜尋中心）
           const gy = this.world.terrainHeight(x, z);
-          const sc = s0 + pk + (plat && Math.abs(gy - A.base.h) > 2 ? 25 : 0);
+          // （艾瑟立克要電的建築與找導管節點位置用的搜尋（noPower）照舊：平台下的位置扣 25 分）
+          const low = plat && Math.abs(gy - A.base.h) > 2;
+          if (low && !pw && !noPower) continue;
+          const sc = s0 + pk + (low ? 25 : 0);
           if (sc < bs) ((bs = sc), (best = { x, z }));
         }
       }
@@ -1234,22 +1249,45 @@ Object.assign(Game.prototype, {
       pnow = this.rtsAiArmyPop(A);
       for (const k in S.queued) if (isArmyDef(k)) pnow += S.queued[k] * (RTS_DEFS[k].pop || 1);
     }
+    // （18.2）礦石存很多（扣掉保留還有 500 以上）而 Coral 被保留住：Coral 用得少的兵種（Coral ≤ 10：實驗體、
+    // 拾荒 MT）不看 Coral 的保留，礦石照樣變成部隊（艾瑟立克的 Coral 只有汲取塔，升級、研究、技能的保留
+    // 讓困難 4～6 分鐘一台兵都沒生產、礦石存到 2000 以上）
+    const T = this.rts.teams[A.team];
+    // （要升級主堡（upgWant：條件都到了、只差資源）時不算：Coral 先給升級）
+    const oreRich = T.ore - A.res.ore > 500 && !A.upgWant;
+    // （18.2，聖域）沒有攻擊的支援單位（修理無人機、護盾產生器）：第一次進攻出發之後、有攻擊的部隊每 8 人口最多 1 台
+    // （以前困難的 Coral 預存比普通少，Coral 擋不住修理無人機，5 分鐘做了 7 台、部隊湊不到門檻，第一次進攻比普通晚一分鐘）
+    let supN = 0;
+    for (const e of S.army) if (SANC_SUPPORT.has(e.rtsDef)) supN++;
+    for (const k of SANC_SUPPORT) supN += S.queued[k] || 0;
+    const supOk = (id) =>
+      !SANC_SUPPORT.has(id) ||
+      (A.firstAtk !== null && supN < Math.floor((this.rtsAiArmyN(A, S.army) * (A.popK || 1)) / 8));
     for (const b of S.blds) {
-      const qMax = this.rts.teams[A.team].ore > 800 ? 2 : 1; // 錢多時佇列放兩項（不中斷）
+      const qMax = T.ore > 800 ? 2 : 1; // 錢多時佇列放兩項（不中斷）
       if (b.bld.progress < 1 || b.bld.packed || !isProducer(b) || b.bld.queue.length >= qMax) continue;
       if (n >= this.rtsAiArmyCap(A)) return;
       // 比例最低的兵種（這座建築能生產、需求滿足的）
       const tr = RTS_DEFS[b.rtsDef].trains || [];
       const opts = Object.keys(mix)
-        .filter((id) => mix[id] > 0 && tr.includes(id) && !this.rtsReqWhy(A.team, RTS_DEFS[id]))
+        .filter((id) => mix[id] > 0 && tr.includes(id) && !this.rtsReqWhy(A.team, RTS_DEFS[id]) && supOk(id))
         .sort((a, c) => have(a) / mix[a] - have(c) / mix[c]);
       for (const id of opts) {
         const U = RTS_DEFS[id];
-        if (!this.rtsAiCan(A, { ...U.cost, pop: U.pop })) continue;
+        const cheapC = oreRich && (U.cost.coral || 0) <= 10;
+        if (
+          !this.rtsAiCan(A, { ...U.cost, pop: U.pop }) &&
+          !(
+            cheapC &&
+            this.rtsAfford(A.team, { ...U.cost, ore: (U.cost.ore || 0) + Math.max(0, A.res.ore), pop: U.pop })
+          )
+        )
+          continue;
         if (pcap && pnow + (U.pop || 1) > pcap) continue;
         if (this.rtsQueue(b, id)) {
           pnow += U.pop || 1;
           A.trainPop = (A.trainPop || 0) + (U.pop || 1); // 累計生產的部隊人口（測試的單調性）
+          if (SANC_SUPPORT.has(id)) supN++;
           S.queued[id] = (S.queued[id] || 0) + 1;
           n += A.popK ? (U.pop || 1) / A.popK : 1;
         }
@@ -1884,6 +1922,10 @@ Object.assign(Game.prototype, {
       return;
     }
     const tier = this.rtsTier(A.team);
+    // （18.2）開局的 t2Min／t3Min：升 T2／T3 的時間下限（艾瑟立克：Coral 只有汲取塔，困難從 4:00 起把 Coral 留給升級、
+    // 6:30 起預存 T3 的 300 Coral 的話部隊停住；瘋狂（收入 ×1.5）不套用）
+    const t2T = Math.max(P.t2T, P.cheat ? 0 : A.op.t2Min || 0);
+    const t3T = Math.max(P.t3T, P.cheat ? 0 : A.op.t3Min || 0);
     if (!A.tierT[tier]) A.tierT[tier] = R.t;
     const has = (id) => (S.count[id] || 0) > 0;
     const done = (id) => (S.done[id] || 0) > 0;
@@ -1904,12 +1946,15 @@ Object.assign(Game.prototype, {
       : done(ro.factory);
     // （R6 B 包，困難以上）第一次進攻出發之前不升 T2（t2T 之後 120 秒照升）：困難以上的 t2T 比第一次進攻早，升級的 300 礦石＋Coral
     // 讓困難的第一次進攻比普通晚、聖域甚至卡人口（開局的補給庫等不到資源）
+    // （18.2：一旦要升就一直要升：人口在門檻上下時 upgWant 時有時無，沒有的那幾次決策把升級的 Coral 花在研究所、分礦上）
     const wantT2 =
-      P.t2T < 1e8 &&
-      R.t >= P.t2T &&
-      (T.pop >= A.op.tech.t2 || R.t >= P.t2T + 90) &&
-      (P.lv < 2 || A.grid || A.firstAtk !== null || R.t >= P.t2T + 120); // （艾瑟立克照舊：Coral 存得慢）
-    const wantT3 = P.t3T < 1e8 && R.t >= P.t3T && (T.pop >= A.op.tech.t3 || R.t >= P.t3T + 90);
+      (A.t2Want && tier === 1) ||
+      (t2T < 1e8 &&
+        R.t >= t2T &&
+        (T.pop >= A.op.tech.t2 || R.t >= t2T + 90) &&
+        (P.lv < 2 || A.grid || A.firstAtk !== null || R.t >= t2T + 120)); // （艾瑟立克照舊：Coral 存得慢）
+    if (wantT2) A.t2Want = true;
+    const wantT3 = t3T < 1e8 && R.t >= t3T && (T.pop >= A.op.tech.t3 || R.t >= t3T + 90);
     // 0. 補給商店：有英雄之後（便宜、又是英雄回血的修復套件的來源：排在升級的存錢之前）
     if (ro.market && P.items !== 'none' && !has(ro.market) && S.heroes.length && R.t > 200)
       this.rtsAiBuildKept(A, S, ro.market, 'market');
@@ -1917,7 +1962,7 @@ Object.assign(Game.prototype, {
     A.upgWant = false;
     const upg = S.hqs.some((h) => h.bld.queue.some((q) => q.upg));
     // 升級前 150 秒開始存 Coral（Coral 只有抽取站的收入，不先存的話會一直被盾牌 MT、商店、研究所花掉，升級晚好幾分鐘）
-    const nextT = tier === 1 ? P.t2T : tier === 2 ? P.t3T : 1e9;
+    const nextT = tier === 1 ? t2T : tier === 2 ? t3T : 1e9;
     const U0 = RTS_DEFS[tier === 1 ? ro.hq2 : ro.hq3];
     // （需求還沒滿足時不存：T3 要先有重工廠與研究所，存了反而讓它們蓋不起來）
     // 升級的需求建築（艾瑟立克的研究院要兵器廠：速攻開局沒有）在升級前 120 秒開始蓋
@@ -1979,15 +2024,18 @@ Object.assign(Game.prototype, {
     }
     // 2. 工程研究所：研究、T3 的需求（T2 之前錢夠時先蓋；排在升級之後：升級優先拿資源）
     // （R6：卡斯特隆在要升級的期間（t2T ～ t2T＋90 秒）不先蓋研究所：研究所的 Coral 讓升級晚一分多鐘）
-    const worksWait = !reqB && tier === 1 && R.t >= P.t2T && R.t < P.t2T + 90 && !A.upgWant;
+    const worksWait = !reqB && tier === 1 && R.t >= t2T && R.t < t2T + 90 && !A.upgWant;
     if (
       ro.works &&
       !has(ro.works) &&
-      (R.t > P.t2T - 90 || tier >= 2) &&
+      (R.t > t2T - 90 || tier >= 2) &&
       !worksWait &&
-      !(A.upgWant && !reqB)
+      // （18.2：要升級主堡時一律先升級：以前艾瑟立克在等升級的 Coral 時先蓋了研究所（60 Coral），升級晚一分多鐘，
+      // 這段時間部隊也被升級的保留擋住。升級需要的建築由上面的 buildReq 蓋）
+      !A.upgWant
     ) {
-      if (facDone) this.rtsAiBuildKept(A, S, ro.works, 'works', tier >= 2);
+      // （18.2：升級中也保留資源：升級完成才開始存的話研究所要到 8～9 分鐘，研究整個晚一輪）
+      if (facDone) this.rtsAiBuildKept(A, S, ro.works, 'works', tier >= 2 || upg);
       else if (tier >= 2) buildReq(ro.works, 'reqw');
     }
     A.techWant =
@@ -2065,11 +2113,14 @@ Object.assign(Game.prototype, {
     const P = A.P;
     if (!P.resMax || A.fac === 'castron') return 0;
     const first = (A.op.research || [])[0];
-    if (id === first) return P.resMax.r_kin || 0;
+    // （18.2：第一項是經濟類（拾荒效率、物流…）時不套「第一項」，照下面的規則：聖域拾荒開局的簡單以前做了兩項）
+    const eco = ['r_salv', 'r_stock', 'r_haul', 'r_lift', 'r_pod'].includes(id);
+    if (id === first && !eco) return P.resMax.r_kin || 0;
     // 維爾威：實彈武器、複合裝甲是共用的 id（resMax 直接適用）；物流類的一級研究（物流最佳化、增派運輸機、強襲投放艙）1 級
-    if (A.air && (id === 'r_haul' || id === 'r_lift' || id === 'r_pod')) return 1;
+    // （18.2：簡單只有攻擊 1 級（17.3 的 resMax）：物流類、拾荒類的一級研究普通以上才做）
+    if (A.air && (id === 'r_haul' || id === 'r_lift' || id === 'r_pod')) return P.lv >= 1 ? 1 : 0;
     // 聖域：實彈武器、複合裝甲共用；拾荒效率、零件倉儲 1 級，野戰修理與巨像骨架（普通以上）1 級
-    if (A.sanc && (id === 'r_salv' || id === 'r_stock')) return 1;
+    if (A.sanc && (id === 'r_salv' || id === 'r_stock')) return P.lv >= 1 ? 1 : 0;
     if (A.sanc && (id === 'r_mend' || id === 'r_titan')) return P.resMax.r_arm ? 1 : 0;
     if (id === 'r_bio') return P.resMax.r_arm || 0;
     return 0;
@@ -2251,7 +2302,9 @@ Object.assign(Game.prototype, {
   // 酒館：派一個單位（英雄優先）到酒館旁，到了就雇用；90 秒沒雇到就放棄（之後在主堡生產）
   rtsAiTavern(A, S) {
     const R = this.rts;
-    const tavRec = (R.neutrals || []).find((q) => q.kind === 'tavern');
+    // 礦坑地表有兩座酒館（成對）：去自己這邊的（near）
+    const tavAll = (R.neutrals || []).filter((q) => q.kind === 'tavern');
+    const tavRec = tavAll.find((q) => q.near === A.team) || tavAll[0];
     const tav = tavRec && tavRec.ent;
     if (!tav || typeof this.rtsHire !== 'function') return (A.tavernWant = false);
     if (!A.tav) {
@@ -2502,13 +2555,15 @@ Object.assign(Game.prototype, {
     const foes = this.rtsAiFoesNear(A, h.pos, 75);
     // （維爾威的特快專送：目的地是記得的敵方分礦，附近沒有敵人也放）
     const anyOk = D.skills.some((id) => RTS_SKILLS[id] && RTS_SKILLS[id].any);
-    if (!foes.length && !anyOk) return false;
+    // （18.2）單體的治療技能（修復光束）：附近沒有敵人也可以修受傷的單位與建築（見 rtsAiCastTarget 的 ally）
+    const healOk = D.skills.some((id, i) => rtsAiHealSk(id) && rec.sk[i]);
+    if (!foes.length && !anyOk && !healOk) return false;
     for (let slot = 0; slot < 4; slot++) {
       if (P.cast === 'z' && (slot > 0 || Math.random() > (P.castP === undefined ? 0.3 : P.castP))) break;
       const id = D.skills[slot],
         Sk = RTS_SKILLS[id];
       if (!Sk || Sk.kind === 'aura' || Sk.kind === 'passive' || !rec.sk[slot]) continue;
-      if (!foes.length && !Sk.any) continue;
+      if (!foes.length && !Sk.any && !rtsAiHealSk(id)) continue;
       const why = this.rtsSkillWhy(h, slot);
       if (why === 'Coral 不足' && slot === 3 && (rec.cd[slot] || 0) <= R.t) {
         // 終極技的 Coral 不夠：用到 Coral 的生產讓路
@@ -2531,13 +2586,26 @@ Object.assign(Game.prototype, {
       // （放寬只放寬條件，不放寬 Coral：技能多放的 Coral 會讓升級、重工廠、研究晚好幾分鐘）
       // 放寬的條件（45／60 秒沒放）放出來的技能最多動用保留中的 Coral 30（艾瑟立克 0；升級、重工廠的 Coral 優先：
       // 以前多放的護甲板讓卡斯特隆的 T2 晚將近一分鐘）
-      const dip = relax ? (A.grid ? 0 : 30) : this.rtsAiDip(A);
-      if (slot < 3 && cc && R.teams[A.team].coral - cc < A.res.coral - dip) continue;
+      // （18.2）不看保留中的 Coral 的額度：便宜的治療技能（Coral ≤ 15：修復光束）每 15 秒一次（聖域的 Coral 一直被升級、
+      // 分礦的保留佔住，治療英雄 10 分鐘一次都放不出來；一次 10～20 Coral，10 分鐘最多約 400）；艾瑟立克 Coral ≤ 30 的
+      // 一般技能在 120 秒沒放過時一次（Coral 只有汲取塔，瘋狂 10 分鐘一次都沒放）
+      // （艾瑟立克的額度：這位英雄 120 秒沒放過技能、不在等升級主堡時）
+      const quiet = R.t - ((A.castAt && A.castAt[h.id]) || 0) > 120 && !A.upgWant;
+      const freeIv =
+        slot < 3 && cc ? (rtsAiHealSk(id) && cc <= 15 ? 15 : A.grid && cc <= 30 && quiet ? 60 : 0) : 0;
+      const fk = freeIv === 15 ? 'healFreeT' : 'castFreeT';
+      const free = freeIv > 0 && R.t >= (A[fk] || 0);
+      // （18.2：等升級主堡的資源時（upgWant）不動用保留：卡斯特隆的護甲板 10 分鐘放十幾次，困難的 T2 比普通晚一分半）
+      const dip0 = A.upgWant ? 0 : relax ? (A.grid ? 0 : 30) : this.rtsAiDip(A);
+      if (slot < 3 && cc && R.teams[A.team].coral - cc < A.res.coral - (free ? 1e9 : dip0)) continue;
+      const usedFree = free && R.teams[A.team].coral - cc < A.res.coral - dip0;
       // （艾瑟立克只在 Coral 150 以上、不要升級時放寬：Coral 只有汲取塔，稜鏡折射、稜鏡屏障多放的 Coral 讓融合與升級整場做不起來）
-      const loosen = !A.grid || (R.teams[A.team].coral >= 150 && !A.upgWant);
-      const tgt = this.rtsAiCastTarget(A, S, h, id, Sk, foes, relax && loosen, loosen);
+      // （18.2：艾瑟立克用額度放的那一次也放寬）
+      const loosen = !A.grid || (R.teams[A.team].coral >= 150 && !A.upgWant) || (free && A.grid);
+      const tgt = this.rtsAiCastTarget(A, S, h, id, Sk, foes, (relax || (free && A.grid)) && loosen, loosen);
       if (!tgt) continue;
       if (slot === 3) A.ultT[h.id] = R.t;
+      if (usedFree) A[fk] = R.t + freeIv;
       A.castAt[h.id] = R.t;
       const o = h.orders[0];
       const back = o && (o.k === 'amove' || o.k === 'move') ? { k: 'amove', x: o.x, z: o.z } : null;
@@ -2669,14 +2737,32 @@ Object.assign(Game.prototype, {
         });
         if (host) return { ent: host };
       }
+      // （18.2）單體的治療技能（修復光束）：英雄會走過去，範圍多看 12 m
+      const heal = rtsAiHealSk(id);
       let best = null,
         bs = 1e9;
       for (const u of list) {
-        if (u.hp > u.maxHp * hpK || !inR(u, range)) continue;
+        if (u.hp > u.maxHp * hpK || !inR(u, range + (heal ? 12 : 0))) continue;
         if (!fight.some((e) => hyp(e.pos.x, e.pos.z, u.pos.x, u.pos.z) < 35)) continue; // 交戰中的
         const s = (u.hero ? 0 : 1) * 1000 + u.hp / u.maxHp;
         if (s < bs) ((bs = s), (best = u));
       }
+      if (best) return { ent: best };
+      // （18.2）沒有交戰中的對象：單體的治療技能（修復光束）修交戰後回來、血量 < 70%（放寬時 80%）的單位，
+      // 技能能修建築（bld）時再修血量 < 70% 的己方建築（附近沒有會開火的敵人；英雄走過去，範圍多看 30 m）
+      if (!heal || fight.some((e) => inR(e, 30))) return null;
+      const hp2 = relax ? 0.8 : 0.7;
+      for (const u of list) {
+        if (u === h || u.hp > u.maxHp * hp2 || !inR(u, range + 30)) continue;
+        const s = u.hp / u.maxHp;
+        if (s < bs) ((bs = s), (best = u));
+      }
+      if (!best && Sk.bld)
+        for (const b of S.blds) {
+          if (b.bld.progress < 1 || b.hp > b.maxHp * 0.7 || !inR(b, range + 30)) continue;
+          const s = b.hp / b.maxHp;
+          if (s < bs) ((bs = s), (best = b));
+        }
       return best ? { ent: best } : null;
     }
     if (k === 'blobs') {
@@ -3102,7 +3188,15 @@ Object.assign(Game.prototype, {
           this.rtsAiOrd(A, go, { k: 'amove', x: p.x, z: p.z });
         }
         // 營地看得到、一台野怪都沒有（別人清的）
-        if (!creeps.length && near.length && this.rtsFogState(A.team, pc.x, pc.z) === 2 && R.t - C.t0 > 8)
+        // （18.2）埋在雪裡的潛伏 MT（rtsSub）看不到：營地的編成是地圖公開的資訊，還有埋著的就不算清除
+        // （以前冰原的營地被當成清除，去蓋汲取塔的工人整場一個接一個被打掉）
+        if (
+          !creeps.length &&
+          near.length &&
+          this.rtsFogState(A.team, pc.x, pc.z) === 2 &&
+          R.t - C.t0 > 8 &&
+          ![...(c.ents || [])].some((e) => !e.dead && e.rtsSub)
+        )
           A.campDone.add(c.id);
       }
     }

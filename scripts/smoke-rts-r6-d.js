@@ -283,6 +283,149 @@ module.exports = (H) => {
       window.__sim(6);
     });
 
+    // ---------- 炸藥礦車：衝向單位、點火預警、自爆的範圍傷害、自己死亡；被打死時小爆炸；關掉行為時不自爆（docs 18.4） ----------
+    const cart = await ev(() => {
+      const g = window.__game,
+        R = g.rts,
+        A = window.__A,
+        S = window.__sfx;
+      const out = {};
+      const warn0 = g.fx.warnCircle,
+        play0 = S.play;
+      let warns = [],
+        bells = 0;
+      g.fx.warnCircle = function (p, r) {
+        warns.push(r);
+        return warn0.apply(this, arguments);
+      };
+      S.play = function (k) {
+        if (k === 'bell') bells++;
+        return play0.apply(this, arguments);
+      };
+      const hq0 = R.units.find((e) => e.rtsTeam === 0 && e.rtsDef === 'c_hq');
+      // 不動也不開火的小隊（擠在一起：量範圍傷害）＋一位英雄
+      const squadAt = (cx, cz, hero) => {
+        const sq = [];
+        for (let i = 0; i < 3; i++) {
+          const u = window.__mk(0, 'c_mt', cx + (i - 1) * 2.2, cz);
+          u.updateAI = () => true;
+          sq.push(u);
+        }
+        if (hero) {
+          const h = g.rtsHeroSpawnAt(0, 'h_bastion', hq0, {});
+          g.rtsHeroShift(h, cx, cz + 2.2);
+          h.updateAI = () => true;
+          sq.push(h);
+        }
+        return sq;
+      };
+      const run = (on) => {
+        window.__reseed(919);
+        g.rtsCreepFxOff = !on;
+        warns = [];
+        bells = 0;
+        const camp = window.__camp(['cr_cart'], A.x, A.z, 2);
+        const c = [...camp.ents][0];
+        window.__sim(0.3);
+        const sq = squadAt(A.x - 9.5, A.z, on);
+        const hp0 = sq.map((u) => u.hp);
+        const dist = () => Math.min(...sq.map((u) => Math.hypot(u.pos.x - c.pos.x, u.pos.z - c.pos.z)));
+        const o = { d0: dist(), dFuse: -1, fuseAt: -1 };
+        const t0 = R.t;
+        for (let k = 0; k < 120 && !c.dead; k++) {
+          window.__sim(0.05);
+          if (o.fuseAt < 0 && c.rtc && c.rtc.ph === 1) {
+            o.fuseAt = R.t - t0;
+            o.dFuse = dist();
+            o.fuseX = c.pos.x;
+            o.fuseZ = c.pos.z;
+          }
+          if (
+            o.fuseAt >= 0 &&
+            c.rtc &&
+            c.rtc.ph === 1 &&
+            Math.hypot(c.pos.x - o.fuseX, c.pos.z - o.fuseZ) > 0.3
+          )
+            o.moved = true; // 點火中不動
+        }
+        if (!on) window.__sim(4); // 關掉時：多看幾秒，照近戰打、不自爆
+        o.dead = c.dead;
+        o.boom = c.rtcBoom || null;
+        o.fuseLen = o.boom && c.rtc ? o.boom.t - c.rtc.fuseT : -1;
+        o.dmg = sq.map((u, i) => Math.round(hp0[i] - u.hp));
+        o.heroK = on ? (hp0[3] - sq[3].hp) / sq[3].maxHp : 0;
+        o.warns = warns.slice();
+        o.bells = bells;
+        o.cleared = camp.cleared;
+        o.clearedBy = camp.clearedBy;
+        window.__kill(sq);
+        window.__kill([...camp.ents]);
+        R.camps.splice(R.camps.indexOf(camp), 1);
+        window.__sim(0.5);
+        return o;
+      };
+      out.on = run(true);
+      out.off = run(false);
+      g.rtsCreepFxOff = false;
+      // 被打死（還沒點火）：小爆炸，旁邊的單位受一點傷害
+      {
+        window.__reseed(920);
+        const camp = window.__camp(['cr_cart'], A.x, A.z, 2);
+        const c = [...camp.ents][0];
+        window.__sim(0.3);
+        const u = window.__mk(0, 'c_mt', c.pos.x + 2, c.pos.z);
+        u.updateAI = () => true;
+        u.pos.x = c.pos.x + 2;
+        u.pos.z = c.pos.z;
+        R.hash.update(u, u.pos.x, u.pos.z);
+        const h0 = u.hp;
+        g.rtsHit(c, 1e5, 0, u, 'kin');
+        out.shot = {
+          dead: c.dead,
+          boom: c.rtcBoom || null,
+          dmg: Math.round(h0 - u.hp),
+          cleared: camp.cleared,
+          by: camp.clearedBy,
+        };
+        window.__kill([u]);
+        R.camps.splice(R.camps.indexOf(camp), 1);
+        window.__sim(0.5);
+      }
+      g.fx.warnCircle = warn0;
+      S.play = play0;
+      return out;
+    });
+    if (process.env.RTS_D_DEBUG) console.log(JSON.stringify(cart));
+    const CO = cart.on;
+    check(
+      CO.fuseAt > 0 && CO.dFuse < CO.d0 - 3 && !CO.moved,
+      `炸藥礦車：衝向單位（${CO.d0.toFixed(1)} → ${CO.dFuse.toFixed(1)} m，${CO.fuseAt.toFixed(1)} 秒）後停下點火`,
+    );
+    check(
+      CO.warns.includes(4.5) && CO.bells >= 4 && CO.fuseLen > 1.1 && CO.fuseLen < 1.4,
+      `炸藥礦車的預警：地面預警圈 4.5 m、嗶聲 ${CO.bells} 次、${CO.fuseLen.toFixed(2)} 秒後爆炸`,
+    );
+    check(
+      CO.boom && CO.boom.full && CO.boom.n >= 3 && CO.dmg.filter((d) => d > 20).length >= 3 && CO.dead,
+      `炸藥礦車自爆：範圍內 ${CO.boom ? CO.boom.n : 0} 個單位受傷（${CO.dmg.join('、')}），自己死亡`,
+    );
+    check(
+      CO.heroK > 0 && CO.heroK < 0.15,
+      `炸藥礦車不秒殺英雄（BASTION 失去 ${(CO.heroK * 100).toFixed(1)}% 血量）`,
+    );
+    check(
+      CO.cleared && CO.clearedBy === 0,
+      `自爆算給目標的隊伍：營地清除（擊破者 ${CO.clearedBy}，經驗與掉寶照一般野怪）`,
+    );
+    check(
+      cart.shot.dead && cart.shot.boom && !cart.shot.boom.full && cart.shot.dmg > 0 && cart.shot.dmg < 80,
+      `炸藥礦車被打爆：小爆炸（旁邊的 MT −${cart.shot.dmg}）`,
+    );
+    check(
+      !cart.off.boom && cart.off.warns.length === 0,
+      `關掉行為（g.rtsCreepFxOff）時不自爆、沒有預警（照近戰，小隊受傷 ${cart.off.dmg.join('、')}）`,
+    );
+
     // ---------- 防禦塔：優先打攻擊建築的單位 ----------
     const tw = await ev(() => {
       const g = window.__game,

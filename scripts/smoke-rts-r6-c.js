@@ -3,7 +3,7 @@
 // - 不開瀏覽器：既有七個主題（400 m）100 個種子的地圖雜湊和 R6 之前相同（同 rts-map-test.js 的 HASHES）
 // - 沙丘地帶 dunes、礦坑地表 desert、貨運集散場 industrial 各 3 個種子（7、23、101）開局：主題覆寫（沒有岩頂、
 //   不疊加時間、天候）、對稱、兩邊的路徑代價、附加結構（沙丘的高度、擋住低處的視線、可以走；礦坑的深度、坡道（大型單位
-//   下得去）、坑底的富礦與 tier 3 營地、酒館在坑緣；貨櫃堆的巷道寬度、擋子彈、龍門起重機的腳）、主題的野怪與傭兵、
+//   下得去）、坑底的富礦與 tier 3 營地、兩座酒館成對在坑緣；貨櫃堆的巷道寬度、擋子彈、龍門起重機的腳）、主題的野怪與傭兵、
 //   營地到傭兵營 ≥ 30 m、靜態合併與迷霧著色、俯視與近景的亮度；截圖 rts-r6-map-<主題>.png、-near.png
 // - 小地圖（300 m）十個主題各 1 個種子開局：點位數量、鏡頭邊界、小地圖的比例；荒野另外讓電腦跑 90 秒（會蓋基地）；
 //   截圖 rts-r6-map-small.png
@@ -181,13 +181,8 @@ module.exports = (H) => {
             if (!pairOf(R.mines, (m) => m.pos)) err('礦脈不對稱');
             if (!pairOf(R.corals || [], (m) => m.pos)) err('湧出點不對稱');
             if (!pairOf(R.camps, (c) => c.pos)) err('營地不對稱');
-            if (
-              !pairOf(
-                R.neutrals.filter((q) => !(plan.pit && q.kind === 'tavern')),
-                (q) => q.ent.pos,
-              )
-            )
-              err('中立建築不對稱');
+            // 礦坑地表的兩座酒館也成對（R6 之後的 C 包）
+            if (!pairOf(R.neutrals, (q) => q.ent.pos)) err('中立建築不對稱');
             if (!pairOf(plan.decor || [], (q) => q)) err('裝飾不對稱');
             for (const k of ['dunes', 'stacks', 'gantries'])
               if (!pairOf(plan[k] || [], (q) => q)) err(k + ' 不對稱');
@@ -211,6 +206,8 @@ module.exports = (H) => {
             for (let p of [
               ...R.camps.filter((c) => c.near === 0).map((c) => c.pos),
               ...R.mines.map((m) => m.pos),
+              // 酒館（礦坑地表：坑緣的兩座，A 量自己那座、B 量它的鏡像）
+              ...R.neutrals.filter((q) => q.kind === 'tavern' && q.near === 0).map((q) => q.ent.pos),
             ]) {
               // 正中央（礦坑的富礦）：自己的鏡像就是自己，改量往 A 側偏 6 m 的點（B 量它的鏡像）
               if (Math.hypot(p.x, p.z) < 0.01) {
@@ -282,7 +279,10 @@ module.exports = (H) => {
         );
         check(r.campMerc >= 30 - 1e-3, `${tag}：營地到傭兵營（佔地）最近 ${r.campMerc.toFixed(1)} m（≥ 30）`);
         check(
-          r.neutrals === 5 && r.creeps === r.creepIds && r.creeps > 10 && r.stillOk,
+          r.neutrals === (theme === 'desert' ? 6 : 5) &&
+            r.creeps === r.creepIds &&
+            r.creeps > 10 &&
+            r.stillOk,
           `${tag}：中立建築 5 棟、野怪 ${r.creeps} 台（${r.campIds.join(' ')}；不能移動的 edHold）`,
         );
         check(
@@ -363,8 +363,9 @@ module.exports = (H) => {
             out.rich = rich ? rich.amount : 0;
             const pc = R.camps.find((c) => Math.hypot(c.pos.x, c.pos.z) < 0.01);
             out.pitCamp = pc ? pc.tier : 0;
-            const tav = R.neutrals.find((q) => q.kind === 'tavern');
-            out.tavR = Math.hypot(tav.ent.pos.x, tav.ent.pos.z);
+            const tavs = R.neutrals.filter((q) => q.kind === 'tavern');
+            out.tavN = tavs.length;
+            out.tavR = Math.min(...tavs.map((q) => Math.hypot(q.ent.pos.x, q.ent.pos.z)));
             out.zone = P.zone;
             out.rails = (plan.decor || []).filter((q) => q.model === 'minerail').length;
           }
@@ -407,9 +408,10 @@ module.exports = (H) => {
               s.bigDown &&
               s.rich === 8000 &&
               s.pitCamp === 3 &&
+              s.tavN === 2 &&
               s.tavR > s.zone &&
               s.rails > 0,
-            `${tag}：露天礦坑（坑底 ${s.depth.toFixed(1)} m、大型單位下得去 ${s.bigDown}、富礦 ${s.rich}、坑底營地 tier ${s.pitCamp}、酒館在坑緣 ${s.tavR.toFixed(0)} m、軌道 ${s.rails}）`,
+            `${tag}：露天礦坑（坑底 ${s.depth.toFixed(1)} m、大型單位下得去 ${s.bigDown}、富礦 ${s.rich}、坑底營地 tier ${s.pitCamp}、酒館 ${s.tavN} 座在坑緣 ${s.tavR.toFixed(0)} m、軌道 ${s.rails}）`,
           );
         if (theme === 'industrial')
           check(
@@ -514,7 +516,7 @@ module.exports = (H) => {
         q.camps < 4 ||
         q.camps > 6 ||
         q.mines < 6 ||
-        q.neutrals !== 5 ||
+        q.neutrals !== (q.theme === 'desert' ? 6 : 5) ||
         q.lanes < 2 ||
         Math.abs(q.camX - lim) > 0.01 ||
         Math.abs(q.camZ + lim) > 0.01,

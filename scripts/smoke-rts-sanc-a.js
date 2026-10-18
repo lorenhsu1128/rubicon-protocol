@@ -860,7 +860,7 @@ module.exports = (H) => {
     });
     check(sc.n === 1 && sc.alive && sc.dead, '拆除：3 秒後建築消失');
     check(
-      sc.refund === 150 && sc.val === '70,6,3,true',
+      sc.refund === 2 * 78 && sc.val === '70,6,3,true',
       `佇列全額退還（${sc.refund}）、原地留下 50% 的殘骸（集會所 140 → ${sc.val}）`,
     );
     check(sc.cwhy === '這個陣營不能拆除', `卡斯特隆的建築：${sc.cwhy}`);

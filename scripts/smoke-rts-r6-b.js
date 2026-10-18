@@ -3,7 +3,8 @@
 // testRtsAiDiff（短的確定性測試；不跑電腦對電腦的對局、不跑勝率）：
 //   1. 四個陣營（各自的標準開局、種子固定）× 四種難度的電腦對不動的玩家（主堡打不倒）快轉 10 分鐘（簡單 11 分鐘：
 //      T2 的時間窗到 11:00）：17.3 的期望表（第 1 個英雄、第一次進攻出發、T2、10 分鐘時的部隊人口、10 分鐘內施放技能）、
-//      單調性（10 分鐘的部隊人口、建築數、研究數：簡單 ≤ 普通 ≤ 困難 ≤ 瘋狂；第一次進攻反過來）、決策耗時、
+//      逐級的單調性（18.2：10 分鐘的部隊人口、生產的部隊人口、建築數、研究數：簡單 ≤ 普通 ≤ 困難 ≤ 瘋狂；
+//      T2、第一次進攻反過來）、決策耗時、
 //      簡單的一波 ≤ 24 人口（waveCap）；同一個陣營的四種難度同時跑（四個頁面）；
 //   2. 功能表 RTS_AI_FEATS：簡單沒有緊急手段與騷擾、普通有前線信標與交易、困難有收起撤離與布雷；
 //   3. 瘋狂的迷霧依隊伍：兩邊都是電腦、cfg.diffs 一邊瘋狂一邊普通 → 只有瘋狂那一隊看全圖；
@@ -75,7 +76,7 @@ module.exports = (H) => {
         const hq0 = R.units.find((e) => e.rtsTeam === 0 && e.bld);
         hq0.maxHp = hq0.hp = 1e7;
         // 不動的守衛 4 台 MT（主堡往地圖中心 14 m，edHold：不移動、射程內照樣開火）：電腦的部隊打進來時會受傷，
-        // 補血與護甲類的英雄技能才有對象（只有工人與打不倒的主堡時，聖域的英雄 10 分鐘內一次都放不出來）
+        // 補血與護甲類的英雄技能才有對象
         const L = Math.hypot(hq0.pos.x, hq0.pos.z) || 1;
         for (let i = 0; i < 4; i++) {
           const x = hq0.pos.x - (hq0.pos.x / L) * 14 + (i - 1.5) * 3,
@@ -175,7 +176,10 @@ module.exports = (H) => {
     console.log('Coral 戰爭：電腦的難度（四陣營 × 四難度）');
     base0 = base;
     const all = {};
+    // 開發用：RTS_DIFF_FAC=aetheric,sancta 只跑這幾個陣營（npm test 一律全部）
+    const only = process.env.RTS_DIFF_FAC ? process.env.RTS_DIFF_FAC.split(',') : null;
     for (const [fac, op, seed, theme] of FACS) {
+      if (only && !only.includes(fac)) continue;
       const runs = await Promise.all(
         DIFFS.map((d) => vsStatic(browser, fac, op, seed, theme, d, d === 'easy' ? 660 : 600)),
       );
@@ -200,13 +204,10 @@ module.exports = (H) => {
           `${tag} 第一次進攻出發 ${fmt(M.first)}（${fmt(E.atk[0])}～${fmt(E.atk[1])}）`,
         );
         check(inW(M.t2, E.t2), `${tag} T2 ${fmt(M.t2)}（${fmt(E.t2[0])}～${fmt(E.t2[1])}）`);
-        // （艾瑟立克：Coral 只有汲取塔，兵種、升級、融合都吃 Coral，普通的部隊在 10 分鐘時約 15～20 人口：下限放寬到 15，docs 17.10 的「留著」）
-        const popW = fac === 'aetheric' && d === 'normal' ? [15, E.pop[1]] : E.pop;
-        check(inW(M.pop10, popW), `${tag} 10 分鐘的部隊人口 ${M.pop10}（${popW[0]}～${popW[1]}）`);
-        // （聖域的標準開局（拾荒）第 1 位英雄 MENDER 只有治療類技能：對不動的玩家時部隊多半滿血（修理無人機、診療所）
-        // 或直接被擊破，沒有目標；聖域不檢查次數、只記錄，docs 17.10）
-        // （艾瑟立克：技能的 Coral 優先給生產與升級（不放寬），只要求放過 1 次）
-        const castMin = fac === 'sancta' ? 0 : fac === 'aetheric' ? Math.min(1, E.cast) : E.cast;
+        check(inW(M.pop10, E.pop), `${tag} 10 分鐘的部隊人口 ${M.pop10}（${E.pop[0]}～${E.pop[1]}）`);
+        // （18.2：聖域的治療英雄 MENDER 也修交戰後回來的單位與受損的建築，施放次數照表檢查）
+        // （艾瑟立克：技能的 Coral 優先給生產與升級，只要求放過 1 次——docs 17.10 的「留著」，18.2 沒有改）
+        const castMin = fac === 'aetheric' ? Math.min(1, E.cast) : E.cast;
         check(M.casts10 >= castMin, `${tag} 10 分鐘內施放技能 ${M.casts10} 次（≥ ${castMin}）`);
         check(
           M.ms < 1 && M.msMax < 50,
@@ -234,28 +235,39 @@ module.exports = (H) => {
       }
       // 同一個陣營、開局、種子的四種難度
       const v = DIFFS.map((d) => all[fac][d]);
-      // 單調性（docs 17.10）：第一次進攻遞減（逐級容許 60 秒）。10 分鐘的部隊與建築只比「普通 ≥ 簡單、瘋狂 ≥ 普通」
-      // （× 0.85）：困難先升科技、開分礦、比較早進攻（打到守衛與野怪的損失），10 分鐘時的部隊不一定比普通多；
-      // 簡單不進攻到 7 分鐘、部隊不會損失。部隊用生產的人口（不受交戰損失影響），建築逐級容許 3 座（導管節點、補給），
-      // 研究數在 10 分鐘內很少（0～3），逐級容許 3
-      const ge = (k, i, j, f) => (v[i][k] || 0) >= (v[j][k] || 0) * f;
-      // （第一次進攻：逐級容許 60 秒——一兩台部隊、一次打野的時機就差這麼多）
-      const dn = v.every((M, i) => i === 0 || (M.first || 1e9) <= (v[i - 1].first || 1e9) + 60);
+      // 逐級的單調性（18.2，恢復 17.10 放寬的部分）：簡單 ≤ 普通 ≤ 困難 ≤ 瘋狂，每一級都和前一級比：
+      //   10 分鐘的部隊人口（最高）與生產的部隊人口 ≥ 前一級 × 0.85（困難會先開分礦、升科技，聖域的困難約 0.86）；
+      //   T2 ≤ 前一級＋30 秒（簡單 11 分鐘內沒升的算 11:00）；第一次進攻 ≤ 前一級＋30 秒；研究數 ≥ 前一級 − 1；
+      //   建築數 ≥ 前一級 − 3（導管節點、補給的座數差很多，沒有改）
+      const ge = (k, f) => v.every((M, i) => i === 0 || (M[k] || 0) >= (v[i - 1][k] || 0) * f);
+      const le = (k, tol, none) =>
+        v.every(
+          (M, i) =>
+            i === 0 || (M[k] == null ? none : M[k]) <= (v[i - 1][k] == null ? none : v[i - 1][k]) + tol,
+        );
       check(
-        ge('train10', 1, 0, 0.85) && ge('train10', 3, 1, 0.85),
-        `[${fac}] 生產的部隊人口 ${v.map((M) => M.train10).join('／')}（普通 ≥ 簡單、瘋狂 ≥ 普通）`,
+        ge('pop10', 0.85),
+        `[${fac}] 10 分鐘的部隊人口（最高）${v.map((M) => M.pop10).join(' ≤ ')}（逐級 × 0.85）`,
+      );
+      check(
+        ge('train10', 0.85),
+        `[${fac}] 生產的部隊人口 ${v.map((M) => M.train10).join(' ≤ ')}（逐級 × 0.85）`,
+      );
+      check(le('t2', 30, 660), `[${fac}] T2 ${v.map((M) => fmt(M.t2)).join(' ≥ ')}（逐級容許 30 秒）`);
+      check(
+        le('first', 30, 1e9),
+        `[${fac}] 第一次進攻 ${v.map((M) => fmt(M.first)).join(' ≥ ')}（逐級容許 30 秒）`,
+      );
+      check(
+        v.every((M, i) => i === 0 || (M.res10 || 0) >= (v[i - 1].res10 || 0) - 1),
+        `[${fac}] 研究數 ${v.map((M) => M.res10).join(' ≤ ')}（逐級容許 1）`,
       );
       check(
         v.every((M, i) => i === 0 || (M.blds10 || 0) >= (v[i - 1].blds10 || 0) - 3),
         `[${fac}] 建築數 ${v.map((M) => M.blds10).join(' ≤ ')}（容許 3）`,
       );
-      check(
-        v.every((M, i) => i === 0 || (M.res10 || 0) >= (v[i - 1].res10 || 0) - 3),
-        `[${fac}] 研究數 ${v.map((M) => M.res10).join(' ≤ ')}（容許 3）`,
-      );
       console.log(`  [${fac}] 部隊人口（最高）${v.map((M) => M.pop10).join('／')}`);
       console.log(`  [${fac}] 10 分鐘的收入（礦石＋2.5×Coral）${v.map((M) => M.inc10).join('／')}`);
-      check(dn, `[${fac}] 第一次進攻 ${v.map((M) => fmt(M.first)).join(' ≥ ')}（容許 60 秒）`);
       // 截圖：困難的電腦基地
       if (fac === 'castron') {
         const { ev, page } = runs[2];
@@ -279,7 +291,9 @@ module.exports = (H) => {
     // 第一次進攻的時間表（給實作紀錄）
     console.log(
       '  第一次進攻：' +
-        FACS.map(([f]) => `${f} ${DIFFS.map((d) => fmt(all[f][d].first)).join('／')}`).join('；'),
+        FACS.filter(([f]) => all[f])
+          .map(([f]) => `${f} ${DIFFS.map((d) => fmt(all[f][d].first)).join('／')}`)
+          .join('；'),
     );
 
     // ---------- 3. 瘋狂的迷霧依隊伍（cfg.diffs 一邊瘋狂、一邊普通） ----------

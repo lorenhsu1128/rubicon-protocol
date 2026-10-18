@@ -612,7 +612,7 @@ function genOnce(sub, theme, size) {
   const keep = [];
   const addKeep = (p, r) => keep.push({ p, r });
   addKeep(P(0, 0), 34);
-  if (PRE && PRE.tavern) addKeep(P(0, 0), Math.hypot(PRE.tavern.x, PRE.tavern.z) + 12); // 礦坑地表：酒館在坑緣
+  if (PRE && PRE.tavern) addKeep(P(0, 0), Math.hypot(PRE.tavern.x, PRE.tavern.z) + 12); // 礦坑地表：兩座酒館在坑緣
   for (const c of chokes) addKeep(c.pos, c.w / 2 + 16);
   const free = (p, r) =>
     (!PRE || !PRE.block(p, r)) &&
@@ -649,19 +649,16 @@ function genOnce(sub, theme, size) {
   put(natural, 14);
   put(coralA, 10);
   put(mainMine, 6);
-  // 礦坑地表：酒館沿坑緣的一圈都佔住（位置在 validate 依兩邊的路徑代價挑）
-  if (PRE && PRE.tavern) {
-    const rT = Math.hypot(PRE.tavern.x, PRE.tavern.z);
-    for (let k = 0; k < 16; k++)
-      put(P(Math.cos((k / 16) * Math.PI) * rT, Math.sin((k / 16) * Math.PI) * rT), 9);
-  }
+  // 礦坑地表：兩座酒館在坑緣（成對、點對稱；R6 之後的 C 包。原本只有一間、位置由 validate 依路徑代價挑，兩邊差到 8%）
+  if (PRE && PRE.tavern) put(PRE.tavern, 10);
   // 外圍分礦：基地這側（山脊後）1 個＋中立區 1～2 個
   const outer = [];
   const nOuterMid = rng() < 0.5 ? 1 : 2;
-  const findLow = (uR, vR, r, tries = 60) => {
+  // okP（只有小地圖的多重水壩）：另外的條件（中立建築的佔地角落與正面）
+  const findLow = (uR, vR, r, tries = 60, okP = null) => {
     for (let t = 0; t < tries; t++) {
       const p = W(R(uR[0], uR[1]), R(vR[0], vR[1]) * (t & 1 ? 1 : -1));
-      if (!inUse(p, 14) || !isLow(p, r) || taken(p, r + 10)) continue;
+      if (!inUse(p, 14) || !isLow(p, r) || taken(p, r + 10) || (okP && !okP(p))) continue;
       return p;
     }
     return null;
@@ -685,8 +682,29 @@ function genOnce(sub, theme, size) {
   const nbR = SZ(8, PRE && PRE.plan && PRE.plan.river ? 9 : 11); // 小地圖的多重水壩：壩體與山脊之間只有 9 m 的餘裕
   // PRE.range 的項目可以是函式（小地圖的多重水壩：依山脊的位置）
   const preR = (k) => (typeof PRE.range[k] === 'function' ? PRE.range[k](U1) : PRE.range[k]);
+  // 小地圖的多重水壩（R6 之後的 C 包）：壩體與山脊之間很窄，中立建築的佔地角落與正面（validate 的要點）常常落在
+  // 山脊或河岸的斷崖上：佔地的四個角與正面外 6 m 的點都要在低地（其他主題與 400 m 不檢查，地圖不變）
+  const damS = !!(PRE && size !== 400 && PRE.plan && PRE.plan.river);
+  const footOk = (kind) =>
+    damS
+      ? (p) => {
+          const q = { kind, pos: p, yaw: neutralYaw(p) };
+          const [fw, fd] = neutralFoot(q);
+          const f = RTS_NEUTRAL_FOOT[kind][1] / 2 + 6;
+          if (!isLow(P(p.x + Math.sin(q.yaw) * f, p.z + Math.cos(q.yaw) * f), 4)) return false;
+          for (const [sx, sz] of [
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ])
+            if (!isLow(P(p.x + (sx * fw) / 2, p.z + (sz * fd) / 2), 3)) return false;
+          return true;
+        }
+      : null;
   const shop = PRE
-    ? findLow(...preR('shop'), nbR, SZ(60, 120))
+    ? findLow(...preR('shop'), nbR, damS ? 400 : SZ(60, 120), footOk('shop')) ||
+      (damS && findLow(...PRE.range.back(U1), nbR, 400, footOk('shop')))
     : findLow(
         ...SZ(
           [
@@ -704,7 +722,8 @@ function genOnce(sub, theme, size) {
   if (!shop) return fail({ sub }, '商店放不下');
   put(shop, 10);
   const merc = PRE
-    ? findLow(...preR('merc'), nbR, SZ(60, 200))
+    ? findLow(...preR('merc'), nbR, damS ? 400 : SZ(60, 200), footOk('merc')) ||
+      (damS && findLow(...PRE.range.back(U1), nbR, 400, footOk('merc')))
     : findLow(
         ...SZ(
           [
@@ -722,7 +741,7 @@ function genOnce(sub, theme, size) {
   if (!merc) return fail({ sub }, '傭兵營放不下');
   put(merc, 10);
   const coralMid = PRE
-    ? findLow(...preR('coral'), 8, SZ(60, 200))
+    ? findLow(...preR('coral'), 8, damS ? 400 : SZ(60, 200))
     : findLow(
         ...SZ(
           [
@@ -770,7 +789,7 @@ function genOnce(sub, theme, size) {
     return false;
   };
   // 小地圖：唯一的外圍分礦旁是 tier 3（大營地一對）
-  outer.forEach((o, i) => campNear(o.p, 12, 20, SZ(o.rich ? 3 : 2, 3), { type: 'mine', ref: o }));
+  outer.forEach((o, i) => campNear(o.p, 12, damS ? 30 : 20, SZ(o.rich ? 3 : 2, 3), { type: 'mine', ref: o }));
   // 瞭望高地的營地離傭兵營太近時不放（高地照樣有）
   if (watch && campOk(watch.c)) {
     camps.push({ p: watch.c, tier: 2, guards: { type: 'high' } });
@@ -778,7 +797,7 @@ function genOnce(sub, theme, size) {
   }
   for (const c of chokes.slice(0, 1)) campNear(c.pos, 22, 34, 1, { type: 'item' });
   for (let t = 0; t < SZ(30, 120) && camps.length < SZ(4, 2); t++) {
-    const p = findLow(SZ([10, U1 - 10], [0, U1 + 24]), SZ([20, 150], [10, 112]), 6, 4);
+    const p = findLow(SZ([10, U1 - 10], damS ? [0, U1 + 40] : [0, U1 + 24]), SZ([20, 150], [10, 112]), 6, 4);
     if (p && campOk(p)) {
       camps.push({ p, tier: rng() < 0.3 ? 2 : 1, guards: { type: 'item' } });
       put(p, 9);
@@ -984,9 +1003,10 @@ function genOnce(sub, theme, size) {
       if (c.guards.type === 'mine') g.mine = mines.findIndex((m) => dist(m.pos, f(c.guards.ref.p)) < 0.01);
       return { pos: f(c.p), tier: c.tier, guards: g, near: k };
     });
-  // 酒館在正中央（礦坑地表：坑的邊緣，PRE.tavern）
+  // 酒館在正中央（礦坑地表：坑緣的兩座，成對；near 在 validate 依路徑代價改成離主基地近的那一座）
   const tav = PRE && PRE.tavern ? PRE.tavern : null;
-  const neutrals = [{ kind: 'tavern', pos: tav || P(0, 0), yaw: tav ? neutralYaw(tav) : 0 }];
+  const neutrals = tav ? [] : [{ kind: 'tavern', pos: P(0, 0), yaw: 0 }];
+  if (tav) pair(neutrals, (k, f) => ({ kind: 'tavern', pos: f(tav), near: k, yaw: neutralYaw(f(tav)) }));
   pair(neutrals, (k, f) => ({ kind: 'shop', pos: f(shop), near: k, yaw: neutralYaw(f(shop)) }));
   pair(neutrals, (k, f) => ({ kind: 'merc', pos: f(merc), near: k, yaw: neutralYaw(f(merc)) }));
   const highs = [{ kind: 'base', pos: A, r: rB, h: Hb, ramp: bases[0].ramp }];
@@ -2126,6 +2146,11 @@ function damPre(c, sub) {
             [Zb + 8, U1 + 40],
             [24, 108],
           ],
+          // 上面的範圍放不下時：山脊後面（R6 之後的 C 包）
+          back: (U1) => [
+            [U1 + 12, U1 + 44],
+            [24, 110],
+          ],
         }
       : {
           outer: (U1) => [Zb + 12, U1 - 14],
@@ -2345,6 +2370,31 @@ function duneStruct(cx, cz, len, h, rot, bow) {
     },
   };
   return s;
+}
+// 沙丘的外觀（world.js 的 RTS 地形著色用；R6 之後的 C 包）：plan.dunes 重建形狀 → (x, z) 的
+// { a：沙丘高度的比例 0～1（0＝不在沙丘上）, lee：在背風面（+v）, crest：離脊線多近 0～1 }；沒有沙丘時 null
+export function rtsDuneShade(plan) {
+  const ds = (plan && plan.dunes) || [];
+  if (!ds.length) return null;
+  const all = ds.map((d) => duneStruct(d.x, d.z, d.len, d.h, d.rot, d.bow));
+  return (x, z) => {
+    let best = null,
+      bh = 0;
+    for (const s of all) {
+      if (x < s.bb[0] || x > s.bb[1] || z < s.bb[2] || z > s.bb[3]) continue;
+      const v = s.F(x, z);
+      if (v > bh) ((bh = v), (best = s));
+    }
+    if (!best) return { a: 0, lee: false, crest: 0 };
+    const dx = x - best.x,
+      dz = z - best.z,
+      cs = Math.cos(best.rot),
+      sn = Math.sin(best.rot);
+    const u = dx * cs + dz * sn,
+      v = -dx * sn + dz * cs;
+    const dv = v - best.bow * (u / (best.len / 2)) ** 2;
+    return { a: bh / best.h, lee: dv > 0, crest: clamp(1 - Math.abs(dv) / 2.5, 0, 1) * (bh / best.h) };
+  };
 }
 // 高度圖加上結構（沙丘：疊在原本的地面上；k 與 N²−1−k 同值，維持對稱）
 function stampAdd(plan, all) {
@@ -2574,7 +2624,7 @@ function pitPre(c, sub) {
         [Zp + 30, Math.min(Zp + 90, vCap)],
       ],
     },
-    plan: { r: Rp, rf: Rf, depth: D, tiers: N, tops, ph, zone: Zp, r0, ramps, tavernSide: side },
+    plan: { r: Rp, rf: Rf, depth: D, tiers: N, tops, ph, zone: Zp, r0, ramps },
   };
 }
 // 礦坑地表（檢查之後）：坑底到得了（validate 的要點 'pit'）→ 裝飾（另一條亂數串）：階地上的礦車軌道與廢棄的礦車
@@ -2840,6 +2890,17 @@ export function validate(plan, nav) {
   const [bA, bB] = plan.bases;
   // 主基地的平台上要能走（大型）
   if (!nav.walkableAt(bA.pos.x, bA.pos.z, 2)) return fail(plan, '主基地中心不能通行');
+  // 礦坑地表的兩座酒館（成對）：離主基地 A 路徑比較近的那一座是 near 0（電腦去雇用時找自己這邊的）；
+  // 兩座點對稱，要點照一般的成對建築檢查（差 < 3%，實際上是 0）
+  const tavs = plan.pit ? plan.neutrals.filter((q) => q.kind === 'tavern' && q.near !== undefined) : [];
+  if (tavs.length === 2) {
+    const fdT = RTS_NEUTRAL_FOOT.tavern[1] / 2 + 6;
+    const front = (q) => P(q.pos.x + Math.sin(q.yaw) * fdT, q.pos.z + Math.cos(q.yaw) * fdT);
+    const c0 = nav.pathCost(bA.pos, front(tavs[0]), 1),
+      c1 = nav.pathCost(bA.pos, front(tavs[1]), 1);
+    tavs[0].near = c1 < c0 ? 1 : 0;
+    tavs[1].near = 1 - tavs[0].near;
+  }
   // 要點：A 側的點與它在 B 側的鏡像
   const keys = [];
   for (const m of plan.mines) if (m.owner === 0 || m.near === 0) keys.push(['mine:' + m.kind, m.pos]);
@@ -2852,7 +2913,7 @@ export function validate(plan, nav) {
     const fd = (RTS_NEUTRAL_FOOT[q.kind] || [8, 8])[1] / 2 + 6;
     if (q.near === 0)
       keys.push([q.kind, P(q.pos.x + Math.sin(q.yaw || 0) * fd, q.pos.z + Math.cos(q.yaw || 0) * fd)]);
-    else if (q.kind === 'tavern' && !plan.pit)
+    else if (q.kind === 'tavern' && q.near === undefined)
       keys.push([q.kind, P(q.pos.x + (bA.pos.x / off) * fd, q.pos.z + (bA.pos.z / off) * fd)]);
   }
   for (const c of plan.chokes.filter((_, i) => i % 2 === 0)) keys.push(['choke', c.pos]);
@@ -2880,103 +2941,6 @@ export function validate(plan, nav) {
     costs.push({ name, a: Math.round(ca), b: Math.round(cb) });
     if (d > 0.03) return fail(plan, `${name} 路徑長度差 ${(d * 100).toFixed(1)}%`);
   }
-  // 礦坑地表：酒館在坑的邊緣（只有一間，不是點對稱）：兩邊主基地到酒館背面的路徑代價差 < 8%。
-  // 第一次檢查時沿坑緣（和主軸垂直的兩側各 ±1.5 rad、避開坡道）以兩邊主基地的流場距離挑差最小的位置，
-  // 換了位置就重新檢查一次
-  const tavQ = plan.pit && plan.neutrals.find((q) => q.kind === 'tavern');
-  let tavD;
-  if (tavQ) {
-    const fd = RTS_NEUTRAL_FOOT.tavern[1] / 2 + 6;
-    const backOf = (pos) => {
-      const yaw = neutralYaw(pos);
-      return P(pos.x - Math.sin(yaw) * fd, pos.z - Math.cos(yaw) * fd);
-    };
-    if (!plan.pit.picked) {
-      plan.pit.picked = true;
-      const fa = nav.flowField(bA.pos.x, bA.pos.z, 1),
-        fb = nav.flowField(bB.pos.x, bB.pos.z, 1);
-      const rT = Math.hypot(tavQ.pos.x, tavQ.pos.z);
-      const others = [
-        ...plan.mines.map((m) => [m.pos, 14]),
-        ...plan.corals.map((q) => [q.pos, 12]),
-        ...plan.camps.map((q) => [q.pos, 12]),
-        ...plan.neutrals.filter((q) => q !== tavQ).map((q) => [q.pos, 18]),
-      ];
-      const [tw, tdp] = RTS_NEUTRAL_FOOT.tavern;
-      const cands = [];
-      for (const sg of [1, -1])
-        for (let f = -1.5; f <= 1.5001; f += 0.05)
-          for (const rr of [rT, rT + 5, rT + 10, rT + 15]) {
-            const a = plan.axis + sg * (Math.PI / 2 + f);
-            if (
-              plan.pit.ramps.some(
-                (q) => Math.abs(Math.atan2(Math.sin(a - q.ang), Math.cos(a - q.ang))) < 0.35,
-              )
-            )
-              continue;
-            const pos = P(Math.cos(a) * rr, Math.sin(a) * rr);
-            if (others.some(([q, rr]) => dist(q, pos) < rr)) continue;
-            const yaw = neutralYaw(pos);
-            const [w2, d2] = (Math.round(yaw / (Math.PI / 2)) & 1 ? [tdp, tw] : [tw, tdp]).map(
-              (v) => v / 2 + 1,
-            );
-            if (
-              [
-                [0, 0],
-                [-1, -1],
-                [1, -1],
-                [-1, 1],
-                [1, 1],
-              ].some(([sx, sz]) => !nav.walkableAt(pos.x + sx * w2, pos.z + sz * d2, 0))
-            )
-              continue;
-            const b = backOf(pos);
-            const ca = fa.dist(b.x, b.z),
-              cb = fb.dist(b.x, b.z);
-            if (!isFinite(ca) || !isFinite(cb)) continue;
-            const d = Math.abs(ca - cb) / Math.max(ca, cb, 1);
-            cands.push({ d, pos });
-          }
-      // 流場（不切角）和 A* 的代價有一點差，酒館本身也會擋路：流場最好的 6 個把酒館的佔地搬過去再用 pathCost 比
-      cands.sort((p, q) => p.d - q.d);
-      let best = null;
-      const foot = (pos, on) => {
-        const [fw, fdp] = neutralFoot({ kind: 'tavern', yaw: neutralYaw(pos) });
-        nav.block(pos.x, pos.z, fw, fdp, 0, on);
-      };
-      // 酒館也不能讓兩邊到坑底的路變得不一樣（擋到一邊的坡道口）：取兩者較大的差
-      const pitD = () => {
-        const ca = nav.pathCost(bA.pos, P(0, 0), 1),
-          cb = nav.pathCost(bB.pos, P(0, 0), 1);
-        return Math.abs(ca - cb) / Math.max(ca, cb, 1);
-      };
-      foot(tavQ.pos, false);
-      for (const q of cands.slice(0, 6)) {
-        foot(q.pos, true);
-        const b = backOf(q.pos);
-        const ca = nav.pathCost(bA.pos, b, 1),
-          cb = nav.pathCost(bB.pos, b, 1);
-        const dp = pitD();
-        foot(q.pos, false);
-        const d = Math.max(Math.abs(ca - cb) / Math.max(ca, cb, 1), dp);
-        if (isFinite(d) && (!best || d < best.d)) best = { d, pos: q.pos };
-      }
-      foot(tavQ.pos, true);
-      if (best && dist(best.pos, tavQ.pos) > 0.01) {
-        tavQ.pos = best.pos;
-        tavQ.yaw = neutralYaw(best.pos);
-        return validate(plan);
-      }
-    }
-    const bp = backOf(tavQ.pos);
-    const ca = nav.pathCost(bA.pos, bp, 1),
-      cb = nav.pathCost(bB.pos, bp, 1);
-    const d = Math.abs(ca - cb) / Math.max(ca, cb, 1);
-    tavD = d; // 不算進 worst（門檻不同）
-    costs.push({ name: 'tavern', a: Math.round(ca), b: Math.round(cb) });
-    // 酒館只有一間（不是點對稱的位置）：門檻放寬到 8%（坑緣一圈裡最公平的位置；資源與營地照舊 3%）
-    if (!isFinite(d) || d > 0.08) return fail(plan, `酒館路徑長度差 ${(d * 100).toFixed(1)}%`);
-  }
   // 主基地只有一條坡道：把坡道堵住後，平台和自然分礦不通
   const r = bA.ramp;
   const mx = (r.top.x + r.bottom.x) / 2,
@@ -2990,7 +2954,6 @@ export function validate(plan, nav) {
   const slots = countSlots(nav, bA.pos, bA.r);
   if (slots < 20) return fail(plan, `建築格只有 ${slots}`);
   plan.check = { worst, costs, slots };
-  if (tavD !== undefined) plan.check.tavern = tavD;
   plan.lanes = makeLanes(plan, nav);
   plan.ok = true;
   plan.fail = '';

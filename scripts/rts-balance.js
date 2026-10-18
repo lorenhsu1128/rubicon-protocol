@@ -3,7 +3,8 @@
 //                               [--check] [--md] [--json=路徑] [--quiet]
 //   npm run balance:rts
 // 內容：單兵（EHP、有效 dps、強度 S＝√(EHP×D)、成本效率）、相剋矩陣（Lanchester 平方律＋射程修正）、陣營部隊（開局的兵種比例）、
-// 經濟曲線與時間軸（1 秒一步的確定性模擬，照電腦普通難度的流程）、英雄技能的預算、攻城與防禦塔；--check 依 17.5 的範圍檢查，
+// 經濟曲線與時間軸（1 秒一步的確定性模擬，照電腦普通難度的流程）、Coral 充足度與 10 分鐘的部隊強度（18.1：兩座／只有一座
+// 抽取站）、英雄技能的預算（效果類只列不檢查）、攻城與防禦塔；--check 依 17.5 的範圍檢查，
 // 超出時結束碼 1。換算與假設的常數都在 CONST（改了要寫進 docs 的實作紀錄）；KEEP＝檢查過、決定留著的項目（附原因，不算失敗）。
 // 冒煙測試 testRtsBalance（scripts/smoke-rts-r6-a.js）以 require 呼叫 run({ check: true })。
 'use strict';
@@ -22,6 +23,12 @@ const CONST = {
   SPLASH_MAX: 2.5,
   MELEE_SPLASH: 0.5, // 近戰的 melee.splash 只算 50%（實際範圍內 50% 傷害）
   ARMY_C: 1000, // 相剋與部隊對打的等成本
+  // 攻城的部隊成本（18.1：以前用 ARMY_C 1000＝3～6 台，全部 91～150 秒；8 分鐘的部隊約 48 人口、成本 3000～3500，
+  // 開出去攻城的約六成）
+  SIEGE_C: 2000,
+  // 聖域的對空支架（rf_aa，18.1）：電腦對方有空中單位時改裝（rts-ai.js 的 rtsAiRefitPick）；只打地面的戰鬥單位
+  // share 的比例裝上，對空傷害 ×aaK，成本加改裝費（零件照 PARTS_ORE 換算）
+  REFIT_AA: { share: 0.5, k: 0.6, cost: 10 + 4 * 6, not: ['s_junk', 's_colossus'] }, // 外殼機、巨像一律裝廢鐵裝甲
   RANGE_GAP: 4, // 射程差超過這麼多才算接近的損失
   RANGE_LOSS: 0.3, // 接近時最多損失總血量的 30%
   // 技能的預算
@@ -32,6 +39,22 @@ const CONST = {
   TGT_ARMOR: 1, // 一般單位的護甲
   FOCUS_DPS: 60, // 集火一個目標的友軍 dps（易傷類）
   HERO_IN_DPS: 60, // 英雄被集火時受到的 dps（自身減傷）
+  // 效果類的技能（治療、護盾、護甲、易傷、射程縮短、單體控制；18.1）：每次施放的期望值照樣算、列在報表，但不檢查
+  // 「同級 dps 的 8～16 秒」，也不算進每 Coral 的比較——它們的大小是機制（回復量、吸收量、護甲、秒數），17.5 規則 3
+  // 只准改 dmg／coral／cd，檢查出來也調不到（R6 A 包把它們全列成「留著」）
+  SKILL_FX: [
+    'sk_plate',
+    'sk_mark',
+    'sk_prism',
+    'sk_catalyze',
+    'sk_drop',
+    'sk_jam',
+    'sk_mend',
+    'sk_triage',
+    'sk_magnet',
+    'sk_haven',
+    'sk_refuge',
+  ],
   // 經濟
   DROP_DELAY: 8, // 維爾威：空投運輸機起飛到地基落地（秒）
   SELF_BUILD_AWAY: 8, // 艾瑟立克（selfBuild）：工人放地基離開採礦的秒數
@@ -48,87 +71,58 @@ const CONST = {
 };
 
 // 檢查過、決定留著的項目（鍵＝檢查項目的 key；值＝原因）。--check 不把它們算成失敗，報表標「留著」。
-// R6 A 包兩批調整之後的結果（docs 17.9）；之後要改由使用者決定，不跑勝率對局來決定。
+// R6 A 包（docs 17.9）111 項 → R6 之後的 A（docs 18.1）逐項重看：改了數值或修了換算的拿掉（18.5 再拿掉 B 包之後通過的兩項部隊對打），剩下的原因寫在這裡；
+// 之後要改由使用者決定，不跑勝率對局來決定。
 const WHY = {
   r1: 'R1 的 c_mt、c_shield 不動（17.5 規則 2）：兩者的 S／C 差 1.68 倍，同階中位數不可能同時容下；盾牌 MT 的正面大盾不算進 EHP',
-  fuse: '融合單位：成本只算材料＋Coral，融合的需求（T2＋培養槽／T3＋研究）、集合與引導（宿主受傷 ×1.25）的時間與風險沒算；第 1 批已降血量 10%',
-  air: '空中單位：飛越地形、只有對空打得到，靜態強度不算機動；維爾威 T3 只有突擊機，降價會讓 T3 部隊更強（陣營部隊已經 1.3～1.5）',
-  militia:
-    '民兵 MT 綁 MT（16.9：每 100 礦石 0.95～1.15），聖域 T1 中位數 ≥ 民兵 ÷ 1.25；卡斯特隆 T1 的中位數（叉架 MT）比 MT 低 30%，兩個範圍不能同時成立',
-  colossus: '聖域 T3 只有拼裝巨像（要研究巨像骨架＋零件）；兩批已漲價 21%',
-  antiAir:
-    '維爾威的空中與對空：聖域、艾瑟立克 T2 以後沒有地面的對空兵種（聖域靠改裝的對空支架、艾瑟立克靠浮游砲），靜態的兵種比例不算改裝與防空塔',
-  fuseArmy: '嵌合體（融合）在混合部隊裡照 14.17 的換算；融合的時間與風險沒算',
+  fuse: '融合單位：成本只算材料＋Coral，融合的需求（T2＋培養槽／T3＋研究）、集合與引導（宿主受傷 ×1.25）的時間與風險沒算；R6 已降血量 10%（18.1 再降 10% 只到 2.0 倍、部隊對打幾乎不變，沒有改）',
+  air: '空中單位：飛越地形、只有對空打得到，靜態強度不算機動；維爾威 T3 只有突擊機，降價會讓 T3 部隊更強',
+  colossus:
+    '聖域 T3 只有拼裝巨像（要研究巨像骨架＋零件，EHP／成本是其他 T3 的 2 倍）；R6 兩批已漲價 21%，再兩批也只到約 1.27',
   salv: 'SALV_ASSUME 在 5 分鐘只多 120 礦石（2%），「不含拾荒」0.78～0.9 與「含拾荒」0.92～1.1 不能同時成立；拾荒的收入在 8 分鐘後才明顯（10 分鐘 +5%）',
   tower:
-    '平方律對一座高血量、範圍傷害的塔有利（同成本只有 1～2 台）；卡斯特隆的起重機砲台是基準不動，其他陣營降建築血量兩批也只到約 1.9',
-  siege:
-    '等成本 1000 的 T2 部隊只有 3～6 台；8 分鐘時的部隊強度約是它的 2～4 倍（經濟表），實際攻城約 30～60 秒；卡斯特隆的主堡是基準不動',
+    '平方律對一座高血量、城甲的塔有利（同成本只有 1～2 台，打城甲的相剋 ×0.5～0.75）；18.1 已把範圍係數限制在對方台數以內，卡斯特隆的起重機砲台是基準不動（4.5），其他陣營 2.4～3.2 比它低',
   duel: '單一兵種對單一兵種的等成本平方律：泛用型（各陣營的 MT）沒有 1.5 倍的剋星；技能（盾牆、衝撞、外殼、融合）與改裝不在靜態模型裡',
-  noDmg:
-    '效果不是直接傷害（治療、護盾、暈眩、護甲、易傷、射程縮短）：17.5 只准改 dmg、coral、cd，每次施放的期望值改不到',
-  big: '超出的幅度大於兩批的上限（約 19%）；範圍與機制不能改',
-  near: '兩批（−19%）之後只差 2%',
+  big: '超出的幅度大於這一輪兩批（約 19%）的上限；範圍與機制不能改（17.5 規則 3）',
   coral:
-    '治療與護盾類（聖域、維爾威、艾瑟立克）的等效血量偏高；只能改 Coral，兩批 −19% 不夠，而且會讓每冷卻秒的期望值更偏',
+    '只比傷害技能（18.1：效果類不算）：艾瑟立克的折射光束、電磁脈衝是大範圍的便宜技能（中位數 26.9，卡斯特隆 13.4）；只能改 Coral，四個陣營各兩批也只到約 1.4，而且艾瑟立克的 Coral 剛加了產出',
 };
 const KEEP = {
   'eff:c_mt': WHY.r1,
   'eff:a_chimera': WHY.fuse,
   'eff:a_proto': WHY.fuse,
   'effFac:veerwell:3': WHY.air,
-  'effFac:sancta:1': WHY.militia,
   'effFac:sancta:3': WHY.colossus,
-  'army:sancta:veerwell:1': WHY.antiAir,
-  'army:sancta:veerwell:2': WHY.antiAir,
-  'army:sancta:veerwell:3': WHY.antiAir,
-  'army:aetheric:veerwell:3': WHY.antiAir,
-  'army:aetheric:sancta:2': WHY.fuseArmy,
   'inc5:sancta': WHY.salv,
   skillCoral: WHY.coral,
   'ult:sk_fortress': WHY.big,
   'ult:sk_carpet': WHY.big,
-  'ult:sk_refuge': WHY.noDmg,
-  'sk:sk_rain:3': WHY.near,
 };
-for (const f of ['castron', 'aetheric', 'veerwell', 'sancta']) {
-  KEEP['tower:' + f] = WHY.tower;
-  for (const g of ['castron', 'aetheric', 'veerwell', 'sancta'])
-    if (f !== g) KEEP[`siege:${f}:${g}`] = WHY.siege;
-}
+for (const f of ['castron', 'aetheric', 'veerwell', 'sancta']) KEEP['tower:' + f] = WHY.tower;
 for (const k of [
-  'counter:c_mt:aetheric counter:c_mt:veerwell counter:c_mt:sancta counter:c_arty:sancta counter:c_heli:veerwell',
-  'counter:c_heli:sancta counter:a_blob:castron counter:a_chimera:castron counter:a_chimera:sancta counter:a_bit:castron',
-  'counter:a_bit:veerwell counter:a_bit:sancta counter:a_proto:sancta counter:v_mt:castron counter:v_mt:aetheric',
+  'counter:c_mt:aetheric counter:c_mt:veerwell counter:c_mt:sancta counter:c_arty:sancta',
+  'counter:a_blob:castron counter:a_laser:veerwell counter:a_chimera:castron counter:a_chimera:sancta',
+  'counter:a_bit:castron counter:a_bit:veerwell counter:a_proto:sancta counter:v_mt:castron counter:v_mt:aetheric',
   'counter:v_mt:sancta counter:v_drone:aetheric counter:v_jet:aetheric counter:v_jet:sancta counter:s_militia:castron',
   'counter:s_militia:aetheric counter:s_militia:veerwell counter:s_scav:castron counter:s_scav:aetheric',
   'dominant:c_mt:aetheric dominant:c_stomper:veerwell dominant:a_chimera:castron dominant:a_chimera:veerwell',
   'dominant:a_chimera:sancta dominant:a_bit:castron dominant:a_proto:castron dominant:a_proto:sancta',
-  'dominant:v_mt:castron dominant:v_mt:aetheric dominant:v_heli:castron dominant:v_rammer:castron',
+  'dominant:v_mt:aetheric dominant:v_heli:castron dominant:v_rammer:castron',
   'dominant:s_militia:castron dominant:s_militia:aetheric dominant:s_junk:veerwell',
 ]
   .join(' ')
   .split(' '))
   KEEP[k] = WHY.duel;
-for (const [sk, lvs, why] of [
-  ['sk_plate', [1], WHY.noDmg],
-  ['sk_mark', [1, 2], WHY.noDmg],
-  ['sk_rush', [1, 2, 3], WHY.big],
-  ['sk_catalyze', [2, 3], WHY.noDmg],
-  ['sk_drop', [1, 2, 3], WHY.noDmg],
-  ['sk_jam', [1, 2, 3], WHY.noDmg],
-  ['sk_triage', [1, 2, 3], WHY.noDmg],
-  ['sk_magnet', [1, 2, 3], WHY.noDmg],
-  ['sk_haven', [1, 2, 3], WHY.noDmg],
-  ['sk_shove', [1, 2, 3], WHY.big],
-  ['sk_refract', [2, 3], WHY.big],
-  ['sk_emp', [1, 2, 3], WHY.big],
-  ['sk_junk', [3], WHY.big],
-  ['sk_homing', [1], WHY.big],
-  ['sk_burner', [1, 2, 3], WHY.big],
-  ['sk_acid', [1, 2, 3], WHY.big],
+for (const [sk, lvs] of [
+  ['sk_rush', [1, 2, 3]],
+  ['sk_shove', [1, 2, 3]],
+  ['sk_refract', [2, 3]],
+  ['sk_emp', [1, 2, 3]],
+  ['sk_junk', [3]],
+  ['sk_burner', [1, 2, 3]],
+  ['sk_acid', [1, 2, 3]],
 ])
-  for (const l of lvs) KEEP[`sk:${sk}:${l}`] = why;
+  for (const l of lvs) KEEP[`sk:${sk}:${l}`] = WHY.big;
 
 // ---------- 工具 ----------
 const median = (a) => {
@@ -296,6 +290,45 @@ function makeUnits(data) {
   return { info, aOf, costOf, C1, slotsOf, splashK };
 }
 
+// 聖域的單位對空中的對手：裝上對空支架的版本（REFIT_AA；只打地面、有攻擊的單位）
+const aaCache = new Map();
+function refitAA(u) {
+  if (u.faction !== 'sancta' || u.Da > 0 || !(u.Dg > 0) || u.flying || CONST.REFIT_AA.not.includes(u.id))
+    return u;
+  if (aaCache.has(u)) return aaCache.get(u);
+  const R = CONST.REFIT_AA;
+  const x = {
+    ...u,
+    id: u.id + '+aa',
+    cost: u.cost + R.cost,
+    slots: [
+      ...u.slots,
+      ...u.slots.filter((s) => s.ground).map((s) => ({ ...s, ground: false, air: true, dps: s.dps * R.k })),
+    ],
+  };
+  aaCache.set(u, x);
+  return x;
+}
+// 對手是空中單位時，聖域的一方換成裝了對空支架的
+function duelR(i, j, aOf) {
+  return duel(j.flying ? refitAA(i) : i, i.flying ? refitAA(j) : j, aOf);
+}
+// 聖域的混合部隊對有空中單位的部隊：share 的比例（以成本計）換成對空支架的版本
+function armyAA(A, B) {
+  if (!B.some((y) => y.u.flying)) return A;
+  const out = [];
+  for (const x of A) {
+    const r = refitAA(x.u);
+    if (r === x.u) {
+      out.push(x);
+      continue;
+    }
+    const sh = CONST.REFIT_AA.share;
+    out.push({ u: x.u, n: x.n * (1 - sh) }, { u: r, n: (x.n * sh * x.u.cost) / r.cost });
+  }
+  return out;
+}
+
 // 兩支等成本的同種部隊：Lanchester 平方律的優勢（i 的角度）；打不到的組合回傳 null
 function duel(i, j, aOf) {
   const ni = CONST.ARMY_C / i.cost,
@@ -323,13 +356,15 @@ function duel(i, j, aOf) {
 }
 
 // ---------- 陣營部隊（開局的兵種比例） ----------
-function armyOf(op, tier, units, data) {
+// airK＝對方部隊空中單位的人口比例（18.1：rts-ai.js 的 rtsAiMix，airK > 0.3 時打得到空中的兵種 ×(1＋airK×1.5)）
+function armyOf(op, tier, units, data, airK = 0) {
   const mix = tier === 1 ? op.mix : tier === 2 ? op.mix2 || op.mix : op.mix3 || op.mix2 || op.mix;
   const w = {};
   for (const id in mix || {}) {
     const d = data.U.RTS_DEFS[id];
     if (!d || (d.tier || 1) > tier) continue;
-    w[id] = (w[id] || 0) + mix[id];
+    const aa = d.aa === 'both' || d.aa === 'air' || !!(d.slotAa && Object.values(d.slotAa).includes('air'));
+    w[id] = (w[id] || 0) + mix[id] * (airK > 0.3 && aa ? 1 + airK * 1.5 : 1);
   }
   // 艾瑟立克（14.17）：T2 起實驗體融合成嵌合體（3 隻＝1 隻，留 keep 隻不融合）、T3 有 proto 時嵌合體兩隻一隻原型體
   if (op.fuse && w.a_blob && tier >= 2) {
@@ -348,6 +383,16 @@ function armyOf(op, tier, units, data) {
     .map(([id, x]) => ({ u: units[id], w: x }));
   const per = list.reduce((s, x) => s + x.w * x.u.cost, 0);
   return list.map((x) => ({ u: x.u, n: (x.w * CONST.ARMY_C) / Math.max(1, per) }));
+}
+// 部隊裡空中單位的人口比例
+function airShare(X) {
+  let a = 0,
+    t = 0;
+  for (const x of X) {
+    t += x.n * x.u.pop;
+    if (x.u.flying) a += x.n * x.u.pop;
+  }
+  return t > 0 ? a / t : 0;
 }
 // 混合部隊的戰力 F＝(Σ n_k √(ā_k hp_k))²；ā_k＝對對方組成（依總血量加權）的平均 a
 function armyF(A, B, aOf) {
@@ -369,6 +414,9 @@ function econSim(fac, data, o = {}) {
   const op = (AI.RTS_AI_OPENERS[fac] || [])[o.opener || 0];
   const P = AI.RTS_AI_DIFFS[o.diff || 'normal'];
   const ro = AI.RTS_AI_ROLES[fac];
+  // 升 T2 的時間下限（rts-ai.js 的 rtsAiTech：開局的 t2Min／t3Min 和難度的 t2T／t3T 取大的，瘋狂不套用；18.2）
+  const t2T = Math.max(P.t2T, P.cheat ? 0 : op.t2Min || 0);
+  const t3T = Math.max(P.t3T, P.cheat ? 0 : op.t3Min || 0);
   const G = U.RTS_GATHER;
   const W = D[F.worker];
   const hq0 = D[F.hq];
@@ -402,6 +450,9 @@ function econSim(fac, data, o = {}) {
     incOre: 0,
     incCoral: 0,
     coralWait: { 2: 0, 3: 0 },
+    spentOre: 0, // 10 分鐘內的支出（Coral 充足度：o.coralInf 時＝不受 Coral 限制的需求）
+    spentCoral: 0,
+    starve: 0, // 10 分鐘內部隊生產「礦石夠、生產建築空著，只差 Coral」的秒數
     tierT: { 1: 0 },
     hqs: 1,
     drops: 0,
@@ -410,17 +461,24 @@ function econSim(fac, data, o = {}) {
   const has = (id) => (st.blds[id] || 0) > 0;
   const pending = (id) => st.building.filter((b) => b.id === id).length;
   const count = (id) => (st.blds[id] || 0) + pending(id);
+  const prodPop = () => st.prod.reduce((s, q) => s + (q.k === 'unit' ? q.pop || 0 : 0), 0);
   const popOf = () => st.workers + st.armyPop + st.heroes * 5 + st.prod.reduce((s, q) => s + (q.pop || 0), 0);
   const cap = () => {
     let c = 0;
     for (const id in st.blds) c += (D[id].popCap || 0) * st.blds[id];
     return Math.min(U.RTS_POP_MAX, c);
   };
+  // 保留只擋用到那種資源的項目（rts-ai.js 的 rtsAiCan：o > 0、c > 0 時才加保留；18.1 修正：以前 Coral 的保留
+  // 連不用 Coral 的 MT 都擋住，升級前後整段不生產）
   const afford = (c, keep = { ore: 0, coral: 0 }) =>
-    st.ore - (c.ore || 0) >= keep.ore - 1e-9 &&
-    st.coral - (c.coral || 0) >= keep.coral - 1e-9 &&
+    st.ore - (c.ore || 0) >= (c.ore > 0 ? keep.ore : 0) - 1e-9 &&
+    st.coral - (c.coral || 0) >= (c.coral > 0 ? keep.coral : 0) - 1e-9 &&
     st.parts >= (c.parts || 0);
   const pay = (c) => {
+    if (st.t <= 600) {
+      st.spentOre += c.ore || 0;
+      st.spentCoral += c.coral || 0;
+    }
     st.ore -= c.ore || 0;
     st.coral -= c.coral || 0;
     st.parts -= c.parts || 0;
@@ -532,6 +590,7 @@ function econSim(fac, data, o = {}) {
     }
     st.ore += ore;
     st.coral += coral;
+    if (o.coralInf) st.coral = Math.max(st.coral, 1e7); // 不受 Coral 限制（量需求）
     st.parts += parts;
     st.incOre += ore;
     st.incCoral += coral;
@@ -562,7 +621,10 @@ function econSim(fac, data, o = {}) {
     const stepsDone = si >= op.steps.length;
     // 抽取站（rts-ai.js 的 rtsAiMacro：100 秒起自己的湧出點、之後自己這一側外圍的（艾瑟立克 120 秒、其他 180 秒））
     {
-      const vents = t > (fac === 'aetheric' ? 120 : 180) ? 2 : t > 100 ? 1 : 0;
+      const vents = Math.min(
+        o.vents === undefined ? 2 : o.vents,
+        t > (fac === 'aetheric' ? 120 : 180) ? 2 : t > 100 ? 1 : 0,
+      );
       if (count(ro.extractor) < vents) build(ro.extractor, 'Coral', keep);
     }
     // 人口：快滿時蓋補給
@@ -571,7 +633,7 @@ function econSim(fac, data, o = {}) {
     // 分礦（普通：expandT 之後，最多 hqMax）
     const expDef = F.yard && fac === 'veerwell' ? F.yard : F.hq;
     // （要升級（前 150 秒起）、升級中、T2 後重工廠／研究所還沒有時不開：rts-ai.js 的 Coral 保留）
-    const nT = st.tier === 1 ? P.t2T : st.tier === 2 ? P.t3T : 1e9;
+    const nT = st.tier === 1 ? t2T : st.tier === 2 ? t3T : 1e9;
     const techBusy =
       st.upg ||
       (t >= nT - 150 && t < nT + 120) ||
@@ -613,7 +675,7 @@ function econSim(fac, data, o = {}) {
     if (ro.market && P.items !== 'none' && st.heroes && t > 200 && !count(ro.market) && stepsDone)
       build(ro.market, '商店', keep);
     // 升級主堡
-    const nextT = st.tier === 1 ? P.t2T : st.tier === 2 ? P.t3T : 1e9;
+    const nextT = st.tier === 1 ? t2T : st.tier === 2 ? t3T : 1e9;
     const toId = st.tier === 1 ? ro.hq2 : st.tier === 2 ? ro.hq3 : null;
     const U0 = toId && D[toId];
     const reqBlds = U0 ? (U.reqOf(U0) || {}).blds || [] : [];
@@ -641,7 +703,7 @@ function econSim(fac, data, o = {}) {
       }
     }
     // 研究所（t2T − 90 起；T3 的需求）、重工廠、停機坪
-    if (ro.works && !count(ro.works) && (t > P.t2T - 90 || st.tier >= 2) && stepsDone && reqOk(D[ro.works]))
+    if (ro.works && !count(ro.works) && (t > t2T - 90 || st.tier >= 2) && stepsDone && reqOk(D[ro.works]))
       if (!build(ro.works, '研究', keep)) keepAdd(D[ro.works].cost);
     if (ro.heavy && st.tier >= 2 && !count(ro.heavy))
       if (!build(ro.heavy, 'T2', keep)) keepAdd(D[ro.heavy].cost);
@@ -666,19 +728,32 @@ function econSim(fac, data, o = {}) {
     }
     // 部隊：每座生產建築一次一台，照比例（依台數的缺額），Coral 不夠時改不用 Coral 的
     const mix = mixNow();
-    // 部隊上限（難度的 armyMax；聖域以人口比較：popK 2）
-    const armyN = F.salvage ? st.armyPop / 2 : st.army.length;
+    // 部隊上限（難度的 armyMax；開局有 popK 時以人口比較：聖域 2、艾瑟立克 1.5～2（18.2，rts-ai.js 的 rtsAiArmyN））
+    const armyN = op.popK ? st.armyPop / op.popK : st.army.length;
     if (!P.armyMax || armyN < P.armyMax) {
       const facs = {};
       for (const q of st.prod) if (q.b) facs[q.b] = (facs[q.b] || 0) + 1;
       const ids = Object.keys(mix || {}).filter((id) => D[id] && reqOk(D[id]) && trainsAt(id).length);
       ids.sort((a, b) => (armyCnt[a] || 0) / mix[a] - (armyCnt[b] || 0) / mix[b]);
+      let starved = false;
       for (const id of ids) {
         const d = D[id];
         const fb = trainsAt(id).find((b) => (facs[b] || 0) < st.blds[b]);
         if (!fb) continue;
         if (popOf() + (d.pop || 1) > cap()) break;
-        if (!afford(data.unitCost(id), keep)) continue;
+        // 10 分鐘之前的部隊人口上限（rts-ai.js 的 armyPop：普通 50、含生產中的）
+        if (
+          P.armyPop &&
+          t <= Math.min(600, P.allInT || 600) &&
+          st.armyPop + prodPop() + (d.pop || 1) > P.armyPop
+        )
+          break;
+        if (!afford(data.unitCost(id), keep)) {
+          const uc = data.unitCost(id);
+          if ((uc.coral || 0) > 0 && st.ore - (uc.ore || 0) >= keep.ore && st.coral - uc.coral < keep.coral)
+            starved = true;
+          continue;
+        }
         pay(data.unitCost(id));
         facs[fb] = (facs[fb] || 0) + 1;
         armyCnt[id] = (armyCnt[id] || 0) + 1;
@@ -690,6 +765,7 @@ function econSim(fac, data, o = {}) {
           u: { id, S: data.units[id] ? data.units[id].S : 0 },
         });
       }
+      if (starved && t <= 600) st.starve++;
     }
     if (t === 300 || t === 480 || t === 600 || t === 720)
       snap[t] = { pop: st.armyPop, n: st.army.length, S: Math.round(strength()), workers: st.workers };
@@ -699,6 +775,7 @@ function econSim(fac, data, o = {}) {
   return {
     fac,
     opener: op.id,
+    popK: op.popK || 0,
     salvage: salv,
     inc: st.inc,
     inc5: st.inc[4] ? st.inc[4].ore + CONST.CORAL_ORE * st.inc[4].coral : NaN,
@@ -706,6 +783,10 @@ function econSim(fac, data, o = {}) {
     t2: st.tierT[2] || Infinity,
     t3: st.tierT[3] || Infinity,
     coralWait2: st.coralWait[2],
+    inc10ore: st.inc[9] ? st.inc[9].ore : NaN,
+    inc10coral: st.inc[9] ? st.inc[9].coral : NaN,
+    spent10: { ore: Math.round(st.spentOre), coral: Math.round(st.spentCoral) },
+    starve10: st.starve,
     coralWait3: st.coralWait[3],
     snap,
     log: st.log,
@@ -750,7 +831,8 @@ function skillBudget(data) {
   return {
     // 卡斯特隆
     sk_plate: (P) => armorV(P.armor),
-    sk_fortress: (P) => (P.t / P.every) * area(P.R) * P.dmg + CONST.HERO_IN_DPS * P.t * (1 - P.taken),
+    // （18.1：持續的範圍傷害一律 ×0.5（目標會走開），同飽和砲擊、廢鐵風暴、腐蝕區）
+    sk_fortress: (P) => (P.t / P.every) * area(P.R) * P.dmg * 0.5 + CONST.HERO_IN_DPS * P.t * (1 - P.taken),
     sk_rain: (P) => P.n * P.dmg * Math.min(1, area(4) * 0.5) * 1, // 8 m 內散落：每發約半個目標（爆炸 4 m）
     sk_mark: (P) => CONST.FOCUS_DPS * (P.taken - 1) * P.t,
     sk_barrage: (P) => (P.dur / P.gap) * P.dmg * 0.25 + P.end * 40 * 0.5, // 直線上每發平均 0.25 個目標＋終點的飛彈雨
@@ -908,7 +990,7 @@ async function run(opts = {}) {
   for (const i of combat) {
     out.matrix[i.id] = {};
     for (const j of combat) {
-      const r = duel(i, j, M.aOf);
+      const r = duelR(i, j, M.aOf);
       out.matrix[i.id][j.id] = r
         ? Number.isFinite(r.adv) && r.adv > 0
           ? r2(Math.log2(r.adv))
@@ -926,7 +1008,7 @@ async function run(opts = {}) {
       let best = 0,
         who = null;
       for (const i of cands) {
-        const r = duel(i, j, M.aOf);
+        const r = duelR(i, j, M.aOf);
         if (r && r.adv > best) ((best = r.adv), (who = i.id));
       }
       check(
@@ -945,7 +1027,7 @@ async function run(opts = {}) {
       let all = tgt.length > 0,
         n = 0;
       for (const j of tgt) {
-        const r = duel(i, j, M.aOf);
+        const r = duelR(i, j, M.aOf);
         if (!r || r.nohit) continue; // 打不到的不算
         n++;
         if (!(r.adv >= 1.25)) all = false;
@@ -966,8 +1048,10 @@ async function run(opts = {}) {
         const advs = [];
         for (const oa of ops(A))
           for (const ob of ops(B)) {
-            const xa = armyOf(oa, tier, units, data),
-              xb = armyOf(ob, tier, units, data);
+            const xa0 = armyOf(oa, tier, units, data, airShare(armyOf(ob, tier, units, data))),
+              xb0 = armyOf(ob, tier, units, data, airShare(armyOf(oa, tier, units, data)));
+            const xa = armyAA(xa0, xb0),
+              xb = armyAA(xb0, xa0);
             const fa = armyF(xa, xb, M.aOf),
               fb = armyF(xb, xa, M.aOf);
             if (fa > 0 && fb > 0) advs.push(fa / fb);
@@ -995,6 +1079,49 @@ async function run(opts = {}) {
     if (U.RTS_FACTIONS[f].salvage)
       out.econ[f + ':noSalv'] = econSim(f, data, { mineD: md[f], salvage: false });
     for (const r of out.econ[f].bad) check(`econBad:${f}`, false, `${f} 經濟模擬：${r}`, null);
+    // Coral 充足度（18.1）：10 分鐘的 Coral 收入 ÷ 需求；需求＝同樣的流程不受 Coral 限制時 10 分鐘的支出比例
+    // （Coral／礦石）× 實際的礦石收入。另算「只有一座抽取站／汲取塔」（外圍的湧出點被野怪守著、被搶走）
+    const E = out.econ[f];
+    const dem = econSim(f, data, { mineD: md[f], coralInf: true });
+    const ratio = dem.spent10.coral / Math.max(1, dem.spent10.ore);
+    const one = econSim(f, data, { mineD: md[f], vents: 1 });
+    E.coralNeed = r2(ratio);
+    E.cov = r2(E.inc10coral / Math.max(1, E.inc10ore * ratio));
+    E.cov1 = r2(one.inc10coral / Math.max(1, one.inc10ore * ratio));
+    E.starve1 = one.starve10;
+    E.coral10v1 = one.inc10coral;
+    // 10 分鐘的部隊強度（三套開局的平均）：兩座／只有一座抽取站。部隊台數已經到難度上限 armyMax 的開局不算
+    // （例：以前艾瑟立克 swarm 的實驗體 1 人口，32 台就停；18.2 起以人口比較的開局（popK）不算），全部到上限時才全算
+    const cap = AI.RTS_AI_DIFFS.normal.armyMax;
+    for (const v of [2, 1]) {
+      let L = ops(f).map((_, i) => econSim(f, data, { mineD: md[f], vents: v, opener: i }));
+      const free = L.filter((x) => !(x.snap[600] && !x.popK && x.snap[600].n >= cap));
+      E['capped' + v] = L.length - free.length;
+      if (free.length) L = free;
+      E['str10v' + v] = Math.round(L.reduce((a, x) => a + (x.snap[600] ? x.snap[600].S : 0), 0) / L.length);
+      E['pop10v' + v] = r1(L.reduce((a, x) => a + (x.snap[600] ? x.snap[600].pop : 0), 0) / L.length);
+      E['starve10v' + v] = Math.round(L.reduce((a, x) => a + x.starve10, 0) / L.length);
+    }
+  }
+  // 10 分鐘的部隊強度：卡斯特隆的 0.75～1.33（只有一座抽取站／汲取塔時 0.65～1.5：Coral 是瓶頸的陣營不能差太多；18.1）
+  for (const f of facs) {
+    if (f === 'castron') continue;
+    const E = out.econ[f],
+      B0 = out.econ.castron;
+    const k2 = E.str10v2 / B0.str10v2,
+      k1 = E.str10v1 / B0.str10v1;
+    check(
+      `str10:${f}`,
+      inRange(k2, 0.75, 1.33),
+      `${f} 10 分鐘的部隊強度（三套開局平均）是卡斯特隆的 ${r2(k2)}（0.75～1.33）`,
+      r2(k2),
+    );
+    check(
+      `str10v1:${f}`,
+      inRange(k1, 0.65, 1.5),
+      `${f} 只有一座 Coral 建築時 10 分鐘的部隊強度是卡斯特隆的 ${r2(k1)}（0.65～1.5）`,
+      r2(k1),
+    );
   }
   const base5 = out.econ.castron.inc5;
   for (const f of facs) {
@@ -1068,7 +1195,7 @@ async function run(opts = {}) {
       for (const oa of ops(A)) {
         const xa = armyOf(oa, 2, units, data);
         const dps = xa.reduce((s, x) => s + x.n * M.aOf(x.u, hqOf(B), true), 0);
-        times.push(hqOf(B).hp / Math.max(1e-6, dps));
+        times.push(hqOf(B).hp / Math.max(1e-6, (dps * CONST.SIEGE_C) / CONST.ARMY_C));
       }
       const tt = gmean(times);
       out.siege.push({ A, B, t: r1(tt) });
@@ -1101,7 +1228,10 @@ async function run(opts = {}) {
         const xb = armyOf(ob, 1, units, data);
         const k = tw.cost / CONST.ARMY_C;
         const army = xb.map((x) => ({ u: x.u, n: x.n * k }));
-        let fa = armyF([{ u: tw, n: 1 }], army, M.aOf);
+        // （18.1）範圍傷害打得到的目標數不會多於對方的台數：同成本只有 1～3 台時範圍係數以台數為上限
+        const nB = army.reduce((s, x) => s + x.n, 0);
+        const twB = { ...tw, slots: tw.slots.map((sl) => ({ ...sl, sk: Math.min(sl.sk, Math.max(1, nB)) })) };
+        let fa = armyF([{ u: twB, n: 1 }], army, M.aOf);
         let HPb = army.reduce((s, x) => s + x.n * x.u.hp, 0);
         // 射程修正：部隊接近期間塔先打
         const rB =
@@ -1117,14 +1247,14 @@ async function run(opts = {}) {
             army.reduce((s, x) => s + x.n, 0),
           );
         if (tw.range > rB + CONST.RANGE_GAP) {
-          const a = army.reduce((s, x) => s + M.aOf(tw, x.u) * ((x.n * x.u.hp) / Math.max(1, HPb)), 0);
+          const a = army.reduce((s, x) => s + M.aOf(twB, x.u) * ((x.n * x.u.hp) / Math.max(1, HPb)), 0);
           const loss = Math.min(
             CONST.RANGE_LOSS,
             (a * (tw.range - rB)) / Math.max(1, spB) / Math.max(1, HPb),
           );
           fa /= 1 - loss;
         }
-        const fb = armyF(army, [{ u: tw, n: 1 }], M.aOf);
+        const fb = armyF(army, [{ u: twB, n: 1 }], M.aOf);
         if (fa > 0 && fb > 0) advs.push(fa / fb);
       }
     const g = gmean(advs);
@@ -1171,8 +1301,10 @@ async function run(opts = {}) {
           sec: r1(sec),
           perCoral: r1(v / Math.max(1, P.coral || 0)),
           perCd: r1(v / Math.max(1, P.cd || 1)),
+          fx: CONST.SKILL_FX.includes(sid),
         };
         out.skills.push(row);
+        if (row.fx) return; // 效果類：不檢查（CONST.SKILL_FX）
         if (fac !== 'neutral') (perCoral[fac] || (perCoral[fac] = [])).push(v / Math.max(1, P.coral || 1));
         if (!facs.includes(fac) && fac !== 'neutral') return;
         if (fac === 'neutral' && opts.faction) return;
@@ -1330,6 +1462,34 @@ function report(out, opts) {
       E.snap[720] ? `${E.snap[720].pop}／${E.snap[720].S}` : '—',
     ]),
   );
+  table(
+    [
+      '陣營',
+      '10 分 Coral',
+      '只有一座',
+      'Coral 需求比',
+      '充足度',
+      '只有一座',
+      '10 分部隊人口／強度（三套平均）',
+      '只有一座',
+      '等 Coral 秒',
+      '只有一座',
+    ],
+    Object.entries(out.econ)
+      .filter(([, E]) => E.str10v2 !== undefined)
+      .map(([f, E]) => [
+        f,
+        Math.round(E.inc10coral),
+        Math.round(E.coral10v1),
+        E.coralNeed,
+        E.cov,
+        E.cov1,
+        `${E.pop10v2}／${E.str10v2}`,
+        `${E.pop10v1}／${E.str10v1}`,
+        E.starve10v2,
+        E.starve10v1,
+      ]),
+  );
   L.push(md ? '#### 攻城與防禦塔' : '== 攻城與防禦塔 ==');
   table(
     ['攻方', '守方 T1 主堡', '秒'],
@@ -1344,7 +1504,7 @@ function report(out, opts) {
     ['英雄', '技能', '級', '期望值', '同級 dps 秒', '每 Coral', '每冷卻秒'],
     out.skills
       .filter((s) => s.budget !== '沒有預算')
-      .map((s) => [s.hero, s.name, s.lv, s.v, s.sec, s.perCoral, s.perCd]),
+      .map((s) => [s.hero, s.name + (s.fx ? '（效果類）' : ''), s.lv, s.v, s.sec, s.perCoral, s.perCd]),
   );
   L.push(
     '沒有預算：' +
@@ -1364,7 +1524,7 @@ function report(out, opts) {
   return L.join('\n');
 }
 
-module.exports = { run, CONST, KEEP };
+module.exports = { run, CONST, KEEP, econSim, loadData, makeUnits };
 
 if (require.main === module) {
   const opts = parseArgs(process.argv.slice(2));

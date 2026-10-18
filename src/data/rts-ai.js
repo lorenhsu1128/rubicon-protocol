@@ -9,6 +9,7 @@
 //   armyK：第一次進攻的部隊門檻倍率；attackK：最早進攻時間的倍率；expandK：開分礦時間的倍率。
 //   （R2 第二輪，F 包）hero：第 1 個英雄；heroes：英雄的優先順序（第 2、3 個依序挑還沒有的）；
 //   tech：{ t2, t3 }＝升級主堡的人口門檻（難度的 t2T／t3T 是時間下限；時間超過下限 90 秒時不看人口）；
+//   （18.2）t2Min／t3Min：升 T2／T3 的時間下限（和難度的 t2T／t3T 取大的；瘋狂不套用）；
 //   research：研究順序（同一個 id 出現第 n 次＝第 n 級；難度的 resMax 限制級數）；
 //   mix2／mix3：T2、T3 之後的兵種比例（沒有生產建築的兵種略過）；towers：基地被攻擊兩次之後蓋幾座防禦塔。
 //   （R6 B 包）creepTier：這套開局打野的營地等級上限（和難度的取小）；creep0：第一次打野的條件（{ 兵種 id: 台數 }，
@@ -105,8 +106,11 @@ export const RTS_AI_OPENERS = {
       armyK: 1.25, // （R6：1 → 1.25，實驗體 1 人口、雷射步兵吃 Coral，9 台出發的話打到營地與防守就只剩幾台）
       attackK: 1,
       expandK: 1,
+      popK: 1.5, // （18.2：部隊的門檻與上限以人口比較，同聖域；實驗體 1、雷射步兵 2 人口）
       hero: 'h_prism',
       heroes: ['h_prism', 'h_curator', 'h_veil'],
+      t2Min: 300, // （18.2：升 T2 不早於 5:00、T3 不早於 11:00（瘋狂除外）：Coral 先給部隊）
+      t3Min: 660,
       tech: { t2: 22, t3: 38 },
       research: ['r_en', 'r_bio', 'r_grid', 'r_en', 'r_overload', 'r_bio', 'r_proto', 'r_en', 'r_reson'],
       mix2: { a_laser: 2, a_blob: 3, a_beam: 1, a_parasite: 1, a_holo: 0.5 },
@@ -126,11 +130,14 @@ export const RTS_AI_OPENERS = {
       ],
       wk0: 9,
       mix: { a_blob: 1 },
-      armyK: 0.75,
+      armyK: 0.6, // （18.2：0.75 → 0.6，改以人口比較：門檻 5 × 1.5＝8 人口，約同以前的 6 隻）
       attackK: 0.9,
       expandK: 1.2,
+      popK: 1.5, // （18.2：以前 armyMax 以台數算，實驗體 1 人口，32 隻就停在約 33 人口）
       hero: 'h_curator',
       heroes: ['h_curator', 'h_veil', 'h_prism'],
+      t2Min: 300, // （18.2：升 T2 不早於 5:00、T3 不早於 11:00（瘋狂除外）：Coral 先給部隊）
+      t3Min: 660,
       tech: { t2: 24, t3: 42 },
       research: ['r_bite', 'r_bite', 'r_bio', 'r_brood', 'r_bite', 'r_bio', 'r_proto'],
       mix2: { a_blob: 4, a_parasite: 2, a_laser: 1 },
@@ -157,8 +164,11 @@ export const RTS_AI_OPENERS = {
       armyK: 1, // （docs 14.6 寫 ×1.2：雷射步兵吃 Coral、累積得慢，第一次進攻拖到 8～9 分鐘，改 ×1）
       attackK: 1.1,
       expandK: 0.65,
+      popK: 2, // （18.2：以人口比較；雷射步兵 2 人口，門檻與上限同以前）
       hero: 'h_veil',
       heroes: ['h_veil', 'h_prism', 'h_curator'],
+      t2Min: 300, // （18.2：升 T2 不早於 5:00、T3 不早於 11:00（瘋狂除外）：Coral 先給部隊）
+      t3Min: 660,
       tech: { t2: 20, t3: 34 },
       research: ['r_en', 'r_grid', 'r_en', 'r_holo', 'r_bio', 'r_reson', 'r_en', 'r_proto'],
       mix2: { a_laser: 2, a_beam: 2, a_holo: 1 },
@@ -311,12 +321,14 @@ export const RTS_AI_OPENERS = {
         { pop: 9, b: 's_hall' },
         { pop: 10, b: 's_tower' },
         { pop: 12, b: 's_extractor' },
-        { pop: 13, b: 's_clinic' },
-        { pop: 15, b: 's_shop' },
-        { pop: 18, b: 's_hq' },
+        // （18.2）第二座集會所提前、分礦（聚落中心）從開局步驟拿掉（交給 expandT × expandK，開局步驟裡的分礦會
+        // 連 Coral 一起保留、卡住 100 秒）、wk0 20 → 16：以前只有一座生產建築到 9 分鐘，10 分鐘的部隊約 20 人口
+        { pop: 14, b: 's_hall' },
+        { pop: 16, b: 's_clinic' },
+        { pop: 18, b: 's_shop' },
       ],
-      wk0: 20,
-      mix: { s_rivet: 2, s_militia: 1 },
+      wk0: 16,
+      mix: { s_rivet: 1, s_militia: 2 }, // （18.2：鉚釘機 2 → 1、民兵 1 → 2：鉚釘機吃 Coral，龜縮 10 分鐘的部隊只有約 20 人口）
       armyK: 1.25,
       attackK: 1.15,
       expandK: 0.7,
@@ -325,8 +337,9 @@ export const RTS_AI_OPENERS = {
       heroes: ['h_haven', 'h_mender', 'h_salvor'],
       tech: { t2: 20, t3: 34 },
       research: ['r_arm', 'r_kin', 'r_mend', 'r_hull', 'r_canopy', 'r_titan', 'r_arm'],
-      mix2: { s_rivet: 2, s_dome: 1, s_junk: 1, s_gunboat: 1, s_repair: 1 },
-      mix3: { s_junk: 2, s_colossus: 1, s_dome: 1, s_rivet: 1 },
+      // （18.2：T2／T3 也帶民兵：其他兵種都吃 Coral，T2 之後 Coral 不夠時部隊整個停住）
+      mix2: { s_rivet: 2, s_militia: 2, s_dome: 1, s_junk: 1, s_gunboat: 1, s_repair: 1 },
+      mix3: { s_junk: 2, s_militia: 2, s_colossus: 1, s_dome: 1, s_rivet: 1 },
       towers: 4,
       walls: 3,
       haul: [1, 2],
@@ -696,7 +709,7 @@ export const RTS_AI_CAST = {
   sk_squadron: { k: 'army', n: 6, r: 24 },
   // 聖域（docs 16.4；C 包放在 RTS_SKILLS 的 ai 欄位，這裡照抄）：'wrecks'＝範圍 r 內這一隊看過的殘骸 ≥ n（own＋t：殘骸裡
   // 原本是自己這一隊、t 秒內陣亡的台數）；wrecks: 1＝附近至少一個殘骸才放。磁吸（ranged）另外加 defs（拉後排的砲兵）與 ground
-  sk_mend: { k: 'ally', hp: 0.5 },
+  sk_mend: { k: 'ally', hp: 0.7 }, // （18.2：0.5 → 0.7；回復 200～440、冷卻 8 秒，交戰中的單位很少掉到一半以下）
   sk_triage: { k: 'ally', hp: 0.6, n: 3, r: 8 },
   sk_lazarus: { k: 'wrecks', own: true, t: 60, n: 4, r: 20 },
   sk_magnet: {

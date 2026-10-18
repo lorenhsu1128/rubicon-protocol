@@ -8,7 +8,7 @@
 // 多重水壩檢查壩體（壩頂高度、可以蓋、四條坡道成對、河道水深 0.8 m）；兩個主題整張圖的水深都不超過 1.4 m；
 // R4、R5 的四個主題第一次就合格的比例要 60% 以上。既有七個主題（400 m）比對地圖雜湊（HASHES）。
 // R6（docs 17.4）：沙丘檢查新月沙丘（成對、高 2.6～3.5 m、不在通道 6 m 內、坡度能走），礦坑地表檢查露天礦坑（坑底深度、
-// 坑底的富礦與 tier 3 營地、酒館在坑緣、坡道兩條）、貨運集散場檢查貨櫃堆（成對、離通道 6 m、巷道寬 ≥ 8 m）與龍門起重機
+// 坑底的富礦與 tier 3 營地、兩座酒館成對在坑緣、坡道兩條）、貨運集散場檢查貨櫃堆（成對、離通道 6 m、巷道寬 ≥ 8 m）與龍門起重機
 // （四支腳）；新主題與小地圖另外檢查營地到傭兵營 ≥ 30 m。三個新主題（與 --size=300 的十個主題）第一次就合格要 60% 以上；
 // 小地圖（300 m）比對 HASHES_300（第一次合格時記下的結果）。
 'use strict';
@@ -30,7 +30,8 @@ const HASHES = {
   dam: 'd94cba84fa206edefc23549cf1dbab676508c3f8',
   // R6 的新主題（C 包完成時的結果）
   dunes: '104ba29618d05413c366fa1e5355673707f4539e',
-  desert: '22d35d35b104d3290d5a52844260ca8ab85eda2e',
+  // 礦坑地表：R6 之後的 C 包把酒館改成坑緣的兩座（成對、點對稱）後的結果（docs 18.3）
+  desert: '8e8666bff2bd8efbf535b70beb951c3fcd986984',
   industrial: '05f647a7ca4df42bb692270b87b4e1a8f99c7cfe',
 };
 // 小地圖（300 m）的地圖雜湊（R6 C 包完成時的結果；之後改產生器不能改到它們）
@@ -41,13 +42,14 @@ const HASHES_300 = {
   spaceport: '069cc3aab4771f5943f028f89e27e51b591de6e4',
   grid086: '3e4cf1cd292d2ecd56255e2042979957d47b2b59',
   flooded: 'cda86b40b19711560e26238f118ff89bec3e9a3b',
-  dam: 'd7d3ad07407bdc5998b0dc35e7a0d88ad0cf8962',
+  // 多重水壩：R6 之後的 C 包修正小地圖的合格率（中立建築的佔地與正面、山脊後的備用範圍、營地範圍）後的結果（docs 18.3）
+  dam: 'c601e2a585fa04df730366f04780712a0d23549f',
   dunes: '70b35e6ab901261bb1c04241d786b444bdb9f02f',
-  desert: 'a6853e219d4ed817ba790059d97fb37a4d6bf4fd',
+  desert: 'e704508e9a3066456acbd63095cb050bb65d7396', // 兩座酒館（docs 18.3）
   industrial: 'fb099ffdc04914a5bc0763c24a930603a2cf6785',
 };
-// 第一次就合格的門檻：一般 60%；小地圖的多重水壩 40%（壩體橫跨整張圖、和山脊之間只剩十幾公尺，docs 17.12）
-const firstMin = (theme, size) => (size !== 400 && theme === 'dam' ? 0.4 : 0.6);
+// 第一次就合格的門檻：一律 60%（小地圖的多重水壩原本 40%，R6 之後的 C 包修正後改回，docs 18.3）
+const firstMin = () => 0.6;
 const planHash = (p) => {
   const hs = crypto.createHash('sha1');
   hs.update(Buffer.from(p.h.buffer));
@@ -126,12 +128,8 @@ const planHash = (p) => {
       symList('障礙物', plan.obstacles, (o) => o);
       for (const k of ['bases', 'mines', 'corals', 'camps', 'chokes', 'highs'])
         symList(k, plan[k], (o) => o.pos);
-      // 礦坑地表的酒館在坑緣（只有一間，不是點對稱）
-      symList(
-        'neutrals',
-        plan.neutrals.filter((q) => !(plan.pit && q.kind === 'tavern')),
-        (o) => o.pos,
-      );
+      // 礦坑地表的兩座酒館也是成對的（R6 之後的 C 包：原本只有一間、不是點對稱）
+      symList('neutrals', plan.neutrals, (o) => o.pos);
       if (plan.bases.length !== 2) errs.push('主基地數');
       if (plan.ice) {
         symList('冰湖', plan.ice, (o) => o);
@@ -265,8 +263,17 @@ const planHash = (p) => {
           if (rich.length !== 1 || Math.hypot(rich[0].pos.x, rich[0].pos.z) > 0.01) errs.push('坑底沒有富礦');
           const pc = plan.camps.filter((q) => q.pit);
           if (pc.length !== 1 || pc[0].tier !== 3) errs.push('坑底的營地');
-          const tav = plan.neutrals.find((q) => q.kind === 'tavern');
-          if (!tav || Math.hypot(tav.pos.x, tav.pos.z) < P.zone) errs.push('酒館不在坑緣');
+          const tavs = plan.neutrals.filter((q) => q.kind === 'tavern');
+          if (tavs.length !== 2) errs.push('酒館數 ' + tavs.length);
+          if (tavs.some((t) => Math.hypot(t.pos.x, t.pos.z) < P.zone)) errs.push('酒館不在坑緣');
+          if (
+            plan.ok &&
+            tavs
+              .map((t) => t.near)
+              .sort()
+              .join() !== '0,1'
+          )
+            errs.push('酒館的 near');
           if (plan.decor && !plan.decor.some((d) => d.model === 'minerail')) errs.push('沒有礦車軌道');
         }
       }

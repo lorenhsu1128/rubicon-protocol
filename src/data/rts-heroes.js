@@ -91,9 +91,9 @@ export const RTS_SKILLS = {
     lv: L3(
       { coral: 25, cd: 12, n: 8, R: 8, dmg: 36 },
       { coral: 30, cd: 12, n: 12, R: 8, dmg: 36 },
-      { coral: 35, cd: 12, n: 16, R: 8, dmg: 33 },
+      { coral: 35, cd: 12, n: 16, R: 8, dmg: 32 },
     ),
-    desc: '半徑 8 m 內 3 秒落下 8／12／16 發飛彈，每發 36／36／33 爆發',
+    desc: '半徑 8 m 內 3 秒落下 8／12／16 發飛彈，每發 36／36／32 爆發',
   },
   sk_mark: {
     name: '標定',
@@ -365,11 +365,11 @@ export const RTS_SKILLS = {
     range: 45,
     auto: true,
     lv: L3(
-      { coral: 15, cd: 10, n: 4, dmg: 38 },
+      { coral: 15, cd: 10, n: 4, dmg: 45 },
       { coral: 20, cd: 10, n: 6, dmg: 38 },
       { coral: 25, cd: 10, n: 8, dmg: 38 },
     ),
-    desc: '鎖定目標發射 4／6／8 枚，每枚 38 爆發',
+    desc: '鎖定目標發射 4／6／8 枚，每枚 45／38／38 爆發',
   },
   sk_burner: {
     name: '推進器噴火',

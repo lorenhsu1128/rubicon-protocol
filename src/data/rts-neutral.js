@@ -688,7 +688,7 @@ Object.assign(RTS_CREEP_DEFS, {
 });
 // ---------- R6 的主題野怪（docs 17.4；C 包）：沙丘、礦坑地表、貨運集散場；特殊行為不做（17.2），只借模型與數值。
 // 不能移動的（旋風產生機、起重機砲台）speed 0.01＝edHold；沙暴干擾機在主線是飛行的，RTS 的定義不帶（仍然沒有飛行的野怪）；
-// 炸藥礦車不自爆（近戰 2.5 m＋範圍 4 的爆發；自爆要改實體的程式，留給之後） ----------
+// 炸藥礦車的自爆在 entities/mech-rts-creep.js 的 CREEP_CX（docs 18.4；g.rtsCreepFxOff 時照近戰 2.5 m＋範圍 4 的爆發） ----------
 Object.assign(RTS_CREEP_DEFS, {
   cr_burrow: creep({
     name: '沙中伏擊者',
@@ -808,7 +808,7 @@ Object.assign(RTS_CREEP_DEFS, {
   }),
   cr_cart: creep({
     name: '炸藥礦車',
-    desc: '野怪：衝過來的炸藥礦車（近距離、範圍 4 m 的爆發）',
+    desc: '野怪：衝向目標、點火 1.2 秒後自爆（爆發 200、範圍 4.5 m；被打爆時小爆炸）',
     etype: 'cart',
     lv: 2,
     atk: 'exp',

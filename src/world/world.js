@@ -64,7 +64,7 @@ import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 import { NavGrid } from './nav.js';
 import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
-import { rtsReserveWater } from './rts-map.js';
+import { rtsReserveWater, rtsDuneShade } from './rts-map.js';
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -228,6 +228,33 @@ const LIN_EXP = {
 };
 for (const k in LIN_EXP) THEMES[k].linExp = LIN_EXP[k];
 
+// RTS 的沙丘地帶（plan.dunes，R6 之後的 C 包）：原本沙丘和地面同色、只有光影看得出起伏 →
+// 丘間地面（沒有沙丘的地方）偏深的礫石色、沙丘本身是亮沙色（迎風面較亮、背風面較暗）、脊線最亮；陡坡照舊
+function rtsDuneTint(P, T) {
+  const shade = rtsDuneShade(P);
+  if (!shade) return null;
+  // 頂點色在線性空間（畫面上是 sRGB）：差距要大才看得出來
+  const gravel = new THREE.Color(T.ground).lerp(new THREE.Color(0x4a3f35), 0.7),
+    wind = new THREE.Color(T.ground).lerp(new THREE.Color(0xf2d6a0), 0.45),
+    lee = new THREE.Color(T.ground).lerp(new THREE.Color(0x7a5232), 0.5),
+    crest = new THREE.Color(0xfbe9bf),
+    c = new THREE.Color();
+  return (tmp, x, z, steep) => {
+    const q = shade(x, z);
+    // 丘間：平地換成礫石色（台地、山脊的陡坡照原本的），每面明暗不同（固定的雜湊，不用亂數）
+    const flat = 1 - steep;
+    const sp = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    const n = 0.92 + 0.16 * (sp - Math.floor(sp));
+    c.copy(gravel).multiplyScalar(n);
+    if (q.a <= 0) return void tmp.lerp(c, 0.9 * flat);
+    tmp.lerp(c, 0.9 * flat * (1 - clamp(q.a / 0.2, 0, 1)));
+    // 沙丘：迎風面亮、背風面暗、脊線最亮（坡腳 20% 高度內和礫石漸變）
+    const k = clamp((q.a - 0.03) / 0.2, 0, 1);
+    c.copy(q.lee ? lee : wind).lerp(crest, q.crest * 0.7);
+    tmp.lerp(c, k);
+  };
+}
+
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
     this.scene = scene;
@@ -362,6 +389,7 @@ export class World {
     // 遠景：地圖外以邊緣（斷崖頂）的高度往外延伸，再加邊界的段落
     this.baseH = (x, z) => this.terrainHeight(clamp(x, -S, S), clamp(z, -S, S));
     this.edges = planEdges(this);
+    this.rtsTint = rtsDuneTint(P, T); // 沙丘地帶：沙丘與丘間地面的顏色（其他 RTS 主題是 null）
     this.buildTerrainMesh();
     if (T.water) this.addWater(T.water);
     const rp = [];
@@ -567,6 +595,13 @@ export class World {
       const steep = clamp((0.93 - ny) * 6, 0, 1);
       tmp.copy(cg).lerp(cs, steep);
       if (y > 9) tmp.lerp(cr, clamp((y - 9) / 6, 0, 0.7));
+      if (this.rtsTint)
+        this.rtsTint(
+          tmp,
+          (pp.getX(f) + pp.getX(f + 1) + pp.getX(f + 2)) / 3,
+          (pp.getZ(f) + pp.getZ(f + 1) + pp.getZ(f + 2)) / 3,
+          steep,
+        );
       tmp.offsetHSL(0, 0, keepMesh ? ((f * 0.618) % 1) * 0.04 - 0.02 : rnd(-0.02, 0.02));
       for (let q = 0; q < 3; q++) {
         col[(f + q) * 3] = tmp.r;
