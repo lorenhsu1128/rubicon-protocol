@@ -7,10 +7,10 @@
 //   node scripts/rts-matchup.js --a=aetheric --b=aetheric --seeds=24
 //
 // 參數：
-//   --a、--b            兩隊的陣營（castron｜aetheric｜veerwell｜random）；--swap＝每個種子另外再打一局交換位置（共 2 × seeds 局）
+//   --a、--b            兩隊的陣營（castron｜aetheric｜veerwell｜sancta｜random）；--swap＝每個種子另外再打一局交換位置（共 2 × seeds 局）
 //   --seeds=24          種子數；--seed0=1 第一個種子（種子＝seed0、seed0+1…）
 //   --diff=normal       難度（兩邊一樣）
-//   --themes=…          主題輪流（預設 wasteland,snow,institute）
+//   --themes=…          主題輪流（預設 wasteland,snow,institute；all＝十個主題）
 //   --openers=a,b       指定兩隊的開局 id（預設隨機：依種子固定）
 //   --max=2400          時限（局內秒；預設 40 分鐘）
 //   --jobs=6            同時開幾個瀏覽器（每個瀏覽器一局一局跑）
@@ -18,6 +18,7 @@
 //   --tag=名稱          輸出檔名（預設 <a>-<b>）
 //   --gpu=0             SwiftShader（預設顯示卡）
 //   --log               每局的紀錄另外帶兩隊電腦的事件紀錄（A.log，除錯用）
+//   --dry               只解析參數、印出對局清單的摘要（JSON）就結束（不開瀏覽器；R6 B 包的測試用）
 // 輸出：test-results/rts-matchup-<tag>.json（每局的紀錄＋彙整），終端機印出彙整。需要先 npm run build。
 /* global window -- page.evaluate 的回呼在瀏覽器端執行 */
 const path = require('path');
@@ -40,7 +41,25 @@ const SEEDS = +(args.seeds || 24);
 const SEED0 = +(args.seed0 || 1);
 const SWAP = !!args.swap;
 const DIFF = args.diff || 'normal';
-const THEMES = String(args.themes || 'wasteland,snow,institute').split(',');
+// 四個陣營與十個主題（R6，docs 17.2 #38；之後由使用者決定要不要跑）
+const FACTIONS = ['castron', 'aetheric', 'veerwell', 'sancta', 'random'];
+const ALL_THEMES = [
+  'wasteland',
+  'snow',
+  'institute',
+  'spaceport',
+  'grid086',
+  'flooded',
+  'dam',
+  'dunes',
+  'desert',
+  'industrial',
+];
+const THEMES =
+  args.themes === 'all' ? ALL_THEMES : String(args.themes || 'wasteland,snow,institute').split(',');
+for (const f of [FA, FB])
+  if (!FACTIONS.includes(f)) throw new Error('不認得的陣營：' + f + '（' + FACTIONS.join('｜') + '）');
+for (const t of THEMES) if (!ALL_THEMES.includes(t)) throw new Error('不認得的主題：' + t);
 const OPENERS = args.openers ? String(args.openers).split(',') : null;
 const MAX = +(args.max || 2400);
 const JOBS = Math.max(1, +(args.jobs || 6));
@@ -271,6 +290,13 @@ function summary(rs) {
 }
 
 (async () => {
+  if (args.dry) {
+    const n = SEEDS * (SWAP ? 2 : 1);
+    console.log(
+      JSON.stringify({ games: n, facs: [FA, FB], themes: THEMES, diff: DIFF, size: SIZE, max: MAX }),
+    );
+    return;
+  }
   if (!fs.existsSync(HTML)) throw new Error('找不到 dist/rubicon-protocol.html，先執行 npm run build');
   if (!EXE) throw new Error('找不到 Edge／Chrome（可用環境變數 BENCH_BROWSER 指定）');
   fs.mkdirSync(OUT, { recursive: true });

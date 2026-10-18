@@ -610,7 +610,7 @@ module.exports = (H) => {
       `攜帶式導管：範圍外（${it.why0}）→ 可以蓋 → 60 秒後又不行；20 m 外不能用`,
     );
     check(
-      it.skill === 1.15 && Math.abs(it.lensDmg - 103.5) < 0.6,
+      it.skill === 1.15 && Math.abs(it.lensDmg - 79 * 1.15) < 0.6 /* R6 平衡：折射 1 級 90 → 79 */,
       `聚焦透鏡：技能 ×${it.skill}（折射 ${it.lensDmg}）`,
     );
 

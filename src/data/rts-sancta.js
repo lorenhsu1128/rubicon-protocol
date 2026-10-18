@@ -34,6 +34,7 @@ export const RTS_SANC = {
     sizes: [60, 200], // 小／中／大的分界（礦石）
     radius: [1, 1.5, 2, 4], // 小、中、大、建築瓦礫的半徑（m；點選與拾荒的距離）
     resLife: 60, // 研究拾荒效率：保留 +60 秒／級
+    blast: { k: 0.85, min: 0.3, cd: 1 }, // R6（docs 17.2 #30）：爆發攻擊炸散：價值 ×0.85（每個殘骸 1 秒一次、最少留 30%）
   },
   salvage: { trip: 12, tripRes: [15, 18], time: 3, sat: 3, reach: 2, next: 16, upkeep: [1, 0.85, 0.7] },
   hauler: { trip: 30, tripRes: [38, 45], time: 5, r: 10, refitR: 8, deploy: 2 },
@@ -483,6 +484,7 @@ export const RTS_SANC_DEFS = {
   }),
   s_hauler: U({
     name: '回收拖車',
+    support: true, // 支援／施法單位：平衡腳本的成本效率不算它（docs 17.5）
     desc: '展開後是移動回收點與野戰改裝站（8 m），每 5 秒自己拆 10 m 內的殘骸',
     tier: 1,
     cost: { ore: 130, coral: 0 },
@@ -591,6 +593,7 @@ export const RTS_SANC_DEFS = {
   }),
   s_repair: U({
     name: '修理無人機',
+    support: true, // 支援／施法單位：平衡腳本的成本效率不算它（docs 17.5）
     desc: '空中單位：每秒修 8 AP（10 m 內血量比例最低的己方單位；建築 50%）',
     tier: 1,
     req: { blds: ['s_shop'] },
@@ -619,6 +622,7 @@ export const RTS_SANC_DEFS = {
   }),
   s_mine: U({
     name: '布雷無人機',
+    support: true, // 支援／施法單位：平衡腳本的成本效率不算它（docs 17.5）
     desc: '空中單位：布下地雷（敵方的地面單位踩到爆炸）',
     tier: 2,
     req: { tier: 2 },
@@ -704,6 +708,7 @@ export const RTS_SANC_DEFS = {
   }),
   s_dome: U({
     name: '護盾產生器',
+    support: true, // 支援／施法單位：平衡腳本的成本效率不算它（docs 17.5）
     desc: '展開半徑 10 m 的圓頂：外面打進來的傷害由圓頂吸收（800）',
     tier: 2,
     req: { tier: 2 },
@@ -729,7 +734,7 @@ export const RTS_SANC_DEFS = {
     desc: '聖域唯一的 T3 兵種：榴彈（爆發、範圍 3）；吸殘骸回血',
     tier: 3,
     req: { tier: 3, res: ['r_titan'] },
-    cost: { ore: 280, coral: 100, parts: 40 },
+    cost: { ore: 339, coral: 121, parts: 48 },
     time: 40,
     pop: 5,
     hp: 2200,

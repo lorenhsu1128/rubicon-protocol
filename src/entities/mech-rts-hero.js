@@ -13,14 +13,115 @@ import { MechEntity } from './mech-entity.js';
 import { RTS_DEFS } from '../data/rts-units.js';
 import { RTS_HERO_DEFS, RTS_SKILLS } from '../data/rts-heroes.js';
 import { buildBomberMesh } from '../render/extra-models.js';
+import { SFX } from '../audio/audio.js';
 
 const ZERO = new THREE.Vector3();
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const AUTO_DT = 0.5; // 自動施放的檢查間隔
 // 緊急處置不清掉的「速度 0」：施放者自己的定身（不落要塞、最後的避難所）
 const SELF_ROOT = new Set(['sk_fortress', 'sk_refuge']);
+// 技能的音效（R6 D 包，docs 17.2 #8）：既有的 SFX_DATA 依技能的種類對應 [音效, 音量, 速度]；Game.rtsSkillCast 成功之後
+// rtsSfxSkill 播放（只對看得到的位置或自己的英雄）。爆發＝explode／boom 系、能量＝laser 系、治療與護盾＝dome／shield、
+// 牆＝rock／glass、實彈＝punch／rifle／crunch、飛彈＝missile、隱形與幻象＝glitch、召喚與空投＝thrBurst、增益＝boostUp／charge
+const SFX_EXP = ['explode2', 0.6, 1],
+  SFX_LASER = ['laser2', 0.55, 1],
+  SFX_HEAL = ['dome1', 0.5, 1.1],
+  SFX_SHIELD = ['shield', 0.55, 1],
+  SFX_BUFF = ['charge', 0.5, 1.1],
+  SFX_DASH = ['boostUp', 0.6, 1],
+  SFX_HIDE = ['glitch', 0.5, 1],
+  SFX_DROP = ['thrBurst', 0.6, 0.9],
+  SFX_PULL = ['dome2', 0.55, 0.8],
+  SFX_ACID = ['splash', 0.55, 0.8];
+const RTS_SKILL_SFX = {
+  sk_plate: ['plate1', 0.6, 1],
+  sk_bulwark: ['rock1', 0.65, 0.9],
+  sk_fortress: ['heavy', 0.65, 0.8],
+  sk_rain: ['missile', 0.6, 1],
+  sk_mark: ['bong', 0.5, 1.2],
+  sk_barrage: ['boom1', 0.6, 1],
+  sk_rush: SFX_DASH,
+  sk_pile: ['punch2', 0.7, 0.9],
+  sk_quake: ['explode3', 0.65, 0.8],
+  sk_scav: ['clatter1', 0.55, 1],
+  sk_junk: ['crunch1', 0.6, 1],
+  sk_storm: ['clatter2', 0.6, 0.9],
+  sk_sand: ['thud1', 0.55, 0.8],
+  sk_ambush: ['rock2', 0.6, 0.9],
+  sk_dome: ['thud2', 0.55, 0.8],
+  sk_white: SFX_HIDE,
+  sk_snipe: ['rifle2', 0.7, 0.8],
+  sk_freeze: ['glass', 0.6, 0.8],
+  sk_overload: ['overload', 0.55, 1.1],
+  sk_parasite: ['crunch2', 0.55, 1.1],
+  sk_fuse: SFX_HEAL,
+  sk_climb: SFX_DASH,
+  sk_high: SFX_BUFF,
+  sk_summit: SFX_BUFF,
+  sk_homing: ['missile', 0.6, 1.1],
+  sk_burner: SFX_DROP,
+  sk_launch: ['alarm', 0.45, 1],
+  sk_shove: ['punch1', 0.7, 0.9],
+  sk_vortex: SFX_PULL,
+  sk_undertow: ['splash', 0.6, 0.7],
+  sk_lurk: SFX_HIDE,
+  sk_acid: SFX_ACID,
+  sk_swamp: SFX_ACID,
+  sk_refract: SFX_LASER,
+  sk_prism: SFX_SHIELD,
+  sk_skylight: ['laserBig', 0.55, 1],
+  sk_hatch: ['crunch3', 0.55, 1.1],
+  sk_catalyze: SFX_HEAL,
+  sk_massfuse: ['crunch3', 0.6, 0.9],
+  sk_mirror: SFX_HIDE,
+  sk_emp: ['overload', 0.6, 0.8],
+  sk_legion: SFX_HIDE,
+  sk_blitz: SFX_DASH,
+  sk_drop: ['door', 0.55, 1],
+  sk_express: ['engineHi', 0.5, 1],
+  sk_pod: SFX_DROP,
+  sk_reinforce: SFX_DROP,
+  sk_carpet: ['alarm', 0.45, 1.1],
+  sk_flak: ['boom2', 0.6, 1],
+  sk_jam: SFX_HIDE,
+  sk_squadron: ['engineHi', 0.5, 1.2],
+  sk_mend: SFX_BUFF,
+  sk_triage: SFX_HEAL,
+  sk_lazarus: ['clatter1', 0.6, 0.8],
+  sk_magnet: SFX_PULL,
+  sk_scrapmail: ['plate2', 0.6, 0.9],
+  sk_golem: ['heavy', 0.65, 0.7],
+  sk_minefield: ['clatter2', 0.55, 1.1],
+  sk_haven: SFX_SHIELD,
+  sk_refuge: SFX_HEAL,
+};
+const SFX_ATK = { exp: SFX_EXP, en: SFX_LASER, hero: SFX_BUFF }; // 表裡沒有的：依技能的攻擊類型
 
 Object.assign(MechEntity.prototype, {
+  // 技能的音效（Game.rtsSkillCast 成功之後）：自己隊伍的英雄一律播，其他的只在玩家看得到施放者或目標點時播；
+  // 位置＝地點技能的目標點（其他＝施放者），距離衰減照 SFX.play
+  rtsSfxSkill(id, tgt) {
+    const g = this.game;
+    const S = RTS_SKILLS[id] || {};
+    const k = RTS_SKILL_SFX[id] || SFX_ATK[S.atk] || SFX_BUFF;
+    const p = tgt && tgt.x !== undefined && !tgt.pos ? V(tgt.x, this.pos.y + 1, tgt.z) : this.center();
+    const seen = (x, z) => !g.rtsFogState || g.rtsFogState(0, x, z) === 2;
+    if (this.rtsTeam !== 0 && !seen(this.pos.x, this.pos.z) && !seen(p.x, p.z)) return false;
+    SFX.play(k[0], k[1], k[2], 0.05, 0.05, p);
+    return k[0];
+  },
+  // 技能的投放艙外觀（強襲空投艙、緊急增援；B 包的 Game.rtsVeerPodFx）：sec 秒後著地、預警圈半徑 r。
+  // 沒有 rtsVeerPodFx 時回傳 null（呼叫端改用原本的預警圈）
+  rtsHeroPod(g, x, z, sec, r) {
+    const R = g.rts;
+    if (!R || !g.rtsVeerPodFx) return null;
+    R.hPodN = (R.hPodN || 0) + 1;
+    const pod = { id: 900 + R.hPodN, team: this.rtsTeam, x, z, t: R.t + sec, t0: R.t, r, hero: true };
+    g.rtsVeerPodFx(pod, 'fall');
+    (R.hPods || (R.hPods = [])).push(pod);
+    if (R.hPods.length > 24) R.hPods.shift();
+    return pod;
+  },
   // ---------- 每格 ----------
   rtsHeroAI(dt) {
     const g = this.game,
@@ -1083,12 +1184,15 @@ const SKILL_FX = {
   // 強襲空投艙：預警後落地，範圍爆發＋暈眩，原地留下臨時投放信標
   sk_pod(e, g, P, p) {
     const team = e.rtsTeam;
-    g.fx.warnCircle(P3(g, p.x, p.z, 0.1), P.R, P.warn, 0x9be070);
+    // 外觀：一般投放艙的落下與預警圈（B 包的 rtsVeerPodFx：迷霧裡看不到的不畫；R6 D 包）
+    const pod = e.rtsHeroPod(g, p.x, p.z, P.warn, P.R);
+    if (!pod) g.fx.warnCircle(P3(g, p.x, p.z, 0.1), P.R, P.warn, 0x9be070);
     g.later(P.warn, () => {
       if (!g.rts) return;
+      if (pod) g.rtsVeerPodFx(pod, 'land');
       const q = P3(g, p.x, p.z, 0.6);
-      if (g.rtsFxOk(q)) {
-        g.fx.beam(q.clone().setY(q.y + 40), q, 0xd8ffb0, 0.35);
+      if (g.rtsFxOk(q) && (!pod || g.rtsVeerSeen(team, p.x, p.z))) {
+        if (!pod) g.fx.beam(q.clone().setY(q.y + 40), q, 0xd8ffb0, 0.35);
         g.fx.explosion(q, P.R * 0.8, 0xffb060);
         g.fx.dust(P3(g, p.x, p.z), P.R, 12);
         g.fx.shockwave(q, P.R, 0x9be070);
@@ -1104,21 +1208,23 @@ const SKILL_FX = {
   },
   // 緊急增援：2 秒後身邊落下空降 MT（臨時單位）
   sk_reinforce(e, g, P) {
+    // 落點同 rtsHeroTemp 的排法；外觀＝一般投放艙（rtsVeerPodFx，R6 D 包）
+    const pods = [];
     for (let i = 0; i < P.n; i++) {
       const a = (e.yaw || 0) + (i / Math.max(1, P.n)) * Math.PI * 2 + 0.5;
-      g.fx.warnCircle(
-        P3(g, e.pos.x + Math.cos(a) * 3.2, e.pos.z + Math.sin(a) * 3.2, 0.1),
-        1.6,
-        P.delay,
-        0x9be070,
-      );
+      const x = e.pos.x + Math.cos(a) * 3.2,
+        z = e.pos.z + Math.sin(a) * 3.2;
+      const pod = e.rtsHeroPod(g, x, z, P.delay, 1.6);
+      if (pod) pods.push(pod);
+      else g.fx.warnCircle(P3(g, x, z, 0.1), 1.6, P.delay, 0x9be070);
     }
     g.later(P.delay, () => {
       if (!g.rts) return;
+      for (const pod of pods) g.rtsVeerPodFx(pod, 'land');
       const list = g.rtsHeroTemp(e, 'v_mt', P.n, P.t);
       for (const u of list)
-        if (g.rtsFxOk(u.pos)) {
-          g.fx.beam(u.center().setY(u.pos.y + 30), u.center(), 0xd8ffb0, 0.25);
+        if (g.rtsFxOk(u.pos) && (!pods.length || g.rtsVeerSeen(e.rtsTeam, u.pos.x, u.pos.z))) {
+          if (!pods.length) g.fx.beam(u.center().setY(u.pos.y + 30), u.center(), 0xd8ffb0, 0.25);
           g.fx.dust(u.pos.clone(), 2.5, 8);
         }
       e.hs.reinN = list.length; // 測試與 HUD 用

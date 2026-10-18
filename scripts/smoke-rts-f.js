@@ -166,7 +166,7 @@ module.exports = (H) => {
         R = g.rts,
         A = R.ai.find((a) => a.team === 1),
         T = R.teams[1];
-      window.__sim(720 - R.t, () => (window.__mark(), false));
+      window.__sim(780 - R.t, () => (window.__mark(), false));
       const M = { ...window.__M };
       M.first = A.firstAtk === null ? null : Math.round(A.firstAtk);
       M.res2 = JSON.stringify(T.tech.res);
@@ -207,7 +207,7 @@ module.exports = (H) => {
     );
     check(
       M2.works !== undefined && M2.res !== undefined && M2.heavy !== undefined,
-      `12 分鐘內：工程研究所 ${fmt(M2.works || 0)}、第一項研究完成 ${fmt(M2.res || 0)}（${M2.res2}）、重工廠 ${fmt(M2.heavy || 0)}（建築：${M2.blds}）`,
+      `13 分鐘內（R6：普通的 T2 時間窗 5:00～9:30，研究跟著晚，docs 17.10）：工程研究所 ${fmt(M2.works || 0)}、第一項研究完成 ${fmt(M2.res || 0)}（${M2.res2}）、重工廠 ${fmt(M2.heavy || 0)}（建築：${M2.blds}）`,
     );
     check(
       M2.casts >= 2 && M2.cast !== undefined,

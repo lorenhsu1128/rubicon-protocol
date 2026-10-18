@@ -229,6 +229,109 @@ export const RTS_THEMES = {
     pre: damPre,
     after: damAfter,
   },
+  // R6（docs 17.4；C 包）：沙丘地帶（新月沙丘擋低處的視線）、礦坑地表（中央的露天礦坑、坑底的富礦）、貨運集散場
+  // （貨櫃堆的巷道、龍門起重機）。r6＝新主題（多檢查營地與傭兵營的間距）
+  dunes: {
+    name: '沙丘地帶',
+    r6: true,
+    baseH: [6.5, 8.5],
+    ridgeH: [10, 14],
+    mesaH: [9, 12],
+    watchH: [5, 6],
+    rimH: 22,
+    rough: 1.0,
+    rocks: { model: 'sandstone', r: [1.6, 2.6], h: [5, 9], sink: 0.3 },
+    wrecks: [{ model: 'wreckhull', box: [3.7, 2.8, 12], sink: 0.1 }],
+    lights: { model: 'sandlamp', r: 0.5, h: [5, 7], sink: 0.4 },
+    counts: { rocks: [12, 18], wrecks: [4, 6], lights: [3, 5] },
+    look: {
+      ground: 0xc29a66,
+      slope: 0xa07648,
+      rock: 0x7a5a3c,
+      sky: 0xeedcb8,
+      fog: 0xe6cfa6,
+      sun: 0xffd29a,
+      amb: 0xc8ab82,
+      sunI: 1.0,
+      hemiI: 0.9,
+      fogNear: 55,
+      fogFar: 190,
+      weather: 'sand',
+    },
+    after: dunesAfter,
+  },
+  desert: {
+    name: '礦坑地表',
+    r6: true,
+    baseH: [7, 9],
+    ridgeH: [12, 16],
+    mesaH: [11, 14],
+    watchH: [5, 6.5],
+    rimH: 24,
+    rough: 1.1,
+    rocks: { model: 'boulder', r: [1.6, 2.8], h: [2.4, 4], sink: 0.4 },
+    wrecks: [
+      { model: 'miningrig', box: [4.6, 3.8, 6], sink: 0.1 },
+      { model: 'derrick', r: [2, 2], h: [10, 14], sink: 0.1 },
+    ],
+    lights: { model: 'floodlight', r: 0.6, h: [8, 11], sink: 0.3 },
+    counts: { rocks: [16, 24], wrecks: [5, 8], lights: [3, 5] },
+    look: {
+      ground: 0x9c8360,
+      slope: 0x6a5240,
+      rock: 0x5a4636,
+      sky: 0xe3d4b7,
+      fog: 0xd8c7a8,
+      sun: 0xffe2b0,
+      amb: 0xb8a48a,
+      sunI: 0.95,
+      hemiI: 0.95,
+      fogNear: 55,
+      fogFar: 180,
+      weather: 'dust',
+    },
+    pre: pitPre,
+    after: pitAfter,
+  },
+  industrial: {
+    name: '貨運集散場',
+    r6: true,
+    baseH: [6.5, 8.5],
+    ridgeH: [10, 13],
+    mesaH: [8, 11],
+    watchH: [4.5, 6],
+    rimH: 22,
+    rough: 0.3,
+    rocks: {
+      model: 'container1',
+      box: [12, 2.6, 2.6],
+      boxW: [12, 12],
+      boxH: [2.6, 2.6],
+      boxD: [2.6, 2.6],
+      sink: 0.1,
+    },
+    wrecks: [
+      { model: 'truck', box: [3.2, 3, 9.6], sink: 0.05 },
+      { model: 'cranewreck', box: [4.4, 8, 5.4], sink: 0.05 },
+    ],
+    lights: { model: 'lamppost', r: 0.4, h: [7, 9], sink: 0.1 },
+    counts: { rocks: [10, 14], wrecks: [5, 8], lights: [3, 5] },
+    look: {
+      ground: 0x4c5158, // 鋪面：俯視時整片太亮會發白，比主線的集散場暗一點
+      slope: 0x383c42,
+      rock: 0x44494f,
+      sky: 0xa9b3bc,
+      fog: 0x9aa3ad,
+      sun: 0xfff0d0,
+      amb: 0x8894a2,
+      sunI: 0.9,
+      hemiI: 0.9,
+      fogNear: 60,
+      fogFar: 200,
+      weather: null,
+    },
+    after: yardAfter,
+  },
 };
 export const RTS_WATER_Y = -0.4;
 
@@ -265,15 +368,20 @@ const P = (x, z) => ({ x, z });
 const neg = (p) => ({ x: -p.x, z: -p.z });
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
+// 地圖大小（docs 17.4；選單讀這張表）：400 m 的產生路徑一行都不改，大小相依的參數在 genOnce 以 SZ(400 m 的值, 其他) 選
+export const RTS_SIZES = { s: { size: 300, name: '小' }, m: { size: 400, name: '中' } };
+export const RTS_SIZE_LIST = [300, 400];
+
 export function planRtsMap(seed, opt = {}) {
   const theme = RTS_THEMES[opt.theme] ? opt.theme : 'wasteland';
-  const size = opt.size || 400;
+  const size = RTS_SIZE_LIST.includes(opt.size) ? opt.size : 400;
   const t0 = Date.now();
   let plan = null,
     full = null;
   const fails = [];
   const maxT = opt.tries || 20; // 最多試幾個子種子（除錯時可以設 1）
-  for (let n = 0; n < maxT; n++) {
+  // 小地圖（R6）：20 次都在高度圖之前就不合格時多試幾次（回傳的圖一定有高度圖）
+  for (let n = 0; n < maxT || (!full && !opt.tries && size !== 400 && n < 80); n++) {
     const sub = n === 0 ? seed : (seed * 31 + n) >>> 0;
     plan = genOnce(sub, theme, size);
     plan.tries = n + 1;
@@ -299,7 +407,11 @@ function genOnce(sub, theme, size) {
   const RA = (ab) => R(ab[0], ab[1]);
   const sgn = () => (rng() < 0.5 ? -1 : 1);
   const S = size / 2;
-  const U = S - EDGE - 8; // 可以放東西的範圍（|x|、|z|）
+  // R6（docs 17.4）：大小相依的參數（400 m 一律用第一個值，地圖和以前完全相同）；NEW＝R6 的新主題或小地圖
+  // （只有它們多檢查營地與傭兵營的間距，17.2 #11）
+  const SZ = (a400, aOther) => (size === 400 ? a400 : aOther);
+  const U = S - EDGE - SZ(8, 2); // 可以放東西的範圍（|x|、|z|；小地圖：主基地更靠角落，中立區才夠寬）
+  const NEW = !!TH.r6 || size !== 400;
   const n1 = makeNoise(sub * 7 + 1),
     n2 = makeNoise(sub * 13 + 5);
   // 主軸：主基地 A 在 θ 方向（對角線附近），B 在反方向
@@ -313,12 +425,12 @@ function genOnce(sub, theme, size) {
   // ---------- 半張圖的地形特徵 ----------
   const feats = []; // { bb:[x0,x1,z0,z1], f(x, z) → 0～1 的高度比例, H }
   // 平台（主基地、瞭望高地）：雜訊打亂的圓＋陡峭的崖，坡道是一條斜面（側面也是崖）
-  const plateau = (c, r, H, rampAng, rampW) => {
+  const plateau = (c, r, H, rampAng, rampW, slope = 0.27) => {
     const ph1 = R(0, 6.28),
       ph2 = R(0, 6.28);
     const dx = Math.cos(rampAng),
       dz = Math.sin(rampAng);
-    const len = H / 0.27;
+    const len = H / slope;
     const cw = 3;
     const rad = (x, z) => {
       const a = Math.atan2(z - c.z, x - c.x);
@@ -434,21 +546,26 @@ function genOnce(sub, theme, size) {
   const Hb = RA(TH.baseH);
   const toC = Math.atan2(-A.z, -A.x);
   const rampAng = toC + R(0.35, 0.75) * sgn();
-  const base = plateau(A, rB, Hb, rampAng, R(11, 14));
+  const base = plateau(A, rB, Hb, rampAng, R(11, 14), SZ(0.27, 0.32)); // 小地圖：坡道陡一點、短一點
   const ramp = base.ramp;
   const rdx = Math.cos(rampAng),
     rdz = Math.sin(rampAng);
   // 坡道下的自然分礦、基地旁的 Coral（坡道的兩側）
-  const side = sgn();
+  // 小地圖：自然分礦與 Coral 都在坡道下往外（遠離中心）的那一側、不往前推，山脊才放得下（亂數的次數照舊）
+  const side0 = sgn();
+  const side = size === 400 ? side0 : -rdz * ax + rdx * az >= 0 ? 1 : -1;
   const pdx = -rdz * side,
     pdz = rdx * side;
+  const nk = SZ(1, 0.5);
   const natural = P(
-    ramp.bottom.x + rdx * R(12, 18) + pdx * R(12, 18),
-    ramp.bottom.z + rdz * R(12, 18) + pdz * R(12, 18),
+    ramp.bottom.x + rdx * R(12, 18) * nk + pdx * R(12, 18),
+    ramp.bottom.z + rdz * R(12, 18) * nk + pdz * R(12, 18),
   );
+  const ck = SZ(1, -0.8),
+    cs = SZ(-1, 1.25);
   const coralA = P(
-    ramp.bottom.x + rdx * R(6, 12) - pdx * R(16, 22),
-    ramp.bottom.z + rdz * R(6, 12) - pdz * R(16, 22),
+    ramp.bottom.x + rdx * R(6, 12) * ck + pdx * R(16, 22) * cs,
+    ramp.bottom.z + rdz * R(6, 12) * ck + pdz * R(16, 22) * cs,
   );
   // 主礦：平台上、坡道的反側
   const mAng = rampAng + Math.PI + R(-0.5, 0.5);
@@ -456,21 +573,27 @@ function genOnce(sub, theme, size) {
 
   // 山脊（主軸 u＝U1，橫跨地圖）＋ 2～3 個窄路口
   const [uNat] = L(natural);
-  const U1 = Math.min(uNat - 32, Rb * RA(TH.ridgeU || [0.42, 0.5]));
+  // 小地圖：山脊窄一點、彎曲小一點，所以離自然分礦 22 m 就夠（中央才留得下中立區）
+  const U1 = Math.min(uNat - SZ(32, 22), Rb * RA(TH.ridgeU || [0.42, 0.5]));
+  if (size !== 400 && U1 < 26) return fail({ sub }, '山脊離中心太近');
+  // 礦坑的範圍（PRE.clear）、小地圖的壩體（PRE.plan.zone）離山脊要有空間
+  if (PRE && PRE.clear && U1 < PRE.clear + SZ(10, 6)) return fail({ sub }, '山脊碰到礦坑');
+  if (PRE && size !== 400 && !PRE.clear && PRE.plan.zone && U1 < PRE.plan.zone + 9)
+    return fail({ sub }, '山脊碰到壩體');
   let vmin = 0,
     vmax = 0;
   for (let v = 0; v > -size * 1.5; v -= 2) if (inUse(W(U1, v), -40)) vmin = v;
   for (let v = 0; v < size * 1.5; v += 2) if (inUse(W(U1, v), -40)) vmax = v;
-  const nGap = rng() < 0.5 ? 2 : 3;
+  const nGap = rng() < 0.5 ? 2 : SZ(3, 2); // 小地圖：主要通道 2 條
   const span = vmax - vmin;
   const gaps = [];
   for (let k = 0; k < nGap; k++) {
     const f = nGap === 2 ? [0.3, 0.7][k] : [0.2, 0.5, 0.8][k];
     gaps.push({ v: vmin + span * (f + R(-0.06, 0.06)), w: R(13, 19) });
   }
-  const ridgeHW = R(4, 6);
+  const ridgeHW = size === 400 ? R(4, 6) : R(3, 4);
   const Hr = RA(TH.ridgeH);
-  const uAt = (v) => U1 + (n2(v * 0.025 + 3.1, 7.7) - 0.5) * 14;
+  const uAt = (v) => U1 + (n2(v * 0.025 + 3.1, 7.7) - 0.5) * SZ(14, 8);
   const chokes = [];
   let vs = vmin - 60;
   for (let k = 0; k <= gaps.length; k++) {
@@ -489,6 +612,7 @@ function genOnce(sub, theme, size) {
   const keep = [];
   const addKeep = (p, r) => keep.push({ p, r });
   addKeep(P(0, 0), 34);
+  if (PRE && PRE.tavern) addKeep(P(0, 0), Math.hypot(PRE.tavern.x, PRE.tavern.z) + 12); // 礦坑地表：酒館在坑緣
   for (const c of chokes) addKeep(c.pos, c.w / 2 + 16);
   const free = (p, r) =>
     (!PRE || !PRE.block(p, r)) &&
@@ -506,7 +630,7 @@ function genOnce(sub, theme, size) {
   let watch = null;
   for (let tries = 0; tries < 40 && !watch; tries++) {
     const r = R(10, 13);
-    const p = W(R(30, U1 - 25), sgn() * R(55, 115));
+    const p = W(R(30, U1 - 25), sgn() * R(...SZ([55, 115], [40, 80])));
     if (!inUse(p, r + 30) || !free(p, r + 26)) continue;
     const a = Math.atan2(-p.z, -p.x) + R(-1.2, 1.2);
     watch = plateau(p, r, RA(TH.watchH), a, R(11, 13));
@@ -516,7 +640,7 @@ function genOnce(sub, theme, size) {
   // ---------- 點位（半張圖） ----------
   if (!inUse(natural, 10) || !isLow(natural, 8)) return fail({ sub }, '自然分礦不在低地');
   if (!inUse(coralA, 10) || !isLow(coralA, 6)) return fail({ sub }, '基地的 Coral 不在低地');
-  const pts = [{ p: P(0, 0), r: 14 }]; // 已佔用的點（含鏡像）：{ p, r }
+  const pts = [{ p: P(0, 0), r: PRE && PRE.clear ? PRE.clear : 14 }]; // 已佔用的點（含鏡像）：{ p, r }
   const taken = (p, r) => pts.some((q) => dist(p, q.p) < q.r + r) || dist(p, neg(p)) < 2 * r;
   const put = (p, r) => {
     pts.push({ p, r }, { p: neg(p), r });
@@ -525,6 +649,12 @@ function genOnce(sub, theme, size) {
   put(natural, 14);
   put(coralA, 10);
   put(mainMine, 6);
+  // 礦坑地表：酒館沿坑緣的一圈都佔住（位置在 validate 依兩邊的路徑代價挑）
+  if (PRE && PRE.tavern) {
+    const rT = Math.hypot(PRE.tavern.x, PRE.tavern.z);
+    for (let k = 0; k < 16; k++)
+      put(P(Math.cos((k / 16) * Math.PI) * rT, Math.sin((k / 16) * Math.PI) * rT), 9);
+  }
   // 外圍分礦：基地這側（山脊後）1 個＋中立區 1～2 個
   const outer = [];
   const nOuterMid = rng() < 0.5 ? 1 : 2;
@@ -536,26 +666,77 @@ function genOnce(sub, theme, size) {
     }
     return null;
   };
-  const back = findLow([U1 + 22, Rb - 10], [70, 170], 12);
+  const back = findLow([U1 + 22, Rb - 10], SZ([70, 170], [45, 110]), 12);
   if (back) {
     outer.push({ p: back, rich: false });
     put(back, 14);
   }
-  for (let k = 0; k < nOuterMid; k++) {
-    const p = findLow(PRE ? PRE.range.outer(U1) : [12, U1 - 22], [55, 170], 12);
+  // 小地圖：外圍分礦每半張圖 1 座（山脊後的；放不下才放中立區的）
+  const nMid = SZ(nOuterMid, back ? 0 : 1);
+  for (let k = 0; k < nMid; k++) {
+    const p = findLow(PRE ? PRE.range.outer(U1) : [12, U1 - 22], SZ([55, 170], [40, 110]), 12);
     if (!p) continue;
     outer.push({ p, rich: k === 0 });
     put(p, 14);
   }
   // 中立區：酒館在正中央；商店、傭兵營、中立的 Coral 成對（p 與 −p）
   // 多重水壩：中央是壩體，商店、傭兵營、中立的 Coral 放在河道外的低地（PRE.range；找不到就換子種子）
-  const shop = PRE ? findLow(...PRE.range.shop, 8) : findLow([-12, 12], [24, 46], 8) || W(0, 34);
+  // 小地圖：佔地的斷崖檢查多留 3 m（佔地的角落 7.8 m，isLow 只看 8 m 圓上的 9 點）
+  const nbR = SZ(8, PRE && PRE.plan && PRE.plan.river ? 9 : 11); // 小地圖的多重水壩：壩體與山脊之間只有 9 m 的餘裕
+  // PRE.range 的項目可以是函式（小地圖的多重水壩：依山脊的位置）
+  const preR = (k) => (typeof PRE.range[k] === 'function' ? PRE.range[k](U1) : PRE.range[k]);
+  const shop = PRE
+    ? findLow(...preR('shop'), nbR, SZ(60, 120))
+    : findLow(
+        ...SZ(
+          [
+            [-12, 12],
+            [24, 46],
+          ],
+          [
+            [-20, 20],
+            [20, 60],
+          ],
+        ),
+        nbR,
+        SZ(60, 120),
+      ) || SZ(W(0, 34), null);
   if (!shop) return fail({ sub }, '商店放不下');
   put(shop, 10);
-  const merc = PRE ? findLow(...PRE.range.merc, 8) : findLow([-25, 25], [30, 70], 8) || W(0, -54);
+  const merc = PRE
+    ? findLow(...preR('merc'), nbR, SZ(60, 200))
+    : findLow(
+        ...SZ(
+          [
+            [-25, 25],
+            [30, 70],
+          ],
+          [
+            [-40, 40],
+            [24, 100],
+          ],
+        ),
+        nbR,
+        SZ(60, 120),
+      ) || SZ(W(0, -54), null);
   if (!merc) return fail({ sub }, '傭兵營放不下');
   put(merc, 10);
-  const coralMid = PRE ? findLow(...PRE.range.coral, 8) : findLow([-20, 30], [60, 110], 8) || W(10, 80);
+  const coralMid = PRE
+    ? findLow(...preR('coral'), 8, SZ(60, 200))
+    : findLow(
+        ...SZ(
+          [
+            [-20, 30],
+            [60, 110],
+          ],
+          [
+            [-30, 40],
+            [28, 112],
+          ],
+        ),
+        8,
+        SZ(60, 160),
+      ) || SZ(W(10, 80), null);
   if (!coralMid) return fail({ sub }, '中立的 Coral 放不下');
   put(coralMid, 10);
   // 主題的中立 Coral 多幾對（技研都市：corals.mid 2）：獨立的亂數串，荒野不呼叫
@@ -573,34 +754,39 @@ function genOnce(sub, theme, size) {
   }
   // 野怪營地（半張圖 3～5 個）
   const camps = [];
+  // 營地中心到傭兵營佔地 ≥ 30 m（雇用的單位不引出野怪；17.2 #11，只有 R6 的新主題與小地圖）
+  const mercR = Math.hypot(...RTS_NEUTRAL_FOOT.merc) / 2;
+  const campOk = (p) => !NEW || (dist(p, merc) > 30 + mercR && dist(p, neg(merc)) > 30 + mercR);
   const campNear = (c, r0, r1, tier, guards) => {
     for (let t = 0; t < 40; t++) {
       const a = R(0, 6.28),
         d = R(r0, r1);
       const p = P(c.x + Math.cos(a) * d, c.z + Math.sin(a) * d);
-      if (!inUse(p, 12) || !isLow(p, 5) || taken(p, 8)) continue;
+      if (!inUse(p, 12) || !isLow(p, 5) || taken(p, 8) || !campOk(p)) continue;
       camps.push({ p, tier, guards });
       put(p, 9);
       return true;
     }
     return false;
   };
-  outer.forEach((o, i) => campNear(o.p, 12, 20, o.rich ? 3 : 2, { type: 'mine', ref: o }));
-  if (watch) {
+  // 小地圖：唯一的外圍分礦旁是 tier 3（大營地一對）
+  outer.forEach((o, i) => campNear(o.p, 12, 20, SZ(o.rich ? 3 : 2, 3), { type: 'mine', ref: o }));
+  // 瞭望高地的營地離傭兵營太近時不放（高地照樣有）
+  if (watch && campOk(watch.c)) {
     camps.push({ p: watch.c, tier: 2, guards: { type: 'high' } });
     put(watch.c, 9);
   }
   for (const c of chokes.slice(0, 1)) campNear(c.pos, 22, 34, 1, { type: 'item' });
-  for (let t = 0; t < 30 && camps.length < 4; t++) {
-    const p = findLow([10, U1 - 10], [20, 150], 6, 4);
-    if (p) {
+  for (let t = 0; t < SZ(30, 120) && camps.length < SZ(4, 2); t++) {
+    const p = findLow(SZ([10, U1 - 10], [0, U1 + 24]), SZ([20, 150], [10, 112]), 6, 4);
+    if (p && campOk(p)) {
       camps.push({ p, tier: rng() < 0.3 ? 2 : 1, guards: { type: 'item' } });
       put(p, 9);
     }
   }
-  if (rng() < 0.4) {
-    const p = findLow([10, U1 - 10], [20, 150], 6);
-    if (p) {
+  if (rng() < 0.4 && camps.length < SZ(99, 3)) {
+    const p = findLow(SZ([10, U1 - 10], [4, U1 - 6]), SZ([20, 150], [10, 110]), 6);
+    if (p && campOk(p)) {
       camps.push({ p, tier: 1, guards: { type: 'item' } });
       put(p, 9);
     }
@@ -637,7 +823,7 @@ function genOnce(sub, theme, size) {
   const clearOf = []; // 不能放障礙物的地方
   const noObs = (p, r) => clearOf.push({ p, r });
   noObs(A, rB + 8);
-  noObs(P(0, 0), 26);
+  noObs(P(0, 0), PRE && PRE.clear ? PRE.clear + 4 : 26);
   for (const q of pts) noObs(q.p, q.r + 6);
   for (const c of chokes) noObs(c.pos, c.w / 2 + 10);
   const rampMid = P((ramp.top.x + ramp.bottom.x) / 2, (ramp.top.z + ramp.bottom.z) / 2);
@@ -665,8 +851,13 @@ function genOnce(sub, theme, size) {
     }
   };
   const C = TH.counts;
+  // 障礙物的數量（小地圖 ×0.6，無條件進位、至少 1；400 m 和以前一樣：同樣一次亂數）
+  const cnt = (ab) => {
+    const v = Math.round(RA(ab));
+    return SZ(v, Math.max(1, Math.ceil(v * 0.6)));
+  };
   const ground = (p, sink) => hAt(p.x, p.z) - sink;
-  scatterObs(Math.round(RA(C.rocks)), TH.rocks, (p, r) => {
+  scatterObs(cnt(C.rocks), TH.rocks, (p, r) => {
     const s = TH.rocks;
     if (s.boxW) {
       // 方塊的岩石（技研都市的廢墟）：尺寸與 90° 為單位的朝向（荒野不走這裡）
@@ -696,7 +887,7 @@ function genOnce(sub, theme, size) {
     const y = ground(p, s.sink);
     addObs({ model: s.model, kind: 'circle', x: p.x, z: p.z, r, h: hh, y, top: y + hh, yaw: R(0, 6.28) });
   });
-  for (let k = 0, nW = Math.round(RA(C.wrecks)); k < nW; k++) {
+  for (let k = 0, nW = cnt(C.wrecks); k < nW; k++) {
     const s = TH.wrecks[Math.floor(rng() * TH.wrecks.length)];
     scatterObs(1, s, (p, r) => {
       const y = ground(p, s.sink);
@@ -734,7 +925,7 @@ function genOnce(sub, theme, size) {
       }
     });
   }
-  scatterObs(Math.round(RA(C.lights)), TH.lights, (p) => {
+  scatterObs(cnt(C.lights), TH.lights, (p) => {
     const s = TH.lights;
     const hh = RA(s.h);
     const y = ground(p, s.sink);
@@ -793,7 +984,9 @@ function genOnce(sub, theme, size) {
       if (c.guards.type === 'mine') g.mine = mines.findIndex((m) => dist(m.pos, f(c.guards.ref.p)) < 0.01);
       return { pos: f(c.p), tier: c.tier, guards: g, near: k };
     });
-  const neutrals = [{ kind: 'tavern', pos: P(0, 0), yaw: 0 }];
+  // 酒館在正中央（礦坑地表：坑的邊緣，PRE.tavern）
+  const tav = PRE && PRE.tavern ? PRE.tavern : null;
+  const neutrals = [{ kind: 'tavern', pos: tav || P(0, 0), yaw: tav ? neutralYaw(tav) : 0 }];
   pair(neutrals, (k, f) => ({ kind: 'shop', pos: f(shop), near: k, yaw: neutralYaw(f(shop)) }));
   pair(neutrals, (k, f) => ({ kind: 'merc', pos: f(merc), near: k, yaw: neutralYaw(f(merc)) }));
   const highs = [{ kind: 'base', pos: A, r: rB, h: Hb, ramp: bases[0].ramp }];
@@ -837,11 +1030,18 @@ function genOnce(sub, theme, size) {
   };
   // R5 的水面主題：水深 > 0.3 m 的格子不能蓋（validate）；多重水壩的壩體與坡道
   if (TH.waterY !== undefined) plan.waterY = TH.waterY;
-  if (PRE) plan.dam = PRE.plan;
-  if (campsOut.length < 6 || campsOut.length > 10) return fail(plan, `營地數 ${campsOut.length}`);
-  if (outer.length < 2) return fail(plan, '外圍分礦不足');
+  if (PRE) plan[PRE.key || 'dam'] = PRE.plan; // 多重水壩 plan.dam、礦坑地表 plan.pit
+  // 礦坑地表：坑底的富礦與固定的 tier 3 營地（正中央，沒有成對）
+  if (PRE && PRE.pitMine) {
+    mines.push({ pos: P(0, 0), amount: PRE.pitMine, kind: 'outer', owner: null, rich: true, pit: true });
+    campsOut.push({ pos: P(0, 0), tier: 3, guards: { type: 'mine', mine: mines.length - 1 }, pit: true });
+  }
+  const nCamp = campsOut.filter((c) => !c.pit).length;
+  const [cMin, cMax] = SZ([6, 10], [4, 6]);
+  if (nCamp < cMin || nCamp > cMax) return fail(plan, `營地數 ${nCamp}`);
+  if (outer.length < SZ(2, 1)) return fail(plan, '外圍分礦不足');
   // 主題的附加地形（冰湖…）：在高度圖與障礙物之後、檢查之前；自己的亂數串 makeRng(sub × 53 ＋ 19)
-  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse, sub, pre: PRE };
+  const ctx = { rng: makeRng((sub * 53 + 19) >>> 0), high, W, S, U1, chokes, inUse, sub, pre: PRE, size, SZ };
   if (TH.extra) {
     const why = TH.extra(plan, ctx);
     if (why) return fail(plan, why);
@@ -873,12 +1073,16 @@ export const rtsOnLake = (plan, x, z) => (plan.ice || []).some((L) => lakeQ(L, x
 function iceLakes(plan, c) {
   const r = c.rng;
   const R = (a, b) => a + (b - a) * r();
+  const K = c.SZ; // 小地圖（R6）：湖小一點、離資源近一點
   const keep = [];
-  for (const b of plan.highs) keep.push([b.pos, b.r + 6], [b.ramp.bottom, 16], [b.ramp.top, 12]);
-  for (const m of plan.mines) keep.push([m.pos, 20]);
-  for (const q of plan.corals) keep.push([q.pos, 20]);
-  for (const q of plan.camps) keep.push([q.pos, 10]);
-  for (const q of plan.neutrals) keep.push([q.pos, 12]);
+  for (const b of plan.highs)
+    keep.push([b.pos, b.r + 6], [b.ramp.bottom, K(16, 10)], [b.ramp.top, K(12, 10)]);
+  for (const m of plan.mines) keep.push([m.pos, K(20, 12)]);
+  for (const q of plan.corals) keep.push([q.pos, K(20, 12)]);
+  const kc = K(10, 7),
+    kn = K(12, 9);
+  for (const q of plan.camps) keep.push([q.pos, kc]);
+  for (const q of plan.neutrals) keep.push([q.pos, kn]);
   const lakes = [];
   const fits = (L) => {
     const big = Math.max(L.rx, L.rz),
@@ -906,20 +1110,20 @@ function iceLakes(plan, c) {
       }
     return true;
   };
-  let rMax = 20;
+  let rMax = K(20, 12);
   const make = (x, z, rot) => {
-    const rx = R(12, rMax);
+    const rx = R(K(12, 8), rMax);
     return { x, z, rx, rz: rx * R(0.55, 0.8), rot };
   };
   // 第一個：主要通道（第一次檢查算出的 plan.lanes，A 側的前半段）上，長軸順著通道
-  for (let t = 0; t < 80 && !lakes.length; t++) {
-    if (t === 40) rMax = 15;
+  for (let t = 0; t < K(80, 240) && !lakes.length; t++) {
+    if (t === 40) rMax = K(15, 10);
     const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
     if (!lane || lane.length < 2) break;
     let tot = 0;
     for (let k = 1; k < lane.length; k++)
       tot += Math.hypot(lane[k].x - lane[k - 1].x, lane[k].z - lane[k - 1].z);
-    let want = tot * R(0.12, 0.42);
+    let want = tot * R(...K([0.12, 0.42], [0.12, 0.6]));
     for (let k = 1; k < lane.length; k++) {
       const a = lane[k - 1],
         b = lane[k];
@@ -940,7 +1144,7 @@ function iceLakes(plan, c) {
       break;
     }
   }
-  rMax = 20;
+  rMax = K(20, 12);
   if (!lakes.length) return '冰湖放不下';
   if (r() < 0.5)
     for (let t = 0; t < 40; t++) {
@@ -991,6 +1195,14 @@ function iceAfter(plan, c) {
   const why = iceLakes(plan, c);
   if (why) return why;
   if (!validate(plan).ok) return plan.fail;
+  // 小地圖（R6）：冰湖在通道 8 m 內就好（重新算出的通道常常繞過小的湖）
+  if (
+    c.size !== 400 &&
+    plan.ice.some((L) =>
+      laneDots(plan).some((d) => lakeQ({ ...L, rx: L.rx + 8, rz: L.rz + 8 }, d.x, d.z) < 1),
+    )
+  )
+    return '';
   return iceOnLane(plan);
 }
 function iceOnLane(plan) {
@@ -1249,15 +1461,25 @@ function structFits(s, c, m, keep, dots, laneGap, others) {
 function padsAfter(plan, c) {
   const r = c.rng;
   const R = (a, b) => a + (b - a) * r();
-  const keep = structKeep(plan, { base: 25, res: 20, camp: 12, neutral: 15 });
+  const K = c.SZ; // 小地圖（R6）：發射台小一點、間距小一點
+  const keep = structKeep(
+    plan,
+    K({ base: 25, res: 20, camp: 12, neutral: 15 }, { base: 10, res: 10, camp: 8, neutral: 13 }),
+  );
   const dots = laneDots(plan);
   let pad = null;
-  for (let t = 0; t < 300 && !pad; t++) {
+  for (let t = 0; t < K(300, 1200) && !pad; t++) {
     const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
     if (!lane || lane.length < 2) return '通道不足';
-    const q = laneAt(lane, R(0.25, 0.65));
-    const rad = R(14, 18),
-      H = R(6, 8),
+    let q = laneAt(lane, R(0.25, 0.65));
+    // 小地圖（R6）：一半的嘗試改在中立區隨機的位置與方向
+    if (c.size !== 400 && t % 2 === 1) {
+      const p = c.W(R(0, c.U1 + 20), R(-0.9, 0.9) * c.S),
+        a = R(0, Math.PI * 2);
+      q = { x: p.x, z: p.z, dx: Math.cos(a), dz: Math.sin(a) };
+    }
+    const rad = R(...K([14, 18], [12, 14])),
+      H = R(...K([6, 8], [5, 6])),
       rw = R(12, 14),
       side = r() < 0.5 ? 1 : -1;
     const off = rad + R(8, 22);
@@ -1296,7 +1518,7 @@ function padsAfter(plan, c) {
   stampStructs(plan, all);
   clearUnder(plan, all);
   // 發射塔（縮小 0.55）：頂面上、坡道的反側一角；方塊碰撞＝塔＋火箭的外框（朝向以 90° 為單位）
-  const ts = 0.55;
+  const ts = K(0.55, 0.42); // 小地圖：發射塔小一點（台頂留得下路）
   const q4 = Math.floor(r() * 4);
   const [tw, td] = q4 & 1 ? [6.4 * ts, 13.2 * ts] : [13.2 * ts, 6.4 * ts];
   const back = pad.ramp.ang + Math.PI + R(-0.6, 0.6);
@@ -1357,7 +1579,7 @@ function padsAfter(plan, c) {
     }
     return Math.abs(hAt(x - hw, z - hd) - hAt(x + hw, z + hd)) < 1.2;
   };
-  const nRows = wr() < 0.5 ? 2 : 3;
+  const nRows = wr() < 0.5 ? 2 : K(3, 2);
   const walls = [];
   for (let k = 0, t = 0; k < nRows && t < 200; t++) {
     const lane = plan.lanes[Math.floor(wr() * plan.lanes.length)];
@@ -1402,7 +1624,7 @@ function padsAfter(plan, c) {
     }
     k++;
   }
-  if (walls.length < 6) return '防爆牆放不下';
+  if (walls.length < K(6, 3)) return '防爆牆放不下';
   // 重新檢查；新的通道（繞過防爆牆）離某一列不到 WALL_GAP 時拿掉那一列（成對）再檢查，最多兩次
   for (let it = 0; ; it++) {
     if (!validate(plan).ok) return plan.fail;
@@ -1411,7 +1633,7 @@ function padsAfter(plan, c) {
     if (it >= 2) return '防爆牆擋到通道';
     plan.obstacles = plan.obstacles.filter((o) => !bad.has(o.row));
   }
-  return plan.obstacles.filter((o) => o.row).length >= 12 ? '' : '防爆牆放不下';
+  return plan.obstacles.filter((o) => o.row).length >= K(12, 4) ? '' : '防爆牆放不下';
 }
 // 防爆牆列（row）離通道的路徑：WALL_GAP 公尺以內的列（放的時候離檢查前的通道 8 m 以上；通道會繞過防爆牆，所以重新算的
 // 通道只要求 WALL_GAP）
@@ -1438,23 +1660,34 @@ export function wallsBad(plan, gap = WALL_GAP) {
 function stepsAfter(plan, c) {
   const r = c.rng;
   const R = (a, b) => a + (b - a) * r();
-  const keep = structKeep(plan, { base: 20, res: 20, camp: 12, neutral: 15 });
+  const K = c.SZ; // 小地圖（R6）：每半張圖 1 組、小一點
+  const keep = structKeep(
+    plan,
+    K({ base: 20, res: 20, camp: 12, neutral: 15 }, { base: 10, res: 10, camp: 8, neutral: 13 }),
+  );
   const dots = laneDots(plan);
   const steps = [];
-  for (let t = 0; t < 400 && steps.length < 2; t++) {
+  const nSteps = K(2, 1);
+  for (let t = 0; t < K(400, 1600) && steps.length < nSteps; t++) {
     const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
     if (!lane || lane.length < 2) return '通道不足';
-    const q = laneAt(lane, R(0.12, 0.8));
+    let q = laneAt(lane, R(0.12, 0.8));
+    // 小地圖（R6）：一半的嘗試改在中立區隨機的位置與方向（通道旁常常放不下）
+    if (c.size !== 400 && t % 2 === 1) {
+      const p = c.W(R(0, c.U1 + 20), R(-0.9, 0.9) * c.S),
+        a = R(0, Math.PI * 2);
+      q = { x: p.x, z: p.z, dx: Math.cos(a), dz: Math.sin(a) };
+    }
     const H1 = R(4, 5),
       H2 = R(4, 5);
     const len2 = H2 / STRUCT_SLOPE;
     // 下層：地面坡道上來的平台（landing 3 m）＋上層坡道（整個寬度）；上層 Lu ≥ 14 m（頂層才放得下 8×8 的建築）
-    const L = R(Math.max(24, len2 + 17), 38),
-      W = R(16, 20);
+    const L = R(Math.max(24, len2 + 17), K(38, 31)),
+      W = R(...K([16, 20], [16, 17]));
     const Lu = L - len2 - 3;
     const rw1 = R(11, 13);
     const vb = R(-0.5, 0.5) * Math.max(0, W / 2 - rw1 / 2 - 0.5);
-    const off = W / 2 + R(6, 24);
+    const off = W / 2 + R(6, K(24, 12));
     let got = null;
     // 通道的兩側 × 兩個方向依序試（不另外用亂數）
     for (const side of [1, -1])
@@ -1501,7 +1734,7 @@ function stepsAfter(plan, c) {
       }
     if (got) steps.push(got);
   }
-  if (steps.length < 2) return '構造體台階放不下';
+  if (steps.length < nSteps) return '構造體台階放不下';
   const all = [];
   for (const s of steps) all.push(s, s.mirror());
   stampStructs(plan, all);
@@ -1629,14 +1862,19 @@ function laneHits(lane, test) {
 function poolsAfter(plan, c) {
   const r = c.rng;
   const R = (a, b) => a + (b - a) * r();
+  const K = c.SZ; // 小地圖（R6）：水窪小一點、間距小一點、每半張圖至少 2 個
   const keep = [];
   for (const b of plan.highs) {
-    keep.push([b.pos, b.r + (b.kind === 'base' ? 18 : 6)], [b.ramp.bottom, 18], [b.ramp.top, 18]);
+    keep.push(
+      [b.pos, b.r + (b.kind === 'base' ? K(18, 10) : 6)],
+      [b.ramp.bottom, K(18, 10)],
+      [b.ramp.top, K(18, 10)],
+    );
   }
-  for (const m of plan.mines) keep.push([m.pos, 14]);
-  for (const q of plan.corals) keep.push([q.pos, 14]);
-  for (const q of plan.camps) keep.push([q.pos, 10]);
-  for (const q of plan.neutrals) keep.push([q.pos, 12]);
+  for (const m of plan.mines) keep.push([m.pos, K(14, 10)]);
+  for (const q of plan.corals) keep.push([q.pos, K(14, 10)]);
+  for (const q of plan.camps) keep.push([q.pos, K(10, 6)]);
+  for (const q of plan.neutrals) keep.push([q.pos, K(12, 8)]);
   const pools = [];
   const fits = (L) => {
     const big = Math.max(L.rx, L.rz),
@@ -1663,7 +1901,7 @@ function poolsAfter(plan, c) {
     return true;
   };
   const make = (x, z, rot, rMax) => {
-    const rx = R(10, rMax);
+    const rx = R(K(10, 7), rMax);
     return { x, z, rx, rz: rx * R(0.5, 0.8), rot, y: -R(1.3, 1.6) };
   };
   const onPool = (L) => (x, z) => lakeQ(L, x, z) < 1;
@@ -1673,15 +1911,15 @@ function poolsAfter(plan, c) {
     if (pools.some((L) => laneHits(lane, onPool(L)) || laneHits(lane, onPool({ ...L, x: -L.x, z: -L.z }))))
       continue;
     let got = null;
-    for (let t = 0; t < 120 && !got; t++) {
-      const q = laneAt(lane, R(0.08, 0.45));
+    for (let t = 0; t < K(120, 360) && !got; t++) {
+      const q = laneAt(lane, R(...K([0.08, 0.45], [0.12, 0.62])));
       if (!q) break;
       const side = R(-3, 3);
       const L = make(
         q.x - q.dz * side,
         q.z + q.dx * side,
         Math.atan2(q.dz, q.dx) + Math.PI / 2 + R(-0.3, 0.3),
-        t < 50 ? 20 : t < 90 ? 14 : 11,
+        K(t < 50 ? 20 : t < 90 ? 14 : 11, t < 150 ? 12 : t < 270 ? 10 : 8),
       );
       if (fits(L)) got = L;
     }
@@ -1692,10 +1930,10 @@ function poolsAfter(plan, c) {
   const want = 3 + Math.floor(r() * 3);
   for (let t = 0; t < 120 && pools.length < want; t++) {
     const p = c.W(R(10, c.U1 + 40), R(-0.9, 0.9) * c.S);
-    const L = make(p.x, p.z, R(0, Math.PI), 20);
+    const L = make(p.x, p.z, R(0, Math.PI), K(20, 14));
     if (fits(L)) pools.push(L);
   }
-  if (pools.length < 3) return '水窪不足';
+  if (pools.length < K(3, 1)) return '水窪不足';
   const all = [];
   for (const L of pools) all.push(L, { ...L, x: -L.x, z: -L.z });
   // 高度：水窪底部，邊緣 POOL_BAND 公尺平滑過渡（k 與 N²−1−k 同值，維持對稱）
@@ -1726,8 +1964,9 @@ function poolsAfter(plan, c) {
   });
   plan.pools = all.map((L) => ({ x: L.x, z: L.z, rx: L.rx, rz: L.rz, rot: L.rot, y: L.y }));
   if (!validate(plan).ok) return plan.fail;
-  for (const lane of plan.lanes)
-    if (!laneHits(lane, (x, z) => rtsInPool(plan, x, z))) return '水窪不在通道上';
+  // 小地圖（R6）：至少一條通道經過水窪就好
+  const hitN = plan.lanes.filter((lane) => laneHits(lane, (x, z) => rtsInPool(plan, x, z))).length;
+  if (hitN < K(plan.lanes.length, 1)) return '水窪不在通道上';
   // 半沉的街區（不碰撞，和障礙物一起合併）：每個水窪 1～3 個，水窪的內側 60%
   const dr = makeRng((c.sub * 61 + 29) >>> 0);
   const DR = (a, b) => a + (b - a) * dr();
@@ -1775,15 +2014,16 @@ function damPre(c, sub) {
   const r = makeRng((sub * 67 + 31) >>> 0);
   const R = (a, b) => a + (b - a) * r();
   const { W, L, S, feats } = c;
+  const small = S !== 200; // 小地圖（R6）：壩體、坡道、河道窄一點，點位的範圍改小
   const o = W(1, 0),
     ax = o.x,
     az = o.z;
-  const hw = R(9, 11),
-    H = R(7, 9),
+  const hw = small ? R(7.5, 9) : R(9, 11),
+    H = small ? R(6, 7) : R(7, 9),
     cw = 2.5,
-    rw = R(12, 14),
-    rwid = R(10, 14),
-    plaza = R(20, 22);
+    rw = small ? R(11, 12) : R(12, 14),
+    rwid = small ? R(8, 10) : R(10, 14),
+    plaza = small ? R(19, 20) : R(20, 22);
   const len = H / STRUCT_SLOPE;
   const vEnd = (S - EDGE) / Math.max(Math.abs(ax), Math.abs(az));
   const v1 = R(0.3, 0.45) * vEnd;
@@ -1857,21 +2097,51 @@ function damPre(c, sub) {
       const w = sm((rh + 2 - Math.abs(u - rc)) / 2);
       return w > 0 ? lo + (DAM_RIVER_Y - lo) * w : lo;
     },
-    range: {
-      outer: (U1) => [Zb + 12, U1 - 14],
-      shop: [
-        [Zb + 9, Zb + 30],
-        [10, 90],
-      ],
-      merc: [
-        [Zb + 9, Zb + 34],
-        [30, 120],
-      ],
-      coral: [
-        [Zb + 10, Zb + 44],
-        [50, 140],
-      ],
-    },
+    // 小地圖：商店與傭兵營在壩體和山脊之間（依山脊的位置），中立的 Coral 也可以在山脊後面
+    range: small
+      ? {
+          outer: (U1) => [Zb + 10, U1 - 12],
+          // 壩體和山脊之間放不下時改放山脊後面（成對，各自靠近一邊的主基地）
+          shop: (U1) =>
+            U1 - Zb >= 28
+              ? [
+                  [Zb + 8, U1 - 11],
+                  [10, 104],
+                ]
+              : [
+                  [U1 + 12, U1 + 40],
+                  [30, 108],
+                ],
+          merc: (U1) =>
+            U1 - Zb >= 28
+              ? [
+                  [Zb + 8, U1 - 11],
+                  [16, 108],
+                ]
+              : [
+                  [U1 + 12, U1 + 44],
+                  [30, 108],
+                ],
+          coral: (U1) => [
+            [Zb + 8, U1 + 40],
+            [24, 108],
+          ],
+        }
+      : {
+          outer: (U1) => [Zb + 12, U1 - 14],
+          shop: [
+            [Zb + 9, Zb + 30],
+            [10, 90],
+          ],
+          merc: [
+            [Zb + 9, Zb + 34],
+            [30, 120],
+          ],
+          coral: [
+            [Zb + 10, Zb + 44],
+            [50, 140],
+          ],
+        },
     plan: {
       hw,
       h: H,
@@ -1989,6 +2259,555 @@ function damAfter(plan, c) {
   return '';
 }
 
+// ---------- R6 的附加地形（docs 17.4；C 包）：沙丘的新月沙丘、礦坑地表的露天礦坑、貨運集散場的貨櫃堆與龍門起重機 ----------
+// 結構用自己的亂數串 makeRng(sub × 71 ＋ 37)（R5 的 pre 是 × 67 ＋ 31），裝飾 makeRng(sub × 61 ＋ 29)；
+// 數量在小地圖 ×0.6（無條件進位、至少 1）；改了地形後整個重新 validate。
+const r6Count = (c, n) => c.SZ(n, Math.max(1, Math.ceil(n * 0.6)));
+// 不能靠近的點（[點, 半徑]）：主基地平台與坡道 18 m、礦脈與湧出點 14、營地 10、中立建築 12（17.4）
+// 小地圖（small）：主基地與坡道 12、資源 10、營地 8、中立建築 10
+function r6Keep(plan, small) {
+  const keep = [];
+  const kb = small ? 12 : 18;
+  for (const b of plan.highs) {
+    const base = b.kind === 'base';
+    keep.push(
+      { p: b.pos, r: b.r + (base ? kb : 6) },
+      { p: b.ramp.bottom, r: kb },
+      { p: b.ramp.top, r: base ? kb : 10 },
+    );
+  }
+  for (const m of plan.mines) keep.push({ p: m.pos, r: small ? 10 : 14 });
+  for (const q of plan.corals) keep.push({ p: q.pos, r: small ? 10 : 14 });
+  for (const q of plan.camps) keep.push({ p: q.pos, r: small ? 8 : 10 });
+  for (const q of plan.neutrals) keep.push({ p: q.pos, r: small ? 10 : 12 });
+  return keep;
+}
+// 點到軸對齊方塊（中心 x, z、寬 w、深 d）的距離；方塊與方塊的間隙
+const boxDist = (px, pz, b) =>
+  Math.hypot(Math.max(Math.abs(px - b.x) - b.w / 2, 0), Math.max(Math.abs(pz - b.z) - b.d / 2, 0));
+const boxGap = (a, b) =>
+  Math.hypot(
+    Math.max(Math.abs(a.x - b.x) - (a.w + b.w) / 2, 0),
+    Math.max(Math.abs(a.z - b.z) - (a.d + b.d) / 2, 0),
+  );
+// 障礙物外形到點的距離（圓柱或軸對齊方塊）
+const obDist = (o, x, z) => (o.kind === 'box' ? boxDist(x, z, o) : Math.hypot(o.x - x, o.z - z) - (o.r || 0));
+
+// ----- 沙丘：新月形沙丘（長軸 rot 方向、兩角往 +v 彎 bow；迎風面（−v）坡度 0.4、背風面 0.55） -----
+const DUNE_WIND = 0.4,
+  DUNE_LEE = 0.55;
+function duneStruct(cx, cz, len, h, rot, bow) {
+  const cs = Math.cos(rot),
+    sn = Math.sin(rot),
+    L2 = len / 2;
+  // 截面是 (1＋cos)/2：最大坡度 h·π／(2·半寬)
+  const hwW = (h * Math.PI) / (2 * DUNE_WIND),
+    hwL = (h * Math.PI) / (2 * DUNE_LEE);
+  const loc = (x, z) => {
+    const dx = x - cx,
+      dz = z - cz;
+    return [dx * cs + dz * sn, -dx * sn + dz * cs];
+  };
+  const v0 = (u) => bow * (u / L2) ** 2;
+  const ext = L2 + Math.max(hwW, hwL) + Math.abs(bow) + 1;
+  const s = {
+    x: cx,
+    z: cz,
+    len,
+    h,
+    rot,
+    bow,
+    hwW,
+    hwL,
+    bb: [cx - ext, cx + ext, cz - ext, cz + ext],
+    toW: (u, v) => P(cx + u * cs - v * sn, cz + u * sn + v * cs),
+    F(x, z) {
+      const [u, v] = loc(x, z);
+      if (Math.abs(u) >= L2) return 0;
+      const dv = v - v0(u);
+      const a = Math.abs(dv) / (dv < 0 ? hwW : hwL);
+      if (a >= 1) return 0;
+      return h * Math.cos(((u / L2) * Math.PI) / 2) ** 2 * 0.5 * (1 + Math.cos(Math.PI * a));
+    },
+    near(x, z, m) {
+      const [u, v] = loc(x, z);
+      if (Math.abs(u) > L2 + m) return false;
+      const dv = v - v0(clamp(u, -L2, L2));
+      return dv > -hwW - m && dv < hwL + m;
+    },
+    samples(m) {
+      const out = [P(cx, cz)];
+      for (let k = 0; k <= 8; k++) {
+        const u = -L2 + (k * len) / 8;
+        out.push(s.toW(u, v0(u) - hwW - m), s.toW(u, v0(u) + hwL + m), s.toW(u, v0(u)));
+      }
+      return out;
+    },
+  };
+  return s;
+}
+// 高度圖加上結構（沙丘：疊在原本的地面上；k 與 N²−1−k 同值，維持對稱）
+function stampAdd(plan, all) {
+  const n = plan.n,
+    h = plan.h,
+    S = plan.size / 2,
+    half = (n * n - 1) / 2;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i;
+      if (k > half) continue;
+      const v = structH(all, i * RTS_CELL - S, j * RTS_CELL - S);
+      if (v <= 0) continue;
+      h[k] += v;
+      h[n * n - 1 - k] = h[k];
+    }
+}
+// 沙丘地帶：每半張圖 4～6 道新月沙丘（一半貼著通道旁、長軸順著通道；其他在中立區），不橫越通道的中線（通道 6 m 內
+// 不放）→ 疊進高度圖（沙丘頂比旁邊高 2.6～3.5 m：低處的視線被擋住）、蓋到的障礙物移除 → 拱形殘骸（只有兩支腳碰撞）→
+// 整個重新檢查 → 迎風面的防沙柵欄（裝飾）
+function dunesAfter(plan, c) {
+  const r = makeRng((c.sub * 71 + 37) >>> 0);
+  const R = (a, b) => a + (b - a) * r();
+  const small = c.size !== 400;
+  const keep = r6Keep(plan, small);
+  const dots = laneDots(plan);
+  const want = r6Count(c, 4 + Math.floor(r() * 3));
+  const dunes = [];
+  const mirrorOf = (d) => duneStruct(-d.x, -d.z, d.len, d.h, d.rot + Math.PI, d.bow);
+  const fits = (d) => {
+    if (Math.hypot(d.x, d.z) < d.len / 2 + Math.max(d.hwW, d.hwL) + 6) return false; // 不碰到自己的鏡像
+    const out = d.samples(0);
+    for (const p of out) if (!c.inUse(p, 6) || c.high(p) > 0.05) return false;
+    for (const k of keep) if (d.near(k.p.x, k.p.z, k.r)) return false;
+    for (const q of dots) if (d.near(q.x, q.z, 6)) return false;
+    for (const o of dunes)
+      for (const p of d.samples(6)) if (o.near(p.x, p.z, 0) || o.near(-p.x, -p.z, 0)) return false;
+    return true;
+  };
+  for (let t = 0; t < 400 && dunes.length < want; t++) {
+    const h = small ? R(2.8, 3.1) : R(2.9, 3.5), // 高 2.5 m 以上擋住低處的視線（地面有起伏：留一點餘裕）
+      len = small ? R(18, 26) : R(24, 35),
+      bow = R(3, 6) * (r() < 0.5 ? 1 : -1);
+    let d;
+    if (t % 2 === 0) {
+      // 通道旁：長軸順著通道，離中線 6 m 以外
+      const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+      if (!lane || lane.length < 2) return '通道不足';
+      const q = laneAt(lane, R(0.12, 0.55));
+      const side = r() < 0.5 ? 1 : -1;
+      const rot = Math.atan2(q.dz, q.dx) + R(-0.25, 0.25);
+      const off = small ? R(12, 18) : R(14, 24);
+      d = duneStruct(q.x - q.dz * side * off, q.z + q.dx * side * off, len, h, rot, bow);
+    } else {
+      const p = c.W(R(5, c.U1 + 30), R(-0.9, 0.9) * c.S);
+      d = duneStruct(p.x, p.z, len, h, R(0, Math.PI), bow);
+    }
+    if (fits(d)) dunes.push(d);
+  }
+  if (dunes.length < c.SZ(4, 2)) return '沙丘放不下';
+  const all = [];
+  for (const d of dunes) all.push(d, mirrorOf(d));
+  stampAdd(plan, all);
+  clearUnder(plan, all);
+  plan.dunes = all.map((d) => ({
+    x: d.x,
+    z: d.z,
+    len: d.len,
+    w: d.hwW + d.hwL,
+    ww: d.hwW, // 迎風面（−v）的半寬
+    h: d.h,
+    rot: d.rot,
+    bow: d.bow,
+  }));
+  // 拱形殘骸（每半張圖 1 座，放不下就不放）：兩支腳是圓柱障礙物（模型是裝飾），從下面可以過
+  const hAt = heightSampler(plan.h, plan.n, plan.size);
+  const decor = [];
+  const SPAN = 9;
+  for (let t = 0; t < 120; t++) {
+    const p = c.W(R(10, c.U1 + 20), R(-0.85, 0.85) * c.S);
+    const yaw = R(0, Math.PI);
+    const fx = Math.cos(yaw) * SPAN,
+      fz = -Math.sin(yaw) * SPAN;
+    const feet = [P(p.x + fx, p.z + fz), P(p.x - fx, p.z - fz)];
+    if (Math.hypot(p.x, p.z) < SPAN + 14) continue;
+    let ok = true;
+    for (const f of [...feet, p]) {
+      if (!c.inUse(f, 6) || c.high(f) > 0.05 || structH(all, f.x, f.z) > 0.05) ok = false;
+      for (const k of keep) if (dist(f, k.p) < k.r) ok = false;
+      for (const o of plan.obstacles) if (obDist(o, f.x, f.z) < 4) ok = false;
+    }
+    if (!ok || Math.abs(hAt(feet[0].x, feet[0].z) - hAt(feet[1].x, feet[1].z)) > 0.6) continue;
+    const gy = (hAt(feet[0].x, feet[0].z) + hAt(feet[1].x, feet[1].z)) / 2;
+    for (const f of feet) {
+      const o = {
+        model: 'archfoot',
+        kind: 'circle',
+        x: f.x,
+        z: f.z,
+        r: 1.7,
+        h: 9.5,
+        y: gy - 0.2,
+        top: gy + 9.3,
+        yaw: 0,
+      };
+      plan.obstacles.push(o, { ...o, x: -f.x, z: -f.z });
+    }
+    const col = Math.floor(r() * 3);
+    decor.push({ model: 'wreckarch', x: p.x, z: p.z, y: gy - 0.3, yaw, color: col });
+    plan.arches = [
+      { x: p.x, z: p.z, yaw, span: SPAN * 2 },
+      { x: -p.x, z: -p.z, yaw: yaw + Math.PI, span: SPAN * 2 },
+    ];
+    break;
+  }
+  if (!validate(plan).ok) return plan.fail;
+  // 防沙柵欄（裝飾，不碰撞）：每道沙丘 1～2 段，沿迎風面（−v 側）的坡腳
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  for (const d of dunes) {
+    const nf = 1 + Math.floor(dr() * 2);
+    for (let k = 0; k < nf; k++) {
+      const u = (dr() - 0.5) * d.len * 0.6;
+      const v = d.bow * (u / (d.len / 2)) ** 2 - d.hwW - 1.5;
+      const q = d.toW(u, v);
+      // 切線（沿本地 u 加上彎曲）：沿本地 X 的柵欄轉到切線方向
+      const du = 1,
+        dv = (2 * d.bow * u) / (d.len / 2) ** 2;
+      const tx = Math.cos(d.rot) * du - Math.sin(d.rot) * dv,
+        tz = Math.sin(d.rot) * du + Math.cos(d.rot) * dv;
+      const len = 6 + dr() * 3;
+      decor.push({
+        model: 'sandfence',
+        x: q.x,
+        z: q.z,
+        y: hAt(q.x, q.z) - 0.6,
+        len,
+        yaw: Math.atan2(-tz, tx),
+      });
+    }
+  }
+  const n0 = decor.length;
+  for (let k = 0; k < n0; k++) {
+    const q = decor[k];
+    decor.push({ ...q, x: -q.x, z: -q.z, yaw: q.yaw + Math.PI });
+  }
+  plan.decor = decor;
+  return '';
+}
+
+// ----- 礦坑地表：中央的露天礦坑（前置地形：在點位與障礙物之前，同多重水壩的 PRE） -----
+// 階梯狀的凹坑（半徑 26～32 m、2～3 階、坑底 −6～−8 m、斷崖 2 m）＋兩條互為 180° 的徑向坡道（寬 12～14、坡度
+// STRUCT_SLOPE：坑外的一段是切進地面的溝），所以本身點對稱。坑底正中央是富礦（rich）與固定的 tier 3 營地；
+// 酒館移到坑的邊緣（和主軸垂直的兩個位置之一：validate 挑兩邊主基地路徑差較小的）。
+// 低地的高度改成 PRE.low（坑裡的起伏壓小），坑與周圍不能放點位（PRE.block），中立建築與外圍分礦的範圍 PRE.range。
+const PIT_CW = 2;
+function pitPre(c, sub) {
+  const r = makeRng((sub * 71 + 37) >>> 0);
+  const R = (a, b) => a + (b - a) * r();
+  const { W, S } = c;
+  const small = S < 200;
+  const Rp = small ? R(15, 17) : R(26, 32);
+  const N = r() < 0.5 ? 2 : 3;
+  const D = small ? R(5.5, 6.5) : R(6, 8);
+  const Rf = small ? R(7, 8) : R(11, 13.5);
+  const slope = small ? 0.5 : STRUCT_SLOPE; // 小地圖：坑小一點、坡道陡一點（NAV_SLOPE 0.6 以下）
+  const ph = R(0, 6.28);
+  const o = W(1, 0);
+  const th = Math.atan2(o.z, o.x);
+  const a0 = th + R(0.3, 0.8) * (r() < 0.5 ? 1 : -1);
+  const rw = R(12, 14);
+  const r0 = Math.max(Rp - 2, Rf + D / slope);
+  // 各階斷崖的頂（由外往內）：最後一階落到坑底（Rf）
+  const tops = [];
+  for (let i = 0; i < N; i++) tops.push(Rp - (i * (Rp - (Rf + PIT_CW))) / (N - 1));
+  const d = D / N;
+  const Zp = Math.max(Rp, r0) + 6;
+  const side = r() < 0.5 ? 1 : -1;
+  const tavern = W(0, side * (Zp + 8));
+  const rMax = Math.max(Rp, r0) + 4;
+  const vCap = S - EDGE - 8 - 18; // 點位 v 的上限（inUse 的邊界內）
+  const ramps = [a0, a0 + Math.PI].map((a) => ({
+    ang: a,
+    w: rw,
+    top: P(Math.cos(a) * r0, Math.sin(a) * r0),
+    bottom: P(Math.cos(a) * Rf, Math.sin(a) * Rf),
+  }));
+  return {
+    key: 'pit',
+    clear: Zp,
+    tavern,
+    pitMine: 8000,
+    block: (p, m) => Math.hypot(p.x, p.z) < Zp + m,
+    low(x, z, lo) {
+      const rad = Math.hypot(x, z);
+      if (rad > rMax) return lo;
+      const a = Math.atan2(z, x);
+      const rr = rad / (1 + 0.04 * Math.sin(2 * a + ph)); // 輪廓的起伏（週期 π：點對稱）
+      let off = 0;
+      for (const t of tops) off -= d * sm((t - rr) / PIT_CW);
+      for (const q of ramps) {
+        const cs = Math.cos(q.ang),
+          sn = Math.sin(q.ang);
+        const al = x * cs + z * sn;
+        if (al < Rf - 4 || al > r0 + 2) continue;
+        const lat = Math.abs(-x * sn + z * cs);
+        const lm = clamp((rw / 2 + 2 - lat) / 2, 0, 1);
+        if (lm <= 0) continue;
+        const ro = -D * clamp((r0 - al) / (r0 - Rf), 0, 1);
+        off += (ro - off) * lm;
+      }
+      const w = sm((Rp + 2 - rad) / 4);
+      return lo * (1 - 0.7 * w) + off;
+    },
+    range: {
+      outer: (U1) => [12, U1 - 22],
+      // 酒館在坑緣的一圈（Zp＋8）：商店、傭兵營、中立的 Coral 在它外側
+      shop: [
+        [-24, 24],
+        [Zp + 30, Math.min(Zp + 64, vCap)],
+      ],
+      merc: [
+        [-56, 56],
+        [Zp + 30, Math.min(Zp + 72, vCap)],
+      ],
+      coral: [
+        [-50, 50],
+        [Zp + 30, Math.min(Zp + 90, vCap)],
+      ],
+    },
+    plan: { r: Rp, rf: Rf, depth: D, tiers: N, tops, ph, zone: Zp, r0, ramps, tavernSide: side },
+  };
+}
+// 礦坑地表（檢查之後）：坑底到得了（validate 的要點 'pit'）→ 裝飾（另一條亂數串）：階地上的礦車軌道與廢棄的礦車
+function pitAfter(plan, c) {
+  const D = plan.pit;
+  const hAt = heightSampler(plan.h, plan.n, plan.size);
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  const decor = [];
+  const ringR = (a, rm) => rm * (1 + 0.04 * Math.sin(2 * a + D.ph));
+  // 每一階的平台中線（坑底除外）；坡道兩側 0.6 rad 內不放
+  const rings = [];
+  for (let i = 0; i + 1 < D.tops.length; i++) rings.push((D.tops[i] - PIT_CW + D.tops[i + 1]) / 2);
+  rings.push(Math.max(4, D.rf - 4)); // 坑底的一圈
+  const a0 = D.ramps[0].ang;
+  for (const rm of rings) {
+    const seg = 5;
+    for (let a = a0 + 0.6; a < a0 + Math.PI - 0.6; a += seg / rm) {
+      const rr = ringR(a, rm);
+      const x = Math.cos(a) * rr,
+        z = Math.sin(a) * rr;
+      decor.push({ model: 'minerail', x, z, y: hAt(x, z) + 0.02, len: seg + 0.1, yaw: -a });
+      if (dr() < 0.12)
+        decor.push({ model: 'minecart', x, z, y: hAt(x, z) + 0.15, yaw: -a, color: Math.floor(dr() * 3) });
+    }
+  }
+  const n0 = decor.length;
+  for (let k = 0; k < n0; k++) {
+    const q = decor[k];
+    decor.push({ ...q, x: -q.x, z: -q.z, yaw: q.yaw + Math.PI });
+  }
+  plan.decor = decor;
+  return '';
+}
+
+// ----- 貨運集散場：龍門起重機（每半張圖 1 座跨在通道上，只有四支腳碰撞）與貨櫃堆（每半張圖 5～8 組，排成巷道） -----
+const CTR_L = 12,
+  CTR_H = 2.6;
+function yardAfter(plan, c) {
+  const r = makeRng((c.sub * 71 + 37) >>> 0);
+  const R = (a, b) => a + (b - a) * r();
+  const small = c.size !== 400;
+  const keep = r6Keep(plan, small);
+  const dots = laneDots(plan);
+  const hAt = heightSampler(plan.h, plan.n, plan.size);
+  const decor = [];
+  // 龍門起重機：通道 A 側 20～60% 處，腳在通道兩側 ±span/2（橫樑 14 m 高，從下面過）、沿通道 ±3.5
+  let gan = null;
+  for (let t = 0; t < 200 && !gan; t++) {
+    const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+    if (!lane || lane.length < 2) return '通道不足';
+    const q = laneAt(lane, R(0.2, 0.6));
+    const span = R(18, 22);
+    if (Math.hypot(q.x, q.z) < span + 10) continue;
+    const px = -q.dz,
+      pz = q.dx;
+    const legs = [];
+    for (const s of [-1, 1])
+      for (const a of [-3.5, 3.5])
+        legs.push(P(q.x + px * s * (span / 2) + q.dx * a, q.z + pz * s * (span / 2) + q.dz * a));
+    let ok = true;
+    const gs = legs.map((p) => hAt(p.x, p.z));
+    if (Math.max(...gs) - Math.min(...gs) > 0.8) continue;
+    for (const p of legs) {
+      if (!c.inUse(p, 6) || c.high(p) > 0.05) ok = false;
+      for (const k of keep) if (dist(p, k.p) < k.r - 4) ok = false;
+      for (const o of plan.obstacles) if (obDist(o, p.x, p.z) < 2.5) ok = false;
+    }
+    if (ok)
+      gan = {
+        x: q.x,
+        z: q.z,
+        span,
+        legs,
+        gy: Math.min(...gs),
+        yaw: Math.atan2(-q.dx, -q.dz),
+        dx: q.dx,
+        dz: q.dz,
+      };
+  }
+  if (!gan) return '龍門起重機放不下';
+  const GH = 14;
+  for (const p of gan.legs) {
+    const o = { model: 'gantryleg', kind: 'circle', x: p.x, z: p.z, r: 0.8, h: GH + 1.5, y: gan.gy - 0.1 };
+    o.top = o.y + o.h;
+    plan.obstacles.push(o, { ...o, x: -p.x, z: -p.z });
+  }
+  decor.push({ model: 'gantry', x: gan.x, z: gan.z, y: gan.gy - 0.1, yaw: gan.yaw, span: gan.span, h: GH });
+  plan.gantries = [
+    { x: gan.x, z: gan.z, yaw: gan.yaw, span: gan.span, h: GH },
+    { x: -gan.x, z: -gan.z, yaw: gan.yaw + Math.PI, span: gan.span, h: GH },
+  ];
+  // 起重機底下（腳的外框＋4 m）不放貨櫃堆
+  const ganBox = (g) => {
+    let x0 = 1e9,
+      x1 = -1e9,
+      z0 = 1e9,
+      z1 = -1e9;
+    for (const p of g.legs) {
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      z0 = Math.min(z0, p.z);
+      z1 = Math.max(z1, p.z);
+    }
+    return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0 + 8, d: z1 - z0 + 8 };
+  };
+  const gb = ganBox(gan);
+  const gbs = [gb, { ...gb, x: -gb.x, z: -gb.z }];
+  // 貨櫃堆：1～3 列（沿短邊並排）、每列 1～3 層，合計 2～6 個；方塊碰撞＝外框（90° 為單位）
+  const want = r6Count(c, 5 + Math.floor(r() * 4));
+  const stacks = [];
+  for (let t = 0; t < 700 && stacks.length < want; t++) {
+    const cols = 1 + Math.floor(r() * 3);
+    const lay = [];
+    for (let i = 0; i < cols; i++) lay.push(1 + Math.floor(r() * 3));
+    while (lay.reduce((a, b) => a + b, 0) > 6) lay[lay.indexOf(Math.max(...lay))]--;
+    if (lay.reduce((a, b) => a + b, 0) < 2) lay[0] = 2;
+    const q4 = Math.floor(r() * 4);
+    const d0 = CTR_H * cols;
+    const [w, d] = q4 & 1 ? [d0, CTR_L] : [CTR_L, d0];
+    let p;
+    if (t % 3 !== 2) {
+      const lane = plan.lanes[Math.floor(r() * plan.lanes.length)];
+      const q = laneAt(lane, R(0.08, 0.55));
+      const side = r() < 0.5 ? 1 : -1;
+      const off = 6 + Math.max(w, d) / 2 + R(1, 9);
+      p = P(q.x - q.dz * side * off, q.z + q.dx * side * off);
+    } else p = c.W(R(5, c.U1 + 25), R(-0.9, 0.9) * c.S);
+    const b = { x: p.x, z: p.z, w, d };
+    const cs = [
+      P(p.x - w / 2, p.z - d / 2),
+      P(p.x + w / 2, p.z - d / 2),
+      P(p.x - w / 2, p.z + d / 2),
+      P(p.x + w / 2, p.z + d / 2),
+    ];
+    let ok = Math.hypot(p.x, p.z) > Math.hypot(w, d) / 2 + 3; // 和自己的鏡像隔 5 m 以上
+    for (const q of [p, ...cs]) if (!c.inUse(q, 4) || c.high(q) > 0.05) ok = false;
+    if (!ok) continue;
+    const gs = cs.map((q) => hAt(q.x, q.z));
+    if (Math.max(...gs) - Math.min(...gs) > 1) continue;
+    if (dots.some((q) => boxDist(q.x, q.z, b) < 6)) continue;
+    if (keep.some((k) => boxDist(k.p.x, k.p.z, b) < k.r)) continue;
+    if (
+      plan.obstacles.some(
+        (o) =>
+          (o.kind === 'box' ? boxGap(o, b) : boxDist(o.x, o.z, b) - (o.r || 0)) <
+          (o.model === 'ctrstack' ? 5 : 3),
+      )
+    )
+      continue;
+    if (gbs.some((g) => boxGap(g, b) < 0.01)) continue;
+    const y = Math.min(...gs) - 0.15;
+    const h = Math.max(...lay) * CTR_H;
+    const o = {
+      model: 'ctrstack',
+      kind: 'box',
+      x: p.x,
+      z: p.z,
+      w,
+      d,
+      h,
+      y,
+      top: y + h,
+      yaw: q4 * (Math.PI / 2),
+      lay,
+      color: Math.floor(r() * 5),
+    };
+    plan.obstacles.push(o, { ...o, x: -o.x, z: -o.z, yaw: o.yaw + Math.PI });
+    stacks.push(o);
+  }
+  if (stacks.length < c.SZ(4, 2)) return '貨櫃堆放不下';
+  plan.stacks = [];
+  for (const o of stacks)
+    plan.stacks.push(
+      { x: o.x, z: o.z, w: o.w, d: o.d, h: o.h, rot: o.yaw },
+      { x: -o.x, z: -o.z, w: o.w, d: o.d, h: o.h, rot: o.yaw + Math.PI },
+    );
+  if (!validate(plan).ok) return plan.fail;
+  // 巷道：重新算出的通道上每 2 m 往兩側找到不能走的地方，有一側是貨櫃堆時寬度要 ≥ 8 m
+  const narrow = yardNarrow(plan);
+  if (narrow < 8) return `貨櫃巷道只有 ${narrow.toFixed(1)} m`;
+  plan.yardMin = narrow;
+  // 地面的裝飾（另一條亂數串）：貨櫃堆旁的棧板（不碰撞）
+  const dr = makeRng((c.sub * 61 + 29) >>> 0);
+  for (const o of stacks)
+    if (dr() < 0.5) {
+      const s = dr() < 0.5 ? 1 : -1;
+      const along = o.w > o.d;
+      const x = o.x + (along ? (dr() - 0.5) * o.w * 0.6 : s * (o.w / 2 + 1.2)),
+        z = o.z + (along ? s * (o.d / 2 + 1.2) : (dr() - 0.5) * o.d * 0.6);
+      decor.push({ model: 'pallets', x, z, y: hAt(x, z), yaw: o.yaw });
+    }
+  const n0 = decor.length;
+  for (let k = 0; k < n0; k++) {
+    const q = decor[k];
+    decor.push({ ...q, x: -q.x, z: -q.z, yaw: q.yaw + Math.PI });
+  }
+  plan.decor = decor;
+  return '';
+}
+// 通道最窄處（只算有一側碰到貨櫃堆的地方；m）：rts-map-test 也用
+export function yardNarrow(plan) {
+  const nav = plan.nav;
+  if (!nav) return Infinity;
+  const stacks = plan.obstacles.filter((o) => o.model === 'ctrstack');
+  const inStack = (x, z) => stacks.some((b) => boxDist(x, z, b) < 1.2);
+  let worst = Infinity;
+  for (const ln of plan.lanes)
+    for (let k = 1; k < ln.length; k++) {
+      const a = ln[k - 1],
+        b = ln[k];
+      const sl = Math.hypot(b.x - a.x, b.z - a.z);
+      if (sl < 1e-6) continue;
+      const nx = -(b.z - a.z) / sl,
+        nz = (b.x - a.x) / sl;
+      const m = Math.max(1, Math.ceil(sl / 2));
+      for (let s = 0; s < m; s++) {
+        const x = a.x + ((b.x - a.x) * s) / m,
+          z = a.z + ((b.z - a.z) * s) / m;
+        if (!nav.walkableAt(x, z, 0)) continue;
+        let w = 0,
+          hit = false;
+        for (const sg of [1, -1]) {
+          let e = 0;
+          while (e < 12 && nav.walkableAt(x + nx * sg * (e + 0.5), z + nz * sg * (e + 0.5), 0)) e += 0.5;
+          if (e < 12 && inStack(x + nx * sg * (e + 0.5), z + nz * sg * (e + 0.5))) hit = true;
+          w += e;
+        }
+        if (hit && w < worst) worst = w;
+      }
+    }
+  return worst;
+}
+
 function fail(plan, why) {
   plan.ok = false;
   plan.fail = why;
@@ -2033,7 +2852,7 @@ export function validate(plan, nav) {
     const fd = (RTS_NEUTRAL_FOOT[q.kind] || [8, 8])[1] / 2 + 6;
     if (q.near === 0)
       keys.push([q.kind, P(q.pos.x + Math.sin(q.yaw || 0) * fd, q.pos.z + Math.cos(q.yaw || 0) * fd)]);
-    else if (q.kind === 'tavern')
+    else if (q.kind === 'tavern' && !plan.pit)
       keys.push([q.kind, P(q.pos.x + (bA.pos.x / off) * fd, q.pos.z + (bA.pos.z / off) * fd)]);
   }
   for (const c of plan.chokes.filter((_, i) => i % 2 === 0)) keys.push(['choke', c.pos]);
@@ -2042,6 +2861,8 @@ export function validate(plan, nav) {
   for (const q of plan.steps || []) if (q.near === 0) keys.push(['step', q.top]);
   // R5 的多重水壩：兩組坡道上去的壩頂（兩邊都要到得了、代價相等）
   for (const q of (plan.dam && plan.dam.tops) || []) keys.push(['dam', q]);
+  // R6 的礦坑地表：坑底（正中央的富礦，兩邊到得了、大型單位下得去）
+  if (plan.pit) keys.push(['pit', P(0, 0)]);
   keys.push(['enemyBase', bB.pos]);
   let worst = 0;
   const costs = [];
@@ -2059,6 +2880,103 @@ export function validate(plan, nav) {
     costs.push({ name, a: Math.round(ca), b: Math.round(cb) });
     if (d > 0.03) return fail(plan, `${name} 路徑長度差 ${(d * 100).toFixed(1)}%`);
   }
+  // 礦坑地表：酒館在坑的邊緣（只有一間，不是點對稱）：兩邊主基地到酒館背面的路徑代價差 < 8%。
+  // 第一次檢查時沿坑緣（和主軸垂直的兩側各 ±1.5 rad、避開坡道）以兩邊主基地的流場距離挑差最小的位置，
+  // 換了位置就重新檢查一次
+  const tavQ = plan.pit && plan.neutrals.find((q) => q.kind === 'tavern');
+  let tavD;
+  if (tavQ) {
+    const fd = RTS_NEUTRAL_FOOT.tavern[1] / 2 + 6;
+    const backOf = (pos) => {
+      const yaw = neutralYaw(pos);
+      return P(pos.x - Math.sin(yaw) * fd, pos.z - Math.cos(yaw) * fd);
+    };
+    if (!plan.pit.picked) {
+      plan.pit.picked = true;
+      const fa = nav.flowField(bA.pos.x, bA.pos.z, 1),
+        fb = nav.flowField(bB.pos.x, bB.pos.z, 1);
+      const rT = Math.hypot(tavQ.pos.x, tavQ.pos.z);
+      const others = [
+        ...plan.mines.map((m) => [m.pos, 14]),
+        ...plan.corals.map((q) => [q.pos, 12]),
+        ...plan.camps.map((q) => [q.pos, 12]),
+        ...plan.neutrals.filter((q) => q !== tavQ).map((q) => [q.pos, 18]),
+      ];
+      const [tw, tdp] = RTS_NEUTRAL_FOOT.tavern;
+      const cands = [];
+      for (const sg of [1, -1])
+        for (let f = -1.5; f <= 1.5001; f += 0.05)
+          for (const rr of [rT, rT + 5, rT + 10, rT + 15]) {
+            const a = plan.axis + sg * (Math.PI / 2 + f);
+            if (
+              plan.pit.ramps.some(
+                (q) => Math.abs(Math.atan2(Math.sin(a - q.ang), Math.cos(a - q.ang))) < 0.35,
+              )
+            )
+              continue;
+            const pos = P(Math.cos(a) * rr, Math.sin(a) * rr);
+            if (others.some(([q, rr]) => dist(q, pos) < rr)) continue;
+            const yaw = neutralYaw(pos);
+            const [w2, d2] = (Math.round(yaw / (Math.PI / 2)) & 1 ? [tdp, tw] : [tw, tdp]).map(
+              (v) => v / 2 + 1,
+            );
+            if (
+              [
+                [0, 0],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+                [1, 1],
+              ].some(([sx, sz]) => !nav.walkableAt(pos.x + sx * w2, pos.z + sz * d2, 0))
+            )
+              continue;
+            const b = backOf(pos);
+            const ca = fa.dist(b.x, b.z),
+              cb = fb.dist(b.x, b.z);
+            if (!isFinite(ca) || !isFinite(cb)) continue;
+            const d = Math.abs(ca - cb) / Math.max(ca, cb, 1);
+            cands.push({ d, pos });
+          }
+      // 流場（不切角）和 A* 的代價有一點差，酒館本身也會擋路：流場最好的 6 個把酒館的佔地搬過去再用 pathCost 比
+      cands.sort((p, q) => p.d - q.d);
+      let best = null;
+      const foot = (pos, on) => {
+        const [fw, fdp] = neutralFoot({ kind: 'tavern', yaw: neutralYaw(pos) });
+        nav.block(pos.x, pos.z, fw, fdp, 0, on);
+      };
+      // 酒館也不能讓兩邊到坑底的路變得不一樣（擋到一邊的坡道口）：取兩者較大的差
+      const pitD = () => {
+        const ca = nav.pathCost(bA.pos, P(0, 0), 1),
+          cb = nav.pathCost(bB.pos, P(0, 0), 1);
+        return Math.abs(ca - cb) / Math.max(ca, cb, 1);
+      };
+      foot(tavQ.pos, false);
+      for (const q of cands.slice(0, 6)) {
+        foot(q.pos, true);
+        const b = backOf(q.pos);
+        const ca = nav.pathCost(bA.pos, b, 1),
+          cb = nav.pathCost(bB.pos, b, 1);
+        const dp = pitD();
+        foot(q.pos, false);
+        const d = Math.max(Math.abs(ca - cb) / Math.max(ca, cb, 1), dp);
+        if (isFinite(d) && (!best || d < best.d)) best = { d, pos: q.pos };
+      }
+      foot(tavQ.pos, true);
+      if (best && dist(best.pos, tavQ.pos) > 0.01) {
+        tavQ.pos = best.pos;
+        tavQ.yaw = neutralYaw(best.pos);
+        return validate(plan);
+      }
+    }
+    const bp = backOf(tavQ.pos);
+    const ca = nav.pathCost(bA.pos, bp, 1),
+      cb = nav.pathCost(bB.pos, bp, 1);
+    const d = Math.abs(ca - cb) / Math.max(ca, cb, 1);
+    tavD = d; // 不算進 worst（門檻不同）
+    costs.push({ name: 'tavern', a: Math.round(ca), b: Math.round(cb) });
+    // 酒館只有一間（不是點對稱的位置）：門檻放寬到 8%（坑緣一圈裡最公平的位置；資源與營地照舊 3%）
+    if (!isFinite(d) || d > 0.08) return fail(plan, `酒館路徑長度差 ${(d * 100).toFixed(1)}%`);
+  }
   // 主基地只有一條坡道：把坡道堵住後，平台和自然分礦不通
   const r = bA.ramp;
   const mx = (r.top.x + r.bottom.x) / 2,
@@ -2072,6 +2990,7 @@ export function validate(plan, nav) {
   const slots = countSlots(nav, bA.pos, bA.r);
   if (slots < 20) return fail(plan, `建築格只有 ${slots}`);
   plan.check = { worst, costs, slots };
+  if (tavD !== undefined) plan.check.tavern = tavD;
   plan.lanes = makeLanes(plan, nav);
   plan.ok = true;
   plan.fail = '';

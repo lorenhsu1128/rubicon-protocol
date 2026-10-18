@@ -19,7 +19,7 @@ export const RTS_XP_HERO = [0, 100, 120, 160, 220, 300, 380, 470, 570, 680, 800]
 // 野怪的經驗倍率（依英雄等級；5 級以後 0）
 export const RTS_XP_CREEP_K = [0, 0.8, 0.7, 0.6, 0.5, 0, 0, 0, 0, 0, 0];
 export const RTS_XP_R = 40; // 分經驗的距離（m）
-export const RTS_XP_PILOT = 1.15; // 親自駕駛中的英雄多拿的經驗（暫定）
+export const RTS_XP_PILOT = 1.15; // 親自駕駛中的英雄多拿的經驗（R6 定案：不再加別的獎勵，docs 17.2 #2）
 export const RTS_HERO_LVUP_HEAL = 0.25; // 升級時回復最大血量的比例
 // 復活（主堡）：礦石 120＋35×等級、時間 10＋5×等級秒；酒館的立刻復活：費用 ×1.5、只回半血
 export const RTS_REVIVE = { ore0: 120, oreLv: 35, t0: 10, tLv: 5, tavernK: 1.5, tavernHp: 0.5 };
@@ -89,11 +89,11 @@ export const RTS_SKILLS = {
     auto: true,
     aiR: 46,
     lv: L3(
-      { coral: 25, cd: 12, n: 8, R: 8, dmg: 40 },
-      { coral: 30, cd: 12, n: 12, R: 8, dmg: 40 },
-      { coral: 35, cd: 12, n: 16, R: 8, dmg: 40 },
+      { coral: 25, cd: 12, n: 8, R: 8, dmg: 36 },
+      { coral: 30, cd: 12, n: 12, R: 8, dmg: 36 },
+      { coral: 35, cd: 12, n: 16, R: 8, dmg: 33 },
     ),
-    desc: '半徑 8 m 內 3 秒落下 8／12／16 發飛彈，每發 40 爆發',
+    desc: '半徑 8 m 內 3 秒落下 8／12／16 發飛彈，每發 36／36／33 爆發',
   },
   sk_mark: {
     name: '標定',
@@ -148,8 +148,8 @@ export const RTS_SKILLS = {
     tgt: 'enemy',
     range: 6,
     auto: true,
-    lv: L3({ coral: 20, cd: 10, dmg: 180 }, { coral: 20, cd: 10, dmg: 280 }, { coral: 20, cd: 10, dmg: 380 }),
-    desc: '單體 180／280／380 穿甲並打出失衡',
+    lv: L3({ coral: 20, cd: 10, dmg: 198 }, { coral: 20, cd: 10, dmg: 280 }, { coral: 20, cd: 10, dmg: 380 }),
+    desc: '單體 198／280／380 穿甲並打出失衡',
   },
   sk_break: {
     name: '破甲',
@@ -163,8 +163,8 @@ export const RTS_SKILLS = {
     slot: 3,
     kind: 'self',
     aiR: 14,
-    lv: [{ coral: 80, cd: 100, n: 3, step: 5, R: 6, dmg: 150, stun: 0.8, speed: 1.3, t: 8 }],
-    desc: '往前方連續 3 次噴發，每次 150 爆發＋失衡；之後 8 秒移動速度 +30%',
+    lv: [{ coral: 80, cd: 100, n: 3, step: 5, R: 6, dmg: 165, stun: 0.8, speed: 1.3, t: 8 }],
+    desc: '往前方連續 3 次噴發，每次 165 爆發＋失衡；之後 8 秒移動速度 +30%',
   },
   // ===== RUST（酒館） =====
   sk_scav: {
@@ -184,10 +184,10 @@ export const RTS_SKILLS = {
     aiR: 28,
     lv: L3(
       { coral: 15, cd: 10, R: 5, dmg: 120 },
-      { coral: 15, cd: 10, R: 5, dmg: 180 },
+      { coral: 15, cd: 10, R: 5, dmg: 146 },
       { coral: 15, cd: 10, R: 5, dmg: 240 },
     ),
-    desc: '指定地點範圍 5 m 120／180／240 實彈',
+    desc: '指定地點範圍 5 m 120／146／240 實彈',
   },
   sk_salvage: {
     name: '回收再利用',
@@ -201,8 +201,8 @@ export const RTS_SKILLS = {
     slot: 3,
     kind: 'self',
     aiR: 12,
-    lv: [{ coral: 80, cd: 110, t: 8, R: 12, dmg: 60, armor: 5 }],
-    desc: '8 秒內每秒對 12 m 內的敵人 60 實彈、自己護甲 +5',
+    lv: [{ coral: 80, cd: 110, t: 8, R: 12, dmg: 49, armor: 5 }],
+    desc: '8 秒內每秒對 12 m 內的敵人 49 實彈、自己護甲 +5',
   },
   // ===== SIROCCO =====
   sk_sand: {
@@ -227,16 +227,16 @@ export const RTS_SKILLS = {
     lv: L3(
       { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 150, stun: 1 },
       { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 225, stun: 1 },
-      { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 300, stun: 1 },
+      { coral: 20, cd: 14, hide: 1.5, R: 4, dmg: 290, stun: 1 },
     ),
-    desc: '鑽進地下（不能被攻擊），從目標腳下鑽出 150／225／300 爆發＋暈眩 1 秒',
+    desc: '鑽進地下（不能被攻擊），從目標腳下鑽出 150／225／290 爆發＋暈眩 1 秒',
   },
   sk_evade: {
     name: '迴避',
     slot: 2,
     kind: 'passive',
     lv: L3({ taken: 0.9 }, { taken: 0.8 }, { taken: 0.7 }),
-    desc: '受到的傷害 −10／20／30%',
+    desc: '受到的傷害 −10／20／30%（所有攻擊：RTS 的傷害不分遠程與近戰）',
   },
   sk_dome: {
     name: '沙暴領域',
@@ -261,8 +261,8 @@ export const RTS_SKILLS = {
     tgt: 'enemy',
     range: 70,
     auto: true,
-    lv: L3({ coral: 20, cd: 12, dmg: 300 }, { coral: 20, cd: 12, dmg: 400 }, { coral: 20, cd: 12, dmg: 500 }),
-    desc: '射程 70，300／400／500 穿甲',
+    lv: L3({ coral: 20, cd: 12, dmg: 300 }, { coral: 20, cd: 12, dmg: 375 }, { coral: 20, cd: 12, dmg: 450 }),
+    desc: '射程 70，300／375／450 穿甲',
   },
   sk_ambushfire: {
     name: '冷彈',
@@ -301,11 +301,11 @@ export const RTS_SKILLS = {
     range: 20,
     auto: true,
     lv: L3(
-      { coral: 15, cd: 12, dps: 30, t: 6, speed: 0.7 },
+      { coral: 15, cd: 12, dps: 36, t: 6, speed: 0.7 },
       { coral: 15, cd: 12, dps: 45, t: 6, speed: 0.6 },
       { coral: 15, cd: 12, dps: 60, t: 6, speed: 0.5 },
     ),
-    desc: '纏附敵方單位 6 秒：每秒 30／45／60、移動速度 −30／40／50%',
+    desc: '纏附敵方單位 6 秒：每秒 36／45／60、移動速度 −30／40／50%',
   },
   sk_regen: {
     name: '再生',
@@ -365,11 +365,11 @@ export const RTS_SKILLS = {
     range: 45,
     auto: true,
     lv: L3(
-      { coral: 15, cd: 10, n: 4, dmg: 35 },
-      { coral: 20, cd: 10, n: 6, dmg: 35 },
-      { coral: 25, cd: 10, n: 8, dmg: 35 },
+      { coral: 15, cd: 10, n: 4, dmg: 38 },
+      { coral: 20, cd: 10, n: 6, dmg: 38 },
+      { coral: 25, cd: 10, n: 8, dmg: 38 },
     ),
-    desc: '鎖定目標發射 4／6／8 枚，每枚 35 爆發',
+    desc: '鎖定目標發射 4／6／8 枚，每枚 38 爆發',
   },
   sk_burner: {
     name: '推進器噴火',
@@ -388,7 +388,7 @@ export const RTS_SKILLS = {
     slot: 2,
     kind: 'passive',
     lv: L3({ range: 4 }, { range: 6 }, { range: 8 }),
-    desc: '射程 +4／6／8',
+    desc: '所有武器的射程 +4／6／8',
   },
   sk_launch: {
     name: '發射倒數',
@@ -396,8 +396,8 @@ export const RTS_SKILLS = {
     kind: 'point',
     range: 60,
     aiR: 55,
-    lv: [{ coral: 90, cd: 140, delay: 10, R: 14, dmg: 400 }],
-    desc: '指定地點預警圈 10 秒後，半徑 14 m 400 爆發',
+    lv: [{ coral: 90, cd: 140, delay: 10, R: 14, dmg: 380 }],
+    desc: '指定地點預警圈 10 秒後，半徑 14 m 380 爆發',
   },
   // ===== UNDERTOW =====
   sk_shove: {
@@ -439,8 +439,8 @@ export const RTS_SKILLS = {
     slot: 3,
     kind: 'self',
     aiR: 14,
-    lv: [{ coral: 80, cd: 110, R: 18, stun: 2, dmg: 80 }],
-    desc: '把 18 m 內的敵方單位拉到中心並暈眩 2 秒（80 實彈）',
+    lv: [{ coral: 80, cd: 110, R: 18, stun: 2, dmg: 96 }],
+    desc: '把 18 m 內的敵方單位拉到中心並暈眩 2 秒（96 實彈）',
   },
   // ===== MARSH =====
   sk_lurk: {
@@ -476,8 +476,8 @@ export const RTS_SKILLS = {
     slot: 3,
     kind: 'self',
     aiR: 16,
-    lv: [{ coral: 80, cd: 120, R: 20, t: 12, speed: 0.65, dps: 20 }],
-    desc: '半徑 20 m 腐蝕地 12 秒：敵方移動 −35%、每秒 20',
+    lv: [{ coral: 80, cd: 120, R: 20, t: 12, speed: 0.65, dps: 22 }],
+    desc: '半徑 20 m 腐蝕地 12 秒：敵方移動 −35%、每秒 22',
   },
   // ===== PRISM（艾瑟立克，docs 14.4） =====
   sk_refract: {
@@ -489,11 +489,11 @@ export const RTS_SKILLS = {
     auto: true,
     aiR: 36,
     lv: L3(
-      { coral: 20, cd: 10, len: 40, w: 3, dmg: 90, bldK: 0.5, warn: 0.6 },
+      { coral: 20, cd: 10, len: 40, w: 3, dmg: 79, bldK: 0.5, warn: 0.6 },
       { coral: 25, cd: 10, len: 40, w: 3, dmg: 140, bldK: 0.5, warn: 0.6 },
       { coral: 30, cd: 10, len: 40, w: 3, dmg: 190, bldK: 0.5, warn: 0.6 },
     ),
-    desc: '朝指定方向 40 m、寬 3 m 的直線：預警 0.6 秒後每個敵人 90／140／190 能量（建築 ×0.5）',
+    desc: '朝指定方向 40 m、寬 3 m 的直線：預警 0.6 秒後每個敵人 79／140／190 能量（建築 ×0.5）',
   },
   sk_prism: {
     name: '稜鏡屏障',
@@ -624,11 +624,11 @@ export const RTS_SKILLS = {
     aiR: 24,
     ai: { k: 'line', n: 3 },
     lv: L3(
-      { coral: 15, cd: 10, dmg: 70, w: 3, t: 0.4 },
+      { coral: 15, cd: 10, dmg: 77, w: 3, t: 0.4 },
       { coral: 20, cd: 10, dmg: 110, w: 3, t: 0.4 },
       { coral: 25, cd: 10, dmg: 150, w: 3, t: 0.4 },
     ),
-    desc: '0.4 秒衝到 25 m 內的地點，路線 3 m 內的敵人 70／110／150 實彈（穿過單位，不能穿過建築與障礙物）',
+    desc: '0.4 秒衝到 25 m 內的地點，路線 3 m 內的敵人 77／110／150 實彈（穿過單位，不能穿過建築與障礙物）',
   },
   sk_drop: {
     name: '補給投放',
@@ -737,9 +737,9 @@ export const RTS_SKILLS = {
     lv: L3(
       { coral: 15, cd: 12, delay: 0.5, R: 7, dmg: 120, gK: 0.5 },
       { coral: 20, cd: 12, delay: 0.5, R: 7, dmg: 180, gK: 0.5 },
-      { coral: 25, cd: 12, delay: 0.5, R: 7, dmg: 240, gK: 0.5 },
+      { coral: 25, cd: 12, delay: 0.5, R: 7, dmg: 230, gK: 0.5 },
     ),
-    desc: '半徑 7 m 0.5 秒後空爆：空中與低空單位 120／180／240 穿甲，地面單位 50%',
+    desc: '半徑 7 m 0.5 秒後空爆：空中與低空單位 120／180／230 穿甲，地面單位 50%',
   },
   sk_jam: {
     name: '干擾吊艙',
@@ -877,9 +877,9 @@ export const RTS_SKILLS = {
     lv: L3(
       { coral: 20, cd: 18, R: 8, n: 4, dmg: 80, life: 60 },
       { coral: 25, cd: 18, R: 8, n: 6, dmg: 100, life: 60 },
-      { coral: 30, cd: 18, R: 8, n: 8, dmg: 120, life: 60 },
+      { coral: 30, cd: 18, R: 8, n: 8, dmg: 98, life: 60 },
     ),
-    desc: '半徑 8 m 立刻布下 4／6／8 顆地雷（80／100／120 爆發，60 秒後消失；不算布雷無人機的上限）',
+    desc: '半徑 8 m 立刻布下 4／6／8 顆地雷（80／100／98 爆發，60 秒後消失；不算布雷無人機的上限）',
   },
   sk_haven: {
     name: '避難護盾',

@@ -4749,6 +4749,7 @@ async function testPadUi(browser, base) {
     t('mp', () => g.openMP());
     t('levels', () => g.openLevels());
     t('rtsMenu', () => g.rtsMenuOpen());
+    t('rtsHelp', () => (g.rtsMenuOpen(), g.rtsMenuHelp(true)));
     t('result', go('result', 'result'));
     t('campTrans', go('camptrans', 'campTrans'));
     t('campFail', go('campfail', 'campFail'));
@@ -15159,6 +15160,57 @@ const RTS_R4F = require('./smoke-rts-veer-f')({
   SHOT_DIR,
   path,
 });
+// R6 B 包（電腦對手的難度）
+const RTS_R6B = require('./smoke-rts-r6-b')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R6 D 包（單位與中立的表現）
+const RTS_R6D = require('./smoke-rts-r6-d')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R6 A 包（平衡與核心）
+const RTS_R6A = require('./smoke-rts-r6-a')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+// R6 E 包（收尾的介面：選單、說明、提示卡、設定、投降、結果畫面）
+// R6 C 包（地圖主題與地圖大小）
+const RTS_R6C = require('./smoke-rts-r6-c')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
+const RTS_R6E = require('./smoke-rts-r6-e')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+  watch,
+});
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15267,6 +15319,12 @@ const STEPS = [
   ['testRtsSancUnits', (c) => RTS_R5B.testRtsSancUnits(c.browser, c.base)],
   ['testRtsThemes3', (c) => RTS_R5D.testRtsThemes3(c.browser, c.base)],
   ['testRtsSancAi', (c) => RTS_R5F.testRtsSancAi(c.browser, c.base)],
+  ['testRtsAiDiff', (c) => RTS_R6B.testRtsAiDiff(c.browser, c.base)],
+  ['testRtsCreeps', (c) => RTS_R6D.testRtsCreeps(c.browser, c.base)],
+  ['testRtsBalance', () => RTS_R6A.testRtsBalance()],
+  ['testRtsEnd', (c) => RTS_R6A.testRtsEnd(c.browser, c.base)],
+  ['testRtsFinish', (c) => RTS_R6E.testRtsFinish(c.browser, c.base)],
+  ['testRtsThemes4', (c) => RTS_R6C.testRtsThemes4(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

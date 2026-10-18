@@ -11,6 +11,8 @@
 //   tech：{ t2, t3 }＝升級主堡的人口門檻（難度的 t2T／t3T 是時間下限；時間超過下限 90 秒時不看人口）；
 //   research：研究順序（同一個 id 出現第 n 次＝第 n 級；難度的 resMax 限制級數）；
 //   mix2／mix3：T2、T3 之後的兵種比例（沒有生產建築的兵種略過）；towers：基地被攻擊兩次之後蓋幾座防禦塔。
+//   （R6 B 包）creepTier：這套開局打野的營地等級上限（和難度的取小）；creep0：第一次打野的條件（{ 兵種 id: 台數 }，
+//   任一種到了就可以）。
 export const RTS_AI_OPENERS = {
   castron: [
     {
@@ -100,7 +102,7 @@ export const RTS_AI_OPENERS = {
       ],
       wk0: 13,
       mix: { a_laser: 2, a_blob: 3 },
-      armyK: 1,
+      armyK: 1.25, // （R6：1 → 1.25，實驗體 1 人口、雷射步兵吃 Coral，9 台出發的話打到營地與防守就只剩幾台）
       attackK: 1,
       expandK: 1,
       hero: 'h_prism',
@@ -110,7 +112,7 @@ export const RTS_AI_OPENERS = {
       mix2: { a_laser: 2, a_blob: 3, a_beam: 1, a_parasite: 1, a_holo: 0.5 },
       mix3: { a_laser: 2, a_beam: 2, a_blob: 3, a_reson: 1, a_bit: 1 },
       towers: 2,
-      fuse: { keep: 3, proto: true },
+      fuse: { keep: 1, proto: true }, // （R6：3 → 1，Coral 少、實驗體在家很少超過 3 隻，17 分鐘一組都融合不起來）
     },
     {
       id: 'swarm',
@@ -135,6 +137,9 @@ export const RTS_AI_OPENERS = {
       mix3: { a_blob: 4, a_parasite: 1, a_beam: 1, a_bit: 1 },
       towers: 1,
       fuse: { keep: 6, proto: true },
+      // （R6 B 包，docs 17.2 #16）實驗體近戰在打野吃虧：第一次打野等到 2 隻嵌合體或 9 隻實驗體，只打 tier 1
+      creepTier: 1,
+      creep0: { a_blob: 9, a_chimera: 2 },
     },
     {
       id: 'tech',
@@ -432,33 +437,26 @@ export const RTS_AI_RES_UNIT = {
   },
 };
 
-// 難度：
+// 難度（R6 B 包，docs 17.3：四個陣營共用一套規則；難度只決定「能做什麼」與「多快」，不給數值加成——瘋狂例外：收入 ×1.5、看全圖）：
+//   lv 功能表的等級（簡單 0、普通 1、困難 2、瘋狂 3；陣營專屬的行為看 RTS_AI_FEATS，rts-ai.js 的 rtsAiCan(A, '功能')）
 //   dt 決策間隔（秒）、wkMax 工人上限、facMax 兵工廠上限、hqMax 主堡上限（含分礦）、armyMax 部隊上限（台）、
 //   attackT 最早進攻（秒）、need0 第一次進攻的部隊門檻（台）、grow 每次進攻失敗後門檻增加、allInT 之後門檻降到 allInN、
-//   focus 集火、retreat 打不過就撤退的戰力比（0＝不撤退；敵方戰力² > 我方² × retreat）、pull 撤回受傷的單位、
-//   recall 基地被攻擊時召回進攻中的部隊、scoutT 派偵查的時間、expandT 開分礦的最早時間、repair 修理（'hq'＝只修主堡）、
-//   income 資源收入倍率（只有瘋狂）、cheat 不受戰爭迷霧限制（只有瘋狂；rts-fog.js 依 cfg.diff 判斷）
+//   armyPop 部隊人口的上限（10 分鐘之前；0＝只看 armyMax 的台數）、waveCap 一波最多幾人口（超過的留守；0＝不限）、focus 集火、retreat 打不過就撤退的戰力比（0＝不撤退；
+//   敵方戰力² > 我方² × retreat）、pull 撤回受傷的單位、recall 基地被攻擊時召回進攻中的部隊、scoutT 派偵查的時間、
+//   expandT 開分礦的最早時間、repair 修理（'hq'＝只修主堡）、income 資源收入倍率（只有瘋狂）、
+//   cheat 不受戰爭迷霧限制（只有瘋狂；rts-fog.js 讀那一隊電腦的這個參數）
 // （R2 第二輪，F 包）hero1T 第 1 個英雄的時間、t2T／t3T 升級主堡的最早時間（1e9＝不升）、heroMax 英雄數上限
 //   （第 2、3 個在升階之後）、creepTier 打野的營地等級上限、creepT 最早打野、creepLv 英雄幾級以上才打野、
-//   creepFar 也搶對方那一側的營地、resMax 研究的級數上限（{ 研究 id: 級數 }，沒列的不研究；null＝全部）、
-//   items 買道具（'none'｜'kit' 修復套件｜'all' 再加永久道具）、tavern 雇用酒館英雄的機率（開局時決定）、
-//   cast 施放技能（'z'＝只用 Z、隨機時機；'rules'＝依 RTS_AI_CAST）、heroRetreat 英雄血量低於這個比例時撤回（0＝不撤）、
-//   markFocus 集火被標定的目標、towerMax 防禦塔上限、walls 防禦塔旁蓋城牆、militia 基地被打而部隊不足時動員工人
-// （R3 F 包）harass 派 4 台騷擾看得到的外圍導管節點（對方是艾瑟立克時；困難以上）
-// （R4 F 包，維爾威）fwdBeacon 進攻前在前線空投信標、投放艙降到那裡；trade 物流交易；packFlee 主基地的生產建築
-//   被打到 < 30% 而且打不過時收起撤到分礦；harass 也是運輸機載兵騷擾對方的礦脈
-// （R5 F 包，聖域）salvMax 工人上限之外的拾荒工、refit 改裝、salvYard 在殘骸多的地方蓋回收站、haulMax 回收拖車上限、
-//   sancMines T2 之後布雷無人機在家門口與分礦的入口布雷
+//   creepFar 也搶對方那一側的營地、creepFirst 第一次進攻之後才打 tier 3 的營地、resMax 研究的級數上限（{ 研究 id: 級數 }，
+//   沒列的不研究；null＝全部）、items 買道具（'none'｜'kit' 修復套件｜'all' 再加永久道具）、tavern 雇用酒館英雄的機率
+//   （開局時決定）、cast 施放技能（'z'＝只用 Z、castP 的機率；'rules'＝依 RTS_AI_CAST）、heroRetreat 英雄血量低於這個比例時
+//   撤回（0＝不撤）、towerMax 防禦塔上限
+// （R5 F 包，聖域）salvMax 工人上限之外的拾荒工、haulMax 回收拖車上限
 export const RTS_AI_DIFFS = {
   easy: {
+    lv: 0,
     salvMax: 2,
-    refit: false,
-    salvYard: false,
     haulMax: 1,
-    sancMines: false,
-    fwdBeacon: false,
-    trade: false,
-    packFlee: false,
     hero1T: 180,
     t2T: 540,
     t3T: 1e9,
@@ -467,25 +465,26 @@ export const RTS_AI_DIFFS = {
     creepT: 240,
     creepLv: 2,
     creepFar: false,
+    creepFirst: false,
     resMax: { r_kin: 1 },
     items: 'none',
     tavern: 0,
     cast: 'z',
+    castP: 0.3,
     heroRetreat: 0,
-    markFocus: false,
     towerMax: 1,
-    walls: false,
-    militia: false,
     dt: 1,
     wkMax: 13,
     facMax: 1,
     hqMax: 1,
     armyMax: 14,
+    armyPop: 24,
     attackT: 420,
     need0: 6,
     grow: 2,
     allInT: 1200,
     allInN: 6,
+    waveCap: 24,
     focus: false,
     retreat: 0,
     pull: false,
@@ -494,16 +493,12 @@ export const RTS_AI_DIFFS = {
     expandT: 9999,
     repair: 'hq',
     income: 1,
+    cheat: false,
   },
   normal: {
+    lv: 1,
     salvMax: 4,
-    refit: true,
-    salvYard: true,
     haulMax: 2,
-    sancMines: false,
-    fwdBeacon: true,
-    trade: true,
-    packFlee: false,
     hero1T: 105,
     t2T: 300,
     t3T: 660,
@@ -512,25 +507,26 @@ export const RTS_AI_DIFFS = {
     creepT: 150,
     creepLv: 1,
     creepFar: false,
+    creepFirst: false,
     resMax: { r_kin: 2, r_arm: 2 },
     items: 'kit',
     tavern: 0.3,
     cast: 'rules',
+    castP: 1,
     heroRetreat: 0.25,
-    markFocus: false,
     towerMax: 2,
-    walls: true,
-    militia: true,
     dt: 0.7,
     wkMax: 20,
     facMax: 2,
     hqMax: 3,
     armyMax: 32,
+    armyPop: 50,
     attackT: 255,
     need0: 8,
     grow: 3,
     allInT: 780,
     allInN: 5,
+    waveCap: 0,
     focus: true,
     retreat: 2,
     pull: false,
@@ -539,16 +535,12 @@ export const RTS_AI_DIFFS = {
     expandT: 330,
     repair: 'all',
     income: 1,
+    cheat: false,
   },
   hard: {
+    lv: 2,
     salvMax: 6,
-    refit: true,
-    salvYard: true,
     haulMax: 3,
-    sancMines: true,
-    fwdBeacon: true,
-    trade: true,
-    packFlee: true,
     hero1T: 90,
     t2T: 240,
     t3T: 540,
@@ -557,44 +549,40 @@ export const RTS_AI_DIFFS = {
     creepT: 120,
     creepLv: 1,
     creepFar: true,
+    creepFirst: true,
     resMax: null,
     items: 'all',
     tavern: 0.5,
     cast: 'rules',
+    castP: 1,
     heroRetreat: 0.25,
-    markFocus: true,
     towerMax: 3,
-    walls: true,
-    militia: true,
-    harass: true,
     dt: 0.5,
     wkMax: 24,
     facMax: 3,
     hqMax: 3,
     armyMax: 46,
+    armyPop: 0,
     attackT: 225,
-    need0: 9,
+    need0: 8, // （R6：9 → 8，困難的第一次進攻不比普通晚）
     grow: 3,
     allInT: 840,
     allInN: 5,
+    waveCap: 0,
     focus: true,
     retreat: 1.6,
     pull: true,
     recall: true,
-    scoutT: 45,
+    scoutT: 70, // （R6：0:45 派工人去偵查、被野怪打掉，困難的第一次進攻比普通晚；改 1:10）
     expandT: 200,
     repair: 'all',
     income: 1,
+    cheat: false,
   },
   insane: {
+    lv: 3,
     salvMax: 6,
-    refit: true,
-    salvYard: true,
     haulMax: 3,
-    sancMines: true,
-    fwdBeacon: true,
-    trade: true,
-    packFlee: true,
     hero1T: 90,
     t2T: 225,
     t3T: 510,
@@ -603,26 +591,26 @@ export const RTS_AI_DIFFS = {
     creepT: 120,
     creepLv: 1,
     creepFar: true,
+    creepFirst: true,
     resMax: null,
     items: 'all',
     tavern: 0.5,
     cast: 'rules',
+    castP: 1,
     heroRetreat: 0.25,
-    markFocus: true,
     towerMax: 3,
-    walls: true,
-    militia: true,
-    harass: true,
     dt: 0.5,
     wkMax: 24,
     facMax: 4,
     hqMax: 3,
     armyMax: 50,
+    armyPop: 0,
     attackT: 210,
     need0: 9,
     grow: 3,
     allInT: 840,
     allInN: 5,
+    waveCap: 0,
     focus: true,
     retreat: 1.6,
     pull: true,
@@ -634,6 +622,40 @@ export const RTS_AI_DIFFS = {
     cheat: true,
   },
 };
+// 功能表（R6 B 包，docs 17.3）：功能 → 最低的難度等級（lv）；四個陣營共用，陣營沒有的功能自動略過。
+// rts-ai.js 一律用 rtsAiCan(A, '功能') 判斷，不再讀難度的布林值
+export const RTS_AI_FEATS = {
+  emergency: 1, // 基地的緊急手段：卡斯特隆動員、艾瑟立克結晶護壁、維爾威緊急補給、聖域避難警報
+  walls: 1, // 防禦塔前的城牆／廢鐵路障（卡斯特隆、聖域）
+  fwdBeacon: 1, // 前線信標（維爾威）
+  trade: 1, // 物流交易（維爾威）
+  refit: 1, // 改裝（聖域）
+  salvYard: 1, // 在殘骸多的地方蓋回收站（聖域）
+  merc: 1, // 專程去傭兵營（17.2 #12）
+  plateauLift: 1, // 運輸機把部隊送上高台（維爾威，17.2 #27）
+  ultRelax: 1, // 終極技的條件依局勢放寬（17.2 #14）
+  harass: 2, // 騷擾（外圍的導管節點、運輸機載兵打工人）
+  packFlee: 2, // 收起撤離（維爾威）
+  sancMines: 2, // 布雷無人機在家門口與分礦入口布雷（聖域）
+  markFocus: 2, // 集火被自己標定的目標
+  wallDetour: 2, // 進攻路徑上有防禦塔群時空中部隊改打分礦（17.2 #29）
+};
+// 舊的布林欄位（F 包）：保留一版當別名（由功能表產生，唯讀的意思；rts-ai.js 不再讀，下一版拿掉）
+for (const P of Object.values(RTS_AI_DIFFS)) {
+  for (const f of [
+    'fwdBeacon',
+    'trade',
+    'packFlee',
+    'harass',
+    'refit',
+    'salvYard',
+    'sancMines',
+    'walls',
+    'markFocus',
+  ])
+    P[f] = P.lv >= RTS_AI_FEATS[f];
+  P.militia = P.lv >= RTS_AI_FEATS.emergency;
+}
 
 // 英雄技能的施放條件（rts-ai.js 的 rtsAiCast；沒有列的技能用通用規則：敵方單位技能＝交戰中最強的敵人、
 // 地點技能＝敵方單位聚集 3 台以上、自己＝附近敵人 3 台以上、友軍技能＝血量 < 50% 的友軍）
@@ -652,7 +674,7 @@ export const RTS_AI_CAST = {
   sk_quake: { k: 'fan', n: 4, r: 14 },
   // 艾瑟立克（docs 14.4）：'blobs'＝範圍內己方的實驗體（不含臨時的）≥ n；'army'＝交戰中、範圍內己方單位 ≥ n；
   // ally 的 bio＝只挑生體單位（引導中的融合宿主優先：催化會立刻完成融合）
-  sk_refract: { k: 'line', n: 3, r: 4 },
+  sk_refract: { k: 'line', n: 3, r: 6 }, // （R6：r 4 → 6，野怪營地很少擠在 4 m 內）
   sk_prism: { k: 'ally', hp: 0.6 },
   sk_skylight: { k: 'cluster', n: 5, bld: 1, r: 14 },
   sk_hatch: { k: 'self', hp: 1, n: 2, r: 20 },
@@ -689,6 +711,38 @@ export const RTS_AI_CAST = {
   sk_minefield: { k: 'cluster', n: 3, r: 10 },
   sk_haven: { k: 'ally', hp: 0.6, n: 3, r: 8 },
   sk_refuge: { k: 'army', n: 8, r: 18 },
+  // 酒館的 8 位英雄（R6 B 包，docs 17.2 #13：24 個主動技能；被動不用）。自己為中心的範圍技能（暗流、沼澤化、廢鐵風暴）
+  // 用 self（英雄身邊 r 內的敵人 ≥ n），指定地點的用 cluster
+  sk_scav: { k: 'wrecks', n: 2, r: 20 },
+  sk_junk: { k: 'cluster', n: 3, r: 5, bld: 1 },
+  sk_storm: { k: 'self', hp: 1.01, n: 4, r: 12 },
+  sk_sand: { k: 'ally', hp: 0.6, n: 3, r: 10 },
+  sk_ambush: {
+    k: 'ranged',
+    defs: ['c_arty', 'c_mortar', 'a_reson', 'v_rack', 's_rivet'],
+    hp: 0.3,
+    ground: true,
+    far: true,
+  },
+  sk_dome: { k: 'army', n: 6, r: 24 },
+  sk_white: { k: 'self', hp: 0.5, n: 2, r: 20 },
+  sk_snipe: { k: 'mark' },
+  sk_freeze: { k: 'cluster', n: 4, r: 14 },
+  sk_overload: { k: 'self', hp: 1.01, n: 3, r: 20 },
+  sk_parasite: { k: 'mark' },
+  sk_fuse: { k: 'self', hp: 0.5, n: 2, r: 20 },
+  sk_climb: { k: 'cluster', n: 3, r: 8, near: 25 },
+  sk_high: { k: 'self', hp: 1.01, n: 2, r: 30 },
+  sk_summit: { k: 'army', n: 6, r: 24 },
+  sk_homing: { k: 'mark' },
+  sk_burner: { k: 'fan', n: 3, r: 12 },
+  sk_launch: { k: 'cluster', n: 4, r: 14, bld: 1 },
+  sk_shove: { k: 'mark' },
+  sk_vortex: { k: 'cluster', n: 4, r: 10 },
+  sk_undertow: { k: 'self', hp: 1.01, n: 5, r: 18 },
+  sk_lurk: { k: 'self', hp: 0.4, n: 2, r: 20 },
+  sk_acid: { k: 'cluster', n: 3, r: 6 },
+  sk_swamp: { k: 'self', hp: 1.01, n: 5, r: 20 },
 };
 // 單位技能（電腦）：盾牆＝交戰中、敵人在 r 內；投擲貨櫃、火箭齊射＝範圍 r 內 n 台以上的敵方單位
 export const RTS_AI_ABILS = {

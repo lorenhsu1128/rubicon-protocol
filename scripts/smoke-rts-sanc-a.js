@@ -133,7 +133,7 @@ module.exports = (H) => {
       /V:salvage/.test(st.wcard) && /X:order:gather/.test(st.wcard) && /R:ab_shelter/.test(st.hqcard),
       `作業機的卡片有拾荒（${st.wcard}）、聚落中心有避難警報（${st.hqcard}）`,
     );
-    check(/零件 40/.test(st.cost), `拼裝巨像的說明帶零件（${st.cost.slice(-30)}）`);
+    check(/零件 48/.test(st.cost), `拼裝巨像的說明帶零件（${st.cost.slice(-30)}）`);
     check(
       st.salvage && st.nMap > 0 && st.maps === st.nMap && st.mapVal,
       `地圖殘骸：${st.maps} 個（荒野的漏斗車與油槽 ${st.nMap} 個障礙物），各 150 礦石、10 零件、不會過期`,
@@ -540,14 +540,14 @@ module.exports = (H) => {
         g.rtsCancel(b1, -1);
         o.cancel = T.parts; // 取消建造退 75%：floor(2×0.75)＝1
       }
-      // 巨像：T3＋研究巨像骨架、零件 40
+      // 巨像：T3＋研究巨像骨架、零件 48（R6 平衡：40 → 48）
       const works = window.__bld(0, 's_works', hq.pos.x - 40, hq.pos.z + 40, 0);
       g.rtsChangeDef(hq, 's_hq3');
       g.rtsRecount();
       T.tech.res.r_titan = 1;
       T.parts = 30;
       o.q0 = g.rtsQueue(works, 's_colossus');
-      T.parts = 45;
+      T.parts = 55;
       o.q1 = g.rtsQueue(works, 's_colossus');
       o.left = T.parts;
       g.rtsCancel(works, 0);
@@ -565,8 +565,8 @@ module.exports = (H) => {
     );
     check(pc.paid && pc.cancel === 4, `付了零件（5 → 3）、取消建造退 75%（→ ${pc.cancel}）`);
     check(
-      !pc.q0 && pc.q1 && pc.left === 5 && pc.back === 45,
-      `拼裝巨像：零件 40（不夠不能排、排了剩 ${pc.left}、取消退還 → ${pc.back}）`,
+      !pc.q0 && pc.q1 && pc.left === 7 && pc.back === 55,
+      `拼裝巨像：零件 48（不夠不能排、排了剩 ${pc.left}、取消退還 → ${pc.back}）`,
     );
 
     // ---------- 改裝 ----------

@@ -152,6 +152,7 @@ export class Projectile {
     if (this.netId) g.netEv({ t: 'pend', i: this.netId });
     // 臨時障礙物受傷、爆炸點燃油漬（game/hazards2.js）
     if (!direct || this.splash > 0) g.hz2Blast(this.pos, this.dmg, this.splash, this.attr);
+    if (this.splash > 0 && g.rts && g.rtsProjBlast) g.rtsProjBlast(this); // Coral 戰爭：爆發攻擊炸散殘骸（rts.js）
     if (this.splash > 0) {
       g.fx.explosion(this.pos, this.splash * 0.9, 0xffa040, this.splash > 4);
       SFX.explode(this.splash > 4, this.pos);

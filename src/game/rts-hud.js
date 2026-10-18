@@ -108,6 +108,7 @@ Object.assign(Game.prototype, {
         <span class="rtsRes parts" id="rtsPartsBox" hidden title="零件（拾荒取得；改裝、廢鐵路障、拼裝巨像）"><i></i><b id="rtsParts">0</b></span>
         <button id="rtsSalv" type="button" hidden title="看過的殘骸；點一下依序跳到價值高的殘骸">殘骸</button>
         <span id="rtsUpkeep" title="維持費：人口越多，礦石收入越少">無維持費</span>
+        <span id="rtsReveal" hidden title="沒有蓋好的主堡時開始 120 秒倒數，時間到對方看得到全部建築與單位的位置（重新蓋好主堡就取消）"></span>
         <button id="rtsButlerBtn" type="button" title="自動管家（親自駕駛時一律啟動）">管家</button>
       </div>
       <div id="rtsButlerPanel" hidden></div>
@@ -126,7 +127,8 @@ Object.assign(Game.prototype, {
         <div id="rtsPanel"></div>
         <div id="rtsCard"></div>
       </div>
-      <div id="rtsTip"></div>`;
+      <div id="rtsTip"></div>
+      <div id="rtsHint"></div>`;
     const card = document.getElementById('rtsCard');
     for (let i = 0; i < 12; i++) {
       const b = document.createElement('button');
@@ -215,6 +217,42 @@ Object.assign(Game.prototype, {
     root.hidden = !on;
     document.body.classList.toggle('rtsOn', !!on);
     if (!on) this.rtsTipHide();
+    this.rtsHudSurrBtn(on && !!this.rts);
+  },
+  // 暫停選單的「投降」（R6：docs 17.6；只在 Coral 戰爭的局內顯示）：uiConfirm → A 包的 rtsSurrender
+  rtsHudSurrBtn(on) {
+    let b = document.getElementById('btnRtsSurr');
+    if (!b) {
+      if (!on) return;
+      const ab = document.getElementById('btnAbort');
+      if (!ab) return;
+      b = document.createElement('button');
+      b.id = 'btnRtsSurr';
+      b.type = 'button';
+      b.textContent = '投降';
+      b.title = '承認敗北並結束這一局（記一敗）';
+      b.onclick = () => this.rtsHudSurrender();
+      ab.insertAdjacentElement('beforebegin', b);
+    }
+    b.style.display = on ? '' : 'none';
+  },
+  rtsHudSurrender() {
+    const R = this.rts;
+    if (!R || R.over) return;
+    const go = () => {
+      const R2 = this.rts;
+      if (!R2 || R2.over) return;
+      if (this.state === 'pause' || this.state === 'settings') this.resume();
+      if (R2.pilot && this.rtsPilotExit) this.rtsPilotExit('end');
+      if (typeof this.rtsSurrender === 'function') this.rtsSurrender();
+      else {
+        this.rtsEnd(false);
+        if (R2.over) R2.over.surrender = true;
+      }
+      this.rtsHudSurrBtn(false);
+    };
+    if (this.uiConfirm) this.uiConfirm('投降並結束這一局？（記一敗）', go, '投降', '取消');
+    else go();
   },
   rtsHudHide() {
     this.rtsHudShow(false);
@@ -226,6 +264,9 @@ Object.assign(Game.prototype, {
     if (bp) bp.hidden = true;
     const n = document.getElementById('rtsNote');
     if (n) n.innerHTML = '';
+    this.rtsHudSurrBtn(false);
+    const h = document.getElementById('rtsHint');
+    if (h) h.classList.remove('on');
   },
   rtsMsg(txt, color = 0xffb020, dur = 1.6) {
     const m = document.getElementById('rtsMsg');
@@ -704,10 +745,15 @@ Object.assign(Game.prototype, {
         takers++;
         if (u.rtsTeam === RTS_ME) own++;
       }
+    // 最後看到的 Coral、零件與時間（R6：rtsHudWreckSeen 每 0.5 秒記在 w.hudK；docs 17.2 #34）
+    const hk = w.hudK || null;
     return {
       name,
       vis,
       ghost: !!w.gone,
+      kCoral: hk ? Math.floor(hk.coral) : null,
+      kParts: hk ? Math.floor(hk.parts) : null,
+      ago: hk && R ? Math.max(0, Math.floor((R.t || 0) - hk.t)) : null,
       ore: Math.floor(vis ? w.ore : k.ore),
       coral: vis ? Math.floor(w.coral) : null,
       parts: vis ? Math.floor(w.parts) : null,
@@ -718,13 +764,32 @@ Object.assign(Game.prototype, {
       from: w.def ? this.rtsUiName(w.def) : '',
     };
   },
+  // 看得到的殘骸記下現在的價值（礦石以外的；rts-sancta.js 的 known 只記礦石與大小）
+  rtsHudWreckSeen() {
+    const R = this.rts;
+    if (!R || !R.wrecks || !R.wrecks.length || typeof this.rtsFogState !== 'function') return;
+    const t = R.t || 0;
+    for (const w of R.wrecks) {
+      if (this.rtsFogState(RTS_ME, w.x, w.z) !== 2) continue;
+      const k = w.hudK || (w.hudK = {});
+      k.coral = w.coral || 0;
+      k.parts = w.parts || 0;
+      k.t = t;
+    }
+  },
   // 說明的文字（面板、滑鼠停留）：[標題, 行…, info]
   rtsHudWreckLines(w) {
     const I = this.rtsHudWreckInfo(w);
     const L = [];
-    if (I.ghost) L.push('最後看到：礦石 ' + I.ore + '（可能已經不在）');
-    else if (!I.vis) L.push('最後看到：礦石 ' + I.ore);
-    else {
+    if (I.ghost || !I.vis) {
+      const v =
+        '最後看到：礦石 ' +
+        I.ore +
+        (I.kCoral ? `、Coral ${I.kCoral}` : '') +
+        (I.kParts !== null ? `、零件 ${I.kParts}` : '');
+      L.push(v + (I.ghost ? '（可能已經不在）' : ''));
+      if (I.ago !== null) L.push(I.ago < 1 ? '剛剛看到' : `${I.ago} 秒前看到`);
+    } else {
       L.push(`礦石 ${I.ore}` + (I.coral ? `、Coral ${I.coral}` : '') + `、零件 ${I.parts}`);
       L.push(`拾荒 ${I.takers}／${I.sat} 人` + (I.own && I.own !== I.takers ? `（己方 ${I.own}）` : ''));
     }
@@ -1188,6 +1253,15 @@ Object.assign(Game.prototype, {
     this.rtsHudShow(
       this.state === 'rts' || (this.state === 'pause' && !!this.rts) || (pilot && this.state === 'play'),
     );
+    if (R.over) this.rtsHudSurrBtn(false);
+    // R6（E 包）：結果圖的取樣、提示卡、殘骸最後看到的價值
+    this.rtsHudTimeline();
+    if (this.rtsTipsTick) this.rtsTipsTick(dt);
+    this._rtsWkT = (this._rtsWkT || 0) + dt;
+    if (this._rtsWkT > 0.5) {
+      this._rtsWkT = 0;
+      this.rtsHudWreckSeen();
+    }
     // 清掉死掉的選取與編隊
     if (R.sel.some((e) => e.dead)) {
       R.sel = R.sel.filter((e) => !e.dead);
@@ -1288,6 +1362,77 @@ Object.assign(Game.prototype, {
     this.rtsHudPowerDraw();
     this.rtsHudLiftDraw();
     this.rtsHudSalvDraw();
+    this.rtsHudRevealDraw();
+  },
+  // 沒有主堡時的揭露倒數（A 包的 rtsRevealInfo(t) → { left, on }；docs 3.8、17.6）
+  rtsHudRevealInfo() {
+    if (typeof this.rtsRevealInfo !== 'function' || !this.rts) return '';
+    const txt = (t, mine) => {
+      const I = this.rtsRevealInfo(t) || {};
+      const who = mine ? '主堡全毀' : '敵方主堡全毀';
+      if (I.on) return mine ? `${who}：位置已暴露` : `${who}：看得到位置`;
+      if (I.left > 0) return `${who}：${Math.ceil(I.left)} 秒後暴露位置`;
+      return '';
+    };
+    const a = txt(RTS_ME, true);
+    if (a) return { txt: a, mine: true };
+    for (const T of this.rts.teams) {
+      if (!T || T.id === RTS_ME || T.neutral) continue;
+      const b = txt(T.id, false);
+      if (b) return { txt: b, mine: false };
+    }
+    return '';
+  },
+  // 揭露的位置（A 包的 rtsRevealPts(viewer)：只有位置、不給視野）：迷霧裡看不到的才標
+  rtsHudRevealPts() {
+    if (typeof this.rtsRevealPts !== 'function' || !this.rts) return [];
+    const L = this.rtsRevealPts(RTS_ME) || [];
+    if (!L.length || typeof this.rtsFogState !== 'function') return L;
+    return L.filter((p) => this.rtsFogState(RTS_ME, p.x, p.z) !== 2);
+  },
+  // 小地圖：揭露的建築＝空心方塊、單位＝小點（閃爍的橘紅）
+  rtsHudRevealMini(g, X, Z, dpr) {
+    const L = this.rtsHudRevealPts();
+    if (!L.length) return;
+    const on = Math.floor(performance.now() / 400) % 2 === 0;
+    g.strokeStyle = g.fillStyle = on ? '#ff7a3a' : '#ffb070';
+    g.lineWidth = 1.2 * dpr;
+    for (const p of L) {
+      if (p.bld) {
+        const s = 4 * dpr;
+        g.strokeRect(X(p.x) - s / 2, Z(p.z) - s / 2, s, s);
+      } else g.fillRect(X(p.x) - dpr, Z(p.z) - dpr, 2 * dpr, 2 * dpr);
+    }
+  },
+  // 畫面上：揭露的建築在迷霧裡畫一個菱形標記（單位太多，只標建築）
+  rtsHudRevealOverlay(c) {
+    const L = this.rtsHudRevealPts().filter((p) => p.bld);
+    if (!L.length || !this.proj) return;
+    c.save();
+    c.strokeStyle = '#ff7a3a';
+    c.lineWidth = 2;
+    for (const p of L) {
+      const y = this.world ? this.world.terrainHeight(p.x, p.z) : 0;
+      const s = this.proj(new THREE.Vector3(p.x, y + 3, p.z));
+      if (!s || !s.in) continue;
+      c.beginPath();
+      c.moveTo(s.x, s.y - 9);
+      c.lineTo(s.x + 7, s.y);
+      c.lineTo(s.x, s.y + 9);
+      c.lineTo(s.x - 7, s.y);
+      c.closePath();
+      c.stroke();
+    }
+    c.restore();
+  },
+  rtsHudRevealDraw() {
+    const el = document.getElementById('rtsReveal');
+    if (!el) return;
+    const I = this.rtsHudRevealInfo();
+    const txt = I ? I.txt : '';
+    if (el.textContent !== txt) el.textContent = txt;
+    el.hidden = !txt;
+    el.className = I ? (I.mine ? 'mine' : 'foe') : '';
   },
   // 管家的設定面板（資源列的「管家」按鈕）
   rtsButlerDraw(force) {
@@ -1591,6 +1736,15 @@ Object.assign(Game.prototype, {
       ref,
       act: (shift) => this.rtsCardAct(c, G, shift),
     };
+    // 停擺（斷電）的建築：卡片照樣可以按，加黃字說明（17.2 #21）
+    if (
+      (a.k === 'train' || a.k === 'research' || a.k === 'hero') &&
+      G.some((b) => b.bld) &&
+      G.every((b) => !b.bld || b.bld.off)
+    ) {
+      it.stall = true;
+      it.note = '停擺中：生產暫停，接上導管後繼續';
+    }
     if (a.k === 'cancel' && !(e.bld && e.bld.progress < 1) && !(e.bld && e.bld.queue && e.bld.queue.length))
       it.dis = '佇列是空的';
     if (a.k === 'upgrade' && !it.dis && e.bld && e.bld.queue.length) it.dis = '佇列要是空的才能升級';
@@ -2137,7 +2291,17 @@ Object.assign(Game.prototype, {
       if (b.bld && !(b.bld.progress < 1) && (!best || b.bld.queue.length < best.bld.queue.length)) best = b;
     if (!best) return;
     if (best.bld.queue.length >= RTS_QUEUE_MAX) return this.rtsMsg('生產佇列已滿', 0xff8a8a);
-    if (typeof this.rtsQueue === 'function' && this.rtsQueue(best, id) !== false) best.bld.lastId = id;
+    if (typeof this.rtsQueue === 'function' && this.rtsQueue(best, id) !== false) {
+      best.bld.lastId = id;
+      // 停擺的建築（斷電）照樣可以排，計時暫停（17.2 #21）：排下去時提示一次（同一座 10 秒內不重複）
+      if (best.bld.off) {
+        const t = this.rts.t || 0;
+        if (!(best._stallMsgT > t - 10)) {
+          best._stallMsgT = t;
+          this.rtsMsg('停擺中：生產暫停，接上導管後繼續', 0xffd070, 2.2);
+        }
+      }
+    }
     this.rtsHudDirty = true;
   },
   rtsInstant(o, shift) {
@@ -2183,7 +2347,8 @@ Object.assign(Game.prototype, {
             (it.dis || '') +
             '|' +
             (it.ab ? Math.ceil(it.ab.cd * 4) + (it.ab.auto ? 'a' : '') + (it.ab.lv || 0) : '') +
-            (it.on ? 'on' : '')
+            (it.on ? 'on' : '') +
+            (it.stall ? 'st' : '')
           : '-',
       )
       .join(',');
@@ -2199,6 +2364,7 @@ Object.assign(Game.prototype, {
       b.classList.toggle('dis', !!(it && it.dis && !(it.ab && it.ab.cd > 0 && it.dis === '冷卻中')));
       b.classList.toggle('cool', !!(it && it.ab && it.ab.cd > 0));
       b.classList.toggle('auto', !!(it && it.ab && it.ab.auto));
+      b.classList.toggle('stall', !!(it && it.stall));
       b.classList.toggle(
         'on',
         !!(
@@ -2378,8 +2544,9 @@ Object.assign(Game.prototype, {
         if (D.popCap) rows.push('人口上限 +' + D.popCap);
         if (D.coralRate) rows.push('Coral 每秒 +' + D.coralRate);
       }
-      // 導管（R3）：供電源的範圍、斷掉時會停擺幾座；要電的建築的供電狀態（warn＝紅字）
+      // 導管（R3）：供電源的範圍、斷掉時會停擺幾座；要電的建築的供電狀態（warn＝紅字、stall＝黃字）
       const warn = [];
+      const stall = [];
       if (e.bld && (D.conduit || D.needPower) && typeof this.rtsPowerAt === 'function') {
         const tm = e.rtsTeam;
         if (D.conduit) {
@@ -2392,8 +2559,10 @@ Object.assign(Game.prototype, {
             if (n) rows.push(`被拆掉時 ${n} 座建築停擺`);
           }
         }
-        if (D.needPower && e.bld.off) warn.push('無導管供電：停擺中（生產、研究暫停）');
-        else if (D.needPower) rows.push('導管供電中');
+        if (D.needPower && e.bld.off) {
+          warn.push('無導管供電');
+          if (own) stall.push('停擺中：生產暫停，接上導管後繼續');
+        } else if (D.needPower) rows.push('導管供電中');
       }
       if (e.bld && e.bld.empT > (R.t || 0)) warn.push(`電磁干擾：暫停 ${Math.ceil(e.bld.empT - R.t)} 秒`);
       if (e.rtsAegisT > (R.t || 0))
@@ -2513,6 +2682,7 @@ Object.assign(Game.prototype, {
         rows.join() +
         '|' +
         warn.join() +
+        stall.join() +
         '|' +
         q +
         fq +
@@ -2531,6 +2701,7 @@ Object.assign(Game.prototype, {
         typeRow +
         rows.map((r) => `<div>${escHtml(r)}</div>`).join('') +
         warn.map((r) => `<div class="rtsWarn">${escHtml(r)}</div>`).join('') +
+        stall.map((r) => `<div class="rtsStall">${escHtml(r)}</div>`).join('') +
         `</div>${hx}${vr.cargo}${q || fq || vr.prog || sr.prog || sr.btn ? `<div class="rtsProd">${vr.prog}${sr.prog}${q}${fq}${sr.btn}</div>` : ''}</div>`;
     } else {
       const act = this.rtsActiveGroup();
@@ -2693,6 +2864,7 @@ Object.assign(Game.prototype, {
       ui.alertT[k] = t;
       if (onScreen && k === 'unit') continue;
       this.rtsEvent(e.pos.x, e.pos.z, e.bld ? '基地遭受攻擊' : '部隊遭受攻擊', 0xff6a5a);
+      if (this.rtsTipsNote) this.rtsTipsNote('attacked');
       this.rtsPing(e.pos.x, e.pos.z);
       if (R.pilot && e.bld)
         try {
@@ -2802,6 +2974,7 @@ Object.assign(Game.prototype, {
     if (!c) return;
     c.clearRect(0, 0, innerWidth, innerHeight);
     const s = {};
+    const bars = this.rtsSetGet ? this.rtsSetGet().bars : 'hurt';
     for (const e of R.units || []) {
       if (e.dead) continue;
       const sel = R.sel.includes(e);
@@ -2812,7 +2985,13 @@ Object.assign(Game.prototype, {
       const ill = own && !!e.rtsIllus;
       const fu = own && e.rtsFusing && e.orders[0] && e.orders[0].k === 'fuse' ? e.rtsFusing : 0;
       const sh = e.rtsShield && e.rtsShield.n > 0 && !(e.rtsShield.t <= (R.t || 0)) ? e.rtsShield.n : 0; // 稜鏡屏障（C 包）
-      if (!sel && !hurt && !bldUp && !e.hero && !off && !ill && !fu && !sh) continue;
+      // 血條的設定（rts-tips.js 的 RTS 設定）：all＝全部、hurt＝受傷或選取（預設）、sel＝只有選取
+      if (
+        bars === 'sel'
+          ? !sel && !bldUp && !off && !fu
+          : bars !== 'all' && !sel && !hurt && !bldUp && !e.hero && !off && !ill && !fu && !sh
+      )
+        continue;
       if (!this.rtsSeen(e)) continue;
       this.rtsScreen(e, s);
       if (!s.in || s.x < -40 || s.y < -40 || s.x > innerWidth + 40 || s.y > innerHeight + 40) continue;
@@ -2883,6 +3062,7 @@ Object.assign(Game.prototype, {
     }
     this.rtsHudVeerOverlay(c);
     this.rtsHudSancOverlay(c);
+    this.rtsHudRevealOverlay(c);
     const d = ui.drag;
     if (d && d.moved) {
       const x = Math.min(d.x0, d.x1),
@@ -3267,6 +3447,7 @@ Object.assign(Game.prototype, {
     }
     if (mode !== 2) this.rtsHudVeerMini(g, X, Z, dpr);
     if (mode !== 2) this.rtsHudSancMini(g, X, Z, dpr);
+    this.rtsHudRevealMini(g, X, Z, dpr);
     // 警示與信號的擴散圈（3 秒）
     const pings = (ui && ui.pings) || [];
     for (let i = pings.length - 1; i >= 0; i--) {

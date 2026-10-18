@@ -4396,6 +4396,7 @@ body.rtsOn.rtsPilot.vpad #weapons {
 .rtsMenuPanel {
   max-width: 920px;
   width: calc(100vw - 32px);
+  box-sizing: border-box;
 }
 .rtsMenuPanel h2 small {
   font-size: 13px;
@@ -4458,6 +4459,235 @@ body.rtsOn.rtsPilot.vpad #weapons {
   }
   .rtsPrev img {
     max-width: 260px;
+  }
+}
+/* ---------- Coral 戰爭 R6：選單的說明、結果的時間軸、提示卡、設定、揭露倒數（game/rts-menu.js、rts-tips.js、rts-hud.js） ---------- */
+.rtsDiffDesc,
+.rtsSizeDesc,
+.rtsAiStyle {
+  font-size: 12px;
+  margin: 2px 0 4px;
+}
+.rtsHelp {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-content: safe center;
+  background: rgba(4, 8, 12, 0.6);
+  pointer-events: auto;
+  overflow: auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.rtsHelp[hidden] {
+  display: none;
+}
+.rtsHelpPanel {
+  box-sizing: border-box;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+.rtsHelpTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.rtsHelpTabs button.on {
+  outline: 2px solid #ffb020;
+  background: rgba(255, 176, 32, 0.18);
+}
+.rtsHelpBody {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  font-size: 13px;
+  padding-right: 4px;
+}
+.rtsHelpBody h4 {
+  margin: 10px 0 4px;
+  font-size: 14px;
+}
+.rtsHelpBody ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.rtsHow {
+  color: #cfe3ff;
+  font-size: 12px;
+  margin: 2px 0 8px;
+}
+.rtsHelpTbl {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 4px 0 8px;
+}
+.rtsHelpTbl td,
+.rtsHelpTbl th {
+  padding: 3px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+  vertical-align: top;
+}
+.rtsHelpKeys td:first-child {
+  white-space: nowrap;
+  color: #ffd070;
+}
+.rtsHelpType td,
+.rtsHelpType th {
+  text-align: center;
+}
+.rtsHelpType td.up {
+  color: #7ee081;
+}
+.rtsHelpType td.dn {
+  color: #ff8a7a;
+}
+.rtsEndPanel {
+  box-sizing: border-box;
+  width: min(880px, calc(100vw - 32px));
+}
+.rtsEndGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 16px;
+  align-items: start;
+}
+.rtsChart h4 {
+  margin: 8px 0 2px;
+  font-size: 13px;
+}
+.rtsChart canvas {
+  width: 100%;
+  height: 130px;
+  display: block;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.rtsChartKey {
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+.rtsChartKey i {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.rtsSurTag {
+  color: #ffd070;
+}
+.rtsTipPanel {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+}
+.rtsTipPanel ul {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.rtsTipPanel h3 {
+  margin: 10px 0 4px;
+  font-size: 15px;
+}
+#rtsHint {
+  position: absolute;
+  right: 10px;
+  top: 44px;
+  width: min(300px, 40vw);
+  padding: 8px 10px 8px 12px;
+  background: rgba(8, 14, 22, 0.92);
+  border: 1px solid rgba(255, 176, 32, 0.6);
+  border-left: 3px solid #ffb020;
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(12px);
+  transition:
+    opacity 0.25s,
+    transform 0.25s,
+    visibility 0.25s;
+  z-index: 3;
+}
+#rtsHint.on {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+#rtsHint b {
+  color: #ffd070;
+}
+#rtsHint .rtsHintX {
+  float: right;
+  margin: 4px 0 0 8px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+#rtsReveal {
+  font-size: 13px;
+  font-weight: 700;
+}
+#rtsReveal.mine {
+  color: #ff6a5a;
+  animation: rtsBlink 1.2s steps(2) infinite;
+  padding: 2px 6px;
+}
+#rtsReveal.foe {
+  color: #ffd070;
+}
+.rtsStall {
+  color: #ffd070;
+  font-weight: bold;
+}
+.rtsCmd.stall {
+  box-shadow: inset 0 0 0 2px #ffd070;
+}
+#rtsTip .note {
+  color: #ffd070;
+}
+.rtsSetPair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rtsSetButler {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: flex-end;
+  max-width: 420px;
+  font-size: 13px;
+}
+@media (max-width: 760px), (max-height: 540px) {
+  .rtsEndGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rtsChart canvas {
+    height: 96px;
+  }
+  .rtsEndPanel .rtsEndTbl {
+    margin: 4px 0 6px;
+    font-size: 12px;
+  }
+  .rtsEndPanel .rtsEndTbl td,
+  .rtsEndPanel .rtsEndTbl th {
+    padding: 2px 8px;
+  }
+  .rtsEndPanel h2,
+  .rtsTipPanel h2 {
+    margin: 0 0 4px;
+  }
+  #rtsHint {
+    top: 40px;
+    width: min(260px, 46vw);
+    font-size: 12px;
   }
 }
 /* ---------- Coral 戰爭 R3：艾瑟立克的 HUD（導管、停擺、融合、幻象）與選單的陣營（rts-hud.js、rts.js 的選單） ---------- */

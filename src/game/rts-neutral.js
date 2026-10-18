@@ -16,12 +16,19 @@ import {
   RTS_MERCS,
   RTS_MERC_DEFS,
   RTS_MERC_RULE,
+  RTS_NEUTRAL_DEFS,
   RTS_TAVERN_R,
   mercCard,
   neutralShopItems,
 } from '../data/rts-neutral.js';
 import { RTS_ITEMS, RTS_LOOT, RTS_SHOP } from '../data/rts-items.js';
-import { buildCampMarker, buildItemCrate } from '../render/rts-neutral-models.js';
+import {
+  buildCampMarker,
+  buildItemCrate,
+  buildMercCamp,
+  buildNeutralShop,
+  buildTavern,
+} from '../render/rts-neutral-models.js';
 import { Game } from './game.js';
 
 const ME = 0;
@@ -31,6 +38,10 @@ const LOOT_FALLBACK = [
   ['i_barrier', 'i_fcs', 'i_plate', 'i_boost', 'i_cooler', 'i_repair', 'i_contract'],
   ['i_scope', 'i_antenna', 'i_stab', 'i_coralcore'],
 ];
+// 中立建築的模型（data/rts-neutral.js 不 import render，讓 data/rts-*.js 能在純 node 載入；R6 C 包）
+RTS_NEUTRAL_DEFS.n_tavern.buildModel = (pal) => buildTavern(pal);
+RTS_NEUTRAL_DEFS.n_shop.buildModel = (pal) => buildNeutralShop(pal);
+RTS_NEUTRAL_DEFS.n_merc.buildModel = (pal) => buildMercCamp(pal);
 // 傭兵照一般單位的指令（卡片是 R1 的 UNIT_CARD；data 檔不能 import rts-units.js，所以在這裡補）
 for (const id in RTS_MERC_DEFS) if (RTS_DEFS[id] && !RTS_DEFS[id].card) RTS_DEFS[id].card = RTS_UNIT_CARD;
 

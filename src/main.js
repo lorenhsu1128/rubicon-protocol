@@ -81,6 +81,8 @@ import './game/rts-fog.js'; // Coral 戰爭的戰爭迷霧
 import './game/rts-input.js'; // Coral 戰爭的鏡頭、選取、快捷鍵
 import './game/rts-hud.js'; // Coral 戰爭的 HUD（資源列、小地圖、選取面板、指令卡）
 import './game/rts.js'; // Coral 戰爭的核心：選單、開局、資源、生產、建造、勝敗
+import './game/rts-menu.js'; // Coral 戰爭的選單與結果畫面（R6：E 包）
+import './game/rts-tips.js'; // Coral 戰爭的第一次玩的提示卡與 RTS 設定（R6：E 包）
 import './game/rts-orders.js'; // Coral 戰爭的指令發佈、尋路排隊
 import './game/rts-grid.js'; // Coral 戰爭 R3：艾瑟立克的導管網、融合、幻象、結晶護壁
 import './game/rts-veer.js'; // Coral 戰爭 R4：維爾威的空投、投放艙、機動建築、集貨站、交易、搭乘

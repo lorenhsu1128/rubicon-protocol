@@ -189,7 +189,10 @@ module.exports = (H) => {
       `急件突進：Coral ${co.coral}、冷卻 ${co.cd}、${co.bt.toFixed(2)} 秒衝完（衝刺中：${co.busy}）`,
     );
     check(
-      co.on.every((d) => Math.abs(d - 70) < 1) && !co.off && co.atk === 'kin' && co.moved > 17,
+      co.on.every((d) => Math.abs(d - 77) < 1) /* R6 平衡：70 → 77 */ &&
+        !co.off &&
+        co.atk === 'kin' &&
+        co.moved > 17,
       `急件突進：路線上 ${co.on.map((d) => d.toFixed(0)).join('／')} 實彈、旁邊的沒打到、移動 ${co.moved.toFixed(1)} m`,
     );
     check(

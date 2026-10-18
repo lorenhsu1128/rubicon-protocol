@@ -113,21 +113,30 @@ Object.assign(Game.prototype, {
       k = this.keys || {};
     const typing = this.edTyping && this.edTyping();
     if (this.state === 'rts' && !typing) {
-      // 方向鍵與畫面邊緣捲動（速度依鏡頭距離）
+      // 方向鍵與畫面邊緣捲動（速度依鏡頭距離 × RTS 設定的倍率；邊緣捲動可以關掉，rts-tips.js 的 rtsSetGet）
+      const ST = this.rtsSetGet ? this.rtsSetGet() : { edge: true, edgeSp: 1, keySp: 1 };
       let mx = 0,
         mz = 0;
       if (k.ArrowUp) mz += 1;
       if (k.ArrowDown) mz -= 1;
       if (k.ArrowLeft) mx -= 1;
       if (k.ArrowRight) mx += 1;
-      if (ui.mouseIn && !ui.drag && !ui.rot && document.hasFocus()) {
-        if (ui.mx <= EDGE_PX) mx -= 1;
-        if (ui.mx >= innerWidth - 1 - EDGE_PX) mx += 1;
-        if (ui.my <= EDGE_PX) mz += 1;
-        if (ui.my >= innerHeight - 1 - EDGE_PX) mz -= 1;
+      let spK = mx || mz ? ST.keySp || 1 : 0;
+      if (ST.edge && ui.mouseIn && !ui.drag && !ui.rot && document.hasFocus()) {
+        let ex = 0,
+          ez = 0;
+        if (ui.mx <= EDGE_PX) ex -= 1;
+        if (ui.mx >= innerWidth - 1 - EDGE_PX) ex += 1;
+        if (ui.my <= EDGE_PX) ez += 1;
+        if (ui.my >= innerHeight - 1 - EDGE_PX) ez -= 1;
+        if (ex || ez) {
+          mx = clamp(mx + ex, -1, 1);
+          mz = clamp(mz + ez, -1, 1);
+          spK = Math.max(spK, ST.edgeSp || 1);
+        }
       }
       if (mx || mz) {
-        const sp = dt * (C.dist * 1.15 + 20);
+        const sp = dt * (C.dist * 1.15 + 20) * spK;
         const fx = -Math.sin(C.yaw),
           fz = -Math.cos(C.yaw);
         const rx = Math.cos(C.yaw),
@@ -485,8 +494,9 @@ Object.assign(Game.prototype, {
     ui.mouseIn = true;
     if (ui.rot) {
       const C = this.rts.cam;
-      C.yaw -= (e.clientX - ui.rot.x) * 0.006;
-      C.pitch = clamp(C.pitch + (e.clientY - ui.rot.y) * 0.003, 0.7, 1.35);
+      const rk = (this.rtsSetGet && this.rtsSetGet().rotK) || 1; // RTS 設定的旋轉靈敏度
+      C.yaw -= (e.clientX - ui.rot.x) * 0.006 * rk;
+      C.pitch = clamp(C.pitch + (e.clientY - ui.rot.y) * 0.003 * rk, 0.7, 1.35);
       ui.rot.x = e.clientX;
       ui.rot.y = e.clientY;
     }
@@ -698,20 +708,15 @@ Object.assign(Game.prototype, {
         if (!shift) this.rtsSetMode(null);
         return;
       }
-      case 'rally':
-        // 集結點：交給智慧指令（只有建築時＝設集結點，點礦脈＝工人自動採集）
-        if (typeof this.rtsSmart === 'function')
-          this.rtsSmart(
-            units.filter((b) => b.bld),
-            x,
-            z,
-            hit,
-          );
-        else
-          for (const b of units) if (b.bld) b.bld.rally = ent && ent !== b ? { x, z, id: ent.id } : { x, z };
+      case 'rally': {
+        // 集結點：交給智慧指令（只有建築時＝設集結點，點礦脈＝工人自動採集）；多選時選取中自己的建築一起設（17.2 #36）
+        const blds = this.rts.sel.filter((b) => b.bld && !b.dead && this.rtsOwn(b));
+        if (typeof this.rtsSmart === 'function') this.rtsSmart(blds, x, z, hit);
+        else for (const b of blds) b.bld.rally = ent && ent !== b ? { x, z, id: ent.id } : { x, z };
         this.rtsMark(x, z, 'move');
         if (!shift) this.rtsSetMode(null);
         return;
+      }
       default:
         order = { k: 'move', x, z };
     }

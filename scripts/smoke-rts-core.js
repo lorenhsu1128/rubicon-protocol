@@ -275,7 +275,8 @@ module.exports = (H) => {
         ty[k].join() === want[k].join(),
         `相剋表 ${k}：無／輕／中／重／城甲／英雄 ＝ ${ty[k].join('／')}`,
       );
-    check(Math.abs(ty.armor5 - 76.9) < 0.2, `護甲 5：100 → ${ty.armor5.toFixed(1)}（−23%）`);
+    // 傷害的小數部分依機率進位（rts.js 的 rtsHook）：76.9 會是 76 或 77
+    check(Math.abs(ty.armor5 - 76.9) < 1, `護甲 5：100 → ${ty.armor5.toFixed(1)}（−23%）`);
     check(
       Math.abs(ty.proj - 141.5) < 0.6,
       `MT 的子彈打中甲 1：100 → ${ty.proj.toFixed(1)}（實彈 ×1.5 × 護甲 1）`,

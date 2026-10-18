@@ -843,3 +843,53 @@ export const RTS_AETH_CATALOG = [
       ]),
   ],
 ];
+
+// ---------- 結晶護壁的外殼（R6 D 包，docs 17.2 #18） ----------
+// 建築外加一層加色的半透明結晶殼（多面體＋稜線）：不合併、一隊共用材質（快取），每座的透明度在 onBeforeRender
+// 寫進共用材質（three.js 在 onBeforeRender 之後才上傳 uniform）。group.userData.k＝0～1（淡入淡出，遊戲端每格設定）
+const AEGIS_GEO = new THREE.IcosahedronGeometry(1, 1);
+const AEGIS_EDGE = new THREE.EdgesGeometry(AEGIS_GEO, 1);
+AEGIS_GEO.userData.shared = AEGIS_EDGE.userData.shared = true;
+const AEGIS_MATS = new Map();
+function aegisMats(team) {
+  if (!AEGIS_MATS.has(team)) {
+    const fill = new THREE.MeshBasicMaterial({
+      color: CORAL_CYAN,
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const edge = new THREE.LineBasicMaterial({
+      color: 0xc8f4ff,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    AEGIS_MATS.set(team, { fill, edge });
+  }
+  return AEGIS_MATS.get(team);
+}
+// w×d＝建築的佔地、h＝高度（m）
+export function buildAegisShell(team, w, d, h) {
+  const M = aegisMats(team);
+  const g = new THREE.Group();
+  g.userData.helper = true;
+  g.userData.k = 0;
+  const fill = new THREE.Mesh(AEGIS_GEO, M.fill);
+  const edge = new THREE.LineSegments(AEGIS_EDGE, M.edge);
+  fill.castShadow = fill.receiveShadow = false;
+  fill.renderOrder = edge.renderOrder = 5;
+  fill.onBeforeRender = () => {
+    M.fill.opacity = 0.16 * g.userData.k;
+  };
+  edge.onBeforeRender = () => {
+    M.edge.opacity = 0.55 * g.userData.k;
+  };
+  fill.raycast = edge.raycast = () => {};
+  g.add(fill, edge);
+  g.scale.set(Math.max(2, w * 0.62), Math.max(2, h * 0.62), Math.max(2, d * 0.62));
+  return g;
+}

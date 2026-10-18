@@ -704,7 +704,8 @@ Object.assign(MechEntity.prototype, {
             this.rtsTowerDist(q) +
             (air(q) ? 0 : 60) +
             (q.bld ? 40 : 0) +
-            (q.rtsDef && RTS_DEFS[q.rtsDef] && RTS_DEFS[q.rtsDef].worker ? 12 : 0);
+            (q.rtsDef && RTS_DEFS[q.rtsDef] && RTS_DEFS[q.rtsDef].worker ? 12 : 0) -
+            this.rtsTowerHotK(q); // 打己方建築的單位優先（R6 D 包）
           if (s < bs) ((bs = s), (best = q));
         }
         if (best) st.tgt = best;
@@ -844,7 +845,7 @@ Object.assign(Game.prototype, {
       if (this.rtsVeerSeen(pod.team, pod.x, pod.z))
         this.fx.warnCircle(
           new THREE.Vector3(pod.x, y + 0.15, pod.z),
-          3,
+          pod.r || 3, // 英雄技能的投放艙（強襲空投艙、緊急增援）帶自己的範圍（R6 D 包）
           delay,
           pod.team === 0 ? 0x7ee081 : 0xff3020,
         );
@@ -896,7 +897,8 @@ Object.assign(Game.prototype, {
         0xffc070,
       );
     }
-    SFX.play('slam', 0.5, 0.9, 0.05, 0.03, new THREE.Vector3(pod.x, y, pod.z));
+    if (this.rtsVeerSeen(pod.team, pod.x, pod.z))
+      SFX.play('thud2', 0.6, 0.8, 0.05, 0.03, new THREE.Vector3(pod.x, y, pod.z)); // 'slam' 不在 SFX_DATA 裡
   },
   // 物流無人機：集貨站 → 調度中心（sec 秒，弧線）
   rtsVeerHaulFx(yard, hq, sec) {

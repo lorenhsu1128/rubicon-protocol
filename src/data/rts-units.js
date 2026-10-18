@@ -60,6 +60,10 @@ export const RTS_HERO_MAX = 3; // 一隊最多幾位英雄
 export const RTS_HERO_COST = { ore: 425, coral: 100 }; // 第 2、3 位英雄（第 1 位免費）
 export const RTS_MILITIA = { r: 45, t: 45, t2: 60 }; // 動員：主堡多遠內的工人、持續秒數（研究民兵訓練後 t2）
 export const RTS_NEUTRAL = 2; // 中立隊伍的編號（R.teams[2]）
+// R6（docs 17.6）：沒有蓋好的主堡時，倒數 t 秒後對其他隊伍揭露全部建築與單位的位置（只標位置、不給視野）
+export const RTS_REVEAL = { t: 120 };
+// R6（docs 17.6）：結果畫面的時間軸，每 dt 秒取樣一次兩隊（超過 max 筆時間隔加倍、去掉一半）
+export const RTS_TIMELINE = { dt: 30, max: 120 };
 export const CARD_KEYS = [
   ['Q', 'W', 'E', 'R'],
   ['A', 'S', 'D', 'F'],
@@ -541,7 +545,7 @@ export const RTS_DEFS = {
     desc: '超遠距離的砲擊（範圍 5 m，攻城）；要架設才能開火，最短射程 16 m',
     tier: 3,
     req: { tier: 3 },
-    cost: { ore: 300, coral: 150 },
+    cost: { ore: 330, coral: 165 },
     time: 40,
     pop: 5,
     hp: 900,
@@ -581,7 +585,7 @@ export const RTS_DEFS = {
     desc: '空中單位：飛越地形，只有對空武器打得到；火箭齊射',
     tier: 3,
     req: { tier: 3 },
-    cost: { ore: 280, coral: 120 },
+    cost: { ore: 252, coral: 108 },
     time: 34,
     pop: 4,
     hp: 750,

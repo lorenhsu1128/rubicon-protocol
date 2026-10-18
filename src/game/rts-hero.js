@@ -9,6 +9,7 @@
 // - 技能的施放與實體端的狀態（衝刺、跳躍、潛地、引導）在 entities/mech-rts-hero.js；這裡是持續的效果：
 //   光環、地面區域（煙幕、腐蝕、吸引、緩速）、持續傷害、標定的揭露、臨時牆的導航佔用、道具、商店、酒館。
 // - 傷害一律經過核心的 rtsHit／rtsSplash（rtsHeroDmg／rtsHeroSplash 先乘施放者的 dmgMul）；數值用 rtsBuff 與數值層。
+import { SFX } from '../audio/audio.js';
 import { Game } from './game.js';
 import { RTS_DEFS, RTS_HERO_COST, RTS_HERO_MAX, RTS_NEUTRAL } from '../data/rts-units.js';
 import {
@@ -40,6 +41,7 @@ import {
   shopCard,
 } from '../data/rts-items.js';
 import { buildItemCrate } from '../render/rts-neutral-models.js';
+import { buildAegisShell } from '../render/rts-aeth-models.js';
 
 const ME = 0;
 const TICK = 0.5; // 光環、區域、持續效果的間隔
@@ -192,6 +194,8 @@ Object.assign(Game.prototype, {
         F.temps.splice(i, 1);
       }
     }
+    // 結晶護壁的外殼（R6 D 包；艾瑟立克的建築技能，rts-grid.js 設 b.rtsAegisT）
+    this.rtsTowerAegisFx();
     // 自動撿道具（0.25 秒一次）
     F.pick -= dt;
     if (F.pick <= 0) {
@@ -683,6 +687,8 @@ Object.assign(Game.prototype, {
       this.fx.ring(p, 3.2, 0xffe070);
       this.fx.flash(e.center(), 2.4, 0xffe070, 0.25);
       if (this.rtsEvent && e.rtsTeam === ME) this.rtsEvent(e.pos.x, e.pos.z, `${e.name} 升到 ${rec.lv} 級`);
+      // 升級的音效（R6 D 包）：自己的英雄＝介面的短音（不受壓低與變悶）
+      if (e.rtsTeam === ME) SFX.play('bell', 0.45, 1.25, 0.02, 0.2, null, 'ui');
     }
     return up;
   },
@@ -794,6 +800,7 @@ Object.assign(Game.prototype, {
       } else if (tgt.pos) tgt = { x: tgt.pos.x, z: tgt.pos.z };
     }
     if (!e.rtsSkillDo(id, P, tgt)) return false;
+    if (e.rtsSfxSkill) e.rtsSfxSkill(id, tgt); // 技能的音效（R6 D 包）
     const R = this.rts;
     if (e.hs) {
       e.hs.actT = R.t; // 相位迷彩：施放就現形
@@ -893,18 +900,89 @@ Object.assign(Game.prototype, {
     e.rtsMods.buff = L.filter((b) => b.src !== src);
     if (e.rtsMods.buff.length !== n) this.rtsModsApply(e);
   },
+  // 結晶護壁的外觀（docs 17.2 #18）：b.rtsAegisT 期間建築外加一層結晶殼（render/rts-aeth-models.js 的 buildAegisShell），
+  // 淡入 0.3 秒、最後 1.5 秒淡出；玩家看不到的建築（fogHid）不畫。外殼的每格更新是 fx.task
+  rtsTowerAegisFx() {
+    const R = this.rts;
+    for (const b of R.units) {
+      if (!b.bld || b.dead || b.rtsAegisFx || !(b.rtsAegisT > R.t)) continue;
+      const D = RTS_DEFS[b.rtsDef] || {};
+      const h = D.height || (b.model && b.model.height) || 6;
+      const sh = buildAegisShell(b.rtsTeam, b.bld.w || 6, b.bld.d || 6, h);
+      sh.position.set(b.pos.x, b.pos.y + h * 0.45, b.pos.z);
+      (R.g || this.scene).add(sh);
+      b.rtsAegisFx = sh;
+      const t0 = R.t;
+      this.fx.task(1e6, (q) => {
+        const left = b.rtsAegisT - R.t;
+        if (!this.rts || this.rts !== R || b.dead || left <= 0) {
+          if (sh.parent) sh.parent.remove(sh);
+          b.rtsAegisFx = null;
+          q.life = 0;
+          return;
+        }
+        sh.position.set(b.pos.x, b.pos.y + h * 0.45, b.pos.z);
+        sh.rotation.y = (R.t - t0) * 0.15;
+        sh.userData.k = Math.min(1, (R.t - t0) / 0.3) * Math.min(1, left / 1.5);
+        sh.visible = !b.fogHid && b.mesh.visible !== false;
+      });
+    }
+  },
   // 臨時牆：addTempWall＋導航佔用（消失時 rtsHeroWalls 解除）
+  // R6 D 包（docs 17.2 #6）：佔地裡有建築或不能移動的單位時這一段不放（回傳 −1）；放好之後把佔地（加寬 1 m）裡的
+  // 地面單位推到牆的兩側（rtsHeroWallPush）
   rtsHeroWall(x, z, o) {
     if (!this.addTempWall) return -1;
-    const pos = new THREE.Vector3(x, this.world.terrainHeight(x, z), z);
-    const id = this.addTempWall(pos, o);
-    if (id < 0) return id;
     const odd = Math.round((o.yaw || 0) / (Math.PI / 2)) % 2 !== 0;
     const W = odd ? o.d : o.w,
       D = odd ? o.w : o.d;
+    if (this.rtsHeroWallBlocked(x, z, W, D)) return -1;
+    const pos = new THREE.Vector3(x, this.world.terrainHeight(x, z), z);
+    const id = this.addTempWall(pos, o);
+    if (id < 0) return id;
     if (this.world.nav) this.world.nav.block(x, z, W, D, 0, true);
     this.rts.hfx.walls.push({ id, x, z, W, D });
+    this.rtsHeroWallPush(x, z, W, D);
     return id;
+  },
+  // 臨時牆（軸對齊的 W×D）的佔地裡有建築（收好在飛的除外）或不能移動的單位（edHold）
+  rtsHeroWallBlocked(x, z, W, D) {
+    for (const t of this.rtsNear(x, z, Math.hypot(W, D) / 2 + 14)) {
+      if (!t || t.dead || t.rtsAboard) continue;
+      if (t.bld) {
+        if (t.bld.packed === 2) continue;
+        if (Math.abs(t.pos.x - x) < (W + t.bld.w) / 2 && Math.abs(t.pos.z - z) < (D + t.bld.d) / 2)
+          return true;
+      } else if (t.edHold && !t.flying) {
+        const r = t.radius || 1;
+        if (Math.abs(t.pos.x - x) < W / 2 + r && Math.abs(t.pos.z - z) < D / 2 + r) return true;
+      }
+    }
+    return false;
+  },
+  // 臨時牆放好之後：佔地加寬 1 m 裡的地面單位推到牆的兩側（短邊的方向）最近的可走格（rtsHeroShift）
+  rtsHeroWallPush(x, z, W, D) {
+    const nav = this.world.nav;
+    const list = this.rtsNear(x, z, Math.hypot(W, D) / 2 + 4).slice();
+    let n = 0;
+    for (const t of list) {
+      if (!t || t.dead || t.bld || t.flying || t.rtsAboard || t.edHold || t.noPush) continue;
+      const r = t.radius || 1;
+      const ox = t.pos.x - x,
+        oz = t.pos.z - z;
+      if (Math.abs(ox) > W / 2 + 1 + r * 0.5 || Math.abs(oz) > D / 2 + 1 + r * 0.5) continue;
+      let px = t.pos.x,
+        pz = t.pos.z;
+      if (W >= D) pz = z + (oz >= 0 ? 1 : -1) * (D / 2 + r + 0.6);
+      else px = x + (ox >= 0 ? 1 : -1) * (W / 2 + r + 0.6);
+      if (nav) {
+        const c = nav.nearestCell(px, pz, t.rtNavSize || 0, -1, 8);
+        if (c >= 0) ({ x: px, z: pz } = nav.center(c));
+      }
+      this.rtsHeroShift(t, px, pz);
+      n++;
+    }
+    return n;
   },
   rtsHeroWalls() {
     const F = this.rts.hfx;
@@ -1494,6 +1572,23 @@ Object.assign(Game.prototype, {
     s.mesh.rotation.y = s.yaw;
     if (this.rts) this.rts.hash.update(s, x, z);
   },
+  // 運輸機的動作（R6 D 包，docs 17.2 #24）：跑 B 包的空投運輸機飛行 rtsVeerCarrierMove（旋翼、機身傾斜、吊掛的擺動），
+  // 位置與朝向仍由上面的邏輯決定（跑完還原）
+  rtsHeroShipAnim(q, dt, tx, tz) {
+    const s = q.ship;
+    if (!s.rtsVeerCarrierMove || s.dead || !(dt > 0)) return;
+    const px = s.pos.x,
+      py = s.pos.y,
+      pz = s.pos.z,
+      yaw = s.yaw;
+    s.rtsVeerCarrierMove(dt, tx, tz, q.alt);
+    s.pos.set(px, py, pz);
+    s.yaw = yaw;
+    s.mesh.position.copy(s.pos);
+    s.mesh.rotation.y = yaw;
+    s.hoverH = q.alt;
+    q.anim = (q.anim || 0) + 1;
+  },
   rtsHeroExpressTick(dt) {
     const R = this.rts,
       F = R.hfx;
@@ -1513,6 +1608,7 @@ Object.assign(Game.prototype, {
           pz = h && !h.dead && !h.rtsAboard ? h.pos.z : s.pos.z;
         s.rtsLow = true;
         this.rtsHeroShipAt(q, px, pz, P.alt + (4 - P.alt) * Math.min(1, tt / P.delay));
+        this.rtsHeroShipAnim(q, dt, px, pz);
         if (tt >= P.delay) {
           this.rtsHeroExpressBoard(q);
           q.st = q.pop > 0 ? 'fly' : 'leave';
@@ -1532,12 +1628,14 @@ Object.assign(Game.prototype, {
           q.t0 = R.t;
           q.alt0 = alt;
         } else this.rtsHeroShipAt(q, s.pos.x + (dx / d) * step, s.pos.z + (dz / d) * step, alt, dx, dz);
+        this.rtsHeroShipAnim(q, dt, q.x, q.z);
         if (s.vel) s.vel.set((dx / (d || 1)) * P.speed, 0, (dz / (d || 1)) * P.speed);
       } else if (q.st === 'land') {
         s.rtsLow = true;
         if (s.vel) s.vel.set(0, 0, 0);
         const k = Math.min(1, tt / P.land);
         this.rtsHeroShipAt(q, q.x, q.z, q.alt0 + (3 - q.alt0) * k);
+        this.rtsHeroShipAnim(q, dt, q.x, q.z);
         if (k >= 1) {
           this.rtsHeroExpressUnload(q);
           q.st = 'leave';
@@ -1546,6 +1644,7 @@ Object.assign(Game.prototype, {
       } else if (q.st === 'leave') {
         s.rtsLow = false;
         this.rtsHeroShipAt(q, s.pos.x, s.pos.z, q.alt + 8 * dt);
+        this.rtsHeroShipAnim(q, dt, s.pos.x, s.pos.z);
         if (tt >= 1.5) {
           F.express.splice(i, 1);
           s.rtsQuiet = true;

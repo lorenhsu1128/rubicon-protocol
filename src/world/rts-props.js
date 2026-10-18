@@ -1,16 +1,26 @@
 // RTS 地圖（world/rts-map.js）的障礙物外觀：plan 的 model 名稱 → 主題的物件網格（prop-models.js 的純函式）。
 // 加主題時在 rts-map.js 的 RTS_THEMES 加障礙物種類，這裡加對應的建模。
 import {
+  WRECK_HULL,
   buildBeacon,
+  buildContainer,
+  buildDerrick,
   buildFloodlight,
   buildIceChunk,
   buildLampPost,
+  buildMiningRig,
   buildOreHopper,
+  buildParkedTruck,
   buildQuonset,
   buildRadarDish,
+  buildRock,
   buildRockSpire,
+  buildSandFence,
+  buildSandstone,
   buildStorageTank,
   buildThemeWall,
+  buildWreckArch,
+  buildWreckHull,
   box,
   cyl,
   mat,
@@ -38,7 +48,7 @@ import {
   buildWreckCar,
 } from './themes/flooded.js';
 import { buildDamGate, buildTetrapod } from './themes/dam.js';
-import { buildQuayCrane } from './variants.js';
+import { buildQuayCrane, buildTrack } from './variants.js';
 import { attrSig, mergeList } from '../render/mesh-merge.js';
 import { styleCat } from '../render/style/shader.js';
 
@@ -203,6 +213,120 @@ function damLamp(o) {
   g.add(m);
   return g;
 }
+// ---------- R6（docs 17.4；C 包）：沙丘地帶、礦坑地表、貨運集散場 ----------
+const SAND_COL = [0x9a7a56, 0x8a6a4a, 0xa88a62],
+  HULL_COL = [0x6a5a4a, 0x5a5048, 0x7a6450],
+  RIG_COL = [0xb08a3e, 0x8c6a3a, 0x9a7a52],
+  CTR_COL = [0xc0541e, 0x2b4fb0, 0xd8a020, 0x3a7a4a, 0x8a8f96],
+  TRUCK_COL = [0xd04a2a, 0x2a5aa0, 0xe0a020];
+// 沙丘：半埋的船殼（主線的艦體殘骸縮 0.5、往下埋）、半埋歪斜的路燈、拱形殘骸（裝飾；碰撞是兩支腳 archfoot）
+function wreckHull(o) {
+  const g = new THREE.Group();
+  const m = buildWreckHull(HULL_COL[o.color || 0]);
+  m.scale.setScalar(0.5);
+  m.position.y = -WRECK_HULL.sink * 0.5;
+  m.rotation.z = 0.06;
+  g.add(m);
+  return g;
+}
+function sandLamp(o) {
+  const g = damLamp(o);
+  return tilted(g, 0.12, -0.08);
+}
+// 礦坑地表：碎石堆（岩石縮放到 plan 的半徑與高度）、採礦機具（斗輪採掘機縮 0.5）
+function boulder(o) {
+  const g = new THREE.Group();
+  const m = buildRock(1, mat(0x6a5440, { roughness: 1, metalness: 0 }));
+  m.scale.set(o.r * 1.15, o.h * 0.6, o.r * 1.15);
+  m.position.y = o.h * 0.35;
+  g.add(m);
+  return g;
+}
+function miningRig(o) {
+  const g = new THREE.Group();
+  const m = buildMiningRig(RIG_COL[o.color || 0]);
+  m.scale.setScalar(0.5);
+  g.add(m);
+  return g;
+}
+// 礦車軌道（沿本地 Z，裝飾）與廢棄的礦車
+function mineCart(o) {
+  const g = new THREE.Group();
+  const body = mat([0x6a5a4a, 0x7a4a2a, 0x5a5a5a][o.color || 0], { roughness: 0.9, metalness: 0.4 }),
+    dk = mat(0x2a2622, { roughness: 1 });
+  g.add(box(1.6, 1, 2.4, body, 0, 0.9, 0));
+  g.add(box(1.4, 0.1, 2.2, dk, 0, 1.42, 0));
+  for (const z of [-0.8, 0.8]) for (const x of [-0.7, 0.7]) g.add(cyl(0.3, 0.3, 0.16, dk, x, 0.32, z, 8));
+  g.children.forEach((c, i) => i >= 2 && (c.rotation.z = Math.PI / 2));
+  return tilted(g, 0, (o.color || 0) === 1 ? 0.35 : 0);
+}
+// 貨運集散場：一個貨櫃（rocks）、貨櫃堆（列 × 層；方塊碰撞＝外框）、停放的卡車、路燈、龍門起重機（裝飾）、棧板
+const CTR_MATS = new Map();
+function ctrMats(k) {
+  if (!CTR_MATS.has(k)) {
+    const cm = mat(CTR_COL[k % CTR_COL.length], { roughness: 0.7, metalness: 0.3 });
+    CTR_MATS.set(k, [cm, mat(0x26282c, { roughness: 0.6, metalness: 0.5 })]);
+  }
+  return CTR_MATS.get(k);
+}
+function container1(o) {
+  const [w, d] = unrot(o);
+  const [cm, fm] = ctrMats(o.color || 0);
+  return buildContainer(w, o.h, d, false, cm, fm);
+}
+function ctrStack(o) {
+  const g = new THREE.Group();
+  const [, d0] = unrot(o);
+  const lay = o.lay || [1];
+  const n = lay.length;
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < lay[i]; j++) {
+      const [cm, fm] = ctrMats((o.color || 0) + i * 2 + j * 3);
+      const c = buildContainer(12, 2.6, 2.6, false, cm, fm);
+      c.position.set(0, j * 2.6, -d0 / 2 + 1.3 + i * 2.6);
+      g.add(c);
+    }
+  return g;
+}
+function parkedTruck(o) {
+  const g = new THREE.Group();
+  const m = buildParkedTruck(mat(TRUCK_COL[o.color || 0], { roughness: 0.6, metalness: 0.3 }));
+  m.position.z = 1; // 車廂＋駕駛艙（z −5.5～3.5）的中心移到原點
+  g.add(m);
+  return g;
+}
+// 龍門起重機：四支腳（沿本地 X 相距 span、沿 Z 相距 7）＋兩道橫樑（高 h）＋台車與吊著的貨櫃；碰撞只有腳（gantryleg）
+function gantry(o) {
+  const g = new THREE.Group();
+  const Y = mat(0xd8a020, { roughness: 0.55, metalness: 0.45 }),
+    dk = mat(0x2e3034, { roughness: 0.8, metalness: 0.4 }),
+    st = mat(0x8a8e90, { roughness: 0.5, metalness: 0.6 });
+  const s = (o.span || 20) / 2,
+    H = o.h || 14;
+  for (const x of [-s, s]) {
+    for (const z of [-3.5, 3.5]) g.add(box(1.1, H, 1.1, Y, x, H / 2, z));
+    g.add(box(1, 1, 8, Y, x, 1.2, 0)); // 腳的底樑
+    g.add(box(1.4, 0.5, 8.4, dk, x, 0.25, 0)); // 行走台車
+  }
+  for (const z of [-3.5, 3.5]) g.add(box(2 * s + 3, 1.8, 1.3, Y, 0, H + 0.6, z));
+  g.add(box(4, 2.2, 8.4, dk, s * 0.3, H + 2.2, 0)); // 台車
+  g.add(box(0.12, 6, 0.12, st, s * 0.3 - 1, H - 3, 0));
+  g.add(box(0.12, 6, 0.12, st, s * 0.3 + 1, H - 3, 0));
+  const [cm, fm] = ctrMats(1);
+  const c = buildContainer(12, 2.6, 2.6, false, cm, fm);
+  c.rotation.y = Math.PI / 2;
+  c.position.set(s * 0.3, H - 8.6, 0);
+  g.add(c);
+  return g;
+}
+function pallets() {
+  const g = new THREE.Group();
+  const wd = mat(0x8a6a44, { roughness: 1 });
+  for (let i = 0; i < 3; i++) g.add(box(1.2, 0.15, 1.0, wd, (i - 1) * 1.4, 0.08 + (i === 1 ? 0.15 : 0), 0));
+  g.add(box(1.1, 0.8, 0.9, mat(0xb8a080, { roughness: 0.9 }), 0, 0.7, 0));
+  return g;
+}
+const empty = () => new THREE.Group();
 // 方塊的障礙物：plan 旋轉 90° 的倍數時寬深已對調，建模用旋轉前的尺寸
 const unrot = (o) => ((Math.round((o.yaw || 0) / (Math.PI / 2)) & 1) === 1 ? [o.d, o.w] : [o.w, o.d]);
 // 障礙物（world/rts-map.js 的 RTS_THEMES 的 model）；全部沿用主線主題的物件（已登記在模型庫，GLB 也照用）
@@ -268,6 +392,27 @@ export const RTS_PROPS = {
   damlamp: damLamp,
   damwall: (o) => buildThemeWall('dam', o.len, o.h, 0.8),
   damrail: damRail,
+  // 沙丘地帶（R6）：砂岩柱、半埋的船殼、歪斜的路燈；拱形殘骸（裝飾）與它的兩支腳（只有碰撞）、防沙柵欄（裝飾）
+  sandstone: (o, T) => buildSandstone(o.r, o.h, T.rock || SAND_COL[0]),
+  wreckhull: wreckHull,
+  sandlamp: sandLamp,
+  wreckarch: (o) => buildWreckArch(HULL_COL[o.color || 0]),
+  archfoot: empty,
+  sandfence: (o) => buildSandFence(o.len, SAND_COL[1]),
+  // 礦坑地表（R6）：碎石堆、採礦機具、井架、探照燈（同荒野）；裝飾的礦車軌道與礦車
+  boulder,
+  miningrig: miningRig,
+  derrick: (o) => buildDerrick(o.h, 0x8a6a4a),
+  minerail: (o) => buildTrack(o.len),
+  minecart: mineCart,
+  // 貨運集散場（R6）：單個貨櫃、貨櫃堆、停放的卡車、倒下的吊臂（水壩的同一個）、路燈；龍門起重機（裝飾）與腳、棧板
+  container1,
+  ctrstack: ctrStack,
+  truck: parkedTruck,
+  lamppost: damLamp,
+  gantry,
+  gantryleg: empty,
+  pallets,
 };
 export function rtsPropMesh(o, T) {
   const f = RTS_PROPS[o.model];

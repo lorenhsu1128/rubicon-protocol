@@ -124,7 +124,7 @@ Object.assign(Game.prototype, {
       visAir: new Uint8Array(N), // 對空的視野（不看高度）
       airOk: false, // visAir 這一輪有算（場上有空中／低空的實體）
       exp: new Uint8Array(N),
-      cheat: !!(t.fogCheat || (t.ai && diff === 'insane')), // 「瘋狂」難度的電腦不受迷霧限制
+      cheat: !!(t.fogCheat || ((R.ai || []).find((a) => a.team === t.id) || { P: {} }).P.cheat), // 瘋狂：那一隊電腦的難度參數（開局時由 rtsAiInit 設定）
       mem: new Map(), // 記得的敵方建築：id → { e, id, def, team, x, z, gone, ghost }
     }));
     const F = {

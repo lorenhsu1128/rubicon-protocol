@@ -6,13 +6,12 @@
 //   hp、dps、range、rof、speed、sight、lv、slots；數值照 13.6：lv 1 血量 450／dps 10，每多 1 lv 血量 +300／dps +6
 //   （具名 AC：血量 2600、dps 40、英雄甲）。傭兵另有 cost、pop（卡片在 game/rts-neutral.js 載入時補上 RTS_UNIT_CARD）。
 // RTS_NEUTRAL_DEFS[id]：kind 'bld'、faction 'neutral'、inv: true（打不壞、noLock）、name、foot、height、sight、
-//   buildModel(pal)（render/rts-neutral-models.js）、card；n_tavern 酒館、n_shop 中立商店、n_merc 傭兵營
+//   buildModel(pal)（render/rts-neutral-models.js 的模型；data 檔不 import render，由 game/rts-neutral.js 載入時補上）、card；n_tavern 酒館、n_shop 中立商店、n_merc 傭兵營
 import { AC_ROSTER } from './enemies.js';
 import { ACES } from './foes.js';
 import { RTS_HERO_DEFS, RTS_TAVERN } from './rts-heroes.js';
 import { RTS_ITEMS, RTS_SHOP_ITEMS, shopCard } from './rts-items.js';
 import { RTS_NEUTRAL_FOOT } from '../world/rts-map.js';
-import { buildMercCamp, buildNeutralShop, buildTavern } from '../render/rts-neutral-models.js';
 
 const BASE = { booster: 'b_std', generator: 'g_std', fcs: 'f_std' };
 const NONE = { rarm: 'w_none', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' };
@@ -687,6 +686,218 @@ Object.assign(RTS_CREEP_DEFS, {
     asm: { ...HEAVY, rarm: 'w_mg' },
   }),
 });
+// ---------- R6 的主題野怪（docs 17.4；C 包）：沙丘、礦坑地表、貨運集散場；特殊行為不做（17.2），只借模型與數值。
+// 不能移動的（旋風產生機、起重機砲台）speed 0.01＝edHold；沙暴干擾機在主線是飛行的，RTS 的定義不帶（仍然沒有飛行的野怪）；
+// 炸藥礦車不自爆（近戰 2.5 m＋範圍 4 的爆發；自爆要改實體的程式，留給之後） ----------
+Object.assign(RTS_CREEP_DEFS, {
+  cr_burrow: creep({
+    name: '沙中伏擊者',
+    desc: '野怪：從沙中撲出的近距離機體（實彈）',
+    etype: 'burrow',
+    lv: 2,
+    atk: 'kin',
+    arm: 'med',
+    armor: 1,
+    range: 14,
+    rof: 0.3,
+    speed: 7,
+    radius: 1.6,
+    modelKind: 'boss',
+    vehKey: 'burrower',
+    asm: { ...LIGHT, rarm: 'w_sg' },
+  }),
+  cr_jammer: creep({
+    name: '沙暴干擾機',
+    desc: '野怪：放出干擾的無人機（能量，貼地移動）',
+    etype: 'jammer',
+    lv: 2,
+    atk: 'en',
+    arm: 'light',
+    armor: 0,
+    range: 22,
+    rof: 0.4,
+    speed: 7.5,
+    radius: 1.3,
+    modelKind: 'boss',
+    vehKey: 'jammer',
+    asm: { ...LIGHT, rarm: 'w_lr' },
+  }),
+  cr_ridgesniper: creep({
+    name: '沙脊狙擊機',
+    desc: '野怪：遠距離的穿甲狙擊（射程 34 m）',
+    etype: 'ridgesniper',
+    lv: 3,
+    atk: 'pierce',
+    arm: 'light',
+    armor: 0,
+    range: 34,
+    rof: 1.4,
+    speed: 6,
+    radius: 1.4,
+    modelKind: 'boss',
+    vehKey: 'ridgesniper',
+    asm: { ...LIGHT, rarm: 'w_rifle' },
+  }),
+  cr_twister: creep({
+    name: '旋風產生機',
+    desc: '野怪：不會移動，捲起沙塵（爆發、範圍 3 m）',
+    etype: 'twister',
+    lv: 3,
+    atk: 'exp',
+    arm: 'fort',
+    armor: 2,
+    range: 18,
+    splash: 3,
+    rof: 0.8,
+    speed: 0.01, // 不移動（0 會被當成沒有設定）
+    radius: 2,
+    modelKind: 'boss',
+    vehKey: 'twister',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_drill: creep({
+    name: '鑽頭採礦機',
+    desc: '野怪：鑽頭的近戰（3 m）',
+    etype: 'drill',
+    lv: 2,
+    atk: 'kin',
+    arm: 'heavy',
+    armor: 2,
+    range: 3,
+    rof: 0.6,
+    melee: { r: 3, rof: 0.6 },
+    speed: 6,
+    radius: 1.6,
+    modelKind: 'boss',
+    vehKey: 'driller',
+    asm: { ...HEAVY, rarm: 'w_sg' },
+  }),
+  cr_lamp: creep({
+    name: '礦燈哨兵',
+    desc: '野怪：視野很遠的哨兵（能量）',
+    etype: 'lamp',
+    lv: 1,
+    atk: 'en',
+    arm: 'light',
+    armor: 0,
+    range: 22,
+    rof: 0.4,
+    speed: 6.5,
+    sight: 36,
+    radius: 1.2,
+    modelKind: 'boss',
+    vehKey: 'lamp',
+    asm: { ...LIGHT, rarm: 'w_lr' },
+  }),
+  cr_blaster: creep({
+    name: '坍方爆破手',
+    desc: '野怪：投擲炸藥（爆發、範圍 3 m）',
+    etype: 'blaster',
+    lv: 3,
+    atk: 'exp',
+    arm: 'med',
+    armor: 1,
+    range: 20,
+    splash: 3,
+    rof: 1,
+    speed: 5.5,
+    radius: 1.6,
+    modelKind: 'boss',
+    vehKey: 'blaster',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_cart: creep({
+    name: '炸藥礦車',
+    desc: '野怪：衝過來的炸藥礦車（近距離、範圍 4 m 的爆發）',
+    etype: 'cart',
+    lv: 2,
+    atk: 'exp',
+    arm: 'light',
+    armor: 0,
+    range: 2.5,
+    rof: 1.2,
+    melee: { r: 2.5, rof: 1.2, splash: 4 },
+    speed: 8,
+    radius: 1.3,
+    modelKind: 'boss',
+    vehKey: 'cart',
+    asm: { ...LIGHT, rarm: 'w_sg' },
+  }),
+  cr_forklift: creep({
+    name: '叉架 MT',
+    desc: '野怪：舉著貨櫃的重型 MT（實彈）',
+    etype: 'forklift',
+    lv: 3,
+    atk: 'kin',
+    arm: 'heavy',
+    armor: 2,
+    range: 18,
+    rof: 0.3,
+    speed: 5.5,
+    radius: 1.9,
+    modelKind: 'boss',
+    vehKey: 'forklift',
+    asm: { ...HEAVY, rarm: 'w_mg' },
+  }),
+  cr_riveter: creep({
+    name: '鉚釘槍 MT',
+    desc: '野怪：連射鉚釘（實彈）',
+    etype: 'riveter',
+    lv: 2,
+    atk: 'kin',
+    arm: 'med',
+    armor: 1,
+    range: 20,
+    rof: 0.2,
+    speed: 6.5,
+    radius: 1.4,
+    modelKind: 'boss',
+    vehKey: 'riveter',
+    asm: { ...LIGHT, rarm: 'w_mg' },
+  }),
+  cr_crane: creep({
+    name: '起重機砲台',
+    desc: '野怪：不會移動，拋擲貨櫃（爆發、範圍 3 m），最短射程 6 m',
+    etype: 'crane',
+    lv: 4,
+    atk: 'exp',
+    arm: 'fort',
+    armor: 3,
+    range: 30,
+    minRange: 6,
+    splash: 3,
+    rof: 1.6,
+    speed: 0.01,
+    radius: 2.4,
+    modelKind: 'boss',
+    vehKey: 'crane',
+    asm: { ...HEAVY, rarm: 'w_bz' },
+  }),
+  cr_welder: creep({
+    name: '電焊 MT',
+    desc: '野怪：近距離的電焊（能量，10 m）',
+    etype: 'welder',
+    lv: 3,
+    atk: 'en',
+    arm: 'med',
+    armor: 1,
+    range: 10,
+    rof: 0.25,
+    speed: 6.5,
+    radius: 1.5,
+    modelKind: 'boss',
+    vehKey: 'welder',
+    asm: { ...HEAVY, rarm: 'w_lr' },
+  }),
+});
+RTS_CREEP_DEFS.cr_ac_sirocco = themeAce('sirocco', { atk: 'kin', slots: ['larm'], range: 18 });
+RTS_CREEP_DEFS.cr_ac_prospector = themeAce('prospector', { atk: 'kin', slots: ['larm'], range: 18 });
+RTS_CREEP_DEFS.cr_ac_stevedore = themeAce('stevedore', {
+  atk: 'exp',
+  slots: ['rarm', 'larm'],
+  slotAtk: { larm: 'kin' },
+  splash: 2,
+});
 // 大營地的落單具名 AC（AC_ROSTER；依營地的亂數挑一台，兩邊對稱的營地挑同一台）：只用射擊武器的
 export const RTS_CAMP_ACES = {
   longshot: { atk: 'en', slotAtk: { larm: 'kin' } },
@@ -879,6 +1090,45 @@ Object.assign(R4_MERCS, {
     ...byLv(3),
   }),
 });
+// R6 的主題傭兵（docs 17.4）：MT 重型沿用 m_mth；起重機砲台不能移動（落在傭兵營前方）
+Object.assign(R4_MERCS, {
+  m_burrow: merc('cr_burrow', { name: '沙中伏擊者（傭兵）', cost: { ore: 140, coral: 20 }, pop: 2, time: 0 }),
+  m_ridgesniper: merc('cr_ridgesniper', {
+    name: '沙脊狙擊機（傭兵）',
+    cost: { ore: 200, coral: 60 },
+    pop: 3,
+    time: 0,
+  }),
+  m_jammer: merc('cr_jammer', { name: '沙暴干擾機（傭兵）', cost: { ore: 160, coral: 40 }, pop: 2, time: 0 }),
+  m_drill: merc('cr_drill', { name: '鑽頭採礦機（傭兵）', cost: { ore: 130, coral: 10 }, pop: 2, time: 0 }),
+  m_blaster: merc('cr_blaster', {
+    name: '坍方爆破手（傭兵）',
+    cost: { ore: 200, coral: 60 },
+    pop: 3,
+    time: 0,
+  }),
+  m_lamp: merc('cr_lamp', { name: '礦燈哨兵（傭兵）', cost: { ore: 90, coral: 20 }, pop: 1, time: 0 }),
+  m_forklift: merc('cr_forklift', {
+    name: '叉架 MT（傭兵）',
+    cost: { ore: 170, coral: 20 },
+    pop: 3,
+    time: 0,
+  }),
+  m_riveter: merc('cr_riveter', {
+    name: '鉚釘槍 MT（傭兵）',
+    cost: { ore: 130, coral: 10 },
+    pop: 2,
+    time: 0,
+  }),
+  m_welder: merc('cr_welder', { name: '電焊 MT（傭兵）', cost: { ore: 180, coral: 50 }, pop: 2, time: 0 }),
+  m_crane: merc('cr_crane', {
+    name: '起重機砲台（傭兵）',
+    cost: { ore: 200, coral: 60 },
+    pop: 3,
+    time: 0,
+    ...byLv(3),
+  }),
+});
 for (const id in R4_MERCS) R4_MERCS[id].desc = '傭兵：' + R4_MERCS[id].desc.replace(/^野怪：/, '');
 Object.assign(RTS_MERC_DEFS, R4_MERCS);
 Object.assign(RTS_CREEP_DEFS, RTS_MERC_DEFS);
@@ -891,6 +1141,9 @@ export const RTS_MERCS = {
   grid086: ['m_crawler', 'm_zipline', 'm_anchor', 'm_mth'],
   flooded: ['m_gunboat', 'm_sprayer', 'm_buoy', 'm_scav'],
   dam: ['m_patrol', 'm_watercannon', 'm_gategun', 'm_mth'],
+  dunes: ['m_burrow', 'm_ridgesniper', 'm_jammer', 'm_mth'],
+  desert: ['m_drill', 'm_blaster', 'm_lamp', 'm_mth'],
+  industrial: ['m_forklift', 'm_riveter', 'm_welder', 'm_crane'],
 };
 export const RTS_MERC_RULE = { stock: 2, restock: 60, r: 14 };
 // 酒館：己方單位離酒館多近可以雇用（C 包的 RTS_HIRE.r 相同）
@@ -1004,6 +1257,49 @@ export const RTS_CAMPS = {
       ['cr_ac_sluice', 'cr_watercannon', 'cr_watercannon', 'cr_patrol', 'cr_gategun'],
     ],
   ],
+  // R6（docs 17.4；lv 合計：小 5～7、中 10～13、大 17～21，不夠的多一台）
+  dunes: [
+    [
+      ['cr_burrow', 'cr_mt', 'cr_mt'],
+      ['cr_jammer', 'cr_scav', 'cr_scav'],
+    ],
+    [
+      ['cr_ridgesniper', 'cr_burrow', 'cr_burrow', 'cr_mth'],
+      ['cr_twister', 'cr_jammer', 'cr_mtshot', 'cr_burrow'],
+    ],
+    [
+      ['@ac', 'cr_ridgesniper', 'cr_ridgesniper', 'cr_burrow', 'cr_burrow', 'cr_mt'],
+      ['cr_ac_sirocco', 'cr_burrow', 'cr_burrow', 'cr_jammer', 'cr_ridgesniper', 'cr_mth'],
+    ],
+  ],
+  desert: [
+    [
+      ['cr_drill', 'cr_drill', 'cr_mt'],
+      ['cr_lamp', 'cr_lamp', 'cr_scav', 'cr_scav'],
+    ],
+    [
+      ['cr_blaster', 'cr_drill', 'cr_drill', 'cr_mth'],
+      ['cr_cart', 'cr_cart', 'cr_blaster', 'cr_mt', 'cr_lamp'],
+    ],
+    [
+      ['@ac', 'cr_blaster', 'cr_blaster', 'cr_drill', 'cr_drill', 'cr_mt'],
+      ['cr_ac_prospector', 'cr_blaster', 'cr_blaster', 'cr_drill', 'cr_drill', 'cr_cart'],
+    ],
+  ],
+  industrial: [
+    [
+      ['cr_forklift', 'cr_mt', 'cr_mt'],
+      ['cr_riveter', 'cr_riveter', 'cr_scav'],
+    ],
+    [
+      ['cr_crane', 'cr_forklift', 'cr_mt', 'cr_mt'],
+      ['cr_welder', 'cr_welder', 'cr_riveter', 'cr_mth'],
+    ],
+    [
+      ['@ac', 'cr_crane', 'cr_forklift', 'cr_forklift', 'cr_mt'],
+      ['cr_ac_stevedore', 'cr_welder', 'cr_welder', 'cr_crane', 'cr_riveter'],
+    ],
+  ],
 };
 // 掉寶（依 tier）：p＝掉道具的機率（否則給 alt 的資源）、item＝道具的階（C 包 rts-items.js 的 RTS_LOOT：含只掉落的）、
 // 資源給擊破者的隊伍（不套維持費）
@@ -1041,7 +1337,6 @@ export const RTS_NEUTRAL_DEFS = {
     desc: '中立建築：己方單位在 14 m 內時可以雇用宿敵 AC 當英雄（全場唯一）、立刻復活陣亡的英雄（費用 ×1.5、半血）',
     foot: RTS_NEUTRAL_FOOT.tavern,
     height: 9,
-    buildModel: (pal) => buildTavern(pal),
     card: [
       ...RTS_TAVERN.slice(0, 8).map((id, i) => ({
         at: at(i),
@@ -1059,7 +1354,6 @@ export const RTS_NEUTRAL_DEFS = {
     desc: '中立建築：賣全部可購買的道具給 12 m 內的英雄；每種有庫存（兩隊共用），賣掉後慢慢補貨',
     foot: RTS_NEUTRAL_FOOT.shop,
     height: 8,
-    buildModel: (pal) => buildNeutralShop(pal),
     card: shopCard(RTS_SHOP_ITEMS, false),
   }),
   n_merc: neutralBld({
@@ -1067,7 +1361,6 @@ export const RTS_NEUTRAL_DEFS = {
     desc: '中立建築：己方單位在 14 m 內時可以雇用這張地圖的傭兵（每種庫存 2 台、60 秒補 1 台，兩隊共用）',
     foot: RTS_NEUTRAL_FOOT.merc,
     height: 6,
-    buildModel: (pal) => buildMercCamp(pal),
     // 荒野的名單；開局時 game/rts-neutral.js 依主題換掉這個陣列的內容（mercCard）
     card: mercCard('wasteland'),
   }),

@@ -31,6 +31,10 @@ const ROCKET_G = 40;
 const WALL_DOT = -0.34; // 盾牆的正面範圍（cos 110°）
 const CRATE_DOT = 0.42; // 叉架 MT 舉著的貨櫃（約 ±65°）
 const _f = new THREE.Vector3();
+const PACK_FLY_H = 5; // 收好在飛的建築的高度（rtsFlyAlt）
+const JUMP_ABS = new Set(['ab_vjump']); // 跳躍類的技能（重力場裡不能用）
+const BLD_HIT_T = 3; // 防禦塔：這麼久之內打過己方建築的單位優先（R6 D 包）
+const BLD_HIT_K = 30; // 優先的程度（評分扣掉的距離，m）
 const LOS_PAD = 1; // rtsObBlocked：障礙物在水平方向加寬（槍口偏移＋擴散）
 // 盾牌 MT 的盾牆、叉架 MT 的貨櫃盾（rtsAbInit 換成實體自己的 specialDefense）：遠程攻擊從正面來時減傷，
 // 其他照原本的（盾牌 MT 平常的正面大盾在 mech-special.js）
@@ -317,6 +321,17 @@ Object.assign(MechEntity.prototype, {
       const t = clamp(ox * dx + oz * dz, 0, 10);
       if (Math.hypot(ox - dx * t, oz - dz * t) < o.r + pad) want = o.top + 3;
     }
+    // 收好在飛的建築（維爾威，bld.packed 2：沒有碰撞方塊、離地 5 m）：當成高 5 m 的障礙物，從上方飛過（docs 17.2 #23）
+    for (const b of this.game.rtsNear(px + dx * 5, pz + dz * 5, 16)) {
+      if (b === this || b.dead || !b.bld || b.bld.packed !== 2) continue;
+      const top = b.pos.y + PACK_FLY_H;
+      if (top + 3 <= want) continue;
+      const ox = b.pos.x - px,
+        oz = b.pos.z - pz;
+      const t = clamp(ox * dx + oz * dz, 0, 10);
+      if (Math.hypot(ox - dx * t, oz - dz * t) < Math.max(b.bld.w || 0, b.bld.d || 0) / 2 + pad)
+        want = top + 3;
+    }
     this.hoverH = Math.max(2, want - here);
   },
   // 走到建築旁邊：外形上離自己最近的點往外 1.2 m
@@ -588,7 +603,13 @@ Object.assign(MechEntity.prototype, {
   },
   // 被打：待命或攻擊移動中的單位回擊（記下攻擊者，下一次找目標時優先）
   rtsHurtBy(from) {
-    if (!from || from.rtsTeam === undefined || from.rtsTeam === this.rtsTeam || !this.rt) return;
+    if (!from || from.rtsTeam === undefined || from.rtsTeam === this.rtsTeam) return;
+    // 建築被打：記下攻擊者（防禦塔優先打它，rtsTowerScan）
+    if (this.bld && !from.bld && this.game.rts) {
+      from.rtsBldHitT = this.game.rts.t;
+      from.rtsBldHitTeam = this.rtsTeam;
+    }
+    if (!this.rt) return;
     this.rt.hurtBy = from;
     this.rt.hurtT = this.game.rts ? this.game.rts.t : 0;
   },
@@ -770,7 +791,7 @@ Object.assign(MechEntity.prototype, {
         if (g.rtsFxOk(_v)) g.fx.spark(_v.clone(), 0xffd070);
       }
       if (rt.gT >= RTS_GATHER.time) {
-        const n = Math.min(trip, Math.floor(m.amount));
+        const n = Math.min(trip + (m.rich ? 2 : 0), Math.floor(m.amount)); // 富礦每趟 +2
         m.amount -= n;
         g.rtsMineChanged(m);
         this.carry = { kind: 'ore', n };
@@ -983,6 +1004,8 @@ Object.assign(MechEntity.prototype, {
       if (w) return w;
     }
     if (!this.rtsAbReady(ab)) return `冷卻中（${Math.ceil(this.rtsCd[ab] - R.t)} 秒）`;
+    // 重力錨的重力場（野怪，R6 D 包）：跳躍類的技能停用
+    if (JUMP_ABS.has(ab) && this.hasStatus && this.hasStatus('nojump')) return '重力場：不能跳躍';
     if ((A.coral || 0) > (R.teams[this.rtsTeam].coral || 0)) return 'Coral 不足';
     return '';
   },
@@ -1032,8 +1055,9 @@ Object.assign(MechEntity.prototype, {
       this.rtsAbSiege(S.st === 'up' || S.st === 'packing');
     } else if (ab === 'ab_stomp') this.rtsAbStomp();
     else if (ab === 'ab_crate') this.rtsAbCrate(o.x, o.z);
-    else if (ab === 'ab_cover') this.rtsAbCover(o.x, o.z);
-    else if (ab === 'ab_flare') this.rtsAbFlare(o.x, o.z);
+    else if (ab === 'ab_cover') {
+      if (this.rtsAbCover(o.x, o.z) === false) return; // 放不下：不扣費用與冷卻
+    } else if (ab === 'ab_flare') this.rtsAbFlare(o.x, o.z);
     else if (ab === 'ab_rockets') this.rtsAbRockets(o.x, o.z);
     // 艾瑟立克的技能（R3 B 包的 rtsAethAb：true＝施放了，費用與冷卻在這裡扣）
     // 維爾威的技能（R4 B 包的 rtsVeerAb，同上）、聖域的技能（R5 B 包的 rtsSancAb，同上）
@@ -1188,6 +1212,13 @@ Object.assign(MechEntity.prototype, {
     const W = 8,
       Dp = 2.6,
       H = 3;
+    const fw = yaw ? Dp : W,
+      fd = yaw ? W : Dp;
+    // 佔地裡有建築或不能移動的單位：不放（R6 D 包，docs 17.2 #6；rts-hero.js）
+    if (g.rtsHeroWallBlocked && g.rtsHeroWallBlocked(x, z, fw, fd)) {
+      if (this.rtsTeam === 0 && g.rtsSay) g.rtsSay('貨櫃掩體：這裡有建築，放不下');
+      return false;
+    }
     const id = g.addTempWall(new THREE.Vector3(x, 0, z), {
       kind: 'rock',
       w: W,
@@ -1209,9 +1240,8 @@ Object.assign(MechEntity.prototype, {
       });
       if (wall.ob) wall.ob.mats = mats;
     }
-    const fw = yaw ? Dp : W,
-      fd = yaw ? W : Dp;
     if (w.nav) w.nav.block(x, z, fw, fd, 0, true);
+    if (g.rtsHeroWallPush) g.rtsHeroWallPush(x, z, fw, fd); // 佔地裡的單位推到兩側
     // 牆被打碎或時間到：解除導航格
     const poll = () => {
       const q = (g.tWalls || []).find((r) => r.i === id);
@@ -1353,9 +1383,11 @@ Object.assign(MechEntity.prototype, {
     }
     if (!t) {
       if (st.tgt && !ok(st.tgt)) st.tgt = null;
-      if (!st.tgt && st.scanT <= 0) {
+      // 目前的目標沒有在打己方建築時照樣掃描：有打建築的單位就換過去（docs 17.2 #5）
+      if ((!st.tgt || !this.rtsTowerHotK(st.tgt)) && st.scanT <= 0) {
         st.scanT = SCAN_DT;
-        st.tgt = this.rtsTowerScan(gun, range);
+        const n = this.rtsTowerScan(gun, range);
+        if (!st.tgt || (n && this.rtsTowerHotK(n))) st.tgt = n;
       }
       t = st.tgt;
     }
@@ -1426,6 +1458,11 @@ Object.assign(MechEntity.prototype, {
       g.rtsHit(t, dmg, 30, this, gun.atk || 'kin');
     }
   },
+  // 防禦塔的評分：BLD_HIT_T 秒內打過己方建築的單位優先（扣 BLD_HIT_K m；rtsHurtBy 記下）
+  rtsTowerHotK(t) {
+    const R = this.game.rts;
+    return t && R && t.rtsBldHitTeam === this.rtsTeam && R.t - t.rtsBldHitT < BLD_HIT_T ? BLD_HIT_K : 0;
+  },
   // 防禦塔到目標的距離（從建築的邊緣算）
   rtsTowerDist(t) {
     return Math.max(0, this.rtsDistTo(t) - (this.bld ? Math.min(this.bld.w, this.bld.d) / 2 : 0));
@@ -1438,7 +1475,11 @@ Object.assign(MechEntity.prototype, {
       if (!this.rtsHostileOk(t) || !this.rtsAbCanHit(gun, t)) continue;
       const d = this.rtsTowerDist(t);
       if (d > range || (gun.minRange && d < gun.minRange)) continue;
-      const s = d + (t.bld ? 40 : 0) + (t.rtsDef && RTS_DEFS[t.rtsDef] && RTS_DEFS[t.rtsDef].worker ? 12 : 0);
+      const s =
+        d +
+        (t.bld ? 40 : 0) +
+        (t.rtsDef && RTS_DEFS[t.rtsDef] && RTS_DEFS[t.rtsDef].worker ? 12 : 0) -
+        this.rtsTowerHotK(t);
       if (s < bs) {
         bs = s;
         best = t;
