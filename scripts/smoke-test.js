@@ -15139,6 +15139,16 @@ const RTS_R4D = require('./smoke-rts-veer-d')({
   SHOT_DIR,
   path,
 });
+// R5 F 包（電腦對手：聖域）
+const RTS_R5F = require('./smoke-rts-sanc-f')({
+  check,
+  newPage,
+  freezeLoop,
+  seededRandom,
+  wait,
+  SHOT_DIR,
+  path,
+});
 // R4 F 包（電腦對手：維爾威）
 const RTS_R4F = require('./smoke-rts-veer-f')({
   check,
@@ -15256,6 +15266,7 @@ const STEPS = [
   ['testRtsSancHud', (c) => RTS_R5E.testRtsSancHud(c.browser, c.base)],
   ['testRtsSancUnits', (c) => RTS_R5B.testRtsSancUnits(c.browser, c.base)],
   ['testRtsThemes3', (c) => RTS_R5D.testRtsThemes3(c.browser, c.base)],
+  ['testRtsSancAi', (c) => RTS_R5F.testRtsSancAi(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],

@@ -239,6 +239,94 @@ export const RTS_AI_OPENERS = {
       towers: 3,
     },
   ],
+  // （R5 F 包，docs 16.6）聖域：拾荒（工人與回收拖車拆看過的殘骸）、改裝、避難警報、布雷。
+  // popK＝部隊的門檻與上限以人口比較（聖域的單位多半 1 人口：門檻 8 台＝16 人口）；
+  // haul＝回收拖車 [5 分鐘起的台數, 10 分鐘起的台數]（難度的 haulMax 限制）；miners＝T2 之後的布雷無人機（困難以上至少 2）；
+  // walls＝每座瞭望塔前的廢鐵路障段數；開局步驟的 s_yard＝回收站（放在主礦與自己這一側的營地之間）
+  sancta: [
+    {
+      id: 'horde',
+      name: '民兵海',
+      steps: [
+        { pop: 6, b: 's_hall' },
+        { pop: 7, b: 's_depot' },
+        { pop: 9, b: 's_hall' },
+        { pop: 12, b: 's_depot' },
+        { pop: 14, b: 's_extractor' },
+        { pop: 16, b: 's_shop' },
+      ],
+      wk0: 12,
+      mix: { s_militia: 3, s_scav: 1 },
+      armyK: 0.75,
+      attackK: 0.85, // （docs 16.6 寫 ×0.8＝3:24：比「3:30 起」早，改 ×0.85）
+      expandK: 1.1,
+      popK: 2,
+      hero: 'h_salvor',
+      heroes: ['h_salvor', 'h_mender', 'h_haven'],
+      tech: { t2: 24, t3: 44 },
+      research: ['r_kin', 'r_salv', 'r_arm', 'r_kin', 'r_mutual', 'r_arm'],
+      mix2: { s_militia: 3, s_scav: 2, s_rivet: 1, s_repair: 1 },
+      mix3: { s_militia: 2, s_scav: 2, s_junk: 1, s_rivet: 1, s_repair: 1, s_colossus: 0.5 },
+      towers: 1,
+      haul: [0, 1],
+    },
+    {
+      id: 'scrap',
+      name: '拾荒',
+      steps: [
+        { pop: 7, b: 's_depot' },
+        { pop: 9, b: 's_hall' },
+        { pop: 11, b: 's_extractor' },
+        { pop: 12, b: 's_yard' },
+        { pop: 14, b: 's_shop' },
+        { pop: 16, b: 's_depot' },
+        { pop: 18, b: 's_hall' },
+      ],
+      wk0: 14,
+      mix: { s_militia: 2, s_rivet: 1, s_repair: 0.5 },
+      armyK: 1,
+      attackK: 1,
+      expandK: 1,
+      popK: 2,
+      hero: 'h_mender',
+      heroes: ['h_mender', 'h_salvor', 'h_haven'],
+      tech: { t2: 22, t3: 38 },
+      research: ['r_salv', 'r_kin', 'r_arm', 'r_stock', 'r_mend', 'r_kin', 'r_arm', 'r_titan', 'r_mutual'],
+      mix2: { s_militia: 2, s_rivet: 1, s_junk: 1, s_repair: 1 },
+      mix3: { s_militia: 2, s_rivet: 1, s_junk: 1, s_repair: 1, s_colossus: 1 },
+      towers: 2,
+      haul: [1, 2],
+      miners: 1, // （docs 16.6 的 T2 布雷 0.5：比例裡改成固定一台，留在家門口布雷）
+    },
+    {
+      id: 'turtle',
+      name: '龜縮',
+      steps: [
+        { pop: 7, b: 's_depot' },
+        { pop: 9, b: 's_hall' },
+        { pop: 10, b: 's_tower' },
+        { pop: 12, b: 's_extractor' },
+        { pop: 13, b: 's_clinic' },
+        { pop: 15, b: 's_shop' },
+        { pop: 18, b: 's_hq' },
+      ],
+      wk0: 20,
+      mix: { s_rivet: 2, s_militia: 1 },
+      armyK: 1.25,
+      attackK: 1.15,
+      expandK: 0.7,
+      popK: 2,
+      hero: 'h_haven',
+      heroes: ['h_haven', 'h_mender', 'h_salvor'],
+      tech: { t2: 20, t3: 34 },
+      research: ['r_arm', 'r_kin', 'r_mend', 'r_hull', 'r_canopy', 'r_titan', 'r_arm'],
+      mix2: { s_rivet: 2, s_dome: 1, s_junk: 1, s_gunboat: 1, s_repair: 1 },
+      mix3: { s_junk: 2, s_colossus: 1, s_dome: 1, s_rivet: 1 },
+      towers: 4,
+      walls: 3,
+      haul: [1, 2],
+    },
+  ],
 };
 
 // 各陣營的建築角色（電腦對手用：補給、生產、抽取站、主堡）
@@ -300,6 +388,28 @@ export const RTS_AI_ROLES = {
     wall: null,
     node: null,
   },
+  // （R5 F 包，docs 16.6）factory2＝回收工廠、works＝診療所（研究）、yard＝回收站（拾荒的回收點，不是分礦）、
+  // shop＝改裝工坊（新角色：修理無人機、布雷無人機、改裝站）；分礦是聚落中心
+  sancta: {
+    hq: 's_hq',
+    hq2: 's_hq2',
+    hq3: 's_hq3',
+    depot: 's_depot',
+    factory: 's_hall',
+    factory2: 's_works',
+    extractor: 's_extractor',
+    works: 's_clinic',
+    market: 's_market',
+    tower: 's_tower',
+    flak: 's_tower',
+    wall: 's_barricade',
+    yard: 's_yard',
+    shop: 's_shop',
+    heavy: null,
+    pad: null,
+    node: null,
+    beacon: null,
+  },
 };
 // 兵種專屬的研究（兵種比例裡沒有這個兵種時不研究；docs 14.6 最後一項）
 export const RTS_AI_RES_UNIT = {
@@ -313,6 +423,13 @@ export const RTS_AI_RES_UNIT = {
     r_proto: 'a_blob',
   },
   veerwell: { r_jump: 'v_spacemt', r_burn: 'v_jet' },
+  sancta: {
+    r_titan: 's_colossus',
+    r_hull: 's_junk',
+    r_dive: 's_gunboat',
+    r_canopy: 's_dome',
+    r_mines: 's_mine',
+  },
 };
 
 // 難度：
@@ -330,8 +447,15 @@ export const RTS_AI_RES_UNIT = {
 // （R3 F 包）harass 派 4 台騷擾看得到的外圍導管節點（對方是艾瑟立克時；困難以上）
 // （R4 F 包，維爾威）fwdBeacon 進攻前在前線空投信標、投放艙降到那裡；trade 物流交易；packFlee 主基地的生產建築
 //   被打到 < 30% 而且打不過時收起撤到分礦；harass 也是運輸機載兵騷擾對方的礦脈
+// （R5 F 包，聖域）salvMax 工人上限之外的拾荒工、refit 改裝、salvYard 在殘骸多的地方蓋回收站、haulMax 回收拖車上限、
+//   sancMines T2 之後布雷無人機在家門口與分礦的入口布雷
 export const RTS_AI_DIFFS = {
   easy: {
+    salvMax: 2,
+    refit: false,
+    salvYard: false,
+    haulMax: 1,
+    sancMines: false,
     fwdBeacon: false,
     trade: false,
     packFlee: false,
@@ -372,6 +496,11 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   normal: {
+    salvMax: 4,
+    refit: true,
+    salvYard: true,
+    haulMax: 2,
+    sancMines: false,
     fwdBeacon: true,
     trade: true,
     packFlee: false,
@@ -412,6 +541,11 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   hard: {
+    salvMax: 6,
+    refit: true,
+    salvYard: true,
+    haulMax: 3,
+    sancMines: true,
     fwdBeacon: true,
     trade: true,
     packFlee: true,
@@ -453,6 +587,11 @@ export const RTS_AI_DIFFS = {
     income: 1,
   },
   insane: {
+    salvMax: 6,
+    refit: true,
+    salvYard: true,
+    haulMax: 3,
+    sancMines: true,
     fwdBeacon: true,
     trade: true,
     packFlee: true,
@@ -533,6 +672,23 @@ export const RTS_AI_CAST = {
   sk_flak: { k: 'air', n: 2, r: 7 },
   sk_jam: { k: 'mark' },
   sk_squadron: { k: 'army', n: 6, r: 24 },
+  // 聖域（docs 16.4；C 包放在 RTS_SKILLS 的 ai 欄位，這裡照抄）：'wrecks'＝範圍 r 內這一隊看過的殘骸 ≥ n（own＋t：殘骸裡
+  // 原本是自己這一隊、t 秒內陣亡的台數）；wrecks: 1＝附近至少一個殘骸才放。磁吸（ranged）另外加 defs（拉後排的砲兵）與 ground
+  sk_mend: { k: 'ally', hp: 0.5 },
+  sk_triage: { k: 'ally', hp: 0.6, n: 3, r: 8 },
+  sk_lazarus: { k: 'wrecks', own: true, t: 60, n: 4, r: 20 },
+  sk_magnet: {
+    k: 'ranged',
+    defs: ['c_arty', 'c_mortar', 'a_beam', 'a_reson', 'v_rack', 's_rivet', 's_gunboat'],
+    hp: 0.3,
+    ground: true,
+    far: true,
+  },
+  sk_scrapmail: { k: 'self', hp: 0.7, n: 2, r: 15, wrecks: 1 },
+  sk_golem: { k: 'wrecks', n: 3, r: 20 },
+  sk_minefield: { k: 'cluster', n: 3, r: 10 },
+  sk_haven: { k: 'ally', hp: 0.6, n: 3, r: 8 },
+  sk_refuge: { k: 'army', n: 8, r: 18 },
 };
 // 單位技能（電腦）：盾牆＝交戰中、敵人在 r 內；投擲貨櫃、火箭齊射＝範圍 r 內 n 台以上的敵方單位
 export const RTS_AI_ABILS = {
@@ -553,6 +709,8 @@ export const RTS_AI_ABILS = {
   ab_strafe: { n: 3, r: 8 },
   ab_relay: { far: 60 },
   ab_supply: { n: 5, r: 12, hp: 0.7 },
+  // 聖域（docs 16.6）：展開護盾＝r 內有敵方部隊、n m 內有 2 台以上己方單位；釘住、吸附殘骸、廢鐵重組照 B 包的自動施放
+  ab_dome: { r: 22, n: 12 },
 };
 // 永久道具的購買順序（items 'all'；依陣營，沒有列的陣營用 castron 的）
 export const RTS_AI_ITEMS = ['i_fcs', 'i_plate', 'i_scope'];
@@ -560,4 +718,5 @@ export const RTS_AI_ITEMS_FAC = {
   castron: RTS_AI_ITEMS,
   aetheric: ['i_lens', 'i_plate', 'i_fcs'],
   veerwell: ['i_ledger', 'i_fcs', 'i_plate'],
+  sancta: ['i_toolbox', 'i_logbook', 'i_fcs'],
 };

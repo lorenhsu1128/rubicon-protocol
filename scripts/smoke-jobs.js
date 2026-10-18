@@ -125,6 +125,7 @@ const DEFAULT_TIMES = {
   testRtsSancHud: 45000,
   testRtsSancUnits: 60000,
   testRtsThemes3: 30000,
+  testRtsSancAi: 60000,
   server: 8089,
   'server:testServerModels': 32811,
   'server:testLevelsServer': 9780,
