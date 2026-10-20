@@ -1865,7 +1865,7 @@ async function testLibraryJoints(browser, base) {
   };
   await open('arms/a_std/r_upper');
   const def = await page.$eval(elbowY, (i) => i.value);
-  check(def === '-0.504', `手肘預設位置 Y＝${def}（glTF 座標）`);
+  check(def === '-0.59', `手肘預設位置 Y＝${def}（glTF 座標）`);
   await page.fill(elbowY, '-1.4');
   await wait(900);
   check(
@@ -1888,7 +1888,7 @@ async function testLibraryJoints(browser, base) {
   check(!!e && e.p[1] === -1.4, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
   await page.click('.jrow[data-n="elbow"] [data-act="reset"]');
   await wait(500);
-  check((await page.$eval(elbowY, (i) => i.value)) === '-0.504', '重設後回到預設值');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-0.59', '重設後回到預設值');
   await ctx.close();
 }
 
@@ -2015,7 +2015,7 @@ async function testWorkshop(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
   await page.click('#wsDetail [data-act="reset"]');
   await wait(500);
-  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.504'), '重設後回到預設值');
+  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.590'), '重設後回到預設值');
   const gl = await page.$('#wsGl');
   const box = await gl.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
@@ -2040,7 +2040,7 @@ async function testWorkshop(browser, base) {
   await page.keyboard.press('Control+z');
   await wait(600);
   check(
-    (await cv(elbow)).includes('-0.504') && (await cv(lElbow)).includes('-0.504'),
+    (await cv(elbow)).includes('-0.590') && (await cv(lElbow)).includes('-0.590'),
     'Ctrl+Z 復原（兩側一起）',
   );
   await page.keyboard.press('Control+y');
@@ -2169,10 +2169,10 @@ async function testEditor(browser, base) {
   check((await bad()).length === 0, `對齊後規格檢查全部通過${(await bad()).join('；')}`);
   await page.click('#edOrigin button[data-o="bottom"]');
   await wait(400);
-  check((await stats()).includes('Y0.00 ～ 0.70'), `原點設在底面中心（${await stats()}）`);
+  check((await stats()).includes('Y0.00 ～ 0.91'), `原點設在底面中心（${await stats()}）`);
   await page.keyboard.press('Control+z');
   await wait(400);
-  check((await stats()).includes('Y-0.57 ～ 0.12'), `Ctrl+Z 復原原點修改（${await stats()}）`);
+  check((await stats()).includes('Y-0.66 ～ 0.25'), `Ctrl+Z 復原原點修改（${await stats()}）`);
   const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
   const t0 = await tris();
   await page.click('#edTree .edNode:last-child [data-act="del"]');
