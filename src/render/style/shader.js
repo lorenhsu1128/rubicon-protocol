@@ -15,6 +15,12 @@ export function tagStyle(root, cat = 1) {
   return root;
 }
 export const styleCat = (m) => CAT.get(m) || 0;
+// GLB 等美術畫好的貼圖（記在貼圖物件上，材質複製後仍共用同一張）：「貼圖細節」不把它混成平均色，
+// 因為它不是程式產生的磨損細節，而是部件的配色與分件線本身
+const AUTH = new WeakSet();
+export const markAuthoredTex = (t) => {
+  if (t) AUTH.add(t);
+};
 
 const V4 = (x, y, z, w) => ({ value: new THREE.Vector4(x, y, z, w) });
 // 全部材質共用同一組 uniform 物件（改 value 就全部生效）
@@ -47,7 +53,7 @@ export function setStyleUniforms(P) {
 
 const PARS = /* glsl */ `
 uniform vec4 stA, stB, stC, stD, stE, stM, stN, stF, stW;
-uniform float stCat, stOpq;
+uniform float stCat, stOpq, stAuth;
 varying vec3 vStW;
 float stSh = 1.0;
 vec3 stLit = vec3( 0.0 );
@@ -97,7 +103,7 @@ float stNoise( vec2 p ) {
 const MAP = /* glsl */ `
 #ifdef USE_MAP
 	vec4 texelColor = texture2D( map, vUv );
-	float stDet = mix( stE.y, stE.x, stCat );
+	float stDet = max( mix( stE.y, stE.x, stCat ), stAuth );
 	if ( stDet < 0.999 ) texelColor = mix( texture2D( map, vUv, 10.0 ), texelColor, stDet );
 	texelColor = mapTexelToLinear( texelColor );
 	diffuseColor *= texelColor;
@@ -202,6 +208,11 @@ export function installStyleShader() {
       stCat: {
         get value() {
           return CAT.get(mat) || 0;
+        },
+      },
+      stAuth: {
+        get value() {
+          return mat.map && AUTH.has(mat.map) ? 1 : 0;
         },
       },
       stOpq: {

@@ -56,6 +56,7 @@ export class Game {
     sc.near = 1;
     sc.far = 250;
     this.sun.shadow.bias = -0.0015;
+    this.sun.shadow.normalBias = 0.04; // 沿法線推開：GLB 的平滑法線低面數模型不會自己遮自己出現條紋
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.setupEnvironment();

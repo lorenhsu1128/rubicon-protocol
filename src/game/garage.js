@@ -23,6 +23,9 @@ Object.assign(Game.prototype, {
     const d = new THREE.DirectionalLight(0xfff4e0, 1.5);
     d.position.set(5, 10, 6);
     d.castShadow = true;
+    d.shadow.mapSize.set(2048, 2048);
+    d.shadow.bias = -0.0005;
+    d.shadow.normalBias = 0.02; // 沒有它時 GLB 區塊表面會出現自我陰影的條紋
     s.add(d);
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(4, 32),

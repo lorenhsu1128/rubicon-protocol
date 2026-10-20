@@ -3,6 +3,21 @@
 import { OUTLINE_MAT } from './geometry.js';
 import { palColor } from './materials.js';
 import { isFxMaterial, measureBox, modelStats } from './measure.js';
+import { markAuthoredTex } from './style/shader.js';
+
+const TEX_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'];
+// GLB 的貼圖：各向異性過濾（斜看的面不糊；three.js 依顯示卡上限截斷）、標成美術畫的貼圖（渲染風格不抹平）
+function sharpenTextures(m) {
+  for (const k of TEX_KEYS) {
+    const t = m[k];
+    if (!t || !t.isTexture) continue;
+    if (t.anisotropy < 8) {
+      t.anisotropy = 8;
+      t.needsUpdate = true;
+    }
+  }
+  markAuthoredTex(m.map);
+}
 
 // ---------- 規格 ----------
 // 依材質名稱換色的槽位（名稱不分大小寫，可帶 Blender 的 .001 等後綴）
@@ -174,6 +189,7 @@ export function glbScene(gltf, pal) {
     const out = list.map((m) => {
       info.materials++;
       if (m.type === 'MeshBasicMaterial') info.unlit++;
+      sharpenTextures(m);
       const c = tintMaterial(m, pal);
       if (c === m) info.kept.add(m.name || '（未命名）');
       else info.tinted.add(slotOf(m.name));
