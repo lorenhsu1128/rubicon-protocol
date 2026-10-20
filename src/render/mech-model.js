@@ -529,8 +529,8 @@ function buildWeapon(node, w, M, side) {
   }
 }
 
-// ---------------- MECH v7 — 寫實比例（參考圖：約 10.7 頭身、腿長約 58%、細腰、寬肩甲） ----------------
-// 二足站立：腳踝 0.30、膝 1.12、髖 1.94、腰 2.22、胸頂 3.15、頭 3.02～3.33；肩甲外緣寬約 1.9
+// ---------------- MECH v7 的幾何（程式模型的造型以這組數值建立；實際比例見下方 v8 的 PIECE_SCALE／LAY） ----------------
+// v7 原本的二足站立：腳踝 0.30、膝 1.12、髖 1.94、腰 2.22、胸頂 3.15、頭 3.02～3.33；肩甲外緣寬約 1.9
 // 所有零件共用這組比例，只有裝備與貼花不同
 const CUBE = {
   hipY: 1.94, // 髖關節高（二足）
@@ -565,7 +565,44 @@ const CUBE = {
   headH: 0.31,
   headD: 0.3,
   upperH: 0.86, // 腰到判定頂端（遊戲判定身高＝腰高＋此值）
-}; // 量自參考圖正視圖（1 px ≈ 0.00431 m，頭頂 3.33）
+}; // 量自參考圖正視圖（1 px ≈ 0.00431 m，頭頂 3.33）；各區塊程式模型的幾何以這組數值建立
+
+// ---------------- MECH v8 — 基礎機型設計圖的比例（總高 3.5 m） ----------------
+// 二足站立：腳踝 0.36、膝 1.08、髖 2.09、腰 2.25、肩關節 2.99、胸頂 3.43、頭頂與肩甲頂 3.50；
+// 頭小（約 9.2 頭身）並略陷在領口之間、胸部高、肩甲高寬、大腿長、小腿與腳掌粗大。
+// 幾何沿用 v7（CUBE），每種區塊的程式模型以原點（旋轉中心）為中心縮放 PIECE_SCALE＝[x, y, z]，
+// 連接點的預設值跟著同一個倍率移動，所以關節仍落在模型上；四足、履帶的下半身不縮放
+const PIECE_SCALE = {
+  head: [1.1, 1.1, 1.1],
+  core: [1.08, 1.24, 1.1],
+  booster: [1.1, 1.1, 1.1],
+  upper: [0.95, 1.05, 1],
+  fore: [1.05, 1.15, 1.05],
+  hand: [1.15, 1.15, 1.15],
+  pelvis: [1.5, 1, 1.15], // 襠部的高度由下面的 LAY 決定，只縮放寬與深
+  thigh: [1.2, 1.23, 1.15],
+  shin: [1.45, 0.88, 1.25],
+  foot: [1.8, 1.2, 1.2],
+};
+// 實際的骨架尺寸（連接點、髖高、判定身高用）
+const LAY = {
+  thighL: CUBE.thighL * PIECE_SCALE.thigh[1],
+  shinL: CUBE.shinL * PIECE_SCALE.shin[1],
+  ankleH: CUBE.ankleH * PIECE_SCALE.foot[1],
+  hipX: 0.47, // 站姿較寬
+  shX: 0.6, // 肩關節（相對腰部）：往外，手臂離開胸側
+  shY: 0.74, // 肩甲頂與頭頂同高（3.5）
+  backY: 1.5, // 肩上武器座（相對腰部）
+  waistUp: 0.16,
+  neckY: 0.87, // 脖子（相對腰部）：比放大後的領口低，頭陷在兩側的領口之間
+  upperH: 1.0, // 腰到判定頂端：判定身高 3.25（外觀頭頂 3.5）
+};
+LAY.hipY = +(LAY.ankleH + LAY.shinL + LAY.thighL).toFixed(3);
+// 區塊程式模型的縮放（沒有縮放時回傳 null）
+function pieceScale(info) {
+  if (info.cat === 'legs' && info.legType !== 'biped' && info.legType !== 'reverse') return null;
+  return PIECE_SCALE[info.kind] || null;
+}
 
 // ===== 區塊（piece）=====
 // 機甲由一塊塊「區塊」組成，每塊都可以單獨換成 GLB；區塊的原點＝它的旋轉中心（接到父區塊的位置）。
@@ -697,8 +734,21 @@ export function mechPieces(asm) {
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const C0 = (p, r = [0, 0, 0]) => ({ p, r: new THREE.Euler(r[0], r[1], r[2]) });
-// 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）
+// 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）：v7 幾何上的位置 × 區塊的縮放
 export function pieceConns(info) {
+  const o = baseConns(info);
+  const k = pieceScale(info);
+  if (k && info.kind !== 'pelvis') for (const c of Object.values(o)) c.p.multiply(V(k[0], k[1], k[2]));
+  if (info.kind === 'core') {
+    o.neck.p.y = LAY.neckY;
+    for (const [n, s] of Object.entries(SIDE_OF)) {
+      o['shoulder_' + n].p.set(s * LAY.shX, LAY.shY, 0);
+      o['back_' + n].p.y = LAY.backY; // 肩上武器座：坐在放大後的胸頂上（照比例放大會浮起來）
+    }
+  }
+  return o;
+}
+function baseConns(info) {
   const R = CUBE;
   switch (info.kind) {
     case 'core': {
@@ -727,8 +777,8 @@ export function pieceConns(info) {
       const hipY = legHipY(info.legType);
       return {
         waist: C0(V(0, waistY(info.legType), 0)),
-        hip_r: C0(V(R.hipX, hipY, 0)),
-        hip_l: C0(V(-R.hipX, hipY, 0)),
+        hip_r: C0(V(LAY.hipX, hipY, 0)),
+        hip_l: C0(V(-LAY.hipX, hipY, 0)),
       };
     }
     case 'body': {
@@ -750,7 +800,7 @@ export function pieceConns(info) {
 }
 // 髖關節高度：二足、逆關節依待機姿勢讓腳掌貼地（逆關節的大腿後擺 0.35、膝前彎 0.6，所以較低）
 function legHipY(type) {
-  const R = CUBE;
+  const R = LAY;
   if (type === 'reverse')
     return +(R.thighL * Math.cos(0.35) + R.shinL * Math.cos(0.25) + R.ankleH).toFixed(2);
   return type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : R.hipY;
@@ -758,7 +808,7 @@ function legHipY(type) {
 // 腰（核心座）高度：決定上半身高度與遊戲判定的身高（不隨關節設定改變）。
 // 四足、履帶的下半身造型不變，以腰部支柱把上半身架到和舊版相同的身高
 function waistY(type) {
-  return type === 'quad' ? 2.18 : type === 'tank' ? 1.98 : legHipY(type) + CUBE.waistUp;
+  return type === 'quad' ? 2.18 : type === 'tank' ? 1.98 : legHipY(type) + LAY.waistUp;
 }
 // 區塊接在哪個父區塊的哪個連接點：{ kind: 父區塊種類, name: 連接點 }（襠部／主體是根，回傳 null）
 export function parentConnOf(info) {
@@ -1756,7 +1806,15 @@ function waistPost(g, M, y0, y1) {
 
 function makeProcPiece(info, ctx) {
   const g = new THREE.Group();
-  (BUILD[info.kind] || (() => {}))(g, info, ctx);
+  // 縮放放在內層群組：區塊本身維持單位變換（換成 GLB、拖曳原點等都以區塊本身為準）
+  const k = pieceScale(info);
+  let host = g;
+  if (k) {
+    host = new THREE.Group();
+    host.scale.set(k[0], k[1], k[2]);
+    g.add(host);
+  }
+  (BUILD[info.kind] || (() => {}))(host, info, ctx);
   g.userData.slot = info.slot;
   return g;
 }
@@ -1933,8 +1991,8 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     torsoY: 0,
     type,
     cls,
-    height: (waistY(type) + CUBE.upperH) * scale,
-    coreH: CUBE.chestTop,
+    height: (waistY(type) + LAY.upperH) * scale,
+    coreH: CUBE.chestTop * PIECE_SCALE.core[1],
     mats,
     flashT: 0,
   };

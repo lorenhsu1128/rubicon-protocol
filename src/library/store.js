@@ -8,6 +8,7 @@
 // - 伺服器預設組（從 rubicon-server 的 /models 開啟時）：資料在伺服器（server-models/default），所有分類都有；
 //   選它時所有寫入（存 GLB、刪除、關節設定、零件組合）直接送到伺服器的 /api/models/default/…，不存 IndexedDB
 import BUILTIN_MODELS from 'virtual:models';
+import PLAYER_MECH from 'virtual:player-mech';
 import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
 import { DEFAULT_SET, SERVER_SET, cleanMechs, setOf, setScoped } from '../render/local-models.js';
 
@@ -18,6 +19,18 @@ const DB = 'rubicon-model-library',
   SETS = 'sets';
 const CUR_KEY = 'rubicon_modelset';
 const DEFAULT_NAME = '預設';
+// 內建的玩家預設機甲（src/assets/player-mech/，遊戲的 BuiltinMech）：模型庫第一次看到這一版時建成一個模型組並切過去，
+// 可以在模型庫檢視與調整（改的是模型組的複本，要放回內建請匯出後覆蓋 src/assets/player-mech/）。
+// 簽名（槽位＋檔案大小＋關節設定）記在 localStorage，同一版只建一次（使用者刪掉後不再自動建立）
+const BUILTIN_MECH_KEY = 'rubicon_builtin_mech';
+const BUILTIN_MECH_NAME = '內建預設機甲';
+function builtinMechSig() {
+  const models = (PLAYER_MECH && PLAYER_MECH.models) || {};
+  const ids = Object.keys(models).sort();
+  if (!ids.length) return null;
+  const j = JSON.stringify(PLAYER_MECH.joints || {});
+  return ids.map((id) => id + ':' + models[id].byteLength).join(',') + '|' + j.length;
+}
 let dbp = null;
 // 升級資料庫時，其他還開著的舊版模型庫分頁不會放開連線（舊版沒有處理 versionchange），升級會一直等待：
 // onBlocked() 通知頁面顯示提示，那些分頁關閉或重新整理後自動繼續；onReady() 收回提示
@@ -155,6 +168,8 @@ export class GlbStore {
     try {
       cur = localStorage.getItem(CUR_KEY);
     } catch (e) {}
+    const seeded = await this.seedBuiltinMech();
+    if (seeded) cur = seeded;
     if (cur === SERVER_SET && this.server)
       try {
         await this.loadServer();
@@ -163,6 +178,29 @@ export class GlbStore {
         cur = null;
       }
     this.view(this.sets.has(cur) ? cur : this.sets.has(DEFAULT_SET) ? DEFAULT_SET : this.setList()[0].id);
+  }
+  // 內建的玩家預設機甲建成模型組（見 BUILTIN_MECH_KEY）；回傳新模型組的 id，不需要建立時回傳 null
+  async seedBuiltinMech() {
+    const sig = builtinMechSig();
+    if (!sig) return null;
+    // 自動化測試（navigator.webdriver）預設不建立，避免改變既有測試的模型組；要測時先設 localStorage 的 rubicon_builtin_mech_test
+    try {
+      if (navigator.webdriver && !localStorage.getItem(BUILTIN_MECH_KEY + '_test')) return null;
+    } catch (e) {}
+    for (const s of this.sets.values()) if (s.builtin === sig) return null;
+    try {
+      if (localStorage.getItem(BUILTIN_MECH_KEY) === sig) return null;
+    } catch (e) {}
+    const recs = Object.entries(PLAYER_MECH.models).map(([id, u8]) => ({
+      id,
+      name: id.split('/').pop() + '.glb',
+      buf: u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength),
+    }));
+    const set = await this.createSet(BUILTIN_MECH_NAME, { recs, joints: PLAYER_MECH.joints, builtin: sig });
+    try {
+      localStorage.setItem(BUILTIN_MECH_KEY, sig);
+    } catch (e) {}
+    return set.id;
   }
   // 讀取伺服器預設組（全部 GLB 與原始檔、關節設定、零件組合）
   async loadServer() {
@@ -376,6 +414,7 @@ export class GlbStore {
       mechs: cleanMechs(data.mechs),
       t: Date.now(),
     };
+    if (data.builtin) set.builtin = data.builtin;
     const recs = (data.recs || [])
       .filter((r) => setScoped(r.id))
       .map((r) => {

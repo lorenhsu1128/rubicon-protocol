@@ -90,9 +90,37 @@ function listModels(dir = MODELS_DIR, out = []) {
   }
   return out;
 }
+// 內建的玩家預設機甲 src/assets/player-mech/（<槽位 id>.glb＋joints.json）：
+// import PLAYER_MECH from 'virtual:player-mech' 取得 { joints, models: { '槽位 id': Uint8Array } }
+// 不放在 assets/models：那裡的 GLB 會變成所有用到同一個零件的機甲（含敵人）的內建模型
+const PLAYER_MECH_DIR = path.join(SRC, 'assets', 'player-mech');
 const modelsPlugin = {
   name: 'models-index',
   setup(build) {
+    build.onResolve({ filter: /^virtual:player-mech$/ }, () => ({ path: 'player-mech', namespace: 'pmech' }));
+    build.onLoad({ filter: /.*/, namespace: 'pmech' }, () => {
+      const files = listModels(PLAYER_MECH_DIR);
+      const jf = path.join(PLAYER_MECH_DIR, 'joints.json');
+      const joints = fs.existsSync(jf) ? fs.readFileSync(jf, 'utf8') : '{}';
+      const imports = files.map((f, i) => `import m${i} from ${JSON.stringify(f)};`);
+      const map = files.map((f, i) => {
+        const id = path
+          .relative(PLAYER_MECH_DIR, f)
+          .split(path.sep)
+          .join('/')
+          .replace(/\.glb$/i, '');
+        return `${JSON.stringify(id)}: m${i}`;
+      });
+      return {
+        contents:
+          imports.join('\n') +
+          `\nexport default { joints: ${joints.trim() || '{}'}, models: { ${map.join(', ')} } };\n`,
+        resolveDir: SRC,
+        loader: 'js',
+        watchDirs: fs.existsSync(PLAYER_MECH_DIR) ? [PLAYER_MECH_DIR] : [],
+        watchFiles: fs.existsSync(jf) ? [...files, jf] : files,
+      };
+    });
     build.onResolve({ filter: /^virtual:models$/ }, () => ({ path: 'models-index', namespace: 'models' }));
     build.onLoad({ filter: /.*/, namespace: 'models' }, () => {
       const files = listModels();

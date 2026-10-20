@@ -2,7 +2,8 @@
 // 讀取時機：進車庫、單機出擊前（沒有變動的檔案沿用快取），以及標題畫面的「重新載入本地模型」
 import { Game } from './game.js';
 import { escHtml } from '../core/html.js';
-import { LM_GROUPS, LocalModels, SERVER_SET, setScoped } from '../render/local-models.js';
+import { LM_GROUPS, LocalModels, SERVER_SET, groupOf, setScoped } from '../render/local-models.js';
+import { BUILTIN_MECH_SET, BuiltinMech } from '../render/builtin-mech.js';
 import { RemoteSets, ServerModels, onServer } from '../render/net-models.js';
 import { MODEL_CATALOG } from '../render/model-catalog.js';
 import { checkGlb } from '../render/glb.js';
@@ -78,18 +79,33 @@ Object.assign(Game.prototype, {
       }
       return ServerModels.model(slot, pal, unique);
     });
+    // 內建的玩家預設機甲：開啟遊戲就開始解析，讀完時停在機甲庫就重建預覽
+    BuiltinMech.load().then((set) => set && this.state === 'garage' && this.renderGarage());
   },
   // 機甲用哪一個模型組（buildMech 的 opts.source；null＝全域來源）。o 是 MechEntity 的 opts
   // 伺服器網址：玩家機甲（單人）本地模型庫選的模型組，沒有就用伺服器預設組；玩家機甲（多人）用該玩家上傳的模型組
   // （o.ms，還沒下載好或沒上傳時用伺服器預設組）；敵人、友軍、電腦 AC 一律伺服器預設組
+  // 玩家機甲沒有自己的模型組時用內建的玩家預設機甲（BuiltinMech，每個人的 HTML 都有同一份，多人也一致）；
+  // 伺服器預設組有機甲區塊時優先用它。直接開檔時敵人、友軍、電腦 AC 回傳 null（全域來源＝程式模型）
   mechSource(o = {}) {
-    if (!onServer()) return null;
     const human = o.team === 'player' && o.slot !== undefined && o.slot >= 0 && !o.pvpAi && !o.modelKind;
+    const mp = !!(this.net && this.net.role);
+    if (!onServer()) {
+      if (!human) return null;
+      return (!mp && LocalModels.mySource()) || BuiltinMech.source();
+    }
     if (human) {
-      if (!(this.net && this.net.role)) return LocalModels.mySource() || ServerModels.source();
-      return RemoteSets.get(o.ms) || ServerModels.source();
+      const own = mp ? RemoteSets.get(o.ms) : LocalModels.mySource();
+      return own || this.srvMechSet() || BuiltinMech.source();
     }
     return ServerModels.source();
+  },
+  // 伺服器預設組（有機甲區塊的 GLB 時才回傳，否則玩家機甲改用內建的預設機甲）
+  srvMechSet() {
+    const set = ServerModels.source();
+    if (!set) return null;
+    for (const [slot, e] of set.tpls) if (e.tpl && groupOf(slot) === 'mech') return set;
+    return null;
   },
   // 進度條（只有真的要下載或解析檔案才顯示）
   lmProgress(title, manual) {
@@ -125,6 +141,7 @@ Object.assign(Game.prototype, {
   // 重新讀取本地模型庫（伺服器網址時也讀伺服器預設組）；manual：標題畫面的按鈕（一律顯示進度與結果）
   // 自動讀取時只有需要解析檔案才顯示進度條
   async lmRefresh(manual = false) {
+    await BuiltinMech.load();
     await this.srvRefresh();
     if (!LocalModels.active()) {
       if (manual) this.lmShowResult(LocalModels.settings.on ? '多人連線中不使用本地模型' : null);
@@ -188,11 +205,13 @@ Object.assign(Game.prototype, {
     const n = Object.values(rig.pieces).filter((o) => o.userData.localGlb).length;
     const from = !src
       ? '本地模型庫'
-      : src.id === SERVER_SET
-        ? '伺服器預設組'
-        : src.id.startsWith('local:')
-          ? '本地模型組「' + ((LocalModels.setData && LocalModels.setData.name) || '') + '」'
-          : '模型組「' + src.name + '」';
+      : src.id === BUILTIN_MECH_SET
+        ? '內建預設機甲'
+        : src.id === SERVER_SET
+          ? '伺服器預設組'
+          : src.id.startsWith('local:')
+            ? '本地模型組「' + ((LocalModels.setData && LocalModels.setData.name) || '') + '」'
+            : '模型組「' + src.name + '」';
     el.textContent = n ? `${from}：此機 ${n} 個區塊使用 GLB` : '';
     el.style.display = n ? '' : 'none';
   },

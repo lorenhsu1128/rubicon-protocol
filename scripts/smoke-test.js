@@ -1865,7 +1865,7 @@ async function testLibraryJoints(browser, base) {
   };
   await open('arms/a_std/r_upper');
   const def = await page.$eval(elbowY, (i) => i.value);
-  check(def === '-0.48', `手肘預設位置 Y＝${def}（glTF 座標）`);
+  check(def === '-0.504', `手肘預設位置 Y＝${def}（glTF 座標）`);
   await page.fill(elbowY, '-1.4');
   await wait(900);
   check(
@@ -1888,7 +1888,7 @@ async function testLibraryJoints(browser, base) {
   check(!!e && e.p[1] === -1.4, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
   await page.click('.jrow[data-n="elbow"] [data-act="reset"]');
   await wait(500);
-  check((await page.$eval(elbowY, (i) => i.value)) === '-0.48', '重設後回到預設值');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-0.504', '重設後回到預設值');
   await ctx.close();
 }
 
@@ -1918,7 +1918,10 @@ async function testWorkshop(browser, base) {
     '右側列出組裝層級與連接點',
   );
   check(((await page.textContent('#wsInfo')) || '').includes('連接點 21 個'), '玩家初始機有 21 個連接點');
-  check(((await page.textContent('#wsChecks')) || '').includes('沒有明顯的縫隙'), '玩家初始機沒有穿幫提示');
+  check(
+    ((await page.textContent('#wsChecks')) || '').includes('沒有明顯的縫隙'),
+    `玩家初始機沒有穿幫提示（${(await page.textContent('#wsChecks')) || ''}）`,
+  );
   // 高度尺：刻度、目前身高（全是程式模型時等於標準身高）、顯示開關
   const ruler = async () => page.$$eval('#wsRuler .lbl', (l) => l.map((x) => x.textContent));
   let rl = await ruler();
@@ -2012,7 +2015,7 @@ async function testWorkshop(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
   await page.click('#wsDetail [data-act="reset"]');
   await wait(500);
-  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.480'), '重設後回到預設值');
+  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.504'), '重設後回到預設值');
   const gl = await page.$('#wsGl');
   const box = await gl.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
@@ -2037,7 +2040,7 @@ async function testWorkshop(browser, base) {
   await page.keyboard.press('Control+z');
   await wait(600);
   check(
-    (await cv(elbow)).includes('-0.480') && (await cv(lElbow)).includes('-0.480'),
+    (await cv(elbow)).includes('-0.504') && (await cv(lElbow)).includes('-0.504'),
     'Ctrl+Z 復原（兩側一起）',
   );
   await page.keyboard.press('Control+y');
@@ -2166,10 +2169,10 @@ async function testEditor(browser, base) {
   check((await bad()).length === 0, `對齊後規格檢查全部通過${(await bad()).join('；')}`);
   await page.click('#edOrigin button[data-o="bottom"]');
   await wait(400);
-  check((await stats()).includes('Y0.00 ～ 0.60'), `原點設在底面中心（${await stats()}）`);
+  check((await stats()).includes('Y0.00 ～ 0.70'), `原點設在底面中心（${await stats()}）`);
   await page.keyboard.press('Control+z');
   await wait(400);
-  check((await stats()).includes('Y-0.50 ～ 0.10'), `Ctrl+Z 復原原點修改（${await stats()}）`);
+  check((await stats()).includes('Y-0.57 ～ 0.12'), `Ctrl+Z 復原原點修改（${await stats()}）`);
   const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
   const t0 = await tris();
   await page.click('#edTree .edNode:last-child [data-act="del"]');
@@ -3415,7 +3418,8 @@ async function testLocalModels(browser, base) {
   await mp.click('#btnLobbyGarage');
   check(await waitVisible(mp, 'garage'), '多人：大廳進車庫');
   await wait(1200);
-  check(!(await visible(mp, 'gLocal')), '多人時不套用本地模型');
+  const mpNote = (await visible(mp, 'gLocal')) ? (await mp.textContent('#gLocal')) || '' : '';
+  check(!mpNote.includes('本地'), `多人時不套用本地模型（${mpNote || '程式模型'}）`); // 內建的玩家預設機甲照常顯示
   await ctx.close();
 }
 
