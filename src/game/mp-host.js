@@ -54,6 +54,7 @@ Object.assign(Game.prototype, {
       parent: o.parent !== undefined ? o.parent : null, // Boss 的附屬部位
       mount: o.mount !== undefined ? o.mount : null,
       partKind: o.partKind || null,
+      gr: o.grunt ? 1 : 0, // 雜兵：機甲外觀照舊用程式模型（mechSource）
       radius: o.radius || null,
       turnRate: e.turnRate,
       hpMul: o.hpMul || 1,

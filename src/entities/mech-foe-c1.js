@@ -310,6 +310,7 @@ Object.assign(MechEntity.prototype, {
         dmgMul: 0.01,
         stabMul: 1,
         ai: 'holofake',
+        grunt: true,
         parent: this.id,
         wantDist: 16,
         speedMul: 1.1,

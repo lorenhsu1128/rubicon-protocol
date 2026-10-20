@@ -293,7 +293,28 @@ export function mechMats(pal) {
   for (const k in M) M[k].name = k; // 材質名稱＝配色槽位（匯出 GLB 範本時保留）
   return M;
 }
+// 玩家機甲可選的配色（機甲庫的「機體配色」，存檔的 mechPal；第一個是預設）
+export const MECH_COLORS = [
+  ['white', '白（預設）'],
+  ['player', '橄欖綠'],
+  ['ally', '綠'],
+  ['enemy', '沙灰'],
+  ['p3', '橘'],
+  ['p4', '紫'],
+  ['castron', '棕'],
+];
 export const PALETTES = {
+  // 內建的玩家預設機甲的原色（src/assets/player-mech/ 的色槽 × 灰階貼圖 ≈ 原本的彩色貼圖）
+  white: {
+    main: 0x9da8bb,
+    main2: 0x7f8a9c,
+    main3: 0xb3bccc,
+    sub: 0x343c48,
+    acc: 0x8e5a16,
+    joint: 0x1a1e24,
+    visor: 0x5fc8ff,
+    glow: 0x7fe8ff,
+  },
   player: {
     main: 0x4b5a3f,
     main2: 0x2b3a5c,

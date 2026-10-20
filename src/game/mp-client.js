@@ -133,6 +133,7 @@ Object.assign(Game.prototype, {
       pvpAi: !!r.pvpAi,
       slot: r.slot,
       ms: r.ms || null,
+      grunt: !!r.gr,
       pilot: r.pm || null,
     };
     // 玩家的模型組還沒下載好：先用伺服器預設組，下載完再換（mp-models.js）

@@ -113,10 +113,10 @@ Object.assign(Game.prototype, {
     this.net.spawnReg = {};
     this.world.applyLight(this);
     this.sun.position.set(40, 80, 30);
-    this.player = new MechEntity(this, this.save.asm, PALETTES.player, {
+    this.player = new MechEntity(this, this.save.asm, this.myPal(), {
       team: 'player',
       name: 'RAVEN',
-      palKey: 'player',
+      palKey: this.myPalKey(),
       slot: 0,
       pilot: this.pilotLocalMods('pve'),
     });

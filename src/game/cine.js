@@ -635,6 +635,7 @@ Object.assign(Game.prototype, {
         wantDist: d.wantDist,
         speedMul: d.speedMul,
         etype: spec.key,
+        grunt: spec.key !== 'ac',
       };
     }
     const team = spec.team || (spec.k === 'hero' ? 'player' : 'enemy');

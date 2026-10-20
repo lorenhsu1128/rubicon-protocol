@@ -294,10 +294,10 @@ Object.assign(Game.prototype, {
       this.player.dead = true;
     }
     const p0 = this.rangeStartPos();
-    this.player = new MechEntity(this, this.save.asm, PALETTES.player, {
+    this.player = new MechEntity(this, this.save.asm, this.myPal(), {
       team: 'player',
       name: 'RAVEN',
-      palKey: 'player',
+      palKey: this.myPalKey(),
       slot: 0,
       pilot: this.rangePm(),
     });

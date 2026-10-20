@@ -106,15 +106,28 @@ export async function parseGlb(buf) {
 const FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 const FLIP_M = new THREE.Matrix4().makeRotationY(Math.PI);
 // 這個轉換轉兩次會回到原狀，所以匯出 GLB 範本時也用它把遊戲座標轉回 glTF 座標
+// 一個網格有多個材質（多個 primitive）時，GLTFLoader 讓各幾何共用同一個頂點屬性，所以以屬性為單位只轉一次
+// （以幾何為單位會轉好幾次：偶數次等於沒轉）
+const FLIP_ATTRS = ['position', 'normal', 'tangent'];
 export function flipToGame(root) {
-  const geos = new Set();
+  const geos = new Set(),
+    attrs = new Set();
   root.traverse((o) => {
     o.position.set(-o.position.x, o.position.y, -o.position.z);
     o.quaternion.premultiply(FLIP).multiply(FLIP.clone().invert());
-    if (o.isMesh && !geos.has(o.geometry)) {
-      geos.add(o.geometry);
-      o.geometry.applyMatrix4(FLIP_M);
+    if (!o.isMesh || geos.has(o.geometry)) return;
+    const g = o.geometry;
+    geos.add(g);
+    for (const k of FLIP_ATTRS) {
+      const a = g.attributes[k];
+      if (!a || attrs.has(a)) continue;
+      attrs.add(a);
+      if (k === 'position') a.applyMatrix4(FLIP_M);
+      else if (k === 'normal') a.applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(FLIP_M));
+      else a.transformDirection(FLIP_M);
+      a.needsUpdate = true;
     }
+    g.boundingBox = g.boundingSphere = null;
   });
 }
 

@@ -355,10 +355,10 @@ Object.assign(Game.prototype, {
       for (const e of this.players)
         this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0, xp: 0, pf: {} };
     } else {
-      this.player = new MechEntity(this, S.asm, PALETTES.player, {
+      this.player = new MechEntity(this, S.asm, this.myPal(), {
         team: 'player',
         name: 'RAVEN',
-        palKey: 'player',
+        palKey: this.myPalKey(),
         slot: 0,
         pilot: this.pilotLocalMods('pve'),
       });
@@ -633,6 +633,7 @@ Object.assign(Game.prototype, {
         flankAngle: a0 + i * ((Math.PI * 2) / n),
         etype: t,
         ace: t === 'ac',
+        grunt: t !== 'ac', // MT 等雜兵（隨機的敵對 AC 除外）：外觀不換成內建預設機甲的 GLB
         themeFoe: !ENEMY_TYPES[t], // 主題專屬敵人（data/foes.js）：壓制時照自己的行為，只限制一般射擊
         pref: d.pref,
         sq,

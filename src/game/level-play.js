@@ -108,10 +108,10 @@ Object.assign(Game.prototype, {
       for (const e of this.players)
         this.mpStats[e.slot] = { kills: 0, dmg: 0, rev: 0, taken: 0, xp: 0, pf: {} };
     } else {
-      this.player = new MechEntity(this, this.save.asm, PALETTES.player, {
+      this.player = new MechEntity(this, this.save.asm, this.myPal(), {
         team: 'player',
         name: 'RAVEN',
-        palKey: 'player',
+        palKey: this.myPalKey(),
         slot: 0,
         pilot: this.pilotLocalMods('pve'),
       });

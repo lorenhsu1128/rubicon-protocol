@@ -6,7 +6,7 @@ import { pick } from '../core/math.js';
 import { bossForLevel, isBossLevel } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById, usesAmmo } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
-import { PALETTES } from '../render/materials.js';
+import { MECH_COLORS, PALETTES } from '../render/materials.js';
 import { LocalModels } from '../render/local-models.js';
 import { buildMech } from '../render/mech-model.js';
 import { VARIANTS, variantKeys } from '../world/variants.js';
@@ -290,6 +290,7 @@ Object.assign(Game.prototype, {
       }
     }
     this.garageMapUi();
+    this.garagePalUi();
     $('gWarn').textContent = warn.join('　');
     $('btnSortie').disabled = warn.length > 0;
     $('btnPilot').onclick = () => {
@@ -310,13 +311,38 @@ Object.assign(Game.prototype, {
       this.garageScene.remove(this.garageMech.group);
     }
     const src = this.garageSource();
-    this.garageMech = buildMech(asm, PALETTES.player, 1, { source: src });
+    this.garageMech = buildMech(asm, this.myPal(), 1, { source: src });
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
     this.lmGarageNote(this.garageMech, src);
     this.garageMechsUi();
     this.mpModelsUi();
     this.writeSave();
+  },
+  // 玩家機甲的配色（存檔的 mechPal，預設白色＝內建預設機甲的原色）。多人時照舊依玩家順序的配色（PLAYER_PALS）
+  myPalKey() {
+    const k = this.save && this.save.mechPal;
+    return MECH_COLORS.some((c) => c[0] === k) ? k : MECH_COLORS[0][0];
+  },
+  myPal() {
+    return PALETTES[this.myPalKey()];
+  },
+  garagePalUi() {
+    const el = document.getElementById('gPal');
+    if (!el) return;
+    if (this.net && this.net.role) {
+      el.innerHTML = '<span>機體配色</span><span class="dim">多人時依玩家順序</span>';
+      return;
+    }
+    el.innerHTML = `<span>機體配色</span><span><select id="gPalSel">${MECH_COLORS.map(
+      ([k, n]) => `<option value="${k}">${escHtml(n)}</option>`,
+    ).join('')}</select></span>`;
+    const sel = document.getElementById('gPalSel');
+    sel.value = this.myPalKey();
+    sel.onchange = () => {
+      this.save.mechPal = sel.value;
+      this.renderGarage();
+    };
   },
   // 出擊地圖：單人與房主可選（房主的選擇同步到大廳），客機只顯示房主選的
   garageMapUi() {

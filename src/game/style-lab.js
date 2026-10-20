@@ -122,10 +122,10 @@ Object.assign(Game.prototype, {
     this.scaleHp = 1;
     this.scaleDmg = 1;
     this.levelName = '渲染風格實驗室・' + T.name;
-    this.player = new MechEntity(this, this.save.asm, PALETTES.player, {
+    this.player = new MechEntity(this, this.save.asm, this.myPal(), {
       team: 'player',
       name: 'RAVEN',
-      palKey: 'player',
+      palKey: this.myPalKey(),
       slot: 0,
       hpMul: 1.6,
     });
@@ -143,7 +143,7 @@ Object.assign(Game.prototype, {
     }
     // 展示台：玩家的機體，放在藍隊後方
     const sp = this.labSpot(-46, 0, []);
-    const rig = buildMech(this.save.asm, PALETTES.player, 1, {
+    const rig = buildMech(this.save.asm, this.myPal(), 1, {
       source: this.mechSource ? this.mechSource({ team: 'player', slot: 0 }) : null,
     });
     rig.group.position.set(sp.x, this.world.terrainHeight(sp.x, sp.z), sp.z);
@@ -234,6 +234,7 @@ Object.assign(Game.prototype, {
         wantDist: d.wantDist,
         speedMul: d.speedMul,
         extraWeapons: d.extraWeapons,
+        grunt: spec.key !== 'ac',
       };
     }
     o.team = blue ? 'ally' : 'enemy';

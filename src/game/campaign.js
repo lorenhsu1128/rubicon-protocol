@@ -251,10 +251,10 @@ Object.assign(Game.prototype, {
     if (mp)
       this.campMpSpawn(); // 多人：每位玩家各自的模組與上一段的狀態（campaign-mp.js）
     else {
-      this.player = new MechEntity(this, S.asm, PALETTES.player, {
+      this.player = new MechEntity(this, S.asm, this.myPal(), {
         team: 'player',
         name: 'RAVEN',
-        palKey: 'player',
+        palKey: this.myPalKey(),
         slot: 0,
         pilot: this.campPilotPm(), // 駕駛員（PvE）＋戰術模組
       });
