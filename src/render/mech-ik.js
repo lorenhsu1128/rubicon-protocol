@@ -177,7 +177,7 @@ export function ikMeasure(rig) {
 // 第一次套用時建立狀態：要還原的關節、腳掌深度、四足腳尖
 function initIK(rig) {
   const joints = [];
-  for (const L of rig.legs) joints.push(L.thigh, L.knee, L.foot);
+  for (const L of rig.legs) joints.push(L.thigh, L.knee, ...(L.hock ? [L.hock] : []), L.foot);
   joints.push(rig.torso);
   if (rig.head) joints.push(rig.head);
   for (const k of ['l', 'r']) {
@@ -186,7 +186,10 @@ function initIK(rig) {
   }
   const uniq = [...new Set(joints)];
   const keep = new Set([...uniq, rig.group, rig.lift]);
-  for (const L of rig.legs) keep.add(L.thigh).add(L.knee).add(L.foot);
+  for (const L of rig.legs) {
+    keep.add(L.thigh).add(L.knee).add(L.foot);
+    if (L.hock) keep.add(L.hock);
+  }
   for (const k of ['l', 'r']) {
     const a = rig.arms[k];
     for (const o of [a.up, a.fore, a.back, a.weapon, a.hand]) if (o) keep.add(o);
@@ -362,7 +365,8 @@ function lowerBody(rig, ctx, sc) {
     if (legged) {
       const cur = wpos(L.foot, _b);
       T.lerp(cur, 1 - W.feet);
-      twoBone(L.thigh, L.knee, (o) => wpos(L.foot, o), T, AX, rig.type === 'reverse' ? 1 : -1);
+      // 逆關節（四段）：小腿＋蹠骨照目前的跗關節角度當成一根骨頭（膝和二足同向彎）
+      twoBone(L.thigh, L.knee, (o) => wpos(L.foot, o), T, AX, -1);
       const n = groundN(world, T.x, T.z, qy, 0.35 * sc, _d);
       const fu = _u.copy(UP).applyQuaternion(wquat(L.foot, _qw));
       rotWorld(L.foot, aimQuat(fu, n, W.feet * st.stance, 0.6));

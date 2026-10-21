@@ -594,6 +594,19 @@ const JOINT = {
   wrist: [0, -0.6466, 0],
   grip: [-0.0205, -0.1149, 0.0048],
 };
+// 逆關節腳（四段：大腿 → 膝 → 小腿 → 跗關節 → 蹠骨 → 腳踝 → 腳掌）的骨架＝內建 GLB（LG-KASUAR）的 joints.json，
+// 遊戲座標、右側（左側 x 取負）。靜止姿勢＝所有關節角度 0（站姿本身就是彎的，GLB 不轉正）
+const REV = {
+  hipY: 1.8975,
+  knee: [0.1725, -0.6555, -0.1725], // 膝在大腿前下方
+  hock: [0.0518, -0.4313, 0.345], // 跗關節在小腿後下方（逆折）
+  ankle: [0.1208, -0.4312, 0.138],
+};
+REV.ankleH = +(REV.hipY + REV.knee[1] + REV.hock[1] + REV.ankle[1]).toFixed(4); // 0.3795
+// 蹠骨的角度和膝連動：膝多彎 1 rad，蹠骨往前折 HOCK_K rad（鳥腿式的逆關節）
+export const HOCK_K = 0.9;
+// 逆關節（四段）的 GLB 站姿兩腳往外斜：走路時大腿往內收（rad），腳踝的側傾補償讓腳掌照樣貼地
+const WALK_IN = 0.13;
 // [v7 程式模型的外框, 內建 GLB 的外框]（右側的區塊；[minX, minY, minZ, maxX, maxY, maxZ]，量自程式模型與 GLB）
 // 襠部只對齊寬與深（高度由 LAY 決定）；腳掌的底面對齊腳踝高度，程式模型剛好站在地上
 const PIECE_BOX = {
@@ -636,7 +649,7 @@ const PIECE_BOX = {
 };
 // 區塊的變形倍率 [x−, y−, z−, x+, y+, z+]（左側的區塊 x 兩側對調）；沒有變形時回傳 null
 function pieceDeform(info) {
-  if (info.cat === 'legs' && info.legType !== 'biped' && info.legType !== 'reverse') return null;
+  if (info.cat === 'legs' && info.legType !== 'biped') return null; // 逆關節的程式模型直接照 REV 的骨架建立
   const b = PIECE_BOX[info.kind];
   if (!b) return null;
   const k = b[0].map((v, i) => b[1][i] / v);
@@ -690,7 +703,7 @@ function deformPiece(g, k) {
 // pieceConns()，可被關節設定（mech-joints.js）覆寫。槽位 id：
 //   head/<id>、core/<id>、booster/<id>
 //   arms/<id>/<r|l>_<upper|fore|hand>
-//   legs/<id>/pelvis＋<r|l>_<thigh|shin|foot>（二足、逆關節）、legs/<id>/body＋<fl|fr|bl|br>_<thigh|shin>（四足）、
+//   legs/<id>/pelvis＋<r|l>_<thigh|shin|foot>（二足）、＋<r|l>_meta（逆關節的蹠骨）、legs/<id>/body＋<fl|fr|bl|br>_<thigh|shin>（四足）、
 //   legs/<id>/body（履帶）
 //   weapon/<id>/<r|l>、back/<id>/<r|l>
 const SIDE_OF = { r: 1, l: -1 };
@@ -711,6 +724,7 @@ export const PIECE_NAMES = {
   body: '主體',
   thigh: '大腿',
   shin: '小腿',
+  meta: '蹠骨',
   qshin: '小腿（含腳）',
   foot: '腳掌',
   weapon: '手持武器',
@@ -728,6 +742,7 @@ export const PIECE_ORIGIN = {
   body: '地面中心',
   thigh: '髖關節轉軸',
   shin: '膝關節轉軸',
+  meta: '跗關節轉軸',
   qshin: '膝關節轉軸',
   foot: '腳踝轉軸',
   weapon: '握把（手的握點）',
@@ -749,6 +764,7 @@ export const CONN_NAMES = {
   hip_bl: '左後髖',
   hip_br: '右後髖',
   knee: '膝',
+  hock: '跗關節',
   ankle: '腳踝',
   elbow: '手肘',
   wrist: '手腕',
@@ -786,7 +802,8 @@ export function partPieces(cat, part) {
   if (legType === 'quad')
     return [L('body', null), ...QUAD_LEGS.flatMap(([k]) => [L('thigh', k), L('shin', k, 'qshin')])];
   if (legType === 'tank') return [L('body', null)];
-  return [L('pelvis', null), ...['r', 'l'].flatMap((k) => [L('thigh', k), L('shin', k), L('foot', k)])];
+  const segs = legType === 'reverse' ? ['thigh', 'shin', 'meta', 'foot'] : ['thigh', 'shin', 'foot'];
+  return [L('pelvis', null), ...['r', 'l'].flatMap((k) => segs.map((n) => L(n, k)))];
 }
 const ASM_CAT = {
   head: 'head',
@@ -859,20 +876,22 @@ function baseConns(info) {
       return o;
     }
     case 'thigh':
-      return info.legType === 'quad'
-        ? { knee: C0(V(0, -0.8, 0)) }
-        : { knee: C0(V(0, -LAY.thighL, info.legType === 'reverse' ? 0.12 : 0)) };
+      if (info.legType === 'reverse') return { knee: C0(revV(REV.knee, info.side)) };
+      return info.legType === 'quad' ? { knee: C0(V(0, -0.8, 0)) } : { knee: C0(V(0, -LAY.thighL, 0)) };
     case 'shin':
+      if (info.legType === 'reverse') return { hock: C0(revV(REV.hock, info.side)) };
       return { ankle: C0(V(0, -LAY.shinL, 0)) };
+    case 'meta':
+      return { ankle: C0(revV(REV.ankle, info.side)) };
     default:
       return {};
   }
 }
-// 髖關節高度：二足、逆關節依待機姿勢讓腳掌貼地（逆關節的大腿後擺 0.35、膝前彎 0.6，所以較低）
+const revV = (a, side) => V(side * a[0], a[1], a[2]);
+// 髖關節高度：二足＝內建預設機甲、逆關節＝REV 的站姿（關節角度 0 時腳掌貼地）
 function legHipY(type) {
   const R = LAY;
-  if (type === 'reverse')
-    return +(R.thighL * Math.cos(0.35) + R.shinL * Math.cos(0.25) + R.ankleH).toFixed(2);
+  if (type === 'reverse') return REV.hipY;
   return type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : R.hipY;
 }
 // 腰（核心座）高度：決定上半身高度與遊戲判定的身高（不隨關節設定改變）。
@@ -905,8 +924,10 @@ export function parentConnOf(info) {
     case 'shin':
     case 'qshin':
       return { kind: 'thigh', name: 'knee' };
+    case 'meta':
+      return { kind: 'shin', name: 'hock' };
     case 'foot':
-      return { kind: 'shin', name: 'ankle' };
+      return { kind: info.legType === 'reverse' ? 'meta' : 'shin', name: 'ankle' };
     default:
       return null;
   }
@@ -1288,6 +1309,67 @@ function coreBody(g, { M, red }, cs) {
   P(g, gBox(0.3, 0.04, 0.03), M.acc, 0, 0.82, 0.33);
 }
 
+// ----- 逆關節腳（四段）的程式模型：每段沿「原點 → 子關節」的骨頭方向放樣，關節處是橫向的圓盤 -----
+// secs＝[[t（0＝原點、1＝子關節）, 寬, 深, 切角]…]
+function revSeg(g, m, end, secs) {
+  const L = end.length();
+  const sub = new THREE.Group();
+  limb(sub, m, 0, 0, 0, secs.map(([t, w, d, c]) => [-L * t, w, d, c]).reverse());
+  sub.quaternion.setFromUnitVectors(V(0, -1, 0), end.clone().normalize());
+  g.add(sub);
+  return sub;
+}
+const revDisc = (g, M, x, y, z, r, w) => {
+  P(g, gCyl(r, r, w, 14), M.joint, x, y, z, 0, 0, Math.PI / 2);
+  P(g, gCyl(r * 0.62, r * 0.62, w + 0.03, 14), M.grey, x, y, z, 0, 0, Math.PI / 2);
+};
+function revThigh(g, info, M) {
+  const e = revV(REV.knee, info.side);
+  P(g, gSph(0.17, 12), M.joint, 0, 0, 0); // 髖球關節
+  revSeg(g, M.joint, e, [
+    [0.05, 0.22, 0.24, 0.04],
+    [0.95, 0.22, 0.24, 0.04],
+  ]);
+  revSeg(g, M.main, e, [
+    [-0.05, 0.3, 0.3, 0.05],
+    [0.1, 0.4, 0.4, 0.08],
+    [0.75, 0.38, 0.4, 0.08],
+    [0.92, 0.28, 0.3, 0.05],
+  ]); // 大腿護甲
+  revDisc(g, M, e.x, e.y, e.z, 0.19, 0.34); // 膝的圓盤
+}
+function revShin(g, info, M) {
+  const e = revV(REV.hock, info.side);
+  revSeg(g, M.main2, e, [
+    [0.05, 0.2, 0.3, 0.04],
+    [0.5, 0.24, 0.34, 0.05],
+    [0.95, 0.2, 0.26, 0.04],
+  ]); // 往後下斜的小腿骨架
+  P(g, gPlate(trap(0.22, 0.3, 0.4), 0.05, 0.015, 0.9, 1), M.sub, 0, 0.12, 0.2, -0.5); // 膝後方的延伸板
+  revDisc(g, M, e.x, e.y, e.z, 0.15, 0.3); // 跗關節的圓盤
+}
+function revMeta(g, info, M) {
+  const e = revV(REV.ankle, info.side);
+  revSeg(g, M.main, e, [
+    [-0.05, 0.28, 0.3, 0.05],
+    [0.15, 0.36, 0.4, 0.08],
+    [0.85, 0.36, 0.4, 0.08],
+    [1.0, 0.3, 0.32, 0.05],
+  ]); // 蹠骨護甲
+  const L = e.length(),
+    a = Math.atan2(-e.z, -e.y); // (0, −1, 0) 繞 X 轉 a ＝骨頭方向
+  P(g, gBox(0.2, L * 0.45, 0.04), M.grey, e.x * 0.5, e.y * 0.5, e.z * 0.5 - 0.21, a); // 正面護板
+}
+function revFoot(g, info, M) {
+  const h = REV.ankleH;
+  P(g, gCyl(0.12, 0.12, 0.3, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2); // 腳踝
+  P(g, gBox(0.34, 0.12, 0.6), M.main2, 0, -h + 0.1, -0.05); // 腳掌（正面 −Z）
+  P(g, gBox(0.2, 0.26, 0.24), M.joint, 0, -h * 0.55, 0.02);
+  for (const x of [-0.11, 0, 0.11]) P(g, gBox(0.08, 0.1, 0.2), M.joint, x, -h + 0.05, -0.42, 0.25); // 前爪
+  P(g, gCyl(0.2, 0.2, 0.24, 16), M.rubber || M.joint, 0, -h + 0.2, 0.32, 0, 0, Math.PI / 2); // 後輪
+  P(g, gCyl(0.1, 0.1, 0.26, 12), M.grey, 0, -h + 0.2, 0.32, 0, 0, Math.PI / 2);
+}
+
 const BUILD = {
   head(g, info, ctx) {
     const id = info.part.id;
@@ -1630,6 +1712,7 @@ const BUILD = {
       P(g, gPlate(trap(0.26, 0.3, 0.4), 0.04, 0.012), M.sub, 0, -0.42, -0.22);
       return;
     }
+    if (info.legType === 'reverse') return revThigh(g, info, M);
     // 黑色大腿骨架＋外側大護甲（從腰裙兩側垂下的大板）
     const R = CUBE,
       s = info.side,
@@ -1701,6 +1784,7 @@ const BUILD = {
   },
   // 小腿：膝蓋圓柱＋V 字膝甲＋上段（綠）／下段（藍）的切角放樣＋正面護板＋膝外側與小腿後方的推進器
   shin(g, info, { M }) {
+    if (info.legType === 'reverse') return revShin(g, info, M);
     const R = CUBE,
       s = info.side,
       sw = R.shinW,
@@ -1799,7 +1883,11 @@ const BUILD = {
     );
   },
   // 腳掌（藍）＋腳踝圓柱與護甲＋灰色腳尖＋鞋底＋腳跟推進器；底面在腳踝下 ankleH（貼地，IK 從網格量）
+  meta(g, info, { M }) {
+    revMeta(g, info, M);
+  },
   foot(g, info, { M, red }) {
+    if (info.legType === 'reverse') return revFoot(g, info, M);
     const R = CUBE,
       s = info.side,
       fw = R.footW,
@@ -1967,15 +2055,21 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       const knee = joint(mountAt(thigh, ti, 'knee'));
       const si = lp('shin', k);
       place(knee, si);
-      const foot = joint(mountAt(knee, si, 'ankle'));
+      // 逆關節：小腿 →（跗關節）→ 蹠骨 →（腳踝）→ 腳掌；站姿＝關節角度全部 0
+      let hock = null;
+      if (rev) {
+        hock = joint(mountAt(knee, si, 'hock'));
+        place(hock, lp('meta', k));
+      }
+      const foot = rev ? joint(mountAt(hock, lp('meta', k), 'ankle')) : joint(mountAt(knee, si, 'ankle'));
       place(foot, lp('foot', k));
-      const th = rev ? -0.35 : 0.08,
-        kn = rev ? 0.6 : -0.15,
-        ft = rev ? -0.25 : 0.07;
+      const th = rev ? 0 : 0.08,
+        kn = rev ? 0 : -0.15,
+        ft = rev ? 0 : 0.07;
       thigh.rotation.x = th;
       knee.rotation.x = kn;
       foot.rotation.x = ft;
-      legs.push({ thigh, knee, foot, side: s, th, kn, ft });
+      legs.push({ thigh, knee, hock, foot, side: s, th, kn, hk: 0, ft });
     }
   } else if (type === 'quad') {
     for (const [k, sx, sz] of QUAD_LEGS) {
@@ -2029,7 +2123,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   }
   bakeAll(root);
   // 建立時的站姿（腿的關節角度），自動貼地以這個姿勢量測
-  for (const L of legs) L.pose0 = [L.thigh, L.knee, L.foot].map((o) => o.rotation.clone());
+  for (const L of legs) L.pose0 = legJoints(L).map((o) => o.rotation.clone());
   const M = ctx.M;
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun, M.grey];
   if (opts.extraMats) mats.push(...opts.extraMats);
@@ -2073,6 +2167,8 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   return rig;
 }
 
+// 腿的關節群組（逆關節多一個跗關節）
+export const legJoints = (L) => (L.hock ? [L.thigh, L.knee, L.hock, L.foot] : [L.thigh, L.knee, L.foot]);
 // 預設連接點（不套用關節設定）
 function defaultConn(info, name) {
   const c = pieceConns(info)[name];
@@ -2133,14 +2229,14 @@ function groundNow(rig) {
   g.auto = 0;
   if (custom) {
     // 暫時擺回建立時的站姿量測
-    const saved = rig.legs.map((L) => [L.thigh, L.knee, L.foot].map((o) => o.rotation.clone()));
+    const saved = rig.legs.map((L) => legJoints(L).map((o) => o.rotation.clone()));
     const lp = rig.legsG.position.clone(),
       lr = rig.legsG.rotation.clone();
-    rig.legs.forEach((L) => [L.thigh, L.knee, L.foot].forEach((o, k) => o.rotation.copy(L.pose0[k])));
+    rig.legs.forEach((L) => legJoints(L).forEach((o, k) => o.rotation.copy(L.pose0[k])));
     rig.legsG.position.set(0, 0, 0);
     rig.legsG.rotation.set(0, 0, 0);
     const low = lowestY(objs, rig.lift);
-    rig.legs.forEach((L, j) => [L.thigh, L.knee, L.foot].forEach((o, k) => o.rotation.copy(saved[j][k])));
+    rig.legs.forEach((L, j) => legJoints(L).forEach((o, k) => o.rotation.copy(saved[j][k])));
     rig.legsG.position.copy(lp);
     rig.legsG.rotation.copy(lr);
     if (Number.isFinite(low)) g.auto = Math.round((groundRef(g.legs, g.pal) - low) * 1000) / 1000;
@@ -2183,9 +2279,12 @@ export function animateMech(m, dt, st) {
     };
     if (m.type === 'biped' || m.type === 'reverse') {
       for (const L of m.legs) {
-        P(L.thigh, L.th * 0.3, 0, L.side * 0.14);
+        // 逆關節（四段）的 GLB 原本的姿勢就是待機姿勢：不再往外張
+        const sp = L.hock ? 0 : 1;
+        P(L.thigh, L.th * 0.3, 0, L.side * 0.14 * sp);
         P(L.knee, L.kn * 0.5, 0, 0);
-        P(L.foot, L.ft * 0.5, 0, -L.side * 0.12);
+        if (L.hock) P(L.hock, 0, 0, 0);
+        P(L.foot, L.ft * 0.5, 0, -L.side * 0.12 * sp);
       }
     } // 立正：雙腳微張、腳掌貼地
     m.legsG.rotation.z = lerp(m.legsG.rotation.z, 0, 0.12);
@@ -2219,8 +2318,11 @@ export function animateMech(m, dt, st) {
   const idle = !st.moving && st.grounded && !st.boost;
   // ===== 腿：髖三軸（俯仰＝擺動、外展＝側移／落地、偏航＝轉向）＋膝＋踝兩軸 =====
   if (m.type === 'biped' || m.type === 'reverse') {
-    const rev = m.type === 'reverse';
+    // 逆關節（四段）的膝和二足同向彎（膝在前），往後折的是跗關節：蹠骨依膝的彎曲連動（HOCK_K），
+    // 腳掌再補回同樣的角度保持貼地；所以這裡的膝、腳掌都照二足算
+    const rev = false;
     for (const L of m.legs) {
+      const sp = L.hock ? 0 : 1; // 逆關節（四段）：站姿就是 GLB 原本的姿勢，待機與步行不再往外張
       let th = L.th,
         kn = L.kn,
         ft = L.ft;
@@ -2236,7 +2338,10 @@ export function animateMech(m, dt, st) {
         // 抬腳：依速度推進步伐時在腿往前擺的期間（cos(ph) > 0）抬，支撐腳才會往後踩；否則維持原本的節奏
         kn += (rev ? -0.5 : 0.55) * Math.max(0, st.amp !== undefined ? Math.cos(ph) : -Math.sin(ph + 0.4));
         ft += -sw * 0.25 * fa; // 前後步伐（面向不變，後退時反向擺腿）
-        abd = L.side * 0.08 + sa * 0.42 * Math.max(0, -strafe * L.side) + sa * Math.sin(ph) * 0.22 * L.side; // 側步：往側移方向那條腿張開＋交替橫跨
+        abd =
+          L.side * (L.hock ? -WALK_IN : 0.08) +
+          sa * 0.42 * Math.max(0, -strafe * L.side) +
+          sa * Math.sin(ph) * 0.22 * L.side; // 側步：往側移方向那條腿張開＋交替橫跨
         hy = 0;
       } else if (!st.grounded) {
         th += rev ? -0.35 : 0.55;
@@ -2251,7 +2356,7 @@ export function animateMech(m, dt, st) {
         abd = L.side * 0.12;
       } else if (idle) {
         th += Math.sin(t * 1.3 + L.side) * 0.03;
-        abd = L.side * 0.07;
+        abd = L.side * 0.07 * sp;
       } // 待機：微幅外展與呼吸
       th += squat * 0.55 * (rev ? -1 : 1);
       kn += squat * (rev ? 0.9 : -1.0);
@@ -2275,6 +2380,11 @@ export function animateMech(m, dt, st) {
       L.thigh.rotation.z = lerp(L.thigh.rotation.z, abd, ks);
       L.thigh.rotation.y = lerp(L.thigh.rotation.y, hy, ks);
       L.knee.rotation.x = lerp(L.knee.rotation.x, kn, k);
+      if (L.hock) {
+        const hk = L.hk - HOCK_K * (kn - L.kn);
+        L.hock.rotation.x = lerp(L.hock.rotation.x, hk, k);
+        ft -= hk - L.hk;
+      }
       L.foot.rotation.x = lerp(L.foot.rotation.x, ft, k);
       L.foot.rotation.z = lerp(L.foot.rotation.z, ftRoll, ks);
     }
@@ -2432,7 +2542,7 @@ export function animateMech(m, dt, st) {
     if (m.type === 'biped' || m.type === 'reverse')
       for (const L of m.legs) {
         L.thigh.rotation.x = lerp(L.thigh.rotation.x, L.th - 0.5, 0.2);
-        L.knee.rotation.x = lerp(L.knee.rotation.x, L.kn + 0.4 * (m.type === 'reverse' ? -1 : 1), 0.2);
+        L.knee.rotation.x = lerp(L.knee.rotation.x, L.kn + 0.4, 0.2);
         L.thigh.rotation.z = lerp(L.thigh.rotation.z, L.side * 0.35, 0.2);
       }
   }

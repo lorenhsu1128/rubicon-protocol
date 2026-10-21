@@ -75,6 +75,7 @@ export function restPose(rig) {
   for (const L of rig.legs) {
     L.thigh.rotation.set(0, 0, 0);
     L.knee.rotation.set(0, 0, 0);
+    if (L.hock) L.hock.rotation.set(0, 0, 0);
     L.foot.rotation.set(0, 0, 0);
   }
   rig.torso.position.set(0, 0, 0);
