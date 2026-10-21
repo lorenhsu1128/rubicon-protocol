@@ -21,6 +21,25 @@ const AUTH = new WeakSet();
 export const markAuthoredTex = (t) => {
   if (t) AUTH.add(t);
 };
+// 貼花層（貼圖繪製畫在色槽之上的圖層，docs/glb-spec.md）：記在底圖的貼圖物件上（材質複製後仍共用），
+// { tex 貼花（預乘 alpha、sRGB 值）, wts 色槽權重（預乘，RGBA＝main／sub／joint／acc） }。
+// 色槽顏色記在材質上（tintMaterial 依配色設定；沒有時用材質本身的顏色）
+const DECAL = new WeakMap();
+const SLOTCOL = new WeakMap();
+export const DECAL_SLOTS = ['main', 'sub', 'joint', 'acc'];
+export const setDecal = (map, d) => {
+  if (map && d) DECAL.set(map, d);
+};
+export const hasDecal = (m) => !!(m && m.map && DECAL.has(m.map));
+export const setDecalColors = (m, cols) => SLOTCOL.set(m, cols);
+let BLACK = null;
+const blackTex = () => {
+  if (!BLACK) {
+    BLACK = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat);
+    BLACK.needsUpdate = true;
+  }
+  return BLACK;
+};
 
 const V4 = (x, y, z, w) => ({ value: new THREE.Vector4(x, y, z, w) });
 // 全部材質共用同一組 uniform 物件（改 value 就全部生效）
@@ -54,6 +73,10 @@ export function setStyleUniforms(P) {
 const PARS = /* glsl */ `
 uniform vec4 stA, stB, stC, stD, stE, stM, stN, stF, stW;
 uniform float stCat, stOpq, stAuth;
+#ifdef ST_DECAL
+uniform sampler2D stDecT, stDecW;
+uniform vec3 stSlot[ 4 ];
+#endif
 varying vec3 vStW;
 float stSh = 1.0;
 vec3 stLit = vec3( 0.0 );
@@ -107,6 +130,16 @@ const MAP = /* glsl */ `
 	if ( stDet < 0.999 ) texelColor = mix( texture2D( map, vUv, 10.0 ), texelColor, stDet );
 	texelColor = mapTexelToLinear( texelColor );
 	diffuseColor *= texelColor;
+	#ifdef ST_DECAL
+	vec4 stDc = texture2D( stDecT, vUv );
+	if ( stDc.a > 0.002 ) {
+		vec4 stDw = texture2D( stDecW, vUv );
+		vec3 stDcol = sRGBToLinear( vec4( stDc.rgb / stDc.a, 1.0 ) ).rgb;
+		float stFx = max( 0.0, stDc.a - stDw.r - stDw.g - stDw.b - stDw.a );
+		vec3 stTint = ( stSlot[ 0 ] * stDw.r + stSlot[ 1 ] * stDw.g + stSlot[ 2 ] * stDw.b + stSlot[ 3 ] * stDw.a + stFx ) / stDc.a;
+		diffuseColor.rgb = mix( diffuseColor.rgb, stDcol * stTint, min( stDc.a, 1.0 ) );
+	}
+	#endif
 #endif
 `;
 
@@ -221,6 +254,31 @@ export function installStyleShader() {
         },
       },
     });
+    const dec = hasDecal(mat);
+    if (dec) {
+      const slotCols = DECAL_SLOTS.map(() => new THREE.Color());
+      Object.assign(shader.uniforms, {
+        stDecT: {
+          get value() {
+            const d = mat.map && DECAL.get(mat.map);
+            return d ? d.tex : blackTex();
+          },
+        },
+        stDecW: {
+          get value() {
+            const d = mat.map && DECAL.get(mat.map);
+            return (d && d.wts) || blackTex();
+          },
+        },
+        stSlot: {
+          get value() {
+            const c = SLOTCOL.get(mat);
+            for (let i = 0; i < 4; i++) slotCols[i].copy(c ? c[i] : mat.color);
+            return slotCols;
+          },
+        },
+      });
+    }
     let v = shader.vertexShader;
     v = 'varying vec3 vStW;\n' + v;
     v = rep(
@@ -230,6 +288,7 @@ export function installStyleShader() {
     );
     shader.vertexShader = v;
     let f = shader.fragmentShader;
+    if (dec) f = '#define ST_DECAL\n' + f;
     f = rep(
       f,
       '#include <lights_physical_pars_fragment>',
@@ -251,5 +310,7 @@ export function installStyleShader() {
     );
     shader.fragmentShader = f;
   };
-  proto.customProgramCacheKey = () => 'rubicon-style-1';
+  proto.customProgramCacheKey = function () {
+    return hasDecal(this) ? 'rubicon-style-1d' : 'rubicon-style-1';
+  };
 }

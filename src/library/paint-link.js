@@ -3,9 +3,10 @@
 // 不靠共用 IndexedDB：直接開檔與伺服器都能用，伺服器預設組也一樣（putBuf 會寫到伺服器）。
 // 訊息（data.t）：
 //   繪圖 → 模型庫  rp-ready（視窗準備好）、rp-save { id, slot, set, name, buf }
-//   模型庫 → 繪圖  rp-open { slot, set, setName, slotName, name, buf }、rp-saved { id, ok, msg }
+//   模型庫 → 繪圖  rp-open { slot, set, setName, slotName, name, buf, pals, pal }、rp-saved { id, ok, msg }
 // 只認 t 以 rp- 開頭、格式正確的訊息；存檔時槽位必須在目錄裡，而且模型庫目前還在同一個模型組。
 import { MODEL_CATALOG } from '../render/model-catalog.js';
+import { MECH_COLORS, PALETTES } from '../render/materials.js';
 
 const PAINT_URL = () => (window.RUBICON_SERVER ? '/paint/' : 'paint/index.html');
 const WIN_NAME = 'rubicon-paint';
@@ -39,6 +40,9 @@ export class PaintLink {
       setName: info ? info.name : set,
       name: src.name,
       buf: src.buf.slice(0), // 複製：不能把模型庫存著的那份轉移出去
+      // 機體配色（換色模型的貼花層預覽用；hex 是線性值，和遊戲的 Color.set 相同）
+      pals: MECH_COLORS.map(([k, n]) => ({ k, n, c: { ...PALETTES[k] } })),
+      pal: 'white',
     };
     // 同名視窗已經開著時 window.open 只會換網址的 # 而不重新載入，所以另外問一次它準備好了沒
     const w = window.open(PAINT_URL() + '#lib', WIN_NAME);

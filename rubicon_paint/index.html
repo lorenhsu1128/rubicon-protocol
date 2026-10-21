@@ -175,6 +175,17 @@
       <aside id="rightPanel">
         <section class="panel" id="layerPanel">
           <h3>圖層 <span id="layerSetName" class="dim"></span></h3>
+          <div id="decalRow" hidden>
+            <select id="layerSlot" title="這個圖層畫在哪裡：可換色的底圖（灰階，遊戲依配色換色）、固定色的貼花，或跟著某個色槽換色的貼花">
+              <option value="base">底圖（可換色）</option>
+              <option value="">貼花：固定色</option>
+              <option value="main">貼花：跟 main 換色</option>
+              <option value="sub">貼花：跟 sub 換色</option>
+              <option value="joint">貼花：跟 joint 換色</option>
+              <option value="acc">貼花：跟 acc 換色</option>
+            </select>
+            <select id="prevPal" title="預覽配色（遊戲裡依機體配色換色）"></select>
+          </div>
           <select id="layerBlend" title="混合模式"></select>
           <label class="row">不透明度 <input id="layerOpacity" type="range" min="0" max="100" value="100" /><output id="layerOpacityOut">100</output></label>
           <div class="checkRow">

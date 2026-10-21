@@ -7,6 +7,31 @@
   const RP = (window.RP = window.RP || {});
   const MAXD = 64; // 每次繪製最多幾個筆刷點（uniform 陣列長度）
   const HISTORY_MAX = 40;
+  const HISTORY_BYTES = 1e9; // 復原紀錄的像素上限（大貼圖時步數跟著變少）
+
+  // 貼花組：材質名稱都是 RUBICON PROTOCOL 的換色槽位、有底圖的貼圖組（例如內建的預設機甲）。
+  // 底圖是灰階、遊戲依配色換色，所以「底圖」與標成「底圖（可換色）」的圖層合成可換色的底圖，
+  // 其他圖層合成貼花層（另存，疊在換色之後）：固定色的照畫的顏色，指定色槽的跟著那個色槽換色。
+  const PALETTE_SLOTS = ['main', 'main2', 'main3', 'sub', 'acc', 'joint', 'visor', 'glow', 'gun', 'grey'];
+  const DECAL_SLOTS = ['main', 'sub', 'joint', 'acc'];
+  const DECAL_RES = 2048;
+  const slotName = (n) =>
+    String(n || '')
+      .toLowerCase()
+      .replace(/\.\d+$/, '');
+  const isPaletteSlot = (n) => PALETTE_SLOTS.includes(slotName(n));
+  // 沒有從模型庫收到配色清單時的預覽配色（＝遊戲 render/materials.js 的 PALETTES.white）
+  RP.DEFAULT_PAL = {
+    main: 0x9da8bb,
+    main2: 0x7f8a9c,
+    main3: 0xb3bccc,
+    sub: 0x343c48,
+    acc: 0x8e5a16,
+    joint: 0x1a1e24,
+    visor: 0x5fc8ff,
+    glow: 0x7fe8ff,
+  };
+  RP.DECAL_SLOTS = DECAL_SLOTS;
 
   // 混合模式（值是 shader 裡的編號）
   const BLEND_MODES = [
@@ -317,10 +342,13 @@
       return s;
     }
 
+    uniform bool uTintOn;
+    uniform vec3 uTint;
     void main() {
       vec4 D = texture2D(uAcc, vUv);
       vec4 S = layerAt(vUv) * uLayerOpacity;
       if (uClip) S *= texture2D(uClipBase, vUv).a * uClipOpacity;
+      if (uTintOn) S.rgb *= uTint;
       if (S.a <= 0.0) { gl_FragColor = D; return; }
       vec3 cs = S.rgb / S.a;
       vec3 cb = D.a > 0.0 ? D.rgb / D.a : vec3(0.0);
@@ -349,6 +377,58 @@
         }
       }
       gl_FragColor = at(vUv);
+    }`;
+
+  // 貼花組的色槽權重：每個圖層以覆蓋率疊上它的色槽（one-hot，固定色＝0），RGBA＝main／sub／joint／acc（預乘）
+  const WEIGHT_FRAG = /* glsl */ `
+    ${LAYER_FN}
+    uniform sampler2D uAcc;
+    uniform vec4 uSlot;
+    uniform float uLayerOpacity;
+    uniform bool uClip;
+    uniform sampler2D uClipBase;
+    uniform float uClipOpacity;
+    varying vec2 vUv;
+    void main() {
+      vec4 D = texture2D(uAcc, vUv);
+      float a = layerAt(vUv).a * uLayerOpacity;
+      if (uClip) a *= texture2D(uClipBase, vUv).a * uClipOpacity;
+      gl_FragColor = uSlot * a + D * (1.0 - a);
+    }`;
+
+  // 接縫外擴（保留預乘的值，貼花與權重用）
+  const DILATE_FRAG = /* glsl */ `
+    #define PAD 6
+    uniform sampler2D uAcc;
+    uniform sampler2D uMask;
+    uniform vec2 uTexel;
+    varying vec2 vUv;
+    void main() {
+      if (texture2D(uMask, vUv).r > 0.5) { gl_FragColor = texture2D(uAcc, vUv); return; }
+      for (int r = 1; r <= PAD; r++) {
+        for (int k = 0; k < 8; k++) {
+          float ang = float(k) * 0.78539816;
+          vec2 o = vec2(floor(cos(ang) * float(r) + 0.5), floor(sin(ang) * float(r) + 0.5)) * uTexel;
+          if (texture2D(uMask, vUv + o).r > 0.5) { gl_FragColor = texture2D(uAcc, vUv + o); return; }
+        }
+      }
+      gl_FragColor = texture2D(uAcc, vUv);
+    }`;
+
+  // 讀回 GLB 裡的貼花層：貼花（預乘）＋權重 → 一個色槽（或固定色）的圖層
+  const SPLIT_FRAG = /* glsl */ `
+    uniform sampler2D uDec;
+    uniform sampler2D uW;
+    uniform bool uHasW;
+    uniform vec4 uSel;   // 全 0＝固定色
+    varying vec2 vUv;
+    void main() {
+      vec4 d = texture2D(uDec, vUv);
+      vec4 w = uHasW ? texture2D(uW, vUv) : vec4(0.0);
+      float s = w.r + w.g + w.b + w.a;
+      float a = dot(uSel, vec4(1.0)) > 0.0 ? dot(w, uSel) : max(0.0, d.a - s);
+      vec3 c = d.a > 0.0 ? d.rgb / d.a : vec3(0.0);
+      gl_FragColor = vec4(c * a, a);
     }`;
 
   // 直接 alpha 的圖片 → 預乘的圖層
@@ -455,7 +535,8 @@
     return !(neg && pos);
   }
 
-  const LAYER_PROPS = ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip'];
+  // slot（只有貼花組用）：'base' 底圖（可換色）、'' 固定色、或 DECAL_SLOTS 的色槽
+  const LAYER_PROPS = ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip', 'slot'];
   let layerSeq = 0;
 
   class Layer {
@@ -468,6 +549,7 @@
       this.blend = 'normal';
       this.lockAlpha = false;
       this.clip = false;
+      this.slot = '';
     }
     props() {
       const o = {};
@@ -496,6 +578,11 @@
       this.strokeActive = false;
       this.screenRect = null;
       this.triCount = 0;
+      this.decal = false; // 貼花組（見 DECAL_SLOTS）：bcomp 可換色的底圖、dcomp 貼花、wcomp 色槽權重
+    }
+    // 這個圖層算底圖（可換色）嗎：最下面的圖層一律是
+    isBase(L) {
+      return !this.decal || L === this.layers[0] || L.slot === 'base';
     }
 
     get activeLayer() {
@@ -566,16 +653,32 @@
       P.renderer.render(this.scene, P.uvCam);
       P.renderer.autoClear = true;
       this.scene.overrideMaterial = null;
+      if (this.decal) {
+        this.bcomp = makeRT(this.w, this.h, true);
+        this.dcomp = makeRT(this.w, this.h, true);
+        this.wcomp = makeRT(this.w, this.h, true);
+        for (const k of ['bcomp', 'dcomp', 'wcomp']) {
+          const x = this[k].texture;
+          x.anisotropy = t.anisotropy;
+          x.wrapS = t.wrapS;
+          x.wrapT = t.wrapT;
+        }
+        this.bcomp.texture.encoding = THREE.sRGBEncoding;
+      }
       for (const m of this.materials) {
-        m.map = this.comp.texture;
-        m.color.setRGB(1, 1, 1);
+        if (this.decal) P.hookDecal(m, this);
+        else {
+          m.map = this.comp.texture;
+          m.color.setRGB(1, 1, 1);
+        }
         m.needsUpdate = true;
       }
       this.dirty = true;
     }
 
     dispose() {
-      for (const k of ['stroke', 'mask', 'accA', 'accB', 'comp']) this[k] && this[k].dispose();
+      for (const k of ['stroke', 'mask', 'accA', 'accB', 'comp', 'bcomp', 'dcomp', 'wcomp'])
+        this[k] && this[k].dispose();
       for (const p of this.parts) p.proxy.geometry.dispose();
     }
   }
@@ -588,6 +691,9 @@
       this.undoStack = [];
       this.redoStack = [];
       this.layerRTs = new Set(); // 所有圖層像素的 RenderTarget（沒人用時回收）
+      // 貼花組的預覽配色（線性）：預設是內建預設機甲的原色（PALETTES.white）
+      this.prevCols = Object.fromEntries(PALETTE_SLOTS.map((k) => [k, new THREE.Color(1, 1, 1)]));
+      this.setPreviewPal(RP.DEFAULT_PAL);
       this.uvCam = new THREE.Camera();
       this.quadScene = new THREE.Scene();
       this.quadMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), null);
@@ -603,7 +709,13 @@
         waArr.push(0);
       }
       const quadMat = (frag, uniforms) =>
-        new THREE.ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: frag, uniforms, depthTest: false, depthWrite: false });
+        new THREE.ShaderMaterial({
+          vertexShader: QUAD_VERT,
+          fragmentShader: frag,
+          uniforms,
+          depthTest: false,
+          depthWrite: false,
+        });
       this.paintMat = new THREE.ShaderMaterial({
         vertexShader: UV_VERT,
         fragmentShader: PAINT_FRAG,
@@ -673,12 +785,36 @@
           uClip: { value: false },
           uClipBase: { value: null },
           uClipOpacity: { value: 1 },
+          uTintOn: { value: false },
+          uTint: { value: new THREE.Color() },
+        }),
+      );
+      this.weightMat = quadMat(
+        WEIGHT_FRAG,
+        Object.assign(layerUniforms(), {
+          uAcc: { value: null },
+          uSlot: { value: new THREE.Vector4() },
+          uLayerOpacity: { value: 1 },
+          uClip: { value: false },
+          uClipBase: { value: null },
+          uClipOpacity: { value: 1 },
         }),
       );
       this.finalMat = quadMat(FINAL_FRAG, {
         uAcc: { value: null },
         uMask: { value: null },
         uTexel: { value: new THREE.Vector2() },
+      });
+      this.dilateMat = quadMat(DILATE_FRAG, {
+        uAcc: { value: null },
+        uMask: { value: null },
+        uTexel: { value: new THREE.Vector2() },
+      });
+      this.splitMat = quadMat(SPLIT_FRAG, {
+        uDec: { value: null },
+        uW: { value: null },
+        uHasW: { value: false },
+        uSel: { value: new THREE.Vector4() },
       });
       this.copyMat = quadMat(COPY_FRAG, { uTex: { value: null } });
       this.premulMat = quadMat(PREMUL_FRAG, { uTex: { value: null } });
@@ -732,7 +868,19 @@
       // 漸層：可見性相關的 uniform 和筆共用同一個物件（beginStroke 設定一次即可）
       const pu = this.paintMat.uniforms;
       const vis = {};
-      for (const k of ['uVP', 'uView', 'uDepth', 'uNear', 'uFar', 'uOrtho', 'uCam', 'uCamDir', 'uCull', 'uBias']) vis[k] = pu[k];
+      for (const k of [
+        'uVP',
+        'uView',
+        'uDepth',
+        'uNear',
+        'uFar',
+        'uOrtho',
+        'uCam',
+        'uCamDir',
+        'uCull',
+        'uBias',
+      ])
+        vis[k] = pu[k];
       this.gradMat = new THREE.ShaderMaterial({
         vertexShader: UV_VERT,
         fragmentShader: GRAD_FRAG,
@@ -756,10 +904,19 @@
         depthTest: false,
         depthWrite: false,
       });
-      this.depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
+      this.depthMat = new THREE.MeshDepthMaterial({
+        depthPacking: THREE.RGBADepthPacking,
+        side: THREE.DoubleSide,
+      });
       this.depthRT = null;
       this.depthBuf = null;
-      this.brush = { color: new THREE.Color(1, 0, 0), opacity: 1, hardness: 0.5, erase: false, mode: 'paint' };
+      this.brush = {
+        color: new THREE.Color(1, 0, 0),
+        opacity: 1,
+        hardness: 0.5,
+        erase: false,
+        mode: 'paint',
+      };
       this.stroke = null;
     }
 
@@ -810,7 +967,10 @@
         if (!g.attributes.normal) g.computeVertexNormals();
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         const total = g.index ? g.index.count : g.attributes.position.count;
-        const groups = Array.isArray(o.material) && g.groups.length ? g.groups : [{ start: 0, count: total, materialIndex: 0 }];
+        const groups =
+          Array.isArray(o.material) && g.groups.length
+            ? g.groups
+            : [{ start: 0, count: total, materialIndex: 0 }];
         for (const gr of groups) {
           const m = mats[gr.materialIndex];
           if (!m || !m.color) continue;
@@ -840,12 +1000,74 @@
           set.addPart(o, gr.start, Math.min(gr.count, total - gr.start));
         }
       });
+      const decalRes = Math.min(DECAL_RES, maxSize);
       for (const s of this.sets) {
+        s.decal = !!s.srcMap && s.materials.every((m) => isPaletteSlot(m.name));
+        if (s.decal) {
+          const k = decalRes / Math.max(s.w, s.h);
+          s.w = Math.round(s.w * k);
+          s.h = Math.round(s.h * k);
+        }
+        for (const m of s.materials) {
+          if (m.userData.rubicon_decal) s.decalSrc = m.userData.rubicon_decal;
+          delete m.userData.rubicon_decal; // GLTFExporter 會把 userData 寫回 extras（匯出時另外寫）
+        }
         s.syncMatrices();
         s.init();
       }
       this.renderer.setRenderTarget(null);
       return warnings;
+    }
+
+    // ---------- 貼花組 ----------
+    // 預覽配色（線性值，和遊戲的 Color.set(hex) 相同）：{ 槽位: hex }；沒有的槽位依 main 推算
+    setPreviewPal(pal) {
+      const c = this.prevCols;
+      const get = (k) => (pal && pal[k] != null ? pal[k] : null);
+      for (const k of PALETTE_SLOTS) {
+        let v = get(k);
+        if (v == null && (k === 'main2' || k === 'main3')) v = get('main');
+        if (v == null) v = { gun: 0x34373c, grey: 0x8a8f95, glow: 0x9ff0ff, visor: 0x5fc8ff }[k] || 0xffffff;
+        c[k].setHex(v);
+      }
+      this.refreshDecalColors();
+      for (const s of this.sets) if (s.decal) s.dirty = true;
+    }
+    // 顯示用的材質：底圖 × 色槽顏色，再疊貼花（和遊戲的 render/style/shader.js 同一套公式）
+    hookDecal(m, s) {
+      const P = this;
+      const slot = slotName(m.name);
+      m.map = s.bcomp.texture;
+      m.color.copy(this.prevCols[slot] || this.prevCols.main);
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.rpDecT = { value: s.dcomp.texture };
+        shader.uniforms.rpDecW = { value: s.wcomp.texture };
+        shader.uniforms.rpSlot = { value: DECAL_SLOTS.map((k) => P.prevCols[k]) };
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nuniform sampler2D rpDecT, rpDecW;\nuniform vec3 rpSlot[4];',
+          )
+          .replace(
+            '#include <map_fragment>',
+            `#include <map_fragment>
+            vec4 rpDc = texture2D(rpDecT, vUv);
+            if (rpDc.a > 0.002) {
+              vec4 rpDw = texture2D(rpDecW, vUv);
+              vec3 rpC = sRGBToLinear(vec4(rpDc.rgb / rpDc.a, 1.0)).rgb;
+              float rpFx = max(0.0, rpDc.a - rpDw.r - rpDw.g - rpDw.b - rpDw.a);
+              vec3 rpT = (rpSlot[0] * rpDw.r + rpSlot[1] * rpDw.g + rpSlot[2] * rpDw.b + rpSlot[3] * rpDw.a + rpFx) / rpDc.a;
+              diffuseColor.rgb = mix(diffuseColor.rgb, rpC * rpT, min(rpDc.a, 1.0));
+            }`,
+          );
+      };
+      m.customProgramCacheKey = () => 'rp-decal';
+    }
+    // 配色換了：材質的顏色跟著換
+    refreshDecalColors() {
+      for (const s of this.sets)
+        if (s.decal)
+          for (const m of s.materials) m.color.copy(this.prevCols[slotName(m.name)] || this.prevCols.main);
     }
 
     dispose() {
@@ -926,7 +1148,11 @@
         let y1 = -Infinity;
         let behind = false;
         for (let i = 0; i < 8; i++) {
-          v.set(i & 1 ? s.box.max.x : s.box.min.x, i & 2 ? s.box.max.y : s.box.min.y, i & 4 ? s.box.max.z : s.box.min.z);
+          v.set(
+            i & 1 ? s.box.max.x : s.box.min.x,
+            i & 2 ? s.box.max.y : s.box.min.y,
+            i & 4 ? s.box.max.z : s.box.min.z,
+          );
           v.applyMatrix4(cam.matrixWorldInverse);
           if (-v.z <= 0 && !cam.isOrthographicCamera) behind = true;
           v.applyMatrix4(cam.projectionMatrix);
@@ -935,7 +1161,11 @@
           y0 = Math.min(y0, (v.y * 0.5 + 0.5) * h);
           y1 = Math.max(y1, (v.y * 0.5 + 0.5) * h);
         }
-        s.screenRect = s.box.isEmpty() ? { x0: 1, y0: 1, x1: -1, y1: -1 } : behind ? null : { x0, y0, x1, y1 };
+        s.screenRect = s.box.isEmpty()
+          ? { x0: 1, y0: 1, x1: -1, y1: -1 }
+          : behind
+            ? null
+            : { x0, y0, x1, y1 };
       }
     }
 
@@ -964,9 +1194,13 @@
       if (px < 0 || py < 0 || px >= w || py >= h) return null;
       const i = (py * w + px) * 4;
       const b = this.depthBuf;
-      const d = (255 / 256) * (b[i] / 255 / 16777216 + b[i + 1] / 255 / 65536 + b[i + 2] / 255 / 256 + b[i + 3] / 255);
+      const d =
+        (255 / 256) *
+        (b[i] / 255 / 16777216 + b[i + 1] / 255 / 65536 + b[i + 2] / 255 / 256 + b[i + 3] / 255);
       if (d >= 0.99999) return null;
-      const p = new THREE.Vector3(((px + 0.5) / w) * 2 - 1, ((py + 0.5) / h) * 2 - 1, d * 2 - 1).unproject(cam);
+      const p = new THREE.Vector3(((px + 0.5) / w) * 2 - 1, ((py + 0.5) / h) * 2 - 1, d * 2 - 1).unproject(
+        cam,
+      );
       let perPx;
       if (cam.isOrthographicCamera) perPx = (cam.top - cam.bottom) / cam.zoom / h;
       else {
@@ -995,8 +1229,7 @@
           if (d.type === 's') {
             u.uSR.value[ns] = d.rot || 0;
             u.uS.value[ns++].set(d.x, d.y, d.r, d.a);
-          }
-          else {
+          } else {
             u.uW.value[nw].set(d.p.x, d.p.y, d.p.z, d.r);
             u.uWA.value[nw++] = d.a;
           }
@@ -1141,7 +1374,9 @@
 
     // 三角形所在的 UV 島（同一個網格片段內，UV 座標相同的頂點視為相連）
     island(s, mesh, faceIndex) {
-      const p = s.parts.find((q) => q.mesh === mesh && faceIndex * 3 >= q.start && faceIndex * 3 < q.start + q.count);
+      const p = s.parts.find(
+        (q) => q.mesh === mesh && faceIndex * 3 >= q.start && faceIndex * 3 < q.start + q.count,
+      );
       if (!p) return null;
       return this.islandOf(p, faceIndex - p.start / 3);
     }
@@ -1307,34 +1542,54 @@
       if (any) this.renderer.setRenderTarget(null);
     }
 
+    // 貼花組：comp＝全部圖層（色槽圖層以預覽配色上色，UV 面板與取色用）、bcomp＝底圖類、dcomp＝貼花、wcomp＝色槽權重；
+    // 其他：comp＝全部圖層
     compositeSet(s) {
+      if (!s.decal) return this.chain(s, () => true, this.blendMat, this.finalMat, s.comp, false);
+      this.chain(s, () => true, this.blendMat, this.finalMat, s.comp, true);
+      this.chain(s, (L) => s.isBase(L), this.blendMat, this.finalMat, s.bcomp, false);
+      this.chain(s, (L) => !s.isBase(L), this.blendMat, this.dilateMat, s.dcomp, false);
+      this.chain(s, (L) => !s.isBase(L), this.weightMat, this.dilateMat, s.wcomp, false);
+    }
+    // 由下往上把 pick 選到的圖層疊起來（mat：blendMat 或 weightMat），最後 fin（接縫外擴）寫到 out
+    chain(s, pick, mat, fin, out, tint) {
       let src = s.accA;
       let dst = s.accB;
       this.clear(src);
-      const u = this.blendMat.uniforms;
+      const u = mat.uniforms;
       let clipBase = null;
       for (let i = 0; i < s.layers.length; i++) {
         const L = s.layers[i];
         if (!L.clip) clipBase = L;
         const base = L.clip ? clipBase : L;
         if (!L.visible || (L.clip && (!base || base === L || !base.visible))) continue;
-        this.setLayerUniforms(this.blendMat, s, L, s.strokeActive && i === s.active);
+        if (!pick(L)) continue;
+        this.setLayerUniforms(mat, s, L, s.strokeActive && i === s.active);
         u.uAcc.value = src.texture;
-        u.uBlend.value = BLEND_INDEX[L.blend] || 0;
         u.uLayerOpacity.value = L.opacity;
         u.uClip.value = !!L.clip;
         u.uClipBase.value = L.clip ? base.rt.texture : null;
         u.uClipOpacity.value = L.clip ? base.opacity : 1;
-        this.quad(this.blendMat, dst);
+        if (mat === this.weightMat) {
+          const k = DECAL_SLOTS.indexOf(L.slot);
+          u.uSlot.value.set(k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0, k === 3 ? 1 : 0);
+        } else {
+          u.uBlend.value = BLEND_INDEX[L.blend] || 0;
+          const k = tint && !s.isBase(L) ? DECAL_SLOTS.indexOf(L.slot) : -1;
+          u.uTintOn.value = k >= 0;
+          if (k >= 0) u.uTint.value.copy(this.prevCols[L.slot]).convertLinearToSRGB();
+        }
+        this.quad(mat, dst);
         const t = src;
         src = dst;
         dst = t;
       }
-      const f = this.finalMat.uniforms;
+      if (mat === this.blendMat) u.uTintOn.value = false;
+      const f = fin.uniforms;
       f.uAcc.value = src.texture;
       f.uMask.value = s.mask.texture;
       f.uTexel.value.set(1 / s.w, 1 / s.h);
-      this.quad(this.finalMat, s.comp);
+      this.quad(fin, out);
     }
 
     // ---------- 圖層 ----------
@@ -1400,7 +1655,14 @@
       const src = s.layers[i];
       this.editLayers(s, () => {
         const L = new Layer(this.copyRT(s, src.rt), src.name + ' 複製');
-        Object.assign(L, { visible: src.visible, opacity: src.opacity, blend: src.blend, lockAlpha: src.lockAlpha, clip: src.clip });
+        Object.assign(L, {
+          visible: src.visible,
+          opacity: src.opacity,
+          blend: src.blend,
+          lockAlpha: src.lockAlpha,
+          clip: src.clip,
+          slot: i === 0 && s.decal ? 'base' : src.slot,
+        });
         s.layers.splice(i + 1, 0, L);
         s.active = i + 1;
       });
@@ -1504,7 +1766,8 @@
     // 結果放成每組最上面的「AO」圖層（色彩增值）。opts: { scene, hide, dirs, strength, contrast, sets }
     bakeAO(opts) {
       const r = this.renderer;
-      if (!r.capabilities.isWebGL2 || !r.extensions.get('EXT_color_buffer_float')) throw new Error('這個瀏覽器不支援浮點貼圖，不能烘焙 AO');
+      if (!r.capabilities.isWebGL2 || !r.extensions.get('EXT_color_buffer_float'))
+        throw new Error('這個瀏覽器不支援浮點貼圖，不能烘焙 AO');
       const sets = (opts.sets || this.sets).filter((s) => {
         s.syncMatrices();
         return !s.box.isEmpty();
@@ -1515,7 +1778,11 @@
       const sphere = box.getBoundingSphere(new THREE.Sphere());
       const R = sphere.radius;
       const res = 1024;
-      const depthRT = new THREE.WebGLRenderTarget(res, res, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+      const depthRT = new THREE.WebGLRenderTarget(res, res, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: true,
+      });
       const cam = new THREE.OrthographicCamera(-R, R, R, -R, 0.001, 4 * R);
       const accs = sets.map(
         (s) =>
@@ -1586,6 +1853,7 @@
         this.quad(this.aoFinalMat, rt);
         const L = new Layer(rt, 'AO');
         L.blend = 'multiply';
+        if (s.decal) L.slot = 'base'; // 陰影壓在可換色的底圖上
         s.layers.push(L);
         ops.push(this.structOp(s, before));
         s.dirty = true;
@@ -1601,7 +1869,9 @@
       if (!ops.length) return;
       this.undoStack.push(ops);
       this.redoStack = [];
-      while (this.undoStack.length > HISTORY_MAX) this.undoStack.shift();
+      const px = Math.max(1, ...this.sets.map((s) => s.w * s.h * 4));
+      const max = Math.max(8, Math.min(HISTORY_MAX, Math.floor(HISTORY_BYTES / px)));
+      while (this.undoStack.length > max) this.undoStack.shift();
       this.gc();
     }
     undo() {
@@ -1644,6 +1914,85 @@
     }
     readComp(s) {
       return this.readRT(s.comp, s.w, s.h);
+    }
+    // 讀回 RenderTarget，必要時先縮放到 w×h（縮小時取 mipmap）
+    readScaled(rt, s, w, h) {
+      if (w === s.w && h === s.h) return this.readRT(rt, w, h);
+      const tmp = makeRT(w, h);
+      this.copyMat.uniforms.uTex.value = rt.texture;
+      this.quad(this.copyMat, tmp);
+      const buf = this.readRT(tmp, w, h);
+      this.renderer.setRenderTarget(null);
+      tmp.dispose();
+      return buf;
+    }
+    // 貼花組匯出用：{ base 底圖（直接 alpha，bw×bh）, dec 貼花（預乘）, wts 色槽權重（預乘，ww×wh；沒有用到色槽時 null） }
+    // 沒有畫任何貼花時 dec 為 null
+    readDecal(s, bw, bh, wScale) {
+      this.composite();
+      const base = this.readScaled(s.bcomp, s, bw, bh);
+      const dec = this.readRT(s.dcomp, s.w, s.h);
+      let any = false;
+      for (let i = 3; i < dec.length; i += 4)
+        if (dec[i]) {
+          any = true;
+          break;
+        }
+      const ww = Math.max(1, Math.round(s.w * wScale));
+      const wh = Math.max(1, Math.round(s.h * wScale));
+      let wts = null;
+      if (any && s.layers.some((L) => L.visible && !s.isBase(L) && DECAL_SLOTS.includes(L.slot))) {
+        wts = this.readScaled(s.wcomp, s, ww, wh);
+        if (!wts.some((v) => v)) wts = null;
+      }
+      this.renderer.setRenderTarget(null);
+      return { base, dec: any ? dec : null, wts, ww, wh };
+    }
+    // GLB 裡已經有貼花層（沒有圖層紀錄時）：拆回「固定色＋各色槽」的圖層，放在底圖上面
+    importDecal(s, decImg, wImg) {
+      const tex = (img) => {
+        if (!img) return null;
+        const t = new THREE.Texture(img);
+        t.flipY = false;
+        t.premultiplyAlpha = false;
+        t.generateMipmaps = false;
+        t.minFilter = t.magFilter = THREE.LinearFilter;
+        t.needsUpdate = true;
+        return t;
+      };
+      const dt = tex(decImg);
+      const wt = tex(wImg);
+      const u = this.splitMat.uniforms;
+      u.uDec.value = dt;
+      u.uW.value = wt;
+      u.uHasW.value = !!wt;
+      const out = [];
+      ['', ...DECAL_SLOTS].forEach((slot, k) => {
+        if (slot && !wt) return;
+        u.uSel.value.set(k === 1 ? 1 : 0, k === 2 ? 1 : 0, k === 3 ? 1 : 0, k === 4 ? 1 : 0);
+        const rt = this.newLayerRT(s);
+        this.quad(this.splitMat, rt);
+        const px = this.readRT(rt, s.w, s.h);
+        let any = false;
+        for (let i = 3; i < px.length; i += 4)
+          if (px[i]) {
+            any = true;
+            break;
+          }
+        if (!any) return;
+        const L = new Layer(rt, slot ? `貼花（${slot}）` : '貼花');
+        L.slot = slot;
+        out.push(L);
+      });
+      this.renderer.setRenderTarget(null);
+      if (dt) dt.dispose();
+      if (wt) wt.dispose();
+      if (!out.length) return 0;
+      s.layers = [s.layers[0], ...out, ...s.layers.slice(1)];
+      s.active = s.layers.length - 1;
+      s.dirty = true;
+      this.gc();
+      return out.length;
     }
     // 讀回的第 0 列是 v=0；glTF 圖片的第 0 列（最上面）也是 v=0，所以直接照順序放進畫布
     toCanvas(s) {

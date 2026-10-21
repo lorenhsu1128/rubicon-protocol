@@ -306,12 +306,12 @@ export const MECH_COLORS = [
 export const PALETTES = {
   // 內建的玩家預設機甲的原色（src/assets/player-mech/ 的色槽 × 灰階貼圖 ≈ 原本的彩色貼圖）
   white: {
-    main: 0x9da8bb,
-    main2: 0x7f8a9c,
-    main3: 0xb3bccc,
-    sub: 0x343c48,
-    acc: 0x8e5a16,
-    joint: 0x1a1e24,
+    main: 0x96a0af,
+    main2: 0x798392,
+    main3: 0xabb3bf,
+    sub: 0x323843,
+    acc: 0xb17a30,
+    joint: 0x181b20,
     visor: 0x5fc8ff,
     glow: 0x7fe8ff,
   },

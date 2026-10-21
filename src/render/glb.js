@@ -3,7 +3,7 @@
 import { OUTLINE_MAT } from './geometry.js';
 import { palColor } from './materials.js';
 import { isFxMaterial, measureBox, modelStats } from './measure.js';
-import { markAuthoredTex } from './style/shader.js';
+import { DECAL_SLOTS, hasDecal, markAuthoredTex, setDecal, setDecalColors } from './style/shader.js';
 
 const TEX_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'];
 // GLB 的貼圖：各向異性過濾（斜看的面不糊；three.js 依顯示卡上限截斷）、標成美術畫的貼圖（渲染風格不抹平）
@@ -96,9 +96,67 @@ export async function parseGlb(buf) {
     buf instanceof ArrayBuffer ? buf : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const loader = new THREE.GLTFLoader();
   if (usesDraco(data)) loader.setDRACOLoader(await loadDraco());
-  return new Promise((resolve, reject) =>
+  const gltf = await new Promise((resolve, reject) =>
     loader.parse(data, '', resolve, (e) => reject(e instanceof Error ? e : new Error(String(e)))),
   );
+  await loadDecals(gltf);
+  return gltf;
+}
+
+// 貼花層：材質的 extras.rubicon_decal＝{ v, color 貼花圖片, slots 色槽權重圖片 }（images 的索引，不是 textures：
+// 一般的 glTF 檢視器不會讀它們，只看到可換色的底圖）。兩張都是預乘 alpha 的 PNG，自己解碼（不讓瀏覽器預乘），
+// 記在材質的底圖上（setDecal），著色器把貼花疊在「灰階底圖 × 色槽顏色」之上。
+// 讀完把 userData 的紀錄拿掉：GLTFExporter 會把 userData 寫回 extras，圖片索引就對不上了
+async function loadDecals(gltf) {
+  const parser = gltf.parser;
+  const json = parser && parser.json;
+  if (!json || !(json.materials || []).some((m) => m.extras && m.extras.rubicon_decal)) return;
+  const imgs = new Map();
+  const image = (i, wrap) => {
+    if (!Number.isInteger(i) || !json.images || !json.images[i] || json.images[i].bufferView == null)
+      return null;
+    if (!imgs.has(i))
+      imgs.set(
+        i,
+        parser
+          .getDependency('bufferView', json.images[i].bufferView)
+          .then((ab) =>
+            createImageBitmap(new Blob([ab], { type: json.images[i].mimeType || 'image/png' }), {
+              premultiplyAlpha: 'none',
+              colorSpaceConversion: 'none',
+            }),
+          )
+          .then((bmp) => {
+            const t = new THREE.Texture(bmp);
+            t.flipY = false;
+            t.premultiplyAlpha = false;
+            t.anisotropy = 8;
+            if (wrap) {
+              t.wrapS = wrap.wrapS;
+              t.wrapT = wrap.wrapT;
+            }
+            t.needsUpdate = true;
+            return t;
+          })
+          .catch((e) => {
+            console.warn('GLB 的貼花圖片讀取失敗', e);
+            return null;
+          }),
+      );
+    return imgs.get(i);
+  };
+  const mats = new Set();
+  gltf.scene.traverse((o) => {
+    if (o.isMesh) for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m) mats.add(m);
+  });
+  for (const m of mats) {
+    const d = m.userData && m.userData.rubicon_decal;
+    if (!d) continue;
+    delete m.userData.rubicon_decal;
+    if (!m.map) continue;
+    const [tex, wts] = await Promise.all([image(d.color, m.map), image(d.slots, m.map)]);
+    if (tex) setDecal(m.map, { tex, wts });
+  }
 }
 
 // glTF 正面為 +Z，遊戲為 −Z：把每個節點的座標系繞 Y 軸轉 180°（位置、旋轉、網格頂點），
@@ -146,6 +204,11 @@ export function tintMaterial(m, pal) {
   if (col === undefined) return m;
   const c = m.clone();
   c.color.set(col);
+  if (hasDecal(c))
+    setDecalColors(
+      c,
+      DECAL_SLOTS.map((s) => new THREE.Color().set(palColor(pal, s))),
+    );
   if ((slot === 'visor' || slot === 'glow') && c.emissive) {
     c.emissive.set(col);
     c.emissiveIntensity = Math.max(c.emissiveIntensity || 0, 1.2);

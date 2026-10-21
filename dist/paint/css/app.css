@@ -404,6 +404,16 @@ button.primary {
   color: var(--dim);
   font-weight: 400;
 }
+#decalRow {
+  flex-direction: column;
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+#decalRow select {
+  flex: 1;
+  min-width: 0;
+}
 #layerBlend {
   width: 100%;
   margin-bottom: 2px;

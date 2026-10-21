@@ -11,6 +11,7 @@ import BUILTIN_MODELS from 'virtual:models';
 import PLAYER_MECH from 'virtual:player-mech';
 import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
 import { DEFAULT_SET, SERVER_SET, cleanMechs, setOf, setScoped } from '../render/local-models.js';
+import { RefStore } from './ref-tools.js';
 
 const DB = 'rubicon-model-library',
   MODELS = 'models',
@@ -187,20 +188,68 @@ export class GlbStore {
     try {
       if (navigator.webdriver && !localStorage.getItem(BUILTIN_MECH_KEY + '_test')) return null;
     } catch (e) {}
-    for (const s of this.sets.values()) if (s.builtin === sig) return null;
+    let created = null;
+    let done = null;
     try {
-      if (localStorage.getItem(BUILTIN_MECH_KEY) === sig) return null;
+      done = localStorage.getItem(BUILTIN_MECH_KEY);
     } catch (e) {}
-    const recs = Object.entries(PLAYER_MECH.models).map(([id, u8]) => ({
-      id,
-      name: id.split('/').pop() + '.glb',
-      buf: u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength),
-    }));
-    const set = await this.createSet(BUILTIN_MECH_NAME, { recs, joints: PLAYER_MECH.joints, builtin: sig });
+    if (![...this.sets.values()].some((s) => s.builtin === sig) && done !== sig) {
+      const recs = Object.entries(PLAYER_MECH.models).map(([id, u8]) => ({
+        id,
+        name: id.split('/').pop() + '.glb',
+        buf: u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength),
+      }));
+      created = await this.createSet(BUILTIN_MECH_NAME, { recs, joints: PLAYER_MECH.joints, builtin: sig });
+      try {
+        localStorage.setItem(BUILTIN_MECH_KEY, sig);
+      } catch (e) {}
+    }
+    const purged = await this.purgeOldBuiltin(sig);
+    if (created) return created.id;
+    // 原本用的是被刪掉的舊版：改用新版
+    let cur = null;
     try {
-      localStorage.setItem(BUILTIN_MECH_KEY, sig);
+      cur = localStorage.getItem(CUR_KEY);
     } catch (e) {}
-    return set.id;
+    const now = [...this.sets.values()].find((s) => s.builtin === sig);
+    return now && purged.includes(cur) ? now.id : null;
+  }
+  // 只留最新一版的內建預設機甲：舊版（簽名不同）建成的模型組沒改過的刪掉（連同參考圖），
+  // 改過的（存過 GLB、關節設定、機甲清單或有參考圖）改名成「（舊版）」保留；最新的那組改回原本的名稱。回傳刪掉的 id
+  async purgeOldBuiltin(sig) {
+    const old = [...this.sets.values()].filter((s) => s.builtin && s.builtin !== sig);
+    const purged = [];
+    for (const s of old) {
+      const ref = await RefStore.get(s.id);
+      // 有 edited 標記以前建的模型組：GLB 有原始檔或比模型組晚寫入＝存過（貼圖繪製、GLB 編輯器、拖曳替換）
+      const wrote = this.setRecs(s.id).some((r) => r.orig || (r.t || 0) > (s.t || 0) + 5000);
+      if (s.edited || wrote || (ref && ref.views && Object.keys(ref.views).length)) {
+        delete s.builtin;
+        delete s.edited;
+        if (s.name.startsWith(BUILTIN_MECH_NAME))
+          s.name = this.uniqueName(BUILTIN_MECH_NAME + '（舊版）', s.id);
+        await this.saveSet(s);
+      } else if (await this.deleteSet(s.id)) {
+        await RefStore.remove(s.id);
+        purged.push(s.id);
+      }
+    }
+    const cur = [...this.sets.values()].find((s) => s.builtin === sig);
+    if (old.length && cur && cur.name !== BUILTIN_MECH_NAME) await this.renameSet(cur.id, BUILTIN_MECH_NAME);
+    return purged;
+  }
+  async saveSet(s) {
+    if (this.ok && s.id !== SERVER_SET)
+      try {
+        await tx(SETS, 'readwrite', (os) => os.put(s));
+      } catch (e) {}
+  }
+  // 內建預設機甲建成的模型組被使用者改過（換新版時不自動刪除）
+  markEdited(id) {
+    const s = this.sets.get(id);
+    if (!s || !s.builtin || s.edited) return;
+    s.edited = true;
+    this.saveSet(s);
   }
   // 讀取伺服器預設組（全部 GLB 與原始檔、關節設定、零件組合）
   async loadServer() {
@@ -301,6 +350,7 @@ export class GlbStore {
     if (orig) r.orig = { name: orig.name, buf: orig.buf, size: orig.buf.byteLength };
     this.recs.set(keyOf(set, id), r);
     this.local.set(id, r);
+    this.markEdited(set);
     if (set === SERVER_SET)
       try {
         await this.srvPutGlb(r);
@@ -326,6 +376,7 @@ export class GlbStore {
     const set = setOf(id, this.cur);
     this.recs.delete(keyOf(set, id));
     this.local.delete(id);
+    this.markEdited(set);
     if (set === SERVER_SET)
       try {
         await api('DELETE', `/api/models/default/glb/${slotUrl(id)}`);
@@ -354,6 +405,7 @@ export class GlbStore {
     if (Object.keys(conns).length) this.joints[slot] = conns;
     else delete this.joints[slot];
     setJointOverrides(this.joints);
+    this.markEdited(set);
     if (set === SERVER_SET)
       return api('PUT', `/api/models/default/joints/${slotUrl(slot)}`, conns).catch((e) => this.srvFail(e));
     if (!this.ok) return Promise.resolve();
@@ -537,6 +589,7 @@ export class GlbStore {
     await this.saveMechs(s);
   }
   async saveMechs(s) {
+    if (s.builtin) s.edited = true; // 下面一起寫進模型組紀錄
     if (s.id === SERVER_SET)
       return api('PUT', '/api/models/default/mechs', s.mechs).catch((e) => this.srvFail(e));
     if (this.ok)

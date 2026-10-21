@@ -115,7 +115,10 @@
     t.magFilter = THREE.NearestFilter;
     return t;
   })();
-  const uvBg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0), new THREE.MeshBasicMaterial({ map: checker }));
+  const uvBg = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0),
+    new THREE.MeshBasicMaterial({ map: checker }),
+  );
   const uvQuad = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0.01),
     new THREE.MeshBasicMaterial({ transparent: true }),
@@ -181,7 +184,8 @@
       lines.visible = S.uvLines;
       uvGroup.add(lines);
     }
-    $('uvInfo').textContent = `${set.w}×${set.h}・${set.triCount.toLocaleString()} 面${lines ? '' : '（面數太多，不畫 UV 線）'}`;
+    $('uvInfo').textContent =
+      `${set.w}×${set.h}・${set.triCount.toLocaleString()} 面${lines ? '' : '（面數太多，不畫 UV 線）'}`;
     $('uvSet').value = String(set.id);
     for (const b of $('setList').children) b.classList.toggle('on', b.dataset.id === String(set.id));
     renderLayers();
@@ -240,7 +244,9 @@
           const d = new THREE.DRACOLoader();
           d.setDecoderConfig({ type: 'js' });
           d._loadLibrary = (url) =>
-            url === 'draco_decoder.js' ? Promise.resolve(window.RP_DRACO_DECODER) : Promise.reject(new Error(url));
+            url === 'draco_decoder.js'
+              ? Promise.resolve(window.RP_DRACO_DECODER)
+              : Promise.reject(new Error(url));
           loader.setDRACOLoader(d);
         })
         .catch((err) => {
@@ -253,7 +259,12 @@
   function parseGLB(buf) {
     const parse = () =>
       new Promise((resolve, reject) =>
-        loader.parse(buf, '', (gltf) => resolve(gltf.scene), (err) => reject(new Error(String((err && err.message) || err)))),
+        loader.parse(
+          buf,
+          '',
+          (gltf) => resolve(gltf.scene),
+          (err) => reject(new Error(String((err && err.message) || err))),
+        ),
       );
     if (!glbUsesDraco(buf)) return parse();
     setStatus('讀取中（Draco 解壓縮）…');
@@ -263,13 +274,115 @@
   function loadArrayBuffer(buf, name) {
     setStatus('讀取中…');
     return parseGLB(buf).then(
-      (root) => {
+      async (root) => {
         S.fileName = name.replace(/\.glb$/i, '');
         S.sourceBuf = buf;
         setModel(root);
+        try {
+          const n = await importDecals(buf);
+          if (n) {
+            painter.resetHistory();
+            renderLayers();
+            setStatus(`載入「${S.fileName}」：讀回 GLB 裡的貼花層（${n} 個圖層）`);
+          }
+        } catch (err) {
+          setStatus('貼花層讀取失敗：' + err.message, true);
+        }
       },
       (err) => setStatus('讀取失敗：' + err.message, true),
     );
+  }
+
+  // ---------- 貼花層（RUBICON PROTOCOL 的換色模型：材質 extras.rubicon_decal＝{ v, color, slots } 指向 images） ----------
+  // 兩張都是預乘 alpha 的 PNG：自己解碼（不讓瀏覽器預乘或轉色彩空間）
+  function glbParts(buf) {
+    const dv = new DataView(buf);
+    if (dv.getUint32(0, true) !== 0x46546c67) throw new Error('不是 GLB');
+    const jl = dv.getUint32(12, true);
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jl)));
+    let bin = null;
+    const o = 20 + jl;
+    if (o + 8 <= buf.byteLength && dv.getUint32(o + 4, true) === 0x004e4942)
+      bin = new Uint8Array(buf, o + 8, dv.getUint32(o, true));
+    return { json, bin };
+  }
+  function glbImage(g, i) {
+    const im = g.json.images && g.json.images[i];
+    if (!im || im.bufferView == null || !g.bin) return Promise.resolve(null);
+    const bv = g.json.bufferViews[im.bufferView];
+    const bytes = g.bin.slice(bv.byteOffset || 0, (bv.byteOffset || 0) + bv.byteLength);
+    return createImageBitmap(new Blob([bytes], { type: im.mimeType || 'image/png' }), {
+      premultiplyAlpha: 'none',
+      colorSpaceConversion: 'none',
+    });
+  }
+  async function importDecals(buf) {
+    let n = 0;
+    let g = null;
+    for (const s of painter.sets) {
+      if (!s.decal || !s.decalSrc) continue;
+      g = g || glbParts(buf);
+      const [dec, w] = await Promise.all([glbImage(g, s.decalSrc.color), glbImage(g, s.decalSrc.slots)]);
+      if (dec) n += painter.importDecal(s, dec, w);
+      if (dec) dec.close();
+      if (w) w.close();
+    }
+    return n;
+  }
+  // 匯出後把貼花層寫進 GLB：材質的 extras.rubicon_decal 先由 userData 標成 { set: 貼花組編號 }，這裡換成圖片索引
+  function insertDecals(ab, list) {
+    const { json, bin } = glbParts(ab);
+    const chunks = [bin ? bin.slice() : new Uint8Array(0)];
+    let len = chunks[0].length;
+    const add = (bytes) => {
+      const pad = (4 - (len % 4)) % 4;
+      if (pad) {
+        chunks.push(new Uint8Array(pad));
+        len += pad;
+      }
+      json.bufferViews = json.bufferViews || [];
+      json.bufferViews.push({ buffer: 0, byteOffset: len, byteLength: bytes.length });
+      chunks.push(bytes);
+      len += bytes.length;
+      json.images = json.images || [];
+      json.images.push({ bufferView: json.bufferViews.length - 1, mimeType: 'image/png' });
+      return json.images.length - 1;
+    };
+    const idx = new Map();
+    for (const d of list) idx.set(d.set, { v: 1, color: add(d.dec), slots: d.wts ? add(d.wts) : undefined });
+    for (const m of json.materials || []) {
+      const e = m.extras && m.extras.rubicon_decal;
+      if (!e) continue;
+      const v = idx.get(e.set);
+      if (v) m.extras.rubicon_decal = v;
+      else delete m.extras.rubicon_decal;
+      if (!Object.keys(m.extras).length) delete m.extras;
+    }
+    const pad4 = (n) => (4 - (n % 4)) % 4;
+    if (pad4(len)) {
+      chunks.push(new Uint8Array(pad4(len)));
+      len += pad4(len);
+    }
+    if (!json.buffers || !json.buffers.length) json.buffers = [{ byteLength: 0 }];
+    json.buffers[0].byteLength = len;
+    let jt = new TextEncoder().encode(JSON.stringify(json));
+    if (pad4(jt.length)) {
+      const p = new Uint8Array(jt.length + pad4(jt.length)).fill(0x20);
+      p.set(jt);
+      jt = p;
+    }
+    const head = new Uint8Array(12 + 8);
+    const hv = new DataView(head.buffer);
+    hv.setUint32(0, 0x46546c67, true);
+    hv.setUint32(4, 2, true);
+    hv.setUint32(8, 12 + 8 + jt.length + 8 + len, true);
+    hv.setUint32(12, jt.length, true);
+    hv.setUint32(16, 0x4e4f534a, true);
+    const bh = new Uint8Array(8);
+    const bv = new DataView(bh.buffer);
+    bv.setUint32(0, len, true);
+    bv.setUint32(4, 0x004e4942, true);
+    return new Blob([head, jt, bh, ...chunks], { type: 'model/gltf-binary' });
   }
 
   // 依副檔名開檔
@@ -311,7 +424,8 @@
     fitView();
     const sets = painter.sets.length;
     if (!sets) setStatus('沒有可以畫的網格（需要有 UV）', true);
-    else if (warnings.length) setStatus(`載入「${S.fileName}」：${sets} 組貼圖。注意：${warnings.slice(0, 3).join('；')}`, true);
+    else if (warnings.length)
+      setStatus(`載入「${S.fileName}」：${sets} 組貼圖。注意：${warnings.slice(0, 3).join('；')}`, true);
     else setStatus(`載入「${S.fileName}」：${sets} 組貼圖。`);
   }
 
@@ -336,7 +450,12 @@
 
   function buildWire() {
     if (!model || wireGroup.children.length) return;
-    const mat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthTest: true });
+    const mat = new THREE.LineBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.35,
+      depthTest: true,
+    });
     model.traverse((o) => {
       if (!o.isMesh) return;
       const w = new THREE.LineSegments(new THREE.WireframeGeometry(o.geometry), mat);
@@ -393,7 +512,10 @@
   function hideMeshUnderCursor() {
     if (!lastXY || !model) return;
     const r = view3d.getBoundingClientRect();
-    raycaster.setFromCamera(new THREE.Vector2((lastXY[0] / r.width) * 2 - 1, -(lastXY[1] / r.height) * 2 + 1), camera);
+    raycaster.setFromCamera(
+      new THREE.Vector2((lastXY[0] / r.width) * 2 - 1, -(lastXY[1] / r.height) * 2 + 1),
+      camera,
+    );
     const h = raycaster.intersectObject(model, true).find((x) => x.object.isMesh && x.object.visible);
     if (!h) return;
     setMeshVisible(h.object, false);
@@ -469,7 +591,10 @@
     const sr = stage.getBoundingClientRect();
     const W = Math.round(sr.width);
     const H = Math.round(sr.height);
-    if (canvas.width !== Math.round(W * renderer.getPixelRatio()) || canvas.height !== Math.round(H * renderer.getPixelRatio()))
+    if (
+      canvas.width !== Math.round(W * renderer.getPixelRatio()) ||
+      canvas.height !== Math.round(H * renderer.getPixelRatio())
+    )
       renderer.setSize(W, H, false);
 
     if (pendingDabs.length) {
@@ -535,7 +660,12 @@
   }
 
   function brushTextures() {
-    return { tip: RP.tipTexture(S.tip), grain: RP.grainTexture(S.grain), grainAmt: S.grainAmt, grainScale: 8 };
+    return {
+      tip: RP.tipTexture(S.tip),
+      grain: RP.grainTexture(S.grain),
+      grainAmt: S.grainAmt,
+      grainScale: 8,
+    };
   }
 
   function placeDab(x0, y0, p, dir) {
@@ -550,7 +680,8 @@
     if (S.sym && hit) {
       const m = hit.p.clone();
       m.x = 2 * modelCenterX() - m.x;
-      if (Math.abs(m.x - hit.p.x) > 1e-6 || S.backfaces) pendingDabs.push({ type: 'w', p: m, r: r * hit.perPx, a });
+      if (Math.abs(m.x - hit.p.x) > 1e-6 || S.backfaces)
+        pendingDabs.push({ type: 'w', p: m, r: r * hit.perPx, a });
     }
   }
 
@@ -647,7 +778,19 @@
       },
     );
     const p = pressureOf(e);
-    stroke = { id: e.pointerId, h: r.height, lx: x, ly: y, lp: p, sx: x, sy: y, carry: 0, tx: x, ty: y, tp: p };
+    stroke = {
+      id: e.pointerId,
+      h: r.height,
+      lx: x,
+      ly: y,
+      lp: p,
+      sx: x,
+      sy: y,
+      carry: 0,
+      tx: x,
+      ty: y,
+      tp: p,
+    };
     placeDab(x, y, p);
     stroke.carry = Math.max(0.5, brushRadius(p) * 2 * S.spacing);
     view3d.setPointerCapture(e.pointerId);
@@ -661,7 +804,13 @@
       const t = currentTool();
       const brushTool = (t === 'pen' || t === 'eraser') && !D.active && !e.target.closest('button, .corner');
       const d = brushTool ? S.size : 0;
-      view3d.style.cursor = D.active ? (D.dragging ? 'grabbing' : 'crosshair') : brushTool ? 'none' : 'crosshair';
+      view3d.style.cursor = D.active
+        ? D.dragging
+          ? 'grabbing'
+          : 'crosshair'
+        : brushTool
+          ? 'none'
+          : 'crosshair';
       cursor.style.display = d > 2 ? 'block' : 'none';
       cursor.style.left = x + 'px';
       cursor.style.top = y + 'px';
@@ -800,7 +949,12 @@
       y0: y,
       h: r.height,
       A,
-      plane: A ? new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), A) : null,
+      plane: A
+        ? new THREE.Plane().setFromNormalAndCoplanarPoint(
+            camera.getWorldDirection(new THREE.Vector3()).negate(),
+            A,
+          )
+        : null,
     };
     view3d.setPointerCapture(e.pointerId);
     guide.style.display = 'block';
@@ -816,7 +970,13 @@
       raycaster.setFromCamera(new THREE.Vector2((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1), camera);
       const B = raycaster.ray.intersectPlane(grad.plane, new THREE.Vector3()) || grad.A.clone();
       painter.gradient(grad.A, B, true, grad.only);
-    } else painter.gradient(new THREE.Vector3(grad.x0, grad.h - grad.y0, 0), new THREE.Vector3(x, grad.h - y, 0), false, grad.only);
+    } else
+      painter.gradient(
+        new THREE.Vector3(grad.x0, grad.h - grad.y0, 0),
+        new THREE.Vector3(x, grad.h - y, 0),
+        false,
+        grad.only,
+      );
   }
   function endGradient() {
     if (grad.only && grad.only !== S.current) showSet(grad.only);
@@ -848,7 +1008,10 @@
   );
   function uvAt(x, y, r) {
     const halfH = 0.5 / uvState.zoom;
-    return { x: uvState.cx + (x / r.height - r.width / r.height / 2) * 2 * halfH, y: uvState.cy - (y / r.height - 0.5) * 2 * halfH };
+    return {
+      x: uvState.cx + (x / r.height - r.width / r.height / 2) * 2 * halfH,
+      y: uvState.cy - (y / r.height - 0.5) * 2 * halfH,
+    };
   }
   // 畫面座標 → 貼圖 UV；perPx：每個畫面 px 對應的 UV 長度
   function uvTex(clientX, clientY) {
@@ -932,7 +1095,13 @@
       const connected = $('uvConnect').checked && !!painter.posMap(s);
       painter.beginUVStroke(
         s,
-        { color: S.color, opacity: S.opacity, hardness: S.hardness, erase: tool === 'eraser', ...brushTextures() },
+        {
+          color: S.color,
+          opacity: S.opacity,
+          hardness: S.hardness,
+          erase: tool === 'eraser',
+          ...brushTextures(),
+        },
         connected,
       );
       const p = pressureOf(e);
@@ -976,7 +1145,10 @@
     uvPtrs.set(e.pointerId, cur);
     if (uvPtrs.size === 2 && uvPinch) {
       const [a, b] = [...uvPtrs.values()];
-      uvState.zoom = Math.min(64, Math.max(0.1, (uvPinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / uvPinch.d));
+      uvState.zoom = Math.min(
+        64,
+        Math.max(0.1, (uvPinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / uvPinch.d),
+      );
     }
     const k = 1 / (uvState.zoom * r.height) / uvPtrs.size;
     uvState.cx -= (cur.x - prev.x) * k;
@@ -1021,7 +1193,8 @@
 
   function setTool(t) {
     S.tool = t;
-    for (const b of document.querySelectorAll('.tool[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
+    for (const b of document.querySelectorAll('.tool[data-tool]'))
+      b.classList.toggle('on', b.dataset.tool === t);
     view3d.style.cursor = t === 'pen' || t === 'eraser' ? 'none' : 'crosshair';
     $('fillOpts').hidden = t !== 'fill';
     $('gradHint').hidden = t !== 'gradient';
@@ -1084,7 +1257,20 @@
     for (const b of $('presets').children) b.classList.toggle('on', b.dataset.id === S.preset);
   }
   function applyPreset(p) {
-    for (const k of ['hardness', 'opacity', 'spacing', 'pSize', 'pOpacity', 'tip', 'grain', 'grainAmt', 'scatter', 'jitter', 'rotRandom', 'rotFollow'])
+    for (const k of [
+      'hardness',
+      'opacity',
+      'spacing',
+      'pSize',
+      'pOpacity',
+      'tip',
+      'grain',
+      'grainAmt',
+      'scatter',
+      'jitter',
+      'rotRandom',
+      'rotFollow',
+    ])
       S[k] = p[k];
     S.preset = p.id;
     syncBrushUI();
@@ -1101,7 +1287,24 @@
   $('fillMode').onchange = (e) => (S.fillMode = e.target.value);
 
   const recent = [];
-  const PRESETS = ['#000000', '#ffffff', '#7f7f7f', '#d23c3c', '#e6893a', '#e8d14a', '#4caf50', '#3a8de6', '#3a4fb0', '#8e4ac4', '#e66fa8', '#6b4a32', '#c9b38f', '#2e3b2e', '#b0b8c0', '#404850'];
+  const PRESETS = [
+    '#000000',
+    '#ffffff',
+    '#7f7f7f',
+    '#d23c3c',
+    '#e6893a',
+    '#e8d14a',
+    '#4caf50',
+    '#3a8de6',
+    '#3a4fb0',
+    '#8e4ac4',
+    '#e66fa8',
+    '#6b4a32',
+    '#c9b38f',
+    '#2e3b2e',
+    '#b0b8c0',
+    '#404850',
+  ];
   function renderSwatches() {
     const box = $('swatches');
     box.innerHTML = '';
@@ -1193,7 +1396,8 @@
   // ---------- 圖層面板（顯示目前貼圖組的圖層，最上面的圖層排在最上面） ----------
   const EYE_ON =
     '<svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>';
-  const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 5.4-1.6" /></svg>';
+  const EYE_OFF =
+    '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s4 7 10 7a9.7 9.7 0 0 0 5.4-1.6" /></svg>';
   const BLEND_NAMES = Object.fromEntries(RP.BLEND_MODES);
   for (const [k, name] of RP.BLEND_MODES) {
     const o = document.createElement('option');
@@ -1207,7 +1411,19 @@
     const list = $('layerList');
     list.innerHTML = '';
     $('layerSetName').textContent = s ? `— ${s.name}` : '';
-    for (const id of ['layerBlend', 'layerOpacity', 'layerLock', 'layerClip', 'lyAdd', 'lyDup', 'lyUp', 'lyDown', 'lyMerge', 'lyClear', 'lyDel'])
+    for (const id of [
+      'layerBlend',
+      'layerOpacity',
+      'layerLock',
+      'layerClip',
+      'lyAdd',
+      'lyDup',
+      'lyUp',
+      'lyDown',
+      'lyMerge',
+      'lyClear',
+      'lyDel',
+    ])
       $(id).disabled = !s;
     if (!s) return;
     for (let i = s.layers.length - 1; i >= 0; i--) {
@@ -1260,6 +1476,7 @@
       if (L.blend !== 'normal') tags.push(BLEND_NAMES[L.blend]);
       if (L.opacity < 1) tags.push(Math.round(L.opacity * 100) + '%');
       if (L.lockAlpha) tags.push('🔒');
+      if (s.decal) tags.unshift(s.isBase(L) ? '底' : L.slot || '固定');
       const tag = document.createElement('span');
       tag.className = 'tag';
       tag.textContent = tags.join(' ');
@@ -1278,7 +1495,32 @@
     $('layerClip').checked = L.clip;
     $('lyMerge').disabled = s.active === 0;
     $('lyDel').disabled = s.layers.length <= 1;
+    $('decalRow').hidden = !s.decal;
+    $('layerSlot').value = s.isBase(L) ? 'base' : L.slot || '';
+    $('layerSlot').disabled = s.active === 0;
   }
+  $('layerSlot').onchange = (e) => layerEdit((s, L) => void (L.slot = e.target.value));
+
+  // ---------- 預覽配色（貼花組：遊戲依機體配色換色；清單由模型庫傳來，沒有時只有預設的白色） ----------
+  let PALS = [{ k: 'white', n: '白（預設）', c: RP.DEFAULT_PAL }];
+  function renderPals(sel) {
+    const el = $('prevPal');
+    el.innerHTML = '';
+    for (const p of PALS) {
+      const o = document.createElement('option');
+      o.value = p.k;
+      o.textContent = '預覽：' + p.n;
+      el.appendChild(o);
+    }
+    el.value = PALS.some((p) => p.k === sel) ? sel : PALS[0].k;
+    applyPal();
+  }
+  function applyPal() {
+    const p = PALS.find((x) => x.k === $('prevPal').value) || PALS[0];
+    painter.setPreviewPal(p.c);
+  }
+  $('prevPal').onchange = applyPal;
+  renderPals('white');
 
   function layerEdit(fn) {
     const s = S.current;
@@ -1347,17 +1589,27 @@
       const c = document.createElement('canvas');
       c.width = w;
       c.height = h;
-      c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), w, h), 0, 0);
+      c.getContext('2d').putImageData(
+        new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), w, h),
+        0,
+        0,
+      );
       return new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/png'))).arrayBuffer());
     }
     const raw = new Uint8Array((w * 4 + 1) * h);
     for (let y = 0; y < h; y++) raw.set(px.subarray(y * w * 4, (y + 1) * w * 4), y * (w * 4 + 1) + 1);
-    const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
-    const crcT = encodePNG.crc || (encodePNG.crc = Array.from({ length: 256 }, (_, n) => {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      return c >>> 0;
-    }));
+    const z = new Uint8Array(
+      await new Response(
+        new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate')),
+      ).arrayBuffer(),
+    );
+    const crcT =
+      encodePNG.crc ||
+      (encodePNG.crc = Array.from({ length: 256 }, (_, n) => {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        return c >>> 0;
+      }));
     const chunk = (type, data) => {
       const out = new Uint8Array(12 + data.length);
       const dv = new DataView(out.buffer);
@@ -1374,11 +1626,19 @@
     dv.setUint32(0, w);
     dv.setUint32(4, h);
     ihdr.set([8, 6, 0, 0, 0], 8);
-    const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', z), chunk('IEND', new Uint8Array(0))];
+    const parts = [
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      chunk('IHDR', ihdr),
+      chunk('IDAT', z),
+      chunk('IEND', new Uint8Array(0)),
+    ];
     return new Uint8Array(await new Blob(parts).arrayBuffer());
   }
   function decodeImage(bytes) {
-    return createImageBitmap(new Blob([bytes], { type: 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    return createImageBitmap(new Blob([bytes], { type: 'image/png' }), {
+      premultiplyAlpha: 'none',
+      colorSpaceConversion: 'none',
+    });
   }
 
   function saveProject() {
@@ -1388,7 +1648,14 @@
 
   async function buildProject() {
     const files = [];
-    const meta = { app: 'rubicon-paint', version: 1, fileName: S.fileName, demo: !S.sourceBuf, sets: [], hidden: meshes().map((o) => !o.visible) };
+    const meta = {
+      app: 'rubicon-paint',
+      version: 1,
+      fileName: S.fileName,
+      demo: !S.sourceBuf,
+      sets: [],
+      hidden: meshes().map((o) => !o.visible),
+    };
     if (S.sourceBuf) files.push({ name: 'model.glb', data: new Uint8Array(S.sourceBuf) });
     for (let i = 0; i < painter.sets.length; i++) {
       const s = painter.sets[i];
@@ -1483,6 +1750,7 @@
           const img = await decodeImage(zip.get(ml.file));
           const props = {};
           for (const k of ['name', 'visible', 'opacity', 'blend', 'lockAlpha', 'clip']) props[k] = ml[k];
+          props.slot = typeof ml.slot === 'string' ? ml.slot : '';
           list.push({ props, rt: painter.rtFromImage(s, img) });
           img.close();
         }
@@ -1494,7 +1762,12 @@
       renderObjects();
       showSet(painter.sets[0] || null);
       updateUndoButtons();
-      setStatus(warn.length ? `已開啟專案，但這些貼圖組對不上（略過）：${warn.join('、')}` : `已開啟專案「${S.fileName}」`, !!warn.length);
+      setStatus(
+        warn.length
+          ? `已開啟專案，但這些貼圖組對不上（略過）：${warn.join('、')}`
+          : `已開啟專案「${S.fileName}」`,
+        !!warn.length,
+      );
     } catch (err) {
       setStatus('開啟專案失敗：' + err.message, true);
     }
@@ -1534,7 +1807,9 @@
           sets: $('aoOnlyCurrent').checked && S.current ? [S.current] : null,
         });
         updateUndoButtons();
-        setStatus(`已烘焙 AO：${n} 組貼圖各加了一個「AO」圖層（色彩增值，${Math.round(performance.now() - t0)} ms）`);
+        setStatus(
+          `已烘焙 AO：${n} 組貼圖各加了一個「AO」圖層（色彩增值，${Math.round(performance.now() - t0)} ms）`,
+        );
       } catch (err) {
         setStatus('AO 烘焙失敗：' + err.message, true);
       }
@@ -1607,7 +1882,17 @@
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     tex.needsUpdate = true;
-    Object.assign(D, { tex, img, active: true, placed: false, hasPoint: false, rot: 0, flip: false, hover: null, dragging: null });
+    Object.assign(D, {
+      tex,
+      img,
+      active: true,
+      placed: false,
+      hasPoint: false,
+      rot: 0,
+      flip: false,
+      hover: null,
+      dragging: null,
+    });
     $('decalRot').value = 0;
     $('decalRotOut').textContent = '0';
     $('decalPanel').hidden = false;
@@ -1662,7 +1947,9 @@
     $('decalHint').textContent = D.placed
       ? '在圖片上拖曳可以移動（沿著表面滑動），點別的地方會重新貼過去。[ ] 大小、, . 角度。'
       : '移動滑鼠預覽，在模型上點一下要貼的位置。';
-    setStatus(D.placed ? '調整好後按「確定」（Enter），Esc 取消。' : '在模型上點一下要貼的位置（右鍵可以旋轉視角）。');
+    setStatus(
+      D.placed ? '調整好後按「確定」（Enter），Esc 取消。' : '在模型上點一下要貼的位置（右鍵可以旋轉視角）。',
+    );
   }
 
   // 畫面座標 → 模型表面的點與法線（法線用頂點法線內插，曲面上拖曳時方向比較穩定）
@@ -1711,7 +1998,8 @@
       const r = view3d.getBoundingClientRect();
       let perPx;
       if (camera.isOrthographicCamera) perPx = (camera.top - camera.bottom) / camera.zoom / r.height;
-      else perPx = (2 * hit.dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / camera.zoom / r.height;
+      else
+        perPx = (2 * hit.dist * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / camera.zoom / r.height;
       setDecalSize(((r.height * 0.25 * perPx) / modelSize) * 100);
       D.autoSize = false;
     }
@@ -1786,7 +2074,10 @@
       [1, 1],
       [-1, 1],
     ].forEach(([sx, sy], i) => {
-      const v = base.clone().addScaledVector(T, (sx * w) / 2).addScaledVector(B, (sy * h) / 2);
+      const v = base
+        .clone()
+        .addScaledVector(T, (sx * w) / 2)
+        .addScaledVector(B, (sy * h) / 2);
       pos.setXYZ(i, v.x, v.y, v.z);
     });
     pos.needsUpdate = true;
@@ -1952,7 +2243,11 @@
     let handle = null;
     if (window.showSaveFilePicker) {
       try {
-        handle = await window.showSaveFilePicker({ suggestedName: name, types: [FILE_TYPES[kind]], id: 'rp-' + kind });
+        handle = await window.showSaveFilePicker({
+          suggestedName: name,
+          types: [FILE_TYPES[kind]],
+          id: 'rp-' + kind,
+        });
       } catch (err) {
         if (err.name === 'AbortError') {
           setStatus('已取消存檔');
@@ -2011,19 +2306,60 @@
   };
 
   // 把畫好的貼圖寫回模型後匯出 GLB（隱藏的零件也一起匯出：隱藏只是為了方便繪圖）
-  function exportGLB() {
-    return new Promise((resolve, reject) => {
+  // 貼花組：底圖（可換色的灰階圖，縮回原貼圖的大小、JPEG）寫進材質，貼花層與色槽權重（權重是一半解析度）
+  // 由 insertDecals 另外寫進 GLB；材質顏色一律是白色（遊戲依材質名稱換色）
+  function decalCanvas(px, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d').putImageData(
+      new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), w, h),
+      0,
+      0,
+    );
+    return c;
+  }
+  async function exportGLB() {
+    const decals = [];
+    const pre = new Map();
+    for (const s of painter.sets) {
+      if (!s.decal) continue;
+      const img = s.srcMap && s.srcMap.image;
+      const bw = (img && img.width) || s.w;
+      const bh = (img && img.height) || s.h;
+      const r = painter.readDecal(s, bw, bh, 0.5);
+      pre.set(s, decalCanvas(r.base, bw, bh));
+      if (r.dec)
+        decals.push({
+          set: s.id,
+          dec: await encodePNG(r.dec, s.w, s.h),
+          wts: r.wts ? await encodePNG(r.wts, r.ww, r.wh) : null,
+        });
+    }
+    const has = new Set(decals.map((d) => d.set));
+    const glb = await new Promise((resolve, reject) => {
       const restore = [];
+      const colors = [];
       const shown = [];
       const undo = () => {
         for (const [m, map] of restore) m.map = map;
+        for (const [m, c] of colors) m.color.copy(c);
+        for (const s of painter.sets) for (const m of s.materials) delete m.userData.rubicon_decal;
         for (const o of shown) o.visible = false;
       };
       for (const s of painter.sets) {
-        const t = new THREE.CanvasTexture(painter.toCanvas(s));
+        const t = new THREE.CanvasTexture(pre.get(s) || painter.toCanvas(s));
+        if (s.decal) {
+          t.format = THREE.RGBFormat; // GLTFExporter：RGB → JPEG
+          for (const m of s.materials) {
+            colors.push([m, m.color.clone()]);
+            m.color.setRGB(1, 1, 1);
+            if (has.has(s.id)) m.userData.rubicon_decal = { set: s.id };
+          }
+        }
         t.flipY = false;
         t.encoding = THREE.sRGBEncoding;
-        t.format = THREE.RGBAFormat;
+        if (!s.decal) t.format = THREE.RGBAFormat;
         if (s.srcMap) {
           t.wrapS = s.srcMap.wrapS;
           t.wrapT = s.srcMap.wrapT;
@@ -2041,13 +2377,14 @@
         }
       // 載入的模型根部是 GLTFLoader 的場景群組：沒有變換時只匯出它的子節點，維持原檔的節點層級
       // （例如 RUBICON PROTOCOL 模型庫的 rubicon_origin 原點節點必須是場景唯一的根節點）
-      const input = model.matrix.equals(new THREE.Matrix4()) && model.children.length ? model.children : model;
+      const input =
+        model.matrix.equals(new THREE.Matrix4()) && model.children.length ? model.children : model;
       try {
         new THREE.GLTFExporter().parse(
           input,
           (res) => {
             undo();
-            resolve(new Blob([res], { type: 'model/gltf-binary' }));
+            resolve(res);
           },
           { binary: true, onlyVisible: false, maxTextureSize: 4096 },
         );
@@ -2056,6 +2393,7 @@
         reject(err);
       }
     });
+    return decals.length ? insertDecals(glb, decals) : new Blob([glb], { type: 'model/gltf-binary' });
   }
   $('btnExportGlb').onclick = () => {
     if (!model) return;
@@ -2157,10 +2495,25 @@
   async function libOpen(m) {
     if (!(m.buf instanceof ArrayBuffer) || typeof m.slot !== 'string') return;
     const same = LIB.link && LIB.link.slot === m.slot && LIB.link.set === m.set;
-    if (libDirty() && !same && !confirm(`「${LIB.link.slotName}」畫的內容還沒存回模型庫，要改開「${m.slotName}」嗎？`))
+    if (
+      libDirty() &&
+      !same &&
+      !confirm(`「${LIB.link.slotName}」畫的內容還沒存回模型庫，要改開「${m.slotName}」嗎？`)
+    )
       return;
     if (same && libDirty() && !confirm('要放棄還沒存回的修改，重新讀取模型庫裡的檔案嗎？')) return;
     LIB.link = { slot: m.slot, set: m.set, setName: m.setName, slotName: m.slotName, name: m.name };
+    // 模型庫的機體配色清單（預覽用）：[{ k, n, c: { 槽位: 線性 hex } }]
+    if (Array.isArray(m.pals)) {
+      const list = m.pals.filter(
+        (p) => p && typeof p.k === 'string' && typeof p.n === 'string' && p.c && typeof p.c === 'object',
+      );
+      if (list.length) {
+        const cur = $('prevPal').value;
+        PALS = list.map((p) => ({ k: p.k, n: p.n.slice(0, 20), c: p.c }));
+        renderPals(typeof m.pal === 'string' ? m.pal : cur);
+      }
+    }
     $('libGroup').hidden = false;
     $('libLabel').textContent = `模型庫：${m.slotName}（${m.setName}）`;
     $('libLabel').title = `${m.slot}／模型組「${m.setName}」`;
@@ -2197,12 +2550,17 @@
       const id = ++LIB.seq;
       const reply = new Promise((resolve) => LIB.waits.set(id, resolve));
       libPost({ t: 'rp-save', id, slot: l.slot, set: l.set, name: l.name, buf });
-      const r = await Promise.race([reply, new Promise((res) => setTimeout(() => res({ ok: false, msg: '模型庫沒有回應' }), 30000))]);
+      const r = await Promise.race([
+        reply,
+        new Promise((res) => setTimeout(() => res({ ok: false, msg: '模型庫沒有回應' }), 30000)),
+      ]);
       LIB.waits.delete(id);
       if (!r.ok) return setStatus('存回失敗：' + (r.msg || '未知的錯誤'), true);
       LIB.savedTop = top;
       try {
-        await idbDo('readwrite', (st) => st.put({ blob: project, out: libHash(buf), time: Date.now(), name: l.slotName }, libKey(l)));
+        await idbDo('readwrite', (st) =>
+          st.put({ blob: project, out: libHash(buf), time: Date.now(), name: l.slotName }, libKey(l)),
+        );
       } catch (err) {
         // 圖層記不住時只是下次要從存回的結果重新開始
       }
@@ -2228,7 +2586,20 @@
   if (window.opener) libPost({ t: 'rp-ready' });
 
   // 測試用
-  window.__rp = { S, painter, get camera() { return camera; }, setModel, showSet, scene, autosave, LIB };
+  window.__rp = {
+    S,
+    painter,
+    get camera() {
+      return camera;
+    },
+    setModel,
+    showSet,
+    scene,
+    autosave,
+    LIB,
+    exportGLB,
+    loadArrayBuffer,
+  };
 
   requestAnimationFrame(frame);
 })();
