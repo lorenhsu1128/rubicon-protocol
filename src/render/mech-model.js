@@ -603,6 +603,17 @@ const REV = {
   ankle: [0.1208, -0.4312, 0.138],
 };
 REV.ankleH = +(REV.hipY + REV.knee[1] + REV.hock[1] + REV.ankle[1]).toFixed(4); // 0.3795
+// 四足（LG-SPIDER）的骨架＝內建 GLB 的 joints.json（遊戲座標，左側的腳 x 取 −、右側取 +；f＝前腳、b＝後腳）。
+// 靜止姿勢＝所有關節角度 0（GLB 的姿勢就是待機姿勢）；每隻腳 大腿 →（膝）→ 小腿 →（腳踝）→ 腳掌
+const QD = {
+  waist: [0, 1.85, 0.201], // 核心座比基座頂面（約 1.97）低一點，上半身和基座稍微重疊
+  hip: { f: [0.7142, 1.5341, -0.3703], b: [0.7935, 1.296, 0.238] },
+  knee: { f: [0.2962, -0.1957, -0.9787], b: [0.4814, 0.4073, 0.9099] },
+  ankle: { f: [0.0846, -0.9152, -0.5184], b: [0.6771, -1.1532, 0.7353] },
+};
+const qdV = (a, sx) => V(sx * a[0], a[1], a[2]); // 左側（sx −1）x 為負
+const qdLeg = (key) => QUAD_LEGS.find((q) => q[0] === key); // [key, sx, sz]（sz −1＝前腳）
+const qdFB = (key) => (key[0] === 'f' ? 'f' : 'b');
 // 蹠骨的角度和膝連動：膝多彎 1 rad，蹠骨往前折 HOCK_K rad（鳥腿式的逆關節）
 export const HOCK_K = 0.9;
 // 逆關節（四段）的 GLB 站姿兩腳往外斜：走路時大腿往內收（rad），腳踝的側傾補償讓腳掌照樣貼地
@@ -725,7 +736,8 @@ export const PIECE_NAMES = {
   thigh: '大腿',
   shin: '小腿',
   meta: '蹠骨',
-  qshin: '小腿（含腳）',
+  qshin: '小腿',
+  qfoot: '腳掌',
   foot: '腳掌',
   weapon: '手持武器',
   back: '肩上武器',
@@ -744,6 +756,7 @@ export const PIECE_ORIGIN = {
   shin: '膝關節轉軸',
   meta: '跗關節轉軸',
   qshin: '膝關節轉軸',
+  qfoot: '腳踝轉軸',
   foot: '腳踝轉軸',
   weapon: '握把（手的握點）',
   back: '肩上武器座',
@@ -800,7 +813,10 @@ export function partPieces(cat, part) {
   const L = (n, k, kind = n) =>
     pieceInfo(`legs/${id}/${k ? k + '_' : ''}${n}`, cat, part, kind, k, { legType });
   if (legType === 'quad')
-    return [L('body', null), ...QUAD_LEGS.flatMap(([k]) => [L('thigh', k), L('shin', k, 'qshin')])];
+    return [
+      L('body', null),
+      ...QUAD_LEGS.flatMap(([k]) => [L('thigh', k), L('shin', k, 'qshin'), L('foot', k, 'qfoot')]),
+    ];
   if (legType === 'tank') return [L('body', null)];
   const segs = legType === 'reverse' ? ['thigh', 'shin', 'meta', 'foot'] : ['thigh', 'shin', 'foot'];
   return [L('pelvis', null), ...['r', 'l'].flatMap((k) => segs.map((n) => L(n, k)))];
@@ -869,20 +885,24 @@ function baseConns(info) {
       };
     }
     case 'body': {
-      const hipY = legHipY(info.legType);
       const o = { waist: C0(V(0, waistY(info.legType), 0)) };
-      if (info.legType === 'quad')
-        for (const [k, sx, sz] of QUAD_LEGS) o['hip_' + k] = C0(V(sx * 0.85, hipY - 0.1, sz * 0.7));
+      if (info.legType === 'quad') {
+        o.waist = C0(V(...QD.waist));
+        for (const [k, sx] of QUAD_LEGS) o['hip_' + k] = C0(qdV(QD.hip[qdFB(k)], sx));
+      }
       return o;
     }
     case 'thigh':
       if (info.legType === 'reverse') return { knee: C0(revV(REV.knee, info.side)) };
-      return info.legType === 'quad' ? { knee: C0(V(0, -0.8, 0)) } : { knee: C0(V(0, -LAY.thighL, 0)) };
+      if (info.legType === 'quad') return { knee: C0(qdV(QD.knee[qdFB(info.key)], qdLeg(info.key)[1])) };
+      return { knee: C0(V(0, -LAY.thighL, 0)) };
     case 'shin':
       if (info.legType === 'reverse') return { hock: C0(revV(REV.hock, info.side)) };
       return { ankle: C0(V(0, -LAY.shinL, 0)) };
     case 'meta':
       return { ankle: C0(revV(REV.ankle, info.side)) };
+    case 'qshin':
+      return { ankle: C0(qdV(QD.ankle[qdFB(info.key)], qdLeg(info.key)[1])) };
     default:
       return {};
   }
@@ -892,12 +912,12 @@ const revV = (a, side) => V(side * a[0], a[1], a[2]);
 function legHipY(type) {
   const R = LAY;
   if (type === 'reverse') return REV.hipY;
-  return type === 'quad' ? 1.3 : type === 'tank' ? 1.1 : R.hipY;
+  return type === 'quad' ? QD.hip.f[1] : type === 'tank' ? 1.1 : R.hipY;
 }
 // 腰（核心座）高度：決定上半身高度與遊戲判定的身高（不隨關節設定改變）。
 // 四足、履帶的下半身造型不變，以腰部支柱把上半身架到和二足差不多的身高
 function waistY(type) {
-  return type === 'quad' ? 2.1 : type === 'tank' ? 1.9 : legHipY(type) + LAY.waistUp;
+  return type === 'quad' ? QD.waist[1] : type === 'tank' ? 1.9 : legHipY(type) + LAY.waistUp;
 }
 // 區塊接在哪個父區塊的哪個連接點：{ kind: 父區塊種類, name: 連接點 }（襠部／主體是根，回傳 null）
 export function parentConnOf(info) {
@@ -926,6 +946,8 @@ export function parentConnOf(info) {
       return { kind: 'thigh', name: 'knee' };
     case 'meta':
       return { kind: 'shin', name: 'hock' };
+    case 'qfoot':
+      return { kind: 'qshin', name: 'ankle' };
     case 'foot':
       return { kind: info.legType === 'reverse' ? 'meta' : 'shin', name: 'ankle' };
     default:
@@ -1602,34 +1624,34 @@ const BUILD = {
   body(g, info, { M }) {
     const wy = waistY(info.legType);
     if (info.legType === 'quad') {
-      // 四足：八角的主體（下層深色、上層綠）＋四角的腿座＋上方散熱縫
-      const hipY = legHipY('quad');
+      // 四足：扁平的基座（下層深色、上層主色，內建 GLB 的外框）＋腿座＋腰部支柱
+      const y0 = 1.0,
+        y1 = 1.98;
       P(
         g,
         gPod([
-          [-0.8, 1.3, hipY - 0.3, hipY + 0.2, 0.16, 0.12],
-          [-0.6, 1.6, hipY - 0.3, hipY + 0.2, 0.18, 0.12],
-          [0.6, 1.6, hipY - 0.3, hipY + 0.2, 0.18, 0.12],
-          [0.8, 1.3, hipY - 0.3, hipY + 0.2, 0.16, 0.12],
+          [-1.05, 1.5, y0, y0 + 0.5, 0.14, 0.1],
+          [-0.8, 1.7, y0, y0 + 0.5, 0.16, 0.1],
+          [1.2, 1.7, y0, y0 + 0.5, 0.16, 0.1],
+          [1.45, 1.4, y0, y0 + 0.5, 0.14, 0.1],
         ]),
         M.sub,
       );
       P(
         g,
         gPod([
-          [-0.6, 1.0, hipY + 0.15, hipY + 0.45, 0.1, 0.05],
-          [-0.5, 1.2, hipY + 0.15, hipY + 0.45, 0.12, 0.05],
-          [0.5, 1.2, hipY + 0.15, hipY + 0.45, 0.12, 0.05],
-          [0.6, 1.0, hipY + 0.15, hipY + 0.45, 0.1, 0.05],
+          [-0.95, 1.4, y0 + 0.45, y1, 0.12, 0.06],
+          [-0.75, 1.6, y0 + 0.45, y1, 0.14, 0.06],
+          [1.15, 1.6, y0 + 0.45, y1, 0.14, 0.06],
+          [1.35, 1.3, y0 + 0.45, y1, 0.12, 0.06],
         ]),
         M.main,
       );
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1])
-          P(g, gCyl(0.2, 0.2, 0.12, 8), M.joint, sx * 0.62, hipY - 0.05, sz * 0.62, 0, 0, Math.PI / 2);
+      for (const [, sx, sz] of QUAD_LEGS) {
+        const h = QD.hip[sz < 0 ? 'f' : 'b'];
+        P(g, gCyl(0.24, 0.24, 0.2, 10), M.joint, sx * (h[0] - 0.05), h[1], h[2], 0, 0, Math.PI / 2);
       }
-      P(g, gPlate(trap(0.7, 0.6, 0.22), 0.05, 0.015), M.grey, 0, hipY, -0.8);
-      waistPost(g, M, hipY + 0.42, wy);
+      waistPost(g, M, y1 - 0.05, wy);
       return;
     }
     // 履帶：斜面的車體＋上層＋兩側的履帶（側裙、負重輪、上下履帶板）
@@ -1702,14 +1724,16 @@ const BUILD = {
   },
   thigh(g, info, { M }) {
     if (info.legType === 'quad') {
-      P(g, gCyl(0.18, 0.18, 0.5, 8), M.joint, 0, 0, 0, Math.PI / 2);
-      limb(g, M.main2, 0, 0, 0, [
-        [-0.8, 0.34, 0.34, 0.06],
-        [-0.7, 0.42, 0.42, 0.08],
-        [-0.15, 0.42, 0.42, 0.08],
-        [-0.05, 0.34, 0.34, 0.06],
+      // 四足：沿「髖 → 膝」放樣的大腿＋髖的球關節、膝的圓盤（QD 的骨架）
+      const e = qdV(QD.knee[qdFB(info.key)], qdLeg(info.key)[1]);
+      P(g, gSph(0.2, 12), M.joint, 0, 0, 0);
+      revSeg(g, M.main2, e, [
+        [-0.05, 0.3, 0.3, 0.05],
+        [0.12, 0.42, 0.4, 0.08],
+        [0.8, 0.4, 0.38, 0.08],
+        [0.96, 0.3, 0.3, 0.05],
       ]);
-      P(g, gPlate(trap(0.26, 0.3, 0.4), 0.04, 0.012), M.sub, 0, -0.42, -0.22);
+      revDisc(g, M, e.x, e.y, e.z, 0.2, 0.36);
       return;
     }
     if (info.legType === 'reverse') return revThigh(g, info, M);
@@ -1862,25 +1886,24 @@ const BUILD = {
     }
   },
   // 四足的小腿（含腳）：八角的小腿＋正面護板＋寬腳掌（底面不變）
+  // 四足的小腿：沿「膝 → 腳踝」放樣
   qshin(g, info, { M }) {
-    P(g, gCyl(0.16, 0.16, 0.46, 8), M.joint, 0, 0, 0, Math.PI / 2);
-    limb(g, M.main, 0, 0, 0, [
-      [-0.7, 0.3, 0.3, 0.05],
-      [-0.62, 0.38, 0.38, 0.07],
-      [-0.08, 0.38, 0.38, 0.07],
+    const e = qdV(QD.ankle[qdFB(info.key)], qdLeg(info.key)[1]);
+    revSeg(g, M.main, e, [
       [0.0, 0.3, 0.3, 0.05],
+      [0.15, 0.36, 0.36, 0.07],
+      [0.85, 0.3, 0.32, 0.06],
+      [1.0, 0.24, 0.26, 0.04],
     ]);
-    P(g, gPlate(trap(0.22, 0.28, 0.42), 0.04, 0.012), M.grey, 0, -0.34, -0.2);
-    P(
-      g,
-      gPod([
-        [-0.32, 0.4, -0.92, -0.78, 0.04, 0.01],
-        [-0.22, 0.5, -0.92, -0.68, 0.06, 0.01],
-        [0.2, 0.5, -0.92, -0.68, 0.06, 0.01],
-        [0.3, 0.42, -0.92, -0.74, 0.04, 0.01],
-      ]),
-      M.sub,
-    );
+  },
+  // 四足的腳掌：腳踝下的輪子＋前爪，底面貼地（腳踝離地的高度依前腳／後腳）
+  qfoot(g, info, { M }) {
+    const fb = qdFB(info.key),
+      h = QD.hip[fb][1] + QD.knee[fb][1] + QD.ankle[fb][1];
+    P(g, gCyl(0.13, 0.13, 0.32, 10), M.joint, 0, 0, 0, 0, 0, Math.PI / 2);
+    P(g, gBox(0.26, h * 0.7, 0.26), M.main2, 0, -h * 0.35, 0);
+    P(g, gCyl(h * 0.45, h * 0.45, 0.26, 16), M.rubber || M.joint, 0, -h * 0.55, 0.12, 0, 0, Math.PI / 2);
+    for (const x of [-0.09, 0.09]) P(g, gBox(0.08, 0.12, 0.3), M.joint, x, -h + 0.06, -0.3, 0.2);
   },
   // 腳掌（藍）＋腳踝圓柱與護甲＋灰色腳尖＋鞋底＋腳跟推進器；底面在腳踝下 ankleH（貼地，IK 從網格量）
   meta(g, info, { M }) {
@@ -2077,11 +2100,12 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       const ti = lp('thigh', k);
       place(thigh, ti);
       const knee = joint(mountAt(thigh, ti, 'knee'));
-      place(knee, lp('qshin', k));
-      thigh.rotation.z = sx * 0.8;
-      thigh.rotation.x = sz * 0.3;
-      knee.rotation.z = -sx * 1.4;
-      legs.push({ thigh, knee, foot: knee, side: sx, sz });
+      const si = lp('qshin', k);
+      place(knee, si);
+      const foot = joint(mountAt(knee, si, 'ankle'));
+      place(foot, lp('qfoot', k));
+      // 站姿＝關節角度全部 0（GLB 的姿勢就是待機姿勢）；步行由 animateMech 的螃蟹步伐解兩段骨頭
+      legs.push({ thigh, knee, foot, side: sx, sz, quad: true });
     }
   }
   // ===== 軀幹：腰部連接點下的 torso 群組（動作改它的旋轉與上下起伏）=====
@@ -2124,6 +2148,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   bakeAll(root);
   // 建立時的站姿（腿的關節角度），自動貼地以這個姿勢量測
   for (const L of legs) L.pose0 = legJoints(L).map((o) => o.rotation.clone());
+  if (type === 'quad') quadRest(legs, legsG);
   const M = ctx.M;
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun, M.grey];
   if (opts.extraMats) mats.push(...opts.extraMats);
@@ -2167,6 +2192,53 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   return rig;
 }
 
+// 四足：記下站姿時每隻腳的腳踝位置（legsG 座標）與膝的彎曲軸（膝的區域座標），螃蟹步伐與 IK 用
+const _qIdent = new THREE.Quaternion(),
+  _qp = new THREE.Quaternion(),
+  _qr = new THREE.Quaternion(),
+  _qd = new THREE.Vector3(),
+  _qe = new THREE.Vector3(),
+  _qT = new THREE.Vector3();
+const _qa = new THREE.Vector3(),
+  _qb = new THREE.Vector3(),
+  _qc = new THREE.Vector3(),
+  _qq = new THREE.Quaternion();
+function quadRest(legs, legsG) {
+  legsG.updateMatrixWorld(true);
+  const inv = legsG.matrixWorld.clone().invert();
+  for (const L of legs) {
+    L.rest = L.foot.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const kinv = L.knee.matrixWorld.clone().invert();
+    const a = L.thigh.getWorldPosition(_qa).applyMatrix4(kinv);
+    const c = L.foot.getWorldPosition(_qc).applyMatrix4(kinv);
+    const h = new THREE.Vector3().crossVectors(c, a);
+    L.hinge = h.lengthSq() > 1e-8 ? h.normalize() : new THREE.Vector3(0, 0, 1);
+  }
+}
+// 兩段骨頭：大腿 a、膝 b（繞 L.hinge 彎）讓腳踝到世界座標 T（四足的螃蟹步伐；從站姿 0 開始解）
+export function quadSolve(L, T) {
+  L.thigh.quaternion.identity();
+  L.knee.quaternion.identity();
+  L.thigh.updateMatrixWorld(true);
+  const A = L.thigh.getWorldPosition(_qa),
+    B = L.knee.getWorldPosition(_qb),
+    C = L.foot.getWorldPosition(_qc);
+  const lab = A.distanceTo(B),
+    lcb = B.distanceTo(C);
+  const lat = clamp(A.distanceTo(T), Math.abs(lab - lcb) + 1e-3, lab + lcb - 1e-3);
+  const ba = _qd.subVectors(A, B).normalize(),
+    bc = _qe.subVectors(C, B).normalize();
+  const ang0 = Math.acos(clamp(ba.dot(bc), -1, 1));
+  const ang1 = Math.acos(clamp((lab * lab + lcb * lcb - lat * lat) / (2 * lab * lcb), -1, 1));
+  L.knee.quaternion.setFromAxisAngle(L.hinge, ang0 - ang1);
+  L.knee.updateMatrixWorld(true);
+  const C2 = L.foot.getWorldPosition(_qc).sub(A).normalize();
+  const want = _qd.subVectors(T, A).normalize();
+  _qq.setFromUnitVectors(C2, want);
+  // 世界座標的旋轉換到大腿父節點（髖的連接點）的區域座標
+  const pq = L.thigh.parent.getWorldQuaternion(_qp);
+  L.thigh.quaternion.copy(_qr.copy(pq).invert().multiply(_qq).multiply(pq));
+}
 // 腿的關節群組（逆關節多一個跗關節）
 export const legJoints = (L) => (L.hock ? [L.thigh, L.knee, L.hock, L.foot] : [L.thigh, L.knee, L.foot]);
 // 預設連接點（不套用關節設定）
@@ -2287,6 +2359,12 @@ export function animateMech(m, dt, st) {
         P(L.foot, L.ft * 0.5, 0, -L.side * 0.12 * sp);
       }
     } // 立正：雙腳微張、腳掌貼地
+    if (m.type === 'quad')
+      for (const L of m.legs) {
+        L.thigh.quaternion.slerp(_qIdent, 0.12);
+        L.knee.quaternion.slerp(_qIdent, 0.12);
+        if (L.qo) L.qo.set(0, 0, 0);
+      }
     m.legsG.rotation.z = lerp(m.legsG.rotation.z, 0, 0.12);
     m.legsG.rotation.y = lerp(m.legsG.rotation.y, 0, 0.12);
     P(m.torso, 0, 0, 0);
@@ -2391,16 +2469,40 @@ export function animateMech(m, dt, st) {
     // 髖部搖擺（步行時左右交替）與骨盆偏航
     m.legsG.rotation.z = lerp(m.legsG.rotation.z, st.grounded && st.moving ? Math.sin(gp) * 0.04 : 0, ks);
     m.legsG.rotation.y = 0;
-  } else if (m.type === 'quad') {
+  } else if (m.type === 'quad' && m.legs[0] && m.legs[0].rest) {
+    // ===== 四足：螃蟹式步伐 =====
+    // 對角的兩隻腳一組（左前＋右後、右前＋左後）交替：擺動期抬腳沿移動方向前送，支撐期貼地往後推；
+    // 原地轉向時腳沿身體周圍的切線方向踏步。腳踝的目標位置（legsG 座標）＝站姿＋位移，每格解兩段骨頭
+    const moving = st.grounded && st.moving;
+    const fa = st.amp !== undefined ? st.amp : Math.max(0.35, Math.abs(fwdV));
+    let dx = strafe,
+      dz = -fwdV;
+    const dl = Math.hypot(dx, dz);
+    if (dl > 1) ((dx /= dl), (dz /= dl));
+    m.legsG.updateWorldMatrix(true, false);
     for (const L of m.legs) {
-      const ph = (L.side > 0 ? 0 : Math.PI) + (L.sz > 0 ? Math.PI / 2 : 0);
-      const sw = st.grounded && st.moving ? Math.sin(gp * (10 / 11) + ph) * 0.35 : 0;
-      L.thigh.rotation.x = lerp(L.thigh.rotation.x, L.sz * 0.3 + sw, 0.25);
-      L.thigh.rotation.z = lerp(
-        L.thigh.rotation.z,
-        L.side * (st.grounded ? 0.8 : 0.45) + squat * 0.2 * L.side,
-        0.2,
-      );
+      const ph = gp * 0.8 + (L.side * L.sz > 0 ? 0 : Math.PI);
+      const sw = Math.sin(ph),
+        up = Math.max(0, Math.cos(ph));
+      // 這隻腳的步伐方向：移動方向＋轉向的切線（繞身體中心）
+      const r = L.rest;
+      let ox = dx - turn * r.z * 0.35,
+        oz = dz + turn * r.x * 0.35;
+      const ol = Math.hypot(ox, oz);
+      if (ol > 1) ((ox /= ol), (oz /= ol));
+      const stride = 0.55 * Math.min(1.4, fa) * (moving ? 1 : 0);
+      const tx = moving ? ox * stride * sw : 0,
+        tz = moving ? oz * stride * sw : 0,
+        ty = (moving && ol > 0.05 ? up * 0.38 : 0) + (st.grounded ? 0 : 0.3) + squat * 0.45;
+      L.qo = L.qo || new THREE.Vector3();
+      L.qo.x = lerp(L.qo.x, tx, k);
+      L.qo.y = lerp(L.qo.y, ty, k);
+      L.qo.z = lerp(L.qo.z, tz, k);
+      const tuck = st.grounded ? 1 : 0.9; // 空中：腳往身體收
+      const T = _qT
+        .set(r.x * tuck + L.qo.x, r.y + L.qo.y, r.z * tuck + L.qo.z)
+        .applyMatrix4(m.legsG.matrixWorld);
+      quadSolve(L, T);
     }
   }
   m.legsG.position.y = st.grounded ? 0 : Math.sin(t * 4) * 0.05;

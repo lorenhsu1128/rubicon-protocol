@@ -373,7 +373,14 @@ function lowerBody(rig, ctx, sc) {
     } else {
       const cur = _b.copy(st.tip).applyMatrix4(L.knee.matrixWorld);
       T.lerp(cur, 1 - W.feet);
-      twoBone(L.thigh, L.knee, (o) => o.copy(st.tip).applyMatrix4(L.knee.matrixWorld), T, AZ, -L.side);
+      twoBone(
+        L.thigh,
+        L.knee,
+        (o) => o.copy(st.tip).applyMatrix4(L.knee.matrixWorld),
+        T,
+        L.hinge || AZ,
+        L.hinge ? 1 : -L.side,
+      );
     }
   });
 }
