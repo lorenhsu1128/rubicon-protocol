@@ -587,10 +587,10 @@ Object.assign(Game.prototype, {
       } else {
         const m = spec.mech
           ? buildMech(spec.asm || this.save.asm, PALETTES[spec.pal] || PALETTES.player, spec.scale || 1, {
-              source:
-                spec.pal === 'player' && this.mechSource
-                  ? this.mechSource({ team: 'player', slot: 0 })
-                  : null,
+              // 玩家配色＝玩家的機甲，其他（AEGIS、委託方的代表機、宿敵）照電腦 AC 的規則用內建預設機甲
+              source: this.mechSource
+                ? this.mechSource(spec.pal === 'player' ? { team: 'player', slot: 0 } : {})
+                : null,
             })
           : buildBossModel(spec.key, PALETTES[spec.pal || 'boss'] || PALETTES.enemy, spec.scale || 1);
         obj = m.group;
