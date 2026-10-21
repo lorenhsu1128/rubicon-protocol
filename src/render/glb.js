@@ -36,8 +36,8 @@ export const PALETTE_SLOTS = [
 // 預算：三角面、繪製次數（含自動補上的描邊，約為網格數 ×2）、最大貼圖邊長（px）、檔案大小（MB）
 // part：頭、核心、背包、襠部／主體；piece：四肢的每一節（上臂、前臂、手、大腿、小腿、腳掌）
 export const GLB_BUDGET = {
-  part: { tris: 3000, draws: 40, tex: 2048, mb: 2 },
-  piece: { tris: 1500, draws: 20, tex: 2048, mb: 1 },
+  part: { tris: 4000, draws: 40, tex: 2048, mb: 2 },
+  piece: { tris: 2500, draws: 20, tex: 2048, mb: 1 },
   weapon: { tris: 2000, draws: 30, tex: 1024, mb: 1.5 },
   mech: { tris: 25000, draws: 200, tex: 2048, mb: 4 },
   'mech-boss': { tris: 40000, draws: 240, tex: 2048, mb: 8 },

@@ -3132,7 +3132,7 @@ async function testEditorOptimize(browser, base) {
     [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('減面：')),
   );
   const t1 = await tris();
-  check(t0 > 20000 && t1 <= 3000 && t1 > 1500, `減到預算（${t0} → ${t1} 面，預算 3000）`);
+  check(t0 > 20000 && t1 <= 4000 && t1 > 2000, `減到預算（${t0} → ${t1} 面，預算 4000）`);
   await page.click('#edLeft h3');
   await page.keyboard.press('Control+z');
   await wait(400);
