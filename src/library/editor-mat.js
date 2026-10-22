@@ -6,7 +6,7 @@
 // 所有修改都換成新的幾何／材質物件（舊的不改），編輯器的復原只要保留參照；材質參數另外記在快照裡。
 import { escHtml } from '../core/html.js';
 import { PALETTE_SLOTS, tintMaterial } from '../render/glb.js';
-import { PALETTES } from '../render/materials.js';
+import { PALETTES, palDesc } from '../render/materials.js';
 
 const $ = (id) => document.getElementById(id);
 export const SLOT_NAMES = {
@@ -742,7 +742,7 @@ export class MaterialTool {
     $('edPreview').innerHTML =
       `<option value="">原色</option>` +
       Object.keys(PALETTES)
-        .map((k) => `<option>${k}</option>`)
+        .map((k) => `<option value="${k}">${k}（${palDesc(k)}）</option>`)
         .join('');
     $('edPreview').onchange = () => {
       this.preview = $('edPreview').value;

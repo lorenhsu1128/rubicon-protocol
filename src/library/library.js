@@ -1,7 +1,7 @@
 // 模型庫入口：分類頁籤、搜尋、配色與來源篩選、格狀檢視、檢視窗、GLB 拖曳替換與對照表匯出
 // （網址 #槽位 id 可直接開啟指定模型）
 import { escHtml } from '../core/html.js';
-import { PALETTES } from '../render/materials.js';
+import { PALETTES, palDesc } from '../render/materials.js';
 import { CATEGORIES, MODEL_CATALOG } from '../render/model-catalog.js';
 import { ModelGrid } from './grid.js';
 import { Inspector } from './inspect.js';
@@ -322,7 +322,7 @@ async function main() {
   $('palSel').innerHTML =
     `<option value="">各模型預設</option>` +
     Object.keys(PALETTES)
-      .map((k) => `<option>${k}</option>`)
+      .map((k) => `<option value="${k}">${k}（${palDesc(k)}）</option>`)
       .join('');
   $('palSel').onchange = (e) => grid.setPalette(e.target.value || null);
   $('btnManifest').onclick = exportManifest;

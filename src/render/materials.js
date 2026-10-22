@@ -900,3 +900,54 @@ export const PALETTES = {
     glow: 0xff8a30,
   },
 };
+
+// 顏色的大致名稱（模型庫的配色選單用）：依色值（設計時挑的顏色）的色相／彩度／亮度命名；
+// 彩度低的叫「沙灰、藍灰…」這類偏色的灰
+export function colorName(hex) {
+  const r = ((hex >> 16) & 255) / 255,
+    g = ((hex >> 8) & 255) / 255,
+    b = (hex & 255) / 255;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b),
+    l = (max + min) / 2,
+    d = max - min,
+    s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (l < 0.09) return '黑';
+  if (l > 0.85 && s < 0.4) return '白';
+  if (s < 0.06 || d < 0.03) return l > 0.62 ? '白' : l > 0.45 ? '淺灰' : l > 0.2 ? '灰' : '深灰';
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  if (s < 0.15) {
+    if (l > 0.65) return '白';
+    const t =
+      h < 15 || h >= 340
+        ? '紅灰'
+        : h < 68
+          ? l > 0.4
+            ? '沙灰'
+            : '褐灰'
+          : h < 165
+            ? '綠灰'
+            : h < 255
+              ? '藍灰'
+              : '紫灰';
+    return l < 0.2 ? '深' + t : l > 0.62 ? '淺' + t : t;
+  }
+  let n;
+  if (h < 15 || h >= 340) n = '紅';
+  else if (h < 45) n = l < 0.45 ? '棕' : s < 0.3 ? '米' : '橘';
+  else if (h < 68) n = l < 0.4 ? '土黃' : s < 0.4 ? '米' : '黃';
+  else if (h < 95) n = l < 0.45 ? '橄欖綠' : '黃綠';
+  else if (h < 165) n = '綠';
+  else if (h < 195) n = '青';
+  else if (h < 255) n = '藍';
+  else if (h < 300) n = '紫';
+  else n = '洋紅';
+  if (/棕|土黃|橄欖|米/.test(n)) return l < 0.15 ? '深' + n : n;
+  return l < 0.2 ? '深' + n : l > 0.7 ? '淺' + n : n;
+}
+// 配色的說明文字：「主：X／副：Y」
+export function palDesc(key) {
+  const p = PALETTES[key];
+  return p ? `主：${colorName(p.main)}／副：${colorName(p.sub)}` : '';
+}

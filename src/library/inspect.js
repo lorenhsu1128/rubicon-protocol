@@ -2,7 +2,7 @@
 // 以及 GLB 工具：單獨／並排對照／疊合對照／組合預覽四種模式、規格檢查報告、載入／下載／移除
 import { escHtml } from '../core/html.js';
 import { isOutline } from '../render/geometry.js';
-import { PALETTES } from '../render/materials.js';
+import { PALETTES, palDesc } from '../render/materials.js';
 import { fmtSize } from '../render/measure.js';
 import { CATEGORIES } from '../render/model-catalog.js';
 import {
@@ -247,7 +247,7 @@ export class Inspector {
     $('insPal').innerHTML =
       `<option value="">預設</option>` +
       Object.keys(PALETTES)
-        .map((k) => `<option>${k}</option>`)
+        .map((k) => `<option value="${k}">${k}（${palDesc(k)}）</option>`)
         .join('');
     $('insPal').onchange = () => this.rebuild();
     $('insLight').innerHTML =
