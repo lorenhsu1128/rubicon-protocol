@@ -187,6 +187,26 @@ Object.assign(Game.prototype, {
       }
     }
   },
+  // 客機看不到別人的開火：子彈從手的位置（muzzle）發射，找最近的手當成那一側開火（後座與格林機槍的槍管轉動）
+  clientShotRecoil(pos) {
+    let best = null,
+      bd = 4; // 2 m 以內
+    const v = new THREE.Vector3();
+    for (const e of this.allMechs()) {
+      if (!e || e.dead || !e.model || !e.model.arms || !e.recoil) continue;
+      for (const k of ['l', 'r']) {
+        const a = e.model.arms[k];
+        if (!a || !a.hand) continue;
+        a.hand.getWorldPosition(v);
+        const d = v.distanceToSquared(pos);
+        if (d < bd) {
+          bd = d;
+          best = [e, k];
+        }
+      }
+    }
+    if (best) best[0].recoil[best[1]] = Math.max(best[0].recoil[best[1]], 0.35);
+  },
   clientApplySnapshot(s) {
     const st = s.k / 30; // 以房主快照序號當時間軸（去除網路抖動）
     if (this.snapClock === undefined || Math.abs(this.snapClock - (st - 0.1)) > 0.5)
@@ -316,6 +336,7 @@ Object.assign(Game.prototype, {
             netId: e.i,
           });
           this.projectiles.push(p);
+          if (!/missile|grenade|torpedo|crate|mortar/.test(e.k || '')) this.clientShotRecoil(p.pos);
         }
         break;
       case 'pend':
