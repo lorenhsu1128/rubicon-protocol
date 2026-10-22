@@ -611,6 +611,9 @@ const QD = {
   knee: { f: [0.2962, -0.1957, -0.9787], b: [0.4814, 0.4073, 0.9099] },
   ankle: { f: [0.0846, -0.9152, -0.5184], b: [0.6771, -1.1532, 0.7353] },
 };
+// 坦克（LG-TANK）的腰（核心座）＝內建 GLB 的 joints.json（遊戲座標）：砲塔座的頂面稍微往下，上半身壓進一點；
+// 整台比二足矮（和四足同倍率的車體，頭頂約 2.5 m）
+const TK = { waist: [0, 1.3013, 0.3597] };
 const qdV = (a, sx) => V(sx * a[0], a[1], a[2]); // 左側（sx −1）x 為負
 const qdLeg = (key) => QUAD_LEGS.find((q) => q[0] === key); // [key, sx, sz]（sz −1＝前腳）
 const qdFB = (key) => (key[0] === 'f' ? 'f' : 'b');
@@ -890,6 +893,7 @@ function baseConns(info) {
         o.waist = C0(V(...QD.waist));
         for (const [k, sx] of QUAD_LEGS) o['hip_' + k] = C0(qdV(QD.hip[qdFB(k)], sx));
       }
+      if (info.legType === 'tank') o.waist = C0(V(...TK.waist));
       return o;
     }
     case 'thigh':
@@ -917,7 +921,7 @@ function legHipY(type) {
 // 腰（核心座）高度：決定上半身高度與遊戲判定的身高（不隨關節設定改變）。
 // 四足、履帶的下半身造型不變，以腰部支柱把上半身架到和二足差不多的身高
 function waistY(type) {
-  return type === 'quad' ? QD.waist[1] : type === 'tank' ? 1.9 : legHipY(type) + LAY.waistUp;
+  return type === 'quad' ? QD.waist[1] : type === 'tank' ? TK.waist[1] : legHipY(type) + LAY.waistUp;
 }
 // 區塊接在哪個父區塊的哪個連接點：{ kind: 父區塊種類, name: 連接點 }（襠部／主體是根，回傳 null）
 export function parentConnOf(info) {
