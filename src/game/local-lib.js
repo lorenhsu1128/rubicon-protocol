@@ -144,11 +144,13 @@ Object.assign(Game.prototype, {
   },
   // 重新讀取本地模型庫（伺服器網址時也讀伺服器預設組）；manual：標題畫面的按鈕（一律顯示進度與結果）
   // 自動讀取時只有需要解析檔案才顯示進度條
+  // 內建預設機甲和本地模型庫同時讀（內建的 GLB 很多、解析要好幾秒，不擋住本地模型庫的結果），回傳前等兩邊都好
   async lmRefresh(manual = false) {
-    await BuiltinMech.load();
+    const builtin = BuiltinMech.load();
     await this.srvRefresh();
     if (!LocalModels.active()) {
       if (manual) this.lmShowResult(LocalModels.settings.on ? '多人連線中不使用本地模型' : null);
+      await builtin;
       return LocalModels.status;
     }
     const p = this.lmProgress('讀取本地模型庫…', manual);
@@ -156,6 +158,7 @@ Object.assign(Game.prototype, {
     if (manual) this.lmShowResult();
     else p.end();
     if (this.state === 'settings') this.renderLocalModels();
+    await builtin;
     return st;
   },
   // 伺服器預設組的狀態文字（設定畫面、標題的重新載入）

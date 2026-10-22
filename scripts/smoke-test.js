@@ -3261,7 +3261,12 @@ async function testLocalModels(browser, base) {
   await page.goto(base);
   check(await waitVisible(page, 'title'), '標題畫面顯示');
   await page.click('#btnLmReload');
-  await wait(300);
+  // 結果在讀完伺服器預設組之後才出現（不是固定時間），等到它出現
+  await page
+    .waitForFunction(() => /沒有開啟/.test(document.getElementById('lmLoad').textContent), null, {
+      timeout: 15000,
+    })
+    .catch(() => {});
   check((await lmOverlay(page)).includes('沒有開啟'), '總開關沒開時，重新載入提示到設定開啟');
   await page.click('#lmLoad');
   // 在模型庫頁面寫入：右前臂、步槍（右）、壞檔（頭），以及右上臂的手肘連接點
@@ -3635,7 +3640,12 @@ async function testModelSets(browser, base) {
   await game.click('#btnSettings');
   await waitVisible(game, 'settings');
   await game.check('#lmOn');
-  await wait(1500);
+  // 讀完模型庫才重畫設定（選單也是那時才有），等到狀態不是「尚未讀取」
+  await game
+    .waitForFunction(() => /套用 GLB/.test(document.getElementById('lmBox').textContent), null, {
+      timeout: 15000,
+    })
+    .catch(() => {});
   const box = async () => (await game.textContent('#lmBox')) || '';
   let t = await box();
   check(
@@ -3649,7 +3659,11 @@ async function testModelSets(browser, base) {
     (sel) => [...sel.options].find((o) => o.textContent === '測試C').value,
   );
   await game.selectOption('#lmSet', val);
-  await wait(1500);
+  await game
+    .waitForFunction(() => /套用 GLB 3 個/.test(document.getElementById('lmBox').textContent), null, {
+      timeout: 15000,
+    })
+    .catch(() => {});
   t = await box();
   await game.click('.lmUsed summary');
   const used = await game.$$eval('.lmUsed [data-slot]', (els) => els.map((e) => e.dataset.slot).sort());
