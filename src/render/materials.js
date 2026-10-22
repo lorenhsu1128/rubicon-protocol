@@ -311,7 +311,7 @@ export const PALETTES = {
     main3: 0xc0c3cc,
     sub: 0x333741,
     acc: 0x87551e,
-    joint: 0x1a1c21,
+    joint: 0x1a1b20,
     visor: 0x5fc8ff,
     glow: 0x7fe8ff,
   },
