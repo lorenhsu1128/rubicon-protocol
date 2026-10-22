@@ -4866,3 +4866,23 @@ body.rtsOn.rtsPilot.vpad #weapons {
     min-width: 26px;
   }
 }
+
+/* 下拉選單一律白底黑字：深色主題下展開的選項清單是系統的白底，繼承淺色字就會白底白字。
+   放在最後並用 !important，蓋過各畫面自己的 select 樣式（含 JS 產生的選單） */
+select {
+  background-color: #fff !important;
+  color: #111 !important;
+  color-scheme: light;
+}
+select option,
+select optgroup {
+  background-color: #fff !important;
+  color: #111 !important;
+}
+select:disabled {
+  background-color: #e4e4e4 !important;
+  color: #777 !important;
+}
+select:disabled option {
+  color: #777 !important;
+}
