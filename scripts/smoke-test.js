@@ -5890,17 +5890,27 @@ async function testChapter1(browser, base) {
     n: window.__game.enemies.length,
   }));
   check(sim.st === 'play' && sim.theme === 'grid' && sim.n >= 2, '模擬戰：在模擬訓練場重現遇過的敵人');
-  await page.evaluate(() => {
-    const g = window.__game;
-    g.waves = [];
-    g.wavePend = null; // 已預告、還沒出現的增援也取消
-    for (const e of g.enemies)
-      if (!e.dead) {
-        if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
-        e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
-      }
-  });
-  check(await waitVisible(page, 'result', 8000), '模擬戰清除後顯示結果');
+  // 等待期間持續清掉增援與場上的敵人（之後才生成的、第一次沒打死的也算）
+  const simClear = await page
+    .waitForFunction(
+      () => {
+        const g = window.__game;
+        if (g.state === 'result') return true;
+        g.waves = [];
+        g.wavePend = null; // 已預告、還沒出現的增援也取消
+        for (const e of g.enemies)
+          if (!e.dead) {
+            if (e.ai === 'burrow') e.bossVis = 0; // 沙中伏擊者：先浮出地面
+            e.takeDamage(1e9, 0, g.player, e.center(), new THREE.Vector3(0, 0, 1));
+          }
+        return false;
+      },
+      null,
+      { timeout: 12000, polling: 250 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(simClear && (await waitVisible(page, 'result', 3000)), '模擬戰清除後顯示結果');
   await page.click('#btnResultOk');
   check(await waitVisible(page, 'hub'), '模擬戰結果返回機庫');
   // 教官考核：通過解鎖零件
