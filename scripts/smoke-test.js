@@ -12618,9 +12618,17 @@ async function testStatusFx(browser, base) {
       for (let i = 0; i < n; i++) pl.move(1 / 60, wish.clone(), hover, qb && i === 0, false, null);
     };
     const fwd = new THREE.Vector3(1, 0, 0);
+    // 量速度時每格把機體放回原點：隨機地圖的坡度不影響（只看速度的比例）
+    const walk = (n) => {
+      for (let i = 0; i < n; i++) {
+        pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+        pl.grounded = true;
+        pl.move(1 / 60, fwd.clone(), false, false, false, null);
+      }
+    };
     const speed = () => {
       reset();
-      step(60, fwd);
+      walk(60);
       return Math.hypot(pl.vel.x, pl.vel.z);
     };
     const hud = (k) => {
@@ -12649,7 +12657,7 @@ async function testStatusFx(browser, base) {
     out.slowCap = pl.sts.slow.t;
     out.slowHud = hud('slow');
     out.slowSeen = !!(g.stsSeen && g.stsSeen.has('slow'));
-    step(60, fwd);
+    walk(60);
     out.slowV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
     out.slowQb = c1 / c0;
     out.frost = !!(pl.stsV && pl.stsV.slow && pl.stsV.slow.frost.length);
@@ -12696,7 +12704,7 @@ async function testStatusFx(browser, base) {
     const hp1 = pl.hp;
     pl.addStatus('latch', 4, { dps: 200, src: src.id });
     out.latchHud = hud('latch');
-    step(60, fwd);
+    walk(60);
     out.latchV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
     out.latchDmg = hp1 - pl.hp;
     pl.startMeleeStage('larm', 0, src.center(), null);
@@ -12722,7 +12730,7 @@ async function testStatusFx(browser, base) {
     reset();
     pl.addStatus('net', 4);
     out.netHud = hud('net');
-    step(60, fwd);
+    walk(60);
     out.netV = Math.hypot(pl.vel.x, pl.vel.z) / v0;
     step(1, new THREE.Vector3(), true);
     out.netJump = pl.grounded;
