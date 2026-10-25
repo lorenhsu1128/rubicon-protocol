@@ -588,6 +588,99 @@ async function testStyleThemes(browser, part = 1, parts = 1) {
   await ctx.close();
 }
 
+async function testLabDemo(browser) {
+  console.log(
+    '實驗室的動作展示：清掉兩隊、28 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
+  );
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+  const page = await ctx.newPage();
+  watch(page, 'lab-demo');
+  page.on('dialog', (d) => d.accept());
+  await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
+  await waitVisible(page, 'title');
+  await page.click('#btnStyleLab');
+  check(await waitVisible(page, 'labPanel', 15000), '開啟實驗室');
+  await wait(1500);
+  await page.click('#labDemoBtn');
+  await wait(500);
+  await freezeLoop(page);
+  const st = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      mode: g.lab.mode,
+      n: g.enemies.length + g.allies.length,
+      panel: !document.getElementById('labDemo').hidden,
+      segs: document.querySelectorAll('#labDemoList button').length,
+      cap: document.querySelector('#labDemoCap b').textContent,
+    };
+  });
+  check(st.mode === 'demo' && st.n === 0 && st.panel, `動作展示：兩隊清掉、左側段落清單（${st.segs} 段）`);
+  check(st.segs >= 20 && /待機/.test(st.cap), `從第 1 段開始（${st.cap}）`);
+  // 每一段都跑一下：機體照腳本動作、沒有錯誤
+  const r = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      D = g.lab.demo;
+    const out = {
+      glide: 0,
+      legYaw: 0,
+      fired: 0,
+      melee: 0,
+      hit: 0,
+      stag: 0,
+      collapse: false,
+      dummyDead: false,
+    };
+    const segs = document.querySelectorAll('#labDemoList button').length;
+    for (let i = 0; i < segs; i++) {
+      g.labDemoGo(i);
+      const name = document.querySelector('#labDemoCap b').textContent;
+      const p0 = g.projectiles.length;
+      for (let k = 0; k < 150; k++) {
+        window.__pump(1 / 60);
+        const an = p.model.an || {};
+        if (/滑行/.test(name)) out.glide = Math.max(out.glide, an.gW || 0);
+        if (/側移/.test(name)) out.legYaw = Math.max(out.legYaw, Math.abs(p.model.legsG.rotation.y));
+        if (/射擊/.test(name))
+          out.fired = Math.max(out.fired, g.projectiles.length - p0 + (p.recoil.r > 0.05 ? 1 : 0));
+        if (/近戰/.test(name) && p.melee.active) out.melee++;
+        if (/受擊/.test(name) && Math.abs(p.model.torso.rotation.x) > 0.08) out.hit++;
+        if (/失衡/.test(name) && p.staggerT > 0) out.stag++;
+        if (/擊破/.test(name) && D.dummy && D.dummy.dead) {
+          out.dummyDead = true;
+          if (D.dummy.mesh.visible) out.collapse = true;
+        }
+      }
+    }
+    return out;
+  });
+  check(r.glide > 0.8, `滑行段落進入滑行（權重 ${r.glide.toFixed(2)}）`);
+  check(r.legYaw > 0.5, `側移段落下半身朝移動方向（${r.legYaw.toFixed(2)} rad）`);
+  check(r.fired > 0, '射擊段落開火');
+  check(r.melee > 10, '近戰段落打出連段');
+  check(r.hit > 0 && r.stag > 0, '受擊與失衡段落');
+  check(r.dummyDead && r.collapse, '擊破段落：假人先跪倒再碎裂');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.labDemoGo(3);
+    window.__pump(1.4);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'lab-demo.png') });
+  // 換段落的按鈕
+  await page.click('#ldNext');
+  const nx = await page.evaluate(() => window.__game.lab.demo.i);
+  check(nx === 4, `下一段按鈕（第 ${nx + 1} 段）`);
+  // 回到觀看：重新建立兩隊、收起展示的面板
+  await page.click('#labWatch');
+  await wait(500);
+  const back = await page.evaluate(() => {
+    const g = window.__game;
+    return { mode: g.lab.mode, n: g.enemies.length, panel: !document.getElementById('labDemo').hidden };
+  });
+  check(back.mode === 'watch' && back.n >= 3 && !back.panel, `回到觀看：重新建立戰場（紅隊 ${back.n} 台）`);
+  await ctx.close();
+}
+
 async function testStyleLab(browser) {
   console.log('渲染風格實驗室：模擬戰鬥 → 切換與調整 → 存成預設 → 套用到遊戲');
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 }, acceptDownloads: true });
@@ -15403,6 +15496,7 @@ const STEPS = [
   ['testEditorFaces', (c) => testEditorFaces(c.browser, c.base)],
   ['testEditorOptimize', (c) => testEditorOptimize(c.browser, c.base)],
   ['testPaint', (c) => testPaint(c.browser)],
+  ['testLabDemo', (c) => testLabDemo(c.browser)],
   ['testStyleLab', (c) => testStyleLab(c.browser)],
   // 每個內建風格 × 13 個主題要量很久，主題分成 3 組（SMOKE_ONLY=testStyleThemes 一樣跑全部）
   ...[1, 2, 3].map((i) => [

@@ -77,11 +77,14 @@ Object.assign(Game.prototype, {
   exitLab() {
     if (!this.lab) return;
     if (this.lab.dirty && !confirm('調整過的參數還沒存成預設或套用到遊戲，確定要離開嗎？')) return;
+    this.labDemoExit();
     this.labClearWorld();
     this.lab = null;
     this.renderer.info.autoReset = true;
     $('labPanel').hidden = true;
     $('labBar').hidden = true;
+    $('labDemo').hidden = true;
+    $('labDemoCap').hidden = true;
     document.body.classList.remove('lab', 'labWatch');
     $('btnAbort').textContent = '放棄任務';
     this.styleRefresh();
@@ -266,8 +269,23 @@ Object.assign(Game.prototype, {
   // 觀看：玩家的機體也由電腦操作；操作：和一般任務相同（第三／第一人稱、HUD）
   labSetMode(mode, quiet) {
     const L = this.lab;
+    // 離開動作展示：重新建立兩隊（labStart 最後會再呼叫這裡）
+    if (L.mode === 'demo' && mode !== 'demo') {
+      this.labDemoExit();
+      L.mode = mode;
+      return this.labStart();
+    }
     L.mode = mode;
     const p = this.player;
+    if (mode === 'demo') {
+      document.body.classList.add('labWatch');
+      $('hudWrap').style.display = 'none';
+      this.stylePipe.resetHistory();
+      L.snap = true;
+      this.labDemoEnter();
+      this.labHud();
+      return;
+    }
     if (p) {
       p.ai = mode === 'watch' ? 'ac' : null;
       p.isPlayer = mode === 'ctrl';
@@ -294,7 +312,8 @@ Object.assign(Game.prototype, {
       this.time += step;
       L.t += step;
       const p = this.player;
-      if (L.mode === 'ctrl') {
+      if (L.mode === 'demo') this.labDemoTick(step);
+      else if (L.mode === 'ctrl') {
         if (!p.dead && !p.downed) this.updatePlayer(step);
         else p.move(step, new THREE.Vector3(), false, false, false, null);
       } else if (!p.dead) p.updateAI(step);
@@ -316,7 +335,7 @@ Object.assign(Game.prototype, {
         q.pos.y += step * 2.5;
         if (q.life <= 0) this.popups.splice(i, 1);
       }
-      this.labRespawn(step);
+      if (L.mode !== 'demo') this.labRespawn(step);
       L.refillT -= step;
       if (L.refillT <= 0) {
         L.refillT = 1;
@@ -343,6 +362,7 @@ Object.assign(Game.prototype, {
       });
     }
     if (L.mode === 'ctrl') this.updateCamera(dt);
+    else if (L.mode === 'demo') this.labDemoCamera(dt);
     else this.labCamera(dt);
     SFX.setListener(L.mode === 'ctrl' && this.player ? this.player.center() : this.camera.position);
     if (L.mode === 'ctrl') this.updateLoops();
@@ -519,7 +539,9 @@ Object.assign(Game.prototype, {
   labPointer(type, e) {
     const L = this.lab;
     if (!L) return false;
-    if (type !== 'up' && e.target && e.target.closest && e.target.closest('#labPanel, #labBar')) return true;
+    if (type !== 'up' && e.target && e.target.closest && e.target.closest('#labPanel, #labBar, #labDemo'))
+      return true;
+    if (L.mode === 'demo') return this.labDemoPointer(type, e);
     if (L.mode !== 'watch') return false;
     if (type === 'down' && L.cam !== 'free') {
       L.cam = 'free';
@@ -565,7 +587,8 @@ Object.assign(Game.prototype, {
       $('labPanel').classList.toggle('mini', !L.panel);
       return true;
     }
-    if (L.mode !== 'watch') return false;
+    if (L.mode === 'demo' && this.labDemoKey(e)) return true;
+    if (L.mode !== 'watch' && L.mode !== 'demo') return false;
     if (e.code === 'KeyI') {
       this.labIkToggle('on', !IK.on);
       return true;
@@ -651,7 +674,7 @@ Object.assign(Game.prototype, {
       .map((k) => `<option value="${k}">${escHtml(THEMES[k].name)}</option>`)
       .join('');
     B.innerHTML = `
-      <span class="lseg"><button id="labWatch">觀看</button><button id="labCtrl">操作</button></span>
+      <span class="lseg"><button id="labWatch">觀看</button><button id="labCtrl">操作</button><button id="labDemoBtn" title="依序表演各種動作（移動、機動、射擊、近戰、受擊、擊破）">動作展示</button></span>
       <span class="lseg">鏡頭 <select id="labCam">${CAMS.map((c) => `<option value="${c[0]}">${c[1].split('（')[0]}</option>`).join('')}</select>
         <button id="labPrev" title="上一台（[）">◀</button><span id="labTgt" class="dim"></span><button id="labNext" title="下一台（]）">▶</button></span>
       <span class="lseg"><button id="labPause" title="暫停（P）">⏸</button>
@@ -790,16 +813,20 @@ Object.assign(Game.prototype, {
     if (!L || !$('labWatch')) return;
     $('labWatch').classList.toggle('on', L.mode === 'watch');
     $('labCtrl').classList.toggle('on', L.mode === 'ctrl');
+    $('labDemoBtn').classList.toggle('on', L.mode === 'demo');
     $('labCam').value = L.cam;
     $('labCam').disabled = L.mode !== 'watch';
+    for (const id of ['labPrev', 'labNext', 'labTeams', 'labExtras']) $(id).disabled = L.mode === 'demo';
     $('labPause').textContent = L.paused ? '▶' : '⏸';
     $('labTgt').textContent = L.tgt ? ' ' + L.tgt.name + ' ' : ' — ';
     $('labHelp').textContent =
-      L.mode === 'watch'
-        ? L.hold
-          ? '顯示載入時的參數（放開空白鍵回到目前）'
-          : '空白鍵：按住看載入時的參數・I 開關 IK・P 暫停・[ ] 切換目標・H 收合面板・拖曳畫面＝自由鏡頭'
-        : '操作模式：和任務相同的按鍵（Esc 暫停選單可離開）・H 收合面板';
+      L.mode === 'demo'
+        ? '動作展示：← → 換段落・R 重播・拖曳畫面轉鏡頭、滾輪縮放・I 開關 IK・P 暫停・H 收合面板'
+        : L.mode === 'watch'
+          ? L.hold
+            ? '顯示載入時的參數（放開空白鍵回到目前）'
+            : '空白鍵：按住看載入時的參數・I 開關 IK・P 暫停・[ ] 切換目標・H 收合面板・拖曳畫面＝自由鏡頭'
+          : '操作模式：和任務相同的按鍵（Esc 暫停選單可離開）・H 收合面板';
   },
   labBindUi() {
     const L = () => this.lab;
@@ -968,6 +995,7 @@ Object.assign(Game.prototype, {
     // 下方工具列
     $('labWatch').onclick = () => this.labSetMode('watch');
     $('labCtrl').onclick = () => this.labSetMode('ctrl');
+    $('labDemoBtn').onclick = () => this.labSetMode('demo');
     $('labCam').onchange = (e) => {
       L().cam = e.target.value;
       L().snap = true;

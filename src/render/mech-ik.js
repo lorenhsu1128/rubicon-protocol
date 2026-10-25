@@ -233,7 +233,7 @@ function groundN(world, x, z, y, e, out) {
 const smooth = (cur, to, dt, rate) => lerp(cur, to, Math.min(1, dt * rate));
 
 // ctx（MechEntity.ikCtx）：dt、world、pos（腳下地面的機體位置）、scale、grounded、moving、boost、knock、
-// melee、meleePt、aim（瞄準點，世界）、guns {l,r}（'gun'／'melee'／'none'）、backs {l,r}、recoil、gait、lockOK、glide、near
+// melee、meleePt、aim（瞄準點，世界）、armAim（手臂與肩上武器瞄準的點，沒有時＝aim）、guns {l,r}（'gun'／'melee'／'none'）、backs {l,r}、recoil、gait、lockOK、glide、near
 export function applyIK(rig, ctx) {
   if (!rig || rig.vehicle || !rig.lift) return;
   if (!rig.ik) initIK(rig);
@@ -401,6 +401,7 @@ function upperBody(rig, ctx, sc) {
     W = S.w,
     dt = ctx.dt;
   const aim = ctx.aim;
+  const gunAim = ctx.armAim || aim; // 手臂與肩上武器瞄準的點（機體沒有面向準星時是機體正面，頭照樣看準星）
   // ===== 近戰：上身俯仰對準目標的高度（俯仰正值＝後仰）=====
   W.melee = smooth(W.melee, on('melee') && ctx.melee && ctx.meleePt ? 1 : 0, dt, 10);
   if (W.melee > 0.002 && ctx.meleePt) S.meleePt = ctx.meleePt.clone();
@@ -425,7 +426,7 @@ function upperBody(rig, ctx, sc) {
   for (const k of ['l', 'r']) {
     const b = rig.arms[k].back;
     if (W.back <= 0.002 || !ctx.backs[k] || !b.children.length) continue;
-    const [yaw, pitch] = lookAngles(b, aim);
+    const [yaw, pitch] = lookAngles(b, gunAim);
     b.rotation.order = 'YXZ';
     b.rotation.y = lerp(b.rotation.y, clamp(yaw, -0.5, 0.5), W.back);
     b.rotation.x = lerp(b.rotation.x, clamp(pitch, -0.35, 0.7), W.back);
@@ -455,7 +456,7 @@ function upperBody(rig, ctx, sc) {
   const aimArm = (a, w) => {
     const H = wpos(a.weapon, _a);
     const f = _u.copy(FWD).applyQuaternion(wquat(a.aim || a.weapon, _qw));
-    const d = _w.subVectors(aim, H);
+    const d = _w.subVectors(gunAim, H);
     if (d.lengthSq() < 1e-4) return;
     rotWorld(a.up, aimQuat(f, d.normalize(), w, 1.3));
   };
@@ -479,7 +480,7 @@ function upperBody(rig, ctx, sc) {
     const ws = W.sup[k === 'l' ? 'r' : 'l'];
     if (ws > 0.002) {
       const sh = wpos(a.up, _b);
-      const d = _d.subVectors(aim, wpos(a.weapon, _a)).normalize();
+      const d = _d.subVectors(gunAim, wpos(a.weapon, _a)).normalize();
       const gv = _a.sub(sh),
         pv = wpos(rig.arms[k === 'l' ? 'r' : 'l'].up, _c).sub(sh);
       gv.addScaledVector(d, -gv.dot(d));

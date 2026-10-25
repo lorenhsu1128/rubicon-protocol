@@ -1742,6 +1742,7 @@ export class MechEntity {
     {
       const firing = this.recoil.l + this.recoil.r > 0.05 || this.melee.active;
       const faceAim = this.lock || firing || !this.moving || this.ai || this.fpFace; // 人形：有目標時整台機體面向目標，側移用側步
+      this.faceAimNow = !!faceAim; // 手臂瞄準（armAimPoint）：自由移動時照機體正面持槍
       const targetYaw = faceAim ? this.aimYaw : Math.atan2(-this.vel.x, -this.vel.z);
       this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (this.yawRate || (faceAim ? 10 : 14))));
     }
@@ -2120,8 +2121,23 @@ export class MechEntity {
       if (this.grounded && this.moving && this.game && this.game.mechStep) this.game.mechStep(this);
     }
   }
+  // 手臂瞄準的點：機體沒有面向準星（自由移動時機體轉向移動方向）時改成機體正面，否則持槍的手會橫過胸前去瞄側面；
+  // 偏差 0.35～0.7 rad 之間平滑切換（開火、鎖定時機體轉回準星，手臂也跟著回去）。
+  // 本機的機體只在 move 判定不面向準星（faceAimNow）時才這樣（電腦機體轉身時手臂照樣先轉去瞄準）；客機看別人時只看偏差
+  armAimPoint(aim) {
+    if (this.faceAimNow && !this.remote) return aim;
+    const rel =
+      ((((this.aimYaw - this.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+    const k = clamp((Math.abs(rel) - 0.35) / 0.35, 0, 1);
+    if (k <= 0) return aim;
+    const c = this.center(),
+      d = Math.max(8, aim.distanceTo(c));
+    const fwd = c.add(new THREE.Vector3(-Math.sin(this.yaw) * d, 0, -Math.cos(this.yaw) * d));
+    return aim.clone().lerp(fwd, k);
+  }
   ikCtx(dt) {
     const g = this.game;
+    const aim = this.aimPoint();
     const kind = (s) => {
       const w = this.weapons[s];
       if (!w || w.dropped) return 'none';
@@ -2140,7 +2156,8 @@ export class MechEntity {
       knock: this.staggerT > 0 || this.downed,
       melee: this.melee.active,
       meleePt: mt ? mt.center() : null,
-      aim: this.aimPoint(),
+      aim,
+      armAim: this.armAimPoint(aim),
       guns: { l: kind('larm'), r: kind('rarm') },
       backs: { l: kind('lback') === 'gun', r: kind('rback') === 'gun' },
       recoil: this.recoil,
