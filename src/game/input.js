@@ -594,6 +594,10 @@ Object.assign(Game.prototype, {
       this.tfxSetMode(e.target.value);
       this.saveKeys();
     };
+    document.getElementById('ctrlHangar').onchange = (e) => {
+      this.ctrl.hangarFx = e.target.value;
+      this.saveKeys();
+    };
     document.getElementById('ctrlCine').onchange = (e) => {
       this.ctrl.cine = e.target.value;
       this.saveKeys();

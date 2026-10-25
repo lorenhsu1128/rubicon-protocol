@@ -4,7 +4,6 @@
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { Effects } from '../fx/effects.js';
-import { animateMech } from '../render/mech-model.js';
 import { targetDist } from '../world/prop-hit.js';
 
 // 距離分級（lodTick）與 AI 分批（aiStep）的門檻
@@ -416,18 +415,7 @@ export class Game {
       return;
     }
     if (this.state === 'garage') {
-      if (this.garageMech) {
-        this.garageMech.group.rotation.y += dt * 0.5;
-        animateMech(this.garageMech, dt, {
-          pose: 'garage',
-          moving: false,
-          grounded: true,
-          hover: false,
-          boost: false,
-          aimPitch: 0,
-          t: now / 1000,
-        });
-      }
+      this.hangarTick(dt, now / 1000); // 格納庫：機體、場景、鏡頭、換裝（game/hangar.js）
       const w = innerWidth,
         h = innerHeight;
       this.garageCam.aspect = w / h;

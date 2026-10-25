@@ -27,16 +27,8 @@ Object.assign(Game.prototype, {
     d.shadow.bias = -0.0005;
     d.shadow.normalBias = 0.02; // 沒有它時 GLB 區塊表面會出現自我陰影的條紋
     s.add(d);
-    const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(4, 32),
-      new THREE.MeshStandardMaterial({ color: 0x2a3038, roughness: 0.9 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    s.add(floor);
-    const grid = new THREE.GridHelper(30, 30, 0x2a3644, 0x1e2630);
-    grid.position.y = 0.01;
-    s.add(grid);
+    // 地板與場景是格納庫（game/hangar.js 的 hangarEnsure，依場合）；換裝的掃描用材質的剪裁平面
+    this.renderer.localClippingEnabled = true;
     this.garageScene = s;
     if (this.envTex) s.environment = this.envTex;
     this.garageCam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
@@ -66,6 +58,7 @@ Object.assign(Game.prototype, {
     if (this.player) {
       this.clearMission();
     }
+    this.hangarOpen(); // 進來時不播換裝
     this.renderGarage();
     // 單人模式：重新讀取本地模型庫（有變動才解析）；伺服器網址時也讀伺服器預設組；讀完再重建預覽
     const rev = ServerModels.rev;
@@ -171,6 +164,7 @@ Object.assign(Game.prototype, {
         const eq = asm[key] === p.id;
         const d = document.createElement('div');
         d.className = 'part' + (eq ? ' eq' : '') + (owned ? '' : ' locked');
+        d.dataset.pid = p.id; // 滑鼠停留時的全像預覽（hangar.js）
         let spec = '';
         if (cat === 'arm' || cat === 'back') {
           if (p.type === 'melee')
@@ -306,14 +300,20 @@ Object.assign(Game.prototype, {
     if (mp && warn.length) $('btnGarageLobby').disabled = true;
     else $('btnGarageLobby').disabled = false;
     this.campGarageUi(warn);
-    // preview mech
-    if (this.garageMech) {
-      this.garageScene.remove(this.garageMech.group);
-    }
+    // 整備架上的機體：組裝變了時舊的機體留著播換裝（hangar.js），否則直接換掉
+    this.hangarEnsure();
+    this.hangarFinish();
+    this.hangarPreviewClear();
+    const prev = this.garageMech;
+    const sig = JSON.stringify(asm);
+    const swap = !!(prev && this.hgAsm && this.hgAsm !== sig && this.state === 'garage');
+    if (prev && !swap) this.garageScene.remove(prev.group);
+    this.hgAsm = sig;
     const src = this.garageSource();
     this.garageMech = buildMech(asm, this.myPal(), 1, { source: src });
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
+    if (swap) this.hangarSwapStart(prev, this.garageMech);
     this.lmGarageNote(this.garageMech, src);
     this.garageMechsUi();
     this.mpModelsUi();

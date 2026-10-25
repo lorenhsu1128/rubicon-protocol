@@ -588,6 +588,164 @@ async function testStyleThemes(browser, part = 1, parts = 1) {
   await ctx.close();
 }
 
+async function testHangar(browser) {
+  console.log('機甲庫的格納庫：場景、部位鏡頭、拖曳繞看、全像預覽、掃描換裝、依場合換場景');
+  const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const page = await ctx.newPage();
+  watch(page, 'hangar');
+  await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.hangarFx = 'full';
+    for (const id of ['h_lt', 'h_hv', 'l_rj', 'l_hv']) if (!g.save.owned.includes(id)) g.save.owned.push(id);
+    g.openGarage();
+  });
+  await freezeLoop(page);
+  const st = await page.evaluate(() => {
+    const g = window.__game,
+      hg = g.hg;
+    window.__pump(0.5);
+    let inScene = false;
+    g.garageScene.traverse((o) => (inScene = inScene || o === g.garageMech.group));
+    return {
+      kind: hg.H.kind,
+      workers: hg.H.workers.length,
+      cranes: hg.H.cranes.length,
+      inScene,
+      rot: g.garageMech.group.rotation.y,
+    };
+  });
+  check(
+    st.kind === 'base' && st.workers >= 3 && st.cranes >= 1 && st.inScene,
+    `自由出擊＝基地格納庫（技師 ${st.workers} 人、吊車 ${st.cranes} 台），機體站在整備架上`,
+  );
+  // 部位的鏡頭：點左側的部位
+  const tg = async (label) => {
+    await page.click(`#slots .slot:has-text("${label}")`);
+    return page.evaluate(() => {
+      window.__pump(2);
+      const C = window.__game.hg.cam;
+      return { y: C.tgt.y, yaw: C.yaw, dist: C.dist };
+    });
+  };
+  const head = await tg('頭部'),
+    legs = await tg('腳部'),
+    bst = await tg('推進器');
+  check(
+    head.y > 2.5 && legs.y < 1.5 && Math.abs(bst.yaw) > 2,
+    `選部位時鏡頭轉過去（頭 ${head.y.toFixed(1)} m、腳 ${legs.y.toFixed(1)} m、推進器從背後 ${bst.yaw.toFixed(2)} rad）`,
+  );
+  // 拖曳繞看，停手後回到部位的鏡頭
+  const box = await page.locator('#garageMid').boundingBox();
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height * 0.6;
+  const y0 = await page.evaluate(() => window.__game.hg.goal.yaw);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx - 200, cy, { steps: 5 });
+  await page.mouse.up();
+  const drag = await page.evaluate((y0) => {
+    const hg = window.__game.hg;
+    const d = hg.goal.yaw - y0;
+    window.__pump(5);
+    return { d, back: Math.abs(hg.goal.yaw - y0) < 0.05 };
+  }, y0);
+  check(drag.d > 1 && drag.back, `拖曳繞看（${drag.d.toFixed(2)} rad），停手 4 秒後回到部位的鏡頭`);
+  // 全像預覽：滑鼠停在沒裝備的腳部上
+  await tg('腳部');
+  await page.hover('#partList .part[data-pid="l_hv"]');
+  const holo = await page.evaluate(() => {
+    const g = window.__game;
+    window.__pump(0.4);
+    const P = g.hg.prev;
+    let n = 0;
+    if (P && P.m)
+      P.m.group.traverse((o) => {
+        if (o.isMesh && o.material.isShaderMaterial && o.visible) {
+          for (let p = o; p; p = p.parent) if (!p.visible) return;
+          n++;
+        }
+      });
+    return { n, faded: P ? P.keep.length : 0 };
+  });
+  check(holo.n > 0 && holo.faded > 0, `滑鼠停在零件上：全像預覽換上的區塊（${holo.n} 個網格），原本的變淡`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hangar-holo.png') });
+  await page.mouse.move(cx, cy);
+  const cleared = await page.evaluate(() => {
+    window.__pump(0.1);
+    return !window.__game.hg.prev;
+  });
+  check(cleared, '滑鼠離開：全像消失');
+  // 換上零件：只有變了的區塊播掃描，結束後舊的機體移除、材質還原
+  const sw = await page.evaluate(() => {
+    const g = window.__game;
+    g.garageSlot = 'head';
+    g.renderGarage();
+    window.__pump(2);
+    g.save.asm.head = g.save.asm.head === 'h_lt' ? 'h_hv' : 'h_lt';
+    g.renderGarage();
+    const S = g.hg.swap;
+    if (!S) return { ok: false };
+    window.__pump(0.3);
+    const mid = S.pNew.constant > S.y0 && S.pNew.constant < S.y1;
+    let clipped = 0;
+    g.garageMech.group.traverse((o) => o.isMesh && o.material.clippingPlanes && clipped++);
+    return { ok: true, mid, clipped };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hangar-swap.png') });
+  const sw2 = await page.evaluate(() => {
+    const g = window.__game;
+    window.__pump(1.5);
+    let left = 0;
+    g.garageMech.group.traverse(
+      (o) => o.isMesh && o.material.clippingPlanes && o.material.clippingPlanes.length && left++,
+    );
+    return { done: !g.hg.swap, left };
+  });
+  check(
+    sw.ok && sw.mid && sw.clipped > 0 && sw2.done && sw2.left === 0,
+    `換上頭部：掃描換裝（剪裁的網格 ${sw.clipped} 個），結束後材質還原、舊的機體移除`,
+  );
+  // 關閉演出：直接換
+  const off = await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.hangarFx = 'off';
+    g.save.asm.head = g.save.asm.head === 'h_lt' ? 'h_hv' : 'h_lt';
+    g.renderGarage();
+    const r = !g.hg.swap;
+    g.ctrl.hangarFx = 'full';
+    return r;
+  });
+  check(off, '整備演出關閉時直接換上');
+  // 依場合換場景（運輸艦、野戰、多人）
+  const kinds = [];
+  for (const [k, setup] of [
+    ['ship', 'g.fromHub = true'],
+    ['field', 'g.fromHub = false; g.hangarKind = () => "field"'],
+    ['multi', 'g.hangarKind = () => "multi"'],
+  ]) {
+    const r = await page.evaluate(
+      ([setup]) => {
+        const g = window.__game;
+        new Function('g', setup)(g);
+        g.hangarEnsure();
+        g.garageSlot = 'core';
+        window.__pump(2.5);
+        return g.hg.H.kind;
+      },
+      [setup],
+    );
+    kinds.push(r);
+    await page.screenshot({ path: path.join(SHOT_DIR, `hangar-${k}.png`) });
+  }
+  check(
+    kinds.join() === 'ship,field,multi',
+    `作戰室＝運輸艦、轉場整備＝野戰、多人＝多個整備位（${kinds.join('、')}）`,
+  );
+  await ctx.close();
+}
+
 async function testLabDemo(browser) {
   console.log(
     '實驗室的動作展示：清掉兩隊、28 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
@@ -15497,6 +15655,7 @@ const STEPS = [
   ['testEditorOptimize', (c) => testEditorOptimize(c.browser, c.base)],
   ['testPaint', (c) => testPaint(c.browser)],
   ['testLabDemo', (c) => testLabDemo(c.browser)],
+  ['testHangar', (c) => testHangar(c.browser)],
   ['testStyleLab', (c) => testStyleLab(c.browser)],
   // 每個內建風格 × 13 個主題要量很久，主題分成 3 組（SMOKE_ONLY=testStyleThemes 一樣跑全部）
   ...[1, 2, 3].map((i) => [

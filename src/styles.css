@@ -795,7 +795,9 @@ body.vpad #vpad .top {
 #garageMid {
   flex: 1;
   position: relative;
-  pointer-events: none;
+  pointer-events: auto; /* 拖曳繞看機體（game/hangar.js） */
+  cursor: grab;
+  touch-action: none;
 }
 #gTitle {
   padding: 14px 16px 8px;
