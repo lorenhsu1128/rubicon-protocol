@@ -808,6 +808,9 @@ Object.assign(Game.prototype, {
     }, 2600);
   },
   clearMission() {
+    // 機甲庫的維修演出（hangar.js）：記下這次出擊的損傷
+    const pl = this.player;
+    if (pl && pl.maxHp && !this.rts) this.hgLastDmg = Math.min(1, Math.max(0, 1 - pl.hp / pl.maxHp));
     if (this.rts) this.rtsClear(); // Coral 戰爭（rts.js）：輸入、迷霧、資源點的模型
     this.aiReset(); // 敵人 AI 的導演（ai-director.js）
     this.goalClear(); // 過關條件（goals.js）

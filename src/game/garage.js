@@ -314,6 +314,7 @@ Object.assign(Game.prototype, {
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
     if (swap) this.hangarSwapStart(prev, this.garageMech);
+    this.hangarAfterBuild(); // 受損的外觀與維修（hangar.js）
     this.lmGarageNote(this.garageMech, src);
     this.garageMechsUi();
     this.mpModelsUi();

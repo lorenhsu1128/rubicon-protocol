@@ -9,12 +9,17 @@ import {
   hatchOpen,
   keepAlpha,
   makeHatch,
+  makeRoofHatch,
   puff,
   removeHatch,
   robotReach,
+  spawnCart,
   tickHangar,
 } from '../render/hangar.js';
-import { isOutline } from '../render/geometry.js';
+import { START_ASM } from '../data/parts.js';
+import { PLAYER_PALS } from '../net/transports.js';
+import { gBox, gCyl, isOutline } from '../render/geometry.js';
+import { PALETTES } from '../render/materials.js';
 import { animateMech, buildMech } from '../render/mech-model.js';
 import { Game } from './game.js';
 
@@ -46,6 +51,7 @@ const ease = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 const seg = (t, a, b) => ease((t - a) / (b - a));
 // 實體換裝的時間表（秒）：接近 → 夾住 → 舊零件移走 → 新零件送來 → 鎖上 → 收回
 const RT = { grab: 0.45, out0: 0.5, out1: 1.0, in0: 1.1, in1: 1.65, lock: 1.65, back0: 1.8, end: 2.1 };
+const _tp = new THREE.Vector3();
 const sideK = (k) => (k === 'l' ? 1 : -1); // 機體轉了 180°：右手在世界的 −X
 
 Object.assign(Game.prototype, {
@@ -68,8 +74,10 @@ Object.assign(Game.prototype, {
     if (this.hg && this.hg.H.kind === kind) return;
     const s = this.garageScene;
     if (this.hg) {
+      this.hangarLaunchEnd(false);
       s.remove(this.hg.H.root);
       disposeHangar(this.hg.H);
+      for (const m of this.hg.mates || []) s.remove(m.group);
     }
     const H = buildHangar(kind);
     s.add(H.root);
@@ -99,7 +107,26 @@ Object.assign(Game.prototype, {
     this.hangarEnsure();
     this.hgAsm = null;
     this.hangarFinish();
+    this.hangarLaunchEnd(false);
     this.hg.slot = null;
+    const trans = this.hg.H.kind === 'field' && (this.camp || this.campC);
+    const k = trans
+      ? 1 - (this.campCarry().hp == null ? 1 : this.campCarry().hp)
+      : this.hgLastDmg != null
+        ? this.hgLastDmg
+        : 0.12;
+    this.hgLastDmg = null;
+    this.hg.dmgPending = { k, auto: !trans };
+  },
+  // renderGarage 建好機體之後：套上受損的外觀
+  hangarAfterBuild() {
+    const hg = this.hg;
+    if (!hg) return;
+    if (hg.dmgPending) {
+      const P = hg.dmgPending;
+      hg.dmgPending = null;
+      this.hangarDamage(P.k, P.auto);
+    } else this.hangarDamageApply();
   },
   // ---------- 鏡頭 ----------
   hangarInput() {
@@ -110,6 +137,7 @@ Object.assign(Game.prototype, {
     let pinch = 0;
     el.addEventListener('pointerdown', (e) => {
       if (this.state !== 'garage' || e.target.closest('#missionCard')) return;
+      if (this.hg && this.hg.launch) return this.hangarLaunchEnd(true); // 點一下略過出擊演出
       if (this.hg && this.hg.swap && this.hg.swap.rig) this.hangarFinish(); // 點一下略過換裝
       pts.set(e.pointerId, [e.clientX, e.clientY]);
       el.setPointerCapture(e.pointerId);
@@ -230,6 +258,18 @@ Object.assign(Game.prototype, {
       if (m) animateMech(m, dt, st);
     tickHangar(hg.H, dt, t);
     HOLO.uniforms.uT.value = t;
+    for (const m of hg.mates || []) animateMech(m, dt, st);
+    hg.mateT = (hg.mateT || 0) - dt;
+    if (hg.mateT <= 0) {
+      hg.mateT = 1;
+      this.hangarMates();
+    }
+    this.hangarRepairTick(dt, t);
+    if (hg.launch) {
+      this.hangarLaunchTick(dt);
+      this.hangarCamera(dt);
+      return;
+    }
     this.hangarHoverTick(dt);
     this.hangarSwapTick(dt);
     if (hg.slot !== this.garageSlot) {
@@ -614,5 +654,322 @@ Object.assign(Game.prototype, {
       if (o.material) o.material.dispose();
     });
     SFX.noise(0.12, 900, 0.05, 'bandpass', 'ui', 2);
+  },
+  // ---------- 受損與維修 ----------
+  // k＝受損程度 0～1：挑幾個區塊（不含武器）變黑、冒煙；auto＝稍後自動派無人機修好（否則等 hangarRepairStart）
+  hangarDamage(k, auto) {
+    const hg = this.hg,
+      m = this.garageMech;
+    this.hangarDamageClear();
+    if (!m || this.hangarFx() !== 'full' || !(k > 0.01)) return;
+    const slots = Object.keys(m.pieces)
+      .filter((s) => !/^(weapon|back)\//.test(s))
+      .sort();
+    const n = Math.max(1, Math.min(slots.length, Math.round(1 + k * 7)));
+    const pick = new Set();
+    for (let i = 0; i < n; i++) pick.add(slots[Math.floor(((i + 0.5) * slots.length) / n)]);
+    hg.dmg = {
+      spots: [...pick].map((slot) => ({ slot, done: false, puffT: Math.random() })),
+      auto: auto ? 1.2 : -1,
+      rep: false,
+    };
+    this.hangarDamageApply();
+  },
+  // 受損的區塊換成變黑的材質複本（機體重建時重新套用；換掉的零件算修好）
+  hangarDamageApply() {
+    const D = this.hg && this.hg.dmg,
+      m = this.garageMech;
+    if (!D || !m) return;
+    m.group.updateMatrixWorld(true);
+    for (const sp of D.spots) {
+      if (sp.done) continue;
+      const o = m.pieces[sp.slot];
+      if (!o) {
+        sp.done = true;
+        continue;
+      }
+      if (sp.obj === o) continue;
+      sp.obj = o;
+      sp.keep = [];
+      o.traverse((me) => {
+        if (!me.isMesh || isOutline(me.material)) return;
+        sp.keep.push([me, me.material]);
+        const f = (mt) => {
+          const c = mt.clone();
+          if (c.color) c.color.multiplyScalar(0.3);
+          if ('roughness' in c) c.roughness = 1;
+          return c;
+        };
+        me.material = Array.isArray(me.material) ? me.material.map(f) : f(me.material);
+      });
+      // 受損處：區塊外框往外（機體正面＋Z、兩側）的一點
+      const b = new THREE.Box3().setFromObject(o);
+      const c = b.getCenter(new THREE.Vector3()),
+        sz = b.getSize(new THREE.Vector3());
+      const n = new THREE.Vector3(c.x * 1.5, 0, 1).normalize();
+      sp.n = n;
+      sp.p = c.clone().add(new THREE.Vector3(n.x * sz.x * 0.45, 0, n.z * sz.z * 0.45));
+    }
+  },
+  hangarDamageRestore(sp) {
+    for (const [me, mt] of sp.keep || []) {
+      if (me.material !== mt) for (const c of [].concat(me.material)) c.dispose();
+      me.material = mt;
+    }
+    sp.keep = null;
+  },
+  hangarDamageClear() {
+    const hg = this.hg;
+    if (!hg || !hg.dmg) return;
+    for (const sp of hg.dmg.spots) if (!sp.done) this.hangarDamageRestore(sp);
+    hg.dmg = null;
+    for (const d of hg.H.drones) d.job = null;
+  },
+  hangarRepairStart() {
+    const D = this.hg && this.hg.dmg;
+    if (!D || D.rep) return;
+    D.rep = true;
+    D.queue = D.spots.filter((s) => !s.done);
+  },
+  // 無人機：飛到受損處（外側 0.75 m）電焊 0.8 秒、修好那個區塊，做完回到塔頂
+  hangarRepairTick(dt, t) {
+    const hg = this.hg,
+      H = hg.H,
+      D = hg.dmg;
+    if (D) {
+      if (D.auto > 0 && (D.auto -= dt) <= 0) this.hangarRepairStart();
+      for (const sp of D.spots) {
+        if (sp.done || !sp.p) continue;
+        sp.puffT -= dt;
+        if (sp.puffT <= 0) {
+          sp.puffT = 0.8 + Math.random() * 0.6;
+          puff(H, sp.p, 1, 0.22);
+          if (Math.random() < 0.4) emitSparks(H.sparks, sp.p, sp.n, 3);
+        }
+      }
+    }
+    const fly = (d, to, sp) => {
+      const v = to.clone().sub(d.g.position);
+      const L = v.length();
+      if (L > 1e-3) d.g.position.addScaledVector(v, Math.min(1, (sp * dt) / L));
+      return L;
+    };
+    for (const d of H.drones) {
+      if (!d.job && D && D.rep && D.queue.length) d.job = { sp: D.queue.shift(), ph: 'fly', t: 0 };
+      d.tip.visible = false;
+      if (!d.job) {
+        fly(d, d.park, 4);
+        continue;
+      }
+      const J = d.job,
+        sp = J.sp;
+      if (sp.done || !sp.p) {
+        d.job = null;
+        continue;
+      }
+      const at = sp.p
+        .clone()
+        .addScaledVector(sp.n, 0.75)
+        .add(new THREE.Vector3(0, 0.12, 0));
+      const look = Math.atan2(sp.p.x - d.g.position.x, sp.p.z - d.g.position.z);
+      d.g.rotation.y +=
+        (((look - d.g.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 8);
+      if (J.ph === 'fly') {
+        if (fly(d, at, 5) < 0.04) {
+          J.ph = 'weld';
+          J.t = 0;
+          SFX.noise(0.7, 2400, 0.025, 'highpass', 'ui');
+        }
+      } else {
+        J.t += dt;
+        d.tip.visible = Math.random() < 0.8;
+        d.tip.getWorldPosition(_tp);
+        emitSparks(
+          H.sparks,
+          _tp,
+          sp.n
+            .clone()
+            .negate()
+            .add(new THREE.Vector3(0, 0.4, 0)),
+          3,
+        );
+        if (J.t >= 0.8) {
+          sp.done = true;
+          this.hangarDamageRestore(sp);
+          puff(H, sp.p, 2, 0.3);
+          SFX.noise(0.1, 900, 0.05, 'bandpass', 'ui', 2);
+          d.job = null;
+        }
+      }
+    }
+    if (D && D.spots.every((s) => s.done)) hg.dmg = null;
+  },
+  // ---------- 補給：彈藥車／修復套件車開到機體前面 ----------
+  hangarSupply(kind) {
+    if (!this.hg || this.hangarFx() !== 'full') return;
+    const side = kind === 'kits' ? 1 : -1;
+    const c = spawnCart(this.hg.H, kind, side);
+    // 鏡頭拉遠看得到補給車（停手 4 秒後回到部位的鏡頭）
+    Object.assign(this.hg.goal, { yaw: side * 0.6, pitch: 0.15, dist: 8.5 });
+    this.hg.goal.tgt.set(side * 0.8, 1.3, 1.2);
+    this.hg.idle = 0;
+    c.onStop = (cc) => {
+      if (cc.stops++) return;
+      SFX.ui();
+      emitSparks(
+        this.hg.H.sparks,
+        cc.crate.getWorldPosition(new THREE.Vector3()),
+        new THREE.Vector3(0, 1, 0),
+        10,
+      );
+      cc.crate.visible = false; // 卸下
+    };
+  },
+  // ---------- 出擊演出：基地＝升降台上天花板、運輸艦＝彈射軌道、野戰＝推進器起飛 ----------
+  hangarLaunch(cb) {
+    const hg = this.hg,
+      m = this.garageMech;
+    if (!hg || !m || this.hangarFx() !== 'full' || this.state !== 'garage' || hg.H.kind === 'multi')
+      return cb();
+    if (hg.launch) return;
+    this.hangarFinish();
+    this.hangarPreviewClear();
+    const H = hg.H;
+    const kind = H.kind === 'ship' ? 'cat' : H.kind === 'field' ? 'boost' : 'lift';
+    const L = { kind, t: 0, T: kind === 'cat' ? 2.9 : 3.1, cb, ev: {}, m, glows: [] };
+    if (kind === 'lift') {
+      L.roof = makeRoofHatch(H, 4, 4);
+      L.plate = new THREE.Mesh(gBox(3.0, 0.12, 3.2), H.M.plate);
+      L.plate.position.set(0, 0.0, 0.1);
+      H.root.add(L.plate);
+    } else {
+      // 推進器的噴焰（加色的圓錐，沿噴口的 −Y）
+      for (const nz of m.nozzles) {
+        const g = new THREE.Mesh(gCyl(0.02, 0.1, 1, 10), glowMat(0x7fc8ff, 0.65));
+        g.position.y = -0.5;
+        const pv = new THREE.Group();
+        pv.add(g);
+        pv.scale.set(1, 0.01, 1);
+        nz.add(pv);
+        L.glows.push(pv);
+      }
+    }
+    if (!this.hgFade) {
+      const d = document.createElement('div');
+      d.id = 'hgFade';
+      d.style.cssText =
+        'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:90;transition:opacity .45s';
+      document.body.appendChild(d);
+      this.hgFade = d;
+    }
+    hg.launch = L;
+    hg.idle = 99;
+    SFX.alert();
+    SFX.noise(L.T, 110, 0.08, 'lowpass', 'ui');
+  },
+  hangarLaunchTick(dt) {
+    const hg = this.hg,
+      L = hg.launch,
+      H = hg.H,
+      m = L.m;
+    L.t += dt;
+    const t = L.t,
+      G = hg.goal;
+    const once = (k, tt, fn) => {
+      if (!L.ev[k] && t >= tt) {
+        L.ev[k] = 1;
+        fn();
+      }
+    };
+    for (const [i, c] of H.beds[0].clamps.entries())
+      c.userData.arm.position.x = (i ? 1 : -1) * 0.2 * seg(t, 0, 0.4);
+    if (L.kind === 'lift') {
+      const o = seg(t, 0.1, 0.8);
+      for (const [i, d] of L.roof.doors.entries())
+        d.position.x = (i ? 1 : -1) * (L.roof.w / 4 + (L.roof.w / 2) * o);
+      const u = Math.max(0, (t - 0.8) / 2.2);
+      const y = 17 * u * u;
+      m.group.position.y = y;
+      L.plate.position.y = y;
+      G.tgt.set(0, y + 1.8, 0);
+      Object.assign(G, { yaw: 0.45, pitch: -0.45, dist: 10 });
+      once('go', 0.8, () => SFX.tone(70, 140, 2, 0.05, 'sawtooth', 'ui'));
+    } else if (L.kind === 'cat') {
+      const o = seg(t, 0.1, 0.7);
+      if (H.gate)
+        for (const [i, d] of H.gate.doors.entries()) d.position.y = H.gate.y0[i] + (i ? 3.2 : -3.2) * o;
+      const u = Math.max(0, (t - 0.7) / 2.0);
+      const z = 17 * u * u;
+      m.group.position.z = z;
+      for (const g of L.glows) g.scale.set(1, 0.01 + seg(t, 0.4, 0.8) * 1.4, 1);
+      G.tgt.set(0, 1.8, z);
+      Object.assign(G, { yaw: 0.85, pitch: 0.1, dist: 7.5 });
+      once('go', 0.7, () => SFX.tone(120, 60, 1.6, 0.06, 'sawtooth', 'ui'));
+    } else {
+      const u = seg(t, 0.6, L.T);
+      m.group.position.y = 13 * u * u;
+      m.group.position.z = 7 * u * u;
+      for (const g of L.glows) g.scale.set(1, 0.01 + seg(t, 0.1, 0.5) * (1.2 + 0.2 * Math.sin(t * 40)), 1);
+      if (t < 1.2 && Math.random() < 0.25)
+        puff(H, new THREE.Vector3((Math.random() - 0.5) * 3, 0.15, (Math.random() - 0.5) * 3), 1, 0.3);
+      G.tgt.set(0, 1.8 + m.group.position.y * 0.8, m.group.position.z * 0.6);
+      Object.assign(G, { yaw: 0.35, pitch: -0.1, dist: 10 });
+    }
+    if (this.hgFade) this.hgFade.style.opacity = String(seg(t, L.T - 0.55, L.T - 0.05));
+    if (t >= L.T) this.hangarLaunchEnd(true);
+  },
+  // 出擊演出結束（go＝接著出擊；false＝只清掉）
+  hangarLaunchEnd(go) {
+    const hg = this.hg;
+    if (!hg || !hg.launch) return;
+    const L = hg.launch,
+      H = hg.H;
+    hg.launch = null;
+    if (L.roof) H.root.remove(L.roof.g);
+    if (L.plate) H.root.remove(L.plate);
+    for (const g of L.glows) g.parent && g.parent.remove(g);
+    if (H.gate) for (const [i, d] of H.gate.doors.entries()) d.position.y = H.gate.y0[i];
+    for (const c of H.beds[0].clamps) c.userData.arm.position.x = 0;
+    L.m.group.position.set(0, 0, 0);
+    this.hangarFocus(this.garageSlot);
+    if (!go) {
+      if (this.hgFade) this.hgFade.style.opacity = '0';
+      return;
+    }
+    if (this.hgFade) {
+      this.hgFade.style.transition = 'none';
+      this.hgFade.style.opacity = '1';
+      setTimeout(() => {
+        this.hgFade.style.transition = 'opacity .45s';
+        this.hgFade.style.opacity = '0';
+      }, 80);
+    }
+    L.cb();
+  },
+  // ---------- 多人：隊友的機體站在旁邊的整備架上（依大廳的組裝） ----------
+  hangarMates() {
+    const hg = this.hg;
+    if (!hg) return;
+    const n = this.net;
+    const list =
+      hg.H.kind !== 'multi'
+        ? []
+        : n && n.role
+          ? n.players.filter((p) => p.online && p.slot !== n.me)
+          : this.hgMatesTest || [];
+    const sig = JSON.stringify(list.map((p) => [p.slot, p.asm, p.color, p.ms]));
+    if (sig === hg.matesSig) return;
+    hg.matesSig = sig;
+    for (const m of hg.mates || []) this.garageScene.remove(m.group);
+    hg.mates = list.slice(0, 3).map((p, i) => {
+      const m = buildMech(p.asm || START_ASM, PALETTES[PLAYER_PALS[p.color]] || this.myPal(), 1, {
+        source: this.mechSource({ team: 'player', slot: p.slot, ms: p.ms || null }),
+      });
+      m.group.rotation.y = Math.PI;
+      m.group.position.x = [-6.8, 6.8, -13.6][i];
+      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...POSE, t: 0 });
+      this.garageScene.add(m.group);
+      return m;
+    });
   },
 });

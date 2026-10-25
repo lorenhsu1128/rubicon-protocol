@@ -829,6 +829,103 @@ async function testHangar(browser) {
     fieldHead.k === 'robot' && fieldHead.done,
     `野戰帳篷（沒有吊車）換頭部：改用機械臂（${fieldHead.k}）`,
   );
+  // 受損與維修：上一次出擊的損傷 → 區塊變黑冒煙 → 無人機電焊修好
+  const dmg = await page.evaluate(() => {
+    const g = window.__game;
+    g.hangarKind = () => 'base';
+    g.hgLastDmg = 0.6;
+    g.openGarage();
+    window.__pump(0.5);
+    const D = g.hg.dmg;
+    const n = D ? D.spots.length : 0;
+    const dark = D ? D.spots.filter((s) => s.keep && s.keep.length).length : 0;
+    window.__pump(2.0);
+    const flying = g.hg.H.drones.some((d) => d.job);
+    window.__pump(8);
+    const left = g.hg.dmg ? g.hg.dmg.spots.filter((s) => !s.done).length : 0;
+    const parked = g.hg.H.drones.every((d) => d.g.position.distanceTo(d.park) < 0.2);
+    return { n, dark, flying, left, parked };
+  });
+  check(
+    dmg.n >= 4 && dmg.dark === dmg.n && dmg.flying && dmg.left === 0 && dmg.parked,
+    `進機甲庫時依上一次出擊的損傷顯示受損（${dmg.n} 處），維修無人機電焊修好後回到塔頂`,
+  );
+  // 轉場整備式：受損留著，修理後才派無人機；補給車開來卸貨再開走
+  const rep2 = await page.evaluate(() => {
+    const g = window.__game;
+    g.hangarDamage(0.5, false);
+    window.__pump(3);
+    const still = g.hg.dmg && g.hg.dmg.spots.every((s) => !s.done);
+    g.hangarRepairStart();
+    window.__pump(9);
+    const fixed = !g.hg.dmg;
+    const n0 = g.hg.H.cars.length;
+    g.hangarSupply('ammo');
+    const n1 = g.hg.H.cars.length;
+    window.__pump(8);
+    return { still, fixed, cart: n1 === n0 + 1 && g.hg.H.cars.length === n0 };
+  });
+  check(rep2.still && rep2.fixed && rep2.cart, '不自動修的受損等修理才派無人機；補給車開來卸貨後離開');
+  // 出擊演出：基地＝升降台、運輸艦＝彈射、野戰＝起飛；播完才出擊、點一下略過
+  const launch = await page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    for (const k of ['base', 'ship', 'field']) {
+      g.hangarKind = () => k;
+      g.hangarEnsure();
+      g.renderGarage();
+      window.__pump(0.5);
+      let done = 0;
+      g.hangarLaunch(() => done++);
+      window.__pump(1.8);
+      const p = g.garageMech.group.position;
+      const moved = Math.hypot(p.y, p.z);
+      const early = done;
+      window.__pump(2);
+      out.push({
+        k,
+        kind: g.hg.launch ? 'busy' : 'ok',
+        moved: +moved.toFixed(1),
+        early,
+        done,
+        back: p.length() === 0,
+      });
+    }
+    g.hangarKind = () => 'base';
+    g.hangarEnsure();
+    g.renderGarage();
+    window.__skip = 0;
+    g.hangarLaunch(() => window.__skip++);
+    window.__pump(0.3);
+    return out;
+  });
+  await page.mouse.click(cx, cy);
+  const skipL = await page.evaluate(() => window.__skip === 1 && !window.__game.hg.launch);
+  check(
+    launch.every((r) => r.kind === 'ok' && r.moved > 1 && r.early === 0 && r.done === 1 && r.back) && skipL,
+    `出擊演出播完才出擊（${launch.map((r) => r.k + ' ' + r.moved + ' m').join('、')}），點一下略過` +
+      (skipL ? '' : '（略過失敗）'),
+  );
+  // 多人：隊友的機體站在旁邊的整備架上
+  const mates = await page.evaluate(() => {
+    const g = window.__game;
+    g.hangarKind = () => 'multi';
+    g.hgMatesTest = [
+      { slot: 1, asm: g.save.asm, color: 1 },
+      { slot: 2, asm: g.save.asm, color: 2 },
+    ];
+    g.hangarEnsure();
+    g.renderGarage();
+    window.__pump(1.2);
+    const M = g.hg.mates || [];
+    let inScene = 0;
+    for (const m of M) g.garageScene.traverse((o) => o === m.group && inScene++);
+    return { n: M.length, inScene, xs: M.map((m) => m.group.position.x) };
+  });
+  check(
+    mates.n === 2 && mates.inScene === 2,
+    `多人：隊友的機體站在旁邊的整備架上（x＝${mates.xs.join('、')}）`,
+  );
   await ctx.close();
 }
 

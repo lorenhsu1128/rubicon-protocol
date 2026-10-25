@@ -1189,6 +1189,7 @@ Object.assign(Game.prototype, {
     else this.writeSave();
     SFX.ui();
     this.renderGarage();
+    this.hangarSupply('kits'); // 修復套件車（hangar.js）
   },
   campWeaponDef(s) {
     return partById(s.endsWith('arm') ? 'arm' : 'back', this.save.asm[s]);
@@ -1202,6 +1203,7 @@ Object.assign(Game.prototype, {
     else this.writeSave();
     SFX.ui();
     this.renderGarage();
+    this.hangarRepairStart(); // 維修無人機（hangar.js）
   },
   campAmmo() {
     const k = this.campCosts().ammo;
@@ -1212,6 +1214,7 @@ Object.assign(Game.prototype, {
     else this.writeSave();
     SFX.ui();
     this.renderGarage();
+    this.hangarSupply('ammo'); // 彈藥車（hangar.js）
   },
   campGarageGo() {
     if (this.campIsClient()) return this.campClientReady();

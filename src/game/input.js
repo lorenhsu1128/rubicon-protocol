@@ -801,7 +801,9 @@ Object.assign(Game.prototype, {
         .catch((e) => console.warn('本地模型庫讀取失敗', e))
         .then(() => {
           this.lmBusy = false;
-          if (this.state === 'garage') this.startMission();
+          // 出擊演出（hangar.js）播完才出擊
+          if (this.state === 'garage')
+            this.hangarLaunch(() => this.state === 'garage' && this.startMission());
         });
     };
     // 主線任務模式（game/campaign.js）
@@ -862,7 +864,7 @@ Object.assign(Game.prototype, {
     $('mpSkip').onclick = () => this.campClosePick();
     $('btnCampGo').onclick = () => this.campGo();
     $('btnCampGarage').onclick = () => this.campGarage();
-    $('btnCampGo2').onclick = () => this.campGarageGo();
+    $('btnCampGo2').onclick = () => this.hangarLaunch(() => this.campGarageGo());
     $('btnCampRepair').onclick = () => this.campRepair();
     $('btnCampAmmo').onclick = () => this.campAmmo();
     $('btnCampKits').onclick = () => this.campKits();

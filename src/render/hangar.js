@@ -516,6 +516,14 @@ export function buildHangar(kind) {
     t: 0,
   };
   root.add(H.sparks.pts);
+  // 維修無人機（停在整備架的塔頂）
+  H.drones = [-1, 1].map((s) => {
+    const d = buildDrone(M);
+    d.park = new THREE.Vector3(s * 2.15, 5.75, -0.6);
+    d.g.position.copy(d.park);
+    root.add(d.g);
+    return d;
+  });
   // 換裝用的機械臂（平常收在地板下）
   H.robots = [-1, 1].map((s) => {
     const r = buildRobot(M);
@@ -535,7 +543,7 @@ export function buildHangar(kind) {
     hemi: [0xffffff, 0x334455, 0.7],
   };
   if (kind === 'base' || kind === 'multi') {
-    const W = kind === 'multi' ? 22 : 15,
+    const W = kind === 'multi' ? 24 : 15,
       Dz = -11,
       Fz = 16,
       Ht = 15;
@@ -606,7 +614,7 @@ export function buildHangar(kind) {
       }
     }
     // 背景的整備位：蓋著帆布的機體
-    const side = kind === 'multi' ? [-14, 14] : [-8.5, 8.5];
+    const side = kind === 'multi' ? [14.4] : [-8.5, 8.5];
     for (const x of side) {
       const b2 = buildBed(M, { tx: 2.0 });
       b2.g.position.set(x, 0, kind === 'multi' ? -1.5 : -4);
@@ -614,8 +622,8 @@ export function buildHangar(kind) {
       coveredMech(st, M, x, kind === 'multi' ? -1.6 : -4.1);
     }
     if (kind === 'multi')
-      // 隊友的整備位（第三期放隊友的機體）
-      for (const x of [-6.8, 6.8]) {
+      // 隊友的整備位（game/hangar.js 的 hangarMates 依大廳的組裝放隊友的機體）
+      for (const x of [-6.8, 6.8, -13.6]) {
         const b2 = buildBed(M);
         b2.g.position.set(x, 0, 0);
         root.add(b2.g);
@@ -642,6 +650,7 @@ export function buildHangar(kind) {
     });
     H.beacons.push(tug.beacon);
     L.fog = [0x161b22, 20, 52];
+    H.ceil = Ht;
   } else if (kind === 'ship') {
     const W = 9,
       Dz = -8,
@@ -677,8 +686,23 @@ export function buildHangar(kind) {
     B(st, M.wall2, (W - 3) * 2 + 0.6, 0.2, Fz - Dz, 0, Ht + 0.3, (Fz + Dz) / 2);
     B(st, M.wall, W * 2, Ht, 0.3, 0, Ht / 2, Dz);
     B(st, M.wall, W * 2, Ht, 0.3, 0, Ht / 2, Fz);
-    // 前方（彈射口）的閘門：有斜紋的大門
-    B(st, M.stripe, 6, 0.4, 0.05, 0, 6.4, Fz - 0.2);
+    // 前方（彈射口）的閘門：兩片門往上下打開，外面是天空（出擊演出）
+    B(st, M.stripe, 6.4, 0.4, 0.05, 0, 6.4, Fz - 0.4);
+    {
+      const gct = cloudTex();
+      H.scroll.push(gct);
+      const sky = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.MeshBasicMaterial({ map: gct }));
+      sky.position.set(0, 3, Fz - 0.1);
+      sky.rotation.y = Math.PI;
+      root.add(sky);
+      const doors = [0, 1].map((i) => {
+        const d = new THREE.Mesh(gBox(6.2, 3.1, 0.25), M.wall2);
+        d.position.set(0, i ? 4.55 : 1.55, Fz - 0.3);
+        root.add(d);
+        return d;
+      });
+      H.gate = { doors, y0: [1.55, 4.55] };
+    }
     // 舷窗：右舷三扇，外面是雲海（捲動的貼圖）
     const ct = cloudTex();
     const win = new THREE.MeshBasicMaterial({ map: ct });
@@ -1045,8 +1069,13 @@ export function tickHangar(H, dt, t) {
       d = Math.hypot(dx, dz);
     if (c.wait > 0) c.wait -= dt;
     else if (d < 0.1) {
+      if (c.temp && c.i === c.path.length - 1) {
+        c.done = true;
+        continue;
+      }
       c.i = (c.i + 1) % c.path.length;
-      c.wait = 2.5;
+      c.wait = c.temp ? 1.2 : 2.5;
+      if (c.temp && c.onStop) c.onStop(c);
     } else {
       const ty = Math.atan2(-dx, -dz); // 車頭朝 −Z
       c.yaw += angTo(c.yaw, ty) * Math.min(1, dt * 2.5);
@@ -1056,6 +1085,12 @@ export function tickHangar(H, dt, t) {
     }
     c.g.rotation.y = c.yaw;
   }
+  for (const c of H.cars.filter((c) => c.done)) {
+    H.root.remove(c.g);
+    H.beacons = H.beacons.filter((b) => b !== c.beacon);
+  }
+  H.cars = H.cars.filter((c) => !c.done);
+  for (const d of H.drones) tickDrone(d, dt, t);
   for (const b of H.beacons) {
     if (b.spin) b.spin.rotation.y = t * 3.2;
     else if (b.material) b.material.opacity = 0.35 + 0.65 * (Math.sin(t * 8) > 0 ? 1 : 0);
@@ -1156,6 +1191,104 @@ export function robotReach(r, p) {
   r.sh.rotation.x = -a1;
   r.el.rotation.x = Math.PI - a2;
   for (const [i, f] of r.fingers.entries()) f.position.x = (i ? 1 : -1) * (0.1 + 0.08 * (1 - r.grip));
+}
+// ---------- 維修無人機：四旋翼＋焊槍，會飛到受損處電焊 ----------
+function buildDrone(M) {
+  const g = new THREE.Group();
+  const b = new THREE.Group();
+  g.add(b);
+  B(b, M.dark, 0.42, 0.14, 0.42, 0, 0, 0);
+  B(b, M.crane, 0.3, 0.06, 0.3, 0, 0.09, 0);
+  for (const [x, z] of [
+    [-0.3, -0.3],
+    [0.3, -0.3],
+    [-0.3, 0.3],
+    [0.3, 0.3],
+  ]) {
+    beam(b, M.dark, [0, 0, 0], [x, 0.02, z], 0.04);
+    P(b, gCyl(0.06, 0.06, 0.06, 8), M.dark, x, 0.04, z);
+  }
+  B(b, M.frame, 0.06, 0.06, 0.3, 0, -0.1, 0.18); // 焊槍
+  bakeStatic(b, true);
+  const rotors = [
+    [-0.3, -0.3],
+    [0.3, -0.3],
+    [-0.3, 0.3],
+    [0.3, 0.3],
+  ].map(([x, z]) => {
+    const r = new THREE.Mesh(gBox(0.32, 0.01, 0.04), glowMat(0x9aa4ae, 0.5));
+    r.position.set(x, 0.08, z);
+    g.add(r);
+    return r;
+  });
+  const tip = new THREE.Mesh(gSph(0.035, 6), glowMat(0x9fd8ff, 1));
+  tip.position.set(0, -0.1, 0.34);
+  tip.visible = false;
+  g.add(tip);
+  const led = new THREE.Mesh(gSph(0.03, 6), glowMat(0x40ff80, 1));
+  led.position.set(0, 0.0, -0.22);
+  g.add(led);
+  return { g, rotors, tip, led, yaw: 0 };
+}
+export function tickDrone(d, dt, t) {
+  for (const [i, r] of d.rotors.entries()) r.rotation.y = t * 40 + i;
+  d.g.position.y += Math.sin(t * 3 + d.park.x) * 0.002;
+  d.led.visible = Math.sin(t * 6) > 0;
+}
+// ---------- 補給車：從場邊開到機體前面停一下再開回去（彈藥箱／修復套件箱） ----------
+export function spawnCart(H, kind, side = 1) {
+  const t = buildTug(H.M, kind === 'kits' ? 0xb8b8b8 : 0x5a6a48);
+  const crate = new THREE.Mesh(
+    gBox(0.9, 0.55, 0.8),
+    std(kind === 'kits' ? 0xd8dcdc : 0x6a7a4a, 0.7, 0.1, { emissive: kind === 'kits' ? 0x300000 : 0x000000 }),
+  );
+  crate.position.set(0, 1.5, 0.6);
+  t.g.add(crate);
+  if (kind === 'kits') {
+    const cr = new THREE.Mesh(gBox(0.5, 0.15, 0.02), glowMat(0xff3030, 1));
+    cr.position.set(0, 1.55, 1.01);
+    const cr2 = new THREE.Mesh(gBox(0.15, 0.5, 0.02), glowMat(0xff3030, 1));
+    cr2.position.copy(cr.position);
+    t.g.add(cr, cr2);
+  }
+  t.g.scale.setScalar(0.85);
+  const a = [side * 7.5, 3.2],
+    b = [side * 1.7, 2.1];
+  t.g.position.set(a[0], 0, a[1]);
+  H.root.add(t.g);
+  const c = {
+    ...t,
+    crate,
+    kind,
+    path: [b, a],
+    i: 0,
+    v: 4.5,
+    yaw: side > 0 ? -Math.PI / 2 : Math.PI / 2,
+    wait: 0,
+    temp: true,
+    stops: 0,
+  };
+  c.g.rotation.y = c.yaw;
+  H.cars.push(c);
+  H.beacons.push(t.beacon);
+  return c;
+}
+// ---------- 出擊：天花板的開口（往上打開，外面是亮的天空） ----------
+export function makeRoofHatch(H, w, d) {
+  const g = new THREE.Group();
+  g.position.y = H.ceil - 0.2;
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: 0xdfeaf5 }));
+  sky.rotation.x = Math.PI / 2;
+  sky.position.y = -0.02;
+  g.add(sky);
+  const doors = [-1, 1].map((s) => {
+    const m = new THREE.Mesh(gBox(w / 2, 0.2, d), H.M.wall2);
+    m.position.set((s * w) / 4, -0.15, 0);
+    g.add(m);
+    return m;
+  });
+  H.root.add(g);
+  return { g, sky, doors, w };
 }
 // ---------- 地板的開口：兩片門往兩側滑開，下面是黑的（地板下的東西本來就被地板擋住） ----------
 export function makeHatch(H, x, z, w, d) {
