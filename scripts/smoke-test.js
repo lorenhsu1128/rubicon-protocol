@@ -673,7 +673,7 @@ async function testStyleLab(browser) {
           const w = e.weapons[k + 'arm'];
           if (!w || w.dropped || w.def.type === 'melee' || e.melee.active || e.boost || e.staggerT > 0)
             continue;
-          const a = e.model.arms[k].weapon;
+          const a = e.model.arms[k].aim || e.model.arms[k].weapon; // 槍管（有持握角度時是 aim）
           const H = a.getWorldPosition(V());
           const f = new THREE.Vector3(0, 0, -1).applyQuaternion(a.getWorldQuaternion(q));
           out.err.push(f.angleTo(e.aimPoint().sub(H)));
@@ -1664,6 +1664,131 @@ async function testRefTools(browser, base) {
     }),
     '匯入的模型組帶回參考圖',
   );
+  await ctx.close();
+}
+
+async function testMotion(browser, base) {
+  console.log(
+    '動作編輯：近戰招式的關鍵影格（武器的連段、新增關鍵影格、改關節、原始與彈簧、左手鏡像、新片段、存到瀏覽器、匯出、單人遊戲使用）',
+  );
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
+  const page = await ctx.newPage();
+  watch(page, 'motion');
+  page.on('dialog', (d) => d.accept());
+  await page.goto(base + 'model-library.html?test#motion');
+  await page.waitForFunction(() => window.__motion && window.__motion.rig, null, { timeout: 30000 });
+  check(await page.evaluate(() => !document.getElementById('motion').hidden), '網址 #motion 開啟動作編輯頁');
+  await page.selectOption('#moWpn', 'w_blade');
+  await wait(800);
+  check((await page.$$eval('#moStages .moStage', (a) => a.length)) === 3, '脈衝刀列出 3 段招式');
+  const r = await page.evaluate(() => {
+    const m = window.__motion;
+    m.stage = 0;
+    m.selectStage();
+    const n0 = m.clip().keys.length;
+    m.ph = 0.5;
+    document.getElementById('moAddKey').click();
+    const key = m.key();
+    const inp = document.querySelector('#moJoints input[type="number"][data-j="upR"][data-n="0"]');
+    inp.value = 120;
+    inp.dispatchEvent(new Event('input'));
+    return { n0, n: m.clip().keys.length, t: key.t, up: key.p.upR[0], custom: !!m.data.clips[m.clipId()] };
+  });
+  check(r.n === r.n0 + 1 && r.t === 0.5, `在目前時間新增關鍵影格（${r.n0} → ${r.n} 個）`);
+  check(r.up === 120 && r.custom, '改關節的值：預設片段複製成覆寫');
+  const raw = await page.evaluate(() => {
+    const m = window.__motion;
+    document.getElementById('moSpring').click();
+    m.ph = 0.5;
+    m.pose();
+    return m.rig.arms.r.up.rotation.x;
+  });
+  check(Math.abs(raw - (120 * Math.PI) / 180) < 1e-3, '原始模式：右上臂照關鍵影格（120°）');
+  const spr = await page.evaluate(() => {
+    const m = window.__motion;
+    document.getElementById('moSpring').click();
+    m.ph = 0.5;
+    m.simT = -1;
+    m.pose();
+    return m.rig.arms.r.up.rotation.x;
+  });
+  check(
+    Math.abs(spr - raw) < 0.6 && Math.abs(spr - raw) > 1e-4,
+    '彈簧模式：遊戲中的樣子（跟著片段、有慣性）',
+  );
+  const mir = await page.evaluate(async () => {
+    const m = window.__motion;
+    document.getElementById('moSpring').click();
+    const lh = document.getElementById('moLeftHand');
+    lh.click();
+    await new Promise((res) => setTimeout(res, 1500));
+    m.ph = 0.5;
+    m.pose();
+    const v = m.rig.arms.l.up.rotation.x;
+    lh.click();
+    document.getElementById('moSpring').click();
+    await new Promise((res) => setTimeout(res, 1500));
+    return v;
+  });
+  check(Math.abs(mir - (120 * Math.PI) / 180) < 1e-3, '左手武器：左右鏡像（左上臂 120°）');
+  const nw = await page.evaluate(() => {
+    const m = window.__motion;
+    m.stage = 2;
+    m.selectStage();
+    document.getElementById('moName').value = '測試突刺';
+    document.getElementById('moNew').click();
+    return { id: m.clipId(), name: m.clip().name, map: m.data.map.w_blade };
+  });
+  check(nw.name === '測試突刺' && nw.map && nw.map[2] === nw.id, '複製成新片段並套用到第 3 段');
+  await page.click('#moSave');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('rubicon_melee_anim') || 'null'));
+  check(
+    !!saved && saved.clips.slash && saved.clips.slash.keys.length === r.n && saved.clips[nw.id],
+    '存到瀏覽器（rubicon_melee_anim）',
+  );
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#moExport')]);
+  const fp = path.join(SHOT_DIR, 'motion-melee.json');
+  await dl.saveAs(fp);
+  const ex = JSON.parse(fs.readFileSync(fp, 'utf8'));
+  check(ex.v === 1 && !!ex.clips.slash && ex.map.w_blade[2] === nw.id, '匯出 melee.json');
+  await page.evaluate(() => {
+    const m = window.__motion;
+    m.stage = 0;
+    m.selectStage();
+    m.ph = 0.5;
+    m.pose();
+    m.renderTime();
+  });
+  await wait(400);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'motion.png') });
+  // 遊戲（同一個瀏覽器環境）：單人出擊時近戰用瀏覽器的版本（右上臂舉到 120° 附近）
+  const g = await ctx.newPage();
+  watch(g, 'motion-game');
+  await g.goto(base + '?test');
+  await waitVisible(g, 'title');
+  await g.evaluate(async () => {
+    const G = window.__game;
+    await G.lmRefresh();
+    G.save.level = 1;
+    G.startMission();
+  });
+  await freezeLoop(g);
+  const up = await g.evaluate(() => {
+    const G = window.__game,
+      pl = G.player;
+    G.enemies.length = 0;
+    G.waves = [];
+    G.wavePend = null;
+    pl.asm.rarm = 'w_blade';
+    pl.swapModel();
+    pl.initWeapons();
+    window.__pump(0.5);
+    pl.startMeleeStage('rarm', 0, pl.pos.clone().add(new THREE.Vector3(0, 2, -10)), null);
+    window.__pump(pl.weapons.rarm.def.combo[0].dur * 0.5 + 0.02);
+    return pl.model.arms.r.up.rotation.x;
+  });
+  check(up > 1.75, `單人遊戲的近戰用瀏覽器裡的動作（右上臂 ${((up * 180) / Math.PI).toFixed(0)}°）`);
   await ctx.close();
 }
 
@@ -15257,6 +15382,7 @@ const STEPS = [
   ['testFoeModelsD1', (c) => testFoeModelsD1(c.browser, c.base)],
   ['testLibraryGlb', (c) => testLibraryGlb(c.browser, c.base)],
   ['testRefTools', (c) => testRefTools(c.browser, c.base)],
+  ['testMotion', (c) => testMotion(c.browser, c.base)],
   [
     'testDraco',
     async (c) => {

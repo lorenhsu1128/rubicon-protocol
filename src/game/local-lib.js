@@ -10,6 +10,7 @@ import { checkGlb } from '../render/glb.js';
 import { measureBox } from '../render/measure.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { PIECE_ORIGIN } from '../render/mech-model.js';
+import { MeleeAnim } from '../render/melee-anim.js';
 import { setModelProvider } from '../render/model-provider.js';
 import { SFX } from '../audio/audio.js';
 import { partById } from '../data/parts.js';
@@ -70,6 +71,7 @@ Object.assign(Game.prototype, {
   //   再來是伺服器預設組；多人只用伺服器預設組（各端一致）
   lmInit() {
     LocalModels.allow = () => !(this.net && this.net.role);
+    MeleeAnim.allowLocal = LocalModels.allow; // 模型庫動作編輯器的近戰動作：只在單人時用
     LocalModels.applyJoints();
     setModelProvider((slot, pal, unique) => {
       if (!onServer()) return LocalModels.model(slot, pal, unique);
@@ -146,6 +148,7 @@ Object.assign(Game.prototype, {
   // 自動讀取時只有需要解析檔案才顯示進度條
   // 內建預設機甲和本地模型庫同時讀（內建的 GLB 很多、解析要好幾秒，不擋住本地模型庫的結果），回傳前等兩邊都好
   async lmRefresh(manual = false) {
+    MeleeAnim.reloadLocal();
     const builtin = BuiltinMech.load();
     await this.srvRefresh();
     if (!LocalModels.active()) {

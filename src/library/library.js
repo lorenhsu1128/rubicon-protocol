@@ -9,6 +9,7 @@ import { COMPOSE_CATS } from './stage.js';
 import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
 import { GlbEditor } from './editor.js';
+import { MotionEditor } from './motion.js';
 import { SetMenu } from './model-sets.js';
 import { PaintLink } from './paint-link.js';
 import { SERVER_SET, setScoped } from '../render/local-models.js';
@@ -75,11 +76,19 @@ function onSetSwitch() {
   for (const e of MODEL_CATALOG) if (all || e.cat === 'mech' || setScoped(e.id)) grid.refresh(e.id);
   if (inspector.open_) inspector.rebuild();
   workshop.useSet();
+  motion.useSet();
   if (editor.open_) editor.ref.load().then(() => editor.ctx.build());
   applyFilter();
 }
 
-let grid, inspector, workshop, editor, setMenu;
+let grid, inspector, workshop, editor, motion, setMenu;
+// 動作編輯：網址 #motion
+function openMotion() {
+  if (inspector.open_) inspector.close();
+  grid.paused = true;
+  history.replaceState(null, '', '#motion');
+  motion.open();
+}
 function openWorkshop() {
   grid.paused = true;
   history.replaceState(null, '', '#workshop');
@@ -96,6 +105,7 @@ function openEntry(entry) {
   // 從編輯頁、組裝調整頁以網址切換到模型時，先關掉全螢幕頁面
   if (editor.open_) editor.close();
   if (workshop.open_) workshop.close();
+  if (motion.open_) motion.close();
   grid.paused = true;
   history.replaceState(null, '', '#' + entry.id);
   inspector.open(entry, grid.palKey);
@@ -112,11 +122,13 @@ function renderTabs() {
       )
       .join('') +
     `<button data-c="workshop" class="wsTab" title="自由預組機甲，在整台機甲上調整連接點">組裝調整</button>` +
+    `<button data-c="motion" class="wsTab edTab" title="近戰招式的關鍵影格">動作編輯</button>` +
     `<button data-c="editor" class="wsTab edTab" title="修正 GLB 的朝向、尺寸、原點與節點">GLB 編輯</button>`;
   for (const b of $('tabs').querySelectorAll('button'))
     b.onclick = () => {
       if (b.dataset.c === 'workshop') return openWorkshop();
       if (b.dataset.c === 'editor') return openEditor(null);
+      if (b.dataset.c === 'motion') return openMotion();
       state.cat = b.dataset.c;
       renderTabs();
       applyFilter();
@@ -293,6 +305,15 @@ async function main() {
     },
   });
   if (/[?&]test\b/.test(location.search)) window.__workshop = workshop;
+  motion = new MotionEditor({
+    store,
+    toast,
+    onClose: () => {
+      grid.paused = false;
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    },
+  });
+  if (/[?&]test\b/.test(location.search)) window.__motion = motion;
   // 貼圖繪製：存回時和拖曳替換一樣更新格子與檢視窗
   paint = new PaintLink({
     store,
@@ -346,6 +367,10 @@ async function main() {
     }
     if (id === 'workshop') {
       if (!workshop.open_) openWorkshop();
+      return;
+    }
+    if (id === 'motion') {
+      if (!motion.open_) openMotion();
       return;
     }
     const entry = id && MODEL_CATALOG.find((e) => e.id === id);

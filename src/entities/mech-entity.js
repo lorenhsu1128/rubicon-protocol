@@ -33,8 +33,10 @@ import {
   SUP_SPREAD,
 } from '../data/ai.js';
 import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
+import { MeleeAnim } from '../render/melee-anim.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikMeasure, ikOn, ikRestore } from '../render/mech-ik.js';
+import { fireClass } from '../render/mech-fire.js';
 import { mergeRig } from '../render/mesh-merge.js';
 import { mergeRtsRig } from '../render/rts-merge.js';
 import { nozzleFrom, nozzleWorld } from '../fx/thruster.js';
@@ -48,6 +50,13 @@ let MECH_ID = 0;
 const _rwM = new THREE.Matrix4(),
   _nzM = new THREE.Matrix4(); // thrusterFx 的暫存
 
+// 射擊動作的武器槽位：[武器槽, 動作的鍵, 肩上武器]
+const ANIM_SLOTS = [
+  ['rarm', 'r', false],
+  ['larm', 'l', false],
+  ['rback', 'br', true],
+  ['lback', 'bl', true],
+];
 export class MechEntity {
   constructor(game, asm, pal, opts = {}) {
     this.game = game;
@@ -174,7 +183,24 @@ export class MechEntity {
       dyaw,
       landV: this.landV || 14,
       heavy: this.animHeavy,
+      ...this.animWeapons(),
     };
+  }
+  // 射擊動作要的武器狀態：各槽位的動作種類（render/mech-fire.js）、蓄力進度、換彈（0→1→0）
+  animWeapons() {
+    const wk = {},
+      ch = { l: 0, r: 0 },
+      rl = { l: 0, r: 0 };
+    for (const [slot, k, back] of ANIM_SLOTS) {
+      const w = this.weapons[slot];
+      if (!w || w.dropped || !w.def) continue;
+      wk[k] = fireClass(w.def, back);
+      if (back) continue;
+      if (w.def.chargeT > 0 && w.charge > 0) ch[k] = clamp(w.charge / w.def.chargeT, 0, 1);
+      if (w.reloadT > 0 && w.def.reload > 0)
+        rl[k] = Math.sin(Math.PI * clamp(1 - w.reloadT / w.def.reload, 0, 1));
+    }
+    return { wk, ch, rl };
   }
   leanTilt() {
     const l = this.leanX || 0;
@@ -479,6 +505,8 @@ export class MechEntity {
           g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
           SFX.shot('grenade', undefined, SP);
           w.cd = d.rof;
+          this.recoil[w.side > 0 ? 'r' : 'l'] = 1;
+          if (slot.endsWith('back')) this.recoil[w.side > 0 ? 'br' : 'bl'] = 1;
           if (this.isPlayer) {
             g.camShake = Math.max(g.camShake, 0.12);
             g.rumble(0.8, 0.4, 180);
@@ -1754,6 +1782,7 @@ export class MechEntity {
                   ph: clamp(this.melee.t / st2.dur, 0, 1),
                   mirror: !!st2.mirror,
                   side: this.melee.slot === 'rarm' ? 1 : -1,
+                  clip: MeleeAnim.clipFor(d, this.melee.stage),
                 };
               })()
             : null,

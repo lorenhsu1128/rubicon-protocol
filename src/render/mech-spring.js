@@ -25,6 +25,18 @@ export function spring(obj, key, to, w, z, dt) {
   v[i] = vv;
 }
 
+// 給彈簧一個衝量（速度加 dv）：開火的後座、受擊
+export function kick(obj, key, dv) {
+  let v = VEL.get(obj);
+  if (!v) VEL.set(obj, (v = [0, 0, 0]));
+  v[AX[key]] += dv;
+}
+
+// 清掉速度（模型庫的動作編輯器從頭模擬時）
+export function springClear(obj) {
+  VEL.delete(obj);
+}
+
 // 依機體重量（0 輕～1 重）調整的彈簧參數 [w, z]：重的慢一點、過衝稍大
 export function springSet(heavy) {
   const k = 1 - 0.3 * heavy;
@@ -37,5 +49,6 @@ export function springSet(heavy) {
     arm: [24 * k, 0.55],
     head: [15 * k, 0.6],
     snap: [44, 0.42], // 近戰揮擊：爆發、明顯過衝
+    clip: [70, 0.62], // 近戰的關鍵影格：緊跟著片段
   };
 }

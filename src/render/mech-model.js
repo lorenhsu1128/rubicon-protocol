@@ -25,7 +25,9 @@ import { jointSetting, resolveConn, withJoints } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
 import { tagStyle } from './style/shader.js';
-import { spring, springSet } from './mech-spring.js';
+import { kick, spring, springSet } from './mech-spring.js';
+import { FIRE } from './mech-fire.js';
+import { MJ_AXES, clipPose, clipTarget } from './melee-anim.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -2148,7 +2150,16 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     place(hand, ap('hand'));
     const weapon = joint(mountAt(hand, ap('hand'), 'grip'));
     const wi = bySlot((i) => i.cat === 'weapon' && i.key === k);
-    if (wi) place(weapon, wi);
+    // 持握角度：武器槽位的關節設定 hold（以握點為中心轉動武器，讓槍身避開前臂；手臂瞄準 IK 以它的 −Z 當槍管）
+    let aim = weapon;
+    if (wi) {
+      const h = resolveConn(wi.slot, 'hold');
+      aim = new THREE.Group();
+      aim.position.copy(h.p);
+      aim.rotation.copy(h.r);
+      weapon.add(aim);
+      place(aim, wi);
+    }
     up.rotation.order = 'ZYX';
     up.rotation.x = 0.35;
     fore.rotation.x = 1.2;
@@ -2164,6 +2175,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       fore,
       hand,
       weapon,
+      aim,
       back,
       spin,
       spinV: 0,
@@ -2349,6 +2361,8 @@ function groundNow(rig) {
 }
 
 const SPIN_MAX = 32; // 槍管全速（rad/s）
+const NO_WK = {},
+  NO_LR = { l: 0, r: 0 };
 export function animateMech(m, dt, st) {
   const t = st.t;
   const k = Math.min(1, dt * 14),
@@ -2421,7 +2435,25 @@ export function animateMech(m, dt, st) {
   const fwdV = st.fwd || 0; // 前進速度比例（-1 後退 ~ 1 前進，機體座標）
   const ML = st.melee; // 近戰姿勢 {kind, ph, mirror, side}
   const SP = springSet(clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1));
-  const S = (o, key, to, p) => spring(o, key, to, p[0], p[1], dt);
+  // 近戰的關鍵影格（melee-anim.js）：片段寫到的關節改成跟著片段（比較硬的彈簧 SP.clip），其他照程式算的姿勢
+  let CP = null,
+    CO = null;
+  if (ML && ML.clip) {
+    CP = clipPose(ML.clip, ML.ph, ML.side < 0);
+    CO = new Map();
+    for (const j in CP) {
+      const tg = clipTarget(m, j);
+      if (!tg || tg.kind !== 'rot') continue;
+      const ov = CO.get(tg.o) || {};
+      MJ_AXES[j].forEach((ax, n) => (ov[ax] = CP[j][n]));
+      CO.set(tg.o, ov);
+    }
+  }
+  const S = (o, key, to, p) => {
+    const ov = CO && CO.get(o);
+    if (ov && ov[key] !== undefined) spring(o, key, ov[key], SP.clip[0], SP.clip[1], dt);
+    else spring(o, key, to, p[0], p[1], dt);
+  };
   const ek = (r) => Math.min(1, dt * r);
   const legged = m.type === 'biped' || m.type === 'reverse';
   const grounded = !!st.grounded,
@@ -2476,7 +2508,47 @@ export function animateMech(m, dt, st) {
   const lDur = 0.2 + 0.25 * an.landK;
   const squat = land < lDur ? Math.sin((land / lDur) * Math.PI) * 0.62 * an.landK : 0; // 落地蹲踞：壓下再彈回
   const runK = grounded && moving ? clamp((vr - 0.4) / 0.4, 0, 1) * (1 - an.gW) : 0; // 跑步的程度（走路 0）
-  const crouch = (0.05 * an.gW + 0.08 * an.bW + 0.06 * an.qW) * (grounded ? 1 : 0); // 滑行／煞車／QB 的壓低（屈膝的部分由 IK 壓低骨盆）
+  // ===== 射擊動作（mech-fire.js）：開火瞬間給彈簧衝量（手臂／肩上武器上跳在 IK 之後套用）、撐住下盤、蓄力、換彈 =====
+  if (!an.kk) {
+    an.kk = { l: { x: 0 }, r: { x: 0 }, bl: { x: 0 }, br: { x: 0 } };
+    an.rec0 = { l: 0, r: 0, bl: 0, br: 0 };
+    an.brace = 0;
+    an.brW = 0;
+    an.jit = 0;
+  }
+  {
+    const WK = st.wk || NO_WK,
+      hk = 1 - 0.35 * clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1);
+    const shot = (s) => {
+      const rec = (st.recoil && st.recoil[s]) || 0,
+        F = FIRE[WK[s]],
+        on = F && rec > an.rec0[s] + 0.04;
+      an.rec0[s] = rec;
+      if (!on) return false;
+      kick(an.kk[s], 'x', (F.arm || F.back || 0) * hk);
+      kick(m.torso.rotation, 'x', F.torso * hk);
+      if (F.brace) an.brace = Math.max(an.brace, F.brace);
+      if (F.jit) an.jit = 0.12;
+      return true;
+    };
+    // 肩上武器開火時手臂的後座量也會跳（同一側），那一格不算手臂開火
+    const bl = shot('bl'),
+      br = shot('br');
+    if (bl) an.rec0.l = (st.recoil && st.recoil.l) || 0;
+    else shot('l');
+    if (br) an.rec0.r = (st.recoil && st.recoil.r) || 0;
+    else shot('r');
+    for (const s of ['l', 'r', 'bl', 'br']) spring(an.kk[s], 'x', 0, 34, 0.3, dt);
+    an.brace = Math.max(0, an.brace - dt);
+    an.jit = Math.max(0, an.jit - dt);
+    an.ch = st.ch || NO_LR;
+    an.rl = st.rl || NO_LR;
+  }
+  const chg = Math.max(an.ch.l, an.ch.r);
+  an.brW = lerp(an.brW, an.brace > 0 || chg > 0.05 ? 1 : 0, ek(an.brace > 0 ? 18 : 5));
+  const crouch =
+    (0.05 * an.gW + 0.08 * an.bW + 0.06 * an.qW + 0.05 * an.brW) * (grounded ? 1 : 0) +
+    (CP && CP.drop ? CP.drop[0] : 0); // 滑行／煞車／QB 的壓低（屈膝的部分由 IK 壓低骨盆）
   // ===== 上下半身分離：下半身（legsG）朝移動方向，上半身照舊朝機體正面（準星）=====
   const mvA = Math.atan2(strafe, fwdV); // 移動方向（相對機體正面，正值＝strafe 的方向）
   if (legged || m.type === 'tank') {
@@ -2591,6 +2663,9 @@ export function animateMech(m, dt, st) {
         kn += an.bW * (lead ? -0.25 : -0.75);
         ft += an.bW * (lead ? -0.15 : 0.5);
       }
+      // 撐住下盤（重武器、連射、蓄力）：屈膝、兩腳張開
+      kn -= 0.22 * an.brW;
+      abd += L.side * 0.06 * an.brW;
       th += squat * 0.55;
       kn -= squat * 1.0;
       ft += squat * 0.45;
@@ -2688,13 +2763,16 @@ export function animateMech(m, dt, st) {
     clamp(st.leanX || 0, -0.4, 0.4) * 0.45 +
     an.bW * 0.2 +
     an.qW * (-0.42 * Math.max(0, an.qF) + 0.3 * Math.max(0, -an.qF)) +
-    (!grounded && an.jumpT < 0.14 ? 0.12 : 0);
+    (!grounded && an.jumpT < 0.14 ? 0.12 : 0) -
+    0.05 * an.brW +
+    0.12 * chg; // 撐住時往前壓、蓄力時後仰
   // 側傾：側移、滑行、側衝時往移動方向傾（strafe 的反向）
   let tZ =
     -strafe * 0.14 -
     (grounded && moving ? Math.sin(gp) * 0.03 * (1 - an.gW) : 0) -
     strafe * 0.12 * an.gW -
-    an.qS * 0.38 * an.qW;
+    an.qS * 0.38 * an.qW +
+    (an.jit > 0 ? Math.sin(t * 70) * 0.025 : 0); // 連射的震動
   let tYoff = 0; // 上半身另外扭轉（近戰招式）
   if (ML) {
     const ph = ML.ph,
@@ -2712,9 +2790,14 @@ export function animateMech(m, dt, st) {
       tX = ph < 0.3 ? 0.1 : -0.3;
     }
   }
+  if (CP && CP.twist) tYoff = CP.twist[0];
   S(m.torso.rotation, 'x', tX, ML ? SP.snap : SP.torso);
   S(m.torso.rotation, 'z', tZ, SP.torso);
-  m.torsoTwist = lerp(m.torsoTwist || 0, tYoff, Math.min(1, dt * 18));
+  // 上半身扭轉（近戰）：迴旋斬轉完一圈之後換回 ±180° 以內，不倒轉回去
+  const tw = an.tw || (an.tw = { y: m.torsoTwist || 0 });
+  if (!ML && Math.abs(tw.y) > Math.PI) tw.y -= Math.PI * 2 * Math.round(tw.y / (Math.PI * 2));
+  S(tw, 'y', tYoff, CP && CP.twist ? SP.clip : SP.snap);
+  m.torsoTwist = tw.y;
   // ===== 頭：偏航領先軀幹看向目標、俯仰跟瞄準、側傾隨機體傾斜 =====
   if (m.head) {
     m.head.rotation.order = 'YXZ';
@@ -2783,6 +2866,8 @@ export function animateMech(m, dt, st) {
       (!grounded ? 0.15 : 0) +
       (grounded && moving && !firing ? 0.25 + 0.2 * runK : 0) -
       0.3 * an.gW * free;
+    up -= 0.2 * an.rl[kk]; // 換彈：手放低、手肘彎
+    foreT += 0.5 * an.rl[kk];
     if (ML) {
       const ph = ML.ph,
         s = ML.mirror ? -1 : 1;
@@ -2827,6 +2912,10 @@ export function animateMech(m, dt, st) {
     S(a.up.rotation, 'x', up, ML ? SP.snap : SP.arm);
     S(a.fore.rotation, 'x', foreT, ML ? SP.snap : SP.arm);
     S(a.fore.rotation, 'y', firing ? side * 0.08 : 0, SP.arm);
+    // 換彈：槍往下、往內翻（an.rl＝0～1～0）
+    const rl = an.rl[kk];
+    S(a.weapon.rotation, 'z', side * 0.6 * rl, SP.arm);
+    S(a.weapon.rotation, 'x', -0.45 * rl, SP.arm);
   }
   // ===== 失衡傾倒 =====
   const kd = st.knock || 0;

@@ -169,6 +169,78 @@
       </div>
     </section>
 
+    <section id="motion" hidden>
+      <header class="wsTop">
+        <b>動作編輯</b>
+        <span class="dim small"
+          >近戰招式的關鍵影格：存到瀏覽器＝單人遊戲使用；匯出 melee.json 放回 src/assets/anims/
+          成為內建（多人也用）</span
+        >
+        <span class="sp"></span>
+        <button id="moBack" title="回到格狀檢視（Esc）">← 回模型庫</button>
+      </header>
+      <div class="wsBody">
+        <aside id="moLeft">
+          <h3>武器</h3>
+          <select id="moWpn"></select>
+          <h3>連段招式（點一段來編輯）</h3>
+          <div id="moStages"></div>
+          <h3>片段</h3>
+          <div class="small dim" id="moClipInfo"></div>
+          <div class="wsRow"><input id="moName" placeholder="名稱" maxlength="40" /></div>
+          <div class="wsRow">
+            <button id="moNew" title="複製目前的片段成新的片段，套用到這一段招式">複製成新片段</button
+            ><button id="moRename">改名</button><button id="moRevert">還原預設</button>
+          </div>
+          <h3>存檔</h3>
+          <div class="wsRow">
+            <button id="moSave" title="單人遊戲下次出擊時使用">存到瀏覽器</button
+            ><button id="moExport">匯出 melee.json</button>
+          </div>
+          <div class="wsRow">
+            <button id="moImport">匯入…</button><button id="moResetAll">全部還原</button>
+            <input id="moImportFile" type="file" accept=".json,application/json" hidden />
+          </div>
+        </aside>
+        <div id="moView">
+          <canvas id="moGl"></canvas>
+          <div id="moBar">
+            <div class="wsRow small">
+              <label><input type="checkbox" id="moSpring" checked /> 遊戲中的樣子（彈簧）</label>
+              <label><input type="checkbox" id="moLeftHand" /> 左手武器（鏡像）</label>
+              <label
+                >速度
+                <select id="moSpeed">
+                  <option value="1">1×</option>
+                  <option value="0.5">0.5×</option>
+                  <option value="0.25">0.25×</option>
+                  <option value="0.1">0.1×</option>
+                </select></label
+              >
+            </div>
+            <div class="moTimeline">
+              <button id="moPlay"></button>
+              <div class="moTrack">
+                <div id="moMarks"></div>
+                <input type="range" id="moTime" min="0" max="1" step="0.001" />
+              </div>
+              <span id="moTimeText" class="small"></span>
+            </div>
+          </div>
+        </div>
+        <aside id="moRight">
+          <h3>關鍵影格</h3>
+          <div id="moKeys"></div>
+          <div class="wsRow">
+            <button id="moAddKey" title="在時間軸目前的位置加一個關鍵影格（用目前的姿勢）">
+              在目前時間新增</button
+            ><button id="moGoKey">跳到這一格</button><button id="moDelKey">刪除</button>
+          </div>
+          <h3 id="moKeyTitle"></h3>
+          <div id="moJoints"></div>
+        </aside>
+      </div>
+    </section>
     <section id="editor" class="edPage" hidden>
       <header class="wsTop">
         <b>GLB 編輯</b>

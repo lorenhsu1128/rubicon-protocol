@@ -431,6 +431,13 @@ function upperBody(rig, ctx, sc) {
     b.rotation.x = lerp(b.rotation.x, clamp(pitch, -0.35, 0.7), W.back);
     upd(b);
   }
+  // 肩上武器的後座（動作層的彈簧，rig.an.kk）：瞄準之後才套用
+  if (rig.an && rig.an.kk)
+    for (const k of ['l', 'r']) {
+      const b = rig.arms[k].back,
+        kx = rig.an.kk['b' + k].x;
+      if (Math.abs(kx) > 1e-4 && b.children.length) rotLocal(b, AX, kx);
+    }
   // ===== 空手扶槍的權重：一隻手沒有武器、另一隻手持槍（要開手臂瞄準）=====
   for (const k of ['l', 'r']) {
     const o = k === 'l' ? 'r' : 'l';
@@ -444,10 +451,10 @@ function upperBody(rig, ctx, sc) {
       !ctx.boost;
     W.sup[k] = smooth(W.sup[k], want ? 1 : 0, dt, 6);
   }
-  // ===== 手臂：持槍的手把槍管（武器關節的 −Z）對準瞄準點；肩關節整段轉，手肘維持動作層 =====
+  // ===== 手臂：持槍的手把槍管（武器的 −Z；有持握角度時是 a.aim）對準瞄準點；肩關節整段轉，手肘維持動作層 =====
   const aimArm = (a, w) => {
     const H = wpos(a.weapon, _a);
-    const f = _u.copy(FWD).applyQuaternion(wquat(a.weapon, _qw));
+    const f = _u.copy(FWD).applyQuaternion(wquat(a.aim || a.weapon, _qw));
     const d = _w.subVectors(aim, H);
     if (d.lengthSq() < 1e-4) return;
     rotWorld(a.up, aimQuat(f, d.normalize(), w, 1.3));
@@ -456,8 +463,11 @@ function upperBody(rig, ctx, sc) {
     const a = rig.arms[k];
     const rec = (ctx.recoil && ctx.recoil[k]) || 0;
     const firing = rec > 0.05;
+    const rl = (rig.an && rig.an.rl && rig.an.rl[k]) || 0; // 換彈中：槍往下翻，瞄準放鬆
     const want =
-      on('arms') && ctx.guns[k] === 'gun' && !ctx.melee && !ctx.knock ? (ctx.boost && !firing ? 0.35 : 1) : 0;
+      on('arms') && ctx.guns[k] === 'gun' && !ctx.melee && !ctx.knock
+        ? (ctx.boost && !firing ? 0.35 : 1) * (1 - 0.8 * rl)
+        : 0;
     W.arm[k] = smooth(W.arm[k], want, dt, 8);
     if (W.arm[k] <= 0.002) continue;
     aimArm(a, W.arm[k]);
@@ -475,16 +485,19 @@ function upperBody(rig, ctx, sc) {
       rotWorld(a.up, _q.setFromAxisAngle(d, clamp(phi, -1.1, 1.1) * ws));
       aimArm(a, W.arm[k]);
     }
-    if (rec > 0) rotLocal(a.up, AX, rec * 0.35 * W.arm[k]); // 後座力往上跳
+    // 後座力往上跳（動作層的彈簧 rig.an.kk，依武器種類；沒有時照後座量）＋蓄力時舉槍
+    const kx = rig.an && rig.an.kk ? rig.an.kk[k].x + 0.1 * ((rig.an.ch && rig.an.ch[k]) || 0) : rec * 0.35;
+    if (kx) rotLocal(a.up, AX, kx * W.arm[k]);
   }
   // ===== 空手扶槍：沒有武器的手伸到另一隻手的槍身上離肩膀最近的點（伸不到時盡量伸直）=====
   for (const k of ['l', 'r']) {
     if (W.sup[k] <= 0.002) continue;
     const a = rig.arms[k],
-      g = rig.arms[k === 'l' ? 'r' : 'l'].weapon;
+      ga = rig.arms[k === 'l' ? 'r' : 'l'],
+      g = ga.weapon;
     const sh = wpos(a.up, _a);
     const gp = wpos(g, _g),
-      f = _u.copy(FWD).applyQuaternion(wquat(g, _qw));
+      f = _u.copy(FWD).applyQuaternion(wquat(ga.aim || g, _qw));
     const tt = clamp(_w.subVectors(sh, gp).dot(f), 0.2 * sc, 0.9 * sc);
     const T = _t.copy(gp).addScaledVector(f, tt);
     const Tw = T.lerp(wpos(a.hand, _g), 1 - W.sup[k]).clone();

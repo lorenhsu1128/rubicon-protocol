@@ -1,6 +1,7 @@
 // ---------- MechEntity 擴充：客機端呈現、倒地 ----------
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
+import { MeleeAnim } from '../render/melee-anim.js';
 import { animateMech } from '../render/mech-model.js';
 import { applyIK, ikRestore } from '../render/mech-ik.js';
 import { MechEntity } from './mech-entity.js';
@@ -64,6 +65,7 @@ Object.assign(MechEntity.prototype, {
             ph: clamp(this.melee.t / st2.dur, 0, 1),
             mirror: !!st2.mirror,
             side: this.melee.slot === 'rarm' ? 1 : -1,
+            clip: MeleeAnim.clipFor(d, this.melee.stage),
           };
         })()
       : null;
