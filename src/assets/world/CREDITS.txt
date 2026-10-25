@@ -1,0 +1,3 @@
+地圖物件的素材（scripts/build.js 打包成 dist/lib/world-assets.js，render/world-assets.js 載入）。已減面並把貼圖轉成 WebP。
+Poly Haven（https://polyhaven.com，CC0 1.0）：boulder_02～05＝namaqualand_boulder_02～05、cliff_01＝namaqualand_cliff_01、barrel_01＝Barrel_01、barrel_02＝Barrel_02、barrier＝concrete_road_barrier。
+NASA 3D Resources（https://github.com/nasa/NASA-3D-Resources，NASA 製作、沒有著作權，不代表 NASA 背書）：dsn34＝Deep Space Network 34-meter、radome＝Radome。

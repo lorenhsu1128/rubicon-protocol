@@ -1829,6 +1829,52 @@ async function testMaps(browser, base) {
       info.theme === key && info.size === 230 && info.lim > 62 && info.weather,
       `${key}：場地 ${info.size} m（活動範圍 ±${info.lim.toFixed(0)}）、天氣粒子`,
     );
+    // 地圖物件的外部素材（render/world-assets.js）：換成 GLB 的物件，外框（碰撞、命中形狀）和程式模型相同
+    const WANT_ASSET = {
+      wasteland: ['rock_spire'],
+      dunes: ['sandstone'],
+      snow: ['ice_chunk', 'radar_dish', 'obs_dome'],
+      grid086: ['barrels'],
+    }[key];
+    if (WANT_ASSET) {
+      const as = await page.evaluate(async () => {
+        const g = window.__game;
+        const seen = {};
+        g.scene.traverse((o) => {
+          const s = o.userData.asset;
+          if (s) seen[s] = (seen[s] || 0) + 1;
+        });
+        // 同樣的參數各建一次程式模型與外部素材的版本（同樣旋轉），比較量到的外框
+        const P = window.__worldProps;
+        const WA = window.__WA;
+        let diff = 0;
+        for (const make of [
+          () => P.buildRadarDish(0x8a9098),
+          () => P.buildRockSpire(2.2, 8, 0x7a6a5a),
+          () => P.buildRock(3, new THREE.MeshStandardMaterial({ color: 0x7a6a5a })),
+        ]) {
+          const box = (on) => {
+            WA.ready = on;
+            const o = make();
+            WA.ready = true;
+            o.rotation.set(0.3, 1.1, 0.2);
+            o.updateMatrixWorld(true);
+            return [new THREE.Box3().setFromObject(o), !!o.userData.asset];
+          };
+          const [a, pa] = box(false),
+            [b, pb] = box(true);
+          if (pa || !pb) diff = 99;
+          diff = Math.max(diff, a.min.distanceTo(b.min), a.max.distanceTo(b.max));
+        }
+        return { ready: WA.ready, seen, diff };
+      });
+      check(
+        as.ready && WANT_ASSET.every((s) => as.seen[s] > 0) && as.diff < 1e-3,
+        `${key}：地圖物件換成外部素材（${Object.entries(as.seen)
+          .map(([k, v]) => `${k}×${v}`)
+          .join('、')}），外框和程式模型相同（差 ${as.diff.toFixed(4)} m）`,
+      );
+    }
     await mapMechanics(page, key);
     // 邊界（world/edges.js）：分段處理至少兩種、不是整圈隆起、有遠景地形；虛空地圖不改地形
     const eg = await page.evaluate(() => {
@@ -1904,6 +1950,43 @@ async function testLibrary(browser, base) {
   const sizes = await page.$$eval('.cell .sz', (x) => x.map((e) => e.textContent));
   const bad = sizes.filter((t) => !/\d+\.\d\d × \d+\.\d\d × \d+\.\d\d m/.test(t)).length;
   check(bad === 0, `每格都標示公尺尺寸（未完成 ${bad} 格）`);
+  // 地圖物件的內建素材（lib/world-assets.js）：有登記的槽位顯示「內建素材」，開關切回程式模型
+  const ASSET_IDS = ['prop/rock', 'prop/ice_chunk', 'prop/radar_dish', 'prop/barrels'];
+  // 格子捲到畫面內才建立模型，逐一捲過去再讀標籤
+  const badges = async () => {
+    const out = [];
+    for (const id of ASSET_IDS) {
+      await page.$eval(`.cell[data-id="${id}"]`, (c) => c.scrollIntoView({ block: 'center' }));
+      await page
+        .waitForFunction(
+          (id) => document.querySelector(`.cell[data-id="${id}"] .loading`).style.display === 'none',
+          id,
+          { timeout: 10000 },
+        )
+        .catch(() => {});
+      out.push(await page.$eval(`.cell[data-id="${id}"] .badge`, (b) => b.textContent));
+    }
+    return out;
+  };
+  await page.$eval('.cell[data-id="prop/rock"]', (c) => c.scrollIntoView({ block: 'center' }));
+  await page.waitForFunction(
+    (id) => /內建素材/.test(document.querySelector(`.cell[data-id="${id}"] .badge`).textContent),
+    'prop/rock',
+    { timeout: 20000 },
+  );
+  const bOn = await badges();
+  await page.uncheck('#libAssets');
+  await wait(1500);
+  const bOff = await badges();
+  await page.check('#libAssets');
+  await wait(1500);
+  const bBack = await badges();
+  check(
+    bOn.every((t) => t === '內建素材') &&
+      bOff.every((t) => t === '程式模型') &&
+      bBack.every((t) => t === '內建素材'),
+    `地圖物件顯示內建素材、開關切回程式模型（${bOn.join('／')} → ${bOff.join('／')}）`,
+  );
   await page.evaluate(() => scrollTo(0, 0));
   await wait(1500);
   await page.screenshot({ path: path.join(SHOT_DIR, 'library.png') });

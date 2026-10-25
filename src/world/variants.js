@@ -3,7 +3,7 @@
 // 參數用自己的亂數串 makeRng）、build(w)（在一般物件之後加的結構，於關卡生成的 withRng 內呼叫）。
 // 不帶變體時 World 完全照原本生成（現有地圖不變）。本模組不可 import world.js，World 一律用參數 w。
 import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
-import { box, buildIceSheet, cyl, mat } from './prop-models.js';
+import { box, buildIceSheet, cyl, mat, swapProp } from './prop-models.js';
 import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
 import { planIslands } from './themes/xylem.js';
 import { buildCavePillar, buildCoralTank, buildLab } from './themes/institute.js';
@@ -85,7 +85,7 @@ export function buildBarrier() {
   g.add(box(4, 0.5, 0.9, M.stripe, 0, 0.25, 0));
   g.add(box(4, 0.6, 0.5, M.stripe, 0, 0.8, 0));
   g.add(box(0.8, 0.4, 0.52, M.rust, -1, 0.9, 0));
-  return g;
+  return swapProp('barrier', g);
 }
 // 燒毀的車輛
 export function buildCarWreck() {
@@ -242,7 +242,7 @@ export function buildToxicDrum() {
       10,
     ),
   );
-  return g;
+  return swapProp('toxic_drum', g);
 }
 // 防爆牆（冰原「前線基地」）：長 len、高 4.5 m，頂部積雪
 export function buildSnowWall(len) {
@@ -395,7 +395,7 @@ export function buildRockPile(s, color = 0x5a524a) {
     q.rotation.set(x, z, r);
     g.add(q);
   }
-  return g;
+  return swapProp('rock_pile', g);
 }
 // 照明柱（高 h；color＝燈的顏色，停電區用紅色緊急照明）
 export function buildLampPost(h, color = 0xffe0a0) {

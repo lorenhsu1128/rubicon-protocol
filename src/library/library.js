@@ -13,6 +13,7 @@ import { MotionEditor } from './motion.js';
 import { SetMenu } from './model-sets.js';
 import { PaintLink } from './paint-link.js';
 import { SERVER_SET, setScoped } from '../render/local-models.js';
+import { SLOTS, WA, loadWorldAssets } from '../render/world-assets.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { cat: 'all', q: '', src: '' };
@@ -243,6 +244,27 @@ async function main() {
   };
   $('gridSpin').onchange = (e) => grid.setSpin(e.target.checked);
   $('btnBack').onclick = backToGame;
+  // 地圖物件的內建素材（lib/world-assets.js，和遊戲同一份）：載好後重建有登記的地圖物件；開關記在 localStorage
+  const assetSlots = () => MODEL_CATALOG.filter((e) => e.cat === 'prop' && SLOTS[e.id.slice(5)]);
+  const refreshAssets = () => {
+    for (const e of assetSlots()) grid.refresh(e.id);
+    if (inspector.open_ && assetSlots().includes(inspector.entry)) inspector.rebuild();
+  };
+  try {
+    WA.off = localStorage.getItem('rubicon_lib_assets') === '0';
+  } catch (e) {}
+  $('libAssets').checked = !WA.off;
+  $('libAssets').onchange = (e) => {
+    WA.off = !e.target.checked;
+    try {
+      localStorage.setItem('rubicon_lib_assets', WA.off ? '0' : '1');
+    } catch (err) {}
+    refreshAssets();
+  };
+  loadWorldAssets().then((ok) => {
+    if (!ok) $('libAssetsLbl').style.display = 'none';
+    else if (!WA.off) refreshAssets();
+  });
   inspector = new Inspector({
     store,
     onFile: useFile,

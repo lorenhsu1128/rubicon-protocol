@@ -2,6 +2,7 @@
 // （每格各開一個 WebGL 會超過瀏覽器的數量上限）。只有接近畫面的格子才建立模型，一次建一個。
 // 有 GLB 的格子顯示 GLB（瀏覽器暫存＞內建），沒有則顯示程式模型；可把 GLB 拖曳到格子上替換。
 import { escHtml } from '../core/html.js';
+import { assetOf } from '../render/world-assets.js';
 import { fmtSize } from '../render/measure.js';
 import { animateMech, mechPieces } from '../render/mech-model.js';
 import { buildAxes } from './refs.js';
@@ -17,6 +18,9 @@ import {
 } from './stage.js';
 
 const CELL_BG = 0x161b22;
+export const ASSET_TITLE =
+  '遊戲內建的外部素材（Poly Haven／NASA 3D Resources，src/assets/world/）：遊戲中同樣換成這個外觀，碰撞照程式模型；' +
+  '上方的「內建素材」可以切回程式模型，拖曳 GLB 進來時以你的 GLB 為準';
 
 // 來源標籤：程式模型／GLB ✓／GLB ⚠ N／GLB ✗ N；完整機甲為「組合」＋使用 GLB 的區塊數
 export function sourceBadge(d, src, entry, store) {
@@ -33,6 +37,8 @@ export function sourceBadge(d, src, entry, store) {
     return comp.glbSlots.length
       ? { cls: 'glb', text: `組合・GLB ${comp.glbSlots.length}`, title: comp.glbSlots.join('\n') }
       : { cls: '', text: '組合', title: '由各區塊組合而成（目前都是程式模型）' };
+  if ((!src || src.kind !== 'glb') && d && d.pivot && assetOf(d.pivot))
+    return { cls: 'glb', text: '內建素材', title: ASSET_TITLE };
   if (!src || src.kind !== 'glb')
     return { cls: '', text: '程式模型', title: '尚未提供 GLB，顯示 three.js 程式模型' };
   const origin =

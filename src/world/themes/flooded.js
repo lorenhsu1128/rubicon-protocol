@@ -1,6 +1,17 @@
 // 主題：汙染水沒市街（AC6 貝利烏斯南部的水沒市街）——街道泡在汙水裡、街區高出水面，大樓廢墟可站上屋頂
 import { RNG, clamp, lerp, pick, rnd } from '../../core/math.js';
-import { fadeMat, hashRng, mat, propGlb, registerFeatureStyle, windowMat, PK, DETAIL, HOLE } from './kit.js';
+import {
+  fadeMat,
+  hashRng,
+  mat,
+  propGlb,
+  registerFeatureStyle,
+  swapProp,
+  windowMat,
+  PK,
+  DETAIL,
+  HOLE,
+} from './kit.js';
 
 const CELL = 30, // 街區＋街道
   STREET = 9,
@@ -204,7 +215,7 @@ export function buildRubble(s) {
     k.ob(...a); // 外框同原本
   }
   rebarK(k, 2, s * 0.8, [0, s * 0.2, 0], false);
-  return k.build();
+  return swapProp('rubble', k.build());
 }
 // 漂浮雜物（純裝飾，浮在水面）：木板＋油桶（桶箍）
 export function buildFloatJunk() {

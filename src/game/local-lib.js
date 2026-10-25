@@ -12,6 +12,7 @@ import { OUTLINE_MAT } from '../render/geometry.js';
 import { PIECE_ORIGIN } from '../render/mech-model.js';
 import { MeleeAnim } from '../render/melee-anim.js';
 import { setModelProvider } from '../render/model-provider.js';
+import { loadWorldAssets, withoutAssets } from '../render/world-assets.js';
 import { SFX } from '../audio/audio.js';
 import { partById } from '../data/parts.js';
 
@@ -32,7 +33,7 @@ const MECH_KEYS = [
 
 // 程式模型在 GLB 製作尺寸（×1）下的外框（規格檢查的參考）；建立時暫停套用本地模型，避免拿 GLB 跟自己比
 function referenceBox(entry) {
-  const b = LocalModels.suspend(() => entry.build(entry.pal));
+  const b = LocalModels.suspend(() => withoutAssets(() => entry.build(entry.pal)));
   b.scaleNode.scale.set(1, 1, 1);
   let box = measureBox(b.obj, entry.measureFx);
   if (box.isEmpty()) box = measureBox(b.obj, true);
@@ -83,6 +84,7 @@ Object.assign(Game.prototype, {
     });
     // 內建的玩家預設機甲：開啟遊戲就開始解析，讀完時停在機甲庫就重建預覽
     BuiltinMech.load().then((set) => set && this.state === 'garage' && this.renderGarage());
+    loadWorldAssets(); // 地圖物件的外部素材（lib/world-assets.js）：載好之前的地圖用程式模型
   },
   // 機甲用哪一個模型組（buildMech 的 opts.source；null＝全域來源）。o 是 MechEntity 的 opts
   // 伺服器網址：玩家機甲（單人）本地模型庫選的模型組，沒有就用伺服器預設組；玩家機甲（多人）用該玩家上傳的模型組
