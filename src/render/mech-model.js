@@ -25,6 +25,7 @@ import { jointSetting, resolveConn, withJoints } from './mech-joints.js';
 import { matsOf } from './glb.js';
 import { providedModel } from './model-provider.js';
 import { tagStyle } from './style/shader.js';
+import { spring, springSet } from './mech-spring.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -621,6 +622,13 @@ const qdFB = (key) => (key[0] === 'f' ? 'f' : 'b');
 export const HOCK_K = 0.9;
 // 逆關節（四段）的 GLB 站姿兩腳往外斜：走路時大腿往內收（rad），腳踝的側傾補償讓腳掌照樣貼地
 const WALK_IN = 0.13;
+// 地面移動：速度（÷機體速度）在 GLIDE_ON 以上維持 GLIDE_DELAY 秒換成滑行，降到 GLIDE_OFF 以下回到跑步
+const GLIDE_ON = 0.8,
+  GLIDE_OFF = 0.6,
+  GLIDE_DELAY = 0.3;
+// 上下半身分離：下半身朝移動方向轉的上限（跑步／滑行，rad）
+const LEG_YAW = 0.7,
+  LEG_YAW_GLIDE = 1.15;
 // [v7 程式模型的外框, 內建 GLB 的外框]（右側的區塊；[minX, minY, minZ, maxX, maxY, maxZ]，量自程式模型與 GLB）
 // 襠部只對齊寬與深（高度由 LAY 決定）；腳掌的底面對齊腳踝高度，程式模型剛好站在地上
 const PIECE_BOX = {
@@ -2408,18 +2416,99 @@ export function animateMech(m, dt, st) {
   const strafe = st.strafe || 0,
     turn = st.turn || 0,
     land = st.landT !== undefined ? st.landT : 9,
-    aimRel = st.aimRel || 0,
     ap = clamp(st.aimPitch || 0, -0.6, 0.6);
   const gp = st.gait !== undefined ? st.gait : t * 11; // 步伐相位（實體開「步伐依移動距離」時依速度推進）
   const fwdV = st.fwd || 0; // 前進速度比例（-1 後退 ~ 1 前進，機體座標）
   const ML = st.melee; // 近戰姿勢 {kind, ph, mirror, side}
-  const squat = land < 0.35 ? Math.sin((land / 0.35) * Math.PI) * 0.6 : 0; // 落地蹲踞（0.35 s 內壓下再彈回）
-  const idle = !st.moving && st.grounded && !st.boost;
+  const SP = springSet(clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1));
+  const S = (o, key, to, p) => spring(o, key, to, p[0], p[1], dt);
+  const ek = (r) => Math.min(1, dt * r);
+  const legged = m.type === 'biped' || m.type === 'reverse';
+  const grounded = !!st.grounded,
+    moving = !!st.moving;
+  const idle = !moving && grounded && !st.boost;
+  // ===== 移動狀態（m.an：每台的動作狀態）：走路／跑步／滑行、QB 方向、煞車、起跳、落地 =====
+  const an =
+    m.an ||
+    (m.an = {
+      glideT: 0,
+      glide: false,
+      gW: 0,
+      qW: 0,
+      qF: 1,
+      qS: 0,
+      bW: 0,
+      air: false,
+      jumpT: 9,
+      align: false,
+      alignPh: 0,
+      landK: 0.6,
+    });
+  const spd = Math.hypot(strafe, fwdV);
+  const vr = st.vr !== undefined ? st.vr : spd; // 水平速度／機體速度
+  // 滑行：速度在機體速度的 GLIDE_ON 以上（或地面 QB／突擊推進）維持 GLIDE_DELAY 秒；降到 GLIDE_OFF 以下回到跑步
+  if (!grounded || !moving || vr < GLIDE_OFF) {
+    an.glide = false;
+    an.glideT = 0;
+  } else if (vr > GLIDE_ON || st.qb || st.boost) {
+    an.glideT += dt;
+    if (an.glideT > GLIDE_DELAY) an.glide = true;
+  }
+  an.gW = lerp(an.gW, an.glide && legged && !ML ? 1 : 0, ek(an.glide ? 7 : 10));
+  // QB：開始時記下方向（機體座標：前進比例、側移比例），姿勢依方向
+  if (st.qb && an.qW < 0.05 && spd > 0.05) ((an.qF = fwdV / spd), (an.qS = strafe / spd));
+  an.qW = lerp(an.qW, st.qb && !ML ? 1 : 0, ek(st.qb ? 24 : 7));
+  // 煞車：地面上急減速（速度比例每秒掉 1.5 以上）
+  const dv = an.vr0 === undefined ? 0 : (vr - an.vr0) / Math.max(dt, 1e-3);
+  an.vr0 = vr;
+  an.dv = lerp(an.dv || 0, dv, ek(20));
+  const brake = grounded && moving && an.dv < -1.5 && vr > 0.2 && !st.qb && !ML;
+  an.bW = lerp(an.bW, brake ? 1 : 0, ek(brake ? 12 : 5));
+  // 起跳與落地：離地時往上的速度＝跳躍（蹬地伸腿）；落地的蹲踞深度與長度依下落速度
+  const vy = st.vy || 0;
+  if (an.air && grounded) an.air = false;
+  else if (!an.air && !grounded) {
+    an.air = true;
+    an.jumpT = vy > 2 ? 0 : 9;
+  }
+  an.jumpT += dt;
+  if (land < 0.02) an.landK = clamp(((st.landV || 14) - 4) / 18, 0.35, 1.25);
+  const lDur = 0.2 + 0.25 * an.landK;
+  const squat = land < lDur ? Math.sin((land / lDur) * Math.PI) * 0.62 * an.landK : 0; // 落地蹲踞：壓下再彈回
+  const runK = grounded && moving ? clamp((vr - 0.4) / 0.4, 0, 1) * (1 - an.gW) : 0; // 跑步的程度（走路 0）
+  const crouch = (0.05 * an.gW + 0.08 * an.bW + 0.06 * an.qW) * (grounded ? 1 : 0); // 滑行／煞車／QB 的壓低（屈膝的部分由 IK 壓低骨盆）
+  // ===== 上下半身分離：下半身（legsG）朝移動方向，上半身照舊朝機體正面（準星）=====
+  const mvA = Math.atan2(strafe, fwdV); // 移動方向（相對機體正面，正值＝strafe 的方向）
+  if (legged || m.type === 'tank') {
+    const tank = m.type === 'tank';
+    let lyT = 0;
+    if (grounded && moving && vr > 0.12 && !ML) {
+      let a = mvA;
+      if (Math.abs(a) > 1.75) a -= Math.PI * Math.sign(a); // 往後：腿朝反方向（倒退跑／履帶倒車）
+      const lim = tank ? Math.PI / 2 : LEG_YAW + (LEG_YAW_GLIDE - LEG_YAW) * an.gW;
+      lyT = clamp(a, -lim, lim);
+      an.align = false;
+    } else if (grounded && !ML && !st.knock) {
+      // 原地轉向：腳留在地面上（下半身反向轉回），差太多時踏步轉過去
+      const cur = m.legsG.rotation.y - (st.dyaw || 0);
+      m.legsG.rotation.y = cur;
+      if (Math.abs(cur) > (tank ? 1.3 : 0.55)) an.align = true;
+      if (an.align && Math.abs(cur) < 0.05) an.align = false;
+      lyT = an.align ? 0 : cur;
+    } else an.align = false;
+    S(m.legsG.rotation, 'y', lyT, SP.hip);
+    if (an.align) an.alignPh += dt * 15;
+  }
+  const ly = m.legsG.rotation.y;
+  // 腿的座標裡的移動（步伐、側步用）
+  const fL = Math.cos(mvA - ly) * spd,
+    sL = Math.sin(mvA - ly) * spd;
   // ===== 腿：髖三軸（俯仰＝擺動、外展＝側移／落地、偏航＝轉向）＋膝＋踝兩軸 =====
-  if (m.type === 'biped' || m.type === 'reverse') {
+  if (legged) {
     // 逆關節（四段）的膝和二足同向彎（膝在前），往後折的是跗關節：蹠骨依膝的彎曲連動（HOCK_K），
     // 腳掌再補回同樣的角度保持貼地；所以這裡的膝、腳掌都照二足算
-    const rev = false;
+    const gk = 1 - an.gW; // 步伐的權重（滑行時不踏步）
+    const ms = -Math.sign(an.qS || 0); // QB 往哪一側（L.side 的方向）
     for (const L of m.legs) {
       const sp = L.hock ? 0 : 1; // 逆關節（四段）：站姿就是 GLB 原本的姿勢，待機與步行不再往外張
       let th = L.th,
@@ -2428,37 +2517,82 @@ export function animateMech(m, dt, st) {
       let abd = 0,
         hy = 0,
         ftRoll = 0;
-      if (st.grounded && st.moving) {
+      if (grounded && moving) {
         const ph = gp + (L.side > 0 ? 0 : Math.PI);
         const sw = Math.sin(ph);
-        const fa = st.amp !== undefined ? st.amp : Math.max(0.35, Math.abs(fwdV)); // 擺幅（依速度推進步伐時由實體給）
-        const sa = Math.abs(strafe);
-        th += sw * 0.6 * fa * (fwdV < -0.2 ? -1 : 1);
-        // 抬腳：依速度推進步伐時在腿往前擺的期間（cos(ph) > 0）抬，支撐腳才會往後踩；否則維持原本的節奏
-        kn += (rev ? -0.5 : 0.55) * Math.max(0, st.amp !== undefined ? Math.cos(ph) : -Math.sin(ph + 0.4));
-        ft += -sw * 0.25 * fa; // 前後步伐（面向不變，後退時反向擺腿）
+        const fa = st.amp !== undefined ? st.amp : Math.max(0.35, Math.abs(fL)); // 擺幅（依速度推進步伐時由實體給）
+        const sa = Math.abs(sL);
+        th += sw * 0.6 * fa * (fL < -0.2 ? -1 : 1) * gk;
+        // 抬腳：依速度推進步伐時在腿往前擺的期間（cos(ph) > 0）抬，支撐腳才會往後踩；跑步抬得更高
+        kn -=
+          0.55 *
+          (1 + 0.55 * runK) *
+          Math.max(0, st.amp !== undefined ? Math.cos(ph) : -Math.sin(ph + 0.4)) *
+          gk;
+        ft += -sw * 0.25 * fa * gk; // 前後步伐（後退時反向擺腿）
         abd =
           L.side * (L.hock ? -WALK_IN : 0.08) +
-          sa * 0.42 * Math.max(0, -strafe * L.side) +
-          sa * Math.sin(ph) * 0.22 * L.side; // 側步：往側移方向那條腿張開＋交替橫跨
-        hy = 0;
-      } else if (!st.grounded) {
-        th += rev ? -0.35 : 0.55;
-        kn += rev ? 0.55 : -0.75;
-        ft += 0.35;
-        abd = L.side * 0.22;
-        hy = L.side * 0.1;
-      } // 空中：雙腿外展、微八字
-      else if (st.qb) {
-        th += 0.3;
-        kn -= 0.3;
-        abd = L.side * 0.12;
+          (sa * 0.42 * Math.max(0, -sL * L.side) + sa * Math.sin(ph) * 0.22 * L.side) * gk; // 側步：往側移方向那條腿張開＋交替橫跨
+        // 滑行：前後錯開、雙膝彎曲、腳掌貼地滑（右腳在前），微微震動
+        if (an.gW > 0.01) {
+          const lead = L.side > 0;
+          const jit = Math.sin(t * 31 + L.side * 2) * 0.02;
+          th += an.gW * ((lead ? 0.3 : -0.26) + jit);
+          kn += an.gW * (lead ? -0.3 : -0.05);
+          ft += an.gW * (lead ? 0.02 : 0.22);
+          abd += an.gW * L.side * 0.1;
+        }
+      } else if (!grounded) {
+        if (an.jumpT < 0.14) {
+          // 蹬地：伸直腿、腳尖往下
+          th -= 0.25;
+          ft -= 0.45;
+          abd = L.side * 0.06;
+        } else if (st.hover) {
+          th += 0.35;
+          kn -= 0.6;
+          ft += 0.3;
+          abd = L.side * 0.16;
+        } else {
+          // 上升：一腳收高一腳伸（動漫的跳躍姿勢）；下落：雙腳往前下伸，準備落地
+          const up = clamp(vy / 8, 0, 1),
+            hi = L.side > 0;
+          th += up * (hi ? 0.95 : 0.25) + (1 - up) * 0.3;
+          kn -= up * (hi ? 1.25 : 0.45) + (1 - up) * 0.35;
+          ft += up * 0.35 + (1 - up) * 0.15;
+          abd = L.side * (0.12 + 0.1 * up);
+          hy = L.side * 0.1;
+        }
       } else if (idle) {
         th += Math.sin(t * 1.3 + L.side) * 0.03;
         abd = L.side * 0.07 * sp;
+        if (an.align) {
+          // 原地轉身的踏步：兩腳交替抬起
+          const lift = Math.max(0, Math.sin(an.alignPh + (L.side > 0 ? 0 : Math.PI)));
+          th += lift * 0.18;
+          kn -= lift * 0.5;
+          ft += lift * 0.2;
+        }
       } // 待機：微幅外展與呼吸
-      th += squat * 0.55 * (rev ? -1 : 1);
-      kn += squat * (rev ? 0.9 : -1.0);
+      // QB：前衝＝腿往後拖、後退＝腿往前伸、側衝＝前導腳往外張、另一腳收起
+      if (an.qW > 0.01) {
+        const qf = an.qF,
+          qs = Math.abs(an.qS),
+          leadSide = L.side === ms;
+        th += an.qW * (-0.3 * Math.max(0, qf) + 0.45 * Math.max(0, -qf));
+        kn += an.qW * (-0.25 - (qs > 0.4 && !leadSide ? 0.4 * qs : 0));
+        ft += an.qW * 0.3 * Math.max(0, qf);
+        abd += an.qW * L.side * (0.1 + (leadSide ? 0.32 * qs : 0));
+      }
+      // 煞車：前腳撐住、後腳屈膝（右腳在前）
+      if (an.bW > 0.01) {
+        const lead = L.side > 0;
+        th += an.bW * (lead ? 0.55 : -0.2);
+        kn += an.bW * (lead ? -0.25 : -0.75);
+        ft += an.bW * (lead ? -0.15 : 0.5);
+      }
+      th += squat * 0.55;
+      kn -= squat * 1.0;
       ft += squat * 0.45;
       abd += L.side * squat * 0.25; // 落地蹲踞：屈膝、張腿
       if (ML) {
@@ -2470,31 +2604,31 @@ export function animateMech(m, dt, st) {
           kn = L.kn - 0.2;
         } else {
           th = front ? L.th - 0.55 * (1 - ph * 0.3) : L.th + 0.5;
-          kn = front ? L.kn + 0.7 * (rev ? -1 : 1) * 0.6 : L.kn - 0.1;
+          kn = front ? L.kn + 0.7 * 0.6 : L.kn - 0.1;
           abd = L.side * 0.18;
         }
       } // 弓箭步：前腳屈、後腳蹬
       ftRoll = -(st.leanZ || 0) * 0.8 - abd * 0.9; // 腳踝側傾補償，讓腳掌貼地
-      L.thigh.rotation.x = lerp(L.thigh.rotation.x, th, k);
-      L.thigh.rotation.z = lerp(L.thigh.rotation.z, abd, ks);
-      L.thigh.rotation.y = lerp(L.thigh.rotation.y, hy, ks);
-      L.knee.rotation.x = lerp(L.knee.rotation.x, kn, k);
+      S(L.thigh.rotation, 'x', th, SP.leg);
+      S(L.thigh.rotation, 'z', abd, SP.legS);
+      S(L.thigh.rotation, 'y', hy, SP.legS);
+      S(L.knee.rotation, 'x', kn, SP.leg);
       if (L.hock) {
         const hk = L.hk - HOCK_K * (kn - L.kn);
-        L.hock.rotation.x = lerp(L.hock.rotation.x, hk, k);
+        S(L.hock.rotation, 'x', hk, SP.leg);
         ft -= hk - L.hk;
       }
-      L.foot.rotation.x = lerp(L.foot.rotation.x, ft, k);
-      L.foot.rotation.z = lerp(L.foot.rotation.z, ftRoll, ks);
+      S(L.foot.rotation, 'x', ft, SP.leg);
+      S(L.foot.rotation, 'z', ftRoll, SP.legS);
     }
-    // 髖部搖擺（步行時左右交替）與骨盆偏航
-    m.legsG.rotation.z = lerp(m.legsG.rotation.z, st.grounded && st.moving ? Math.sin(gp) * 0.04 : 0, ks);
-    m.legsG.rotation.y = 0;
+    // 髖部搖擺（步行時左右交替）
+    S(m.legsG.rotation, 'z', grounded && moving ? Math.sin(gp) * 0.04 * gk : 0, SP.legS);
   } else if (m.type === 'quad' && m.legs[0] && m.legs[0].rest) {
     // ===== 四足：螃蟹式步伐 =====
     // 對角的兩隻腳一組（左前＋右後、右前＋左後）交替：擺動期抬腳沿移動方向前送，支撐期貼地往後推；
     // 原地轉向時腳沿身體周圍的切線方向踏步。腳踝的目標位置（legsG 座標）＝站姿＋位移，每格解兩段骨頭
-    const moving = st.grounded && st.moving;
+    const k = ek(14);
+    const qmoving = grounded && moving;
     const fa = st.amp !== undefined ? st.amp : Math.max(0.35, Math.abs(fwdV));
     let dx = strafe,
       dz = -fwdV;
@@ -2511,41 +2645,57 @@ export function animateMech(m, dt, st) {
         oz = dz + turn * r.x * 0.35;
       const ol = Math.hypot(ox, oz);
       if (ol > 1) ((ox /= ol), (oz /= ol));
-      const stride = 0.55 * Math.min(1.4, fa) * (moving ? 1 : 0);
-      const tx = moving ? ox * stride * sw : 0,
-        tz = moving ? oz * stride * sw : 0,
-        ty = (moving && ol > 0.05 ? up * 0.38 : 0) + (st.grounded ? 0 : 0.3) + squat * 0.45;
+      const stride = 0.55 * Math.min(1.4, fa) * (qmoving ? 1 : 0);
+      const tx = qmoving ? ox * stride * sw : 0,
+        tz = qmoving ? oz * stride * sw : 0,
+        ty = (qmoving && ol > 0.05 ? up * 0.38 : 0) + (grounded ? 0 : 0.3) + squat * 0.45;
       L.qo = L.qo || new THREE.Vector3();
       L.qo.x = lerp(L.qo.x, tx, k);
       L.qo.y = lerp(L.qo.y, ty, k);
       L.qo.z = lerp(L.qo.z, tz, k);
-      const tuck = st.grounded ? 1 : 0.9; // 空中：腳往身體收
+      const tuck = grounded ? 1 : 0.9; // 空中：腳往身體收
       const T = _qT
         .set(r.x * tuck + L.qo.x, r.y + L.qo.y, r.z * tuck + L.qo.z)
         .applyMatrix4(m.legsG.matrixWorld);
       quadSolve(L, T);
     }
   }
-  m.legsG.position.y = st.grounded ? 0 : Math.sin(t * 4) * 0.05;
-  // ===== 軀幹：上下起伏、蹲踞下沉、俯仰跟瞄準、步行時反向扭腰 =====
-  m.torso.position.y =
+  S(m.legsG.position, 'y', (grounded ? 0 : Math.sin(t * 4) * 0.05) - crouch, SP.pos);
+  // ===== 軀幹：上下起伏、蹲踞下沉、俯仰跟瞄準、加減速前傾後仰 =====
+  S(
+    m.torso.position,
+    'y',
     (m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12) -
-    squat * 0.35 +
-    (st.grounded && st.moving
-      ? Math.abs(Math.sin(gp)) * 0.06
-      : idle
-        ? Math.sin(t * 1.3) * 0.025
-        : Math.sin(t * 3) * 0.04);
-  // 俯仰正值＝後仰（機體正面是 −Z）：瞄準往上時後仰；移動時微微前傾、前進／QB／推進更前傾、後退後仰、落地蹲踞前傾
+      squat * 0.35 -
+      crouch +
+      (grounded && moving
+        ? Math.abs(Math.sin(gp)) * (0.06 + 0.04 * runK) * (1 - an.gW) + Math.sin(t * 23) * 0.006 * an.gW
+        : idle
+          ? Math.sin(t * 1.3) * 0.025
+          : Math.sin(t * 3) * 0.04),
+    SP.pos,
+  );
+  // 俯仰正值＝後仰（機體正面是 −Z）：瞄準往上時後仰；跑步、滑行、加速、QB 前傾（動漫風格：幅度大），
+  // 後退、煞車後仰、落地蹲踞前傾
   let tX =
     ap * 0.25 -
-    (st.grounded && st.moving ? 0.03 : 0) -
-    (st.qb ? 0.12 : 0) -
-    squat * 0.25 -
+    (grounded && moving ? 0.03 : 0) -
+    squat * 0.3 -
     fwdV * 0.08 -
-    (st.boost ? 0.08 : 0);
-  let tZ = -strafe * 0.14 - (st.grounded && st.moving ? Math.sin(gp) * 0.03 : 0); // 側移時上身向移動方向傾
-  let tYoff = 0; // 人形：上半身不與下半身分離扭轉（近戰招式除外）
+    (st.boost && !st.qb ? 0.08 : 0) -
+    runK * 0.12 -
+    an.gW * 0.22 * fwdV -
+    clamp(st.leanX || 0, -0.4, 0.4) * 0.45 +
+    an.bW * 0.2 +
+    an.qW * (-0.42 * Math.max(0, an.qF) + 0.3 * Math.max(0, -an.qF)) +
+    (!grounded && an.jumpT < 0.14 ? 0.12 : 0);
+  // 側傾：側移、滑行、側衝時往移動方向傾（strafe 的反向）
+  let tZ =
+    -strafe * 0.14 -
+    (grounded && moving ? Math.sin(gp) * 0.03 * (1 - an.gW) : 0) -
+    strafe * 0.12 * an.gW -
+    an.qS * 0.38 * an.qW;
+  let tYoff = 0; // 上半身另外扭轉（近戰招式）
   if (ML) {
     const ph = ML.ph,
       s = ML.mirror ? -1 : 1;
@@ -2562,18 +2712,18 @@ export function animateMech(m, dt, st) {
       tX = ph < 0.3 ? 0.1 : -0.3;
     }
   }
-  m.torso.rotation.x = lerp(m.torso.rotation.x, tX, ks * 1.5);
-  m.torso.rotation.z = lerp(m.torso.rotation.z, tZ, ks);
+  S(m.torso.rotation, 'x', tX, ML ? SP.snap : SP.torso);
+  S(m.torso.rotation, 'z', tZ, SP.torso);
   m.torsoTwist = lerp(m.torsoTwist || 0, tYoff, Math.min(1, dt * 18));
   // ===== 頭：偏航領先軀幹看向目標、俯仰跟瞄準、側傾隨機體傾斜 =====
   if (m.head) {
     m.head.rotation.order = 'YXZ';
-    m.head.rotation.y = lerp(m.head.rotation.y, idle ? Math.sin(t * 0.7) * 0.12 : 0, ks);
-    m.head.rotation.x = lerp(m.head.rotation.x, -ap * 0.5 + (st.boost ? 0.12 : 0), ks);
-    m.head.rotation.z = lerp(m.head.rotation.z, -(st.leanZ || 0) * 0.5, ks);
+    S(m.head.rotation, 'y', idle ? Math.sin(t * 0.7) * 0.12 : 0, SP.head);
+    S(m.head.rotation, 'x', -ap * 0.5 + (st.boost ? 0.12 : 0) - tX * 0.4, SP.head);
+    S(m.head.rotation, 'z', -(st.leanZ || 0) * 0.5 - tZ * 0.5, SP.head);
   }
   // ===== 推進器推力（0～1，噴焰粒子依此發射）=====
-  const fl = st.boost ? 1 : st.hover ? 0.65 : !st.grounded ? 0.4 : st.moving ? 0.27 : 0.04;
+  const fl = st.boost ? 1 : st.hover ? 0.65 : !grounded ? 0.4 : an.gW > 0.5 ? 0.75 : moving ? 0.27 : 0.04;
   m.thrust = lerp(m.thrust || 0, fl, Math.min(1, dt * 10));
   // ===== 手臂：肩外展／內收、上臂三軸、前臂、揮擊、後座 =====
   for (const kk of ['l', 'r']) {
@@ -2598,36 +2748,41 @@ export function animateMech(m, dt, st) {
     }
     const sw = (st.swing && st.swing[kk]) || 0;
     const firing = rec > 0.05;
+    const free = firing ? 0.3 : 1; // 開火中，移動姿勢對手臂的影響變小
     let abd =
       0.35 +
-      (st.boost || !st.grounded ? 0.35 : 0) +
+      (st.boost || !grounded ? 0.35 : 0) +
       (st.qb ? 0.25 : 0) +
       (idle ? Math.sin(t * 1.3 + side) * 0.03 : 0) -
       (firing ? 0.1 : 0) +
-      Math.max(0, sw) * 0.5; // 外展：飛行／QB 張開、開火收攏
+      Math.max(0, sw) * 0.5 +
+      (0.25 * an.gW + 0.2 * an.qW) * free +
+      squat * 0.6; // 外展：飛行／QB／滑行張開保持平衡、開火收攏、重落地張開
     let twist = firing
       ? -side * 0.15
-      : st.grounded && st.moving
-        ? Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.08
+      : grounded && moving
+        ? Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.08 * (1 - an.gW)
         : 0;
     let up =
       0.35 +
       ap * 0.4 +
       rec * 0.5 +
       sw * 0.9 +
-      (st.grounded && st.moving && !firing
-        ? Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.42 - fwdV * 0.25
+      (grounded && moving && !firing
+        ? (Math.sin(gp + (side > 0 ? Math.PI : 0)) * 0.42 * (1 + 0.45 * runK) - fwdV * 0.25) * (1 - an.gW)
         : 0) -
       squat * 0.2 +
-      (!st.grounded ? -0.15 : 0) +
-      (st.boost && !firing ? -0.45 : 0); // 步行手臂大幅擺動、前進時武器下垂拖後、推進時雙臂後張
+      (!grounded ? -0.15 : 0) +
+      (st.boost && !firing ? -0.45 : 0) +
+      (-0.3 * an.gW + an.qW * (an.qF > 0 ? -0.45 : 0.3) + 0.35 * an.bW) * free; // 步行擺臂（跑步更大）、滑行與前衝時手往後掃、煞車往前
     let foreT =
       1.2 +
       ap * 0.6 -
       rec * 0.3 -
       sw * 0.4 +
-      (!st.grounded ? 0.15 : 0) +
-      (st.grounded && st.moving && !firing ? 0.25 : 0);
+      (!grounded ? 0.15 : 0) +
+      (grounded && moving && !firing ? 0.25 + 0.2 * runK : 0) -
+      0.3 * an.gW * free;
     if (ML) {
       const ph = ML.ph,
         s = ML.mirror ? -1 : 1;
@@ -2667,11 +2822,11 @@ export function animateMech(m, dt, st) {
       }
     }
     a.up.rotation.order = 'ZYX'; // 上臂（含肩甲）以肩關節為軸：外展／內收、扭轉、前後擺
-    a.up.rotation.z = lerp(a.up.rotation.z, side * abd * 0.65, ks); // 正值＝外展（左臂在 −X）
-    a.up.rotation.y = lerp(a.up.rotation.y, twist, ks);
-    a.up.rotation.x = lerp(a.up.rotation.x, up, 0.4);
-    a.fore.rotation.x = lerp(a.fore.rotation.x, foreT, 0.4);
-    a.fore.rotation.y = lerp(a.fore.rotation.y, firing ? side * 0.08 : 0, ks);
+    S(a.up.rotation, 'z', side * abd * 0.65, ML ? SP.snap : SP.arm); // 正值＝外展（左臂在 −X）
+    S(a.up.rotation, 'y', twist, ML ? SP.snap : SP.arm);
+    S(a.up.rotation, 'x', up, ML ? SP.snap : SP.arm);
+    S(a.fore.rotation, 'x', foreT, ML ? SP.snap : SP.arm);
+    S(a.fore.rotation, 'y', firing ? side * 0.08 : 0, SP.arm);
   }
   // ===== 失衡傾倒 =====
   const kd = st.knock || 0;

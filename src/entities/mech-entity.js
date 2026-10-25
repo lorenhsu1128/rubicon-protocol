@@ -161,6 +161,21 @@ export class MechEntity {
   }
   // 整台機體的前後傾（leanX 正值＝往前加速）：機甲與載具的正面都是 −Z，前傾是負的 x 旋轉；
   // 人形機甲幅度減小（上身的前傾在 animateMech）；坦克相反：加速時車頭微微抬起、煞車時往前點頭
+  // 動作層（animateMech）要的移動資訊：水平速度÷機體速度、垂直速度、這次更新之間的轉向、落地速度、重量（0 輕～1 重）
+  animExtra() {
+    const y0 = this.animYaw0 === undefined ? this.yaw : this.animYaw0;
+    this.animYaw0 = this.yaw;
+    const dyaw = ((((this.yaw - y0 + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+    if (this.animHeavy === undefined)
+      this.animHeavy = clamp((((this.stats && this.stats.weight) || 26000) - 18000) / 24000, 0, 1);
+    return {
+      vr: Math.hypot(this.vel.x, this.vel.z) / Math.max(1, this.stats.speed),
+      vy: this.vel.y,
+      dyaw,
+      landV: this.landV || 14,
+      heavy: this.animHeavy,
+    };
+  }
   leanTilt() {
     const l = this.leanX || 0;
     if (this.model.cls === 'vehicle') return l * 0.5;
@@ -1587,7 +1602,7 @@ export class MechEntity {
     }
     const g2 = w.groundAt(this.pos.x, this.pos.z, this.pos.y);
     if (this.pos.y <= g2) {
-      if (!this.grounded && this.vel.y < -6) this.landT = 0;
+      if (!this.grounded && this.vel.y < -6) ((this.landT = 0), (this.landV = -this.vel.y));
       if (!this.grounded && this.vel.y < -12) {
         g.fx.dust(this.pos.clone().setY(g2 + 0.05), 2.6 * this.scale, 9);
         SFX.land(this.isPlayer ? null : this.center(), clamp((-this.vel.y - 12) / 18, 0, 1));
@@ -1748,6 +1763,7 @@ export class MechEntity {
             ((((this.aimYaw - this.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI,
           leanZ: this.leanZ || 0,
           leanX: this.leanX || 0,
+          ...this.animExtra(),
         });
       if (adt && !this.model.vehicle) applyIK(this.model, this.ikCtx(adt));
     }
@@ -2003,6 +2019,11 @@ export class MechEntity {
       this.gaitAmp = fa;
       this.gaitLockOK = r <= 20 && !this.boost && this.qbT <= 0;
     }
+    // 滑行（animateMech 的 m.an.glide）：不踏步，相位停住、沒有腳步聲
+    if (this.model.an && this.model.an.glide) {
+      this.gaitLockOK = false;
+      return;
+    }
     this.gaitPh = ((this.gaitPh || 0) + rate * dt) % (Math.PI * 200);
     // 腳步聲：每半個步伐（腳落地）一次
     const sk = Math.floor(this.gaitPh / Math.PI);
@@ -2038,6 +2059,7 @@ export class MechEntity {
       gait: this.gaitPh,
       stride: this.gaitAmp !== undefined,
       lockOK: this.gaitLockOK,
+      glide: !!(this.model.an && this.model.an.gW > 0.5), // 滑行：兩腳都踩在地面上
       near: !g.camera || g.camera.position.distanceToSquared(this.pos) < 160 * 160,
       off: !!this.lodIk, // 距離分級（Game.lodTick）：離鏡頭遠或在畫面外時 IK 淡出後略過
     };

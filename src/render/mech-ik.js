@@ -233,7 +233,7 @@ function groundN(world, x, z, y, e, out) {
 const smooth = (cur, to, dt, rate) => lerp(cur, to, Math.min(1, dt * rate));
 
 // ctx（MechEntity.ikCtx）：dt、world、pos（腳下地面的機體位置）、scale、grounded、moving、boost、knock、
-// melee、meleePt、aim（瞄準點，世界）、guns {l,r}（'gun'／'melee'／'none'）、backs {l,r}、recoil、gait、lockOK、near
+// melee、meleePt、aim（瞄準點，世界）、guns {l,r}（'gun'／'melee'／'none'）、backs {l,r}、recoil、gait、lockOK、glide、near
 export function applyIK(rig, ctx) {
   if (!rig || rig.vehicle || !rig.lift) return;
   if (!rig.ik) initIK(rig);
@@ -303,7 +303,7 @@ function lowerBody(rig, ctx, sc) {
   // 1. 動作層的腳踝（四足：腳尖）位置與腳下地面
   const targets = [];
   if (legged || quad) {
-    const lockOn = legged && on('lock') && ctx.lockOK && ctx.moving && !ctx.knock;
+    const lockOn = legged && on('lock') && ctx.lockOK && ctx.moving && !ctx.knock && !ctx.glide;
     rig.legs.forEach((L, i) => {
       const st = S.legs[i];
       const C = quad ? _t.copy(st.tip).applyMatrix4(L.knee.matrixWorld) : wpos(L.foot, _t);
@@ -330,7 +330,12 @@ function lowerBody(rig, ctx, sc) {
         }
         // 支撐腳（站著、走路的支撐期、失衡）踩在地面上；擺動期沿用動作層的抬腳高度，只是不沉進地面
         const floor = gy + st.sole * sc * 0.95;
-        st.stance = ctx.moving && !ctx.knock ? clamp((stance - 0.1) / 0.3, 0, 1) : 1;
+        // 空中（離地後權重淡出的期間）：不把腳拉回地面，照動作層的收腿姿勢
+        st.stance = !ctx.grounded
+          ? 0
+          : ctx.moving && !ctx.knock && !ctx.glide
+            ? clamp((stance - 0.1) / 0.3, 0, 1)
+            : 1;
         T.y = Math.max(lerp(T.y, floor, st.stance), floor);
       } else T.y = Math.max(T.y, gy + 0.02 * sc);
       st.need = T.y - C.y; // 負值＝腳要往下伸

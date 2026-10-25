@@ -47,6 +47,11 @@ Object.assign(MechEntity.prototype, {
     const spd = Math.max(1, this.stats.speed);
     const strafe = clamp(this.vel.dot(right) / spd, -1, 1);
     const fwdV = clamp(this.vel.dot(fwd) / spd, -1, 1);
+    // 落地：客機看快照的 grounded 由假變真（房主那邊在 move 裡設定）
+    if (this.grounded && this.animAir && (this.animVy || 0) < -6)
+      ((this.landT = 0), (this.landV = -this.animVy));
+    this.animAir = !this.grounded;
+    this.animVy = this.vel.y;
     this.landT = this.landT === undefined ? 9 : this.landT + dt;
     this.ikGait(dt);
     const ml = this.melee.active
@@ -84,6 +89,7 @@ Object.assign(MechEntity.prototype, {
       aimRel: 0,
       leanZ: this.leanZ || 0,
       leanX: this.leanX || 0,
+      ...this.animExtra(),
     });
     if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
     // 光暈與噴焰
