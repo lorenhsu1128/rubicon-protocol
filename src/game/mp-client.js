@@ -203,9 +203,18 @@ Object.assign(Game.prototype, {
           bd = d;
           best = [e, k];
         }
+        // 肩上武器有轉管時（背部加特林），子彈從肩上出現就讓它轉
+        if (a.bspin) {
+          a.bspin.getWorldPosition(v);
+          const db = v.distanceToSquared(pos);
+          if (db < bd) {
+            bd = db;
+            best = [e, 'b' + k];
+          }
+        }
       }
     }
-    if (best) best[0].recoil[best[1]] = Math.max(best[0].recoil[best[1]], 0.35);
+    if (best) best[0].recoil[best[1]] = Math.max(best[0].recoil[best[1]] || 0, 0.35);
   },
   clientApplySnapshot(s) {
     const st = s.k / 30; // 以房主快照序號當時間軸（去除網路抖動）

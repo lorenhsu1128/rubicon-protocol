@@ -17,6 +17,8 @@ Object.assign(MechEntity.prototype, {
     }
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
+    this.recoil.bl = Math.max(0, (this.recoil.bl || 0) - dt * 8);
+    this.recoil.br = Math.max(0, (this.recoil.br || 0) - dt * 8);
     if (this.melee.active) this.melee.t += dt;
     this.specialFx(dt);
     if (this.sts) this.statusRemoteTick(dt);

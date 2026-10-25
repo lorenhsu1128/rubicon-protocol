@@ -130,7 +130,7 @@ export class MechEntity {
     this.initWeapons();
     this.allyT = opts.allyDur || 0;
     this.departing = false;
-    this.recoil = { l: 0, r: 0 };
+    this.recoil = { l: 0, r: 0, bl: 0, br: 0 };
     this.swing = { l: 0, r: 0 };
     this.melee = {
       active: false,
@@ -388,6 +388,7 @@ export class MechEntity {
         SFX.shot('bullet', d.id, SP);
         w.cd = d.rof * (d.spin ? 2.5 - 1.5 * clamp(w.streak / d.spin, 0, 1) : 1); // 加特林：轉速慢慢提升
         this.recoil[w.side > 0 ? 'r' : 'l'] = 0.35;
+        if (slot.endsWith('back')) this.recoil[w.side > 0 ? 'br' : 'bl'] = 0.35; // 肩上武器的轉管
         if (this.isPlayer) {
           g.rumble(
             d.id === 'w_mg' || d.id === 'bw_gat' ? 0.15 : 0.25,
@@ -1678,6 +1679,8 @@ export class MechEntity {
       );
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
+    this.recoil.bl = Math.max(0, (this.recoil.bl || 0) - dt * 8);
+    this.recoil.br = Math.max(0, (this.recoil.br || 0) - dt * 8);
     {
       const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)),
         right = new THREE.Vector3(fwd.z, 0, -fwd.x);

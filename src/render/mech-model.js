@@ -2149,7 +2149,21 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     if (bwi) place(back, bwi);
     // 會轉的槍管（GLB 裡名稱為 spin 的節點，例如格林機槍：繞自己的 Z 軸＝槍管方向轉，開火時轉、停火後慢慢停下）
     const spin = weapon.getObjectByName('spin') || null;
-    arms[k] = { mount: shM, up, fore, hand, weapon, back, spin, spinV: 0, spinHold: 0 };
+    const bspin = back.getObjectByName('spin') || null; // 肩上武器的轉管（背部加特林）
+    arms[k] = {
+      mount: shM,
+      up,
+      fore,
+      hand,
+      weapon,
+      back,
+      spin,
+      spinV: 0,
+      spinHold: 0,
+      bspin,
+      bspinV: 0,
+      bspinHold: 0,
+    };
   }
   bakeAll(root);
   // 建立時的站姿（腿的關節角度），自動貼地以這個姿勢量測
@@ -2573,6 +2587,14 @@ export function animateMech(m, dt, st) {
       const on = a.spinHold > 0;
       a.spinV = on ? Math.min(SPIN_MAX, a.spinV + dt * 60) : Math.max(0, a.spinV - dt * 14);
       if (a.spinV > 0) a.spin.rotation.z = (a.spin.rotation.z + a.spinV * dt * side) % (Math.PI * 2);
+    }
+    if (a.bspin) {
+      // 肩上武器的轉管：看肩上武器自己的後座（recoil.bl／br）
+      const brec = (st.recoil && st.recoil['b' + kk]) || 0;
+      if (brec > 0.02) a.bspinHold = 0.25;
+      else a.bspinHold = Math.max(0, a.bspinHold - dt);
+      a.bspinV = a.bspinHold > 0 ? Math.min(SPIN_MAX, a.bspinV + dt * 60) : Math.max(0, a.bspinV - dt * 14);
+      if (a.bspinV > 0) a.bspin.rotation.z = (a.bspin.rotation.z + a.bspinV * dt * side) % (Math.PI * 2);
     }
     const sw = (st.swing && st.swing[kk]) || 0;
     const firing = rec > 0.05;

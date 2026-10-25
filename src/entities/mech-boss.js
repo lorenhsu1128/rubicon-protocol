@@ -67,6 +67,8 @@ Object.assign(MechEntity.prototype, {
     else this.acs = Math.max(0, this.acs - this.acsMax * 0.45 * dt);
     this.recoil.l = Math.max(0, this.recoil.l - dt * 8);
     this.recoil.r = Math.max(0, this.recoil.r - dt * 8);
+    this.recoil.bl = Math.max(0, (this.recoil.bl || 0) - dt * 8);
+    this.recoil.br = Math.max(0, (this.recoil.br || 0) - dt * 8);
     this.vel.set(0, 0, 0);
     this.grounded = false;
     this.mesh.position.copy(this.pos);
