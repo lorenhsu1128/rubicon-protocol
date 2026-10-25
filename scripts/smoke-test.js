@@ -598,7 +598,8 @@ async function testHangar(browser) {
   await page.evaluate(() => {
     const g = window.__game;
     g.ctrl.hangarFx = 'full';
-    for (const id of ['h_lt', 'h_hv', 'l_rj', 'l_hv']) if (!g.save.owned.includes(id)) g.save.owned.push(id);
+    for (const id of ['h_lt', 'h_hv', 'l_rj', 'l_hv', 'w_mg', 'w_sg', 'b_eff'])
+      if (!g.save.owned.includes(id)) g.save.owned.push(id);
     g.openGarage();
   });
   await freezeLoop(page);
@@ -677,9 +678,10 @@ async function testHangar(browser) {
     return !window.__game.hg.prev;
   });
   check(cleared, '滑鼠離開：全像消失');
-  // 換上零件：只有變了的區塊播掃描，結束後舊的機體移除、材質還原
+  // 換上零件（簡短）：只有變了的區塊播掃描，結束後舊的機體移除、材質還原
   const sw = await page.evaluate(() => {
     const g = window.__game;
+    g.ctrl.hangarFx = 'short';
     g.garageSlot = 'head';
     g.renderGarage();
     window.__pump(2);
@@ -701,12 +703,78 @@ async function testHangar(browser) {
     g.garageMech.group.traverse(
       (o) => o.isMesh && o.material.clippingPlanes && o.material.clippingPlanes.length && left++,
     );
+    g.ctrl.hangarFx = 'full';
     return { done: !g.hg.swap, left };
   });
   check(
     sw.ok && sw.mid && sw.clipped > 0 && sw2.done && sw2.left === 0,
-    `換上頭部：掃描換裝（剪裁的網格 ${sw.clipped} 個），結束後材質還原、舊的機體移除`,
+    `換上頭部（簡短）：掃描換裝（剪裁的網格 ${sw.clipped} 個），結束後材質還原、舊的機體移除`,
   );
+  // 換上零件（完整）：依部位的實體換裝，零件移開、送回原位，結束後機械臂收回、吊車放開
+  const rig = await page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    for (const [slot, a, b] of [
+      ['head', 'h_lt', 'h_hv'],
+      ['rarm', 'w_mg', 'w_sg'],
+      ['legs', 'l_rj', 'l_hv'],
+      ['booster', 'b_eff', 'b_std'],
+    ]) {
+      g.garageSlot = slot;
+      g.renderGarage();
+      window.__pump(2.5);
+      g.save.asm[slot] = g.save.asm[slot] === a ? b : a;
+      g.renderGarage();
+      const S = g.hg.swap;
+      if (!S || !S.rig) {
+        out.push({ slot, kind: 'none' });
+        continue;
+      }
+      const it = S.items.find((i) => !i.isNew);
+      const w0 = it.o.getWorldPosition(new THREE.Vector3());
+      window.__pump(0.85);
+      const w1 = it.o.getWorldPosition(new THREE.Vector3());
+      const moved = w1.distanceTo(w0);
+      const busy = S.crane ? S.crane.c.busy : true;
+      const robot = S.robots.length ? S.robots[0].r.g.visible && S.robots[0].r.g.position.y > -0.5 : true;
+      const hatch = S.kind === 'crane' || S.hatches.some((h) => h.k > 0.9);
+      window.__pump(1.5);
+      const nw = S.items.filter((i) => i.isNew);
+      const back = nw.every((i) => i.o.visible && i.o.position.distanceTo(i.p0) < 1e-6);
+      const H = g.hg.H;
+      const clean =
+        !g.hg.swap &&
+        H.robots.every((r) => !r.g.visible) &&
+        !H.cranes[0].busy &&
+        !H.root.children.some((c) =>
+          c.children.some((m) => m.material && m.material.color && m.material.color.getHex() === 0x030405),
+        ) &&
+        g.garageMech.group.position.y === 0;
+      out.push({ slot, kind: S.kind, moved: +moved.toFixed(2), busy, robot, hatch, back, clean });
+    }
+    return out;
+  });
+  const rigOk = rig.every(
+    (r) => r.kind !== 'none' && r.moved > 1 && r.busy && r.robot && r.hatch && r.back && r.clean,
+  );
+  check(
+    rigOk && rig.map((r) => r.kind).join() === 'crane,robot,lift,rear',
+    `完整的實體換裝：頭＝吊車、手持武器＝機械臂、腳＝地板升降口、推進器＝後方軌道（${rig.map((r) => r.slot + ' ' + r.kind + ' ' + r.moved + ' m').join('、')}），結束後收回` +
+      (rigOk ? '' : ' ' + JSON.stringify(rig)),
+  );
+  // 換裝中點一下畫面：略過
+  const skip = await page.evaluate(() => {
+    const g = window.__game;
+    g.garageSlot = 'head';
+    g.save.asm.head = g.save.asm.head === 'h_lt' ? 'h_hv' : 'h_lt';
+    g.renderGarage();
+    window.__pump(0.5);
+    return !!(g.hg.swap && g.hg.swap.rig);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hangar-rig.png') });
+  await page.mouse.click(cx, cy);
+  const skipped = await page.evaluate(() => !window.__game.hg.swap);
+  check(skip && skipped, '換裝中點一下畫面：直接完成');
   // 關閉演出：直接換
   const off = await page.evaluate(() => {
     const g = window.__game;
@@ -742,6 +810,24 @@ async function testHangar(browser) {
   check(
     kinds.join() === 'ship,field,multi',
     `作戰室＝運輸艦、轉場整備＝野戰、多人＝多個整備位（${kinds.join('、')}）`,
+  );
+  // 野戰帳篷沒有吊車：頭部改用機械臂
+  const fieldHead = await page.evaluate(() => {
+    const g = window.__game;
+    g.hangarKind = () => 'field';
+    g.hangarEnsure();
+    g.garageSlot = 'head';
+    g.renderGarage();
+    window.__pump(2.5);
+    g.save.asm.head = g.save.asm.head === 'h_lt' ? 'h_hv' : 'h_lt';
+    g.renderGarage();
+    const k = g.hg.swap && g.hg.swap.kind;
+    window.__pump(2.5);
+    return { k, done: !g.hg.swap };
+  });
+  check(
+    fieldHead.k === 'robot' && fieldHead.done,
+    `野戰帳篷（沒有吊車）換頭部：改用機械臂（${fieldHead.k}）`,
   );
   await ctx.close();
 }

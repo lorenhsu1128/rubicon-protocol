@@ -516,6 +516,15 @@ export function buildHangar(kind) {
     t: 0,
   };
   root.add(H.sparks.pts);
+  // 換裝用的機械臂（平常收在地板下）
+  H.robots = [-1, 1].map((s) => {
+    const r = buildRobot(M);
+    r.g.position.set(s * 3.4, -3.4, 0.6);
+    r.home = new THREE.Vector3(s * 3.4, 0, 0.6);
+    r.g.visible = false;
+    root.add(r.g);
+    return r;
+  });
   const bed = buildBed(M);
   root.add(bed.g);
   H.beds.push(bed);
@@ -1052,6 +1061,7 @@ export function tickHangar(H, dt, t) {
     else if (b.material) b.material.opacity = 0.35 + 0.65 * (Math.sin(t * 8) > 0 ? 1 : 0);
   }
   for (const tx of H.scroll) tx.offset.x = (t * 0.004) % 1;
+  tickPuffs(H, dt);
   // 吊車：沒有工作時在軌道上慢慢換位置（第二期換裝時由 game/hangar.js 指定位置）
   for (const c of H.cranes) {
     if (!c.busy) {
@@ -1063,16 +1073,165 @@ export function tickHangar(H, dt, t) {
         c.wait = 6;
       }
     }
-    const k = Math.min(1, dt * 0.8);
-    c.z += Math.max(-dt * 1.2, Math.min(dt * 1.2, (c.tz - c.z) * k * 4));
-    c.x += Math.max(-dt * 1.2, Math.min(dt * 1.2, (c.tx - c.x) * k * 4));
-    c.drop += Math.max(-dt * 1.5, Math.min(dt * 1.5, c.tdrop - c.drop));
+    if (!c.busy) {
+      const k = Math.min(1, dt * 0.8);
+      c.z += Math.max(-dt * 1.2, Math.min(dt * 1.2, (c.tz - c.z) * k * 4));
+      c.x += Math.max(-dt * 1.2, Math.min(dt * 1.2, (c.tx - c.x) * k * 4));
+      c.drop += Math.max(-dt * 1.5, Math.min(dt * 1.5, c.tdrop - c.drop));
+    }
     c.g.position.z = c.z;
     c.trolley.position.x = c.x;
     c.cable.scale.y = Math.max(0.01, c.drop);
     c.cable.position.y = -0.45 - c.drop / 2;
     c.hook.position.y = -0.55 - c.drop;
   }
+}
+// ---------- 換裝用的機械臂：底座＋轉台＋兩節手臂＋夾爪；reach 以兩段骨頭的解析解讓夾爪到世界座標的一點 ----------
+const RL1 = 1.6,
+  RL2 = 1.5,
+  RSH = 0.75;
+function buildRobot(M) {
+  const g = new THREE.Group();
+  const base = new THREE.Group();
+  g.add(base);
+  P(base, gCyl(0.5, 0.6, 0.4, 12), M.dark, 0, 0.2, 0);
+  B(base, M.stripe, 1.3, 0.02, 1.3, 0, 0.005, 0);
+  bakeStatic(base, true);
+  const turn = new THREE.Group();
+  turn.position.y = 0.4;
+  g.add(turn);
+  const tt = new THREE.Group();
+  turn.add(tt);
+  P(tt, gCyl(0.38, 0.42, 0.3, 12), M.crane, 0, 0.15, 0);
+  B(tt, M.crane, 0.3, 0.5, 0.4, 0, 0.45, 0);
+  bakeStatic(tt, true);
+  const sh = new THREE.Group();
+  sh.position.y = RSH - 0.4;
+  turn.add(sh);
+  const l1 = new THREE.Group();
+  sh.add(l1);
+  B(l1, M.crane, 0.26, 0.3, RL1, 0, 0, RL1 / 2);
+  P(l1, gCyl(0.2, 0.2, 0.4, 10), M.dark, 0, 0, 0, 0, 0, Math.PI / 2);
+  pipe(l1, M.hose, [0.16, 0.1, 0.2], [0.16, 0.1, RL1 - 0.2], 0.03);
+  bakeStatic(l1, true);
+  const el = new THREE.Group();
+  el.position.z = RL1;
+  sh.add(el);
+  const l2 = new THREE.Group();
+  el.add(l2);
+  B(l2, M.crane, 0.2, 0.24, RL2, 0, 0, RL2 / 2);
+  P(l2, gCyl(0.16, 0.16, 0.34, 10), M.dark, 0, 0, 0, 0, 0, Math.PI / 2);
+  bakeStatic(l2, true);
+  const wr = new THREE.Group();
+  wr.position.z = RL2;
+  el.add(wr);
+  const gw = new THREE.Group();
+  wr.add(gw);
+  B(gw, M.dark, 0.3, 0.3, 0.16, 0, 0, 0.05);
+  bakeStatic(gw, true);
+  const fingers = [-1, 1].map((s) => {
+    const fg = new THREE.Group();
+    fg.position.x = s * 0.1;
+    wr.add(fg);
+    const ff = new THREE.Group();
+    fg.add(ff);
+    B(ff, M.frame, 0.05, 0.1, 0.32, 0, 0, 0.28);
+    bakeStatic(ff, true);
+    return fg;
+  });
+  return { g, turn, sh, el, wr, fingers, grip: 0 };
+}
+// 夾爪到世界座標 p（g 的父節點是場景的根，沒有旋轉）
+export function robotReach(r, p) {
+  const lx = p.x - r.g.position.x,
+    lz = p.z - r.g.position.z,
+    ly = p.y - r.g.position.y - RSH;
+  r.turn.rotation.y = Math.atan2(lx, lz);
+  const rr = Math.hypot(lx, lz);
+  const d = Math.max(0.3, Math.min(RL1 + RL2 - 0.02, Math.hypot(rr, ly)));
+  const a2 = Math.acos(Math.max(-1, Math.min(1, (RL1 * RL1 + RL2 * RL2 - d * d) / (2 * RL1 * RL2))));
+  const a1 =
+    Math.atan2(ly, rr) +
+    Math.acos(Math.max(-1, Math.min(1, (RL1 * RL1 + d * d - RL2 * RL2) / (2 * RL1 * d))));
+  r.sh.rotation.x = -a1;
+  r.el.rotation.x = Math.PI - a2;
+  for (const [i, f] of r.fingers.entries()) f.position.x = (i ? 1 : -1) * (0.1 + 0.08 * (1 - r.grip));
+}
+// ---------- 地板的開口：兩片門往兩側滑開，下面是黑的（地板下的東西本來就被地板擋住） ----------
+export function makeHatch(H, x, z, w, d) {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  const hole = new THREE.Mesh(gBox(w, 0.01, d), new THREE.MeshBasicMaterial({ color: 0x030405 }));
+  hole.position.y = 0.012;
+  g.add(hole);
+  const doors = [-1, 1].map((s) => {
+    const m = new THREE.Mesh(gBox(w / 2, 0.04, d), H.M.plate);
+    m.position.set((s * w) / 4, 0.03, 0);
+    m.receiveShadow = true;
+    g.add(m);
+    const st = new THREE.Mesh(gBox(w / 2, 0.005, 0.12), H.M.stripe);
+    st.position.set(0, 0.052, d / 2 - 0.08);
+    m.add(st);
+    return m;
+  });
+  H.root.add(g);
+  return { g, hole, doors, w, k: 0 };
+}
+export function hatchOpen(h, k) {
+  h.k = k;
+  for (const [i, m] of h.doors.entries()) m.position.x = (i ? 1 : -1) * (h.w / 4 + (h.w / 2) * k * 0.98);
+  h.hole.visible = k > 0.02;
+}
+export function removeHatch(H, h) {
+  H.root.remove(h.g);
+  h.hole.material.dispose();
+}
+// ---------- 蒸氣（白色煙團，不改 alpha） ----------
+const PUFF_GEO = new THREE.SphereGeometry(1, 10, 6);
+export function puff(H, p, n = 4, size = 0.35) {
+  if (!H.puffs) H.puffs = [];
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.MeshBasicMaterial({
+      color: 0xe8eef2,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    });
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
+    m.blending = THREE.CustomBlending;
+    m.blendSrc = THREE.SrcAlphaFactor;
+    m.blendDst = THREE.OneMinusSrcAlphaFactor;
+    const me = new THREE.Mesh(PUFF_GEO, m);
+    me.position.copy(p);
+    me.scale.setScalar(size * 0.4);
+    H.root.add(me);
+    const a = Math.random() * Math.PI * 2;
+    H.puffs.push({
+      me,
+      v: new THREE.Vector3(Math.cos(a) * 0.6, 0.5 + Math.random() * 0.6, Math.sin(a) * 0.6),
+      t: 0,
+      life: 0.9 + Math.random() * 0.5,
+      size,
+    });
+  }
+}
+function tickPuffs(H, dt) {
+  if (!H.puffs) return;
+  H.puffs = H.puffs.filter((q) => {
+    q.t += dt;
+    const k = q.t / q.life;
+    if (k >= 1) {
+      H.root.remove(q.me);
+      q.me.material.dispose();
+      return false;
+    }
+    q.me.position.addScaledVector(q.v, dt);
+    q.v.multiplyScalar(1 - dt * 1.5);
+    q.me.scale.setScalar(q.size * (0.4 + k * 1.4));
+    q.me.material.opacity = 0.45 * (1 - k);
+    return true;
+  });
 }
 export function disposeHangar(H) {
   H.root.traverse((o) => {
