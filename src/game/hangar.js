@@ -16,6 +16,7 @@ import {
   spawnCart,
   tickHangar,
 } from '../render/hangar.js';
+import { HA, loadHangarAssets } from '../render/hangar-assets.js';
 import { START_ASM } from '../data/parts.js';
 import { PLAYER_PALS } from '../net/transports.js';
 import { gBox, gCyl, isOutline } from '../render/geometry.js';
@@ -69,15 +70,18 @@ Object.assign(Game.prototype, {
     if (v === 'full' || v === 'short' || v === 'off') return v;
     return /[?&]test\b/.test(location.search) ? 'short' : 'full';
   },
-  hangarEnsure() {
+  // force＝外部素材剛載入：同一種場景也重建（換成細緻的版本）
+  hangarEnsure(force) {
+    loadHangarAssets();
     const kind = this.hangarKind();
-    if (this.hg && this.hg.H.kind === kind) return;
+    if (this.hg && this.hg.H.kind === kind && !force) return;
     const s = this.garageScene;
     if (this.hg) {
       this.hangarLaunchEnd(false);
       s.remove(this.hg.H.root);
       disposeHangar(this.hg.H);
       for (const m of this.hg.mates || []) s.remove(m.group);
+      for (const m of this.hg.bgMechs || []) s.remove(m.group);
     }
     const H = buildHangar(kind);
     s.add(H.root);
@@ -90,8 +94,12 @@ Object.assign(Game.prototype, {
     this.garageHemi.groundColor.set(L.hemi[1]);
     this.garageHemi.intensity = L.hemi[2];
     const old = this.hg || {};
+    // 維修中：還沒修好的區塊交給新的無人機
+    if (old.dmg && old.dmg.rep) old.dmg.queue = old.dmg.spots.filter((x) => !x.done);
     this.hg = {
       H,
+      dmg: old.dmg || null,
+      dmgPending: old.dmgPending || null,
       cam: old.cam || { ...DEF_VIEW, tgt: new THREE.Vector3(0, 1.9, 0) },
       goal: old.goal || { ...DEF_VIEW, tgt: new THREE.Vector3(0, 1.9, 0) },
       idle: 99,
@@ -101,6 +109,46 @@ Object.assign(Game.prototype, {
       swap: null,
     };
     this.hangarInput();
+    this.hangarBgMechs();
+  },
+  // 背景的整備位：停著其他機體（外部素材的版本才有；不同的組裝與配色，有一台拆下了右手在整備）
+  hangarBgMechs() {
+    const hg = this.hg;
+    const B = hg.H.bgBays;
+    const list = [
+      [
+        { ...START_ASM, head: 'h_hv', core: 'c_hv', arms: 'a_hv', legs: 'l_hv', rback: 'bw_gr', lback: null },
+        'gravel',
+        true,
+      ],
+      [
+        {
+          ...START_ASM,
+          head: 'h_lt',
+          core: 'c_lt',
+          arms: 'a_lt',
+          legs: 'l_bp2',
+          rarm: 'w_mg',
+          larm: 'w_blade',
+        },
+        'nightfall',
+        false,
+      ],
+    ];
+    hg.bgMechs = B.map((b, i) => {
+      const [asm, pal, noArm] = list[i % list.length];
+      const m = buildMech(asm, PALETTES[pal] || PALETTES.white, 1, {
+        source: this.mechSource({ team: 'enemy' }),
+      });
+      m.group.rotation.y = Math.PI + b.ry;
+      m.group.position.set(b.x, 0, b.z);
+      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...POSE, t: k / 60 });
+      if (noArm)
+        for (const [slot, o] of Object.entries(m.pieces))
+          if (/^arms\/.*\/r_(fore|hand)$/.test(slot) || /^weapon\/.*\/r$/.test(slot)) o.visible = false;
+      this.garageScene.add(m.group);
+      return m;
+    });
   },
   // 進機甲庫：下一次 renderGarage 不播換裝（記下的組裝清掉）
   hangarOpen() {
@@ -252,6 +300,19 @@ Object.assign(Game.prototype, {
   // ---------- 每格 ----------
   hangarTick(dt, t) {
     if (!this.hg) this.hangarEnsure();
+    // 外部素材載入完成：沒有在播演出時換成細緻的場景
+    {
+      const g = this.hg;
+      if (
+        HA.ready &&
+        !g.H.rich &&
+        !g.swap &&
+        !g.launch &&
+        !g.H.cars.some((c) => c.temp) &&
+        !g.H.drones.some((d) => d.job)
+      )
+        this.hangarEnsure(true);
+    }
     const hg = this.hg;
     const st = { ...POSE, t };
     for (const m of [this.garageMech, hg.swap && hg.swap.old, hg.prev && hg.prev.m])
@@ -908,7 +969,7 @@ Object.assign(Game.prototype, {
     } else {
       const u = seg(t, 0.6, L.T);
       m.group.position.y = 13 * u * u;
-      m.group.position.z = 7 * u * u;
+      m.group.position.z = 10 * Math.pow(u, 0.6); // 先往前衝出帳篷再爬升
       for (const g of L.glows) g.scale.set(1, 0.01 + seg(t, 0.1, 0.5) * (1.2 + 0.2 * Math.sin(t * 40)), 1);
       if (t < 1.2 && Math.random() < 0.25)
         puff(H, new THREE.Vector3((Math.random() - 0.5) * 3, 0.15, (Math.random() - 0.5) * 3), 1, 0.3);

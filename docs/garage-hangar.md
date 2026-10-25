@@ -50,6 +50,36 @@
 - **多人**（`hangarMates`）：多人的格納庫有三個隊友的整備位（x＝−6.8、6.8、−13.6），依大廳的玩家（`net.players` 的組裝、配色 `PLAYER_PALS`、模型組 `ms`）放隊友的機體，每秒檢查一次有沒有變。
 - 設定「簡短」與「關閉」時不播受損、維修、補給與出擊演出（冒煙測試預設簡短）。
 
+### 第四期：細緻的場景（外部素材，已完成）
+
+- 使用者要求「用盡任何方式把場景模型提升到最細緻」：改用開源的 CC0 素材，程式模型留作載不到素材時的備用。
+- **素材**（`src/assets/hangar/`，來源與授權見同資料夾的 `CREDITS.txt`，全部是 CC0）：
+  - Poly Haven 的道具 34 件：天車、焊接推車、發電機、工具車、工具櫃、油桶、木箱、貨架、燈具、電箱、捲門、監視器、路障、輪胎…
+  - Poly Haven 的 PBR 貼圖 11 組：混凝土地板、金屬地板、泥土地、浪板、鋼板、捲門、防滑鋼板、塗裝鋼板、貨櫃、帆布、混凝土牆。有些轉成灰階，由材質顏色決定色調。
+  - Quaternius 的人物 3 種（技師、太空服人員、武裝人員），帶骨架動畫，只保留 Idle、Walk、Interact、Idle_Neutral、Wave。
+  - 處理方式：以 glTF Transform 減面（道具 300～17k 面）、貼圖縮小並轉成 WebP、頂點量化（人物不量化，量化後的蒙皮網格在 r128 不顯示）。
+- **載入**（`render/hangar-assets.js`）：
+  - 建置時打包成 `dist/lib/hangar-assets.js`（約 19 MB，`window.RUBICON_HANGAR`），不內嵌在遊戲的 HTML 裡。
+  - 遊戲啟動 1.5 秒後開始載入（`setupGarageScene`），進機甲庫時也會觸發；解析成範本 `HA.glb`／`HA.tex`。
+  - 還沒載好時先用程式模型；載好後在沒有播演出時，由 `hangarTick` 以 `hangarEnsure(true)` 重建成細緻的版本。
+  - 人物用 `THREE.SkeletonUtils.clone` 複製（`index.html` 多了這個程式庫）。
+- **場景**（`render/hangar.js`，`H.rich`）：
+  - 材質：`richMats` 換成 PBR 材質。靜態合併的方塊依位置與法線投影貼圖座標（`boxUV`，一格 `tile` 公尺，不隨方塊大小拉伸）。
+  - 佈置：`dressBase`／`dressShip`／`dressField` 加上以下內容：
+    - 牆的混凝土下半段、捲門、人員門、牆上的點綴（`wallKit`）、管線、監視器。
+    - 天花板的吊燈與光束（`hangLamp`、`lightCone`）、日光燈。
+    - 地上的整備位標線與編號（`bayDecalTex`，canvas 貼花，不改 alpha）、牆上的標語（`wallSign`）。
+    - 地上的雜物組（`clutter`）、局部的點光源與聚光燈（野戰的照明塔）、浮塵（`buildDust`）。
+  - 天車（`buildCraneRich`）：Poly Haven 的天車。橋依跨距拉長；捲揚機的網格依高度切出吊鉤（`splitMeshY`），中間的鋼索改成會伸縮的。介面和程式模型的吊車相同。
+  - 牽引車與補給車（`buildTugRich`、`richCrate`）：塗裝鋼板的車身、防滾籠與座椅，輪胎用素材。
+  - 技師（`buildCrewChar`／`tickCrew`）：
+    - 動作對應：走路＝Walk、電焊＝Interact（焊槍掛在右手腕，有火花與點光源）、看著機體＝Idle_Neutral、看平板＝Idle。
+    - 平板掛在左手腕；骨架的單位是公分，所以掛一個縮放回公尺的群組。
+  - 背景的整備位（`H.bgBays`）：由 `game/hangar.js` 的 `hangarBgMechs` 停兩台真的機體（重裝、輕量，不同配色）。重裝那台拆下了右前臂與武器，代表在整備中。
+  - 運輸艦的技師站位改到不擋鏡頭的地方；野戰的出擊改成先往前衝出帳篷再爬升。
+- 共用的素材貼圖帶 `haShared`，`disposeHangar` 不釋放；場景自己的貼花與標語在 `H.own`。
+- 冒煙測試 `testHangar` 先等素材載入（`window.__HA`），再檢查細緻的場景（人物與背景機體）。
+
 ## 實作備註
 
 - `this.garageMech` 仍是目前的機體（冒煙測試會讀它的 `modelSrc`）；換裝期間舊的機體另外放在 `this.hg.swap.old`，只顯示被換掉的區塊。

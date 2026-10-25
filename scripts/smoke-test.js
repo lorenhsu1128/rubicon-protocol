@@ -595,6 +595,10 @@ async function testHangar(browser) {
   watch(page, 'hangar');
   await page.goto('file:///' + HTML.replace(/\\/g, '/') + '?test');
   await waitVisible(page, 'title');
+  // 外部素材（lib/hangar-assets.js）載入完再開始，否則中途會換成細緻的場景
+  await page.waitForFunction(() => window.__HA && (window.__HA.ready || window.__HA.failed), null, {
+    timeout: 90000,
+  });
   await page.evaluate(() => {
     const g = window.__game;
     g.ctrl.hangarFx = 'full';
@@ -615,11 +619,18 @@ async function testHangar(browser) {
       cranes: hg.H.cranes.length,
       inScene,
       rot: g.garageMech.group.rotation.y,
+      rich: hg.H.rich,
+      chars: hg.H.workers.filter((w) => w.rich).length,
+      bg: (hg.bgMechs || []).length,
     };
   });
   check(
     st.kind === 'base' && st.workers >= 3 && st.cranes >= 1 && st.inScene,
     `自由出擊＝基地格納庫（技師 ${st.workers} 人、吊車 ${st.cranes} 台），機體站在整備架上`,
+  );
+  check(
+    st.rich && st.chars === st.workers && st.bg === 2,
+    `外部素材的細緻場景（CC0 道具與 PBR 貼圖、骨架動畫的技師 ${st.chars} 人、背景整備位的機體 ${st.bg} 台）`,
   );
   // 部位的鏡頭：點左側的部位
   const tg = async (label) => {

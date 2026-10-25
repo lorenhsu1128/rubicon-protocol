@@ -75,6 +75,39 @@ function writeMusic() {
   );
 }
 
+// 機甲庫格納庫的外部素材：src/assets/hangar/（*.glb、tex/*.webp）→ dist/lib/hangar-assets.js
+// （window.RUBICON_HANGAR＝{ 相對路徑: base64 }）。不內嵌（約 17 MB）：第一次進機甲庫前才以 <script> 載入（render/hangar-assets.js）
+const HANGAR_DIR = path.join(SRC, 'assets', 'hangar');
+function writeHangar() {
+  if (!fs.existsSync(HANGAR_DIR)) return;
+  const data = {};
+  const walk = (dir, pre) => {
+    for (const f of fs.readdirSync(dir).sort()) {
+      const p = path.join(dir, f);
+      if (fs.statSync(p).isDirectory()) walk(p, pre + f + '/');
+      else if (/\.(glb|webp)$/.test(f)) data[pre + f] = fs.readFileSync(p).toString('base64');
+    }
+  };
+  walk(HANGAR_DIR, '');
+  const cr = path.join(HANGAR_DIR, 'CREDITS.txt');
+  const credits = fs.existsSync(cr)
+    ? fs
+        .readFileSync(cr, 'utf8')
+        .split(/\r?\n/)
+        .filter((l) => l.trim())
+        .map((l) => '// ' + l)
+        .join('\n') + '\n'
+    : '';
+  const out = path.join(LIB, 'hangar-assets.js');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(
+    out,
+    '// 機甲庫格納庫的素材（src/assets/hangar/），由 scripts/build.js 產生\n' +
+      credits +
+      `window.RUBICON_HANGAR = ${JSON.stringify(data)};\n`,
+  );
+}
+
 const PAGES = [
   { name: '遊戲', dir: SRC, out: 'rubicon-protocol.html' },
   { name: '模型庫', dir: path.join(SRC, 'library'), out: 'model-library.html' },
@@ -236,6 +269,7 @@ async function main() {
   if (!watch) fs.rmSync(LIB, { recursive: true, force: true }); // 重新複製，移除不再使用的程式庫
   writeDraco();
   writeMusic();
+  writeHangar();
   copySubprojects();
   if (!watch) {
     for (const page of PAGES) {

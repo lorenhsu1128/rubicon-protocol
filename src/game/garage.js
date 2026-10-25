@@ -7,6 +7,7 @@ import { bossForLevel, isBossLevel } from '../data/enemies.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById, usesAmmo } from '../data/parts.js';
 import { applyPilotStats, levelOf } from '../data/pilot.js';
 import { MECH_COLORS, PALETTES } from '../render/materials.js';
+import { loadHangarAssets } from '../render/hangar-assets.js';
 import { LocalModels } from '../render/local-models.js';
 import { buildMech } from '../render/mech-model.js';
 import { VARIANTS, variantKeys } from '../world/variants.js';
@@ -50,6 +51,8 @@ Object.assign(Game.prototype, {
     this.garageCam.lookAt(0, 1.9, 0);
     this.garageMech = null;
     this.garageSlot = 'rarm';
+    // 格納庫的外部素材（約 17 MB）：啟動後稍等再開始載入，第一次進機甲庫時多半已經好了
+    setTimeout(() => loadHangarAssets(), 1500);
   },
   openGarage() {
     this.state = 'garage';
