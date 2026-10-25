@@ -35,6 +35,7 @@ npm start            # 先 build，再啟動伺服器：控制台 http://localho
 npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe（目標 Node 22）
 npm run bench:rts    # 大量單位的效能基準（要先 build；見下方）
 npm run balance:rts  # Coral 戰爭的靜態平衡（純 node；--check 超出範圍時結束碼 1，--md 印表格；docs/rts-design.md 17.5、17.9）
+npm run publish:server  # 內建的玩家預設機甲（src/assets/player-mech/）發佈成執行中伺服器的預設組（--host、--src、--force 全部重傳、--keep 不移除多的）
 ```
 
 - 每次修改後執行 `npm run lint`、`npm run format:check`，以及 `npm test`。
