@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/story-script.md`：主線的劇本（世界觀與真相、角色、序章、各章的開場／章末、簡報、通訊、結局、周目）；改台詞或劇情時與 `data/story.js`、`data/story-comms.js` 同步。
 - `docs/cinematics.md`：過場動畫（序章、各章開場／章末）的引擎、劇本格式、各段的分鏡；改過場動畫時同步更新。
 - `docs/rts-design.md`：即時戰略模式「Coral 戰爭」（魔獸爭霸3 式：指揮官視角、蓋基地採資源、英雄、四陣營、戰爭迷霧、對稱地圖產生器）的設計文件與分期；做相關功能時照它進行，設計有變動時同步更新。
-- `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期依武器的射擊動作與可編輯的近戰關鍵影格、第三期受擊與演出）的定案與實作；改 `animateMech` 時照它進行並同步更新。
+- `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期持握角度、依武器的射擊動作與可編輯的近戰關鍵影格；第三期受擊、依方向的失衡、擊破跪倒、附加晃動、待機與個性）的定案與實作；改 `animateMech` 時照它進行並同步更新。
 - `docs/level-editor-design.md`：自訂關卡與關卡編輯器的設計文件（玩家創作、分享、多人）；改編輯器或關卡格式時同步更新。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。過場動畫的配樂 `src/assets/music/*.mp3` 由建置寫成 `dist/lib/cine-music.js`（`window.RUBICON_MUSIC`，不內嵌在 HTML，第一次播過場時才載入）。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
 
@@ -306,7 +306,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 
 ### 動作 IK（render/mech-ik.js）
 
-- **動作層**（`animateMech`，詳見 `docs/mech-animation.md`）：各關節以 `mech-spring.js` 的二階彈簧往目標角度前進（動漫風格的過衝），每台的移動狀態在 `m.an`（滑行 `gW`、QB `qW`、煞車 `bW`、起跳、原地轉身踏步）；`st` 另外要 `MechEntity.animExtra()` 的 `vr`／`vy`／`dyaw`／`landV`／`heavy`。開火時手臂上跳的彈簧在 `m.an.kk`（IK 瞄準之後才套用）；近戰有片段（`st.melee.clip`）時片段寫到的關節跟著片段。武器槽位的關節設定 `hold`＝持握角度（`arms[k].aim`）。下半身 `legsG` 的偏航＝上下半身分離（朝移動方向），上半身 `torso` 不在 `legsG` 底下。膝的旋轉負值才是正常彎曲。
+- **動作層**（`animateMech`，詳見 `docs/mech-animation.md`）：各關節以 `mech-spring.js` 的二階彈簧往目標角度前進（動漫風格的過衝），每台的移動狀態在 `m.an`（滑行 `gW`、QB `qW`、煞車 `bW`、起跳、原地轉身踏步）；`st` 另外要 `MechEntity.animExtra()` 的 `vr`／`vy`／`dyaw`／`landV`／`heavy`。開火時手臂上跳的彈簧在 `m.an.kk`（IK 瞄準之後才套用）；近戰有片段（`st.melee.clip`）時片段寫到的關節跟著片段。武器槽位的關節設定 `hold`＝持握角度（`arms[k].aim`）。受擊 `MechEntity.hitAnim`→`st.hits`；人形機甲擊破時 `fx.collapse` 先跪倒 0.55 秒再碎裂（`fx.task` 的 `end`）。下半身 `legsG` 的偏航＝上下半身分離（朝移動方向），上半身 `torso` 不在 `legsG` 底下。膝的旋轉負值才是正常彎曲。
 
 - `animateMech` 是純 FK（每格往目標角度 lerp）；IK 是疊在它之後的修正層：`MechEntity.move`／`remoteUpdate` 在設定機體位置前先 `ikRestore`（把 IK 改過的關節還原成上一格動作層的結果，否則 lerp 會從 IK 的結果出發），`animateMech` 之後 `applyIK(rig, this.ikCtx(dt))`。只在遊戲實體使用；模型庫、車庫、組裝調整、實驗室展示台不套用。
 - 項目（`IK_ITEMS`，各自開關＋總開關，`rubicon_ik`）：二足／逆關節腳貼地（兩段骨頭解析解、腳掌貼齊地面法線、伸不到時壓低 `lift`）、機體隨地形傾斜（轉 `lift`）、步伐依移動距離（實體的 `gaitPh`／`gaitAmp` 傳給 `animateMech` 的 `st.gait`／`st.amp`，此時抬腳改在腿往前擺的期間）、腳步鎖定、四足腳貼地、履帶貼合地形、失衡時腳貼地、頭部注視、手臂瞄準（繞肩關節轉到槍管＝武器關節 −Z 對準 `aimPoint()`）、肩上武器指向、空手扶槍（持槍手繞槍管方向轉向身體中線，另一手兩段骨頭伸到槍身）、近戰對準高度。

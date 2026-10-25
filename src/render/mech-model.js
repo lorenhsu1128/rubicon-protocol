@@ -2201,6 +2201,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     arms,
     legs,
     nozzles,
+    pack: bp, // 背包的關節群組（附加晃動）
     pieces,
     mounts,
     lift,
@@ -2361,6 +2362,7 @@ function groundNow(rig) {
 }
 
 const SPIN_MAX = 32; // 槍管全速（rad/s）
+const WK_GUN = (st, k) => !!(st.wk && st.wk[k]);
 const NO_WK = {},
   NO_LR = { l: 0, r: 0 };
 export function animateMech(m, dt, st) {
@@ -2544,6 +2546,47 @@ export function animateMech(m, dt, st) {
     an.ch = st.ch || NO_LR;
     an.rl = st.rl || NO_LR;
   }
+  // ===== 受擊（st.hits：機體座標的推力方向與強度）：上身、扭轉、背包、肩上武器給衝量，很重時踉蹌 =====
+  if (!an.tw) an.tw = { y: m.torsoTwist || 0 };
+  if (st.hits)
+    for (const h of st.hits) {
+      const k = h.k * (1 - 0.3 * clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1));
+      kick(m.torso.rotation, 'x', h.z * 4.5 * k); // 前面打（往 +Z 推）＝後仰
+      kick(m.torso.rotation, 'z', -h.x * 3.5 * k); // 往右推＝往右傾
+      kick(an.tw, 'y', -h.x * 2 * k);
+      if (m.pack) kick(m.pack.rotation, 'x', h.z * 3 * k);
+      kick(an.kk.bl, 'x', h.z * 2.5 * k);
+      kick(an.kk.br, 'x', h.z * 2.5 * k);
+      if (k > 0.85 && grounded) {
+        an.stum = 0.35;
+        an.stumD = h.z >= 0 ? 1 : -1;
+      }
+    }
+  an.stum = Math.max(0, (an.stum || 0) - dt);
+  const stW = an.stum > 0 ? Math.sin((an.stum / 0.35) * Math.PI) : 0; // 踉蹌（0→1→0）
+  // QB 一開始：背包、肩上武器往後甩
+  if (st.qb && !an.qb0) {
+    if (m.pack) kick(m.pack.rotation, 'x', 2.5);
+    kick(an.kk.bl, 'x', -2);
+    kick(an.kk.br, 'x', -2);
+  }
+  an.qb0 = !!st.qb;
+  // ===== 待機：檢查武器（一陣子沒動作時右手舉槍看一下）、個性（電腦的機體：前傾、晃動、轉頭）=====
+  const PS = st.persona;
+  const calm =
+    idle && !ML && !st.knock && !(st.recoil && st.recoil.r > 0.02) && !(st.recoil && st.recoil.l > 0.02);
+  an.idleT = calm ? (an.idleT || 0) + dt : 0;
+  if (an.chkN === undefined) an.chkN = 7 + Math.random() * 8;
+  if (an.idleT > an.chkN && !(an.chk > 0)) {
+    an.chk = 1.8;
+    an.chkN = 9 + Math.random() * 10;
+    an.idleT = 0;
+  }
+  if (an.chk > 0) an.chk = calm || an.chk < 1.7 ? an.chk - dt : 0;
+  const chkW = an.chk > 0 ? Math.sin((1 - an.chk / 1.8) * Math.PI) : 0;
+  an.relax = an.relax || { l: 0, r: 0 };
+  an.relax.r = WK_GUN(st, 'r') ? chkW : 0; // 手臂瞄準 IK 放鬆（mech-ik.js）
+  an.rh = chkW; // 頭部注視放鬆
   const chg = Math.max(an.ch.l, an.ch.r);
   an.brW = lerp(an.brW, an.brace > 0 || chg > 0.05 ? 1 : 0, ek(an.brace > 0 ? 18 : 5));
   const crouch =
@@ -2666,6 +2709,11 @@ export function animateMech(m, dt, st) {
       // 撐住下盤（重武器、連射、蓄力）：屈膝、兩腳張開
       kn -= 0.22 * an.brW;
       abd += L.side * 0.06 * an.brW;
+      // 踉蹌：被推的方向退一步（右腳）
+      if (stW > 0) {
+        th += stW * (L.side > 0 ? -0.35 * an.stumD : 0.1);
+        kn -= stW * (L.side > 0 ? 0.5 : 0.3);
+      }
       th += squat * 0.55;
       kn -= squat * 1.0;
       ft += squat * 0.45;
@@ -2765,13 +2813,16 @@ export function animateMech(m, dt, st) {
     an.qW * (-0.42 * Math.max(0, an.qF) + 0.3 * Math.max(0, -an.qF)) +
     (!grounded && an.jumpT < 0.14 ? 0.12 : 0) -
     0.05 * an.brW +
-    0.12 * chg; // 撐住時往前壓、蓄力時後仰
+    0.12 * chg + // 撐住時往前壓、蓄力時後仰
+    (PS ? PS.lean : 0) +
+    0.12 * stW * (an.stumD || 1);
   // 側傾：側移、滑行、側衝時往移動方向傾（strafe 的反向）
   let tZ =
     -strafe * 0.14 -
     (grounded && moving ? Math.sin(gp) * 0.03 * (1 - an.gW) : 0) -
     strafe * 0.12 * an.gW -
     an.qS * 0.38 * an.qW +
+    (idle ? Math.sin(t * 0.45) * 0.025 * (PS ? PS.sway : 1) : 0) + // 待機的重心晃動（個性）
     (an.jit > 0 ? Math.sin(t * 70) * 0.025 : 0); // 連射的震動
   let tYoff = 0; // 上半身另外扭轉（近戰招式）
   if (ML) {
@@ -2801,9 +2852,19 @@ export function animateMech(m, dt, st) {
   // ===== 頭：偏航領先軀幹看向目標、俯仰跟瞄準、側傾隨機體傾斜 =====
   if (m.head) {
     m.head.rotation.order = 'YXZ';
-    S(m.head.rotation, 'y', idle ? Math.sin(t * 0.7) * 0.12 : 0, SP.head);
-    S(m.head.rotation, 'x', -ap * 0.5 + (st.boost ? 0.12 : 0) - tX * 0.4, SP.head);
+    S(
+      m.head.rotation,
+      'y',
+      (idle ? Math.sin(t * 0.7 * (PS ? PS.look : 1)) * 0.12 * (PS ? PS.look : 1) : 0) - 0.45 * chkW,
+      SP.head,
+    );
+    S(m.head.rotation, 'x', -ap * 0.5 + (st.boost ? 0.12 : 0) - tX * 0.4 + 0.3 * chkW, SP.head);
     S(m.head.rotation, 'z', -(st.leanZ || 0) * 0.5 - tZ * 0.5, SP.head);
+  }
+  // ===== 附加晃動：背包隨加減速、側向加速晃動（受擊與 QB 的衝量在上面）=====
+  if (m.pack) {
+    S(m.pack.rotation, 'x', -clamp(st.leanX || 0, -0.4, 0.4) * 0.25 + 0.12 * an.qW, SP.sec);
+    S(m.pack.rotation, 'z', (st.leanZ || 0) * 0.3, SP.sec);
   }
   // ===== 推進器推力（0～1，噴焰粒子依此發射）=====
   const fl = st.boost ? 1 : st.hover ? 0.65 : !grounded ? 0.4 : an.gW > 0.5 ? 0.75 : moving ? 0.27 : 0.04;
@@ -2868,6 +2929,9 @@ export function animateMech(m, dt, st) {
       0.3 * an.gW * free;
     up -= 0.2 * an.rl[kk]; // 換彈：手放低、手肘彎
     foreT += 0.5 * an.rl[kk];
+    const ck = kk === 'r' ? an.relax.r : 0; // 檢查武器：右手把槍舉到面前
+    up += 0.55 * ck;
+    foreT += 0.45 * ck;
     if (ML) {
       const ph = ML.ph,
         s = ML.mirror ? -1 : 1;
@@ -2914,20 +2978,33 @@ export function animateMech(m, dt, st) {
     S(a.fore.rotation, 'y', firing ? side * 0.08 : 0, SP.arm);
     // 換彈：槍往下、往內翻（an.rl＝0～1～0）
     const rl = an.rl[kk];
-    S(a.weapon.rotation, 'z', side * 0.6 * rl, SP.arm);
+    S(a.weapon.rotation, 'z', side * 0.6 * Math.max(rl, kk === 'r' ? an.relax.r : 0), SP.arm);
     S(a.weapon.rotation, 'x', -0.45 * rl, SP.arm);
   }
   // ===== 失衡傾倒 =====
+  // 依最後一次受擊的方向（st.knockF：前面打＝正，st.knockX：往哪一側推）：前面或側面打＝往後仰、屈膝撐住，
+  // 背後打＝往前跪（一腳跪地）；側傾往被推的那一側（推的方向不明顯時照 knockSide）
   const kd = st.knock || 0;
   if (kd > 0) {
-    m.group.rotation.x = lerp(m.group.rotation.x, kd * 0.55, 0.2);
-    m.group.rotation.z = lerp(m.group.rotation.z, kd * 0.25 * (st.knockSide || 1), 0.2);
+    const kk = Math.min(1, dt * 12);
+    const fwd = st.knockF !== undefined && st.knockF < -0.25;
+    const sd = st.knockX && Math.abs(st.knockX) > 0.3 ? -Math.sign(st.knockX) : st.knockSide || 1;
+    m.group.rotation.x = lerp(m.group.rotation.x, kd * (fwd ? -0.35 : 0.5), kk);
+    m.group.rotation.z = lerp(m.group.rotation.z, kd * 0.25 * sd, kk);
     if (m.type === 'biped' || m.type === 'reverse')
       for (const L of m.legs) {
-        L.thigh.rotation.x = lerp(L.thigh.rotation.x, L.th - 0.5, 0.2);
-        L.knee.rotation.x = lerp(L.knee.rotation.x, L.kn + 0.4, 0.2);
-        L.thigh.rotation.z = lerp(L.thigh.rotation.z, L.side * 0.35, 0.2);
+        const lead = L.side === sd;
+        const th = fwd ? (lead ? 0.9 : 0.1) : 0.3,
+          kn = fwd ? (lead ? -1.2 : -1.5) : -0.6;
+        L.thigh.rotation.x = lerp(L.thigh.rotation.x, L.th + th * kd, kk);
+        L.knee.rotation.x = lerp(L.knee.rotation.x, L.kn + kn * kd, kk);
+        L.foot.rotation.x = lerp(L.foot.rotation.x, L.ft - (th + kn) * kd, kk);
+        L.thigh.rotation.z = lerp(L.thigh.rotation.z, L.side * 0.3, kk);
       }
+    for (const kk2 of ['l', 'r']) {
+      const a = m.arms[kk2];
+      a.up.rotation.z = lerp(a.up.rotation.z, (kk2 === 'r' ? 1 : -1) * 0.7 * kd, kk); // 手往外甩
+    }
   }
   if (m.flashT > 0) {
     m.flashT -= dt;

@@ -183,10 +183,19 @@ export class MechEntity {
       dyaw,
       landV: this.landV || 14,
       heavy: this.animHeavy,
+      hits: this.takeHits(),
+      knockF: this.knockF,
+      knockX: this.knockX,
+      persona: this.animPersonaOf(),
       ...this.animWeapons(),
     };
   }
   // 射擊動作要的武器狀態：各槽位的動作種類（render/mech-fire.js）、蓄力進度、換彈（0→1→0）
+  takeHits() {
+    const h = this.animHits;
+    this.animHits = null;
+    return h;
+  }
   animWeapons() {
     const wk = {},
       ch = { l: 0, r: 0 },
@@ -201,6 +210,45 @@ export class MechEntity {
         rl[k] = Math.sin(Math.PI * clamp(1 - w.reloadT / w.def.reload, 0, 1));
     }
     return { wk, ch, rl };
+  }
+  // 擊破時先跪倒崩落的機體：人形（二足、逆關節）的機甲，不是 Coral 戰爭、過場動畫
+  canCollapse() {
+    const m = this.model;
+    return !!(
+      m &&
+      !m.vehicle &&
+      !this.isProp &&
+      !this.opts.modelKind &&
+      (m.type === 'biped' || m.type === 'reverse') &&
+      m.legs &&
+      m.legs.length &&
+      !this.game.rts &&
+      !this.cine
+    );
+  }
+  // 受擊的動作（animateMech 的 st.hits）：d＝打過來的方向（世界，攻擊者 → 自己），k＝強度；也記下失衡的倒向
+  hitAnim(d, k) {
+    if (!d || !this.model || this.model.vehicle) return;
+    const c = Math.cos(this.yaw),
+      s = Math.sin(this.yaw);
+    const lx = d.x * c - d.z * s,
+      lz = d.x * s + d.z * c,
+      l = Math.hypot(lx, lz);
+    if (l < 1e-4) return;
+    const h = this.animHits || (this.animHits = []);
+    h.push({ x: lx / l, z: lz / l, k });
+    if (h.length > 4) h.shift();
+    this.knockF = lz / l;
+    this.knockX = lx / l;
+  }
+  // 個性（電腦的機體，依名稱固定）：前傾、待機的晃動、轉頭
+  animPersonaOf() {
+    if (this.animPersona !== undefined) return this.animPersona;
+    if (this.isPlayer || !this.name || this.team === 'player') return (this.animPersona = null);
+    let h = 2166136261;
+    for (const ch of this.name) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+    const r = (n) => ((h >>> (n * 8)) & 255) / 255;
+    return (this.animPersona = { lean: -0.1 + 0.16 * r(0), sway: 0.5 + r(1), look: 0.5 + 1.1 * r(2) });
   }
   leanTilt() {
     const l = this.leanX || 0;
@@ -1092,6 +1140,10 @@ export class MechEntity {
       dir = null;
     }
     mechFlash(this.model);
+    this.hitAnim(
+      dir || (from && from.pos ? this.pos.clone().sub(from.pos) : null),
+      clamp(impact / 600, 0.15, 1.6),
+    );
     if (dir) {
       const kb = clamp(impact / 900, 0.05, 1.2) * (this.isBoss ? 0.15 : 1);
       this.vel.x += dir.x * kb * 6;
@@ -1265,9 +1317,16 @@ export class MechEntity {
       this.glare.forEach((m) => g.scene.remove(m));
       this.glare = null;
     }
-    g.fx.shatter(this, g.world);
-    if (!this.isProp) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
-    this.mesh.visible = false;
+    // 人形機甲先跪倒崩落（fx.collapse）再碎裂；其他直接碎裂
+    const brk = () => {
+      g.fx.shatter(this, g.world);
+      if (!this.isProp) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
+      this.mesh.visible = false;
+    };
+    if (this.canCollapse()) {
+      g.fx.explosion(c, 1.6 * (this.scale || 1), 0xff8030);
+      g.fx.collapse(this, brk);
+    } else brk();
     g.camShake = Math.max(g.camShake, this.isBoss ? 0.5 : 0.2);
     // 最後一個 Boss 擊破：慢動作與橫幅
     if (

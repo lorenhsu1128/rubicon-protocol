@@ -132,8 +132,12 @@ Object.assign(MechEntity.prototype, {
       this.glare.forEach((m) => g.scene.remove(m));
       this.glare = null;
     }
-    g.fx.shatter(this, g.world);
-    this.mesh.visible = false;
+    const brk = () => {
+      g.fx.shatter(this, g.world);
+      this.mesh.visible = false;
+    };
+    if (this.canCollapse()) g.fx.collapse(this, brk);
+    else brk();
     g.camShake = Math.max(g.camShake, this.isBoss ? 0.5 : 0.2);
     if (this.isPlayer) {
       g.flashMsg('AC 已被擊破 — 旁觀模式（Tab 切換隊友）', 0xff4d4d, 3);

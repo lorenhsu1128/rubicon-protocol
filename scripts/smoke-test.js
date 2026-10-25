@@ -9256,9 +9256,12 @@ async function testJuice(browser, base) {
     e.takeDamage(10, e.acsMax * 10, pl, e.center());
     out.brk = g.popups.some((q) => q.val === 'BREAK');
     // 擊破兩台：連殺 ×2，擊破演出（延遲爆炸、冒煙、焦痕）
-    const n0 = g.fx.list.length;
+    // 人形機甲先跪倒崩落（fx.collapse）、0.55 秒後才碎裂與擊破的爆炸
     e.takeDamage(1e9, 0, pl, e.center());
-    out.burst = g.fx.list.length - n0;
+    out.collapse = g.fx.list.some((x) => !x.mesh && x.end) && e.mesh.visible;
+    g.fx.update(0.6);
+    out.hidden = !e.mesh.visible;
+    out.burst = g.fx.list.length;
     out.tasks = g.fx.list.filter((x) => !x.mesh).length;
     const e2 = g.spawnType('mt', 1, 1);
     e2.pos.copy(pl.pos).add(new THREE.Vector3(5, 0, -12));
@@ -9281,7 +9284,8 @@ async function testJuice(browser, base) {
   });
   check(r.pops === 1 && r.sum > 300, `連續命中合併成一個傷害數字（${r.pops} 個、${r.sum}）`);
   check(r.brk, '打出失衡時跳出 BREAK');
-  check(r.burst >= 4 && r.tasks >= 2, `擊破演出：二次爆炸、殘骸冒煙、焦痕（+${r.burst} 個特效）`);
+  check(r.collapse && r.hidden, '擊破時人形機甲先跪倒崩落，之後才碎裂');
+  check(r.burst >= 4 && r.tasks >= 2, `擊破演出：二次爆炸、殘骸冒煙、焦痕（${r.burst} 個特效）`);
   check(r.streak === 2, `連殺計數 ×${r.streak}`);
   check(r.flash > 0.5 && r.chroma > 0.5, `受到重擊時畫面閃光與色差（${r.flash.toFixed(2)}）`);
   check(r.banner === 'WARNING' && r.bannerSub === 'TEST BOSS', `Boss 登場的 WARNING 橫幅（${r.bannerSub}）`);

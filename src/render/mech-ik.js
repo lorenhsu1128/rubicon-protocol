@@ -412,7 +412,7 @@ function upperBody(rig, ctx, sc) {
     upd(rig.torso);
   }
   // ===== 頭：看向瞄準點（區域角度上限：偏航 ±1.0、俯仰 ±0.5）=====
-  W.head = smooth(W.head, on('head') && !ctx.knock ? 1 : 0, dt, 6);
+  W.head = smooth(W.head, on('head') && !ctx.knock ? 1 - ((rig.an && rig.an.rh) || 0) : 0, dt, 6);
   if (rig.head && W.head > 0.002) {
     const h = rig.head;
     const [yaw, pitch] = lookAngles(h, aim);
@@ -463,7 +463,10 @@ function upperBody(rig, ctx, sc) {
     const a = rig.arms[k];
     const rec = (ctx.recoil && ctx.recoil[k]) || 0;
     const firing = rec > 0.05;
-    const rl = (rig.an && rig.an.rl && rig.an.rl[k]) || 0; // 換彈中：槍往下翻，瞄準放鬆
+    // 換彈中（槍往下翻）、待機時檢查武器：瞄準放鬆
+    const rl = rig.an
+      ? Math.max((rig.an.rl && rig.an.rl[k]) || 0, (rig.an.relax && rig.an.relax[k]) || 0)
+      : 0;
     const want =
       on('arms') && ctx.guns[k] === 'gun' && !ctx.melee && !ctx.knock
         ? (ctx.boost && !firing ? 0.35 : 1) * (1 - 0.8 * rl)

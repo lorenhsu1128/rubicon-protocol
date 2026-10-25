@@ -7,6 +7,9 @@ import { mergeGeos } from '../render/geometry.js';
 import { FxBatch } from './batch.js';
 import { ThrusterFx } from './thruster.js';
 
+// 擊破時跪倒崩落的秒數（之後才碎裂）
+export const COLLAPSE_T = 0.55;
+
 const FX_BUSY = 400; // 特效數量達到這個數時才略過畫面外的小粒子（一般戰鬥照原本）
 const FX_FAR = 70; // 粒子很多時，離鏡頭這麼遠（m）以上的減量
 const _skS = new THREE.Sphere(),
@@ -145,8 +148,67 @@ export class Effects {
     });
   }
   // 沒有網格的計時工作（延遲爆炸、持續冒煙）：fn(e, t, dt) 每格呼叫
-  task(life, fn) {
-    this.list.push({ mesh: null, life, max: life, fn });
+  // end：時間到時呼叫一次（clear 清掉時不呼叫）
+  task(life, fn, end) {
+    this.list.push({ mesh: null, life, max: life, fn, end });
+  }
+  // 擊破時人形機甲先跪倒崩落（COLLAPSE_T 秒、冒火花），之後才碎裂（end）；動作直接改關節（實體已經不更新）
+  collapse(ent, end) {
+    const m = ent.model;
+    const side = Math.random() < 0.5 ? -1 : 1,
+      back = Math.random() < 0.35; // 往後倒（否則往前跪倒）
+    const legs = m.legs.map((L) => ({
+      L,
+      th: L.thigh.rotation.x,
+      kn: L.knee.rotation.x,
+      ft: L.foot.rotation.x,
+      lead: L.side === side,
+    }));
+    const arms = Object.values(m.arms).map((a) => ({ a, up: a.up.rotation.x, fo: a.fore.rotation.x }));
+    const s0 = {
+      ly: m.legsG.position.y,
+      ty: m.torso.position.y,
+      tx: m.torso.rotation.x,
+      tz: m.torso.rotation.z,
+    };
+    const hx = m.head ? m.head.rotation.x : 0;
+    const sc = ent.scale || 1;
+    let acc = 0;
+    const L = (a, b, u) => a + (b - a) * u;
+    this.task(
+      COLLAPSE_T,
+      (e, t, dt) => {
+        const u = t * t * (3 - 2 * t);
+        for (const g of legs) {
+          g.L.thigh.rotation.x = L(g.th, g.lead ? 0.95 : 0.15, u);
+          g.L.knee.rotation.x = L(g.kn, g.lead ? -1.35 : -1.7, u);
+          g.L.foot.rotation.x = L(g.ft, g.lead ? 0.4 : 1.0, u);
+        }
+        for (const g of arms) {
+          g.a.up.rotation.x = L(g.up, 0.1, u);
+          g.a.fore.rotation.x = L(g.fo, 0.5, u);
+        }
+        m.legsG.position.y = s0.ly - 0.75 * u;
+        m.torso.position.y = s0.ty - 0.75 * u;
+        m.torso.rotation.x = L(s0.tx, back ? 0.45 : -0.6, u);
+        m.torso.rotation.z = L(s0.tz, side * 0.25, u);
+        if (m.head) m.head.rotation.x = L(hx, back ? -0.3 : 0.5, u);
+        acc += dt;
+        if (acc > 0.07) {
+          acc = 0;
+          const c = ent.center();
+          this.streaks(
+            c.add(new THREE.Vector3(rnd(-0.6, 0.6), rnd(-0.4, 0.6), rnd(-0.6, 0.6)).multiplyScalar(sc)),
+            5,
+            0xffc060,
+            12,
+            0.25,
+            10,
+          );
+        }
+      },
+      end,
+    );
   }
   // 擊破的追加演出（房主與客機各自呼叫，不轉送）：連續的二次爆炸、殘骸冒煙、地面焦痕、強光
   killBurst(p, sc = 1, big = false, groundY = null) {
@@ -762,6 +824,7 @@ export class Effects {
       e.life -= dt;
       if (e.life <= 0) {
         if (e.mesh) this.dispose(e.mesh);
+        if (e.end) e.end();
         continue;
       }
       e.fn(e, 1 - e.life / e.max, dt);

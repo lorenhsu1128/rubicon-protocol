@@ -360,6 +360,12 @@ Object.assign(Game.prototype, {
       case 'pop':
         {
           const tgt = this.entById(e.i);
+          // 受擊的動作：從命中點往機體中心推（房主那邊在 takeDamage 裡）
+          if (tgt && tgt.hitAnim && typeof e.v === 'number' && e.v > 0)
+            tgt.hitAnim(
+              tgt.center().sub(new THREE.Vector3(e.p[0], e.p[1], e.p[2])),
+              Math.min(1.2, 0.2 + (e.v / Math.max(1, tgt.maxHp)) * 8),
+            );
           this.popDamage(
             new THREE.Vector3(e.p[0], e.p[1], e.p[2]),
             e.v,
