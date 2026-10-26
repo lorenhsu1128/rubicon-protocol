@@ -1,6 +1,7 @@
 // ---------- Game 整合 ----------
 import { SFX } from '../audio/audio.js';
 import { rnd } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { PICKUP_DEFS, Pickup, Vehicle } from '../world/map-extras.js';
 import { Game } from './game.js';
 
@@ -157,7 +158,7 @@ Object.assign(Game.prototype, {
       if (isHost) {
         for (const e of this.players || []) {
           if (!e || e.dead || e.downed) continue;
-          if (e.pos.distanceTo(pk.pos) < 2.4) {
+          if (e.pos.distanceTo(pk.pos) < 2.4 * MS) {
             this.collectPickup(pk, e);
             break;
           }

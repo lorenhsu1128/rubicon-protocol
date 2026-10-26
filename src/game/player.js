@@ -1,6 +1,7 @@
 // Game：玩家機體操作與鎖定
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -13,9 +14,9 @@ Object.assign(Game.prototype, {
         r = Math.max(r, d.range);
     }
     const base = r ? Math.min(p.stats.lockRange, r) : p.stats.lockRange;
-    // 沙暴干擾機（data/foes.js）25 m 內：鎖定距離減半
+    // 沙暴干擾機（data/foes.js）75 m 內：鎖定距離減半
     const jam = (this.enemies || []).some(
-      (e) => !e.dead && e.opts && e.opts.vehKey === 'jammer' && e.pos.distanceTo(p.pos) < 25,
+      (e) => !e.dead && e.opts && e.opts.vehKey === 'jammer' && e.pos.distanceTo(p.pos) < 25 * DS,
     );
     return jam ? base * 0.5 : base;
   },
@@ -36,7 +37,7 @@ Object.assign(Game.prototype, {
         if (e.dead || e.noLock) continue;
         const d = e.center().sub(eye);
         const dist = d.length();
-        if (dist > reach || dist < 0.5 || !this.onScreen(e)) continue;
+        if (dist > reach || dist < 0.5 * MS || !this.onScreen(e)) continue;
         out.push({ e, k: Math.acos(clamp(d.normalize().dot(look), -1, 1)) });
       }
     } else if (this.chase) {

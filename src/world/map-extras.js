@@ -3,6 +3,7 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { pick, rnd, rndi } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { buildPickupMesh, buildTransport } from '../render/extra-models.js';
 
 const BLACK = new THREE.Color(0);
@@ -146,6 +147,7 @@ export class Pickup {
     this.dead = false;
     const g = buildPickupMesh(PICKUP_DEFS[kind].color, kind);
     g.position.copy(this.pos);
+    g.scale.setScalar(MS); // 機甲用的補給品
     game.scene.add(g);
     this.mesh = g;
     this.t = 0;
@@ -153,7 +155,7 @@ export class Pickup {
   update(dt) {
     this.t += dt;
     this.life -= dt;
-    this.mesh.position.y = this.pos.y + 0.4 + Math.sin(this.t * 3) * 0.2;
+    this.mesh.position.y = this.pos.y + (0.4 + Math.sin(this.t * 3) * 0.2) * MS;
     this.mesh.rotation.y += dt * 1.5;
     if (this.life < 5) this.mesh.visible = Math.floor(this.t * 8) % 2 === 0;
     if (this.life <= 0) this.remove();

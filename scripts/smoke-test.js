@@ -15,6 +15,8 @@ const { spawn } = require('child_process');
 const { chromium } = require('playwright-core');
 
 const ROOT = path.resolve(__dirname, '..');
+// 尺度的倍率（src/core/scale.js 的 MS／WS／DS，三倍高改版都是 3）：舊尺度的數字乘它
+const SC = 3;
 const args = process.argv.slice(2);
 const htmlArg = args.find((a) => !a.startsWith('--'));
 const HTML = path.resolve(htmlArg || path.join(ROOT, 'dist/rubicon-protocol.html'));
@@ -1158,7 +1160,7 @@ async function testStyleLab(browser) {
   );
   await page.check('#ik_feet');
   // 跳躍與懸浮、地面衝擊波：以固定 dt 同步模擬輸入序列（不受 SwiftShader 幀率影響）
-  const jumpRes = await page.evaluate(() => {
+  const jumpRes = await page.evaluate((SC) => {
     const g = window.__game,
       w = g.world,
       pl = g.player;
@@ -1171,7 +1173,7 @@ async function testStyleLab(browser) {
       z0 = pl.pos.z;
     const hgt = () => pl.pos.y - w.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 0.1);
     const reset = () => {
-      pl.pos.set(x0, w.groundAt(x0, z0, 99), z0);
+      pl.pos.set(x0, w.groundAt(x0, z0, 999), z0);
       pl.vel.set(0, 0, 0);
       Object.assign(pl, { en: pl.enMax, hp: pl.maxHp, acs: 0, staggerT: 0, iFrames: 0, jumpPrev: false });
       for (let i = 0; i < 30; i++) pl.move(dt, new THREE.Vector3(), false, false, false, null);
@@ -1215,7 +1217,7 @@ async function testStyleLab(browser) {
       let hp0 = 0;
       run([[2.5, false]], (t) => {
         if (t === 0) {
-          foe.pos.set(pl.pos.x + 12, pl.pos.y, pl.pos.z);
+          foe.pos.set(pl.pos.x + 12 * SC, pl.pos.y, pl.pos.z);
           hp0 = pl.hp;
           g.shockStart(foe, { R: 30, sp: 24, dl: 0.9, dmg: 650, im: 1300 });
         }
@@ -1235,21 +1237,23 @@ async function testStyleLab(browser) {
       tap: tap.maxH,
       tapEnd: tap.marks[1].h,
       hover:
-        hold.marks[0].m === 1 && Math.abs(hold.marks[1].h - hold.marks[0].h) < 1 && hold.marks[1].h > 1.5,
+        hold.marks[0].m === 1 &&
+        Math.abs(hold.marks[1].h - hold.marks[0].h) < 1 * SC &&
+        hold.marks[1].h > 1.5 * SC,
       hoverH: hold.marks[1].h,
       climb: climb.marks[2].m === 2 ? climb.marks[2].h - climb.marks[0].h : -1,
       dbl: dbl.maxH,
       hitGround,
       hitJump,
     };
-  });
+  }, SC);
   check(
     jumpRes.type === 'tank' ||
-      (jumpRes.tap > 2 &&
-        jumpRes.tapEnd < 0.05 &&
+      (jumpRes.tap > 2 * SC &&
+        jumpRes.tapEnd < 0.05 * SC &&
         jumpRes.hover &&
-        jumpRes.climb > 2 &&
-        jumpRes.dbl > jumpRes.tap + 1.5 &&
+        jumpRes.climb > 2 * SC &&
+        jumpRes.dbl > jumpRes.tap + 1.5 * SC &&
         jumpRes.hitGround > 0 &&
         jumpRes.hitJump === 0),
     `跳躍與懸浮（${jumpRes.type}）：短按跳 ${jumpRes.tap.toFixed(1)} m 後落地、按住在最高點定高懸浮（${jumpRes.hoverH.toFixed(1)} m）、` +
@@ -1258,7 +1262,7 @@ async function testStyleLab(browser) {
   );
   // 特殊一般敵人（entities/mech-special.js、game/support.js）：暫時把地形與障礙物的判定攤平、其他機體移到角落，
   // 以固定 dt 同步模擬，結束後還原
-  const foeRes = await page.evaluate(() => {
+  const foeRes = await page.evaluate((SC) => {
     const g = window.__game,
       w = g.world,
       pl = g.player;
@@ -1275,7 +1279,9 @@ async function testStyleLab(browser) {
     w.rampHeight = () => -99;
     w.obstacles = [];
     for (const p of w.props || []) p.dead = true;
-    saved.others.forEach(([e], i) => e.pos.set(i % 2 ? 60 : -60, 0, e.team === 'enemy' ? -62 : 62));
+    saved.others.forEach(([e], i) =>
+      e.pos.set((i % 2 ? 60 : -60) * SC, 0, (e.team === 'enemy' ? -62 : 62) * SC),
+    );
     pl.ai = null;
     const dt = 1 / 60;
     const mine = [];
@@ -1295,12 +1301,13 @@ async function testStyleLab(browser) {
         dead: false,
         yaw: 0,
       });
-      pl.pos.set(0, 0, 30);
+      pl.pos.set(0, 0, 30 * SC);
       pl.vel.set(0, 0, 0);
     };
+    // 位置照舊尺度寫（×SC）
     const spawn = (k, dx, dz) => {
       const e = g.spawnType(k, 1, 1);
-      e.pos.set(dx, e.flying ? e.hoverH : 0, 30 + dz);
+      e.pos.set(dx * SC, e.flying ? e.hoverH : 0, (30 + dz) * SC);
       e.yaw = e.aimYaw = Math.atan2(dx, -dz);
       mine.push(e);
       return e;
@@ -1332,18 +1339,23 @@ async function testStyleLab(browser) {
         100,
         50,
         { pos: src, center: () => src.clone(), team: 'player' },
-        sh.center().addScaledVector(dir, -1.3),
+        sh.center().addScaledVector(dir, -1.3 * SC),
         dir,
         melee,
       );
       return sh.maxHp - sh.hp;
     };
     r.shield = [
-      hit(fwd.clone().multiplyScalar(14)),
-      hit(fwd.clone().multiplyScalar(-14)),
-      hit(fwd.clone().multiplyScalar(6).setY(9)),
+      hit(fwd.clone().multiplyScalar(14 * SC)),
+      hit(fwd.clone().multiplyScalar(-14 * SC)),
+      hit(
+        fwd
+          .clone()
+          .multiplyScalar(6 * SC)
+          .setY(9 * SC),
+      ),
     ];
-    hit(fwd.clone().multiplyScalar(3), { kb: 0 });
+    hit(fwd.clone().multiplyScalar(3 * SC), { kb: 0 });
     r.guardBreak = sh.guardBreakT > 0;
     // 迫擊砲：站著不動會被打中、直線移動躲得掉
     reset();
@@ -1355,18 +1367,22 @@ async function testStyleLab(browser) {
       reset();
       const mo = spawn('mt_mortar', 0, -45);
       mo.updateAI = function () {};
-      g.mortarShot(mo, pl.pos.clone(), { dmg: 500, im: 500, R: 5.5 });
+      g.mortarShot(mo, pl.pos.clone(), { dmg: 500, im: 500, R: 5.5 * SC });
       step(3, move ? new THREE.Vector3(1, 0, 0) : null);
       return lost();
     };
     r.mortarShell = [shell(false), shell(true)];
     // 地雷：懸浮飛過不觸發、走過去觸發
     reset();
-    g.layMine({ center: () => pl.pos.clone().setY(8), team: 'enemy' }, new THREE.Vector3(0, 0, 24), {
-      dmg: 460,
-      im: 700,
-      R: 4.5,
-    });
+    g.layMine(
+      { center: () => pl.pos.clone().setY(8 * SC), team: 'enemy' },
+      new THREE.Vector3(0, 0, 24 * SC),
+      {
+        dmg: 460,
+        im: 700,
+        R: 4.5 * SC,
+      },
+    );
     g.mines[0].owner = null;
     step(1);
     step(0.5, null, true);
@@ -1409,7 +1425,7 @@ async function testStyleLab(browser) {
     };
     const d0 = gen.domeHp;
     r.domeOut = [shoot(12), d0 - gen.domeHp];
-    pl.pos.set(gen.pos.x + 2, 0, gen.pos.z + 5);
+    pl.pos.set(gen.pos.x + 2 * SC, 0, gen.pos.z + 5 * SC);
     r.domeIn = shoot(8);
     // 運輸機：投放 3 台後飛走
     reset();
@@ -1437,7 +1453,7 @@ async function testStyleLab(browser) {
     pl.vel.set(0, 0, 0);
     g.introSeen = null;
     return r;
-  });
+  }, SC);
   check(
     foeRes.shield[0] < foeRes.shield[1] * 0.3 &&
       foeRes.shield[2] > foeRes.shield[1] * 0.9 &&
@@ -1682,37 +1698,37 @@ async function testSolo(browser, base) {
 // 各地圖的特殊機制：水壩的閘門與坡道、Grid 086 的懸空坡道、洋上都市的虛空墜落、高空軌道沒有通道、地下的光照
 async function mapMechanics(page, key) {
   if (key === 'dam') {
-    const r = await page.evaluate(() => {
+    const r = await page.evaluate((SC) => {
       const w = window.__game.world,
         D = w.dam,
         gt = D.gates[0];
-      const sx = gt.x + gt.gw / 2 + 4;
+      const sx = gt.x + gt.gw / 2 + 4 * SC;
       return {
         gates: D.gates.length,
-        ramps: (w.ramps || []).filter((q) => q.y1 === 14).length,
-        top: w.groundAt(sx, D.zc, 20),
+        ramps: (w.ramps || []).filter((q) => Math.abs(q.y1 - 14 * SC) < 0.1).length,
+        top: w.groundAt(sx, D.zc, 20 * SC),
         under: w.groundAt(gt.x, D.zc, 0),
       };
-    });
+    }, SC);
     check(
-      r.gates >= 2 && r.ramps >= 1 && Math.abs(r.top - 14) < 0.5 && r.under < 4,
+      r.gates >= 2 && r.ramps >= 1 && Math.abs(r.top - 14 * SC) < 0.5 * SC && r.under < 4 * SC,
       `水壩：閘門 ${r.gates} 座（下方地面 ${r.under.toFixed(1)}）、坡道 ${r.ramps} 座、壩頂 ${r.top.toFixed(1)} m`,
     );
   } else if (key === 'grid086') {
-    const r = await page.evaluate(() => {
+    const r = await page.evaluate((SC) => {
       const w = window.__game.world;
       const lift = (w.ramps || []).find((q) => q.lift);
       const decks = w.obstacles.filter((o) => o.deck);
       return {
-        l1: decks.filter((o) => Math.abs(o.top - 11) < 0.1).length,
-        l2: decks.filter((o) => Math.abs(o.top - 21) < 0.1).length,
+        l1: decks.filter((o) => Math.abs(o.top - 11 * SC) < 0.1).length,
+        l2: decks.filter((o) => Math.abs(o.top - 21 * SC) < 0.1).length,
         lift: !!lift,
-        low: lift ? w.groundAt(lift.x, lift.z, 0.5) : 0,
-        mid: lift ? w.groundAt(lift.x, lift.z, 16) : 0,
+        low: lift ? w.groundAt(lift.x, lift.z, 0.5 * SC) : 0,
+        mid: lift ? w.groundAt(lift.x, lift.z, 16 * SC) : 0,
       };
-    });
+    }, SC);
     check(
-      r.l1 > 4 && r.l2 > 0 && r.lift && r.low < 12 && r.mid > 14,
+      r.l1 > 4 && r.l2 > 0 && r.lift && r.low < 12 * SC && r.mid > 14 * SC,
       `Grid 086：第一層 ${r.l1}、第二層 ${r.l2} 塊平台；懸空坡道下方 ${r.low.toFixed(1)}、坡面上 ${r.mid.toFixed(1)}`,
     );
   } else if (key === 'xylem') {
@@ -1828,7 +1844,7 @@ async function testMaps(browser, base) {
       };
     });
     check(
-      info.theme === key && info.size === 230 && info.lim > 62 && info.weather,
+      info.theme === key && info.size === 230 * SC && info.lim > 62 * SC && info.weather,
       `${key}：場地 ${info.size} m（活動範圍 ±${info.lim.toFixed(0)}）、天氣粒子`,
     );
     await mapMechanics(page, key);
@@ -4865,7 +4881,7 @@ async function testLockOn(browser, base) {
   await seededRandom(page);
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
-  const r = await page.evaluate(() => {
+  const r = await page.evaluate((SC) => {
     const g = window.__game;
     window.__reseed(4270);
     g.save.level = 1;
@@ -4878,7 +4894,7 @@ async function testLockOn(browser, base) {
     pl.yaw = pl.aimYaw = 0; // 面向 −Z
     const reach = g.lockReach(pl);
     // 五台：前方近、前方遠、前方偏右、背後最近、正側面（畫面外）；其他敵人移走
-    for (const e of g.enemies) e.pos.set(200, -50, 200);
+    for (const e of g.enemies) e.pos.set(200 * SC, -50, 200 * SC);
     const es = g.enemies.slice(0, 5);
     while (es.length < 5) es.push(g.spawnEnemy({ name: 'T', asm: pl.asm, pal: 'enemy', ai: 'mt' }));
     // 和玩家同一高度（地形起伏、貨櫃與掩體頂都不影響距離的順序與是否在畫面內；同 testChase）
@@ -4886,11 +4902,11 @@ async function testLockOn(browser, base) {
       e.pos.set(x, y0, z);
       e.mesh.position.copy(e.pos);
     };
-    put(es[0], 0, -8);
-    put(es[1], 0, -14); // 比偏右那台遠，但仍在畫面內
-    put(es[2], 6, -10);
-    put(es[3], 0, 6); // 背後
-    put(es[4], 30, -1); // 正側面，在第三人稱畫面外
+    put(es[0], 0, -8 * SC);
+    put(es[1], 0, -14 * SC); // 比偏右那台遠，但仍在畫面內
+    put(es[2], 6 * SC, -10 * SC);
+    put(es[3], 0, 6 * SC); // 背後
+    put(es[4], 30 * SC, -1 * SC); // 正側面，在第三人稱畫面外
     const cam = () => {
       for (let i = 0; i < 40; i++) g.updateCamera(1 / 60);
       g.camera.updateMatrixWorld(true);
@@ -4907,12 +4923,12 @@ async function testLockOn(browser, base) {
     const behind = !order.includes(3);
     // 鎖定中的目標移到攻擊距離外 → 改鎖其他近的
     pl.lock = es[0];
-    put(es[0], 0, -(reach + 15));
+    put(es[0], 0, -(reach + 15 * SC));
     g.autoLock(pl);
     const side = !g.onScreen(es[4]);
     const relock = pl.lock && pl.lock !== es[0] && pl.lock !== es[3];
     // 第一人稱：依離準星的角度（準星對著偏右那台）
-    put(es[0], 0, -8);
+    put(es[0], 0, -8 * SC);
     g.setFp(true);
     g.fpYaw = Math.atan2(-6, 10);
     g.fpPitch = 0;
@@ -4924,7 +4940,7 @@ async function testLockOn(browser, base) {
     g.clearMission();
     g.state = 'title';
     return { first, order: order.join(','), behind, side, relock, fp };
-  });
+  }, SC);
   check(
     r.first && r.order === '2,1,4,0,2' && r.behind && r.side,
     `第三人稱：鎖定機甲前方最近的、正面 180° 內由近到遠（含畫面外的側面，${r.order}）、背後的不鎖定`,
@@ -4958,8 +4974,8 @@ async function testChase(browser, base) {
     pl.yaw = pl.aimYaw = 0;
     pl.vel.set(0, 0, 0);
     // 把附近的障礙物移開，避免鏡頭被擋
-    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x, o.z) > 45);
-    for (const e of g.enemies) e.pos.set(200, -50, 200);
+    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x, o.z) > 45 * 3);
+    for (const e of g.enemies) e.pos.set(600, -50, 600);
     const W = window.innerWidth,
       H = window.innerHeight;
     const cam = (n = 40) => {
@@ -4997,9 +5013,9 @@ async function testChase(browser, base) {
       e.pos.set(x, y0, z);
       e.mesh.position.copy(e.pos);
     };
-    put(es[0], 0, -30);
-    put(es[1], 4, -30);
-    put(es[2], 25, -30);
+    put(es[0], 0, -30 * 3);
+    put(es[1], 4 * 3, -30 * 3);
+    put(es[2], 25 * 3, -30 * 3);
     const onScr2 = g.onScreen(es[2]);
     pl.lock = null;
     g.autoLock(pl);
@@ -5031,7 +5047,7 @@ async function testChase(browser, base) {
     const flick = pl.lock === es[1];
     g.assist = false;
     // 機體面向準星：沒有鎖定時，跑幾格玩家更新
-    for (const e of es) put(e, 200, 200);
+    for (const e of es) put(e, 600, 600);
     pl.lock = null;
     g.fpYaw = 0.9;
     g.fpPitch = 0;
@@ -5044,7 +5060,7 @@ async function testChase(browser, base) {
     pl.pos.set(0, y0, 0);
     pl.vel.set(0, 0, 0);
     g.fpYaw = 0;
-    const wall = { kind: 'box', x: 0, z: 4, w: 12, d: 1, top: y0 + 40, y: y0 - 2 };
+    const wall = { kind: 'box', x: 0, z: 4 * 3, w: 12 * 3, d: 1 * 3, top: y0 + 40 * 3, y: y0 - 2 * 3 };
     g.world.obstacles.push(wall);
     cam(30);
     const dWall = g.chDist;
@@ -5101,7 +5117,7 @@ async function testChase(browser, base) {
   check(r.kept && r.switched, '鎖定的目標離開框一段時間後換成框裡的');
   check(r.assistAim && r.flick, '目標輔助：鏡頭轉向目標、甩動換到右邊的目標');
   check(r.face, '機體面向準星的方向');
-  check(r.dWall < 4 && r.dFree > 7.5, `撞牆拉近：後方有牆 ${r.dWall} m、沒有時回到 ${r.dFree} m`);
+  check(r.dWall < 4 * SC && r.dFree > 7.5 * SC, `撞牆拉近：後方有牆 ${r.dWall} m、沒有時回到 ${r.dFree} m`);
   check(r.seq === 'chase,fp,top' && r.def && r.back, `V 依序切換（${r.seq}）、預設視角可以是追尾`);
   // 畫面截圖：電腦、平板、手機（觸控時目標輔助自動開啟）
   const shot = async (pg, name, touch) => {
@@ -6822,11 +6838,11 @@ async function testChapter2(browser, base) {
     const out = {};
     // 玩家附近找一個水深 0.6 m 以上的地方
     const wetAt = (r0, r1) => {
-      for (let r = r0; r < r1; r += 2)
+      for (let r = r0 * 3; r < r1 * 3; r += 6)
         for (let a = 0; a < 6.28; a += 0.2) {
           const x = p.pos.x + Math.cos(a) * r,
             z = p.pos.z + Math.sin(a) * r;
-          if (w.waterDepth(x, z) > 0.8 && w.inZone(x, z, 4))
+          if (w.waterDepth(x, z) > 0.8 * 3 && w.inZone(x, z, 4 * 3))
             return new THREE.Vector3(x, w.terrainHeight(x, z), z);
         }
       return null;
@@ -8501,7 +8517,7 @@ async function testEnemyAI(browser, base) {
   // 主攻只輪替 3 台、只放一種招式的也各有幾 %（種子 16 的地圖每項都有餘裕）。所以停住主迴圈（state 'ai-test' 也會跑任務的更新，
   // 兩次 evaluate 之間依實際時間跑了不定的幾格）、每段開頭重設亂數種子，每次都是同一張地圖、同樣的過程
   await freezeLoop(page);
-  const r = await page.evaluate(() => {
+  const r = await page.evaluate((SC) => {
     window.__reseed(16);
     const g = window.__game;
     g.save.level = 5;
@@ -8524,10 +8540,13 @@ async function testEnemyAI(browser, base) {
       const x = pl.pos.x,
         z = pl.pos.z,
         h0 = W.terrainHeight(x, z);
-      W.obstacles = [{ kind: 'box', x, z, w: 6, d: 6, y: h0, top: h0 + 8 }];
-      const y = h0 + 1.5;
-      out.losBlock = W.losBlocked(new THREE.Vector3(x - 7, y, z), new THREE.Vector3(x + 7, y, z));
-      out.losOver = W.losBlocked(new THREE.Vector3(x - 7, h0 + 12, z), new THREE.Vector3(x + 7, h0 + 12, z));
+      W.obstacles = [{ kind: 'box', x, z, w: 6 * SC, d: 6 * SC, y: h0, top: h0 + 8 * SC }];
+      const y = h0 + 1.5 * SC;
+      out.losBlock = W.losBlocked(new THREE.Vector3(x - 7 * SC, y, z), new THREE.Vector3(x + 7 * SC, y, z));
+      out.losOver = W.losBlocked(
+        new THREE.Vector3(x - 7 * SC, h0 + 12 * SC, z),
+        new THREE.Vector3(x + 7 * SC, h0 + 12 * SC, z),
+      );
       W.obstacles = obs;
     }
     for (const e of g.enemies) e.takeDamage(1e9, 0, null, e.center());
@@ -8544,11 +8563,11 @@ async function testEnemyAI(browser, base) {
     const spot = (e, ang, dist) => {
       for (let i = 0; i < 40; i++) {
         const a = e.yaw + ang + (i % 2 ? 1 : -1) * Math.floor(i / 2) * 0.05;
-        const dd = dist + (i % 5);
+        const dd = dist + (i % 5) * SC;
         const x = e.pos.x - Math.sin(a) * dd,
           z = e.pos.z - Math.cos(a) * dd;
-        const p = new THREE.Vector3(x, W.groundAt(x, z, 50), z);
-        if (!W.losBlocked(e.eye(), p.clone().setY(p.y + 1.6))) return p;
+        const p = new THREE.Vector3(x, W.groundAt(x, z, 999), z);
+        if (!W.losBlocked(e.eye(), p.clone().setY(p.y + 1.6 * SC))) return p;
       }
       return null;
     };
@@ -8560,7 +8579,7 @@ async function testEnemyAI(browser, base) {
     };
     // 背後看不到
     const eB = mk();
-    const pB = spot(eB, Math.PI, 26);
+    const pB = spot(eB, Math.PI, 26 * SC);
     if (pB) {
       pl.pos.copy(pB);
       step([eB], 1.5);
@@ -8575,7 +8594,7 @@ async function testEnemyAI(browser, base) {
     for (let k = 0; k < 40 && !pF; k++) {
       if (eF) eF.takeDamage(1e9, 0, null, eF.center());
       eF = mk();
-      pF = Math.abs(eF.pos.y - W.terrainHeight(eF.pos.x, eF.pos.z)) < 0.5 ? spot(eF, 0, 24) : null;
+      pF = Math.abs(eF.pos.y - W.terrainHeight(eF.pos.x, eF.pos.z)) < 0.5 * SC ? spot(eF, 0, 24 * SC) : null;
       if (!pF) continue;
       pl.pos.copy(pF);
       const pc = pl.center();
@@ -8583,10 +8602,10 @@ async function testEnemyAI(browser, base) {
         if (W.losBlocked(eF.eye().lerp(pc, f), pc)) return false;
         if (!f) return true;
         const q = eF.pos.clone().lerp(pF, f);
-        const c = W.collide(q.x, q.z, W.terrainHeight(q.x, q.z), 2);
+        const c = W.collide(q.x, q.z, W.terrainHeight(q.x, q.z), 2 * SC);
         return Math.abs(c[0] - q.x) < 1e-6 && Math.abs(c[1] - q.z) < 1e-6;
       });
-      if (!clear || Math.abs(pF.y - W.terrainHeight(pF.x, pF.z)) > 0.5) pF = null;
+      if (!clear || Math.abs(pF.y - W.terrainHeight(pF.x, pF.z)) > 0.5 * SC) pF = null;
     }
     if (pF) {
       pl.pos.copy(pF);
@@ -8601,15 +8620,15 @@ async function testEnemyAI(browser, base) {
     eF.takeDamage(1e9, 0, null, eF.center());
     // 聲音：開火讓附近的待機敵人起疑
     const eN = mk();
-    pl.pos.set(eN.pos.x + 30, eN.pos.y, eN.pos.z);
+    pl.pos.set(eN.pos.x + 30 * SC, eN.pos.y, eN.pos.z);
     g.aiFireNoise(pl, 'bullet');
     out.noise = eN.sn.st;
     eN.takeDamage(1e9, 0, null, eN.center());
-    // 受到攻擊：直接交戰＋仇恨；無線電通知 35 m 內的待機友軍
+    // 受到攻擊：直接交戰＋仇恨；無線電通知 105 m 內的待機友軍
     const eH = mk(),
       eR = mk();
-    eR.pos.set(eH.pos.x + 10, eH.pos.y, eH.pos.z);
-    pl.pos.set(eH.pos.x + 70, eH.pos.y, eH.pos.z + 70);
+    eR.pos.set(eH.pos.x + 10 * SC, eH.pos.y, eH.pos.z);
+    pl.pos.set(eH.pos.x + 70 * SC, eH.pos.y, eH.pos.z + 70 * SC);
     eH.takeDamage(1, 0, pl, eH.center());
     out.hit = eH.sn.st;
     out.threat = +(eH.sn.th.get(pl.id) || 0).toFixed(2);
@@ -8619,24 +8638,24 @@ async function testEnemyAI(browser, base) {
     for (const e of g.enemies) if (!e.dead) e.takeDamage(1e9, 0, null, e.center());
     g.enemies = g.enemies.filter((e) => !e.dead);
     return out;
-  });
+  }, SC);
   check(r.idle > 0 && r.idle === r.first, `第一波在原地待機（${r.idle}/${r.first}）`);
   check(
     r.losBlock === true && r.losOver === false,
     `視線：障礙物兩側擋住、上方看得到（${r.losBlock}／${r.losOver}）`,
   );
-  check(r.behind !== undefined && r.behind !== 2, `背後 26 m 看不到（狀態 ${r.behind}）`);
-  check(r.front === 2 && r.frontT > 0.1 && r.frontT < 2.5, `正面 24 m 看得到：${r.frontT} 秒後交戰`);
+  check(r.behind !== undefined && r.behind !== 2, `背後 78 m 看不到（狀態 ${r.behind}）`);
+  check(r.front === 2 && r.frontT > 0.1 && r.frontT < 2.5, `正面 72 m 看得到：${r.frontT} 秒後交戰`);
   check(r.noise === 1, `玩家開火讓附近的待機敵人起疑（狀態 ${r.noise}）`);
   check(r.hit === 2 && r.threat > 0, `受到攻擊直接交戰、累積仇恨（${r.threat}）`);
   check(r.radio0 === 0 && r.radio === 2, '發現後以無線電通知附近的待機友軍');
   // 攻擊權杖：一大群敵人在鏡頭前方，推進 12 秒遊戲時間——同時最多 3 台主攻、會輪替、會放預警招式；沒拿到的退到外圈
-  const t = await page.evaluate(() => {
+  const t = await page.evaluate((SC) => {
     window.__reseed(16);
     const g = window.__game;
     const pl = g.player;
     pl.hp = pl.maxHp = 1e7;
-    pl.pos.set(0, g.world.groundAt(0, 0, 50), 0);
+    pl.pos.set(0, g.world.groundAt(0, 0, 999), 0);
     const dt = 1 / 30;
     for (let i = 0; i < 30; i++) g.updateCamera(dt);
     const f = g.camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
@@ -8644,15 +8663,15 @@ async function testEnemyAI(browser, base) {
     const types = ['mt', 'mt', 'mt', 'mt', 'mth', 'mth', 'drone', 'mt_gren', 'mt', 'tank'];
     types.forEach((t, i) => {
       const a = a0 + (i / (types.length - 1) - 0.5) * 1.6,
-        R = 20 + (i % 3) * 5;
+        R = (20 + (i % 3) * 5) * SC;
       const x = Math.cos(a) * R,
         z = Math.sin(a) * R;
-      g.spawnType(t, 1, 1, new THREE.Vector3(x, g.world.groundAt(x, z, 50), z), 1);
+      g.spawnType(t, 1, 1, new THREE.Vector3(x, g.world.groundAt(x, z, 999), z), 1);
     });
     const L = { maxHold: 0, holders: new Set(), moves: new Set(), samples: 0, holdSum: 0, supD: 0, supN: 0 };
     for (let k = 0; k < 360; k++) {
       g.time += dt;
-      pl.pos.set(0, g.world.groundAt(0, 0, 50), 0);
+      pl.pos.set(0, g.world.groundAt(0, 0, 999), 0);
       g.aiDirectorTick(dt);
       for (const e of g.enemies) if (!e.dead) e.updateAI(dt);
       g.projectiles.length = 0;
@@ -8681,11 +8700,11 @@ async function testEnemyAI(browser, base) {
       moves: [...L.moves].join(','),
       supD: Math.round(L.supD / Math.max(1, L.supN)),
     };
-  });
+  }, SC);
   check(t.maxHold <= 3 && t.avg >= 1, `一群敵人同時最多 3 台主攻（最多 ${t.maxHold}、平均 ${t.avg}）`);
   check(t.rot >= 4, `主攻會輪替（拿過權杖的 ${t.rot} 台）`);
   check(t.moves.split(',').filter(Boolean).length >= 2, `主攻放預警招式（${t.moves}）`);
-  check(t.supD >= 28, `沒拿到權杖的退到外圈（平均 ${t.supD} m）`);
+  check(t.supD >= 28 * SC, `沒拿到權杖的退到外圈（平均 ${t.supD} m）`);
   await page.evaluate(() => {
     window.__game.state = 'play';
     window.__pump(0.6);
@@ -8731,7 +8750,7 @@ async function testWaves(browser, base) {
       const fresh = g.enemies.slice(n0);
       // 站上高處的（perch）照自己的規則找位置
       const near = fresh.filter(
-        (e) => e.opts.perch || Math.hypot(e.pos.x - pend.pos.x, e.pos.z - pend.pos.z) < 45,
+        (e) => e.opts.perch || Math.hypot(e.pos.x - pend.pos.x, e.pos.z - pend.pos.z) < 45 * 3,
       ).length;
       out.waves.push({
         t: +t.toFixed(1),
@@ -9061,7 +9080,7 @@ async function testAim(browser, base) {
     Object.assign(g.rangeCfgGet(), {
       tgt: 'dummy',
       beh: 'static',
-      dist: 45,
+      dist: 45 * 3,
       n: 1,
       inf: true,
       god: true,
@@ -9073,30 +9092,30 @@ async function testAim(browser, base) {
   await page.waitForFunction(() => window.__game.state === 'play' && window.__game.range, null, {
     timeout: 20000,
   });
-  const r = await page.evaluate(async () => {
+  const r = await page.evaluate(async (SC) => {
     const g = window.__game;
     const pl = g.player,
       t = g.range.targets[0];
-    const out = { a10: pl.fcsAssist(10), a80: pl.fcsAssist(80) };
-    // 預判：目標以 10 m/s 橫移；近距特化在 10 m 幾乎照實際攔截點
-    const muz = t.center().addScaledVector(new THREE.Vector3(0, 0, 1), 10);
-    t.vel.set(10, 0, 0);
+    const out = { a10: pl.fcsAssist(10 * SC), a80: pl.fcsAssist(80 * SC) };
+    // 預判：目標以 30 m/s 橫移；近距特化在 30 m 幾乎照實際攔截點
+    const muz = t.center().addScaledVector(new THREE.Vector3(0, 0, 1), 10 * SC);
+    t.vel.set(10 * SC, 0, 0);
     pl.trkId = null;
-    const lp = pl.leadPoint(t, 95, muz);
-    out.leadNear = (lp.x - t.center().x) / ((10 * 10) / 95);
+    const lp = pl.leadPoint(t, 95 * SC, muz);
+    out.leadNear = (lp.x - t.center().x) / ((10 * 10 * SC) / 95);
     // 遠距狙擊：近距離的預判只到一部分
     g.save.asm.fcs = 'f_snipe';
     g.rangeSpawnPlayer();
     const p2 = g.player;
     p2.trkId = null;
-    const lp2 = p2.leadPoint(t, 95, muz);
-    out.leadFar = (lp2.x - t.center().x) / ((10 * 10) / 95);
+    const lp2 = p2.leadPoint(t, 95 * SC, muz);
+    out.leadFar = (lp2.x - t.center().x) / ((10 * 10 * SC) / 95);
     // 追蹤：目標換方向後，預判的速度要一段時間才跟上
     p2.trkId = null;
     p2.trackVel(t);
-    t.vel.set(-10, 0, 0);
+    t.vel.set(-10 * SC, 0, 0);
     p2.t += 0.1;
-    out.trk = p2.trackVel(t).x;
+    out.trk = p2.trackVel(t).x / SC;
     t.vel.set(0, 0, 0);
     // 導彈鎖定：標準火控 1 秒鎖滿 4 發
     g.save.asm.fcs = 'f_std';
@@ -9123,11 +9142,11 @@ async function testAim(browser, base) {
     out.panel = document.getElementById('rangePanel').textContent;
     out.band = g.rangeSummary().band;
     return out;
-  });
+  }, SC);
   await page.screenshot({ path: path.join(SHOT_DIR, 'aim-range.png') });
   check(
     Math.abs(r.a10 - 1) < 0.01 && Math.abs(r.a80 - 0.1) < 0.01,
-    `近距特化火控：10 m 輔助 ${r.a10}、80 m ${r.a80}`,
+    `近距特化火控：30 m 輔助 ${r.a10}、240 m ${r.a80}`,
   );
   check(
     Math.abs(r.leadNear - 1) < 0.12 && r.leadFar < 0.75 && r.leadFar > 0.5,
@@ -9218,13 +9237,13 @@ async function testAttrs(browser, base) {
     g.rangeSpawnPlayer();
     out.en2 = hit('w_lr');
     out.kin2 = hit('w_rifle');
-    // 實彈的距離衰減：同一發子彈從 5 m 與 60 m 外射來
+    // 實彈的距離衰減：同一發子彈從 15 m 與 180 m 外射來（三倍高改版：數字 ×3）
     const e = t();
     const shot = (back) => {
       g.player.fire('rarm', e.center(), e);
       const pr = g.projectiles[g.projectiles.length - 1];
       const dir = pr.vel.clone().normalize();
-      pr.pos.copy(e.center()).addScaledVector(dir, -2);
+      pr.pos.copy(e.center()).addScaledVector(dir, -2 * 3);
       pr.p0 = pr.pos.clone().addScaledVector(dir, -back);
       pr.dmg = 1000;
       return pr;
@@ -9232,13 +9251,13 @@ async function testAttrs(browser, base) {
     g.player.weapons.rarm.cd = 0;
     e.hp = e.maxHp;
     let h0 = e.hp;
-    const prnear = shot(3);
+    const prnear = shot(3 * 3);
     for (let i = 0; i < 100 && !prnear.dead; i++) await new Promise((res) => setTimeout(res, 100)); // 等到命中（遊戲時間）
     out.near = h0 - e.hp;
     g.player.weapons.rarm.cd = 0;
     e.hp = e.maxHp;
     h0 = e.hp;
-    const prfar = shot(58);
+    const prfar = shot(58 * 3);
     for (let i = 0; i < 100 && !prfar.dead; i++) await new Promise((res) => setTimeout(res, 100)); // 等到命中（遊戲時間）
     out.far = h0 - e.hp;
     // 能量霰彈：不用彈藥、每發耗 EN、7 顆
@@ -9271,7 +9290,7 @@ async function testAttrs(browser, base) {
   );
   check(
     r.near > 0 && Math.abs(r.far / r.near - 0.73) < 0.03,
-    `實彈超過理想射程遞減（5 m ${r.near}、60 m ${r.far}）`,
+    `實彈超過理想射程遞減（15 m ${r.near}、180 m ${r.far}）`,
   );
   check(
     r.lsgN === 7 && r.lsgEn > 60 && r.lsgAmmo >= 999,
@@ -13184,14 +13203,14 @@ async function testStatusFx(browser, base) {
     pl.hp = pl.maxHp = 1e7;
     pl.asm.larm = 'w_blade'; // 近戰割開用
     pl.initWeapons();
-    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x - pl.pos.x, o.z - pl.pos.z) > 40);
-    for (const e of g.enemies) e.pos.set(300, -80, 300);
+    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x - pl.pos.x, o.z - pl.pos.z) > 40 * 3);
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
     const src = g.enemies[0];
     src.updateAI = () => {};
     src.hp = src.maxHp = 1e8;
     const reset = () => {
       pl.statusClearAll(true);
-      pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+      pl.pos.set(0, g.world.groundAt(0, 0, 999), 0);
       pl.vel.set(0, 0, 0);
       pl.grounded = true;
       pl.en = pl.enMax;
@@ -13207,7 +13226,7 @@ async function testStatusFx(browser, base) {
     // 量速度時每格把機體放回原點：隨機地圖的坡度不影響（只看速度的比例）
     const walk = (n) => {
       for (let i = 0; i < n; i++) {
-        pl.pos.set(0, g.world.groundAt(0, 0, 99), 0);
+        pl.pos.set(0, g.world.groundAt(0, 0, 999), 0);
         pl.grounded = true;
         pl.move(1 / 60, fwd.clone(), false, false, false, null);
       }
@@ -13252,8 +13271,8 @@ async function testStatusFx(browser, base) {
     pl.addStatus('nojump', 4);
     out.njHud = hud('nojump');
     step(20, new THREE.Vector3(), true);
-    out.njGround = pl.grounded && pl.pos.y - g.world.groundAt(0, 0, 99) < 0.05;
-    pl.pos.y += 10;
+    out.njGround = pl.grounded && pl.pos.y - g.world.groundAt(0, 0, 999) < 0.05;
+    pl.pos.y += 10 * 3;
     pl.grounded = false;
     pl.vel.y = 0;
     step(20, new THREE.Vector3(), true);
@@ -13261,7 +13280,7 @@ async function testStatusFx(browser, base) {
     out.njHover = pl.hoverMode;
     // 鉤住：往來源拉；QB 一次掙脫
     reset();
-    src.pos.set(-30, g.world.groundAt(-30, 0, 99), 0);
+    src.pos.set(-90, g.world.groundAt(-90, 0, 999), 0);
     pl.addStatus('hook', 4, { src: src.id, pull: 14 });
     out.hookHud = hud('hook');
     step(45);
@@ -13335,7 +13354,7 @@ async function testStatusFx(browser, base) {
     reset();
     const e2 = g.spawnType('mt', 1, 1);
     e2.updateAI = () => {};
-    e2.pos.set(60, g.world.groundAt(60, 40, 99), 40);
+    e2.pos.set(180, g.world.groundAt(180, 120, 999), 120);
     if (e2.senseOn()) {
       e2.sn.on = true;
       e2.sn.st = 3;
@@ -13370,7 +13389,7 @@ async function testStatusFx(browser, base) {
     '緩速：結霜、第一次中招的說明、HUD 圖示與倒數、畫面邊緣',
   );
   check(
-    r.njGround && r.njFall < -5 && r.njHover === 0,
+    r.njGround && r.njFall < -5 * SC && r.njHover === 0,
     `禁止跳躍：跳不起來、空中被往下拉（${r.njFall.toFixed(1)} m/s）、不能懸浮`,
   );
   check(hudOk(r.njHud, /不能跳躍/), 'HUD：禁止跳躍');

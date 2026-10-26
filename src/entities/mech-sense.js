@@ -4,6 +4,7 @@
 // 交戰中每 LOS_DT 秒檢查視線；看不到時用附近友軍共享的目標位置，整隊都看不到 LOST_T 秒才搜索；敵對 AC 一直知道目標在哪。
 // 仇恨：受到的傷害（AP 比例）＋距離＋玩家正鎖定我，目前的目標有黏著倍率。只在房主／單機執行；狀態以 sx 之外的 aw 同步顯示。
 import { clamp, rnd } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import {
   LOS_DT,
   LOST_T,
@@ -119,11 +120,11 @@ Object.assign(MechEntity.prototype, {
       let best = null,
         bs = -1;
       for (const c of cands) {
-        const d = Math.max(4, Math.hypot(c.pos.x - this.pos.x, c.pos.z - this.pos.z));
+        const d = Math.max(4 * DS, Math.hypot(c.pos.x - this.pos.x, c.pos.z - this.pos.z));
         let sc = (sn.th.get(c.id) || 0) + THREAT_NEAR / d + (c.lock === this ? THREAT_LOCK : 0);
-        if (this.opts.pref === 'far') sc = d / 10 + (sn.th.get(c.id) || 0);
+        if (this.opts.pref === 'far') sc = d / (10 * DS) + (sn.th.get(c.id) || 0);
         else if (this.opts.pref === 'ally' && !c.isPlayer) sc += 6;
-        else if (this.opts.pref === 'still' && c.vel.lengthSq() < 4) sc += 4;
+        else if (this.opts.pref === 'still' && c.vel.lengthSq() < 4 * DS * DS) sc += 4;
         if (c === sn.tgt) sc *= STICKY;
         if (sc > bs) {
           bs = sc;
@@ -147,7 +148,7 @@ Object.assign(MechEntity.prototype, {
     if (sn.losT <= 0) {
       sn.losT = LOS_DT;
       const d = this.pos.distanceTo(t.pos);
-      sn.los = d < 160 && !g.world.losBlocked(this.eye(), t.center());
+      sn.los = d < 160 * DS && !g.world.losBlocked(this.eye(), t.center());
       if (sn.los) g.aiSaw(t, this);
     }
     if (sn.los) {
@@ -230,7 +231,8 @@ Object.assign(MechEntity.prototype, {
       if (sn.heard) {
         look = sn.heard;
         const to = sn.heard.clone().sub(this.pos).setY(0);
-        if (to.length() > 10 && sn.meter < SUSPECT_AT * 2) wish.copy(to.normalize()).multiplyScalar(0.45);
+        if (to.length() > 10 * DS && sn.meter < SUSPECT_AT * 2)
+          wish.copy(to.normalize()).multiplyScalar(0.45);
       }
       if (sn.meter <= 0 && sn.susT > 4) {
         sn.st = 0;
@@ -241,17 +243,17 @@ Object.assign(MechEntity.prototype, {
       sn.srchT += dt;
       const goal = sn.kn || sn.home;
       const to = goal.clone().sub(this.pos).setY(0);
-      if (to.length() > 6) {
+      if (to.length() > 6 * DS) {
         wish.copy(to.normalize()).multiplyScalar(0.75);
         look = goal;
-      } else this.senseWander(dt, wish, goal, 10);
+      } else this.senseWander(dt, wish, goal, 10 * DS);
       if (sn.srchT > SEARCH_T) {
         sn.st = 0;
         sn.home.copy(this.pos);
         sn.meter = 0;
       }
-    } else this.senseWander(dt, wish, sn.home, 8);
-    if (!look && wish.lengthSq() > 0.01) look = this.pos.clone().add(wish.clone().multiplyScalar(20));
+    } else this.senseWander(dt, wish, sn.home, 8 * DS);
+    if (!look && wish.lengthSq() > 0.01) look = this.pos.clone().add(wish.clone().multiplyScalar(20 * DS));
     if (look) {
       const c = this.center();
       this.setAim(new THREE.Vector3(look.x, c.y, look.z));
@@ -284,7 +286,7 @@ Object.assign(MechEntity.prototype, {
     }
     if (sn.wGoal) {
       const to = sn.wGoal.clone().sub(this.pos).setY(0);
-      if (to.length() < 1.2) sn.wGoal = null;
+      if (to.length() < 1.2 * DS) sn.wGoal = null;
       else wish.copy(to.normalize()).multiplyScalar(0.35);
     }
   },
@@ -335,7 +337,7 @@ Object.assign(MechEntity.prototype, {
     const dist = to.length();
     if (dist > 0.01) to.normalize();
     const side = new THREE.Vector3(-to.z, 0, to.x).multiplyScalar(s.strafe);
-    if (dist > 14) wish.copy(to).addScaledVector(side, 0.6);
+    if (dist > 14 * DS) wish.copy(to).addScaledVector(side, 0.6);
     else wish.copy(side).addScaledVector(to, 0.3);
     if (wish.lengthSq() > 0.01) wish.normalize();
     if (s.stuck > 0.4) {

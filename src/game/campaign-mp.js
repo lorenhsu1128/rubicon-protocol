@@ -5,6 +5,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { EXIT_REWARDS, SEG_TYPES, SORTIES } from '../data/campaign.js';
 import { MODULES, modLabel, modOffer, modsPm } from '../data/modules.js';
 import { START_ASM } from '../data/parts.js';
@@ -17,7 +18,7 @@ import { Game } from './game.js';
 
 const VOTE_T = 10; // 出口投票的倒數
 const WAIT_T = 90; // 轉場時等待隊友（整備）的上限
-const EXIT_R = 4;
+const EXIT_R = 4 * MS;
 const WSLOTS = ['rarm', 'larm', 'rback', 'lback'];
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -143,7 +144,7 @@ Object.assign(Game.prototype, {
     const alive = this.players.filter((p) => !p.dead && !p.downed);
     if (!alive.length) return;
     const inEx = (p, ex) =>
-      Math.hypot(p.pos.x - ex.pos.x, p.pos.z - ex.pos.z) < EXIT_R && Math.abs(p.pos.y - ex.pos.y) < 8;
+      Math.hypot(p.pos.x - ex.pos.x, p.pos.z - ex.pos.z) < EXIT_R && Math.abs(p.pos.y - ex.pos.y) < 8 * MS;
     const cnt = c.exits.map((ex) => alive.filter((p) => inEx(p, ex)).length);
     const total = cnt.reduce((a, b) => a + b, 0);
     for (const ex of c.exits) ex.group.userData.ring.rotation.z += dt * 0.8;
@@ -172,7 +173,9 @@ Object.assign(Game.prototype, {
   campStandAny(o, dt, r, reset = true) {
     const on = this.players.find(
       (p) =>
-        !p.dead && Math.hypot(p.pos.x - o.pos.x, p.pos.z - o.pos.z) < r && Math.abs(p.pos.y - o.pos.y) < 8,
+        !p.dead &&
+        Math.hypot(p.pos.x - o.pos.x, p.pos.z - o.pos.z) < r &&
+        Math.abs(p.pos.y - o.pos.y) < 8 * MS,
     );
     if (on) o.t += dt;
     else if (reset) o.t = 0;

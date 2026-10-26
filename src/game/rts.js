@@ -111,6 +111,7 @@ Object.assign(Game.prototype, {
   // ---------- 開局 ----------
   rtsStart(cfg) {
     SFX.init();
+    SFX.dk = 1; // 3D 音效照舊尺度（RTS 的單位不放大）
     const seed = cfg.seed >>> 0,
       theme = RTS_THEMES[cfg.theme] ? cfg.theme : 'wasteland',
       size = cfg.size || 400;
@@ -1869,6 +1870,7 @@ Object.assign(Game.prototype, {
   rtsClear() {
     const R = this.rts;
     if (!R) return;
+    SFX.dk = DS;
     // 其他包的清理（還沒實作時略過）：親自駕駛、中立、英雄
     if (this.rtsPilotExit && R.pilot) this.rtsPilotExit('clear');
     if (this.rtsNeutralClear) this.rtsNeutralClear();

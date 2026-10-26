@@ -3,6 +3,7 @@
 // 地點立起紅色光柱、畫面邊緣顯示指示。派出與生成只在房主／單機，客機收到 'wave' 事件只做顯示。
 import { SFX } from '../audio/audio.js';
 import { clamp, pick, rnd } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { Game } from './game.js';
 
@@ -75,7 +76,7 @@ Object.assign(Game.prototype, {
     const pos = drop ? this.waveDropPoint(tgt.pos) : this.waveEdgePoint(tgt.pos);
     this.wavePend = { t: WAVE_WARN, pos, list, drop };
     const W = this.world;
-    const base = new THREE.Vector3(pos.x, W.groundAt(pos.x, pos.z, 99), pos.z);
+    const base = new THREE.Vector3(pos.x, W.groundAt(pos.x, pos.z, 999), pos.z);
     this.fx.warnLine(base, base.clone().setY(base.y + 45), WAVE_WARN + 0.5, drop ? 0xffa020 : 0xff3030, 0.5);
     const ev = {
       t: 'wave',
@@ -105,15 +106,20 @@ Object.assign(Game.prototype, {
       const far = Math.min(...this.playersAlive().map((q) => Math.hypot(q.pos.x - p.x, q.pos.z - p.z)), 999);
       cands.push({ p, far });
     }
-    const ok = cands.filter((c) => c.far > 40);
+    const ok = cands.filter((c) => c.far > 40 * DS);
     const c = ok.length ? pick(ok) : cands.sort((a, b) => b.far - a.far)[0];
     return W.spawnPoint(near, [], c.p);
   },
   // 空降：玩家周圍 22～36 m
   waveDropPoint(near) {
     const a = Math.random() * Math.PI * 2,
-      r = rnd(22, 36);
-    return this.world.spawnPoint(near, [], { x: near.x + Math.cos(a) * r, z: near.z + Math.sin(a) * r }, 18);
+      r = rnd(22, 36) * DS;
+    return this.world.spawnPoint(
+      near,
+      [],
+      { x: near.x + Math.cos(a) * r, z: near.z + Math.sin(a) * r },
+      18 * DS,
+    );
   },
   waveSpawn(w) {
     this.waveAt = w;
@@ -124,7 +130,7 @@ Object.assign(Game.prototype, {
     }
     if (w.drop)
       this.fx.shockwave(
-        new THREE.Vector3(w.pos.x, this.world.groundAt(w.pos.x, w.pos.z, 99), w.pos.z),
+        new THREE.Vector3(w.pos.x, this.world.groundAt(w.pos.x, w.pos.z, 999), w.pos.z),
         8,
         0xffa020,
         0.5,
@@ -133,7 +139,7 @@ Object.assign(Game.prototype, {
   // 顯示預告（房主與客機各自依自己的鏡頭算方向）：ECHO 的通訊、畫面邊緣的指示
   waveShow(ev) {
     const pos = new THREE.Vector3(ev.p[0], 0, ev.p[1]);
-    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 99) + 2;
+    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 999) + 2 * DS;
     this.waveMarks = (this.waveMarks || []).concat([{ pos, t: MARK_T, drop: !!ev.d }]);
     const me = this.player && !this.player.dead ? this.player.pos : this.camera.position;
     const f = new THREE.Vector3();

@@ -6,6 +6,7 @@ import { SFX } from '../audio/audio.js';
 import { usesAmmo } from '../data/parts.js';
 import { clamp, rnd } from '../core/math.js';
 import { MOVES } from '../data/ai.js';
+import { DS, MS } from '../core/scale.js';
 import { MechEntity } from './mech-entity.js';
 
 const SLOTS = ['rarm', 'larm', 'rback', 'lback'];
@@ -56,8 +57,8 @@ Object.assign(MechEntity.prototype, {
         const k = list[(sn.mvI + i) % list.length];
         const slot = NEED[k] ? this.moveSlot(NEED[k]) : 'none';
         if (!slot) continue;
-        if (k === 'beep' && d > 18) continue;
-        if (k === 'dash' && d < 8) continue;
+        if (k === 'beep' && d > 18 * DS) continue;
+        if (k === 'dash' && d < 8 * DS) continue;
         const w = slot !== 'none' && this.weapons[slot];
         if (w && (k === 'aimShot' || k === 'charge' || k === 'lob' || k === 'volley') && d > w.def.range)
           continue;
@@ -83,13 +84,13 @@ Object.assign(MechEntity.prototype, {
   moveStart(mv, pl) {
     const g = this.game;
     if (mv.k === 'lob') {
-      // 落點：目標腳下＋一點預判（最多 6 m）
+      // 落點：目標腳下＋一點預判（最多 18 m）
       const lead = pl.vel.clone().setY(0).multiplyScalar(0.6);
-      if (lead.length() > 6) lead.setLength(6);
+      if (lead.length() > 6 * DS) lead.setLength(6 * DS);
       mv.p = pl.pos.clone().add(lead);
-      mv.p.y = g.world.groundAt(mv.p.x, mv.p.z, mv.p.y + 2);
-      g.fx.warnCircle(mv.p, 5, 1.9, 0xff7020);
-      g.netEv({ t: 'warn', p: mv.p.toArray().map((x) => +x.toFixed(2)), R: 5, dl: 1.9, c: 0xff7020 });
+      mv.p.y = g.world.groundAt(mv.p.x, mv.p.z, mv.p.y + 2 * MS);
+      g.fx.warnCircle(mv.p, 5 * MS, 1.9, 0xff7020);
+      g.netEv({ t: 'warn', p: mv.p.toArray().map((x) => +x.toFixed(2)), R: 5 * MS, dl: 1.9, c: 0xff7020 });
     } else if (mv.k === 'strafeRun') {
       const a = this.pos.clone().setY(0),
         b = pl.pos.clone().setY(0);
@@ -97,19 +98,19 @@ Object.assign(MechEntity.prototype, {
       if (dir.lengthSq() < 1) dir.set(0, 0, 1);
       dir.normalize();
       mv.dir = dir;
-      mv.end = b.clone().addScaledVector(dir, 22);
+      mv.end = b.clone().addScaledVector(dir, 22 * DS);
       const L = a.distanceTo(mv.end);
       const c = a.clone().lerp(mv.end, 0.5);
       c.y = g.world.terrainHeight(c.x, c.z);
-      g.fx.warnRect(c, Math.atan2(-dir.x, -dir.z), 5, L, 1.1, 0xff4020);
+      g.fx.warnRect(c, Math.atan2(-dir.x, -dir.z), 5 * MS, L, 1.1, 0xff4020);
     } else if (mv.k === 'charge') SFX.play('charge', 0.5, 1.2, 0, 0, this.center());
     else if (mv.k === 'sweep') mv.side = Math.random() < 0.5 ? 1 : -1;
     else if (mv.k === 'dash') {
       const a = this.pos.clone(),
         b = pl.pos.clone();
-      a.y += 0.4;
-      b.y += 0.4;
-      g.fx.warnLine(a, b, 0.55, 0xff6020, 0.14);
+      a.y += 0.4 * MS;
+      b.y += 0.4 * MS;
+      g.fx.warnLine(a, b, 0.55, 0xff6020, 0.14 * MS);
     }
   },
   // 槍口的閃光（準備中）
@@ -119,7 +120,7 @@ Object.assign(MechEntity.prototype, {
     this.game.fx.flash(this.muzzle(slot), r * (this.scale || 1), color, 0.1);
   },
   // 瞄準線（準備中，跟著目標）
-  mvLine(mv, slot, to, color, every = 0.2, w = 0.04) {
+  mvLine(mv, slot, to, color, every = 0.2, w = 0.04 * MS) {
     if (mv.fxT > 0) return;
     mv.fxT = every;
     this.game.fx.warnLine(this.muzzle(slot), to, every + 0.04, color, w);
@@ -220,13 +221,13 @@ Object.assign(MechEntity.prototype, {
     } else if (mv.ph === 'act') {
       wish.copy(dir);
       r.ab = true;
-      if (d < 10) {
+      if (d < 10 * DS) {
         this.fire(mv.slot, pl.center(), pl);
         if (mv.t > 0.25) Object.assign(mv, { ph: 'rec', t: 0 });
       }
       if (mv.t > 1.2) Object.assign(mv, { ph: 'rec', t: 0 });
     } else {
-      if (d < 10) this.fire(mv.slot, pl.center(), pl);
+      if (d < 10 * DS) this.fire(mv.slot, pl.center(), pl);
       if (mv.t > 1.0) mv.ph = 'end';
     }
   },
@@ -266,8 +267,8 @@ Object.assign(MechEntity.prototype, {
     } else if (mv.ph === 'act') {
       wish.copy(mv.dir);
       r.ab = true;
-      const ahead = this.center().addScaledVector(mv.dir, 12);
-      ahead.y = this.game.world.terrainHeight(ahead.x, ahead.z) + 0.8;
+      const ahead = this.center().addScaledVector(mv.dir, 12 * DS);
+      ahead.y = this.game.world.terrainHeight(ahead.x, ahead.z) + 0.8 * MS;
       this.fire(mv.slot, ahead, null);
       const rem = mv.end.clone().sub(this.pos).setY(0);
       if (rem.dot(mv.dir) < 0 || mv.t > 2.4) Object.assign(mv, { ph: 'rec', t: 0 });

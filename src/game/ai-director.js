@@ -4,6 +4,7 @@
 // 和其他主攻不同種類的、等最久的。敵對 AC 一律主攻（在場時其他人的預算少 1）。
 // 節奏導演：最近 STRESS_T 秒受到的傷害與目前 AP 算出壓力 0～1，壓力高時預算與主攻數變少。
 import { clamp, lerp, rnd } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import {
   NOISE,
   RADIO_R,
@@ -45,7 +46,9 @@ Object.assign(Game.prototype, {
   // 無線電：附近（指揮官 MT 在場時加倍）與同一小隊的待機敵人進入交戰（被叫來的不再往外傳）
   aiRadio(e) {
     const sn = e.sn;
-    const cmd = this.enemies.some((o) => !o.dead && o.ai === 'commander' && o.pos.distanceTo(e.pos) < 50);
+    const cmd = this.enemies.some(
+      (o) => !o.dead && o.ai === 'commander' && o.pos.distanceTo(e.pos) < 50 * DS,
+    );
     const R = RADIO_R * (cmd ? 2 : 1);
     for (const o of this.enemies) {
       if (o === e || o.dead || !o.sn || o.sn.st === 2) continue;
@@ -81,7 +84,7 @@ Object.assign(Game.prototype, {
     const dx = e.pos.x - t.pos.x,
       dz = e.pos.z - t.pos.z;
     const d = Math.hypot(dx, dz);
-    if (d < 30) return true;
+    if (d < 30 * DS) return true;
     const yaw = t.aimYaw !== undefined ? t.aimYaw : t.yaw;
     return (dx * -Math.sin(yaw) + dz * -Math.cos(yaw)) / d > 0.17;
   },
@@ -123,10 +126,10 @@ Object.assign(Game.prototype, {
           live.sort((a, b) => a.pos.distanceTo(pl.pos) - b.pos.distanceTo(pl.pos));
           const e0 = live[0];
           for (const o of live)
-            if (o === e0 || o.pos.distanceTo(e0.pos) < 30 || (e0.sq && o.sq === e0.sq)) {
+            if (o === e0 || o.pos.distanceTo(e0.pos) < 30 * DS || (e0.sq && o.sq === e0.sq)) {
               o.sn.st = 3;
               o.sn.srchT = 0;
-              o.sn.kn = pl.pos.clone().add(new THREE.Vector3(rnd(-8, 8), 0, rnd(-8, 8)));
+              o.sn.kn = pl.pos.clone().add(new THREE.Vector3(rnd(-8, 8) * DS, 0, rnd(-8, 8) * DS));
             }
         }
       }
@@ -174,7 +177,7 @@ Object.assign(Game.prototype, {
       for (const e of cands) {
         const d = e.pos.distanceTo(t.pos);
         e.sn.score =
-          (this.time - e.sn.lastHeld) * 0.6 + (types.has(e.etype) ? 0 : 3) - d / 40 + Math.random();
+          (this.time - e.sn.lastHeld) * 0.6 + (types.has(e.etype) ? 0 : 3) - d / (40 * DS) + Math.random();
       }
       cands.sort((a, b) => b.sn.score - a.sn.score);
       for (const e of cands) {

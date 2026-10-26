@@ -25,11 +25,12 @@ import { PALETTES } from '../render/materials.js';
 import { VARIANTS } from '../world/variants.js';
 import { THEMES, World, corridorSpec } from '../world/world.js';
 import { Game } from './game.js';
+import { DS, MS } from '../core/scale.js';
 
 const TRANS_T = 2.4; // 轉場演出秒數
-const EXIT_R = 4; // 出口的觸發半徑
+const EXIT_R = 4 * MS; // 出口的觸發半徑
 const EXIT_HOLD = 0.8; // 站進出口多久才出發
-const PAD_R = 3.5; // 補給台、資料終端的半徑
+const PAD_R = 3.5 * MS; // 補給台、資料終端的半徑
 const WSLOTS = ['rarm', 'larm', 'rback', 'lback'];
 const clone = (o) => JSON.parse(JSON.stringify(o));
 // 紀錄點保存的欄位（this.camp 裡其餘的是執行中的狀態）
@@ -452,14 +453,14 @@ Object.assign(Game.prototype, {
     const S = w.trackS * 0.8;
     const dirS = Math.random() < 0.5 ? 1 : -1;
     const path = [];
-    for (let s = -S; s <= S; s += 8) path.push(w.corridorPoint(s * dirS, 0));
+    for (let s = -S; s <= S; s += 8 * DS) path.push(w.corridorPoint(s * dirS, 0));
     const start = path[0];
-    const sp = w.corridorPoint(-S * dirS + dirS * 10, 9);
+    const sp = w.corridorPoint(-S * dirS + dirS * 10 * DS, 9 * DS);
     this.player.pos.set(sp.x, w.terrainHeight(sp.x, sp.z), sp.z);
     let leader = null;
     c.ss.convoy = [];
     for (let i = 0; i < 3; i++) {
-      const at = w.corridorPoint((-S - i * 9) * dirS, 0); // 起點後方依序排開
+      const at = w.corridorPoint((-S - i * 9 * DS) * dirS, 0); // 起點後方依序排開
       const o = {
         name: '護送車輛',
         asm: {
@@ -613,34 +614,35 @@ Object.assign(Game.prototype, {
     const free = (x, z) =>
       w.slopeOK(x, z) &&
       !w.isVoid(x, z) &&
-      !w.isReserved(x, z, 3) &&
+      !w.isReserved(x, z, 3 * MS) &&
       !w.offLimits(x, z) &&
-      !w.onCorridor(x, z, 2) &&
+      !w.onCorridor(x, z, 2 * MS) &&
       !w.obstacles.some((o) =>
         o.kind === 'box'
-          ? Math.abs(x - o.x) < o.w / 2 + 4 && Math.abs(z - o.z) < o.d / 2 + 4
-          : Math.hypot(x - o.x, z - o.z) < o.r + 4,
+          ? Math.abs(x - o.x) < o.w / 2 + 4 * MS && Math.abs(z - o.z) < o.d / 2 + 4 * MS
+          : Math.hypot(x - o.x, z - o.z) < o.r + 4 * MS,
       );
     const gap = kind === 'near' ? 0 : ex * 0.35;
     for (let t = 0; t < 600 && out.length < n; t++) {
       let x, z;
       if (kind === 'near') {
         const a = Math.random() * Math.PI * 2,
-          r = rnd(12, 22);
+          r = rnd(12, 22) * DS;
         x = p.x + Math.cos(a) * r;
         z = p.z + Math.sin(a) * r;
       } else {
-        x = rnd(Z[0] + 6, Z[1] - 6);
-        z = rnd(Z[2] + 6, Z[3] - 6);
+        x = rnd(Z[0] + 6 * MS, Z[1] - 6 * MS);
+        z = rnd(Z[2] + 6 * MS, Z[3] - 6 * MS);
       }
-      if (!w.inZone(x, z, 5) && !w.zoneGoal) continue;
+      if (!w.inZone(x, z, 5 * MS) && !w.zoneGoal) continue;
       if (kind === 'edge') {
         const de = Math.min(x - Z[0], Z[1] - x, z - Z[2], Z[3] - z);
         if (de > ex * 0.2) continue;
       }
       if (!free(x, z)) continue;
       if (kind !== 'near' && t < 450 && Math.hypot(x - p.x, z - p.z) < ex * 0.3) continue;
-      if (out.some((q) => Math.hypot(q.x - x, q.z - z) < Math.max(gap, 10) * (t < 450 ? 1 : 0.5))) continue;
+      if (out.some((q) => Math.hypot(q.x - x, q.z - z) < Math.max(gap, 10 * DS) * (t < 450 ? 1 : 0.5)))
+        continue;
       out.push(new THREE.Vector3(x, w.terrainHeight(x, z), z));
     }
     while (out.length < n) {
@@ -655,14 +657,14 @@ Object.assign(Game.prototype, {
     const g = new THREE.Group();
     g.position.copy(pos);
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(r - 0.6, r, 40),
+      new THREE.RingGeometry(r - 0.6 * MS, r, 40),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.15;
+    ring.position.y = 0.15 * MS;
     g.add(ring);
     const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(r * 0.9, r, 60, 24, 1, true),
+      new THREE.CylinderGeometry(r * 0.9, r, 60 * MS, 24, 1, true),
       new THREE.MeshBasicMaterial({
         color: col,
         transparent: true,
@@ -672,7 +674,7 @@ Object.assign(Game.prototype, {
         blending: THREE.AdditiveBlending,
       }),
     );
-    beam.position.y = 30;
+    beam.position.y = 30 * MS;
     g.add(beam);
     const cv = document.createElement('canvas');
     const lines = sub ? String(sub).split('\n') : [];
@@ -701,8 +703,8 @@ Object.assign(Game.prototype, {
     });
     const tex = new THREE.CanvasTexture(cv);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    spr.scale.set(12, (12 * cv.height) / 640, 1);
-    spr.position.y = 9;
+    spr.scale.set(12 * MS, (12 * MS * cv.height) / 640, 1);
+    spr.position.y = 9 * MS;
     spr.renderOrder = 10;
     g.add(spr);
     g.userData.ring = ring;
@@ -830,7 +832,7 @@ Object.assign(Game.prototype, {
   // 站在光環裡累計秒數（離開就歸零：reset）
   campStand(o, dt, r, reset = true) {
     const p = this.player;
-    const on = Math.hypot(p.pos.x - o.pos.x, p.pos.z - o.pos.z) < r && Math.abs(p.pos.y - o.pos.y) < 8;
+    const on = Math.hypot(p.pos.x - o.pos.x, p.pos.z - o.pos.z) < r && Math.abs(p.pos.y - o.pos.y) < 8 * MS;
     if (on) o.t += dt;
     else if (reset) o.t = 0;
     return on;

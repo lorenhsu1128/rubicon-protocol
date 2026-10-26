@@ -1,52 +1,53 @@
 // ---------- 敵人 AI 的感知、警戒、仇恨與攻擊權杖的數值（entities/mech-sense.js、game/ai-director.js、entities/mech-moves.js）----------
+import { DS } from '../core/scale.js';
 // 感知：一般敵人有視覺距離與視角（360＝全方位），看得到（視線沒被地形與障礙物擋住）時察覺量表上升，滿了才進入交戰；
 // 近距離（SENSE_NEAR 以內）不看視角。玩家開火、QB 的聲音讓附近的敵人起疑並前往查看，受到攻擊直接交戰。
 export const SENSE = {
-  default: { sight: 58, fov: 130 },
-  mt: { sight: 55, fov: 120 },
-  shield: { sight: 50, fov: 120 },
-  commander: { sight: 60, fov: 140 },
-  sniper: { sight: 95, fov: 70 },
-  rain: { sight: 75, fov: 140 },
-  drone: { sight: 70, fov: 360 },
-  turret: { sight: 65, fov: 360 },
-  heli: { sight: 80, fov: 360 },
-  strider: { sight: 75, fov: 160 },
-  flank: { sight: 50, fov: 130 },
-  mt_gren: { sight: 60, fov: 130 },
-  mortar: { sight: 70, fov: 140 },
-  kamikaze: { sight: 45, fov: 160 },
-  swarm: { sight: 60, fov: 360 },
-  minelayer: { sight: 55, fov: 360 },
+  default: { sight: 58 * DS, fov: 130 },
+  mt: { sight: 55 * DS, fov: 120 },
+  shield: { sight: 50 * DS, fov: 120 },
+  commander: { sight: 60 * DS, fov: 140 },
+  sniper: { sight: 95 * DS, fov: 70 },
+  rain: { sight: 75 * DS, fov: 140 },
+  drone: { sight: 70 * DS, fov: 360 },
+  turret: { sight: 65 * DS, fov: 360 },
+  heli: { sight: 80 * DS, fov: 360 },
+  strider: { sight: 75 * DS, fov: 160 },
+  flank: { sight: 50 * DS, fov: 130 },
+  mt_gren: { sight: 60 * DS, fov: 130 },
+  mortar: { sight: 70 * DS, fov: 140 },
+  kamikaze: { sight: 45 * DS, fov: 160 },
+  swarm: { sight: 60 * DS, fov: 360 },
+  minelayer: { sight: 55 * DS, fov: 360 },
 };
-export const SENSE_NEAR = 9; // 這個距離內不看視角（聽得到腳步）
-export const SENSE_INSTANT = 6; // 這個距離內看得到就立刻交戰
+export const SENSE_NEAR = 9 * DS; // 這個距離內不看視角（聽得到腳步）
+export const SENSE_INSTANT = 6 * DS; // 這個距離內看得到就立刻交戰
 export const SENSE_DECAY = 0.45; // 看不到時察覺量表每秒下降
 export const SUSPECT_AT = 0.25; // 察覺量表到這裡就起疑（停下來轉向）
 export const LOS_DT = 0.25; // 每台敵人多久檢查一次視線
-export const SHARE_R = 60; // 交戰中的友軍在這個距離內看得到目標時，共享目標位置
+export const SHARE_R = 60 * DS; // 交戰中的友軍在這個距離內看得到目標時，共享目標位置
 export const LOST_T = 8; // 整個小隊都看不到目標這麼久就轉成搜索
 export const SEARCH_T = 14; // 搜索這麼久找不到就回到待機
-export const RADIO_R = 35; // 發現目標後通知附近友軍的距離（指揮官 MT 在場時 ×2）
+export const RADIO_R = 35 * DS; // 發現目標後通知附近友軍的距離（指揮官 MT 在場時 ×2）
 export const RADIO_DL = 0.8; // 通知的延遲
 export const STALL_T = 15; // 場上沒有交戰中的敵人這麼久，最近的待機小隊開始搜索玩家
 // 聲音：開火的武器類型 → 聽得到的距離
 export const NOISE = {
-  bullet: 45,
-  shotgun: 40,
-  laser: 40,
-  empbeam: 35,
-  shell: 55,
-  missile: 55,
-  grenade: 55,
-  melee: 14,
-  emp: 30,
+  bullet: 45 * DS,
+  shotgun: 40 * DS,
+  laser: 40 * DS,
+  empbeam: 35 * DS,
+  shell: 55 * DS,
+  missile: 55 * DS,
+  grenade: 55 * DS,
+  melee: 14 * DS,
+  emp: 30 * DS,
 };
-export const NOISE_QB = 18;
+export const NOISE_QB = 18 * DS;
 
 // 仇恨：每受到 1% AP 的傷害 +1，每秒衰減；目前的目標要被超過 STICKY 倍才換
 export const THREAT_DECAY = 0.15;
-export const THREAT_NEAR = 30; // 距離加成＝THREAT_NEAR／距離
+export const THREAT_NEAR = 30 * DS; // 距離加成＝THREAT_NEAR／距離
 export const THREAT_LOCK = 8; // 玩家正鎖定我
 export const STICKY = 1.3;
 
@@ -59,7 +60,7 @@ export const TOKEN_REST = [2, 3.5]; // 交出後多久才能再拿
 export const TOKEN_W = { mth: 2, tank: 2, strider: 2, heli: 2, mt_stomp: 2, mt_mortar: 1, mt_shield: 1 }; // 其他＝1
 export const SUP_FIRE = 0.3; // 壓制時的開火機率倍率
 export const SUP_SPREAD = 1.7; // 壓制時的擴散倍率
-export const SUP_RING = [34, 48]; // 壓制時保持的距離
+export const SUP_RING = [34 * DS, 48 * DS]; // 壓制時保持的距離
 export const SUP_SPECIAL_DT = 0.4; // 壓制時特殊敵人（迫擊砲、主題專屬敵人）攻擊計時的速度
 export const HOLDER_IDLE_FIRE = 0.4; // 主攻但招式冷卻中的一般射擊倍率
 // 不參與權杖（一直照原本的方式行動）：支援類、部位、目標物、分身

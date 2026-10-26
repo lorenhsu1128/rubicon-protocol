@@ -50,7 +50,7 @@ Object.assign(Game.prototype, {
           clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4, this.world.lim - 4),
           clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4, this.world.lim - 4),
         );
-        fn(new THREE.Vector3(x, this.world.groundAt(x, z, 99), z), i);
+        fn(new THREE.Vector3(x, this.world.groundAt(x, z, 999), z), i);
       }
     };
     switch (bd.kind) {
@@ -113,7 +113,7 @@ Object.assign(Game.prototype, {
         clamp(b.pos.x + Math.cos(a) * 22, -this.world.lim + 4, this.world.lim - 4),
         clamp(b.pos.z + Math.sin(a) * 22, -this.world.lim + 4, this.world.lim - 4),
       );
-      this.spawnPart(b, 'pylon', { at: new THREE.Vector3(x, this.world.groundAt(x, z, 99), z) });
+      this.spawnPart(b, 'pylon', { at: new THREE.Vector3(x, this.world.groundAt(x, z, 999), z) });
     }
   },
   // 電磁狩獵機的 EMP：半徑 R 內、離地 5 m 以下的敵人受傷並封鎖 QB／懸浮 3 秒

@@ -402,7 +402,7 @@ Object.assign(Game.prototype, {
       } else if (u.kind === 'convoy') {
         const P = this.lv.L.paths.find((p) => p.id === u.beh.path);
         const path = (P ? P.pts : [[u.x, u.z]]).map(
-          (q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 99), q[1]),
+          (q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 999), q[1]),
         );
         const leader =
           this.allies.filter((a) => a.ai === 'convoy' && a.edu && a.edu.g === u.g && !a.dead).pop() || null;
@@ -453,7 +453,7 @@ Object.assign(Game.prototype, {
       const pos = { x: mk.x, z: mk.z };
       lv.st.pend.push({ t: WARN_T, g, how: H, m: mid });
       const W = this.world;
-      const base = new THREE.Vector3(pos.x, W.groundAt(pos.x, pos.z, 99), pos.z);
+      const base = new THREE.Vector3(pos.x, W.groundAt(pos.x, pos.z, 999), pos.z);
       this.fx.warnLine(
         base,
         base.clone().setY(base.y + 45),
@@ -472,7 +472,12 @@ Object.assign(Game.prototype, {
     const mk = lv.L.marks.find((m) => m.id === mid) || null;
     for (const u of lv.L.units) if (u.g === g && u.at === 'trig') this.lvSpawnUnit(u, mk ? how : 'place', mk);
     if (mk && how === 'drop')
-      this.fx.shockwave(new THREE.Vector3(mk.x, this.world.groundAt(mk.x, mk.z, 99), mk.z), 8, 0xffa020, 0.5);
+      this.fx.shockwave(
+        new THREE.Vector3(mk.x, this.world.groundAt(mk.x, mk.z, 999), mk.z),
+        8,
+        0xffa020,
+        0.5,
+      );
   },
   lvGroupEnts(g) {
     return [...this.enemies, ...this.allies].filter((e) => e.edu && e.edu.g === g);
@@ -1173,7 +1178,7 @@ Object.assign(Game.prototype, {
   // 增援的預告（ECHO 的方向、畫面上的標記；同 waves.js 的 waveShow，不帶第幾波）
   lvWarnShow(ev) {
     const pos = new THREE.Vector3(ev.p[0], 0, ev.p[1]);
-    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 99) + 2;
+    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 999) + 2;
     this.waveMarks = (this.waveMarks || []).concat([{ pos, t: 7, drop: !!ev.d }]);
     const me = this.player && !this.player.dead ? this.player.pos : this.camera.position;
     const f = new THREE.Vector3();
@@ -1228,7 +1233,7 @@ Object.assign(Game.prototype, {
         const u = lv.L.units.find((x) => x.id === e.edu.u);
         const P = u && lv.L.paths.find((p) => p.id === u.beh.path);
         if (P)
-          e.opts.path = P.pts.map((q) => new THREE.Vector3(q[0], this.world.groundAt(q[0], q[1], 99), q[1]));
+          e.opts.path = P.pts.map((q) => new THREE.Vector3(q[0], this.world.groundAt(q[0], q[1], 999), q[1]));
         e.opts.convoySpeed = 0.32;
       }
     }

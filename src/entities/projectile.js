@@ -4,6 +4,7 @@ import { KIN_FALL_MIN } from '../data/attrs.js';
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { buildProjectileMesh } from '../render/extra-models.js';
 import { targetDist, targetSegT } from '../world/prop-hit.js';
 
@@ -68,7 +69,7 @@ export class Projectile {
       const sp = this.vel.length();
       const cur = this.vel.clone().normalize();
       const ang = cur.angleTo(to);
-      const maxA = this.turn * dt * (d < 10 ? 2.2 : this.age > 0.5 ? 1.4 : 1);
+      const maxA = this.turn * dt * (d < 10 * (g.rts ? 1 : DS) ? 2.2 : this.age > 0.5 ? 1.4 : 1);
       if (ang > maxA) {
         const axis = cur.clone().cross(to).normalize();
         if (axis.lengthSq() > 0.5) cur.applyAxisAngle(axis, maxA);
@@ -154,8 +155,8 @@ export class Projectile {
     if (!direct || this.splash > 0) g.hz2Blast(this.pos, this.dmg, this.splash, this.attr);
     if (this.splash > 0 && g.rts && g.rtsProjBlast) g.rtsProjBlast(this); // Coral 戰爭：爆發攻擊炸散殘骸（rts.js）
     if (this.splash > 0) {
-      g.fx.explosion(this.pos, this.splash * 0.9, 0xffa040, this.splash > 4);
-      SFX.explode(this.splash > 4, this.pos);
+      g.fx.explosion(this.pos, this.splash * 0.9, 0xffa040, this.splash > 4 * (g.rts ? 1 : MS));
+      SFX.explode(this.splash > 4 * (g.rts ? 1 : MS), this.pos);
       g.rumbleAt(
         this.pos,
         this.splash > 4 ? 0.9 : 0.5,

@@ -682,7 +682,7 @@ Object.assign(Game.prototype, {
     }
     if (s.t === 'unit' && f === 'type') o.type = v;
     if ((s.t === 'unit' || s.t === 'mark') && (f === 'x' || f === 'z'))
-      o.y = +this.world.groundAt(o.x, o.z, 99).toFixed(2);
+      o.y = +this.world.groundAt(o.x, o.z, 999).toFixed(2);
     if (s.t === 'prop') this.edSyncProps();
     this.edChanged();
     this.edRebuildHelpers();

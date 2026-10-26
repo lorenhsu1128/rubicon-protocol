@@ -117,7 +117,8 @@ export class MechEntity {
     this.themeFoe = !!opts.themeFoe;
     this.pvpAi = !!opts.pvpAi;
     this.pvpTeam = opts.pvpTeam !== undefined ? opts.pvpTeam : opts.team === 'enemy' ? -1 : 0;
-    this.hoverH = (opts.hoverH || 7) * (game && game.rts ? 1 : DS);
+    this.dk = game && game.rts ? 1 : DS; // 距離與尺寸的倍率（Coral 戰爭照舊尺度；程式裡的數字照舊尺度寫再乘它）
+    this.hoverH = (opts.hoverH || 7) * this.dk;
     this.turnRate = opts.turnRate || 14;
     this.explodeOnDeath = opts.explodeOnDeath || null;
     this.grounded = true;
@@ -161,7 +162,7 @@ export class MechEntity {
       timer: 0,
       qbT: 0,
       jumpT: 0,
-      want: opts.wantDist || 22,
+      want: (opts.wantDist || 22) * (game && game.rts ? 1 : DS),
       fireT: 0,
       pattern: 0,
       patT: 0,
@@ -524,14 +525,15 @@ export class MechEntity {
             const V = this.trackVel(targetEnt),
               k = this.leadK(distT);
             let tt0 =
-              Math.min(d.range, Math.max(8, targetEnt.center().sub(muzzle).setY(0).length())) / d.speed;
+              Math.min(d.range, Math.max(8 * this.dk, targetEnt.center().sub(muzzle).setY(0).length())) /
+              d.speed;
             tp = targetEnt.center().addScaledVector(V, tt0 * k);
-            tt0 = Math.min(d.range, Math.max(8, tp.clone().sub(muzzle).setY(0).length())) / d.speed;
+            tt0 = Math.min(d.range, Math.max(8 * this.dk, tp.clone().sub(muzzle).setY(0).length())) / d.speed;
             tp = targetEnt.center().addScaledVector(V, tt0 * k);
           }
           const hd = tp.clone().sub(muzzle);
           hd.y = 0;
-          const dist = Math.min(d.range, Math.max(8, hd.length()));
+          const dist = Math.min(d.range, Math.max(8 * this.dk, hd.length()));
           hd.normalize();
           const tt = dist / d.speed;
           const v = hd.multiplyScalar(d.speed);
@@ -805,20 +807,20 @@ export class MechEntity {
             piece.rotation.x += av.x * dt;
             piece.rotation.y += av.y * dt;
             piece.rotation.z += av.z * dt;
-            const gy = g.world.terrainHeight(piece.position.x, piece.position.z) + 0.25;
+            const gy = g.world.terrainHeight(piece.position.x, piece.position.z) + 0.25 * this.dk;
             if (piece.position.y < gy) {
               piece.position.y = gy;
-              if (Math.abs(v.y) < 3) rest = true;
+              if (Math.abs(v.y) < 3 * this.dk) rest = true;
               else {
                 v.y *= -0.35;
                 v.x *= 0.5;
                 v.z *= 0.5;
                 av.multiplyScalar(0.4);
-                g.fx.dust(piece.position.clone(), 0.8, 4);
+                g.fx.dust(piece.position.clone(), 0.8 * this.dk, 4);
               }
             }
           }
-          if (t > 0.85) piece.position.y -= dt * 0.6;
+          if (t > 0.85) piece.position.y -= dt * 0.6 * this.dk;
         },
       });
     }
@@ -915,7 +917,7 @@ export class MechEntity {
     if (m.target && !m.target.dead && m.t < st.dur * 0.5) {
       const to = m.target.pos.clone().sub(this.pos);
       to.y = 0;
-      if (to.length() > 1) m.dir.lerp(to.normalize(), Math.min(1, dt * 8)).normalize();
+      if (to.length() > 1 * this.dk) m.dir.lerp(to.normalize(), Math.min(1, dt * 8)).normalize();
       this.aimYaw = Math.atan2(-m.dir.x, -m.dir.z);
     }
     const ph = m.t / st.dur;
@@ -923,7 +925,7 @@ export class MechEntity {
     const dashSpd = ph < burst ? st.dash / (st.dur * burst) : 0; // 拳擊：前 30% 瞬間衝刺；其他近戰前 60%
     this.vel.x = m.dir.x * dashSpd;
     this.vel.z = m.dir.z * dashSpd;
-    if (st.slam && ph < 0.4) this.vel.y = Math.max(this.vel.y, 3);
+    if (st.slam && ph < 0.4) this.vel.y = Math.max(this.vel.y, 3 * this.dk);
     if (Math.random() < dt * 30) g.fx.boostFlame(this.center(), m.dir.clone().negate(), d.color);
     // hit window
     if (ph > 0.1 && ph < 0.85) {
@@ -997,7 +999,7 @@ export class MechEntity {
       !this.flying &&
       w.isVoid(this.pos.x, this.pos.z) &&
       !w.isVoid(px, pz) &&
-      this.pos.y - w.terrainHeight(px, pz) < 3
+      this.pos.y - w.terrainHeight(px, pz) < 3 * this.dk
     ) {
       this.pos.x = px;
       this.pos.z = pz;
@@ -1171,7 +1173,7 @@ export class MechEntity {
         if (!sb.shown && from.team === 'player') {
           sb.shown = true;
           this.game.popDamage(
-            this.center().setY(this.center().y + 2),
+            this.center().setY(this.center().y + 2 * this.dk),
             '連攜',
             false,
             true,
@@ -1226,8 +1228,9 @@ export class MechEntity {
         g.mpStats[this.slot].taken += eff;
     }
     if (this.staggerT <= 0) {
-      // 高處優勢：攻擊者比自己高 4 m 以上時衝擊 +25%
-      const high = from && from !== this && from.center && from.center().y - this.center().y > 4 ? 1.25 : 1;
+      // 高處優勢：攻擊者比自己高 12 m 以上時衝擊 +25%
+      const high =
+        from && from !== this && from.center && from.center().y - this.center().y > 4 * this.dk ? 1.25 : 1;
       const guard = this.stagGuardT > 0; // 失衡後保護：累積變少、不會再次過載
       const pve = this.pilotEnt() && !this.game.pvp; // PvE 的玩家：衝擊較小、ACS 較快開始回復
       this.acs +=
@@ -2264,7 +2267,8 @@ export class MechEntity {
   // ---------- AI ----------
   updateAI(dt) {
     const g = this.game,
-      s = this.aiState;
+      s = this.aiState,
+      K = g.rts ? 1 : DS; // 距離的倍率（下面的數字照舊尺度）
     if (this.dead) return;
     if (this.rtsDef && g.rts) return this.rtsUnitAI(dt); // Coral 戰爭的單位與建築（entities/mech-rts.js）
     if (this.rangeB && g.range && g.rangeAI(this, dt)) return; // 靶場的目標：靜止／橫移（game/range.js）
@@ -2302,12 +2306,12 @@ export class MechEntity {
       }
       if (this.departing) {
         this.flying = true;
-        this.pos.y += dt * 18;
+        this.pos.y += dt * 18 * K;
         this.mesh.position.copy(this.pos);
         this.thrS = 1;
         g.fx.thruster.stream(this.model, 1, 0x9fffc8, this.scale, dt, this.vel);
         if (Math.random() < dt * 40) g.fx.boostFlame(this.center(), new THREE.Vector3(0, -1, 0), 0x9fffc8);
-        if (this.pos.y > 60) {
+        if (this.pos.y > 60 * K) {
           this.dead = true;
           this.mesh.visible = false;
         }
@@ -2322,7 +2326,7 @@ export class MechEntity {
     to.y = 0;
     const d = to.length();
     const dir = d > 0.01 ? to.clone().normalize() : new THREE.Vector3(0, 0, 1);
-    const leadT = clamp(d / 95, 0, 0.9);
+    const leadT = clamp(d / (95 * K), 0, 0.9);
     const aimPos = pl
       .center()
       .addScaledVector(pl.vel, leadT * (this.isBoss ? 0.9 : 0.7) * Math.min(1.3, this.aiSkill));
@@ -2335,7 +2339,7 @@ export class MechEntity {
     if (s.timer <= 0) {
       s.timer = rnd(1.2, 2.8);
       s.strafe = Math.random() < 0.5 ? 1 : -1;
-      s.want = (this.opts.wantDist || 22) * rnd(0.75, 1.25);
+      s.want = (this.opts.wantDist || 22) * K * rnd(0.75, 1.25);
     }
     const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(s.strafe);
     // 攻擊權杖（game/ai-director.js）：沒拿到的壓制＝退到外圈、少量且散的射擊、特殊攻擊放慢；自己看不到目標時找射線
@@ -2382,11 +2386,11 @@ export class MechEntity {
     } else if (this.ai === 'turret' || this.ai === 'mt_gren') {
       /* stationary */
     } else if (this.ai === 'sniper') {
-      // 保持 55 m 以上；太近就 QB 拉開；有射線遮擋時橫移
-      if (d < s.want - 8) {
+      // 保持 165 m 以上；太近就 QB 拉開；有射線遮擋時橫移
+      if (d < s.want - 8 * K) {
         wish.copy(dir).negate();
         if (Math.random() < dt * 2.5) qb = true;
-      } else if (d > s.want + 10) wish.copy(dir);
+      } else if (d > s.want + 10 * K) wish.copy(dir);
       else wish.copy(perp).multiplyScalar(0.6);
       wish.normalize();
       if (s.stuck > 0.4) {
@@ -2396,14 +2400,14 @@ export class MechEntity {
     } else if (this.ai === 'flank') {
       // 四台包圍：各自佔據玩家周圍固定方位（緩慢公轉），到位後小幅橫移並射擊
       const ang = (this.opts.flankAngle || 0) + g.time * 0.25;
-      const want = this.opts.wantDist || 9;
+      const want = (this.opts.wantDist || 9) * K;
       const goal = new THREE.Vector3(pl.pos.x + Math.cos(ang) * want, 0, pl.pos.z + Math.sin(ang) * want);
       const to = goal.clone().sub(this.pos);
       to.y = 0;
       const gd = to.length();
-      if (gd > 2.5) {
+      if (gd > 2.5 * K) {
         wish.copy(to.normalize());
-        if (gd > 18 && Math.random() < dt * 0.8) qb = true;
+        if (gd > 18 * K && Math.random() < dt * 0.8) qb = true;
       } else wish.copy(perp).multiplyScalar(0.35);
       if (s.stuck > 0.4) {
         s.stuck = 0;
@@ -2422,47 +2426,47 @@ export class MechEntity {
         }
         s.jumpT -= dt;
         if (s.jumpT > 0) hover = s.climb ? 2 : true;
-        if (d > 16 && Math.random() < dt * 1.2) ab = true;
-        else if (d > 8 && Math.random() < dt * 0.8) {
+        if (d > 16 * K && Math.random() < dt * 1.2) ab = true;
+        else if (d > 8 * K && Math.random() < dt * 0.8) {
           qb = true;
         }
       }
-      if (this.ai === 'kamikaze' && d < 3.5 + this.radius) {
+      if (this.ai === 'kamikaze' && d < 3.5 * K + this.radius) {
         this.die(pl);
         return;
       }
     } else if (this.ai === 'rain') {
-      if (d < s.want - 4) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
+      if (d < s.want - 4 * K) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
       else wish.copy(perp);
       wish.normalize();
       s.qbT -= dt;
       if (
         s.qbT <= 0 &&
-        g.projectiles.some((p) => p.team !== this.team && p.pos.distanceToSquared(this.center()) < 80)
+        g.projectiles.some((p) => p.team !== this.team && p.pos.distanceToSquared(this.center()) < 80 * K * K)
       ) {
         qb = true;
         s.qbT = rnd(1.5, 3);
       }
     } else if (this.ai === 'bastion') {
-      if (d > s.want + 8) wish.copy(dir);
-      else if (d < s.want - 10) wish.copy(dir).negate();
+      if (d > s.want + 8 * K) wish.copy(dir);
+      else if (d < s.want - 10 * K) wish.copy(dir).negate();
       wish.multiplyScalar(0.8);
     } else if (this.ai === 'duelist') {
-      if (d > s.want + 2) wish.copy(dir).add(perp.clone().multiplyScalar(0.4));
+      if (d > s.want + 2 * K) wish.copy(dir).add(perp.clone().multiplyScalar(0.4));
       else wish.copy(perp);
       wish.normalize();
       s.qbT -= dt;
       const threat = g.projectiles.some(
-        (p) => p.team !== this.team && p.pos.distanceToSquared(this.center()) < 120,
+        (p) => p.team !== this.team && p.pos.distanceToSquared(this.center()) < 120 * K * K,
       );
       if (s.qbT <= 0 && ((threat && Math.random() < dt * 7) || Math.random() < dt * 0.5)) {
         qb = true;
         s.qbT = rnd(0.7, 1.4);
         wish.copy(perp).normalize();
       }
-      if (d > 18 && Math.random() < dt * 0.9) ab = true;
+      if (d > 18 * K && Math.random() < dt * 0.9) ab = true;
     } else if (this.ai === 'strider') {
-      // 尋找 40 m 內最近的高台／橋面頂，走上去佔高度
+      // 尋找 135 m 內最近的高台／橋面頂，走上去佔高度
       if (!s.perch || s.perchT <= 0) {
         s.perchT = 6;
         let best = null,
@@ -2470,7 +2474,7 @@ export class MechEntity {
         for (const o of g.world.obstacles) {
           if (o.kind !== 'box') continue;
           const dd = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
-          if (dd < 45 && o.top > g.world.terrainHeight(o.x, o.z) + 2.5 && dd < bd2) {
+          if (dd < 45 * K && o.top > g.world.terrainHeight(o.x, o.z) + 2.5 * K && dd < bd2) {
             bd2 = dd;
             best = o;
           }
@@ -2481,23 +2485,23 @@ export class MechEntity {
       if (s.perch) {
         const to = new THREE.Vector3(s.perch.x - this.pos.x, 0, s.perch.z - this.pos.z);
         const dd = to.length();
-        if (this.pos.y < s.perch.top - 0.5) {
-          if (dd > 2) {
+        if (this.pos.y < s.perch.top - 0.5 * K) {
+          if (dd > 2 * K) {
             wish.copy(to.normalize());
-            if (dd < 8) hover = 2; // 跳起後爬升到台頂
+            if (dd < 8 * K) hover = 2; // 跳起後爬升到台頂
           } else hover = 2;
         } else {
           wish.copy(perp).multiplyScalar(0.3);
         }
       } else {
-        if (d > s.want + 6) wish.copy(dir);
+        if (d > s.want + 6 * K) wish.copy(dir);
         else wish.copy(perp).multiplyScalar(0.5);
       }
     } else if (this.ai === 'heli') {
       // 繞著目標盤旋
       wish.copy(perp).multiplyScalar(1.0);
-      if (d > s.want + 5) wish.add(dir.clone().multiplyScalar(0.9));
-      else if (d < s.want - 5) wish.sub(dir.clone().multiplyScalar(0.9));
+      if (d > s.want + 5 * K) wish.add(dir.clone().multiplyScalar(0.9));
+      else if (d < s.want - 5 * K) wish.sub(dir.clone().multiplyScalar(0.9));
       wish.normalize();
       this.flying = true;
     } else if (this.ai === 'swarm') {
@@ -2505,19 +2509,19 @@ export class MechEntity {
       wish.copy(dir);
       this.flying = true;
       const gnd = g.world.terrainHeight(this.pos.x, this.pos.z);
-      this.hoverH = d > 14 ? 6 : clamp(pl.center().y - gnd, 0.6, 8);
-      if (pl.center().distanceTo(this.center()) < this.radius + pl.radius + 0.6) {
+      this.hoverH = d > 14 * K ? 6 * K : clamp(pl.center().y - gnd, 0.6 * K, 8 * K);
+      if (pl.center().distanceTo(this.center()) < this.radius + pl.radius + 0.6 * K) {
         this.die(pl);
         return;
       }
     } else if (this.ai === 'drone') {
       wish.copy(perp).multiplyScalar(0.9);
-      if (d > s.want + 4) wish.add(dir.clone().multiplyScalar(0.8));
-      else if (d < s.want - 6) wish.sub(dir.clone().multiplyScalar(0.8));
+      if (d > s.want + 4 * K) wish.add(dir.clone().multiplyScalar(0.8));
+      else if (d < s.want - 6 * K) wish.sub(dir.clone().multiplyScalar(0.8));
       wish.normalize();
     } else {
-      if (d > s.want + 6) wish.copy(dir).add(perp.clone().multiplyScalar(0.35));
-      else if (d < s.want - 6) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
+      if (d > s.want + 6 * K) wish.copy(dir).add(perp.clone().multiplyScalar(0.35));
+      else if (d < s.want - 6 * K) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
       else wish.copy(perp);
       wish.normalize();
       if (s.stuck > 0.4) {
@@ -2537,7 +2541,7 @@ export class MechEntity {
       s.qbT -= dt;
       const threat =
         (this.team === 'enemy' && g.playerFiredAt > 0) ||
-        g.projectiles.some((p) => p.team === 'player' && p.pos.distanceToSquared(this.center()) < 64);
+        g.projectiles.some((p) => p.team === 'player' && p.pos.distanceToSquared(this.center()) < 64 * K * K);
       if (
         this.ai !== 'mt' &&
         s.qbT <= 0 &&
@@ -2551,7 +2555,7 @@ export class MechEntity {
           .add(dir.clone().multiplyScalar(rnd(-0.4, 0.4)))
           .normalize();
       }
-      if (this.ai === 'ac' && d > 40 && Math.random() < dt * 0.5) ab = true;
+      if (this.ai === 'ac' && d > 40 * K && Math.random() < dt * 0.5) ab = true;
     }
     const mvr = sn ? this.movesTick(dt, d, dir, pl, wish) : null; // 主攻的預警招式（mech-moves.js）
     if (mvr && mvr.ab) ab = true;
@@ -2596,7 +2600,7 @@ export class MechEntity {
         // 蓄力雷射：先 0.8 s 紅色瞄準線，再射
         const w = this.weapons.rarm;
         if (w.def.type === 'laser') {
-          if (!w.charging && w.cd <= 0 && d < w.def.range + 5 && Math.random() < dt * 1.2) {
+          if (!w.charging && w.cd <= 0 && d < w.def.range + 5 * K && Math.random() < dt * 1.2) {
             w.charging = true;
             w.charge = 0;
             s.aimLine = 0.8;
@@ -2652,7 +2656,7 @@ export class MechEntity {
       for (const slot of ['rarm', 'larm', 'rback', 'lback']) {
         const w = this.weapons[slot];
         if (w.def.type === 'none' || w.def.type === 'shield' || !allow(w.def.type)) continue;
-        const inR = d < w.def.range * (this.isBoss ? 1.2 : 1) + 2;
+        const inR = d < w.def.range * (this.isBoss ? 1.2 : 1) + 2 * K;
         if (!inR) continue;
         if (w.def.type === 'emp') {
           if (w.cd <= 0 && d < w.def.radius * 0.75 && Math.random() < dt * 1.5) this.fire(slot, aimPos, pl);
@@ -2690,7 +2694,7 @@ export class MechEntity {
         if (w.def.type === 'melee') {
           if (this.melee.active) {
             if (Math.random() < dt * 12) this.fire(slot, aimPos, pl);
-          } else if (d < w.def.range + 4 && w.cd <= 0 && Math.random() < dt * 2.5)
+          } else if (d < w.def.range + 4 * K && w.cd <= 0 && Math.random() < dt * 2.5)
             this.fire(slot, aimPos, pl);
           continue;
         }
@@ -2722,7 +2726,7 @@ export class MechEntity {
     }
     s.shockT -= dt;
     const R = boss ? 30 : stomp ? 12 : 20;
-    if (s.shockT > 0 || !this.grounded || d > R * 0.8 || !this.canAct() || this.melee.active) return;
+    if (s.shockT > 0 || !this.grounded || d > R * 0.8 * DS || !this.canAct() || this.melee.active) return;
     s.shockT = (boss ? rnd(7, 11) : stomp ? rnd(5, 8) : rnd(10, 15)) * (s.phase >= 2 ? 0.7 : 1);
     const dl = boss ? 0.9 : stomp ? 0.7 : 0.8;
     s.stompT = dl;

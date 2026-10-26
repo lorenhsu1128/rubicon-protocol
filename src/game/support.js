@@ -3,14 +3,15 @@
 // 傷害只在房主／單機計算；客機收到 'warn'（預警圈）、'mine'／'mineX'（地雷出現／消失）事件只做顯示。
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { Projectile } from '../entities/projectile.js';
 import { Game } from './game.js';
 import { targetDist } from '../world/prop-hit.js';
 
-const MORTAR_G = 26; // 迫擊砲彈重力（和榴彈相同）
-const MINE_TRIG = 2.2; // 地雷觸發的水平距離
-const MINE_ALT = 1.5; // 離地高於這個高度不會觸發（跳過去）
-const AIR_TRIG = 3; // 空中地雷的觸發距離（3D）
+const MORTAR_G = 26 * DS; // 迫擊砲彈重力（和榴彈相同）
+const MINE_TRIG = 2.2 * MS; // 地雷觸發的水平距離
+const MINE_ALT = 1.5 * MS; // 離地高於這個高度不會觸發（跳過去）
+const AIR_TRIG = 3 * MS; // 空中地雷的觸發距離（3D）
 
 Object.assign(Game.prototype, {
   // flashMsg／flashAlert 本身就會轉送給客機
@@ -135,8 +136,8 @@ Object.assign(Game.prototype, {
     const w = this.world;
     const mz = src.muzzle('rback');
     const land = tp.clone();
-    land.y = w.groundAt(land.x, land.z, tp.y + 1.5);
-    const T = clamp(1.5 + mz.distanceTo(land) / 60, 1.6, 2.8);
+    land.y = w.groundAt(land.x, land.z, tp.y + 1.5 * MS);
+    const T = clamp(1.5 + mz.distanceTo(land) / (60 * DS), 1.6, 2.8);
     const v = land.clone().sub(mz).divideScalar(T);
     v.y = (land.y - mz.y + 0.5 * MORTAR_G * T * T) / T;
     this.projectiles.push(
@@ -156,8 +157,8 @@ Object.assign(Game.prototype, {
         wid: 'bw_gr',
       }),
     );
-    this.fx.muzzle(mz, new THREE.Vector3(0, 1, 0), 0xff8040, 2.2);
-    this.fx.smoke(mz.clone(), 1.2, 0x9a9ea6, 0.9, 3);
+    this.fx.muzzle(mz, new THREE.Vector3(0, 1, 0), 0xff8040, 2.2 * MS);
+    this.fx.smoke(mz.clone(), 1.2 * MS, 0x9a9ea6, 0.9, 3);
     SFX.shot('grenade', undefined, mz);
     this.fx.warnCircle(land, o.R, T);
     this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
@@ -167,11 +168,11 @@ Object.assign(Game.prototype, {
     const w = this.world;
     const mz = src.muzzle('rarm');
     const land = tp.clone();
-    land.y = w.groundAt(land.x, land.z, tp.y + 1.5);
+    land.y = w.groundAt(land.x, land.z, tp.y + 1.5 * MS);
     const T = o.T,
-      G = o.G || 22;
+      G = o.G || 22 * DS;
     const v = land.clone().sub(mz).divideScalar(T);
-    v.y = (land.y + 1 - mz.y + 0.5 * G * T * T) / T;
+    v.y = (land.y + 1 * MS - mz.y + 0.5 * G * T * T) / T;
     this.projectiles.push(
       new Projectile(this, {
         pos: mz.clone(),
@@ -284,7 +285,12 @@ Object.assign(Game.prototype, {
       f.dmgT = 0.25;
       const dir = new THREE.Vector3(f.dx, 0, f.dz);
       for (const t of this.hostilesOf(f.team, f.src)) {
-        if (t.dead || t.flying || t.pos.y - w.terrainHeight(t.pos.x, t.pos.z) > 3 || this.flowAt(t) !== f)
+        if (
+          t.dead ||
+          t.flying ||
+          t.pos.y - w.terrainHeight(t.pos.x, t.pos.z) > 3 * MS ||
+          this.flowAt(t) !== f
+        )
           continue;
         t.takeDamage(f.dps * 0.25, f.dps * 0.6, f.src, t.center(), dir.clone(), undefined, undefined, 'none');
       }
@@ -296,14 +302,14 @@ Object.assign(Game.prototype, {
   },
   layMine(src, p, o) {
     if (!this.mines) this.mines = [];
-    if (!o.air) p.y = this.world.groundAt(p.x, p.z, p.y + 1.5);
+    if (!o.air) p.y = this.world.groundAt(p.x, p.z, p.y + 1.5 * MS);
     this.mineSeq = (this.mineSeq || 0) + 1;
     const m = { i: this.mineSeq, p, owner: src, team: src.team, arm: 0.8, life: 30, trig: -1, t: 0, ...o };
     m.mesh = this.mineMesh(p, o.air);
     this.mines.push(m);
     if (!o.quiet) {
-      this.fx.beam(src.center(), p.clone().setY(p.y + 0.2), 0xff4030, 0.05);
-      this.fx.dust(p.clone(), 1.2, 5);
+      this.fx.beam(src.center(), p.clone().setY(p.y + 0.2 * MS), 0xff4030, 0.05 * MS);
+      this.fx.dust(p.clone(), 1.2 * MS, 5);
       SFX.play('ui2', 0.5, 1.6, 0.05, 0.05, p);
     }
     this.netEv({
@@ -326,7 +332,7 @@ Object.assign(Game.prototype, {
         new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.5, metalness: 0.6, wireframe: true }),
       );
       const halo = new THREE.Mesh(
-        new THREE.SphereGeometry(AIR_TRIG, 12, 8),
+        new THREE.SphereGeometry(AIR_TRIG / MS, 12, 8),
         new THREE.MeshBasicMaterial({
           color: 0xff3020,
           transparent: true,
@@ -337,6 +343,7 @@ Object.assign(Game.prototype, {
       );
       grp.add(core, shell, halo);
       grp.position.copy(p);
+      grp.scale.setScalar(MS);
       grp.userData.light = core;
       grp.userData.halo = halo;
       this.scene.add(grp);
@@ -353,7 +360,7 @@ Object.assign(Game.prototype, {
     );
     light.position.y = 0.26;
     const halo = new THREE.Mesh(
-      new THREE.RingGeometry(MINE_TRIG - 0.1, MINE_TRIG, 28),
+      new THREE.RingGeometry(MINE_TRIG / MS - 0.1, MINE_TRIG / MS, 28),
       new THREE.MeshBasicMaterial({
         color: 0xff3020,
         transparent: true,
@@ -367,6 +374,7 @@ Object.assign(Game.prototype, {
     halo.position.y = 0.06;
     grp.add(body, light, halo);
     grp.position.copy(p);
+    grp.scale.setScalar(MS);
     grp.userData.light = light;
     grp.userData.halo = halo;
     this.scene.add(grp);
@@ -382,15 +390,15 @@ Object.assign(Game.prototype, {
     this.mines.splice(k, 1);
     this.scene.remove(m.mesh);
     if (boom) {
-      const p = m.p.clone().setY(m.p.y + 0.3);
+      const p = m.p.clone().setY(m.p.y + 0.3 * MS);
       this.blastTeam(p, m.dmg, m.im, m.R, m.team, m.owner);
     }
     this.netEv({ t: 'mineX', i: m.i, b: boom ? 1 : 0 });
   },
   // 只傷害 team 的敵人的爆炸（地雷：不會炸到自己人；擁有者已被擊破也照樣）
   blastTeam(p, dmg, impact, splash, team, owner) {
-    this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4);
-    SFX.explode(splash > 4, p);
+    this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4 * MS);
+    SFX.explode(splash > 4 * MS, p);
     const src = owner && !owner.dead ? owner : null;
     this.hz2Blast(p, dmg, splash, 'exp'); // 臨時障礙物、油漬（hazards2.js）
     const targets = (src ? this.hostilesOfEnt(src) : this.hostilesOf(team, null)).concat(
@@ -421,9 +429,9 @@ Object.assign(Game.prototype, {
     const L2 = seg.lengthSq();
     for (const m of this.mines) {
       if (m.trig >= 0 || m.vis || m.team === p.team) continue;
-      const c = m.air ? m.p.clone() : m.p.clone().setY(m.p.y + 0.2);
+      const c = m.air ? m.p.clone() : m.p.clone().setY(m.p.y + 0.2 * MS);
       const t = L2 > 1e-6 ? clamp(c.clone().sub(prev).dot(seg) / L2, 0, 1) : 0;
-      if (prev.clone().addScaledVector(seg, t).distanceToSquared(c) < 0.9 * 0.9) m.trig = 0.05;
+      if (prev.clone().addScaledVector(seg, t).distanceToSquared(c) < 0.81 * MS * MS) m.trig = 0.05;
     }
   },
   // 每格：地雷（房主判定觸發；客機只閃燈）
@@ -478,11 +486,11 @@ Object.assign(Game.prototype, {
       sd = this.scaleDmg || 1;
     list.forEach((t, i) => {
       const a = (i / list.length) * Math.PI * 2;
-      const at = ship.pos.clone().add(new THREE.Vector3(Math.cos(a) * 3, -2, Math.sin(a) * 3));
+      const at = ship.pos.clone().add(new THREE.Vector3(Math.cos(a) * 3 * MS, -2 * MS, Math.sin(a) * 3 * MS));
       [at.x, at.z] = this.world.nearSolid(at.x, at.z); // 運輸機在虛空上方時，投放到最近的實地
       this.spawnType(t, sh, sd, at, 1);
     });
-    this.fx.smoke(ship.pos.clone().setY(ship.pos.y - 2), 2, 0x9a9ea6, 1, 2);
+    this.fx.smoke(ship.pos.clone().setY(ship.pos.y - 2 * MS), 2 * MS, 0x9a9ea6, 1, 2);
     SFX.play('door', 0.9, 0.8, 0.05, 0.03, ship.pos);
     this.alertAll(`運輸機投放 — 敵機 ×${list.length}`);
   },
@@ -510,9 +518,9 @@ Object.assign(Game.prototype, {
         this.mines.splice(k, 1);
         this.scene.remove(m.mesh);
         if (e.b) {
-          const p = m.p.clone().setY(m.p.y + 0.3);
-          this.fx.explosion(p, m.R * 0.9, 0xffa040, m.R > 4);
-          SFX.explode(m.R > 4, p);
+          const p = m.p.clone().setY(m.p.y + 0.3 * MS);
+          this.fx.explosion(p, m.R * 0.9, 0xffa040, m.R > 4 * MS);
+          SFX.explode(m.R > 4 * MS, p);
         }
         return true;
       }

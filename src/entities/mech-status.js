@@ -8,6 +8,7 @@
 //   各端自己畫（房主與客機都跑），中招與掙脫的音效、第一次中招的說明也各端自己判斷，不轉送。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { STATUS_DEFS, STATUS_KINDS, STATUS_MAX, STATUS_QB_N } from '../data/status.js';
 import { mergeGeos } from '../render/geometry.js';
 import { MechEntity } from './mech-entity.js';
@@ -283,7 +284,7 @@ Object.assign(MechEntity.prototype, {
     if (this.sts.net) this.clearStatus('net', 'cut');
     if (this.sts && this.sts.latch) this.clearStatus('latch', 'cut');
   },
-  // 鉤住：往來源拉（水平），空中時往下拉；o.pull m/s（預設 14），離來源 4 m 內不再拉
+  // 鉤住：往來源拉（水平），空中時往下拉；o.pull m/s（預設 14，舊尺度、這裡乘 DS），離來源 12 m 內不再拉
   statusPull(target, dt) {
     const S = this.sts;
     if (S.hook) {
@@ -293,11 +294,12 @@ Object.assign(MechEntity.prototype, {
       if (to) {
         const d = to.clone().sub(this.pos).setY(0);
         const L = d.length();
-        if (L > 4) target.addScaledVector(d.normalize(), (s.o.pull || 14) * Math.min(1, (L - 4) / 3));
-        if (!this.grounded && !this.flying) this.vel.y -= 14 * dt;
+        if (L > 4 * DS)
+          target.addScaledVector(d.normalize(), (s.o.pull || 14) * DS * Math.min(1, (L - 4 * DS) / (3 * DS)));
+        if (!this.grounded && !this.flying) this.vel.y -= 14 * DS * dt;
       }
     }
-    if (this.stsNoJump() && !this.grounded && !this.flying) this.vel.y -= 26 * dt;
+    if (this.stsNoJump() && !this.grounded && !this.flying) this.vel.y -= 26 * DS * dt;
   },
   // ---------- 同步 ----------
   // 快照的 su：每個狀態 [種類編號, 剩餘 ×10, 總秒數 ×10, 來源 id, QB 次數]
@@ -445,7 +447,7 @@ Object.assign(MechEntity.prototype, {
     const c = this.center();
     const sc = this.scale || 1;
     const h = this.model.height * sc;
-    const R = Math.max(1.1, (this.radius || 1.5) * 0.95);
+    const R = Math.max(1.1 * MS, (this.radius || 1.5 * MS) * 0.95);
     // 第一人稱：自己機體上的網、纏附物、炸彈、箭頭會擋住鏡頭，改靠 HUD 與畫面邊緣（鋼索、光束照常顯示）
     const hideBody = !!g.fp && this.statusLocal();
     for (const k in S) {
@@ -495,7 +497,7 @@ Object.assign(MechEntity.prototype, {
         if (v.ph >= 1) {
           v.ph -= Math.floor(v.ph);
           const me = this.statusLocal();
-          if (me || (g.player && g.player.pos.distanceTo(this.pos) < 45))
+          if (me || (g.player && g.player.pos.distanceTo(this.pos) < 45 * DS))
             SFX.tone(
               s.t < 1 ? 2200 : 1700,
               s.t < 1 ? 2200 : 1700,

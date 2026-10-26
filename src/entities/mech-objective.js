@@ -14,7 +14,7 @@ Object.assign(MechEntity.prototype, {
     if (this.ai !== 'convoy') return false;
     const path = this.opts.path || [];
     let i = this.pathI || 0;
-    while (i < path.length && Math.hypot(path[i].x - this.pos.x, path[i].z - this.pos.z) < 3) i++;
+    while (i < path.length && Math.hypot(path[i].x - this.pos.x, path[i].z - this.pos.z) < 3 * this.dk) i++;
     this.pathI = i;
     const wish = new THREE.Vector3();
     if (i < path.length) {
@@ -27,7 +27,7 @@ Object.assign(MechEntity.prototype, {
     // 前面的車停下時跟著停（保持間距）
     if (this.opts.leader && !this.opts.leader.dead && !this.opts.leader.arrived) {
       const l = this.opts.leader;
-      if (Math.hypot(l.pos.x - this.pos.x, l.pos.z - this.pos.z) < 9) wish.multiplyScalar(0.2);
+      if (Math.hypot(l.pos.x - this.pos.x, l.pos.z - this.pos.z) < 9 * this.dk) wish.multiplyScalar(0.2);
     }
     this.move(dt, wish, false, false, false, null);
     return true;

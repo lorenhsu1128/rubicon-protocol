@@ -5,6 +5,7 @@
 // 判定只在房主／單機；客機收到 'cache'／'cacheX' 事件只做顯示。
 import { SFX } from '../audio/audio.js';
 import { pick } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { FOES } from '../data/foes.js';
 import { FACTIONS } from '../data/story.js';
@@ -19,7 +20,7 @@ const CACHE_KINDS = {
   kit: { name: '修理套件補滿', color: 0x9fffc8 },
   mod: { name: '戰術模組', color: 0xc090ff },
 };
-const OPEN_R = 3.4; // 打開的距離
+const OPEN_R = 3.4 * MS; // 打開的距離
 const OPEN_T = 1.2; // 站幾秒打開
 const ALERT_R = GUARD_ALERT_R; // 守衛發現玩家的距離
 const EXTRACT_T = 30; // 自由出擊的撤離時間
@@ -37,10 +38,10 @@ Object.assign(Game.prototype, {
     if (this.camp && !mp && !this.camp.replay) kinds.push('mod');
     const n = Math.random() < 0.5 ? 3 : 2;
     const pts = [];
-    // 彼此至少 30 m（離太近就重找，最多試 n×6 次；空間不夠時距離條件慢慢放寬）
+    // 彼此至少 90 m（離太近就重找，最多試 n×6 次；空間不夠時距離條件慢慢放寬）
     for (let t = 0; t < n * 6 && pts.length < n && kinds.length; t++) {
-      const sp = W.spawnPoint(this.player.pos, pts, null, 45);
-      if (pts.some((q) => Math.hypot(q.x - sp.x, q.z - sp.z) < 30 - t)) continue;
+      const sp = W.spawnPoint(this.player.pos, pts, null, 45 * DS);
+      if (pts.some((q) => Math.hypot(q.x - sp.x, q.z - sp.z) < (30 - t) * DS)) continue;
       pts.push(sp);
       const kind = kinds.splice(Math.floor(Math.random() * kinds.length), 1)[0];
       const id = pts.length;
@@ -73,9 +74,10 @@ Object.assign(Game.prototype, {
   cacheAdd(ev) {
     const d = CACHE_KINDS[ev.k];
     const W = this.world;
-    const pos = new THREE.Vector3(ev.p[0], W.groundAt(ev.p[0], ev.p[1], 99), ev.p[1]);
+    const pos = new THREE.Vector3(ev.p[0], W.groundAt(ev.p[0], ev.p[1], 999), ev.p[1]);
     const mesh = buildCacheMesh(d.color);
     mesh.position.copy(pos);
+    mesh.scale.setScalar(MS); // 機甲用的補給箱
     this.scene.add(mesh);
     const c = { id: ev.i, kind: ev.k, pos, mesh, t: 0, opened: false, lvm: ev.m || null }; // lvm：自訂關卡的標記
     (this.caches || (this.caches = [])).push(c);
@@ -89,8 +91,8 @@ Object.assign(Game.prototype, {
     c.opened = true;
     this.scene.remove(c.mesh);
     c.mesh.traverse((o) => o.geometry && o.geometry.dispose());
-    this.fx.ring(c.pos.clone().setY(c.pos.y + 0.5), 5, CACHE_KINDS[c.kind].color);
-    this.fx.flash(c.pos.clone().setY(c.pos.y + 1), 2, CACHE_KINDS[c.kind].color, 0.15);
+    this.fx.ring(c.pos.clone().setY(c.pos.y + 0.5 * MS), 5 * MS, CACHE_KINDS[c.kind].color);
+    this.fx.flash(c.pos.clone().setY(c.pos.y + 1 * MS), 2 * MS, CACHE_KINDS[c.kind].color, 0.15);
   },
   cachesLeft() {
     return (this.caches || []).filter((c) => !c.opened).length;
@@ -104,7 +106,7 @@ Object.assign(Game.prototype, {
         (p) =>
           !p.downed &&
           Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) < OPEN_R &&
-          Math.abs(p.pos.y - c.pos.y) < 4,
+          Math.abs(p.pos.y - c.pos.y) < 4 * MS,
       );
       c.t = who ? c.t + dt : Math.max(0, c.t - dt);
       if (c.t >= OPEN_T) this.cacheOpen(c, who);
@@ -193,13 +195,13 @@ Object.assign(Game.prototype, {
     }
     return true;
   },
-  // HUD：箱子的標示（畫面內是方塊與名稱、距離、開箱進度；畫面外 90 m 內是淡淡的箭頭）
+  // HUD：箱子的標示（畫面內是方塊與名稱、距離、開箱進度；畫面外 270 m 內是淡淡的箭頭）
   drawCacheMarks(c, W, H, p) {
     for (const k of this.caches || []) {
       if (k.opened) continue;
       const d = CACHE_KINDS[k.kind];
       const col = '#' + d.color.toString(16).padStart(6, '0');
-      const top = k.pos.clone().setY(k.pos.y + 2.6);
+      const top = k.pos.clone().setY(k.pos.y + 2.6 * MS);
       const s = this.proj(top);
       const dist = Math.round(k.pos.distanceTo(p.pos));
       c.save();
@@ -220,7 +222,7 @@ Object.assign(Game.prototype, {
           c.arc(s.x, s.y, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, k.t / OPEN_T));
           c.stroke();
         }
-      } else if (dist < 90) {
+      } else if (dist < 90 * DS) {
         const cx = W / 2,
           cy = H / 2;
         let dx = s.x - cx,

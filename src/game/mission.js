@@ -2,6 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp, pick, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import {
   AC_NAMES,
   AC_ROSTER,
@@ -655,9 +656,12 @@ Object.assign(Game.prototype, {
       this.player.pos,
       this.enemies.map((x) => x.pos),
       wv ? wv.pos : null,
-      wv && wv.drop ? 14 : guard ? GUARD_MIN_D : 28,
+      wv && wv.drop ? 14 * DS : guard ? GUARD_MIN_D : 28 * DS,
     );
-    let y = this.world.terrainHeight(sp.x, sp.z) + (o.flying ? o.hoverH || 6 : 0) + (wv && wv.drop ? 16 : 0);
+    let y =
+      this.world.terrainHeight(sp.x, sp.z) +
+      (o.flying ? (o.hoverH || 6) * DS : 0) +
+      (wv && wv.drop ? 16 * DS : 0);
     if (o.at) {
       sp = { x: o.at.x, z: o.at.z };
       y = Math.max(o.at.y, this.world.terrainHeight(sp.x, sp.z));
@@ -667,23 +671,23 @@ Object.assign(Game.prototype, {
       for (let t = 0; t < 20; t++) {
         const x = rnd(-W.lim * 0.8, W.lim * 0.8),
           z = W.dam.zc;
-        const top = W.groundAt(x, z, 40);
-        if (top > W.terrainHeight(x, z) + 6 && W.inZone(x, z, 3)) {
+        const top = W.groundAt(x, z, 40 * MS);
+        if (top > W.terrainHeight(x, z) + 6 * MS && W.inZone(x, z, 3 * MS)) {
           sp = { x, z };
           y = top;
           break;
         }
       }
     }
-    if (o.perch && !guard && y < this.world.terrainHeight(sp.x, sp.z) + 1 && !o.at) {
+    if (o.perch && !guard && y < this.world.terrainHeight(sp.x, sp.z) + 1 * MS && !o.at) {
       const decks = this.world.obstacles.filter(
         (ob) =>
           ob.kind === 'box' &&
-          this.world.inZone(ob.x, ob.z, 3) &&
-          ob.top > this.world.terrainHeight(ob.x, ob.z) + 2.5 &&
-          ob.top < this.world.terrainHeight(ob.x, ob.z) + 25 && // 太高的（發射塔、高樓頂）不站
+          this.world.inZone(ob.x, ob.z, 3 * MS) &&
+          ob.top > this.world.terrainHeight(ob.x, ob.z) + 2.5 * MS &&
+          ob.top < this.world.terrainHeight(ob.x, ob.z) + 25 * MS && // 太高的（發射塔、高樓頂）不站
           !this.world.isVoid(ob.x, ob.z) &&
-          Math.hypot(ob.x - this.player.pos.x, ob.z - this.player.pos.z) > 20,
+          Math.hypot(ob.x - this.player.pos.x, ob.z - this.player.pos.z) > 20 * DS,
       );
       if (decks.length) {
         const d = pick(decks);
@@ -716,7 +720,7 @@ Object.assign(Game.prototype, {
     e.yaw = e.aimYaw = Math.atan2(-(0 - sp.x), -(0 - sp.z));
     e.mesh.position.copy(e.pos);
     this.enemies.push(e);
-    this.fx.ring(e.pos.clone(), 4, 0xff4040);
+    this.fx.ring(e.pos.clone(), 4 * MS, 0xff4040);
     return e;
   },
   onEnemyKilled(e, from) {

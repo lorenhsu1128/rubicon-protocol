@@ -5,6 +5,7 @@
 import { Game } from './game.js';
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 
 const STREAK_T = 4; // 連殺：上一次擊破後幾秒內再擊破才算連續
 
@@ -134,12 +135,12 @@ Object.assign(Game.prototype, {
   mechStep(e) {
     const L = e.stats && e.stats.parts && e.stats.parts.legs;
     if (!L || L.type === 'tank' || e.flying || !this.world || !SFX.ctx) return;
-    if (!e.isPlayer && SFX.dist(e.pos) > 40) return;
+    if (!e.isPlayer && SFX.dist(e.pos) > 40 * DS) return;
     const w = this.world,
       x = e.pos.x,
       z = e.pos.z;
     let surf = 'conc';
-    if (w.waterDepth(x, z) > 0.3 && e.pos.y < w.terrainHeight(x, z) + 1.5) surf = 'water';
+    if (w.waterDepth(x, z) > 0.3 * MS && e.pos.y < w.terrainHeight(x, z) + 1.5 * MS) surf = 'water';
     else if (e.pos.y > w.terrainHeight(x, z) + 0.6 || METAL_THEMES[w.themeKey]) surf = 'metal';
     else if (w.onIce(x, z)) surf = 'ice';
     else if (w.themeKey === 'snow') surf = 'snow';

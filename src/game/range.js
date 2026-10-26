@@ -3,6 +3,7 @@ import { ATTRS, ATTR_KEYS, weakText } from '../data/attrs.js';
 // 與承受（受傷、防禦擋下的量、還能撐幾秒）；不寫進度、不給報酬。轉場整備時也能進（主線的狀態先收起來，離開時放回）。
 // 機甲庫的理論火力（每把武器的 DPS、有效 AP、換零件的差異）與靶場紀錄也在這裡。
 import { SFX } from '../audio/audio.js';
+import { DS } from '../core/scale.js';
 import { escHtml } from '../core/html.js';
 import { AC_ROSTER, BOSS_DEFS, ENEMY_TYPES, FOE_HP_K, enemyScale } from '../data/enemies.js';
 import { effectiveAp, estHit, weaponDps } from '../data/firepower.js';
@@ -50,7 +51,7 @@ Object.assign(Game.prototype, {
     const d = {
       tgt: 'dummy',
       beh: 'static',
-      dist: 30,
+      dist: 30 * DS,
       n: 1,
       lv: Math.max(1, this.save.level || 1),
       inf: true,
@@ -58,7 +59,12 @@ Object.assign(Game.prototype, {
       pm: true,
       ammo: true,
     };
-    if (!this.rangeCfg) this.rangeCfg = { ...d, ...lsGet(CFG_KEY, {}) };
+    if (!this.rangeCfg) {
+      const sv = lsGet(CFG_KEY, {});
+      // 三倍高改版之前存的距離是舊尺度（10／30／60／100 m）
+      if (sv.dist && sv.sv !== 3) sv.dist *= DS;
+      this.rangeCfg = { ...d, ...sv, sv: 3 };
+    }
     return this.rangeCfg;
   },
   // 加成開關（機甲庫的理論值也跟著它）
@@ -237,27 +243,28 @@ Object.assign(Game.prototype, {
       3,
     );
   },
-  // 射擊道：找一條沒有障礙物的長方形（寬 36 m、長＝距離＋24 m），玩家站在一端、目標在另一端
+  // 射擊道：找一條沒有障礙物的長方形（寬 108 m、長＝距離＋72 m），玩家站在一端、目標在另一端
   rangeLane() {
     const r = this.range;
     if (r.lane) return r.lane;
     const cfg = this.rangeCfgGet(),
       W = this.world;
-    const len = cfg.dist + 24,
-      half = 18;
+    const len = cfg.dist + 24 * DS,
+      half = 18 * DS,
+      b = 12 * DS; // 玩家身後留的長度
     const free = (cx, cz, dx, dz) => {
       const px = -dz,
         pz = dx;
       // 四個角都在場內
       for (const [u, v] of [
-        [-12, -half],
-        [-12, half],
-        [len - 12, -half],
-        [len - 12, half],
+        [-b, -half],
+        [-b, half],
+        [len - b, -half],
+        [len - b, half],
       ]) {
         const x = cx + dx * u + px * v,
           z = cz + dz * u + pz * v;
-        if (Math.abs(x) > W.lim - 6 || Math.abs(z) > W.lim - 6 || W.isVoid(x, z)) return false;
+        if (Math.abs(x) > W.lim - 6 * DS || Math.abs(z) > W.lim - 6 * DS || W.isVoid(x, z)) return false;
       }
       // 沒有碰到障礙物
       for (const o of W.obstacles) {
@@ -266,7 +273,7 @@ Object.assign(Game.prototype, {
         const u = ox * dx + oz * dz,
           v = ox * px + oz * pz;
         const ext = o.w !== undefined ? Math.hypot(o.w, o.d || o.w) / 2 : o.r || 1; // 箱形、平台用長寬，圓柱用半徑
-        if (u > -12 - ext && u < len - 12 + ext && Math.abs(v) < half + ext) return false;
+        if (u > -b - ext && u < len - b + ext && Math.abs(v) < half + ext) return false;
       }
       return true;
     };
@@ -278,8 +285,8 @@ Object.assign(Game.prototype, {
     ];
     for (let t = 0; t < 400; t++) {
       const [dx, dz] = dirs[t % 4];
-      const cx = t ? (Math.random() * 2 - 1) * W.lim * 0.6 : -dx * (len / 2 - 12),
-        cz = t ? (Math.random() * 2 - 1) * W.lim * 0.6 : -dz * (len / 2 - 12);
+      const cx = t ? (Math.random() * 2 - 1) * W.lim * 0.6 : -dx * (len / 2 - b),
+        cz = t ? (Math.random() * 2 - 1) * W.lim * 0.6 : -dz * (len / 2 - b);
       if (free(cx, cz, dx, dz)) return (r.lane = { x: cx, z: cz, dx, dz });
     }
     return (r.lane = { x: 0, z: cfg.dist * 0.5, dx: 0, dz: -1 }); // 找不到時照舊
@@ -325,13 +332,13 @@ Object.assign(Game.prototype, {
     } else {
       for (let i = 0; i < cfg.n; i++) {
         const L = this.rangeLane(),
-          o = (i - (cfg.n - 1) / 2) * 7;
+          o = (i - (cfg.n - 1) / 2) * 7 * DS;
         const at = new THREE.Vector3(p0.x + L.dx * cfg.dist - L.dz * o, 0, p0.z + L.dz * cfg.dist + L.dx * o);
         at.y = this.world.terrainHeight(at.x, at.z);
         let e = null;
         if (kind === 'type') {
           const d = ENEMY_TYPES[key] || FOES[key];
-          if (d && d.flying) at.y += d.hoverH || 6; // 飛行的敵人從懸浮高度開始
+          if (d && d.flying) at.y += (d.hoverH || 6) * DS; // 飛行的敵人從懸浮高度開始
           e = this.spawnType(key, sh, sd, at, 1);
         } else if (kind === 'ac' || kind === 'ace') {
           const r = kind === 'ac' ? AC_ROSTER[key] : ACES[key];
@@ -454,7 +461,7 @@ Object.assign(Game.prototype, {
       if (e.rangeAt) {
         const ox = e.rangeAt.x - e.pos.x,
           oz = e.rangeAt.z - e.pos.z;
-        if (Math.hypot(ox, oz) > 14) wish.set(ox, 0, oz).normalize();
+        if (Math.hypot(ox, oz) > 14 * DS) wish.set(ox, 0, oz).normalize();
       }
     }
     e.move(dt, wish, false, false, false, null);
@@ -489,14 +496,14 @@ Object.assign(Game.prototype, {
       downs: 0,
     };
   },
-  // 和最近的目標的距離 → 分段（0～30、30～60、60 m 以上）
+  // 和最近的目標的距離 → 分段（0～90、90～180、180 m 以上）
   rangeBand(t) {
     const pl = this.player;
     if (!pl) return 0;
     let d = 1e9;
     for (const e of t ? [t] : (this.range && this.range.targets) || [])
       if (!e.dead) d = Math.min(d, e.pos.distanceTo(pl.pos));
-    return d < 30 ? 0 : d < 60 ? 1 : 2;
+    return d < 30 * DS ? 0 : d < 60 * DS ? 1 : 2;
   },
   rangeShot(wid) {
     const S = this.range && this.range.st;
@@ -797,8 +804,8 @@ Object.assign(Game.prototype, {
           id: p.id,
           name: p.name,
           ...v,
-          hit30: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 30),
-          hit60: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 60),
+          hit30: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 30 * DS),
+          hit60: estHit(d, k, ef.parts.fcs, ef.parts.arms.aim, 60 * DS),
         });
     }
     const sum = (k) => ws.reduce((a, w) => a + (w[k] || 0), 0);
@@ -829,7 +836,7 @@ Object.assign(Game.prototype, {
     const hp = (v) => (v === null ? '—' : Math.round(v * 100) + '%');
     const hw = F.ws.filter((w) => w.hit30 !== null);
     if (hw.length) {
-      h += '<div class="dim gFireNote">預估命中率（對移動中的 AC：30 m ／ 60 m）</div>';
+      h += '<div class="dim gFireNote">預估命中率（對移動中的 AC：90 m ／ 180 m）</div>';
       for (const w of hw)
         h += row(`${SLOT_NAMES[w.slot]}　${escHtml(w.name)}`, `${hp(w.hit30)} ／ ${hp(w.hit60)}`);
     }

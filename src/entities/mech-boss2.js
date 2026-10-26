@@ -793,7 +793,7 @@ Object.assign(MechEntity.prototype, {
           for (let j = 0; j < 5; j++) {
             const x = cx + (i - 2) * C,
               z = cz + (j - 2) * C;
-            const p = V(x, g.world.groundAt(x, z, 99), z);
+            const p = V(x, g.world.groundAt(x, z, 999), z);
             cells.push(p);
             g.fx.warnRect(p, 0, C - 0.4, C - 0.4, 1.2, 0x60c8ff);
           }
@@ -964,7 +964,7 @@ Object.assign(MechEntity.prototype, {
         k = 4;
         // 掃射：沿航線打地面；目標就在前方航線上時直接瞄準
         let aim = this.pos.clone().addScaledVector(s.runDir, 22);
-        aim.y = g.world.groundAt(aim.x, aim.z, 99) + 0.8;
+        aim.y = g.world.groundAt(aim.x, aim.z, 999) + 0.8;
         aim.add(V(rnd(-2, 2), 0, rnd(-2, 2)));
         const rel = pl.center().sub(this.pos);
         const ahead = rel.dot(s.runDir);

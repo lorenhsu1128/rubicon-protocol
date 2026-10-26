@@ -1,3 +1,5 @@
+import { DS } from '../core/scale.js';
+
 // ---------- 第一人稱 ----------
 export const FP_FOV = 75,
   TP_FOV = 42,
@@ -13,5 +15,5 @@ export const AI_DIFF = {
 };
 
 // ---------- 據點（outposts.js） ----------
-export const GUARD_ALERT_R = 38; // 守衛發現玩家的距離
-export const GUARD_MIN_D = GUARD_ALERT_R + 6; // 守衛生成時離玩家至少這麼遠（否則一開場就出動）
+export const GUARD_ALERT_R = 38 * DS; // 守衛發現玩家的距離
+export const GUARD_MIN_D = GUARD_ALERT_R + 6 * DS; // 守衛生成時離玩家至少這麼遠（否則一開場就出動）

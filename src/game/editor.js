@@ -571,7 +571,7 @@ Object.assign(Game.prototype, {
     } else {
       o.x = +x.toFixed(2);
       o.z = +z.toFixed(2);
-      if (ref.t === 'unit' || ref.t === 'mark') o.y = +this.world.groundAt(o.x, o.z, 99).toFixed(2);
+      if (ref.t === 'unit' || ref.t === 'mark') o.y = +this.world.groundAt(o.x, o.z, 999).toFixed(2);
     }
     if (rec) {
       rec.group.position.x = o.x;
@@ -1069,7 +1069,7 @@ Object.assign(Game.prototype, {
         isSel('path', i) || (sel && sel.t === 'pathpt' && sel.i === i) || ed.pathAdd === i
           ? 0xffd060
           : 0x9fe0ff;
-      const pts = P.pts.map((q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 99) + 0.6, q[1]));
+      const pts = P.pts.map((q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 999) + 0.6, q[1]));
       if (P.loop && pts.length > 2) pts.push(pts[0].clone());
       if (pts.length > 1) {
         const ln = new THREE.Line(
@@ -1085,7 +1085,7 @@ Object.assign(Game.prototype, {
           dot,
           flatMat(sel && sel.t === 'pathpt' && sel.i === i && sel.j === j ? 0xffd060 : col),
         );
-        m.position.set(q[0], w.groundAt(q[0], q[1], 99) + 0.6, q[1]);
+        m.position.set(q[0], w.groundAt(q[0], q[1], 999) + 0.6, q[1]);
         m.userData.edRef = { t: 'pathpt', i, j };
         hg.add(m);
         if (j === 0) {
@@ -1254,7 +1254,7 @@ Object.assign(Game.prototype, {
         let m = cur.units.length + 1;
         while (cur.units.some((u) => u.id === 'u' + m)) m++;
         q.id = 'u' + m;
-        q.y = +this.world.groundAt(q.x, q.z, 99).toFixed(2);
+        q.y = +this.world.groundAt(q.x, q.z, 999).toFixed(2);
       }
       list.push(q);
     }

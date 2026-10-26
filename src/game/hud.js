@@ -3,6 +3,7 @@ import { weakText } from '../data/attrs.js';
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { CONSUMABLES, usesAmmo } from '../data/parts.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
@@ -414,11 +415,15 @@ Object.assign(Game.prototype, {
             const a2 = (i / 40) * Math.PI * 2;
             pts.push(
               this.proj(
-                new THREE.Vector3(q.pos.x + Math.cos(a2) * 5, q.pos.y + 0.1, q.pos.z + Math.sin(a2) * 5),
+                new THREE.Vector3(
+                  q.pos.x + Math.cos(a2) * 5 * MS,
+                  q.pos.y + 0.1 * MS,
+                  q.pos.z + Math.sin(a2) * 5 * MS,
+                ),
               ),
             );
           }
-          const inR = !p.dead && !p.downed && q.pos.distanceTo(p.pos) < 5;
+          const inR = !p.dead && !p.downed && q.pos.distanceTo(p.pos) < 5 * MS;
           c.strokeStyle = inR ? '#7ee081' : 'rgba(126,224,129,.45)';
           c.lineWidth = inR ? 3 : 2;
           c.setLineDash([8, 6]);

@@ -1,6 +1,7 @@
 // Game 多人擴充：房主端同步、救援、掉線與房主遷移
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { CONSUMABLES, START_ASM } from '../data/parts.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { serEnt } from '../net/snapshot.js';
@@ -280,7 +281,7 @@ Object.assign(Game.prototype, {
   tryRevive(rescuer, dt) {
     if (rescuer.dead || rescuer.downed) return false;
     const t = this.players.find(
-      (p) => p !== rescuer && p.downed && !p.dead && p.pos.distanceTo(rescuer.pos) < 5,
+      (p) => p !== rescuer && p.downed && !p.dead && p.pos.distanceTo(rescuer.pos) < 5 * MS,
     );
     if (!t) return false;
     {

@@ -5,12 +5,13 @@
 // 投射物、雷射、地雷、迫擊砲彈在 game/support.js；新 Boss 在 mech-boss.js（這裡的掛勾轉過去）。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { foeDamageTick } from '../render/foe-damage.js';
 import { MechEntity } from './mech-entity.js';
 
-const DOME_R = 9; // 護盾半徑（以產生器腳底為中心的球）
-const CMD_R = 30; // 指揮官強化範圍（擊破時混亂的範圍是 40 m）
-const HEAL_R = 18; // 修理光束的最遠距離
+const DOME_R = 9 * MS; // 護盾半徑（以產生器腳底為中心的球）
+const CMD_R = 30 * DS; // 指揮官強化範圍（擊破時混亂的範圍是 120 m）
+const HEAL_R = 18 * DS; // 修理光束的最遠距離
 const FOE_FX = new Set([
   'burrow',
   'junk',
@@ -167,14 +168,18 @@ Object.assign(MechEntity.prototype, {
     }
     // 盾牌看命中點在哪一側（爆炸在背後就擋不到）；命中點太靠近中心（雷射）時改看攻擊者
     let hp = at;
-    if (!hp || hp.clone().sub(this.center()).setY(0).length() < 0.6) hp = src;
+    if (!hp || hp.clone().sub(this.center()).setY(0).length() < 0.6 * this.dk) hp = src;
     if (this.guardUp() && hp) {
       const fy = from && from.center && from !== this ? from.center().y : hp.y;
       const to = hp.clone().sub(this.pos);
       to.y = 0;
       const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-      // 從正面而且不是從高處（4 m 以上）往下打
-      if (to.lengthSq() > 0.01 && to.normalize().dot(fwd) > SHIELD_DOT && fy - this.center().y < 4) {
+      // 從正面而且不是從高處（12 m 以上）往下打
+      if (
+        to.lengthSq() > 0.01 &&
+        to.normalize().dot(fwd) > SHIELD_DOT &&
+        fy - this.center().y < 4 * this.dk
+      ) {
         const p = at || this.center();
         if (melee) {
           // 近戰破盾：全額傷害、衝擊加重，盾放下 2.5 秒
@@ -200,7 +205,8 @@ Object.assign(MechEntity.prototype, {
       // 指揮官擊破：附近的敵機混亂 4 秒
       let n = 0;
       for (const f of this.friendsOf()) {
-        if (f === this || f.dead || f.isBoss || f.ai === 'part' || f.pos.distanceTo(this.pos) > 40) continue;
+        if (f === this || f.dead || f.isBoss || f.ai === 'part' || f.pos.distanceTo(this.pos) > 40 * this.dk)
+          continue;
         f.confuseT = 4;
         f.buffT = 0;
         n++;
@@ -341,22 +347,22 @@ Object.assign(MechEntity.prototype, {
     switch (this.ai) {
       case 'shield':
         // 舉盾慢慢推進到中距離
-        if (d > s.want + 3) wish.copy(dir).multiplyScalar(0.8);
-        else if (d < s.want - 4) wish.copy(dir).multiplyScalar(-0.5);
+        if (d > s.want + 3 * this.dk) wish.copy(dir).multiplyScalar(0.8);
+        else if (d < s.want - 4 * this.dk) wish.copy(dir).multiplyScalar(-0.5);
         else wish.copy(perp).multiplyScalar(0.25);
         this.stuckJump(dt, r);
         return r;
       case 'stomper':
         // 衝向目標，近身踏地（aiShock）
-        if (d > 5) wish.copy(dir);
+        if (d > 5 * this.dk) wish.copy(dir);
         else wish.copy(perp).multiplyScalar(0.4);
-        if (d > 18 && Math.random() < dt * 0.8) r.qb = true;
+        if (d > 18 * this.dk && Math.random() < dt * 0.8) r.qb = true;
         this.stuckJump(dt, r);
         return r;
       case 'mortar':
         // 保持遠距離，多半站著不動
-        if (d < 25) wish.copy(dir).multiplyScalar(-1);
-        else if (d > 75) wish.copy(dir);
+        if (d < 25 * this.dk) wish.copy(dir).multiplyScalar(-1);
+        else if (d > 75 * this.dk) wish.copy(dir);
         else if (s.stuck > 0.4) wish.copy(perp);
         return r;
       case 'commander': {
@@ -364,19 +370,19 @@ Object.assign(MechEntity.prototype, {
         const c = new THREE.Vector3();
         let n = 0;
         for (const f of this.friendsOf()) {
-          if (f === this || f.dead || f.flying || f.pos.distanceTo(this.pos) > 50) continue;
+          if (f === this || f.dead || f.flying || f.pos.distanceTo(this.pos) > 50 * this.dk) continue;
           c.add(f.pos);
           n++;
         }
         if (n) {
-          c.divideScalar(n).addScaledVector(dir, -8);
+          c.divideScalar(n).addScaledVector(dir, -8 * this.dk);
           const to = c.sub(this.pos).setY(0);
-          if (to.length() > 3) wish.copy(to.normalize());
+          if (to.length() > 3 * this.dk) wish.copy(to.normalize());
           else wish.copy(perp).multiplyScalar(0.3);
-        } else if (d > s.want + 6) wish.copy(dir);
-        else if (d < s.want - 8) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
+        } else if (d > s.want + 6 * this.dk) wish.copy(dir);
+        else if (d < s.want - 8 * this.dk) wish.copy(dir).negate().add(perp.clone().multiplyScalar(0.5));
         else wish.copy(perp).multiplyScalar(0.5);
-        if (d < 15) wish.addScaledVector(dir, -1);
+        if (d < 15 * this.dk) wish.addScaledVector(dir, -1);
         if (wish.lengthSq() > 1) wish.normalize();
         this.stuckJump(dt, r);
         for (const f of this.friendsOf())
@@ -452,35 +458,35 @@ Object.assign(MechEntity.prototype, {
     switch (this.ai) {
       case 'mortar': {
         s.mortT = (s.mortT === undefined ? rnd(1.5, 3) : s.mortT) - dt;
-        if (s.mortT <= 0 && d > 12 && d < 85 && this.canAct()) {
+        if (s.mortT <= 0 && d > 12 * this.dk && d < 85 * this.dk && this.canAct()) {
           s.mortT = rnd(3.5, 5);
-          // 落點：目標腳下＋一點預判（最多 6 m）＋亂數
+          // 落點：目標腳下＋一點預判（最多 18 m）＋亂數
           const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
-          if (lead.length() > 6) lead.setLength(6);
+          if (lead.length() > 6 * this.dk) lead.setLength(6 * this.dk);
           const tp = pl.pos
             .clone()
             .add(lead)
-            .add(new THREE.Vector3(rnd(-1.5, 1.5), 0, rnd(-1.5, 1.5)));
-          g.mortarShot(this, tp, { dmg: 560 * this.dmgMul, im: 760 * this.dmgMul, R: 5.5 });
+            .add(new THREE.Vector3(rnd(-1.5, 1.5) * this.dk, 0, rnd(-1.5, 1.5) * this.dk));
+          g.mortarShot(this, tp, { dmg: 560 * this.dmgMul, im: 760 * this.dmgMul, R: 5.5 * this.dk });
         }
         const w = this.weapons.rarm;
-        if (w.def.type === 'bullet' && d < Math.min(30, w.def.range) && Math.random() < dt * 4)
+        if (w.def.type === 'bullet' && d < Math.min(30 * this.dk, w.def.range) && Math.random() < dt * 4)
           this.fire('rarm', aimPos, pl);
         return true;
       }
       case 'minelayer': {
         s.mineT = (s.mineT === undefined ? rnd(1, 2) : s.mineT) - dt;
-        if (s.mineT <= 0 && d < 32 && this.canAct()) {
+        if (s.mineT <= 0 && d < 32 * this.dk && this.canAct()) {
           s.mineT = rnd(2.2, 3.5);
           if (g.minesOf(this) < 6) {
             // 撒在目標前進方向上
             const lead = pl.vel.clone().setY(0).multiplyScalar(0.8);
-            if (lead.length() > 8) lead.setLength(8);
+            if (lead.length() > 8 * this.dk) lead.setLength(8 * this.dk);
             const p = pl.pos
               .clone()
               .add(lead)
-              .add(new THREE.Vector3(rnd(-3, 3), 0, rnd(-3, 3)));
-            g.layMine(this, p, { dmg: 460 * this.dmgMul, im: 700 * this.dmgMul, R: 4.5 });
+              .add(new THREE.Vector3(rnd(-3, 3) * this.dk, 0, rnd(-3, 3) * this.dk));
+            g.layMine(this, p, { dmg: 460 * this.dmgMul, im: 700 * this.dmgMul, R: 4.5 * this.dk });
           }
         }
         return true;
@@ -518,7 +524,7 @@ Object.assign(MechEntity.prototype, {
       for (const f of this.friendsOf()) {
         if (f === this || f.dead || f.noLock || f.ai === 'repair' || f.ai === 'dropship' || f.ai === 'holo')
           continue;
-        if (f.pos.distanceTo(this.pos) > 50) continue;
+        if (f.pos.distanceTo(this.pos) > 50 * this.dk) continue;
         const ratio = f.hp / f.maxHp + (f.hp < f.maxHp ? 0 : 1); // 有受傷的優先
         if (ratio < br) {
           br = ratio;
@@ -532,17 +538,17 @@ Object.assign(MechEntity.prototype, {
     if (tgt) {
       const away = tgt.pos.clone().sub(pl.pos).setY(0);
       if (away.lengthSq() < 0.01) away.set(1, 0, 0);
-      const goal = tgt.pos.clone().add(away.normalize().multiplyScalar(5));
+      const goal = tgt.pos.clone().add(away.normalize().multiplyScalar(5 * this.dk));
       const to = goal.sub(this.pos).setY(0);
-      if (to.length() > 2) wish.copy(to.normalize());
-      this.hoverH = clamp((tgt.flying ? tgt.hoverH : 0) + 4.5, 4.5, 14);
+      if (to.length() > 2 * this.dk) wish.copy(to.normalize());
+      this.hoverH = clamp((tgt.flying ? tgt.hoverH : 0) + 4.5 * this.dk, 4.5 * this.dk, 14 * this.dk);
       const dist = tgt.center().distanceTo(this.center());
       if (dist < HEAL_R && tgt.hp < tgt.maxHp && this.canAct()) {
         this.linkId = tgt.id;
         tgt.hp = Math.min(tgt.maxHp, tgt.hp + tgt.maxHp * (tgt.isBoss ? 0.006 : 0.035) * dt);
       }
     }
-    if (d < 12) wish.addScaledVector(dir, -1.2); // 玩家靠近就躲開
+    if (d < 12 * this.dk) wish.addScaledVector(dir, -1.2); // 玩家靠近就躲開
     if (wish.lengthSq() > 1) wish.normalize();
   },
   // 護盾產生器：往友軍聚集處移動，和玩家保持距離；護盾被打破後 12 秒重新展開
@@ -565,15 +571,15 @@ Object.assign(MechEntity.prototype, {
     const c = new THREE.Vector3();
     let n = 0;
     for (const f of this.friendsOf()) {
-      if (f === this || f.dead || f.flying || f.pos.distanceTo(this.pos) > 35) continue;
+      if (f === this || f.dead || f.flying || f.pos.distanceTo(this.pos) > 35 * this.dk) continue;
       c.add(f.pos);
       n++;
     }
     if (n) {
       const to = c.divideScalar(n).sub(this.pos).setY(0);
-      if (to.length() > 3) wish.copy(to.normalize()).multiplyScalar(0.8);
+      if (to.length() > 3 * this.dk) wish.copy(to.normalize()).multiplyScalar(0.8);
     }
-    if (d < 20) wish.addScaledVector(dir, -1);
+    if (d < 20 * this.dk) wish.addScaledVector(dir, -1);
     if (wish.lengthSq() > 1) wish.normalize();
   },
   // 運輸機：飛到玩家附近 → 降低高度投放 → 飛走離場
@@ -583,18 +589,18 @@ Object.assign(MechEntity.prototype, {
     this.flying = true;
     if (!s.ds) s.ds = 'in';
     if (s.ds === 'in') {
-      // 目標點：玩家朝運輸機方向 18 m
-      const goal = pl.pos.clone().addScaledVector(dir, -18);
+      // 目標點：玩家朝運輸機方向 54 m
+      const goal = pl.pos.clone().addScaledVector(dir, -18 * this.dk);
       const to = goal.sub(this.pos).setY(0);
-      this.hoverH = 14;
-      if (to.length() > 4) wish.copy(to.normalize());
+      this.hoverH = 14 * this.dk;
+      if (to.length() > 4 * this.dk) wish.copy(to.normalize());
       else {
         s.ds = 'drop';
         s.dsT = 2.2;
         g.alertAll('運輸機投放中 — 現在擊落！');
       }
     } else if (s.ds === 'drop') {
-      this.hoverH = 7;
+      this.hoverH = 7 * this.dk;
       s.dsT -= dt;
       if (s.dsT <= 0 && this.canAct()) {
         s.ds = 'out';
@@ -605,7 +611,7 @@ Object.assign(MechEntity.prototype, {
       }
     } else {
       wish.copy(s.outDir);
-      this.hoverH = Math.min(40, this.hoverH + dt * 5);
+      this.hoverH = Math.min(40 * this.dk, this.hoverH + dt * 5 * this.dk);
       s.dsT -= dt;
       if (s.dsT <= 0) this.depart();
     }

@@ -2,6 +2,7 @@
 //  AUDIO — 簡易合成音效
 // ============================================================
 import { clamp, lerp, makeRng } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import { SFX_DATA } from './sfx-data.js';
 
 // 音效自己的亂數（音高變化、隨機選檔、雜訊）：不用 Math.random，因為遊戲邏輯共用它，而音效依 AudioContext 的
@@ -12,6 +13,7 @@ const arnd = makeRng(0x5f3759df);
 // 介面與通訊（ui）不受影響直接進 master。音效另外送一份到殘響（依地圖主題，地下長、空曠短）。
 // 配樂（mus，過場動畫用）也直接進 master；曲子由 musicDecode 解碼快取、musicPlay 依 ctx 時間排程。
 export const SFX = {
+  dk: DS, // 3D 音效的距離倍率（Coral 戰爭的 rtsStart 設成 1，rtsClear 還原）
   ctx: null,
   master: null,
   on: true,
@@ -255,12 +257,12 @@ export const SFX = {
     if (pos) {
       // 3D: distance falloff + stereo direction + far-away low-pass
       const d = this.dist(pos);
-      if (d > 140) return;
+      if (d > 140 * this.dk) return;
       const pn = this.ctx.createPanner();
       pn.panningModel = 'equalpower';
       pn.distanceModel = 'inverse';
-      pn.refDistance = 7;
-      pn.maxDistance = 160;
+      pn.refDistance = 7 * this.dk;
+      pn.maxDistance = 160 * this.dk;
       pn.rolloffFactor = 1.3;
       pn.coneInnerAngle = 360;
       if (pn.positionX) {
@@ -270,7 +272,7 @@ export const SFX = {
       } else pn.setPosition(pos.x, pos.y, pos.z);
       const lp = this.ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = clamp(16000 - d * 110, 1800, 16000);
+      lp.frequency.value = clamp(16000 - (d / this.dk) * 110, 1800, 16000);
       g.connect(pn);
       pn.connect(lp);
       lp.connect(out);
