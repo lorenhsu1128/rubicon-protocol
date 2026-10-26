@@ -5114,25 +5114,7 @@ select:disabled option {
 #gTip .tOn {
   color: var(--acc);
 }
-/* 六角圖與量表 */
-#gHex {
-  position: absolute;
-  right: 20px;
-  bottom: 84px;
-  width: 230px;
-  padding: 8px 10px 4px;
-  background: var(--gGlass);
-  border: 1px solid var(--gEdge);
-  pointer-events: none;
-}
-.gHexH {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-}
-.gHexH .dim {
-  font-size: 11px;
-}
+/* 六角圖（規格頁）與量表 */
 .hexSvg {
   width: 100%;
   height: auto;
@@ -5319,8 +5301,6 @@ select:disabled option {
 #garage[data-tab='set'] .gWing,
 #garage[data-tab='spec'] #gFly,
 #garage[data-tab='set'] #gFly,
-#garage[data-tab='spec'] #gHex,
-#garage[data-tab='set'] #gHex,
 #garage[data-tab='spec'] #gMeters,
 #garage[data-tab='set'] #gMeters {
   display: none;
@@ -5605,9 +5585,6 @@ select:disabled option {
     gap: 4px;
   }
   #gTip .tD {
-    display: none;
-  }
-  #gHex {
     display: none;
   }
   #gMeters {

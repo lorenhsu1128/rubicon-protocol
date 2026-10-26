@@ -9505,7 +9505,7 @@ async function testGarageUi(browser, base) {
     wings.l === 6 && wings.r === 7 && wings.tab === 'eq',
     `雙翼的部位格（左 ${wings.l}、右 ${wings.r}），進來時在裝備頁`,
   );
-  // 選腳部：零件格子打開在右翼旁邊，游標停在重二足上 → 小卡片、量表與六角圖的預覽
+  // 選腳部：零件格子打開在右翼旁邊，游標停在重二足上 → 小卡片與量表的預覽
   await page.click('#slots .slot[data-slot="legs"]');
   await page.hover('#partList .part[data-pid="l_hv"]');
   await wait(400);
@@ -9518,7 +9518,7 @@ async function testGarageUi(browser, base) {
       tip: document.getElementById('gTip').textContent,
       bars: document.querySelectorAll('#gTip .tR').length,
       buy: !!document.querySelector('#gTip .tEq'),
-      prev: !!document.querySelector('#gHex .hxPrev'),
+      hex: !!document.getElementById('gHex'),
       meterDelta: document.querySelectorAll('#gMeters .gMb s').length,
     };
   });
@@ -9526,7 +9526,7 @@ async function testGarageUi(browser, base) {
     hv.n === 6 && hv.right && hv.tip.includes('GOLIATH') && hv.bars >= 5 && hv.buy,
     `零件格子（${hv.n} 格，在右翼旁邊）與小卡片（${hv.bars} 條數值、購買按鈕）`,
   );
-  check(hv.prev && hv.meterDelta >= 2, `游標停留時六角圖的虛線與量表的差值（${hv.meterDelta} 條）`);
+  check(!hv.hex && hv.meterDelta >= 2, `裝備頁沒有六角圖、游標停留時量表的差值（${hv.meterDelta} 條）`);
   // 標註線：畫布上有線（選中的部位是警示黃）
   const lines = await page.evaluate(() => {
     const cv = document.getElementById('gCallout');

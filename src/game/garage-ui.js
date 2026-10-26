@@ -325,7 +325,7 @@ Object.assign(Game.prototype, {
     }
     this.garageStatsUi(pid);
   },
-  // ---------- 量表與六角圖（裝備頁） ----------
+  // ---------- 量表（裝備頁） ----------
   garageStatsUi(pid) {
     const asm = this.save.asm;
     const key = this.garageSlot;
@@ -333,8 +333,6 @@ Object.assign(Game.prototype, {
     const pm = this.rangePmOn() ? this.rangePm() : null;
     const cur = hexScores(asm, pm),
       nx = prevAsm ? hexScores(prevAsm, pm) : null;
-    document.getElementById('gHex').innerHTML =
-      `<div class="gHexH">機體性能<span class="dim">${{ biped: '二足', reverse: '逆關節', quad: '四足', tank: '履帶' }[asmStats(asm).parts.legs.type]}</span></div>${hexSvg(cur, nx, false)}`;
     const st = asmStats(asm),
       st2 = prevAsm ? asmStats(prevAsm) : null;
     const ef = applyPilotStats(st, pm),
