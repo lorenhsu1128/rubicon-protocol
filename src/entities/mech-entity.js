@@ -21,7 +21,7 @@ import {
   partById,
   usesAmmo,
 } from '../data/parts.js';
-import { assistSpread, fcsAssist, leadOf, trackRate, weaponById } from '../data/parts.js';
+import { assistSpread, fcsAssist, leadOf, rtsWeaponDef, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import {
   CHARGE_AI,
@@ -58,6 +58,18 @@ const ANIM_SLOTS = [
   ['rback', 'br', true],
   ['lback', 'bl', true],
 ];
+// 跳躍規格的高度與速度乘 k（Coral 戰爭照舊尺度）
+function scaleJump(J, k) {
+  return {
+    ...J,
+    v: J.v * k,
+    g: J.g * k,
+    height: J.height * k,
+    airH: J.airH * k,
+    airG: J.airG * k,
+    maxH: J.maxH * k,
+  };
+}
 export class MechEntity {
   constructor(game, asm, pal, opts = {}) {
     this.game = game;
@@ -75,7 +87,7 @@ export class MechEntity {
     this.downT = 0;
     this.team = opts.team || 'enemy';
     this.isPlayer = this.team === 'player';
-    // 機甲三倍高改版：所有實體放大 MS 倍（Coral 戰爭到第 11 期之前照舊）
+    // 機甲三倍高改版：所有實體放大 MS 倍（Coral 戰爭照舊尺度：scale 1、dk 1）
     this.scale = (opts.scale || 1) * (game && game.rts ? 1 : MS);
     this.isBoss = !!opts.isBoss;
     this.name = opts.name || 'AC';
@@ -118,6 +130,7 @@ export class MechEntity {
     this.pvpAi = !!opts.pvpAi;
     this.pvpTeam = opts.pvpTeam !== undefined ? opts.pvpTeam : opts.team === 'enemy' ? -1 : 0;
     this.dk = game && game.rts ? 1 : DS; // 距離與尺寸的倍率（Coral 戰爭照舊尺度；程式裡的數字照舊尺度寫再乘它）
+    this.stats = this.dkStats(this.stats);
     this.hoverH = (opts.hoverH || 7) * this.dk;
     this.turnRate = opts.turnRate || 14;
     this.explodeOnDeath = opts.explodeOnDeath || null;
@@ -182,7 +195,7 @@ export class MechEntity {
       this.animHeavy = clamp((((this.stats && this.stats.weight) || 26000) - 18000) / 24000, 0, 1);
     return {
       vr: Math.hypot(this.vel.x, this.vel.z) / Math.max(1, this.stats.speed),
-      vy: this.vel.y / DS, // 動作層照舊尺度的 m/s
+      vy: this.vel.y / this.dk, // 動作層照舊尺度的 m/s
       dyaw,
       landV: this.landV || 14,
       heavy: this.animHeavy,
@@ -300,6 +313,11 @@ export class MechEntity {
     this.mergeModel(this.model); // 拿掉丟出的武器之後才合併
     g.scene.add(this.mesh);
   }
+  // Coral 戰爭照舊尺度：組裝數值裡放大過的火控距離與跳躍換回（零件表是放大過的；其他移動數值由 speedMul 等換算）
+  dkStats(st) {
+    if (this.dk === DS) return st;
+    return { ...st, lockRange: (st.lockRange * this.dk) / DS, jump: (st.jump * this.dk) / DS };
+  }
   // 駕駛員加成值（沒有時為 0）
   pmv(k) {
     return (this.pm && this.pm[k]) || 0;
@@ -311,6 +329,7 @@ export class MechEntity {
       const fist = s.endsWith('arm') && def.type === 'none' && !this.model.vehicle;
       if (fist) def = FIST_DEF; // 空手 → 拳擊
       def = pilotWeaponDef(def, this.pm);
+      if (this.dk === 1) def = rtsWeaponDef(def); // Coral 戰爭照舊尺度
       this.weapons[s] = {
         def,
         ammo: def.ammo || 0,
@@ -402,7 +421,7 @@ export class MechEntity {
     // 火控的距離輔助：依距離決定預判準度與集彈（data/parts.js 的 fcsAssist）
     const tgtOk = targetEnt && !targetEnt.dead && targetEnt.center;
     const distT = (tgtOk ? targetEnt.center() : targetPos).distanceTo(muzzle);
-    const assist = fcsAssist(this.stats.parts.fcs, distT);
+    const assist = this.fcsAssist(distT);
     if (tgtOk && (d.type === 'bullet' || d.type === 'shotgun' || d.type === 'shell'))
       targetPos = this.leadPoint(targetEnt, d.speed, muzzle); // 依彈速算攔截點
     else if (tgtOk && (d.type === 'laser' || d.type === 'empbeam')) targetPos = targetEnt.center(); // 即時命中：不預判
@@ -410,7 +429,7 @@ export class MechEntity {
     let hmul = 1;
     if (targetEnt && !targetEnt.dead) {
       const dy = this.center().y - targetEnt.center().y;
-      hmul = clamp(1 - (dy / MS) * 0.07, 0.55, 1.45);
+      hmul = clamp(1 - (dy / this.dk) * 0.07, 0.55, 1.45);
     }
     this.heightMul = hmul;
     const steady = (this.hoverMode === 1 ? 0.5 : 1) * (this.buffT > 0 ? 0.6 : 1); // 懸浮（定高）時瞄準穩定；指揮官 MT 強化
@@ -420,7 +439,7 @@ export class MechEntity {
     w.lastShot = this.t;
     const conv = d.conv ? 1.15 - 0.7 * clamp(w.streak / d.conv, 0, 1) : 1;
     // 霰彈：理想射程以內越近越集中
-    const near = d.near ? clamp(distT / (d.ideal || 14), 0.45, 1) : 1;
+    const near = d.near ? clamp(distT / (d.ideal || 14 * this.dk), 0.45, 1) : 1;
     const spread =
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
@@ -825,7 +844,7 @@ export class MechEntity {
       });
     }
     this.weapons[slot] = {
-      def: pilotWeaponDef(FIST_DEF, this.pm),
+      def: this.dk === 1 ? rtsWeaponDef(FIST_DEF) : pilotWeaponDef(FIST_DEF, this.pm),
       ammo: 999,
       mag: 99,
       cd: 0.4,
@@ -1028,7 +1047,7 @@ export class MechEntity {
   // attr＝攻擊屬性（data/attrs.js：kin／exp／en／none）；沒給時依 wid（武器 id）推算，都沒有時算實彈
   // ---------- 命中（火控、手臂的射擊適性） ----------
   fcsAssist(dist) {
-    return fcsAssist(this.stats.parts.fcs, dist);
+    return fcsAssist(this.stats.parts.fcs, (dist * DS) / this.dk); // 距離帶是新尺度（Coral 戰爭換算）
   }
   // 預判準度：玩家照火控；電腦另外乘技巧（Boss 稍準、一般敵人保持原本的命中）
   leadK(dist) {
@@ -1421,8 +1440,8 @@ export class MechEntity {
   waterK() {
     const w = this.game.world;
     if (this.flying || !w.theme.water) return 1;
-    if (this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) > 0.6 * MS) return 1;
-    if (w.waterDepth(this.pos.x, this.pos.z) < 0.6 * MS) return 1;
+    if (this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) > 0.6 * this.dk) return 1;
+    if (w.waterDepth(this.pos.x, this.pos.z) < 0.6 * this.dk) return 1;
     return this.opts.amphib ? 1.1 : 0.85;
   }
   // ---------- physics ----------
@@ -1575,8 +1594,8 @@ export class MechEntity {
             h.dead ||
             this.ramHit.has(h) ||
             Math.hypot(h.pos.x - this.pos.x, h.pos.z - this.pos.z) >
-              this.radius + (h.radius || 1.5 * MS) + 1.2 * MS ||
-            Math.abs(h.pos.y - this.pos.y) > 4 * MS
+              this.radius + (h.radius || 1.5 * this.dk) + 1.2 * this.dk ||
+            Math.abs(h.pos.y - this.pos.y) > 4 * this.dk
           )
             continue;
           this.ramHit.add(h);
@@ -1605,13 +1624,13 @@ export class MechEntity {
     let target = new THREE.Vector3();
     if (this.qbT > 0) {
       this.qbT -= dt;
-      target.copy(this.qbDir).multiplyScalar(P.booster.qb);
+      target.copy(this.qbDir).multiplyScalar((P.booster.qb * this.dk) / DS);
       this.boost = true;
     } else if (this.abT > 0 && targetEnt) {
       this.abT -= dt;
       const d = targetEnt.pos.clone().sub(this.pos);
       d.y = 0;
-      if (d.length() > 6 * DS) {
+      if (d.length() > 6 * this.dk) {
         target.copy(d.normalize()).multiplyScalar(spd * 2.2);
       }
       this.boost = true;
@@ -1628,7 +1647,7 @@ export class MechEntity {
       const src = this.pullSrc;
       if (src && !src.dead) {
         const to = src.pos.clone().sub(this.pos).setY(0);
-        if (to.length() > 6 * DS) target.addScaledVector(to.normalize(), 16 * DS);
+        if (to.length() > 6 * this.dk) target.addScaledVector(to.normalize(), 16 * this.dk);
       }
     }
     // 狀態效果：鉤住時往鉤點拉、不能跳躍時空中往下拉
@@ -1639,12 +1658,12 @@ export class MechEntity {
       g.flows.length &&
       !this.flying &&
       !this.noPush &&
-      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 3 * MS
+      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 3 * this.dk
     ) {
       const f = g.flowAt(this);
       if (f) {
-        target.x += f.dx * 16 * DS;
-        target.z += f.dz * 16 * DS;
+        target.x += f.dx * 16 * this.dk;
+        target.z += f.dz * 16 * this.dk;
       }
     }
     if (g.zones && g.zones.length) g.zonePull(this, target); // 吸引區域（game/hazards2.js）
@@ -1657,7 +1676,7 @@ export class MechEntity {
     const ground = w.groundRef(this.pos.x, this.pos.z, this.pos.y);
     let altCap = false;
     {
-      const MAXALT = 22 * DS;
+      const MAXALT = 22 * this.dk;
       const alt = this.pos.y - ground;
       if (!this.flying && alt > MAXALT) {
         if (this.vel.y > 0) this.vel.y = Math.min(this.vel.y, 0);
@@ -1670,7 +1689,7 @@ export class MechEntity {
       if (this.altWarnT > 0) this.altWarnT -= dt;
     }
     if (this.flying) {
-      const ty = ground + this.hoverH + Math.sin(this.t * 2) * 0.6 * DS;
+      const ty = ground + this.hoverH + Math.sin(this.t * 2) * 0.6 * this.dk;
       this.vel.y = lerp(this.vel.y, (ty - this.pos.y) * 3, 0.2);
       this.grounded = false;
       this.hover = true;
@@ -1678,8 +1697,8 @@ export class MechEntity {
       this.jumpMove(dt, wish, wantHover, spd, altCap);
       if (!this.hoverMode) {
         // 跳躍上升中用該腳部自己的重力（決定到頂時間），過了最高點一律用 GRAVITY
-        this.vel.y -= (this.vel.y > 0 && this.riseG ? this.riseG : GRAVITY) * dt;
-        if (this.vel.y < -36 * DS) this.vel.y = -36 * DS;
+        this.vel.y -= (this.vel.y > 0 && this.riseG ? this.riseG : (GRAVITY * this.dk) / DS) * dt;
+        if (this.vel.y < -36 * this.dk) this.vel.y = -36 * this.dk;
       }
     }
     if (this.pilotEnt()) this.oobPush(w, dt);
@@ -1692,16 +1711,17 @@ export class MechEntity {
     {
       const ce = w.ceiling(this.pos.x, this.pos.z, this.pos.y, this.model.height);
       if (ce < 1e8) {
-        this.pos.y = Math.min(this.pos.y, ce - this.model.height - 0.05 * MS);
+        this.pos.y = Math.min(this.pos.y, ce - this.model.height - 0.05 * this.dk);
         if (this.vel.y > 0) this.vel.y = 0;
       }
     }
     const g2 = w.groundAt(this.pos.x, this.pos.z, this.pos.y);
     if (this.pos.y <= g2) {
-      if (!this.grounded && this.vel.y < -6 * DS) ((this.landT = 0), (this.landV = -this.vel.y / DS)); // landV：動作用（舊尺度的 m/s）
-      if (!this.grounded && this.vel.y < -12 * DS) {
+      if (!this.grounded && this.vel.y < -6 * this.dk)
+        ((this.landT = 0), (this.landV = -this.vel.y / this.dk)); // landV：動作用（舊尺度的 m/s）
+      if (!this.grounded && this.vel.y < -12 * this.dk) {
         g.fx.dust(this.pos.clone().setY(g2 + 0.05), (2.6 * this.scale) / g.fx.k, 9);
-        SFX.land(this.isPlayer ? null : this.center(), clamp((-this.vel.y / DS - 12) / 18, 0, 1));
+        SFX.land(this.isPlayer ? null : this.center(), clamp((-this.vel.y / this.dk - 12) / 18, 0, 1));
         if (this.isPlayer) {
           g.camShake = Math.max(g.camShake, 0.06);
           g.rumble(0.35, 0.2, 110);
@@ -1710,10 +1730,10 @@ export class MechEntity {
       this.pos.y = g2;
       this.vel.y = Math.max(0, this.vel.y);
       this.grounded = true;
-    } else if (this.pos.y > g2 + 0.15 * MS) this.grounded = false;
+    } else if (this.pos.y > g2 + 0.15 * this.dk) this.grounded = false;
     const [nx, nz] = w.collide(this.pos.x, this.pos.z, this.pos.y, this.radius * 0.8, this.pilotEnt());
     this.aiState.stuck =
-      Math.abs(nx - this.pos.x) + Math.abs(nz - this.pos.z) > 0.05 * DS ? this.aiState.stuck + dt : 0;
+      Math.abs(nx - this.pos.x) + Math.abs(nz - this.pos.z) > 0.05 * this.dk ? this.aiState.stuck + dt : 0;
     this.pos.x = nx;
     this.pos.z = nz;
     // slope climb: if terrain rises steeply push up
@@ -1739,15 +1759,15 @@ export class MechEntity {
       const vf = this.vel.dot(fwd);
       this.leanX =
         this.model.cls === 'vehicle'
-          ? clamp((af * 0.012) / DS, -0.25, 0.25) // 坦克只看加減速（等速時不傾斜）
-          : clamp((af * 0.012 + vf * 0.004) / DS, -0.35, 0.35) + (this.qbT > 0 ? 0.18 : 0); // 加速前傾、減速後仰、QB 更前傾
-      this.leanZ = clamp((-ar * 0.01) / DS, -0.28, 0.28); // 側向加速 → 向內側傾
+          ? clamp((af * 0.012) / this.dk, -0.25, 0.25) // 坦克只看加減速（等速時不傾斜）
+          : clamp((af * 0.012 + vf * 0.004) / this.dk, -0.35, 0.35) + (this.qbT > 0 ? 0.18 : 0); // 加速前傾、減速後仰、QB 更前傾
+      this.leanZ = clamp((-ar * 0.01) / this.dk, -0.28, 0.28); // 側向加速 → 向內側傾
       if (this.flying) {
         this.leanX *= 0.6;
       }
     }
     // yaw
-    this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5 * DS;
+    this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5 * this.dk;
     {
       const firing = this.recoil.l + this.recoil.r > 0.05 || this.melee.active;
       const faceAim = this.lock || firing || !this.moving || this.ai || this.fpFace; // 人形：有目標時整台機體面向目標，側移用側步
@@ -1951,7 +1971,7 @@ export class MechEntity {
   jumpMove(dt, wish, want, spd, altCap) {
     const g = this.game,
       P = this.stats.parts,
-      J = jumpSpec(P.legs);
+      J = this.dk === DS ? jumpSpec(P.legs) : scaleJump(jumpSpec(P.legs), this.dk / DS); // Coral 戰爭照舊尺度
     const held = !!want;
     const press = this.jumpExt ? !!this.jumpPressQ : held && !this.jumpPrev;
     this.jumpPressQ = false;
@@ -2018,7 +2038,7 @@ export class MechEntity {
     if (this.hoverMode) {
       this.riseG = 0;
       const climb = this.hoverMode === 2;
-      this.vel.y = lerp(this.vel.y, (climb ? 7 : -0.5) * DS, Math.min(1, dt * (climb ? 5 : 6)));
+      this.vel.y = lerp(this.vel.y, (climb ? 7 : -0.5) * this.dk, Math.min(1, dt * (climb ? 5 : 6)));
       this.en = Math.max(0, this.en - (climb ? J.climb : J.hover) * (1 - this.pmv('hover')) * dt);
       this.enDelay = 0.5;
     }
@@ -2147,7 +2167,7 @@ export class MechEntity {
     const k = clamp((Math.abs(rel) - 0.35) / 0.35, 0, 1);
     if (k <= 0) return aim;
     const c = this.center(),
-      d = Math.max(8 * MS, aim.distanceTo(c));
+      d = Math.max(8 * this.dk, aim.distanceTo(c));
     const fwd = c.add(new THREE.Vector3(-Math.sin(this.yaw) * d, 0, -Math.cos(this.yaw) * d));
     return aim.clone().lerp(fwd, k);
   }
@@ -2181,7 +2201,7 @@ export class MechEntity {
       stride: this.gaitAmp !== undefined,
       lockOK: this.gaitLockOK,
       glide: !!(this.model.an && this.model.an.gW > 0.5), // 滑行：兩腳都踩在地面上
-      near: !g.camera || g.camera.position.distanceToSquared(this.pos) < 160 * 160 * DS * DS,
+      near: !g.camera || g.camera.position.distanceToSquared(this.pos) < 160 * 160 * this.dk * this.dk,
       off: !!this.lodIk, // 距離分級（Game.lodTick）：離鏡頭遠或在畫面外時 IK 淡出後略過
     };
   }
@@ -2727,7 +2747,8 @@ export class MechEntity {
     }
     s.shockT -= dt;
     const R = boss ? 30 : stomp ? 12 : 20;
-    if (s.shockT > 0 || !this.grounded || d > R * 0.8 * DS || !this.canAct() || this.melee.active) return;
+    if (s.shockT > 0 || !this.grounded || d > R * 0.8 * this.dk || !this.canAct() || this.melee.active)
+      return;
     s.shockT = (boss ? rnd(7, 11) : stomp ? rnd(5, 8) : rnd(10, 15)) * (s.phase >= 2 ? 0.7 : 1);
     const dl = boss ? 0.9 : stomp ? 0.7 : 0.8;
     s.stompT = dl;

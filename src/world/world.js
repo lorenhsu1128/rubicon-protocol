@@ -79,7 +79,7 @@ import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 import { NavGrid } from './nav.js';
 import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
-import { rtsReserveWater, rtsDuneShade } from './rts-map.js';
+import { RTS_CELL, rtsReserveWater, rtsDuneShade } from './rts-map.js';
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -332,7 +332,8 @@ export class World {
     this.themeKey = theme;
     this.size = opt.rts ? opt.rts.size : this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
-    this.cells = Math.round(this.size / CELL);
+    this.cell = opt.rts ? RTS_CELL : CELL; // Coral 戰爭的地圖照舊尺度（rts-map.js 的高度圖是 2.5 m 格子）
+    this.cells = Math.round(this.size / this.cell);
     this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
     this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
     if (opt.rts) {
@@ -514,8 +515,8 @@ export class World {
     return this.h[j * (this.cells + 1) + i];
   }
   terrainHeight(x, z) {
-    const fx = (x + this.size / 2) / CELL,
-      fz = (z + this.size / 2) / CELL;
+    const fx = (x + this.size / 2) / this.cell,
+      fz = (z + this.size / 2) / this.cell;
     const i = Math.floor(fx),
       j = Math.floor(fz),
       u = fx - i,
@@ -575,8 +576,8 @@ export class World {
     const vt = this.variant && this.variant.terrain ? this.variant.terrain(this) : null;
     for (let j = 0; j <= this.cells; j++)
       for (let i = 0; i <= this.cells; i++) {
-        const x = i * CELL - this.size / 2,
-          z = j * CELL - this.size / 2;
+        const x = i * this.cell - this.size / 2,
+          z = j * this.cell - this.size / 2;
         let h = this.baseH(x, z);
         for (const p of plateaus) {
           const dx = Math.max(Math.abs(x - p.x) - p.w / 2, 0),
@@ -1131,7 +1132,8 @@ export class World {
   }
   // 冰原的冰面（冰湖：地形在冰面高度 −0.7 附近）
   onIce(x, z) {
-    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) - ICE_Y) < 0.25 * G;
+    const k = this.rts ? 1 : G; // Coral 戰爭的地圖照舊尺度
+    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) - (ICE_Y / G) * k) < 0.25 * k;
   }
   // 水深（主題的水面以下多深；沒有水面時 0）
   waterDepth(x, z) {

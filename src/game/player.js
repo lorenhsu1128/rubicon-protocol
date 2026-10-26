@@ -1,7 +1,7 @@
 // Game：玩家機體操作與鎖定
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
-import { DS, MS } from '../core/scale.js';
+import { DS } from '../core/scale.js';
 import { Game } from './game.js';
 
 Object.assign(Game.prototype, {
@@ -37,7 +37,7 @@ Object.assign(Game.prototype, {
         if (e.dead || e.noLock) continue;
         const d = e.center().sub(eye);
         const dist = d.length();
-        if (dist > reach || dist < 0.5 * MS || !this.onScreen(e)) continue;
+        if (dist > reach || dist < 0.5 * p.dk || !this.onScreen(e)) continue;
         out.push({ e, k: Math.acos(clamp(d.normalize().dot(look), -1, 1)) });
       }
     } else if (this.chase) {

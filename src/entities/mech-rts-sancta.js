@@ -119,7 +119,7 @@ Object.assign(MechEntity.prototype, {
     }
     this.pal = pal;
     this.asm = { ...D.asm };
-    this.stats = asmStats(this.asm);
+    this.stats = this.dkStats(asmStats(this.asm));
     this.initWeapons();
     this.scale = D.scale || 1;
     this.radius = D.radius || this.radius;

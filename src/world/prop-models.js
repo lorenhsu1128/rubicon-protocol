@@ -1755,7 +1755,7 @@ export function buildBeacon(h) {
   k.cyl(base, 0.3, 0.36, 0.08, 0, h + 0.46, 0, 0, 0, 0, 8);
   return k.build();
 }
-// 雷達天線：支架＋傾斜的碟形天線；原點在底面中心；GLB 以高 7 m 製作
+// 雷達天線：支架＋傾斜的碟形天線；原點在底面中心；GLB 以高約 15 m 製作（現實尺寸，照原樣使用）
 // 現實尺寸：舊模型放大 RADAR_S 倍（高約 17 m、碟面直徑約 12 m）；桅桿的爬梯照人的尺寸
 export const RADAR_S = 2.5;
 export function buildRadarDish(color) {
@@ -1807,7 +1807,7 @@ function radarKit(k, m, dk) {
   k.pipe(dk, f, at(1.1), 0.18, 6);
 }
 // 舊時代觀測圓頂（大型，不可破壞）：圓形基座＋半球＋觀測縫＋天線；原點在地面中心；DOME_R＝基座半徑
-// 現實尺寸：舊模型放大 DOME_S 倍（基座直徑約 37 m 的雷達罩）；入口的人用門與走道欄杆照人的尺寸
+// 現實尺寸：舊模型放大 DOME_S 倍（基座直徑約 37 m 的雷達罩）；入口的人用門與走道欄杆照人的尺寸；GLB 以這個大小製作
 const DOME_S = 2;
 export const DOME_R = 9 * DOME_S;
 export function buildObsDome(color) {

@@ -244,7 +244,7 @@ UI 是卡片清單（不是節點圖），平板也好點：每個觸發器一�
 
 ```js
 {
-  format: 'rubicon-level', v: 1, gen: '10.1',   // 格式版本、產生底圖的遊戲版本
+  format: 'rubicon-level', v: 2, gen: '10.1',   // 格式版本（2＝機甲三倍高改版：座標與高度是新尺度，v1 讀取時 migrateLevel 乘 3）、產生底圖的遊戲版本
   id: '…',               // 建立時隨機產生，改名不變
   name, desc, author,     // 文字一律在顯示時 escHtml
   created, updated,

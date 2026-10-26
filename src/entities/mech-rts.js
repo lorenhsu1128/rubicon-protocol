@@ -1342,7 +1342,7 @@ Object.assign(MechEntity.prototype, {
     const D = RTS_DEFS[defId];
     if (!D || !D.asm || this.dead || (this.opts && this.opts.modelKind)) return;
     this.asm = { ...D.asm };
-    this.stats = asmStats(this.asm);
+    this.stats = this.dkStats(asmStats(this.asm));
     this.initWeapons();
     this.swapModel();
     if (D.worker) addWorkerKit(this.model, this.pal);

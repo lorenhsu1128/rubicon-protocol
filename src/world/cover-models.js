@@ -60,7 +60,7 @@ export function buildJersey(n, color = 0xc8c4bc) {
   const len = n * JERSEY.l;
   const glb = propGlb('barrier', {
     color,
-    ref: [JERSEY.l * 2, JERSEY.h, JERSEY.d],
+    ref: [4, 1.1, 0.9], // GLB（prop/barrier）的製作尺寸＝variants.js 的 buildBarrier（長 4 m）
     size: [len, JERSEY.h, JERSEY.d],
   });
   if (glb) return glb;

@@ -26,6 +26,7 @@
   - `actors`：`{ id, k, ... }`：`hero`（玩家的組裝）、`ace`（`ACES` 的宿敵）、`roster`（具名 AC）、`type`（`ENEMY_TYPES`／`FOES`）＝遊戲的機甲實體；`model`（Boss 模型 `key`）、`pod`（空降艙）、`crash`（墜落現場）、`worm`（鑽地蟲，身體沿頭的軌跡）、`train`（武裝列車）＝照關鍵影格 `keys: [{ t, p, r, s, thrust, heat, lin }]` 移動的模型。`parent: 'station'` 掛在軌道站上（p 是軌道站的局部座標）。機甲的 `s`＝時間軸上的動作。`drop`：這一鏡移除的演員。
   - 演員的動作（`s` 或事件的 `a`）：`go`（走到）、`stop`、`aim`（演員 id 或點）、`fire`（武器槽或 `'all'`＋`dur`、`at`）、`qb`（[x, z] 方向的快速推進）、`ab`（突擊推進）、`hover`、`jump`、`melee`、`ai`（交給遊戲的 AI）、`warp`、`die`、`rise`（從坑裡站起來）、`hide`。演員的 AP 不會歸零，要倒下的用 `die`。
   - `cam`：`{ keys: [{ t, p, l, fov, roll }], ease: 'lin'|'in'|'out', follow, hand（手持晃動）, shake, dof（景深強度）, focus, range, fog（霧往外推）, snap, free }`。
+  - **尺度**（機甲三倍高改版，`docs/world-scale.md` 第 9 節）：劇本照舊尺度寫（機甲 3.24 m 時的數字），播放時場景的 `set.k`（戰場與太空＝DS，黑幕＝1）把座標、鏡頭的晃動與景深、模型演員、軌道站放大；機甲演員是遊戲實體，本來就是 9.7 m。
   - 點的寫法：`[x, y, z]`（相對場景原點）、`{ g: [x, z], h }`（貼地）、`{ a: 演員, o: [x, y, z], loc（依演員朝向）, at: 'head'|'base' }`、`{ st: [x, y, z] }`（軌道站的局部座標）。
   - `ev`：`{ t, ... }`：`sfx`（`at` 有位置）、`loop`、`boom`（爆炸，`big`、`kill`）、`fx`（flash、killBurst、shockwave、beam、dust、smoke、streaks、pillar、ring、warnLine、pulse、fire、flame、muzzle）、`shake`、`slow`（慢動作，只影響模擬）、`flash`（閃白／閃色）、`sub`＋`who`（字幕；`who`＝SPEAKERS 的鍵，有說話者時播無線電音效）、`card`＋`s`＋`style`（字卡：card 黑底電影字距、logo、chapter、name 宿敵名牌、loc 地點）、`sys`（左下的機器文字，系統日誌逐字）、`call`（函式）。
   - `grade`：這一鏡的調色（渲染風格的參數，疊在玩家選的風格＋過場的基本調色 `CINE_GRADE` 上；景深 `dof` 也在這裡）。
