@@ -5,7 +5,6 @@ import {
   fadeMat,
   mat,
   propGlb,
-  swapProp,
   registerFeatureStyle,
   PK,
   DETAIL,
@@ -103,7 +102,7 @@ export function buildBarrels() {
     k.cyl(m, 0.4, 0.4, 0.03, x, 1.31, z, 0, 0, 0, 10);
     k.cyl(DETAIL.dark, 0.06, 0.06, 0.04, x + 0.22, 1.33, z, 0, 0, 0, 6);
   }
-  return swapProp('barrels', k.build());
+  return k.build();
 }
 // 排氣煙囪：半徑 r、高 h，原點在底面中心；GLB 以半徑 1.5、高 30 m 製作
 export function buildChimney(r, h) {

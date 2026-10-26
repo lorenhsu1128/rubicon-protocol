@@ -7,7 +7,6 @@ import { measureBox, modelStats } from '../render/measure.js';
 import { START_ASM } from '../data/parts.js';
 import { PIECE_ORIGIN, buildMech, mechPieces } from '../render/mech-model.js';
 import { setModelProvider } from '../render/model-provider.js';
-import { withoutAssets } from '../render/world-assets.js';
 
 let ENV = null;
 export const studioEnv = () => ENV || (ENV = makeStudioEnv());
@@ -104,7 +103,7 @@ const ONE = () => new THREE.Vector3(1, 1, 1);
 const palOf = (entry, palKey) => (entry.noPal ? null : PALETTES[palKey || entry.pal] || PALETTES.player);
 // 程式模型在「GLB 製作尺寸」（×1）下的外框，作為規格檢查的參考
 export function referenceBox(entry, palKey) {
-  const b = withoutAssets(() => entry.build(palKey || entry.pal));
+  const b = entry.build(palKey || entry.pal);
   b.scaleNode.scale.set(1, 1, 1);
   let box = measureBox(b.obj);
   if (box.isEmpty()) box = measureBox(b.obj, true);

@@ -6,7 +6,6 @@ export {
   fadeMat,
   mat,
   propGlb,
-  swapProp,
   registerFeatureStyle,
   PK,
   DETAIL,

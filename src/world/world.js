@@ -74,7 +74,6 @@ import { INSTITUTE } from './themes/institute.js';
 import { ORBIT } from './themes/orbit.js';
 import { SPACEPORT } from './themes/spaceport.js';
 import { XYLEM } from './themes/xylem.js';
-import { worldAssetsReset } from '../render/world-assets.js';
 
 const _seg = new THREE.Vector3(); // propBlocks 的暫存
 // 網格建造在 prop-models.js（純函式）；這裡只用亂數決定參數與位置，亂數呼叫順序不可改變
@@ -258,7 +257,6 @@ function rtsDuneTint(P, T) {
 
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
-    worldAssetsReset(); // 地圖物件的外部素材從第一個開始輪流（各端相同）
     this.scene = scene;
     this.forceRail = !!opt.rail; // 武裝列車的關卡：一定有鐵路（主題允許時）
     this.forceRoad = !!opt.road; // 主線的護送區段：一定有公路（主題允許時）

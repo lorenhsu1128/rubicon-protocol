@@ -3,7 +3,6 @@
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { materialSlot } from '../render/glb.js';
 import { providedModel } from '../render/model-provider.js';
-import { SLOTS, WA, assetMat, pickAsset } from '../render/world-assets.js';
 
 const MatCache = {};
 
@@ -36,134 +35,6 @@ export function propGlb(slot, { color, ref, size, rotY = 0, y = 0, fade = false 
   holder.rotation.y = rotY;
   holder.add(obj);
   g.add(holder);
-  PROP_MATS.set(g, mats);
-  return g;
-}
-// ---------- 內建的外部素材（render/world-assets.js：Poly Haven／NASA 的 GLB）----------
-// 建模函式照常建好程式模型 proc 後呼叫：素材載好且這個槽位有登記時，回傳換成 GLB 的群組（根的位置／旋轉／縮放同 proc），
-// 否則原樣回傳 proc。GLB 依 SLOTS 的 fit 填進程式模型的頂點範圍；GLB 網格的 geometry.boundingBox 是空的，另外照程式模型的
-// 每個網格放一個不畫的代理網格（只有外框；材質 visible false 不算繪、layers 0 射線打不到，但 traverseVisible 的量測照算），所以 Box3.setFromObject 量到的碰撞、命中形狀、遮擋範圍
-// （連旋轉之後）和程式模型完全相同。射線照 GLB 的三角形（PropMesh）。
-const _wv = new THREE.Vector3(),
-  _wm = new THREE.Matrix4();
-// root 座標（不含 root 自己的變換）裡的頂點外框
-function procBox(root) {
-  root.updateMatrixWorld(true);
-  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
-  const vis = new THREE.Box3();
-  root.traverse((o) => {
-    if (!o.isMesh || !o.geometry.attributes.position) return;
-    _wm.multiplyMatrices(inv, o.matrixWorld);
-    const p = o.geometry.attributes.position;
-    for (let i = 0; i < p.count; i++) vis.expandByPoint(_wv.fromBufferAttribute(p, i).applyMatrix4(_wm));
-  });
-  return { vis, inv };
-}
-const PROXY_MAT = new THREE.MeshBasicMaterial({ visible: false });
-// 把素材 tpl 填進 holder 座標的範圍 T
-function fillAsset(holder, tpl, T, cfg, color, mats, cache) {
-  const B = tpl.box,
-    bs = B.getSize(new THREE.Vector3()),
-    ts = T.getSize(new THREE.Vector3());
-  const s = new THREE.Vector3();
-  if (cfg.fit === 'h') s.setScalar(ts.y / (bs.y || 1));
-  else if (cfg.fit === 'w') s.setScalar(Math.max(ts.x, ts.z) / (Math.max(bs.x, bs.z) || 1));
-  else s.set(ts.x / (bs.x || 1), ts.y / (bs.y || 1), ts.z / (bs.z || 1));
-  const tc = T.getCenter(new THREE.Vector3()),
-    bc = B.getCenter(new THREE.Vector3());
-  const off = new THREE.Vector3(tc.x - bc.x * s.x, T.min.y - B.min.y * s.y, tc.z - bc.z * s.z);
-  for (const p of tpl.parts) {
-    // 頂點屬性共用素材的；外框是空的（由代理網格登記）
-    const g = new THREE.BufferGeometry();
-    for (const [n, a] of Object.entries(p.geo.attributes)) g.setAttribute(n, a);
-    if (p.geo.index) g.setIndex(p.geo.index);
-    for (const gr of p.geo.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
-    g.boundingSphere = p.geo.boundingSphere.clone();
-    g.boundingBox = new THREE.Box3();
-    const one = (m) => {
-      if (!cache.has(m)) {
-        const c = assetMat(m, cfg, color);
-        cache.set(m, c);
-        mats.push(c);
-      }
-      return cache.get(m);
-    };
-    const mesh = new PropMesh(g, Array.isArray(p.mat) ? p.mat.map(one) : one(p.mat));
-    mesh.position.copy(off);
-    mesh.scale.copy(s);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    holder.add(mesh);
-  }
-}
-export function swapProp(slot, proc) {
-  const cfg = WA.ready && !WA.off && SLOTS[slot];
-  if (!cfg) return proc;
-  const { vis, inv } = procBox(proc);
-  if (vis.isEmpty()) return proc;
-  let color = null,
-    fade = false;
-  const glows = [];
-  proc.traverse((o) => {
-    if (!o.isMesh) return;
-    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-      if (!color && m.color) color = m.color;
-      if (m.transparent) fade = true;
-      if (cfg.keepGlow && m.emissive && m.emissive.getHex() && m.emissiveIntensity > 0) glows.push(o);
-    }
-  });
-  const g = new THREE.Group();
-  g.position.copy(proc.position);
-  g.quaternion.copy(proc.quaternion);
-  g.scale.copy(proc.scale);
-  const mats = [],
-    cache = new Map();
-  if (cfg.each) {
-    const list = [];
-    proc.traverse((o) => o.isMesh && !glows.includes(o) && list.push(o));
-    for (const o of list) {
-      const tpl = pickAsset(slot, cfg.each);
-      if (!tpl) return proc;
-      const h = new THREE.Object3D();
-      new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld).decompose(h.position, h.quaternion, h.scale);
-      const T = new THREE.Box3().setFromBufferAttribute(o.geometry.attributes.position);
-      fillAsset(h, tpl, T, cfg, color, mats, cache);
-      g.add(h);
-    }
-  } else if (cfg.parts) {
-    for (const [name, b] of cfg.parts) {
-      const tpl = WA.tpl[name];
-      if (!tpl) return proc;
-      const T = new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5]));
-      fillAsset(g, tpl, T, cfg, color, mats, cache);
-    }
-  } else {
-    const tpl = pickAsset(slot, cfg.src);
-    if (!tpl) return proc;
-    fillAsset(g, tpl, vis, cfg, color, mats, cache);
-  }
-  // 程式模型每個網格的外框（代理網格）
-  proc.traverse((o) => {
-    if (!o.isMesh || glows.includes(o)) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    const geo = new THREE.BufferGeometry();
-    geo.boundingBox = o.geometry.boundingBox.clone();
-    geo.boundingSphere = new THREE.Sphere();
-    const px = new THREE.Mesh(geo, PROXY_MAT);
-    new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld).decompose(px.position, px.quaternion, px.scale);
-    px.layers.mask = 0;
-    px.userData.helper = true;
-    g.add(px);
-  });
-  // 程式模型裡發光的零件（汙染物桶的桶蓋）照原樣留下
-  for (const o of glows) {
-    new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld).decompose(o.position, o.quaternion, o.scale);
-    g.add(o);
-    for (const m of Array.isArray(o.material) ? o.material : [o.material])
-      if (!mats.includes(m)) mats.push(m);
-  }
-  if (fade) for (const m of mats) m.transparent = true;
-  g.userData.asset = slot; // 換成了外部素材（冒煙測試檢查用）
   PROP_MATS.set(g, mats);
   return g;
 }
@@ -716,7 +587,7 @@ export function buildRock(r, m) {
   const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), m);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return swapProp('rock', mesh);
+  return mesh;
 }
 
 // 柱子／路燈桿（中心在原點；GLB 原點在底面中心、以高 7 m 製作）
@@ -752,7 +623,7 @@ export function buildDebris(w, h, d, m) {
   k.cb(m, w * 0.8, h * 0.55, d * 0.85, -w * 0.08, -h * 0.2, 0, 0, 0.3, 0.06, Math.min(w, d) * 0.08);
   k.box(m, w * 0.55, h * 0.22, h * 0.22, w * 0.18, h * 0.3, -d * 0.1, 0, -0.5, 0.25);
   k.box(m, w * 0.3, h * 0.35, d * 0.3, w * 0.3, -h * 0.25, d * 0.3, 0.2, 0.7, 0);
-  return swapProp('debris', k.mesh());
+  return k.mesh();
 }
 
 // 路邊停放的卡車：車廂＋駕駛艙＋6 輪
@@ -1389,7 +1260,7 @@ export function buildRockSpire(r, h, color) {
   top.scale.set(1, 0.6, 1);
   top.castShadow = true;
   g.add(top);
-  return swapProp('rock_spire', g);
+  return g;
 }
 // 照明塔（荒野的柱子）：桿＋橫臂＋燈箱；原點在底面中心；GLB 以高 9 m 製作，依高度縮放
 export function buildFloodlight(h, color) {
@@ -1508,7 +1379,7 @@ export function buildSandstone(r, h, color) {
   cap.position.y = h * 0.78;
   cap.castShadow = true;
   g.add(cap);
-  return swapProp('sandstone', g);
+  return g;
 }
 // 防風牆（沙丘的掩體）：一排波浪板＋支柱，長 len、高 3 m，沿 X；原點在底面中心；GLB 以長 8 m 製作，依長度縮放
 export const SAND_FENCE_H = 3;
@@ -1592,7 +1463,7 @@ export function buildIceChunk(r) {
   b.rotation.set(0.6, 0.2, 0.9);
   b.castShadow = true;
   g.add(b);
-  return swapProp('ice_chunk', g);
+  return g;
 }
 // 信號燈桿（冰原的柱子）：紅白相間的桿＋頂部紅燈；原點在底面中心；GLB 以高 8 m 製作
 export function buildBeacon(h) {
@@ -1659,7 +1530,7 @@ export function buildRadarDish(color) {
     k.bar(dk, [rc[0] + c, rc[1] + v[1] * s, rc[2] + v[2] * s], f, 0.07);
   }
   k.pipe(dk, f, at(1.1), 0.18, 6);
-  return swapProp('radar_dish', k.build());
+  return k.build();
 }
 // 舊時代觀測圓頂（大型，不可破壞）：圓形基座＋半球＋觀測縫＋天線；原點在地面中心；DOME_R＝基座半徑
 export const DOME_R = 9;
@@ -1708,7 +1579,7 @@ export function buildObsDome(color) {
   k.box(snow, 2.5, 0.2, 1.3, 0, 2.68, DOME_R + 0.2);
   k.cyl(dk, 0.12, 0.12, 6, DOME_R * 0.6, 3.5 + 6, 0, 0, 0, 0, 6);
   for (const y of [7.5, 10.5]) k.box(dk, 1.4, 0.06, 0.06, DOME_R * 0.6, y, 0);
-  return swapProp('obs_dome', k.build());
+  return k.build();
 }
 // 碎冰（純裝飾）：扁平的冰片；原點在地面中心；GLB 以 1.2 × 0.4 × 1 m 製作
 export function buildIceShard(w, h, d) {
@@ -1720,7 +1591,7 @@ export function buildIceShard(w, h, d) {
   );
   m.scale.set(w, h, d);
   m.position.y = h * 0.2;
-  return swapProp('ice_shard', m);
+  return m;
 }
 
 // ---------- 主題版的地形特徵（荒野 wasteland／沙丘 dunes／冰原 snow）----------
@@ -2138,5 +2009,3 @@ export function buildThemeTunnel(style) {
   }
   return k.build();
 }
-// 冒煙測試：同樣參數比較程式模型與外部素材版本的外框
-if (/[?&]test\b/.test(location.search)) window.__worldProps = { buildRadarDish, buildRockSpire, buildRock };

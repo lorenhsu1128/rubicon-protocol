@@ -3,7 +3,7 @@
 // 參數用自己的亂數串 makeRng）、build(w)（在一般物件之後加的結構，於關卡生成的 withRng 內呼叫）。
 // 不帶變體時 World 完全照原本生成（現有地圖不變）。本模組不可 import world.js，World 一律用參數 w。
 import { clamp, makeRng, pick, rnd, rndi } from '../core/math.js';
-import { box, buildIceSheet, cyl, mat, swapProp } from './prop-models.js';
+import { box, buildIceSheet, cyl, mat, propGlb } from './prop-models.js';
 import { CAR, FLOODED, buildBentLamp, buildRuinTower, buildWreckCar } from './themes/flooded.js';
 import { planIslands } from './themes/xylem.js';
 import { buildCavePillar, buildCoralTank, buildLab } from './themes/institute.js';
@@ -79,13 +79,15 @@ export function buildPumpStation() {
   g.add(box(1, 3, 1, M.yellow, 0, 6.5, 0));
   return g;
 }
-// 紐澤西護欄（長 4 m）
+// 紐澤西護欄（長 4 m）；GLB 原點在底面中心、沿 X
 export function buildBarrier() {
+  const glb = propGlb('barrier', { fade: true });
+  if (glb) return glb;
   const g = new THREE.Group();
   g.add(box(4, 0.5, 0.9, M.stripe, 0, 0.25, 0));
   g.add(box(4, 0.6, 0.5, M.stripe, 0, 0.8, 0));
   g.add(box(0.8, 0.4, 0.52, M.rust, -1, 0.9, 0));
-  return swapProp('barrier', g);
+  return g;
 }
 // 燒毀的車輛
 export function buildCarWreck() {
@@ -224,8 +226,10 @@ export function buildPenstock(len) {
   for (let z = -len / 2 + 2; z < len / 2; z += 8) g.add(box(3.2, 1.6, 1, M.concreteD, 0, 0.8, z));
   return g;
 }
-// 汙染物桶（發光，高 1.2 m）
+// 汙染物桶（發光，高 1.2 m）；GLB 原點在底面中心
 export function buildToxicDrum() {
+  const glb = propGlb('toxic_drum', { fade: true });
+  if (glb) return glb;
   const g = new THREE.Group();
   g.add(cyl(0.45, 0.45, 1.2, mat(0x8a9a2a, { roughness: 0.6 }), 0, 0.6, 0, 10));
   g.add(cyl(0.47, 0.47, 0.1, M.dark, 0, 0.3, 0, 10));
@@ -242,7 +246,7 @@ export function buildToxicDrum() {
       10,
     ),
   );
-  return swapProp('toxic_drum', g);
+  return g;
 }
 // 防爆牆（冰原「前線基地」）：長 len、高 4.5 m，頂部積雪
 export function buildSnowWall(len) {
@@ -380,8 +384,10 @@ export function buildPine(h) {
   }
   return g;
 }
-// 落石堆（尺寸倍率 s，直徑約 4s）
+// 落石堆（尺寸倍率 s，直徑約 4s）；GLB 以 s＝1.2 製作、原點在底面中心，main 材質為岩石色
 export function buildRockPile(s, color = 0x5a524a) {
+  const glb = propGlb('rock_pile', { color, ref: [1.2, 1.2, 1.2], size: [s, s, s], fade: true });
+  if (glb) return glb;
   const g = new THREE.Group();
   const m = mat(color, { roughness: 1, metalness: 0 });
   for (const [x, z, r] of [
@@ -395,7 +401,7 @@ export function buildRockPile(s, color = 0x5a524a) {
     q.rotation.set(x, z, r);
     g.add(q);
   }
-  return swapProp('rock_pile', g);
+  return g;
 }
 // 照明柱（高 h；color＝燈的顏色，停電區用紅色緊急照明）
 export function buildLampPost(h, color = 0xffe0a0) {

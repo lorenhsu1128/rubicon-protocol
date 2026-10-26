@@ -31,7 +31,6 @@ import {
 } from '../render/style/pipeline.js';
 import { installStyleShader, tagStyle } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
-import { assetOf, withoutAssets } from '../render/world-assets.js';
 
 installStyleShader();
 // 渲染風格的「機體」分類（金屬只套用在這些分類）
@@ -354,8 +353,7 @@ export class Inspector {
       main.loadError = 'GLB 解析失敗：' + (err.message || err);
       if (this.onError) this.onError(`${e.name}：${main.loadError}`);
     }
-    // 對照用的一律是程式模型（不換內建素材）
-    if (this.mode === 'side' || this.mode === 'overlay') ref = withoutAssets(() => prepareModel(e, pal));
+    if (this.mode === 'side' || this.mode === 'overlay') ref = prepareModel(e, pal);
     if (tok !== this.tok) {
       for (const d of [main, ref]) if (d) disposeObject(d.pivot);
       return;
@@ -522,9 +520,7 @@ export class Inspector {
         ? `區塊組合：${comp.glbSlots.length} 個區塊用 GLB，其餘為程式模型`
         : '區塊組合：全部為程式模型'
       : src.kind !== 'glb'
-        ? assetOf(d.pivot)
-          ? '內建素材（Poly Haven／NASA 3D Resources 的 CC0 GLB，遊戲中同樣使用；碰撞照程式模型）'
-          : '程式模型（three.js）'
+        ? '程式模型（three.js）'
         : `GLB（${src.origin === 'builtin' ? '內建' : src.server ? '伺服器預設組' : '瀏覽器暫存'}${src.fallback ? '，暫用右側' : ''}）${src.name}・${kb(src.size)}`;
     const rows = [
       ['分類', cat ? cat.name : e.cat],
