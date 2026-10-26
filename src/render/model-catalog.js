@@ -446,11 +446,17 @@ addPlain(
   },
   { origin: '物件中心（岩石中心）' },
 );
-addPlain('prop', 'lamp_post', '柱子／路燈桿', '照明桿高 10–14 m（雜物，細柱不擋視線判定）' + PROP_SCALED, () => {
-  const m = buildLampPost(7, mat(0x33373c));
-  m.position.y = 3.5;
-  return m;
-});
+addPlain(
+  'prop',
+  'lamp_post',
+  '柱子／路燈桿',
+  '照明桿高 10–14 m（雜物，細柱不擋視線判定）' + PROP_SCALED,
+  () => {
+    const m = buildLampPost(7, mat(0x33373c));
+    m.position.y = 3.5;
+    return m;
+  },
+);
 addPlain('prop', 'debris', '散落碎塊', '純裝飾，0.3–1.2 m' + PROP_SCALED, () => {
   const m = buildDebris(0.75, 0.35, 0.75, mat(0x55595e));
   m.position.y = 0.175;
@@ -590,10 +596,16 @@ addPlain(
     PROP_SCALED,
   () => buildDerrick(36, 0x9a6a3a),
 );
-addPlain('prop', 'wreck_hull', '艦體殘骸', '沙丘地帶的地標；現實尺寸長約 84 m 的貨輪殘骸，艦首朝 −Z，遊戲中埋入地面 8.4 m', () =>
-  buildWreckHull(0x7d7466),
+addPlain(
+  'prop',
+  'wreck_hull',
+  '艦體殘骸',
+  '沙丘地帶的地標；現實尺寸長約 84 m 的貨輪殘骸，艦首朝 −Z，遊戲中埋入地面 8.4 m',
+  () => buildWreckHull(0x7d7466),
 );
-addPlain('prop', 'wreck_arch', '拱形殘骸', '沙丘地帶；跨距 54 m 的巨大構造殘骸，沿 X', () => buildWreckArch(0x6f675c));
+addPlain('prop', 'wreck_arch', '拱形殘骸', '沙丘地帶；跨距 54 m 的巨大構造殘骸，沿 X', () =>
+  buildWreckArch(0x6f675c),
+);
 addPlain(
   'prop',
   'ore_hopper',
@@ -608,12 +620,8 @@ addPlain(
   '荒涼工業荒野的全身掩體；半徑 5–12、高 10–18 m，可破壞' + PROP_SCALED,
   () => buildStorageTank(3, 6, 0x8a5a3a),
 );
-addPlain(
-  'prop',
-  'rock_spire',
-  '岩柱',
-  '荒涼工業荒野的岩石；半徑 4–9、高 15–35 m，可破壞' + PROP_SCALED,
-  () => buildRockSpire(2, 7, 0x4e3e33),
+addPlain('prop', 'rock_spire', '岩柱', '荒涼工業荒野的岩石；半徑 4–9、高 15–35 m，可破壞' + PROP_SCALED, () =>
+  buildRockSpire(2, 7, 0x4e3e33),
 );
 addPlain(
   'prop',
@@ -625,18 +633,22 @@ addPlain(
 addPlain('prop', 'scrap', '廢鐵板', '荒涼工業荒野與沙丘地帶的裝飾，0.8–2 m' + PROP_SCALED, () =>
   buildScrap(1.5, 0.8, 1.2, 0x5a4a3e),
 );
-addPlain('prop', 'mt_wreck', 'MT 殘骸', '沙丘地帶的掩體；MT 也放大 3 倍，約 12.6 × 9.6 × 12.6 m，遊戲中埋入 1.8 m，可破壞', () =>
-  buildMtWreck(0x6a6f66),
+addPlain(
+  'prop',
+  'mt_wreck',
+  'MT 殘骸',
+  '沙丘地帶的掩體；MT 也放大 3 倍，約 12.6 × 9.6 × 12.6 m，遊戲中埋入 1.8 m，可破壞',
+  () => buildMtWreck(0x6a6f66),
+);
+addPlain('prop', 'sandstone', '風蝕砂岩', '沙丘地帶的岩石；半徑 6–10、高 15–25 m，可破壞' + PROP_SCALED, () =>
+  buildSandstone(3, 7, 0x7a5a3c),
 );
 addPlain(
   'prop',
-  'sandstone',
-  '風蝕砂岩',
-  '沙丘地帶的岩石；半徑 6–10、高 15–25 m，可破壞' + PROP_SCALED,
-  () => buildSandstone(3, 7, 0x7a5a3c),
-);
-addPlain('prop', 'sand_fence', '防風牆', '沙丘地帶的低掩體；現實的防風牆高 3 m、長 20–40 m，沿 X，可破壞' + PROP_SCALED, () =>
-  buildSandFence(8, 0x9a8a72),
+  'sand_fence',
+  '防風牆',
+  '沙丘地帶的低掩體；現實的防風牆高 3 m、長 20–40 m，沿 X，可破壞' + PROP_SCALED,
+  () => buildSandFence(8, 0x9a8a72),
 );
 addPlain(
   'prop',
@@ -649,9 +661,19 @@ addPlain('prop', 'ice_chunk', '冰塊', '冰原的岩石；冰塊半徑 2–5 m�
   buildIceChunk(2.5),
 );
 addPlain('prop', 'beacon', '信號燈桿', '冰原；高 10–15 m，可破壞' + PROP_SCALED, () => buildBeacon(8));
-addPlain('prop', 'radar_dish', '雷達天線', '冰原；現實尺寸高約 17 m（碟面直徑約 12 m），爬梯與門照人的尺寸，可破壞', () => buildRadarDish(0xd8dde2));
-addPlain('prop', 'obs_dome', '舊時代觀測圓頂', '冰原的大型建築；現實尺寸基座半徑 18 m 的雷達罩，走道欄杆與入口照人的尺寸，不可破壞', () =>
-  buildObsDome(0xc8d0d8),
+addPlain(
+  'prop',
+  'radar_dish',
+  '雷達天線',
+  '冰原；現實尺寸高約 17 m（碟面直徑約 12 m），爬梯與門照人的尺寸，可破壞',
+  () => buildRadarDish(0xd8dde2),
+);
+addPlain(
+  'prop',
+  'obs_dome',
+  '舊時代觀測圓頂',
+  '冰原的大型建築；現實尺寸基座半徑 18 m 的雷達罩，走道欄杆與入口照人的尺寸，不可破壞',
+  () => buildObsDome(0xc8d0d8),
 );
 addPlain('prop', 'ice_shard', '碎冰', '冰原的裝飾，0.6–1.6 m' + PROP_SCALED, () =>
   buildIceShard(1.2, 0.4, 1),
@@ -716,8 +738,12 @@ for (const [style, label] of featureStyles().map((st) => [st, STYLE_LABEL[st] ||
     buildThemeTunnel(style),
   );
 }
-addPlain('prop', 'tunnel_portal', '隧道口', '公路／鐵路兩端；現實尺寸（開口 8 × 6.5 m），開口朝 −Z；main 材質為主題的岩石色', () =>
-  buildTunnelPortal(T.rock),
+addPlain(
+  'prop',
+  'tunnel_portal',
+  '隧道口',
+  '公路／鐵路兩端；現實尺寸（開口 8 × 6.5 m），開口朝 −Z；main 材質為主題的岩石色',
+  () => buildTunnelPortal(T.rock),
 );
 addPlain(
   'prop',
