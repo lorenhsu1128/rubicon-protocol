@@ -9483,6 +9483,121 @@ async function testAttrs(browser, base) {
   await page.evaluate(() => window.__game.rangeExit());
   await ctx.close();
 }
+// 機甲庫的換裝介面（docs/garage-ui.md）：雙翼的部位格、零件格子與小卡片、標註線、六角圖與量表、零件縮圖、規格頁、設定頁、手把的 Y
+async function testGarageUi(browser, base) {
+  console.log('機甲庫的換裝介面：雙翼、零件格子、小卡片、標註線、六角圖、量表、零件縮圖、規格頁、設定頁');
+  const { ctx, page } = await newPage(browser, 'garage-ui');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.ctrl.hangarFx = 'off';
+    g.save.coam = 500000;
+    g.openGarage();
+  });
+  await waitVisible(page, 'garage');
+  const wings = await page.evaluate(() => ({
+    l: document.querySelectorAll('#gWingL .slot').length,
+    r: document.querySelectorAll('#gWingR .slot').length,
+    tab: document.getElementById('garage').dataset.tab,
+  }));
+  check(
+    wings.l === 6 && wings.r === 7 && wings.tab === 'eq',
+    `雙翼的部位格（左 ${wings.l}、右 ${wings.r}），進來時在裝備頁`,
+  );
+  // 選腳部：零件格子打開在右翼旁邊，游標停在重二足上 → 小卡片、量表與六角圖的預覽
+  await page.click('#slots .slot[data-slot="legs"]');
+  await page.hover('#partList .part[data-pid="l_hv"]');
+  await wait(400);
+  const hv = await page.evaluate(() => {
+    const fly = document.getElementById('gFly').getBoundingClientRect();
+    const wr = document.getElementById('gWingR').getBoundingClientRect();
+    return {
+      n: document.querySelectorAll('#partList .part').length,
+      right: fly.right <= wr.left + 1,
+      tip: document.getElementById('gTip').textContent,
+      bars: document.querySelectorAll('#gTip .tR').length,
+      buy: !!document.querySelector('#gTip .tEq'),
+      prev: !!document.querySelector('#gHex .hxPrev'),
+      meterDelta: document.querySelectorAll('#gMeters .gMb s').length,
+    };
+  });
+  check(
+    hv.n === 6 && hv.right && hv.tip.includes('GOLIATH') && hv.bars >= 5 && hv.buy,
+    `零件格子（${hv.n} 格，在右翼旁邊）與小卡片（${hv.bars} 條數值、購買按鈕）`,
+  );
+  check(hv.prev && hv.meterDelta >= 2, `游標停留時六角圖的虛線與量表的差值（${hv.meterDelta} 條）`);
+  // 標註線：畫布上有線（選中的部位是警示黃）
+  const lines = await page.evaluate(() => {
+    const cv = document.getElementById('gCallout');
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0,
+      amber = 0;
+    for (let i = 0; i < d.length; i += 16)
+      if (d[i + 3] > 40) {
+        n++;
+        if (d[i] > 200 && d[i + 1] > 120 && d[i + 2] < 90) amber++;
+      }
+    return { n, amber };
+  });
+  check(lines.n > 50 && lines.amber > 10, `標註線（${lines.n} 點、警示黃 ${lines.amber} 點）`);
+  // 零件縮圖：每格最多拍一張，等畫面上的格子都換成圖片
+  const thumbs = await page.evaluate(
+    () =>
+      new Promise((res) => {
+        const t0 = performance.now();
+        const tick = () => {
+          const n = document.querySelectorAll('#partList .gThumb img').length;
+          if (n >= 6 || performance.now() - t0 > 8000) res(n);
+          else setTimeout(tick, 100);
+        };
+        tick();
+      }),
+  );
+  check(thumbs >= 6, `零件縮圖（腳部 ${thumbs} 張）`);
+  // 點重二足：購買並裝備，箭頭、量表、六角圖跟著更新
+  await page.click('#partList .part[data-pid="l_hv"]');
+  const eq = await page.evaluate(() => ({
+    legs: window.__game.save.asm.legs,
+    owned: window.__game.save.owned.includes('l_hv'),
+  }));
+  check(eq.legs === 'l_hv' && eq.owned, '點零件格子購買並裝備');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'garage-ui-eq.png') });
+  // 規格頁：大六角圖與圖表
+  await page.click('#gTabs [data-tab="spec"]');
+  await wait(300);
+  const spec = await page.evaluate(() => ({
+    hex: !!document.querySelector('#gSpecCharts .hexSvg .hxCur'),
+    cards: document.querySelectorAll('#gSpecCharts .sC').length,
+    fire: document.querySelectorAll('#gSpecCharts .sR.fire').length,
+    wings: getComputedStyle(document.getElementById('gWingL')).display,
+  }));
+  check(
+    spec.hex && spec.cards >= 7 && spec.fire >= 2 && spec.wings === 'none',
+    `規格頁的圖表（${spec.cards} 張卡片、武器 ${spec.fire} 把），雙翼收起`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'garage-ui-spec.png') });
+  // 設定頁：機體配色的色票
+  await page.click('#gTabs [data-tab="set"]');
+  await page.click('#gPal [data-pal="p3"]');
+  const pal = await page.evaluate(() => window.__game.save.mechPal);
+  check(pal === 'p3', `設定頁的機體配色色票（${pal}）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'garage-ui-set.png') });
+  // 手機橫式：兩翼只剩縮圖
+  await page.click('#gTabs [data-tab="eq"]');
+  await page.setViewportSize({ width: 844, height: 390 });
+  await wait(500);
+  const ph = await page.evaluate(() => ({
+    t: getComputedStyle(document.querySelector('#gWingL .gSlotT')).display,
+    over: [...document.querySelectorAll('#gWingR .slot')].every(
+      (b) => b.getBoundingClientRect().bottom <= window.innerHeight,
+    ),
+  }));
+  check(ph.t === 'none' && ph.over, '手機橫式：兩翼只剩縮圖、都在畫面裡');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'garage-ui-phone.png') });
+  await ctx.close();
+}
+
 async function testRange(browser, base) {
   console.log('靶場：機甲庫的理論火力、目標設定、量測輸出與承受、AP 無限、不會被擊破、橫移、紀錄、轉場整備');
   const { ctx, page } = await newPage(browser, 'range');
@@ -16194,6 +16309,7 @@ const STEPS = [
   ['testSupply', (c) => testSupply(c.browser, c.base)],
   ['testGuide', (c) => testGuide(c.browser, c.base)],
   ['testRange', (c) => testRange(c.browser, c.base)],
+  ['testGarageUi', (c) => testGarageUi(c.browser, c.base)],
   ['testAttrs', (c) => testAttrs(c.browser, c.base)],
   ['testAim', (c) => testAim(c.browser, c.base)],
   ['testAudio', (c) => testAudio(c.browser, c.base)],

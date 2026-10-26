@@ -278,6 +278,7 @@ Object.assign(Game.prototype, {
     const eA = edge(0),
       eB = edge(1),
       eX = edge(2),
+      eY = edge(3),
       eLB = edge(4),
       eRB = edge(5);
     const ax = gp.axes[0] || 0,
@@ -354,6 +355,8 @@ Object.assign(Game.prototype, {
       if (cm && cm.classList.contains('on')) cm.click();
       else if (this.tfxSkip) this.tfxSkip();
     }
+    // Y：機甲庫的裝備頁 ⇄ 規格頁（docs/garage-ui.md）
+    if (eY && this.state === 'garage' && this.garageTab) this.garageTab(this.gTab === 'spec' ? 'eq' : 'spec');
     return true;
   },
   // ---------- 確認視窗（取代 confirm，手把也能操作） ----------
