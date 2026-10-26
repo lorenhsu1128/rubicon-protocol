@@ -90,3 +90,10 @@
 - 補給箱、掉落物（機甲用的補給，模型放大 3 倍）、出口與補給台的光環、救援範圍乘 `MS`；據點的間距、守衛出動距離、增援的進場距離、護送車隊的間距乘 `DS`。
 - 3D 音效的距離衰減（`SFX.dk`）放大 3 倍；靶場的射擊道與距離（30／90／180／300 m）、分距離命中率（90／180 m）、機甲庫的預估命中率（90／180 m）。
 - Boss、地圖專屬敵人、場上機制（`hazards2.js` 的區域、燃燒地面、能量環、光束）與特效的大小在第 7 期。
+
+## 7. Boss、地圖專屬敵人、場上機制、特效（第 7 期）
+
+- **特效**（`fx/effects.js`）：`Effects.k`（`setK`：一般 3、Coral 戰爭 1）。裝飾性的大小與速度（閃光、火花、煙、塵土、衝擊環、爆炸、槍口、光束寬、碎片、彈殼、斬擊的火花）的參數照舊尺度傳，Effects 裡乘 `k`；**和判定一致的範圍是世界尺寸、不乘**：`warnCircle` 的 R、`warnRect` 的寬長、`groundWave`、`pulseShell`、`firePool`、`flameCone` 的長度、`pillarStrike` 的半徑、`slash` 的半徑。呼叫端手上已經是世界尺寸的大小（乘過 `scale`、`splash`、爆炸半徑）要除以 `fx.k` 再傳。子彈的外觀（`Projectile`）整體放大 MS（曳光的長度依舊尺度的彈速）。
+- **場上機制**：`addZone`、`addTempWall` 的半徑與尺寸是世界尺寸（呼叫端乘倍率），內部的高度與門檻乘 `fx.k`；`addPool`、`pulseRing`、`beamAttack`（range、w）、`slagShot` 的半徑照舊尺度傳、函式裡乘 `fx.k`（和 `shockStart` 相同）；可以打掉的投射物的 `shotR` 照舊尺度。
+- **Boss 與地圖專屬敵人**：行為裡寫死的距離、速度、高度乘 DS／MS（`mech-boss*.js`、`mech-foe*.js`、`bosses*.js`）；`s.want`（`wantDist`）在生成時已經乘過，不要再乘。鑽地蟲的身體、旋風、水面的環紋、迴旋刃等直接放在場景裡的網格放大 MS。Boss 最終型態招式（`mech-boss3.js` 的 `SPECIALS`）的參數照舊尺度寫。
+- **戰鬥載具的精細化**（`render/vehicle-models.js` 的 `tankDetail`／`heliDetail`／`droneDetail`）：放大 3 倍後近看的零件——戰車的反應裝甲、側裙接縫、艙蓋、潛望鏡、同軸機槍、遙控武器站、天線、置物架、拖曳鋼索、排氣、尾燈、油桶；直升機的光電球、剪線器、艙門輪廓、排氣抑制器、熱焰彈、航行燈、葉尖配重；無人機的面板、進氣口、天線罩。

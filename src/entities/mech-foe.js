@@ -17,6 +17,7 @@
 // 擴充組（地圖專屬敵人擴充 B1／B2／C1／C2：data/foes-<組>.js、entities/mech-foe-<組>.js）的分派一律經過 foeExt：
 // ai → 組的後綴（EXT_AI），呼叫 foeMove_<組>／foeFire_<組>／foeDefense_<組>／foeFx_<組>（回傳 undefined＝不是那一組的）。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { clamp, rnd } from '../core/math.js';
 import { FOES_b1 } from '../data/foes-b1.js';
 import { FOES_b2 } from '../data/foes-b2.js';
@@ -37,11 +38,11 @@ for (const [k, T] of [
   for (const d of Object.values(T)) EXT_AI.set(d.ai, k);
 const _d1v = new THREE.Vector3();
 const HIDE_AI = new Set(['burrow', 'gunboat', 'marsh', 'lurker', 'whiteout']); // 會隱藏（不能鎖定）的
-const DRILL_R = 3.6; // 鑽擊距離
+const DRILL_R = 3.6 * MS; // 鑽擊距離
 // 近戰命中的參數（takeDamage 的 melee：kb＝擊退速度；不能只傳 true，否則擊退是 NaN）
-const DRILL_HIT = { kb: 9 },
-  RAM_HIT = { kb: 20 },
-  SHOVE_HIT = { kb: 26 },
+const DRILL_HIT = { kb: 9 * DS },
+  RAM_HIT = { kb: 20 * DS },
+  SHOVE_HIT = { kb: 26 * DS },
   BITE = { kb: 4 },
   BITE_BIG = { kb: 12 };
 
@@ -58,9 +59,9 @@ Object.assign(MechEntity.prototype, {
     const s = this.aiState;
     const r = { hover: false, qb: false, ab: false, done: false };
     if (this.ai === 'drill') {
-      if (d > 2.5) wish.copy(dir);
+      if (d > 2.5 * DS) wish.copy(dir);
       else wish.copy(perp).multiplyScalar(0.3);
-      if (d > 14 && Math.random() < dt * 0.6) r.qb = true;
+      if (d > 14 * DS && Math.random() < dt * 0.6) r.qb = true;
       s.drillT = (s.drillT === undefined ? 1 : s.drillT) - dt;
       if (d < DRILL_R && s.drillT <= 0 && this.canAct()) {
         s.drillT = 1.6;
@@ -116,7 +117,7 @@ Object.assign(MechEntity.prototype, {
       if (s.absT <= 0 && this.shell < this.shellMax * 0.9) {
         s.absT = 6;
         const w = this.game.world;
-        const p = (w.props || []).find((q) => !q.dead && q.pos && q.pos.distanceTo(this.pos) < 22);
+        const p = (w.props || []).find((q) => !q.dead && q.pos && q.pos.distanceTo(this.pos) < 22 * DS);
         if (p) {
           this.game.damageProp(p, p.hp + 1, 0, p.pos.clone());
           this.shell = Math.min(this.shellMax, this.shell + this.shellMax * 0.35);
@@ -143,13 +144,13 @@ Object.assign(MechEntity.prototype, {
     if (s.bw === 'under') {
       this.bossVis = 1;
       this.noLock = true;
-      wish.copy(dir).multiplyScalar(d > 4 ? 1.2 : 0.2);
+      wish.copy(dir).multiplyScalar(d > 4 * DS ? 1.2 : 0.2);
       if (Math.random() < dt * 8) g.fx.dust(this.pos.clone(), 1.6, 3, 0xc9a06a);
-      if ((d < 5 && s.bwT <= 0) || s.bwT < -6) {
+      if ((d < 5 * DS && s.bwT <= 0) || s.bwT < -6) {
         s.bw = 'rise';
         s.bwT = 0.9;
         s.at = pl.pos.clone();
-        g.fx.warnCircle(s.at, 4, 0.9);
+        g.fx.warnCircle(s.at, 4 * MS, 0.9);
       }
     } else if (s.bw === 'rise') {
       wish.set(0, 0, 0);
@@ -162,15 +163,19 @@ Object.assign(MechEntity.prototype, {
         this.noLock = false;
         g.fx.dust(this.pos.clone(), 5, 14, 0xc9a06a);
         for (const t of g.hostilesOfEnt(this))
-          if (!t.dead && Math.hypot(t.pos.x - s.at.x, t.pos.z - s.at.z) < 4 && t.pos.y - s.at.y < 3) {
+          if (
+            !t.dead &&
+            Math.hypot(t.pos.x - s.at.x, t.pos.z - s.at.z) < 4 * MS &&
+            t.pos.y - s.at.y < 3 * MS
+          ) {
             t.takeDamage(520 * this.dmgMul, 1100 * this.dmgMul, this, t.center(), new THREE.Vector3(0, 1, 0));
-            t.vel.y = Math.max(t.vel.y, 9);
+            t.vel.y = Math.max(t.vel.y, 9 * DS);
           }
         s.bw = 'up';
         s.bwT = 4;
       }
     } else if (s.bw === 'up') {
-      if (d < 8) wish.copy(dir).negate().multiplyScalar(0.4);
+      if (d < 8 * DS) wish.copy(dir).negate().multiplyScalar(0.4);
       else wish.copy(perp).multiplyScalar(0.3);
       if (s.bwT <= 0) {
         s.bw = 'under';
@@ -188,21 +193,21 @@ Object.assign(MechEntity.prototype, {
       s.loaded = true;
     }
     s.crT -= dt;
-    if (s.crT <= 0 && s.loaded && d < 70 && this.canAct()) {
+    if (s.crT <= 0 && s.loaded && d < 70 * DS && this.canAct()) {
       const lead = pl.vel.clone().setY(0).multiplyScalar(0.7);
-      if (lead.length() > 7) lead.setLength(7);
+      if (lead.length() > 7 * DS) lead.setLength(7 * DS);
       this.game.crateShot(this, pl.pos.clone().add(lead), {
         dmg: 700 * this.dmgMul,
         im: 1300 * this.dmgMul,
-        R: 4.5,
-        T: clamp(1.4 + d / 45, 1.6, 2.6),
+        R: 4.5 * MS,
+        T: clamp(1.4 + d / (45 * DS), 1.6, 2.6),
       });
       s.crT = rnd(5, 6.5);
       s.loaded = false;
     }
     if (!s.loaded && s.crT < 2.5) s.loaded = true;
     // 2＝快要丟出（模型的預警動作：render/foe-models.js 的 animD1）
-    this.bossVis = (s.loaded ? 1 : 0) | (s.loaded && s.crT < 1.2 && d < 70 ? 2 : 0);
+    this.bossVis = (s.loaded ? 1 : 0) | (s.loaded && s.crT < 1.2 && d < 70 * DS ? 2 : 0);
     return true;
   },
   // 叉架 MT：舉著貨櫃時往前推進，到 20 m 內丟出；7 秒後再舉起一個（沒有貨櫃時保持距離）
@@ -217,18 +222,18 @@ Object.assign(MechEntity.prototype, {
       this.game.fx.dust(this.pos.clone(), 2, 6);
     }
     if (s.hold) {
-      if (d > 9) wish.copy(dir).multiplyScalar(0.9);
+      if (d > 9 * DS) wish.copy(dir).multiplyScalar(0.9);
       else wish.copy(perp).multiplyScalar(0.4);
-    } else if (d < 22) wish.copy(dir).multiplyScalar(-0.7).addScaledVector(perp, 0.5);
+    } else if (d < 22 * DS) wish.copy(dir).multiplyScalar(-0.7).addScaledVector(perp, 0.5);
     else wish.copy(perp).multiplyScalar(0.6);
     s.thT -= dt;
-    if (s.hold && s.thT <= 0 && d < 20 && d > 3 && this.canAct()) {
+    if (s.hold && s.thT <= 0 && d < 20 * DS && d > 3 * DS && this.canAct()) {
       const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
-      if (lead.length() > 4) lead.setLength(4);
+      if (lead.length() > 4 * DS) lead.setLength(4 * DS);
       this.game.crateShot(this, pl.pos.clone().add(lead), {
         dmg: 520 * this.dmgMul,
         im: 1000 * this.dmgMul,
-        R: 3.5,
+        R: 3.5 * MS,
         T: 0.9,
         G: 26,
       });
@@ -236,7 +241,7 @@ Object.assign(MechEntity.prototype, {
       s.reT = 7;
       s.thT = 3;
     }
-    this.bossVis = (s.hold ? 1 : 0) | (s.hold && s.thT < 1 && d < 20 ? 2 : 0); // 2＝快要丟出（模型的預警）
+    this.bossVis = (s.hold ? 1 : 0) | (s.hold && s.thT < 1 && d < 20 * DS ? 2 : 0); // 2＝快要丟出（模型的預警）
     this.stuckJump(dt, r);
     return r;
   },
@@ -259,21 +264,28 @@ Object.assign(MechEntity.prototype, {
           const q = free.reduce((a, b) => (Math.abs(a.x - this.pos.x) < Math.abs(b.x - this.pos.x) ? a : b));
           w.gateUsed.add(q);
           s.gate = q;
-          this.pos.set(q.x, w.groundAt(q.x, D.zc, 40), D.zc);
+          this.pos.set(q.x, w.groundAt(q.x, D.zc, 999), D.zc);
           this.vel.set(0, 0, 0);
         }
       }
     }
     s.gT -= dt;
-    if (!s.warn && s.gT <= 0 && d < 95 && this.canAct()) {
+    if (!s.warn && s.gT <= 0 && d < 95 * DS && this.canAct()) {
       let fl;
       if (s.gate) {
         const D = w.dam,
           dn = -D.up;
-        fl = { x: s.gate.x, z: D.zc + dn * 5.5, dx: 0, dz: dn, hw: s.gate.gw / 2 - 0.5, len: 48 * w.k };
+        fl = {
+          x: s.gate.x,
+          z: D.zc + dn * 5.5 * MS,
+          dx: 0,
+          dz: dn,
+          hw: s.gate.gw / 2 - 0.5 * MS,
+          len: 48 * w.k,
+        };
       } else {
         const to = pl.pos.clone().sub(this.pos).setY(0).normalize();
-        fl = { x: this.pos.x, z: this.pos.z, dx: to.x, dz: to.z, hw: 5, len: 42 };
+        fl = { x: this.pos.x, z: this.pos.z, dx: to.x, dz: to.z, hw: 5 * MS, len: 42 * DS };
       }
       s.warn = fl;
       s.gT = 2;
@@ -300,21 +312,21 @@ Object.assign(MechEntity.prototype, {
       s.gbT = rnd(2, 4);
     }
     s.gbT -= dt;
-    const wet = (x, z) => !w.theme.water || w.waterDepth(x, z) > 0.25;
+    const wet = (x, z) => !w.theme.water || w.waterDepth(x, z) > 0.25 * MS;
     if (s.gb === 'under') {
       this.bossVis = 1;
       this.noLock = true;
-      if (d > 26) wish.copy(dir);
-      else if (d < 16) wish.copy(dir).negate();
+      if (d > 26 * DS) wish.copy(dir);
+      else if (d < 16 * DS) wish.copy(dir).negate();
       else wish.copy(perp);
       // 在水裡時只往水裡走（上了岸就照常移動，回到水道為止）
-      if (wet(this.pos.x, this.pos.z) && !wet(this.pos.x + wish.x * 3, this.pos.z + wish.z * 3)) {
+      if (wet(this.pos.x, this.pos.z) && !wet(this.pos.x + wish.x * 3 * DS, this.pos.z + wish.z * 3 * DS)) {
         const alt = wish.clone().set(-wish.z, 0, wish.x);
-        if (!wet(this.pos.x + alt.x * 3, this.pos.z + alt.z * 3)) alt.negate();
-        wish.copy(wet(this.pos.x + alt.x * 3, this.pos.z + alt.z * 3) ? alt : alt.set(0, 0, 0));
+        if (!wet(this.pos.x + alt.x * 3 * DS, this.pos.z + alt.z * 3 * DS)) alt.negate();
+        wish.copy(wet(this.pos.x + alt.x * 3 * DS, this.pos.z + alt.z * 3 * DS) ? alt : alt.set(0, 0, 0));
       }
       if (Math.random() < dt * 6) g.fx.dust(this.pos.clone(), 1.2, 2, 0x9fb8a8);
-      if ((s.gbT <= 0 && d < 40 && wet(this.pos.x, this.pos.z)) || s.gbT < -6) {
+      if ((s.gbT <= 0 && d < 40 * DS && wet(this.pos.x, this.pos.z)) || s.gbT < -6) {
         s.gb = 'up';
         s.gbT = 5;
         s.shots = 3;
@@ -343,23 +355,23 @@ Object.assign(MechEntity.prototype, {
   foeSprayer(dt, d, dir, perp, wish, pl, r) {
     const s = this.aiState,
       g = this.game;
-    if (d > 16) wish.copy(dir).multiplyScalar(0.8);
-    else if (d < 9) wish.copy(dir).multiplyScalar(-0.6);
+    if (d > 16 * DS) wish.copy(dir).multiplyScalar(0.8);
+    else if (d < 9 * DS) wish.copy(dir).multiplyScalar(-0.6);
     else wish.copy(perp).multiplyScalar(0.5);
     s.spT = (s.spT === undefined ? rnd(2, 3) : s.spT) - dt;
-    if (s.spT <= 0 && d < 26 && this.canAct()) {
+    if (s.spT <= 0 && d < 26 * DS && this.canAct()) {
       s.spT = rnd(4, 5.5);
       const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
-      if (lead.length() > 4) lead.setLength(4);
+      if (lead.length() > 4 * DS) lead.setLength(4 * DS);
       const at = pl.pos.clone().add(lead);
-      at.y = g.world.groundAt(at.x, at.z, at.y + 1.5);
+      at.y = g.world.groundAt(at.x, at.z, at.y + 1.5 * MS);
       const mz = this.muzzle('rarm');
       g.fx.streaks(mz, 12, 0x9aff40, 18, 0.5, 14, at.clone().sub(mz).normalize(), 0.35);
       g.fx.warnCircle(at, 4.5, 1, 0x9aff40);
       g.netEv({ t: 'warn', p: at.toArray().map((x) => +x.toFixed(2)), R: 4.5, dl: 1, c: 0x9aff40 });
       g.later(1, () => g.addPool(this, at, 4.5, 10, 50 * this.dmgMul, true));
     }
-    this.bossVis = s.spT < 1 && d < 26 ? 1 : 0; // 1＝快要噴（模型的預警：噴嘴臂抬起、噴口變亮）
+    this.bossVis = s.spT < 1 && d < 26 * DS ? 1 : 0; // 1＝快要噴（模型的預警：噴嘴臂抬起、噴口變亮）
     this.stuckJump(dt, r);
     return r;
   },
@@ -368,13 +380,13 @@ Object.assign(MechEntity.prototype, {
     const s = this.aiState,
       w = this.game.world;
     const wet =
-      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 0.8 &&
-      w.waterDepth(this.pos.x, this.pos.z) > 0.3;
-    const sub = wet && d > 14;
+      this.pos.y - w.terrainHeight(this.pos.x, this.pos.z) < 0.8 * MS &&
+      w.waterDepth(this.pos.x, this.pos.z) > 0.3 * MS;
+    const sub = wet && d > 14 * DS;
     this.bossVis = sub ? 2 : 0;
-    if (d > s.want + 4) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
+    if (d > s.want + 4 * DS) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
     else wish.copy(perp);
-    if (sub && d < 26 && Math.random() < dt * 1.5) {
+    if (sub && d < 26 * DS && Math.random() < dt * 1.5) {
       r.qb = true;
       wish.copy(dir);
     } else if (!sub && Math.random() < dt * 0.8) r.qb = true;
@@ -391,14 +403,14 @@ Object.assign(MechEntity.prototype, {
     if (s.lk === 'hide') {
       this.bossVis = 1;
       this.noLock = true;
-      if (d > 20) wish.copy(dir).multiplyScalar(0.35);
+      if (d > 20 * DS) wish.copy(dir).multiplyScalar(0.35);
       if (Math.random() < dt * 2) g.fx.dust(this.pos.clone().setY(this.pos.y + 0.5), 0.8, 2, 0xffffff);
-      if (d < 16 || s.hit) this.foeLurkerRise();
+      if (d < 16 * DS || s.hit) this.foeLurkerRise();
     } else {
       s.upT = (s.upT || 0) + dt;
-      if (d > s.want + 4) wish.copy(dir);
+      if (d > s.want + 4 * DS) wish.copy(dir);
       else wish.copy(perp).multiplyScalar(0.6);
-      if (s.upT > 10 && d > 32) {
+      if (s.upT > 10 && d > 32 * DS) {
         s.lk = 'hide';
         s.hit = false;
         g.fx.dust(this.pos.clone(), 3, 10, 0xf0f4f8);
@@ -430,7 +442,7 @@ Object.assign(MechEntity.prototype, {
     }
     wish
       .set(-dir.z * s.skDir, 0, dir.x * s.skDir)
-      .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+      .addScaledVector(dir, clamp((d - s.want) / (8 * DS), -1, 1))
       .normalize();
     if (this.model.fan) this.model.fan.rotation.z += dt * 25;
     if (ice && Math.random() < dt * 8) this.game.fx.dust(this.pos.clone(), 1, 2, 0xe8f0f8);
@@ -439,10 +451,10 @@ Object.assign(MechEntity.prototype, {
   // WHITEOUT：保持 55 m 狙擊；開火後 2.5 秒內與 14 m 內看得到，其他時候隱藏（不能鎖定）
   foeWhiteout(dt, d, dir, perp, wish, r) {
     const s = this.aiState;
-    if (d < s.want - 8) {
+    if (d < s.want - 8 * DS) {
       wish.copy(dir).negate();
       if (Math.random() < dt * 2) r.qb = true;
-    } else if (d > s.want + 10) wish.copy(dir);
+    } else if (d > s.want + 10 * DS) wish.copy(dir);
     else wish.copy(perp).multiplyScalar(0.6);
     wish.normalize();
     if (s.stuck > 0.4) {
@@ -454,7 +466,7 @@ Object.assign(MechEntity.prototype, {
     if (s.jumpT > 0) r.hover = 2;
     s.seenT = Math.max(0, (s.seenT || 0) - dt);
     if (this.recoil.r + this.recoil.l > 0.05) s.seenT = 2.5;
-    const hidden = s.seenT <= 0 && d > 14;
+    const hidden = s.seenT <= 0 && d > 14 * DS;
     this.bossVis = hidden ? 2 : 0;
     if (hidden && Math.random() < dt * 3) this.game.fx.dust(this.pos.clone(), 1.5, 3, 0xf4f8fc);
     return r;
@@ -464,11 +476,11 @@ Object.assign(MechEntity.prototype, {
     const s = this.aiState,
       g = this.game;
     const big = this.opts.vehKey === 'chimera';
-    if (d > 1.5 + this.radius) wish.copy(dir);
+    if (d > 1.5 * MS + this.radius) wish.copy(dir);
     else wish.copy(perp).multiplyScalar(0.3);
-    if (!big && d > 10 && Math.random() < dt * 0.8) r.qb = true;
+    if (!big && d > 10 * DS && Math.random() < dt * 0.8) r.qb = true;
     s.biteT = (s.biteT === undefined ? 0.8 : s.biteT) - dt;
-    if (d < 1.6 + this.radius + pl.radius && s.biteT <= 0 && this.canAct()) {
+    if (d < 1.6 * DS + this.radius + pl.radius && s.biteT <= 0 && this.canAct()) {
       s.biteT = big ? 1.4 : 1;
       const at = pl.center();
       pl.takeDamage(
@@ -486,7 +498,8 @@ Object.assign(MechEntity.prototype, {
       if (s.mergeT <= 0) {
         s.mergeT = 1.5;
         const near = this.friendsOf().filter(
-          (f) => !f.dead && f.ai === 'blob' && f.opts.vehKey !== 'chimera' && f.pos.distanceTo(this.pos) < 7,
+          (f) =>
+            !f.dead && f.ai === 'blob' && f.opts.vehKey !== 'chimera' && f.pos.distanceTo(this.pos) < 7 * MS,
         );
         if (near.length >= 3 && near.every((f) => f.id >= this.id)) this.foeMerge(near);
       }
@@ -531,7 +544,8 @@ Object.assign(MechEntity.prototype, {
         rz = t.pos.z - this.pos.z;
       const u = rx * fx + rz * fz,
         v = Math.abs(-rx * fz + rz * fx);
-      if (u < 0.5 || u > 16.5 || v > t.radius + 0.4 || t.pos.y - this.pos.y > 3.6) continue;
+      if (u < 0.5 * MS || u > 16.5 * MS || v > t.radius + 0.4 * MS || t.pos.y - this.pos.y > 3.6 * MS)
+        continue;
       t.takeDamage(
         90 * 0.2 * this.dmgMul,
         120 * this.dmgMul,
@@ -549,13 +563,13 @@ Object.assign(MechEntity.prototype, {
         SFX.play('ui2', 1, 0.5, 0.05, 0.05, this.center());
         for (let i = 0; i < 2; i++) {
           const a = Math.random() * Math.PI * 2;
-          const p = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * 8, 0, Math.sin(a) * 8));
-          const [x, z] = g.world.collide(p.x, p.z, p.y, 2);
+          const p = this.pos.clone().add(new THREE.Vector3(Math.cos(a) * 8 * DS, 0, Math.sin(a) * 8 * DS));
+          const [x, z] = g.world.collide(p.x, p.z, p.y, 2 * MS);
           g.spawnType(
             'mt',
             g.scaleHp || 1,
             g.scaleDmg || 1,
-            new THREE.Vector3(x, g.world.groundAt(x, z, p.y + 2), z),
+            new THREE.Vector3(x, g.world.groundAt(x, z, p.y + 2 * MS), z),
             1,
           );
         }
@@ -589,11 +603,11 @@ Object.assign(MechEntity.prototype, {
     this.speedMul = s.sp0 * (s.ov ? 1.5 : 1);
     if (s.ov) this.buffT = 0.3;
     this.bossVis = s.ov ? 4 : 0;
-    if (d > s.want + 5) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
-    else if (d < s.want - 6) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
+    if (d > s.want + 5 * DS) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
+    else if (d < s.want - 6 * DS) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
     else wish.copy(perp);
     if (Math.random() < dt * (s.ov ? 1.6 : 0.5)) r.qb = true;
-    if (s.ov && d > 20 && Math.random() < dt) r.ab = true;
+    if (s.ov && d > 20 * DS && Math.random() < dt) r.ab = true;
     this.stuckJump(dt, r);
     return r;
   },
@@ -603,15 +617,15 @@ Object.assign(MechEntity.prototype, {
     const up = pl.pos.y - this.pos.y;
     if (d > s.want) wish.copy(dir);
     else wish.copy(perp).multiplyScalar(0.5);
-    s.climb = up > 4 && d < 16 && !this.flying ? true : up < 0.5 ? false : s.climb;
+    s.climb = up > 4 * MS && d < 16 * DS && !this.flying ? true : up < 0.5 * MS ? false : s.climb;
     // 頭上有平台時先橫移出來（沿平台邊緣、柱子爬）
     const w = this.game.world;
-    if (s.climb && w.groundAt(this.pos.x, this.pos.z, pl.pos.y + 2) > this.pos.y + 3) {
+    if (s.climb && w.groundAt(this.pos.x, this.pos.z, pl.pos.y + 2 * MS) > this.pos.y + 3 * MS) {
       wish.copy(perp);
     } else if (s.climb) {
       // 貼著邊緣垂直爬，高過目標的高度之後才往內走
-      this.vel.y = Math.max(this.vel.y, 9);
-      if (this.pos.y < pl.pos.y + 0.5) wish.set(0, 0, 0);
+      this.vel.y = Math.max(this.vel.y, 9 * DS);
+      if (this.pos.y < pl.pos.y + 0.5 * MS) wish.set(0, 0, 0);
       else wish.copy(dir).multiplyScalar(0.6);
       if (Math.random() < dt * 10) this.game.fx.spark(this.pos.clone().setY(this.pos.y + 0.5), 0xffa040);
     }
@@ -627,7 +641,11 @@ Object.assign(MechEntity.prototype, {
     if (s.hang === undefined) {
       s.hang = null;
       const decks = w.obstacles.filter(
-        (o) => o.kind === 'box' && o.deck && o.y - w.terrainHeight(o.x, o.z) > 5 && w.inZone(o.x, o.z, 3),
+        (o) =>
+          o.kind === 'box' &&
+          o.deck &&
+          o.y - w.terrainHeight(o.x, o.z) > 5 * MS &&
+          w.inZone(o.x, o.z, 3 * MS),
       );
       decks.sort(
         (a, b) =>
@@ -637,7 +655,7 @@ Object.assign(MechEntity.prototype, {
       if (o) {
         const x = o.x + rnd(-o.w * 0.3, o.w * 0.3),
           z = o.z + rnd(-o.d * 0.3, o.d * 0.3);
-        s.hang = o.y - 2.1;
+        s.hang = o.y - 2.1 * MS;
         this.pos.set(x, s.hang, z);
         this.vel.set(0, 0, 0);
       }
@@ -659,18 +677,18 @@ Object.assign(MechEntity.prototype, {
       for (const o of w.obstacles) {
         if (o.kind !== 'box' || !o.deck) continue;
         const dd = Math.hypot(o.x - this.pos.x, o.z - this.pos.z);
-        if (dd > 50 || o.top < pl.pos.y + 3) continue;
-        if (!best || o.top > best.top + 1 || (Math.abs(o.top - best.top) < 1 && dd < best.dd))
+        if (dd > 50 * DS || o.top < pl.pos.y + 3 * MS) continue;
+        if (!best || o.top > best.top + 1 * MS || (Math.abs(o.top - best.top) < 1 * MS && dd < best.dd))
           best = { ...o, dd };
       }
       s.perch = best;
     }
     const P = s.perch;
-    if (P && this.pos.y < P.top - 0.5) {
+    if (P && this.pos.y < P.top - 0.5 * MS) {
       const to = new THREE.Vector3(P.x - this.pos.x, 0, P.z - this.pos.z);
       wish.copy(to.normalize());
-      if (to.length() < 14 || s.stuck > 0.3) r.hover = 2;
-    } else if (d > s.want + 8) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
+      if (to.length() < 14 * DS || s.stuck > 0.3) r.hover = 2;
+    } else if (d > s.want + 8 * DS) wish.copy(dir).addScaledVector(perp, 0.4).normalize();
     else wish.copy(perp);
     if (Math.random() < dt * 0.9) r.qb = true;
     return r;
@@ -688,11 +706,11 @@ Object.assign(MechEntity.prototype, {
     s.trT -= dt;
     const fx = -Math.sin(this.yaw),
       fz = -Math.cos(this.yaw);
-    if (s.ph === 0 && s.trT <= 0 && d < 40 && this.canAct()) {
+    if (s.ph === 0 && s.trT <= 0 && d < 40 * DS && this.canAct()) {
       s.ph = 1;
       s.trT = 1.5;
       s.dir = [fx, fz];
-      const c = this.pos.clone().add(new THREE.Vector3(fx * 15, 0, fz * 15));
+      const c = this.pos.clone().add(new THREE.Vector3(fx * 15 * DS, 0, fz * 15 * DS));
       c.y = g.world.terrainHeight(c.x, c.z);
       g.fx.warnRect(c, Math.atan2(fx, fz), 8, 26, 1.5, 0xff8a30);
     } else if (s.ph === 1 && s.trT <= 0) {
@@ -706,7 +724,7 @@ Object.assign(MechEntity.prototype, {
       s.fxT = (s.fxT || 0) - dt;
       if (s.fxT <= 0) {
         s.fxT = 0.15;
-        g.fx.flameCone(this.muzzle('rarm'), new THREE.Vector3(ax, 0, az), 26, 0.16, 8);
+        g.fx.flameCone(this.muzzle('rarm'), new THREE.Vector3(ax, 0, az), 26 * DS, 0.16, 8);
       }
       s.tick -= dt;
       if (s.tick <= 0) {
@@ -717,7 +735,7 @@ Object.assign(MechEntity.prototype, {
             rz = t.pos.z - this.pos.z;
           const u = rx * ax + rz * az,
             v = Math.abs(-rx * az + rz * ax);
-          if (u < 1 || u > 28 || v > 4 + t.radius || t.pos.y - this.pos.y > 6) continue;
+          if (u < 1 * MS || u > 28 * DS || v > 4 * MS + t.radius || t.pos.y - this.pos.y > 6 * MS) continue;
           t.takeDamage(
             140 * 0.25 * this.dmgMul,
             260 * this.dmgMul,
@@ -741,8 +759,8 @@ Object.assign(MechEntity.prototype, {
   // 舊式宇宙用 MT：保持距離橫移，常常跳起來長時間滯空（低重力設計）
   foeHopper(dt, d, dir, perp, wish, r) {
     const s = this.aiState;
-    if (d > s.want + 6) wish.copy(dir);
-    else if (d < s.want - 6) wish.copy(dir).negate();
+    if (d > s.want + 6 * DS) wish.copy(dir);
+    else if (d < s.want - 6 * DS) wish.copy(dir).negate();
     else wish.copy(perp);
     s.hopT = (s.hopT === undefined ? rnd(1, 3) : s.hopT) - dt;
     if (s.hopT <= 0) {
@@ -773,9 +791,9 @@ Object.assign(MechEntity.prototype, {
     if (s.ph === 0) {
       wish
         .copy(perp)
-        .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+        .addScaledVector(dir, clamp((d - s.want) / (8 * DS), -1, 1))
         .normalize();
-      if (s.rmT <= 0 && d < 34 && this.canAct()) {
+      if (s.rmT <= 0 && d < 34 * DS && this.canAct()) {
         s.ph = 1;
         s.rmT = 0.8;
         s.at = pl.pos.clone();
@@ -790,10 +808,10 @@ Object.assign(MechEntity.prototype, {
         s.hit = false;
       }
     } else {
-      this.vel.x = s.dv.x * 42;
-      this.vel.z = s.dv.z * 42;
+      this.vel.x = s.dv.x * 42 * DS;
+      this.vel.z = s.dv.z * 42 * DS;
       wish.copy(s.dv);
-      if (!s.hit && d < this.radius + pl.radius + 1.2) {
+      if (!s.hit && d < this.radius + pl.radius + 1.2 * MS) {
         s.hit = true;
         pl.takeDamage(260 * this.dmgMul, 900 * this.dmgMul, this, pl.center(), this.foeOutward(pl), RAM_HIT);
         g.fx.meleeHit(pl.center(), 0x60e0ff, true, s.dv.clone());
@@ -809,14 +827,17 @@ Object.assign(MechEntity.prototype, {
   foeFlakFire(dt, d, aimPos, pl) {
     const s = this.aiState,
       g = this.game;
-    const air = pl.pos.y - g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 0.5) > 3;
+    const air = pl.pos.y - g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 0.5 * MS) > 3 * MS;
     s.fkT = (s.fkT || 0) - dt;
-    if (air && s.fkT <= 0 && d < 80 && this.canAct()) {
+    if (air && s.fkT <= 0 && d < 80 * DS && this.canAct()) {
       s.fkT = 0.35;
       s.fkN = (s.fkN || 0) + 1; // 射出的空炸彈數
       const mz = this.muzzle('rarm');
-      const tgt = pl.center().addScaledVector(pl.vel, d / 70);
-      const v = tgt.sub(mz).normalize().multiplyScalar(70);
+      const tgt = pl.center().addScaledVector(pl.vel, d / (70 * DS));
+      const v = tgt
+        .sub(mz)
+        .normalize()
+        .multiplyScalar(70 * DS);
       g.projectiles.push(
         new Projectile(g, {
           pos: mz.clone(),
@@ -828,8 +849,8 @@ Object.assign(MechEntity.prototype, {
           team: this.team,
           owner: this,
           color: 0x60e0ff,
-          life: d / 70 + 0.15,
-          splash: 3.2,
+          life: d / (70 * DS) + 0.15,
+          splash: 3.2 * MS,
         }),
       );
       g.fx.muzzle(mz, v.clone().normalize(), 0x60e0ff, 1.6);
@@ -841,11 +862,11 @@ Object.assign(MechEntity.prototype, {
   foeUndertow(dt, d, dir, perp, wish, pl, r) {
     const s = this.aiState,
       g = this.game;
-    if (d > s.want + 2) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
+    if (d > s.want + 2 * DS) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
     else wish.copy(perp);
-    if (d > 14 && Math.random() < dt * 1.2) r.qb = true;
+    if (d > 14 * DS && Math.random() < dt * 1.2) r.qb = true;
     s.shT = (s.shT === undefined ? 2 : s.shT) - dt;
-    if (d < 6 && s.shT <= 0 && this.canAct()) {
+    if (d < 6 * DS && s.shT <= 0 && this.canAct()) {
       s.shT = 3;
       pl.takeDamage(320 * this.dmgMul, 1100 * this.dmgMul, this, pl.center(), this.foeOutward(pl), SHOVE_HIT);
       g.fx.shockwave(pl.center(), 4, 0x40c0e0, 0.3);
@@ -861,11 +882,11 @@ Object.assign(MechEntity.prototype, {
     s.hT = (s.hT || 0) - dt;
     if (s.hT <= 0) {
       s.hT = rnd(1.5, 2.5);
-      this.hoverH = rnd(4, 12);
+      this.hoverH = rnd(4, 12) * DS;
     }
     wish
       .copy(perp)
-      .addScaledVector(dir, clamp((d - s.want) / 8, -1, 1))
+      .addScaledVector(dir, clamp((d - s.want) / (8 * DS), -1, 1))
       .normalize();
     return r;
   },
@@ -875,10 +896,10 @@ Object.assign(MechEntity.prototype, {
       g = this.game;
     this.flying = true;
     wish.copy(perp).multiplyScalar(0.6);
-    if (d < s.want - 6) wish.addScaledVector(dir, -0.6);
-    else if (d > s.want + 10) wish.addScaledVector(dir, 0.6);
+    if (d < s.want - 6 * DS) wish.addScaledVector(dir, -0.6);
+    else if (d > s.want + 10 * DS) wish.addScaledVector(dir, 0.6);
     s.mkT = (s.mkT === undefined ? rnd(2, 3) : s.mkT) - dt;
-    if (s.mkT <= 0 && d < 70 && this.canAct()) {
+    if (s.mkT <= 0 && d < 70 * DS && this.canAct()) {
       s.mkT = 6;
       pl.markT = 5;
       g.fx.beam(this.muzzle('rarm'), pl.center(), 0xff5050, 0.12);
@@ -892,12 +913,12 @@ Object.assign(MechEntity.prototype, {
     const s = this.aiState,
       w = this.game.world;
     const alt = this.pos.y - w.groundRef(this.pos.x, this.pos.z, this.pos.y);
-    if (d > s.want + 8) wish.copy(dir).addScaledVector(perp, 0.5).normalize();
-    else if (d < s.want - 8) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
+    if (d > s.want + 8 * DS) wish.copy(dir).addScaledVector(perp, 0.5).normalize();
+    else if (d < s.want - 8 * DS) wish.copy(dir).negate().addScaledVector(perp, 0.5).normalize();
     else wish.copy(perp);
-    r.hover = alt < 10 ? 2 : true;
+    r.hover = alt < 10 * DS ? 2 : true;
     if (Math.random() < dt * 1.2) r.qb = true;
-    if (d > 45 && Math.random() < dt * 0.6) r.ab = true;
+    if (d > 45 * DS && Math.random() < dt * 0.6) r.ab = true;
     return r;
   },
   // 地下時打不到；房主與客機都呼叫（specialFx）：依 bossVis 隱藏、外殼大小
@@ -938,20 +959,20 @@ Object.assign(MechEntity.prototype, {
     let w = 0;
     switch (m.type) {
       case 'cart':
-        w = clamp((16 - a.near) / 10, 0, 1);
+        w = clamp((16 - a.near / DS) / 10, 0, 1);
         break;
       case 'crystal':
       case 'jammer':
-        w = a.near < (m.type === 'jammer' ? 25 : 24) ? 1 : 0;
+        w = a.near < (m.type === 'jammer' ? 25 : 24) * DS ? 1 : 0;
         break;
       case 'driller':
-        w = a.near < 8 ? 1 : 0;
+        w = a.near < 8 * DS ? 1 : 0;
         break;
       case 'junk':
-        w = a.near < 9 ? 1 : 0;
+        w = a.near < 9 * DS ? 1 : 0;
         break;
       case 'patrol_cart':
-        w = a.near < 45 ? 1 : 0;
+        w = a.near < 45 * DS ? 1 : 0;
         break;
       case 'crane':
       case 'forklift':
@@ -966,11 +987,11 @@ Object.assign(MechEntity.prototype, {
         break;
     }
     let k = fall && m.type !== 'gunboat' ? 1 : 0;
-    if (m.type === 'driller' && a.near < 3.8) k = 1; // 鑽擊距離（mech-foe.js 的 DRILL_R）
+    if (m.type === 'driller' && a.near < 3.8 * MS) k = 1; // 鑽擊距離（mech-foe.js 的 DRILL_R）
     if (!k) {
       const mz = m.arms.r.hand.getWorldPosition(_d1v);
       for (const p of g.projectiles)
-        if (!(p.age > 0.1) && p.team === this.team && p.p0 && p.p0.distanceToSquared(mz) < 9) {
+        if (!(p.age > 0.1) && p.team === this.team && p.p0 && p.p0.distanceToSquared(mz) < 9 * MS * MS) {
           k = 1;
           break;
         }

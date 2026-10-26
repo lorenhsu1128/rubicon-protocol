@@ -476,7 +476,7 @@ export class MechEntity {
       case 'bullet':
         shoot(jitter(dir), 'bullet');
         g.fx.muzzle(muzzle, dir, d.color || 0xffd080, slot.endsWith('back') ? 1.1 : 0.9);
-        g.fx.casing(muzzle.clone().addScaledVector(dir, -1.2), w.side, dir);
+        g.fx.casing(muzzle.clone().addScaledVector(dir, -1.2 * this.dk), w.side, dir);
         SFX.shot('bullet', d.id, SP);
         w.cd = d.rof * (d.spin ? 2.5 - 1.5 * clamp(w.streak / d.spin, 0, 1) : 1); // 加特林：轉速慢慢提升
         this.recoil[w.side > 0 ? 'r' : 'l'] = 0.35;
@@ -495,7 +495,7 @@ export class MechEntity {
         if (d.enShot && !this.useEn(d.enShot * (1 - this.pmv('enWpn')))) return false; // 能量霰彈：每發耗 EN
         for (let i = 0; i < d.pellets; i++) shoot(jitter(dir), 'bullet');
         g.fx.muzzle(muzzle, dir, 0xffa050, 1.8);
-        g.fx.casing(muzzle.clone().addScaledVector(dir, -1), w.side, dir);
+        g.fx.casing(muzzle.clone().addScaledVector(dir, -1 * this.dk), w.side, dir);
         SFX.shot('shotgun', undefined, SP);
         w.cd = d.rof;
         this.recoil[w.side > 0 ? 'r' : 'l'] = 0.9;
@@ -816,7 +816,7 @@ export class MechEntity {
                 v.x *= 0.5;
                 v.z *= 0.5;
                 av.multiplyScalar(0.4);
-                g.fx.dust(piece.position.clone(), 0.8 * this.dk, 4);
+                g.fx.dust(piece.position.clone(), 0.8, 4);
               }
             }
           }
@@ -1306,7 +1306,7 @@ export class MechEntity {
     this.specialDie(from);
     if (this.explodeOnDeath) {
       const E = this.explodeOnDeath;
-      g.explodeAt(c, E.dmg, E.impact, E.splash, this, true);
+      g.explodeAt(c, E.dmg, E.impact, E.splash * this.dk, this, true);
     }
     SFX.explode(this.isBoss ? 'huge' : true, this.isPlayer ? null : c);
     SFX.wreck(this.isPlayer ? null : c);
@@ -1325,11 +1325,12 @@ export class MechEntity {
     // 人形機甲先跪倒崩落（fx.collapse）再碎裂；其他直接碎裂
     const brk = () => {
       g.fx.shatter(this, g.world);
-      if (!this.isProp) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
+      if (!this.isProp)
+        g.fx.killBurst(c, (this.scale || 1) / g.fx.k, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
       this.mesh.visible = false;
     };
     if (this.canCollapse()) {
-      g.fx.explosion(c, 1.6 * (this.scale || 1), 0xff8030);
+      g.fx.explosion(c, (1.6 * (this.scale || 1)) / g.fx.k, 0xff8030);
       g.fx.collapse(this, brk);
     } else brk();
     g.camShake = Math.max(g.camShake, this.isBoss ? 0.5 : 0.2);
@@ -1557,7 +1558,7 @@ export class MechEntity {
       SFX.qb(this.isPlayer ? null : this.center());
       if (this.isPlayer) g.rumble(0.1, 0.35, 80);
       g.fx.chevrons(this.pos.clone(), this.qbDir.clone().negate(), 0xffffff);
-      if (this.grounded) g.fx.dust(this.pos.clone(), 2.2 * this.scale, 7);
+      if (this.grounded) g.fx.dust(this.pos.clone(), (2.2 * this.scale) / g.fx.k, 7);
       this.iFrames = 0.14 + this.pmv('qbIF');
       if (this.pmv('qbRam') > 0) {
         this.ramT = 0.35;
@@ -1699,7 +1700,7 @@ export class MechEntity {
     if (this.pos.y <= g2) {
       if (!this.grounded && this.vel.y < -6 * DS) ((this.landT = 0), (this.landV = -this.vel.y / DS)); // landV：動作用（舊尺度的 m/s）
       if (!this.grounded && this.vel.y < -12 * DS) {
-        g.fx.dust(this.pos.clone().setY(g2 + 0.05), 2.6 * this.scale, 9);
+        g.fx.dust(this.pos.clone().setY(g2 + 0.05), (2.6 * this.scale) / g.fx.k, 9);
         SFX.land(this.isPlayer ? null : this.center(), clamp((-this.vel.y / DS - 12) / 18, 0, 1));
         if (this.isPlayer) {
           g.camShake = Math.max(g.camShake, 0.06);
@@ -1973,7 +1974,7 @@ export class MechEntity {
         this.grounded = false;
         this.jumpT = 0.6;
         this.jumpHold = true;
-        g.fx.dust(this.pos.clone(), 2.4 * this.scale, 8);
+        g.fx.dust(this.pos.clone(), (2.4 * this.scale) / g.fx.k, 8);
         SFX.jump(this.isPlayer ? null : this.center());
       } else if (J.canHover && (this.hoverMode || this.hoverEndT > 0)) {
         this.hoverMode = 2;
@@ -2746,16 +2747,16 @@ export class MechEntity {
     // 三階段：兩側引擎依序被打爆 → 高度下降 → 最後迫降並週期性硬直
     if (hp < 0.66 && s.phase === 1) {
       s.phase = 2;
-      this.hoverH = 6;
+      this.hoverH = 6 * this.dk;
       g.flashMsg('HELIOS 左引擎受損 — 高度下降', 0xff8040, 2.2);
-      g.fx.explosion(this.center().add(new THREE.Vector3(-4, 0, 0)), 5, 0xff7030, true);
+      g.fx.explosion(this.center().add(new THREE.Vector3(-4 * this.dk, 0, 0)), 5, 0xff7030, true);
       this.speedMul *= 0.85;
     }
     if (hp < 0.33 && s.phase === 2) {
       s.phase = 3;
-      this.hoverH = 2.5;
+      this.hoverH = 2.5 * this.dk;
       g.flashMsg('HELIOS 雙引擎失效 — 迫降！', 0xff4040, 2.5);
-      g.fx.explosion(this.center().add(new THREE.Vector3(4, 0, 0)), 5, 0xff7030, true);
+      g.fx.explosion(this.center().add(new THREE.Vector3(4 * this.dk, 0, 0)), 5, 0xff7030, true);
       this.speedMul *= 0.7;
       s.landT = 0;
     }
@@ -2824,17 +2825,17 @@ export class MechEntity {
         s.sweepA = this.aimYaw - 0.9;
       }
     }
-    const inR = (w) => d < w.def.range * 1.2 + 2;
+    const inR = (w) => d < w.def.range * 1.2 + 2 * this.dk;
     let rush = false;
     if (s.pattern === 3 && s.rushT > 0) {
       // 突進：衝向目標，撞上時造成傷害並撞開
       s.rushT -= dt;
       wish.copy(dir);
-      rush = d > 7;
-      if (!s.rammed && d < this.radius + pl.radius + 1.5 && this.canAct()) {
+      rush = d > 7 * this.dk;
+      if (!s.rammed && d < this.radius + pl.radius + 1.5 * this.dk && this.canAct()) {
         s.rammed = true;
         pl.takeDamage(500 * this.dmgMul, 1100 * this.dmgMul, this, pl.center(), dir.clone());
-        pl.vel.addScaledVector(dir, 14);
+        pl.vel.addScaledVector(dir, 14 * this.dk);
         g.camShake = Math.max(g.camShake, 0.25);
       }
     }
@@ -2853,14 +2854,14 @@ export class MechEntity {
           if ((ty === 'bullet' || ty === 'missile') && inR(w)) this.fire(slot, aimPos, pl);
           break;
         case 3:
-          if (ty === 'melee' && d < 14) this.fire(slot, aimPos, pl);
-          else if (ty === 'shotgun' && d < 20) this.fire(slot, aimPos, pl);
+          if (ty === 'melee' && d < 14 * this.dk) this.fire(slot, aimPos, pl);
+          else if (ty === 'shotgun' && d < 20 * this.dk) this.fire(slot, aimPos, pl);
           break;
         case 4:
           if (ty === 'laser') {
             if (s.phase === 2) {
               const tp = this.center().add(
-                new THREE.Vector3(-Math.sin(s.sweepA), 0, -Math.cos(s.sweepA)).multiplyScalar(60),
+                new THREE.Vector3(-Math.sin(s.sweepA), 0, -Math.cos(s.sweepA)).multiplyScalar(60 * this.dk),
               );
               tp.y = pl.center().y;
               this.aimYaw = s.sweepA;

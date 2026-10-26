@@ -11,6 +11,7 @@
 // 行為只在房主／單機（foeMove_b2／foeFire_b2）；外觀（foeFx_b2）房主與客機都依 bossVis／bx 驅動。
 // 狀態效果（entities/mech-status.js 的 addStatus）與場上機制（game/hazards2.js 的 addZone）。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
 import { Projectile } from './projectile.js';
@@ -19,10 +20,10 @@ const PI = Math.PI,
   PI2 = Math.PI * 2,
   HP2 = Math.PI / 2;
 const B2 = new Set(['riveter', 'welder', 'watercannon', 'turbine', 'eel', 'buoy']);
-const ARC_R = 12; // 電弧拉開這個距離就斷
-const WATER_LEN = 42; // 水柱射程
-const SUCK_R = 18; // 吸入範圍
-const BUOY_R = 4; // 浮標的引爆距離
+const ARC_R = 12 * DS; // 電弧拉開這個距離就斷
+const WATER_LEN = 42 * DS; // 水柱射程
+const SUCK_R = 18 * MS; // 吸入範圍
+const BUOY_R = 4 * MS; // 浮標的引爆距離
 const _v = new THREE.Vector3(),
   _w = new THREE.Vector3(),
   _up = new THREE.Vector3(0, 1, 0);
@@ -37,26 +38,26 @@ Object.assign(MechEntity.prototype, {
       case 'riveter':
         if (s.rv === 1)
           wish.set(0, 0, 0); // 瞄準時站穩
-        else if (d > s.want + 4) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
-        else if (d < s.want - 5) wish.copy(dir).negate().addScaledVector(perp, 0.4).normalize();
+        else if (d > s.want + 4 * DS) wish.copy(dir).addScaledVector(perp, 0.3).normalize();
+        else if (d < s.want - 5 * DS) wish.copy(dir).negate().addScaledVector(perp, 0.4).normalize();
         else wish.copy(perp).multiplyScalar(0.6);
         this.stuckJump(dt, r);
         return r;
       case 'welder':
         if (s.wd === 2) {
-          if (d > 6) wish.copy(dir);
+          if (d > 6 * DS) wish.copy(dir);
           else wish.copy(perp).multiplyScalar(0.3);
-        } else if (s.wd === 1) wish.copy(dir).multiplyScalar(d > 5 ? 0.5 : 0);
-        else if (d > 4.5) {
+        } else if (s.wd === 1) wish.copy(dir).multiplyScalar(d > 5 * DS ? 0.5 : 0);
+        else if (d > 4.5 * DS) {
           wish.copy(dir).addScaledVector(perp, 0.25).normalize();
-          if (d > 16 && Math.random() < dt * 0.7) r.qb = true;
+          if (d > 16 * DS && Math.random() < dt * 0.7) r.qb = true;
         } else wish.copy(perp).multiplyScalar(0.4);
         this.stuckJump(dt, r);
         return r;
       case 'watercannon':
         if (s.wc) wish.set(0, 0, 0);
-        else if (d > s.want + 6) wish.copy(dir).multiplyScalar(0.8);
-        else if (d < s.want - 8) wish.copy(dir).multiplyScalar(-0.7);
+        else if (d > s.want + 6 * DS) wish.copy(dir).multiplyScalar(0.8);
+        else if (d < s.want - 8 * DS) wish.copy(dir).multiplyScalar(-0.7);
         else wish.copy(perp).multiplyScalar(0.5);
         this.stuckJump(dt, r);
         return r;
@@ -103,7 +104,7 @@ Object.assign(MechEntity.prototype, {
     }
     s.rvT -= dt;
     if (s.rv === 0) {
-      if (s.rvT <= 0 && d < 40 && this.canAct()) {
+      if (s.rvT <= 0 && d < 40 * DS && this.canAct()) {
         s.rv = 1;
         s.rvT = 0.7;
         const mz = this.muzzle('rarm');
@@ -130,8 +131,11 @@ Object.assign(MechEntity.prototype, {
   rivetShot_b2(pl, d) {
     const g = this.game;
     const mz = this.muzzle('rarm');
-    const tgt = pl.center().addScaledVector(pl.vel, Math.min(0.6, d / 60) * 0.7);
-    const v = tgt.sub(mz).normalize().multiplyScalar(60);
+    const tgt = pl.center().addScaledVector(pl.vel, Math.min(0.6, d / (60 * DS)) * 0.7);
+    const v = tgt
+      .sub(mz)
+      .normalize()
+      .multiplyScalar(60 * DS);
     const me = this;
     const p = new Projectile(g, {
       pos: mz.clone(),
@@ -168,7 +172,7 @@ Object.assign(MechEntity.prototype, {
     }
     s.wdT -= dt;
     if (s.wd === 0) {
-      if (s.wdT <= 0 && d < 9 && this.canAct()) {
+      if (s.wdT <= 0 && d < 9 * DS && this.canAct()) {
         s.wd = 1;
         s.wdT = 0.8;
         const tp = this.muzzle('rarm');
@@ -181,7 +185,7 @@ Object.assign(MechEntity.prototype, {
         s.wd = 0;
         s.wdT = 2;
       } else if (s.wdT <= 0) {
-        if (d < ARC_R - 1) {
+        if (d < ARC_R - 1 * DS) {
           s.wd = 2;
           s.wdT = 3;
           s.tick = 0;
@@ -277,7 +281,7 @@ Object.assign(MechEntity.prototype, {
     const mz = this.muzzle('rarm');
     const dv = s.aimP.clone().sub(mz).normalize();
     let L = WATER_LEN; // 砲管尖端插進牆裡時不算（從 3 m 起檢查）
-    for (let k = 3; k < WATER_LEN; k += 1.5) {
+    for (let k = 3 * MS; k < WATER_LEN; k += 1.5 * MS) {
       _v.copy(mz).addScaledVector(dv, k);
       if (w.hitsWorld(_v)) {
         L = k;
@@ -292,7 +296,7 @@ Object.assign(MechEntity.prototype, {
       const u = c.clone().sub(mz).dot(dv);
       if (u < 0 || u > bu) continue;
       const off = c.distanceTo(_w.copy(mz).addScaledVector(dv, u));
-      if (off < 1.4 + t.radius) {
+      if (off < 1.4 * MS + t.radius) {
         best = t;
         bu = u;
       }
@@ -327,11 +331,11 @@ Object.assign(MechEntity.prototype, {
     s.tb = 0;
     s.tbT = rnd(2.5, 4);
     if (!w.theme.water) return;
-    for (let r = 0; r <= 25; r += 2.5)
-      for (let a = 0; a < PI2; a += r ? 2.5 / r : PI2) {
+    for (let r = 0; r <= 25 * DS; r += 2.5 * DS)
+      for (let a = 0; a < PI2; a += r ? (2.5 * DS) / r : PI2) {
         const x = this.pos.x + Math.cos(a) * r,
           z = this.pos.z + Math.sin(a) * r;
-        if (w.waterDepth(x, z) > 0.5 && w.inZone(x, z, 3) && !(w.isVoid && w.isVoid(x, z))) {
+        if (w.waterDepth(x, z) > 0.5 * MS && w.inZone(x, z, 3 * MS) && !(w.isVoid && w.isVoid(x, z))) {
           this.pos.set(x, w.terrainHeight(x, z), z);
           this.vel.set(0, 0, 0);
           return;
@@ -345,7 +349,7 @@ Object.assign(MechEntity.prototype, {
     if (!s.tbInit) this.turbinePlace_b2();
     s.tbT -= dt;
     if (s.tb === 0) {
-      if (s.tbT <= 0 && d < 40 && this.canAct()) {
+      if (s.tbT <= 0 && d < 40 * DS && this.canAct()) {
         s.tb = 1;
         s.tbT = 1.5;
         const p = this.pos.clone();
@@ -363,7 +367,7 @@ Object.assign(MechEntity.prototype, {
         s.bladeT = 0;
         s.ringT = 0;
         const p = this.pos.clone();
-        s.zone = g.addZone?.('suction', p, SUCK_R, 6, { to: p.clone(), pull: 9 }) ?? null;
+        s.zone = g.addZone?.('suction', p, SUCK_R, 6, { to: p.clone(), pull: 9 * DS }) ?? null;
         s.suckN = (s.suckN || 0) + 1; // 冒煙測試用
         SFX.play('engineHi', 1, 1.1, 0.05, 0.05, this.center());
       }
@@ -375,7 +379,7 @@ Object.assign(MechEntity.prototype, {
         for (const t of g.hostilesOfEnt(this)) {
           if (t.dead) continue;
           const dd = Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z);
-          if (dd > 3.4 + t.radius || Math.abs(t.pos.y - this.pos.y) > 5) continue;
+          if (dd > 3.4 * MS + t.radius || Math.abs(t.pos.y - this.pos.y) > 5 * MS) continue;
           const out = t.pos.clone().sub(this.pos).setY(0).normalize();
           t.takeDamage(
             170 * this.dmgMul,
@@ -417,7 +421,7 @@ Object.assign(MechEntity.prototype, {
     const w = this.game.world;
     const gy = w.terrainHeight(this.pos.x, this.pos.z);
     this.flying = true;
-    this.hoverH = Math.max(lift, (w.theme.water ? w.theme.water.level : -1e9) - gy + lift * 0.4);
+    this.hoverH = Math.max((lift *= MS), (w.theme.water ? w.theme.water.level : -1e9) - gy + lift * 0.4);
   },
   eelMove_b2(dt, d, dir, perp, wish, pl, r) {
     const s = this.aiState,
@@ -432,19 +436,19 @@ Object.assign(MechEntity.prototype, {
     if (s.el === 0) {
       wish
         .copy(perp)
-        .addScaledVector(dir, clamp((d - s.want) / 6, -1, 1))
+        .addScaledVector(dir, clamp((d - s.want) / (6 * DS), -1, 1))
         .normalize();
-      const wet = (x, z) => !w.theme.water || w.waterDepth(x, z) > 0.3;
-      if (wet(this.pos.x, this.pos.z) && !wet(this.pos.x + wish.x * 3, this.pos.z + wish.z * 3)) {
+      const wet = (x, z) => !w.theme.water || w.waterDepth(x, z) > 0.3 * MS;
+      if (wet(this.pos.x, this.pos.z) && !wet(this.pos.x + wish.x * 3 * DS, this.pos.z + wish.z * 3 * DS)) {
         wish.set(-wish.z, 0, wish.x);
-        if (!wet(this.pos.x + wish.x * 3, this.pos.z + wish.z * 3)) wish.negate();
+        if (!wet(this.pos.x + wish.x * 3 * DS, this.pos.z + wish.z * 3 * DS)) wish.negate();
       }
-      if (s.elT <= 0 && d < 22 && this.canAct()) {
+      if (s.elT <= 0 && d < 22 * DS && this.canAct()) {
         s.el = 1;
         s.elT = 1.5;
         const p = this.pos.clone().setY(this.vortexY_b2());
-        g.fx.warnCircle(p, 14, 1.5, 0x60e8ff);
-        g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 14, dl: 1.5, c: 0x60e8ff });
+        g.fx.warnCircle(p, 14 * MS, 1.5, 0x60e8ff);
+        g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 14 * MS, dl: 1.5, c: 0x60e8ff });
         g.fx.streaks(this.center(), 10, 0x9ff4ff, 8, 0.4, 6);
         SFX.play('charge', 0.8, 1.2, 0.05, 0.05, this.center());
       }
@@ -457,7 +461,7 @@ Object.assign(MechEntity.prototype, {
         s.el = 2;
         s.elT = 4;
         const p = this.pos.clone().setY(this.vortexY_b2());
-        g.addZone?.('electro', p, 14, 4, { dps: 120 * this.dmgMul });
+        g.addZone?.('electro', p, 14 * MS, 4, { dps: 120 * this.dmgMul });
         s.zapN = (s.zapN || 0) + 1; // 冒煙測試用
         g.fx.shockwave(p, 14, 0x60e8ff, 0.5);
         g.fx.flash(this.center(), 3, 0x9ff4ff, 0.2);
@@ -485,13 +489,13 @@ Object.assign(MechEntity.prototype, {
       if (s.fuse <= 0) this.die(pl); // explodeOnDeath：敵我都炸
       return r;
     }
-    const near = d < BUOY_R + pl.radius && Math.abs(pl.pos.y - this.pos.y) < 3.5;
+    const near = d < BUOY_R + pl.radius && Math.abs(pl.pos.y - this.pos.y) < 3.5 * MS;
     if (near) {
       s.fuse = 0.4;
       SFX.play('bell', 0.9, 1.6, 0.05, 0.05, this.center());
       this.game.fx.flash(this.center(), 1.4, 0xff3020, 0.4);
     }
-    this.bossVis = d < 12 ? 1 : 0;
+    this.bossVis = d < 12 * DS ? 1 : 0;
     return r;
   },
   // ---------- 防禦：渦輪吸入機的蓋子打開時，正面的傷害 ×1.6 ----------
@@ -642,7 +646,7 @@ Object.assign(MechEntity.prototype, {
     for (let i = 0; i < n; i++) {
       const k = (i + 1) / n;
       const q = p0.clone().lerp(p1, k);
-      if (i < n - 1) q.add(_v.set(rnd(-0.35, 0.35), rnd(-0.35, 0.35), rnd(-0.35, 0.35)));
+      if (i < n - 1) q.add(_v.set(rnd(-0.35, 0.35) * MS, rnd(-0.35, 0.35) * MS, rnd(-0.35, 0.35) * MS));
       const ql = this.mesh.worldToLocal(q);
       const seg = a.children[i];
       const dv = ql.clone().sub(prev);
@@ -717,11 +721,11 @@ Object.assign(MechEntity.prototype, {
     if (eel) {
       // 機體的偏擺不影響水面的紋路
       vx.rotation.y = Math.random() * PI2 - this.yaw;
-      vx.scale.setScalar((v === 2 ? 1 : 0.25 + 0.75 * this.b2w) / s);
+      vx.scale.setScalar(((v === 2 ? 1 : 0.25 + 0.75 * this.b2w) * MS) / s);
       vx.children[0].material.opacity = v === 2 ? 0.3 + Math.random() * 0.5 : 0.35 + 0.3 * this.b2w;
     } else {
       vx.rotation.y = -t * (v === 2 ? 3 : 1.2);
-      vx.scale.setScalar((v === 2 ? 1 : 0.5) / s);
+      vx.scale.setScalar(((v === 2 ? 1 : 0.5) * MS) / s);
     }
   },
 });

@@ -26,6 +26,9 @@ export class Effects {
     this.ringGeo = new THREE.RingGeometry(0.85, 1, 32);
     this.discGeo = new THREE.CircleGeometry(1, 20);
     this.cylGeo = new THREE.CylinderGeometry(1, 1, 1, 6); // 光束（批次用：半徑、長度都是 1，以縮放決定）
+    // k：裝飾性的大小與速度（閃光、火花、煙、衝擊環、光束寬、碎片）的倍率；參數照舊尺度傳，這裡乘上。
+    // 和判定一致的範圍（預警圈、地面衝擊波、燃燒地面、能量環、斬擊半徑）是世界尺寸，不乘。Game 設定（setK）
+    this.k = 1;
     this.light = new THREE.PointLight(0xffc070, 0, 26, 2);
     scene.add(this.light);
     this.lightT = 0;
@@ -50,6 +53,11 @@ export class Effects {
     };
     this.batchList = Object.values(this.batches);
     this.projPart = this.projPartOf.bind(this); // 傳給 buildProjectileMesh（entities/projectile.js）
+  }
+  setK(k) {
+    this.k = k;
+    this.light.distance = 26 * k;
+    this.thruster.cull = (p) => this.skip(p, 4);
   }
   // 批次粒子的代理（fx/batch.js）：照一般網格改 position／scale／rotation、material.opacity，加進 list 後由 update 更新
   P(kind, color, opacity = 1) {
@@ -90,12 +98,16 @@ export class Effects {
   skip(p, r = 0) {
     if (!this.view || this.list.length < FX_BUSY) return false;
     _skS.center.copy(p);
-    _skS.radius = 4 + r * 1.5;
+    _skS.radius = (4 + r * 1.5) * this.k;
     return !this.view.intersectsSphere(_skS);
   }
   // 粒子很多時離鏡頭 FX_FAR 以上的：火花數減半、細小的煙不產生（viewPos＝鏡頭位置，Game.lodTick 設定）
   far(p) {
-    return !!this.view && this.list.length >= FX_BUSY && this.viewPos.distanceToSquared(p) > FX_FAR * FX_FAR;
+    return (
+      !!this.view &&
+      this.list.length >= FX_BUSY &&
+      this.viewPos.distanceToSquared(p) > FX_FAR * FX_FAR * this.k * this.k
+    );
   }
   flashLight(p, color, intensity) {
     this.light.position.copy(p);
@@ -108,8 +120,9 @@ export class Effects {
     if (this.skip(p, r)) return;
     const m = this.P('sa', color, 0.9);
     m.position.copy(p);
+    const rk = r * this.k;
     this.add(m, life, (e, t) => {
-      e.mesh.scale.setScalar(r * (0.6 + t * 0.7));
+      e.mesh.scale.setScalar(rk * (0.6 + t * 0.7));
       e.mesh.material.opacity = 0.9 * (1 - t);
     });
   }
@@ -117,17 +130,20 @@ export class Effects {
   streaks(p, n, color, speed, life = 0.3, grav = 30, dir = null, spread = 1) {
     if (this.skip(p, speed * life * 0.5)) return;
     if (this.far(p)) n = Math.ceil(n / 2);
+    const K = this.k;
+    speed *= K;
+    grav *= K;
     for (let i = 0; i < n; i++) {
       const s = this.P('ba', color, 1);
       s.position.copy(p);
       const v = new THREE.Vector3(rnd(-1, 1), rnd(-0.4, 1), rnd(-1, 1));
       if (dir) v.multiplyScalar(spread).add(dir.clone().multiplyScalar(1.6));
       v.normalize().multiplyScalar(speed * rnd(0.5, 1.3));
-      const w = rnd(0.05, 0.1);
+      const w = rnd(0.05, 0.1) * K;
       this.add(s, life * rnd(0.6, 1.2), (e, t, dt) => {
         v.y -= grav * dt;
         e.mesh.position.addScaledVector(v, dt);
-        const L = Math.min(1.6, v.length() * 0.035);
+        const L = Math.min(1.6 * K, v.length() * 0.035);
         e.mesh.scale.set(w, w, L);
         // 朝速度方向（同 lookAt 的 +Z；剖面是正方形，不管滾轉）。比 lookAt 省：不必算世界矩陣
         const vl = v.length();
@@ -140,10 +156,11 @@ export class Effects {
     if (this.skip(p, sc + rise * life) || (sc < 0.5 && this.far(p))) return;
     const sm = this.P('sn', color, 0.28);
     sm.position.copy(p);
-    const drift = new THREE.Vector3(rnd(-1, 1), rise, rnd(-1, 1));
+    const K = this.k;
+    const drift = new THREE.Vector3(rnd(-1, 1), rise, rnd(-1, 1)).multiplyScalar(K);
     this.add(sm, life * rnd(0.8, 1.2), (e, t, dt) => {
       e.mesh.position.addScaledVector(drift, dt);
-      e.mesh.scale.setScalar(sc * (0.3 + t * 1.0));
+      e.mesh.scale.setScalar(sc * K * (0.3 + t * 1.0));
       e.mesh.material.opacity = 0.28 * (1 - t) * (1 - t);
     });
   }
@@ -212,21 +229,22 @@ export class Effects {
   }
   // 擊破的追加演出（房主與客機各自呼叫，不轉送）：連續的二次爆炸、殘骸冒煙、地面焦痕、強光
   killBurst(p, sc = 1, big = false, groundY = null) {
-    const n = big ? 4 : 2;
+    const n = big ? 4 : 2,
+      K = this.k;
     let k = 0;
     this.task(big ? 0.9 : 0.45, (e, t) => {
       if (t * n < k) return;
       k++;
       const q = p
         .clone()
-        .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).multiplyScalar(1.6 * sc));
+        .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.3, 1), rnd(-1, 1)).multiplyScalar(1.6 * sc * K));
       this.explosion(q, rnd(2.2, 3.4) * sc, 0xff8030, big);
     });
     this.flashLight(p, 0xffb060, big ? 90 : 45);
     this.lightT = big ? 0.25 : 0.14;
-    const gy = groundY == null ? p.y - 2 : groundY;
+    const gy = groundY == null ? p.y - 2 * K : groundY;
     this.shockwave(
-      new THREE.Vector3(p.x, gy + 0.15, p.z),
+      new THREE.Vector3(p.x, gy + 0.15 * K, p.z),
       9 * sc * (big ? 1.8 : 1),
       0xffd8a0,
       big ? 0.7 : 0.45,
@@ -237,7 +255,7 @@ export class Effects {
       acc += dt;
       if (acc < 0.16) return;
       acc = 0;
-      const q = new THREE.Vector3(p.x + rnd(-0.6, 0.6) * sc, gy + 0.6, p.z + rnd(-0.6, 0.6) * sc);
+      const q = new THREE.Vector3(p.x + rnd(-0.6, 0.6) * sc * K, gy + 0.6 * K, p.z + rnd(-0.6, 0.6) * sc * K);
       this.smoke(q, (1.4 + t) * sc, t < 0.2 ? 0x3a3530 : 0x24262a, 2.6, 3.2);
       if (t < 0.4 && Math.random() < 0.35) this.flash(q, 0.7 * sc, 0xff7a20, 0.15);
     });
@@ -255,7 +273,7 @@ export class Effects {
     );
     d.position.set(p.x, gy + 0.06, p.z);
     d.rotation.x = -Math.PI / 2;
-    d.scale.setScalar(3.2 * sc * (big ? 1.6 : 1));
+    d.scale.setScalar(3.2 * sc * K * (big ? 1.6 : 1));
     d.userData.noFade = true;
     this.add(d, 12, (e, t) => {
       e.mesh.material.opacity = 0.55 * (t < 0.7 ? 1 : (1 - t) / 0.3);
@@ -265,33 +283,35 @@ export class Effects {
     const g = this.P('ra', color, 1);
     g.position.copy(p);
     g.rotation.x = -Math.PI / 2;
+    const rk = r * this.k;
     this.add(g, life, (e, t) => {
-      e.mesh.scale.setScalar(r * (0.15 + t));
+      e.mesh.scale.setScalar(rk * (0.15 + t));
       e.mesh.material.opacity = 1 - t;
     });
   }
   explosion(p, r, color = 0xffa040, big = false) {
     this.flash(p, r * 0.32, 0xffffff, 0.08);
     this.flash(p, r * 0.45, color, 0.18);
+    const K = this.k;
     const fb = this.P('sa', 0xff6a20, 0.9);
     fb.position.copy(p);
     this.add(fb, big ? 0.45 : 0.3, (e, t) => {
-      e.mesh.scale.setScalar(r * (0.22 + t * 0.55));
+      e.mesh.scale.setScalar(r * K * (0.22 + t * 0.55));
       e.mesh.material.opacity = 0.9 * (1 - t) * (1 - t);
     });
-    this.shockwave(p.clone().setY(p.y - r * 0.3), r * 1.6, 0xffc080, big ? 0.5 : 0.3);
+    this.shockwave(p.clone().setY(p.y - r * 0.3 * K), r * 1.6, 0xffc080, big ? 0.5 : 0.3);
     this.streaks(p, big ? 26 : 12, 0xffa030, rnd(16, 26) * (big ? 1.5 : 1), big ? 0.9 : 0.5, 32);
     this.streaks(p, big ? 10 : 5, 0xffe0a0, rnd(24, 34), 0.25, 10);
     for (let i = 0; i < (big ? 14 : 6); i++) {
       const s = this.P('dk', 0x2a2a2a);
       s.position.copy(p);
-      s.scale.setScalar(rnd(0.15, 0.4) * (big ? 2 : 1));
+      s.scale.setScalar(rnd(0.15, 0.4) * (big ? 2 : 1) * K);
       const v = new THREE.Vector3(rnd(-1, 1), rnd(0.4, 1.6), rnd(-1, 1))
         .normalize()
-        .multiplyScalar(rnd(9, 22) * (big ? 1.6 : 1));
+        .multiplyScalar(rnd(9, 22) * (big ? 1.6 : 1) * K);
       const rv = new THREE.Vector3(rnd(-8, 8), rnd(-8, 8), rnd(-8, 8));
       this.add(s, rnd(0.7, 1.3), (e, t, dt) => {
-        v.y -= 34 * dt;
+        v.y -= 34 * K * dt;
         e.mesh.position.addScaledVector(v, dt);
         e.mesh.rotation.x += rv.x * dt;
         e.mesh.rotation.y += rv.y * dt;
@@ -300,7 +320,7 @@ export class Effects {
     }
     for (let i = 0; i < (big ? 8 : 4); i++)
       this.smoke(
-        p.clone().add(new THREE.Vector3(rnd(-1, 1), rnd(0, 1.5), rnd(-1, 1)).multiplyScalar(r * 0.3)),
+        p.clone().add(new THREE.Vector3(rnd(-1, 1), rnd(0, 1.5), rnd(-1, 1)).multiplyScalar(r * 0.3 * K)),
         r * 0.35 * rnd(0.7, 1.3),
         0x2e3136,
         big ? 1.6 : 1.0,
@@ -316,24 +336,25 @@ export class Effects {
   }
   muzzle(p, dir, color = 0xffd080, size = 1) {
     if (this.skip(p, size)) return;
+    const sz = size * this.k;
     const f = this.P('sa', 0xffffff, 1);
     f.position.copy(p);
     this.add(f, 0.06, (e, t) => {
-      e.mesh.scale.setScalar(size * (0.32 - t * 0.15));
+      e.mesh.scale.setScalar(sz * (0.32 - t * 0.15));
       e.mesh.material.opacity = 1 - t;
     });
     const c = this.P('ca', color, 0.95);
-    c.position.copy(p).addScaledVector(dir, size * 0.6);
+    c.position.copy(p).addScaledVector(dir, sz * 0.6);
     c.lookAt(c.position.clone().add(dir));
     c.rotateX(-Math.PI / 2);
-    c.scale.set(size * 0.9, size * 1.6, size * 0.9);
+    c.scale.set(sz * 0.9, sz * 1.6, sz * 0.9);
     this.add(c, 0.07, (e, t) => {
       e.mesh.material.opacity = 1 - t;
       e.mesh.scale.multiplyScalar(1.06);
     });
     if (this.far(p)) return; // 遠處只留閃光
     this.streaks(p, 3, color, 14, 0.14, 4, dir, 0.5);
-    this.smoke(p.clone().addScaledVector(dir, 0.6), 0.25, 0x8a8e96, 0.4, 1.5);
+    this.smoke(p.clone().addScaledVector(dir, 0.6 * this.k), 0.25, 0x8a8e96, 0.4, 1.5);
   }
   empBeam(w, a, b, color) {
     if (!w.beamMesh) {
@@ -354,13 +375,15 @@ export class Effects {
     grp.position.copy(a).lerp(b, 0.5);
     grp.lookAt(b);
     grp.rotateX(Math.PI / 2);
-    w.beamCore.scale.set(1, d, 1);
-    w.beamGlow.scale.set(1, d, 1);
+    w.beamCore.scale.set(this.k, d, this.k);
+    w.beamGlow.scale.set(this.k, d, this.k);
     w.beamGlow.material.opacity = 0.12 + Math.random() * 0.08;
     w.beamHideT = 0.08;
   }
   beam(a, b, color, width = 0.12) {
     const d = a.distanceTo(b);
+    const w0 = width;
+    width *= this.k;
     const g = this.P('ya', color, 0.95);
     g.position.copy(a).lerp(b, 0.5);
     g.lookAt(b);
@@ -377,17 +400,18 @@ export class Effects {
     this.add(core, 0.13, (e, t) => {
       e.mesh.material.opacity = 1 - t;
     });
-    this.flash(a, width * 6, color, 0.1);
+    this.flash(a, w0 * 6, color, 0.1);
     this.flashLight(a, color, 12);
   }
   chevrons(p, dir, color = 0xffffff) {
     for (let i = 0; i < 6; i++) {
       const c = this.P('ca', color, 0.9);
-      c.position.copy(p).addScaledVector(dir, -i * 1.3);
-      c.position.y += 0.5;
+      const K = this.k;
+      c.position.copy(p).addScaledVector(dir, -i * 1.3 * K);
+      c.position.y += 0.5 * K;
       c.lookAt(c.position.clone().add(dir));
       c.rotateX(Math.PI / 2);
-      c.scale.set(1.2, 1, 1.2);
+      c.scale.set(1.2 * K, K, 1.2 * K);
       this.add(c, 0.3 + i * 0.05, (e, t) => {
         e.mesh.material.opacity = 0.9 * (1 - t);
       });
@@ -395,29 +419,35 @@ export class Effects {
   }
   dust(p, r, n = 8, color = 0x9aa0a8) {
     if (this.skip(p, r * 2)) return;
+    const r0 = r;
+    r *= this.k;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + rnd(-0.3, 0.3);
       const sm = this.P('sn', color, 0.3);
-      sm.position.copy(p).add(new THREE.Vector3(Math.cos(a) * r * 0.3, 0.2, Math.sin(a) * r * 0.3));
-      const v = new THREE.Vector3(Math.cos(a) * r * 2.2, rnd(0.5, 1.5), Math.sin(a) * r * 2.2);
+      sm.position.copy(p).add(new THREE.Vector3(Math.cos(a) * r * 0.3, 0.2 * this.k, Math.sin(a) * r * 0.3));
+      const v = new THREE.Vector3(Math.cos(a) * r * 2.2, rnd(0.5, 1.5) * this.k, Math.sin(a) * r * 2.2);
       this.add(sm, rnd(0.5, 0.8), (e, t, dt) => {
         e.mesh.position.addScaledVector(v, dt * (1 - t));
         e.mesh.scale.setScalar(r * 0.18 * (0.5 + t * 1.4));
         e.mesh.material.opacity = 0.3 * (1 - t);
       });
     }
-    this.shockwave(p.clone().setY(p.y + 0.1), r * 1.2, 0xffffff, 0.25);
+    this.shockwave(p.clone().setY(p.y + 0.1), r0 * 1.2, 0xffffff, 0.25);
   }
   casing(p, side, dir) {
     if (this.skip(p, 3)) return;
     const s = this.P('cs', 0xd4a54a);
     s.position.copy(p);
-    s.scale.set(0.05, 0.05, 0.14);
+    const K = this.k;
+    s.scale.set(0.05 * K, 0.05 * K, 0.14 * K);
     const right = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(side);
-    const v = right.multiplyScalar(rnd(3, 5)).add(new THREE.Vector3(0, rnd(4, 6), 0));
+    const v = right
+      .multiplyScalar(rnd(3, 5))
+      .add(new THREE.Vector3(0, rnd(4, 6), 0))
+      .multiplyScalar(K);
     const rv = rnd(10, 25);
     this.add(s, 1.2, (e, t, dt) => {
-      v.y -= 30 * dt;
+      v.y -= 30 * K * dt;
       e.mesh.position.addScaledVector(v, dt);
       e.mesh.rotation.x += rv * dt;
       e.mesh.rotation.z += rv * 0.5 * dt;
@@ -427,22 +457,25 @@ export class Effects {
     if (this.skip(p, 1)) return;
     const m = this.P('sa', color, 0.7);
     m.position.copy(p);
+    const K = this.k;
     this.add(m, 0.18, (e, t, dt) => {
-      e.mesh.position.addScaledVector(dir, dt * 6);
-      e.mesh.scale.setScalar(0.35 * (1 - t) + 0.05);
+      e.mesh.position.addScaledVector(dir, dt * 6 * K);
+      e.mesh.scale.setScalar((0.35 * (1 - t) + 0.05) * K);
       e.mesh.material.opacity = 0.7 * (1 - t);
     });
   }
   ring(p, r, color) {
     this.shockwave(p, r, color, 0.5);
   }
-  // 地面衝擊波：中心先閃紅色預警 dl 秒，再以 sp m/s 擴散到半徑 R 的光牆，沿地形起伏（ground(x, z) 回傳地面高度）
+  // 地面衝擊波：中心先閃紅色預警 dl 秒，再以 sp m/s 擴散到半徑 R 的光牆，沿地形起伏（ground(x, z) 回傳地面高度）；
+  // R、sp 是世界尺寸（和判定一致）
   groundWave(p, R, sp, dl, ground, color = 0xff8a3a) {
+    const K = this.k;
     const warn = new THREE.Mesh(this.discGeo, this.addM(0xff3020, 0.5));
     warn.rotation.x = -Math.PI / 2;
     warn.position.copy(p).setY(p.y + 0.15);
     this.add(warn, dl, (e, t) => {
-      e.mesh.scale.setScalar(3 + t * 5);
+      e.mesh.scale.setScalar((3 + t * 5) * K);
       e.mesh.material.opacity = 0.2 + 0.4 * Math.abs(Math.sin(t * dl * 12));
     });
     const N = 72;
@@ -470,8 +503,8 @@ export class Effects {
         this.shockwave(p.clone().setY(p.y + 0.2), 8, 0xffc080, 0.4);
         this.dust(p.clone(), 4, 14);
       }
-      const r = Math.max(0.5, el * sp),
-        h = 1.8 * (1 - (0.5 * r) / R);
+      const r = Math.max(0.5 * K, el * sp),
+        h = 1.8 * K * (1 - (0.5 * r) / R);
       for (let i = 0; i <= N; i++) {
         const a = (i / N) * Math.PI * 2;
         const x = p.x + Math.cos(a) * r,
@@ -483,7 +516,7 @@ export class Effects {
       mat.opacity = 0.85 * (1 - r / R);
     });
   }
-  // 落點預警（迫擊砲）：紅色外圈＋由內往外填滿的圓，dl 秒後填滿，接近落地時閃得更快
+  // 落點預警（迫擊砲）：紅色外圈＋由內往外填滿的圓，dl 秒後填滿，接近落地時閃得更快；R 是世界尺寸（和判定一致）
   warnCircle(p, R, dl, color = 0xff3020) {
     const grp = new THREE.Group();
     grp.position.copy(p).setY(p.y + 0.12);
@@ -505,7 +538,10 @@ export class Effects {
   warnLine(a, b, dl, color = 0xff2020, width = 0.06) {
     const d = a.distanceTo(b);
     if (d < 0.01) return;
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(width, width, d, 5), this.addM(color, 0.7));
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(width * this.k, width * this.k, d, 5),
+      this.addM(color, 0.7),
+    );
     m.position.copy(a).lerp(b, 0.5);
     m.lookAt(b);
     m.rotateX(Math.PI / 2);
@@ -515,7 +551,7 @@ export class Effects {
       e.mesh.scale.x = e.mesh.scale.z = 1 + t * 1.5;
     });
   }
-  // 地面的長方形預警（衝撞路線、進場路線、格子砲擊）：中心 c、朝向 yaw（長邊沿 −Z）、寬 w、長 l
+  // 地面的長方形預警（衝撞路線、進場路線、格子砲擊）：中心 c、朝向 yaw（長邊沿 −Z）、寬 w、長 l（世界尺寸）
   warnRect(c, yaw, w, l, dl, color = 0xff3020) {
     const grp = new THREE.Group();
     grp.position.copy(c).setY(c.y + 0.14);
@@ -526,10 +562,10 @@ export class Effects {
     const edgeM = this.addM(color, 0.8);
     for (const s of [-1, 1]) {
       const e1 = new THREE.Mesh(this.boxGeo, edgeM);
-      e1.scale.set(0.18, 0.05, l);
+      e1.scale.set(0.18 * this.k, 0.05 * this.k, l);
       e1.position.x = (s * w) / 2;
       const e2 = new THREE.Mesh(this.boxGeo, edgeM);
-      e2.scale.set(w, 0.05, 0.18);
+      e2.scale.set(w, 0.05 * this.k, 0.18 * this.k);
       e2.position.z = (s * l) / 2;
       grp.add(e1, e2);
     }
@@ -539,7 +575,7 @@ export class Effects {
       edgeM.opacity = 0.35 + 0.45 * Math.abs(Math.sin(t * dl * (5 + t * 12)));
     });
   }
-  // 擴散的能量球殼（脈衝刃翼）：以 sp m/s 擴散到半徑 R
+  // 擴散的能量球殼（脈衝刃翼）：以 sp m/s 擴散到半徑 R（世界尺寸）
   pulseShell(c, R, sp, color = 0xff5070) {
     const life = R / sp;
     const m = new THREE.Mesh(this.sphereGeo, this.addM(color, 0.35));
@@ -559,7 +595,7 @@ export class Effects {
     });
     this.flash(c, 3, color, 0.2);
   }
-  // 燃燒的地面（熔渣）：半徑 R、持續 life 秒，火苗與煙
+  // 燃燒的地面（熔渣）：半徑 R（世界尺寸）、持續 life 秒，火苗與煙
   // kind：0 燃燒地面、1 腐蝕區（綠色）
   firePool(p, R, life, kind = 0) {
     const C =
@@ -586,20 +622,21 @@ export class Effects {
         acc = 0;
         const a = Math.random() * Math.PI * 2,
           r = Math.random() * R * 0.85;
-        const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3, Math.sin(a) * r));
+        const K = this.k;
+        const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3 * K, Math.sin(a) * r));
         const f = this.P('sa', Math.random() < 0.5 ? C[2] : C[3], 0.8);
         f.position.copy(q);
-        const up = rnd(2.5, 4.5);
+        const up = rnd(2.5, 4.5) * K;
         this.add(f, rnd(0.4, 0.7), (e2, t2, dt2) => {
           e2.mesh.position.y += up * dt2;
-          e2.mesh.scale.setScalar(0.5 * (1 - t2) + 0.1);
+          e2.mesh.scale.setScalar((0.5 * (1 - t2) + 0.1) * K);
           e2.mesh.material.opacity = 0.8 * (1 - t2);
         });
-        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + 1), 0.9, C[4], 1.2, 3);
+        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + K), 0.9, C[4], 1.2, 3);
       }
     });
   }
-  // 火焰噴射：從 p 沿 dir 噴出 len 公尺、半角 ang 的火焰粒子
+  // 火焰噴射：從 p 沿 dir 噴出 len 公尺（世界尺寸）、半角 ang 的火焰粒子
   flameCone(p, dir, len, ang, n = 10) {
     for (let i = 0; i < n; i++) {
       const v = dir
@@ -611,30 +648,31 @@ export class Effects {
       f.position.copy(p);
       this.add(f, 0.45, (e, t, dt) => {
         e.mesh.position.addScaledVector(v, dt);
-        e.mesh.scale.setScalar(0.3 + t * 1.6);
+        e.mesh.scale.setScalar((0.3 + t * 1.6) * this.k);
         e.mesh.material.opacity = 0.8 * (1 - t);
       });
     }
   }
-  // 天上落下的光柱（衛星砲的格子砲擊）：p 是地面點
+  // 天上落下的光柱（衛星砲的格子砲擊）：p 是地面點、R 世界尺寸
   pillarStrike(p, R, color = 0x9fe8ff) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 80, 14, 1, true), this.addM(color, 0.8));
+    const K = this.k;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 80 * K, 14, 1, true), this.addM(color, 0.8));
     m.material.side = THREE.DoubleSide;
-    m.position.copy(p).setY(p.y + 40);
+    m.position.copy(p).setY(p.y + 40 * K);
     this.add(m, 0.5, (e, t) => {
       e.mesh.scale.x = e.mesh.scale.z = 1 - t * 0.7;
       e.mesh.material.opacity = 0.8 * (1 - t);
     });
     const c = new THREE.Mesh(
-      new THREE.CylinderGeometry(R * 0.4, R * 0.4, 80, 8, 1, true),
+      new THREE.CylinderGeometry(R * 0.4, R * 0.4, 80 * K, 8, 1, true),
       this.addM(0xffffff, 1),
     );
     c.position.copy(m.position);
     this.add(c, 0.3, (e, t) => {
       e.mesh.material.opacity = 1 - t;
     });
-    this.shockwave(p.clone().setY(p.y + 0.2), R * 2.2, color, 0.4);
-    this.flashLight(p.clone().setY(p.y + 3), color, 30);
+    this.shockwave(p.clone().setY(p.y + 0.2), (R * 2.2) / K, color, 0.4);
+    this.flashLight(p.clone().setY(p.y + 3 * K), color, 30);
   }
   // big additive thruster glare (billboard sphere) — used every frame by mechs, pooled per entity
   // 批次的代理（fx/batch.js 的 attached）：掛在場景裡，別處照舊 scene.remove／visible／position／scale／material.opacity
@@ -667,13 +705,15 @@ export class Effects {
       this.scene.add(g);
       const pc = new THREE.Vector3();
       g.getWorldPosition(pc);
+      const K = this.k;
       const dir = pc.clone().sub(center);
-      dir.y += 0.6;
+      dir.y += 0.6 * K;
       if (dir.lengthSq() < 0.01) dir.set(rnd(-1, 1), 1, rnd(-1, 1));
       dir.normalize();
       const v = dir
         .multiplyScalar(rnd(5, 13) * (ent.isBoss ? 1.4 : 1))
-        .add(new THREE.Vector3(rnd(-2, 2), rnd(4, 11), rnd(-2, 2)));
+        .add(new THREE.Vector3(rnd(-2, 2), rnd(4, 11), rnd(-2, 2)))
+        .multiplyScalar(K);
       const av = new THREE.Vector3(rnd(-7, 7), rnd(-7, 7), rnd(-7, 7));
       const burning = Math.random() < 0.35;
       let rest = false;
@@ -685,22 +725,22 @@ export class Effects {
         max: 11,
         fn: (e, t, dt) => {
           if (!rest) {
-            v.y -= 34 * dt;
+            v.y -= 34 * K * dt;
             g.position.addScaledVector(v, dt);
             g.rotation.x += av.x * dt;
             g.rotation.y += av.y * dt;
             g.rotation.z += av.z * dt;
-            const gy = world.terrainHeight(g.position.x, g.position.z) + 0.35;
+            const gy = world.terrainHeight(g.position.x, g.position.z) + 0.35 * K;
             if (g.position.y < gy) {
               g.position.y = gy;
-              if (Math.abs(v.y) < 3) {
+              if (Math.abs(v.y) < 3 * K) {
                 rest = true;
               } else {
                 v.y *= -0.35;
                 v.x *= 0.55;
                 v.z *= 0.55;
                 av.multiplyScalar(0.5);
-                this.dust(g.position.clone().setY(gy - 0.3), 1.2, 5);
+                this.dust(g.position.clone().setY(gy - 0.3 * K), 1.2, 5);
                 if (Math.random() < 0.5) this.streaks(g.position, 4, 0xffc050, 10, 0.3, 20);
               }
             }
@@ -712,14 +752,16 @@ export class Effects {
               this.smoke(g.position.clone(), 0.7, 0x3a3d44, 1.2, 2.2);
               if (Math.random() < 0.5)
                 this.boostFlame(
-                  g.position.clone().add(new THREE.Vector3(rnd(-0.3, 0.3), 0.2, rnd(-0.3, 0.3))),
+                  g.position
+                    .clone()
+                    .add(new THREE.Vector3(rnd(-0.3, 0.3), 0.2, rnd(-0.3, 0.3)).multiplyScalar(K)),
                   new THREE.Vector3(0, 1, 0),
                   0xff8030,
                 );
             }
           }
           if (t > 0.85) {
-            g.position.y -= dt * 0.8;
+            g.position.y -= dt * 0.8 * K;
           } // sink away at the end
         },
       });
@@ -736,13 +778,15 @@ export class Effects {
       const el = t * e.max;
       while (k < nB && el >= (k + 1) * step) {
         k++;
-        const p = center.clone().add(new THREE.Vector3(rnd(-3, 3), rnd(-1, 3), rnd(-3, 3)));
+        const p = center
+          .clone()
+          .add(new THREE.Vector3(rnd(-3, 3), rnd(-1, 3), rnd(-3, 3)).multiplyScalar(this.k));
         this.explosion(p, ent.isBoss ? 6 : 2.6, 0xff7030, ent.isBoss);
       }
     });
     return pieces;
   }
-  // crescent slash arc in XZ plane around center, facing yaw
+  // 斬擊的弧（XZ 平面、朝 yaw）；radius 是世界尺寸（呼叫端已乘機體的 scale）
   slash(center, yaw, arcDeg, radius, color, mirror = false, tilt = 0.35, dur = 0.22, spin = false) {
     const len = THREE.MathUtils.degToRad(arcDeg);
     const start = spin ? 0 : -len / 2;
@@ -789,18 +833,19 @@ export class Effects {
     cut.position.copy(p);
     const yaw = dir ? Math.atan2(dir.x, dir.z) : 0;
     cut.rotation.set(0.6, yaw + Math.PI / 2 + (Math.random() < 0.5 ? 0.5 : -0.5), 0);
+    const K = this.k;
     this.add(cut, 0.28, (e, t) => {
-      e.mesh.scale.set(0.12 + t * 0.1, 0.12, (big ? 6 : 4.2) * (0.6 + t * 0.7));
+      e.mesh.scale.set((0.12 + t * 0.1) * K, 0.12 * K, (big ? 6 : 4.2) * K * (0.6 + t * 0.7));
       e.mesh.material.opacity = 1 - t * t;
     });
     const cut2 = this.P('ba', color, 0.9);
     cut2.position.copy(p);
     cut2.rotation.copy(cut.rotation);
     this.add(cut2, 0.32, (e, t) => {
-      e.mesh.scale.set(0.35 + t * 0.3, 0.35, (big ? 6.5 : 4.6) * (0.6 + t * 0.7));
+      e.mesh.scale.set((0.35 + t * 0.3) * K, 0.35 * K, (big ? 6.5 : 4.6) * K * (0.6 + t * 0.7));
       e.mesh.material.opacity = 0.9 * (1 - t);
     });
-    this.shockwave(p.clone().setY(p.y - 1), big ? 5 : 3, color, 0.3);
+    this.shockwave(p.clone().setY(p.y - K), big ? 5 : 3, color, 0.3);
     this.streaks(p, big ? 24 : 12, color, big ? 26 : 18, 0.35, 24);
     this.streaks(p, big ? 8 : 4, 0xffffff, 30, 0.2, 8);
     if (big) {
@@ -877,11 +922,13 @@ Object.assign(Effects.prototype, {
         .sub(d.origin)
         .normalize()
         .multiplyScalar(rnd(4, 10))
-        .add(new THREE.Vector3(rnd(-2, 2), rnd(5, 11), rnd(-2, 2)));
+        .add(new THREE.Vector3(rnd(-2, 2), rnd(5, 11), rnd(-2, 2)))
+        .multiplyScalar(this.k);
       const av = new THREE.Vector3(rnd(-6, 6), rnd(-6, 6), rnd(-6, 6));
       pieces.push({ m, v, av, rest: false });
     }
-    const world = persist.world;
+    const world = persist.world,
+      K = this.k;
     let done = false;
     this.list.push({
       mesh: null,
@@ -892,7 +939,7 @@ Object.assign(Effects.prototype, {
         for (const p of pieces) {
           if (p.rest) continue;
           all = false;
-          p.v.y -= 34 * dt;
+          p.v.y -= 34 * K * dt;
           p.m.position.addScaledVector(p.v, dt);
           p.m.rotation.x += p.av.x * dt;
           p.m.rotation.y += p.av.y * dt;
@@ -900,7 +947,7 @@ Object.assign(Effects.prototype, {
           const gy = world.terrainHeight(p.m.position.x, p.m.position.z) + 0.25;
           if (p.m.position.y < gy) {
             p.m.position.y = gy;
-            if (Math.abs(p.v.y) < 2.5) {
+            if (Math.abs(p.v.y) < 2.5 * K) {
               p.rest = true;
             } else {
               p.v.y *= -0.35;

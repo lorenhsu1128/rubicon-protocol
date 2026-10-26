@@ -120,7 +120,8 @@ Object.assign(MechEntity.prototype, {
     const g = this.game;
     const c = this.center();
     SFX.explode(this.isBoss ? 'huge' : true, this.isPlayer ? null : c);
-    if (g.world) g.fx.killBurst(c, this.scale || 1, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
+    if (g.world)
+      g.fx.killBurst(c, (this.scale || 1) / g.fx.k, !!this.isBoss, g.world.groundAt(c.x, c.z, c.y));
     g.rumbleAt(
       c,
       this.isBoss ? 1.0 : 0.8,

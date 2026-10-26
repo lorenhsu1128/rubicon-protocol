@@ -6578,6 +6578,9 @@ async function testChapter2(browser, base) {
     const p = g.player;
     p.hp = p.maxHp = 1e6;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
@@ -6753,9 +6756,9 @@ async function testChapter2(browser, base) {
     const q = gg.aiState.gate;
     out.onGate = !!q && Math.abs(gg.pos.z - D.zc) < 1 && gg.pos.y > 10;
     // 玩家站在閘門下游的水道裡（拿掉壩體以外的障礙物，推動的距離不會被物件擋住）
-    w.obstacles = w.obstacles.filter((o) => Math.abs(o.z - D.zc) < 8);
+    w.obstacles = w.obstacles.filter((o) => Math.abs(o.z - D.zc) < 8 * 3);
     const dn = -D.up;
-    const z0 = D.zc + dn * 14;
+    const z0 = D.zc + dn * 14 * 3;
     p.pos.set(q.x, w.terrainHeight(q.x, z0), z0);
     p.vel.set(0, 0, 0);
     const h0 = p.hp;
@@ -6902,11 +6905,11 @@ async function testChapter2(browser, base) {
     out.comm = log.includes('marsh');
     const p2 = g.player;
     const far = (() => {
-      for (let r = 30; r < 80; r += 3)
+      for (let r = 90; r < 240; r += 9)
         for (let a = 0; a < 6.28; a += 0.25) {
           const x = p2.pos.x + Math.cos(a) * r,
             z = p2.pos.z + Math.sin(a) * r;
-          if (g.world.waterDepth(x, z) > 0.8 && g.world.inZone(x, z, 4))
+          if (g.world.waterDepth(x, z) > 2.4 && g.world.inZone(x, z, 12))
             return new THREE.Vector3(x, g.world.terrainHeight(x, z), z);
         }
       return null;
@@ -7146,6 +7149,9 @@ async function testChapter3(browser, base) {
       p = g.player,
       w = g.world;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, w.terrainHeight(x, z), z);
@@ -7179,7 +7185,7 @@ async function testChapter3(browser, base) {
     lk2.takeDamage(1e9, 0, p, lk2.center(), new THREE.Vector3(0, 0, 1));
     // 冰面滑行砲車：繞著目標轉，冰面上更快（繞圈的測試生成在冰面外，冰上會打滑）
     let sa = 0;
-    while (sa < 6.28 && w.onIce(p.pos.x + Math.cos(sa) * 24, p.pos.z + Math.sin(sa) * 24)) sa += 0.3;
+    while (sa < 6.28 && w.onIce(p.pos.x + Math.cos(sa) * 72, p.pos.z + Math.sin(sa) * 72)) sa += 0.3;
     const sk = g.spawnType('skater', 1, 1, at(Math.cos(sa) * 24, Math.sin(sa) * 24));
     const a0 = Math.atan2(sk.pos.z - p.pos.z, sk.pos.x - p.pos.x);
     // 繞圈的路上有障礙物時撞到就反向（卡住才換方向），1 秒多的角度就會很小（和負載無關，約一成的地圖）：
@@ -7229,7 +7235,7 @@ async function testChapter3(browser, base) {
   check(sn.rise.vis && !sn.rise.noLock && sn.rise.st === 'up', '雪中潛伏 MT：靠近 16 m 內現身');
   check(sn.hitRise, '雪中潛伏 MT：被打中也會現身');
   check(
-    sn.orbit.da > 0.35 && sn.orbit.d > 12 && sn.orbit.d < 40,
+    sn.orbit.da > 0.35 && sn.orbit.d > 12 * SC && sn.orbit.d < 40 * SC,
     '冰面滑行砲車：繞著目標轉（' +
       sn.orbit.da.toFixed(2) +
       ' rad、' +
@@ -7317,6 +7323,9 @@ async function testChapter3(browser, base) {
       p = g.player,
       w = g.world;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, w.terrainHeight(x, z), z);
@@ -7589,19 +7598,19 @@ async function testChapter4(browser, base) {
     const out = {};
     // 玩家站上第一層平台，爬行機從地面爬上來
     const deck = w.obstacles.find(
-      (o) => o.kind === 'box' && o.deck && Math.abs(o.top - 11) < 0.5 && Math.hypot(o.x, o.z) > 20,
+      (o) => o.kind === 'box' && o.deck && Math.abs(o.top - 33) < 0.5 && Math.hypot(o.x, o.z) > 60,
     );
     out.deck = !!deck;
     if (deck) {
       p.pos.set(deck.x, deck.top, deck.z);
       p.vel.set(0, 0, 0);
-      const ex = deck.x + deck.w / 2 + 6,
+      const ex = deck.x + deck.w / 2 + 18,
         ez = deck.z;
       const cr = g.spawnType('crawler', 1, 1, new THREE.Vector3(ex, w.terrainHeight(ex, ez), ez), 1);
       let top = 0;
       window.__step([cr], 900, () => {
         top = Math.max(top, cr.pos.y);
-        return cr.pos.y > deck.top - 1;
+        return cr.pos.y > deck.top - 3;
       });
       out.climb = { top, deck: deck.top };
       cr.takeDamage(1e9, 0, p, cr.center(), new THREE.Vector3(0, 0, 1));
@@ -7614,11 +7623,11 @@ async function testChapter4(browser, base) {
     return out;
   });
   check(
-    gr.deck && gr.climb && gr.climb.top > gr.climb.deck - 1,
+    gr.deck && gr.climb && gr.climb.top > gr.climb.deck - 3,
     '構造體爬行機：沿柱子爬上平台（' + JSON.stringify(gr.climb) + '）',
   );
   check(
-    gr.hang.fly && gr.hang.dy > 5,
+    gr.hang.fly && gr.hang.dy > 5 * SC,
     '平台底部砲塔：吊在平台的底面（離地 ' + gr.hang.dy.toFixed(1) + ' m）',
   );
   const sp = await page.evaluate(() => {
@@ -7641,6 +7650,9 @@ async function testChapter4(browser, base) {
       p = g.player,
       w = g.world;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, w.terrainHeight(x, z), z);
@@ -7840,6 +7852,9 @@ async function testChapter5(browser, base) {
       p = g.player,
       w = g.world;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, w.terrainHeight(x, z), z);
@@ -8034,6 +8049,10 @@ async function testFoesC2(browser, base) {
       };
       // 玩家附近、不是虛空的地面點（相對玩家 dx, dz；h＝離地高度）
       window.__at = (dx, dz, h = 0) => {
+        dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+        dz *= 3;
+        h *= 3;
+
         const w = g.world;
         const r0 = Math.hypot(dx, dz),
           a0 = Math.atan2(dz, dx);
@@ -8043,9 +8062,9 @@ async function testFoesC2(browser, base) {
           const x = p.pos.x + Math.cos(a) * r,
             z = p.pos.z + Math.sin(a) * r;
           if (w.isVoid && w.isVoid(x, z)) continue;
-          const q = new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 3) + h, z);
+          const q = new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 9) + h, z);
           // 和玩家之間沒有障礙物（招式的射線與彈道不被地圖擋住）
-          if (![1, 3, 4.5].every((y) => g.losClear(q.clone().setY(q.y + y), p.center()))) continue;
+          if (![3, 9, 13.5].every((y) => g.losClear(q.clone().setY(q.y + y), p.center()))) continue;
           return q;
         }
         return new THREE.Vector3(p.pos.x + dx, p.pos.y + h, p.pos.z + dz);
@@ -8162,7 +8181,7 @@ async function testFoesC2(browser, base) {
       mr2.info.kind === 'missile' &&
       mr2.info.target &&
       mr2.info.shootable > 0 &&
-      mr2.info.sp <= 18 &&
+      mr2.info.sp <= 18 * SC &&
       mr2.tips &&
       mr2.hurt > 500,
     '誘導飛彈架：預警線後發射慢速的大型追蹤飛彈（可擊落）、命中高傷害（' +
@@ -8185,11 +8204,11 @@ async function testFoesC2(browser, base) {
     const m = c.shot;
     // 在飛彈與玩家之間放一道牆（8 m 見方）：牆的中心離玩家 9 m，飛彈撞上的那一面在 13 m 外，爆炸（半徑 5 m）波及不到玩家。
     // 以前是飛 30 格後放在正中間，飛彈架被 AI 帶近時飛彈只剩 6 m，牆貼著玩家、爆炸也打得到（和亂數有關）
-    window.__step([e], 30, () => m.pos.distanceTo(p.center()) < 14);
+    window.__step([e], 30, () => m.pos.distanceTo(p.center()) < 42);
     const dm = m.pos.distanceTo(p.center());
-    const mid = p.center().lerp(m.pos, dm > 13.5 ? 9 / dm : 0.5);
+    const mid = p.center().lerp(m.pos, dm > 40.5 ? 27 / dm : 0.5);
     const y = w.terrainHeight(mid.x, mid.z);
-    const o = { kind: 'box', x: mid.x, z: mid.z, w: 8, d: 8, y, top: y + 40, h: 40 };
+    const o = { kind: 'box', x: mid.x, z: mid.z, w: 24, d: 24, y, top: y + 120, h: 120 };
     w.obstacles.push(o);
     const h0 = p.hp;
     window.__step([e], 900, () => m.dead);
@@ -11110,6 +11129,9 @@ async function testChapter6(browser, base) {
       p = g.player,
       w = g.world;
     const at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const x = p.pos.x + dx,
         z = p.pos.z + dz;
       return new THREE.Vector3(x, w.terrainHeight(x, z), z);
@@ -11467,8 +11489,9 @@ async function testBosses2(browser, base) {
         const kill = (list) => list.forEach((e) => e.takeDamage(1e9, 0, pl, e.center()));
         const lost = () => Math.round(1e7 - pl.hp);
         const heal = () => (pl.hp = 1e7);
-        const place = (x, z) => pl.pos.set(x, g.world.groundAt(x, z, 99), z);
+        const place = (x, z) => pl.pos.set(x, g.world.groundAt(x, z, 999), z);
         const near = (dist) => {
+          dist *= 3; // 距離照舊尺度寫（×SC）
           const x = boss.pos.x + (boss.pos.x > 0 ? -dist : dist);
           place(x, boss.pos.z);
         };
@@ -11548,7 +11571,7 @@ async function testBosses2(browser, base) {
           r.pools = (g.hzPools || []).length;
           heal();
           // 站在燃燒的地面上
-          g.addPool(boss, pl.pos.clone(), 4, 5, 400);
+          g.addPool(boss, pl.pos.clone(), 4, 5, 400); // 半徑照舊尺度（addPool 乘 fx.k）
           step(1);
           r.burn = lost();
           s.act = null;
@@ -11562,7 +11585,11 @@ async function testBosses2(browser, base) {
             heal();
             s.rm = 'walk';
             boss.staggerT = 0;
-            boss.pos.set(k * 9 - 12, g.world.groundAt(k * 9 - 12, k * 7 - 10, 99), k * 7 - 10);
+            boss.pos.set(
+              (k * 9 - 12) * 3,
+              g.world.groundAt((k * 9 - 12) * 3, (k * 7 - 10) * 3, 999),
+              (k * 7 - 10) * 3,
+            );
             near(25);
             const dir = pl.pos.clone().sub(boss.pos).setY(0).normalize();
             boss.yaw = Math.atan2(-dir.x, -dir.z);
@@ -11697,7 +11724,8 @@ async function testBosses2(browser, base) {
   let r = await run(4, 'doppel');
   check(
     r.copy && r.b < r.a * 0.6 && r.c > r.b * 1.4 && r.glow === 1 && r.dead,
-    `${r.name}：複製玩家組裝、實彈抗性 ${r.a}→${r.b}、換雷射 ${r.c}、裝甲發光`,
+    `${r.name}：複製玩家組裝、實彈抗性 ${r.a}→${r.b}、換雷射 ${r.c}、裝甲發光` +
+      JSON.stringify({ copy: r.copy, glow: r.glow, dead: r.dead }),
   );
   r = await run(7, 'viper');
   check(
@@ -13521,8 +13549,12 @@ async function testHazards2(browser, base) {
       pl.addStatus = (k, s, o) => (st.push(k), f(k, s, o));
     }
     window.__at = (dx, dz, dy = 0) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+      dy *= 3;
+
       const p = pl.pos.clone().add(new THREE.Vector3(dx, 0, dz));
-      p.y = g.world.groundAt(p.x, p.z, p.y + 3) + dy;
+      p.y = g.world.groundAt(p.x, p.z, p.y + 9) + dy;
       return p;
     };
     window.__tick = (sec, step = 0.05) => {
@@ -13545,7 +13577,7 @@ async function testHazards2(browser, base) {
     window.__mt = e;
     const before = g.lockCands(pl).includes(e);
     const los0 = g.world.losBlocked(pl.center(), e.center());
-    const id = g.addZone('smoke', window.__at(0, -14), 6, 60);
+    const id = g.addZone('smoke', window.__at(0, -14), 6 * 3, 60);
     window.__tick(0.8);
     const r = {
       before,
@@ -13559,7 +13591,7 @@ async function testHazards2(browser, base) {
     r.dropped = pl.lock !== e;
     g.removeZone(id);
     r.back = g.lockCands(pl).includes(e);
-    g.addZone('smoke', window.__at(0, -14), 6, 60);
+    g.addZone('smoke', window.__at(0, -14), 6 * 3, 60);
     window.__tick(0.8); // 淡入完成再截圖
     return r;
   });
@@ -13575,15 +13607,15 @@ async function testHazards2(browser, base) {
       pl = g.player;
     window.__clr();
     window.__mt.pos.copy(window.__at(30, 30));
-    g.addZone('gravity', window.__at(0, 0), 7, 60);
+    g.addZone('gravity', window.__at(0, 0), 7 * 3, 60);
     window.__tick(0.5);
     const nj = window.__st.includes('nojump');
     window.__clr();
-    const id2 = g.addZone('gravity', window.__at(40, 0), 5, 60);
+    const id2 = g.addZone('gravity', window.__at(40, 0), 5 * 3, 60);
     window.__tick(0.5);
     const far = window.__st.includes('nojump');
     g.removeZone(id2);
-    g.addZone('gravity', window.__at(0, 0), 7, 60);
+    g.addZone('gravity', window.__at(0, 0), 7 * 3, 60);
     window.__tick(0.8);
     return { nj, far };
   });
@@ -13595,7 +13627,7 @@ async function testHazards2(browser, base) {
       pl = g.player;
     window.__clr();
     const c = window.__at(9, 0);
-    g.addZone('suction', c, 14, 60, { pull: 10 });
+    g.addZone('suction', c, 14 * 3, 60, { pull: 10 * 3 });
     window.__tick(0.7);
     const d0 = Math.hypot(pl.pos.x - c.x, pl.pos.z - c.z);
     const z = new THREE.Vector3();
@@ -13615,11 +13647,11 @@ async function testHazards2(browser, base) {
     window.__clr();
     const th0 = w.theme;
     const dry = pl.hp;
-    g.addZone('electro', window.__at(0, -6), 9, 60, { dps: 400 });
+    g.addZone('electro', window.__at(0, -6), 9 * 3, 60, { dps: 400 });
     window.__tick(1);
     const dryLoss = dry - pl.hp;
     w.theme = Object.assign({}, th0, {
-      water: { level: w.terrainHeight(pl.pos.x, pl.pos.z) + 0.8, color: 0x305060 },
+      water: { level: w.terrainHeight(pl.pos.x, pl.pos.z) + 0.8 * 3, color: 0x305060 },
     });
     window.__th0 = th0;
     const h0 = pl.hp;
@@ -13638,12 +13670,12 @@ async function testHazards2(browser, base) {
     const g = window.__game;
     window.__clr();
     const pools0 = (g.hzPools || []).length;
-    g.addZone('fuel', window.__at(-8, -4), 4, 60, { ignite: 0.5, dps: 100 });
+    g.addZone('fuel', window.__at(-8, -4), 4 * 3, 60, { ignite: 0.5, dps: 100 });
     window.__tick(0.7);
     const timed = (g.hzPools || []).length - pools0;
-    g.addZone('fuel', window.__at(8, -4), 4, 60, { ignite: 30 });
+    g.addZone('fuel', window.__at(8, -4), 4 * 3, 60, { ignite: 30 });
     const left = g.zones.length;
-    g.hz2Blast(window.__at(8, -4, 1), 300, 3, 'exp');
+    g.hz2Blast(window.__at(8, -4, 1), 300, 3 * 3, 'exp');
     return { timed, left, blast: (g.hzPools || []).length - pools0, zones: g.zones.length };
   });
   check(
@@ -13653,7 +13685,7 @@ async function testHazards2(browser, base) {
   await page.evaluate(() => {
     const g = window.__game;
     g.hzPools = [];
-    g.addZone('fuel', window.__at(5, 6), 5, 60, { ignite: 30 });
+    g.addZone('fuel', window.__at(5, 6), 5 * 3, 60, { ignite: 30 });
     window.__tick(0.8);
   });
   await wait(900);
@@ -13669,7 +13701,7 @@ async function testHazards2(browser, base) {
         .sub(window.__at(-6, -6, 14))
         .normalize(),
       ang: 0.3,
-      len: 30,
+      len: 30 * 3,
     });
     window.__tick(0.5);
     const hit = window.__st.includes('spotted');
@@ -13696,7 +13728,7 @@ async function testHazards2(browser, base) {
       pl = g.player;
     window.__clr();
     const from = window.__at(8, 8, 14);
-    const id = g.addZone('beam', from, 0, 60, { target: pl, dps0: 60, dps1: 600, ramp: 2, track: 30 });
+    const id = g.addZone('beam', from, 0, 60, { target: pl, dps0: 60, dps1: 600, ramp: 2, track: 30 * 3 });
     const z = g.zoneById(id);
     const loss = (sec) => {
       const h = pl.hp;
@@ -13723,9 +13755,9 @@ async function testHazards2(browser, base) {
     const mid2 = from.clone().lerp(pl.center(), 0.5);
     g.addTempWall(mid2.setY(g.world.terrainHeight(mid2.x, mid2.z)), {
       kind: 'rock',
-      w: 8,
-      h: 14,
-      d: 2,
+      w: 8 * 3,
+      h: 14 * 3,
+      d: 2 * 3,
       life: 2,
     });
     window.__tick(0.3);
@@ -13751,7 +13783,7 @@ async function testHazards2(browser, base) {
       w = g.world;
     window.__clr();
     const p = window.__at(0, -9);
-    const id = g.addTempWall(p, { kind: 'ice', w: 7, h: 4, d: 1.4, hp: 900, life: 60 });
+    const id = g.addTempWall(p, { kind: 'ice', w: 7 * 3, h: 4 * 3, d: 1.4 * 3, hp: 900, life: 60 });
     const W = g.tWalls.find((x) => x.i === id);
     const r = { obs: w.obstacles.includes(W.ob), occ: w.occluders.includes(W.ob) };
     const [cx, cz] = w.collide(p.x + 0.2, p.z + 0.3, p.y + 0.5, 1);
@@ -14558,6 +14590,9 @@ async function testFoesB1(browser, base) {
         };
         // 生成點：要求的方向與距離附近、地面（不在物件上）、看得到玩家的位置（地圖是隨機的）
         window.__at = (dx, dz) => {
+          dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+          dz *= 3;
+
           const w = g.world,
             R = Math.hypot(dx, dz),
             a0 = Math.atan2(dz, dx);
@@ -14567,8 +14602,8 @@ async function testFoesB1(browser, base) {
             const x = p.pos.x + Math.cos(a) * r,
               z = p.pos.z + Math.sin(a) * r;
             const h = w.terrainHeight(x, z);
-            if (!w.inZone(x, z, 4) || w.groundAt(x, z, h + 4) > h + 0.5) continue;
-            if (w.losBlocked(new THREE.Vector3(x, h + 2.5, z), p.center())) continue;
+            if (!w.inZone(x, z, 12) || w.groundAt(x, z, h + 12) > h + 1.5) continue;
+            if (w.losBlocked(new THREE.Vector3(x, h + 7.5, z), p.center())) continue;
             return new THREE.Vector3(x, h, z);
           }
           return new THREE.Vector3(p.pos.x + dx, w.terrainHeight(p.pos.x + dx, p.pos.z + dz), p.pos.z + dz);
@@ -14585,10 +14620,10 @@ async function testFoesB1(browser, base) {
           document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
           g.camera.position
             .copy(mid)
-            .addScaledVector(side, (d * 0.55 + 9) * k)
-            .add(new THREE.Vector3(0, d * 0.35 + 7, 0))
-            .addScaledVector(dir, -4);
-          g.camera.lookAt(mid.clone().add(new THREE.Vector3(0, 2, 0)));
+            .addScaledVector(side, (d * 0.55 + 27) * k)
+            .add(new THREE.Vector3(0, d * 0.35 + 21, 0))
+            .addScaledVector(dir, -12);
+          g.camera.lookAt(mid.clone().add(new THREE.Vector3(0, 6, 0)));
         };
         // 新地圖先跑幾格主迴圈（更新與算繪），以前是靠兩次 evaluate 之間的實際幾格
         window.__pump(0.25);
@@ -14610,7 +14645,7 @@ async function testFoesB1(browser, base) {
     const e = g.spawnType('harpoon', 1, 1, window.__at(0, -22), 1);
     window.__e = e;
     let warn = false;
-    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    window.__step([e], 1800, () => (warn = e.bossVis === 1));
     if (warn) window.__frame(e);
     return { warn, res: e.res, name: e.name };
   });
@@ -14845,12 +14880,20 @@ async function testFoesB1(browser, base) {
     const e = g.spawnType('blaster', 1, 1, window.__at(4, -22), 1);
     window.__e = e;
     let warn = false;
-    window.__step([e], 600, () => (warn = e.bossVis === 1));
+    window.__step([e], 1800, () => (warn = e.bossVis === 1));
     window.__step([e], 60);
     window.__frame(e);
-    return { warn, roof: !!g.world.theme.roof, top: e.aiState.bl && e.aiState.bl.top.y };
+    return {
+      warn,
+      roof: !!g.world.theme.roof,
+      top: e.aiState.bl && e.aiState.bl.top.y,
+      d: +e.pos.distanceTo(g.player.pos).toFixed(1),
+    };
   });
-  check(bl1.warn && bl1.roof && bl1.top < 20, '坍方爆破手：在岩頂裝炸藥（閃燈＋裂紋圈預警）');
+  check(
+    bl1.warn && bl1.roof && bl1.top < 20 * SC,
+    '坍方爆破手：在岩頂裝炸藥（閃燈＋裂紋圈預警）' + JSON.stringify(bl1),
+  );
   await shot('blaster-warn');
   await resume();
   const bl2 = await ev(() => {
@@ -15015,6 +15058,9 @@ async function testFoesB2(browser, base) {
       return g.worldTheme;
     };
     T.at = (dx, dz) => {
+      dx *= 3; // 三倍高改版：位置照舊尺度寫（×SC）
+      dz *= 3;
+
       const g = window.__game,
         p = g.player;
       const x = p.pos.x + dx,
@@ -15039,7 +15085,7 @@ async function testFoesB2(browser, base) {
       return n;
     };
     // 截圖的鏡頭：從玩家這一側斜看敵人的正面
-    T.cam = (e, dist = 9, h = 3.5, side = 1) => {
+    T.cam = (e, dist = 27, h = 10.5, side = 1) => {
       const g = window.__game;
       const c = e.center();
       const d = c.clone().sub(g.player.center()).setY(0).normalize();
@@ -15050,7 +15096,7 @@ async function testFoesB2(browser, base) {
       g.camera.lookAt(c);
     };
     // 側面的鏡頭：看玩家與敵人之間的攻擊（水柱、電弧）
-    T.side = (e, dist = 16, h = 5) => {
+    T.side = (e, dist = 48, h = 15) => {
       const g = window.__game;
       const a = e.center(),
         b = g.player.center();
@@ -15063,11 +15109,11 @@ async function testFoesB2(browser, base) {
       const g = window.__game,
         w = g.world,
         p = g.player;
-      for (let r = r0; r < r1; r += 2)
+      for (let r = r0 * 3; r < r1 * 3; r += 6)
         for (let a = 0; a < 6.28; a += 0.2) {
           const x = p.pos.x + Math.cos(a) * r,
             z = p.pos.z + Math.sin(a) * r;
-          if (w.waterDepth(x, z) > 0.8 && w.inZone(x, z, 4))
+          if (w.waterDepth(x, z) > 2.4 && w.inZone(x, z, 12))
             return new THREE.Vector3(x, w.terrainHeight(x, z), z);
         }
       return null;
@@ -15175,7 +15221,7 @@ async function testFoesB2(browser, base) {
       e = T.e,
       p = window.__game.player;
     const dir = p.pos.clone().sub(e.pos).setY(0).normalize();
-    p.pos.addScaledVector(dir, 16); // 拉開 12 m 以上
+    p.pos.addScaledVector(dir, 16 * 3); // 拉開 36 m 以上
     T.step([e], 3);
     const out = { vis: e.bossVis, bx: e.bx, arc: !!(e.b2arc && e.b2arc.visible) };
     T.kill(e);
@@ -16276,10 +16322,12 @@ async function testFoesC1(browser, base) {
         };
         // 在玩家前方 dist m 生成（玩家面向它）
         window.__spawn = (type, dist, side = 0) => {
+          dist *= 3; // 位置照舊尺度寫（×SC）
+          side *= 3;
           const w = g.world;
           const x = p.pos.x + side,
             z = p.pos.z - dist;
-          const e = g.spawnType(type, 1, 1, new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 2), z), 1);
+          const e = g.spawnType(type, 1, 1, new THREE.Vector3(x, w.groundAt(x, z, p.pos.y + 6), z), 1);
           p.yaw = p.aimYaw = 0;
           return e;
         };
@@ -16360,19 +16408,19 @@ async function testFoesC1(browser, base) {
       pl = g.player;
     // 砲口在機體上方約 4 m（依朝向前後差 1 m），所以檢查三條高度不同的拋物線、每點上下各留 0.4 m
     const arcClear = (q) =>
-      [3.5, 4, 4.6].every((mh) => {
+      [10.5, 12, 13.8].every((mh) => {
         const M = q.clone().setY(q.y + mh),
-          L = pl.pos.clone().setY(w.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 1.5));
+          L = pl.pos.clone().setY(w.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 4.5));
         const T = 1.5,
-          G = 30;
+          G = 90;
         const v = L.clone().sub(M).divideScalar(T);
         v.y = (L.y - M.y + 0.5 * G * T * T) / T;
         for (let t = 0; t <= T; t += 0.02) {
           const P = M.clone().addScaledVector(v, t);
           P.y -= 0.5 * G * t * t;
-          if (P.y < L.y + 0.5) break; // 落地
-          for (const dy of [-0.4, 0, 0.4]) if (w.hitsWorld(P.clone().setY(P.y + dy))) return false;
-          if ((w.props || []).some((o) => !o.dead && o.center().distanceTo(P) < (o.radius || 1) + 1.5))
+          if (P.y < L.y + 1.5) break; // 落地
+          for (const dy of [-1.2, 0, 1.2]) if (w.hitsWorld(P.clone().setY(P.y + dy))) return false;
+          if ((w.props || []).some((o) => !o.dead && o.center().distanceTo(P) < (o.radius || 1) + 4.5))
             return false;
         }
         return true;
@@ -16381,11 +16429,11 @@ async function testFoesC1(browser, base) {
     for (let k = 0; k < 24 && !e; k++) {
       // 從正前方開始，左右交錯繞一圈（玩家旁邊有坡道時，從另一側打過來）
       const a = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27,
-        x = pl.pos.x - Math.sin(a) * 32,
-        z = pl.pos.z - Math.cos(a) * 32;
-      const c = g.spawnType('icemortar', 1, 1, new THREE.Vector3(x, w.groundAt(x, z, pl.pos.y + 2), z), 1);
+        x = pl.pos.x - Math.sin(a) * 96,
+        z = pl.pos.z - Math.cos(a) * 96;
+      const c = g.spawnType('icemortar', 1, 1, new THREE.Vector3(x, w.groundAt(x, z, pl.pos.y + 6), z), 1);
       // 站在平地上（生成在坡道或丘陵上時，速度 0 也會滑下來、離開檢查過的位置）
-      const flat = Math.abs(c.pos.y - w.terrainHeight(c.pos.x, c.pos.z)) < 0.3 && w.slopeOK(c.pos.x, c.pos.z);
+      const flat = Math.abs(c.pos.y - w.terrainHeight(c.pos.x, c.pos.z)) < 0.9 && w.slopeOK(c.pos.x, c.pos.z);
       if (flat && arcClear(c.pos)) e = c;
       else {
         c.depart();
@@ -16423,10 +16471,10 @@ async function testFoesC1(browser, base) {
     let blocks = false;
     if (W && wl) {
       // 從砲台側穿過冰牆的視線被擋住（臨時障礙物有碰撞、可當掩體）
-      const c = wl[0].clone().setY(wl[0].y + 1.5);
+      const c = wl[0].clone().setY(wl[0].y + 4.5);
       const e = g.enemies.find((x) => x.ai === 'icemortar');
       const to = c.clone().sub(e.pos).setY(0).normalize();
-      blocks = g.world.losBlocked(c.clone().addScaledVector(to, -3), c.clone().addScaledVector(to, 3));
+      blocks = g.world.losBlocked(c.clone().addScaledVector(to, -9), c.clone().addScaledVector(to, 9));
     }
     return {
       real: (g.tWalls || []).length,
@@ -16437,7 +16485,7 @@ async function testFoesC1(browser, base) {
     };
   });
   check(
-    im2.walls > 0 && (!im2.wall || (im2.wall.kind === 'ice' && im2.wall.life === 20 && im2.wall.d < 8)),
+    im2.walls > 0 && (!im2.wall || (im2.wall.kind === 'ice' && im2.wall.life === 20 && im2.wall.d < 24)),
     '冰錐迫擊砲：落點生成冰牆（' + JSON.stringify(im2.wall) + '）',
   );
   check(im2.real > 0 && im2.blocks, `冰錐迫擊砲：冰牆是真的障礙物、擋住視線（${im2.real} 面）`);
@@ -16515,7 +16563,7 @@ async function testFoesC1(browser, base) {
     };
   });
   check(
-    pa2.latched && pa2.noLock && pa2.vis === 2 && pa2.near < 3 && pa2.status && !pa2.cands,
+    pa2.latched && pa2.noLock && pa2.vis === 2 && pa2.near < 9 && pa2.status && !pa2.cands,
     '寄生纏附體：撲上來纏附（跟著機體、不能鎖定、latch 狀態）' + JSON.stringify(pa2),
   );
   await shot('parasite-latch', 200);
@@ -16555,7 +16603,8 @@ async function testFoesC1(browser, base) {
   check(
     an2.n > 0 &&
       an2.vis === 2 &&
-      (!an2.zone || (an2.zone.k === 'gravity' && an2.zone.r === 14 && an2.zone.life === 8 && an2.zone.d < 6)),
+      (!an2.zone ||
+        (an2.zone.k === 'gravity' && an2.zone.r === 42 && an2.zone.life === 8 && an2.zone.d < 18)),
     '重力錨：在目標腳下展開重力圈（' + JSON.stringify(an2.zone) + '）',
   );
   check(an2.nojump, '重力錨：重力圈裡的機體不能跳（nojump）');
@@ -16569,13 +16618,13 @@ async function testFoesC1(browser, base) {
     // 找附近的上層平台站上去（找不到時放在地面 20 m 外）
     let deck = null;
     for (const o of w.obstacles) {
-      if (o.kind !== 'box' || !o.deck || !(o.top > w.terrainHeight(o.x, o.z) + 4)) continue;
+      if (o.kind !== 'box' || !o.deck || !(o.top > w.terrainHeight(o.x, o.z) + 12)) continue;
       const d = Math.hypot(o.x - p.pos.x, o.z - p.pos.z);
-      if (d > 14 && d < 40 && (!deck || d < deck.d)) deck = { o, d };
+      if (d > 42 && d < 120 && (!deck || d < deck.d)) deck = { o, d };
     }
     const at = deck
       ? new THREE.Vector3(deck.o.x, deck.o.top, deck.o.z)
-      : p.pos.clone().add(new THREE.Vector3(0, 0, -20));
+      : p.pos.clone().add(new THREE.Vector3(0, 0, -60));
     const e = g.spawnType('zipline', 1, 1, at, 1);
     const dv = e.pos.clone().sub(p.pos).setY(0).normalize();
     p.yaw = p.aimYaw = Math.atan2(-dv.x, -dv.z);
@@ -16603,7 +16652,7 @@ async function testFoesC1(browser, base) {
     return out;
   });
   check(
-    zp2.vuln && zp2.d < 8 && zp2.behind < 0 && zp2.k === 130 && zp2.after,
+    zp2.vuln && zp2.d < 24 && zp2.behind < 0 && zp2.k === 130 && zp2.after,
     '滑索突擊兵：滑到目標背後、落地 0.8 秒破綻受傷 ×1.3（' + JSON.stringify(zp2) + '）',
   );
   await shot('zipline-land', 150);

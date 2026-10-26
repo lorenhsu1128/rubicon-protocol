@@ -91,8 +91,8 @@ Object.assign(Game.prototype, {
     c.opened = true;
     this.scene.remove(c.mesh);
     c.mesh.traverse((o) => o.geometry && o.geometry.dispose());
-    this.fx.ring(c.pos.clone().setY(c.pos.y + 0.5 * MS), 5 * MS, CACHE_KINDS[c.kind].color);
-    this.fx.flash(c.pos.clone().setY(c.pos.y + 1 * MS), 2 * MS, CACHE_KINDS[c.kind].color, 0.15);
+    this.fx.ring(c.pos.clone().setY(c.pos.y + 0.5 * MS), 5, CACHE_KINDS[c.kind].color);
+    this.fx.flash(c.pos.clone().setY(c.pos.y + 1 * MS), 2, CACHE_KINDS[c.kind].color, 0.15);
   },
   cachesLeft() {
     return (this.caches || []).filter((c) => !c.opened).length;

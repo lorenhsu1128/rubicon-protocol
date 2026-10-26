@@ -39,13 +39,13 @@ Object.assign(Game.prototype, {
     if (kb > 0) {
       // 連鎖殉爆：爆炸再擊破的敵人也會爆炸
       const c = e.center();
-      this.explodeAt(c, Math.min(e.maxHp * 0.35, 2600) * kb, 700 * kb, 6 + kb * 2, from, false);
+      this.explodeAt(c, Math.min(e.maxHp * 0.35, 2600) * kb, 700 * kb, (6 + kb * 2) * this.fx.k, from, false);
       this.fx.shockwave(c, 6 + kb * 2, 0xff8030, 0.35);
     }
     const ks = from.pmv('killStag');
     if (ks > 0) {
-      const R = 8 + ks * 2;
-      this.fx.shockwave(e.center(), R, 0x9fd8ff, 0.4);
+      const R = (8 + ks * 2) * this.fx.k;
+      this.fx.shockwave(e.center(), R / this.fx.k, 0x9fd8ff, 0.4);
       for (const h of this.enemies) {
         if (h.dead || h === e || h.isBoss || h.ai === 'objective' || h.pos.distanceTo(e.pos) > R) continue;
         h.acs = h.acsMax;

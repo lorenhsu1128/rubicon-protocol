@@ -43,7 +43,7 @@ BEAM.rotateX(Math.PI / 2); // 沿 +Z、從 0 到 1
 for (const g of [BOX, SPH, DISC, RING, BEAM]) g.userData.shared = true;
 
 // 煙霧的體積：半徑 r 的圓柱，從地面到 SMOKE_H(r)
-const smokeH = (r) => Math.max(6, r * 1.2);
+const smokeH = (r, k) => Math.max(6 * k, r * 1.2); // k：尺度（fx.k）
 
 Object.assign(Game.prototype, {
   hz2Host() {
@@ -88,7 +88,9 @@ Object.assign(Game.prototype, {
       const from = fromEnt ? fromEnt.center() : o.from && o.from.isVector3 ? o.from.clone() : pos.clone();
       z.p.copy(from);
       const aim = tgt ? tgt.center() : from.clone().add(new THREE.Vector3(0, -5, -10));
-      z.end = o.at ? o.at.clone() : aim.add(new THREE.Vector3(rnd(-6, 6), 0, rnd(-6, 6)));
+      z.end = o.at
+        ? o.at.clone()
+        : aim.add(new THREE.Vector3(rnd(-6, 6), 0, rnd(-6, 6)).multiplyScalar(this.fx.k));
       z.frac = 0;
     }
     if (!this.zones) this.zones = [];
@@ -163,7 +165,11 @@ Object.assign(Game.prototype, {
   inSmoke(p) {
     for (const z of this.zones || []) {
       if (z.k !== 'smoke' || z.fade < 0.3) continue;
-      if (Math.hypot(p.x - z.p.x, p.z - z.p.z) < z.r && p.y > z.p.y - 1 && p.y < z.p.y + smokeH(z.r))
+      if (
+        Math.hypot(p.x - z.p.x, p.z - z.p.z) < z.r &&
+        p.y > z.p.y - this.fx.k &&
+        p.y < z.p.y + smokeH(z.r, this.fx.k)
+      )
         return true;
     }
     return false;
@@ -180,7 +186,7 @@ Object.assign(Game.prototype, {
         cz = a.z + dz * t - z.p.z;
       if (cx * cx + cz * cz > z.r * z.r * 0.8) continue;
       const y = a.y + (b.y - a.y) * t;
-      if (y > z.p.y - 1 && y < z.p.y + smokeH(z.r)) return true;
+      if (y > z.p.y - this.fx.k && y < z.p.y + smokeH(z.r, this.fx.k)) return true;
     }
     return false;
   },
@@ -204,7 +210,7 @@ Object.assign(Game.prototype, {
       const dx = c.x - e.pos.x,
         dz = c.z - e.pos.z;
       const d = Math.hypot(dx, dz);
-      if (Math.hypot(e.pos.x - z.p.x, e.pos.z - z.p.z) > z.r || d < 1) continue;
+      if (Math.hypot(e.pos.x - z.p.x, e.pos.z - z.p.z) > z.r || d < this.fx.k) continue;
       const k = z.pull * (z.fade || 1) * (0.5 + 0.5 * (1 - d / z.r));
       target.x += (dx / d) * k;
       target.z += (dz / d) * k;
@@ -216,14 +222,14 @@ Object.assign(Game.prototype, {
     if (this.tWalls && this.tWalls.length) this.tempWallHitAt(p, dmg, splash);
     if (!(splash > 0 || attr === 'exp') || !this.zones) return;
     for (const z of [...this.zones])
-      if (z.k === 'fuel' && Math.hypot(p.x - z.p.x, p.z - z.p.z) < z.r + (splash || 0) + 0.5)
+      if (z.k === 'fuel' && Math.hypot(p.x - z.p.x, p.z - z.p.z) < z.r + (splash || 0) + 0.5 * this.fx.k)
         this.fuelIgnite(z);
   },
   fuelIgnite(z) {
     if (z.lit) return;
     z.lit = true;
-    this.addPool(z.src && !z.src.dead ? z.src : null, z.p, z.r, z.burn, z.dps || 150);
-    this.fx.explosion(z.p.clone().setY(z.p.y + 0.8), z.r * 0.5, 0xff7a20, z.r > 5);
+    this.addPool(z.src && !z.src.dead ? z.src : null, z.p, z.r / this.fx.k, z.burn, z.dps || 150); // addPool 的半徑照舊尺度
+    this.fx.explosion(z.p.clone().setY(z.p.y + 0.8), (z.r * 0.5) / this.fx.k, 0xff7a20, z.r > 5 * this.fx.k);
     SFX.explode(false, z.p);
     this.removeZone(z.i);
   },
@@ -293,14 +299,15 @@ Object.assign(Game.prototype, {
         if (z.tick > 0) return;
         z.tick = 0.2;
         for (const e of victims())
-          if (inR(e) && e.pos.y < z.p.y + 40) e.addStatus?.('nojump', 0.5, { src: owner ? owner.id : -1 });
+          if (inR(e) && e.pos.y < z.p.y + 40 * this.fx.k)
+            e.addStatus?.('nojump', 0.5, { src: owner ? owner.id : -1 });
         return;
       case 'electro': {
         if (z.tick > 0) return;
         z.tick = 0.25;
         const wl = w.theme.water ? w.theme.water.level : -1e9;
         for (const e of victims())
-          if (inR(e) && w.waterDepth(e.pos.x, e.pos.z) >= 0.3 && e.pos.y < wl + 1.5) {
+          if (inR(e) && w.waterDepth(e.pos.x, e.pos.z) >= 0.3 * this.fx.k && e.pos.y < wl + 1.5 * this.fx.k) {
             e.takeDamage(z.dps * 0.25, 40, owner, e.center(), null, undefined, undefined, 'en');
             if (Math.random() < 0.5) this.fx.spark(e.center(), 0x9ff0ff);
           }
@@ -318,7 +325,7 @@ Object.assign(Game.prototype, {
         for (const e of victims()) {
           const v = e.center().sub(z.p);
           const d = v.length();
-          if (d > z.len || d < 0.5 || v.divideScalar(d).dot(z.dir) < Math.cos(z.ang)) continue;
+          if (d > z.len || d < 0.5 * this.fx.k || v.divideScalar(d).dot(z.dir) < Math.cos(z.ang)) continue;
           if (w.losBlocked(z.p, e.center())) continue;
           e.addStatus?.('spotted', 0.6, { src: owner ? owner.id : -1 });
           z.lit = true;
@@ -337,7 +344,7 @@ Object.assign(Game.prototype, {
         const step = z.track * dt * (1 + d / 12); // 離得越遠追得越快，貼近後只能慢慢跟
         if (d > 1e-3) z.end.addScaledVector(to, Math.min(1, step / d));
         const clear = this.losClear(z.p, z.end);
-        const on = clear && z.end.distanceTo(aim) < T.radius + 1.2;
+        const on = clear && z.end.distanceTo(aim) < T.radius + 1.2 * this.fx.k;
         z.lockT = on ? z.lockT + dt : 0; // 斷開或跟丟就重來
         z.frac = clamp(z.lockT / z.ramp, 0, 1);
         if (!on || z.tick > 0) return;
@@ -371,7 +378,7 @@ Object.assign(Game.prototype, {
           const m = new THREE.Mesh(SPH, glow(i % 3 ? 0x8b8f95 : 0x6c7076, 0.5, false));
           const a = Math.random() * Math.PI * 2,
             rr = Math.sqrt(Math.random()) * z.r * 0.8;
-          m.position.set(Math.cos(a) * rr, rnd(0.6, smokeH(z.r) * 0.8), Math.sin(a) * rr);
+          m.position.set(Math.cos(a) * rr, rnd(0.6, smokeH(z.r, this.fx.k) * 0.8), Math.sin(a) * rr);
           const s = z.r * rnd(0.4, 0.7);
           m.scale.set(s, s * 0.8, s);
           m.userData = { s, ph: Math.random() * 6, sp: rnd(-0.3, 0.3) };
@@ -384,7 +391,7 @@ Object.assign(Game.prototype, {
         F.ring = flat(new THREE.Mesh(RING, glow(0xb070ff, 0.8)), 0.12, z.r);
         F.disc = flat(new THREE.Mesh(DISC, glow(0x6a30c0, 0.16)), 0.08, z.r);
         const col = new THREE.Mesh(
-          new THREE.CylinderGeometry(z.r, z.r, 10, 40, 1, true),
+          new THREE.CylinderGeometry(z.r, z.r, 10 * this.fx.k, 40, 1, true),
           glow(0x9a60ff, 0.07),
         );
         col.position.y = 5;
@@ -394,9 +401,10 @@ Object.assign(Game.prototype, {
           const m = new THREE.Mesh(BOX, glow(0xc89aff, 0.85));
           const a = Math.random() * Math.PI * 2,
             rr = Math.sqrt(Math.random()) * z.r;
-          m.position.set(Math.cos(a) * rr, rnd(0, 10), Math.sin(a) * rr);
-          m.scale.set(0.06, rnd(0.6, 1.4), 0.06);
-          m.userData.v = rnd(7, 14);
+          const K = this.fx.k;
+          m.position.set(Math.cos(a) * rr, rnd(0, 10) * K, Math.sin(a) * rr);
+          m.scale.set(0.06 * K, rnd(0.6, 1.4) * K, 0.06 * K);
+          m.userData.v = rnd(7, 14) * K;
           F.parts.push(m);
           g.add(m);
         }
@@ -409,8 +417,12 @@ Object.assign(Game.prototype, {
         F.disc = flat(new THREE.Mesh(DISC, glow(0x2a6a9a, 0.14)), 0.02, z.r);
         for (let i = 0; i < 42; i++) {
           const m = new THREE.Mesh(BOX, glow(i % 2 ? 0xbfeaff : 0x6ac0ff, 0.8));
-          m.userData = { a: Math.random() * Math.PI * 2, rr: Math.random() * z.r, h: rnd(0.2, 2.5) };
-          m.scale.set(0.08, 0.08, 0.9);
+          m.userData = {
+            a: Math.random() * Math.PI * 2,
+            rr: Math.random() * z.r,
+            h: rnd(0.2, 2.5) * this.fx.k,
+          };
+          m.scale.set(0.08 * this.fx.k, 0.08 * this.fx.k, 0.9 * this.fx.k);
           F.parts.push(m);
           g.add(m);
         }
@@ -523,7 +535,7 @@ Object.assign(Game.prototype, {
         F.col.material.opacity = 0.07 * f;
         for (const m of F.parts) {
           m.position.y -= m.userData.v * dt;
-          if (m.position.y < 0) m.position.y += 10;
+          if (m.position.y < 0) m.position.y += 10 * this.fx.k;
           m.material.opacity = 0.85 * f;
         }
         break;
@@ -533,9 +545,9 @@ Object.assign(Game.prototype, {
         F.disc.material.opacity = 0.14 * f;
         for (const m of F.parts) {
           const u = m.userData;
-          u.rr -= dt * (2 + (z.r - u.rr) * 0.4);
+          u.rr -= dt * (2 * this.fx.k + (z.r - u.rr) * 0.4);
           u.a += dt * (1.5 + 6 / Math.max(1, u.rr));
-          if (u.rr < 0.5) {
+          if (u.rr < 0.5 * this.fx.k) {
             u.rr = z.r;
             u.a = Math.random() * Math.PI * 2;
           }
@@ -562,7 +574,7 @@ Object.assign(Game.prototype, {
               z1 = Math.sin(a1) * r1;
             for (let i = 0; i < 9; i++) {
               const t = i / 8,
-                j = i && i < 8 ? 0.6 : 0;
+                j = i && i < 8 ? 0.6 * this.fx.k : 0;
               P.setXYZ(i, lerp(x0, x1, t) + rnd(-j, j), Math.random() * 0.25, lerp(z0, z1, t) + rnd(-j, j));
             }
             P.needsUpdate = true;
@@ -598,7 +610,7 @@ Object.assign(Game.prototype, {
             w.groundAt(hit.x, hit.z, hit.y + 2) + 0.12 - z.p.y,
             hit.z - z.p.z,
           );
-          F.spot.scale.setScalar(Math.max(1, hit.distanceTo(z.p) * Math.tan(z.ang)));
+          F.spot.scale.setScalar(Math.max(this.fx.k, hit.distanceTo(z.p) * Math.tan(z.ang)));
         }
         const lit = z.lit ? 1.6 : 1;
         F.cone.material.opacity = 0.1 * f * lit;
@@ -613,14 +625,14 @@ Object.assign(Game.prototype, {
         const dir = end.clone().sub(from);
         let L = dir.length();
         dir.divideScalar(Math.max(1e-3, L));
-        for (let s = 2; s < L - 1.5; s += 1) {
+        for (let s = 2 * this.fx.k; s < L - 1.5 * this.fx.k; s += this.fx.k) {
           if (w.hitsWorld(from.clone().addScaledVector(dir, s))) {
             L = s;
             break;
           }
         }
         const col = new THREE.Color(0xffe040).lerp(new THREE.Color(0xff2010), z.frac || 0);
-        const wd = 0.1 + 0.12 * (z.frac || 0) + 0.03 * Math.sin(T * 40);
+        const wd = (0.1 + 0.12 * (z.frac || 0) + 0.03 * Math.sin(T * 40)) * this.fx.k;
         for (const [m, k] of [
           [F.core, 1],
           [F.outer, 3.2],
@@ -633,10 +645,10 @@ Object.assign(Game.prototype, {
         F.outer.material.opacity = 0.4 * f;
         F.core.material.opacity = 0.95 * f;
         F.hit.position.copy(from).addScaledVector(dir, L);
-        F.hit.scale.setScalar(0.5 + 0.6 * (z.frac || 0) + 0.15 * Math.sin(T * 30));
+        F.hit.scale.setScalar((0.5 + 0.6 * (z.frac || 0) + 0.15 * Math.sin(T * 30)) * this.fx.k);
         F.hit.material.color.copy(col);
         F.src.position.copy(from);
-        F.src.scale.setScalar(0.45);
+        F.src.scale.setScalar(0.45 * this.fx.k);
         F.src.material.color.copy(col);
         break;
       }
@@ -650,9 +662,9 @@ Object.assign(Game.prototype, {
       i: this.wallSeq,
       p: arr(pos),
       k: o.kind === 'rock' ? 'rock' : 'ice',
-      w: o.w || 6,
-      h: o.h || 3.5,
-      d: o.d || 1.2,
+      w: o.w || 6 * this.fx.k,
+      h: o.h || 3.5 * this.fx.k,
+      d: o.d || 1.2 * this.fx.k,
       y: Math.round(((o.yaw || 0) / (Math.PI / 2)) % 4),
       hp: o.hp || 0,
       l: o.life || 12,
@@ -766,7 +778,7 @@ Object.assign(Game.prototype, {
       base.position.y = h / 2;
       g.add(base);
       for (let i = 0; i < 5; i++) {
-        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.4, 0.8), 0), mat);
+        const b = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.4, 0.8) * this.fx.k, 0), mat);
         b.position.set(rnd(-w / 2, w / 2), rnd(0.2, 0.5), (Math.random() < 0.5 ? -1 : 1) * (d / 2 + 0.2));
         g.add(b);
       }
@@ -804,7 +816,7 @@ Object.assign(Game.prototype, {
       if (W.dead || !(W.hpMax > 0)) continue;
       const cp = W.ob.box.clampPoint(p, new THREE.Vector3());
       const d = cp.distanceTo(p);
-      if (d > rad + 0.35) continue;
+      if (d > rad + 0.35 * this.fx.k) continue;
       this.tempWallDamage(W, dmg * (rad > 0 ? clamp(1 - (d / Math.max(0.1, rad)) * 0.5, 0.4, 1) : 1), cp);
     }
   },
@@ -852,10 +864,10 @@ Object.assign(Game.prototype, {
       const mat = W.ob.mats[0].clone();
       mat.transparent = true;
       const pieces = [];
-      const n = Math.max(6, Math.round(W.w * W.h * 0.5));
+      const n = Math.max(6, Math.round((W.w * W.h * 0.5) / (this.fx.k * this.fx.k)));
       g.updateMatrixWorld(true);
       for (let k = 0; k < Math.min(14, n); k++) {
-        const s = rnd(0.4, 1.1);
+        const s = rnd(0.4, 1.1) * this.fx.k;
         const m = new THREE.Mesh(
           ice ? new THREE.OctahedronGeometry(s * 0.7, 0) : new THREE.DodecahedronGeometry(s * 0.6, 0),
           mat.clone(),
@@ -911,7 +923,7 @@ Object.assign(Game.prototype, {
       team: pr.team,
       pos: pr.pos,
       vel: pr.vel,
-      radius: pr.shotR || 0.9,
+      radius: (pr.shotR || 0.9) * this.fx.k, // shotR 照舊尺度
       scale: 0.6,
       laserK: 1,
       res: null,
@@ -959,7 +971,8 @@ Object.assign(Game.prototype, {
     this.scene.remove(pr.mesh);
     if (pr.netId) this.netEv({ t: 'pend', i: pr.netId });
     const p = pr.pos.clone();
-    if (pr.popDmg > 0) this.explodeAt(p, pr.popDmg, 300, Math.max(3, pr.splash || 0), pr.owner, true);
+    if (pr.popDmg > 0)
+      this.explodeAt(p, pr.popDmg, 300, Math.max(3 * this.fx.k, pr.splash || 0), pr.owner, true);
     else {
       this.fx.explosion(p, 1.6, 0xffc060, false);
       SFX.explode(false, p);

@@ -95,6 +95,7 @@ Object.assign(Game.prototype, {
   // off：全部還原。每格由 renderMain 呼叫 rtsRenderTick
   setRtsRender(on) {
     if (!!on === !!this.rtsR) return;
+    this.fx.setK(on ? 1 : DS);
     if (on) {
       this.rtsR = {
         aiBatch: this.aiBatch,

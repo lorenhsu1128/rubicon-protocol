@@ -381,7 +381,7 @@ Object.assign(MechEntity.prototype, {
       }
     });
     localFx(g, (fx) => {
-      fx.shockwave(c, 3.2 * (this.scale || 1), D.hex, 0.35);
+      fx.shockwave(c, (3.2 * (this.scale || 1)) / fx.k, D.hex, 0.35);
       fx.flash(c, 1.6, D.hex, 0.15);
     });
     if (me) {
@@ -413,7 +413,7 @@ Object.assign(MechEntity.prototype, {
         SFX.play('uiOk', 0.5, 1.3, 0.02, 0.05, me ? null : pos, me ? 'ui' : null);
       });
       localFx(g, (fx) => {
-        fx.shockwave(c, 4 * (this.scale || 1), 0xffffff, 0.3);
+        fx.shockwave(c, (4 * (this.scale || 1)) / fx.k, 0xffffff, 0.3);
         fx.streaks(c, 10, D.hex, 14, 0.35, 20);
       });
       if (kind === 'stick' && s && why === 'esc') {

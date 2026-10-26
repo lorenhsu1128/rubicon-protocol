@@ -17,8 +17,10 @@ export class Projectile {
     this.p0 = this.pos.clone(); // 發射點（實彈的距離衰減）
     const col = o.color || 0xffe0a0;
     // 發光的彈體用粒子批次（fx/batch.js），每顆子彈不再各自一個網格與材質
-    this.mesh = buildProjectileMesh(o.kind, col, this.vel.length(), game.fx && game.fx.projPart);
-    if (o.scale) this.mesh.scale.setScalar(o.scale); // 外觀的放大（誘導飛彈架的大型飛彈；客機以 proj 事件的 sc 照做）
+    // 彈體的外觀照舊尺度建（曳光的長度依舊尺度的彈速），再整體放大 MS（Coral 戰爭不放大）
+    const K = game.rts ? 1 : MS;
+    this.mesh = buildProjectileMesh(o.kind, col, this.vel.length() / K, game.fx && game.fx.projPart);
+    this.mesh.scale.setScalar((o.scale || 1) * K); // o.scale：外觀的放大（誘導飛彈架的大型飛彈；客機以 proj 事件的 sc 照做）
     this.mesh.position.copy(this.pos);
     game.scene.add(this.mesh);
     this.orient();
@@ -155,7 +157,7 @@ export class Projectile {
     if (!direct || this.splash > 0) g.hz2Blast(this.pos, this.dmg, this.splash, this.attr);
     if (this.splash > 0 && g.rts && g.rtsProjBlast) g.rtsProjBlast(this); // Coral 戰爭：爆發攻擊炸散殘骸（rts.js）
     if (this.splash > 0) {
-      g.fx.explosion(this.pos, this.splash * 0.9, 0xffa040, this.splash > 4 * (g.rts ? 1 : MS));
+      g.fx.explosion(this.pos, (this.splash * 0.9) / g.fx.k, 0xffa040, this.splash > 4 * (g.rts ? 1 : MS));
       SFX.explode(this.splash > 4 * (g.rts ? 1 : MS), this.pos);
       g.rumbleAt(
         this.pos,

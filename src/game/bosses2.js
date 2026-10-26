@@ -3,12 +3,13 @@
 // 光學迷彩電戰機的分身、三機合體的分離。傷害只在房主／單機計算；特效經由 fx 鏡像（render-setup.js）轉送給客機。
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { MS } from '../core/scale.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { asmStats } from '../data/parts.js';
 import { Game } from './game.js';
 import { PROP_PAD } from '../world/prop-hit.js';
 
-const CAR_SP = 9.6;
+const CAR_SP = 9.6 * MS; // 車廂間距（列車照機甲的尺度放大）
 const CARS = ['car_aa', 'car_ms', 'car_lz', 'car_mine'];
 // 三機合體分離後的三台：AP 依比例分配
 const TRINITY_SUBS = [
@@ -72,7 +73,7 @@ Object.assign(Game.prototype, {
           [-46 * w.k, 46 * w.k],
           [46 * w.k, 46 * w.k],
         ]) {
-          if (w.onCorridor(x, z, 4) || w.isVoid(x, z)) continue;
+          if (w.onCorridor(x, z, 4 * MS) || w.isVoid(x, z)) continue;
           const dd = Math.hypot(x - this.player.pos.x, z - this.player.pos.z);
           if (dd > bd2) {
             bd2 = dd;
@@ -80,7 +81,7 @@ Object.assign(Game.prototype, {
           }
         }
         if (best) {
-          const [x, z] = w.collide(best[0], best[1], 0, 5);
+          const [x, z] = w.collide(best[0], best[1], 0, 5 * MS);
           b.pos.set(x, w.terrainHeight(x, z), z);
           b.mesh.position.copy(b.pos);
         }
@@ -89,7 +90,7 @@ Object.assign(Game.prototype, {
       case 'train': {
         const c = w.corridor;
         if (!c) break;
-        const s0 = -w.trackS - 8;
+        const s0 = -w.trackS - 8 * MS;
         b.pos.copy(w.corridorPoint(s0));
         b.mesh.position.copy(b.pos);
         b.aiState.ts = s0;
@@ -102,7 +103,7 @@ Object.assign(Game.prototype, {
           clamp(b.pos.x, -40 * w.k, 40 * w.k),
           clamp(b.pos.z, -40 * w.k, 40 * w.k),
           0,
-          5,
+          5 * MS,
         );
         b.pos.set(x, w.terrainHeight(x, z), z);
         b.mesh.position.copy(b.pos);
@@ -117,29 +118,37 @@ Object.assign(Game.prototype, {
   },
   // 射線 a→b 沒有被地形或障礙物擋住
   losClear(a, b) {
-    const w = this.world;
+    const w = this.world,
+      K = this.fx.k; // 取樣間距與兩端的留白照尺度
     const d = a.distanceTo(b);
-    if (d < 2) return true;
+    if (d < 2 * K) return true;
     const dir = b.clone().sub(a).divideScalar(d);
     const p = new THREE.Vector3();
-    for (let s = 2; s < d - 1.5; s += 1) {
+    for (let s = 2 * K; s < d - 1.5 * K; s += K) {
       p.copy(a).addScaledVector(dir, s);
       if (w.hitsWorld(p)) return false;
     }
     // 可破壞物件以線段判定（和投射物、光束相同的命中形狀與加寬：細的柱子不會夾在兩個取樣點之間）
     if (
-      d - 1.5 > 2 &&
-      w.propBlocks(a.clone().addScaledVector(dir, 2), p.copy(a).addScaledVector(dir, d - 1.5), PROP_PAD)
+      d - 1.5 * K > 2 * K &&
+      w.propBlocks(
+        a.clone().addScaledVector(dir, 2 * K),
+        p.copy(a).addScaledVector(dir, d - 1.5 * K),
+        PROP_PAD,
+      )
     )
       return false;
     return true;
   },
-  // 光束攻擊：from 沿 dir，地形／障礙物與護盾會擋住；o：{ range, dmg, im, w 判定半徑, color, width, pierce }
+  // 光束攻擊：from 沿 dir，地形／障礙物與護盾會擋住；o：{ range, dmg, im, w 判定半徑, color, width, pierce }；
+  // range、w 照舊尺度傳，這裡乘 fx.k
   beamAttack(owner, from, dir, o) {
-    const w = this.world;
+    const w = this.world,
+      K = this.fx.k;
+    o = { ...o, range: o.range * K, w: (o.w || 0.6) * K };
     let stop = o.range;
     const p = new THREE.Vector3();
-    for (let s = 1; s < stop; s += 1) {
+    for (let s = K; s < stop; s += K) {
       p.copy(from).addScaledVector(dir, s);
       if (w.hitsWorld(p)) {
         stop = s;
@@ -160,7 +169,7 @@ Object.assign(Game.prototype, {
       const ap = t.center().sub(from);
       const proj = ap.dot(dir);
       if (proj < 0 || proj > stop) continue;
-      if (ap.clone().addScaledVector(dir, -proj).length() < t.radius + (o.w || 0.6)) hits.push({ t, proj });
+      if (ap.clone().addScaledVector(dir, -proj).length() < t.radius + o.w) hits.push({ t, proj });
     }
     hits.sort((a, b) => a.proj - b.proj);
     for (const h of o.pierce === false ? hits.slice(0, 1) : hits) {
@@ -175,28 +184,33 @@ Object.assign(Game.prototype, {
     if (stop < o.range && !hits.length) this.fx.spark(end, 0xffffff);
     return stop;
   },
-  // ----- 燃燒的地面：站在裡面（離地 1.2 m 以下）每 0.25 秒受傷 -----
-  // acid：汙染噴射 MT 的腐蝕區（綠色；站在裡面 ACS 回復變慢）
+  // ----- 燃燒的地面：站在裡面（離地 3.6 m 以下）每 0.25 秒受傷 -----
+  // acid：汙染噴射 MT 的腐蝕區（綠色；站在裡面 ACS 回復變慢）；R 照舊尺度傳，這裡乘 fx.k
   addPool(owner, p, R, life, dps, acid = false) {
     if (!this.hzPools) this.hzPools = [];
+    const K = this.fx.k;
+    R *= K;
     const q = p.clone();
-    q.y = this.world.groundAt(q.x, q.z, q.y + 2);
+    q.y = this.world.groundAt(q.x, q.z, q.y + 2 * K);
     this.hzPools.push({ p: q, R, life, dps, owner, tick: 0, acid });
     this.fx.firePool(q, R, life, acid ? 1 : 0);
   },
   // 熔渣：高拋到落點（預警圈），落地爆炸並留下燃燒的地面
   slagShot(src, tp, o) {
     const land = tp.clone();
-    land.y = this.world.groundAt(land.x, land.z, tp.y + 1.5);
-    this.mortarShot(src, land, { dmg: o.dmg, im: o.im, R: o.R });
+    const K = this.fx.k;
+    land.y = this.world.groundAt(land.x, land.z, tp.y + 1.5 * K);
+    this.mortarShot(src, land, { dmg: o.dmg, im: o.im, R: o.R * K });
     const mz = src.muzzle('rback');
-    const T = clamp(1.5 + mz.distanceTo(land) / 60, 1.6, 2.8);
+    const T = clamp(1.5 + mz.distanceTo(land) / (60 * K), 1.6, 2.8);
     this.later(T, () => this.addPool(src, land, o.poolR, o.life, o.dps));
   },
-  // ----- 擴散的能量環：波面掃過的目標受傷（QB 的無敵時間可以穿過）-----
+  // ----- 擴散的能量環：波面掃過的目標受傷（QB 的無敵時間可以穿過）；R、sp、band 照舊尺度傳 -----
   pulseRing(src, o) {
     if (!this.hzRings) this.hzRings = [];
-    const c = src.center();
+    const c = src.center(),
+      K = this.fx.k;
+    o = { ...o, R: o.R * K, sp: o.sp * K, band: (o.band || 0) * K };
     this.hzRings.push({ ...o, c, r: 0, owner: src, hit: new Set() });
     this.fx.pulseShell(c, o.R, o.sp, 0xff5070);
     SFX.play('laserBig', 0.8, 1.4, 0.05, 0.05, c);
@@ -230,7 +244,7 @@ Object.assign(Game.prototype, {
         for (const t of src ? this.hostilesOfEnt(src) : this.hostilesOf('enemy', null)) {
           if (!t || t.dead || t.isProp || !t.pos) continue;
           if (Math.hypot(t.pos.x - P.p.x, t.pos.z - P.p.z) > P.R + t.radius * 0.4) continue;
-          if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 1.2) continue;
+          if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 1.2 * this.fx.k) continue;
           if (P.acid) t.corrodeT = 0.6;
           t.takeDamage(P.dps * 0.25, 40, P.owner, t.center(), null, undefined, undefined, 'exp');
         }
@@ -274,9 +288,9 @@ Object.assign(Game.prototype, {
   spawnHolos(boss, n) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
-      const at = boss.pos.clone().add(new THREE.Vector3(Math.cos(a) * 6, 0, Math.sin(a) * 6));
-      const [x, z] = this.world.collide(at.x, at.z, at.y, 2);
-      at.set(x, this.world.groundAt(x, z, at.y + 2), z);
+      const at = boss.pos.clone().add(new THREE.Vector3(Math.cos(a) * 6 * MS, 0, Math.sin(a) * 6 * MS));
+      const [x, z] = this.world.collide(at.x, at.z, at.y, 2 * MS);
+      at.set(x, this.world.groundAt(x, z, at.y + 2 * MS), z);
       const h = this.spawnEnemy({
         name: boss.name,
         asm: boss.asm,
@@ -303,9 +317,11 @@ Object.assign(Game.prototype, {
     boss.aiState.lastKiller = null;
     for (const D of TRINITY_SUBS) {
       const a = Math.random() * Math.PI * 2;
-      const at = boss.pos.clone().add(new THREE.Vector3(Math.cos(a) * 5, D.repair ? 5 : 0, Math.sin(a) * 5));
-      const [x, z] = this.world.collide(at.x, at.z, at.y, 2);
-      at.set(x, Math.max(at.y, this.world.groundAt(x, z, at.y + 2)), z);
+      const at = boss.pos
+        .clone()
+        .add(new THREE.Vector3(Math.cos(a) * 5, D.repair ? 5 : 0, Math.sin(a) * 5).multiplyScalar(MS));
+      const [x, z] = this.world.collide(at.x, at.z, at.y, 2 * MS);
+      at.set(x, Math.max(at.y, this.world.groundAt(x, z, at.y + 2 * MS)), z);
       const asm = D.repair ? rep.gen() : D.asm;
       const hp = total * D.share;
       const e = this.spawnEnemy({

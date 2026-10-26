@@ -1,6 +1,7 @@
 // Game：新 Boss 的生成、附屬部位、電磁狩獵機的 EMP、鑽地蟲擊破（行為在 entities/mech-boss.js）
 import { SFX } from '../audio/audio.js';
 import { clamp, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import {
   BOSS_ENRAGE_DMG,
   BOSS_ENRAGE_T,
@@ -43,12 +44,13 @@ Object.assign(Game.prototype, {
     });
     b.kits = 0;
     const ring = (n, R, fn) => {
+      R *= DS; // 半徑照舊尺度寫
       const a0 = Math.random() * Math.PI * 2;
       for (let i = 0; i < n; i++) {
         const a = a0 + (i / n) * Math.PI * 2;
         const [x, z] = this.world.nearSolid(
-          clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4, this.world.lim - 4),
-          clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4, this.world.lim - 4),
+          clamp(b.pos.x + Math.cos(a) * R, -this.world.lim + 4 * MS, this.world.lim - 4 * MS),
+          clamp(b.pos.z + Math.sin(a) * R, -this.world.lim + 4 * MS, this.world.lim - 4 * MS),
         );
         fn(new THREE.Vector3(x, this.world.groundAt(x, z, 999), z), i);
       }
@@ -67,9 +69,13 @@ Object.assign(Game.prototype, {
       case 'artillery': {
         // 指揮所固定在原地；四座砲台圍一圈，周圍布滿地雷（不會過期）
         ring(4, 24, (p) => this.spawnPart(b, 'cannon', { at: p }));
-        const mine = { dmg: 400 * b.dmgMul, im: 650 * b.dmgMul, R: 4.5, life: 1e9, arm: 0, quiet: true };
-        ring(14, 11, (p) => this.layMine(b, p.add(new THREE.Vector3(rnd(-2, 2), 0, rnd(-2, 2))), mine));
-        ring(18, 31, (p) => this.layMine(b, p.add(new THREE.Vector3(rnd(-4, 4), 0, rnd(-4, 4))), mine));
+        const mine = { dmg: 400 * b.dmgMul, im: 650 * b.dmgMul, R: 4.5 * MS, life: 1e9, arm: 0, quiet: true };
+        ring(14, 11, (p) =>
+          this.layMine(b, p.add(new THREE.Vector3(rnd(-2, 2), 0, rnd(-2, 2)).multiplyScalar(DS)), mine),
+        );
+        ring(18, 31, (p) =>
+          this.layMine(b, p.add(new THREE.Vector3(rnd(-4, 4), 0, rnd(-4, 4)).multiplyScalar(DS)), mine),
+        );
         break;
       }
       default:
@@ -110,8 +116,8 @@ Object.assign(Game.prototype, {
     for (let i = 0; i < 4; i++) {
       const a = a0 + (i / 4) * Math.PI * 2;
       const [x, z] = this.world.nearSolid(
-        clamp(b.pos.x + Math.cos(a) * 22, -this.world.lim + 4, this.world.lim - 4),
-        clamp(b.pos.z + Math.sin(a) * 22, -this.world.lim + 4, this.world.lim - 4),
+        clamp(b.pos.x + Math.cos(a) * 22 * DS, -this.world.lim + 4 * MS, this.world.lim - 4 * MS),
+        clamp(b.pos.z + Math.sin(a) * 22 * DS, -this.world.lim + 4 * MS, this.world.lim - 4 * MS),
       );
       this.spawnPart(b, 'pylon', { at: new THREE.Vector3(x, this.world.groundAt(x, z, 999), z) });
     }
@@ -120,15 +126,16 @@ Object.assign(Game.prototype, {
   hunterEmp(src, R) {
     const c = src.pos.clone();
     const w = this.world;
-    this.fx.shockwave(c.clone().setY(c.y + 1), R, 0x60a8ff, 0.5);
+    const rr = R / this.fx.k; // 特效照舊尺度
+    this.fx.shockwave(c.clone().setY(c.y + 1), rr, 0x60a8ff, 0.5);
     this.fx.flash(src.center(), 6, 0xbfe0ff, 0.25);
-    for (let i = 0; i < 16; i++) this.fx.streaks(src.center(), 2, 0x80c8ff, R * 0.9, 0.35, R * 1.5);
+    for (let i = 0; i < 16; i++) this.fx.streaks(src.center(), 2, 0x80c8ff, rr * 0.9, 0.35, rr * 1.5);
     SFX.play('overload', 1, 0.8, 0.05, 0.05, c);
     SFX.play('laserBig', 0.7, 0.5, 0.05, 0.05, c);
     for (const t of this.hostilesOfEnt(src)) {
       if (t.dead || t.isProp || !t.pos) continue;
       if (Math.hypot(t.pos.x - c.x, t.pos.z - c.z) > R + t.radius) continue;
-      if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 5) continue;
+      if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 5 * MS) continue;
       t.takeDamage(
         300 * src.dmgMul,
         500 * src.dmgMul,

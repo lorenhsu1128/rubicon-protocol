@@ -110,17 +110,17 @@ Object.assign(MechEntity.prototype, {
         b = pl.pos.clone();
       a.y += 0.4 * MS;
       b.y += 0.4 * MS;
-      g.fx.warnLine(a, b, 0.55, 0xff6020, 0.14 * MS);
+      g.fx.warnLine(a, b, 0.55, 0xff6020, 0.14);
     }
   },
   // 槍口的閃光（準備中）
   mvGlow(mv, slot, color, every = 0.15, r = 0.45) {
     if (mv.fxT > 0) return;
     mv.fxT = every;
-    this.game.fx.flash(this.muzzle(slot), r * (this.scale || 1), color, 0.1);
+    this.game.fx.flash(this.muzzle(slot), (r * (this.scale || 1)) / this.game.fx.k, color, 0.1);
   },
   // 瞄準線（準備中，跟著目標）
-  mvLine(mv, slot, to, color, every = 0.2, w = 0.04 * MS) {
+  mvLine(mv, slot, to, color, every = 0.2, w = 0.04) {
     if (mv.fxT > 0) return;
     mv.fxT = every;
     this.game.fx.warnLine(this.muzzle(slot), to, every + 0.04, color, w);
@@ -168,7 +168,7 @@ Object.assign(MechEntity.prototype, {
       mv.gT = (mv.gT || 0) - dt;
       if (mv.gT <= 0) {
         mv.gT = 0.2;
-        this.game.fx.flash(this.muzzle(mv.slot), 0.5 * (this.scale || 1), 0xff4060, 0.12);
+        this.game.fx.flash(this.muzzle(mv.slot), (0.5 * (this.scale || 1)) / this.game.fx.k, 0xff4060, 0.12);
       }
       if (mv.t > T) {
         const w = this.weapons[mv.slot];
@@ -249,7 +249,7 @@ Object.assign(MechEntity.prototype, {
       wish.multiplyScalar(0.25);
       if (mv.fxT <= 0) {
         mv.fxT = 0.18;
-        this.game.fx.flash(this.center(), 1.1 * (this.scale || 1), 0xff2020, 0.1);
+        this.game.fx.flash(this.center(), (1.1 * (this.scale || 1)) / this.game.fx.k, 0xff2020, 0.1);
         SFX.play('bell', 0.35, 1.9, 0, 0, this.center());
       }
       if (mv.t > 0.75) Object.assign(mv, { ph: 'act', t: 0 });

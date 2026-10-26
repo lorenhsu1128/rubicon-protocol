@@ -5,6 +5,7 @@
 // 由 mech-boss.js 的掛勾呼叫（bossMove／partAI／bossDefense／bossFire／bossFx 等）。行為只在房主／單機執行；
 // 客機靠快照的 bossVis（各 Boss 的顯示旗標）與 bx（數值陣列：瞄準點、光柱位置…）顯示。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { partById } from '../data/parts.js';
 import { OUTLINE_MAT, isOutline } from '../render/geometry.js';
@@ -15,9 +16,9 @@ import { MechEntity } from './mech-entity.js';
 const TRACK = (e) => e.game.world.trackS;
 const LIM = (e) => e.game.world.lim;
 const KS = (e) => e.game.world.k;
-const CAR_SP = 9.6; // 車廂間距
+const CAR_SP = 9.6 * MS; // 車廂間距
 const CARS = ['car_aa', 'car_ms', 'car_lz', 'car_mine'];
-const PILLAR_R = 3.4; // 衛星砲光柱半徑
+const PILLAR_R = 3.4 * MS; // 衛星砲光柱半徑
 // 適應裝甲的傷害類型：0 實彈、1 能量、2 爆炸、3 近戰
 const DMG_CAT = {
   bullet: 0,
@@ -95,7 +96,7 @@ Object.assign(MechEntity.prototype, {
     const s = this.aiState;
     const auto = (slot, range, rate) => {
       const w = this.weapons[slot];
-      if (!w || w.def.type === 'none' || d > range || !this.canAct()) return;
+      if (!w || w.def.type === 'none' || d > range * DS || !this.canAct()) return;
       if (Math.random() < dt * rate) this.fire(slot, aimPos, pl);
       if (w.mag <= 0 && w.reloadT <= 0 && w.ammo > 0) w.reloadT = w.def.reload;
     };
@@ -116,7 +117,7 @@ Object.assign(MechEntity.prototype, {
         // 迷彩中偶爾狙擊一發（開火會現形）；現形時全武器
         if (this.bossVis & 1) {
           s.snipeT = (s.snipeT === undefined ? rnd(1.5, 3) : s.snipeT) - dt;
-          if (s.snipeT <= 0 && d < 60 && this.canAct()) {
+          if (s.snipeT <= 0 && d < 60 * DS && this.canAct()) {
             s.snipeT = rnd(2.2, 3.2);
             if (this.fire('rarm', aimPos, pl)) s.selfRev = Math.max(s.selfRev || 0, 1.0);
           }
@@ -159,8 +160,8 @@ Object.assign(MechEntity.prototype, {
       s.rgT -= dt;
       // 開始充能前：發射時的砲口（砲身轉向瞄準點、俯仰對準）＋容差看得到瞄準點才開始；
       // 看不到時 0.3 秒後再試（以前不檢查就開始，0.45 秒後一定「失去目標」中斷）
-      if (s.rgT <= 0 && this.canAct() && d < 170 && !this.railLos(s.tp)) s.rgT = 0.3;
-      else if (s.rgT <= 0 && this.canAct() && d < 170) {
+      if (s.rgT <= 0 && this.canAct() && d < 170 * DS && !this.railLos(s.tp)) s.rgT = 0.3;
+      else if (s.rgT <= 0 && this.canAct() && d < 170 * DS) {
         s.rg = 'aim';
         s.charge = 0;
         s.lost = 0;
@@ -247,9 +248,9 @@ Object.assign(MechEntity.prototype, {
       s = this.aiState;
     const p2 = this.phase2();
     this.flying = true;
-    this.hoverH = 6 + Math.sin(this.t * 0.7) * 2;
-    if (d > s.want + 6) wish.copy(dir).multiplyScalar(0.8);
-    else if (d < s.want - 6) wish.copy(dir).multiplyScalar(-1);
+    this.hoverH = (6 + Math.sin(this.t * 0.7) * 2) * DS;
+    if (d > s.want + 6 * DS) wish.copy(dir).multiplyScalar(0.8);
+    else if (d < s.want - 6 * DS) wish.copy(dir).multiplyScalar(-1);
     else wish.copy(perp).multiplyScalar(0.7);
     if (!s.fm) {
       s.fm = 'wait';
@@ -324,27 +325,27 @@ Object.assign(MechEntity.prototype, {
       s.hitCd = new Map();
     }
     const lost = CARS.length - this.partsOf().filter((e) => CARS.includes(e.opts.partKind)).length;
-    const cruise = (p2 ? 17 : 13) * (1 - 0.08 * lost);
-    const sMax = TRACK(this) + CARS.length * CAR_SP + 8,
-      sMin = -TRACK(this) - 8;
+    const cruise = (p2 ? 17 : 13) * DS * (1 - 0.08 * lost);
+    const sMax = TRACK(this) + CARS.length * CAR_SP + 8 * MS,
+      sMin = -TRACK(this) - 8 * MS;
     let target = cruise,
-      accel = 10;
+      accel = 10 * DS;
     s.ramCd -= dt;
     switch (s.st) {
       case 'run': {
         // 軌道前方 55 m 內有貼地的目標 → 衝撞預警
         if (s.ramCd <= 0 && this.canAct() && Math.abs(s.ts) < TRACK(this)) {
           for (const h of g.hostilesOfEnt(this)) {
-            if (h.dead || !h.pos || altOf(g, h) > 3) continue;
+            if (h.dead || !h.pos || altOf(g, h) > 3 * MS) continue;
             const lat = g.world.corridorU(h.pos.x, h.pos.z);
             const a = h.pos.x * c.dir.x + h.pos.z * c.dir.y - s.ts;
-            if (Math.abs(lat) < 5 && a * s.td > 0 && Math.abs(a) < 55) {
+            if (Math.abs(lat) < 5 * MS && a * s.td > 0 && Math.abs(a) < 55 * DS) {
               s.st = 'warn';
               s.stT = 1.2;
               s.ramCd = p2 ? 7 : 10;
-              const mid = g.world.corridorPoint(s.ts + s.td * 30);
-              const td = g.world.corridorDir(s.ts + s.td * 30);
-              g.fx.warnRect(mid, Math.atan2(-td.x * s.td, -td.y * s.td), 6, 56, 1.2);
+              const mid = g.world.corridorPoint(s.ts + s.td * 30 * DS);
+              const td = g.world.corridorDir(s.ts + s.td * 30 * DS);
+              g.fx.warnRect(mid, Math.atan2(-td.x * s.td, -td.y * s.td), 6 * MS, 56 * DS, 1.2);
               SFX.play('heavy', 1, 0.5, 0.05, 0.05, this.center());
               g.alertAll('武裝列車全速衝撞 — 離開軌道！');
               break;
@@ -361,8 +362,8 @@ Object.assign(MechEntity.prototype, {
         }
         break;
       case 'ram':
-        target = 34;
-        accel = 26;
+        target = 34 * DS;
+        accel = 26 * DS;
         if ((s.stT -= dt) <= 0) {
           s.st = 'hot';
           s.stT = 3.5;
@@ -370,13 +371,13 @@ Object.assign(MechEntity.prototype, {
         }
         break;
       case 'hot':
-        target = 4;
-        accel = 14;
+        target = 4 * DS;
+        accel = 14 * DS;
         if ((s.stT -= dt) <= 0) s.st = 'run';
         break;
       case 'pause':
         target = 0;
-        accel = 40;
+        accel = 40 * DS;
         if ((s.stT -= dt) <= 0) s.st = 'run';
         break;
     }
@@ -393,23 +394,25 @@ Object.assign(MechEntity.prototype, {
     const tdir = g.world.corridorDir(s.ts);
     this.yaw = this.aimYaw = Math.atan2(-tdir.x, -tdir.y); // 機車頭固定朝 +dir（往回開時由後方推）
     // 碰撞：機車頭與各節車廂範圍內、貼近軌道的目標
-    if (s.spd > 3) {
+    if (s.spd > 3 * DS) {
       for (const h of g.hostilesOfEnt(this)) {
-        if (h.dead || !h.pos || altOf(g, h) > 4.5) continue;
+        if (h.dead || !h.pos || altOf(g, h) > 4.5 * MS) continue;
         if ((s.hitCd.get(h) || 0) > g.time) continue;
         const lat = g.world.corridorU(h.pos.x, h.pos.z);
-        if (Math.abs(lat) > 2.6 + h.radius * 0.5) continue;
+        if (Math.abs(lat) > 2.6 * MS + h.radius * 0.5) continue;
         const a = h.pos.x * c.dir.x + h.pos.z * c.dir.y;
         let hit = false;
-        for (let k = 0; k <= CARS.length && !hit; k++) hit = Math.abs(a - (s.ts - k * CAR_SP)) < 4.7;
+        for (let k = 0; k <= CARS.length && !hit; k++) hit = Math.abs(a - (s.ts - k * CAR_SP)) < 4.7 * MS;
         if (!hit) continue;
         s.hitCd.set(h, g.time + 2.0); // 撞開後不會被後面的車廂再撞一次
-        const k = clamp(s.spd / 34, 0.35, 1);
+        const k = clamp(s.spd / (34 * DS), 0.35, 1);
         const push = V(c.perp.x, 0, c.perp.y).multiplyScalar(Math.sign(lat || 1));
         const ram = s.st === 'ram';
         h.takeDamage((ram ? 850 : 280) * dm * k, (ram ? 1400 : 800) * dm * k, this, h.center(), push);
-        h.vel.addScaledVector(push, 14).add(V(tdir.x * s.td, 0, tdir.y * s.td).multiplyScalar(s.spd * 0.5));
-        h.vel.y = Math.max(h.vel.y, 8);
+        h.vel
+          .addScaledVector(push, 14 * DS)
+          .add(V(tdir.x * s.td, 0, tdir.y * s.td).multiplyScalar(s.spd * 0.5));
+        h.vel.y = Math.max(h.vel.y, 8 * DS);
         h.grounded = false;
         g.camShake = Math.max(g.camShake, 0.25);
       }
@@ -437,7 +440,7 @@ Object.assign(MechEntity.prototype, {
     this.pos.copy(g.world.corridorPoint(ts));
     const tdir = g.world.corridorDir(ts);
     this.yaw = Math.atan2(-tdir.x, -tdir.y);
-    const hidden = Math.abs(ts) > TRACK(this) + 1;
+    const hidden = Math.abs(ts) > TRACK(this) + 1 * MS;
     this.bossVis = hidden ? 1 : 0;
     const p2 = par.phase2 && par.phase2();
     const live = !hidden && this.canAct() && par.canAct();
@@ -446,7 +449,7 @@ Object.assign(MechEntity.prototype, {
       // 防空：只打離地 4 m 以上的目標（機槍＋高射砲彈幕）
       const air = g
         .hostilesOfEnt(this)
-        .filter((h) => !h.dead && h.pos && altOf(g, h) > 4 && h.pos.distanceTo(this.pos) < 60);
+        .filter((h) => !h.dead && h.pos && altOf(g, h) > 4 * MS && h.pos.distanceTo(this.pos) < 60 * DS);
       const t = air[0];
       if (t && live) {
         this.aimYaw = yawOf(t.pos.clone().sub(this.pos));
@@ -457,13 +460,13 @@ Object.assign(MechEntity.prototype, {
         s.flakT = (s.flakT || 0) - dt;
         if (s.flakT <= 0) {
           s.flakT = p2 ? 1.1 : 1.6;
-          const p = t.center().add(V(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3)));
-          g.blastTeam(p, 200 * dm, 350 * dm, 3.5, this.team, this);
+          const p = t.center().add(V(rnd(-3, 3), rnd(-2, 2), rnd(-3, 3)).multiplyScalar(MS));
+          g.blastTeam(p, 200 * dm, 350 * dm, 3.5 * MS, this.team, this);
         }
       }
     } else if (k === 'car_ms') {
       s.msT = (s.msT === undefined ? rnd(3, 5) : s.msT) - dt;
-      if (s.msT <= 0 && live && d < 80) {
+      if (s.msT <= 0 && live && d < 80 * DS) {
         s.msT = p2 ? 5 : 7;
         this.fire('rback', pl.center(), pl);
       }
@@ -487,13 +490,18 @@ Object.assign(MechEntity.prototype, {
         const rel = pl.pos.clone().sub(this.pos);
         const along = rel.x * c.dir.x + rel.z * c.dir.y,
           lat = rel.x * c.perp.x + rel.z * c.perp.y;
-        if (Math.abs(along) < 18 && Math.abs(lat) < 50 * KS(this) && Math.abs(lat) > 3 && altOf(g, pl) < 6) {
+        if (
+          Math.abs(along) < 18 * MS &&
+          Math.abs(lat) < 50 * KS(this) &&
+          Math.abs(lat) > 3 * MS &&
+          altOf(g, pl) < 6 * MS
+        ) {
           s.lzT = p2 ? 4.5 : 6;
           s.tele = 0.9;
           const side = V(c.perp.x, 0, c.perp.y).multiplyScalar(Math.sign(lat));
-          s.lzFrom = this.center().addScaledVector(side, 1.7);
+          s.lzFrom = this.center().addScaledVector(side, 1.7 * MS);
           s.lzDir = pl.center().sub(s.lzFrom).normalize();
-          g.fx.warnLine(s.lzFrom, s.lzFrom.clone().addScaledVector(s.lzDir, 70), 0.9, 0xff3070, 0.1);
+          g.fx.warnLine(s.lzFrom, s.lzFrom.clone().addScaledVector(s.lzDir, 70 * DS), 0.9, 0xff3070, 0.1);
         }
       }
       if (this.model.lens) this.model.lens.emissiveIntensity = s.tele > 0 ? 3.5 : 1.2;
@@ -501,7 +509,7 @@ Object.assign(MechEntity.prototype, {
       s.mnT = (s.mnT === undefined ? 2 : s.mnT) - dt;
       if (s.mnT <= 0 && live && (ps.spd || 0) > 4 && g.minesOf(this) < 8) {
         s.mnT = 2.2;
-        g.layMine(this, this.muzzle('rback'), { dmg: 420 * dm, im: 650 * dm, R: 4.5, life: 25 });
+        g.layMine(this, this.muzzle('rback'), { dmg: 420 * dm, im: 650 * dm, R: 4.5 * MS, life: 25 });
       }
     }
     const rel = this.aimYaw - this.yaw;
@@ -522,14 +530,21 @@ Object.assign(MechEntity.prototype, {
     const p2 = this.phase2();
     if (s.mouthT > 0) s.mouthT -= dt;
     if (!s.act) {
-      if (d > s.want + 4) wish.copy(dir).multiplyScalar(0.7);
-      else if (d < s.want - 4) wish.copy(dir).multiplyScalar(-0.4);
+      if (d > s.want + 4 * DS) wish.copy(dir).multiplyScalar(0.7);
+      else if (d < s.want - 4 * DS) wish.copy(dir).multiplyScalar(-0.4);
       else wish.copy(perp).multiplyScalar(0.2);
       s.fcT = (s.fcT === undefined ? 3 : s.fcT) - dt;
       if (s.fcT <= 0 && this.canAct()) {
         s.fcT = p2 ? rnd(3, 4) : rnd(4, 5.5);
         const alt = altOf(g, pl);
-        s.act = alt > 5 && d < 34 ? 'heat' : d < 13 ? 'flame' : Math.random() < 0.6 ? 'slag' : 'wall';
+        s.act =
+          alt > 5 * MS && d < 34 * DS
+            ? 'heat'
+            : d < 13 * DS
+              ? 'flame'
+              : Math.random() < 0.6
+                ? 'slag'
+                : 'wall';
         s.actT = 0;
         s.done = false;
         if (s.act !== 'heat') {
@@ -553,10 +568,10 @@ Object.assign(MechEntity.prototype, {
           s.done = true;
           const n = p2 ? 7 : 5;
           const lead = pl.vel.clone().setY(0).multiplyScalar(0.6);
-          if (lead.length() > 6) lead.setLength(6);
+          if (lead.length() > 6 * DS) lead.setLength(6 * DS);
           for (let i = 0; i < n; i++) {
             const a = Math.random() * Math.PI * 2,
-              rr = i ? rnd(3, 9) : 0;
+              rr = i ? rnd(3, 9) * DS : 0;
             const tp = pl.pos
               .clone()
               .add(lead)
@@ -581,8 +596,8 @@ Object.assign(MechEntity.prototype, {
           const c0 = pl.pos.clone();
           const pts = [];
           for (let i = -3; i <= 3; i++) {
-            const p = c0.clone().addScaledVector(side, i * 4.6);
-            p.y = g.world.groundAt(p.x, p.z, p.y + 2);
+            const p = c0.clone().addScaledVector(side, i * 4.6 * MS);
+            p.y = g.world.groundAt(p.x, p.z, p.y + 2 * MS);
             pts.push(p);
           }
           g.fx.warnLine(
@@ -596,7 +611,7 @@ Object.assign(MechEntity.prototype, {
             if (this.dead) return;
             pts.forEach((p, i) => g.later(i * 0.08, () => g.addPool(this, p, 2.8, p2 ? 10 : 8, 200 * dm)));
           });
-          g.fx.flameCone(mz, dir.clone().setY(0.3).normalize(), 10, 0.3, 14);
+          g.fx.flameCone(mz, dir.clone().setY(0.3).normalize(), 10 * DS, 0.3, 14);
         }
         if (s.actT > 1.6) s.act = null;
         break;
@@ -606,16 +621,16 @@ Object.assign(MechEntity.prototype, {
           s.flT = (s.flT || 0) - dt;
           if (s.flT <= 0) {
             s.flT = 0.07;
-            g.fx.flameCone(mz, f.clone().setY(-0.05).normalize(), 8, 0.45, 5);
+            g.fx.flameCone(mz, f.clone().setY(-0.05).normalize(), 8 * DS, 0.45, 5);
           }
           s.tickT = (s.tickT || 0) - dt;
           if (s.tickT <= 0) {
             s.tickT = 0.2;
             for (const t of g.hostilesOfEnt(this)) {
-              if (t.dead || !t.pos || altOf(g, t) > 5) continue;
+              if (t.dead || !t.pos || altOf(g, t) > 5 * MS) continue;
               const rel = t.pos.clone().sub(this.pos).setY(0);
               const dd = rel.length();
-              if (dd > 15 + t.radius || dd < 0.1) continue;
+              if (dd > 15 * DS + t.radius || dd < 0.1) continue;
               if (rel.divideScalar(dd).dot(f) < Math.cos(0.56)) continue;
               t.takeDamage(56 * dm, 90 * dm, this, t.center(), f.clone(), undefined, undefined, 'exp');
             }
@@ -628,18 +643,18 @@ Object.assign(MechEntity.prototype, {
           s.done = true;
           const p = pl.pos.clone();
           p.y = g.world.groundAt(p.x, p.z, p.y);
-          g.fx.warnCircle(p, 9, 1.0, 0xff8a30);
-          g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 9, dl: 1.0, c: 0xff8a30 });
+          g.fx.warnCircle(p, 9 * MS, 1.0, 0xff8a30);
+          g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 9 * MS, dl: 1.0, c: 0xff8a30 });
           g.alertAll('熱浪上升 — 離開橘色圈！');
           g.later(1.0, () => {
             if (this.dead) return;
-            g.fx.flameCone(p.clone().setY(p.y + 0.5), V(0, 1, 0), 14, 0.35, 24);
+            g.fx.flameCone(p.clone().setY(p.y + 0.5), V(0, 1, 0), 14 * DS, 0.35, 24);
             g.fx.shockwave(p.clone().setY(p.y + 0.3), 10, 0xff8a30, 0.5);
             for (const t of g.hostilesOfEnt(this)) {
-              if (t.dead || !t.pos || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > 9 + t.radius) continue;
-              if (altOf(g, t) < 3) continue;
+              if (t.dead || !t.pos || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > 9 * MS + t.radius) continue;
+              if (altOf(g, t) < 3 * MS) continue;
               t.takeDamage(500 * dm, 900 * dm, this, t.center(), V(0, -1, 0), undefined, undefined, 'exp');
-              t.vel.y = Math.min(t.vel.y, -18);
+              t.vel.y = Math.min(t.vel.y, -18 * DS);
             }
           });
         }
@@ -722,8 +737,8 @@ Object.assign(MechEntity.prototype, {
           s.el = 0;
           s.tick = 0;
           const a = Math.random() * Math.PI * 2;
-          s.pp = V(pl.pos.x + Math.cos(a) * 20, 0, pl.pos.z + Math.sin(a) * 20);
-          s.pv = V(pl.pos.x - s.pp.x, 0, pl.pos.z - s.pp.z).setLength(5);
+          s.pp = V(pl.pos.x + Math.cos(a) * 20 * DS, 0, pl.pos.z + Math.sin(a) * 20 * DS);
+          s.pv = V(pl.pos.x - s.pp.x, 0, pl.pos.z - s.pp.z).setLength(5 * DS);
           SFX.play('charge', 1, 0.4, 0.05, 0.05, this.center());
           g.alertAll('衛星砲照射 — 光柱追蹤中，QB 急轉甩開！');
         }
@@ -732,7 +747,7 @@ Object.assign(MechEntity.prototype, {
     } else if (s.om === 'track') {
       s.el += dt;
       // 光柱越追越快；最高速與轉向都壓低，不用 QB 也有機會跑開
-      const sp = lerp(4, p2 ? 14 : 12, clamp(s.el / 5, 0, 1));
+      const sp = lerp(4, p2 ? 14 : 12, clamp(s.el / 5, 0, 1)) * DS;
       const want = V(pl.pos.x - s.pp.x, 0, pl.pos.z - s.pp.z);
       const cur = s.pv.clone().normalize();
       if (want.lengthSq() > 0.01) {
@@ -778,7 +793,7 @@ Object.assign(MechEntity.prototype, {
       dm = this.dmgMul;
     s.om = 'grid';
     s.omT = 4 * 1.5 + 1.6;
-    const C = 7;
+    const C = 7 * MS;
     const cx = clamp(pl.pos.x, -48 * KS(this), 48 * KS(this)),
       cz = clamp(pl.pos.z, -48 * KS(this), 48 * KS(this));
     let lane = Math.floor(Math.random() * 5);
@@ -795,13 +810,13 @@ Object.assign(MechEntity.prototype, {
               z = cz + (j - 2) * C;
             const p = V(x, g.world.groundAt(x, z, 999), z);
             cells.push(p);
-            g.fx.warnRect(p, 0, C - 0.4, C - 0.4, 1.2, 0x60c8ff);
+            g.fx.warnRect(p, 0, C - 0.4 * MS, C - 0.4 * MS, 1.2, 0x60c8ff);
           }
         }
         g.later(1.2, () => {
           if (this.dead) return;
           SFX.play('laserBig', 0.9, 0.6, 0.05, 0.05, V(cx, cells[0].y, cz));
-          for (const p of cells) g.fx.pillarStrike(p, 2.4);
+          for (const p of cells) g.fx.pillarStrike(p, 2.4 * MS);
           for (const t of g.hostilesOfEnt(this)) {
             if (t.dead || !t.pos) continue;
             if (!cells.some((p) => Math.abs(t.pos.x - p.x) < C / 2 && Math.abs(t.pos.z - p.z) < C / 2))
@@ -839,8 +854,8 @@ Object.assign(MechEntity.prototype, {
         this.bossTick(dt);
         return r;
       }
-      if (d > s.want + 4) wish.copy(dir).multiplyScalar(0.8);
-      else if (d < s.want - 6) wish.copy(dir).multiplyScalar(-0.5);
+      if (d > s.want + 4 * DS) wish.copy(dir).multiplyScalar(0.8);
+      else if (d < s.want - 6 * DS) wish.copy(dir).multiplyScalar(-0.5);
       else wish.copy(perp).multiplyScalar(0.4);
       return r;
     }
@@ -872,7 +887,7 @@ Object.assign(MechEntity.prototype, {
         const sum = subs.reduce((a, e) => a + Math.max(0, e.hp), 0);
         for (const e of subs) e.depart();
         this.pos.copy(s.mp);
-        this.pos.y = g.world.groundAt(s.mp.x, s.mp.z, s.mp.y + 2);
+        this.pos.y = g.world.groundAt(s.mp.x, s.mp.z, s.mp.y + 2 * MS);
         this.hp = Math.min(this.maxHp, sum + this.maxHp * 0.25);
         this.flying = false;
         s.split = false;
@@ -898,7 +913,7 @@ Object.assign(MechEntity.prototype, {
         g.alertAll('CERBERUS 開始合體 — 合體中無防備！');
       }
     }
-    if (s.merge <= 0) this.pos.y = gy - 40; // 分離中：本體藏在地下（不擋子彈）
+    if (s.merge <= 0) this.pos.y = gy - 40 * MS; // 分離中：本體藏在地下（不擋子彈）
     this.bossTick(dt);
     return r;
   },
@@ -912,8 +927,8 @@ Object.assign(MechEntity.prototype, {
     if (!s.vm) {
       s.vm = 'loiter';
       s.vmT = rnd(3, 5);
-      s.v = V(45, 0, 0);
-      s.alt = 26;
+      s.v = V(45 * DS, 0, 0);
+      s.alt = 26 * DS;
     }
     const gy = g.world.terrainHeight(this.pos.x, this.pos.z);
     const rr = V(this.pos.x, 0, this.pos.z);
@@ -930,46 +945,50 @@ Object.assign(MechEntity.prototype, {
       case 'loiter': {
         const tan = V(-rr.z, 0, rr.x).divideScalar(dist);
         want = tan
-          .multiplyScalar(45)
-          .addScaledVector(rr.clone().divideScalar(dist), (LIM(this) + 16 - dist) * 1.5);
-        s.alt = 26;
+          .multiplyScalar(45 * DS)
+          .addScaledVector(rr.clone().divideScalar(dist), (LIM(this) + 16 * DS - dist) * 1.5);
+        s.alt = 26 * DS;
         if ((s.vmT -= dt) <= 0 && this.canAct()) {
           s.vm = 'line';
           s.vmT = 1.4;
           s.runDir = pl.pos.clone().addScaledVector(pl.vel, 1.2).sub(this.pos).setY(0).normalize();
           s.runO = this.pos.clone(); // 航線起點：之後一直貼著這條線飛（和警示線一致）
-          s.v.copy(s.runDir).multiplyScalar(Math.max(30, s.v.length()));
+          s.v.copy(s.runDir).multiplyScalar(Math.max(30 * DS, s.v.length()));
           const c = pl.pos.clone();
           c.y = g.world.groundAt(c.x, c.z, c.y);
-          g.fx.warnRect(c, yawOf(s.runDir), 8, 120, 1.6);
+          g.fx.warnRect(c, yawOf(s.runDir), 8 * MS, 120 * DS, 1.6);
           SFX.play('missile', 1, 0.5, 0.05, 0.05, this.center());
           g.alertAll(`VIPER 從${compass(this.pos.clone().sub(pl.pos))}方進場 — 往側邊閃開！`);
         }
         break;
       }
       case 'line':
-        want = s.runDir.clone().multiplyScalar(40);
-        s.alt = 9;
+        want = s.runDir.clone().multiplyScalar(40 * DS);
+        s.alt = 9 * MS;
         k = 3;
         if ((s.vmT -= dt) <= 0) {
           s.vm = 'run';
           s.vmT = 3.2;
           s.boomed = new Set();
-          s.v.copy(s.runDir).multiplyScalar(40);
+          s.v.copy(s.runDir).multiplyScalar(40 * DS);
         }
         break;
       case 'run': {
-        want = s.runDir.clone().multiplyScalar(p2 ? 82 : 72);
-        s.alt = 7;
+        want = s.runDir.clone().multiplyScalar((p2 ? 82 : 72) * DS);
+        s.alt = 7 * MS;
         k = 4;
         // 掃射：沿航線打地面；目標就在前方航線上時直接瞄準
-        let aim = this.pos.clone().addScaledVector(s.runDir, 22);
-        aim.y = g.world.groundAt(aim.x, aim.z, 999) + 0.8;
-        aim.add(V(rnd(-2, 2), 0, rnd(-2, 2)));
+        let aim = this.pos.clone().addScaledVector(s.runDir, 22 * DS);
+        aim.y = g.world.groundAt(aim.x, aim.z, 999) + 0.8 * MS;
+        aim.add(V(rnd(-2, 2), 0, rnd(-2, 2)).multiplyScalar(MS));
         const rel = pl.center().sub(this.pos);
         const ahead = rel.dot(s.runDir);
-        if (ahead > 5 && ahead < 40 && rel.clone().addScaledVector(s.runDir, -ahead).setY(0).length() < 8)
-          aim = pl.center().add(V(rnd(-1.5, 1.5), rnd(-1, 1), rnd(-1.5, 1.5)));
+        if (
+          ahead > 5 * DS &&
+          ahead < 40 * DS &&
+          rel.clone().addScaledVector(s.runDir, -ahead).setY(0).length() < 8 * MS
+        )
+          aim = pl.center().add(V(rnd(-1.5, 1.5), rnd(-1, 1), rnd(-1.5, 1.5)).multiplyScalar(MS));
         if ((s.gunT = (s.gunT || 0) - dt) <= 0) {
           s.gunT = 0.06;
           this.fire('rarm', aim, null);
@@ -987,7 +1006,7 @@ Object.assign(MechEntity.prototype, {
         }
         // 音爆：從身邊 9 m 內掠過的目標
         for (const t of g.hostilesOfEnt(this)) {
-          if (t.dead || !t.pos || s.boomed.has(t) || t.center().distanceTo(this.center()) > 9) continue;
+          if (t.dead || !t.pos || s.boomed.has(t) || t.center().distanceTo(this.center()) > 9 * MS) continue;
           s.boomed.add(t);
           t.takeDamage(
             260 * dm,
@@ -1006,22 +1025,25 @@ Object.assign(MechEntity.prototype, {
         if (p2 && (s.mineT = (s.mineT || 0) - dt) <= 0) {
           s.mineT = 0.3;
           const p = this.pos.clone();
-          p.y = gy + rnd(2, 6);
-          g.layMine(this, p, { dmg: 380 * dm, im: 600 * dm, R: 4, life: 7, air: true, quiet: true });
+          p.y = gy + rnd(2, 6) * MS;
+          g.layMine(this, p, { dmg: 380 * dm, im: 600 * dm, R: 4 * MS, life: 7, air: true, quiet: true });
         }
         const past = this.pos.clone().sub(pl.pos).setY(0).dot(s.runDir);
         const leaving =
-          (Math.abs(this.pos.x) > LIM(this) + 4 || Math.abs(this.pos.z) > LIM(this) + 4) &&
+          (Math.abs(this.pos.x) > LIM(this) + 4 * MS || Math.abs(this.pos.z) > LIM(this) + 4 * MS) &&
           this.pos.x * s.runDir.x + this.pos.z * s.runDir.z > 0;
-        if (past > 50 || leaving || (s.vmT -= dt) <= 0) {
+        if (past > 50 * DS || leaving || (s.vmT -= dt) <= 0) {
           s.vm = 'turn';
           s.vmT = 2.6;
         }
         break;
       }
       case 'turn':
-        want = rr.clone().divideScalar(-dist).multiplyScalar(22);
-        s.alt = 11;
+        want = rr
+          .clone()
+          .divideScalar(-dist)
+          .multiplyScalar(22 * DS);
+        s.alt = 11 * MS;
         k = 1.8;
         if ((s.vmT -= dt) <= 0) {
           s.vm = 'climb';
@@ -1029,16 +1051,19 @@ Object.assign(MechEntity.prototype, {
         }
         break;
       case 'climb':
-        want = rr.clone().divideScalar(dist).multiplyScalar(45);
-        s.alt = 26;
+        want = rr
+          .clone()
+          .divideScalar(dist)
+          .multiplyScalar(45 * DS);
+        s.alt = 26 * DS;
         if ((s.vmT -= dt) <= 0) {
           s.vm = 'loiter';
           s.vmT = p2 ? rnd(2, 3.5) : rnd(3, 5);
         }
         break;
       case 'stall':
-        want = s.v.clone().setLength(8);
-        s.alt = 3;
+        want = s.v.clone().setLength(8 * DS);
+        s.alt = 3 * MS;
         k = 2;
         if (this.staggerT <= 0 && (s.vmT -= dt) <= 0) {
           s.vm = 'climb';
@@ -1060,10 +1085,10 @@ Object.assign(MechEntity.prototype, {
       s.v.lerp(want, Math.min(1, dt * k));
       this.pos.addScaledVector(s.v, dt);
     }
-    this.pos.x = clamp(this.pos.x, -LIM(this) - 33, LIM(this) + 33);
-    this.pos.z = clamp(this.pos.z, -LIM(this) - 33, LIM(this) + 33);
+    this.pos.x = clamp(this.pos.x, -LIM(this) - 33 * DS, LIM(this) + 33 * DS);
+    this.pos.z = clamp(this.pos.z, -LIM(this) - 33 * DS, LIM(this) + 33 * DS);
     this.pos.y = lerp(this.pos.y, gy + s.alt, Math.min(1, dt * (onLine ? 4 : 2.5)));
-    if (s.v.lengthSq() > 1) this.yaw = this.aimYaw = yawOf(s.v);
+    if (s.v.lengthSq() > 1 * DS * DS) this.yaw = this.aimYaw = yawOf(s.v);
     const yr = Math.atan2(Math.sin(this.yaw - prevYaw), Math.cos(this.yaw - prevYaw)) / Math.max(dt, 1e-3);
     this.leanZ = lerp(this.leanZ || 0, clamp(-yr * 0.5, -0.9, 0.9), Math.min(1, dt * 4));
     this.bossVis = s.vm === 'stall' ? 1 : s.vm === 'turn' ? 2 : 0;
@@ -1088,11 +1113,11 @@ Object.assign(MechEntity.prototype, {
     if ((s.grT = (s.grT || 0) - dt) <= 0) {
       s.grT = 0.25;
       for (const t of g.hostilesOfEnt(this)) {
-        if (t.dead || !t.pos || altOf(g, t) > 3) continue;
+        if (t.dead || !t.pos || altOf(g, t) > 3 * MS) continue;
         const rel = t.pos.clone().sub(this.pos);
         const ff = rel.dot(f),
           ll = rel.dot(rt);
-        if (Math.abs(ff) < 4 && Math.abs(ll) > 3 && Math.abs(ll) < 6.5)
+        if (Math.abs(ff) < 4 * MS && Math.abs(ll) > 3 * MS && Math.abs(ll) < 6.5 * MS)
           t.takeDamage(90 * dm, 200 * dm, this, t.center(), rt.clone().multiplyScalar(Math.sign(ll)));
       }
     }
@@ -1101,7 +1126,7 @@ Object.assign(MechEntity.prototype, {
       case 'walk':
         if (d > s.want) wish.copy(dir).multiplyScalar(0.7);
         else wish.copy(perp).multiplyScalar(0.3);
-        if ((s.rmT -= dt) <= 0 && this.canAct() && d < 70) this.rampartAim(dir);
+        if ((s.rmT -= dt) <= 0 && this.canAct() && d < 70 * DS) this.rampartAim(dir);
         break;
       case 'aim':
         wish.set(0, 0, 0);
@@ -1116,38 +1141,38 @@ Object.assign(MechEntity.prototype, {
       case 'charge': {
         r.done = true;
         this.bossVis = 2;
-        s.v = Math.min(s.v + 60 * dt, p2 ? 40 : 34);
+        s.v = Math.min(s.v + 60 * DS * dt, (p2 ? 40 : 34) * DS);
         const step = s.cdir.clone().multiplyScalar(s.v * dt);
         const nx = this.pos.x + step.x,
           nz = this.pos.z + step.z;
-        let crash = Math.abs(nx) > LIM(this) - 4 || Math.abs(nz) > LIM(this) - 4;
+        let crash = Math.abs(nx) > LIM(this) - 4 * MS || Math.abs(nz) > LIM(this) - 4 * MS;
         if (!crash) {
           // 前方的可破壞物件直接撞碎
-          const front = V(nx, this.pos.y, nz).addScaledVector(s.cdir, 4.5);
+          const front = V(nx, this.pos.y, nz).addScaledVector(s.cdir, 4.5 * MS);
           let broke = false;
           for (const p of g.destructibles()) {
             if (!p.isProp || p.dead || !p.center) continue;
-            if (p.center().setY(front.y).distanceTo(front) < 5 + (p.radius || 1)) {
+            if (p.center().setY(front.y).distanceTo(front) < 5 * MS + (p.radius || 1)) {
               g.damageProp(p, 1e5, 2000, p.center());
               broke = true;
             }
           }
           const [cx, cz] = w.collide(nx, nz, this.pos.y, this.radius * 0.8);
-          if (Math.hypot(cx - nx, cz - nz) > 0.25 && !broke) crash = true;
+          if (Math.hypot(cx - nx, cz - nz) > 0.25 * MS && !broke) crash = true;
         }
         // 撞飛路線上的目標
         for (const t of g.hostilesOfEnt(this)) {
-          if (t.dead || !t.pos || s.hitSet.has(t) || altOf(g, t) > 5) continue;
+          if (t.dead || !t.pos || s.hitSet.has(t) || altOf(g, t) > 5 * MS) continue;
           const rel = t.pos.clone().sub(this.pos);
           const ff = rel.dot(s.cdir),
             ll = rel.dot(V(-s.cdir.z, 0, s.cdir.x));
-          if (ff < -2 || ff > 6.5 || Math.abs(ll) > 5 + t.radius * 0.5) continue;
+          if (ff < -2 * MS || ff > 6.5 * MS || Math.abs(ll) > 5 * MS + t.radius * 0.5) continue;
           s.hitSet.add(t);
           t.takeDamage(800 * dm, 1700 * dm, this, t.center(), s.cdir.clone());
           t.vel
-            .addScaledVector(s.cdir, 20)
-            .addScaledVector(V(-s.cdir.z, 0, s.cdir.x), Math.sign(ll || 1) * 10);
-          t.vel.y = Math.max(t.vel.y, 10);
+            .addScaledVector(s.cdir, 20 * DS)
+            .addScaledVector(V(-s.cdir.z, 0, s.cdir.x), Math.sign(ll || 1) * 10 * DS);
+          t.vel.y = Math.max(t.vel.y, 10 * DS);
           t.grounded = false;
           g.camShake = Math.max(g.camShake, 0.3);
         }
@@ -1156,7 +1181,7 @@ Object.assign(MechEntity.prototype, {
           s.rmT = 5;
           this.acs = this.acsMax;
           this.staggerT = 5;
-          const fp = this.center().addScaledVector(s.cdir, 6);
+          const fp = this.center().addScaledVector(s.cdir, 6 * MS);
           g.fx.explosion(fp, 5, 0xffa040, true);
           g.fx.dust(this.pos.clone(), 7, 22, 0xb09070);
           g.camShake = Math.max(g.camShake, 0.45);
@@ -1165,10 +1190,10 @@ Object.assign(MechEntity.prototype, {
         } else {
           this.pos.x = nx;
           this.pos.z = nz;
-          this.pos.y = w.groundAt(nx, nz, this.pos.y + 1.5);
+          this.pos.y = w.groundAt(nx, nz, this.pos.y + 1.5 * MS);
           s.dist += step.length();
           if (Math.random() < dt * 20) g.fx.dust(this.pos.clone(), 2.5, 4, 0xb09070);
-          if (s.dist > 75) {
+          if (s.dist > 75 * DS) {
             if (p2 && !s.second) {
               s.second = true;
               this.rampartAim(dir, 1.0);
@@ -1209,17 +1234,17 @@ Object.assign(MechEntity.prototype, {
     s.rm = 'aim';
     s.rmT = tele;
     s.cdir = cdir.clone().setY(0).normalize();
-    let L = 4;
-    for (; L < 75 * KS(this); L += 2) {
+    let L = 4 * MS;
+    for (; L < 75 * KS(this); L += 2 * MS) {
       const x = this.pos.x + s.cdir.x * L,
         z = this.pos.z + s.cdir.z * L;
-      if (Math.abs(x) > LIM(this) - 4 || Math.abs(z) > LIM(this) - 4) break;
+      if (Math.abs(x) > LIM(this) - 4 * MS || Math.abs(z) > LIM(this) - 4 * MS) break;
       const [cx, cz] = w.collide(x, z, this.pos.y, this.radius * 0.8);
-      if (Math.hypot(cx - x, cz - z) > 0.5) break;
+      if (Math.hypot(cx - x, cz - z) > 0.5 * MS) break;
     }
     const c = this.pos.clone().addScaledVector(s.cdir, L / 2);
-    c.y = w.groundAt(c.x, c.z, this.pos.y + 1);
-    g.fx.warnRect(c, yawOf(s.cdir), 9, L, tele);
+    c.y = w.groundAt(c.x, c.z, this.pos.y + 1 * MS);
+    g.fx.warnRect(c, yawOf(s.cdir), 9 * MS, L, tele);
     SFX.play('heavy', 1, 0.6, 0.05, 0.05, this.center());
     g.alertAll('BEHEMOTH 衝撞 — 離開警示線！');
   },
@@ -1232,12 +1257,12 @@ Object.assign(MechEntity.prototype, {
     this.flying = true;
     if (s.overT > 0) s.overT -= dt;
     if (!s.pa) {
-      if (d > s.want + 4) wish.copy(dir).add(perp.clone().multiplyScalar(0.5)).normalize();
-      else if (d < s.want - 5) wish.copy(dir).multiplyScalar(-1);
+      if (d > s.want + 4 * DS) wish.copy(dir).add(perp.clone().multiplyScalar(0.5)).normalize();
+      else if (d < s.want - 5 * DS) wish.copy(dir).multiplyScalar(-1);
       else wish.copy(perp);
       s.qbT = (s.qbT || 0) - dt;
       const threat = g.projectiles.some(
-        (q) => q.team !== this.team && q.pos.distanceToSquared(this.center()) < 120,
+        (q) => q.team !== this.team && q.pos.distanceToSquared(this.center()) < 120 * DS * DS,
       );
       if (s.qbT <= 0 && threat && Math.random() < dt * 5) {
         r.qb = true;
@@ -1248,7 +1273,7 @@ Object.assign(MechEntity.prototype, {
       if (s.cdT <= 0 && this.canAct() && !(s.overT > 0)) {
         s.cdT = p2 ? rnd(2.5, 3.5) : rnd(3.5, 4.5);
         const x = Math.random();
-        s.pa = x < 0.45 ? 'pulse' : x < 0.75 || d < 12 ? 'lasers' : 'dash';
+        s.pa = x < 0.45 ? 'pulse' : x < 0.75 || d < 12 * DS ? 'lasers' : 'dash';
         s.paT = 0;
         s.done = false;
         if (s.pa === 'pulse') {
@@ -1286,7 +1311,7 @@ Object.assign(MechEntity.prototype, {
           for (let i = -2; i <= 2; i++) {
             const v = base.clone().applyAxisAngle(V(0, 1, 0), (i * 12 * Math.PI) / 180);
             s.fan.push(v);
-            g.fx.warnLine(from, from.clone().addScaledVector(v, 60), 0.8, 0xff3050, 0.08);
+            g.fx.warnLine(from, from.clone().addScaledVector(v, 60 * DS), 0.8, 0xff3050, 0.08);
           }
           s.fanFrom = from;
         }
@@ -1310,7 +1335,7 @@ Object.assign(MechEntity.prototype, {
           s.done = true;
           const from = this.center();
           s.dDir = pl.center().sub(from);
-          s.dLen = s.dDir.length() + 22;
+          s.dLen = s.dDir.length() + 22 * DS;
           s.dDir.normalize();
           g.fx.warnLine(from, from.clone().addScaledVector(s.dDir, s.dLen), 0.6, 0xff5070, 0.3);
         }
@@ -1322,15 +1347,20 @@ Object.assign(MechEntity.prototype, {
         break;
       case 'dashing': {
         r.done = true;
-        const step = 85 * dt;
+        const step = 85 * DS * dt;
         this.pos.addScaledVector(s.dDir, step);
         const gy = g.world.groundAt(this.pos.x, this.pos.z, this.pos.y);
-        if (this.pos.y < gy + 0.5) this.pos.y = gy + 0.5;
+        if (this.pos.y < gy + 0.5 * MS) this.pos.y = gy + 0.5 * MS;
         this.pos.x = clamp(this.pos.x, -LIM(this), LIM(this));
         this.pos.z = clamp(this.pos.z, -LIM(this), LIM(this));
         s.dGone += step;
         for (const t of g.hostilesOfEnt(this)) {
-          if (t.dead || !t.pos || s.hitSet.has(t) || t.center().distanceTo(this.center()) > 3.2 + t.radius)
+          if (
+            t.dead ||
+            !t.pos ||
+            s.hitSet.has(t) ||
+            t.center().distanceTo(this.center()) > 3.2 * MS + t.radius
+          )
             continue;
           s.hitSet.add(t);
           t.takeDamage(600 * dm, 1200 * dm, this, t.center(), s.dDir.clone(), undefined, undefined, 'en');
@@ -1339,16 +1369,16 @@ Object.assign(MechEntity.prototype, {
           g.fx.streaks(this.center(), 2, 0xff6080, 6, 0.3, 0, s.dDir.clone().negate());
         this.yaw = this.aimYaw = yawOf(s.dDir);
         this.bossTick(dt);
-        this.vel.copy(s.dDir).multiplyScalar(85);
+        this.vel.copy(s.dDir).multiplyScalar(85 * DS);
         if (s.dGone >= s.dLen) {
           s.pa = null;
           s.overT = 0.7;
-          this.hoverH = clamp(this.pos.y - gy, 3, 10);
+          this.hoverH = clamp(this.pos.y - gy, 3 * DS, 10 * DS);
         }
         break;
       }
     }
-    if (!s.pa || s.pa === 'pulse') this.hoverH = lerp(this.hoverH, 6, Math.min(1, dt));
+    if (!s.pa || s.pa === 'pulse') this.hoverH = lerp(this.hoverH, 6 * DS, Math.min(1, dt));
     this.bossVis = (s.overT > 0 ? 1 : 0) | (s.pa === 'pulse' ? 2 : 0) | (s.pa === 'dashing' ? 4 : 0);
   },
   // ---------- 附屬部位（mech-boss.js 的 partAI 先問這裡）：回傳 true 表示已處理 ----------
@@ -1385,15 +1415,17 @@ Object.assign(MechEntity.prototype, {
     let goal;
     if (ps.fm === 'place' || ps.fm === 'attack') {
       const a = (ps.a0 || 0) + (i * Math.PI * 2) / n + g.time * 0.35;
-      const R = 12 + (i % 2) * 3;
-      goal = pl.pos.clone().add(V(Math.cos(a) * R, 4 + (i % 3) * 2.2, Math.sin(a) * R));
+      const R = (12 + (i % 2) * 3) * DS;
+      goal = pl.pos.clone().add(V(Math.cos(a) * R, (4 + (i % 3) * 2.2) * MS, Math.sin(a) * R));
     } else {
       const a = this.t * 1.5 + (i * Math.PI * 2) / n;
-      goal = par.center().add(V(Math.cos(a) * 3.5, 0.8 * Math.sin(this.t * 2 + i), Math.sin(a) * 3.5));
+      goal = par
+        .center()
+        .add(V(Math.cos(a) * 3.5, 0.8 * Math.sin(this.t * 2 + i), Math.sin(a) * 3.5).multiplyScalar(MS));
     }
     const to = goal.sub(this.pos);
     const L = to.length();
-    if (L > 0.01) this.pos.addScaledVector(to, Math.min(L, 28 * dt) / L);
+    if (L > 0.01) this.pos.addScaledVector(to, Math.min(L, 28 * DS * dt) / L);
     this.yaw = this.aimYaw = yawOf(pl.pos.clone().sub(this.pos));
     this.bx = null;
     if (s.tele > 0) {
@@ -1488,7 +1520,7 @@ Object.assign(MechEntity.prototype, {
     const ts = par && par.aiState.ts;
     if (ts === undefined || this.remote) return !!(this.bossVis & 1);
     const k = CARS.indexOf(this.opts.partKind) + 1;
-    return Math.abs(ts - k * CAR_SP) > TRACK(this) + 1;
+    return Math.abs(ts - k * CAR_SP) > TRACK(this) + 1 * MS;
   },
   // 複製 AC 的適應裝甲：最近常受到的傷害類型抗性提高（最多 70%）
   mirrorDefense(dmg, wid, melee) {
@@ -1526,7 +1558,7 @@ Object.assign(MechEntity.prototype, {
       g.fx.shockwave(c, 6, 0x60fff0, 0.4);
       g.fx.flash(c, 3, 0xbffff8, 0.2);
       for (const t of g.hostilesOfEnt(this)) {
-        if (t.dead || !t.pos || t.center().distanceTo(c) > 6 + t.radius) continue;
+        if (t.dead || !t.pos || t.center().distanceTo(c) > 6 * MS + t.radius) continue;
         t.takeDamage(
           150 * dm,
           300 * dm,
@@ -1626,7 +1658,7 @@ Object.assign(MechEntity.prototype, {
       const L = sx.aimLine;
       L.visible = true;
       L.position.copy(a).lerp(b, 0.5);
-      const wdt = this.ai === 'railgun' ? 0.05 + frac * 0.12 : 0.05;
+      const wdt = (this.ai === 'railgun' ? 0.05 + frac * 0.12 : 0.05) * MS;
       L.scale.set(wdt, a.distanceTo(b), wdt);
       L.lookAt(b);
       L.rotateX(Math.PI / 2);
@@ -1651,9 +1683,9 @@ Object.assign(MechEntity.prototype, {
               side: THREE.DoubleSide,
             }),
           );
-        const outer = mk(PILLAR_R, 90, 0x60c8ff, 0.35),
-          inner = mk(PILLAR_R * 0.35, 90, 0xffffff, 0.8);
-        outer.position.y = inner.position.y = 45;
+        const outer = mk(PILLAR_R, 90 * DS, 0x60c8ff, 0.35),
+          inner = mk(PILLAR_R * 0.35, 90 * DS, 0xffffff, 0.8);
+        outer.position.y = inner.position.y = 45 * DS;
         const ring = new THREE.Mesh(
           new THREE.RingGeometry(PILLAR_R * 0.9, PILLAR_R * 1.15, 32),
           new THREE.MeshBasicMaterial({

@@ -62,6 +62,7 @@ export class Game {
     this.setupEnvironment();
     this.setupPost();
     this.fx = new Effects(this.scene);
+    this.fx.setK(DS); // 特效的大小倍率（Coral 戰爭的 setRtsRender 設成 1）
     this.wrapFx();
     this.projSeq = 0;
     this.rangeRing = new THREE.Mesh(
@@ -188,10 +189,11 @@ export class Game {
   // 電磁脈衝：以射手為中心的環形控場，敵人硬直
   empPulse(src, radius, stun, color, wid) {
     const c = src.center();
-    this.fx.shockwave(c, radius, color || 0x80c8ff, 0.9);
-    this.fx.ring(c.clone().setY(this.world.terrainHeight(c.x, c.z) + 0.2), radius * 0.6, color || 0x80c8ff);
+    const rr = radius / this.fx.k; // 特效照舊尺度
+    this.fx.shockwave(c, rr, color || 0x80c8ff, 0.9);
+    this.fx.ring(c.clone().setY(this.world.terrainHeight(c.x, c.z) + 0.2), rr * 0.6, color || 0x80c8ff);
     this.fx.flash(c, 2.5, 0xbfe8ff, 0.25);
-    for (let i = 0; i < 14; i++) this.fx.streaks(c, 3, 0x9fe0ff, radius * 0.9, 0.35, radius * 2);
+    for (let i = 0; i < 14; i++) this.fx.streaks(c, 3, 0x9fe0ff, rr * 0.9, 0.35, rr * 2);
     SFX.play('overload', 0.9, 1.3, 0.05, 0.05, src.isPlayer ? null : c);
     SFX.play('laserBig', 0.6, 0.6, 0.05, 0.05, src.isPlayer ? null : c);
     if (src.isPlayer) {
@@ -304,10 +306,10 @@ export class Game {
       ...this.enemies,
     ].filter((e) => e && e !== except);
   }
-  // 敵我不分的爆炸（自爆型、無人機、轟炸機）
+  // 敵我不分的爆炸（自爆型、無人機、轟炸機）：splash 是世界尺寸
   explodeAt(p, dmg, impact, splash, owner, all = true) {
-    this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4);
-    SFX.explode(splash > 4, p);
+    this.fx.explosion(p, (splash * 0.9) / this.fx.k, 0xffa040, splash > 4 * this.fx.k);
+    SFX.explode(splash > 4 * this.fx.k, p);
     this.hz2Blast(p, dmg, splash, 'exp'); // 臨時障礙物、油漬（hazards2.js）
     const targets = (all ? this.everyone(owner) : this.hostilesOfEnt(owner)).concat(
       this.destructibles(owner && owner.team),

@@ -3,6 +3,7 @@
 // 只在房主／單機執行（updateAI 呼叫）；用的都是已經會同步給客機的機制：迫擊砲彈、地面衝擊波、能量環、
 // 光束（beamAttack）、燃燒地面、地雷、範圍爆炸（blastTeam）與鏡像的特效。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
 
@@ -71,13 +72,13 @@ Object.assign(MechEntity.prototype, {
       g.later(i * gap, () => {
         if (this.dead || pl.dead) return;
         const a = Math.random() * Math.PI * 2,
-          r = i === 0 ? rnd(0, 2) : rnd(2, R);
+          r = (i === 0 ? rnd(0, 2) : rnd(2, R)) * DS;
         const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
         const tp = pl.pos
           .clone()
           .add(lead)
           .add(V(Math.cos(a) * r, 0, Math.sin(a) * r));
-        g.mortarShot(this, tp, { dmg: 420 * dm, im: 700 * dm, R: 5 });
+        g.mortarShot(this, tp, { dmg: 420 * dm, im: 700 * dm, R: 5 * MS });
       });
   },
   // 直線砲擊：從自己往目標方向（穿過目標）一路落下 n 發
@@ -85,16 +86,16 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       dm = this.b3Dm();
     const d = pl.pos.clone().sub(this.pos).setY(0);
-    if (d.lengthSq() < 1) d.set(0, 0, -1);
+    if (d.lengthSq() < 1e-4) d.set(0, 0, -1);
     d.normalize();
-    const start = pl.pos.clone().addScaledVector(d, -step * (n / 2));
+    const start = pl.pos.clone().addScaledVector(d, -step * DS * (n / 2));
     for (let i = 0; i < n; i++)
       g.later(i * gap, () => {
         if (this.dead) return;
-        g.mortarShot(this, start.clone().addScaledVector(d, i * step), {
+        g.mortarShot(this, start.clone().addScaledVector(d, i * step * DS), {
           dmg: 400 * dm,
           im: 700 * dm,
-          R: 4.5,
+          R: 4.5 * MS,
         });
       });
   },
@@ -102,7 +103,7 @@ Object.assign(MechEntity.prototype, {
   b3Shock(R) {
     const g = this.game,
       dm = this.b3Dm();
-    const gy = g.world.groundAt(this.pos.x, this.pos.z, this.pos.y + 1);
+    const gy = g.world.groundAt(this.pos.x, this.pos.z, this.pos.y + 1 * MS);
     g.shockStart(this, {
       at: V(this.pos.x, gy, this.pos.z),
       R,
@@ -125,9 +126,9 @@ Object.assign(MechEntity.prototype, {
       g.later(i * 0.35, () => {
         if (this.dead || pl.dead) return;
         const a = a0 + (i / n) * Math.PI * 2;
-        const x = pl.pos.x + Math.cos(a) * R * 0.6,
-          z = pl.pos.z + Math.sin(a) * R * 0.6;
-        const gy = g.world.groundAt(x, z, pl.pos.y + 1);
+        const x = pl.pos.x + Math.cos(a) * R * 0.6 * DS,
+          z = pl.pos.z + Math.sin(a) * R * 0.6 * DS;
+        const gy = g.world.groundAt(x, z, pl.pos.y + 1 * MS);
         g.shockStart(this, { at: V(x, gy, z), R: 7, sp: 12, dl: 0.8, dmg: 300 * dm, im: 900 * dm });
       });
   },
@@ -142,9 +143,9 @@ Object.assign(MechEntity.prototype, {
       dm = this.b3Dm();
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + rnd(-0.3, 0.3),
-        r = rnd(R * 0.5, R);
-      const p = pl.pos.clone().add(V(Math.cos(a) * r, air ? rnd(2, 7) : 0, Math.sin(a) * r));
-      g.layMine(this, p, { dmg: 380 * dm, im: 600 * dm, R: 4, life: air ? 8 : 14, air, quiet: i > 0 });
+        r = rnd(R * 0.5, R) * DS;
+      const p = pl.pos.clone().add(V(Math.cos(a) * r, air ? rnd(2, 7) * MS : 0, Math.sin(a) * r));
+      g.layMine(this, p, { dmg: 380 * dm, im: 600 * dm, R: 4 * MS, life: air ? 8 : 14, air, quiet: i > 0 });
     }
   },
   // 燃燒地面：目標周圍
@@ -153,8 +154,8 @@ Object.assign(MechEntity.prototype, {
       dm = this.b3Dm();
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      const p = pl.pos.clone().add(V(Math.cos(a) * R * 0.7, 0, Math.sin(a) * R * 0.7));
-      g.mortarShot(this, p, { dmg: 300 * dm, im: 500 * dm, R: 4 });
+      const p = pl.pos.clone().add(V(Math.cos(a) * R * 0.7, 0, Math.sin(a) * R * 0.7).multiplyScalar(DS));
+      g.mortarShot(this, p, { dmg: 300 * dm, im: 500 * dm, R: 4 * MS });
       g.later(1.8, () => g.addPool(this, p, 4.5, 7, 120 * dm));
     }
   },
@@ -178,7 +179,7 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       dm = this.b3Dm();
     const range = o.range || 80;
-    g.fx.warnLine(from, from.clone().addScaledVector(dir, range), dl, 0xff3050, 0.1);
+    g.fx.warnLine(from, from.clone().addScaledVector(dir, range * DS), dl, 0xff3050, 0.1);
     g.later(dl, () => {
       if (this.dead) return;
       g.beamAttack(this, from, dir, {
@@ -198,7 +199,7 @@ Object.assign(MechEntity.prototype, {
     const a = Math.random() * Math.PI;
     for (const ang of [a, a + Math.PI / 2]) {
       const d = V(Math.cos(ang), 0, Math.sin(ang));
-      this.b3Beam(c.clone().addScaledVector(d, -45), d, 1.0, { range: 90 });
+      this.b3Beam(c.clone().addScaledVector(d, -45 * DS), d, 1.0, { range: 90 });
     }
   },
   // 扇形散射：朝目標 n 道（間隔 step 弧度）
@@ -219,7 +220,7 @@ Object.assign(MechEntity.prototype, {
     const c = pl.center();
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      const from = c.clone().add(V(Math.cos(a) * R, 4, Math.sin(a) * R));
+      const from = c.clone().add(V(Math.cos(a) * R * DS, 4 * MS, Math.sin(a) * R * DS));
       const d = c.clone().sub(from).normalize();
       this.b3Beam(from, d, 1.2, { range: R * 2.2, dmg: 420 });
     }
@@ -230,16 +231,16 @@ Object.assign(MechEntity.prototype, {
       dm = this.b3Dm();
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2,
-        r = i === 0 ? 0 : rnd(3, R);
+        r = i === 0 ? 0 : rnd(3, R) * DS;
       const p = pl.pos.clone().add(V(Math.cos(a) * r, 0, Math.sin(a) * r));
-      p.y = g.world.groundAt(p.x, p.z, p.y + 1.5);
+      p.y = g.world.groundAt(p.x, p.z, p.y + 1.5 * MS);
       const dl = 1.3 + i * 0.15;
-      g.fx.warnCircle(p, 3.5, dl);
-      g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 3.5, dl });
+      g.fx.warnCircle(p, 3.5 * MS, dl);
+      g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 3.5 * MS, dl });
       g.later(dl, () => {
         if (this.dead) return;
-        g.fx.pillarStrike(p, 3.5);
-        g.blastTeam(p.clone().setY(p.y + 1), 520 * dm, 900 * dm, 3.8, this.team, this);
+        g.fx.pillarStrike(p, 3.5 * MS);
+        g.blastTeam(p.clone().setY(p.y + 1 * MS), 520 * dm, 900 * dm, 3.8 * MS, this.team, this);
       });
     }
   },

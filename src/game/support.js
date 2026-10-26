@@ -48,7 +48,7 @@ Object.assign(Game.prototype, {
           this.scene.remove(p.mesh);
           if (p.netId) this.netEv({ t: 'pend', i: p.netId });
           if (p.splash > 0) {
-            this.fx.explosion(q, p.splash * 0.6, 0x80d0ff, false);
+            this.fx.explosion(q, (p.splash * 0.6) / this.fx.k, 0x80d0ff, false);
             SFX.explode(false, q);
           }
           return true;
@@ -157,8 +157,8 @@ Object.assign(Game.prototype, {
         wid: 'bw_gr',
       }),
     );
-    this.fx.muzzle(mz, new THREE.Vector3(0, 1, 0), 0xff8040, 2.2 * MS);
-    this.fx.smoke(mz.clone(), 1.2 * MS, 0x9a9ea6, 0.9, 3);
+    this.fx.muzzle(mz, new THREE.Vector3(0, 1, 0), 0xff8040, 2.2);
+    this.fx.smoke(mz.clone(), 1.2, 0x9a9ea6, 0.9, 3);
     SFX.shot('grenade', undefined, mz);
     this.fx.warnCircle(land, o.R, T);
     this.netEv({ t: 'warn', p: land.toArray().map((x) => +x.toFixed(2)), R: o.R, dl: T });
@@ -308,8 +308,8 @@ Object.assign(Game.prototype, {
     m.mesh = this.mineMesh(p, o.air);
     this.mines.push(m);
     if (!o.quiet) {
-      this.fx.beam(src.center(), p.clone().setY(p.y + 0.2 * MS), 0xff4030, 0.05 * MS);
-      this.fx.dust(p.clone(), 1.2 * MS, 5);
+      this.fx.beam(src.center(), p.clone().setY(p.y + 0.2 * MS), 0xff4030, 0.05);
+      this.fx.dust(p.clone(), 1.2, 5);
       SFX.play('ui2', 0.5, 1.6, 0.05, 0.05, p);
     }
     this.netEv({
@@ -397,7 +397,7 @@ Object.assign(Game.prototype, {
   },
   // 只傷害 team 的敵人的爆炸（地雷：不會炸到自己人；擁有者已被擊破也照樣）
   blastTeam(p, dmg, impact, splash, team, owner) {
-    this.fx.explosion(p, splash * 0.9, 0xffa040, splash > 4 * MS);
+    this.fx.explosion(p, (splash * 0.9) / this.fx.k, 0xffa040, splash > 4 * MS);
     SFX.explode(splash > 4 * MS, p);
     const src = owner && !owner.dead ? owner : null;
     this.hz2Blast(p, dmg, splash, 'exp'); // 臨時障礙物、油漬（hazards2.js）
@@ -490,7 +490,7 @@ Object.assign(Game.prototype, {
       [at.x, at.z] = this.world.nearSolid(at.x, at.z); // 運輸機在虛空上方時，投放到最近的實地
       this.spawnType(t, sh, sd, at, 1);
     });
-    this.fx.smoke(ship.pos.clone().setY(ship.pos.y - 2 * MS), 2 * MS, 0x9a9ea6, 1, 2);
+    this.fx.smoke(ship.pos.clone().setY(ship.pos.y - 2 * MS), 2, 0x9a9ea6, 1, 2);
     SFX.play('door', 0.9, 0.8, 0.05, 0.03, ship.pos);
     this.alertAll(`運輸機投放 — 敵機 ×${list.length}`);
   },
@@ -519,7 +519,7 @@ Object.assign(Game.prototype, {
         this.scene.remove(m.mesh);
         if (e.b) {
           const p = m.p.clone().setY(m.p.y + 0.3 * MS);
-          this.fx.explosion(p, m.R * 0.9, 0xffa040, m.R > 4 * MS);
+          this.fx.explosion(p, (m.R * 0.9) / this.fx.k, 0xffa040, m.R > 4 * MS);
           SFX.explode(m.R > 4 * MS, p);
         }
         return true;

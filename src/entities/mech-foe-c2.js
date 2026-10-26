@@ -11,6 +11,7 @@
 // 狀態（bossVis）：1＝預警、2＝攻擊中（聚光鏡陣列 2～10＝光束強度）；行為只在房主／單機，顯示（foeFx_c2）房主與客機都跑。
 // 共用的 g.addZone（燃料、光束：game/hazards2.js）、addStatus（entities/mech-status.js）、shootable（投射物）。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { FOE_AI_C2 } from '../data/foes-c2.js';
 import { buildBoomerBlade } from '../render/foe-models-c2.js';
@@ -21,21 +22,41 @@ import { Projectile } from './projectile.js';
 const C2 = new Set(FOE_AI_C2);
 // 數值（dmgMul 之前）
 const FUEL = {
-  R: 7,
+  R: 7 * MS, // 油漬（addZone：世界尺寸）
   life: 10,
   ignite: 2.5,
   dps: 70,
   cd: [7, 9],
   warn: 0.8,
-  burstR: 9,
+  burstR: 9, // 爆炸後的燃燒地面（addPool：舊尺度）
   burstLife: 9,
   burstDps: 90,
 };
-const RACK = { warn: 1.2, cd: [7, 8.5], sp: 16, turn: 1.0, life: 9, dmg: 900, im: 1300, R: 5, hp: 240 };
-const NET = { warn: 0.8, cd: [6, 7.5], sp: 38, dmg: 120, im: 300, life: 1.6, sec: 3, hitR: 1.4 };
-const BLADE = { warn: 0.7, cd: [5, 6], sp: 30, back: 26, dmg: 300, im: 650, hitR: 1.1, over: 6, maxT: 4.5 };
-const MIRROR = { warn: 1.0, cd: [4, 5.5], dmg: 170, im: 220, range: 70 };
-const FOCUS = { warn: 1.2, cd: [5, 7], life: 6, dps0: 60, dps1: 320, ramp: 4, brk: 3.5, range: 80 };
+const RACK = {
+  warn: 1.2,
+  cd: [7, 8.5],
+  sp: 16 * DS,
+  turn: 1.0,
+  life: 9,
+  dmg: 900,
+  im: 1300,
+  R: 5 * MS,
+  hp: 240,
+};
+const NET = { warn: 0.8, cd: [6, 7.5], sp: 38 * DS, dmg: 120, im: 300, life: 1.6, sec: 3, hitR: 1.4 * MS };
+const BLADE = {
+  warn: 0.7,
+  cd: [5, 6],
+  sp: 30 * DS,
+  back: 26 * DS,
+  dmg: 300,
+  im: 650,
+  hitR: 1.1 * MS,
+  over: 6 * DS,
+  maxT: 4.5,
+};
+const MIRROR = { warn: 1.0, cd: [4, 5.5], dmg: 170, im: 220, range: 70 }; // range：beamAttack 照舊尺度;
+const FOCUS = { warn: 1.2, cd: [5, 7], life: 6, dps0: 60, dps1: 320, ramp: 4, brk: 3.5, range: 80 * DS };
 const NET_COL = 0xe0f8ff,
   BLADE_COL = 0x60e0ff,
   BEAM_Y = new THREE.Color(0xfff080),
@@ -108,7 +129,7 @@ Object.assign(MechEntity.prototype, {
   orbit_c2(d, dir, perp, wish, k = 1) {
     wish
       .copy(perp)
-      .addScaledVector(dir, clamp((d - this.aiState.want) / 8, -1, 1))
+      .addScaledVector(dir, clamp((d - this.aiState.want) / (8 * DS), -1, 1))
       .normalize()
       .multiplyScalar(k);
   },
@@ -116,16 +137,16 @@ Object.assign(MechEntity.prototype, {
   fuelerAI_c2(dt, d, dir, perp, wish, pl, c) {
     const g = this.game;
     const want = this.aiState.want;
-    if (d > want + 4) wish.copy(dir);
+    if (d > want + 4 * DS) wish.copy(dir);
     else
       wish
         .copy(perp)
         .multiplyScalar(0.85)
-        .addScaledVector(dir, clamp((d - want) / 6, -0.6, 0.6));
+        .addScaledVector(dir, clamp((d - want) / (6 * DS), -0.6, 0.6));
     if (c.t === 0) c.t = rnd(3, 5);
     c.t -= dt;
     c.spray = Math.max(0, (c.spray || 0) - dt);
-    const near = d < 18;
+    const near = d < 18 * DS;
     this.bossVis = c.spray > 0 ? 2 : near && c.t < FUEL.warn ? 1 : 0;
     if (c.t > 0 || !near || !this.canAct()) {
       if (c.t <= 0) c.t = 0.5; // 太遠：等靠近再灑
@@ -135,10 +156,10 @@ Object.assign(MechEntity.prototype, {
     c.spray = 1;
     c.n = (c.n || 0) + 1;
     const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
-    if (lead.length() > 4) lead.setLength(4);
+    if (lead.length() > 4 * DS) lead.setLength(4 * DS);
     const at = pl.pos.clone().add(lead);
-    at.y = g.world.groundAt(at.x, at.z, at.y + 1.5);
-    const nz = this.pos.clone().setY(this.pos.y + 1.0);
+    at.y = g.world.groundAt(at.x, at.z, at.y + 1.5 * MS);
+    const nz = this.pos.clone().setY(this.pos.y + 1.0 * MS);
     g.fx.streaks(nz, 16, 0x8a5a20, 11, 0.6, 12, at.clone().sub(nz).normalize(), 0.6);
     SFX.play('door', 0.6, 1.4, 0.05, 0.05, this.center());
     const dps = FUEL.dps * this.dmgMul;
@@ -160,7 +181,7 @@ Object.assign(MechEntity.prototype, {
     if (c.t === 0 && c.ph === 0) c.t = rnd(2.5, 4);
     c.t -= dt;
     if (c.ph === 0) {
-      if (c.t <= 0 && d < 90 && this.canAct()) {
+      if (c.t <= 0 && d < 90 * DS && this.canAct()) {
         c.ph = 1;
         c.t = RACK.warn;
         g.fx.warnLine(this.muzzle('rarm'), pl.center(), RACK.warn, 0xff7030, 0.09);
@@ -184,21 +205,22 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       w = g.world;
     const clear = (x, z) => {
-      if ((w.isVoid && w.isVoid(x, z)) || !w.inZone(x, z, 4)) return false;
-      const y = w.groundAt(x, z, this.pos.y + 3);
-      if (Math.abs(y - this.pos.y) > 1.5 || w.hitsWorld(new THREE.Vector3(x, y + 4, z))) return false;
+      if ((w.isVoid && w.isVoid(x, z)) || !w.inZone(x, z, 4 * MS)) return false;
+      const y = w.groundAt(x, z, this.pos.y + 3 * MS);
+      if (Math.abs(y - this.pos.y) > 1.5 * MS || w.hitsWorld(new THREE.Vector3(x, y + 4 * MS, z)))
+        return false;
       return !g
         .destructibles()
-        .some((q) => q.center && Math.hypot(q.pos.x - x, q.pos.z - z) < (q.radius || 1) + 4.5);
+        .some((q) => q.center && Math.hypot(q.pos.x - x, q.pos.z - z) < (q.radius || 1) + 4.5 * MS);
     };
     if (clear(this.pos.x, this.pos.z)) return;
-    for (let r = 4; r <= 16; r += 3)
+    for (let r = 4 * DS; r <= 16 * DS; r += 3 * DS)
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
         const x = this.pos.x + Math.cos(a) * r,
           z = this.pos.z + Math.sin(a) * r;
         if (!clear(x, z)) continue;
-        this.pos.set(x, w.groundAt(x, z, this.pos.y + 3), z);
+        this.pos.set(x, w.groundAt(x, z, this.pos.y + 3 * MS), z);
         this.vel.set(0, 0, 0);
         return;
       }
@@ -243,9 +265,9 @@ Object.assign(MechEntity.prototype, {
     c.t -= dt;
     if (c.ph === 0) {
       this.orbit_c2(d, dir, perp, wish);
-      if (c.t <= 0 && d < 30 && this.canAct()) {
+      if (c.t <= 0 && d < 30 * DS && this.canAct()) {
         const lead = pl.vel.clone().multiplyScalar(0.25);
-        if (lead.length() > 3) lead.setLength(3);
+        if (lead.length() > 3 * DS) lead.setLength(3 * DS);
         const aim = pl.center().add(lead);
         // 從發射時的砲口看得到瞄準點才預警（不是機體中心：砲口在機腹前方）
         const mz = this.mzAt_c2(this.pos, aim);
@@ -327,9 +349,9 @@ Object.assign(MechEntity.prototype, {
     c.t -= dt;
     if (c.ph === 0) {
       this.orbit_c2(d, dir, perp, wish);
-      if (c.t <= 0 && d < 28 && this.canAct()) {
+      if (c.t <= 0 && d < 28 * DS && this.canAct()) {
         const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
-        if (lead.length() > 5) lead.setLength(5);
+        if (lead.length() > 5 * DS) lead.setLength(5 * DS);
         const aim = pl.center().add(lead);
         // 從發射時的刃架看得到預判點才預警（刃在飛行中碰到地形就折返）
         const mz = this.mzAt_c2(this.pos, aim);
@@ -404,9 +426,9 @@ Object.assign(MechEntity.prototype, {
       );
       g.fx.meleeHit(c.bp.clone(), BLADE_COL, false, vdir.clone());
     }
-    if (!c.back && L <= step + 0.5) c.back = true;
-    else if (c.back && c.wp && L <= step + 0.5) c.wp = null;
-    else if (c.back && !c.wp && c.bp.distanceTo(this.center()) < 1.2) {
+    if (!c.back && L <= step + 0.5 * MS) c.back = true;
+    else if (c.back && c.wp && L <= step + 0.5 * MS) c.wp = null;
+    else if (c.back && !c.wp && c.bp.distanceTo(this.center()) < 1.2 * MS) {
       c.ph = 0;
       c.t = rnd(...BLADE.cd);
     }
@@ -423,9 +445,9 @@ Object.assign(MechEntity.prototype, {
     c.t -= dt;
     if (c.ph === 0) {
       wish.copy(perp).multiplyScalar(0.6);
-      if (d < this.aiState.want - 6) wish.addScaledVector(dir, -0.6);
-      else if (d > this.aiState.want + 10) wish.addScaledVector(dir, 0.7);
-      if (c.t <= 0 && d < 55 && this.canAct()) {
+      if (d < this.aiState.want - 6 * DS) wish.addScaledVector(dir, -0.6);
+      else if (d > this.aiState.want + 10 * DS) wish.addScaledVector(dir, 0.7);
+      if (c.t <= 0 && d < 55 * DS && this.canAct()) {
         const aim = pl.center();
         // 從發射時的聚光盤中心看得到目標才蓄力（不是機體中心）
         const mz = this.mzAt_c2(this.pos, aim);
@@ -480,7 +502,7 @@ Object.assign(MechEntity.prototype, {
     const mz = this.muzzle('rarm');
     if (c.ph === 0) {
       this.bx = null;
-      if (c.t <= 0 && d < 70 && this.canAct()) {
+      if (c.t <= 0 && d < 70 * DS && this.canAct()) {
         // 開始前：照射時的砲口（俯仰架對準目標；待機時收光器抬高約 1 m）＋容差看得到目標才預警
         const tc = pl.center(),
           fz = this.focusMz_c2(tc);
@@ -504,7 +526,7 @@ Object.assign(MechEntity.prototype, {
         c.n = (c.n || 0) + 1;
         const t = c.tgt;
         // 追蹤光束（game/hazards2.js）：從槍口（每格 moveZone）追著目標，照越久越痛；傷害的來源是自己
-        c.zone = g.addZone('beam', mz, 0.9, FOCUS.life, {
+        c.zone = g.addZone('beam', mz, 0.9 * MS, FOCUS.life, {
           from: mz,
           src: this,
           target: t,
@@ -645,7 +667,7 @@ Object.assign(MechEntity.prototype, {
     const g = this.game;
     if (!this.c2Blade) {
       this.c2Blade = buildBoomerBlade();
-      this.c2Blade.scale.setScalar(1.2);
+      this.c2Blade.scale.setScalar(1.2 * MS);
       g.scene.add(this.c2Blade);
       this.c2Blade.position.fromArray(this.bx);
       this.c2Ghost = 0;
@@ -664,7 +686,7 @@ Object.assign(MechEntity.prototype, {
       gm.rotation.set(-Math.PI / 2, 0, 0);
       g.fx.add(gm, 0.25, (e, k) => {
         e.mesh.material.opacity = 0.45 * (1 - k);
-        e.mesh.scale.setScalar(1 + k * 0.4);
+        e.mesh.scale.setScalar((1 + k * 0.4) * MS);
       });
     }
   },

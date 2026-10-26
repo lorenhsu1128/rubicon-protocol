@@ -6,6 +6,7 @@
 // 行為只在房主／單機執行；客機靠快照的 sx（bossVis：鑽地蟲在地下、多足要塞斷腿與倒下；linkId：牽引／護盾連線）顯示。
 // 第三批 Boss（電磁砲台、浮游砲、武裝列車…）在 mech-boss2.js，這裡的掛勾轉過去（boss2*）。
 import { SFX } from '../audio/audio.js';
+import { DS, MS } from '../core/scale.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { animateMech } from '../render/mech-model.js';
 import { buildWormSegments } from '../render/boss-models.js';
@@ -139,24 +140,24 @@ Object.assign(MechEntity.prototype, {
     this.partFollow();
     const par = this.parentEnt();
     const p2 = par && par.phase2 && par.phase2();
-    const aimPos = pl.center().addScaledVector(pl.vel, clamp(d / 95, 0, 0.6));
+    const aimPos = pl.center().addScaledVector(pl.vel, clamp(d / (95 * DS), 0, 0.6));
     if (k === 'fturret') {
       const w = this.weapons.rarm;
-      if (this.canAct() && d < 75 && Math.random() < dt * (p2 ? 5 : 3.5)) this.fire('rarm', aimPos, pl);
+      if (this.canAct() && d < 75 * DS && Math.random() < dt * (p2 ? 5 : 3.5)) this.fire('rarm', aimPos, pl);
       if (w.mag <= 0 && w.reloadT <= 0 && w.ammo > 0) w.reloadT = w.def.reload;
     } else if (k === 'cannon') {
       // 三發一組的砲擊（落點有預警圈）
       s.salT = (s.salT === undefined ? rnd(2, 5) : s.salT) - dt;
-      if (s.salT <= 0 && this.canAct() && d < 95) {
+      if (s.salT <= 0 && this.canAct() && d < 95 * DS) {
         s.salT = p2 ? rnd(3.5, 5) : rnd(5, 7);
         const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
-        if (lead.length() > 6) lead.setLength(6);
+        if (lead.length() > 6 * DS) lead.setLength(6 * DS);
         const c = pl.pos.clone().add(lead);
         for (let i = 0; i < 3; i++) {
           const a = Math.random() * Math.PI * 2,
-            rr = i ? rnd(3, 6) : rnd(0, 1.5);
+            rr = (i ? rnd(3, 6) : rnd(0, 1.5)) * DS;
           const tp = c.clone().add(new THREE.Vector3(Math.cos(a) * rr, 0, Math.sin(a) * rr));
-          g.mortarShot(this, tp, { dmg: 480 * this.dmgMul, im: 700 * this.dmgMul, R: 5 });
+          g.mortarShot(this, tp, { dmg: 480 * this.dmgMul, im: 700 * this.dmgMul, R: 5 * MS });
         }
       }
     } else if (k === 'pylon') {
@@ -192,18 +193,18 @@ Object.assign(MechEntity.prototype, {
     if (!s.wm) {
       s.wm = 'burrow';
       s.wmT = rnd(2.5, 4);
-      this.pos.y = w.terrainHeight(this.pos.x, this.pos.z) - 7;
+      this.pos.y = w.terrainHeight(this.pos.x, this.pos.z) - 7 * MS;
     }
     const gy = w.terrainHeight(this.pos.x, this.pos.z);
     const v = this.vel0 || (this.vel0 = new THREE.Vector3());
     const gp = () => this.pos.clone().setY(gy);
-    let ty = gy - 7;
+    let ty = gy - 7 * MS;
     switch (s.wm) {
       case 'burrow': {
         this.iFrames = Math.max(this.iFrames, 0.15);
         const to = pl.pos.clone().sub(this.pos).setY(0);
         const dd = to.length();
-        const sp = p2 ? 22 : 17;
+        const sp = (p2 ? 22 : 17) * DS;
         if (dd > 0.1) to.divideScalar(dd);
         // 第二型態：從玩家身邊掠過，沿路連續噴發
         if (p2 && s.sweep) {
@@ -218,24 +219,24 @@ Object.assign(MechEntity.prototype, {
         } else {
           v.x = lerp(v.x, to.x * sp, Math.min(1, dt * 2));
           v.z = lerp(v.z, to.z * sp, Math.min(1, dt * 2));
-          if (p2 && !s.sweep && dd < 25 && Math.random() < dt * 0.4) {
-            s.sweep = to.clone().multiplyScalar(26);
+          if (p2 && !s.sweep && dd < 25 * DS && Math.random() < dt * 0.4) {
+            s.sweep = to.clone().multiplyScalar(26 * DS);
             s.sweepT = 2.2;
             g.alertAll('鑽地蟲地下衝刺 — 沿路噴發！');
           }
         }
         s.wmT -= dt;
-        if ((dd < 4 || s.wmT <= 0) && !s.sweep) {
+        if ((dd < 4 * DS || s.wmT <= 0) && !s.sweep) {
           s.wm = 'warn';
           s.wmT = 1.0;
           v.set(0, 0, 0);
-          g.fx.warnCircle(gp(), 7, 1.0);
+          g.fx.warnCircle(gp(), 7 * MS, 1.0);
           g.netEv({
             t: 'warn',
             p: gp()
               .toArray()
               .map((x) => +x.toFixed(2)),
-            R: 7,
+            R: 7 * MS,
             dl: 1.0,
           });
           SFX.play('heavy', 0.9, 0.6, 0.05, 0.05, gp());
@@ -247,30 +248,30 @@ Object.assign(MechEntity.prototype, {
         this.iFrames = Math.max(this.iFrames, 0.15);
         s.wmT -= dt;
         if (Math.random() < dt * 30)
-          g.fx.dust(gp().add(new THREE.Vector3(rnd(-4, 4), 0, rnd(-4, 4))), 1.4, 2);
+          g.fx.dust(gp().add(new THREE.Vector3(rnd(-4, 4) * MS, 0, rnd(-4, 4) * MS)), 1.4, 2);
         if (s.wmT <= 0) {
           s.wm = 'rise';
           s.wmT = 0.7;
-          this.pos.y = gy - 3;
+          this.pos.y = gy - 3 * MS;
           // 鑽出：正上方 7 m 內大傷害並往上掀，外圍衝擊波
           for (const t of g.hostilesOfEnt(this)) {
             if (t.dead || t.isProp || !t.pos) continue;
-            if (Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z) > 7 + t.radius * 0.5) continue;
-            if (t.pos.y - gy > 5) continue;
+            if (Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z) > 7 * MS + t.radius * 0.5) continue;
+            if (t.pos.y - gy > 5 * MS) continue;
             t.takeDamage(560 * dm, 1200 * dm, this, t.center(), new THREE.Vector3(0, 1, 0));
             if (!t.flying) {
-              t.vel.y = Math.max(t.vel.y, 16);
+              t.vel.y = Math.max(t.vel.y, 16 * DS);
               t.grounded = false;
             }
           }
           g.shockStart(this, { R: 18, sp: 22, dl: 0, dmg: 220 * dm, im: 600 * dm, at: gp() });
-          g.fx.explosion(gp().setY(gy + 1), 6, 0xc8a070, true);
+          g.fx.explosion(gp().setY(gy + 1 * MS), 6, 0xc8a070, true);
           g.fx.dust(gp(), 6, 22, 0xb09070);
           g.camShake = Math.max(g.camShake, 0.3);
         }
         break;
       case 'rise':
-        ty = gy + 12;
+        ty = gy + 12 * MS;
         s.wmT -= dt;
         if (s.wmT <= 0) {
           s.wm = 'up';
@@ -278,7 +279,7 @@ Object.assign(MechEntity.prototype, {
         }
         break;
       case 'up': {
-        ty = gy + 11 + Math.sin(this.t * 1.6);
+        ty = gy + (11 + Math.sin(this.t * 1.6)) * MS;
         // 硬直（ACS／EMP）時停留時間不減：暴露更久
         if (this.staggerT <= 0) s.wmT -= dt;
         const aimPos = pl.center().addScaledVector(pl.vel, 0.3);
@@ -288,25 +289,25 @@ Object.assign(MechEntity.prototype, {
           const wr = this.weapons.rarm;
           if (wr.mag <= 0 && wr.reloadT <= 0 && wr.ammo > 0) wr.reloadT = wr.def.reload;
         }
-        v.x = lerp(v.x, Math.sin(this.t * 0.9) * 2, 0.05);
-        v.z = lerp(v.z, Math.cos(this.t * 0.7) * 2, 0.05);
+        v.x = lerp(v.x, Math.sin(this.t * 0.9) * 2 * DS, 0.05);
+        v.z = lerp(v.z, Math.cos(this.t * 0.7) * 2 * DS, 0.05);
         if (s.wmT <= 0) {
           s.wm = 'dive';
           s.wmT = 2.5;
           s.hitGround = false;
-          v.copy(dir).multiplyScalar(14);
+          v.copy(dir).multiplyScalar(14 * DS);
         }
         break;
       }
       case 'dive':
-        ty = gy - 7;
+        ty = gy - 7 * MS;
         s.wmT -= dt;
-        if (!s.hitGround && this.pos.y < gy + 1) {
+        if (!s.hitGround && this.pos.y < gy + 1 * MS) {
           s.hitGround = true;
           g.shockStart(this, { R: 14, sp: 18, dl: 0, dmg: 240 * dm, im: 700 * dm, at: gp() });
           g.fx.dust(gp(), 5, 18, 0xb09070);
         }
-        if (this.pos.y < gy - 5 || s.wmT <= 0) {
+        if (this.pos.y < gy - 5 * MS || s.wmT <= 0) {
           s.wm = 'burrow';
           s.wmT = rnd(3, 5);
         }
@@ -315,9 +316,9 @@ Object.assign(MechEntity.prototype, {
     // 垂直：鑽出最快、潛入其次
     const vk = s.wm === 'rise' ? 7 : s.wm === 'dive' ? 2.2 : 3;
     v.y = (ty - this.pos.y) * vk;
-    if (s.wm === 'dive') v.y = Math.min(v.y, -6);
+    if (s.wm === 'dive') v.y = Math.min(v.y, -6 * DS);
     this.pos.addScaledVector(v, dt);
-    const lim = this.game.world.lim - 2; // 場地邊界（world.collide 限制在 ±lim）
+    const lim = this.game.world.lim - 2 * MS; // 場地邊界（world.collide 限制在 ±lim）
     this.pos.x = clamp(this.pos.x, -lim, lim);
     this.pos.z = clamp(this.pos.z, -lim, lim);
     const hs = Math.hypot(v.x, v.z);
@@ -325,12 +326,12 @@ Object.assign(MechEntity.prototype, {
       const a = Math.atan2(-(pl.pos.x - this.pos.x), -(pl.pos.z - this.pos.z));
       this.yaw = a;
       this.aimYaw = a;
-    } else if (hs > 1) this.yaw = Math.atan2(-v.x, -v.z);
+    } else if (hs > 1 * DS) this.yaw = Math.atan2(-v.x, -v.z);
     this.bossVis = s.wm === 'burrow' || s.wm === 'warn' ? 1 : 0;
     this.bossTick(dt);
     this.vel.copy(v); // 快照與瞄準預判用
     // 頭部俯仰跟著移動方向
-    const pitch = s.wm === 'up' ? 0.25 : Math.atan2(v.y, Math.max(hs, 1));
+    const pitch = s.wm === 'up' ? 0.25 : Math.atan2(v.y, Math.max(hs, 1 * DS));
     this.mesh.rotation.x = lerp(this.mesh.rotation.x, clamp(pitch, -1.2, 1.3), 0.15);
   },
   // ---------- 多足要塞：腳部關節全在時機身裝甲很厚；斷三條腿倒下、核心暴露；定期躍起砸地 ----------
@@ -353,16 +354,16 @@ Object.assign(MechEntity.prototype, {
     }
     this.bossVis = mask | (s.collapsed && this.staggerT > 0 ? 64 : 0);
     // 移動：保持中距離
-    if (d > s.want + 6) wish.copy(dir).multiplyScalar(0.8);
-    else if (d < s.want - 8) wish.copy(dir).multiplyScalar(-0.6);
+    if (d > s.want + 6 * DS) wish.copy(dir).multiplyScalar(0.8);
+    else if (d < s.want - 8 * DS) wish.copy(dir).multiplyScalar(-0.6);
     else wish.copy(perp).multiplyScalar(0.4);
     // 躍起砸地
     s.slamT = (s.slamT === undefined ? rnd(6, 9) : s.slamT) - dt;
-    if (s.slamT <= 0 && this.grounded && broken < 3 && d < 32 && this.canAct()) {
+    if (s.slamT <= 0 && this.grounded && broken < 3 && d < 32 * DS && this.canAct()) {
       s.slamT = this.phase2() ? rnd(8, 10) : rnd(11, 14);
       s.slamAir = true;
       s.wasAir = false;
-      this.vel.y = 20;
+      this.vel.y = 20 * DS;
       this.grounded = false;
       g.alertAll('多足要塞躍起 — 準備跳躍閃避落地衝擊波！');
     }
@@ -384,21 +385,27 @@ Object.assign(MechEntity.prototype, {
     const engines = this.partsOf('engine').length;
     if (!engines && !s.down) {
       s.down = true;
-      this.hoverH = 10;
+      this.hoverH = 10 * DS;
       this.speedMul *= 0.7;
       g.msgAll('引擎全毀 — 空中要塞高度下降！', 0xffb020);
     }
     // 繞著目標慢慢盤旋
     wish.copy(perp).multiplyScalar(0.8);
-    if (d > 28) wish.add(dir.clone().multiplyScalar(0.7));
-    else if (d < 12) wish.sub(dir.clone().multiplyScalar(0.7));
+    if (d > 28 * DS) wish.add(dir.clone().multiplyScalar(0.7));
+    else if (d < 12 * DS) wish.sub(dir.clone().multiplyScalar(0.7));
     wish.normalize();
     const alive = g.enemies.filter((e) => !e.dead).length;
     s.dropT = (s.dropT === undefined ? 12 : s.dropT) - dt;
     if (s.dropT <= 0) {
       s.dropT = this.phase2() ? 22 : 28;
       if (alive < 14 && !g.enemies.some((e) => !e.dead && e.ai === 'dropship')) {
-        g.spawnType('dropship', g.scaleHp || 1, g.scaleDmg || 1, this.pos.clone().setY(this.pos.y - 3), 1);
+        g.spawnType(
+          'dropship',
+          g.scaleHp || 1,
+          g.scaleDmg || 1,
+          this.pos.clone().setY(this.pos.y - 3 * MS),
+          1,
+        );
         g.alertAll('空中要塞放出運輸機');
       }
     }
@@ -406,11 +413,11 @@ Object.assign(MechEntity.prototype, {
     if (s.swT <= 0) {
       s.swT = 24;
       if (alive < 14)
-        g.spawnType('swarm', g.scaleHp || 1, g.scaleDmg || 1, this.pos.clone().setY(this.pos.y - 3), 3);
+        g.spawnType('swarm', g.scaleHp || 1, g.scaleDmg || 1, this.pos.clone().setY(this.pos.y - 3 * MS), 3);
     }
     // 投彈：沿機身前進方向一排落點
     s.bombT = (s.bombT === undefined ? 8 : s.bombT) - dt;
-    if (s.bombT <= 0 && d < 35 && this.canAct()) {
+    if (s.bombT <= 0 && d < 35 * DS && this.canAct()) {
       s.bombT = this.phase2() ? 10 : 14;
       s.bombN = 6;
       s.bombI = 0;
@@ -424,10 +431,10 @@ Object.assign(MechEntity.prototype, {
       if (s.bombI <= 0) {
         s.bombI = 0.22;
         const k = 6 - s.bombN - 2.5;
-        g.mortarShot(this, s.bombAt.clone().addScaledVector(s.bombDir, k * 5), {
+        g.mortarShot(this, s.bombAt.clone().addScaledVector(s.bombDir, k * 5 * DS), {
           dmg: 420 * this.dmgMul,
           im: 700 * this.dmgMul,
-          R: 5,
+          R: 5 * MS,
         });
         s.bombN--;
       }
@@ -439,7 +446,7 @@ Object.assign(MechEntity.prototype, {
       s = this.aiState;
     if (!s.anchor) s.anchor = this.pos.clone();
     const pylons = this.partsOf('pylon').length;
-    this.domeR = 15;
+    this.domeR = 15 * MS;
     this.domeInf = true;
     this.domeFrac = pylons ? 1 : 0;
     if (!pylons) {
@@ -456,12 +463,12 @@ Object.assign(MechEntity.prototype, {
     } else s.rebuildT = 0;
     // 待在原地附近，面向目標橫移
     const home = s.anchor.clone().sub(this.pos).setY(0);
-    if (home.length() > 8) wish.copy(home.normalize()).multiplyScalar(0.8);
+    if (home.length() > 8 * DS) wish.copy(home.normalize()).multiplyScalar(0.8);
     else wish.copy(perp).multiplyScalar(0.3);
-    if (d < 12) wish.addScaledVector(dir, -1);
+    if (d < 12 * DS) wish.addScaledVector(dir, -1);
     // 強化附近友軍、呼叫運輸機
     for (const f of this.friendsOf())
-      if (f !== this && !f.dead && f.ai !== 'part' && f.pos.distanceTo(this.pos) < 40) f.buffT = 0.3;
+      if (f !== this && !f.dead && f.ai !== 'part' && f.pos.distanceTo(this.pos) < 40 * DS) f.buffT = 0.3;
     s.dropT = (s.dropT === undefined ? 15 : s.dropT) - dt;
     if (s.dropT <= 0) {
       s.dropT = this.phase2() ? 24 : 32;
@@ -497,11 +504,11 @@ Object.assign(MechEntity.prototype, {
         s.barI = 0.18;
         s.barN--;
         const a = Math.random() * Math.PI * 2,
-          rr = rnd(0, 18);
+          rr = rnd(0, 18) * DS;
         g.mortarShot(this, s.barAt.clone().add(new THREE.Vector3(Math.cos(a) * rr, 0, Math.sin(a) * rr)), {
           dmg: 420 * this.dmgMul,
           im: 650 * this.dmgMul,
-          R: 5,
+          R: 5 * MS,
         });
       }
     }
@@ -509,7 +516,7 @@ Object.assign(MechEntity.prototype, {
     if (s.mlT <= 0) {
       s.mlT = 25;
       if (g.enemies.filter((e) => !e.dead && e.ai === 'minelayer').length < 2)
-        g.spawnType('minelayer', g.scaleHp || 1, g.scaleDmg || 1, this.center().setY(this.pos.y + 8), 1);
+        g.spawnType('minelayer', g.scaleHp || 1, g.scaleDmg || 1, this.center().setY(this.pos.y + 8 * MS), 1);
     }
     if (this.model.rotor) this.model.rotor.rotation.y += dt * 1.2;
   },
@@ -523,16 +530,16 @@ Object.assign(MechEntity.prototype, {
     if (s.empC > 0) {
       s.empC -= dt;
       wish.set(0, 0, 0);
-      if (s.empC <= 0) g.hunterEmp(this, 20);
+      if (s.empC <= 0) g.hunterEmp(this, 20 * MS);
       return;
     }
     s.empT = (s.empT === undefined ? rnd(5, 7) : s.empT) - dt;
-    if (s.empT <= 0 && d < 24 && this.grounded && this.canAct() && !this.melee.active) {
+    if (s.empT <= 0 && d < 24 * DS && this.grounded && this.canAct() && !this.melee.active) {
       s.empT = p2 ? rnd(7, 9) : rnd(10, 13);
       s.empC = 1.3;
       const p = this.pos.clone();
-      g.fx.warnCircle(p, 20, 1.3, 0x40a0ff);
-      g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 20, dl: 1.3, c: 0x40a0ff });
+      g.fx.warnCircle(p, 20 * MS, 1.3, 0x40a0ff);
+      g.netEv({ t: 'warn', p: p.toArray().map((x) => +x.toFixed(2)), R: 20 * MS, dl: 1.3, c: 0x40a0ff });
       SFX.play('charge', 1, 0.8, 0.05, 0.05, this.center());
       g.alertAll('電磁脈衝充能 — 拉開距離或跳高！');
       return;
@@ -540,7 +547,7 @@ Object.assign(MechEntity.prototype, {
     // 牽引
     if (s.pull > 0) {
       s.pull -= dt;
-      if (pl.dead || d < 7 || !this.canAct()) s.pull = 0;
+      if (pl.dead || d < 7 * DS || !this.canAct()) s.pull = 0;
       else {
         this.linkId = pl.id;
         this.linkKind = 1;
@@ -551,7 +558,7 @@ Object.assign(MechEntity.prototype, {
       return;
     }
     s.pullCd = (s.pullCd === undefined ? rnd(5, 7) : s.pullCd) - dt;
-    if (s.pullCd <= 0 && d > 10 && d < 40 && this.canAct()) {
+    if (s.pullCd <= 0 && d > 10 * DS && d < 40 * DS && this.canAct()) {
       s.pullCd = p2 ? rnd(6, 8) : rnd(9, 12);
       s.pull = 2.0;
       SFX.play('laser2', 0.8, 0.5, 0.05, 0.05, this.center());
@@ -559,18 +566,18 @@ Object.assign(MechEntity.prototype, {
       return;
     }
     // 貼身追擊
-    if (d > 9) wish.copy(dir).add(perp.clone().multiplyScalar(0.3)).normalize();
+    if (d > 9 * DS) wish.copy(dir).add(perp.clone().multiplyScalar(0.3)).normalize();
     else wish.copy(perp).multiplyScalar(0.6);
     s.qbT -= dt;
     const threat = g.projectiles.some(
-      (q) => q.team !== this.team && q.pos.distanceToSquared(this.center()) < 140,
+      (q) => q.team !== this.team && q.pos.distanceToSquared(this.center()) < 140 * DS * DS,
     );
     if (s.qbT <= 0 && threat && Math.random() < dt * 5) {
       r.qb = true;
       s.qbT = rnd(0.8, 1.6);
       wish.copy(perp).normalize();
     }
-    if (d > 28 && Math.random() < dt * 0.8) r.ab = true;
+    if (d > 28 * DS && Math.random() < dt * 0.8) r.ab = true;
   },
   // ---------- 受傷前的修正（specialDefense 先呼叫）：回傳 [傷害, 衝擊]，null＝擋下 ----------
   bossDefense(dmg, impact, from, at, wid, melee) {
@@ -645,18 +652,21 @@ Object.assign(MechEntity.prototype, {
     if (!this.wormSegs) {
       const seg = buildWormSegments(this.pal, WORM_SEGS);
       this.wormSegs = seg.list;
-      for (const m of seg.list) g.scene.add(m);
+      for (const m of seg.list) {
+        m.scale.multiplyScalar(MS); // 身體的節照機甲的尺度
+        g.scene.add(m);
+      }
       this.wormPath = [];
       for (let i = 0; i < WORM_SEGS * 4; i++)
-        this.wormPath.push(this.pos.clone().add(new THREE.Vector3(0, -i * 0.6, 0)));
+        this.wormPath.push(this.pos.clone().add(new THREE.Vector3(0, -i * 0.6 * MS, 0)));
     }
     const path = this.wormPath;
-    if (path[0].distanceTo(this.pos) > 0.5) {
+    if (path[0].distanceTo(this.pos) > 0.5 * MS) {
       path.unshift(this.pos.clone());
       if (path.length > WORM_SEGS * 6) path.length = WORM_SEGS * 6;
     }
-    // 沿軌跡每 2.4 m 放一節
-    const gap = 2.4;
+    // 沿軌跡每 7.2 m 放一節
+    const gap = 2.4 * MS;
     let acc = 0,
       j = 0;
     const head = this.center();
@@ -680,7 +690,7 @@ Object.assign(MechEntity.prototype, {
   spiderFx(dt) {
     const m = this.model;
     const mask = this.bossVis || 0;
-    const moving = this.vel ? Math.hypot(this.vel.x, this.vel.z) > 0.8 : false;
+    const moving = this.vel ? Math.hypot(this.vel.x, this.vel.z) > 0.8 * DS : false;
     this.gaitT = (this.gaitT || 0) + dt * (moving ? 3.2 : 0.8);
     let tx = 0,
       tz = 0;
@@ -689,7 +699,7 @@ Object.assign(MechEntity.prototype, {
       if (broken && L.leg.visible) {
         L.leg.visible = false;
         this.game.fx.explosion(
-          this.pos.clone().add(new THREE.Vector3(Math.cos(L.a) * 7, 4, Math.sin(L.a) * 7)),
+          this.pos.clone().add(new THREE.Vector3(Math.cos(L.a) * 7, 4, Math.sin(L.a) * 7).multiplyScalar(MS)),
           3,
           0xffa040,
           true,

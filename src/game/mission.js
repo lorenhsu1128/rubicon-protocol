@@ -720,7 +720,7 @@ Object.assign(Game.prototype, {
     e.yaw = e.aimYaw = Math.atan2(-(0 - sp.x), -(0 - sp.z));
     e.mesh.position.copy(e.pos);
     this.enemies.push(e);
-    this.fx.ring(e.pos.clone(), 4 * MS, 0xff4040);
+    this.fx.ring(e.pos.clone(), 4, 0xff4040);
     return e;
   },
   onEnemyKilled(e, from) {
