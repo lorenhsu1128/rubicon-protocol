@@ -6,6 +6,7 @@
 //   { obj 加進場景的根物件（單位矩陣）, scaleNode 承載遊戲縮放的節點, scale 遊戲縮放（Vector3）, rig 可給 animateMech 驅動的機體,
 //     piece 區塊資訊（機甲區塊才有） }
 import { withRng } from '../core/math.js';
+import { WS } from '../core/scale.js';
 import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/enemies.js';
 import { buildBossModel } from './boss-models.js';
 import { buildPod, buildStation } from './cine-sets.js';
@@ -692,8 +693,14 @@ for (const th in LANDMARKS)
       'prop',
       `lm_${th}_${key}`,
       `地標：${L.name}`,
-      `${THEMES[th].name}；主線區段的大型地標，不可破壞`,
-      L.build,
+      `${THEMES[th].name}；主線區段的大型地標（遊戲中以舊尺度的造型放大 ${WS} 倍），不可破壞`,
+      () => {
+        const o = new THREE.Group();
+        const g = L.build();
+        g.scale.multiplyScalar(WS);
+        o.add(g);
+        return o;
+      },
     );
   }
 const STYLE_LABEL = Object.fromEntries(

@@ -633,39 +633,52 @@ export function buildContainer(w, h, d, rot, cm, fm) {
   return k.build();
 }
 // 疊放的貨櫃堆（現實尺寸）：rows 排（沿 Z 並排，間隔 gap）× levels 層，長邊沿 X；cms[i]＝第 i 個貨櫃的材質
-// （i＝排 × levels＋層，呼叫端決定顏色）；tops[r]＝第 r 排的層數（沒給時一律 levels）。原點在底面中心。
-// 回傳 { group, w, d, h }：碰撞用的整堆外框（h＝最高的那排）
-export function buildContainerStack(L, rows, levels, cms, fm, tops = null, gap = 0.3) {
+// （i＝排 × levels＋層，呼叫端決定顏色）；tops[r]＝第 r 排的層數（沒給時一律 levels）；cols＝沿 X 接幾個貨櫃
+// （同一堆合併成少數網格）。原點在底面中心。回傳 { group, w, d, h }：碰撞用的整堆外框（h＝最高的那排）
+export function buildContainerStack(L, rows, levels, cms, fm, tops = null, gap = 0.3, cols = 1) {
   const D = ISO.W,
     H = ISO.H,
-    dd = rows * D + (rows - 1) * gap;
+    dd = rows * D + (rows - 1) * gap,
+    ww = cols * L + (cols - 1) * gap;
   let top = 0;
   for (let r = 0; r < rows; r++) top = Math.max(top, tops ? tops[r] : levels);
   const glb0 = propGlb('container', { color: cms[0].color.getHex(), ref: [ISO.L40, H, D], size: [L, H, D] });
   if (glb0) {
     const g = new THREE.Group();
-    for (let r = 0; r < rows; r++)
-      for (let lv = 0; lv < (tops ? tops[r] : levels); lv++) {
-        const c = propGlb('container', {
-          color: cms[(r * levels + lv) % cms.length].color.getHex(),
-          ref: [ISO.L40, H, D],
-          size: [L, H, D],
-          fade: true,
-        });
-        c.position.set(0, lv * H, -dd / 2 + D / 2 + r * (D + gap));
-        g.add(c);
-      }
-    return { group: g, w: L, d: dd, h: top * H };
+    for (let c = 0; c < cols; c++)
+      for (let r = 0; r < rows; r++)
+        for (let lv = 0; lv < (tops ? tops[r] : levels); lv++) {
+          const o = propGlb('container', {
+            color: cms[(c + r * levels + lv) % cms.length].color.getHex(),
+            ref: [ISO.L40, H, D],
+            size: [L, H, D],
+            fade: true,
+          });
+          o.position.set(-ww / 2 + L / 2 + c * (L + gap), lv * H, -dd / 2 + D / 2 + r * (D + gap));
+          g.add(o);
+        }
+    return { group: g, w: ww, d: dd, h: top * H };
   }
-  const k = new PK().bounds(-L / 2, 0, -dd / 2, L / 2, top * H, dd / 2);
-  for (let r = 0; r < rows; r++)
-    for (let lv = 0; lv < (tops ? tops[r] : levels); lv++)
-      k.at(0, lv * H, -dd / 2 + D / 2 + r * (D + gap), 0, 0, 0, () =>
-        containerKit(k, L, H, D, cms[(r * levels + lv) % cms.length], fm),
-      );
-  return { group: k.build(), w: L, d: dd, h: top * H };
+  const k = new PK().bounds(-ww / 2, 0, -dd / 2, ww / 2, top * H, dd / 2);
+  for (let c = 0; c < cols; c++)
+    for (let r = 0; r < rows; r++)
+      for (let lv = 0; lv < (tops ? tops[r] : levels); lv++)
+        k.at(-ww / 2 + L / 2 + c * (L + gap), lv * H, -dd / 2 + D / 2 + r * (D + gap), 0, 0, 0, () =>
+          containerLite(k, L, H, D, cms[(c + r * levels + lv) % cms.length], fm),
+        );
+  return { group: k.build(), w: ww, d: dd, h: top * H };
 }
 // 一個貨櫃的造型（長邊沿 X、L 長、D 寬、h 高，原點在底面中心）：角柱＋上下框＋波紋側板＋一端的門（門閂）
+// 貨櫃堆用的簡化貨櫃（箱體＋角柱＋上下框＋門閂，約 120 個三角形）：堆裡的貨櫃看不到波紋細節，三角形數少很多
+function containerLite(k, L, h, D, cm, fm) {
+  k.box(cm, L - 0.12, h - 0.3, D - 0.16, 0, h / 2, 0);
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) k.box(fm, 0.2, h, 0.2, sx * (L / 2 - 0.1), h / 2, sz * (D / 2 - 0.1));
+  for (const y of [0.09, h - 0.09]) {
+    k.box(fm, L, 0.18, D, 0, y, 0);
+  }
+  for (const z of [-D * 0.24, D * 0.24]) k.box(fm, 0.05, h - 0.4, 0.05, L / 2 - 0.02, h / 2, z);
+}
 function containerKit(k, L, h, D, cm, fm) {
   {
     const bx = L / 2 - 0.06,

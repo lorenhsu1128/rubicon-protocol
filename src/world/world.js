@@ -904,7 +904,7 @@ export class World {
           const tops = [];
           for (let r = 0; r < rows; r++) tops.push(clamp(lv + rndi(-1, 1), 1, 5));
           const cms = [];
-          for (let n = 0; n < rows * 5; n++) cms.push(own(pick(COLS), { roughness: 0.6 }));
+          for (let n = 0; n < 3; n++) cms.push(own(pick(COLS), { roughness: 0.6 })); // 每堆 3 種顏色（合併成少數網格）
           if (skip) continue;
           const lx = -bw / 2 + L / 2 + i * (L + lane),
             lz = -bd / 2 + D / 2 + j * (D + lane);
@@ -1329,19 +1329,39 @@ export class World {
   offLimits(x, z) {
     return !!(this.variant && this.variant.offLimits && this.variant.offLimits(this, x, z));
   }
-  // 地標（world/landmarks.js）：找一塊夠平的地方放大型物件
+  // 地標（world/landmarks.js）：找一塊夠平的地方放大型物件。地標是機甲尺度的大型場景物件，
+  // 三倍高改版以舊尺度的造型整體放大 G 倍（外框、碰撞形狀、埋深一起放大）
   addLandmark(key) {
-    const L = (LANDMARKS[this.themeKey] || {})[key];
-    if (!L) return null;
+    const L0 = (LANDMARKS[this.themeKey] || {})[key];
+    if (!L0) return null;
+    const G = this.theme.void ? 2 : WS; // 虛空地圖（洋上都市、高空軌道）的平台有限，地標放大 2 倍
+    const L = {
+      ...L0,
+      bx: L0.bx.map((v) => v * G),
+      range: L0.range * G,
+      sink: (L0.sink || 0) * G,
+      shapes: L0.shapes.map((sh) =>
+        sh.box
+          ? { ...sh, box: sh.box.map((v) => v * G), y: sh.y * G, top: sh.top * G }
+          : { ...sh, c: sh.c.map((v) => v * G), r: sh.r * G, h: sh.h * G },
+      ),
+      build: () => {
+        const o = new THREE.Group();
+        const g = L0.build();
+        g.scale.multiplyScalar(G);
+        o.add(g);
+        return o;
+      },
+    };
     // 只避開大型障礙物（找不到時放寬地面高低差，大型地標可以部分埋進地面）；佔到位置的小物件移除
     // 平台很密的地圖（Grid 086）找不到時，佔到位置的平台也移除
-    let big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 : o.r > 3);
+    let big = (o) => (o.kind === 'box' ? o.deck || o.w * o.d > 60 * G : o.r > 3 * G);
     const all = this.obstacles;
     let spot = null;
     // 再找不到（洋上都市的街區被高樓佔滿）時，佔到位置的大型物件也移除
     for (const level of [0, 1, 2]) {
       if (spot) break;
-      if (level === 1) big = (o) => (o.kind === 'box' ? !o.deck && o.w * o.d > 60 : o.r > 3);
+      if (level === 1) big = (o) => (o.kind === 'box' ? !o.deck && o.w * o.d > 60 * G : o.r > 3 * G);
       if (level === 2) big = () => false;
       this.obstacles = all.filter(big);
       for (const k of [1, 1.8, 3]) if (!spot) spot = this.findSpot(L.bx, L.range * k, 90);
@@ -1471,7 +1491,15 @@ export class World {
     if (this.lvl) {
       this.scene.add(m);
       this.meshes.push(m);
-    } else this.decorG.add(m);
+      return;
+    }
+    // box()／cyl() 的 BoxGeometry／CylinderGeometry 帶材質分組（單一材質用不到），mergeStatic 不合併有分組的幾何：
+    // 這些幾何每次都是新建的，清掉分組
+    m.traverse((o) => {
+      if (o.isMesh && !Array.isArray(o.material) && o.geometry && o.geometry.groups.length)
+        o.geometry.clearGroups();
+    });
+    this.decorG.add(m);
   }
   // 純裝飾的廢鐵（不碰撞）
   addScrap(n, color) {

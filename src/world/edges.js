@@ -391,7 +391,14 @@ function bulkhead(r, wd, h) {
   return g;
 }
 function island(wd, dp, color) {
-  return box(wd, 40, dp, mat(color, { roughness: 0.8 }), 0, -20, 0);
+  return box(wd, 40 * G, dp, mat(color, { roughness: 0.8 }), 0, -20 * G, 0);
+}
+// 遠景的剪影物件照現實尺寸（三倍高改版）：舊尺寸的造型放大 k 倍（剪影看不到細節）
+function big(obj, k) {
+  const o = new THREE.Group();
+  obj.scale.multiplyScalar(k);
+  o.add(obj);
+  return o;
 }
 
 // 各主題的剪影物件：每段依處理種類呼叫 per(c, A)，全部之後呼叫 all(c)
@@ -410,16 +417,16 @@ const PROPS = {
           ),
         );
       else if (A.kind === 'drop')
-        c.spread(A, 2, 30, 60, (p) => c.put(buildIceShard(8, 3, 6), p, { sink: 1 }));
+        c.spread(A, 2, 30, 60, (p) => c.put(buildIceShard(24, 9, 18), p, { sink: 3 }));
       else
         c.spread(A, 4, 6, 40, (p) => {
-          const g = buildIceShard(c.R(2, 4), c.R(4, 9), c.R(2, 4));
+          const g = buildIceShard(c.R(6, 12), c.R(12, 27), c.R(6, 12));
           g.rotation.z = c.R(-0.3, 0.3);
-          c.put(g, p, { sink: 1, face: false });
+          c.put(g, p, { sink: 3, face: false });
         });
     },
     all(c) {
-      c.ring(4, 60, 160, (p) => c.put(buildPylon(c.R(18, 26)), p));
+      c.ring(4, 60, 160, (p) => c.put(buildPylon(c.R(30, 50)), p));
     },
   },
   industrial: {
@@ -427,43 +434,45 @@ const PROPS = {
       if (A.kind === 'wall') {
         const cm = [mat(0xe0a020), mat(0x2b4fb0), mat(0x8a3a2a), mat(0x6b7d6a)];
         const fm = mat(0x3a3f45);
-        c.line(A, c.R(4, 7), 7.6, 0.3, (p) => {
+        c.line(A, c.R(4, 7), 12.5, 0.3, (p) => {
           const g = new THREE.Group();
-          const lv = 1 + Math.floor(c.r() * 3);
+          const lv = 1 + Math.floor(c.r() * 4);
           for (let k = 0; k < lv; k++) {
-            const ct = buildContainer(7.4, 2.7, 2.9, false, c.pick(cm), fm);
-            ct.position.y = k * 2.75;
+            const ct = buildContainer(12.19, 2.59, 2.44, false, c.pick(cm), fm);
+            ct.position.y = k * 2.59;
             g.add(ct);
           }
           c.put(g, p, { along: true });
         });
-        c.spread(A, 2, 16, 40, (p) => c.put(gantryCrane(c.R(16, 22), c.R(20, 28)), p, { along: true }));
-      } else if (A.kind === 'hills') c.spread(A, 3, 8, 30, (p) => c.put(buildScrap(6, 3, 5, 0x5a5048), p));
+        c.spread(A, 2, 16, 40, (p) =>
+          c.put(big(gantryCrane(c.R(16, 22), c.R(20, 28)), 2.4), p, { along: true }),
+        );
+      } else if (A.kind === 'hills') c.spread(A, 3, 8, 30, (p) => c.put(buildScrap(18, 9, 15, 0x5a5048), p));
       else
         c.spread(A, 3, 14, 70, (p) =>
           c.put(
             c.pick([
-              () => warehouse(c.r, c.R(26, 40), c.R(10, 15), c.R(18, 26)),
-              () => buildStorageTank(c.R(5, 8), c.R(10, 16), 0xa8adb2),
-              () => buildFloodlight(c.R(14, 20), 0x6a7078),
+              () => warehouse(c.r, c.R(50, 80), c.R(14, 22), c.R(30, 50)),
+              () => buildStorageTank(c.R(10, 18), c.R(14, 22), 0xa8adb2),
+              () => buildFloodlight(c.R(25, 35), 0x6a7078),
             ])(),
             p,
           ),
         );
     },
     all(c) {
-      c.ring(10, 70, 160, (p) => c.put(warehouse(c.r, c.R(40, 60), c.R(14, 22), c.R(26, 36)), p));
+      c.ring(10, 70, 160, (p) => c.put(warehouse(c.r, c.R(60, 100), c.R(16, 26), c.R(40, 60)), p));
     },
   },
   grid: {
     per(c, A) {
       if (A.kind === 'holo')
-        c.line(A, 3, 13, 0.35, (p) => c.put(holoPanel(12, c.R(10, 18)), p, { along: true }));
+        c.line(A, 3, 13 * G, 0.35, (p) => c.put(holoPanel(12 * G, c.R(10, 18) * G), p, { along: true }));
       else {
         const bm = mat(0xc8ccd4, { roughness: 0.6 });
         c.spread(A, 4, 20, 140, (p) => {
-          const h = c.R(8, 30);
-          c.put(buildGridPillar(c.R(5, 12), h, c.R(5, 12), bm).mesh, p);
+          const h = c.R(8, 30) * G;
+          c.put(buildGridPillar(c.R(5, 12) * G, h, c.R(5, 12) * G, bm).mesh, p);
         });
       }
     },
@@ -472,36 +481,36 @@ const PROPS = {
     per(c, A) {
       if (A.kind === 'terrace')
         c.spread(A, 2, 30, 60, (p) =>
-          c.put(c.pick([() => buildDerrick(c.R(14, 20), 0x7c8790), () => buildOreHopper(0xb8452a)])(), p),
+          c.put(c.pick([() => buildDerrick(c.R(30, 45), 0x7c8790), () => buildOreHopper(0xb8452a)])(), p),
         );
       else if (A.kind === 'open')
         c.spread(A, 3, 15, 70, (p) =>
           c.put(
             c.pick([
               () => buildMiningRig(0xb8a040),
-              () => buildStorageTank(c.R(4, 6), c.R(8, 12), 0x8c8f86),
-              () => buildRockSpire(c.R(3, 6), c.R(10, 22), 0x5a4636),
+              () => buildStorageTank(c.R(8, 14), c.R(12, 20), 0x8c8f86),
+              () => buildRockSpire(c.R(9, 18), c.R(30, 66), 0x5a4636),
             ])(),
             p,
           ),
         );
-      else c.line(A, 1, 30, 0.4, (p) => c.put(buildFloodlight(12, 0x7c8790), p));
+      else c.line(A, 1, 30, 0.4, (p) => c.put(buildFloodlight(25, 0x7c8790), p));
     },
   },
   wasteland: {
     per(c, A) {
       if (A.kind === 'mesa')
         c.spread(A, 3, 18, 90, (p) =>
-          c.put(buildSandstone(c.R(9, 16), c.R(16, 34), 0x4e3e33), p, { sink: 1 }),
+          c.put(buildSandstone(c.R(22, 40), c.R(40, 85), 0x4e3e33), p, { sink: 3 }),
         );
       else if (A.kind === 'ridge')
         c.spread(A, 3, 10, 40, (p) =>
-          c.put(buildRockSpire(c.R(3, 6), c.R(12, 24), 0x4e3e33), p, { sink: 1 }),
+          c.put(buildRockSpire(c.R(9, 18), c.R(36, 72), 0x4e3e33), p, { sink: 3 }),
         );
       else if (A.kind === 'open') {
         c.spread(A, 2, 14, 60, (p) =>
-          c.put(c.pick([() => buildDerrick(c.R(16, 22), 0x6f7a80), () => buildWreckHull(0x6f6a62)])(), p, {
-            sink: 1.5,
+          c.put(c.pick([() => buildDerrick(c.R(30, 45), 0x6f7a80), () => buildWreckHull(0x6f6a62)])(), p, {
+            sink: 4.5,
           }),
         );
         c.line(A, c.R(14, 30), 9, 0.15, (p) => c.put(buildPipeSegment(0x8a6a50), p, { along: true }));
@@ -515,11 +524,11 @@ const PROPS = {
           c.put(
             c.pick([
               () => buildWreckArch(0x8c8f86),
-              () => buildSandstone(c.R(4, 9), c.R(6, 14), 0x7a5a3c),
+              () => buildSandstone(c.R(12, 27), c.R(18, 42), 0x7a5a3c),
               () => buildWreckHull(0x8c8f86),
             ])(),
             p,
-            { sink: 2.5 },
+            { sink: 7.5 },
           ),
         );
       else
@@ -532,9 +541,15 @@ const PROPS = {
     per(c, A) {
       const n = A.kind === 'open' ? 6 : 2;
       c.spread(A, n, 6, 100, (p) => {
-        const g = buildRuinTower(c.R(12, 18), c.R(18, 48), c.R(12, 18), c.r() < 0.6, Math.floor(c.r() * 1e6));
+        const g = buildRuinTower(
+          c.R(30, 50),
+          c.R(40, 120),
+          c.R(30, 50),
+          c.r() < 0.6,
+          Math.floor(c.r() * 1e6),
+        );
         if (A.kind === 'water') g.rotation.z = c.R(-0.12, 0.12);
-        c.put(g, p, { sink: A.kind === 'water' ? 6 : 1 });
+        c.put(g, p, { sink: A.kind === 'water' ? 18 : 3 });
       });
       if (A.kind === 'open') c.spread(A, 2, 4, 20, (p) => c.put(buildSunkBus(0x8a6a40), p, { sink: 1 }));
     },
@@ -547,20 +562,20 @@ const PROPS = {
     all(c) {
       // 高壓電塔沿一條線往遠方走
       const th = c.R(0, Math.PI * 2);
-      for (let d = 16; d < 220; d += 42) c.put(buildPylon(c.R(22, 28)), c.at(th + c.R(-0.04, 0.04), d));
+      for (let d = 16; d < 220; d += 42) c.put(buildPylon(c.R(30, 50)), c.at(th + c.R(-0.04, 0.04), d));
     },
   },
   spaceport: {
     per(c, A) {
       if (A.kind === 'wall') {
         c.line(A, c.R(3, 5), 8.6, 0.25, (p) => c.put(buildBlastWall(), p, { along: true }));
-        c.spread(A, 2, 10, 30, (p) => c.put(buildAntennaMast(c.R(12, 20)), p));
+        c.spread(A, 2, 10, 30, (p) => c.put(buildAntennaMast(c.R(20, 30)), p));
       } else if (A.kind === 'open')
         c.spread(A, 2, 20, 80, (p) =>
           c.put(
             c.pick([
               () => buildHangar(0x8a9096),
-              () => buildFuelSphere(c.R(5, 8)),
+              () => buildFuelSphere(c.R(8, 12)),
               () => buildControlTower(),
             ])(),
             p,
@@ -575,15 +590,15 @@ const PROPS = {
   grid086: {
     per(c, A) {
       if (A.kind === 'wall')
-        c.line(A, c.R(6, 12), 26, 0.3, (p) =>
-          c.put(bulkhead(c.r, c.R(18, 26), c.R(28, 60)), p, { along: true }),
+        c.line(A, c.R(6, 12), 26 * G, 0.3, (p) =>
+          c.put(big(bulkhead(c.r, c.R(18, 26), c.R(28, 60)), G), p, { along: true }),
         );
       else if (A.kind === 'open')
         c.spread(A, 4, 10, 60, (p) =>
           c.put(
             c.pick([
-              () => buildChimney(c.R(2, 3.5), c.R(20, 34)),
-              () => buildPipeStack(c.R(8, 14)),
+              () => buildChimney(c.R(6, 10), c.R(60, 100)),
+              () => buildPipeStack(c.R(20, 34)),
               () => buildShack(0x6a6058),
             ])(),
             p,
@@ -591,9 +606,9 @@ const PROPS = {
         );
       else
         c.spread(A, 3, 30, 140, (p) => {
-          const h = c.R(70, 120);
-          const g = box(c.R(8, 16), h, c.R(8, 16), mat(0x3c3834, { roughness: 0.95 }), 0, 0, 0);
-          g.position.y = -h / 2 + c.R(-10, 25);
+          const h = c.R(70, 120) * G;
+          const g = box(c.R(8, 16) * G, h, c.R(8, 16) * G, mat(0x3c3834, { roughness: 0.95 }), 0, 0, 0);
+          g.position.y = -h / 2 + c.R(-10, 25) * G;
           const gg = new THREE.Group();
           gg.add(g);
           c.put(gg, p, { y: 0 });
@@ -604,10 +619,10 @@ const PROPS = {
     per(c, A) {
       if (A.kind === 'open')
         c.spread(A, 3, 10, 60, (p) => {
-          if (c.r() < 0.5) c.put(buildLab(c.R(14, 22), c.R(10, 18), c.R(12, 18), Math.floor(c.r() * 1e6)), p);
-          else c.put(buildCavePillar(c.R(4, 7), Math.max(10, 38 - p.y)), p, { sink: 0.5 });
+          if (c.r() < 0.5) c.put(buildLab(c.R(40, 70), c.R(30, 50), c.R(30, 50), Math.floor(c.r() * 1e6)), p);
+          else c.put(buildCavePillar(c.R(12, 21), Math.max(30, 38 * G - p.y)), p, { sink: 1.5 });
         });
-      else c.spread(A, 3, 4, 30, (p) => c.put(buildCoralCrystal(c.R(1.5, 3)), p, { sink: 0.3 }));
+      else c.spread(A, 3, 4, 30, (p) => c.put(buildCoralCrystal(c.R(4.5, 9)), p, { sink: 1 }));
     },
   },
   xylem: {
@@ -615,20 +630,20 @@ const PROPS = {
       // 遠方的人工島與高樓
       c.ring(9, 40, 200, (p) => {
         const g = new THREE.Group();
-        const wd = c.R(30, 50),
-          dp = c.R(30, 50);
+        const wd = c.R(30, 50) * G,
+          dp = c.R(30, 50) * G;
         g.add(island(wd, dp, 0x8a9298));
         for (let k = 0; k < 3; k++) {
-          const t = buildGlassTower(c.R(10, 14), c.R(20, 60), c.R(10, 14), Math.floor(c.r() * 1e6));
+          const t = buildGlassTower(c.R(30, 50), c.R(50, 150), c.R(30, 50), Math.floor(c.r() * 1e6));
           t.position.set(c.R(-wd / 3, wd / 3), 0, c.R(-dp / 3, dp / 3));
           g.add(t);
         }
         if (c.r() < 0.5) {
-          const aa = buildAATurret();
-          aa.position.set(wd / 2 - 3, 0, 0);
+          const aa = big(buildAATurret(), 2);
+          aa.position.set(wd / 2 - 9, 0, 0);
           g.add(aa);
         }
-        c.put(g, p, { y: 0.5 });
+        c.put(g, p, { y: 0.5 * G });
       });
     },
   },
@@ -641,15 +656,15 @@ const PROPS = {
           () => buildRadiator(c.R(6, 10)),
           () => buildDockModule(0xb8bcc0),
         ])();
-        g.scale.setScalar(c.R(2, 4));
+        g.scale.setScalar(c.R(4, 8));
         g.rotation.set(c.R(-0.5, 0.5), c.R(0, 6.3), c.R(-0.5, 0.5));
-        c.put(g, p, { y: c.R(-12, 26), face: false });
+        c.put(g, p, { y: c.R(-12, 26) * G, face: false });
       });
       c.ring(4, 60, 200, (p) => {
         const g = new THREE.Group();
-        g.add(island(c.R(24, 36), c.R(24, 36), 0xc8ccd0));
-        g.add(buildCommMast(c.R(14, 22)));
-        c.put(g, p, { y: 0.5 });
+        g.add(island(c.R(24, 36) * G, c.R(24, 36) * G, 0xc8ccd0));
+        g.add(buildCommMast(c.R(30, 45)));
+        c.put(g, p, { y: 0.5 * G });
       });
     },
   },
