@@ -229,7 +229,7 @@ Object.assign(Game.prototype, {
     const n = opts.length;
     set.exits = opts.map((o, i) => {
       const pos = this.cinePt({ g: [(i - (n - 1) / 2) * 16, -34] });
-      const g = this.campRing(pos, o.color || '#ffffff', o.name, o.sub, 5);
+      const g = this.campRing(pos, o.color || '#ffffff', o.name, o.sub, 5 * set.k);
       set.extra.push(g);
       return { pos };
     });

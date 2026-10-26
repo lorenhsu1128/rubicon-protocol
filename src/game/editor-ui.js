@@ -189,7 +189,7 @@ Object.assign(Game.prototype, {
     if (a === 'focus') return this.edFocus();
     if (a === 'array') {
       ed.arrN = Math.max(1, Math.min(20, Math.round(+$('edArrN').value || 3)));
-      ed.arrD = Math.max(0.5, Math.min(100, +$('edArrD').value || 10));
+      ed.arrD = Math.max(0.5, Math.min(300, +$('edArrD').value || 30));
       return this.edArray(ed.arrN, ed.arrD);
     }
     if (a === 'gen') {
@@ -372,7 +372,7 @@ Object.assign(Game.prototype, {
     } else if (ed.tool === 'terrain') {
       const B = ed.brush;
       h += `<div class="edGrid">${BRUSHES.map(([k, n]) => `<button class="edPi${B.k === k ? ' on' : ''}" data-bk="${k}">${n}</button>`).join('')}</div>`;
-      h += `<label class="edF"><span>半徑</span><input type="range" data-brush="r" min="2" max="40" step="1" value="${B.r}"><output>${B.r}</output></label>`;
+      h += `<label class="edF"><span>半徑</span><input type="range" data-brush="r" min="6" max="120" step="3" value="${B.r}"><output>${B.r}</output></label>`;
       h += `<label class="edF"><span>強度</span><input type="range" data-brush="s" min="0.2" max="3" step="0.1" value="${B.s}"><output>${B.s}</output></label>`;
       const W = this.world.theme.water;
       const wl = cur.terrain.water;
@@ -523,7 +523,7 @@ Object.assign(Game.prototype, {
     const pos = field('X', num('x', o.x, -300, 300, 0.5)) + field('Z', num('z', o.z, -300, 300, 0.5));
     // 陣列複製：沿著物件的 X 方向（朝向轉過的）排成一排
     const arr = () =>
-      `<div class="edSub">陣列複製</div>${field('數量', `<input type="number" id="edArrN" value="${ed.arrN || 3}" min="1" max="20" step="1">`)}${field('間距 m', `<input type="number" id="edArrD" value="${ed.arrD || 10}" min="0.5" max="100" step="0.5">`)}<button data-ea="array">沿 X 方向複製成一排</button>`;
+      `<div class="edSub">陣列複製</div>${field('數量', `<input type="number" id="edArrN" value="${ed.arrN || 3}" min="1" max="20" step="1">`)}${field('間距 m', `<input type="number" id="edArrD" value="${ed.arrD || 30}" min="0.5" max="300" step="0.5">`)}<button data-ea="array">沿 X 方向複製成一排</button>`;
     let h = '';
     if (s.t === 'prop') {
       const def = placeById(o.t) || { name: o.t };

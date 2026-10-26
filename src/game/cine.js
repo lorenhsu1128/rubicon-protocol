@@ -8,6 +8,7 @@
 import { SFX } from '../audio/audio.js';
 import { usesAmmo } from '../data/parts.js';
 import { clamp, lerp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { escHtml } from '../core/html.js';
 import { CINES } from '../data/cine/index.js';
 import { ACES, FOES } from '../data/foes.js';
@@ -248,7 +249,8 @@ Object.assign(Game.prototype, {
     if (key === c.setKey && c.set) return;
     this.cineClearSet(c);
     c.setKey = key;
-    const set = (c.set = { spec: S, anchor: new THREE.Vector3(), extra: [] });
+    // k：劇本座標的倍率（三倍高改版：劇本照舊尺度寫；目前的戰場 live 也是）
+    const set = (c.set = { spec: S, anchor: new THREE.Vector3(), extra: [], k: S.k === 'black' ? 1 : DS });
     const cam = this.camera;
     if (S.k === 'live') {
       // 目前的戰場：原點＝玩家，玩家是演員 'player'（不受劇本控制、播完不移除）
@@ -263,6 +265,7 @@ Object.assign(Game.prototype, {
     }
     if (S.k === 'space') {
       set.space = buildSpaceSet(this.scene);
+      set.space.station.group.scale.multiplyScalar(set.k); // 軌道站跟著放大（劇本的 st 座標照舊）
       if (S.coral != null) set.space.pu.coral.value = S.coral;
       this.scene.background = new THREE.Color(0x000000);
       this.scene.fog = null;
@@ -271,8 +274,8 @@ Object.assign(Game.prototype, {
       this.hemi.intensity = 0.34;
       this.sun.color.set(0xfff4e6);
       this.sun.intensity = 1.6;
-      cam.near = 1;
-      cam.far = 9000;
+      cam.near = 1 * set.k;
+      cam.far = 9000 * set.k;
       SFX.ambStop();
       SFX.setReverb(3.5, 0.18);
     } else if (S.k === 'world') {
@@ -297,8 +300,8 @@ Object.assign(Game.prototype, {
         if (L.hemi) this.hemi.color.set(L.hemi);
         if (L.hemiI != null) this.hemi.intensity = L.hemiI;
       }
-      cam.near = 0.5;
-      cam.far = S.far || 700;
+      cam.near = 0.5 * set.k;
+      cam.far = (S.far || 700) * set.k;
       // 鐵路對齊：原點放在鐵路上、局部 +X 沿著鐵路
       if (S.align === 'rail' && w.corridor) {
         const p = w.corridorPoint(-w.trackS * 0.25, 0),
@@ -306,7 +309,12 @@ Object.assign(Game.prototype, {
         set.anchor.copy(p);
         set.yaw = Math.atan2(-d.y, d.x); // d 是 XZ 平面的 Vector2（y＝z）
       } else {
-        const a = this.cineSpot(w, S.anchor || [0, 0], S.clear || 22);
+        const k = set.k;
+        const a = this.cineSpot(
+          w,
+          (S.anchor || [0, 0]).map((v) => v * k),
+          (S.clear || 22) * k,
+        );
         set.anchor.set(a.x, w.terrainHeight(a.x, a.z), a.z);
       }
       this.audioScene();
@@ -342,14 +350,14 @@ Object.assign(Game.prototype, {
   // 找一塊平坦、沒有障礙物的空地當這個場景的原點
   cineSpot(w, at, R) {
     const ok = (x, z) => {
-      if (Math.abs(x) > w.lim - 6 || Math.abs(z) > w.lim - 6) return false;
+      if (Math.abs(x) > w.lim - 6 * DS || Math.abs(z) > w.lim - 6 * DS) return false;
       if (w.isVoid && w.isVoid(x, z)) return false;
       const h0 = w.terrainHeight(x, z);
       for (let a = 0; a < 8; a++) {
         const r = R * 0.8,
           px = x + Math.cos(a * 0.785) * r,
           pz = z + Math.sin(a * 0.785) * r;
-        if (Math.abs(w.terrainHeight(px, pz) - h0) > 2.5) return false;
+        if (Math.abs(w.terrainHeight(px, pz) - h0) > 2.5 * DS) return false;
       }
       return !w.obstacles.some((o) =>
         o.kind === 'box'
@@ -362,7 +370,7 @@ Object.assign(Game.prototype, {
     for (const k of [1, 0.75, 0.5, 0.3]) {
       R = R0 * k;
       for (let i = 0; i < 400; i++) {
-        const r = i * 0.9,
+        const r = i * 0.9 * DS,
           a = i * 2.4;
         const x = at[0] + Math.cos(a) * r,
           z = at[1] + Math.sin(a) * r;
@@ -378,17 +386,19 @@ Object.assign(Game.prototype, {
     const c = this.cine;
     const A = (c.set && c.set.anchor) || new THREE.Vector3();
     const yaw = (c.set && c.set.yaw) || 0;
+    const K = (c.set && c.set.k) || 1; // 劇本座標的倍率
     // 場景的局部座標（可能沿鐵路旋轉）→ 世界
     const rx = (x, z) => (yaw ? x * Math.cos(yaw) + z * Math.sin(yaw) : x),
       rz = (x, z) => (yaw ? -x * Math.sin(yaw) + z * Math.cos(yaw) : z);
     if (!p) return out.copy(A);
-    if (Array.isArray(p)) return out.set(A.x + rx(p[0], p[2]), A.y + p[1], A.z + rz(p[0], p[2]));
+    if (Array.isArray(p))
+      return out.set(A.x + rx(p[0] * K, p[2] * K), A.y + p[1] * K, A.z + rz(p[0] * K, p[2] * K));
     if (p.ex !== undefined) {
       // 目前戰場的出口（抉擇演出）
       const exs = (c.set && c.set.exits) || (this.camp && this.camp.exits);
       const ex = exs && exs[p.ex];
       out.copy(ex ? ex.pos : A);
-      if (p.o) out.add(V(p.o));
+      if (p.o) out.add(V(p.o).multiplyScalar(K));
       return out;
     }
     if (p.st) {
@@ -402,9 +412,9 @@ Object.assign(Game.prototype, {
       return out;
     }
     if (p.g) {
-      const x = A.x + rx(p.g[0], p.g[1]),
-        z = A.z + rz(p.g[0], p.g[1]);
-      return out.set(x, (this.world ? this.world.terrainHeight(x, z) : A.y) + (p.h || 0), z);
+      const x = A.x + rx(p.g[0] * K, p.g[1] * K),
+        z = A.z + rz(p.g[0] * K, p.g[1] * K);
+      return out.set(x, (this.world ? this.world.terrainHeight(x, z) : A.y) + (p.h || 0) * K, z);
     }
     if (p.a) {
       const ac = c.actors.get(p.a);
@@ -419,7 +429,7 @@ Object.assign(Game.prototype, {
         base = (ac.head || ac.obj).getWorldPosition(new THREE.Vector3());
         ay = ac.obj.rotation.y;
       }
-      const o = p.o ? V(p.o) : new THREE.Vector3();
+      const o = p.o ? V(p.o).multiplyScalar(K) : new THREE.Vector3();
       o.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.loc ? ay : yaw);
       return out.copy(base).add(o);
     }
@@ -558,18 +568,21 @@ Object.assign(Game.prototype, {
       if (spec.k === 'pod') {
         A.pod = buildPod();
         obj = A.pod.group;
+        if (!parent) obj.scale.multiplyScalar(c.set.k);
       } else if (spec.k === 'crash') {
         const cs = buildCrashSite();
         A.pod = cs.pod;
         obj = cs.group;
+        obj.scale.multiplyScalar(c.set.k);
       } else if (spec.k === 'worm') {
         obj = new THREE.Group();
         const pal = PALETTES[spec.pal || 'boss'] || PALETTES.enemy;
-        const head = buildBossModel('worm', pal, spec.scale || 1);
+        const SK = (spec.scale || 1) * c.set.k;
+        const head = buildBossModel('worm', pal, SK);
         A.head = head.group;
         A.segs = [];
         for (let i = 0; i < (spec.n || 9); i++) {
-          const s = buildBossModel('joint', pal, (spec.scale || 1) * 1.5 * (1 - i * 0.035));
+          const s = buildBossModel('joint', pal, SK * 1.5 * (1 - i * 0.035));
           A.segs.push(s.group);
           this.scene.add(s.group);
         }
@@ -580,19 +593,28 @@ Object.assign(Game.prototype, {
         const pal = PALETTES[spec.pal || 'boss'] || PALETTES.enemy;
         const keys = ['loco', 'car_aa', 'car_ms', 'car_lz', 'car_mine'];
         keys.forEach((k, i) => {
-          const m = buildBossModel(k, pal, spec.scale || 1);
-          m.group.position.z = i * 9.6 * (spec.scale || 1);
+          const m = buildBossModel(k, pal, (spec.scale || 1) * c.set.k);
+          m.group.position.z = i * 9.6 * (spec.scale || 1) * c.set.k;
           obj.add(m.group);
         });
       } else {
         const m = spec.mech
-          ? buildMech(spec.asm || this.save.asm, PALETTES[spec.pal] || PALETTES.player, spec.scale || 1, {
-              // 玩家配色＝玩家的機甲，其他（AEGIS、委託方的代表機、宿敵）照電腦 AC 的規則用內建預設機甲
-              source: this.mechSource
-                ? this.mechSource(spec.pal === 'player' ? { team: 'player', slot: 0 } : {})
-                : null,
-            })
-          : buildBossModel(spec.key, PALETTES[spec.pal || 'boss'] || PALETTES.enemy, spec.scale || 1);
+          ? buildMech(
+              spec.asm || this.save.asm,
+              PALETTES[spec.pal] || PALETTES.player,
+              (spec.scale || 1) * (parent ? 1 : c.set.k),
+              {
+                // 玩家配色＝玩家的機甲，其他（AEGIS、委託方的代表機、宿敵）照電腦 AC 的規則用內建預設機甲
+                source: this.mechSource
+                  ? this.mechSource(spec.pal === 'player' ? { team: 'player', slot: 0 } : {})
+                  : null,
+              },
+            )
+          : buildBossModel(
+              spec.key,
+              PALETTES[spec.pal || 'boss'] || PALETTES.enemy,
+              (spec.scale || 1) * (parent ? 1 : c.set.k),
+            );
         obj = m.group;
         A.rig = m;
       }
@@ -600,6 +622,7 @@ Object.assign(Game.prototype, {
       if (spec.yaw != null) obj.rotation.y = spec.yaw * D2R + fyaw;
       if (spec.rot) obj.rotation.set(spec.rot[0] * D2R, spec.rot[1] * D2R + fyaw, spec.rot[2] * D2R);
       A.fyaw = fyaw;
+      A.s0 = obj.scale.x; // 建立時的倍率（關鍵影格的 s 乘上它）
       (parent || this.scene).add(obj);
       A.obj = obj;
       c.actors.set(spec.id, A);
@@ -783,13 +806,13 @@ Object.assign(Game.prototype, {
     let dy = 0,
       drx = 0;
     if (A.crouch) {
-      dy += 0.9 * (e.scale || 1);
+      dy += 0.9 * (e.scale || 1) * MS;
       drx += 0.22;
     }
     // 站起來：一開始壓低、往前傾，慢慢回到原本的姿勢
     if (A.rise) {
       const k = 1 - smooth(clamp((lt - A.rise.t0) / A.rise.d, 0, 1));
-      dy += k * 2.4 * (e.scale || 1);
+      dy += k * 2.4 * (e.scale || 1) * MS;
       drx += k * 0.5;
       if (k <= 0) A.rise = null;
     }
@@ -839,7 +862,7 @@ Object.assign(Game.prototype, {
           lerp(a.r[1], b.r[1], e) * D2R + (A.fyaw || 0),
           lerp(a.r[2], b.r[2], e) * D2R,
         );
-      if (a.s != null && b.s != null) obj.scale.setScalar(lerp(a.s, b.s, e));
+      if (a.s != null && b.s != null) obj.scale.setScalar(lerp(a.s, b.s, e) * (A.s0 || 1));
       if (A.pod) {
         const th = lerp(a.thrust || 0, b.thrust || 0, e),
           he = lerp(a.heat || 0, b.heat || 0, e);
@@ -851,9 +874,9 @@ Object.assign(Game.prototype, {
     if (A.segs) {
       const hp = A.head.getWorldPosition(new THREE.Vector3());
       const tr = A.trail;
-      if (!tr.length || tr[0].distanceTo(hp) > 0.6) tr.unshift(hp.clone());
+      if (!tr.length || tr[0].distanceTo(hp) > 0.6 * this.cine.set.k) tr.unshift(hp.clone());
       if (tr.length > 400) tr.length = 400;
-      const gap = 2.1 * (A.spec.scale || 1);
+      const gap = 2.1 * (A.spec.scale || 1) * this.cine.set.k;
       let acc = 0,
         j = 0;
       for (let n = 0; n < A.segs.length; n++) {
@@ -930,13 +953,13 @@ Object.assign(Game.prototype, {
       Math.sin(tt * 1.3) * 0.6 + Math.sin(tt * 2.9 + 1) * 0.3,
       Math.sin(tt * 1.7 + 2) * 0.5 + Math.sin(tt * 3.7) * 0.2,
       0,
-    ).multiplyScalar(hand * 0.25);
+    ).multiplyScalar(hand * 0.25 * ((c.set && c.set.k) || 1));
     c.shake = Math.max(0, c.shake - dt * 1.6);
     const sh = c.shake + (C.shake || 0) + (this.camShake || 0);
     this.camShake = Math.max(0, (this.camShake || 0) - dt * 2);
     if (sh > 0) {
-      off.x += (Math.random() * 2 - 1) * sh * 0.5;
-      off.y += (Math.random() * 2 - 1) * sh * 0.5;
+      off.x += (Math.random() * 2 - 1) * sh * 0.5 * ((c.set && c.set.k) || 1);
+      off.y += (Math.random() * 2 - 1) * sh * 0.5 * ((c.set && c.set.k) || 1);
     }
     cam.position.copy(pos);
     // 地圖：鏡頭不鑽進地裡，也不卡在建築物裡（在障礙物裡時升到它的頂上）
@@ -976,13 +999,15 @@ Object.assign(Game.prototype, {
     const P = c.P;
     if (C.dof) {
       P.dof = C.dof;
-      P.dofF = C.focus || cam.position.distanceTo(c.look);
-      P.dofR = C.range || Math.max(1.5, P.dofF * 0.12);
+      P.dofF = C.focus ? C.focus * ((c.set && c.set.k) || 1) : cam.position.distanceTo(c.look);
+      P.dofR = C.range
+        ? C.range * ((c.set && c.set.k) || 1)
+        : Math.max(1.5 * ((c.set && c.set.k) || 1), P.dofF * 0.12);
     } else P.dof = 0;
     // 太陽與陰影跟著注視點
     const focus = c.look;
     if (c.set && c.set.space) {
-      this.sun.position.copy(focus).addScaledVector(c.set.space.pu.sunDir.value, 120);
+      this.sun.position.copy(focus).addScaledVector(c.set.space.pu.sunDir.value, 120 * c.set.k);
       this.sun.target.position.copy(focus);
     } else {
       this.sun.position.copy(focus).add(this.sunOff);

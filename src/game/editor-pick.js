@@ -3,6 +3,7 @@
 // 「並排比較」一次產生 6 個種子的俯視縮圖。新建時按「用這張地圖開始編輯」才存檔；
 // 重新選底圖時已經擺好的物件、單位疊在預覽上，按「套用」才算（可復原），「取消」回到原本的底圖。
 import { escHtml } from '../core/html.js';
+import { DS } from '../core/scale.js';
 import { LEVEL_LV, LIMITS } from '../level/format.js';
 import { VARIANTS } from '../world/variants.js';
 import { THEMES } from '../world/world.js';
@@ -44,7 +45,7 @@ Object.assign(Game.prototype, {
     document.body.classList.remove('edPicking');
     $('edPick').hidden = true;
     $('edPickGrid').hidden = true;
-    ed.cam = { x: 0, z: 0, yaw: 0.7, pitch: 0.95, dist: 110 };
+    ed.cam = { x: 0, z: 0, yaw: 0.7, pitch: 0.95, dist: 110 * DS };
     if (this.camera.view && this.camera.view.enabled) this.camera.clearViewOffset();
     this.edSlopeTint();
     this.edRenderUi();

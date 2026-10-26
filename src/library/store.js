@@ -10,7 +10,14 @@
 import BUILTIN_MODELS from 'virtual:models';
 import PLAYER_MECH from 'virtual:player-mech';
 import { builtinJoints, setJointOverrides } from '../render/mech-joints.js';
-import { DEFAULT_SET, SERVER_SET, cleanMechs, setOf, setScoped } from '../render/local-models.js';
+import {
+  DEFAULT_SET,
+  SERVER_SET,
+  cleanMechs,
+  glbResetOnce,
+  setOf,
+  setScoped,
+} from '../render/local-models.js';
 import { RefStore } from './ref-tools.js';
 
 const DB = 'rubicon-model-library',
@@ -77,7 +84,7 @@ function db() {
         const d = r.result;
         d.onversionchange = () => d.close();
         if (dbHooks.onReady) dbHooks.onReady();
-        res(d);
+        glbResetOnce(d).then(() => res(d)); // 三倍高改版的 GLB 重置（一次）
       };
       r.onerror = () => {
         if (dbHooks.onReady) dbHooks.onReady();

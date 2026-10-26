@@ -4,7 +4,7 @@
 // 編輯中的關卡在 this.ed.L（整份，含多段）；目前這一段的內容是 edCur()（第 0 段＝L 本身）。
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
-import { DS } from '../core/scale.js';
+import { DS, MS } from '../core/scale.js';
 import { applyLevelProps, levelWorldOpt, placeProp, removePlaced } from '../level/build.js';
 import {
   GROUP_COLORS,
@@ -38,7 +38,6 @@ const SNAP = [
   'triggers',
 ];
 const UNDO_MAX = 60;
-const CELL = 2.5;
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
 const LABELS = new Map();
 // 標籤的貼圖（同樣的文字與顏色共用）
@@ -122,8 +121,8 @@ Object.assign(Game.prototype, {
       sel: null,
       undo: [],
       redo: [],
-      cam: { x: 0, z: 0, yaw: 0.7, pitch: 0.95, dist: 110 },
-      brush: { k: 'raise', r: 8, s: 1 },
+      cam: { x: 0, z: 0, yaw: 0.7, pitch: 0.95, dist: 110 * DS },
+      brush: { k: 'raise', r: 8 * DS, s: 1 },
       place: null,
       unitKind: 'enemy',
       unitType: 'mt',
@@ -178,8 +177,8 @@ Object.assign(Game.prototype, {
     this.world = new World(this.scene, B.theme, B.seed, B.level, null, levelWorldOpt(cur));
     const w = this.world;
     w.applyLight(this);
-    if (this.scene.fog) this.scene.fog = new THREE.Fog(this.scene.fog.color.getHex(), 160, 620);
-    this.camera.far = 900;
+    if (this.scene.fog) this.scene.fog = new THREE.Fog(this.scene.fog.color.getHex(), 160 * DS, 620 * DS);
+    this.camera.far = 900 * DS;
     this.camera.updateProjectionMatrix();
     applyLevelProps(w, cur);
     for (const r of w.lvProps) if (r) r.key = JSON.stringify(r.p);
@@ -267,7 +266,7 @@ Object.assign(Game.prototype, {
     this.sun.position.copy(focus).add(this.sunOff);
     this.sun.target.position.copy(focus);
     const sc = this.sun.shadow.camera;
-    const R = clamp(C.dist * 0.9, 70, 160);
+    const R = clamp(C.dist * 0.9, 70 * DS, 160 * DS);
     if (sc.right !== R) {
       sc.left = sc.bottom = -R;
       sc.right = sc.top = R;
@@ -382,7 +381,7 @@ Object.assign(Game.prototype, {
           ang1 = Math.atan2(b.y - a.y, b.x - a.x),
           my1 = (a.y + b.y) / 2;
         const C = ed.cam;
-        if (d0 > 10) C.dist = clamp((C.dist * d0) / Math.max(10, d1), 8, 320);
+        if (d0 > 10) C.dist = clamp((C.dist * d0) / Math.max(10, d1), 8 * DS, 320 * DS);
         C.yaw += ang1 - ang0;
         C.pitch = clamp(C.pitch + (my1 - my0) * 0.004, 0.15, 1.5);
       }
@@ -424,7 +423,7 @@ Object.assign(Game.prototype, {
   edWheel(e) {
     e.preventDefault();
     const C = this.ed.cam;
-    C.dist = clamp(C.dist * (e.deltaY > 0 ? 1.12 : 0.89), 8, 320);
+    C.dist = clamp(C.dist * (e.deltaY > 0 ? 1.12 : 0.89), 8 * DS, 320 * DS);
   },
   edDown(e, p) {
     const ed = this.ed;
@@ -639,7 +638,7 @@ Object.assign(Game.prototype, {
       beh: {
         k: ed.unitKind === 'convoy' ? 'patrol' : 'attack',
         path: '',
-        r: 35,
+        r: 35 * DS,
         m: '',
         back: false,
         speed: 0.6,
@@ -795,7 +794,8 @@ Object.assign(Game.prototype, {
       B = ed.brush;
     const n = w.cells + 1,
       h = w.h,
-      half = w.size / 2;
+      half = w.size / 2,
+      CELL = w.size / w.cells; // 地形格子（World 的 CELL）
     const i0 = Math.max(0, Math.floor((S.x - B.r + half) / CELL)),
       i1 = Math.min(n - 1, Math.ceil((S.x + B.r + half) / CELL)),
       j0 = Math.max(0, Math.floor((S.z - B.r + half) / CELL)),
@@ -810,8 +810,8 @@ Object.assign(Game.prototype, {
         const t = 1 - d / B.r;
         const f = t * t * (3 - 2 * t);
         const k = j * n + i;
-        if (B.k === 'raise') h[k] += f * B.s * 6 * dt;
-        else if (B.k === 'lower') h[k] -= f * B.s * 6 * dt;
+        if (B.k === 'raise') h[k] += f * B.s * 6 * DS * dt;
+        else if (B.k === 'lower') h[k] -= f * B.s * 6 * DS * dt;
         else if (B.k === 'flat') h[k] += (S.target - h[k]) * Math.min(1, f * B.s * 8 * dt);
         else if (B.k === 'smooth') {
           const g = (a, b) => src[clamp(b, 0, n - 1) * n + clamp(a, 0, n - 1)];
@@ -819,10 +819,11 @@ Object.assign(Game.prototype, {
           h[k] += (avg - h[k]) * Math.min(1, f * B.s * 8 * dt);
         } else if (B.k === 'noise') {
           const nv =
-            Math.sin(x * 0.37 + z * 0.11) * Math.cos(z * 0.29 - x * 0.07) + Math.sin(x * 0.9 + z * 1.3) * 0.3;
-          h[k] += nv * f * B.s * 3 * dt;
+            Math.sin((x * 0.37 + z * 0.11) / DS) * Math.cos((z * 0.29 - x * 0.07) / DS) +
+            Math.sin((x * 0.9 + z * 1.3) / DS) * 0.3;
+          h[k] += nv * f * B.s * 3 * DS * dt;
         }
-        h[k] = clamp(h[k], -40, 80);
+        h[k] = clamp(h[k], -40 * DS, 80 * DS);
       }
     S.n++;
     if (S.n % 3 === 0) {
@@ -850,7 +851,8 @@ Object.assign(Game.prototype, {
       r = this.ed.brush.r;
     const n = w.cells + 1,
       h = w.h,
-      half = w.size / 2;
+      half = w.size / 2,
+      CELL = w.size / w.cells; // 地形格子（World 的 CELL）
     const vx = Bp.x - A.x,
       vz = Bp.z - A.z,
       L2 = vx * vx + vz * vz || 1;
@@ -1000,12 +1002,14 @@ Object.assign(Game.prototype, {
     const pole = geo('pole', () => {
       const g = new THREE.CylinderGeometry(0.12, 0.12, 4, 6);
       g.translate(0, 2, 0);
+      g.scale(MS, MS, MS); // 標示照機甲的尺度
       g.userData.shared = true;
       return g;
     });
     const disc = geo('disc', () => {
       const g = new THREE.CylinderGeometry(1, 1, 0.5, 20);
       g.translate(0, 0.25, 0);
+      g.scale(MS, MS, MS);
       g.userData.shared = true;
       return g;
     });
@@ -1013,11 +1017,12 @@ Object.assign(Game.prototype, {
       const g = new THREE.ConeGeometry(0.5, 1.4, 8);
       g.rotateX(-Math.PI / 2);
       g.translate(0, 0.6, -1.6);
+      g.scale(MS, MS, MS);
       g.userData.shared = true;
       return g;
     });
     const dot = geo('dot', () => {
-      const g = new THREE.SphereGeometry(0.7, 10, 8);
+      const g = new THREE.SphereGeometry(0.7 * MS, 10, 8);
       g.userData.shared = true;
       return g;
     });
@@ -1069,7 +1074,7 @@ Object.assign(Game.prototype, {
         isSel('path', i) || (sel && sel.t === 'pathpt' && sel.i === i) || ed.pathAdd === i
           ? 0xffd060
           : 0x9fe0ff;
-      const pts = P.pts.map((q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 999) + 0.6, q[1]));
+      const pts = P.pts.map((q) => new THREE.Vector3(q[0], w.groundAt(q[0], q[1], 999) + 0.6 * MS, q[1]));
       if (P.loop && pts.length > 2) pts.push(pts[0].clone());
       if (pts.length > 1) {
         const ln = new THREE.Line(
@@ -1085,7 +1090,7 @@ Object.assign(Game.prototype, {
           dot,
           flatMat(sel && sel.t === 'pathpt' && sel.i === i && sel.j === j ? 0xffd060 : col),
         );
-        m.position.set(q[0], w.groundAt(q[0], q[1], 999) + 0.6, q[1]);
+        m.position.set(q[0], w.groundAt(q[0], q[1], 999) + 0.6 * MS, q[1]);
         m.userData.edRef = { t: 'pathpt', i, j };
         hg.add(m);
         if (j === 0) {
@@ -1282,7 +1287,7 @@ Object.assign(Game.prototype, {
     const q = o.pts ? o.pts[this.ed.sel.j || 0] : null;
     this.ed.cam.x = q ? q[0] : o.x;
     this.ed.cam.z = q ? q[1] : o.z;
-    this.ed.cam.dist = Math.min(this.ed.cam.dist, 50);
+    this.ed.cam.dist = Math.min(this.ed.cam.dist, 50 * DS);
   },
   edKey(e) {
     const ed = this.ed;

@@ -102,6 +102,68 @@ export function cleanMechs(list) {
   return [...out.values()];
 }
 
+// 三倍高改版的 GLB 重置：舊尺度做的本地模型庫整個清掉一次（所有模型組的 GLB 與關節設定、預設以外的模型組），
+// 本地模型庫設定關掉、模型庫回到預設模型組，所以遊戲的 GLB 一律用伺服器預設組（直接開檔時是內建預設機甲與程式模型）。
+// 遊戲（readDb）與模型庫（library/store.js 的 db()）誰先開啟誰做，做過記在 localStorage
+export const GLB_RESET_KEY = 'rubicon_glb_scale3x';
+export function glbResetOnce(d) {
+  let done = false;
+  try {
+    done = localStorage.getItem(GLB_RESET_KEY) === '1';
+    // 自動化測試不重置（測試自己放的資料），要測時先設 rubicon_glb_reset_test
+    if (navigator.webdriver && !localStorage.getItem('rubicon_glb_reset_test')) done = true;
+  } catch (e) {}
+  if (done) return Promise.resolve(false);
+  const mark = (off) => {
+    try {
+      localStorage.setItem(GLB_RESET_KEY, '1');
+      if (!off) return;
+      const st = loadSettings();
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...st, on: false, set: DEFAULT_SET }));
+      localStorage.removeItem('rubicon_modelset');
+    } catch (e) {}
+  };
+  const names = ['models', 'setJoints', 'glb', 'joints', 'sets'].filter((n) =>
+    d.objectStoreNames.contains(n),
+  );
+  const glbs = names.filter((n) => n === 'models' || n === 'glb');
+  // 本地沒有任何 GLB（新玩家）：只記下做過，不動設定
+  const count = () =>
+    new Promise((res) => {
+      if (!glbs.length) return res(0);
+      let n = 0;
+      try {
+        const t = d.transaction(glbs, 'readonly');
+        for (const s of glbs) t.objectStore(s).count().onsuccess = (e) => (n += e.target.result || 0);
+        t.oncomplete = () => res(n);
+        t.onerror = t.onabort = () => res(0);
+      } catch (e) {
+        res(0);
+      }
+    });
+  return count().then((n) => {
+    if (!n) return (mark(false), false);
+    return new Promise((res) => {
+      let t;
+      try {
+        t = d.transaction(names, 'readwrite');
+      } catch (e) {
+        return res(false);
+      }
+      for (const s of names) {
+        const os = t.objectStore(s);
+        if (s !== 'sets') os.clear();
+        else
+          os.getAllKeys().onsuccess = (e) => {
+            for (const k of e.target.result || []) if (k !== DEFAULT_SET) os.delete(k);
+          };
+      }
+      t.oncomplete = () => (mark(true), res(true));
+      t.onerror = t.onabort = () => res(false);
+    });
+  });
+}
+
 // 讀取模型庫的資料：{ glb: [{ set, id, … }], joints: [{ set, slot, conns }], sets: [{ id, name, asm }] }
 // 資料庫不存在時不建立它（中止升級），回傳 null；模型庫還沒升級的舊版資料（glb／joints）當成預設模型組
 // only：只讀這幾類（例如 ['sets'] 只列模型組，不讀 GLB）
@@ -116,8 +178,9 @@ function readDb(only = null) {
     r.onupgradeneeded = () => r.transaction.abort();
     r.onerror = () => res(null);
     r.onblocked = () => res(null);
-    r.onsuccess = () => {
+    r.onsuccess = async () => {
       const d = r.result;
+      if (await glbResetOnce(d)) LocalModels.settings = loadSettings(); // 重置把本地模型庫設定關掉了
       const v4 = d.objectStoreNames.contains('models');
       const map = v4
         ? { glb: 'models', joints: 'setJoints', sets: 'sets' }

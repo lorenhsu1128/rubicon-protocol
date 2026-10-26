@@ -4,6 +4,11 @@
 // 由 tickHangar 驅動。場景的物件不投影（天花板會擋住陽光），只有整備架與人偶投影。
 import { gBox, gCyl, gSph, mergeGeos, P } from './geometry.js';
 import { HA, haChar, haProp, pbrMat, splitMeshY } from './hangar-assets.js';
+import { MS } from '../core/scale.js';
+
+// 三倍高改版：格納庫照舊尺度建（機甲 3.24 m、鏡頭與整備架照舊），人的尺寸的東西（技師、牽引車、道具、欄杆、梯子、
+// 地板的面板）縮成 HU 倍，畫面上機甲和人的比例＝遊戲裡的 9.7 m 對 1.8 m
+export const HU = 1 / MS;
 
 const UP = new THREE.Vector3(0, 1, 0);
 // 不改 alpha 的加色混合（後處理以 alpha 分辨機體與環境，加色的特效不能動到它）
@@ -185,17 +190,17 @@ function lattice(n, m, x, z, w, d, h, seg = 0.9, t = 0.09) {
   }
 }
 // 欄杆（沿 a → b）
-function railing(n, m, a, b, h = 1.0, step = 1.2) {
+function railing(n, m, a, b, h = 1.1 * HU, step = 1.5 * HU) {
   const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
   const k = Math.max(1, Math.round(len / step));
   for (let i = 0; i <= k; i++) {
     const f = i / k,
       x = a[0] + (b[0] - a[0]) * f,
       z = a[2] + (b[2] - a[2]) * f;
-    B(n, m, 0.05, h, 0.05, x, a[1] + h / 2, z);
+    B(n, m, 0.05 * HU, h, 0.05 * HU, x, a[1] + h / 2, z);
   }
-  beam(n, m, [a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]], 0.05);
-  beam(n, m, [a[0], a[1] + h * 0.5, a[2]], [b[0], b[1] + h * 0.5, b[2]], 0.04);
+  beam(n, m, [a[0], a[1] + h, a[2]], [b[0], b[1] + h, b[2]], 0.05 * HU);
+  beam(n, m, [a[0], a[1] + h * 0.5, a[2]], [b[0], b[1] + h * 0.5, b[2]], 0.04 * HU);
 }
 // 依位置與法線投影貼圖座標（PBR 貼圖一格 tile 公尺，不隨方塊大小拉伸）
 function boxUV(geo, tile) {
@@ -270,8 +275,10 @@ function buildBed(M, o = {}) {
     // 走道的支撐
     beam(st, fr, [s * (tx + 0.3), y - 0.05, 0.2], [s * (tx + 0.3), y - 1.2, -0.8], 0.07);
     // 梯子
-    for (let k = 0; k < 2; k++) B(st, M.rail, 0.04, y, 0.04, s * (tx + 0.25 + k * 0.4), y / 2, -1.36);
-    for (let r = 0.3; r < y; r += 0.3) B(st, M.rail, 0.44, 0.03, 0.03, s * (tx + 0.45), r, -1.36);
+    for (let k = 0; k < 2; k++)
+      B(st, M.rail, 0.04 * HU, y, 0.04 * HU, s * (tx + 0.35 + k * 0.45 * HU), y / 2, -1.36);
+    for (let r = 0.3 * HU; r < y; r += 0.3 * HU)
+      B(st, M.rail, 0.5 * HU, 0.03 * HU, 0.03 * HU, s * (tx + 0.35 + 0.225 * HU), r, -1.36);
     // 塔頂的整備燈
     B(st, M.dark, 0.5, 0.18, 0.3, s * tx, th + 0.12, tz + 0.3);
     B(st, M.lamp, 0.42, 0.04, 0.22, s * tx, th + 0.02, tz + 0.3);
@@ -308,6 +315,7 @@ function buildBed(M, o = {}) {
 // 高約 1.7 m；hip／肩是關節。suit＝工作服、hat＝安全帽
 function buildWorker(suit, hat) {
   const g = new THREE.Group();
+  g.scale.setScalar(HU);
   const ms = std(suit, 0.85, 0),
     mh = std(hat, 0.5, 0.1),
     mk = std(0x2a2a2e, 0.9, 0),
@@ -625,8 +633,9 @@ function buildCrewChar(type) {
   torch.position.set(0, 0.09, 0.02);
   torch.rotation.x = -Math.PI / 2;
   hr.add(torch);
-  const tipL = new THREE.PointLight(0x9fd0ff, 0, 3, 2);
+  const tipL = new THREE.PointLight(0x9fd0ff, 0, 3 * HU, 2);
   tip.add(tipL);
+  C.g.scale.multiplyScalar(HU);
   C.act('Idle', 0);
   C.mixer.update(Math.random() * 2);
   return { g: C.g, C, tab, torch, tip, tipL, ph: 0, rich: true };
@@ -640,7 +649,7 @@ function buildSparks(n = 180) {
   const mat = keepAlpha(
     new THREE.PointsMaterial({
       color: 0xffcf7a,
-      size: 0.035,
+      size: 0.035 * HU,
       sizeAttenuation: true,
       transparent: true,
       depthWrite: false,
@@ -658,7 +667,7 @@ export function emitSparks(S, p, dir, k = 5) {
     S.pos[i * 3] = p.x;
     S.pos[i * 3 + 1] = p.y;
     S.pos[i * 3 + 2] = p.z;
-    const sp = 0.8 + Math.random() * 1.6;
+    const sp = (0.8 + Math.random() * 1.6) * HU;
     S.vel[i * 3] = (dir.x + (Math.random() - 0.5) * 1.4) * sp;
     S.vel[i * 3 + 1] = (dir.y + Math.random() * 0.9) * sp;
     S.vel[i * 3 + 2] = (dir.z + (Math.random() - 0.5) * 1.4) * sp;
@@ -670,7 +679,7 @@ function tickSparks(S, dt) {
     if (S.life[i] <= 0) continue;
     S.life[i] -= dt;
     const o = i * 3;
-    S.vel[o + 1] -= 9.8 * dt;
+    S.vel[o + 1] -= 9.8 * HU * dt;
     S.pos[o] += S.vel[o] * dt;
     S.pos[o + 1] += S.vel[o + 1] * dt;
     S.pos[o + 2] += S.vel[o + 2] * dt;
@@ -740,12 +749,12 @@ function coveredMech(n, M, x, z, ry = 0, h = 3.3) {
 
 // ---------- 外部素材的佈置（HA.ready 時；docs/garage-hangar.md 的第四期） ----------
 // 道具放在場景根（不合併；共用素材的幾何與材質）
-function prop(H, name, x, y, z, ry = 0, s = 1, node) {
+function prop(H, name, x, y, z, ry = 0, s = 1, node, exact = false) {
   const o = haProp(name, node);
   if (!o) return null;
   o.position.set(x, y, z);
   o.rotation.y = ry;
-  o.scale.setScalar(s);
+  o.scale.setScalar(exact ? s : HU * Math.min(1, s));
   H.root.add(o);
   return o;
 }
@@ -922,7 +931,7 @@ function lightCone(H, x, y, z, r0, r1, h, color = 0xfff0d0, op = 0.09, dir) {
 }
 // 天花板吊下來的工業燈＋光束（top＝吊點的高度）
 function hangLamp(H, x, top, z, chain = 1.2, cone = true, k = 1.6) {
-  const L = prop(H, 'hanging_industrial_lamp', x, top - 1.355 * k - chain, z, 0, k);
+  const L = prop(H, 'hanging_industrial_lamp', x, top - 1.355 * k - chain, z, 0, k, undefined, true);
   if (!L) return;
   pipe(H.stRoot, H.M.hose, [x, top, z], [x, top - chain - 0.3, z], 0.015);
   const y = top - chain - 1.355 * k;
@@ -938,7 +947,7 @@ function wallKit(H, x, z, nx, nz, i) {
   const kind = i % 4;
   if (kind === 0) prop(H, 'utility_box_01', x + nx * 0.25, 0, z + nz * 0.25, ry, 1.1);
   if (kind === 1) {
-    const p = prop(H, 'power_box_01', x + nx * 0.06, 1.5, z + nz * 0.06, ry, 1.2);
+    const p = prop(H, 'power_box_01', x + nx * 0.06 * HU, 1.5 * HU, z + nz * 0.06 * HU, ry, 1.2);
     if (p) p.rotation.y = ry;
   }
   if (kind === 2)
@@ -951,13 +960,14 @@ function wallKit(H, x, z, nx, nz, i) {
       ry,
       1.6,
       'modular_industrial_pipes_01_pipe02',
+      true,
     );
   if (kind === 3)
     prop(
       H,
       'exterior_aircon_unit',
       x + nx * 0.22,
-      4.2,
+      4.2 * HU,
       z + nz * 0.22,
       ry,
       1.4,
@@ -972,8 +982,8 @@ function clutter(H, x, z, ry, seed) {
     s = Math.sin(ry);
   const at = (dx, dz) => [x + dx * c + dz * s, z - dx * s + dz * c];
   const P2 = (name, dx, dz, y = 0, r = 0, sc = 1, node) => {
-    const [px, pz] = at(dx, dz);
-    return prop(H, name, px, y, pz, ry + r, sc, node);
+    const [px, pz] = at(dx * HU, dz * HU); // 一組雜物的相對位置照現實尺寸
+    return prop(H, name, px, y * HU, pz, ry + r, sc, node);
   };
   const v = seed % 4;
   if (v === 0) {
@@ -1056,7 +1066,7 @@ function dressBase(H, M, st, W, Dz, Fz, Ht, multi) {
     [-W + 0.4, Fz - 0.4, Math.PI * 0.25],
     [W - 0.4, Fz - 0.4, -Math.PI * 0.25],
   ])
-    prop(H, 'security_camera_01', x, 6.8, z, ry, 1.6);
+    prop(H, 'security_camera_01', x, 6.8, z, ry, 2.4 * HU, undefined, true);
   // 天花板的吊燈與光束
   for (let z = Dz + 3; z < Fz - 1; z += 5)
     for (let x = -W + 4; x <= W - 4; x += multi ? 8 : 7.5) hangLamp(H, x, Ht - 0.9, z, 1.4, Math.abs(x) < 12);
@@ -1072,6 +1082,7 @@ function dressBase(H, M, st, W, Dz, Fz, Ht, multi) {
         Math.PI / 2,
         1.8,
         'mounted_fluorescent_lights_a',
+        true,
       );
       if (f) f.rotation.x = Math.PI;
     }
@@ -1116,12 +1127,21 @@ function dressBase(H, M, st, W, Dz, Fz, Ht, multi) {
   if (!multi) {
     prop(H, 'metal_office_desk', -W + 3.0, 0, 2.2, Math.PI / 2, 1.1);
     for (let k = 0; k < 2; k++) {
-      B(st, M.dark, 0.06, 0.5, 0.8, -W + 2.85, 1.15, 1.7 + k * 0.95);
+      B(
+        st,
+        M.dark,
+        0.06 * HU,
+        0.5 * HU,
+        0.8 * HU,
+        -W + 3.0 - 0.15 * HU,
+        1.15 * HU,
+        2.2 - 0.25 * HU + k * 0.5 * HU,
+      );
       const sc = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.72, 0.42),
+        new THREE.PlaneGeometry(0.72 * HU, 0.42 * HU),
         new THREE.MeshBasicMaterial({ color: 0x4ab0e0 }),
       );
-      sc.position.set(-W + 2.9, 1.15, 1.7 + k * 0.95);
+      sc.position.set(-W + 3.0 - 0.1 * HU, 1.15 * HU, 2.2 - 0.25 * HU + k * 0.5 * HU);
       sc.rotation.y = Math.PI / 2;
       H.root.add(sc);
       H.own.push(sc);
@@ -1186,6 +1206,7 @@ function dressShip(H, M, st, W, Dz, Fz, Ht) {
         0,
         2.2,
         'mounted_fluorescent_lights_d',
+        true,
       );
       if (f) f.rotation.x = Math.PI;
     }
@@ -1193,7 +1214,7 @@ function dressShip(H, M, st, W, Dz, Fz, Ht) {
   for (let k = 0; k < 4; k++)
     pipe(st, k % 2 ? M.crane : M.dark, [W - 0.35, 1.0 + k * 0.22, Dz], [W - 0.35, 1.0 + k * 0.22, Fz], 0.07);
   for (let z = Dz + 2.5; z < Fz - 1; z += 4.5) {
-    prop(H, 'power_box_01', W - 0.32, 1.7, z + 2, -Math.PI / 2, 1.1);
+    prop(H, 'power_box_01', W - 0.32, 1.7 * HU, z + 2, -Math.PI / 2, 1.1);
     prop(H, 'industrial_wall_lamp', -W + 0.32, 3.2, z, Math.PI / 2, 1.5);
   }
   for (const z of [-6, 1, 8])
@@ -1206,9 +1227,10 @@ function dressShip(H, M, st, W, Dz, Fz, Ht) {
       Math.PI / 2,
       1.8,
       'modular_industrial_pipes_01_pipe02',
+      true,
     );
-  prop(H, 'security_camera_01', -W + 0.5, 6.5, Dz + 0.5, Math.PI * 0.75, 1.5);
-  prop(H, 'security_camera_01', W - 0.5, 6.5, Fz - 0.5, -Math.PI * 0.25, 1.5);
+  prop(H, 'security_camera_01', -W + 0.5, 6.5, Dz + 0.5, Math.PI * 0.75, 2.4 * HU, undefined, true);
+  prop(H, 'security_camera_01', W - 0.5, 6.5, Fz - 0.5, -Math.PI * 0.25, 2.4 * HU, undefined, true);
   // 貨物：右後方與左前方
   clutter(H, 6.2, -6.4, 0, 2);
   clutter(H, 6.5, 6.5, -Math.PI / 2, 4);
@@ -1228,7 +1250,7 @@ function dressField(H, M, st) {
     const x = s * 6.5,
       z = 4.5;
     for (const dx of [-0.45, 0.45]) {
-      const l = prop(H, 'security_light', x + dx, 6.3, z - 0.1, Math.PI + s * 0.6, 1.6);
+      const l = prop(H, 'security_light', x + dx, 6.3, z - 0.1, Math.PI + s * 0.6, 1.6, undefined, true);
       if (l) l.rotation.x = -0.6;
     }
     const dir = new THREE.Vector3(-x, -6.0, -z - 0.5);
@@ -1253,10 +1275,10 @@ function dressField(H, M, st) {
   clutter(H, -6.8, -6.5, 0.3, 6);
   clutter(H, 7.5, -7.5, -0.2, 0);
   for (let k = 0; k < 4; k++) {
-    const t = prop(H, 'old_tyre', 9.2 + (k % 2) * 0.1, 0.16 * k * 1.4 + 0.12, -1.6, 0, 1.4);
+    const t = prop(H, 'old_tyre', 9.2 + (k % 2) * 0.1 * HU, (0.16 * k + 0.12) * HU * 2.2, -1.6, 0, 1.4);
     if (t) t.rotation.x = Math.PI / 2;
   }
-  prop(H, 'medical_box', -5.5, 0.82, -0.9, 0.4, 1.2);
+  prop(H, 'medical_box', -5.5, 0, -0.9, 0.4, 1.2);
   prop(H, 'tool_cart', -3.4, 0, -2.0, 0.4);
   prop(H, 'portable_welding_cart', 3.5, 0, -2.1, -0.5, 1.1);
   prop(H, 'metal_tool_chest', -4.4, 0, 2.6, 0.9, 1.3);
@@ -1403,10 +1425,12 @@ export function buildHangar(kind) {
     // 地板（4 m 一格的面板）
     const fl = new THREE.Mesh(
       HA.ready
-        ? planeUV(new THREE.PlaneGeometry(W * 2, Fz - Dz), W * 2, Fz - Dz, 4)
+        ? planeUV(new THREE.PlaneGeometry(W * 2, Fz - Dz), W * 2, Fz - Dz, 4 * HU)
         : new THREE.PlaneGeometry(W * 2, Fz - Dz),
-      (HA.ready && pbrMat('floor_base', 0xb4b8bc, { tile: 4, metal: 0.2 })) ||
-        std(0xffffff, 0.85, 0.15, { map: floorTex('#3a3f45', 'rgba(15,18,22,0.9)', [W / 2, (Fz - Dz) / 4]) }),
+      (HA.ready && pbrMat('floor_base', 0xb4b8bc, { tile: 4 * HU, metal: 0.2 })) ||
+        std(0xffffff, 0.85, 0.15, {
+          map: floorTex('#3a3f45', 'rgba(15,18,22,0.9)', [(W / 2) * MS, ((Fz - Dz) / 4) * MS]),
+        }),
     );
     fl.rotation.x = -Math.PI / 2;
     fl.position.z = (Fz + Dz) / 2;
@@ -1424,7 +1448,7 @@ export function buildHangar(kind) {
       B(st, M.glass, 0.05, 1.2, Fz - Dz - 2, s * (W - 0.25), 10.5, (Fz + Dz) / 2);
       // 側牆的高架走道
       B(st, M.deck, 1.6, 0.1, Fz - Dz, s * (W - 1.0), 7.0, (Fz + Dz) / 2);
-      railing(st, M.rail, [s * (W - 1.8), 7.05, Dz], [s * (W - 1.8), 7.05, Fz], 1.0, 2.4);
+      railing(st, M.rail, [s * (W - 1.8), 7.05, Dz], [s * (W - 1.8), 7.05, Fz]);
     }
     // 前面（鏡頭背後）的牆
     B(st, M.wall, W * 2, Ht, 0.4, 0, Ht / 2, Fz);
@@ -1494,6 +1518,7 @@ export function buildHangar(kind) {
     H.cranes.push(cr);
     // 搬運車在背景來回
     const tug = buildTug(M, 0xc8a020);
+    tug.g.scale.setScalar(HU);
     root.add(tug.g);
     tug.g.position.set(-W + 3.5, 0, -7.5);
     H.cars.push({
@@ -1503,7 +1528,7 @@ export function buildHangar(kind) {
         [W - 3.5, -7.5],
       ],
       i: 0,
-      v: 2.4,
+      v: 2.4 * HU,
       yaw: 0,
       wait: 0,
     });
@@ -1518,11 +1543,11 @@ export function buildHangar(kind) {
       Ht = 9;
     const fl = new THREE.Mesh(
       HA.ready
-        ? planeUV(new THREE.PlaneGeometry(W * 2, Fz - Dz), W * 2, Fz - Dz, 3)
+        ? planeUV(new THREE.PlaneGeometry(W * 2, Fz - Dz), W * 2, Fz - Dz, 3 * HU)
         : new THREE.PlaneGeometry(W * 2, Fz - Dz),
       (HA.ready && pbrMat('floor_ship', 0xb0b8c0, { tile: 3, metal: 0.7 })) ||
         std(0xffffff, 0.55, 0.55, {
-          map: floorTex('#4a5058', 'rgba(20,24,28,0.9)', [W / 1.5, (Fz - Dz) / 3], 7),
+          map: floorTex('#4a5058', 'rgba(20,24,28,0.9)', [(W / 1.5) * MS, ((Fz - Dz) / 3) * MS], 7),
         }),
     );
     fl.rotation.x = -Math.PI / 2;
@@ -1675,7 +1700,7 @@ export function buildHangar(kind) {
       const t = buildTug(M, c);
       t.g.position.set(x, 0, z);
       t.g.rotation.y = ry;
-      t.g.scale.setScalar(1.6);
+      t.g.scale.setScalar(1.6 * HU);
       root.add(t.g);
       H.beacons.push(t.beacon);
     }
@@ -1913,9 +1938,9 @@ function tickWorker(H, w, dt) {
   const dx = _v.x - g.position.x,
     dz = _v.z - g.position.z,
     dist = Math.hypot(dx, dz);
-  if (dist > 0.05) {
+  if (dist > 0.05 * HU) {
     // 走過去（同一層才走；走道上的直接定位）
-    const sp = 1.15 * dt;
+    const sp = 1.15 * HU * dt;
     if (Math.abs(_v.y - g.position.y) > 0.3) g.position.copy(_v);
     else {
       g.position.x += (dx / dist) * Math.min(sp, dist);
@@ -1973,8 +1998,8 @@ function tickCrew(H, w, dt) {
     dz = _v.z - g.position.z,
     dist = Math.hypot(dx, dz);
   let st = 'Idle';
-  if (dist > 0.05) {
-    const sp = 1.15 * dt;
+  if (dist > 0.05 * HU) {
+    const sp = 1.15 * HU * dt;
     if (Math.abs(_v.y - g.position.y) > 0.3) g.position.copy(_v);
     else {
       g.position.x += (dx / dist) * Math.min(sp, dist);
@@ -2218,7 +2243,7 @@ export function spawnCart(H, kind, side = 1) {
     cr2.position.copy(cr.position);
     t.g.add(cr, cr2);
   }
-  t.g.scale.setScalar(0.85);
+  t.g.scale.setScalar(1.2 * HU);
   const a = [side * 7.5, 3.2],
     b = [side * 1.7, 2.1];
   t.g.position.set(a[0], 0, a[1]);

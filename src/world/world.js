@@ -106,6 +106,27 @@ const rotQ = (q, lx, lz) =>
     [-lz, lx],
   ][q];
 // 群組裡可透明的材質（鏡頭遮擋時半透明）
+// 正方形高度圖（row-major，j × N + i）雙線性重新取樣成 N2 × N2：兩者都涵蓋整張地圖（自訂關卡的舊格子）
+function resampleGrid(src, N2) {
+  const N = Math.round(Math.sqrt(src.length));
+  const out = new Float32Array(N2 * N2);
+  const at = (i, j) => src[Math.min(N - 1, j) * N + Math.min(N - 1, i)];
+  for (let j = 0; j < N2; j++)
+    for (let i = 0; i < N2; i++) {
+      const fx = (i * (N - 1)) / (N2 - 1),
+        fz = (j * (N - 1)) / (N2 - 1);
+      const x0 = Math.floor(fx),
+        z0 = Math.floor(fz),
+        u = fx - x0,
+        v = fz - z0;
+      out[j * N2 + i] = lerp(
+        lerp(at(x0, z0), at(x0 + 1, z0), u),
+        lerp(at(x0, z0 + 1), at(x0 + 1, z0 + 1), u),
+        v,
+      );
+    }
+  return out;
+}
 function fadeMatsOf(g) {
   const out = [];
   g.traverse((o) => {
@@ -591,6 +612,8 @@ export class World {
     // 自訂關卡：整張高度圖（存的是平滑後的最終值）
     const LH = this.lvl && this.lvl.h;
     if (LH && LH.length === this.h.length) this.h = Float32Array.from(LH);
+    else if (LH && Math.sqrt(LH.length) % 1 === 0)
+      this.h = resampleGrid(LH, Math.round(Math.sqrt(this.h.length))); // 舊格子（三倍高改版前的關卡）
     this.buildTerrainMesh();
     if (T.water) this.addWater(T.water);
     if (T.roof) this.addRoof(T.roof);

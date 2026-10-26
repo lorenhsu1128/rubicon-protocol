@@ -20,16 +20,24 @@ import {
   mat,
 } from '../world/prop-models.js';
 import { THEMES } from '../world/world.js';
+import { MS } from '../core/scale.js';
 
-// 結構：dims＝預設尺寸 [寬 X, 高 Y, 深 Z]（坡道是 [長, 高低差, 寬]），s 是倍率
+// 結構：dims＝預設尺寸 [寬 X, 高 Y, 深 Z]（坡道是 [長, 高低差, 寬]），s 是倍率。
+// 三倍高改版：給機甲用的結構照機甲尺度（×MS），貨櫃是現實的 40 呎貨櫃
 export const STRUCTS = [
-  { id: 'ed/block', name: '方塊／台座', dims: [10, 4, 10], note: '可以站上去' },
-  { id: 'ed/wall', name: '牆', dims: [10, 5, 0.8], note: '掩體' },
-  { id: 'ed/ramp', name: '坡道', dims: [12, 5, 6], note: '往 +X 升高（旋轉 90° 換方向）', ramp: true },
-  { id: 'ed/deck', name: '橋面板', dims: [8, 0.7, 20], note: '可以從下方通過', deck: true },
-  { id: 'ed/pillar', name: '支柱', dims: [1.2, 6, 1.2], col: 'circle' },
-  { id: 'ed/container', name: '貨櫃', dims: [7.5, 2.8, 2.9], hp: 900 },
-  { id: 'ed/tower', name: '方格高柱', dims: [5, 13, 5] },
+  { id: 'ed/block', name: '方塊／台座', dims: [10 * MS, 4 * MS, 10 * MS], note: '可以站上去' },
+  { id: 'ed/wall', name: '牆', dims: [10 * MS, 5 * MS, 0.8 * MS], note: '掩體' },
+  {
+    id: 'ed/ramp',
+    name: '坡道',
+    dims: [12 * MS, 5 * MS, 6 * MS],
+    note: '往 +X 升高（旋轉 90° 換方向）',
+    ramp: true,
+  },
+  { id: 'ed/deck', name: '橋面板', dims: [8 * MS, 0.7 * MS, 20 * MS], note: '可以從下方通過', deck: true },
+  { id: 'ed/pillar', name: '支柱', dims: [1.2 * MS, 6 * MS, 1.2 * MS], col: 'circle' },
+  { id: 'ed/container', name: '貨櫃（40 呎）', dims: [12.19, 2.59, 2.44], hp: 900 },
+  { id: 'ed/tower', name: '方格高柱', dims: [5 * MS, 13 * MS, 5 * MS] },
 ];
 const EXCLUDE = new Set(['prop/road', 'prop/rail', 'prop/platform', 'prop/deck', 'prop/pillar']);
 
@@ -93,10 +101,10 @@ export function buildPlaced(def, p, T) {
       } else o = box(w, h, d, mat(0x8c8a80, { roughness: 0.9 }), 0, h / 2, 0);
     } else if (def.id === 'ed/ramp') {
       // 長 w 沿 X、往 +X 升高 h、寬 d；板的中心在半高
-      const g = st ? buildThemeRamp(st, w, d) : box(w, 0.4, d, mat(0x7a7f88, { roughness: 0.9 }));
+      const g = st ? buildThemeRamp(st, w, d) : box(w, 0.4 * MS, d, mat(0x7a7f88, { roughness: 0.9 }));
       const ang = Math.atan2(h, w);
       g.rotation.z = ang;
-      g.position.y = h / 2 - 0.15;
+      g.position.y = h / 2 - 0.15 * MS;
       o = g;
       ramp = { len: w, rise: h, wid: d };
     } else if (def.id === 'ed/deck') {

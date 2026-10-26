@@ -3,7 +3,8 @@
 // 觸發器的事件／條件／動作表（編輯器的表單與執行時共用）。純資料，不碰 THREE 與 DOM。
 
 export const LEVEL_FORMAT = 'rubicon-level';
-export const LEVEL_V = 1;
+export const LEVEL_V = 2; // 2：三倍高改版（座標與高度乘 LEVEL_K，舊檔在 migrateLevel 轉換）
+export const LEVEL_K = 3; // 尺度的倍率（core/scale.js 的 WS；這裡是純資料，不 import）
 export const LIMITS = {
   props: 600,
   units: 120,
@@ -372,10 +373,10 @@ export function newLevel(base = {}) {
 export function sanitizeLevel(raw, known, warn = []) {
   if (!raw || typeof raw !== 'object' || raw.format !== LEVEL_FORMAT) throw new Error('不是自訂關卡檔');
   const L = migrateLevel(JSON.parse(JSON.stringify(raw)));
-  const lim = 260; // 座標範圍（最大的場地也在 ±150 內，留一點餘裕）
+  const lim = 260 * LEVEL_K; // 座標範圍（場地 ±345 m，留一點餘裕）
   const xyz = (o) => ({
     x: r2(clampN(o.x, -lim, lim, 0)),
-    y: r2(clampN(o.y, -200, 400, 0)),
+    y: r2(clampN(o.y, -200 * LEVEL_K, 400 * LEVEL_K, 0)),
     z: r2(clampN(o.z, -lim, lim, 0)),
   });
   const B = L.base || {};
@@ -411,7 +412,7 @@ export function sanitizeLevel(raw, known, warn = []) {
         B.zone && typeof B.zone === 'object'
           ? (() => {
               const z = [B.zone.x0, B.zone.x1, B.zone.z0, B.zone.z1].map((v) => r2(clampN(v, -lim, lim, 0)));
-              return z[1] - z[0] >= 20 && z[3] - z[2] >= 20
+              return z[1] - z[0] >= 20 * LEVEL_K && z[3] - z[2] >= 20 * LEVEL_K
                 ? { x0: z[0], x1: z[1], z0: z[2], z1: z[3] }
                 : null;
             })()
@@ -437,7 +438,8 @@ export function sanitizeLevel(raw, known, warn = []) {
     out.terrain.n = Math.floor(T.n);
     out.terrain.h = T.h;
   }
-  if (T.water !== null && T.water !== undefined) out.terrain.water = r2(clampN(T.water, -50, 80, 0));
+  if (T.water !== null && T.water !== undefined)
+    out.terrain.water = r2(clampN(T.water, -50 * LEVEL_K, 80 * LEVEL_K, 0));
   const arr = (a, n) => (Array.isArray(a) ? a.slice(0, n) : []);
   for (const r of arr(L.removed, LIMITS.removed))
     if (Array.isArray(r)) out.removed.push([r2(clampN(r[0], -lim, lim)), r2(clampN(r[1], -lim, lim))]);
@@ -500,7 +502,11 @@ export function sanitizeLevel(raw, known, warn = []) {
     if (!p) continue;
     const pts = arr(p.pts, LIMITS.pathPts)
       .filter(Array.isArray)
-      .map((q) => [r2(clampN(q[0], -lim, lim)), r2(clampN(q[1], -lim, lim)), r2(clampN(q[2], 0, 60, 0))]);
+      .map((q) => [
+        r2(clampN(q[0], -lim, lim)),
+        r2(clampN(q[1], -lim, lim)),
+        r2(clampN(q[2], 0, 60, 0)), // 停留秒數
+      ]);
     if (pts.length < 2) continue;
     out.paths.push({ id: id(p.id), name: str(p.name, LIMITS.name), pts, loop: p.loop !== false });
   }
@@ -513,9 +519,9 @@ export function sanitizeLevel(raw, known, warn = []) {
       sh: a.sh === 'circle' ? 'circle' : 'box',
       x: r2(clampN(a.x, -lim, lim)),
       z: r2(clampN(a.z, -lim, lim)),
-      w: r2(clampN(a.w, 2, 400, 20)),
-      d: r2(clampN(a.d, 2, 400, 20)),
-      r: r2(clampN(a.r, 1, 200, 10)),
+      w: r2(clampN(a.w, 2, 400 * LEVEL_K, 20 * LEVEL_K)),
+      d: r2(clampN(a.d, 2, 400 * LEVEL_K, 20 * LEVEL_K)),
+      r: r2(clampN(a.r, 1, 200 * LEVEL_K, 10 * LEVEL_K)),
       yaw: r2(clampN(a.yaw, -7, 7, 0)),
       show: bool(a.show),
       color: Math.floor(clampN(a.color, 0, 0xffffff, 0x5cc8ff)),
@@ -555,7 +561,7 @@ export function sanitizeLevel(raw, known, warn = []) {
       kind: u.kind,
       type: str(u.type, 40),
       x: r2(clampN(u.x, -lim, lim)),
-      y: r2(clampN(u.y, -200, 400, 0)),
+      y: r2(clampN(u.y, -200 * LEVEL_K, 400 * LEVEL_K, 0)),
       z: r2(clampN(u.z, -lim, lim)),
       yaw: r2(clampN(u.yaw, -7, 7, 0)),
       g: G.has(u.g) ? u.g : '',
@@ -564,7 +570,7 @@ export function sanitizeLevel(raw, known, warn = []) {
       beh: {
         k: b.k in BEHAVIORS ? b.k : u.kind === 'convoy' ? 'patrol' : 'attack',
         path: P.has(b.path) ? b.path : '',
-        r: r2(clampN(b.r, 5, 120, 35)),
+        r: r2(clampN(b.r, 5, 120 * LEVEL_K, 35 * LEVEL_K)),
         m: M.has(b.m) ? b.m : '',
         back: bool(b.back),
         speed: r2(clampN(b.speed, 0.2, 1.5, 0.6)),
@@ -648,7 +654,52 @@ export function segCount(L) {
 // 格式升級（v1 → v2 …）：之後改格式時在這裡加，舊檔一定讀得進來
 export function migrateLevel(L) {
   if (!L.v) L.v = 1;
+  if (L.v < 2) {
+    // v1 → v2（三倍高改版）：位置、高度、範圍乘 LEVEL_K；高度圖的格數不變（World 載入時重新取樣到新的格子）
+    scaleSeg(L, LEVEL_K);
+    if (Array.isArray(L.segs)) for (const s of L.segs) if (s) scaleSeg(s, LEVEL_K);
+    L.v = 2;
+  }
   return L;
+}
+// 一段關卡內容的座標乘 k（migrateLevel 用）
+function scaleSeg(L, k) {
+  const n = (v) => (Number.isFinite(Number(v)) ? Number(v) * k : v);
+  const pos = (o) => {
+    if (!o) return;
+    o.x = n(o.x);
+    o.y = n(o.y);
+    o.z = n(o.z);
+  };
+  const B = L.base || {};
+  if (B.zone && typeof B.zone === 'object')
+    for (const f of ['x0', 'x1', 'z0', 'z1']) B.zone[f] = n(B.zone[f]);
+  const T = L.terrain || {};
+  if (T.water !== null && T.water !== undefined) T.water = n(T.water);
+  if (typeof T.h === 'string' && T.n > 0) {
+    const h = decodeHeights(T.h, T.n);
+    if (h) {
+      for (let i = 0; i < h.length; i++) h[i] *= k;
+      T.h = encodeHeights(h);
+    }
+  }
+  for (const r of L.removed || []) if (Array.isArray(r)) ((r[0] = n(r[0])), (r[1] = n(r[1])));
+  for (const p of L.props || []) pos(p);
+  for (const m of L.marks || []) pos(m);
+  for (const u of L.units || []) {
+    pos(u);
+    if (u && u.beh && u.beh.r !== undefined) u.beh.r = n(u.beh.r);
+  }
+  for (const p of L.paths || [])
+    for (const q of (p && p.pts) || []) if (Array.isArray(q)) for (let i = 0; i < 2; i++) q[i] = n(q[i]); // q[2] 是停留秒數
+  for (const a of L.areas || []) {
+    if (!a) continue;
+    a.x = n(a.x);
+    a.z = n(a.z);
+    a.w = n(a.w);
+    a.d = n(a.d);
+    a.r = n(a.r);
+  }
 }
 export function cmpOp(a, op, b) {
   switch (op) {

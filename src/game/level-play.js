@@ -6,6 +6,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { AC_ROSTER, BOSS_DEFS, enemyScale } from '../data/enemies.js';
 import { ACES } from '../data/foes.js';
 import { MechEntity } from '../entities/mech-entity.js';
@@ -20,7 +21,7 @@ const STAND_EXIT = 1; // 站進出口幾秒
 const STAND_PAD = 1.5; // 補給台
 const PAD_CD = 30; // 可重複使用的補給台冷卻
 const WARN_T = 3; // 增援預告到出現
-const SIGHT = 45; // 巡邏發現玩家的距離（警戒用自己的半徑）
+const SIGHT = 45 * DS; // 巡邏發現玩家的距離（警戒用自己的半徑）
 const CONVOY_ASM = {
   head: 'h_hv',
   core: 'c_hv',
@@ -84,7 +85,7 @@ Object.assign(Game.prototype, {
     this.net.spawnReg = {};
     this.mpStats = {};
     this.world.applyLight(this);
-    this.sun.position.set(40, 80, 30);
+    this.sun.position.set(40 * DS, 80 * DS, 30 * DS);
     this.lv = this.lvState(L, n, o);
     this.lvLastSeg = n; // 最後到過的段（冒煙測試）
     const spawns = L.marks.filter((m) => m.k === 'spawn');
@@ -93,7 +94,7 @@ Object.assign(Game.prototype, {
       const off = i >= spawns.length ? 3 * Math.floor(i / spawns.length) : 0;
       const x = m.x + off,
         z = m.z;
-      return { x, z, y: this.world.groundAt(x, z, (m.y || 0) + 2), yaw: m.yaw || 0 };
+      return { x, z, y: this.world.groundAt(x, z, (m.y || 0) + 2 * MS), yaw: m.yaw || 0 };
     };
     if (mp) {
       this.mpSpawnPlayers();
@@ -117,7 +118,7 @@ Object.assign(Game.prototype, {
       });
       const p =
         o.at && n === 0
-          ? { x: o.at.x, z: o.at.z, y: this.world.groundAt(o.at.x, o.at.z, o.at.y + 2), yaw: 0 }
+          ? { x: o.at.x, z: o.at.z, y: this.world.groundAt(o.at.x, o.at.z, o.at.y + 2 * MS), yaw: 0 }
           : at(0);
       this.player.pos.set(p.x, p.y, p.z);
       this.player.yaw = this.player.aimYaw = p.yaw;
@@ -152,7 +153,7 @@ Object.assign(Game.prototype, {
     this.showScreen('');
     this.lastT = performance.now();
     this.camZoom = 1;
-    this.camera.position.set(0, 40, 24);
+    this.camera.position.set(0, 40 * DS, 24 * DS);
     this.renderWeaponHud(true);
     this.viewReset();
     const bb = document.getElementById('bossBar');
@@ -218,7 +219,7 @@ Object.assign(Game.prototype, {
     const lv = this.lv,
       w = this.world;
     for (const m of lv.L.marks) {
-      const pos = new THREE.Vector3(m.x, w.groundAt(m.x, m.z, (m.y || 0) + 2), m.z);
+      const pos = new THREE.Vector3(m.x, w.groundAt(m.x, m.z, (m.y || 0) + 2 * MS), m.z);
       if (m.k === 'cache' && host) {
         this.cacheAdd({
           i: 900 + lv.L.marks.indexOf(m),
@@ -329,7 +330,7 @@ Object.assign(Game.prototype, {
     const sh = this.scaleHp * (u.k || 1),
       sd = this.scaleDmg * (1 + ((u.k || 1) - 1) * 0.3);
     const w = this.world;
-    const at = new THREE.Vector3(u.x, w.groundAt(u.x, u.z, (u.y || 0) + 2), u.z); // y＝擺放時的高度（站在平台上）
+    const at = new THREE.Vector3(u.x, w.groundAt(u.x, u.z, (u.y || 0) + 2 * MS), u.z); // y＝擺放時的高度（站在平台上）
     const usePt = how !== 'place' && mk;
     if (usePt) this.waveAt = { pos: { x: mk.x, z: mk.z }, drop: how === 'drop' };
     this.lvSpawnU = { u: u.id, g: u.g };
@@ -391,8 +392,8 @@ Object.assign(Game.prototype, {
             allyDur: 1e9,
           };
           const e = new MechEntity(this, r.asm, PALETTES.ally, o);
-          const p = usePt ? w.spawnPoint(this.player.pos, [], { x: mk.x, z: mk.z }, 4) : at;
-          e.pos.set(p.x, w.groundAt(p.x, p.z, (p.y || at.y) + 2) + (how === 'drop' ? 16 : 0), p.z);
+          const p = usePt ? w.spawnPoint(this.player.pos, [], { x: mk.x, z: mk.z }, 4 * DS) : at;
+          e.pos.set(p.x, w.groundAt(p.x, p.z, (p.y || at.y) + 2 * MS) + (how === 'drop' ? 16 * DS : 0), p.z);
           e.mesh.position.copy(e.pos);
           e.allyT = 1e9;
           this.registerSpawn(e);
@@ -456,7 +457,7 @@ Object.assign(Game.prototype, {
       const base = new THREE.Vector3(pos.x, W.groundAt(pos.x, pos.z, 999), pos.z);
       this.fx.warnLine(
         base,
-        base.clone().setY(base.y + 45),
+        base.clone().setY(base.y + 45 * DS),
         WARN_T + 0.5,
         H === 'drop' ? 0xffa020 : 0xff3030,
         0.5,
@@ -502,19 +503,19 @@ Object.assign(Game.prototype, {
       const mk = lv.L.marks.find((m) => m.id === b.m);
       if (!mk) return false;
       const d = Math.hypot(mk.x - e.pos.x, mk.z - e.pos.z);
-      if (d < 4) {
+      if (d < 4 * DS) {
         e.depart();
         return true;
       }
       const wish = new THREE.Vector3(mk.x - e.pos.x, 0, mk.z - e.pos.z).normalize();
-      e.setAim(e.center().add(wish.clone().multiplyScalar(20)));
-      e.move(dt, wish, d > 12 && e.flying, false, d > 25, null);
+      e.setAim(e.center().add(wish.clone().multiplyScalar(20 * DS)));
+      e.move(dt, wish, d > 12 * DS && e.flying, false, d > 25 * DS, null);
       return true;
     }
     if (e.edAlert) {
       if (b.k === 'patrol' && b.back) {
-        // 出動後：附近 70 m 沒有玩家 8 秒就回到路徑
-        e.edLost = near(70) ? 0 : (e.edLost || 0) + dt;
+        // 出動後：附近 210 m 沒有玩家 8 秒就回到路徑
+        e.edLost = near(70 * DS) ? 0 : (e.edLost || 0) + dt;
         if (e.edLost > 8) {
           e.edAlert = false;
           e.edLost = 0;
@@ -524,7 +525,7 @@ Object.assign(Game.prototype, {
     }
     const hurt = e.hp < e.maxHp - 1;
     if (b.k === 'guard') {
-      if (hurt || pl.some((p) => p.pos.distanceTo(e.pos) < (b.r || 35))) {
+      if (hurt || pl.some((p) => p.pos.distanceTo(e.pos) < (b.r || 35 * DS))) {
         alertGroup();
         return false;
       }
@@ -559,7 +560,7 @@ Object.assign(Game.prototype, {
       }
       const q = P.pts[e.edPi];
       const d = Math.hypot(q[0] - e.pos.x, q[1] - e.pos.z);
-      if (d < 2.5) {
+      if (d < 2.5 * DS) {
         if (e.edWait <= 0 && q[2] > 0 && !e.edWaited) {
           e.edWait = q[2];
           e.edWaited = true;
@@ -618,7 +619,9 @@ Object.assign(Game.prototype, {
     // 機能物件：補給台、資料終端、出口（任一玩家站在裡面）
     const ps = this.playersAlive().filter((p) => !p.downed);
     const onPad = (v, r) =>
-      ps.some((p) => Math.hypot(p.pos.x - v.pos.x, p.pos.z - v.pos.z) < r && Math.abs(p.pos.y - v.pos.y) < 8);
+      ps.some(
+        (p) => Math.hypot(p.pos.x - v.pos.x, p.pos.z - v.pos.z) < r && Math.abs(p.pos.y - v.pos.y) < 8 * MS,
+      );
     for (const id in lv.vis) {
       const v = lv.vis[id];
       const sm = st.marks[id] || (st.marks[id] = {});
@@ -628,7 +631,7 @@ Object.assign(Game.prototype, {
           sm.cd -= dt;
           continue;
         }
-        v.t = onPad(v, 4) ? v.t + dt : 0;
+        v.t = onPad(v, 4 * MS) ? v.t + dt : 0;
         if (v.t >= STAND_PAD) {
           v.t = 0;
           for (const p of ps) this.lvRefill(p, 0.5, 0.5);
@@ -640,7 +643,7 @@ Object.assign(Game.prototype, {
         }
       } else if (v.m.k === 'term') {
         if (sm.d) continue;
-        if (onPad(v, 4)) v.t += dt;
+        if (onPad(v, 4 * MS)) v.t += dt;
         sm.p = +(v.t / (v.m.t || 4)).toFixed(2);
         if (v.t >= (v.m.t || 4)) {
           sm.d = 1;
@@ -653,7 +656,7 @@ Object.assign(Game.prototype, {
           this.lvEmit('term', { m: id });
         }
       } else if (v.m.k === 'exit' && st.exits[id]) {
-        v.t = onPad(v, 4.5) ? v.t + dt : 0;
+        v.t = onPad(v, 4.5 * MS) ? v.t + dt : 0;
         if (v.t >= STAND_EXIT) {
           v.t = -1e9;
           this.lvEmit('exit', { m: id });
@@ -1178,7 +1181,7 @@ Object.assign(Game.prototype, {
   // 增援的預告（ECHO 的方向、畫面上的標記；同 waves.js 的 waveShow，不帶第幾波）
   lvWarnShow(ev) {
     const pos = new THREE.Vector3(ev.p[0], 0, ev.p[1]);
-    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 999) + 2;
+    if (this.world) pos.y = this.world.groundAt(pos.x, pos.z, 999) + 2 * MS;
     this.waveMarks = (this.waveMarks || []).concat([{ pos, t: 7, drop: !!ev.d }]);
     const me = this.player && !this.player.dead ? this.player.pos : this.camera.position;
     const f = new THREE.Vector3();

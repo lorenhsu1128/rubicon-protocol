@@ -4017,6 +4017,111 @@ async function testLocalModels(browser, base) {
 }
 
 // 模型組：舊版資料庫（第 3 版）遷移成「預設」、新增／切換／複製／改名／刪除、匯出匯入、組裝調整記住零件組合、遊戲選模型組
+// 三倍高改版的 GLB 重置（render/local-models.js 的 glbResetOnce）：舊的本地模型庫整個清掉一次、本地模型庫設定關掉，
+// 之後遊戲的 GLB 一律用伺服器預設組；本地沒有 GLB 時只記下做過、不動設定
+async function testGlbReset(browser, base) {
+  console.log('GLB 重置：舊的本地模型庫清掉一次');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const page = await ctx.newPage();
+    watch(page, 'glb-reset');
+    await page.goto(base);
+    await waitVisible(page, 'title');
+    // 新玩家：沒有資料庫 → 遊戲讀取時只記旗標，設定照舊
+    await page.evaluate(() => {
+      localStorage.setItem('rubicon_glb_reset_test', '1');
+      localStorage.setItem('rubicon_localmodels', JSON.stringify({ on: true, set: 'default' }));
+    });
+    // 舊資料：第 4 版的資料庫，兩個模型組＋共用的地圖物件
+    await page.evaluate(
+      () =>
+        new Promise((res, rej) => {
+          const r = indexedDB.open('rubicon-model-library', 4);
+          r.onupgradeneeded = () => {
+            const d = r.result;
+            d.createObjectStore('presets', { keyPath: 'name' });
+            d.createObjectStore('models', { keyPath: ['set', 'id'] });
+            d.createObjectStore('setJoints', { keyPath: ['set', 'slot'] });
+            d.createObjectStore('sets', { keyPath: 'id' });
+          };
+          r.onerror = () => rej(r.error);
+          r.onsuccess = () => {
+            const d = r.result;
+            const t = d.transaction(['models', 'setJoints', 'sets'], 'readwrite');
+            const buf = new Uint8Array(16).buffer;
+            t.objectStore('sets').put({ id: 'default', name: '預設' });
+            t.objectStore('sets').put({ id: 's2', name: '我的', mechs: [] });
+            t.objectStore('models').put({
+              set: 'default',
+              id: 'arms/a_std/r_fore',
+              name: 'a.glb',
+              size: 16,
+              buf,
+              t: 1,
+            });
+            t.objectStore('models').put({ set: 's2', id: 'head/h_std', name: 'h.glb', size: 16, buf, t: 1 });
+            t.objectStore('models').put({ set: '', id: 'prop/debris', name: 'd.glb', size: 16, buf, t: 1 });
+            t.objectStore('setJoints').put({ set: 's2', slot: 'arms/a_std/r_upper', conns: {} });
+            t.oncomplete = () => (d.close(), res());
+            t.onerror = () => rej(t.error);
+          };
+        }),
+    );
+    await page.goto(base + 'model-library.html?test');
+    await page.waitForSelector('.cell');
+    await wait(500);
+    const r = await page.evaluate(() => {
+      const s = window.__workshop.store;
+      let lm = {};
+      try {
+        lm = JSON.parse(localStorage.getItem('rubicon_localmodels') || '{}');
+      } catch (e) {}
+      return {
+        recs: s.recs.size,
+        sets: s.setList().map((x) => x.name),
+        joints: s.jointCount(),
+        flag: localStorage.getItem('rubicon_glb_scale3x'),
+        on: lm.on,
+      };
+    });
+    check(
+      r.recs === 0 && r.sets.join() === '預設' && r.joints === 0 && r.flag === '1' && r.on === false,
+      `舊的本地模型庫整個清掉（GLB ${r.recs}、模型組 ${r.sets.join('／')}），本地模型庫設定關掉 → 用伺服器預設組`,
+    );
+    // 做過之後不再清：再放一個 GLB，重新整理還在
+    await page.evaluate(() =>
+      window.__workshop.store.putBuf('prop/debris', 'd.glb', new Uint8Array(16).buffer),
+    );
+    await page.reload();
+    await page.waitForSelector('.cell');
+    await wait(500);
+    check(
+      (await page.evaluate(() => window.__workshop.store.recs.size)) === 1,
+      '重置只做一次：之後放進去的 GLB 保留',
+    );
+    // 新玩家（沒有 GLB）：只記旗標，設定不動
+    const p2 = await (await browser.newContext()).newPage();
+    try {
+      await p2.goto(base + 'model-library.html?test');
+      await p2.evaluate(() => {
+        localStorage.setItem('rubicon_glb_reset_test', '1');
+        localStorage.setItem('rubicon_localmodels', JSON.stringify({ on: true, set: 'default' }));
+      });
+      await p2.reload();
+      await p2.waitForSelector('.cell');
+      const q = await p2.evaluate(() => [
+        localStorage.getItem('rubicon_glb_scale3x'),
+        JSON.parse(localStorage.getItem('rubicon_localmodels')).on,
+      ]);
+      check(q[0] === '1' && q[1] === true, '本地沒有 GLB 時只記下做過，設定不動');
+    } finally {
+      await p2.context().close();
+    }
+  } finally {
+    await ctx.close();
+  }
+}
+
 async function testModelSets(browser, base) {
   console.log('模型組：遷移、切換、複製、匯出匯入、遊戲選模型組');
   const fore = path.join(WORK_DIR, 'a_std_r_fore_template.glb');
@@ -12378,7 +12483,7 @@ async function testLevels(browser, base) {
     };
   });
   check(
-    p1.n === 1 && p1.ob === 1 && p1.top === 4 && p1.sel === 'prop',
+    p1.n === 1 && p1.ob === 1 && p1.top === 4 * SC && p1.sel === 'prop',
     `滑鼠點地面放方塊：碰撞頂面 ${p1.top} m、自動選取`,
   );
   // 程式：坡道、疊在方塊上的貨櫃、復原／重做
@@ -12388,16 +12493,16 @@ async function testLevels(browser, base) {
       ed = g.ed;
     const b = ed.L.props[0];
     ed.place = 'ed/ramp';
-    g.edPlaceProp({ x: b.x + 11, y: 0, z: b.z, terrain: true });
+    g.edPlaceProp({ x: b.x + 33, y: 0, z: b.z, terrain: true });
     ed.place = 'prop/container';
-    g.edPlaceProp({ x: b.x, y: 4, z: b.z, terrain: false });
+    g.edPlaceProp({ x: b.x, y: 12, z: b.z, terrain: false });
     const ramp = (w.ramps || []).find((r) => r.lvl);
     const box = w.lvProps[2];
     const out = {
       n: ed.L.props.length,
       ramp: !!ramp && +ramp.y1.toFixed(1),
       stack: box && +box.obs[0].y.toFixed(1),
-      ground: +w.groundAt(b.x, b.z, 10).toFixed(1),
+      ground: +w.groundAt(b.x, b.z, 30).toFixed(1),
     };
     g.edUndo(false);
     out.undo = ed.L.props.length + '/' + w.lvProps.length;
@@ -12406,7 +12511,7 @@ async function testLevels(browser, base) {
     return out;
   });
   check(
-    p2.ramp === 5 && p2.stack === 4 && p2.n === 3,
+    p2.ramp === 5 * SC && p2.stack === 4 * SC && p2.n === 3,
     `坡道（高 ${p2.ramp} m）、貨櫃疊在方塊頂面（底 ${p2.stack} m）`,
   );
   check(p2.undo === '2/2' && p2.redo === '3/3', `復原／重做（${p2.undo} → ${p2.redo}）`);
@@ -12415,22 +12520,22 @@ async function testLevels(browser, base) {
     const g = window.__game,
       w = g.world,
       ed = g.ed;
-    const h0 = w.terrainHeight(-40, -40);
+    const h0 = w.terrainHeight(-120, -120);
     const s0 = ed.L.terrain.h;
     ed.tool = 'terrain';
-    ed.brush = { k: 'raise', r: 10, s: 2 };
-    g.edStrokeStart({ x: -40, y: h0, z: -40 });
+    ed.brush = { k: 'raise', r: 30, s: 2 };
+    g.edStrokeStart({ x: -120, y: h0, z: -120 });
     for (let i = 0; i < 30; i++) g.edBrushStep(0.05);
     g.edStrokeEnd();
-    const h1 = w.terrainHeight(-40, -40);
+    const h1 = w.terrainHeight(-120, -120);
     const changed = ed.L.terrain.h !== s0;
     g.edUndo(false);
-    const h2 = w.terrainHeight(-40, -40);
+    const h2 = w.terrainHeight(-120, -120);
     g.edUndo(true);
     return { h0, h1, h2, changed };
   });
   check(
-    t1.h1 > t1.h0 + 3 && t1.changed && Math.abs(t1.h2 - t1.h0) < 0.05,
+    t1.h1 > t1.h0 + 3 * SC && t1.changed && Math.abs(t1.h2 - t1.h0) < 0.05,
     `地形筆刷抬高 ${(t1.h1 - t1.h0).toFixed(1)} m、寫回關卡、復原`,
   );
   // 單位、標記、路徑、區域、群組、觸發器（程式建立）＋屬性面板
@@ -12443,35 +12548,36 @@ async function testLevels(browser, base) {
     ed.grp = 'g1';
     ed.unitKind = 'enemy';
     ed.unitType = 'mt';
-    g.edPlaceUnit({ x: 30, y: 0, z: -30 }); // 巡邏
-    g.edPlaceUnit({ x: -30, y: 0, z: 40 }); // 守住
+    // 座標照新尺度（三倍高改版之前的 ×3）
+    g.edPlaceUnit({ x: 90, y: 0, z: -90 }); // 巡邏
+    g.edPlaceUnit({ x: -90, y: 0, z: 120 }); // 守住
     ed.grp = 'g2';
-    g.edPlaceUnit({ x: 20, y: 0, z: 20 }); // 等觸發器
-    g.edPlaceUnit({ x: 24, y: 0, z: 20 });
-    L.units[0].beh = { k: 'patrol', path: 'p1', r: 20, m: '', back: false, speed: 0.8 };
-    L.units[1].beh = { k: 'hold', path: '', r: 35, m: '', back: false, speed: 0.6 };
+    g.edPlaceUnit({ x: 60, y: 0, z: 60 }); // 等觸發器
+    g.edPlaceUnit({ x: 72, y: 0, z: 60 });
+    L.units[0].beh = { k: 'patrol', path: 'p1', r: 60, m: '', back: false, speed: 0.8 };
+    L.units[1].beh = { k: 'hold', path: '', r: 105, m: '', back: false, speed: 0.6 };
     L.units[2].at = L.units[3].at = 'trig';
     L.paths.push({
       id: 'p1',
       name: '巡邏線',
       pts: [
-        [30, -30, 0],
-        [60, -30, 0],
-        [60, 0, 0],
+        [90, -90, 0],
+        [180, -90, 0],
+        [180, 0, 0],
       ],
       loop: false,
     });
     ed.markKind = 'exit';
-    g.edPlaceMark({ x: -50, y: 0, z: -50 });
+    g.edPlaceMark({ x: -150, y: 0, z: -150 });
     L.areas.push({
       id: 'a1',
       name: '觸發區',
       sh: 'circle',
       x: 0,
-      z: 30,
-      w: 10,
-      d: 10,
-      r: 6,
+      z: 90,
+      w: 30,
+      d: 30,
+      r: 18,
       yaw: 0,
       show: true,
       color: 0x5cc8ff,
@@ -12558,12 +12664,12 @@ async function testLevels(browser, base) {
       props: L.props.length,
       units: L.units.length,
       trig: L.triggers.length,
-      h: +g.world.terrainHeight(-40, -40).toFixed(1),
+      h: +g.world.terrainHeight(-120, -120).toFixed(1),
       lp: g.world.lvProps.length,
     };
   });
   check(
-    re.props === 3 && re.units === 4 && re.trig === 3 && re.h > 3 && re.lp === 3 && thumb,
+    re.props === 3 && re.units === 4 && re.trig === 3 && re.h > 3 * SC && re.lp === 3 && thumb,
     `存檔後重新整理再開：物件 ${re.props}、單位 ${re.units}、觸發器 ${re.trig}、地形高度 ${re.h} m、選單縮圖`,
   );
   // 上傳前要通關：選單的上傳按鈕（沒有伺服器時不顯示，這裡直接檢查 clear）
@@ -12598,7 +12704,7 @@ async function testLevels(browser, base) {
   // 玩家遠離：巡邏的往路徑走、守住的不動
   await page.evaluate(() => {
     const g = window.__game;
-    g.player.pos.set(-60, g.world.groundAt(-60, 60, 99), 60);
+    g.player.pos.set(-180, g.world.groundAt(-180, 180, 999), 180);
   });
   await wait(3000);
   const s2 = await page.evaluate(() => {
@@ -12612,13 +12718,13 @@ async function testLevels(browser, base) {
   const moved = Math.hypot(s2.pat[0] - s1.pat[0], s2.pat[1] - s1.pat[1]);
   const held = Math.hypot(s2.hold[0] - s1.hold[0], s2.hold[1] - s1.hold[1]);
   check(
-    moved > 2 && s2.pat[0] > s1.pat[0] && held < 0.5,
+    moved > 2 * SC && s2.pat[0] > s1.pat[0] && held < 0.5,
     `巡邏沿路徑移動 ${moved.toFixed(1)} m、守住不動（${held.toFixed(2)} m）`,
   );
   // 進觸發區：生成增援、計數器、通訊（自訂名字）、倒數
   await page.evaluate(() => {
     const g = window.__game;
-    g.player.pos.set(0, g.world.groundAt(0, 30, 99), 30);
+    g.player.pos.set(0, g.world.groundAt(0, 90, 999), 90);
   });
   await page
     .waitForFunction(
@@ -16055,6 +16161,7 @@ const STEPS = [
   ['testRtsThemes4', (c) => RTS_R6C.testRtsThemes4(c.browser, c.base)],
   ['testLocalModels', (c) => testLocalModels(c.browser, c.base), { templates: true }],
   ['testModelSets', (c) => testModelSets(c.browser, c.base), { templates: true }],
+  ['testGlbReset', (c) => testGlbReset(c.browser, c.base)],
   ['testMultiplayer', (c) => testMultiplayer(c.browser, c.base + '?lan=local', 'local', true)],
   // 每隻 Boss 一個步驟（SMOKE_ONLY=testMpBosses 一樣跑全部）
   ...['halberd', 'citadel', 'mirage', 'cerberus'].map((k) => [
