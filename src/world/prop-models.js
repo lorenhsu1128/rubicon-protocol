@@ -1,5 +1,6 @@
 // 地圖物件的網格建造（純函式，不使用亂數）：關卡生成以亂數決定參數後呼叫這裡，模型庫也直接使用。
 // 修改這裡的幾何會改變所有種子產生的地圖外觀，但不影響亂數序列（多人各端仍一致）。
+import { MS } from '../core/scale.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { materialSlot } from '../render/glb.js';
 import { providedModel } from '../render/model-provider.js';
@@ -161,6 +162,14 @@ export class PK {
   // 在 fn 裡加入的零件都套上這個變換（相當於子群組）
   at(x, y, z, rx, ry, rz, fn) {
     this.stack.push(compose(x, y, z, rx, ry, rz, 1, 1, 1).premultiply(this.top));
+    fn();
+    this.stack.pop();
+    return this;
+  }
+  // 在 fn 裡加入的零件（含外框登記）整體縮放 s 倍：舊尺寸的結構本體放大成現實尺寸時用；
+  // 人會用到的細節（欄杆、爬梯、門）畫在 fn 之外，維持人的尺寸（docs/world-scale.md）
+  scaled(s, fn) {
+    this.stack.push(compose(0, 0, 0, 0, 0, 0, s, s, s).premultiply(this.top));
     fn();
     this.stack.pop();
     return this;
@@ -1003,16 +1012,37 @@ export const fadeMat = (color, opts) => {
 const lerpN = (a, b, t) => a + (b - a) * t;
 // 斗輪採掘機殘骸：原點在地面中心，斗輪臂朝 −Z。body＝機身碰撞箱（寬、頂高、長，中心在原點），
 // 斗輪中心在 (0, wheelY, wheelZ)、半徑 wheelR（呼叫端以圓柱碰撞）
-export const MINING_RIG = { body: [8.2, 7.4, 11], wheelZ: -15.6, wheelY: 4.3, wheelR: 4.6 };
+// 現實尺寸（地標）：舊模型放大 RIG_S 倍（長約 140、高約 44 m）；欄杆與爬梯照人的尺寸
+const RIG_S = 4;
+const R0 = { body: [8.2, 7.4, 11], wheelZ: -15.6, wheelY: 4.3, wheelR: 4.6 };
+export const MINING_RIG = {
+  body: R0.body.map((v) => v * RIG_S),
+  wheelZ: R0.wheelZ * RIG_S,
+  wheelY: R0.wheelY * RIG_S,
+  wheelR: R0.wheelR * RIG_S,
+};
 export function buildMiningRig(color) {
   const glb = propGlb('mining_rig', { color, fade: true });
   if (glb) return glb;
-  const R = MINING_RIG;
   const main = fadeMat(color, { roughness: 0.8, metalness: 0.35 }),
     dark = fadeMat(0x2f2a26, { roughness: 0.9 }),
     rust = fadeMat(0x7a3f22, { roughness: 0.95 });
-  const k = new PK().bounds(-4.205, -1.663, -21.563, 4.1, 11.008, 14.163), // 外框同原本
+  const k = new PK();
+  // 機身頂（舊尺寸 y 3.2＋4.2）的欄杆、機身側面上到頂的爬梯（人的尺寸）
+  const top = (3.2 + 4.2) * RIG_S;
+  k.at(0, 0, 0.5 * RIG_S, 0, 0, 0.05, () => {
+    railing(k, rust, 7.6 * RIG_S, HUMAN.rail, 0, top, -4.3 * RIG_S, 0, 1.5, 0.06);
+    railing(k, rust, 8.4 * RIG_S, HUMAN.rail, -3.8 * RIG_S, top, 0, Math.PI / 2, 1.5, 0.06);
+    humanLadder(k, rust, top, -4.05 * RIG_S - 0.05, 0, 3 * RIG_S, -Math.PI / 2, true, 'ladder_rig');
+    k.mark('walk_rig', 0, top, 0, 0);
+  });
+  k.scaled(RIG_S, () => rigKit(k, main, dark, rust));
+  return k.build();
+}
+function rigKit(k, main, dark, rust) {
+  const R = R0,
     D = DETAIL;
+  k.bounds(-4.205, -1.663, -21.563, 4.1, 11.008, 14.163); // 外框同原本
   // 履帶：倒角的履帶架＋履帶板的橫紋＋惰輪
   for (const sx of [-1, 1]) {
     k.cb(dark, 2.6, 2.2, 11, sx * 2.8, 1.1, 0, 0, 0, 0, 0.5);
@@ -1028,9 +1058,6 @@ export function buildMiningRig(color) {
     k.box(D.glass, 4.2, 0.7, 0.06, 0, 5.6, -0.02);
     k.box(rust, 5.2, 0.4, 4.2, 0, 6.5, 2);
     k.box(rust, 1.1, 1.1, 8, 2.6, 4.7, -0.5);
-    railing(k, rust, 7.6, 0.9, 0, 4.2, -4.3);
-    railing(k, rust, 8.4, 0.9, -3.8, 4.2, 0, Math.PI / 2);
-    ladder(k, rust, 4.2, -4.05, 0, 3, -Math.PI / 2);
     grille(k, dark, rust, 2.4, 1.4, 5, -1.8, 2.2, 4.52);
     k.cyl(dark, 0.3, 0.35, 1.6, -1.6, 7.2, 3.2);
   });
@@ -1070,7 +1097,6 @@ export function buildMiningRig(color) {
     k.cb(dark, 4, 3, 3, 0, -0.6, 8.2, 0, 0, 0, 0.3);
     k.box(rust, 4.06, 0.3, 3.06, 0, 0.4, 8.2);
   });
-  return k.build();
 }
 
 // 輸送管線一段（沿 Z，長 PIPE.seg）：原點在管子中心
@@ -1093,6 +1119,32 @@ export function buildPipeSegment(color) {
   }
   // 上方的電纜槽
   k.box(fl, 0.3, 0.08, PIPE.seg - 1.6, 0, R + 0.09, 0);
+  return k.build();
+}
+// 整條輸送管線（沿 Z、長 len，置中）：合併成一個網格（每段一個 GLB 時改成逐段排列）；每 PIPE.seg 一組法蘭、上方電纜槽
+export function buildPipeline(len, color) {
+  const n = Math.max(1, Math.round(len / PIPE.seg));
+  if (providedModel('prop/pipeline', null, true)) {
+    const g = new THREE.Group();
+    for (let i = 0; i < n; i++) {
+      const s = buildPipeSegment(color);
+      s.position.z = -len / 2 + PIPE.seg * (i + 0.5);
+      g.add(s);
+    }
+    return g;
+  }
+  const m = fadeMat(color, { roughness: 0.55, metalness: 0.55 }),
+    fl = fadeMat(0x3b3631, { roughness: 0.8 });
+  const k = new PK(),
+    R = PIPE.r,
+    X = Math.PI / 2;
+  k.cyl(m, R, R, len, 0, 0, 0, X, 0, 0, 12);
+  for (let i = 0; i <= n; i++) {
+    const z = -len / 2 + PIPE.seg * i;
+    k.cyl(fl, R + 0.15, R + 0.15, 0.35, 0, 0, z, X, 0, 0, 12);
+    k.cyl(fl, R + 0.06, R + 0.06, 0.5, 0, 0, z + (i < n ? 0.4 : -0.4), X, 0, 0, 12);
+  }
+  k.box(fl, 0.3, 0.08, len - 1, 0, R + 0.09, 0);
   return k.build();
 }
 // 管線支架（A 字形）：原點在底面中心，高 h（到管子底部）；GLB 以高 6 m 製作，依高度縮放
@@ -1118,7 +1170,10 @@ export function buildPipeSupport(h, color) {
   k.bar(m, [1.2, 0.6, 0], [-0.62, h * 0.82, 0], 0.12);
   k.box(m, 1.6, 0.25, 0.4, 0, h * 0.45, 0);
   k.cb(m, 2.4, 0.35, 0.5, 0, h - 0.2, 0, 0, 0, 0, 0.05);
-  return k.build();
+  // 高的支架（管底離地 12 m 以上）腳要張開一點，不然太細長
+  const g = k.build();
+  g.scale.x = Math.max(1, h / 7);
+  return g;
 }
 
 // 鑽井架（現實高 30–45 m）：格子塔＋作業平台（欄杆、樓梯照人的尺寸）＋頂部滑輪架；原點在底面中心；
@@ -1185,14 +1240,21 @@ export function buildDerrick(h, color) {
 // ---------- 沙丘地帶（dunes）：半埋的艦體殘骸、拱形殘骸 ----------
 // 艦體殘骸：長約 24、寬 7 m，沿 Z，艦首朝 −Z；原點在艦底中心（呼叫端往下埋 sink）。
 // box：碰撞箱的寬、長與埋好之後露出地面的高度
-export const WRECK_HULL = { box: [7.4, 24, 5.2], sink: 2.4 };
+// 現實尺寸：舊模型放大 HULL_S 倍（長約 84 m 的貨輪殘骸，地標）
+const HULL_S = 3.5;
+export const WRECK_HULL = { box: [7.4 * HULL_S, 24 * HULL_S, 5.2 * HULL_S], sink: 2.4 * HULL_S };
 export function buildWreckHull(color) {
   const glb = propGlb('wreck_hull', { color, fade: true });
   if (glb) return glb;
+  const k = new PK();
+  k.scaled(HULL_S, () => hullKit(k, color));
+  return k.build();
+}
+function hullKit(k, color) {
   const m = fadeMat(color, { roughness: 0.9, metalness: 0.3 }),
     dk = fadeMat(0x3a3029, { roughness: 1 }),
     rust = fadeMat(0x8a4a2a, { roughness: 1 });
-  const k = new PK().bounds(-4.914, -0.764, -11.5, 3.416, 9.881, 12.1); // 外框同原本
+  k.bounds(-4.914, -0.764, -11.5, 3.416, 9.881, 12.1); // 外框同原本
   k.at(0, 0, 0, 0, 0, 0.22, () => {
     // 艦體斷面（舭部切角）沿 Z 擠出＋艦首楔形
     k.prism(
@@ -1245,17 +1307,24 @@ export function buildWreckHull(color) {
     k.cyl(dk, 0.18, 0.22, 4, 0.9, 11, 7.2, 0.5, 0, 0.2, 6);
     for (let i = 0; i < 4; i++) k.box(dk, 0.3, 4.5, 0.4, -3.6, 3.5, -4 + i * 4);
   });
-  return k.build();
 }
 // 拱形殘骸（半埋的巨大環狀構造）：跨距 18 m，沿 X；原點在地面中心；feet＝兩腳的 x 與碰撞半徑
-export const WRECK_ARCH = { span: 18, feet: [9, 1.7] };
+// 現實尺寸：舊模型放大 ARCH_S 倍（跨距 54 m 的巨大構造殘骸）
+const ARCH_S = 3;
+export const WRECK_ARCH = { span: 18 * ARCH_S, feet: [9 * ARCH_S, 1.7 * ARCH_S] };
 export function buildWreckArch(color) {
   const glb = propGlb('wreck_arch', { color, fade: true });
   if (glb) return glb;
-  const R = WRECK_ARCH.span / 2;
+  const R = 9;
   const m = fadeMat(color, { roughness: 0.85, metalness: 0.35 }),
     rib = fadeMat(0x4a3a2e, { roughness: 1 });
   const k = new PK();
+  k.scaled(ARCH_S, () => archKit(k, R, m, rib));
+  const g = k.build();
+  g.rotation.x = 0.12; // 整體略傾斜（同原本，呼叫端只改 rotation.y）
+  return g;
+}
+function archKit(k, R, m, rib) {
   // 外框同原本的零件（主環＋7 片肋板）
   k.obMesh(new THREE.TorusGeometry(R, 1.3, 8, 28, Math.PI), 0, -0.8, 0);
   for (let i = 1; i < 8; i++) {
@@ -1279,9 +1348,6 @@ export function buildWreckArch(color) {
       k.box(rib, 0.9, 0.2, 3.3, 0, -1.6, 0);
     });
   }
-  const g = k.build();
-  g.rotation.x = 0.12; // 整體略傾斜（同原本，呼叫端只改 rotation.y）
-  return g;
 }
 
 // ---------- 冰湖：橢圓冰面＋裂紋貼圖；rng 決定裂紋（各端相同）；原點在冰面中心，單位圓再以 rx、rz 縮放 ----------
@@ -1325,15 +1391,33 @@ export function buildIceSheet(rx, rz, rng) {
 }
 
 // ---------- 新主題的散布物件（取代舊主題的貨櫃／卡車／路燈／岩石／碎塊）----------
-// 礦石料斗（荒野的掩體）：方形漏斗＋四腳＋滑槽；原點在底面中心；HOPPER＝碰撞箱 寬、高、深
-export const HOPPER = [5, 6.2, 5];
+// 礦石料斗（荒野的掩體，現實尺寸約 12 × 15 × 12 m＝全身掩體）：方形漏斗＋四腳＋滑槽；原點在底面中心；
+// HOPPER＝碰撞箱 寬、高、深。本體是舊模型放大 HOPPER_S 倍，爬梯照人的尺寸
+const HOPPER_S = 2.4;
+export const HOPPER = [5 * HOPPER_S, 6.2 * HOPPER_S, 5 * HOPPER_S];
 export function buildOreHopper(color) {
   const glb = propGlb('ore_hopper', { color, fade: true });
   if (glb) return glb;
   const m = fadeMat(color, { roughness: 0.75, metalness: 0.4 }),
     dk = fadeMat(0x3a332d, { roughness: 0.9 }),
     ore = fadeMat(0x5b4a3c, { roughness: 1 });
-  const k = new PK().bounds(-4.95, 0, -4.95, 4.95, 6.6, 4.95); // 外框同原本
+  const k = new PK();
+  humanLadder(
+    k,
+    dk,
+    HOPPER[1] - 1.2,
+    2.45 * HOPPER_S + 0.1,
+    0,
+    -1.2 * HOPPER_S,
+    Math.PI / 2,
+    true,
+    'ladder_hopper',
+  );
+  k.scaled(HOPPER_S, () => hopperKit(k, m, dk, ore));
+  return k.build();
+}
+function hopperKit(k, m, dk, ore) {
+  k.bounds(-4.95, 0, -4.95, 4.95, 6.6, 4.95); // 外框同原本
   // 料倉（倒角＋外側加強肋＋上緣）＋方錐漏斗＋H 型鋼四腳與斜撐＋滑槽與閘門＋爬梯
   k.cb(m, 4.9, 2.2, 4.9, 0, 5, 0, 0, 0, 0, 0.12);
   for (const s of [-1, 1])
@@ -1359,8 +1443,6 @@ export function buildOreHopper(color) {
   });
   k.cb(m, 1.0, 0.5, 0.9, 0, 1.6, 0, 0, 0, 0, 0.06);
   hazard(k, DETAIL.yellow, DETAIL.black, 1.0, 0.24, 0, 1.6, 0.46);
-  ladder(k, dk, 6.2, 2.45, 0, -1.2, Math.PI / 2);
-  return k.build();
 }
 // 鏽蝕儲槽：圓槽＋頂蓋＋箍＋爬梯；原點在底面中心；GLB 以半徑 3、高 6 m 製作，依尺寸縮放
 export function buildStorageTank(r, h, color) {
@@ -1469,13 +1551,19 @@ export function buildScrap(w, h, d, color) {
   return k.build();
 }
 // MT 殘骸（沙丘的掩體）：半埋的小型機體殘骸；原點在地面中心；MT_WRECK＝碰撞箱 寬、高、深
-export const MT_WRECK = [4.2, 3.2, 4.2];
+// MT 也放大了 3 倍（MS），殘骸同樣放大 MS 倍
+export const MT_WRECK = [4.2 * MS, 3.2 * MS, 4.2 * MS];
 export function buildMtWreck(color) {
   const glb = propGlb('mt_wreck', { color, fade: true });
   if (glb) return glb;
   const m = fadeMat(color, { roughness: 0.85, metalness: 0.4 }),
     dk = fadeMat(0x2e2a26, { roughness: 1 });
-  const k = new PK().bounds(-2.917, -0.509, -3.177, 2.712, 3.367, 2.349); // 外框同原本
+  const k = new PK();
+  k.scaled(MS, () => mtWreckKit(k, m, dk));
+  return k.build();
+}
+function mtWreckKit(k, m, dk) {
+  k.bounds(-2.917, -0.509, -3.177, 2.712, 3.367, 2.349); // 外框同原本
   k.at(0, 0, 0, 0.15, 0.3, -0.25, () => {
     // 胴體：倒角主體＋前方斜裝甲＋側面裝甲板與螺栓
     k.cb(m, 3.6, 2.2, 3.4, 0, 1.2, 0, 0, 0, 0, 0.3);
@@ -1512,7 +1600,6 @@ export function buildMtWreck(color) {
     k.cyl(m, 0.42, 0.42, 0.8, 0, -0.3, 0, 0, 0, Math.PI / 2, 8);
     k.cb(dk, 0.55, 1.0, 0.55, 0, -0.95, 0.15, 0.4, 0, 0, 0.08);
   });
-  return k.build();
 }
 // 風蝕砂岩（沙丘的岩石）：細莖＋寬大的岩帽；原點在底面中心；GLB 以半徑 3、高 7 m 製作
 export function buildSandstone(r, h, color) {
@@ -1556,15 +1643,34 @@ export function buildSandFence(len, color) {
 
 // ---------- 冰原（snow）：半圓拱屋、冰塊、信號燈桿、雷達天線、舊時代觀測圓頂、碎冰 ----------
 // 半圓拱屋（冰原的掩體）：長沿 Z；原點在底面中心；QUONSET＝碰撞箱 寬、高、深
-export const QUONSET = [6, 3.4, 9];
+// 現實尺寸：舊模型放大 QUON_S 倍（12 × 6.8 × 18 m，半身掩體）；端牆的大門是車輛用，旁邊另有人用門
+const QUON_S = 2;
+export const QUONSET = [6 * QUON_S, 3.4 * QUON_S, 9 * QUON_S];
 export function buildQuonset(color) {
   const glb = propGlb('quonset', { color, fade: true });
   if (glb) return glb;
   const m = fadeMat(color, { roughness: 0.6, metalness: 0.45 }),
     snow = fadeMat(0xf2f6fa, { roughness: 0.95 }),
     dk = fadeMat(0x3d434a, { roughness: 0.8 });
-  const k = new PK().bounds(-2.8, -2.8, -4.75, 3.388, 3.2, 4.6), // 外框同原本
-    X = Math.PI / 2;
+  const k = new PK();
+  door(
+    k,
+    dk,
+    DETAIL.steel,
+    2.6 * QUON_S,
+    0,
+    -4.6 * QUON_S - 0.05,
+    Math.PI,
+    HUMAN.door[0],
+    HUMAN.door[1],
+    'door_quonset',
+  );
+  k.scaled(QUON_S, () => quonsetKit(k, m, snow, dk));
+  return k.build();
+}
+function quonsetKit(k, m, snow, dk) {
+  const X = Math.PI / 2;
+  k.bounds(-2.8, -2.8, -4.75, 3.388, 3.2, 4.6); // 外框同原本
   // 半圓外殼＋拱肋＋屋頂積雪＋兩側基礎＋端牆（門、窗、通風口、燈）
   k.geo(m, new THREE.CylinderGeometry(3, 3, 9, 14, 1, false, -X, Math.PI), 0, 0.2, 0, X, X, 0, 1, 1, 1.1);
   for (const z of [-3.3, -1.1, 1.1, 3.3])
@@ -1591,7 +1697,6 @@ export function buildQuonset(color) {
   grille(k, dk, m, 1.0, 0.5, 3, 0, 2.75, -4.62);
   k.box(DETAIL.lamp, 0.4, 0.14, 0.18, 0, 2.35, -4.68);
   grille(k, dk, m, 1.2, 0.8, 4, 1.4, 1.6, 4.62);
-  return k.build();
 }
 // 冰塊（冰原的岩石）：幾塊稜角分明的半透明冰；原點在底面中心；GLB 以半徑 2.5 製作
 export function buildIceChunk(r) {
@@ -1638,13 +1743,24 @@ export function buildBeacon(h) {
   return k.build();
 }
 // 雷達天線：支架＋傾斜的碟形天線；原點在底面中心；GLB 以高 7 m 製作
+// 現實尺寸：舊模型放大 RADAR_S 倍（高約 17 m、碟面直徑約 12 m）；桅桿的爬梯照人的尺寸
+export const RADAR_S = 2.5;
 export function buildRadarDish(color) {
   const glb = propGlb('radar_dish', { color, fade: true });
   if (glb) return glb;
   const m = fadeMat(color, { roughness: 0.5, metalness: 0.5 }),
     dk = fadeMat(0x3d434a, { roughness: 0.8 });
   m.side = THREE.DoubleSide;
-  const k = new PK(); // 外框同原本的零件（底座、桅桿、碟、饋源；呼叫端會任意旋轉）
+  const k = new PK();
+  k.scaled(RADAR_S, () => radarKit(k, m, dk));
+  k.cur = 1;
+  humanLadder(k, dk, 3.6 * RADAR_S, 0, 1.3 * RADAR_S, -0.45 * RADAR_S - 0.08, Math.PI, true, 'ladder_radar');
+  k.cur = -1;
+  door(k, dk, DETAIL.steel, 0, 0, 1.2 * RADAR_S + 0.03, 0, HUMAN.door[0], HUMAN.door[1], 'door_radar');
+  return k.build();
+}
+function radarKit(k, m, dk) {
+  // 外框同原本的零件（底座、桅桿、碟、饋源；呼叫端會任意旋轉）
   k.ob(2.4, 1, 2.4, 0, 0.5, 0).obCyl(0.35, 0.45, 4, 0, 3, 0).ob(0.15, 0.15, 2.2, 0, 5.6, -0.4);
   k.obMesh(new THREE.SphereGeometry(3, 16, 6, 0, Math.PI * 2, 0, 0.9), 0, 5.2, 0.6, -2.2, 0, 0);
   // 底座（機房：倒角＋格柵＋門）＋旋轉座＋桅桿＋碟面（邊環、背後的轂）＋三支饋源支架與饋源；分到原本的零件上
@@ -1654,7 +1770,6 @@ export function buildRadarDish(color) {
   k.cyl(m, 0.7, 0.8, 0.35, 0, 1.17, 0, 0, 0, 0, 10);
   k.cur = 1;
   k.cyl(dk, 0.35, 0.45, 4, 0, 3, 0, 0, 0, 0, 8);
-  ladder(k, dk, 3.6, 0, 1.3, -0.48, Math.PI, 0.45);
   k.inPart(3, () =>
     k.geo(m, new THREE.SphereGeometry(3, 16, 6, 0, Math.PI * 2, 0, 0.9), 0, 5.2, 0.6, -2.2, 0, 0),
   );
@@ -1677,19 +1792,39 @@ export function buildRadarDish(color) {
     k.bar(dk, [rc[0] + c, rc[1] + v[1] * s, rc[2] + v[2] * s], f, 0.07);
   }
   k.pipe(dk, f, at(1.1), 0.18, 6);
-  return k.build();
 }
 // 舊時代觀測圓頂（大型，不可破壞）：圓形基座＋半球＋觀測縫＋天線；原點在地面中心；DOME_R＝基座半徑
-export const DOME_R = 9;
+// 現實尺寸：舊模型放大 DOME_S 倍（基座直徑約 37 m 的雷達罩）；入口的人用門與走道欄杆照人的尺寸
+const DOME_S = 2;
+export const DOME_R = 9 * DOME_S;
 export function buildObsDome(color) {
   const glb = propGlb('obs_dome', { color, fade: true });
   if (glb) return glb;
+  const k = new PK();
+  const base = fadeMat(0x5a6068, { roughness: 0.85 }),
+    dk = fadeMat(0x22262b, { roughness: 0.9 });
+  k.scaled(DOME_S, () => domeKit(k, color));
+  // 基座頂的走道欄杆（人的尺寸）、入口的人用門與門燈
+  const R0 = DOME_R - 0.2,
+    yw = 3.5 * DOME_S;
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    k.box(dk, 0.06, HUMAN.rail, 0.06, Math.sin(a) * R0, yw + HUMAN.rail / 2, Math.cos(a) * R0);
+  }
+  k.geo(dk, new THREE.TorusGeometry(R0, 0.04, 3, 48), 0, yw + HUMAN.rail, 0, Math.PI / 2, 0, 0);
+  k.mark('walk_dome', 0, yw, R0 - 1, 0);
+  door(k, dk, DETAIL.steel, 0, 0, (9 + 0.82) * DOME_S + 0.03, 0, HUMAN.door[0], HUMAN.door[1], 'door_dome');
+  k.box(base, 0.3, 0.3, 0.3, 0, 2.6, (9 + 0.82) * DOME_S + 0.15);
+  return k.build();
+}
+function domeKit(k, color) {
+  const DOME_R = 9;
   const m = fadeMat(color, { roughness: 0.55, metalness: 0.35 }),
     base = fadeMat(0x5a6068, { roughness: 0.85 }),
     snow = fadeMat(0xf2f6fa, { roughness: 0.95 }),
     dk = fadeMat(0x22262b, { roughness: 0.9 });
-  const k = new PK().bounds(-9.6, 0, -9.6, 9.6, 12.5, 9.8), // 外框同原本
-    R = DOME_R - 0.6;
+  k.bounds(-9.6, 0, -9.6, 9.6, 12.5, 9.8); // 外框同原本
+  const R = DOME_R - 0.6;
   // 基座（壁柱＋上緣）＋圓頂（經線肋）＋積雪＋觀測縫（兩側導軌）＋走道與欄杆＋入口（門、燈）＋天線
   k.cyl(base, DOME_R, DOME_R + 0.6, 3.5, 0, 1.75, 0, 0, 0, 0, 20);
   for (let i = 0; i < 12; i++) {
@@ -1714,19 +1849,11 @@ export function buildObsDome(color) {
     k.box(dk, 1.6, 0.2, DOME_R - 1, 0, 0, 0);
     for (const s of [-1, 1]) k.box(m, 0.25, 0.35, DOME_R - 0.6, s * 0.95, 0.05, 0);
   });
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    k.box(dk, 0.07, 0.9, 0.07, Math.sin(a) * (DOME_R - 0.1), 3.5 + 0.45, Math.cos(a) * (DOME_R - 0.1));
-  }
-  k.geo(dk, new THREE.TorusGeometry(DOME_R - 0.1, 0.05, 3, 24), 0, 4.4, 0, Math.PI / 2, 0, 0);
-  // 入口
+  // 入口（門與門燈在外面另外畫，照人的尺寸）
   k.cb(base, 2.4, 2.6, 1.2, 0, 1.3, DOME_R + 0.2, 0, 0, 0, 0.1);
-  k.box(dk, 1.2, 1.9, 0.06, 0, 0.95, DOME_R + 0.82);
-  k.box(DETAIL.lamp, 0.4, 0.12, 0.16, 0, 2.15, DOME_R + 0.84);
   k.box(snow, 2.5, 0.2, 1.3, 0, 2.68, DOME_R + 0.2);
   k.cyl(dk, 0.12, 0.12, 6, DOME_R * 0.6, 3.5 + 6, 0, 0, 0, 0, 6);
   for (const y of [7.5, 10.5]) k.box(dk, 1.4, 0.06, 0.06, DOME_R * 0.6, y, 0);
-  return k.build();
 }
 // 碎冰（純裝飾）：扁平的冰片；原點在地面中心；GLB 以 1.2 × 0.4 × 1 m 製作
 export function buildIceShard(w, h, d) {

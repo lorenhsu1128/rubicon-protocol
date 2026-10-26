@@ -3,6 +3,16 @@
 // ============================================================
 import { RNG, clamp, lerp, makeNoise, makeRng, pick, rnd, rndi, withRng } from '../core/math.js';
 import { DS, MS, WS } from '../core/scale.js';
+import {
+  JERSEY,
+  SEMI,
+  TWALL,
+  buildJersey,
+  buildSemiTruck,
+  buildTWall,
+  buildWarehouse,
+  warehouseRidge,
+} from './cover-models.js';
 import { mergeStatic } from '../render/mesh-merge.js';
 import {
   LANE_MARK,
@@ -10,19 +20,21 @@ import {
   RAIL_TIE,
   ROAD_STRIPS,
   box,
-  buildContainer,
+  ISO,
+  buildContainerStack,
   buildDebris,
   buildDeck,
   buildGridPillar,
   buildLampPost,
-  buildParkedTruck,
   buildPillar,
   buildRock,
   buildTunnelPortal,
   buildDerrick,
   buildIceSheet,
   buildMiningRig,
-  buildPipeSegment,
+  buildPipeline,
+  derrickBase,
+  floodW,
   buildPipeSupport,
   buildWreckArch,
   buildWreckHull,
@@ -44,6 +56,7 @@ import {
   buildObsDome,
   buildQuonset,
   buildRadarDish,
+  RADAR_S,
   buildThemeDeck,
   buildThemePillar,
   buildThemePlatform,
@@ -815,20 +828,20 @@ export class World {
   buildProps() {
     const T = this.theme;
     if (T.grid) {
-      // tall pillar blocks like the reference arena
+      // 模擬訓練場的方塊（虛擬空間，本來就是機甲的尺寸：跟著放大 G 倍；數量依面積多一些）
       const pm = mat(0xc9cdd5, { roughness: 0.9, metalness: 0.05 });
-      for (let k = 0, n = this.cnt(14, 22); k < n; k++) {
+      for (let k = 0, n = this.cnt(34, 50); k < n; k++) {
         let x = rnd(-55 * this.k, 55 * this.k),
           z = rnd(-55 * this.k, 55 * this.k);
         if (
-          Math.hypot(x, z) < 10 ||
+          Math.hypot(x, z) < 10 * G ||
           this.onCorridor(x, z, 3) ||
-          this.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < 9)
+          this.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < 9 * G)
         )
           continue;
-        const w = rnd(3, 7),
-          d = rnd(3, 7),
-          h = RNG() < 0.3 ? rnd(2.5, 4) : rnd(9, 18);
+        const w = rnd(3, 7) * G,
+          d = rnd(3, 7) * G,
+          h = (RNG() < 0.3 ? rnd(2.5, 4) : rnd(9, 18)) * G;
         const { mesh: g, mat: m2 } = buildGridPillar(w, h, d, pm);
         g.position.set(x, h / 2, z);
         this.scene.add(g);
@@ -857,104 +870,120 @@ export class World {
     // 新主題有自己的一套物件（不用舊主題的貨櫃、卡車、路燈、岩石、碎塊）
     if (T.buildProps) return T.buildProps(this);
     if (T.props) return this.buildThemeProps(T.props);
-    const cMat = [mat(T.container), mat(T.container2), mat(0x8b8f94)],
-      frame = mat(0x2a2d31);
-    const count = this.themeKey === 'industrial' ? this.cnt(26, 36) : this.cnt(14, 22);
-    for (let k = 0; k < count; k++) {
-      let x,
-        z,
-        tries = 0;
-      do {
-        x = rnd(-52 * this.k, 52 * this.k);
-        z = rnd(-52 * this.k, 52 * this.k);
-        tries++;
-      } while (
-        tries < 20 &&
-        (Math.hypot(x, z) < 10 * MS ||
-          this.onCorridor(x, z, 4) ||
-          !this.slopeOK(x, z) ||
-          this.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < 7))
-      );
-      if (tries >= 20) continue;
-      const rot = RNG() < 0.5 ? 0 : Math.PI / 2;
-      const long = rnd(6, 9),
-        short = rnd(2.6, 3.2),
-        h = rnd(2.6, 3.0);
-      const w = rot ? short : long,
-        d = rot ? long : short;
-      const y = this.terrainHeight(x, z);
-      const cm = pick(cMat).clone();
-      cm.transparent = true;
-      const fm = frame.clone();
-      fm.transparent = true;
-      const g = buildContainer(w, h, d, rot, cm, fm);
-      g.position.set(x, y - 0.15, z);
-      this.scene.add(g);
-      this.meshes.push(g);
-      const ob = {
-        kind: 'box',
-        x,
-        z,
-        w,
-        d,
-        top: y - 0.15 + h,
-        y: y - 0.15,
-        group: g,
-        mats: propMats(g) || [cm, fm],
-        box: new THREE.Box3(
-          new THREE.Vector3(x - w / 2, y - 0.2, z - d / 2),
-          new THREE.Vector3(x + w / 2, y + h, z + d / 2),
-        ),
-      };
-      this.obstacles.push(ob);
-      this.occluders.push(ob);
-      this.regProp('container', ob, 3000, cm.color.getHex());
-      // stacked container sometimes
-      if (RNG() < 0.25) {
-        const g2 = g.clone();
-        g2.position.y += h;
-        const cloneMat = (m) => {
-          const c = m.clone();
-          c.transparent = true;
-          return c;
-        };
-        g2.traverse((o) => {
-          if (o.isMesh)
-            o.material = Array.isArray(o.material) ? o.material.map(cloneMat) : cloneMat(o.material);
-        });
-        this.scene.add(g2);
-        this.meshes.push(g2);
-        const mats2 = [];
-        g2.traverse((o) => {
-          if (o.isMesh) mats2.push(...(Array.isArray(o.material) ? o.material : [o.material]));
-        });
-        const ob2 = {
-          kind: 'box',
-          x,
-          z,
-          w,
-          d,
-          top: ob.top + h,
-          y: ob.top,
-          group: g2,
-          mats: mats2,
-          box: new THREE.Box3(
-            new THREE.Vector3(x - w / 2, ob.top, z - d / 2),
-            new THREE.Vector3(x + w / 2, ob.top + h, z + d / 2),
-          ),
-        };
-        this.obstacles.push(ob2);
-        this.occluders.push(ob2);
-        this.regProp('container', ob2, 3000, cm.color.getHex());
-      }
+    this.buildYardProps();
+  }
+  // 貨運集散場與礦坑遺跡（現實尺寸，docs/world-scale.md）：貨櫃區（貨櫃堆排成格子、堆與堆之間 8–12 m 的通道，
+  // 疊 1–5 層：疊 2＝半身掩體、疊 4 以上＝全身掩體）、倉庫（全身）、聯結車與護欄（雜物）、T 型牆（低掩體）、
+  // 照明桿；hasRocks 的主題另有巨石（雜物）與岩塊（掩體）。貨櫃堆與倉庫各自一份材質（擋住鏡頭時各自淡出）
+  buildYardProps() {
+    const T = this.theme,
+      ind = this.themeKey === 'industrial';
+    const COLS = [T.container, T.container2, 0x8b8f94, 0x8a3a2a, 0x2b4fb0, 0x6b7d6a];
+    const own = (c, o) => {
+      const m = mat(c, o).clone();
+      m.transparent = true;
+      return m;
+    };
+    // 貨櫃區
+    for (let b = this.cnt(ind ? 5 : 2, ind ? 7 : 3); b > 0; b--) {
+      const nx = rndi(2, 4),
+        nz = rndi(1, 3),
+        rows = rndi(2, 4),
+        lane = rnd(8, 12);
+      const L = ISO.L40,
+        D = rows * ISO.W + (rows - 1) * 0.3;
+      const bw = nx * L + (nx - 1) * lane,
+        bd = nz * D + (nz - 1) * lane;
+      const spot = this.findSpot([-bw / 2, bw / 2, -bd / 2, bd / 2], 2.5, 40);
+      if (!spot) continue;
+      const base = spot.lo - 0.1;
+      for (let i = 0; i < nx; i++)
+        for (let j = 0; j < nz; j++) {
+          const skip = RNG() < 0.12, // 空位（通道變寬）
+            lv = rndi(1, ind ? 5 : 3);
+          const tops = [];
+          for (let r = 0; r < rows; r++) tops.push(clamp(lv + rndi(-1, 1), 1, 5));
+          const cms = [];
+          for (let n = 0; n < rows * 5; n++) cms.push(own(pick(COLS), { roughness: 0.6 }));
+          if (skip) continue;
+          const lx = -bw / 2 + L / 2 + i * (L + lane),
+            lz = -bd / 2 + D / 2 + j * (D + lane);
+          const [px, pz] = rotQ(spot.q, lx, lz);
+          const st = buildContainerStack(L, rows, 5, cms, own(0x2a2d31, { roughness: 0.7 }), tops);
+          st.group.position.y = base;
+          const sp = { x: spot.x + px, z: spot.z + pz, q: spot.q, rotY: spot.rotY };
+          const low = Math.max(...tops) <= 2 && tops.every((t) => t === tops[0]);
+          const shapes = low
+            ? [{ box: [-L / 2, L / 2, -D / 2, D / 2], y: base, top: base + st.h }]
+            : tops.map((t, r) => {
+                const z0 = -D / 2 + r * (ISO.W + 0.3);
+                return { box: [-L / 2, L / 2, z0, z0 + ISO.W], y: base, top: base + t * ISO.H };
+              });
+          const obs = this.addBig(st.group, sp, shapes);
+          // 疊 2 層以下的貨櫃堆打得壞（整堆一起）；更高的不會壞
+          if (low) this.regProp('container', obs[0], 2600 * tops[0] * rows, cms[0].color.getHex());
+        }
     }
+    // 倉庫
+    for (let k = this.cnt(ind ? 2 : 1, ind ? 4 : 2); k > 0; k--) {
+      const w = rnd(30, 50),
+        d = rnd(20, 30),
+        h = rnd(10, 13);
+      const spot = this.findSpot([-w / 2 - 1, w / 2 + 1, -d / 2 - 6, d / 2 + 6], 2, 40);
+      if (!spot) continue;
+      const y = spot.lo - 0.2;
+      const g = buildWarehouse(w, d, h, pick([0x8a9096, 0x9a8a72, 0x6a7a8a, 0x8a6a5a]));
+      g.position.y = y;
+      this.addBig(g, spot, [{ box: [-w / 2, w / 2, -d / 2, d / 2], y, top: y + warehouseRidge(d, h) }]);
+    }
+    // 聯結車（雜物，打得壞）
+    this.scatter(this.cnt(ind ? 5 : 2, ind ? 8 : 4), 6, (x, z, y) => {
+      const rot = RNG() < 0.5;
+      const cm = own(pick(COLS), { roughness: 0.6 });
+      const g = buildSemiTruck(cm);
+      if (rot) g.rotation.y = Math.PI / 2;
+      const sh = rot ? { w: SEMI[2], h: SEMI[1], d: SEMI[0] } : { w: SEMI[0], h: SEMI[1], d: SEMI[2] };
+      this.addSmall(g, x, y - 0.05, z, sh, 'truck', 1600, cm.color.getHex());
+    });
+    // T 型牆（低掩體，成排）
+    this.scatter(this.cnt(ind ? 4 : 3, ind ? 7 : 5), 8, (x, z, y) => {
+      const n = rndi(4, 10),
+        rot = RNG() < 0.5,
+        len = n * TWALL.w;
+      const g = buildTWall(n);
+      if (rot) g.rotation.y = Math.PI / 2;
+      const sh = rot ? { w: TWALL.d, h: TWALL.h, d: len } : { w: len, h: TWALL.h, d: TWALL.d };
+      this.addSmall(g, x, y - 0.05, z, sh, 'twall', 600 * n, 0x8c8a84);
+    });
+    // 紐澤西護欄（雜物，機甲跨得過去）
+    this.scatter(this.cnt(5, 9), 5, (x, z, y) => {
+      const n = rndi(2, 6),
+        rot = RNG() < 0.5,
+        len = n * JERSEY.l;
+      const g = buildJersey(n);
+      if (rot) g.rotation.y = Math.PI / 2;
+      const sh = rot ? { w: JERSEY.d, h: JERSEY.h, d: len } : { w: len, h: JERSEY.h, d: JERSEY.d };
+      this.addSmall(g, x, y - 0.02, z, sh, 'barrier', 300 * n, 0xc8c4bc);
+    });
+    // 照明桿（高 10–14 m；細柱不擋子彈的視線判定）
+    const pm = mat(0x33373c);
+    for (let k = 0, n = this.cnt(10, 16); k < n; k++) {
+      const x = rnd(-55 * this.k, 55 * this.k),
+        z = rnd(-55 * this.k, 55 * this.k);
+      if (Math.hypot(x, z) < 8 * MS || this.onCorridor(x, z, 2) || !this.slopeOK(x, z)) continue;
+      const h = rnd(10, 14);
+      const m = buildLampPost(h, pm);
+      m.position.set(x, this.terrainHeight(x, z) + h / 2 - 0.3, z);
+      this.scene.add(m);
+      this.meshes.push(m);
+      const ob = { kind: 'circle', x, z, r: 0.4, group: m, mats: [], box: null, h };
+      this.obstacles.push(ob);
+      this.regProp('pillar', ob, 800, 0x33373c);
+    }
+    // 岩石：巨石（1–3 m，雜物）與岩塊（6–14 m，掩體）
     if (T.hasRocks) {
       const rm = mat(T.rock, { roughness: 1 });
-      for (let k = 0, n = this.cnt(10, 18); k < n; k++) {
-        let x = rnd(-58 * this.k, 58 * this.k),
-          z = rnd(-58 * this.k, 58 * this.k);
-        if (Math.hypot(x, z) < 12 || this.onCorridor(x, z, 4)) continue;
-        const r = rnd(1.8, 4.2);
+      const rock = (x, z, r, big) => {
         const m = buildRock(r, rm.clone());
         const rmats = propMats(m) || [m.material];
         for (const mm of rmats) mm.transparent = true;
@@ -973,65 +1002,32 @@ export class World {
           box: new THREE.Box3().setFromObject(m),
         };
         this.obstacles.push(ob);
-        this.occluders.push(ob);
-        this.regProp('rock', ob, 5000, T.rock);
+        if (big) this.occluders.push(ob);
+        this.regProp('rock', ob, big ? 9000 : 1500, T.rock);
+      };
+      for (let k = 0, n = this.cnt(8, 14); k < n; k++) {
+        const x = rnd(-58 * this.k, 58 * this.k),
+          z = rnd(-58 * this.k, 58 * this.k);
+        if (Math.hypot(x, z) < 12 * MS || this.onCorridor(x, z, 6)) continue;
+        rock(x, z, rnd(6, 14), true);
+      }
+      for (let k = 0, n = this.cnt(20, 30); k < n; k++) {
+        const x = rnd(-58 * this.k, 58 * this.k),
+          z = rnd(-58 * this.k, 58 * this.k);
+        if (Math.hypot(x, z) < 6 * MS || this.onCorridor(x, z, 3)) continue;
+        rock(x, z, rnd(1, 3), false);
       }
     }
-    // pillars / lamp posts
-    const pm = mat(0x33373c);
-    for (let k = 0, n = this.cnt(6, 12); k < n; k++) {
-      const x = rnd(-55 * this.k, 55 * this.k),
-        z = rnd(-55 * this.k, 55 * this.k);
-      if (Math.hypot(x, z) < 8 || this.onCorridor(x, z, 2) || !this.slopeOK(x, z)) continue;
-      const h = rnd(5, 9);
-      const m = buildLampPost(h, pm);
-      m.position.set(x, this.terrainHeight(x, z) + h / 2 - 0.3, z);
-      this.scene.add(m);
-      this.meshes.push(m);
-      {
-        const ob = { kind: 'circle', x, z, r: 0.6, group: m, mats: [], box: null, h };
-        this.obstacles.push(ob);
-        this.regProp('pillar', ob, 1000, 0x33373c);
-      }
-    }
-    // scattered debris (visual only)
+    // 碎屑（純裝飾，合併）
     const dm = mat(0x55595e);
-    for (let k = 0, n = Math.round(40 * this.kk); k < n; k++) {
+    for (let k = 0, n = Math.round(60 * this.kk); k < n; k++) {
       const x = rnd(-60 * this.k, 60 * this.k),
         z = rnd(-60 * this.k, 60 * this.k);
       const m = buildDebris(rnd(0.3, 1.2), rnd(0.2, 0.5), rnd(0.3, 1.2), dm);
       m.position.set(x, this.terrainHeight(x, z) + 0.1, z);
       m.rotation.y = rnd(0, 3);
       m.castShadow = false;
-      this.scene.add(m);
-      this.meshes.push(m);
-    }
-    // vehicles (industrial): trucks
-    if (this.themeKey !== 'snow') {
-      for (let k = 0, n = this.cnt(3, 6); k < n; k++) {
-        const x = rnd(-50 * this.k, 50 * this.k),
-          z = rnd(-50 * this.k, 50 * this.k);
-        if (Math.hypot(x, z) < 12 || this.onCorridor(x, z, 4) || !this.slopeOK(x, z)) continue;
-        const cm = mat(k % 2 ? 0x2b4fb0 : 0xd8d8d8).clone();
-        cm.transparent = true;
-        const g = buildParkedTruck(cm);
-        g.rotation.y = rnd(0, 6.28);
-        g.position.set(x, this.terrainHeight(x, z) - 0.1, z);
-        this.scene.add(g);
-        this.meshes.push(g);
-        const ob = {
-          kind: 'circle',
-          x,
-          z,
-          r: 3.6,
-          group: g,
-          mats: propMats(g) || [cm],
-          box: new THREE.Box3().setFromObject(g),
-        };
-        this.obstacles.push(ob);
-        this.occluders.push(ob);
-        this.regProp('truck', ob, 1600, cm.color.getHex());
-      }
+      this.addDecorMesh(m);
     }
   }
 
@@ -1492,63 +1488,65 @@ export class World {
     const T = this.theme;
     if (kind === 'wasteland') {
       this.buildMachinery();
-      this.scatter(this.cnt(5, 8), 9, (x, z, y) => {
+      // 現實尺寸：料斗 12 × 15 m（全身）、儲槽直徑 10–24 m（全身）、岩柱 15–35 m、照明塔 20–35 m
+      this.scatter(this.cnt(7, 11), 16, (x, z, y) => {
         const color = pick([0xb08a3e, 0x8c8f86, 0xa0522d]);
         const g = buildOreHopper(color);
         if (RNG() < 0.5) g.rotation.y = Math.PI / 2;
-        this.addSmall(g, x, y - 0.2, z, { w: HOPPER[0], h: HOPPER[1], d: HOPPER[2] }, 'hopper', 3000, color);
+        this.addSmall(g, x, y - 0.4, z, { w: HOPPER[0], h: HOPPER[1], d: HOPPER[2] }, 'hopper', 7000, color);
       });
-      this.scatter(this.cnt(3, 5), 9, (x, z, y) => {
-        const r = rnd(2.2, 3.4),
-          h = rnd(4.5, 7.5),
+      this.scatter(this.cnt(4, 7), 18, (x, z, y) => {
+        const r = rnd(5, 12),
+          h = rnd(10, 18),
           color = pick([0x8a5a3a, 0x9a8f7a, 0x6f7a80]);
-        this.addSmall(buildStorageTank(r, h, color), x, y - 0.2, z, { r: r * 1.02, h }, 'tank', 2600, color);
+        this.addSmall(buildStorageTank(r, h, color), x, y - 0.3, z, { r: r * 1.02, h }, 'tank', 9000, color);
       });
       this.scatter(
-        this.cnt(8, 13),
-        7,
+        this.cnt(10, 16),
+        14,
         (x, z, y) => {
-          const r = rnd(1.6, 2.8),
-            h = rnd(5, 10);
+          const r = rnd(4, 9),
+            h = rnd(15, 35);
           const g = buildRockSpire(r, h, T.rock);
           g.rotation.y = rnd(0, 6.28);
-          this.addSmall(g, x, y - 0.5, z, { r, h }, 'spire', 5000, T.rock);
+          this.addSmall(g, x, y - 1.5, z, { r, h }, 'spire', 12000, T.rock);
         },
         false,
       );
-      this.scatter(this.cnt(4, 7), 6, (x, z, y) => {
-        const h = rnd(8, 11);
+      this.scatter(this.cnt(5, 8), 10, (x, z, y) => {
+        const h = rnd(20, 35);
         const g = buildFloodlight(h, 0x4a4540);
         g.rotation.y = rnd(0, 6.28);
-        this.addSmall(g, x, y - 0.3, z, { r: 0.6, h }, 'floodlight', 1000, 0x4a4540);
+        this.addSmall(g, x, y - 0.3, z, { r: floodW(h), h }, 'floodlight', 1500, 0x4a4540);
       });
-      this.addScrap(Math.round(40 * this.kk), 0x5a4a3e);
+      this.addScrap(Math.round(60 * this.kk), 0x5a4a3e);
     } else if (kind === 'dunes') {
       this.buildWrecks();
-      this.scatter(this.cnt(5, 8), 8, (x, z, y) => {
+      // 現實尺寸：MT 殘骸（MT 放大 3 倍）約 12 m、風蝕砂岩 15–25 m、防風牆高 3 m（低掩體）長 20–40 m
+      this.scatter(this.cnt(6, 9), 16, (x, z, y) => {
         const color = pick([0x6a6f66, 0x7d7466, 0x5c6470]);
         const g = buildMtWreck(color);
         g.rotation.y = rnd(0, 6.28);
         const s = Math.max(MT_WRECK[0], MT_WRECK[2]);
-        this.addSmall(g, x, y - 0.6, z, { w: s, h: MT_WRECK[1], d: s }, 'mtwreck', 2400, color);
+        this.addSmall(g, x, y - 1.8, z, { w: s, h: MT_WRECK[1], d: s }, 'mtwreck', 6000, color);
       });
       this.scatter(
-        this.cnt(6, 10),
-        9,
+        this.cnt(8, 13),
+        16,
         (x, z, y) => {
-          const r = rnd(2.2, 3.6),
-            h = rnd(5, 8);
+          const r = rnd(6, 10),
+            h = rnd(15, 25);
           const g = buildSandstone(r, h, T.rock);
           g.rotation.y = rnd(0, 6.28);
-          this.addSmall(g, x, y - 0.4, z, { r: r * 0.6, h }, 'sandstone', 5000, T.rock);
+          this.addSmall(g, x, y - 1.2, z, { r: r * 0.6, h }, 'sandstone', 12000, T.rock);
         },
         false,
       );
       this.scatter(
-        this.cnt(4, 7),
-        10,
+        this.cnt(6, 10),
+        12,
         (x, z) => {
-          const len = rnd(8, 16),
+          const len = rnd(20, 40),
             rot = RNG() < 0.5,
             color = 0x9a8a72;
           const ex = rot ? 0 : len / 2,
@@ -1565,10 +1563,11 @@ export class World {
         },
         false,
       );
-      this.addScrap(Math.round(30 * this.kk), 0x8a7458);
+      this.addScrap(Math.round(50 * this.kk), 0x8a7458);
     } else if (kind === 'snow') {
       this.buildIceField();
-      this.scatter(this.cnt(6, 9), 9, (x, z, y) => {
+      // 現實尺寸：拱屋 12 × 18 m（半身）、冰塊 2–5 m 與冰丘 7–12 m、雷達天線約 17 m、信號燈桿 10–15 m
+      this.scatter(this.cnt(7, 11), 16, (x, z, y) => {
         const color = pick([0x8a949e, 0x6b7d6a, 0xb8763a]);
         const g = buildQuonset(color);
         const rot = RNG() < 0.5;
@@ -1577,33 +1576,43 @@ export class World {
         this.addSmall(
           g,
           x,
-          y - 0.2,
+          y - 0.4,
           z,
           { w: rot ? qd : qw, h: qh, d: rot ? qw : qd },
           'quonset',
-          3000,
+          6000,
           color,
         );
       });
       this.scatter(
-        this.cnt(9, 14),
-        7,
+        this.cnt(14, 22),
+        10,
         (x, z, y) => {
-          const r = rnd(1.6, 3);
+          const big = RNG() < 0.35,
+            r = big ? rnd(7, 12) : rnd(2, 5);
           const g = buildIceChunk(r);
           g.rotation.y = rnd(0, 6.28);
-          this.addSmall(g, x, y - 0.3, z, { r: r * 0.95, h: r * 1.4 }, 'ice', 4000, 0xbfe0f0);
+          this.addSmall(
+            g,
+            x,
+            y - r * 0.15,
+            z,
+            { r: r * 0.95, h: r * 1.4 },
+            'ice',
+            big ? 10000 : 3000,
+            0xbfe0f0,
+          );
         },
         false,
       );
-      this.scatter(this.cnt(3, 5), 10, (x, z, y) => {
+      this.scatter(this.cnt(3, 5), 18, (x, z, y) => {
         const color = 0xd8dde2;
         const g = buildRadarDish(color);
         g.rotation.y = rnd(0, 6.28);
-        this.addSmall(g, x, y - 0.2, z, { r: 1.6, h: 7 }, 'radar', 2200, color);
+        this.addSmall(g, x, y - 0.3, z, { r: 1.6 * RADAR_S, h: 7 * RADAR_S }, 'radar', 5000, color);
       });
-      this.scatter(this.cnt(5, 8), 6, (x, z, y) => {
-        const h = rnd(7, 9.5);
+      this.scatter(this.cnt(6, 10), 8, (x, z, y) => {
+        const h = rnd(10, 15);
         this.addSmall(buildBeacon(h), x, y - 0.2, z, { r: 0.6, h }, 'beacon', 1000, 0xc8322a);
       });
       for (let k = 0, n = Math.round(30 * this.kk); k < n; k++) {
@@ -1620,12 +1629,12 @@ export class World {
   // 冰原：舊時代觀測圓頂（大型，不可破壞）
   buildIceField() {
     for (let k = this.cnt(1, 2); k > 0; k--) {
-      const R = DOME_R + 0.6;
-      const spot = this.findSpot([-R, R, -R, R + 1], 3);
+      const R = DOME_R + 1.2;
+      const spot = this.findSpot([-R, R, -R, R + 3], 3 * G, 40);
       if (!spot) continue;
       const g = buildObsDome(0xc8d0d8);
-      g.position.y = spot.lo - 0.3;
-      this.addBig(g, spot, [{ c: [0, 0], r: R, h: 3.5 + DOME_R }]);
+      g.position.y = spot.lo - 0.6;
+      this.addBig(g, spot, [{ c: [0, 0], r: R, h: 7 + DOME_R }]);
     }
   }
   // ---------- 大型物件的擺放（新主題）----------
@@ -1741,45 +1750,41 @@ export class World {
     }
     return obs;
   }
-  // 荒野：斗輪採掘機殘骸、高架輸送管線、鑽井架
+  // 荒野（現實尺寸）：斗輪採掘機殘骸（地標，長約 140 m）、高架輸送管線（管底離地 12 m 以上，機甲從底下通過）、
+  // 鑽井架（30–45 m）
   buildMachinery() {
     const R = MINING_RIG;
+    const [bw, bh, bd] = R.body;
     for (let k = this.cnt(1, 2); k > 0; k--) {
-      const spot = this.findSpot([-4.8, 4.8, -20.5, 13.5], 4.5, 40);
+      const spot = this.findSpot([-bw * 0.6, bw * 0.6, R.wheelZ - R.wheelR - 2, bd * 1.3], 4.5 * G, 40);
       if (!spot) continue;
       const g = buildMiningRig(pick([0xc8a040, 0xb07a38, 0x8c8f86]));
-      g.position.y = spot.lo - 0.3;
-      const [bw, bh, bd] = R.body;
+      g.position.y = spot.lo - 1.2;
       this.addBig(g, spot, [
-        { box: [-bw / 2, bw / 2, -bd / 2, bd / 2], y: spot.lo - 0.3, top: spot.lo - 0.3 + bh },
-        { c: [0, R.wheelZ], r: R.wheelR - 0.4, h: R.wheelY + R.wheelR },
+        { box: [-bw / 2, bw / 2, -bd / 2, bd / 2], y: spot.lo - 1.2, top: spot.lo - 1.2 + bh },
+        { c: [0, R.wheelZ], r: R.wheelR - 1.6, h: R.wheelY + R.wheelR },
       ]);
     }
-    // 高架管線：試幾條軸向的直線，取沿線最高點最低的一條，管底在最高點上方 6 m
+    // 高架管線：試幾條軸向的直線，取沿線最高點最低的一條，管底在最高點上方 12 m（機甲 9.7 m 從底下通過）
     for (let k = this.cnt(1, 2); k > 0; k--) {
       let best = null;
       for (let t = 0; t < 6; t++) {
         const axis = rndi(0, 1),
           off = rnd(-40 * this.k, 40 * this.k);
         let maxH = -1e9;
-        for (let s = -50 * this.k; s <= 50 * this.k; s += 3) {
+        for (let s = -50 * this.k; s <= 50 * this.k; s += 3 * G) {
           const x = axis ? s : off,
             z = axis ? off : s;
           maxH = Math.max(maxH, this.terrainHeight(x, z));
         }
-        if (this.obstacles.some((o) => o.pipeAxis === axis && Math.abs(o.pipeOff - off) < 20)) continue;
+        if (this.obstacles.some((o) => o.pipeAxis === axis && Math.abs(o.pipeOff - off) < 20 * G)) continue;
         if (!best || maxH < best.maxH) best = { axis, off, maxH };
       }
       if (!best) continue;
       const len = Math.floor((99 * this.k) / PIPE.seg) * PIPE.seg,
-        y0 = best.maxH + 6,
+        y0 = best.maxH + 12,
         color = 0xb89a5a;
-      const g = new THREE.Group();
-      for (let i = 0; i < len / PIPE.seg; i++) {
-        const seg = buildPipeSegment(color);
-        seg.position.z = -len / 2 + PIPE.seg * (i + 0.5);
-        g.add(seg);
-      }
+      const g = buildPipeline(len, color);
       g.position.set(best.axis ? 0 : best.off, y0 + PIPE.r, best.axis ? best.off : 0);
       if (best.axis) g.rotation.y = Math.PI / 2;
       this.scene.add(g);
@@ -1809,34 +1814,38 @@ export class World {
         const sp = buildPipeSupport(y0 - gy + 0.3, 0x5a4a3a);
         sp.position.set(x, gy - 0.3, z);
         if (best.axis) sp.rotation.y = Math.PI / 2;
-        this.scene.add(sp);
-        this.meshes.push(sp);
+        this.decorSupport(sp);
         this.obstacles.push({ kind: 'circle', x, z, r: 1.1, group: sp, mats: [], box: null, h: y0 - gy });
       }
     }
     for (let k = this.cnt(2, 4); k > 0; k--) {
-      const spot = this.findSpot([-2.3, 2.3, -2.3, 2.3], 1.5);
-      if (!spot) continue;
-      const h = rnd(14, 20),
+      const h = rnd(30, 45),
+        B = derrickBase(h),
         color = 0x9a6a3a;
+      const spot = this.findSpot([-B * 1.1, B * 1.1, -B * 1.1, B * 1.1], 1.5 * G);
+      if (!spot) continue;
       const g = buildDerrick(h, color);
       g.position.y = spot.lo - 0.2;
-      const [ob] = this.addBig(g, spot, [{ c: [0, 0], r: 2.3, h }]);
-      this.regProp('derrick', ob, 2500, color);
+      const [ob] = this.addBig(g, spot, [{ c: [0, 0], r: B, h }]);
+      this.regProp('derrick', ob, 6000, color);
     }
+  }
+  // 不碰撞也不淡出的結構零件（管線支架）：照一般網格加進場景（地圖建好後和裝飾一起合併）
+  decorSupport(m) {
+    this.addDecorMesh(m);
   }
   // 沙丘：半埋的艦體殘骸與拱形殘骸
   buildWrecks() {
     const H = WRECK_HULL;
     for (let k = this.cnt(1, 2); k > 0; k--) {
-      const spot = this.findSpot([-H.box[0] / 2, H.box[0] / 2, -H.box[1] / 2, H.box[1] / 2], 3.5);
+      const spot = this.findSpot([-H.box[0] / 2, H.box[0] / 2, -H.box[1] / 2, H.box[1] / 2], 3.5 * G, 40);
       if (!spot) continue;
       const g = buildWreckHull(pick([0x7d7466, 0x6a6f74, 0x8a6e52]));
       g.position.y = spot.avg - H.sink;
       this.addBig(g, spot, [
         {
           box: [-H.box[0] / 2, H.box[0] / 2, -H.box[1] / 2, H.box[1] / 2],
-          y: spot.lo - 1,
+          y: spot.lo - 3,
           top: spot.avg + H.box[2],
         },
       ]);
@@ -1844,13 +1853,13 @@ export class World {
     const A = WRECK_ARCH;
     for (let k = this.cnt(1, 2); k > 0; k--) {
       const ex = A.feet[0] + A.feet[1];
-      const spot = this.findSpot([-ex, ex, -A.feet[1], A.feet[1]], 3);
+      const spot = this.findSpot([-ex, ex, -A.feet[1], A.feet[1]], 3 * G, 40);
       if (!spot) continue;
       const g = buildWreckArch(pick([0x6f675c, 0x847a6a]));
       g.position.y = spot.avg;
       this.addBig(g, spot, [
-        { c: [-A.feet[0], 0], r: A.feet[1], h: 4 },
-        { c: [A.feet[0], 0], r: A.feet[1], h: 4 },
+        { c: [-A.feet[0], 0], r: A.feet[1], h: 12 },
+        { c: [A.feet[0], 0], r: A.feet[1], h: 12 },
       ]);
     }
   }
@@ -2070,6 +2079,8 @@ export class World {
           beacon: '信號燈桿',
           lamppost: '照明柱',
           rockpile: '落石堆',
+          twall: '防爆牆',
+          barrier: '護欄',
           pine: '針葉樹',
         }[kind] || (this.theme.propNames || {})[kind],
       pos: c,
