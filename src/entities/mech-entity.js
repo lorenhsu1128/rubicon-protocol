@@ -41,6 +41,7 @@ import { fireClass } from '../render/mech-fire.js';
 import { mergeRig } from '../render/mesh-merge.js';
 import { mergeRtsRig } from '../render/rts-merge.js';
 import { nozzleFrom, nozzleWorld } from '../fx/thruster.js';
+import { measureBlades } from '../fx/trail.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
@@ -198,6 +199,7 @@ export class MechEntity {
       vy: this.vel.y / this.dk, // 動作層照舊尺度的 m/s
       dyaw,
       landV: this.landV || 14,
+      aj: this.remote ? undefined : this.airJumps, // 空中跳的次數（減少＝空中跳，動作的翻轉）
       heavy: this.animHeavy,
       hits: this.takeHits(),
       knockF: this.knockF,
@@ -284,6 +286,8 @@ export class MechEntity {
   mergeModel(rig) {
     if (this.opts.noMerge) return rig;
     if (!rig.vehicle && rig.legs) ikMeasure(rig);
+    if (!rig.vehicle) measureBlades(rig); // 刀光用的刀尖（entities/mech-trails.js）
+    if (!rig.vehicle) measureBlades(rig); // 刀光用的刀尖（entities/mech-trails.js）
     // RTS 渲染設定：整台併成一個網格＋描邊外殼（render/rts-merge.js）
     return this.game && this.game.rtsR ? mergeRtsRig(rig) : mergeRig(rig);
   }
@@ -1884,6 +1888,8 @@ export class MechEntity {
           ...this.animExtra(),
         });
       if (adt && !this.model.vehicle) applyIK(this.model, this.ikCtx(adt));
+      if (adt) this.trailsTick(adt);
+      if (adt) this.trailsTick(adt);
     }
     // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
     // RTS 渲染設定：畫面外的單位不更新推進器（光暈與噴焰）

@@ -6,6 +6,7 @@ import { rnd } from '../core/math.js';
 import { mergeGeos } from '../render/geometry.js';
 import { FxBatch } from './batch.js';
 import { ThrusterFx } from './thruster.js';
+import { RibbonFx } from './trail.js';
 import { MB } from '../core/scale.js';
 
 // 擊破時跪倒崩落的秒數（之後才碎裂）
@@ -36,6 +37,7 @@ export class Effects {
     this.hitStop = 0;
     this.thruster = new ThrusterFx(scene); // 機甲推進器噴焰粒子
     this.thruster.cull = (p) => this.skip(p, 4);
+    this.ribbons = new RibbonFx(scene); // 帶狀軌跡：刀光、地面的推進氣流帶（fx/trail.js）
     this.view = null; // 粒子的距離分級（skip／far）：上一格鏡頭的視錐與位置
     this.viewPos = new THREE.Vector3();
     // 粒子批次（fx/batch.js）：同種幾何＋混合模式的粒子一次畫完。透明的依建立順序畫（同一個深度），
@@ -856,6 +858,7 @@ export class Effects {
   }
   update(dt) {
     this.thruster.update(dt);
+    this.ribbons.update(dt);
     if (this.lightT > 0) {
       this.lightT -= dt;
       if (this.lightT <= 0) this.light.intensity = 0;
@@ -903,6 +906,7 @@ export class Effects {
     for (const b of this.batchList) b.clear();
     this.light.intensity = 0;
     this.thruster.clear();
+    this.ribbons.clear();
   }
 }
 

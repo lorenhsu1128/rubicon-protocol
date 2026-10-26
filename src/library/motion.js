@@ -20,6 +20,7 @@ import {
   clipChanged,
   clipPose,
   clipTarget,
+  isLen,
 } from '../render/melee-anim.js';
 import { buildGrid } from './refs.js';
 import { addLights, applyLight, buildMechWithGlb, disposeObject, fitCamera, makeRenderer } from './stage.js';
@@ -274,7 +275,7 @@ export class MotionEditor {
       const P = clipPose(this.clip(), this.ph, false);
       const p = {};
       for (const j in P)
-        p[j] = j === 'drop' ? P[j].map((x) => +x.toFixed(3)) : P[j].map((x) => Math.round(x * R2D));
+        p[j] = isLen(j) ? P[j].map((x) => +x.toFixed(3)) : P[j].map((x) => Math.round(x * R2D));
       const t = Math.round(this.ph * 1000) / 1000;
       const at = c.keys.findIndex((k) => Math.abs(k.t - t) < 0.0005);
       if (at >= 0) return this.toast('這個時間已經有關鍵影格', true);
@@ -424,14 +425,14 @@ export class MotionEditor {
     $('moJoints').innerHTML = MJ.map(([j, name, axes]) => {
       const on = !!k.p[j];
       const v = k.p[j] || axes.map(() => 0);
-      const drop = j === 'drop';
+      const drop = isLen(j);
       return (
         `<div class="moJoint${on ? '' : ' off'}"><label title="勾選＝這個關鍵影格有寫這個關節"><input type="checkbox" data-on="${j}"${on ? ' checked' : ''}> ${escHtml(name)}</label>` +
         axes
           .map(
             (ax, n) =>
               `<div class="moAxis"><span>${ax.toUpperCase()}</span>` +
-              `<input type="range" data-j="${j}" data-n="${n}" min="${drop ? -0.5 : -180}" max="${drop ? 0.6 : 180}" step="${drop ? 0.01 : 1}" value="${v[n]}"${on ? '' : ' disabled'}>` +
+              `<input type="range" data-j="${j}" data-n="${n}" min="${drop ? (j === 'root' ? -1 : -0.5) : -180}" max="${drop ? (j === 'root' ? 1 : 0.6) : 180}" step="${drop ? 0.01 : 1}" value="${v[n]}"${on ? '' : ' disabled'}>` +
               `<input type="number" data-j="${j}" data-n="${n}" step="${drop ? 0.01 : 1}" value="${v[n]}"${on ? '' : ' disabled'}></div>`,
           )
           .join('') +
@@ -446,7 +447,7 @@ export class MotionEditor {
           // 加入時用這個時間點目前的值
           const P = clipPose(this.clip(), kk.t, false);
           kk.p[j] = P[j]
-            ? j === 'drop'
+            ? isLen(j)
               ? P[j].map((x) => +x.toFixed(3))
               : P[j].map((x) => Math.round(x * R2D))
             : MJ_AXES[j].map(() => 0);
@@ -589,6 +590,8 @@ export class MotionEditor {
         const tg = clipTarget(rig, j);
         if (!tg) continue;
         if (tg.kind === 'twist') rig.torso.rotation.y = P[j][0];
+        else if (tg.kind === 'root')
+          continue; // 骨盆位移只在「遊戲中的樣子（彈簧）」顯示
         else if (tg.kind === 'drop') {
           rig.torso.position.y -= P[j][0];
           rig.legsG.position.y -= P[j][0];

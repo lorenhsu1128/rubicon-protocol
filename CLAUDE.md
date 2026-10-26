@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/story-script.md`：主線的劇本（世界觀與真相、角色、序章、各章的開場／章末、簡報、通訊、結局、周目）；改台詞或劇情時與 `data/story.js`、`data/story-comms.js` 同步。
 - `docs/cinematics.md`：過場動畫（序章、各章開場／章末）的引擎、劇本格式、各段的分鏡；改過場動畫時同步更新。
 - `docs/rts-design.md`：即時戰略模式「Coral 戰爭」（魔獸爭霸3 式：指揮官視角、蓋基地採資源、英雄、四陣營、戰爭迷霧、對稱地圖產生器）的設計文件與分期；做相關功能時照它進行，設計有變動時同步更新。
-- `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期持握角度、依武器的射擊動作與可編輯的近戰關鍵影格；第三期受擊、依方向的失衡、擊破跪倒、附加晃動、待機與個性）的定案與實作；改 `animateMech` 時照它進行並同步更新。
+- `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期持握角度、依武器的射擊動作與可編輯的近戰關鍵影格；第三期受擊、依方向的失衡、擊破跪倒、附加晃動、待機與個性；第四期動感：全身傾斜與轉彎傾斜、QB 的預備與滑停、空中跳翻轉、部位之間的先後、近戰片段放大與骨盆位移、連腿一起的迴旋斬、刀光、地面的推進氣流帶與腳印）的定案與實作；改 `animateMech` 時照它進行並同步更新。
 - `docs/garage-hangar.md`：機甲庫的格納庫演出（鋼彈式整備架、依場合的場景、部位鏡頭、全像預覽、換裝、維修、出擊演出）的定案與分期；改機甲庫的展示場景時照它進行並同步更新。
 - `docs/level-editor-design.md`：自訂關卡與關卡編輯器的設計文件（玩家創作、分享、多人）；改編輯器或關卡格式時同步更新。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。過場動畫的配樂 `src/assets/music/*.mp3` 由建置寫成 `dist/lib/cine-music.js`（`window.RUBICON_MUSIC`，不內嵌在 HTML，第一次播過場時才載入）；機甲庫格納庫的外部素材 `src/assets/hangar/`（CC0 的 GLB 道具、PBR 貼圖、骨架動畫的人物，來源見 `CREDITS.txt`）同樣寫成 `dist/lib/hangar-assets.js`（`window.RUBICON_HANGAR`，約 19 MB，`render/hangar-assets.js` 在遊戲啟動後載入，載不到時格納庫用程式模型）。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
@@ -108,12 +108,12 @@ world/               world.js（World：關卡生成、THEMES）、edges.js（�
                      themes/（AC6 風格主題模組：kit.js 共用工具、flooded、dam、spaceport、grid086、xylem、orbit、institute）
 audio/               audio.js（SFX：混音匯流排、殘響、壓低、變悶、環境音、命中分類與回饋音）、sfx-data.js（匯入 assets/sfx/*.mp3，來源與授權寫在檔頭）
 fx/                  effects.js（Effects 粒子／曳光／碎片）、thruster.js（推進器噴焰粒子：Effects.thruster，
-                     從背包噴口連接點沿其 −Y 噴出；模型庫檢視窗共用）
+                     從背包噴口連接點沿其 −Y 噴出；模型庫檢視窗共用）、trail.js（帶狀軌跡 RibbonFx＝fx.ribbons：刀光、地面的推進氣流帶；measureBlades 量近戰武器的刀尖）
 entities/            projectile.js、mech-entity.js（MechEntity）、mech-boss3.js（各 Boss 最終型態的專屬招式）、mech-remote.js（MechEntity 客機端擴充）、
                      mech-special.js（MechEntity 擴充：特殊一般敵人的行為與顯示）、mech-boss.js（MechEntity 擴充：新 Boss 與附屬部位）、
                      mech-boss2.js（第三批 Boss）、mech-objective.js（主線的目標物與護送車隊）、mech-foe.js（主題專屬敵人的行為、擴充組的分派 foeExt）、
                      mech-foe-b1／b2／c1／c2.js（擴充組的新敵人）、mech-foe-d2.js（第 3～6 章模型的動作旗標）、
-                     mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
+                     mech-trails.js（動作的特效：刀光、地面的推進氣流帶、腳印與揚塵，trailsTick 在動作與 IK 之後）、mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
                      mech-sense.js（一般敵人的感知、警戒狀態、仇恨、找射線）、mech-moves.js（主攻的預警招式）、
                      mech-rts.js（Coral 戰爭的單位行為 rtsUnitAI：指令佇列、流場／A* 移動、索敵與交戰、採集、建造、修理、rtsDie）、
                      mech-rts-creep.js（Coral 戰爭的野怪 rtsCreepAI：待機、整營出動、追擊上限、回營回血）、

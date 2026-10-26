@@ -55,6 +55,8 @@ import './game/campaign-mp.js';
 import './entities/mech-objective.js';
 import './entities/mech-foe.js';
 import './entities/mech-status.js';
+import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
+import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-foe-d2.js';
 import './entities/mech-foe-b1.js';
 import './entities/mech-foe-b2.js'; // 擴充：第 2 章的新敵人（B2）

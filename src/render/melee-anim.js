@@ -13,6 +13,7 @@ export const MJ = [
   ['torso', '上身', ['x', 'z']],
   ['hip', '下半身朝向', ['y']],
   ['drop', '壓低（公尺）', ['y']],
+  ['root', '骨盆位移（公尺：前、右）', ['z', 'x']],
   ['head', '頭', ['x', 'y']],
   ['upR', '右上臂', ['x', 'y', 'z']],
   ['foreR', '右前臂', ['x', 'y']],
@@ -28,6 +29,8 @@ export const MJ = [
   ['footL', '左腳掌', ['x']],
 ];
 export const MJ_AXES = Object.fromEntries(MJ.map(([k, , a]) => [k, a]));
+// 單位是公尺的關節（其他是度）
+export const isLen = (j) => j === 'drop' || j === 'root';
 // 緩動（到下一個關鍵影格的曲線）
 export const EASES = [
   ['io', '緩入緩出'],
@@ -71,7 +74,7 @@ function scaled(clip, name, k) {
       const p = {};
       for (const [j, v] of Object.entries(key.p))
         p[j] =
-          j === 'twist' || j === 'drop'
+          j === 'twist' || j === 'drop' || j === 'root'
             ? v.map((x) => x * k)
             : j === 'upR'
               ? [v[0], v[1] * k, v[2] * k]
@@ -434,21 +437,102 @@ const HEAVY = {
     K(1, 'io', { twist: [0], torso: [-5, 0], upR: [45, 0, 15], foreR: [70, 0], drop: [0.03], ...STAND }),
   ],
 };
+// 第四期（docs/mech-animation.md）：預設片段整體放大（扭轉、上身、下半身朝向、壓低、手臂的 y／z、腿），
+// 並加上骨盆位移 root（出招時往前送＝跨步突進；只是外觀，位移與判定照武器資料）
+function amp(clip, k, roots) {
+  const kl = 1 + (k - 1) * 0.6;
+  return {
+    name: clip.name,
+    keys: clip.keys.map((key) => {
+      const p = {};
+      for (const [j, v] of Object.entries(key.p)) {
+        if (j === 'twist') p[j] = v.map((x) => (Math.abs(x) <= 180 ? x * k : x));
+        else if (j === 'torso' || j === 'hip' || j === 'drop') p[j] = v.map((x) => x * k);
+        else if (j === 'upR' || j === 'upL') p[j] = [v[0], v[1] * k, v[2] * k];
+        else if (/^(thigh|knee|foot)/.test(j)) p[j] = v.map((x) => x * kl);
+        else p[j] = v.slice();
+      }
+      const r = roots && roots.find((rt) => Math.abs(rt[0] - key.t) < 1e-6);
+      if (r) p.root = [r[1], r[2] || 0];
+      return { t: key.t, e: key.e, p };
+    }),
+  };
+}
+const AMP = 1.4;
+// 骨盆位移的關鍵影格：[時間, 往前, 往右]（舊尺度的公尺）；蓄力往後收、出手往前送
+const TP = {
+  slash: amp(SLASH, AMP, [
+    [0, 0],
+    [0.22, -0.08],
+    [0.38, 0.38, 0.06],
+    [0.62, 0.32],
+    [1, 0],
+  ]),
+  slashB: amp(SLASH_B, AMP, [
+    [0, 0],
+    [0.22, -0.08],
+    [0.38, 0.38, -0.06],
+    [0.62, 0.32],
+    [1, 0],
+  ]),
+  thrust: amp(THRUST, AMP, [
+    [0, 0],
+    [0.3, -0.12],
+    [0.42, 0.5],
+    [0.75, 0.4],
+    [1, 0],
+  ]),
+  slam: amp(SLAM, AMP, [
+    [0, 0],
+    [0.35, -0.06],
+    [0.48, 0.34],
+    [0.8, 0.28],
+    [1, 0],
+  ]),
+  spin: amp(SPIN, AMP, [
+    [0, 0],
+    [0.15, -0.06],
+    [0.85, 0.22],
+    [1, 0],
+  ]),
+  ram: amp(RAM, AMP, [
+    [0, 0],
+    [0.3, -0.12],
+    [0.45, 0.55],
+    [1, 0],
+  ]),
+  pile: amp(PILE, AMP, [
+    [0, 0],
+    [0.45, -0.12],
+    [0.55, 0.45],
+    [0.85, 0.38],
+    [1, 0],
+  ]),
+  punch: amp(PUNCH, AMP, [
+    [0, 0],
+    [0.25, -0.06],
+    [0.4, 0.32],
+    [1, 0],
+  ]),
+  hook: amp(HOOK, AMP, [
+    [0, 0],
+    [0.25, -0.05],
+    [0.42, 0.26, -0.08],
+    [1, 0],
+  ]),
+  heavy: amp(HEAVY, AMP, [
+    [0, 0],
+    [0.35, -0.12],
+    [0.5, 0.45],
+    [1, 0],
+  ]),
+};
 export const TEMPLATES = {
-  slash: SLASH,
-  slashB: SLASH_B,
-  thrust: THRUST,
-  slam: SLAM,
-  spin: SPIN,
-  bigSlash: scaled(SLASH, '大斬', 1.25),
-  bigSlashB: scaled(SLASH_B, '大逆斬', 1.25),
-  claw: scaled(SLASH, '爪', 0.7),
-  clawB: scaled(SLASH_B, '逆爪', 0.7),
-  ram: RAM,
-  pile: PILE,
-  punch: PUNCH,
-  hook: HOOK,
-  heavy: HEAVY,
+  ...TP,
+  bigSlash: scaled(TP.slash, '大斬', 1.25),
+  bigSlashB: scaled(TP.slashB, '大逆斬', 1.25),
+  claw: scaled(TP.slash, '爪', 0.7),
+  clawB: scaled(TP.slashB, '逆爪', 0.7),
 };
 // 武器 → 各段招式用的片段（沒有列的武器依招式種類：spin／thrust／slam／mirror＝逆斬／其他＝橫斬）
 export const DEFAULT_MAP = {
@@ -530,7 +614,7 @@ export function clipPose(clip, ph, mirror) {
       const u = (EASE[b.e] || EASE.io)((ph - a.t) / Math.max(1e-6, b.t - a.t));
       v = a.v.map((x, n) => x + ((b.v[n] !== undefined ? b.v[n] : x) - x) * u);
     }
-    out[j] = j === 'drop' ? v.slice() : v.map((x) => x * D2R);
+    out[j] = isLen(j) ? v.slice() : v.map((x) => x * D2R);
   }
   return mirror ? mirrorPose(out) : out;
 }
@@ -541,7 +625,8 @@ export function mirrorPose(P) {
     const v = P[j];
     const to = j.endsWith('R') ? j.slice(0, -1) + 'L' : j.endsWith('L') ? j.slice(0, -1) + 'R' : j;
     const ax = MJ_AXES[j];
-    out[to] = j === 'drop' ? v.slice() : v.map((x, n) => (ax[n] === 'x' ? x : -x));
+    out[to] =
+      j === 'drop' ? v.slice() : j === 'root' ? [v[0], -v[1]] : v.map((x, n) => (ax[n] === 'x' ? x : -x));
   }
   return out;
 }
@@ -549,6 +634,7 @@ export function mirrorPose(P) {
 export function clipTarget(rig, j) {
   if (j === 'twist') return { kind: 'twist' };
   if (j === 'drop') return { kind: 'drop' };
+  if (j === 'root') return { kind: 'root' };
   if (j === 'torso') return { kind: 'rot', o: rig.torso.rotation };
   if (j === 'hip') return { kind: 'rot', o: rig.legsG.rotation };
   if (j === 'head') return rig.head ? { kind: 'rot', o: rig.head.rotation } : null;

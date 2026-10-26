@@ -344,11 +344,13 @@ function lowerBody(rig, ctx, sc) {
       targets.push(T);
     });
   }
-  // 2. 身體傾斜：lift 繞地面中心轉，往地面法線偏（二足／四足部分、履帶整個）
+  // 2. 身體傾斜：lift 繞地面中心轉，往地面法線偏（二足／四足部分、履帶整個）。
+  // 二足與四足只加「垂直 → 坡度」的那一段（以世界的垂直為起點），所以整台的前後／側傾（mesh 的 leanX／leanZ、
+  // animateMech 的全身傾斜）不會被拉回垂直；履帶照舊整個貼齊地面
   if (W.tilt > 0.002) {
     const tank = rig.type === 'tank';
     const n = groundN(world, pos.x, pos.z, qy, (tank ? 1.4 : 0.9) * sc, _d);
-    const up = _u.copy(UP).applyQuaternion(wquat(rig.lift.parent, _qw));
+    const up = tank ? _u.copy(UP).applyQuaternion(wquat(rig.lift.parent, _qw)) : _u.copy(UP);
     const k = tank ? 1 : 0.35;
     _w.copy(up).lerp(n, k).normalize();
     aimQuat(up, _w, W.tilt, tank ? 0.4 : 0.14);

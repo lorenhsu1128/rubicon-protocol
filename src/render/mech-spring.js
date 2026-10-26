@@ -32,6 +32,12 @@ export function kick(obj, key, dv) {
   v[AX[key]] += dv;
 }
 
+// 目前的速度（部位之間的先後：子部位的目標加上父部位角速度 × 負係數）
+export function springVel(obj, key) {
+  const v = VEL.get(obj);
+  return v ? v[AX[key]] : 0;
+}
+
 // 清掉速度（模型庫的動作編輯器從頭模擬時）
 export function springClear(obj) {
   VEL.delete(obj);
@@ -48,8 +54,9 @@ export function springSet(heavy) {
     pos: [16 * k, 0.5], // 起伏與蹲低
     arm: [24 * k, 0.55],
     head: [15 * k, 0.6],
-    snap: [44, 0.42], // 近戰揮擊：爆發、明顯過衝
-    clip: [70, 0.62], // 近戰的關鍵影格：緊跟著片段
+    snap: [44, 0.32], // 近戰揮擊：爆發、明顯過衝（第四期：阻尼降低＝出手後多甩一點再回來）
+    clip: [64, 0.5], // 近戰的關鍵影格：緊跟著片段、出手後稍微過衝
     sec: [10, 0.28], // 附加晃動（背包）：慢、會晃
+    root: [9 * k, 0.6], // 全身傾斜（lift）：整台的質量，比軀幹慢
   };
 }

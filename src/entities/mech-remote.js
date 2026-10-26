@@ -94,6 +94,8 @@ Object.assign(MechEntity.prototype, {
       ...this.animExtra(),
     });
     if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
+    this.trailsTick(dt);
+    this.trailsTick(dt);
     // 光暈與噴焰
     this.thrusterFx(
       dt,
