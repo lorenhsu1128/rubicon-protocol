@@ -1120,6 +1120,10 @@ Object.assign(Game.prototype, {
     $('btnCamp').style.display = mode === 'free' ? '' : 'none';
     $('btnToTitle').textContent = hub ? '返回作戰室' : lvg ? '返回關卡選單' : '回標題';
     $('btnToTitle').classList.toggle('primary', hub || lvg);
+    // 返回作戰室／關卡選單是這時的主要按鈕：放到右下（docs/garage-ui.md），其他時候是底部列的小按鈕
+    const tt = $('btnToTitle');
+    const ttBox = document.querySelector(hub || lvg ? '#gActions .gMain' : '#gActions .gSub');
+    if (ttBox && tt.parentElement !== ttBox) ttBox.appendChild(tt);
     if (inG || hub || lvg) $('btnSortie').style.display = 'none';
     if (inG) $('btnToTitle').style.display = 'none';
     $('gMap').style.display = inG || hub || lvg ? 'none' : ''; // 主線的地圖由出擊決定

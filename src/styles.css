@@ -689,191 +689,6 @@ body.vpad #vpad .top {
   }
 }
 
-/* ---------- 手機／窄螢幕車庫 ---------- */
-@media (max-width: 1000px), (max-height: 540px) {
-  #garageLeft {
-    width: 52vw;
-    min-width: 0;
-  }
-  #garageRight {
-    width: 48vw;
-    min-width: 0;
-    padding: 10px 12px;
-  }
-  #garageMid {
-    display: none;
-  }
-  #gTitle {
-    padding: 8px 10px 6px;
-  }
-  #gTitle h2 {
-    font-size: 15px;
-  }
-  #gTitle .coam {
-    font-size: 13px;
-  }
-  #slots {
-    gap: 3px;
-    padding: 6px 8px;
-  }
-  .slot {
-    padding: 3px 6px;
-    font-size: 11px;
-  }
-  .slot b {
-    font-size: 9px;
-  }
-  #partList {
-    padding: 6px 8px;
-  }
-  .part {
-    padding: 5px 8px;
-    margin-bottom: 4px;
-  }
-  .part .n {
-    font-size: 12px;
-  }
-  .part .s {
-    font-size: 10px;
-  }
-  .part .pr {
-    font-size: 11px;
-  }
-  .stat {
-    font-size: 12px;
-    padding: 3px 0;
-  }
-  #garageRight h2 {
-    font-size: 15px;
-    margin: 0 0 6px;
-  }
-  #gActions {
-    margin-top: 8px;
-    gap: 6px;
-  }
-  #gActions button {
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-  #missionCard {
-    display: none;
-  }
-  #garageRight .dim {
-    font-size: 10px;
-  }
-}
-
-/* ---------- Garage ---------- */
-#garage {
-  display: none;
-  pointer-events: auto;
-  flex-direction: row;
-  gap: 0;
-}
-#garage.on {
-  display: flex;
-}
-#garageLeft {
-  width: min(360px, 42vw);
-  height: 100%;
-  overflow: auto;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-}
-#garageRight {
-  width: min(300px, 36vw);
-  height: 100%;
-  box-sizing: border-box;
-  overflow: auto;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-  margin-left: auto;
-  padding: 16px;
-}
-#garageMid {
-  flex: 1;
-  position: relative;
-  pointer-events: auto; /* 拖曳繞看機體（game/hangar.js） */
-  cursor: grab;
-  touch-action: none;
-}
-#gTitle {
-  padding: 14px 16px 8px;
-  border-bottom: 1px solid var(--line);
-}
-#gTitle h2 {
-  margin: 0;
-  font-size: 18px;
-}
-#gTitle .coam {
-  color: var(--acc);
-  font-weight: 700;
-  font-size: 15px;
-}
-#slots {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-.slot {
-  border: 1px solid var(--line);
-  padding: 5px 8px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.slot b {
-  display: block;
-  color: var(--dim);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  font-weight: 600;
-}
-.slot.sel {
-  border-color: var(--acc);
-  background: rgba(255, 176, 32, 0.1);
-}
-#partList {
-  padding: 8px 12px;
-  flex: 1;
-}
-.part {
-  border: 1px solid var(--line);
-  padding: 7px 10px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-.part:hover {
-  border-color: var(--acc2);
-}
-.part.eq {
-  border-color: var(--acc);
-  background: rgba(255, 176, 32, 0.08);
-}
-.part .n {
-  font-weight: 600;
-  font-size: 13px;
-}
-.part .s {
-  font-size: 11px;
-  color: var(--dim);
-  margin-top: 2px;
-}
-.part .pr {
-  font-size: 12px;
-  color: var(--acc);
-  white-space: nowrap;
-}
-.part.locked .pr {
-  color: var(--dim);
-}
 .stat {
   display: flex;
   justify-content: space-between;
@@ -948,67 +763,6 @@ select {
   margin: 4px 0;
   font-size: 13px;
 }
-#gWarn {
-  color: var(--danger);
-  font-size: 12px;
-  margin: 8px 0;
-  min-height: 18px;
-}
-#gActions {
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-/* 高螢幕（電腦、平板）：按鈕區固定在右欄底部、兩欄排列，主要按鈕一定看得到 */
-@media (min-height: 700px) and (min-width: 1001px) {
-  #gActions {
-    position: sticky;
-    bottom: -16px;
-    margin: 10px -16px -16px;
-    padding: 10px 16px 14px;
-    background: #0d131a;
-    box-shadow: 0 -8px 12px rgba(13, 19, 26, 0.9);
-    border-top: 1px solid var(--line);
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    z-index: 2;
-  }
-  #gActions button {
-    padding: 7px 4px;
-    font-size: 11.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #gActions .primary,
-  #gActions #gCamp {
-    grid-column: 1 / -1;
-  }
-  #gActions .primary {
-    padding: 10px;
-    font-size: 14px;
-  }
-}
-#missionCard {
-  position: absolute;
-  left: 50%;
-  top: 18px;
-  transform: translateX(-50%);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 10px 18px;
-  font-size: 13px;
-  text-align: center;
-  pointer-events: none;
-}
-#missionCard b {
-  color: var(--acc);
-  font-size: 15px;
-  letter-spacing: 0.1em;
-}
-
 /* result */
 #resultGrid {
   display: grid;
@@ -1032,12 +786,6 @@ select {
 @media (max-width: 720px) {
   h1 {
     font-size: 30px;
-  }
-  #garageLeft {
-    width: 52vw;
-  }
-  #garageRight {
-    width: 46vw;
   }
   #hudBottom {
     width: 52vw;
@@ -4977,5 +4725,933 @@ select:disabled option {
   }
   #labDemoCap b {
     font-size: 16px;
+  }
+}
+
+/* ---------- 機甲庫的換裝介面（docs/garage-ui.md、game/garage-ui.js） ---------- */
+#garage {
+  display: none;
+  pointer-events: auto;
+  --gGlass: rgba(9, 13, 18, 0.8);
+  --gEdge: rgba(255, 255, 255, 0.1);
+  --dimbar: #7a8794;
+}
+#garage.on {
+  display: block;
+}
+#garageMid {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto; /* 拖曳繞看機體（game/hangar.js） */
+  cursor: grab;
+  touch-action: none;
+}
+#gCallout {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* 上方列 */
+#gTop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  background: linear-gradient(180deg, rgba(6, 9, 13, 0.92), rgba(6, 9, 13, 0));
+  pointer-events: none;
+}
+#gTop > * {
+  pointer-events: auto;
+}
+#gTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  white-space: nowrap;
+}
+#gTitle h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+#gTitle .coam {
+  color: var(--acc);
+  font-weight: 700;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+#missionCard {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+}
+#missionCard b {
+  color: var(--acc);
+  margin-right: 10px;
+  letter-spacing: 0.1em;
+}
+#gTabs {
+  display: flex;
+  gap: 2px;
+}
+#gTabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 6px 16px;
+  font-size: 14px;
+  color: var(--dim);
+  background: none;
+}
+#gTabs button.on {
+  color: var(--ink);
+  border-bottom-color: var(--acc);
+}
+/* 雙翼的部位格 */
+#slots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.gWing {
+  position: absolute;
+  top: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+#gWingL {
+  left: 20px;
+}
+#gWingR {
+  right: 20px;
+  align-items: flex-end;
+}
+#garage .slot {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  letter-spacing: 0;
+}
+#gWingR .slot {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.gThumb {
+  width: 58px;
+  height: 58px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--gGlass);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+.gThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.gIco {
+  width: 58%;
+  height: 58%;
+  color: var(--ink);
+}
+.gSlotT {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000;
+}
+.gSlotT small {
+  display: block;
+  color: #b7c3cf;
+  font-size: 12px;
+}
+#garage .slot:hover .gThumb {
+  border-color: var(--acc2);
+}
+#garage .slot.sel .gThumb {
+  border-color: var(--acc);
+  box-shadow: 0 0 14px rgba(255, 176, 32, 0.35);
+}
+#garage .slot.sel .gSlotT span {
+  color: var(--acc);
+}
+#garage .slot.empty .gIco {
+  color: var(--dim);
+}
+/* 零件格子＋小卡片 */
+#gFly {
+  position: absolute;
+  display: none;
+  width: 336px;
+  padding: 10px;
+  background: var(--gGlass);
+  border: 1px solid var(--gEdge);
+  backdrop-filter: blur(4px);
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100% - 150px);
+  overflow: auto;
+}
+#gFly.on {
+  display: flex;
+}
+#gFlyHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+#gFlyHead .dim {
+  font-size: 11px;
+}
+#partList {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+#garage .part {
+  position: relative;
+  padding: 0;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+#garage .part .gThumb {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: none;
+}
+#garage .part .pM {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 1px;
+  font-size: 9px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  letter-spacing: 0;
+}
+#garage .part i {
+  position: absolute;
+  font-style: normal;
+  font-size: 9px;
+  line-height: 1;
+}
+#garage .part .pPr,
+#garage .part .pN {
+  left: 3px;
+  top: 3px;
+  color: var(--acc);
+}
+#garage .part .dUp,
+#garage .part .dDn {
+  right: 3px;
+  top: 3px;
+}
+.dUp,
+#garage .up {
+  color: var(--hp);
+}
+.dDn,
+#garage .dn {
+  color: var(--danger);
+}
+#garage .part.eq {
+  border-color: var(--acc);
+}
+#garage .part.eq::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+#garage .part.locked .gThumb {
+  opacity: 0.4;
+}
+#garage .part:hover,
+#garage .part.padFocus {
+  border-color: var(--acc2);
+  background: rgba(92, 200, 255, 0.1);
+}
+#gTip {
+  border-top: 1px solid var(--gEdge);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+#gTip .tH {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#gTip .tH b {
+  font-size: 14px;
+}
+.tAttr {
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid var(--c);
+  color: var(--c);
+}
+#gTip .tD {
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+#gTip .tR {
+  display: grid;
+  grid-template-columns: 72px 1fr 56px 58px;
+  gap: 8px;
+  align-items: center;
+  color: var(--dim);
+}
+#gTip .tR span:nth-child(3) {
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#gTip .tR span:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tBar {
+  position: relative;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.tBar b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink);
+  opacity: 0.85;
+}
+.tBar s {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--acc);
+}
+.tDefs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 2px;
+}
+.tDefs span {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px;
+  align-items: center;
+  font-size: 11px;
+}
+.tDefs i {
+  font-style: normal;
+  color: var(--c);
+}
+.tDefs b {
+  display: block;
+  height: 5px;
+  background: var(--c);
+}
+.tDefs em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+#gTip .tA {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+#gTip .tA button {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+#gTip .tOn {
+  color: var(--acc);
+}
+/* 六角圖與量表 */
+#gHex {
+  position: absolute;
+  right: 20px;
+  bottom: 84px;
+  width: 230px;
+  padding: 8px 10px 4px;
+  background: var(--gGlass);
+  border: 1px solid var(--gEdge);
+  pointer-events: none;
+}
+.gHexH {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.gHexH .dim {
+  font-size: 11px;
+}
+.hexSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.hexSvg .hxG {
+  fill: rgba(255, 255, 255, 0.03);
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 0.5;
+}
+.hexSvg .hxG2 {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 0.4;
+}
+.hexSvg .hxCur {
+  fill: rgba(255, 176, 32, 0.25);
+  stroke: var(--acc);
+  stroke-width: 0.8;
+}
+.hexSvg .hxPrev {
+  fill: rgba(92, 200, 255, 0.12);
+  stroke: var(--acc2);
+  stroke-width: 0.7;
+  stroke-dasharray: 1.6 1.2;
+}
+.hexSvg text {
+  font-family: 'Chakra Petch', 'Noto Sans TC', sans-serif;
+}
+.hexSvg .hxL {
+  fill: var(--ink);
+  font-size: 8px;
+}
+.hexSvg .hxL.up {
+  fill: var(--hp);
+}
+.hexSvg .hxL.dn {
+  fill: var(--danger);
+}
+.hexSvg .hxV {
+  fill: var(--ink);
+  font-size: 5px;
+}
+#gMeters {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 84px;
+  width: min(720px, calc(100% - 640px));
+  min-width: 420px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 18px;
+  padding: 9px 14px;
+  background: var(--gGlass);
+  border: 1px solid var(--gEdge);
+  pointer-events: none;
+  font-size: 11px;
+}
+.gM > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.gM > div:first-child span:last-child {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.gM em {
+  font-style: normal;
+}
+.gMb {
+  position: relative;
+  height: 5px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.gMb b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink);
+}
+.gMb s {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--hp);
+}
+.gMb s.dn {
+  background: var(--danger);
+}
+.gM.over .gMb b {
+  background: var(--danger);
+}
+.gM.over > div:first-child span:last-child {
+  color: var(--danger);
+}
+/* 底部列 */
+#gBottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 20px;
+  background: linear-gradient(0deg, rgba(6, 9, 13, 0.92), rgba(6, 9, 13, 0));
+  pointer-events: none;
+}
+#gActions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+#gActions .gSub,
+#gActions .gMain {
+  pointer-events: auto;
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+#gActions .gSub button {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--gGlass);
+}
+#gActions .gMain {
+  flex-direction: column;
+  align-items: flex-end;
+}
+#gActions .gMain > .primary {
+  min-width: 200px;
+  padding: 12px 28px;
+  font-size: 16px;
+  letter-spacing: 0.2em;
+}
+#gWarn {
+  color: var(--danger);
+  font-size: 12px;
+  text-shadow: 0 0 4px #000;
+}
+#gWarn:empty {
+  display: none;
+}
+#gCamp {
+  background: var(--gGlass);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  max-width: 460px;
+}
+#gCamp .gCampBtns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+#gCamp .gCampBtns button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+/* 規格頁、設定頁 */
+.gPage {
+  position: absolute;
+  right: 20px;
+  top: 64px;
+  bottom: 84px;
+  width: min(620px, 50vw);
+  overflow: auto;
+  display: none;
+  padding: 14px 16px;
+  background: var(--gGlass);
+  border: 1px solid var(--gEdge);
+  backdrop-filter: blur(4px);
+}
+#garage[data-tab='spec'] #gSpec,
+#garage[data-tab='set'] #gSet {
+  display: block;
+}
+#garage[data-tab='spec'] .gWing,
+#garage[data-tab='set'] .gWing,
+#garage[data-tab='spec'] #gFly,
+#garage[data-tab='set'] #gFly,
+#garage[data-tab='spec'] #gHex,
+#garage[data-tab='set'] #gHex,
+#garage[data-tab='spec'] #gMeters,
+#garage[data-tab='set'] #gMeters {
+  display: none;
+}
+.gPageH {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.gPageH h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.gPageH label {
+  font-size: 12px;
+}
+#gSpecCharts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.sC {
+  min-width: 0;
+  border: 1px solid var(--gEdge);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sC.wide,
+.sC.hexC {
+  grid-column: 1 / -1;
+}
+.sC.hexC {
+  border: 0;
+  padding: 0;
+  align-items: center;
+}
+.sC.hexC .hexSvg {
+  width: min(360px, 100%);
+}
+.sC h3 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+.sR {
+  display: grid;
+  grid-template-columns: 84px 1fr minmax(70px, auto);
+  white-space: nowrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.sR.fire {
+  grid-template-columns: 130px 1fr 96px;
+}
+.sR span:first-child {
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sR span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sR em {
+  font-style: normal;
+}
+.sB {
+  position: relative;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.sB b,
+.sB u {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink);
+}
+.sB u {
+  opacity: 0.3;
+}
+.aDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+}
+.sSum {
+  font-size: 12px;
+  color: var(--dim);
+  text-align: right;
+}
+.sSum b {
+  color: var(--ink);
+}
+.sSub,
+.sNote {
+  font-size: 11px;
+  color: var(--dim);
+}
+.sHit {
+  display: flex;
+  gap: 12px;
+  justify-content: space-around;
+}
+.sHit > div {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 4px;
+  justify-items: center;
+  font-size: 11px;
+  color: var(--dim);
+}
+.sHit > div > span:first-child {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.col {
+  position: relative;
+  width: 22px;
+  height: 64px;
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  display: block;
+}
+.col b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--acc2);
+}
+.col.far b {
+  background: #3b7fa6;
+}
+.col em {
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  transform: translateX(-50%);
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ink);
+}
+.sAs {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+}
+.sAs > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--dim);
+}
+.sAs .col b {
+  background: var(--acc);
+}
+.sAs > .sAsT {
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 12px;
+}
+.sAsT b {
+  color: var(--ink);
+}
+.sChips {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.sChips b {
+  color: var(--ink);
+}
+.gListH {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+#gSpec #stats {
+  columns: 2;
+  column-gap: 18px;
+}
+#gSpec #stats .stat {
+  break-inside: avoid;
+  font-size: 12px;
+}
+#gSpec #gFire {
+  margin-top: 10px;
+}
+#gSpec #gFire .stat {
+  font-size: 12px;
+}
+#gSet .krow {
+  padding: 10px 0;
+}
+.gSws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.gSw {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.gSw i {
+  width: 16px;
+  height: 16px;
+  background: var(--c);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.gSw.on {
+  border-color: var(--acc);
+  background: rgba(255, 176, 32, 0.12);
+}
+/* 機甲庫：手機橫式等矮螢幕（兩翼只剩縮圖、零件格子打開時量表收起、六角圖在規格頁） */
+@media (max-height: 540px) {
+  #gTop {
+    height: 40px;
+    gap: 10px;
+    padding: 0 10px;
+  }
+  #gTitle h2 {
+    font-size: 15px;
+  }
+  #gTitle .coam {
+    font-size: 12px;
+  }
+  #missionCard {
+    display: none;
+  }
+  #gTabs button {
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+  .gWing {
+    top: 44px;
+    gap: 3px;
+  }
+  #gWingL {
+    left: 8px;
+  }
+  #gWingR {
+    right: 8px;
+  }
+  .gWing .gThumb {
+    width: 38px;
+    height: 38px;
+  }
+  .gSlotT {
+    display: none;
+  }
+  #gFly {
+    width: min(300px, 40vw);
+    padding: 6px;
+    gap: 5px;
+    max-height: calc(100% - 96px);
+  }
+  #partList {
+    gap: 3px;
+  }
+  #gTip {
+    font-size: 11px;
+  }
+  #gTip .tR {
+    grid-template-columns: 58px 1fr 48px 48px;
+    gap: 4px;
+  }
+  #gTip .tD {
+    display: none;
+  }
+  #gHex {
+    display: none;
+  }
+  #gMeters {
+    left: 56px;
+    right: 56px;
+    bottom: 48px;
+    width: auto;
+    min-width: 0;
+    transform: none;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 3px 12px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  #garage.flyOn #gMeters {
+    display: none;
+  }
+  #gBottom {
+    padding: 6px 8px;
+  }
+  #gActions .gSub button {
+    padding: 4px 7px;
+    font-size: 10.5px;
+  }
+  #gActions .gMain > .primary {
+    min-width: 110px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+  #gCamp {
+    max-width: 300px;
+    padding: 6px;
+  }
+  .gPage {
+    top: 42px;
+    bottom: 48px;
+    right: 6px;
+    width: calc(100% - 12px);
+    padding: 8px 10px;
+  }
+  #gSpecCharts {
+    grid-template-columns: 1fr;
+  }
+  #gSpec #stats {
+    columns: 1;
   }
 }

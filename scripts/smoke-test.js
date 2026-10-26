@@ -168,6 +168,22 @@ async function waitVisible(page, id, ms = 10000) {
 // 那一格跑完才回傳），之後由 window.__pump(秒, 停止條件) 以固定 dt 逐格呼叫 g.loop()（每格前把 lastT 往前推 dt，
 // 所以 loop 算出的 dt 固定；照常更新與算繪，截圖拍得到）。回傳推進的秒數，停止條件一直沒成立時回傳 -1。
 // 負載高時實際時間換算的遊戲時間不固定，要檢查遊戲邏輯的結果時用它（同 testMpBosses 推進房主的主迴圈）
+// 機甲庫的設定頁：地圖、機體配色、模型組在子分頁裡（docs/garage-ui.md）
+async function gSetTab(page) {
+  // 機甲庫重畫（本地模型讀完等）之後也要停在設定頁：等到設定頁真的顯示
+  await page.waitForFunction(
+    () => {
+      // 沒有 ?test 時沒有 window.__game：點子分頁的按鈕
+      const btn = document.querySelector('#gTabs [data-tab="set"]');
+      if (btn && !btn.classList.contains('on') && document.getElementById('garage').classList.contains('on'))
+        btn.click();
+      const e = document.getElementById('gSet');
+      return !!(e && e.offsetParent);
+    },
+    null,
+    { timeout: 10000 },
+  );
+}
 async function freezeLoop(page) {
   await page.evaluate(
     () =>
@@ -1827,6 +1843,7 @@ async function testMaps(browser, base) {
     ['institute', ['coraltank', 'crystal']],
     ['snow', ['quonset', 'ice']],
   ]) {
+    await gSetTab(page);
     await page.selectOption('#gMapSel', key);
     await page.evaluate(() => localStorage.setItem('rubicon_variant', 'base')); // 標準變體（隨機的變體物件組不同）
     await page.click('#btnSortie');
@@ -1893,6 +1910,7 @@ async function testMaps(browser, base) {
       (await page.evaluate(() => localStorage.getItem('rubicon_map'))) === 'snow',
     '車庫記住選的地圖',
   );
+  await gSetTab(page);
   await page.selectOption('#gMapSel', '');
   await ctx.close();
 }
@@ -3960,6 +3978,7 @@ async function testLocalModels(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'local-models-garage.png') });
   const note = (await page.textContent('#gLocal')) || '';
   check(note.includes('3 個區塊使用 GLB'), `車庫的機甲換上本地 GLB（${note.trim()}）`);
+  await gSetTab(page);
   await page.selectOption('#gMapSel', 'industrial'); // 有貨櫃、路燈、碎塊的舊主題
   await page.click('#btnSortie');
   check(await waitVisible(page, 'hudWrap', 15000), '出擊後 HUD 顯示');
@@ -4011,6 +4030,7 @@ async function testLocalModels(browser, base) {
   await mp.click('#btnLobbyGarage');
   check(await waitVisible(mp, 'garage'), '多人：大廳進車庫');
   await wait(1200);
+  await gSetTab(mp);
   const mpNote = (await visible(mp, 'gLocal')) ? (await mp.textContent('#gLocal')) || '' : '';
   check(!mpNote.includes('本地'), `多人時不套用本地模型（${mpNote || '程式模型'}）`); // 內建的玩家預設機甲照常顯示
   await ctx.close();
@@ -4469,6 +4489,7 @@ async function testMechPack(page, game, base) {
   await waitVisible(game, 'title');
   await newCareer(game);
   await waitVisible(game, 'garage');
+  await gSetTab(game);
   await game.waitForSelector('#gMechSel', { timeout: 8000 });
   const opt = await game.$$eval('#gMechSel optgroup', (gs) =>
     gs.map((g) => g.label + ':' + [...g.querySelectorAll('option')].map((o) => o.textContent).join('/')),
@@ -4641,6 +4662,7 @@ async function testServerModels(browser, url) {
   await wait(1500);
   t = (await game.textContent('#gLocal')) || '';
   check(t.includes('伺服器預設組：此機'), `沒選本地模型組時，車庫的機甲用伺服器預設組（${t.trim()}）`);
+  await gSetTab(game);
   await game.waitForSelector('#gModelSetSel');
   await game.selectOption('#gModelSetSel', idA);
   await wait(2000);
@@ -6388,6 +6410,7 @@ async function testCampaign2(browser, base) {
     g.openGarage();
   });
   await waitVisible(page, 'garage');
+  await gSetTab(page);
   await page.selectOption('#gMapSel', 'desert');
   const opts = await page.$$eval('#gVarSel option', (l) => l.map((o) => o.textContent));
   check(

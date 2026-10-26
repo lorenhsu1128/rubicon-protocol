@@ -7,6 +7,7 @@ import './game/input.js';
 import './game/settings.js';
 import './game/local-lib.js';
 import './game/garage.js';
+import './game/garage-ui.js';
 import './game/hangar.js';
 import './game/pilot.js';
 import './game/pilot-ui.js';

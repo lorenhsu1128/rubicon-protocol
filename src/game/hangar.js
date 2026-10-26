@@ -289,12 +289,22 @@ Object.assign(Game.prototype, {
       C.tgt.z + Math.cos(C.yaw) * cp * C.dist,
     );
     cam.lookAt(C.tgt);
-    // 機體放在左右面板中間（面板寬度不同時畫面中心偏移）
+    // 機體放在兩翼（＋左邊打開的零件格子）中間；規格頁、設定頁時放在左邊空出來的地方（docs/garage-ui.md）
     const w = innerWidth,
       h = innerHeight;
-    const l = document.getElementById('garageLeft'),
-      r = document.getElementById('garageRight');
-    const off = ((l ? l.offsetWidth : 0) - (r ? r.offsetWidth : 0)) / 2;
+    const rect = (id) => {
+      const e = document.getElementById(id);
+      return e && e.offsetParent ? e.getBoundingClientRect() : null;
+    };
+    const page = rect('gSpec') || rect('gSet');
+    const L = rect('gWingL'),
+      R = rect('gWingR'),
+      fly = rect('gFly');
+    let lx = L ? L.right : 0,
+      rx = R ? R.left : w;
+    if (fly && fly.left < w / 2) lx = Math.max(lx, fly.right);
+    if (page) rx = Math.min(rx, page.left);
+    const off = (lx + rx) / 2 - w / 2;
     if (Math.abs(off) > 2) cam.setViewOffset(w, h, -off, 0, w, h);
     else cam.clearViewOffset();
   },
@@ -330,6 +340,7 @@ Object.assign(Game.prototype, {
     if (hg.launch) {
       this.hangarLaunchTick(dt);
       this.hangarCamera(dt);
+      this.garageUiTick(); // 出擊演出中清掉標註線
       return;
     }
     this.hangarHoverTick(dt);
@@ -339,6 +350,7 @@ Object.assign(Game.prototype, {
       this.hangarFocus(hg.slot);
     }
     this.hangarCamera(dt);
+    this.garageUiTick(); // 游標停留的小卡片、標註線（garage-ui.js）
   },
   // ---------- 全像預覽：滑鼠停在零件上（手把的焦點）時，疊上換上之後的區塊 ----------
   hangarHoverTick(dt) {

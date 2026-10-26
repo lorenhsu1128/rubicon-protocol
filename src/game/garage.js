@@ -57,6 +57,8 @@ Object.assign(Game.prototype, {
   },
   openGarage() {
     this.state = 'garage';
+    this.gTab = 'eq'; // 進來時一律在裝備頁、零件格子打開（docs/garage-ui.md）
+    this.gFlyOpen = true;
     this.styleRefresh();
     this.showScreen('garage');
     if (this.player) {
@@ -105,109 +107,11 @@ Object.assign(Game.prototype, {
         : `目標：肅清隨機戰區內所有敵對兵力（預估 ${Math.round(6 + L * 2.2)} 戰力點，分波來襲）`) +
       '　每擊破一台即時入帳 COAM，無修理費';
     this.garageFireCache = null; // 理論火力（range.js）：每次重畫重新計算
-    const slots = $('slots');
-    slots.innerHTML = '';
-    for (const [key, label, cat] of SLOTS) {
-      const d = document.createElement('div');
-      d.className = 'slot' + (this.garageSlot === key ? ' sel' : '');
-      d.innerHTML = `<b>${label}</b>${partById(cat, asm[key]).name}`;
-      d.onclick = () => {
-        this.garageSlot = key;
-        SFX.ui();
-        this.renderGarage();
-      };
-      slots.appendChild(d);
-    }
-    const [key, label, cat] = SLOTS.find((s) => s[0] === this.garageSlot);
-    const list = $('partList');
-    list.innerHTML = `<div class="dim" style="font-size:12px;margin:4px 0 8px">${label} — 可用零件</div>`;
-    if (cat === 'consumable') {
-      S.items = S.items || {};
-      for (const p of PARTS[cat]) {
-        const eq = asm[key] === p.id;
-        const n = S.items[p.id] || 0;
-        const d = document.createElement('div');
-        d.className = 'part' + (eq ? ' eq' : '');
-        if (p.id === 'cs_none') {
-          d.innerHTML = `<div><div class="n">${p.name}</div></div><div class="pr">${eq ? '已裝備' : '裝備'}</div>`;
-          d.onclick = () => {
-            asm[key] = p.id;
-            this.writeSave();
-            this.renderGarage();
-          };
-        } else {
-          d.innerHTML = `<div><div class="n">${p.name}　<span style="color:var(--acc2)">持有 ×${n}</span></div><div class="s">${p.desc}</div></div><div style="display:flex;flex-direction:column;gap:4px"><button class="buy" style="padding:4px 8px;font-size:12px">購買 ${p.price.toLocaleString()} C</button><button class="eqb" style="padding:4px 8px;font-size:12px">${eq ? '已裝備' : '裝備'}</button></div>`;
-          d.querySelector('.buy').onclick = (ev) => {
-            ev.stopPropagation();
-            if (n >= p.max) {
-              this.flashMsg(`最多攜帶 ${p.max} 個`, 0xff4d4d, 1);
-              return;
-            }
-            if (S.coam >= p.price) {
-              S.coam -= p.price;
-              S.items[p.id] = n + 1;
-              SFX.ui();
-            } else this.flashMsg('COAM 不足', 0xff4d4d, 1);
-            this.writeSave();
-            this.renderGarage();
-          };
-          d.querySelector('.eqb').onclick = (ev) => {
-            ev.stopPropagation();
-            asm[key] = p.id;
-            const other = key === 'c1' ? 'c2' : 'c1';
-            if (asm[other] === p.id) asm[other] = 'cs_none';
-            this.writeSave();
-            this.renderGarage();
-          };
-        }
-        list.appendChild(d);
-      }
-    } else
-      for (const p of PARTS[cat]) {
-        const owned = S.owned.includes(p.id);
-        const eq = asm[key] === p.id;
-        const d = document.createElement('div');
-        d.className = 'part' + (eq ? ' eq' : '') + (owned ? '' : ' locked');
-        d.dataset.pid = p.id; // 滑鼠停留時的全像預覽（hangar.js）
-        let spec = '';
-        if (cat === 'arm' || cat === 'back') {
-          if (p.type === 'melee')
-            spec = `${p.combo.length} 段 · 總傷 ${p.combo.reduce((a, c) => a + c.dmg, 0)} · 終結衝擊 ${p.combo[p.combo.length - 1].impact}`;
-          else if (p.type !== 'none' && p.type !== 'shield')
-            spec = `傷 ${p.dmg} · 衝擊 ${p.impact} · 射程 ${p.range}${usesAmmo(p) ? ' · 彈匣 ' + p.mag : ''}`;
-          else if (p.type === 'shield') spec = '被動減傷 55%';
-          // 屬性、實彈的理想射程、直擊補正（data/attrs.js）
-          if (!['none', 'shield'].includes(p.type)) {
-            const A = ATTRS[weaponAttr(p)];
-            spec = `<b style="color:${A.color}">[${A.name}]</b> ${spec}${p.ideal ? ' · 理想射程 ' + p.ideal : ''} · 直擊 ×${directOf(p)}`;
-          }
-        } else if (cat === 'legs') spec = `AP ${p.ap} · 負重 ${p.load} · 速 ${p.speed}`;
-        else if (cat === 'generator') spec = `容量 ${p.cap} · 輸出 ${p.output} · 回充 ${p.recharge}`;
-        else if (cat === 'booster') spec = `推力 ×${p.thrust} · QB ${p.qb}`;
-        else if (cat === 'fcs')
-          spec = `鎖定距離 ${p.range} · 輔助 近/中/遠 ${(p.assist || [0.6, 0.6, 0.45]).map((v) => Math.round(v * 100)).join('/')} · 導彈鎖定 ${(1 / (p.lockSpeed || 1)).toFixed(1)} 秒`;
-        else spec = `AP ${p.ap} · 穩定 ${p.stab}`;
-        if (p.defs) spec += ` · 防 實/爆/能 ${p.defs.join('/')}`;
-        if (cat === 'arms' && p.aim) spec += ` · 射擊適性 ${Math.round(p.aim * 100)}`;
-        if (cat === 'generator') spec += ` · 能量適性 ${Math.round((p.enAdapt || 1) * 100)}%`;
-        const dl = eq ? '' : this.garagePartDelta(key, cat, p); // 換上後的 DPS／有效 AP 變化
-        d.innerHTML = `<div><div class="n">${p.name}${dl ? ' ' + dl : ''}</div><div class="s">${spec}${p.desc ? ' · ' + p.desc : ''}${p.weight !== undefined ? ' · 重 ' + p.weight + ' · EN ' + p.en : ''}</div></div><div class="pr">${owned ? (eq ? '已裝備' : '裝備') : p.price.toLocaleString() + ' C'}</div>`;
-        d.onclick = () => {
-          if (!owned) {
-            if (S.coam >= p.price) {
-              S.coam -= p.price;
-              S.owned.push(p.id);
-              asm[key] = p.id;
-              SFX.ui();
-            } else {
-              this.flashMsg('COAM 不足', 0xff4d4d, 1);
-            }
-          } else asm[key] = p.id;
-          this.writeSave();
-          this.renderGarage();
-        };
-        list.appendChild(d);
-      }
+    // 部位格、零件格子與小卡片、量表與六角圖（game/garage-ui.js）
+    this.garageUiInit();
+    if (!SLOTS.some((x) => x[0] === this.garageSlot)) this.garageSlot = 'rarm';
+    this.garageSlotsUi();
+    this.garageFlyUi();
     // stats：顯示套用駕駛員技能後的數值（出擊條件仍以原始數值判斷）
     const P = st.parts;
     const pMode = this.pilotCtxMode();
@@ -258,7 +162,8 @@ Object.assign(Game.prototype, {
       .map((r) => `<div class="stat ${r[2] || ''}"><span>${r[0]}</span><span>${r[1]}</span></div>`)
       .join('');
     $('gFire').innerHTML = this.garageFireHtml();
-    $('gFirePm').onchange = (e) => {
+    $('gSpecPm').checked = this.rangePmOn();
+    $('gSpecPm').onchange = (e) => {
       const cfg = this.rangeCfgGet();
       cfg.pm = e.target.checked;
       try {
@@ -278,15 +183,6 @@ Object.assign(Game.prototype, {
       P.lback.type === 'none'
     )
       warn.push('未裝備任何武器');
-    {
-      const mc = document.getElementById('missionCard');
-      const mm = document.getElementById('gMissionM');
-      if (mm) {
-        const narrow = innerWidth <= 1000 || innerHeight <= 540;
-        mm.style.display = narrow ? '' : 'none';
-        if (narrow) mm.innerHTML = mc ? mc.innerHTML.replace(/<br\s*\/?>/g, ' ') : '';
-      }
-    }
     this.garageMapUi();
     this.garagePalUi();
     $('gWarn').textContent = warn.join('　');
@@ -304,6 +200,9 @@ Object.assign(Game.prototype, {
     if (mp && warn.length) $('btnGarageLobby').disabled = true;
     else $('btnGarageLobby').disabled = false;
     this.campGarageUi(warn);
+    this.gHoverPid = undefined;
+    this.garageHover(null);
+    this.garageTab(this.gTab || 'eq');
     // 整備架上的機體：組裝變了時舊的機體留著播換裝（hangar.js），否則直接換掉
     this.hangarEnsure();
     this.hangarFinish();
@@ -339,15 +238,18 @@ Object.assign(Game.prototype, {
       el.innerHTML = '<span>機體配色</span><span class="dim">多人時依玩家順序</span>';
       return;
     }
-    el.innerHTML = `<span>機體配色</span><span><select id="gPalSel">${MECH_COLORS.map(
-      ([k, n]) => `<option value="${k}">${escHtml(n)}</option>`,
-    ).join('')}</select></span>`;
-    const sel = document.getElementById('gPalSel');
-    sel.value = this.myPalKey();
-    sel.onchange = () => {
-      this.save.mechPal = sel.value;
-      this.renderGarage();
-    };
+    const hex = (k) => '#' + new THREE.Color(PALETTES[k].main).getHexString();
+    const cur = this.myPalKey();
+    el.innerHTML = `<span>機體配色</span><span class="gSws">${MECH_COLORS.map(
+      ([k, n]) =>
+        `<button class="gSw${k === cur ? ' on' : ''}" data-pal="${k}" title="${escHtml(n)}" style="--c:${hex(k)}"><i></i><span>${escHtml(n)}</span></button>`,
+    ).join('')}</span>`;
+    for (const b of el.querySelectorAll('[data-pal]'))
+      b.onclick = () => {
+        this.save.mechPal = b.dataset.pal;
+        SFX.ui();
+        this.renderGarage();
+      };
   },
   // 出擊地圖：單人與房主可選（房主的選擇同步到大廳），客機只顯示房主選的
   garageMapUi() {

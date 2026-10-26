@@ -823,7 +823,7 @@ Object.assign(Game.prototype, {
   garageFireHtml() {
     const F = this.garageFire(this.save.asm);
     const row = (a, b, c = '') => `<div class="stat ${c}"><span>${a}</span><span>${b}</span></div>`;
-    let h = `<h3 class="gFireH">火力（理論值）<label class="dim"><input type="checkbox" id="gFirePm"${this.rangePmOn() ? ' checked' : ''}> 套用加成</label></h3>`;
+    let h = '<h3 class="gFireH">火力（理論值）</h3>';
     for (const w of F.ws)
       h += row(
         `${SLOT_NAMES[w.slot]}　<b style="color:${ATTRS[w.attr].color}">${ATTRS[w.attr].short}</b> ${escHtml(w.name)}`,

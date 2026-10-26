@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/rts-design.md`：即時戰略模式「Coral 戰爭」（魔獸爭霸3 式：指揮官視角、蓋基地採資源、英雄、四陣營、戰爭迷霧、對稱地圖產生器）的設計文件與分期；做相關功能時照它進行，設計有變動時同步更新。
 - `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期持握角度、依武器的射擊動作與可編輯的近戰關鍵影格；第三期受擊、依方向的失衡、擊破跪倒、附加晃動、待機與個性；第四期動感：全身傾斜與轉彎傾斜、QB 的預備與滑停、空中跳翻轉、部位之間的先後、近戰片段放大與骨盆位移、連腿一起的迴旋斬、刀光、地面的推進氣流帶與腳印）的定案與實作；改 `animateMech` 時照它進行並同步更新。
 - `docs/garage-hangar.md`：機甲庫的格納庫演出（鋼彈式整備架、依場合的場景、部位鏡頭、全像預覽、換裝、維修、出擊演出）的定案與分期；改機甲庫的展示場景時照它進行並同步更新。
+- `docs/garage-ui.md`：機甲庫的換裝介面（雙翼裝備欄、零件縮圖格子與小卡片、固定角度的標註線、六角性能圖與量表、規格頁的圖表、設定子分頁）的定案與分期；改機甲庫的操作介面時照它進行並同步更新。
 - `docs/level-editor-design.md`：自訂關卡與關卡編輯器的設計文件（玩家創作、分享、多人）；改編輯器或關卡格式時同步更新。
 - 函式庫（three.js r128、PeerJS 1.5.4、three examples 的後處理／GLTFLoader／DRACOLoader；模型庫另有 OrbitControls、TransformControls、GLTFExporter）**不從 CDN 載入**：以 devDependencies 固定版本安裝（`three@0.128.0`、`peerjs@1.5.4`），各頁面 `index.html` 寫 `<script src="lib/<套件>/<路徑>">`，建置時由 `node_modules` 複製到 `dist/lib/` 同樣的路徑（新增程式庫只要加這種 script 標籤）。程式裡以全域變數 `THREE`、`Peer`、`SimplexNoise` 使用，不要改成 import。Draco 解碼器由建置產生 `dist/lib/draco/draco-decoder.js`（wasm 以 base64 內含，因為直接開檔時不能 fetch 本地檔案），`render/glb.js` 第一次遇到 Draco 壓縮的 GLB 才以 `<script>` 載入；Draco 編碼器（純 JS）複製成 `dist/lib/draco/draco-encoder.js`，GLB 編輯器輸出 Draco 時才載入。過場動畫的配樂 `src/assets/music/*.mp3` 由建置寫成 `dist/lib/cine-music.js`（`window.RUBICON_MUSIC`，不內嵌在 HTML，第一次播過場時才載入）；機甲庫格納庫的外部素材 `src/assets/hangar/`（CC0 的 GLB 道具、PBR 貼圖、骨架動畫的人物，來源見 `CREDITS.txt`）同樣寫成 `dist/lib/hangar-assets.js`（`window.RUBICON_HANGAR`，約 19 MB，`render/hangar-assets.js` 在遊戲啟動後載入，載不到時格納庫用程式模型）。例外：減面用的 `meshoptimizer`（`meshoptimizer/simplifier`，wasm 內含在 JS 裡）以一般 import 打包進模型庫頁面。冒煙測試會把任何向 CDN 的程式庫請求當成錯誤。Google Fonts 字型仍從外部載入（連不到時改用系統字型）。
 
@@ -66,7 +67,7 @@ main.js              進入點：依序 import 所有 mixin，最後 new Game()
 index.html／styles.css
 core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…）、scale.js（尺度的倍率 MS／WS／DS、scaleKeys）、html.js（escHtml）、zip.js（zip 讀寫）、
                      sha256.js（模型組上傳的內容雜湊；區網 http 不是安全環境，不能用 crypto.subtle）
-data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
+data/                parts.js（零件、START_ASM、asmStats）、garage-hex.js（機甲庫的六角性能圖：hexScores／hexBounds，純函式）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
                      skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、ai.js（敵人 AI 的感知、仇恨、攻擊權杖、招式的數值）、attrs.js（武器屬性：實彈／爆發／能量、防禦換算、直擊補正、實彈距離衰減、弱點文字）、firepower.js（理論火力：每把武器的 DPS／持續 DPS／衝擊、有效 AP，純函式）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）、
                      campaign.js（主線：出擊、主題的轉場方式、轉場演出、區段類型、出口獎勵）、campaign-plan.js（區段排程）、cine/（過場動畫的劇本：prologue.js 序章、chapters.js 各章開場／章末、index.js 目錄）、story.js（主線的委託方、說話者、總覽圖區域、簡報、序章與章節的開場／章末、結局、記憶片段）、story-comms.js（主線的通訊）、modules.js（主線的戰術模組）、foes.js（主題專屬敵人與專屬 AC）、
                      foes-b1.js／foes-b2.js／foes-c1.js／foes-c2.js（地圖專屬敵人擴充的四組新敵人）、status.js（狀態效果的定義與文字）、
@@ -81,7 +82,7 @@ data/                parts.js（零件、START_ASM、asmStats）、enemies.js（
                      難度參數 RTS_AI_DIFFS、英雄技能的施放條件 RTS_AI_CAST、單位技能 RTS_AI_ABILS、永久道具的順序 RTS_AI_ITEMS）
 render/style/        渲染風格：params.js（參數表、內建預設）、shader.js（標準材質的著色器修改、材質分類 tagStyle）、
                      pipeline.js（後處理管線）、atmos.js（天空、塵埃）、store.js（選擇、我的預設、伺服器分享）
-render/              cine-sets.js（過場動畫的太空場景、軌道站、空降艙、墜落現場）、textfx.js（文字演出：APNG 產生器的模板與引擎、疊加畫布、DOM 逐字）、materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
+render/              garage-icons.js（機甲庫的部位與零件圖示）、garage-charts.js（六角圖 hexSvg）、cine-sets.js（過場動畫的太空場景、軌道站、空降艙、墜落現場）、textfx.js（文字演出：APNG 產生器的模板與引擎、疊加畫布、DOM 逐字）、materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      mech-ik.js（動作的 IK 修正層與開關 IK／setIK）、hangar.js（機甲庫的格納庫場景：四種場景、整備架、技師人偶、車輛、吊車、換裝的機械臂與地板開口、維修無人機、補給車、出擊用的天花板開口與閘門、火花、蒸氣、tickHangar；外部素材載入後 `H.rich` 的細緻版本：PBR 材質與投影 UV、道具佈置、天車、骨架動畫的技師）、hangar-assets.js（格納庫的外部素材：載入 lib/hangar-assets.js、PBR 材質 pbrMat、道具 haProp、人物 haChar）、mech-spring.js（動作的彈簧 spring／springSet／kick）、mech-fire.js（依武器種類的射擊動作）、melee-anim.js（近戰的關鍵影格：預設片段、求值、鏡像、片段的來源 MeleeAnim）、
                      vehicle-models.js、boss-models.js（新 Boss 與附屬部位的程式模型）、foe-models.js（主題專屬敵人的程式模型、
@@ -126,7 +127,7 @@ entities/            projectile.js、mech-entity.js（MechEntity）、mech-boss3
 net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／WebSocket 傳輸）、net.js（Net）、
                      snapshot.js（serEnt／applyEnt 快照序列化）
 game/game.js         class Game：constructor、主迴圈 loop、敵我判定等核心
-game/*.js            Game 的 mixin：render-setup、save（三個存檔槽與存檔畫面）、input、settings、garage、mission、player、camera、chase（追尾視角：機戰傭兵6 式的鏡頭、速度偏移、鎖定框、目標輔助、準星周圍的 HUD）、pad-ui（手把操作選單畫面、確認視窗 uiConfirm）、hud、
+game/*.js            Game 的 mixin：render-setup、save（三個存檔槽與存檔畫面）、input、settings、garage、garage-ui（機甲庫的換裝介面：子分頁、雙翼的部位格、零件格子與小卡片、標註線、六角圖與量表、規格頁的圖表；docs/garage-ui.md）、mission、player、camera、chase（追尾視角：機戰傭兵6 式的鏡頭、速度偏移、鎖定框、目標輔助、準星周圍的 HUD）、pad-ui（手把操作選單畫面、確認視窗 uiConfirm）、hud、
                      mp-lobby、mp-host、mp-client、map-extras、shockwave（地面衝擊波、地面爆炸對空中目標減傷）、support（特殊敵人的地雷、迫擊砲彈、護盾與盾牌擋子彈、運輸機投放）、bosses（新 Boss 的生成、附屬部位、EMP）、bosses2（第三批 Boss 的生成、延遲事件、燃燒地面、能量環、光束、分身、分離）、hazards2（地圖專屬敵人的場上機制：區域效果、臨時障礙物、可以打掉的投射物）、status-hud（狀態效果的 HUD 與畫面邊緣）、first-person、pvp、pilot（經驗與熟練度累積、結算）、
                      pilot-ui（駕駛員畫面、預設組）、hangar（機甲庫的格納庫演出：依場合的場景 hangarKind、繞看與部位鏡頭、全像預覽、掃描換裝、依部位的實體換裝（吊車、機械臂、地板開口）、受損與維修無人機、補給車、出擊演出 hangarLaunch、多人的隊友機體、設定 ctrl.hangarFx）、local-lib（本地模型庫的設定、讀取進度、規格檢查、mechSource）、
                      mp-models（伺服器模型組：我的機甲模型組上傳、大廳狀態、出擊前備齊、客機換模型）、

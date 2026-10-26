@@ -446,57 +446,73 @@
           <div class="hubLogHead"><b>靶場紀錄</b><button id="btnRangeLogClose">關閉</button></div>
           <div id="rangeLogList"></div>
         </div>
-        <div id="garageLeft">
+        <div id="garageMid"></div>
+        <canvas id="gCallout"></canvas>
+        <div id="gTop">
           <div id="gTitle">
             <h2>機甲庫 <span id="gCtx" class="gCtx"></span></h2>
             <div class="coam">COAM <span id="gCoam">0</span></div>
           </div>
-          <div id="slots" data-padtabs=".slot"></div>
-          <div id="partList"></div>
-        </div>
-        <div id="garageMid">
-          <div id="missionCard">
-            <b id="mcTitle">任務</b>
-            <div id="mcDesc" class="dim"></div>
+          <div id="missionCard"><b id="mcTitle">任務</b><span id="mcDesc" class="dim"></span></div>
+          <div id="gTabs">
+            <button data-tab="eq" class="on">裝備</button><button data-tab="spec">規格</button
+            ><button data-tab="set">設定</button>
           </div>
         </div>
-        <div id="garageRight">
-          <h2>機體規格</h2>
+        <div id="slots" data-padtabs=".slot">
+          <div id="gWingL" class="gWing"></div>
+          <div id="gWingR" class="gWing"></div>
+        </div>
+        <div id="gFly">
+          <div id="gFlyHead"></div>
+          <div id="partList"></div>
+          <div id="gTip"></div>
+        </div>
+        <div id="gHex"></div>
+        <div id="gMeters"></div>
+        <div id="gSpec" class="gPage">
+          <div class="gPageH">
+            <h2>機體規格</h2>
+            <label class="dim"><input type="checkbox" id="gSpecPm" /> 套用駕駛員加成</label>
+          </div>
+          <div id="gSpecCharts"></div>
+          <h3 class="gListH">數值一覽</h3>
           <div id="stats"></div>
           <div id="gFire"></div>
-          <div
-            id="gMissionM"
-            class="dim"
-            style="display: none; font-size: 11px; margin: 6px 0; line-height: 1.5"
-          ></div>
-          <div id="gMap" class="krow"></div>
+        </div>
+        <div id="gSet" class="gPage">
+          <div class="gPageH"><h2>設定</h2></div>
           <div id="gPal" class="krow"></div>
-          <div id="gWarn"></div>
-          <div id="gLocal" class="dim" style="display: none; font-size: 11px; margin: 4px 0"></div>
+          <div id="gMap" class="krow"></div>
+          <div id="gLocal" class="dim" style="display: none; font-size: 12px; margin: 4px 0"></div>
           <div id="gMechs" class="mySetBox" style="display: none"></div>
           <div id="gModelSet" class="mySetBox" style="display: none"></div>
+        </div>
+        <div id="gBottom">
           <div id="gActions">
-            <div id="gCamp" class="mySetBox" style="display: none">
-              <div id="gCampInfo"></div>
-              <button id="btnCampRepair">修理 AP</button>
-              <button id="btnCampAmmo">補充彈藥</button>
-              <button id="btnCampKits">補充修復套件</button>
-              <button class="primary" id="btnCampGo2">繼續作戰</button>
+            <div class="gSub">
+              <button id="btnRange" title="測試目前組裝的火力與防禦（不消耗、不記錄進度）">靶場</button>
+              <button id="btnRangeLog">靶場紀錄</button>
+              <button id="btnPilot" title="駕駛員的技能與預設組">駕駛員</button>
+              <button id="btnCamp" title="主線">前往作戰室</button>
+              <button id="btnRandomAsm" title="只用已擁有的零件">隨機組裝</button>
+              <button id="btnToTitle">回標題</button>
             </div>
-            <button class="primary" id="btnSortie">自由出擊</button>
-            <button id="btnRange" title="測試目前組裝的火力與防禦（不消耗、不記錄進度）">
-              靶場（測試機體）
-            </button>
-            <button id="btnRangeLog">靶場紀錄</button>
-            <button id="btnCamp">前往作戰室（主線）</button>
-            <button id="btnPilot">駕駛員（技能／預設組）</button>
-            <button id="btnRandomAsm">隨機組裝（僅已擁有）</button>
-            <button id="btnToTitle">回標題</button>
-            <button id="btnGarageLobby" class="primary" style="display: none">返回大廳</button>
+            <div class="gMain">
+              <div id="gWarn"></div>
+              <div id="gCamp" class="mySetBox" style="display: none">
+                <div id="gCampInfo"></div>
+                <div class="gCampBtns">
+                  <button id="btnCampRepair">修理 AP</button>
+                  <button id="btnCampAmmo">補充彈藥</button>
+                  <button id="btnCampKits">補充修復套件</button>
+                </div>
+                <button class="primary" id="btnCampGo2">繼續作戰</button>
+              </div>
+              <button class="primary" id="btnSortie">出擊</button>
+              <button id="btnGarageLobby" class="primary" style="display: none">返回大廳</button>
+            </div>
           </div>
-          <p class="dim" style="font-size: 11px; margin-top: 14px">
-            點選左側部位 → 從清單購買／裝備。總重量不可超過腳部負重；EN 負載不可超過發電機輸出。
-          </p>
         </div>
       </div>
 
