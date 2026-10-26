@@ -16,6 +16,11 @@ export {
   grille,
   truss,
   HOLE,
+  HUMAN,
+  door,
+  stairs,
+  humanLadder,
+  windowRows,
 } from '../prop-models.js';
 
 // 簡單的 32 位元雜湊亂數（給貼圖用：同一個 seed 每次畫出一樣的圖）
@@ -68,7 +73,8 @@ export function windowTexture({
 export function windowMat(opts, w, h, emissive) {
   const t = windowTexture(opts).clone();
   t.needsUpdate = true;
-  t.repeat.set(Math.max(1, Math.round(w / 6)), Math.max(1, Math.round(h / 4)));
+  // 一張貼圖是 4 層 × 4 扇窗：照人的尺寸（樓層高 3.5 m、窗間距 3 m，docs/world-scale.md）
+  t.repeat.set(Math.max(1, Math.round(w / 12)), Math.max(1, Math.round(h / 14)));
   const m = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: t,

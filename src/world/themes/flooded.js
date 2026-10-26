@@ -1,10 +1,13 @@
 // 主題：汙染水沒市街（AC6 貝利烏斯南部的水沒市街）——街道泡在汙水裡、街區高出水面，大樓廢墟可站上屋頂
 import { RNG, clamp, lerp, pick, rnd } from '../../core/math.js';
+import { WS } from '../../core/scale.js';
 import { fadeMat, hashRng, mat, propGlb, registerFeatureStyle, windowMat, PK, DETAIL, HOLE } from './kit.js';
 
-const CELL = 30, // 街區＋街道
-  STREET = 9,
-  WATER = 0.2;
+// 現實的城市比例（機甲三倍高改版）：街區＋街道 90 m、街道 27 m；地形高低差與水面跟著地形放大 G 倍
+const G = WS;
+const CELL = 30 * G, // 街區＋街道
+  STREET = 9 * G,
+  WATER = 0.2; // 主題設定的水面（World 乘上 G）；程式裡用 WATER * G
 
 // ---------- 物件（純函式，支援 GLB：prop/<槽位>）----------
 // 大樓廢墟：w × h × d，原點在底面中心；broken：頂部崩塌（外觀）
@@ -20,7 +23,7 @@ export function buildRuinTower(w, h, d, broken, seed) {
     .ob(w + 0.05, 1.2, d + 0.05, 0, 0.9, 0);
   k.box(wm, w, h, d, 0, h / 2, 0);
   // 樓層的樓板邊緣（每 4 m 一道）＋四角的柱
-  for (let y = 4; y < h - 1; y += 4) k.box(trim, w + 0.2, 0.25, d + 0.2, 0, y, 0);
+  for (let y = 3.5; y < h - 1; y += 3.5) k.box(trim, w + 0.2, 0.25, d + 0.2, 0, y, 0); // 樓板（人的樓層高）
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) k.box(trim, 0.5, h, 0.5, sx * (w / 2 - 0.1), h / 2, sz * (d / 2 - 0.1));
   k.box(trim, w + 0.3, 0.6, d + 0.3, 0, h, 0);
@@ -386,17 +389,17 @@ function planTerrain(w) {
       v = mod(z - oz);
     const dx = Math.min(u - STREET, CELL - u),
       dz = Math.min(v - STREET, CELL - v);
-    const t = clamp(Math.min(dx, dz) / 1.5, 0, 1);
+    const t = clamp(Math.min(dx, dz) / (1.5 * G), 0, 1);
     // 塌陷的街區（低頻雜訊高的地方）整塊在水面下
-    const sunk = n(x * 0.012 + 3, z * 0.012 - 2) > 0.72;
+    const sunk = n((x / G) * 0.012 + 3, (z / G) * 0.012 - 2) > 0.72;
     const top = sunk ? -0.25 : 0.75;
-    return lerp(-0.6, top, t * t * (3 - 2 * t)) + (n2(x * 0.08, z * 0.08) - 0.5) * 0.3;
+    return (lerp(-0.6, top, t * t * (3 - 2 * t)) + (n2((x / G) * 0.08, (z / G) * 0.08) - 0.5) * 0.3) * G;
   };
 }
 // 街區中心清單
 function blocks(w) {
   const out = [];
-  const half = w.lim - 6;
+  const half = w.lim - 6 * G;
   for (let bx = w.city.ox + STREET - CELL * 6; bx < half; bx += CELL)
     for (let bz = w.city.oz + STREET - CELL * 6; bz < half; bz += CELL) {
       const cx = bx + (CELL - STREET) / 2,
@@ -420,22 +423,24 @@ function buildProps(w) {
   const B = CELL - STREET;
   // 大樓廢墟：佔一個街區，可站上屋頂
   for (const [cx, cz] of blocks(w)) {
-    if (Math.hypot(cx, cz) < 24 || RNG() > 0.5) continue;
-    if (w.onCorridor(cx, cz, B * 0.6) || w.terrainHeight(cx, cz) < 0.2) continue;
+    if (Math.hypot(cx, cz) < 24 * G || RNG() > 0.5) continue;
+    if (w.onCorridor(cx, cz, B * 0.6) || w.terrainHeight(cx, cz) < 0.2 * G) continue;
     if (overlaps(w, cx, cz, B / 2)) continue;
-    const bw = rnd(11, B - 2),
-      bd = rnd(11, B - 2),
-      h = RNG() < 0.25 ? rnd(26, 40) : rnd(10, 24),
+    // 現實的大樓：寬 33–57 m、10–35 層（每層 3.5 m）
+    const bw = rnd(11, B / G - 2) * G,
+      bd = rnd(11, B / G - 2) * G,
+      h = RNG() < 0.25 ? rnd(70, 120) : rnd(25, 60),
       broken = RNG() < 0.55;
     const g = buildRuinTower(bw, h, bd, broken, Math.floor(RNG() * 1e6));
-    const y = w.terrainHeight(cx, cz) - 0.3;
+    const y = w.terrainHeight(cx, cz) - 0.9;
     g.position.y = y;
     w.addBig(g, { x: cx, z: cz, q: 0, rotY: 0 }, [
       { box: [-bw / 2, bw / 2, -bd / 2, bd / 2], y, top: y + h },
     ]);
   }
+  // 車輛、公車、路燈照現實尺寸（雜物）；斷牆是多層樓的殘牆（長 10–25、高 6–15 m，半身～全身掩體）
   w.scatter(
-    w.cnt(8, 12),
+    w.cnt(14, 22),
     6,
     (x, z, y) => {
       const color = pick([0x7a3a2a, 0x3a4a5a, 0x6a6a5a, 0x8a7a3a]);
@@ -456,7 +461,7 @@ function buildProps(w) {
     false,
   );
   w.scatter(
-    w.cnt(2, 4),
+    w.cnt(4, 7),
     10,
     (x, z, y) => {
       const color = pick([0xb08a2a, 0x4a6a8a]);
@@ -477,41 +482,49 @@ function buildProps(w) {
     false,
   );
   w.scatter(
-    w.cnt(6, 10),
-    7,
+    w.cnt(10, 15),
+    14,
     (x, z, y) => {
-      const len = rnd(5, 9),
-        h = rnd(3, 5),
+      const len = rnd(10, 25),
+        h = rnd(6, 15),
         color = pick([0x7a4e3c, 0x8a8a84]);
       const g = buildRuinWall(len, h, color);
       const rot = RNG() < 0.5;
       if (rot) g.rotation.y = Math.PI / 2;
-      w.addSmall(g, x, y - 0.3, z, { w: rot ? 0.8 : len, h, d: rot ? len : 0.8 }, 'ruinwall', 1800, color);
+      w.addSmall(
+        g,
+        x,
+        y - 0.6,
+        z,
+        { w: rot ? 0.8 : len, h, d: rot ? len : 0.8 },
+        'ruinwall',
+        400 * len,
+        color,
+      );
     },
     false,
   );
   w.scatter(
-    w.cnt(6, 10),
-    5,
+    w.cnt(10, 16),
+    6,
     (x, z, y) => {
-      const h = rnd(6, 8);
+      const h = rnd(8, 12);
       const g = buildBentLamp(h);
       g.rotation.y = rnd(0, 6.28);
       w.addSmall(g, x, y - 0.2, z, { r: 0.5, h }, 'streetlamp', 600, 0x4a4f52);
     },
     false,
   );
-  w.addDecor(Math.round(26 * w.kk), () => buildRubble(rnd(0.6, 1.4)), 0.2);
+  w.addDecor(Math.round(40 * w.kk), () => buildRubble(rnd(1, 4)), 0.3);
   // 漂浮雜物：只放在水面上（地形低於水面的地方）
   for (let i = 0, n = Math.round(30 * w.kk); i < n; i++) {
     const x = rnd(-w.lim, w.lim),
       z = rnd(-w.lim, w.lim);
-    if (w.terrainHeight(x, z) > WATER - 0.2) continue;
+    if (w.terrainHeight(x, z) > WATER * G - 0.2) continue;
     const m = buildFloatJunk();
-    m.position.set(x, WATER + 0.02, z);
+    m.position.set(x, WATER * G + 0.02, z);
     m.rotation.y = rnd(0, 6.28);
-    w.scene.add(m);
-    w.meshes.push(m);
+    w.addDecorMesh(m);
   }
 }
 
@@ -541,29 +554,34 @@ export const FLOODED = {
     [
       'ruin_tower',
       '大樓廢墟',
-      '汙染水沒市街；寬 11–19、高 10–40 m，可站上屋頂、不可破壞' + '；GLB 依尺寸縮放',
+      '汙染水沒市街的全身掩體；現實尺寸寬 33–57 m、10–35 層（高 25–120 m），可站上屋頂、不可破壞；GLB 依尺寸縮放',
       () => buildRuinTower(16, 24, 16, true, 7),
     ],
     [
       'wreck_car',
       '廢棄車輛',
-      '汙染水沒市街；2 × 1.5 × 4.4 m（長沿 Z），可破壞',
+      '汙染水沒市街的雜物；現實尺寸 2 × 1.5 × 4.4 m（長沿 Z），可破壞',
       () => buildWreckCar(0x7a3a2a),
     ],
     [
       'sunk_bus',
       '半沉的公車',
-      '汙染水沒市街；2.8 × 2.6 × 10 m（長沿 Z），可破壞',
+      '汙染水沒市街的雜物；現實尺寸 2.8 × 2.6 × 10 m（長沿 Z），可破壞',
       () => buildSunkBus(0xb08a2a),
     ],
     [
       'ruin_wall',
       '斷牆',
-      '汙染水沒市街；長 5–9、高 3–5 m（沿 X），可破壞；GLB 依尺寸縮放',
+      '汙染水沒市街的掩體；多層樓的殘牆，長 10–25、高 6–15 m（沿 X），可破壞；GLB 依尺寸縮放',
       () => buildRuinWall(6, 3.5, 0x7a4e3c),
     ],
-    ['bent_lamp', '彎折的路燈', '汙染水沒市街；高 6–8 m，可破壞；GLB 依高度縮放', () => buildBentLamp(7)],
-    ['rubble', '瓦礫堆', '汙染水沒市街的裝飾；GLB 依尺寸縮放', () => buildRubble(1)],
+    [
+      'bent_lamp',
+      '彎折的路燈',
+      '汙染水沒市街；現實高 8–12 m，可破壞；GLB 依高度縮放',
+      () => buildBentLamp(7),
+    ],
+    ['rubble', '瓦礫堆', '汙染水沒市街的裝飾，1–4 倍大小；GLB 依尺寸縮放', () => buildRubble(1)],
     ['float_junk', '漂浮雜物', '汙染水沒市街的裝飾，浮在水面', () => buildFloatJunk()],
   ],
 };

@@ -16,11 +16,18 @@ import {
   grille,
 } from './kit.js';
 import { overlaps } from './flooded.js';
+import { WS } from '../../core/scale.js';
 
-const WATER = -2,
-  TOP = 14, // 壩頂高度
-  THICK = 10, // 壩體厚度
-  GATE_H = 7; // 閘門下方的通道高度
+// 壩體與閘門是機甲尺度的結構（機甲三倍高改版：放大 G 倍；壩頂欄杆照人的尺寸）；舊尺度的數字用 *0
+const G = WS;
+const WATER = -2, // 主題設定的水面（World 乘上 G）
+  TOP0 = 14,
+  THICK0 = 10,
+  GATE_H0 = 7;
+const TOP = TOP0 * G, // 壩頂高度
+  THICK = THICK0 * G, // 壩體厚度
+  GATE_H = GATE_H0 * G; // 閘門下方的通道高度（機甲通得過）
+const HUMAN_RAIL = 1.1;
 
 // ---------- 物件 ----------
 // 壩體一段：長 len（沿 X）、厚 THICK、從 y0 到 TOP；dn＝下游方向（±1，扶壁朝下游）；原點在壩頂中心
@@ -33,11 +40,19 @@ export function buildDamSegment(len, y0, dn) {
     fade: true,
   });
   if (glb) return glb;
-  const H = TOP - y0;
   const m = fadeMat(0x8c8a84, { roughness: 0.95 }),
     dk = fadeMat(0x6a6862, { roughness: 1 }),
     rail = fadeMat(0x3d4044, { roughness: 0.7, metalness: 0.5 });
   const k = new PK();
+  for (const sd of [-1, 1])
+    railing(k, rail, len - 0.3, HUMAN_RAIL, 0, 0.3 * G, sd * (THICK / 2 - 0.15 * G), 0, 1.5, 0.06);
+  k.scaled(G, () => damSegKit(k, len / G, y0 / G, dn, m, dk));
+  return k.build();
+}
+function damSegKit(k, len, y0, dn, m, dk) {
+  const TOP = TOP0,
+    THICK = THICK0;
+  const H = TOP - y0;
   // 外框同原本（壩體、扶壁、步道、護欄、水漬線）
   k.bounds(
     -len / 2,
@@ -74,13 +89,9 @@ export function buildDamSegment(len, y0, dn) {
   }
   // 壩頂步道：路面＋路緣＋鋼欄杆
   k.box(m, len, 0.6, THICK, 0, -0.3, 0);
-  for (const s of [-1, 1]) {
-    k.box(m, len, 0.3, 0.5, 0, 0.15, s * (THICK / 2 - 0.25));
-    railing(k, rail, len - 0.3, 0.66, 0, 0.3, s * (THICK / 2 - 0.15), 0, 2.4, 0.08);
-  }
+  for (const s of [-1, 1]) k.box(m, len, 0.3, 0.5, 0, 0.15, s * (THICK / 2 - 0.25));
   // 上游面的水漬線
   k.box(fadeMat(0x4a5048, { roughness: 1 }), len, 1.5, 0.1, 0, WATER - TOP + 0.5, -dn * (THICK / 2 + 0.02));
-  return k.build();
 }
 // 閘門：寬 gw 的開口上方的閘門結構（門楣＋捲揚機），原點在壩頂中心
 export function buildDamGate(gw) {
@@ -89,8 +100,14 @@ export function buildDamGate(gw) {
   const m = fadeMat(0x8c8a84, { roughness: 0.95 }),
     steel = fadeMat(0x4a5a66, { roughness: 0.6, metalness: 0.6 }),
     yel = fadeMat(0xd8a020, { roughness: 0.6 });
-  const k = new PK().bounds(-gw / 2, -(TOP - GATE_H) - 1.2, -THICK / 2, gw / 2, 5.9, THICK / 2), // 外框同原本
-    B = TOP - GATE_H;
+  const k = new PK();
+  k.scaled(G, () => damGateKit(k, gw / G, m, steel, yel));
+  return k.build();
+}
+function damGateKit(k, gw, m, steel, yel) {
+  const THICK = THICK0,
+    B = TOP0 - GATE_H0;
+  k.bounds(-gw / 2, -B - 1.2, -THICK / 2, gw / 2, 5.9, THICK / 2); // 外框同原本
   k.box(m, gw, B, THICK, 0, -B / 2, 0);
   // 拉起的閘門：下緣＋門扇的橫肋（露在開口上方）＋兩側的門槽
   k.cb(steel, gw - 1, 1.2, 0.6, 0, -B - 0.6, 0, 0, 0, 0, 0.1);
@@ -109,14 +126,18 @@ export function buildDamGate(gw) {
   }
   k.cb(steel, gw - 1.2, 1.4, 2.2, 0, 5.2, 0, 0, 0, 0, 0.12);
   for (let i = 0; i < 4; i++) k.box(DETAIL.dark, 0.08, 1.2, 2.25, -gw / 2 + 2 + ((gw - 4) / 3) * i, 5.2, 0);
-  return k.build();
 }
 // 輸電鐵塔：高 h 的格子塔＋三層橫擔；原點在底面中心；GLB 以高 22 m 製作
+// 現實高 30–50 m：舊的 22 m 造型依高度等比例放大（沒有人會用到的細節）
 export function buildPylon(h) {
-  const glb = propGlb('power_pylon', { ref: [8, 22, 3], size: [8, h, 3], fade: true });
+  const glb = propGlb('power_pylon', { ref: [8, 22, 3], size: [(8 * h) / 22, h, (3 * h) / 22], fade: true });
   if (glb) return glb;
   const m = fadeMat(0x8a9096, { roughness: 0.6, metalness: 0.6 });
   const k = new PK();
+  k.scaled(h / 22, () => pylonKit(k, 22, m));
+  return k.build();
+}
+function pylonKit(k, h, m) {
   const b0 = 1.6,
     b1 = 0.5;
   // 外框同原本（四支斜腳、三層橫擔與礙子）
@@ -166,7 +187,6 @@ export function buildPylon(h) {
   }
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) k.cb(DETAIL.dark, 0.7, 0.4, 0.7, sx * b0, 0.2, sz * b0, 0, 0, 0, 0.06);
-  return k.build();
 }
 // 機房：6 × 4.2 × 5，原點在底面中心
 export const CONTROL = [6, 4.2, 5];
@@ -360,17 +380,22 @@ function planTerrain(w) {
   w.dam = { zc, up: sgn, xr };
   const n = w.noise,
     n2 = w.noise2;
-  return (x, z) => {
+  // 以舊尺度（座標 ÷ G）計算再乘 G
+  return (x0, z0) => {
+    const x = x0 / G,
+      z = z0 / G,
+      zc0 = zc / G,
+      xr0 = xr / G;
     let h = n(x * 0.025, z * 0.025) * 1.6 + n2(x * 0.09, z * 0.09) * 0.35;
-    const u = (z - zc) * sgn; // 往上游為正
+    const u = (z - zc0) * sgn; // 往上游為正
     const t = clamp((u - 6) / 9, 0, 1);
     h = lerp(h, -3.4 + n2(x * 0.05, z * 0.05) * 0.5, t * t * (3 - 2 * t));
     if (u < 0) {
       // 下游河道：從閘門往下游
-      const c = clamp(1 - (Math.abs(x - xr) - 6) / 4, 0, 1);
+      const c = clamp(1 - (Math.abs(x - xr0) - 6) / 4, 0, 1);
       h -= 3.2 * c * c * (3 - 2 * c) * clamp(-u / 10, 0, 1);
     }
-    return h;
+    return h * G;
   };
 }
 
@@ -379,55 +404,56 @@ function buildStructures(w) {
   const D = w.dam,
     zc = D.zc,
     dn = -D.up;
-  const half = w.size / 2 + 4;
+  const half = w.size / 2 + 4 * G;
   // 閘門位置：公路／鐵路經過處、洩洪河道、再一個
   const gates = [];
   const c = w.corridor;
   if (c) {
     // 沿中心線找穿過壩體（z＝zc）的位置；通道和壩體平行時沒有交點
     let prev = null;
-    for (let s = -c.len / 2 - 18; s <= c.len / 2 + 18; s += 1) {
+    for (let s = -c.len / 2 - 18; s <= c.len / 2 + 18; s += 1.5) {
       const p = w.corridorPoint(s);
       if (prev && (prev.z - zc) * (p.z - zc) <= 0 && Math.abs(p.z - prev.z) > 1e-3) {
         const t = w.corridorDir(s);
-        gates.push({ x: p.x, gw: 14 + 10 / Math.max(0.3, Math.abs(t.y)) });
+        gates.push({ x: p.x, gw: (14 + 10 / Math.max(0.3, Math.abs(t.y))) * G });
         break;
       }
       prev = p;
     }
   }
-  if (!gates.some((g) => Math.abs(g.x - D.xr) < 30)) gates.push({ x: D.xr, gw: 16 });
+  if (!gates.some((g) => Math.abs(g.x - D.xr) < 30 * G)) gates.push({ x: D.xr, gw: 16 * G });
   // 坡道可放的位置（壩體下游側 zs＝dn 或上游側 −dn）：避開閘門、已有的坡道與公路／鐵路
-  const rl = 32,
-    rw = 6;
+  const rl = 32 * G,
+    rw = 6 * G;
   const rampZ = (zs) => zc + zs * (THICK / 2 + rw / 2);
   const rampCands = (gs, zs) => {
     const rz = rampZ(zs);
     const ok = (rx) => {
-      if (gs.some((g) => Math.abs(g.x - rx) < g.gw / 2 + rl / 2 + 3)) return false;
-      if ((w.ramps || []).some((q) => Math.abs(q.x - rx) < rl + 10)) return false;
-      for (let q = -rl / 2; q <= rl / 2; q += 4) if (w.onCorridor(rx + q, rz, 2)) return false;
+      if (gs.some((g) => Math.abs(g.x - rx) < g.gw / 2 + rl / 2 + 3 * G)) return false;
+      if ((w.ramps || []).some((q) => Math.abs(q.x - rx) < rl + 10 * G)) return false;
+      for (let q = -rl / 2; q <= rl / 2; q += 4 * G) if (w.onCorridor(rx + q, rz, 2 * G)) return false;
       return true;
     };
     const out = [];
-    for (let rx = Math.ceil(-w.lim + rl / 2 + 4); rx <= w.lim - rl / 2 - 4; rx++) if (ok(rx)) out.push(rx);
+    for (let rx = Math.ceil(-w.lim + rl / 2 + 4 * G); rx <= w.lim - rl / 2 - 4 * G; rx += G)
+      if (ok(rx)) out.push(rx);
     return out;
   };
   // 多一座閘門：要留得下至少一座坡道
   for (let t = 0; t < 10; t++) {
-    const x = rnd(-w.lim + 15, w.lim - 15);
-    const gs = gates.concat([{ x, gw: 16 }]);
+    const x = rnd(-w.lim + 15 * G, w.lim - 15 * G);
+    const gs = gates.concat([{ x, gw: 16 * G }]);
     if (
-      gates.every((g) => Math.abs(g.x - x) > 34) &&
+      gates.every((g) => Math.abs(g.x - x) > 34 * G) &&
       (rampCands(gs, dn).length || rampCands(gs, -dn).length)
     ) {
-      gates.push({ x, gw: 16 });
+      gates.push({ x, gw: 16 * G });
       break;
     }
   }
   gates.sort((a, b) => a.x - b.x);
   w.dam.gates = gates;
-  const y0 = -4;
+  const y0 = -4 * G;
   // 壩體分段（閘門之間）
   let x0 = -half;
   const segs = [];
@@ -488,7 +514,7 @@ function buildStructures(w) {
     w.obstacles.push(ob);
     w.occluders.push(ob);
   }
-  w.reserve(-half, half, zc - THICK / 2 - 2, zc + THICK / 2 + 2);
+  w.reserve(-half, half, zc - THICK / 2 - 2 * G, zc + THICK / 2 + 2 * G);
   // 坡道：沿壩體的下游側，往 −X 或 +X 爬升到壩頂。可放的位置逐一掃過再隨機挑（閘門多時空隙很窄，
   // 隨機試幾次會挑不到）；下游側被閘門或沿著壩體的公路／鐵路佔滿時，改放在上游側（從水庫底爬上去）
   let made = 0;
@@ -504,7 +530,7 @@ function buildStructures(w) {
 function placeRamp(w, rx, rz, zs, rl, rw) {
   const side = [RNG() < 0.5 ? 1 : -1, 0];
   const lowX = rx + side[0] * (rl / 2);
-  const ylow = w.terrainHeight(lowX, rz) - 0.3;
+  const ylow = w.terrainHeight(lowX, rz) - 0.9;
   const rg = buildRampMesh(rl, rw);
   rg.position.set(rx, (ylow + TOP) / 2 - 0.2, rz);
   rg.rotation.z = -side[0] * Math.atan2(TOP - ylow, rl);
@@ -514,7 +540,7 @@ function placeRamp(w, rx, rz, zs, rl, rw) {
   const wall = box(
     rl,
     (TOP - ylow) / 2,
-    0.6,
+    1.8,
     mat(0x7d7b75, { roughness: 1 }),
     rx - side[0] * (rl / 4),
     ylow + (TOP - ylow) / 4,
@@ -530,11 +556,11 @@ function placeRamp(w, rx, rz, zs, rl, rw) {
 function buildRampMesh(rl, rw) {
   // 坡道板＋止滑橫條＋黃色路緣＋外側的欄杆
   const k = new PK();
-  k.cb(mat(0x8a8882, { roughness: 0.95 }), rl, 0.6, rw, 0, 0, 0, 0, 0, 0, 0.08);
-  for (let x = -rl / 2 + 0.6; x < rl / 2; x += 1.2) k.box(DETAIL.dark, 0.1, 0.05, rw - 0.8, x, 0.32, 0);
+  k.cb(mat(0x8a8882, { roughness: 0.95 }), rl, 1.2, rw, 0, 0, 0, 0, 0, 0, 0.08);
+  for (let x = -rl / 2 + 0.6; x < rl / 2; x += 1.2) k.box(DETAIL.dark, 0.1, 0.05, rw - 0.8, x, 0.62, 0);
   for (const s of [-1, 1]) {
-    k.box(mat(0xd8a020), rl, 0.25, 0.3, 0, 0.4, s * (rw / 2 - 0.15));
-    railing(k, DETAIL.steel, rl - 0.4, 0.8, 0, 0.5, s * (rw / 2 - 0.08), 0, 2.4, 0.07);
+    k.box(mat(0xd8a020), rl, 0.25, 0.3, 0, 0.7, s * (rw / 2 - 0.15));
+    railing(k, DETAIL.steel, rl - 0.4, HUMAN_RAIL, 0, 0.8, s * (rw / 2 - 0.08), 0, 1.5, 0.06);
   }
   return k.build();
 }
@@ -551,15 +577,16 @@ function fadeMatsOf(g) {
 function buildProps(w) {
   const D = w.dam;
   // 輸電鐵塔：沿下游平行壩體排一列
+  // 輸電鐵塔（現實高 30–50 m、間距 90–140 m）；機房、變壓器、消波塊、浮標照現實尺寸（雜物）
   const pz = D.zc - D.up * rnd(30, 44) * w.k;
-  for (let x = -w.lim + 10 + rnd(0, 20); x < w.lim - 8; x += rnd(36, 48)) {
+  for (let x = -w.lim + 10 * G + rnd(0, 20) * G; x < w.lim - 8 * G; x += rnd(90, 140)) {
     if (w.onCorridor(x, pz, 4) || w.isReserved(x, pz, 4) || overlaps(w, x, pz, 3)) continue;
-    const h = rnd(20, 24);
+    const h = rnd(30, 50);
     const g = buildPylon(h);
     const y = w.terrainHeight(x, pz) - 0.3;
-    w.addSmall(g, x, y, pz, { r: 2.2, h }, 'pylon', 3500, 0x8a9096);
+    w.addSmall(g, x, y, pz, { r: (2.2 * h) / 22, h }, 'pylon', 6000, 0x8a9096);
   }
-  w.scatter(w.cnt(4, 7), 9, (x, z, y) => {
+  w.scatter(w.cnt(8, 13), 9, (x, z, y) => {
     const color = pick([0xc8c4b8, 0x9aa4ac, 0xb0a890]);
     const g = buildControlHouse(color);
     const rot = RNG() < 0.5;
@@ -575,7 +602,7 @@ function buildProps(w) {
       color,
     );
   });
-  w.scatter(w.cnt(4, 6), 7, (x, z, y) => {
+  w.scatter(w.cnt(6, 10), 7, (x, z, y) => {
     const g = buildTransformer();
     w.addSmall(
       g,
@@ -590,12 +617,12 @@ function buildProps(w) {
   });
   // 消波塊：一小群一小群
   w.scatter(
-    w.cnt(5, 8),
+    w.cnt(7, 11),
     10,
     (x, z) => {
-      for (let i = 0; i < 4; i++) {
-        const px = x + rnd(-3, 3),
-          pz2 = z + rnd(-3, 3);
+      for (let i = 0; i < 6; i++) {
+        const px = x + rnd(-4, 4),
+          pz2 = z + rnd(-4, 4);
         const g = buildTetrapod();
         g.rotation.set(rnd(-0.3, 0.3), rnd(0, 6.28), rnd(-0.3, 0.3));
         w.addSmall(
@@ -616,11 +643,10 @@ function buildProps(w) {
   for (let i = 0, n = Math.round(14 * w.kk); i < n; i++) {
     const x = rnd(-w.lim, w.lim),
       z = rnd(-w.lim, w.lim);
-    if (w.terrainHeight(x, z) > WATER - 0.4 || w.isReserved(x, z, 2)) continue;
+    if (w.terrainHeight(x, z) > WATER * G - 0.4 || w.isReserved(x, z, 2)) continue;
     const m = buildBuoy();
-    m.position.set(x, WATER, z);
-    w.scene.add(m);
-    w.meshes.push(m);
+    m.position.set(x, WATER * G, z);
+    w.addDecorMesh(m);
   }
 }
 
@@ -648,20 +674,30 @@ export const DAM = {
     [
       'dam_segment',
       '壩體（一段）',
-      '多重水壩；長依閘門間距、厚 10、壩頂高 14 m，扶壁朝 +Z（下游）；不可破壞',
+      '多重水壩；長依閘門間距、厚 30、壩頂高 42 m，扶壁朝 +Z（下游），壩頂欄杆照人的尺寸；不可破壞',
       () => buildDamSegment(40, -4, 1),
       { origin: '壩頂中心' },
     ],
     [
       'dam_gate',
       '閘門',
-      '多重水壩；寬 16–24 m，下方 7 m 可通行，上方可站；不可破壞',
+      '多重水壩；寬 48–72 m，下方 21 m 可通行（機甲通得過），上方可站；不可破壞',
       () => buildDamGate(16),
       { origin: '壩頂中心' },
     ],
-    ['power_pylon', '輸電鐵塔', '多重水壩；高 20–24 m，可破壞；GLB 依高度縮放', () => buildPylon(22)],
-    ['control_house', '機房', '多重水壩的掩體；6 × 4.2 × 5 m，可破壞', () => buildControlHouse(0xc8c4b8)],
-    ['transformer', '變壓器', '多重水壩；3.2 × 3.6 × 4 m，可破壞', () => buildTransformer()],
+    [
+      'power_pylon',
+      '輸電鐵塔',
+      '多重水壩的地標；現實高 30–50 m，可破壞；GLB 以高 22 m 製作、依高度等比例縮放',
+      () => buildPylon(22),
+    ],
+    [
+      'control_house',
+      '機房',
+      '多重水壩的雜物；現實尺寸 6 × 4.2 × 5 m，可破壞',
+      () => buildControlHouse(0xc8c4b8),
+    ],
+    ['transformer', '變壓器', '多重水壩的雜物；現實尺寸 3.2 × 3.6 × 4 m，可破壞', () => buildTransformer()],
     ['tetrapod', '消波塊', '多重水壩；成群擺放，可破壞', () => buildTetrapod()],
     ['buoy', '浮標', '多重水壩的裝飾，浮在水庫上', () => buildBuoy()],
   ],

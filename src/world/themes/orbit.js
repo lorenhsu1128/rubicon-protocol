@@ -1,5 +1,6 @@
 // 主題：高空軌道（AC6 第 5 章的卡門線／封鎖衛星）——雲海之上的金屬平台以桁架橋相連，平台外是虛空
 import { RNG, pick, rnd } from '../../core/math.js';
+import { WS } from '../../core/scale.js';
 import {
   fadeMat,
   mat,
@@ -294,7 +295,10 @@ registerFeatureStyle('orbit', C, {
   },
 });
 
+// 平台的高度（舊尺度；planIslands 乘上 G）；平台上的設備（虛構的軌道設施）放大 EQ_S 倍
+const G = WS;
 const H = 0.5;
+const EQ_S = 2;
 function planTerrain(w) {
   return planIslands(w, { h: H, deep: -40, central: 40, n: [7, 10], size: [24, 40], span: 40, gap: 14 });
 }
@@ -304,15 +308,15 @@ function buildStructures(w) {
   // 平台邊緣朝下的推進器
   for (const b of w.islands.blocks) {
     for (const [x, z] of [
-      [b.x0 + 4, b.z0 + 4],
-      [b.x1 - 4, b.z0 + 4],
-      [b.x0 + 4, b.z1 - 4],
-      [b.x1 - 4, b.z1 - 4],
+      [b.x0 + 4 * G, b.z0 + 4 * G],
+      [b.x1 - 4 * G, b.z0 + 4 * G],
+      [b.x0 + 4 * G, b.z1 - 4 * G],
+      [b.x1 - 4 * G, b.z1 - 4 * G],
     ]) {
       const t = buildThruster();
-      t.position.set(x, H - 1.5, z);
-      w.scene.add(t);
-      w.meshes.push(t);
+      t.scale.setScalar(G);
+      t.position.set(x, (H - 1.5) * G, z);
+      w.addDecorMesh(t);
     }
     // 平台側面的厚板（從下方看是金屬平台）：倒角的板＋縮進的下層＋側面的加強肋＋上緣的標示燈帶
     const sw = b.x1 - b.x0,
@@ -321,25 +325,31 @@ function buildStructures(w) {
       cz = (b.z0 + b.z1) / 2;
     const sm = mat(0x6d757e, { roughness: 0.5, metalness: 0.6 });
     const k = new PK();
-    k.cb(sm, sw, 3, sd, 0, 0, 0, 0, 0, 0, 0.3);
-    k.cb(sm, Math.max(4, sw - 14), 1.6, Math.max(4, sd - 14), 0, -2.2, 0, 0, 0, 0, 0.3);
-    for (const s of [-1, 1]) {
-      for (let x = -sw / 2 + 2; x < sw / 2 - 1; x += 4)
-        k.box(DETAIL.dark, 0.4, 2.6, 0.2, x, -0.1, s * (sd / 2 + 0.05));
-      for (let z = -sd / 2 + 2; z < sd / 2 - 1; z += 4)
-        k.box(DETAIL.dark, 0.2, 2.6, 0.4, s * (sw / 2 + 0.05), -0.1, z);
-      k.box(DETAIL.lamp, sw - 1, 0.1, 0.06, 0, 1.2, s * (sd / 2 + 0.03));
-      k.box(DETAIL.lamp, 0.06, 0.1, sd - 1, s * (sw / 2 + 0.03), 1.2, 0);
-    }
+    k.scaled(G, () => {
+      const sw0 = sw / G,
+        sd0 = sd / G;
+      k.cb(sm, sw0, 3, sd0, 0, 0, 0, 0, 0, 0, 0.3);
+      k.cb(sm, Math.max(4, sw0 - 14), 1.6, Math.max(4, sd0 - 14), 0, -2.2, 0, 0, 0, 0, 0.3);
+      for (const s of [-1, 1]) {
+        for (let x = -sw0 / 2 + 2; x < sw0 / 2 - 1; x += 4)
+          k.box(DETAIL.dark, 0.4, 2.6, 0.2, x, -0.1, s * (sd0 / 2 + 0.05));
+        for (let z = -sd0 / 2 + 2; z < sd0 / 2 - 1; z += 4)
+          k.box(DETAIL.dark, 0.2, 2.6, 0.4, s * (sw0 / 2 + 0.05), -0.1, z);
+        k.box(DETAIL.lamp, sw0 - 1, 0.1, 0.06, 0, 1.2, s * (sd0 / 2 + 0.03));
+        k.box(DETAIL.lamp, 0.06, 0.1, sd0 - 1, s * (sw0 / 2 + 0.03), 1.2, 0);
+      }
+    });
     const slab = k.build();
-    slab.position.set(cx, H - 2, cz);
+    slab.position.set(cx, (H - 2) * G, cz);
     w.scene.add(slab);
     w.meshes.push(slab);
   }
 }
 function buildProps(w) {
-  w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
+  const E = EQ_S;
+  w.scatter(w.cnt(8, 12), 12, (x, z, y) => {
     const g = buildSolarArray();
+    g.scale.setScalar(E);
     const rot = RNG() < 0.5;
     if (rot) g.rotation.y = Math.PI / 2;
     w.addSmall(
@@ -347,25 +357,37 @@ function buildProps(w) {
       x,
       y,
       z,
-      { w: rot ? SOLAR[2] : SOLAR[0], h: SOLAR[1], d: rot ? SOLAR[0] : SOLAR[2] },
+      { w: (rot ? SOLAR[2] : SOLAR[0]) * E, h: SOLAR[1] * E, d: (rot ? SOLAR[0] : SOLAR[2]) * E },
       'solar',
-      1400,
+      2800,
       0x1d3a6a,
     );
   });
-  w.scatter(w.cnt(5, 8), 7, (x, z, y) => {
+  w.scatter(w.cnt(6, 10), 12, (x, z, y) => {
     const h = rnd(6, 9);
     const g = buildRadiator(h);
+    g.scale.setScalar(E);
     const rot = RNG() < 0.5;
     if (rot) g.rotation.y = Math.PI / 2;
-    w.addSmall(g, x, y, z, { w: rot ? 6 : 1.2, h, d: rot ? 1.2 : 6 }, 'radiator', 1800, 0xe6e8ea);
+    w.addSmall(
+      g,
+      x,
+      y,
+      z,
+      { w: (rot ? 6 : 1.2) * E, h: h * E, d: (rot ? 1.2 : 6) * E },
+      'radiator',
+      3600,
+      0xe6e8ea,
+    );
   });
-  w.scatter(w.cnt(4, 6), 8, (x, z, y) => {
+  w.scatter(w.cnt(5, 8), 12, (x, z, y) => {
     const color = pick([0xe6e8ea, 0xd8a020, 0x8a949e]);
-    w.addSmall(buildDockModule(color), x, y, z, { r: 2.05, h: 5.2 }, 'dock', 2400, color);
+    const g = buildDockModule(color);
+    g.scale.setScalar(E);
+    w.addSmall(g, x, y, z, { r: 2.05 * E, h: 5.2 * E }, 'dock', 4800, color);
   });
-  w.scatter(w.cnt(3, 5), 7, (x, z, y) => {
-    const h = rnd(12, 16);
+  w.scatter(w.cnt(4, 6), 10, (x, z, y) => {
+    const h = rnd(25, 40);
     w.addSmall(buildCommMast(h), x, y, z, { r: 0.8, h }, 'commmast', 1000, 0xc8ccd0);
   });
 }
@@ -396,10 +418,31 @@ export const ORBIT = {
   buildProps,
   propNames: { solar: '太陽能板', radiator: '散熱板', dock: '對接艙', commmast: '通信桅杆' },
   catalog: [
-    ['solar_array', '太陽能板陣列', '高空軌道的掩體；6.4 × 4 × 3 m（沿 X），可破壞', () => buildSolarArray()],
-    ['radiator', '散熱板', '高空軌道；高 6–9 m（沿 Z），可破壞；GLB 依高度縮放', () => buildRadiator(8)],
-    ['dock_module', '對接艙', '高空軌道；半徑 2、高 5.2 m，可破壞', () => buildDockModule(0xe6e8ea)],
-    ['thruster', '推進器噴口', '高空軌道的裝飾，掛在平台底下', () => buildThruster(), { origin: '噴口頂' }],
-    ['comm_mast', '通信桅杆', '高空軌道；高 12–16 m，可破壞；GLB 依高度縮放', () => buildCommMast(15)],
+    [
+      'solar_array',
+      '太陽能板陣列',
+      '高空軌道的掩體；遊戲中放大 2 倍（12.8 × 8 × 6 m），可破壞',
+      () => buildSolarArray(),
+    ],
+    [
+      'radiator',
+      '散熱板',
+      '高空軌道；遊戲中放大 2 倍（高 12–18 m），可破壞；GLB 依高度縮放',
+      () => buildRadiator(8),
+    ],
+    [
+      'dock_module',
+      '對接艙',
+      '高空軌道；遊戲中放大 2 倍（半徑 4、高 10.4 m），可破壞',
+      () => buildDockModule(0xe6e8ea),
+    ],
+    [
+      'thruster',
+      '推進器噴口',
+      '高空軌道的裝飾，掛在平台底下（遊戲中放大 3 倍）',
+      () => buildThruster(),
+      { origin: '噴口頂' },
+    ],
+    ['comm_mast', '通信桅杆', '高空軌道；高 25–40 m，可破壞；GLB 依高度縮放', () => buildCommMast(15)],
   ],
 };

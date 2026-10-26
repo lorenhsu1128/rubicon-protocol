@@ -1,9 +1,12 @@
 // 主題：地下技研都市（AC6 第 4 章的地下探查與技研都市）——封閉的大洞窟：岩頂（朝下的平面，俯視的鏡頭看得穿）、
 // 昏暗的紅色光、研究設施廢墟、Coral 收容槽與結晶、頂天立地的岩柱
 import { RNG, rnd } from '../../core/math.js';
+import { WS } from '../../core/scale.js';
 import { fadeMat, mat, propGlb, registerFeatureStyle, windowMat, PK, DETAIL, HOLE, ladder } from './kit.js';
 
+// 岩頂高度（舊尺度；World 的主題設定把 roof.y 乘上 G，這裡的結構用 ROOF * G）
 const ROOF = 38;
+const G = WS;
 const CORAL = 0xff3a30;
 const coralMat = (o = 1) => {
   const m = fadeMat(0xff6050, { emissive: CORAL, roughness: 0.3, metalness: 0.1 });
@@ -264,25 +267,29 @@ registerFeatureStyle('institute', C, {
 function planTerrain(w) {
   const n = w.noise,
     n2 = w.noise2;
-  return (x, z) => n(x * 0.03, z * 0.03) * 2.2 + (n2(x * 0.12, z * 0.12) - 0.5) * 0.6;
+  return (x0, z0) => {
+    const x = x0 / G,
+      z = z0 / G;
+    return (n(x * 0.03, z * 0.03) * 2.2 + (n2(x * 0.12, z * 0.12) - 0.5) * 0.6) * G;
+  };
 }
 function buildStructures(w) {
   // 岩柱：頂天立地（不可破壞）
   for (let k = w.cnt(4, 6); k > 0; k--) {
-    const r = rnd(3.5, 5.5);
-    const spot = w.findSpot([-r, r, -r, r], 3, 30);
+    const r = rnd(3.5, 5.5) * G;
+    const spot = w.findSpot([-r, r, -r, r], 3 * G, 30);
     if (!spot) continue;
-    const g = buildCavePillar(r, ROOF + 4 - spot.lo);
-    g.position.y = spot.lo - 0.5;
-    w.addBig(g, spot, [{ c: [0, 0], r: r * 0.9, h: ROOF }], false);
+    const g = buildCavePillar(r, (ROOF + 4) * G - spot.lo);
+    g.position.y = spot.lo - 0.5 * G;
+    w.addBig(g, spot, [{ c: [0, 0], r: r * 0.9, h: ROOF * G }], false);
     w.reserve(spot.aabb[0], spot.aabb[1], spot.aabb[2], spot.aabb[3]);
   }
-  // 研究棟
-  for (let k = w.cnt(4, 6); k > 0; k--) {
-    const bw = rnd(10, 18),
-      bd = rnd(9, 14),
-      h = rnd(8, 16);
-    const spot = w.findSpot([-bw / 2, bw / 2, -bd / 2, bd / 2], 2.5, 30);
+  // 研究棟（現實尺寸：寬 30–60、深 25–40、高 15–35 m，全身掩體）
+  for (let k = w.cnt(5, 8); k > 0; k--) {
+    const bw = rnd(30, 60),
+      bd = rnd(25, 40),
+      h = rnd(15, 35);
+    const spot = w.findSpot([-bw / 2, bw / 2, -bd / 2, bd / 2], 2.5 * G, 30);
     if (!spot) continue;
     const g = buildLab(bw, h, bd, Math.floor(RNG() * 1e6));
     g.position.y = spot.lo - 0.3;
@@ -291,29 +298,33 @@ function buildStructures(w) {
     ]);
   }
 }
+// 收容槽與結晶（虛構的大型物件）依機甲的尺度放大；管線照現實尺寸（雜物）
+const TANK_S = 2.5;
 function buildProps(w) {
-  w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
-    w.addSmall(buildCoralTank(), x, y - 0.1, z, { r: 2, h: 5.6 }, 'coraltank', 2000, 0xff3a30);
+  w.scatter(w.cnt(7, 11), 16, (x, z, y) => {
+    const g = buildCoralTank();
+    g.scale.setScalar(TANK_S);
+    w.addSmall(g, x, y - 0.25, z, { r: 2 * TANK_S, h: 5.6 * TANK_S }, 'coraltank', 5000, 0xff3a30);
   });
   w.scatter(
-    w.cnt(8, 12),
-    7,
+    w.cnt(10, 16),
+    12,
     (x, z, y) => {
-      const s = rnd(0.8, 1.5);
+      const s = rnd(2, 5);
       const g = buildCoralCrystal(s);
       g.rotation.y = rnd(0, 6.28);
-      w.addSmall(g, x, y - 0.2, z, { r: 1.4 * s, h: 4 * s }, 'crystal', 1500, 0xff3a30);
+      w.addSmall(g, x, y - 0.2 * s, z, { r: 1.4 * s, h: 4 * s }, 'crystal', 1500 * s, 0xff3a30);
     },
     false,
   );
-  w.scatter(w.cnt(6, 9), 7, (x, z, y) => {
+  w.scatter(w.cnt(8, 13), 7, (x, z, y) => {
     const g = buildPipeRun();
     const rot = RNG() < 0.5;
     if (rot) g.rotation.y = Math.PI / 2;
     const [a, h, b] = PIPE_RUN;
     w.addSmall(g, x, y - 0.1, z, { w: rot ? b : a, h, d: rot ? a : b }, 'piperun', 1800, 0x6a5a5a);
   });
-  w.addDecor(Math.round(30 * w.kk), () => buildCoralVein(rnd(4, 8)), 0);
+  w.addDecor(Math.round(45 * w.kk), () => buildCoralVein(rnd(8, 20)), 0);
 }
 
 export const INSTITUTE = {
@@ -345,18 +356,28 @@ export const INSTITUTE = {
     [
       'lab_building',
       '研究棟',
-      '地下技研都市；寬 10–18、高 8–16 m，紅色發光窗，可站上屋頂、不可破壞；GLB 依尺寸縮放',
+      '地下技研都市的全身掩體；現實尺寸寬 30–60、深 25–40、高 15–35 m，紅色發光窗，可站上屋頂、不可破壞；GLB 依尺寸縮放',
       () => buildLab(16, 14, 12, 5),
     ],
-    ['coral_tank', 'Coral 收容槽', '地下技研都市；半徑約 2、高 5.6 m，可破壞', () => buildCoralTank()],
-    ['coral_crystal', 'Coral 結晶簇', '地下技研都市；可破壞；GLB 依尺寸縮放', () => buildCoralCrystal(1)],
+    [
+      'coral_tank',
+      'Coral 收容槽',
+      '地下技研都市；遊戲中放大 2.5 倍（半徑約 5、高 14 m），可破壞',
+      () => buildCoralTank(),
+    ],
+    [
+      'coral_crystal',
+      'Coral 結晶簇',
+      '地下技研都市；遊戲中 2–5 倍（高 8–20 m），可破壞；GLB 依尺寸縮放',
+      () => buildCoralCrystal(1),
+    ],
     [
       'cave_pillar',
       '岩柱',
-      '地下技研都市；地面連到岩頂，半徑 3.5–5.5 m，不可破壞；GLB 依尺寸縮放',
+      '地下技研都市；地面連到岩頂（約 114 m），半徑 10–17 m，不可破壞；GLB 依尺寸縮放',
       () => buildCavePillar(4, 38),
     ],
-    ['pipe_run', '管線', '地下技研都市的矮掩體；6 × 1.7 × 2 m（沿 X），可破壞', () => buildPipeRun()],
+    ['pipe_run', '管線', '地下技研都市的雜物；現實尺寸 6 × 1.7 × 2 m（沿 X），可破壞', () => buildPipeRun()],
     ['coral_vein', 'Coral 脈', '地下技研都市的裝飾，地上發光的細帶；GLB 依長度縮放', () => buildCoralVein(6)],
   ],
 };

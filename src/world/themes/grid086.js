@@ -1,6 +1,7 @@
 // 主題：Grid 086 巨型構造體（AC6 貝利烏斯西部的 Grid 086）——地面層之上有兩層鋼構平台（Y1、Y2），
 // 平台之間留有空隙；坡道從地面接到第一層、從第一層接到第二層（懸空坡道 lift），也可以跳躍、懸浮上下
 import { RNG, pick, rnd } from '../../core/math.js';
+import { WS } from '../../core/scale.js';
 import {
   fadeMat,
   mat,
@@ -14,10 +15,13 @@ import {
   ladder,
 } from './kit.js';
 
-const TILE = 24,
-  Y1 = 11,
-  Y2 = 21,
-  THICK = 1.2;
+// 巨型構造體本來就是機甲的尺寸：格子、平台高度、板厚跟著放大 G 倍（機甲三倍高改版）；
+// 上面的棚屋、油桶照現實尺寸（docs/world-scale.md）
+const G = WS;
+const TILE = 24 * G,
+  Y1 = 11 * G,
+  Y2 = 21 * G,
+  THICK = 1.2 * G;
 
 // ---------- 物件 ----------
 // Doser 棚屋：拼湊的鐵皮屋，5 × 3.6 × 4，原點在底面中心
@@ -271,14 +275,14 @@ function gridRamp(rw, rd, pm, tm) {
 // ---------- 地形：平坦的底層 ----------
 function planTerrain(w) {
   const n2 = w.noise2;
-  return (x, z) => (n2(x * 0.1, z * 0.1) - 0.5) * 0.25;
+  return (x, z) => (n2((x / G) * 0.1, (z / G) * 0.1) - 0.5) * 0.25 * G;
 }
 
 // 平台格子：第一層、第二層的佔用與坡道
 function buildStructures(w) {
   const n = w.noise,
     n2 = w.noise2;
-  const lim = w.lim - 4;
+  const lim = w.lim - 4 * G;
   const cells = [];
   const N = Math.floor((lim * 2) / TILE);
   const off = -(N * TILE) / 2 + TILE / 2;
@@ -292,21 +296,21 @@ function buildStructures(w) {
       cells.push([i, j, cx, cz]);
       if (Math.hypot(cx, cz) < TILE * 0.8) continue; // 出生點上方保持開闊
       if (w.onCorridor(cx, cz, TILE * 0.55)) continue; // 公路／鐵路上方開闊（列車與運輸車）
-      if (n(cx * 0.03 + 5, cz * 0.03 - 7) > 0.42) L1.add(key(i, j));
+      if (n((cx / G) * 0.03 + 5, (cz / G) * 0.03 - 7) > 0.42) L1.add(key(i, j));
     }
   for (const k of L1) {
     const [i, j] = k.split(',').map(Number);
     const cx = off + i * TILE,
       cz = off + j * TILE;
-    if (n2(cx * 0.04 - 3, cz * 0.04 + 8) > 0.55) L2.add(k);
+    if (n2((cx / G) * 0.04 - 3, (cz / G) * 0.04 + 8) > 0.55) L2.add(k);
   }
-  const deckW = TILE - 0.4;
+  const deckW = TILE - 0.4 * G;
   const pillars = new Set();
   const pillar = (x, z, y0, y1) => {
     const k = Math.round(x) + ',' + Math.round(z) + ',' + y1;
     if (pillars.has(k)) return;
     pillars.add(k);
-    w.addPillar(x, z, 0.9, y0, y1, null);
+    w.addPillar(x, z, 0.9 * G, y0, y1, null);
   };
   for (const [i, j, cx, cz] of cells) {
     const k = key(i, j);
@@ -314,11 +318,17 @@ function buildStructures(w) {
     w.addDeck(cx, cz, deckW, deckW, Y1, THICK, false, null);
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
-        pillar(cx + sx * (TILE / 2 - 2), cz + sz * (TILE / 2 - 2), w.terrainHeight(cx, cz) - 0.5, Y1 - THICK);
+        pillar(
+          cx + sx * (TILE / 2 - 2 * G),
+          cz + sz * (TILE / 2 - 2 * G),
+          w.terrainHeight(cx, cz) - 0.5,
+          Y1 - THICK,
+        );
     if (L2.has(k)) {
       w.addDeck(cx, cz, deckW, deckW, Y2, THICK, false, null);
       for (const sx of [-1, 1])
-        for (const sz of [-1, 1]) pillar(cx + sx * (TILE / 2 - 2), cz + sz * (TILE / 2 - 2), Y1, Y2 - THICK);
+        for (const sz of [-1, 1])
+          pillar(cx + sx * (TILE / 2 - 2 * G), cz + sz * (TILE / 2 - 2 * G), Y1, Y2 - THICK);
     }
   }
   w.grid086 = {
@@ -350,10 +360,10 @@ function buildStructures(w) {
           rz = off + (j + dj) * TILE;
         if (!lift && (w.onCorridor(rx, rz, TILE * 0.5) || Math.hypot(rx, rz) < TILE)) continue;
         if (!toSet.has(k)) continue;
-        // 坡道佔鄰格靠近平台那一半的長條（寬 8、長＝一格）
+        // 坡道佔鄰格靠近平台那一半的長條（寬 RAMP_W、長＝一格）
         const side = [di, dj];
-        const rw = di ? TILE : 8,
-          rd = di ? 8 : TILE;
+        const rw = di ? TILE : RAMP_W,
+          rd = di ? RAMP_W : TILE;
         ramps.push({ k: nk, x: rx, z: rz, w: rw, d: rd, side, y0, y1, len: TILE, lift });
         break;
       }
@@ -364,7 +374,7 @@ function buildStructures(w) {
   w.ramps = w.ramps || [];
   for (const r of ramps) {
     const y0 = r.y0 === null ? w.terrainHeight(r.x, r.z) - 0.4 : r.y0;
-    const rg = buildGridRamp(r.side[0] ? r.len : 8, r.side[0] ? 8 : r.len);
+    const rg = buildGridRamp(r.side[0] ? r.len : RAMP_W, r.side[0] ? RAMP_W : r.len);
     const a = Math.atan2(r.y1 - y0, r.len);
     rg.position.set(r.x, (y0 + r.y1) / 2 - 0.25, r.z);
     rg.rotation.z = r.side[0] ? -r.side[0] * a : 0;
@@ -375,13 +385,15 @@ function buildStructures(w) {
     if (!r.lift) w.reserve(r.x - r.w / 2, r.x + r.w / 2, r.z - r.d / 2, r.z + r.d / 2);
   }
 }
+const RAMP_W = 8 * G;
 function buildGridRamp(rw, rd) {
   return gridRamp(rw, rd, mat(0x4a4642, { roughness: 0.6, metalness: 0.6 }), mat(0xd8a020));
 }
 
 function buildProps(w) {
-  const G = w.grid086;
-  w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
+  const Gd = w.grid086;
+  // 現實尺寸：棚屋與油桶（雜物）、廢料堆 10–20 m（掩體）、管線束 20–30 m、煙囪 80–110 m（地標）
+  w.scatter(w.cnt(10, 16), 10, (x, z, y) => {
     const color = pick([0x6a6a5a, 0x5a4a3e, 0x4a5a62]);
     const g = buildShack(color);
     const rot = RNG() < 0.5;
@@ -397,38 +409,47 @@ function buildProps(w) {
       color,
     );
   });
-  w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
-    const s = rnd(0.8, 1.3);
-    w.addSmall(buildScrapHeap(s), x, y - 0.3, z, { r: 2.2 * s, h: 2.6 * s }, 'scrapheap', 2600, 0x5a4a3e);
+  w.scatter(w.cnt(7, 11), 16, (x, z, y) => {
+    const s = rnd(2, 4);
+    w.addSmall(
+      buildScrapHeap(s),
+      x,
+      y - 0.3 * s,
+      z,
+      { r: 2.2 * s, h: 2.6 * s },
+      'scrapheap',
+      2600 * s,
+      0x5a4a3e,
+    );
   });
-  w.scatter(w.cnt(6, 10), 5, (x, z, y) => {
+  w.scatter(w.cnt(10, 16), 5, (x, z, y) => {
     w.addSmall(buildBarrels(), x, y, z, { r: 1.2, h: 1.3 }, 'barrels', 500, 0x8a3a2a);
   });
-  w.scatter(w.cnt(5, 8), 6, (x, z, y) => {
-    const h = rnd(7, 9.5);
+  w.scatter(w.cnt(5, 8), 12, (x, z, y) => {
+    const h = rnd(20, 30);
     const g = buildPipeStack(h);
     if (RNG() < 0.5) g.rotation.y = Math.PI / 2;
-    w.addSmall(g, x, y - 0.2, z, { r: 1.5, h }, 'pipestack', 1800, 0x8a7a5a);
+    w.addSmall(g, x, y - 0.2, z, { r: 1.5, h }, 'pipestack', 3000, 0x8a7a5a);
   });
   // 煙囪：只放在沒有平台的格子（會穿過平台高度）
   w.scatter(
     w.cnt(3, 5),
-    12,
+    30,
     (x, z, y) => {
-      if (G.covered(x, z)) return;
-      const r = rnd(1.3, 2),
-        h = rnd(26, 36);
+      if (Gd.covered(x, z)) return;
+      const r = rnd(4, 6),
+        h = rnd(80, 110);
       w.addSmall(buildChimney(r, h), x, y - 0.3, z, { r, h }, null, 0, 0);
     },
     false,
   );
   // 第一層平台上也放一些掩體
-  for (const k of G.L1) {
-    if (G.L2.has(k) || RNG() > 0.4) continue;
+  for (const k of Gd.L1) {
+    if (Gd.L2.has(k) || RNG() > 0.4) continue;
     const [i, j] = k.split(',').map(Number);
-    const cx = G.off + i * TILE + rnd(-6, 6),
-      cz = G.off + j * TILE + rnd(-6, 6);
-    if ((w.ramps || []).some((r) => Math.abs(r.x - cx) < r.w / 2 + 3 && Math.abs(r.z - cz) < r.d / 2 + 3))
+    const cx = Gd.off + i * TILE + rnd(-6, 6) * G,
+      cz = Gd.off + j * TILE + rnd(-6, 6) * G;
+    if ((w.ramps || []).some((r) => Math.abs(r.x - cx) < r.w / 2 + 9 && Math.abs(r.z - cz) < r.d / 2 + 9))
       continue;
     if (RNG() < 0.5) {
       const color = pick([0x6a6a5a, 0x5a4a3e]);
@@ -461,7 +482,7 @@ export const GRID086 = {
   weather: 'ash',
   props: 'grid086',
   sunI: 0.8,
-  fogFar: 180,
+  fogFar: 180, // 霧的公尺數由 World 乘上 DS
   featureKinds: [],
   corridor: { p: 0.6, kinds: ['rail', 'road'] },
   planTerrain,
@@ -469,10 +490,25 @@ export const GRID086 = {
   buildProps,
   propNames: { shack: 'Doser 棚屋', scrapheap: '廢料堆', barrels: '油桶', pipestack: '管線束' },
   catalog: [
-    ['doser_shack', 'Doser 棚屋', 'Grid 086 的掩體；5 × 3.6 × 4 m，可破壞', () => buildShack(0x6a6a5a)],
-    ['scrap_heap', '廢料堆', 'Grid 086；半徑約 2.5 m，可破壞；GLB 依尺寸縮放', () => buildScrapHeap(1)],
-    ['barrels', '油桶群', 'Grid 086；3 個一組，可破壞', () => buildBarrels()],
-    ['chimney', '排氣煙囪', 'Grid 086；高 26–36 m，不可破壞；GLB 依尺寸縮放', () => buildChimney(1.5, 30)],
-    ['pipe_stack', '管線束', 'Grid 086；高 7–9.5 m，可破壞；GLB 依高度縮放', () => buildPipeStack(9)],
+    [
+      'doser_shack',
+      'Doser 棚屋',
+      'Grid 086 的雜物；現實尺寸 5 × 3.6 × 4 m，可破壞',
+      () => buildShack(0x6a6a5a),
+    ],
+    [
+      'scrap_heap',
+      '廢料堆',
+      'Grid 086 的掩體；半徑 5–10 m，可破壞；GLB 以半徑 2.5 m 製作、依尺寸縮放',
+      () => buildScrapHeap(1),
+    ],
+    ['barrels', '油桶群', 'Grid 086；現實尺寸 3 個一組，可破壞', () => buildBarrels()],
+    [
+      'chimney',
+      '排氣煙囪',
+      'Grid 086 的地標；高 80–110 m，不可破壞；GLB 以高 30 m 製作、依尺寸縮放',
+      () => buildChimney(1.5, 30),
+    ],
+    ['pipe_stack', '管線束', 'Grid 086；高 20–30 m，可破壞；GLB 依高度縮放', () => buildPipeStack(9)],
   ],
 };

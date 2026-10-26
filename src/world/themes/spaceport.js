@@ -1,6 +1,7 @@
 // 主題：舊宇宙港（AC6 中央冰原的伯特蘭舊宇宙港／燃料基地）——平坦的停機坪、發射塔與火箭、
 // 可以走進去的機庫、管制塔、球形燃料槽
 import { RNG, clamp, pick, rnd } from '../../core/math.js';
+import { WS } from '../../core/scale.js';
 import {
   box,
   fadeMat,
@@ -13,12 +14,18 @@ import {
   hazard,
   railing,
   grille,
+  door,
 } from './kit.js';
 
 // ---------- 物件 ----------
 // 發射塔＋火箭：塔在 −X、火箭在原點；原點在地面中心。TOWER＝塔的碰撞箱（中心 x、寬、高），ROCKET＝火箭（半徑、高）
-export const TOWER = { x: -7, w: 6, h: 46 };
-export const ROCKET = { r: 3.2, h: 36 };
+// 現實尺寸（機甲三倍高改版）：舊模型放大 PORT_S 倍（塔高約 115、火箭約 90 m）；塔上平台的欄杆照人的尺寸
+const G = WS;
+const PORT_S = 2.5;
+const T0 = { x: -7, w: 6, h: 46 },
+  R0 = { r: 3.2, h: 36 };
+export const TOWER = { x: T0.x * PORT_S, w: T0.w * PORT_S, h: T0.h * PORT_S };
+export const ROCKET = { r: R0.r * PORT_S, h: R0.h * PORT_S };
 export function buildLaunchTower() {
   const glb = propGlb('launch_tower', { fade: true });
   if (glb) return glb;
@@ -26,7 +33,20 @@ export function buildLaunchTower() {
     white = fadeMat(0xe6e8ea, { roughness: 0.5, metalness: 0.2 }),
     dk = fadeMat(0x3d4044, { roughness: 0.8 }),
     pad = fadeMat(0x8a8c8e, { roughness: 0.95 });
-  const k = new PK().bounds(-12, 0, -12, 12, 46, 12); // 外框同原本
+  const k = new PK();
+  k.scaled(PORT_S, () => towerKit(k, steel, white, dk, pad));
+  // 塔的每兩層平台：欄杆照人的尺寸
+  const a = (T0.w / 2 - 0.2) * PORT_S;
+  for (let y = 3; y < T0.h; y += 3.5)
+    if (Math.round(y) % 7 === 3)
+      railing(k, dk, a * 2 - 0.4, 1.1, TOWER.x, y * PORT_S, -a + 0.3, 0, 1.5, 0.05);
+  k.mark('walk_tower', TOWER.x, 3 * PORT_S, 0, 0);
+  return k.build();
+}
+function towerKit(k, steel, white, dk, pad) {
+  const TOWER = T0,
+    ROCKET = R0;
+  k.bounds(-12, 0, -12, 12, 46, 12); // 外框同原本
   // 發射台：台面＋導焰槽＋四角的固定臂
   k.cb(pad, 24, 0.4, 24, 0, 0.2, 0, 0, 0, 0, 0.15);
   k.box(dk, 8, 0.05, 8, 0, 0.42, 0);
@@ -55,10 +75,7 @@ export function buildLaunchTower() {
       k.bar(steel, [T.x - f * a, yp, s * a], [T.x + f * a, y, s * a], 0.16);
       k.bar(steel, [T.x + s * a, yp, -f * a], [T.x + s * a, y, f * a], 0.16);
     }
-    if (Math.round(y) % 7 === 3) {
-      k.box(dk, T.w - 0.4, 0.2, T.w - 0.4, T.x, y, 0);
-      railing(k, dk, T.w - 0.4, 1, T.x, y, -a + 0.1, 0, 2, 0.06);
-    }
+    if (Math.round(y) % 7 === 3) k.box(dk, T.w - 0.4, 0.2, T.w - 0.4, T.x, y, 0);
     yp = y;
   }
   k.cyl(dk, 0.1, 0.15, 6, T.x, T.h + 3, 0, 0, 0, 0, 6);
@@ -100,18 +117,32 @@ export function buildLaunchTower() {
     );
   }
   k.cyl(dk, R.r * 0.6, R.r * 0.8, 1.0, 0, 0.9, 0, 0, 0, 0, 12);
-  return k.build();
 }
 // 機庫：寬 HANGAR.w（X）× 深 HANGAR.d（Z）× 高 HANGAR.h，開口朝 −Z；原點在地面中心
-export const HANGAR = { w: 26, d: 22, h: 12, wall: 1 };
+// 現實尺寸：舊模型放大 HANGAR_S 倍（52 × 44 × 24 m，機甲走得進去）
+const HANGAR_S = 2;
+const H0 = { w: 26, d: 22, h: 12, wall: 1 };
+export const HANGAR = {
+  w: H0.w * HANGAR_S,
+  d: H0.d * HANGAR_S,
+  h: H0.h * HANGAR_S,
+  wall: H0.wall * HANGAR_S,
+};
 export function buildHangar(color) {
   const glb = propGlb('hangar', { color, fade: true });
   if (glb) return glb;
-  const H = HANGAR;
   const m = fadeMat(color, { roughness: 0.7, metalness: 0.4 }),
     dk = fadeMat(0x3d4044, { roughness: 0.8 }),
     lamp = fadeMat(0xfff4d8, { emissive: 0x806a40, roughness: 0.4 });
-  const k = new PK().bounds(-13.4, 0, -11.4, 13.4, 12, 11.3); // 外框同原本
+  const k = new PK();
+  k.scaled(HANGAR_S, () => hangarKit(k, m, dk, lamp));
+  // 側牆的人用門
+  door(k, dk, DETAIL.steel, HANGAR.w / 2 + 0.05, 0, HANGAR.d / 4, Math.PI / 2, 0.9, 2.1, 'door_hangar');
+  return k.build();
+}
+function hangarKit(k, m, dk, lamp) {
+  const H = H0;
+  k.bounds(-13.4, 0, -11.4, 13.4, 12, 11.3); // 外框同原本
   // 牆（碰撞同原本）＋外側的柱＋牆板的波紋＋屋頂（屋脊的通風帽）＋門楣（警示條紋、門軌）＋內部的燈＋地面標線
   k.box(m, H.w, H.h, H.wall, 0, H.h / 2, H.d / 2 - H.wall / 2);
   for (let x = -H.w / 2 + 1.5; x < H.w / 2 - 1; x += 1.5)
@@ -131,18 +162,25 @@ export function buildHangar(color) {
   k.box(DETAIL.steel, H.w + 0.6, 0.15, 0.3, 0, H.h - 2.1, -H.d / 2 - 0.3);
   for (let x = -H.w / 2 + 4; x < H.w / 2 - 2; x += 6) k.box(lamp, 2.4, 0.2, 0.8, x, H.h - 1.2, 0);
   k.box(fadeMat(0xd8a020), H.w - 2, 0.05, 0.4, 0, 0.03, -H.d / 2 + 1);
-  return k.build();
 }
 // 管制塔：圓柱塔身＋頂部玻璃艙；原點在地面中心；CTRL_TOWER＝塔身半徑、高
-export const CTRL_TOWER = { r: 3, h: 26 };
+// 現實尺寸：舊模型放大 PORT_S 倍（高約 85 m）；底部的人用門照人的尺寸
+const CT0 = { r: 3, h: 26 };
+export const CTRL_TOWER = { r: CT0.r * PORT_S, h: CT0.h * PORT_S };
 export function buildControlTower() {
   const glb = propGlb('control_tower', { fade: true });
   if (glb) return glb;
   const m = fadeMat(0xc8ccd0, { roughness: 0.7 }),
     glass = fadeMat(0x24384a, { roughness: 0.15, metalness: 0.4 }),
     dk = fadeMat(0x3d4044, { roughness: 0.8 });
-  const T = CTRL_TOWER;
-  const k = new PK().bounds(-6, 0, -6, 6, 34.5, 6); // 外框同原本
+  const k = new PK();
+  k.scaled(PORT_S, () => ctrlKit(k, m, glass, dk));
+  door(k, dk, DETAIL.steel, 0, 0, CTRL_TOWER.r * 1.22 + 0.1, 0, 0.9, 2.1, 'door_tower');
+  return k.build();
+}
+function ctrlKit(k, m, glass, dk) {
+  const T = CT0;
+  k.bounds(-6, 0, -6, 6, 34.5, 6); // 外框同原本
   // 塔身（基座、樓層線、縱向的窗帶）＋玻璃艙（窗框、下方的走道）＋屋頂（雷達、天線、障礙燈）
   k.cyl(m, T.r, T.r * 1.2, T.h, 0, T.h / 2, 0, 0, 0, 0, 12);
   k.cyl(dk, T.r * 1.35, T.r * 1.4, 1.2, 0, 0.6, 0, 0, 0, 0, 12);
@@ -161,7 +199,6 @@ export function buildControlTower() {
       12,
     );
   k.box(glass, 0.8, T.h - 6, 0.1, 0, T.h / 2 + 1, T.r * 1.1);
-  k.box(dk, 2.0, 2.6, 0.1, 0, 1.3, T.r * 1.22);
   k.cyl(dk, T.r * 1.7, T.r * 1.5, 0.5, 0, T.h + 0.1, 0, 0, 0, 0, 12);
   k.cyl(glass, T.r * 1.9, T.r * 1.5, 3.2, 0, T.h + 1.6, 0, 0, 0, 0, 12);
   for (let i = 0; i < 12; i++) {
@@ -172,7 +209,6 @@ export function buildControlTower() {
   k.cyl(dk, 0.15, 0.15, 5, 0, T.h + 6, 0, 0, 0, 0, 6);
   k.box(m, 3, 0.4, 0.6, 1.8, T.h + 4.4, 0);
   k.box(DETAIL.red, 0.3, 0.3, 0.3, 0, T.h + 8.6, 0);
-  return k.build();
 }
 // 球形燃料槽（四腳）：半徑 r，原點在地面中心
 export function buildFuelSphere(r) {
@@ -185,9 +221,9 @@ export function buildFuelSphere(r) {
     .obCyl(r * 1.02, r * 1.02, 0.3, 0, r * 1.4, 0, 0, 0, 0, 16); // 外框同原本的零件
   for (let i = 0; i < 6; i++)
     k.ob(
-      0.35,
+      Math.max(0.35, r * 0.06),
       r * 1.4,
-      0.35,
+      Math.max(0.35, r * 0.06),
       Math.cos((i / 6) * Math.PI * 2) * r * 0.85,
       r * 0.7,
       Math.sin((i / 6) * Math.PI * 2) * r * 0.85,
@@ -198,8 +234,9 @@ export function buildFuelSphere(r) {
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     pts.push([Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85]);
-    k.box(leg, 0.35, r * 1.4, 0.35, pts[i][0], r * 0.7, pts[i][1]);
-    k.box(leg, 0.7, 0.1, 0.7, pts[i][0], 0.05, pts[i][1]);
+    const lt = Math.max(0.35, r * 0.06);
+    k.box(leg, lt, r * 1.4, lt, pts[i][0], r * 0.7, pts[i][1]);
+    k.box(leg, lt * 2, 0.1, lt * 2, pts[i][0], 0.05, pts[i][1]);
   }
   for (let i = 0; i < 6; i++) {
     const [x0, z0] = pts[i],
@@ -461,7 +498,9 @@ function planTerrain(w) {
     const e = Math.max(Math.abs(x), Math.abs(z)) / half;
     // 地圖外（e＞1，遠景地形）慢慢回到平地，不圍成一圈高台
     const t = clamp((e - 0.62) / 0.2, 0, 1) * (1 - clamp((e - 1.1) / 0.35, 0, 1));
-    return (n2(x * 0.1, z * 0.1) - 0.5) * 0.12 + t * t * (n(x * 0.03, z * 0.03) * 4 + 1);
+    const xo = x / G,
+      zo = z / G;
+    return ((n2(xo * 0.1, zo * 0.1) - 0.5) * 0.12 + t * t * (n(xo * 0.03, zo * 0.03) * 4 + 1)) * G;
   };
 }
 // 停機坪的標線（裝飾）：跑道邊線、中線、黃色滑行線
@@ -474,10 +513,11 @@ function markings(w) {
     w.scene.add(m);
     w.meshes.push(m);
   };
-  for (const s of [-1, 1]) add(box(L, 0.04, 0.5, white, 0, 0.1, zr + s * 14));
-  for (let x = -L / 2; x < L / 2; x += 10) add(box(5, 0.04, 0.6, white, x, 0.1, zr));
+  // 現實的跑道：寬 60 m（邊線）、中線 30 m 一段、間隔 50 m
+  for (const s of [-1, 1]) add(box(L, 0.04, 1, white, 0, 0.1, zr + s * 30));
+  for (let x = -L / 2; x < L / 2; x += 50) add(box(30, 0.04, 0.9, white, x, 0.1, zr));
   const xt = rnd(-30, 30) * w.k;
-  add(box(0.4, 0.04, L * 0.8, yel, xt, 0.1, 0));
+  add(box(0.5, 0.04, L * 0.8, yel, xt, 0.1, 0));
 }
 
 function placeBig(w, g, spot, shapes) {
@@ -492,7 +532,7 @@ function placeBig(w, g, spot, shapes) {
 function buildStructures(w) {
   markings(w);
   {
-    const spot = w.findSpot([-12, 12, -12, 12], 1.5, 40);
+    const spot = w.findSpot([-12 * PORT_S, 12 * PORT_S, -12 * PORT_S, 12 * PORT_S], 1.5 * G, 40);
     if (spot) {
       const T = TOWER;
       placeBig(w, buildLaunchTower(), spot, [
@@ -503,7 +543,7 @@ function buildStructures(w) {
   }
   const H = HANGAR;
   for (let k = w.cnt(1, 2); k > 0; k--) {
-    const spot = w.findSpot([-H.w / 2, H.w / 2, -H.d / 2 - 6, H.d / 2], 1.5, 40);
+    const spot = w.findSpot([-H.w / 2, H.w / 2, -H.d / 2 - 18, H.d / 2], 1.5 * G, 40);
     if (!spot) continue;
     const color = pick([0x8a949e, 0x9a8a74, 0x7a8a7a]);
     const g = buildHangar(color);
@@ -513,37 +553,38 @@ function buildStructures(w) {
       { box: [-H.w / 2, H.w / 2, H.d / 2 - wl, H.d / 2], y: spot.lo, top: spot.lo + H.h },
       { box: [-H.w / 2, -H.w / 2 + wl, -H.d / 2, H.d / 2], y: spot.lo, top: spot.lo + H.h },
       { box: [H.w / 2 - wl, H.w / 2, -H.d / 2, H.d / 2], y: spot.lo, top: spot.lo + H.h },
-      { box: [-H.w / 2, H.w / 2, -H.d / 2, H.d / 2], y: spot.lo + H.h - 1, top: spot.lo + H.h, deck: true },
+      { box: [-H.w / 2, H.w / 2, -H.d / 2, H.d / 2], y: spot.lo + H.h - 2, top: spot.lo + H.h, deck: true },
     ]);
     w.reserve(spot.aabb[0], spot.aabb[1], spot.aabb[2], spot.aabb[3]);
   }
   {
     const r = CTRL_TOWER.r * 1.2;
-    const spot = w.findSpot([-r, r, -r, r], 1.5, 40);
+    const spot = w.findSpot([-r, r, -r, r], 1.5 * G, 40);
     if (spot) placeBig(w, buildControlTower(), spot, [{ c: [0, 0], r, h: CTRL_TOWER.h }]);
   }
 }
 
 function buildProps(w) {
-  w.scatter(w.cnt(4, 6), 12, (x, z, y) => {
-    const r = rnd(3.4, 4.6);
-    w.addSmall(buildFuelSphere(r), x, y - 0.1, z, { r: r * 1.02, h: r * 2.4 }, 'fuelsphere', 3200, 0xe6e8ea);
+  // 現實尺寸：球形燃料槽直徑 12–20 m（全身）；燃料車、防爆牆、貨物艙、天線桿照現實尺寸
+  w.scatter(w.cnt(5, 8), 24, (x, z, y) => {
+    const r = rnd(6, 10);
+    w.addSmall(buildFuelSphere(r), x, y - 0.1, z, { r: r * 1.02, h: r * 2.4 }, 'fuelsphere', 8000, 0xe6e8ea);
   });
-  w.scatter(w.cnt(3, 5), 8, (x, z, y) => {
+  w.scatter(w.cnt(5, 8), 8, (x, z, y) => {
     const g = buildFuelTruck();
     const rot = RNG() < 0.5;
     if (rot) g.rotation.y = Math.PI / 2;
     const [a, h, b] = FUEL_TRUCK;
     w.addSmall(g, x, y, z, { w: rot ? b : a, h, d: rot ? a : b }, 'fueltruck', 1400, 0xd8d8d0);
   });
-  w.scatter(w.cnt(6, 9), 8, (x, z, y) => {
+  w.scatter(w.cnt(10, 15), 8, (x, z, y) => {
     const g = buildBlastWall();
     const rot = RNG() < 0.5;
     if (rot) g.rotation.y = Math.PI / 2;
     const [a, h, b] = BLAST_WALL;
     w.addSmall(g, x, y - 0.1, z, { w: rot ? b : a, h, d: rot ? a : b }, 'blastwall', 2400, 0x9a9c9e);
   });
-  w.scatter(w.cnt(5, 8), 7, (x, z, y) => {
+  w.scatter(w.cnt(8, 12), 7, (x, z, y) => {
     const color = pick([0xe6e8ea, 0xb04a2a, 0x4a6a8a]);
     const g = buildCargoPod(color);
     const rot = RNG() < 0.5;
@@ -551,8 +592,8 @@ function buildProps(w) {
     const [a, h, b] = CARGO_POD;
     w.addSmall(g, x, y, z, { w: rot ? b : a, h, d: rot ? a : b }, 'cargopod', 1800, color);
   });
-  w.scatter(w.cnt(4, 6), 6, (x, z, y) => {
-    const h = rnd(11, 15);
+  w.scatter(w.cnt(5, 8), 6, (x, z, y) => {
+    const h = rnd(15, 25);
     w.addSmall(buildAntennaMast(h), x, y - 0.2, z, { r: 0.6, h }, 'mast', 900, 0xc8ccd0);
   });
   // 跑道燈（裝飾）
@@ -586,23 +627,48 @@ export const SPACEPORT = {
     mast: '天線桿',
   },
   catalog: [
-    ['launch_tower', '發射塔與火箭', '舊宇宙港；塔高 46、火箭高 36 m，不可破壞', () => buildLaunchTower()],
+    [
+      'launch_tower',
+      '發射塔與火箭',
+      '舊宇宙港的地標；現實尺寸塔高約 115、火箭高約 90 m，平台欄杆照人的尺寸，不可破壞',
+      () => buildLaunchTower(),
+    ],
     [
       'hangar',
       '機庫',
-      '舊宇宙港；26 × 22 × 12 m，開口朝 −Z，可以走進去、屋頂可站；不可破壞',
+      '舊宇宙港；現實尺寸 52 × 44 × 24 m，開口朝 −Z，機甲走得進去、屋頂可站，側牆有人用門；不可破壞',
       () => buildHangar(0x8a949e),
     ],
-    ['control_tower', '管制塔', '舊宇宙港；高約 30 m，不可破壞', () => buildControlTower()],
+    [
+      'control_tower',
+      '管制塔',
+      '舊宇宙港的地標；現實尺寸高約 85 m，底部有人用門，不可破壞',
+      () => buildControlTower(),
+    ],
     [
       'fuel_sphere',
       '球形燃料槽',
-      '舊宇宙港；半徑 3.4–4.6 m，可破壞；GLB 依尺寸縮放',
+      '舊宇宙港的全身掩體；現實尺寸半徑 6–10 m，可破壞；GLB 依尺寸縮放',
       () => buildFuelSphere(4),
     ],
-    ['fuel_truck', '燃料車', '舊宇宙港；2.6 × 3 × 8 m（長沿 Z），可破壞', () => buildFuelTruck()],
-    ['blast_wall', '防爆牆', '舊宇宙港的掩體；8 × 4 × 1.2 m（沿 X），可破壞', () => buildBlastWall()],
-    ['cargo_pod', '貨物艙', '舊宇宙港；2.8 × 2.7 × 6 m（長沿 Z），可破壞', () => buildCargoPod(0xe6e8ea)],
-    ['antenna_mast', '天線桿', '舊宇宙港；高 11–15 m，可破壞；GLB 依高度縮放', () => buildAntennaMast(14)],
+    [
+      'fuel_truck',
+      '燃料車',
+      '舊宇宙港的雜物；現實尺寸 2.6 × 3 × 8 m（長沿 Z），可破壞',
+      () => buildFuelTruck(),
+    ],
+    [
+      'blast_wall',
+      '防爆牆',
+      '舊宇宙港的低掩體；現實尺寸 8 × 4 × 1.2 m（沿 X），可破壞',
+      () => buildBlastWall(),
+    ],
+    [
+      'cargo_pod',
+      '貨物艙',
+      '舊宇宙港的雜物；現實尺寸 2.8 × 2.7 × 6 m（長沿 Z），可破壞',
+      () => buildCargoPod(0xe6e8ea),
+    ],
+    ['antenna_mast', '天線桿', '舊宇宙港；高 15–25 m，可破壞；GLB 依高度縮放', () => buildAntennaMast(14)],
   ],
 };
