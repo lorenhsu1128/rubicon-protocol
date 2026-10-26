@@ -740,6 +740,24 @@
             </select>
           </div>
           <div class="krow">
+            <span>傷害數字</span
+            ><select
+              id="ctrlDmgNum"
+              title="命中時的傷害數字（畫在機體輪廓外）；關閉時 BREAK、連攜等狀態字照樣顯示"
+            >
+              <option value="full">完整（預設）</option>
+              <option value="compact">精簡（字小、連續命中合併成一個數字）</option>
+              <option value="off">關閉</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>自己受傷的數字</span
+            ><select id="ctrlDmgSelf" title="自己的機體受傷時的紅色數字">
+              <option value="on">顯示（預設）</option>
+              <option value="off">不顯示</option>
+            </select>
+          </div>
+          <div class="krow">
             <span>整備演出</span
             ><select id="ctrlHangar" title="機甲庫換零件、維修、出擊時的格納庫演出">
               <option value="full">完整（預設）</option>

@@ -9845,6 +9845,22 @@ async function testJuice(browser, base) {
     // 打出失衡：BREAK
     e.takeDamage(10, e.acsMax * 10, pl, e.center());
     out.brk = g.popups.some((q) => q.val === 'BREAK');
+    // 數字畫在機體輪廓外、BREAK 在名牌上方（或腳下），都不蓋住機體
+    for (let i = 0; i < 30; i++) g.updateCamera(1 / 60);
+    g.camera.updateMatrixWorld(true);
+    g.drawPopups(g.hctx);
+    const bx = g.popBox(e);
+    const pn = g.popups.find((q) => q.num),
+      pb = g.popups.find((q) => q.val === 'BREAK');
+    out.outside =
+      !!bx && !!pn && !!pb && Math.abs(pn.sx - bx.cx) > bx.w && (pb.sy < bx.top - 20 || pb.sy > bx.bot + 10);
+    // 設定「傷害數字」關閉：沒有數字，狀態字照樣顯示
+    g.ctrl.dmgNum = 'off';
+    g.popups.length = 0;
+    e.takeDamage(100, 0, pl, e.center(), undefined, undefined, 'w_rifle');
+    g.popBreak(e);
+    out.off = g.popups.filter((q) => q.num).length === 0 && g.popups.some((q) => q.val === 'BREAK');
+    g.ctrl.dmgNum = 'full';
     // 擊破兩台：連殺 ×2，擊破演出（延遲爆炸、冒煙、焦痕）
     // 人形機甲先跪倒崩落（fx.collapse）、0.55 秒後才碎裂與擊破的爆炸
     e.takeDamage(1e9, 0, pl, e.center());
@@ -9874,6 +9890,8 @@ async function testJuice(browser, base) {
   });
   check(r.pops === 1 && r.sum > 300, `連續命中合併成一個傷害數字（${r.pops} 個、${r.sum}）`);
   check(r.brk, '打出失衡時跳出 BREAK');
+  check(r.outside, '傷害數字在機體輪廓外、BREAK 在名牌上方，不蓋住機體');
+  check(r.off, '設定關閉傷害數字時只剩狀態字（BREAK）');
   check(r.collapse && r.hidden, '擊破時人形機甲先跪倒崩落，之後才碎裂');
   check(r.burst >= 4 && r.tasks >= 2, `擊破演出：二次爆炸、殘骸冒煙、焦痕（${r.burst} 個特效）`);
   check(r.streak === 2, `連殺計數 ×${r.streak}`);

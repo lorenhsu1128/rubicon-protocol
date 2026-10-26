@@ -7,6 +7,14 @@ import { Game } from './game.js';
 import { clamp, lerp } from '../core/math.js';
 
 const POP_MERGE = 0.3; // 同一個目標在這段時間內的非近戰命中合併成一個數字
+const POP_MERGE_C = 0.6; // 精簡模式：合併的時間更長（近戰也合併），連射時只剩一個累加的數字
+const POP_LIFE = { num: 0.6, melee: 0.8, tag: 1.0 }; // 顯示秒數
+const POP_FADE = 0.2; // 最後幾秒淡出
+const POP_POP = 0.25; // 剛跳出時放大的比例
+const POP_RISE = 70; // 數字整段往上飄的距離（px／秒 × 顯示秒數）
+const POP_OUT = 30; // 數字整段往外（離開機體）飄的距離
+const _v = new THREE.Vector3(),
+  _r = new THREE.Vector3();
 const STREAK_NAMES = [
   [8, '無人能擋'],
   [6, '殲滅'],
@@ -18,22 +26,38 @@ const STREAK_NAMES = [
 const font = (px) => `bold ${Math.round(px)}px Chakra Petch`;
 
 Object.assign(Game.prototype, {
-  // 加入一個傷害數字（hud.js 的 popDamage 呼叫）；key＝目標，用來合併連續命中
+  // 加入一個傷害數字（hud.js 的 popDamage 呼叫）；key＝目標，用來合併連續命中。
+  // 數字一律畫在目標機體的輪廓外（左右兩側輪流、往外上方飄），狀態字（BREAK、連攜…）
+  // 疊在名牌上方，所以不會蓋住機體
   pushPopup(pos, val, onPlayer, stag, melee, combo, key) {
     const num = typeof val === 'number';
-    if (num && !melee && key !== undefined) {
-      const q = this.popups.find((x) => x.key === key && x.num && !x.melee && x.age < POP_MERGE);
+    const mode = (this.ctrl && this.ctrl.dmgNum) || 'full';
+    if (num && (mode === 'off' || (onPlayer && this.ctrl && this.ctrl.dmgSelf === false))) return;
+    const ent = this.popEnt(pos, key);
+    const k = ent ? ent.id : key;
+    if (num && k !== undefined && (!melee || mode === 'compact')) {
+      const win = mode === 'compact' ? POP_MERGE_C : POP_MERGE;
+      const q = this.popups.find((x) => x.key === k && x.num && !!x.melee === !!melee && x.age < win);
       if (q) {
         q.val += val;
         q.age = 0;
         q.pop = 1;
         q.life = q.max;
         q.stag = q.stag || stag;
+        q.combo = combo || q.combo;
         q.pos.lerp(pos, 0.3);
         return;
       }
     }
-    const life = melee ? 1.1 : num ? 0.9 : 1.2;
+    const life = melee ? POP_LIFE.melee : num ? POP_LIFE.num : POP_LIFE.tag;
+    // 同一個目標的數字左右輪流
+    let alt = 0;
+    if (num && k !== undefined) {
+      this.popAlt = this.popAlt || new Map();
+      alt = this.popAlt.get(k) ? 0 : 1;
+      this.popAlt.set(k, alt);
+      if (this.popAlt.size > 200) this.popAlt.clear();
+    }
     this.popups.push({
       pos: pos.clone(),
       val,
@@ -42,47 +66,99 @@ Object.assign(Game.prototype, {
       max: life,
       age: 0,
       pop: 1,
+      ent,
+      alt,
+      side: 0, // 第一次畫的時候決定（離畫面中心遠的那一側）
+      box: null, // 目標最後一次在畫面上的外框（目標消失後沿用）
       dx: (Math.random() * 2 - 1) * 22,
       onPlayer,
       stag,
       melee,
       combo,
-      key,
+      key: k,
     });
   },
-  // 每格更新數字的位置與時間（主迴圈）
+  // 數字屬於哪個實體：有 key 時照 id 找，沒有時找命中點附近的機體（PARRY、GUARD BREAK…）
+  popEnt(pos, key) {
+    if (key !== undefined && key !== -1 && this.entById) {
+      const e = this.entById(key);
+      if (e && e.model && e.pos) return e;
+    }
+    if (key !== undefined) return null;
+    let best = null,
+      bd = Infinity;
+    const list = [this.player, ...(this.players || []), ...(this.enemies || []), ...(this.allies || [])];
+    for (const e of list) {
+      if (!e || e.dead || !e.model || !e.pos) continue;
+      const d = e.center().distanceTo(pos) - e.radius * 1.6;
+      if (d < 0 && d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  },
+  // 實體在畫面上的外框：cx、上緣、下緣、半寬（像素）
+  popBox(e) {
+    const h = (e.model && e.model.height) || e.radius * 2;
+    const base = this.proj(e.pos);
+    const top = this.proj(_v.copy(e.pos).setY(e.pos.y + h));
+    if (!base.in && !top.in) return null;
+    _r.setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const c = e.center();
+    const sc = this.proj(c);
+    const sr = this.proj(c.add(_r.multiplyScalar(e.radius)));
+    return {
+      cx: sc.x,
+      top: Math.min(base.y, top.y),
+      bot: Math.max(base.y, top.y),
+      w: Math.max(12, Math.abs(sr.x - sc.x)),
+    };
+  },
+  // 每格更新數字的時間（主迴圈）；位置在畫的時候依目標的外框算
   tickPopups(dt) {
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const q = this.popups[i];
       q.life -= dt;
       q.age = (q.age || 0) + dt;
       q.pop = Math.max(0, (q.pop || 0) - dt * 7);
-      q.pos.y += dt * (q.num ? 3.2 * Math.max(0.2, q.life / q.max) : 1.5);
       if (q.life <= 0) this.popups.splice(i, 1);
     }
   },
-  // 傷害數字：數值越大字越大，剛跳出時放大再縮回，打在失衡中的敵人是金色、近戰是橘色、自己受傷是紅色
+  // 傷害數字：數值越大字越大，剛跳出時稍微放大再縮回，打在失衡中的敵人是金色、近戰是橘色、自己受傷是紅色
   drawPopups(c) {
-    const ph = innerHeight < 540 ? 0.65 : 1;
+    const W = innerWidth,
+      H = innerHeight;
+    const ph = H < 540 ? 0.65 : 1;
+    const compact = ((this.ctrl && this.ctrl.dmgNum) || 'full') === 'compact';
     c.textAlign = 'center';
     c.textBaseline = 'middle';
+    // 狀態字的堆疊：同一個目標的依出現順序往上排
+    const lanes = new Map();
     for (const q of this.popups) {
-      const s = this.proj(q.pos);
-      if (!s.in) continue;
-      const a = clamp(q.life / 0.35, 0, 1);
-      const x = s.x + q.dx * Math.min(1, q.age * 6);
-      const y = s.y;
+      if (q.num) continue;
+      const lk = q.ent || q;
+      q.slot = lanes.get(lk) || 0;
+      lanes.set(lk, q.slot + 1);
+    }
+    for (const q of this.popups) {
+      const a = clamp(q.life / POP_FADE, 0, 1) * (q.num && !q.stag && !q.melee && !q.onPlayer ? 0.85 : 1);
+      if (q.ent && !q.ent.dead && q.ent.model) {
+        const b = this.popBox(q.ent);
+        if (b) q.box = b;
+      }
       let px, col, glow;
       if (!q.num) {
         // 文字（BREAK、GUARD BREAK、PARRY…）
-        px = 24;
+        px = 22;
         col = q.stag ? '#ffcf40' : '#9fe8ff';
         glow = col;
       } else {
         const v = Math.abs(q.val);
-        px = q.onPlayer ? 15 : 12 + Math.min(20, Math.sqrt(v) * 0.55);
-        if (q.melee) px += 8;
-        if (q.stag) px += 5;
+        px = q.onPlayer ? 15 : 12 + Math.min(18, Math.sqrt(v) * 0.5);
+        if (q.melee) px += 6;
+        if (q.stag) px += 4;
+        if (compact) px *= 0.8;
         col = q.onPlayer
           ? '#ff5050'
           : q.melee
@@ -94,23 +170,52 @@ Object.assign(Game.prototype, {
                 : '#ffffff';
         glow = q.onPlayer ? null : q.stag || q.melee || v >= 600 ? col : null;
       }
-      px *= ph * (1 + q.pop * 0.7);
+      // 遠的目標字小一點（以畫面上的身高判斷）
+      const far = q.box ? clamp((q.box.bot - q.box.top) / 160, 0.72, 1) : 1;
+      px *= ph * far * (1 + q.pop * POP_POP);
       const txt = q.num ? String(Math.round(q.val)) + (q.stag && !q.onPlayer ? '!' : '') : q.val;
-      c.globalAlpha = a;
       c.font = font(px);
+      let x, y;
+      const ease = 1 - Math.pow(1 - Math.min(1, q.age / q.max), 2); // 先快後慢
+      if (q.box) {
+        const b = q.box;
+        if (!q.num) {
+          x = b.cx;
+          // 名牌上方放不下（目標在畫面上緣）時改排在腳下
+          const up = b.top - (54 + (lanes.get(q.ent) - 1) * 26) * ph - 12 > 16 * ph;
+          y = up ? b.top - (54 + q.slot * 26) * ph - ease * 12 : b.bot + (22 + q.slot * 26) * ph + ease * 12;
+        } else {
+          if (!q.side) q.side = b.cx >= W / 2 ? 1 : -1;
+          const side = q.alt ? -q.side : q.side;
+          const tw = c.measureText(txt).width;
+          const s = this.proj(q.pos);
+          const y0 = clamp(s.in ? s.y : (b.top + b.bot) / 2, b.top + px * 0.5, b.bot - px * 0.5);
+          x = b.cx + side * (b.w + 10 + tw / 2 + ease * POP_OUT * q.max);
+          y = y0 - ease * POP_RISE * q.max;
+        }
+      } else {
+        // 沒有對應的機體（地圖物件、投射物）：照舊在命中點，往上飄
+        const s = this.proj(q.pos);
+        if (!s.in) continue;
+        x = s.x + q.dx * Math.min(1, q.age * 6);
+        y = s.y - ease * POP_RISE * q.max;
+      }
+      q.sx = x; // 畫面上的位置（冒煙測試檢查不蓋住機體）
+      q.sy = y;
+      c.globalAlpha = a;
       c.lineJoin = 'round';
       c.lineWidth = Math.max(3, px * 0.18);
       c.strokeStyle = 'rgba(0,0,0,.75)';
       if (glow) {
         c.shadowColor = glow;
-        c.shadowBlur = 10 + q.pop * 14;
+        c.shadowBlur = 6 + q.pop * 10;
       }
       c.strokeText(txt, x, y);
       c.fillStyle = col;
       c.fillText(txt, x, y);
       c.shadowBlur = 0;
-      if (q.melee && !q.onPlayer && q.combo > 0) {
-        c.font = font(14 * ph * (1 + q.pop * 0.4));
+      if (q.melee && !q.onPlayer && q.combo > 0 && !compact) {
+        c.font = font(13 * ph * far * (1 + q.pop * 0.3));
         c.lineWidth = 3;
         const t2 = 'HIT ×' + q.combo;
         c.strokeText(t2, x, y + px * 0.85);
@@ -126,9 +231,9 @@ Object.assign(Game.prototype, {
     this.hitFlashK = Math.max(this.hitFlashK || 0, k);
     this.chromaK = Math.max(this.chromaK || 0, k);
   },
-  // 打出失衡：BREAK 字樣
-  popBreak(pos) {
-    this.pushPopup(pos.clone().setY(pos.y + 2.5), 'BREAK', false, true, false, 0);
+  // 打出失衡：BREAK 字樣（疊在目標的名牌上方，鎖定中且鏡頭瞄準時在準星下方）
+  popBreak(t) {
+    this.pushPopup(t.center(), 'BREAK', false, true, false, 0, t.id);
   },
   // 畫面邊緣的回饋（drawHud 結尾呼叫）
   drawJuice(c, W, H, p, dt) {

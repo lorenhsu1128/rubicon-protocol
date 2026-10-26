@@ -329,12 +329,7 @@ Object.assign(Game.prototype, {
       this.updateSupport(step);
       this.updateHazards(step);
       this.fx.update(step);
-      for (let i = this.popups.length - 1; i >= 0; i--) {
-        const q = this.popups[i];
-        q.life -= step;
-        q.pos.y += step * 2.5;
-        if (q.life <= 0) this.popups.splice(i, 1);
-      }
+      this.tickPopups(step);
       if (L.mode !== 'demo') this.labRespawn(step);
       L.refillT -= step;
       if (L.refillT <= 0) {

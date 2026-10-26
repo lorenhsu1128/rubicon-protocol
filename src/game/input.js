@@ -598,6 +598,14 @@ Object.assign(Game.prototype, {
       this.ctrl.hangarFx = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlDmgNum').onchange = (e) => {
+      this.ctrl.dmgNum = e.target.value;
+      this.saveKeys();
+    };
+    document.getElementById('ctrlDmgSelf').onchange = (e) => {
+      this.ctrl.dmgSelf = e.target.value !== 'off';
+      this.saveKeys();
+    };
     document.getElementById('ctrlCine').onchange = (e) => {
       this.ctrl.cine = e.target.value;
       this.saveKeys();

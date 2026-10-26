@@ -66,6 +66,8 @@ Object.assign(Game.prototype, {
     $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
     $('ctrlCine').value = this.ctrl.cine || 'on';
+    $('ctrlDmgNum').value = this.ctrl.dmgNum || 'full';
+    $('ctrlDmgSelf').value = this.ctrl.dmgSelf === false ? 'off' : 'on';
     $('ctrlHangar').value = this.hangarFx();
     this.renderLocalModels();
     this.renderStyleSettings();

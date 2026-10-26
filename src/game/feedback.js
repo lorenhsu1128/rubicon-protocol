@@ -175,7 +175,7 @@ Object.assign(Game.prototype, {
     if (!from || from.team !== 'player' || t.team !== 'enemy' || this.pvp) return;
     if (from.isPlayer) {
       SFX.breakFx();
-      this.popBreak(t.center());
+      this.popBreak(t);
     } else if (from.slot !== undefined && this.net && this.net.role === 'host')
       this.netEv({ t: 'fb', s: from.slot, k: 'break', i: t.id });
   },
@@ -186,7 +186,7 @@ Object.assign(Game.prototype, {
     else if (e.k === 'break') {
       SFX.breakFx();
       const t = this.entById(e.i);
-      if (t) this.popBreak(t.center());
+      if (t) this.popBreak(t);
     }
   },
 });
