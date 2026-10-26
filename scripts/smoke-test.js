@@ -72,8 +72,9 @@ function serveHtml() {
 
 // 伺服器模型組的資料夾（測試用，每次重來；分段平行時在各段自己的暫存資料夾）
 const SERVER_MODELS = path.join(WORK_DIR, 'server-models');
-async function startGameServer() {
-  fs.rmSync(SERVER_MODELS, { recursive: true, force: true });
+// models／seed：伺服器模型組與自動匯入來源的資料夾（預設是測試用的空資料夾、不自動匯入）
+async function startGameServer(models = SERVER_MODELS, seed = path.join(WORK_DIR, 'no-seed'), keep = false) {
+  if (!keep) fs.rmSync(models, { recursive: true, force: true });
   // port 0：由系統挑空的 port，test-server-preload.js 把實際的 port 印出來
   const proc = spawn(process.execPath, ['-r', './scripts/test-server-preload.js', 'server.js'], {
     cwd: ROOT,
@@ -81,7 +82,8 @@ async function startGameServer() {
       ...process.env,
       TEST_GAME_PORT: 0,
       TEST_CONTROL_PORT: 0,
-      RUBICON_MODELS_DIR: SERVER_MODELS,
+      RUBICON_MODELS_DIR: models,
+      RUBICON_SEED_DIR: seed,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -94,7 +96,7 @@ async function startGameServer() {
       const url = `http://127.0.0.1:${m[1]}/`;
       try {
         const r = await fetch(url + 'health');
-        if (r.ok) return { proc, url, health: await r.text() };
+        if (r.ok) return { proc, url, health: await r.text(), log: () => log };
       } catch (e) {}
     }
     if (proc.exitCode !== null) break;
@@ -15821,6 +15823,54 @@ const RTS_R6E = require('./smoke-rts-r6-e')({
   path,
   watch,
 });
+// 伺服器啟動時自動匯入伺服器預設組的內建來源（dist/server-default/，server.js 的 seedDefaults）
+async function testServerSeed() {
+  console.log('伺服器預設組的自動匯入：第一次匯入、刪掉不補回、來源更新與移除');
+  const src = path.join(ROOT, 'dist', 'server-default');
+  if (!fs.existsSync(src)) return check(false, '找不到 dist/server-default');
+  const base = path.join(WORK_DIR, 'seed-test');
+  const seed = path.join(base, 'seed'),
+    models = path.join(base, 'models');
+  fs.rmSync(base, { recursive: true, force: true });
+  fs.cpSync(src, seed, { recursive: true });
+  const n = fs.readdirSync(path.join(seed, 'prop')).filter((f) => f.endsWith('.glb')).length;
+  const run = async (fn) => {
+    const g = await startGameServer(models, seed, true);
+    try {
+      await wait(300);
+      const man = await (await fetch(g.url + 'api/models/default')).json();
+      return await fn(man, g);
+    } finally {
+      g.proc.kill();
+      await wait(500);
+    }
+  };
+  const props = (man) => Object.keys(man.models).filter((k) => k.startsWith('prop/'));
+  const first = await run(async (man, g) => {
+    await fetch(g.url + 'api/models/default/glb/prop%2Frock', { method: 'DELETE' });
+    return props(man).length;
+  });
+  check(first === n && n > 0, `第一次啟動匯入全部的內建來源（${first} / ${n} 個）`);
+  // 刪掉的不補回；來源換了新檔（伺服器上還是當初那份）就更新；來源拿掉了就一起刪
+  fs.copyFileSync(path.join(seed, 'prop', 'debris.glb'), path.join(seed, 'prop', 'rubble.glb'));
+  fs.rmSync(path.join(seed, 'prop', 'barrels.glb'));
+  const h = require('crypto')
+    .createHash('sha256')
+    .update(fs.readFileSync(path.join(seed, 'prop', 'rubble.glb')))
+    .digest('hex');
+  const second = await run(async (man) => ({
+    rock: !!man.models['prop/rock'],
+    barrels: !!man.models['prop/barrels'],
+    rubble: !!man.models['prop/rubble'] && man.models['prop/rubble'].h === h,
+    n: props(man).length,
+  }));
+  check(
+    !second.rock && !second.barrels && second.rubble && second.n === n - 2,
+    `重啟：刪掉的不補回、來源移除的一起刪、來源更新的換新（${JSON.stringify(second)}）`,
+  );
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
 const STEPS = [
   ['testFile', (c) => testFile(c.browser)],
   ['testSolo', (c) => testSolo(c.browser, c.base)],
@@ -15950,6 +16000,7 @@ const STEPS = [
   ['testMpStatus', (c) => testMpStatus(c.browser, c.base + '?lan=local&test')],
   ['testMpCampaign', (c) => testMpCampaign(c.browser, c.base + '?lan=local&test')],
   ['testMpLevels', (c) => testMpLevels(c.browser, c.base + '?lan=local&test')],
+  ['testServerSeed', () => testServerSeed()],
   ['server', (c) => testServerBasics(c.browser, c.game), { server: true }],
   [
     'server:testServerModels',

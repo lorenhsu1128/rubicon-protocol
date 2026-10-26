@@ -156,6 +156,85 @@ function readBody(req, limit) {
     req.on('error', () => res(null));
   });
 }
+// 啟動時自動匯入伺服器預設組的內建來源：WEB_DIR/server-default/<槽位>.glb（建置時從 src/assets/server-default/ 複製到
+// dist/；exe 版放在 exe 旁）。每個槽位只匯入一次（manifest.seeded 記下匯入時的雜湊）：在模型庫刪掉的不會補回、
+// 自己換過的不覆蓋；來源換成新檔、而伺服器上還是當初匯入的那一份時才更新
+const SEED_DIR = process.env.RUBICON_SEED_DIR || path.join(WEB_DIR, 'server-default'); // 環境變數：冒煙測試改用別的資料夾
+function seedDefaults() {
+  if (!fs.existsSync(SEED_DIR)) return null;
+  const man = loadManifest();
+  const seeded = man.seeded || {};
+  const seen = new Set();
+  let add = 0,
+    upd = 0,
+    del = 0;
+  const walk = (d) => {
+    for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, f.name);
+      if (f.isDirectory()) walk(p);
+      if (!f.isFile() || !f.name.endsWith('.glb')) continue;
+      const slot = path
+        .relative(SEED_DIR, p)
+        .split(path.sep)
+        .join('/')
+        .replace(/\.glb$/, '');
+      if (!SLOT_RE.test(slot)) continue;
+      seen.add(slot);
+      const body = fs.readFileSync(p);
+      const h = sha256(body);
+      const prev = seeded[slot],
+        rec = man.models[slot];
+      if (prev === h) continue;
+      // 第一次看到：伺服器上沒有才放；來源換了：伺服器上還是上次匯入的才換
+      if (prev === undefined ? !rec : rec && rec.h === prev) {
+        writeAtomic(glbPath('glb', slot), body);
+        rmQuiet(glbPath('orig', slot));
+        man.models[slot] = { name: f.name, size: body.length, h, t: Date.now() };
+        if (prev === undefined) add++;
+        else upd++;
+      }
+      seeded[slot] = h;
+    }
+  };
+  walk(SEED_DIR);
+  // 來源拿掉了：伺服器上還是當初匯入的那一份就一起刪
+  for (const slot of Object.keys(seeded)) {
+    if (seen.has(slot)) continue;
+    const rec = man.models[slot];
+    if (rec && rec.h === seeded[slot]) {
+      rmQuiet(glbPath('glb', slot));
+      rmQuiet(glbPath('orig', slot));
+      delete man.models[slot];
+      del++;
+    }
+    delete seeded[slot];
+  }
+  const changed = JSON.stringify(seeded) !== JSON.stringify(man.seeded || {});
+  man.seeded = seeded;
+  if (changed) saveManifest();
+  return { add, upd, del };
+}
+// 開發模式（從專案執行 server.js、沒有用 RUBICON_MODELS_DIR 指定別的資料夾）：伺服器預設組的 GLB 寫入與刪除同時存回
+// src/assets/server-default/，commit 之後別台伺服器 pull 下來重啟就自動匯入；和內建的玩家預設機甲
+// （src/assets/player-mech/）相同的檔案不存（npm run publish:server 上傳的那些）
+const DEV_SEED =
+  !process.pkg && !process.env.RUBICON_MODELS_DIR
+    ? path.join(__dirname, 'src', 'assets', 'server-default')
+    : null;
+const devSeedPath = (slot) => path.join(DEV_SEED, ...slot.split('/')) + '.glb';
+function devSeedPut(slot, body) {
+  if (!DEV_SEED) return;
+  try {
+    const pm = path.join(__dirname, 'src', 'assets', 'player-mech', ...slot.split('/')) + '.glb';
+    if (fs.existsSync(pm) && sha256(fs.readFileSync(pm)) === sha256(body)) return devSeedDel(slot);
+    writeAtomic(devSeedPath(slot), body);
+  } catch (e) {
+    console.warn('[models] 存回 src/assets/server-default 失敗：' + e.message);
+  }
+}
+function devSeedDel(slot) {
+  if (DEV_SEED) rmQuiet(devSeedPath(slot));
+}
 function cleanUploads() {
   try {
     const old = Date.now() - 30 * 86400e3;
@@ -221,6 +300,7 @@ async function modelsApi(req, resp, u, q) {
             writeAtomic(glbPath('glb', slot), body);
             rmQuiet(glbPath('orig', slot)); // 新檔案：原始檔另外上傳（GLB 編輯器存檔時）
             man.models[slot] = { name, size: body.length, h: sha256(body), t: Date.now() };
+            devSeedPut(slot, body);
           } else {
             if (!man.models[slot]) throw new Error('槽位還沒有 GLB');
             writeAtomic(glbPath('orig', slot), body);
@@ -238,6 +318,7 @@ async function modelsApi(req, resp, u, q) {
         rmQuiet(glbPath('glb', slot));
         rmQuiet(glbPath('orig', slot));
         delete man.models[slot];
+        devSeedDel(slot);
         saveManifest();
       });
       return json({ ok: true, rev: man.rev });
@@ -276,6 +357,7 @@ async function modelsApi(req, resp, u, q) {
             rmQuiet(glbPath('glb', s));
             rmQuiet(glbPath('orig', s));
             delete man.models[s];
+            devSeedDel(s);
           }
         man.joints = {};
       }
@@ -452,6 +534,17 @@ function startGame(port) {
     const peers = new Map(),
       rooms = new Map();
     cleanUploads();
+    queued(() => {
+      try {
+        const r = seedDefaults();
+        if (r && (r.add || r.upd || r.del))
+          console.log(
+            `[models] 伺服器預設組自動匯入：新增 ${r.add} 個、更新 ${r.upd} 個、移除 ${r.del} 個（${SEED_DIR}）`,
+          );
+      } catch (e) {
+        console.warn('[models] 自動匯入失敗：' + e.message);
+      }
+    });
     const server = http.createServer((req, resp) => {
       const u = req.url.split('?')[0];
       if (

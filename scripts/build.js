@@ -265,12 +265,22 @@ function copySubprojects() {
   }
 }
 
+// 伺服器預設組的內建來源（src/assets/server-default/，檔名＝槽位 id）：複製到 dist/server-default/，
+// 伺服器啟動時自動匯入（server.js 的 seedDefaults；exe 版要把這個資料夾放在 exe 旁）
+function copyServerDefault() {
+  const src = path.join(SRC, 'assets', 'server-default');
+  const out = path.join(DIST, 'server-default');
+  fs.rmSync(out, { recursive: true, force: true });
+  if (fs.existsSync(src)) fs.cpSync(src, out, { recursive: true });
+}
+
 async function main() {
   if (!watch) fs.rmSync(LIB, { recursive: true, force: true }); // 重新複製，移除不再使用的程式庫
   writeDraco();
   writeMusic();
   writeHangar();
   copySubprojects();
+  copyServerDefault();
   if (!watch) {
     for (const page of PAGES) {
       const r = await esbuild.build(options(page));

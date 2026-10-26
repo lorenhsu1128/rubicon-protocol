@@ -171,6 +171,15 @@ export class GlbStore {
     } catch (e) {}
     const seeded = await this.seedBuiltinMech();
     if (seeded) cur = seeded;
+    // 從伺服器開啟的新分頁一律從伺服器預設組開始：開發時換的 GLB 直接寫進伺服器預設組（開發模式的伺服器另外存回
+    // src/assets/server-default/，跟著 git 帶到別台伺服器）；同一個分頁重新整理時沿用這個分頁選的（sessionStorage）
+    if (this.server) {
+      let tab = null;
+      try {
+        tab = sessionStorage.getItem(CUR_KEY);
+      } catch (e) {}
+      cur = tab || SERVER_SET;
+    }
     if (cur === SERVER_SET && this.server)
       try {
         await this.loadServer();
@@ -293,6 +302,7 @@ export class GlbStore {
     this.cur = id;
     try {
       localStorage.setItem(CUR_KEY, id);
+      sessionStorage.setItem(CUR_KEY, id);
     } catch (e) {}
     this.local = new Map();
     for (const r of this.recs.values()) if (r.set === setOf(r.id, id)) this.local.set(r.id, r);

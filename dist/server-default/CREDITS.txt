@@ -1,0 +1,10 @@
+伺服器預設組的地圖物件 GLB（npm run publish:server 上傳到執行中的 rubicon-server；遊戲與模型庫不內嵌，伺服器組刪掉某一格就恢復程式模型）。
+檔名＝槽位 id（prop/<物件>.glb），以模型庫的代表尺寸製作、glTF 座標（+Z 正面）；岩石類的材質名稱是 main（遊戲換成主題的岩石色，貼圖是灰階）。
+Poly Haven（https://polyhaven.com，CC0 1.0）：
+  rock＝namaqualand_boulder_04；sandstone＝namaqualand_boulder_04；rock_spire＝namaqualand_cliff_01（轉成直立）；debris＝namaqualand_boulder_05；
+  rubble＝namaqualand_boulder_02；rock_pile＝namaqualand_boulder_02～05 四塊；ice_chunk＝namaqualand_boulder_03／04 換成冰的材質；
+  ice_shard＝namaqualand_boulder_05 換成冰的材質；barrels＝Barrel_01、Barrel_02；toxic_drum＝Barrel_02（桶蓋的發光沿用程式模型）；
+  barrier＝concrete_road_barrier 兩段。
+NASA 3D Resources（https://github.com/nasa/NASA-3D-Resources，NASA 製作、沒有著作權，不代表 NASA 背書）：
+  radar_dish＝Deep Space Network 34-meter；obs_dome＝Radome。
+已減面並把貼圖轉成 WebP（最大 1024 px）。
