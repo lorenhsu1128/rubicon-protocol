@@ -2453,8 +2453,8 @@ async function testLibraryJoints(browser, base) {
   };
   await open('arms/a_std/r_upper');
   const def = await page.$eval(elbowY, (i) => i.value);
-  check(def === '-0.59', `手肘預設位置 Y＝${def}（glTF 座標）`);
-  await page.fill(elbowY, '-1.4');
+  check(def === '-1.771', `手肘預設位置 Y＝${def}（glTF 座標）`);
+  await page.fill(elbowY, '-4.2');
   await wait(900);
   check(
     ((await page.textContent('.jrow[data-n="elbow"] .jsrc')) || '').includes('已修改'),
@@ -2463,20 +2463,20 @@ async function testLibraryJoints(browser, base) {
   await page.click('.jrow[data-n="elbow"] [data-act="sel"]');
   await page.click('#insModes button[data-m="compose"]');
   await wait(2000);
-  check((await page.$eval(elbowY, (i) => i.value)) === '-1.4', '組合預覽套用修改後的手肘位置');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-4.2', '組合預覽套用修改後的手肘位置');
   await page.screenshot({ path: path.join(SHOT_DIR, 'library-joints.png') });
   await open('arms/a_std/r_upper');
-  check((await page.$eval(elbowY, (i) => i.value)) === '-1.4', '重新整理後修改仍保留');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-4.2', '重新整理後修改仍保留');
   check(((await page.textContent('#count')) || '').includes('關節修改 1 個'), '上方顯示關節修改數量');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#insJointsExport')]);
   const fp = path.join(SHOT_DIR, 'joints.json');
   await dl.saveAs(fp);
   const j = JSON.parse(fs.readFileSync(fp, 'utf8'));
   const e = j['arms/a_std/r_upper'] && j['arms/a_std/r_upper'].elbow;
-  check(!!e && e.p[1] === -1.4, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
+  check(!!e && e.p[1] === -4.2, `匯出的 joints.json 含修改（${JSON.stringify(e)}）`);
   await page.click('.jrow[data-n="elbow"] [data-act="reset"]');
   await wait(500);
-  check((await page.$eval(elbowY, (i) => i.value)) === '-0.59', '重設後回到預設值');
+  check((await page.$eval(elbowY, (i) => i.value)) === '-1.771', '重設後回到預設值');
   await ctx.close();
 }
 
@@ -2585,10 +2585,10 @@ async function testWorkshop(browser, base) {
     ((await page.textContent('#wsDetail')) || '').includes('所有使用「AR-011 MELANDER」手臂的機甲'),
     '選取連接點後顯示影響範圍',
   );
-  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-1.3');
+  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-3.9');
   await wait(900);
   check(
-    ((await page.textContent(elbow + ' .cv')) || '').includes('-1.300') &&
+    ((await page.textContent(elbow + ' .cv')) || '').includes('-3.900') &&
       (await page.$eval(elbow, (r) => r.classList.contains('mod'))),
     '輸入數值後連接點移動並標示已修改',
   );
@@ -2603,7 +2603,7 @@ async function testWorkshop(browser, base) {
   await page.screenshot({ path: path.join(SHOT_DIR, 'workshop-edit.png') });
   await page.click('#wsDetail [data-act="reset"]');
   await wait(500);
-  check(((await page.textContent(elbow + ' .cv')) || '').includes('-0.590'), '重設後回到預設值');
+  check(((await page.textContent(elbow + ' .cv')) || '').includes('-1.771'), '重設後回到預設值');
   const gl = await page.$('#wsGl');
   const box = await gl.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.45);
@@ -2618,27 +2618,27 @@ async function testWorkshop(browser, base) {
   const blur = () => page.click('#wsRight h3');
   await page.click(elbow);
   await page.check('#wsSym');
-  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-1.2');
+  await page.fill('#wsDetail input[data-k="p"][data-i="1"]', '-3.6');
   await wait(900);
   check(
-    (await cv(elbow)).startsWith('0.000, -1.200') && (await cv(lElbow)).startsWith('0.000, -1.200'),
+    (await cv(elbow)).startsWith('0.000, -3.600') && (await cv(lElbow)).startsWith('0.000, -3.600'),
     `對稱編輯同時修改另一側（${await cv(lElbow)}）`,
   );
   await blur();
   await page.keyboard.press('Control+z');
   await wait(600);
   check(
-    (await cv(elbow)).includes('-0.590') && (await cv(lElbow)).includes('-0.590'),
+    (await cv(elbow)).includes('-1.771') && (await cv(lElbow)).includes('-1.771'),
     'Ctrl+Z 復原（兩側一起）',
   );
   await page.keyboard.press('Control+y');
   await wait(600);
-  check((await cv(lElbow)).includes('-1.200'), 'Ctrl+Y 重做');
+  check((await cv(lElbow)).includes('-3.600'), 'Ctrl+Y 重做');
   await page.keyboard.press('ArrowUp');
   await wait(400);
   await page.keyboard.press('Shift+ArrowUp');
   await wait(600);
-  check((await cv(elbow)).includes('-1.090'), `方向鍵微調 1 cm＋Shift 10 cm（${await cv(elbow)}）`);
+  check((await cv(elbow)).includes('-3.490'), `方向鍵微調 1 cm＋Shift 10 cm（${await cv(elbow)}）`);
   await page.uncheck('#wsSym');
   await blur();
   await page.keyboard.press('ArrowRight');
@@ -2649,14 +2649,14 @@ async function testWorkshop(browser, base) {
   );
   await page.click('#wsCopy');
   await wait(600);
-  check((await cv(lElbow)).startsWith('-0.010, -1.090'), `複製到另一側（${await cv(lElbow)}）`);
+  check((await cv(lElbow)).startsWith('-0.010, -3.490'), `複製到另一側（${await cv(lElbow)}）`);
   await page.click('.wsSteps summary');
   await page.fill('.wsSteps input[data-st="move"]', '5');
   await page.press('.wsSteps input[data-st="move"]', 'Enter');
   await blur();
   await page.keyboard.press('ArrowDown');
   await wait(600);
-  check((await cv(elbow)).includes('-1.140'), '步進可以自己改（5 cm）');
+  check((await cv(elbow)).includes('-3.540'), '步進可以自己改（5 cm）');
   // 以核心為根：清單從核心開始；選襠部拖曳＝整組腿相對核心移動（拖曳中核心不動，放開後改的是腰的連接點）
   check(await page.$eval('#wsTree .wsNode', (n) => n.dataset.slot.startsWith('core/')), '組裝層級以核心為根');
   await page.click('#wsAnims button[data-a="rest"]'); // 拉直靜止姿勢：核心沒有俯仰，位移等於腰的反向
@@ -2757,10 +2757,10 @@ async function testEditor(browser, base) {
   check((await bad()).length === 0, `對齊後規格檢查全部通過${(await bad()).join('；')}`);
   await page.click('#edOrigin button[data-o="bottom"]');
   await wait(400);
-  check((await stats()).includes('Y0.00 ～ 0.91'), `原點設在底面中心（${await stats()}）`);
+  check((await stats()).includes('Y0.00 ～ 2.73'), `原點設在底面中心（${await stats()}）`);
   await page.keyboard.press('Control+z');
   await wait(400);
-  check((await stats()).includes('Y-0.66 ～ 0.25'), `Ctrl+Z 復原原點修改（${await stats()}）`);
+  check((await stats()).includes('Y-1.98 ～ 0.75'), `Ctrl+Z 復原原點修改（${await stats()}）`);
   const tris = async () => parseInt(((await page.textContent('#edTris')) || '').replace(/,/g, ''), 10);
   const t0 = await tris();
   await page.click('#edTree .edNode:last-child [data-act="del"]');
@@ -2987,7 +2987,7 @@ async function testEditorSplit(browser, base) {
   await wait(500);
   await page.click('.edPc:has-text("左手") .nm');
   for (const i of [0, 1, 2]) {
-    await page.fill(`#edBoxEdit input[data-k="s"][data-i="${i}"]`, '0.1');
+    await page.fill(`#edBoxEdit input[data-k="s"][data-i="${i}"]`, '0.3'); // 機甲的建模尺寸（舊尺度的 0.1 m）
     await page.press(`#edBoxEdit input[data-k="s"][data-i="${i}"]`, 'Tab');
   }
   await page.click('#edSpStart');
@@ -16017,10 +16017,44 @@ async function testServerSeed() {
     }
   };
   const props = (man) => Object.keys(man.models).filter((k) => k.startsWith('prop/'));
+  // 機甲三倍高改版：舊的伺服器預設組（沒有 mechK）裡的機甲 GLB 與關節設定，啟動時換成新尺度一次
+  const oldGlb = fs.readFileSync(path.join(seed, 'prop', 'debris.glb'));
+  fs.mkdirSync(path.join(models, 'default', 'glb', 'arms', 'a_std'), { recursive: true });
+  fs.writeFileSync(path.join(models, 'default', 'glb', 'arms', 'a_std', 'r_fore.glb'), oldGlb);
+  fs.writeFileSync(
+    path.join(models, 'default', 'manifest.json'),
+    JSON.stringify({
+      name: '伺服器預設組',
+      rev: 1,
+      models: { 'arms/a_std/r_fore': { name: 'r_fore.glb', size: oldGlb.length, h: 'x', t: 1 } },
+      joints: { 'arms/a_std/r_upper': { elbow: { p: [0, -0.59, 0], r: [0, 0, 0] } } },
+    }),
+  );
+  const rootScale = (buf) => {
+    const J = JSON.parse(buf.slice(20, 20 + buf.readUInt32LE(12)).toString());
+    const n = J.nodes[J.scenes[J.scene || 0].nodes[0]];
+    return (n.scale || [1, 1, 1])[0];
+  };
+  const k0 = rootScale(oldGlb);
+  const mechOf = async (man, g) => ({
+    k:
+      rootScale(
+        Buffer.from(
+          await (await fetch(g.url + 'api/models/default/glb/arms%2Fa_std%2Fr_fore')).arrayBuffer(),
+        ),
+      ) / k0,
+    y: man.joints['arms/a_std/r_upper'].elbow.p[1],
+  });
+  let mech;
   const first = await run(async (man, g) => {
+    mech = await mechOf(man, g);
     await fetch(g.url + 'api/models/default/glb/prop%2Frock', { method: 'DELETE' });
     return props(man).length;
   });
+  check(
+    Math.abs(mech.k - 3) < 1e-6 && Math.abs(mech.y + 1.77) < 1e-6,
+    `舊的機甲 GLB 與關節設定換成新尺度（GLB ×${mech.k}、手肘 ${mech.y}）`,
+  );
   check(first === n && n > 0, `第一次啟動匯入全部的內建來源（${first} / ${n} 個）`);
   // 刪掉的不補回；來源換了新檔（伺服器上還是當初那份）就更新；來源拿掉了就一起刪
   fs.copyFileSync(path.join(seed, 'prop', 'debris.glb'), path.join(seed, 'prop', 'rubble.glb'));
@@ -16029,15 +16063,21 @@ async function testServerSeed() {
     .createHash('sha256')
     .update(fs.readFileSync(path.join(seed, 'prop', 'rubble.glb')))
     .digest('hex');
-  const second = await run(async (man) => ({
+  const second = await run(async (man, g) => ({
+    mech: await mechOf(man, g),
     rock: !!man.models['prop/rock'],
     barrels: !!man.models['prop/barrels'],
     rubble: !!man.models['prop/rubble'] && man.models['prop/rubble'].h === h,
     n: props(man).length,
   }));
   check(
-    !second.rock && !second.barrels && second.rubble && second.n === n - 2,
-    `重啟：刪掉的不補回、來源移除的一起刪、來源更新的換新（${JSON.stringify(second)}）`,
+    !second.rock &&
+      !second.barrels &&
+      second.rubble &&
+      second.n === n - 2 &&
+      Math.abs(second.mech.k - 3) < 1e-6 &&
+      Math.abs(second.mech.y + 1.77) < 1e-6,
+    `重啟：刪掉的不補回、來源移除的一起刪、來源更新的換新、機甲 GLB 不再換算（${JSON.stringify(second)}）`,
   );
   fs.rmSync(base, { recursive: true, force: true });
 }

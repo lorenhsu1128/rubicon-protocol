@@ -24,6 +24,7 @@ import {
 import { buildGrid } from './refs.js';
 import { addLights, applyLight, buildMechWithGlb, disposeObject, fitCamera, makeRenderer } from './stage.js';
 import { restPose, sanitizeAsm } from './workshop.js';
+import { MB } from '../core/scale.js';
 
 const $ = (id) => document.getElementById(id);
 const R2D = 180 / Math.PI;
@@ -92,17 +93,17 @@ export class MotionEditor {
     this.lights.sun.shadow.mapSize.set(2048, 2048);
     applyLight(this.scene, this.lights, null);
     const sc = this.lights.sun.shadow.camera;
-    sc.left = sc.bottom = -8;
-    sc.right = sc.top = 8;
-    sc.far = 60;
-    this.lights.sun.position.set(6, 14, -8);
+    sc.left = sc.bottom = -8 * MB; // 機甲的建模尺寸（9.7 m）
+    sc.right = sc.top = 8 * MB;
+    sc.far = 60 * MB;
+    this.lights.sun.position.set(6 * MB, 14 * MB, -8 * MB);
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(400, 400),
       new THREE.ShadowMaterial({ opacity: 0.35 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
-    this.scene.add(floor, buildGrid(new THREE.Vector3(4, 4, 4)));
+    this.scene.add(floor, buildGrid(new THREE.Vector3(4 * MB, 4 * MB, 4 * MB)));
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.01, 2000);
     this.controls = new THREE.OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
@@ -522,12 +523,12 @@ export class MotionEditor {
     if (refit || !this.fitted) {
       this.resize(true);
       this.controls.target.copy(
-        fitCamera(this.camera, new THREE.Vector3(4, 4.2, 4), this.camera.aspect, 1.4),
+        fitCamera(this.camera, new THREE.Vector3(4 * MB, 4.2 * MB, 4 * MB), this.camera.aspect, 1.4),
       );
       this.camera.position.set(
-        this.controls.target.x + 7,
-        this.controls.target.y + 2,
-        this.controls.target.z - 6,
+        this.controls.target.x + 7 * MB,
+        this.controls.target.y + 2 * MB,
+        this.controls.target.z - 6 * MB,
       );
       this.controls.update();
       this.fitted = true;

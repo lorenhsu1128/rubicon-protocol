@@ -6,6 +6,7 @@ import { rnd } from '../core/math.js';
 import { mergeGeos } from '../render/geometry.js';
 import { FxBatch } from './batch.js';
 import { ThrusterFx } from './thruster.js';
+import { MB } from '../core/scale.js';
 
 // 擊破時跪倒崩落的秒數（之後才碎裂）
 export const COLLAPSE_T = 0.55;
@@ -205,8 +206,8 @@ export class Effects {
           g.a.up.rotation.x = L(g.up, 0.1, u);
           g.a.fore.rotation.x = L(g.fo, 0.5, u);
         }
-        m.legsG.position.y = s0.ly - 0.75 * u;
-        m.torso.position.y = s0.ty - 0.75 * u;
+        m.legsG.position.y = s0.ly - 0.75 * MB * u; // 機甲的建模尺寸（新尺度）
+        m.torso.position.y = s0.ty - 0.75 * MB * u;
         m.torso.rotation.x = L(s0.tx, back ? 0.45 : -0.6, u);
         m.torso.rotation.z = L(s0.tz, side * 0.25, u);
         if (m.head) m.head.rotation.x = L(hx, back ? -0.3 : 0.5, u);

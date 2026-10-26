@@ -23,6 +23,7 @@ import { gBox, gCyl, isOutline } from '../render/geometry.js';
 import { PALETTES } from '../render/materials.js';
 import { animateMech, buildMech } from '../render/mech-model.js';
 import { Game } from './game.js';
+import { MB } from '../core/scale.js';
 
 const POSE = { pose: 'garage', moving: false, grounded: true, hover: false, boost: false, aimPitch: 0 };
 const DEF_VIEW = { yaw: 0.55, pitch: 0.2, dist: 7.4 };
@@ -137,7 +138,7 @@ Object.assign(Game.prototype, {
     ];
     hg.bgMechs = B.map((b, i) => {
       const [asm, pal, noArm] = list[i % list.length];
-      const m = buildMech(asm, PALETTES[pal] || PALETTES.white, 1, {
+      const m = buildMech(asm, PALETTES[pal] || PALETTES.white, 1 / MB, {
         source: this.mechSource({ team: 'enemy' }),
       });
       m.group.rotation.y = Math.PI + b.ry;
@@ -363,7 +364,7 @@ Object.assign(Game.prototype, {
     const asm = { ...this.save.asm, [slot]: pid };
     let m;
     try {
-      m = buildMech(asm, this.myPal(), 1, { source: this.garageSource() });
+      m = buildMech(asm, this.myPal(), 1 / MB, { source: this.garageSource() });
     } catch {
       hg.prev = { m: null, keep: [] };
       return;
@@ -1023,7 +1024,7 @@ Object.assign(Game.prototype, {
     hg.matesSig = sig;
     for (const m of hg.mates || []) this.garageScene.remove(m.group);
     hg.mates = list.slice(0, 3).map((p, i) => {
-      const m = buildMech(p.asm || START_ASM, PALETTES[PLAYER_PALS[p.color]] || this.myPal(), 1, {
+      const m = buildMech(p.asm || START_ASM, PALETTES[PLAYER_PALS[p.color]] || this.myPal(), 1 / MB, {
         source: this.mechSource({ team: 'player', slot: p.slot, ms: p.ms || null }),
       });
       m.group.rotation.y = Math.PI;

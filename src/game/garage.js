@@ -14,6 +14,7 @@ import { VARIANTS, variantKeys } from '../world/variants.js';
 import { ServerModels } from '../render/net-models.js';
 import { StylePipeline } from '../render/style/pipeline.js';
 import { Game } from './game.js';
+import { MB } from '../core/scale.js';
 
 Object.assign(Game.prototype, {
   // ---------- garage ----------
@@ -313,7 +314,7 @@ Object.assign(Game.prototype, {
     if (prev && !swap) this.garageScene.remove(prev.group);
     this.hgAsm = sig;
     const src = this.garageSource();
-    this.garageMech = buildMech(asm, this.myPal(), 1, { source: src });
+    this.garageMech = buildMech(asm, this.myPal(), 1 / MB, { source: src }); // 格納庫照舊尺度
     this.garageMech.group.rotation.y = Math.PI;
     this.garageScene.add(this.garageMech.group);
     if (swap) this.hangarSwapStart(prev, this.garageMech);

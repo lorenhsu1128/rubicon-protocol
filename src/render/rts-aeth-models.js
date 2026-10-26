@@ -12,7 +12,7 @@ import { PALETTES } from './materials.js';
 import { DETAIL, PK, mat } from '../world/prop-models.js';
 import { RTS_PROP_FOG } from '../world/rts-props.js';
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
-import { buildMech } from './mech-model.js';
+import { buildMech, mechKit } from './mech-model.js';
 
 export const CORAL_CYAN = 0x8fd8ff; // Coral 管線的固定發光色（不換隊伍色，陣營辨識靠它）
 const CORAL_BASE = 0x5ab8ff;
@@ -564,7 +564,7 @@ export function buildAethBuilding(id, pal) {
 // ---------- 研究作業機的採樣套件 ----------
 // 背上的 Coral 採樣槽（發光的窗）、頭頂的青色信號燈、右手的掃描頭（採集時轉動，rig.rtsDrill）、攜帶礦石的貨箱（rig.rtsCrate）
 export function addAethWorkerKit(rig, pal, buildOreCrate) {
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const kit = new THREE.Group();
   const k = new PK();
   const wh = mat(0xd8e0e8, { roughness: 0.4, metalness: 0.15 }),
@@ -596,7 +596,7 @@ export function addAethWorkerKit(rig, pal, buildOreCrate) {
     rig.rtsCrate = crate;
   }
   // 右手的掃描頭：支架＋會轉的掃描環＋發光的鏡頭
-  const hand = rig.arms && rig.arms.r && rig.arms.r.hand;
+  const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
     const sk = new PK();
     sk.cyl(dk, 0.1, 0.12, 0.45, 0, -0.3, 0, 0, 0, 0, 8);
@@ -623,7 +623,7 @@ export function addProtoKit(rig) {
   if (!rig || rig.rtsProtoKit) return rig;
   const re = rig.merged && rig.unmerge;
   if (re) rig.unmerge();
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const k = new PK();
   const gl = mat(CORAL_BASE, {
       emissive: CORAL_CYAN,

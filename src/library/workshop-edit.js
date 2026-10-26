@@ -7,6 +7,7 @@ import { gameToGltf, gltfToGame } from '../render/mech-joints.js';
 import { readOrigin, writeOrigin } from './glb-origin.js';
 import { buildConnMarker } from './refs.js';
 import { GAP_WARN, OVERLAP_WARN, checkRig } from './workshop-check.js';
+import { MB } from '../core/scale.js';
 
 const $ = (id) => document.getElementById(id);
 const HOT = 0xffd23f,
@@ -282,7 +283,7 @@ export class WsEditor {
     this.detachGizmo();
     this.rig = rig;
     this.marks = rig.mounts.map((m) => {
-      const mk = buildConnMarker(0.05, false);
+      const mk = buildConnMarker(0.05 * MB, false);
       mk.userData.helper = true;
       m.node.add(mk);
       return { ...m, mk };

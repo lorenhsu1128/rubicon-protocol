@@ -45,6 +45,7 @@ import {
   originText,
   referenceBox,
 } from './stage.js';
+import { MB } from '../core/scale.js';
 
 const $ = (id) => document.getElementById(id);
 const D2R = Math.PI / 180;
@@ -445,7 +446,7 @@ export class GlbEditor {
         floorY = this.refBox.isEmpty() ? 0 : this.refBox.min.y;
         for (const name of Object.keys(pieceConns(e.piece))) {
           const c = connOf(e.piece, name);
-          const mk = buildConnMarker(0.04, true);
+          const mk = buildConnMarker(0.04 * MB, true);
           mk.position.copy(c.p);
           mk.rotation.copy(c.r);
           this.scene.add(mk);

@@ -18,6 +18,7 @@ import { processGlb, simplifyGeometry, triCountOf } from './editor-opt.js';
 import { buildConnMarker } from './refs.js';
 import { disposeObject } from './stage.js';
 import { WS_SLOTS, restPose, sanitizeAsm } from './workshop.js';
+import { MB } from '../core/scale.js';
 
 const $ = (id) => document.getElementById(id);
 const D2R = Math.PI / 180;
@@ -242,7 +243,7 @@ export class SplitTool {
     });
     // 關節（連接點）標記：勾選的區塊與接在它上面的區塊之間
     this.jointMarks = this.rig.mounts.map((m) => {
-      const mk = buildConnMarker(0.035, true);
+      const mk = buildConnMarker(0.035 * MB, true);
       m.node.add(mk);
       const owner = this.list.findIndex((x) => x.slot === m.slot);
       const child = this.list.findIndex((x) => {

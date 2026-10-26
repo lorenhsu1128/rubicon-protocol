@@ -4,6 +4,9 @@
 export const MS = 3; // 機體：所有 MechEntity（機甲、MT、Boss、戰鬥載具、無人機、部位）
 export const WS = 3; // 世界：地圖範圍、地形起伏與地形特徵
 export const DS = 3; // 動態：速度、QB、重力、跳躍與懸浮、射程、彈速、鎖定、AI 與鏡頭的距離
+// 機甲的建模倍率：內建 GLB、關節設定、骨架數值都是新尺度（9.72 m）；程式模型照舊造型建立後整塊放大 MB。
+// 機甲實體的 scale 照舊是 MS（判定用），buildMech 收到的倍率是 scale ／ MB
+export const MB = 3;
 
 // 物件 o 的 keys 欄位（數字或數字陣列）乘上 k；回傳 o
 export function scaleKeys(o, keys, k) {

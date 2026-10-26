@@ -15,7 +15,7 @@
 import { PALETTES } from './materials.js';
 import { DETAIL, PK, hazard, mat, truss } from '../world/prop-models.js';
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
-import { buildMech } from './mech-model.js';
+import { buildMech, mechKit } from './mech-model.js';
 
 export const VEER_LIME = 0x9be070;
 const HOOK_UP = 0.55, // 物流 MT 的吊索長度（收起／放下）
@@ -757,7 +757,7 @@ export function addCarrierCargo(rig, defId) {
   if (!rig || rig.rtsCargo) return rig;
   const re = rig.merged && rig.unmerge;
   if (re) rig.unmerge();
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const D = defId && RTS_DEFS[defId];
   const s = D && D.foot ? Math.max(0.75, Math.min(1.5, Math.max(D.foot[0], D.foot[1]) / 10)) : 1;
   const M = mats(palOf(0));
@@ -815,7 +815,7 @@ export function buildTempBeacon(pal) {
 // 背上的貨架（貨箱與綁帶）、吊臂與吊鉤（rig.rtsHook：採集時放下）、頭頂的信號燈、右手的絞盤（rig.rtsDrill：
 // 採集、修理時轉）、攜帶礦石的貨箱（rig.rtsCrate）
 export function addVeerWorkerKit(rig, pal, buildOreCrate) {
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const kit = new THREE.Group();
   const k = new PK();
@@ -858,7 +858,7 @@ export function addVeerWorkerKit(rig, pal, buildOreCrate) {
     rig.rtsCrate = crate;
   }
   // 右手的絞盤
-  const hand = rig.arms && rig.arms.r && rig.arms.r.hand;
+  const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
     const dk = new PK();
     dk.cyl(M.dark, 0.18, 0.18, 0.36, 0, -0.35, 0, 0, 0, Math.PI / 2, 8);

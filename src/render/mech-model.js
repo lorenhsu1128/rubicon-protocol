@@ -1,5 +1,6 @@
 // ---------------- WEAPONS（Q 版：粗大方塊化） ----------------
 import { clamp, lerp } from '../core/math.js';
+import { MB } from '../core/scale.js';
 import { START_ASM, asmParts, partById } from '../data/parts.js';
 import {
   CB,
@@ -861,8 +862,12 @@ export function mechPieces(asm) {
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const C0 = (p, r = [0, 0, 0]) => ({ p, r: new THREE.Euler(r[0], r[1], r[2]) });
 // 區塊的連接點預設值（遊戲座標：正面 −Z、單位公尺、相對於區塊原點）：二足、逆關節的骨架用內建預設機甲的連接點
+// 機甲三倍高改版：下面的骨架數值（LAY、JOINT、REV、QD、TK、PIECE_BOX）照舊尺度寫（程式模型的造型也用它們），
+// 輸出的連接點、身高乘建模倍率 MB（＝內建 GLB 與關節設定的新尺度）
 export function pieceConns(info) {
-  return baseConns(info);
+  const o = baseConns(info);
+  for (const k in o) o[k].p.multiplyScalar(MB);
+  return o;
 }
 function baseConns(info) {
   const R = CUBE;
@@ -2008,6 +2013,11 @@ function makeProcPiece(info, ctx) {
     bakeAll(g);
     deformPiece(g, k);
   }
+  // 照舊尺度的造型整塊放大到建模尺寸（區塊本身仍是單位變換）
+  for (const c of g.children) {
+    c.position.multiplyScalar(MB);
+    c.scale.multiplyScalar(MB);
+  }
   g.userData.slot = info.slot;
   return g;
 }
@@ -2215,12 +2225,12 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       auto: 0,
       fine: 0,
     },
-    hipY,
+    hipY, // 照舊尺度（實體以 hipY × scale 換算世界座標）
     torsoY: 0,
     type,
     cls,
-    height: (waistY(type) + LAY.upperH) * scale,
-    coreH: PIECE_BOX.core[1][4],
+    height: (waistY(type) + LAY.upperH) * MB * scale, // 判定身高（世界座標）
+    coreH: PIECE_BOX.core[1][4] * MB,
     mats,
     flashT: 0,
   };
@@ -2233,6 +2243,14 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
   return rig;
 }
 
+// 掛在機甲節點上的附加物（照舊尺度做的）：回傳 node 底下放大 MB 的群組；不是機甲（沒有 legsG）時回傳 node
+export function mechKit(rig, node) {
+  if (!node || !rig || !rig.legsG) return node;
+  const g = new THREE.Group();
+  g.scale.setScalar(MB);
+  node.add(g);
+  return g;
+}
 // 四足：記下站姿時每隻腳的腳踝位置（legsG 座標）與膝的彎曲軸（膝的區域座標），螃蟹步伐與 IK 用
 const _qIdent = new THREE.Quaternion(),
   _qp = new THREE.Quaternion(),
@@ -2413,7 +2431,7 @@ export function animateMech(m, dt, st) {
     m.legsG.rotation.z = lerp(m.legsG.rotation.z, 0, 0.12);
     m.legsG.rotation.y = lerp(m.legsG.rotation.y, 0, 0.12);
     P(m.torso, 0, 0, 0);
-    m.torso.position.y = m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12;
+    m.torso.position.y = (m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12) * MB;
     if (m.head) P(m.head, 0.05, 0.45, -0.05);
     if (m.head) P(m.head, 0, 0, 0);
     const R = m.arms.r,
@@ -2764,14 +2782,14 @@ export function animateMech(m, dt, st) {
         up = Math.max(0, Math.cos(ph));
       // 這隻腳的步伐方向：移動方向＋轉向的切線（繞身體中心）
       const r = L.rest;
-      let ox = dx - turn * r.z * 0.35,
-        oz = dz + turn * r.x * 0.35;
+      let ox = dx - ((turn * r.z) / MB) * 0.35,
+        oz = dz + ((turn * r.x) / MB) * 0.35;
       const ol = Math.hypot(ox, oz);
       if (ol > 1) ((ox /= ol), (oz /= ol));
       const stride = 0.55 * Math.min(1.4, fa) * (qmoving ? 1 : 0);
-      const tx = qmoving ? ox * stride * sw : 0,
-        tz = qmoving ? oz * stride * sw : 0,
-        ty = (qmoving && ol > 0.05 ? up * 0.38 : 0) + (grounded ? 0 : 0.3) + squat * 0.45;
+      const tx = qmoving ? ox * stride * sw * MB : 0,
+        tz = qmoving ? oz * stride * sw * MB : 0,
+        ty = ((qmoving && ol > 0.05 ? up * 0.38 : 0) + (grounded ? 0 : 0.3) + squat * 0.45) * MB;
       L.qo = L.qo || new THREE.Vector3();
       L.qo.x = lerp(L.qo.x, tx, k);
       L.qo.y = lerp(L.qo.y, ty, k);
@@ -2783,19 +2801,21 @@ export function animateMech(m, dt, st) {
       quadSolve(L, T);
     }
   }
-  S(m.legsG.position, 'y', (grounded ? 0 : Math.sin(t * 4) * 0.05) - crouch, SP.pos);
+  // 位移的數字照舊尺度，乘 MB 換成建模尺寸
+  S(m.legsG.position, 'y', ((grounded ? 0 : Math.sin(t * 4) * 0.05) - crouch) * MB, SP.pos);
   // ===== 軀幹：上下起伏、蹲踞下沉、俯仰跟瞄準、加減速前傾後仰 =====
   S(
     m.torso.position,
     'y',
-    (m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12) -
+    ((m.torsoY !== undefined ? m.torsoY : m.hipY + 0.12) -
       squat * 0.35 -
       crouch +
       (grounded && moving
         ? Math.abs(Math.sin(gp)) * (0.06 + 0.04 * runK) * (1 - an.gW) + Math.sin(t * 23) * 0.006 * an.gW
         : idle
           ? Math.sin(t * 1.3) * 0.025
-          : Math.sin(t * 3) * 0.04),
+          : Math.sin(t * 3) * 0.04)) *
+      MB,
     SP.pos,
   );
   // 俯仰正值＝後仰（機體正面是 −Z）：瞄準往上時後仰；跑步、滑行、加速、QB 前傾（動漫風格：幅度大），

@@ -3,7 +3,7 @@ import { ATTRS, ATTR_KEYS, LINK_K, directOf, isLaserWeapon, weaponAttr } from '.
 //  MECH ENTITY
 // ============================================================
 import { SFX } from '../audio/audio.js';
-import { DS, MS } from '../core/scale.js';
+import { DS, MB, MS } from '../core/scale.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import {
   AIR_DECAY,
@@ -276,7 +276,7 @@ export class MechEntity {
   buildRig(noMerge) {
     const g = this.game;
     this.modelSrc = g.mechSource ? g.mechSource(this.opts) : null;
-    const rig = buildMech(this.asm, this.pal, this.scale, { source: this.modelSrc });
+    const rig = buildMech(this.asm, this.pal, this.scale / MB, { source: this.modelSrc }); // 機甲的建模尺寸已經是新尺度
     return noMerge ? rig : this.mergeModel(rig);
   }
   // 網格依材質合併（render/mesh-merge.js，降低 draw call）：只在遊戲實體做，模型庫、機甲庫的展示台不合併。

@@ -13,7 +13,7 @@
 import { PALETTES } from './materials.js';
 import { DETAIL, PK, ladder, mat, railing, truss } from '../world/prop-models.js';
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
-import { buildMech } from './mech-model.js';
+import { buildMech, mechKit } from './mech-model.js';
 import { buildVehicle } from './vehicle-models.js';
 import { isOutline } from './geometry.js';
 
@@ -885,7 +885,7 @@ function boxIn(rig, node) {
 }
 // 互助作業機的拾荒套件：背上的拾荒網籃（裝著廢鐵）、右手的磁吸臂（rtsDrill，採集與拾荒時轉）、拼裝的補丁板、暖色信號燈
 export function addSancWorkerKit(rig, pal, buildOreCrate) {
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const kit = new THREE.Group();
   const k = new PK();
@@ -917,7 +917,7 @@ export function addSancWorkerKit(rig, pal, buildOreCrate) {
     rig.rtsCrate = crateG;
   }
   // 右手的磁吸臂（圓盤磁鐵＋短臂；採集、拾荒、修理時轉）
-  const hand = rig.arms && rig.arms.r && rig.arms.r.hand;
+  const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
     const dk = new PK();
     dk.box(M.dark, 0.12, 0.45, 0.12, 0, -0.3, 0);
@@ -934,7 +934,7 @@ export function addSancWorkerKit(rig, pal, buildOreCrate) {
 // 回收拖車（裝甲車的車體）：砲塔換成吊臂、磁鐵與貨斗；setHaul(f)＝展開（0 收起、1 展開：吊臂放下、磁鐵降到地面、支腳伸出）
 export function addHaulerKit(rig, pal) {
   if (!rig || rig.rtsHaul) return rig;
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   // 砲塔（torso 下的程式網格）拿掉
   for (const c of [...t.children]) if (c.isMesh) t.remove(c);
@@ -1008,7 +1008,7 @@ export function addHaulerKit(rig, pal) {
 // 拼裝巨像（拾荒外殼機的模型放大 1.5 倍）：背上的榴彈砲（GL-90）、堆起來的貨櫃、車門補丁
 export function addColossusKit(rig, pal) {
   if (!rig || rig.rtsColossus) return rig;
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const bb = boxIn(rig, t);
   const top = bb.max.y,
@@ -1064,7 +1064,7 @@ export function addColossusKit(rig, pal) {
 // 改造推進器＝背後的大噴口、自爆裝藥＝胸前的油桶、加高天線＝頭上的天線。ids＝要建的（沒給＝全部）
 export function addRefitKits(rig, pal, ids = null) {
   if (!rig || rig.rtsRefitKits) return rig;
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const bb = boxIn(rig, t);
   const kits = {};

@@ -305,7 +305,7 @@ Object.assign(MechEntity.prototype, {
     const tor = this.model && this.model.torso,
       A = this.rtsAeth;
     if (!tor || !A || A.ty === undefined) return;
-    tor.position.y = A.ty + h / (this.scale || 1);
+    tor.position.y = A.ty + h / (this.mesh.scale.x || 1); // 世界的高度換成模型座標
   },
   // 纏附中：每 0.5 秒 8 傷害（'none'）、目標緩速與降射速；8 秒、目標死亡、目標變成不能纏（被移走等）時結束
   rtsAethLatch() {

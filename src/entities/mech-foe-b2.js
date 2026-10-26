@@ -679,9 +679,10 @@ Object.assign(MechEntity.prototype, {
       c.userData.helper = true;
       this.model.arms.r.hand.add(c);
     }
-    const s = this.scale || 1;
+    const s = this.mesh.scale.x || 1, // 手的世界倍率＝模型根節點
+      u = (this.scale || 1) / s;
     c.visible = true;
-    c.scale.set(1 + Math.random() * 0.25, L / s, 1 + Math.random() * 0.25);
+    c.scale.set((1 + Math.random() * 0.25) * u, L / s, (1 + Math.random() * 0.25) * u);
     c.position.set(0, 0, -L / s / 2);
     c.material.opacity = 0.4 + Math.random() * 0.2;
   },

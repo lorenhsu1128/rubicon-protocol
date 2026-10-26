@@ -6,7 +6,7 @@
 //   主堡三階另有 tier2／tier3 群組與 setTier(1～3)，起重機砲台 arm／hook、防空砲塔 turret／gun／muzzle。
 // 另外：叉架 MT 的貨櫃掩體 buildCoverCrates、自走砲的駐鋤 buildArtyLegs（entities/mech-rts.js 的技能用）
 import { PALETTES } from './materials.js';
-import { buildMech } from './mech-model.js';
+import { buildMech, mechKit } from './mech-model.js';
 import { DETAIL, PK, hazard, ladder, mat, railing, truss } from '../world/prop-models.js';
 import { RTS_DEFS, RTS_TEAM_COLORS } from '../data/rts-units.js';
 import { addAethWorkerKit, buildAethBuilding, isAethBuilding } from './rts-aeth-models.js';
@@ -674,7 +674,7 @@ export function addWorkerKit(rig, pal, faction) {
   if (faction === 'aetheric') return addAethWorkerKit(rig, pal, buildOreCrate); // 研究作業機的採樣套件（R3）
   if (faction === 'veerwell') return addVeerWorkerKit(rig, pal, buildOreCrate); // 物流 MT 的貨架與吊鉤（R4）
   if (faction === 'sancta') return addSancWorkerKit(rig, pal, buildOreCrate); // 互助作業機的拾荒網籃與磁吸臂（R5）
-  const t = rig.torso || rig.group;
+  const t = mechKit(rig, rig.torso || rig.group);
   const kit = new THREE.Group();
   const k = new PK();
   const y = mat(0xd8a020, { roughness: 0.6, metalness: 0.25 }),
@@ -699,7 +699,7 @@ export function addWorkerKit(rig, pal, faction) {
   crate.visible = false;
   t.add(crate);
   // 右手的鑽頭
-  const hand = rig.arms && rig.arms.r && rig.arms.r.hand;
+  const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
     const dr = new PK();
     dr.cyl(st, 0.02, 0.22, 0.8, 0, -0.55, 0, 0, 0, 0, 8);

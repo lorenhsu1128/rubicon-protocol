@@ -292,6 +292,8 @@ export function applyIK(rig, ctx) {
 }
 
 function lowerBody(rig, ctx, sc) {
+  // sc：實體的倍率（下面寫死的數字照舊尺度）；rs：模型根節點的倍率（量出來的區域座標換成世界座標用）
+  const rs = rig.group.scale.x || 1;
   const S = rig.ik,
     W = S.w,
     dt = ctx.dt,
@@ -329,7 +331,7 @@ function lowerBody(rig, ctx, sc) {
           T.z = lerp(T.z, st.lockP.z, st.lockW);
         }
         // 支撐腳（站著、走路的支撐期、失衡）踩在地面上；擺動期沿用動作層的抬腳高度，只是不沉進地面
-        const floor = gy + st.sole * sc * 0.95;
+        const floor = gy + st.sole * rs * 0.95;
         // 空中（離地後權重淡出的期間）：不把腳拉回地面，照動作層的收腿姿勢
         st.stance = !ctx.grounded
           ? 0
@@ -360,7 +362,7 @@ function lowerBody(rig, ctx, sc) {
   S.drop = smooth(S.drop, ctx.knock ? 0 : Math.max(lo, -0.5 * sc), dt, 12);
   const drop = S.drop * W.feet;
   if (drop < -1e-4) {
-    rig.lift.position.y += drop / sc;
+    rig.lift.position.y += drop / rs;
     upd(rig.lift);
   }
   // 4. 每隻腳解兩段骨頭，二足再把腳掌貼齊地面法線

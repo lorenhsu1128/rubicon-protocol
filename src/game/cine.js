@@ -8,7 +8,7 @@
 import { SFX } from '../audio/audio.js';
 import { usesAmmo } from '../data/parts.js';
 import { clamp, lerp } from '../core/math.js';
-import { DS, MS } from '../core/scale.js';
+import { DS, MB, MS } from '../core/scale.js';
 import { escHtml } from '../core/html.js';
 import { CINES } from '../data/cine/index.js';
 import { ACES, FOES } from '../data/foes.js';
@@ -602,7 +602,7 @@ Object.assign(Game.prototype, {
           ? buildMech(
               spec.asm || this.save.asm,
               PALETTES[spec.pal] || PALETTES.player,
-              (spec.scale || 1) * (parent ? 1 : c.set.k),
+              ((spec.scale || 1) * (parent ? 1 : c.set.k)) / MB, // 機甲的建模尺寸是新尺度
               {
                 // 玩家配色＝玩家的機甲，其他（AEGIS、委託方的代表機、宿敵）照電腦 AC 的規則用內建預設機甲
                 source: this.mechSource
@@ -613,7 +613,7 @@ Object.assign(Game.prototype, {
           : buildBossModel(
               spec.key,
               PALETTES[spec.pal || 'boss'] || PALETTES.enemy,
-              (spec.scale || 1) * (parent ? 1 : c.set.k),
+              ((spec.scale || 1) * (parent ? 1 : c.set.k)) / MB, // 機甲的建模尺寸是新尺度
             );
         obj = m.group;
         A.rig = m;

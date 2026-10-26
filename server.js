@@ -156,6 +156,58 @@ function readBody(req, limit) {
     req.on('error', () => res(null));
   });
 }
+// 機甲三倍高改版：伺服器預設組裡的機甲區塊與武器（MECH_CATS）是舊尺度（機甲 3.24 m）做的，啟動時換成新尺度（9.72 m）一次：
+// GLB 的場景根節點乘 MECH_K（只改 JSON 區塊，Draco 壓縮的也可以）、關節設定的位置乘 MECH_K；manifest.mechK 記下做過
+const MECH_K = 3;
+function scaleGlbRoots(buf, k) {
+  if (buf.length < 20 || buf.readUInt32LE(0) !== 0x46546c67) return buf;
+  const jl = buf.readUInt32LE(12);
+  const J = JSON.parse(buf.slice(20, 20 + jl).toString());
+  const roots = new Set();
+  for (const sc of J.scenes || []) for (const i of sc.nodes || []) roots.add(i);
+  for (const i of roots) {
+    const n = J.nodes[i];
+    if (n.matrix) for (const j of [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]) n.matrix[j] *= k;
+    else {
+      n.scale = (n.scale || [1, 1, 1]).map((v) => v * k);
+      if (n.translation) n.translation = n.translation.map((v) => v * k);
+    }
+  }
+  let js = Buffer.from(JSON.stringify(J));
+  js = Buffer.concat([js, Buffer.alloc((4 - (js.length % 4)) % 4, 0x20)]);
+  const rest = buf.slice(20 + jl);
+  const out = Buffer.alloc(20 + js.length + rest.length);
+  buf.copy(out, 0, 0, 12);
+  out.writeUInt32LE(out.length, 8);
+  out.writeUInt32LE(js.length, 12);
+  out.writeUInt32LE(0x4e4f534a, 16);
+  js.copy(out, 20);
+  rest.copy(out, 20 + js.length);
+  return out;
+}
+function migrateMechScale() {
+  const man = loadManifest();
+  if ((man.mechK || 1) >= MECH_K) return 0;
+  let n = 0;
+  for (const [slot, rec] of Object.entries(man.models || {})) {
+    if (!MECH_CATS.includes(slot.split('/')[0])) continue;
+    for (const kind of ['glb', 'orig']) {
+      const p = glbPath(kind, slot);
+      if (!fs.existsSync(p)) continue;
+      const body = scaleGlbRoots(fs.readFileSync(p), MECH_K / (man.mechK || 1));
+      writeAtomic(p, body);
+      if (kind === 'glb') Object.assign(rec, { size: body.length, h: sha256(body) });
+    }
+    n++;
+  }
+  for (const conns of Object.values(man.joints || {}))
+    for (const c of Object.values(conns || {}))
+      if (c && Array.isArray(c.p))
+        c.p = c.p.map((v) => Math.round(((v * MECH_K) / (man.mechK || 1)) * 1e4) / 1e4);
+  man.mechK = MECH_K;
+  saveManifest();
+  return n;
+}
 // 啟動時自動匯入伺服器預設組的內建來源：WEB_DIR/server-default/<槽位>.glb（建置時從 src/assets/server-default/ 複製到
 // dist/；exe 版放在 exe 旁）。每個槽位只匯入一次（manifest.seeded 記下匯入時的雜湊）：在模型庫刪掉的不會補回、
 // 自己換過的不覆蓋；來源換成新檔、而伺服器上還是當初匯入的那一份時才更新
@@ -535,6 +587,12 @@ function startGame(port) {
       rooms = new Map();
     cleanUploads();
     queued(() => {
+      try {
+        const n = migrateMechScale();
+        if (n) console.log(`[models] 伺服器預設組的機甲 GLB 換成新尺度（×${MECH_K}）：${n} 個`);
+      } catch (e) {
+        console.warn('[models] 機甲 GLB 換算失敗：' + e.message);
+      }
       try {
         const r = seedDefaults();
         if (r && (r.add || r.upd || r.del))
