@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/apng/` 文字動畫 APNG 產生器與 `/paint/` 貼圖繪製（同資料夾的 `apng/`、`paint/`，依副檔名給 Content-Type）、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組、`/api/styles` 分享的渲染風格（`styles.json`）、`/api/levels` 自訂關卡（`levels/`），資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - `docs/glb-spec.md`：給美術的 GLB 製作規格。
+- `docs/world-scale.md`：遊戲的尺度（機甲三倍高改版：機甲 9.7 m、`core/scale.js` 的 MS／WS／DS 三個倍率）與地圖物件的現實尺寸、人的尺寸（之後的小人互動）、掩體的分級；改尺度、新增或重做地圖物件時照它進行並同步更新。**`scale3x` 分支施工中**（12 期，見文件）。
 - `docs/campaign-design.md`：主線任務模式（機戰傭兵6＋黑帝斯）的設計文件與實作分期；做主線相關功能時照它進行，設計有變動時同步更新。
 - `docs/story-script.md`：主線的劇本（世界觀與真相、角色、序章、各章的開場／章末、簡報、通訊、結局、周目）；改台詞或劇情時與 `data/story.js`、`data/story-comms.js` 同步。
 - `docs/cinematics.md`：過場動畫（序章、各章開場／章末）的引擎、劇本格式、各段的分鏡；改過場動畫時同步更新。
@@ -63,7 +64,7 @@ npm run publish:server  # 伺服器預設組的來源發佈到執行中的伺服
 ```
 main.js              進入點：依序 import 所有 mixin，最後 new Game()
 index.html／styles.css
-core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…）、html.js（escHtml）、zip.js（zip 讀寫）、
+core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…）、scale.js（尺度的倍率 MS／WS／DS、scaleKeys）、html.js（escHtml）、zip.js（zip 讀寫）、
                      sha256.js（模型組上傳的內容雜湊；區網 http 不是安全環境，不能用 crypto.subtle）
 data/                parts.js（零件、START_ASM、asmStats）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
                      skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、ai.js（敵人 AI 的感知、仇恨、攻擊權杖、招式的數值）、attrs.js（武器屬性：實彈／爆發／能量、防禦換算、直擊補正、實彈距離衰減、弱點文字）、firepower.js（理論火力：每把武器的 DPS／持續 DPS／衝擊、有效 AP，純函式）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）、
@@ -102,7 +103,7 @@ render/              cine-sets.js（過場動畫的太空場景、軌道站、�
                      local-models.js（遊戲的本地模型庫：讀取模型庫 IndexedDB 的 GLB 與關節設定）、
                      set-pack.js（.rubicon-set 打包／解開）、net-models.js（伺服器預設組 ServerModels、玩家上傳的模型組
                      RemoteSets、uploadSet）
-world/               world.js（World：關卡生成、THEMES）、edges.js（邊界外的分段景觀、遠景地形與剪影物件）、variants.js（主題變體）、landmarks.js（主線的地標）、prop-models.js（地圖物件的網格建造，純函式）、prop-hit.js（可破壞物件的命中形狀）、
+world/               world.js（World：關卡生成、THEMES）、edges.js（邊界外的分段景觀、遠景地形與剪影物件）、variants.js（主題變體）、landmarks.js（主線的地標）、prop-models.js（地圖物件的網格建造，純函式）、cover-models.js（現實尺寸的掩體與雜物：T 型牆、護欄、倉庫、擋牆、車輛，純函式）、prop-hit.js（可破壞物件的命中形狀）、
                      weather.js（天氣粒子，只有外觀）、map-extras.js（Vehicle、Pickup、PICKUP_DEFS）、rts-props.js（Coral 戰爭地圖的障礙物外觀與靜態合併）、
                      themes/（AC6 風格主題模組：kit.js 共用工具、flooded、dam、spaceport、grid086、xylem、orbit、institute）
 audio/               audio.js（SFX：混音匯流排、殘響、壓低、變悶、環境音、命中分類與回饋音）、sfx-data.js（匯入 assets/sfx/*.mp3，來源與授權寫在檔頭）
@@ -400,7 +401,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 - **過場動畫**（`game/cine.js`，設計 `docs/cinematics.md`）：`state` 'cine'，主迴圈在選單狀態之前呼叫 `cineTick`。演員是真正的 `MechEntity`（`e.cine`），所以和實驗室一樣要在會寫存檔的地方擋掉（`onEnemyKilled`／`onPlayerDead`／`senseOn`／`dropAmmo` 都看 `this.cine`）。渲染時 `renderMain` 用 `this.cine.P`（玩家的風格＋過場的調色＋景深 `dof`）。故事畫面有對應的過場時先播動畫，略過時改顯示文字畫面（`storyText`）；設定 `ctrl.cine`（'off' 改用文字畫面）。改 `CHAPTER_TEXT` 的台詞會一起改過場動畫的字幕。
 - 新增選單畫面（新的 `state`）時，要把它加進 `game/game.js` 的 `loop` 裡只畫背景的選單狀態清單（title、saves、result、mp、lobby、camptrans、campfail、hub、brief、sim、record、rangemenu、levels、epilogue、story、cinelib、rtsmenu、rtsend…（modpick、rangecfg 是任務中的暫停狀態；editor 有自己的 `edTick`；Coral 戰爭的 'rts' 由 `rtsTick` 接手）），否則會被當成任務中而讀到空的 `player`。
 - **版面（電腦／平板橫式／手機橫式）**：置中的畫面（`.screen.center`、`#brief`、`#modPick`…）一律 `justify-content: center` 後面接 `safe center`，並且可以捲動，否則矮螢幕上超出的上半部捲不到（手機橫式只有 390 px 高）。矮螢幕的調整寫在 `@media (max-height: 540px)`，觸控的任務中畫面用 `body.vpad`（任務中且使用虛擬按鈕；實驗室的觀看模式不算），觸控裝置用 `body.touchDev`（標題改顯示觸控說明）。通訊框 `#comm`：任務中在右下角（觸控時在下方中央，避開搖桿與按鈕），選單畫面與暫停時加 `menu` 移到右上角（`commPlace`，`showScreen` 與每句開始時更新），觸控與選單時點一下換下一句。觸控 HUD 的狀態欄與靶場面板由 `hud.js` 依上一塊的高度往下接。戰區總覽圖的節點與區域名稱位置（`REGIONS` 的 `lx`／`ly`）是避開重疊排過的，新增節點時要檢查標籤不重疊；地圖很小時（`#hubMap.small`）只顯示可以接的委託名稱。新增畫面後用三種大小（1920×1080、1180×820、844×390 觸控）截圖檢查。
-- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'10.6'`），否則新舊版本會互連。新增地圖主題也要提高（舊版客機不認得新主題）。
+- 改動網路協定時要提高 `net/transports.js` 的 `NET_VERSION`（目前 `'11.0'`），否則新舊版本會互連。新增地圖主題也要提高（舊版客機不認得新主題）。
 - 關卡生成必須維持以種子決定（`makeRng`／`makeNoise`／`withRng`），多人各端靠同一 seed 產生相同地圖。不要在生成流程裡用 `Math.random`。
 - 存檔與設定存在 localStorage：`rubicon_save_1`～`rubicon_save_3`（三個存檔槽，各自完整一份，含 PvE／PvP 駕駛員與主線進度 `story`）、`rubicon_save_cur`（目前的槽位；不存在時把舊版單一存檔 `rubicon_save` 搬進存檔 1，舊鍵保留當備份）、`rubicon_keys`、`rubicon_ctrl`、`rubicon_pad`、`rubicon_post`、`rubicon_turn`、`rubicon_relay`、`rubicon_nick`、`rubicon_unmask`、`rubicon_localmodels`、`rubicon_builtin_mech`（模型庫建立過的內建預設機甲版本）、`rubicon_ik`（動作 IK 的總開關與各項開關）、`rubicon_map`（出擊地圖）、`rubicon_variant`（主題變體）、`rubicon_style`（渲染風格：選用的風格、機體金屬、解析度、我的預設、伺服器清單快取）、`rubicon_range`／`rubicon_range_log`（靶場的設定與紀錄）、`rubicon_author`／`rubicon_author_lv`（自訂關卡的作者金鑰、上傳過的關卡）、`rubicon_lv_best`（自訂關卡的最佳時間）、`rubicon_rts`／`rubicon_rts_rec`／`rubicon_rts_tips`（Coral 戰爭選單與 RTS 設定、遭遇戰的勝敗、看過的提示）；自訂關卡本身在 IndexedDB `rubicon-levels`。
 - **可破壞地圖物件的命中**（`world/prop-hit.js`）：`regProp` 時以物件的碰撞障礙物建立命中形狀 `p.shape`（方塊＝軸對齊方塊；圓柱＝垂直圓柱（半徑 1 m 以上的 ×0.9），有網格外框 `ob.box` 時再和外框取交集、高度用外框），不再用外接球（`radius` 只剩粗略用途：推土要塞撞碎、發射架挪位置）。子彈 `targetSegT`（物件加寬 `PROP_PAD` 0.15 m，玩家的 `hitR` 不加在物件上）、爆炸與近戰 `targetDist`／`targetNear`（到外形最近點）、雷射／EMP 光束／`beamAttack` 停在第一個物件上（`World.propFirst`）；`hitsWorld` 對物件用同一個形狀（細的柱子也算），`losClear` 與 `fire-point.js` 的 `rayClear` 另外以線段 `World.propBlocks(a, b, PROP_PAD)` 檢查，所以「看得到才開火」和實際的命中一致。新增有自己命中規則的攻擊時，對 `t.shape` 的目標改用這些函式；其他目標（機體、載具、可以打掉的投射物）照舊是球。命中只在房主算，客機的投射物只是外觀（`pend` 時消失）。

@@ -6,6 +6,7 @@
 import { SFX } from '../audio/audio.js';
 import { usesAmmo } from '../data/parts.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { CHASE_FOV, FP_FOV, TP_FOV } from './constants.js';
 import { Game } from './game.js';
 
@@ -137,7 +138,7 @@ Object.assign(Game.prototype, {
     } else this.padFlick = false;
     if (this.fp) {
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
-      this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40);
+      this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40 * DS);
     } else this.mouseWorld.copy(this.chaseReticle(p));
     this.autoLock(p);
   },
@@ -157,9 +158,10 @@ Object.assign(Game.prototype, {
     const sw = this.ctrl.chaseSway === undefined ? 1 : this.ctrl.chaseSway;
     const v = ent.vel || new THREE.Vector3();
     const qk = ent.qbT > 0 ? 1.25 : 1;
-    const tR = clamp(v.dot(right) * 0.11 * qk, -3, 3) * sw,
-      tU = clamp(v.y * 0.09, -1.8, 1.8) * sw,
-      tF = clamp(v.dot(fwd) * 0.12 * qk, -2.5, 5) * sw;
+    // 速度與機體都放大了（DS、MS），係數不變、上限乘 MS
+    const tR = clamp(v.dot(right) * 0.11 * qk, -3 * MS, 3 * MS) * sw,
+      tU = clamp(v.y * 0.09, -1.8 * MS, 1.8 * MS) * sw,
+      tF = clamp(v.dot(fwd) * 0.12 * qk, -2.5 * MS, 5 * MS) * sw;
     const L = this.chLag || (this.chLag = { r: tR, u: tU, f: tF });
     const kk = Math.min(1, dt * 4.5);
     L.r = lerp(L.r, tR, kk);
@@ -170,23 +172,24 @@ Object.assign(Game.prototype, {
       .add(new THREE.Vector3(0, -L.u, 0))
       .addScaledVector(fwd, -L.f);
     // 距離：機體身高的 2.4 倍；大型目標近時拉遠
-    let dist = Math.max(8, h * 2.4) * (this.ctrl.chaseDist || 1) * (this.chaseUser || 1);
+    let dist = Math.max(8 * MS, h * 2.4) * (this.ctrl.chaseDist || 1) * (this.chaseUser || 1);
     const lk = ent.lock && !ent.lock.dead ? ent.lock : null;
-    if (lk && lk.model && (lk.model.height || 0) > h * 1.8 && lk.pos.distanceTo(ent.pos) < 40) dist *= 1.3;
+    if (lk && lk.model && (lk.model.height || 0) > h * 1.8 && lk.pos.distanceTo(ent.pos) < 40 * DS)
+      dist *= 1.3;
     const up = h * 0.32;
     // 撞牆拉近：從機體往鏡頭的方向步進，碰到地形或物件就停在前面
     const from = pivot.clone().add(new THREE.Vector3(0, up * 0.5, 0));
     const back = look.clone().multiplyScalar(-1);
     const near = w.obstacles.filter(
-      (o) => Math.abs(o.x - from.x) < dist + 12 && Math.abs(o.z - from.z) < dist + 12,
+      (o) => Math.abs(o.x - from.x) < dist + 12 * MS && Math.abs(o.z - from.z) < dist + 12 * MS,
     );
     const hit = (q) => {
-      if (q.y < w.terrainHeight(q.x, q.z) + 0.4) return true;
+      if (q.y < w.terrainHeight(q.x, q.z) + 0.4 * MS) return true;
       for (const o of near) {
         if (o.kind === 'box') {
           if (
-            Math.abs(q.x - o.x) < o.w / 2 + 0.3 &&
-            Math.abs(q.z - o.z) < o.d / 2 + 0.3 &&
+            Math.abs(q.x - o.x) < o.w / 2 + 0.3 * MS &&
+            Math.abs(q.z - o.z) < o.d / 2 + 0.3 * MS &&
             q.y < o.top &&
             q.y > o.y
           )
@@ -201,13 +204,13 @@ Object.assign(Game.prototype, {
       return false;
     };
     let dWant = dist;
-    for (let s = 1.5; s <= dist; s += 0.5) {
+    for (let s = 1.5 * MS; s <= dist; s += 0.5 * MS) {
       const q = from
         .clone()
         .addScaledVector(back, s)
         .add(new THREE.Vector3(0, (up * 0.5 * s) / dist, 0));
       if (hit(q)) {
-        dWant = Math.max(2.2, s - 0.6);
+        dWant = Math.max(2.2 * MS, s - 0.6 * MS);
         break;
       }
     }
@@ -217,11 +220,11 @@ Object.assign(Game.prototype, {
       .clone()
       .addScaledVector(look, -this.chDist)
       .add(new THREE.Vector3(0, up, 0));
-    const fl = w.terrainHeight(pos.x, pos.z) + 0.6;
+    const fl = w.terrainHeight(pos.x, pos.z) + 0.6 * MS;
     if (pos.y < fl) pos.y = fl;
     // 速度感：高速時視角加寬
     const spd = Math.hypot(v.x, v.z);
-    const fov = this.chaseFov() + clamp((spd - 14) * 0.3, 0, 9) * Math.min(1, sw + 0.3);
+    const fov = this.chaseFov() + clamp((spd / DS - 14) * 0.3, 0, 9) * Math.min(1, sw + 0.3);
     this.chFov = lerp(this.chFov || fov, fov, Math.min(1, dt * 4));
     if (Math.abs(this.camera.fov - this.chFov) > 0.05) {
       this.camera.fov = this.chFov;
@@ -229,7 +232,7 @@ Object.assign(Game.prototype, {
     }
     if (this.camShake > 0) {
       this.camShake -= dt;
-      const a = Math.min(1, this.camShake * 4) * 0.5;
+      const a = Math.min(1, this.camShake * 4) * 0.5 * MS;
       pos.x += rnd(-0.4, 0.4) * a;
       pos.y += rnd(-0.25, 0.25) * a;
       pos.z += rnd(-0.4, 0.4) * a;
@@ -238,20 +241,20 @@ Object.assign(Game.prototype, {
     this.camera.lookAt(pos.clone().add(look));
     this.camera.updateMatrixWorld();
     this.camTarget.copy(ent.pos);
-    this.camExtra = 14; // 霧往外推（看得比俯視遠）
-    const sc = ent.pos.clone().addScaledVector(fwd, 22);
+    this.camExtra = 14 * DS; // 霧往外推（看得比俯視遠）
+    const sc = ent.pos.clone().addScaledVector(fwd, 22 * DS);
     this.sun.position.copy(sc).add(this.sunOff);
     this.sun.target.position.copy(sc);
     const shc = this.sun.shadow.camera;
-    if (shc.right !== 80) {
-      shc.left = -80;
-      shc.right = 80;
-      shc.top = 80;
-      shc.bottom = -80;
+    if (shc.right !== 80 * DS) {
+      shc.left = -80 * DS;
+      shc.right = 80 * DS;
+      shc.top = 80 * DS;
+      shc.bottom = -80 * DS;
       shc.updateProjectionMatrix();
     }
     const c = ent.center();
-    const pts = [c, c.clone().setY(ent.pos.y + h * 0.95), c.clone().setY(ent.pos.y + 0.4)];
+    const pts = [c, c.clone().setY(ent.pos.y + h * 0.95), c.clone().setY(ent.pos.y + 0.4 * MS)];
     // 擋住的物件淡出；鏡頭離機體很近，不顯示透視輪廓（機體自己的零件互相遮住也會變成輪廓）
     w.updateOcclusion(pos, c, dt, pts);
     w.fadeMeshes(pos, pts, dt);
@@ -272,15 +275,15 @@ Object.assign(Game.prototype, {
     this.fpYaw = angLerp(this.fpYaw, wy, k);
     this.fpPitch = lerp(this.fpPitch, wp, k);
   },
-  // 準星所指的世界點：從鏡頭沿畫面中央往前，略過機體前方，碰到地形或物件就停；沒碰到取 160 m
+  // 準星所指的世界點：從鏡頭沿畫面中央往前，略過機體前方，碰到地形或物件就停；沒碰到取 480 m
   chaseReticle() {
     const w = this.world;
     const o = this.camera.position.clone();
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
-    const s0 = (this.chDist || 10) + 2;
+    const s0 = (this.chDist || 10 * MS) + 2 * MS;
     let prev = o.clone().addScaledVector(dir, s0);
-    for (let s = s0; s <= 160; s += 1.5) {
+    for (let s = s0; s <= 160 * DS; s += 1.5 * MS) {
       const q = o.clone().addScaledVector(dir, s);
       if (q.y < w.terrainHeight(q.x, q.z) || w.hitsWorld(q)) return prev;
       prev = q;

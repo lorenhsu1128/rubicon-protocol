@@ -23,13 +23,14 @@ import { LANDMARKS } from '../world/landmarks.js';
 import { VARIANT_CATALOG } from '../world/variants.js';
 import {
   box,
+  ISO,
   buildContainer,
+  buildContainerStack,
   buildCorridorSegment,
   buildDebris,
   buildDeck,
   buildGridPillar,
   buildLampPost,
-  buildParkedTruck,
   buildPillar,
   buildRock,
   buildTunnelPortal,
@@ -64,6 +65,19 @@ import {
   mat,
 } from '../world/prop-models.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
+import {
+  BUS,
+  CAR,
+  SEMI,
+  TWALL,
+  buildBus,
+  buildCar,
+  buildJersey,
+  buildRetainWall,
+  buildSemiTruck,
+  buildTWall,
+  buildWarehouse,
+} from '../world/cover-models.js';
 import {
   buildBomberMesh,
   buildCacheMesh,
@@ -398,26 +412,22 @@ const clear = (m) => {
 };
 const containerOf = (stack) => () => {
   const frame = mat(0x2a2d31);
-  const g = buildContainer(7.5, 2.8, 2.9, false, clear(mat(T.container2)), clear(frame));
-  if (!stack) return g;
-  const top = buildContainer(7.5, 2.8, 2.9, false, clear(mat(T.container)), clear(frame));
-  top.position.y = 2.8;
-  const both = new THREE.Group();
-  both.add(g, top);
-  return both;
+  if (!stack) return buildContainer(ISO.L40, ISO.H, ISO.W, false, clear(mat(T.container2)), clear(frame));
+  const cms = [T.container2, T.container, 0x8a3a2a, 0x2b4fb0, 0x6b7d6a].map((c) => clear(mat(c)));
+  return buildContainerStack(ISO.L40, 3, 4, cms, clear(frame), [4, 3, 2]).group;
 };
 addPlain(
   'prop',
   'container',
   '貨櫃',
-  '長 6–9、寬 2.6–3.2、高 2.6–3.0 m' + PROP_SCALED + '；main 材質為貨櫃顏色',
+  '現實尺寸：40 呎 12.19 × 2.59 × 2.44 m（20 呎長 6.06 m）' + PROP_SCALED + '；main 材質為貨櫃顏色',
   containerOf(false),
 );
 addPlain(
   'prop',
   'container_stack',
   '疊放貨櫃',
-  '約 25% 的貨櫃會疊第二層（使用貨櫃的 GLB）',
+  '貨櫃堆：並排 1–4 排 × 疊 1–5 層（疊 2＝半身掩體、疊 4＝全身掩體；使用貨櫃的 GLB）',
   containerOf(true),
   {
     noGlb: true,
@@ -446,7 +456,51 @@ addPlain('prop', 'debris', '散落碎塊', '純裝飾，0.3–1.2 m' + PROP_SCAL
   m.position.y = 0.175;
   return m;
 });
-addPlain('prop', 'parked_truck', '停放卡車', '可破壞', () => buildParkedTruck(clear(mat(0xd8d8d8))));
+addPlain(
+  'prop',
+  'parked_truck',
+  '聯結車',
+  `現實尺寸 ${SEMI[2]} × ${SEMI[1]} × ${SEMI[0]} m（曳引車＋40 呎貨櫃拖車），雜物`,
+  () => buildSemiTruck(clear(mat(0xd8d8d8))),
+);
+addPlain(
+  'prop',
+  't_wall',
+  '防爆 T 型牆',
+  `每片 ${TWALL.w} × ${TWALL.h} m，成排（低掩體）；GLB 以 4 片製作，依長度縮放`,
+  () => buildTWall(4),
+);
+addPlain(
+  'prop',
+  'barrier_row',
+  '紐澤西護欄',
+  '每段長 3.0、高 0.81 m（雜物；使用 barrier 的 GLB）',
+  () => buildJersey(2),
+  {
+    noGlb: true,
+    parts: ['prop/barrier'],
+  },
+);
+addPlain(
+  'prop',
+  'warehouse',
+  '倉庫／廠房',
+  '寬 30–60 × 深 20–40 × 簷高 10–14 m（全身掩體）；捲門 5 × 5 m、人用門與爬梯照人的尺寸；GLB 以 40 × 13 × 24 m 製作',
+  () => buildWarehouse(40, 24, 11),
+);
+addPlain(
+  'prop',
+  'retain_wall',
+  '混凝土擋牆',
+  '長 10–30、高 4–6 m（半身掩體），背面扶壁、頂部欄杆；GLB 以 20 × 5 m 製作',
+  () => buildRetainWall(20, 5),
+);
+addPlain('prop', 'car', '小客車', `現實尺寸 ${CAR[2]} × ${CAR[1]} × ${CAR[0]} m（雜物）`, () =>
+  buildCar(0x8a2a2a),
+);
+addPlain('prop', 'bus', '公車', `現實尺寸 ${BUS[2]} × ${BUS[1]} × ${BUS[0]} m（雜物）`, () =>
+  buildBus(0xd8a020),
+);
 addPlain(
   'prop',
   'grid_pillar',
@@ -528,8 +582,13 @@ addPlain(
 addPlain('prop', 'pipe_support', '管線支架', '高架管線下方，高度依地形' + PROP_SCALED, () =>
   buildPipeSupport(6, 0x5a4a3a),
 );
-addPlain('prop', 'derrick', '鑽井架', '荒涼工業荒野；高 14–20 m，可破壞' + PROP_SCALED, () =>
-  buildDerrick(18, 0x9a6a3a),
+addPlain(
+  'prop',
+  'derrick',
+  '鑽井架',
+  '荒涼工業荒野；現實高 30–45 m（地標），底寬依高度，作業平台的爬梯與欄杆照人的尺寸，可破壞；GLB 以高 36 m 製作' +
+    PROP_SCALED,
+  () => buildDerrick(36, 0x9a6a3a),
 );
 addPlain('prop', 'wreck_hull', '艦體殘骸', '沙丘地帶；長約 24 m，艦首朝 −Z，遊戲中埋入地面 2.4 m', () =>
   buildWreckHull(0x7d7466),
@@ -556,8 +615,12 @@ addPlain(
   '荒涼工業荒野的岩石；半徑 1.6–2.8、高 5–10 m，可破壞' + PROP_SCALED,
   () => buildRockSpire(2, 7, 0x4e3e33),
 );
-addPlain('prop', 'floodlight', '照明塔', '荒涼工業荒野；高 8–11 m，可破壞' + PROP_SCALED, () =>
-  buildFloodlight(9, 0x4a4540),
+addPlain(
+  'prop',
+  'floodlight',
+  '照明塔',
+  '荒涼工業荒野；現實高 20–35 m，燈數依高度，可破壞；GLB 以高 25 m 製作' + PROP_SCALED,
+  () => buildFloodlight(25, 0x4a4540),
 );
 addPlain('prop', 'scrap', '廢鐵板', '荒涼工業荒野與沙丘地帶的裝飾，0.8–2 m' + PROP_SCALED, () =>
   buildScrap(1.5, 0.8, 1.2, 0x5a4a3e),

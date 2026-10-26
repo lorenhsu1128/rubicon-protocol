@@ -5,6 +5,7 @@ import { makeStudioEnv } from '../render/environment.js';
 import { StylePipeline, manualShadows } from '../render/style/pipeline.js';
 import { installStyleShader } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
+import { DS } from '../core/scale.js';
 import { Game } from './game.js';
 
 installStyleShader(); // 越早越好：之後建立的標準材質都會用風格著色器
@@ -43,6 +44,7 @@ Object.assign(Game.prototype, {
       sceneExp: () => (this.world && this.world.theme && this.world.theme.linExp) || 1, // 依場景的曝光補正
       fogPush: () => this.camExtra || 0, // 鏡頭拉遠時霧往外推，機體附近保持清楚
       chromaPush: () => (this.chromaK || 0) * 0.7, // 受到重擊時的色差（game/juice.js）
+      wscale: () => (this.rts ? 1 : DS), // 機甲三倍高改版（Coral 戰爭到第 11 期之前照舊）
     });
     this.stylePipe.applyStructural(this.styleP);
   },

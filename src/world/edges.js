@@ -4,6 +4,7 @@
 // - 地圖外再加一圈遠景地形（到 FAR_R）與剪影物件（不碰撞、不投影），地形照主題原本的輪廓往外延伸。
 // - 作戰區域（±lim）與出界緩衝帶（±limOut）裡不改地形。全部用自己的亂數串，不動關卡生成的亂數順序。
 import { clamp, lerp, makeRng } from '../core/math.js';
+import { WS } from '../core/scale.js';
 import {
   box,
   buildContainer,
@@ -41,8 +42,10 @@ import {
 } from './themes/spaceport.js';
 import { buildAATurret, buildGlassTower } from './themes/xylem.js';
 
-export const FAR_R = 440; // 遠景地形的外緣（m，離地圖中心）
-export const OOB_BUF = 14; // 出界緩衝帶：作戰區域外還能走多遠（world.limOut＝lim＋這個）
+// 機甲三倍高改版：地形照舊尺度的形狀放大 G 倍（edgeDelta 以舊尺度取樣再乘 G；STYLES、SHAPE 的數字是舊尺度）
+const G = WS;
+export const FAR_R = 440 * G; // 遠景地形的外緣（m，離地圖中心）
+export const OOB_BUF = 14 * G; // 出界緩衝帶：作戰區域外還能走多遠（world.limOut＝lim＋這個）
 const BW = 0.12; // 段與段之間的過渡寬度（rad）
 const sm = (t) => {
   t = clamp(t, 0, 1);
@@ -123,7 +126,7 @@ export function planEdges(w) {
   const S = w.size / 2;
   const E = {
     S,
-    e0: w.lim + OOB_BUF - 2,
+    e0: w.lim + OOB_BUF - 2 * G,
     arcs: [],
     forced: [],
     range: ST.range || 0,
@@ -176,7 +179,7 @@ export function planEdges(w) {
     for (const sgn of [-1, 1]) {
       const p = w.corridorPoint(sgn * w.trackS);
       const TN = ST.tunnel || { H: [16, 22], hw: 0.15 };
-      ridgeAt(p.x, p.z, R(TN.H[0], TN.H[1]), w.trackS + 2, TN.hw);
+      ridgeAt(p.x, p.z, R(TN.H[0], TN.H[1]), w.trackS + 2 * G, TN.hw);
     }
   }
   // 水壩：上游方向的段落是水庫（往外延伸成湖面）
@@ -190,17 +193,20 @@ export function planEdges(w) {
   return E;
 }
 
-// 邊界外的高度增量（作戰區域與緩衝帶裡為 0）
-export function edgeDelta(w, x, z) {
+// 邊界外的高度增量（作戰區域與緩衝帶裡為 0）；以舊尺度（座標 ÷ G）計算再乘 G
+export function edgeDelta(w, x0, z0) {
   const E = w.edges;
   if (!E || E.none) return 0;
+  const x = x0 / G,
+    z = z0 / G,
+    S = E.S / G;
   const e = Math.max(Math.abs(x), Math.abs(z));
   const n = w.noise,
     n2 = w.noise2;
   const th = Math.atan2(z, x),
-    a = th * E.S;
+    a = th * S;
   let h = 0;
-  const d = e - E.e0;
+  const d = e - E.e0 / G;
   if (d > 0) {
     let sum = 0,
       ws = 0;
@@ -214,19 +220,19 @@ export function edgeDelta(w, x, z) {
     h = ws ? sum / ws : 0;
     if (E.range) {
       // 遠方山脈：以圓形距離計算（不會圍成方框），依方向時有時無，起點遠近也隨方向變化
-      const rr = Math.hypot(x, z) - E.S - 90 - 50 * n(a * 0.01 + 3, 1.3);
+      const rr = Math.hypot(x, z) - S - 90 - 50 * n(a * 0.01 + 3, 1.3);
       let amp = sm((n(a * 0.006 + 11, 0.5) - 0.3) / 0.4);
       if (w.dam) amp *= 1 - sm(((z * w.dam.up) / Math.hypot(x, z) - 0.1) / 0.5); // 水庫往上游延伸到天邊
       h += E.range * amp * sm(rr / 120) * (0.6 + 0.4 * n2(x * 0.01, z * 0.01));
     }
   }
   for (const F of E.forced) {
-    const df = e - F.start;
+    const df = e - F.start / G;
     if (df <= 0) continue;
     const wt = 1 - sm((Math.abs(angD(th, F.c)) - F.hw + BW * 0.6) / (BW * 1.2));
     if (wt > 0) h = lerp(h, Math.max(h, SHAPE.ridge(df, a, F, n, n2)), wt);
   }
-  return h;
+  return h * G;
 }
 
 // ---------- 遠景地形：地圖外一圈方環（與地圖重疊 5 m，壓在地圖下方，邊上的頂點與地圖相同）----------
@@ -234,11 +240,11 @@ function buildFarTerrain(w) {
   const S = w.size / 2,
     T = w.theme;
   const pos = new Set();
-  for (let v = 0; v <= S - 5; v += 5) pos.add(v);
+  for (let v = 0; v <= S - 5 * G; v += 5 * G) pos.add(v);
   pos.add(S);
-  for (let v = S + 5; v <= S + 80; v += 5) pos.add(v);
-  for (let v = S + 90; v <= S + 160; v += 10) pos.add(v);
-  for (let v = S + 180; v < FAR_R; v += 20) pos.add(v);
+  for (let v = S + 5 * G; v <= S + 80 * G; v += 5 * G) pos.add(v);
+  for (let v = S + 90 * G; v <= S + 160 * G; v += 10 * G) pos.add(v);
+  for (let v = S + 180 * G; v < FAR_R; v += 20 * G) pos.add(v);
   pos.add(FAR_R);
   const pv = [...pos].sort((a, b) => a - b);
   const C = [
@@ -255,7 +261,7 @@ function buildFarTerrain(w) {
       const x = C[i],
         z = C[j];
       const e = Math.max(Math.abs(x), Math.abs(z));
-      H[j * N + i] = e < S - 0.01 ? w.terrainHeight(x, z) - 1.5 : w.farHeight(x, z);
+      H[j * N + i] = e < S - 0.01 ? w.terrainHeight(x, z) - 1.5 * G : w.farHeight(x, z);
     }
   const P = [],
     col = [];
@@ -275,8 +281,8 @@ function buildFarTerrain(w) {
     nn.subVectors(vb, va).cross(tv.subVectors(vc, va)).normalize();
     const y = (va.y + vb.y + vc.y) / 3;
     tmp.copy(cg).lerp(cs, clamp((0.93 - nn.y) * 6, 0, 1));
-    if (y > 9) tmp.lerp(cr, clamp((y - 9) / 6, 0, 0.7));
-    tmp.offsetHSL(0, 0, (w.noise2(va.x * 0.37, va.z * 0.37) - 0.5) * 0.04);
+    if (y > 9 * G) tmp.lerp(cr, clamp((y - 9 * G) / (6 * G), 0, 0.7));
+    tmp.offsetHSL(0, 0, (w.noise2((va.x / G) * 0.37, (va.z / G) * 0.37) - 0.5) * 0.04);
     for (const v of [va, vb, vc]) {
       P.push(v.x, v.y, v.z);
       col.push(tmp.r, tmp.g, tmp.b);
@@ -286,8 +292,8 @@ function buildFarTerrain(w) {
     for (let i = 0; i < N - 1; i++) {
       // 完全在地圖裡面（地圖蓋得住）的格子略過
       if (
-        Math.max(Math.abs(C[i]), Math.abs(C[i + 1])) < S - 4 &&
-        Math.max(Math.abs(C[j]), Math.abs(C[j + 1])) < S - 4
+        Math.max(Math.abs(C[i]), Math.abs(C[i + 1])) < S - 4 * G &&
+        Math.max(Math.abs(C[j]), Math.abs(C[j + 1])) < S - 4 * G
       )
         continue;
       tri(i, j, i, j + 1, i + 1, j);
@@ -660,11 +666,11 @@ export function buildBackdrop(w) {
     r,
     R: (a, b) => a + (b - a) * r(),
     pick: (arr) => arr[Math.floor(r() * arr.length)],
-    // 方環上的位置：角度 th、離邊界起點 d（m）
+    // 方環上的位置：角度 th、離邊界起點 d（舊尺度的 m，乘 G；剪影物件第 5 期照現實尺寸重做）
     at(th, d) {
       const cs = Math.cos(th),
         sn = Math.sin(th);
-      const k = (E.e0 + d) / Math.max(Math.abs(cs), Math.abs(sn));
+      const k = (E.e0 + d * G) / Math.max(Math.abs(cs), Math.abs(sn));
       const x = cs * k,
         z = sn * k;
       return { x, z, y: w.farHeight(x, z), th };
@@ -687,7 +693,7 @@ export function buildBackdrop(w) {
     },
     // 沿著邊界排一列（固定離起點 d），間距 step，gap＝留空的機率
     line(A, d, step, gap, fn) {
-      const k = (E.e0 + d) * 1.15;
+      const k = (E.e0 + d * G) * 1.15;
       for (let a = A.c - A.hw + BW; a <= A.c + A.hw - BW; a += step / k) if (r() > gap) fn(c.at(a, d));
     },
     // 整圈隨機散布 n 個

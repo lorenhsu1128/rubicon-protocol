@@ -3,14 +3,15 @@
 // ============================================================
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { Effects } from '../fx/effects.js';
 import { targetDist } from '../world/prop-hit.js';
 
 // 距離分級（lodTick）與 AI 分批（aiStep）的門檻
-const LOD_IK_DIST = 60; // 離鏡頭這麼遠（m）以上不跑 IK
-const LOD_SHADOW_DIST = 90; // 離鏡頭這麼遠（m）以上不投影（陰影貼圖的範圍是鏡頭注視點 ±70 m）
+const LOD_IK_DIST = 60; // 離鏡頭這麼遠（m）以上不跑 IK（一般模式乘 DS：機甲三倍高改版）
+const LOD_SHADOW_DIST = 90; // 離鏡頭這麼遠（m）以上不投影（陰影貼圖的範圍是鏡頭注視點 ±70 m；一般模式乘 DS）
 const AI_BATCH_MIN = 64; // 場上的敵人＋友軍達到這個數量才分批更新 AI
-const AI_BATCH_NEAR = 45; // 離玩家這麼近（m）的照常每格更新
+const AI_BATCH_NEAR = 45; // 離玩家這麼近（m）的照常每格更新（一般模式乘 DS）
 const LOD_LIST = [];
 const _lodM = new THREE.Matrix4(),
   _lodF = new THREE.Frustum(),
@@ -39,7 +40,7 @@ export class Game {
       })(),
       ok: !!(THREE.EffectComposer && THREE.UnrealBloomPass && THREE.SSAOPass && THREE.GammaCorrectionShader),
     };
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.5, 400);
+    this.camera = new THREE.PerspectiveCamera(42, 1, 0.5 * DS, 400 * DS);
     this.camTarget = new THREE.Vector3();
     this.camShake = 0;
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.48);
@@ -48,12 +49,12 @@ export class Game {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
-    sc.left = -70;
-    sc.right = 70;
-    sc.top = 70;
-    sc.bottom = -70;
-    sc.near = 1;
-    sc.far = 250;
+    sc.left = -70 * DS;
+    sc.right = 70 * DS;
+    sc.top = 70 * DS;
+    sc.bottom = -70 * DS;
+    sc.near = DS;
+    sc.far = 250 * DS;
     this.sun.shadow.bias = -0.0015;
     this.sun.shadow.normalBias = 0.04; // 沿法線推開：GLB 的平滑法線低面數模型不會自己遮自己出現條紋
     this.scene.add(this.sun);
@@ -613,8 +614,9 @@ export class Game {
     for (const e of this.allies) list.push(e);
     if (this.players) for (const e of this.players) list.push(e);
     const off = this.lod === false;
-    const ikD = this.lodIkDist || LOD_IK_DIST,
-      shD = this.lodShadowDist || LOD_SHADOW_DIST;
+    const lk = this.rts ? 1 : DS;
+    const ikD = this.lodIkDist || LOD_IK_DIST * lk,
+      shD = this.lodShadowDist || LOD_SHADOW_DIST * lk;
     if (!off) {
       cam.updateMatrixWorld();
       _lodM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
@@ -636,7 +638,7 @@ export class Game {
       const d = Math.sqrt(cp.distanceToSquared(e.pos));
       const h = (e.model && e.model.height ? e.model.height : 4) * (e.scale || 1);
       _lodS.center.set(e.pos.x, e.pos.y + h * 0.5, e.pos.z);
-      _lodS.radius = h * 0.75 + 3; // 留一點邊：進入畫面前先淡入
+      _lodS.radius = h * 0.75 + 3 * (this.rts ? 1 : MS); // 留一點邊：進入畫面前先淡入
       const vis = _lodF.intersectsSphere(_lodS);
       e.lodVis = vis; // 在畫面內（RTS 的單位在畫面外時降低動作與推進器的更新，MechEntity.move）
       e.lodIk = !vis || d > (e.lodIk ? ikD * 0.92 : ikD);
@@ -658,7 +660,8 @@ export class Game {
     const pls = this.players && this.players.length ? this.players : [this.player];
     let dm = this.lodFrom ? this.lodFrom.distanceToSquared(e.pos) : Infinity; // RTS：鏡頭注視點附近照常每格
     for (const p of pls) if (p && !p.dead) dm = Math.min(dm, p.pos.distanceToSquared(e.pos));
-    if (dm < AI_BATCH_NEAR * AI_BATCH_NEAR) return 1;
+    const nr = AI_BATCH_NEAR * (this.rts ? 1 : DS);
+    if (dm < nr * nr) return 1;
     return e.sn && e.sn.st !== 2 ? 4 : 2;
   }
   // 一台機體這一格的 AI：分批時跳過的格子只移動（aiCoast），輪到的格子以累積的 dt 呼叫 updateAI

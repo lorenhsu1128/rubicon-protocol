@@ -241,8 +241,21 @@ export class PK {
     g.computeVertexNormals();
     return this.geo(m, g);
   }
+  // 人的介面標記（門、樓梯、爬梯、可以走的面；之後的小人互動用）：build 時加成這個名稱的空節點
+  mark(name, x = 0, y = 0, z = 0, ry = 0) {
+    (this.marks = this.marks || []).push([name, compose(x, y, z, 0, ry, 0, 1, 1, 1).premultiply(this.top)]);
+    return this;
+  }
   // 依材質合併成網格，加到 group（沒給時新建）並回傳
   build(group = new THREE.Group(), shadow = true) {
+    for (const [name, mm] of this.marks || []) {
+      const o = new THREE.Object3D();
+      o.name = name;
+      mm.decompose(o.position, o.quaternion, o.scale);
+      o.userData.human = true;
+      group.add(o);
+    }
+    this.marks = null;
     const parts = this.parts || [];
     // 沒有指定零件的網格：外框＝登記的外框（原本程式模型的各零件外框的聯集；沒有登記時照實際的頂點）
     let union = null;
@@ -436,6 +449,83 @@ export function truss(k, m, len, hh, x, y, z, ry = 0, t = 0.14, bay = 0) {
   });
   return k;
 }
+// ---------- 人的尺寸（docs/world-scale.md 第 2 節）：物件照現實尺寸，人會用到的細節一律照這些，不跟著機甲放大 ----------
+export const HUMAN = {
+  door: [0.9, 2.1], // 門 寬、高
+  rail: 1.1, // 欄杆高
+  rise: 0.18, // 樓梯級高
+  run: 0.28, // 樓梯級深
+  stairW: 1.1, // 樓梯寬
+  ladderW: 0.45,
+  rung: 0.3,
+  walkW: 1.0, // 走道寬
+  win: [1.2, 1.3, 0.9], // 窗 寬、高、窗台高
+};
+// 人的介面標記（之後的小人互動）：fn 裡用 k.mark('door_1', x, y, z, ry) 標出門、樓梯、爬梯、可以走的面，
+// build 時加成名稱為該字串的空節點（不畫、不碰撞）
+// 人用的門：門框＋門扇＋把手，面朝 +Z，(x, y, z) 是門底中心
+export function door(k, frame, leaf, x, y, z, ry = 0, w = HUMAN.door[0], h = HUMAN.door[1], name) {
+  k.at(x, y, z, 0, ry, 0, () => {
+    k.box(frame, w + 0.16, 0.1, 0.12, 0, h + 0.05, 0);
+    for (const s of [-1, 1]) k.box(frame, 0.08, h, 0.12, s * (w / 2 + 0.04), h / 2, 0);
+    k.box(leaf, w, h, 0.05, 0, h / 2, 0.02);
+    k.box(DETAIL.steel, 0.12, 0.03, 0.05, w / 2 - 0.12, h * 0.48, 0.06);
+    if (name) k.mark(name, 0, 0, 0.1, 0);
+  });
+  return k;
+}
+// 直跑樓梯：從 (x, y, z) 往 +Z 爬升 rise（級高、級深照人的尺寸），兩側側梁＋踏板＋一側扶手；回傳水平長度
+export function stairs(k, m, rise, x, y, z, ry = 0, w = HUMAN.stairW, name) {
+  const n = Math.max(1, Math.round(rise / HUMAN.rise)),
+    r = rise / n,
+    run = HUMAN.run,
+    L = n * run;
+  k.at(x, y, z, 0, ry, 0, () => {
+    for (let i = 0; i < n; i++) k.box(m, w, 0.05, run * 1.05, 0, r * (i + 1) - 0.025, run * (i + 0.5));
+    const a = Math.atan2(rise, L),
+      len = Math.hypot(rise, L);
+    for (const s of [-1, 1]) k.box(m, 0.06, 0.22, len, s * (w / 2 + 0.03), rise / 2, L / 2, -a, 0, 0);
+    k.box(m, 0.04, 0.04, len, w / 2 + 0.03, rise / 2 + HUMAN.rail * 0.9, L / 2, -a, 0, 0);
+    for (let i = 0; i <= Math.ceil(n / 6); i++) {
+      const t = Math.min(1, i / Math.ceil(n / 6));
+      k.box(m, 0.04, HUMAN.rail, 0.04, w / 2 + 0.03, rise * t + HUMAN.rail / 2, L * t);
+    }
+    if (name) k.mark(name, 0, 0, 0, 0);
+  });
+  return L;
+}
+// 人用的爬梯（hh 高、面朝 +Z）；cage：3 m 以上加護籠
+export function humanLadder(k, m, hh, x, y, z, ry = 0, cage = hh > 3, name) {
+  const w = HUMAN.ladderW;
+  k.at(x, y, z, 0, ry, 0, () => {
+    for (const s of [-1, 1]) k.box(m, 0.05, hh, 0.05, (s * w) / 2, hh / 2, 0);
+    for (let v = HUMAN.rung; v < hh - 0.05; v += HUMAN.rung) k.box(m, w, 0.03, 0.03, 0, v, 0);
+    if (cage)
+      for (let v = 2.4; v < hh; v += 0.9) {
+        k.box(m, w + 0.3, 0.03, 0.03, 0, v, 0.7);
+        for (const s of [-1, 1]) k.box(m, 0.03, 0.03, 0.7, s * (w / 2 + 0.15), v, 0.35);
+      }
+    if (name) k.mark(name, 0, 0, 0.3, 0);
+  });
+  return k;
+}
+// 窗列：寬 len 的牆面（面朝 +Z）上每層一排窗；floors＝層數、fh＝樓層高；y0＝第一層地板高
+export function windowRows(k, glass, frame, len, floors, fh, x, y0, z, ry = 0, gap = 1.2) {
+  const [ww, wh, sill] = HUMAN.win;
+  const n = Math.max(1, Math.floor((len - 1) / (ww + gap)));
+  const sp = len / n;
+  k.at(x, y0, z, 0, ry, 0, () => {
+    for (let f = 0; f < floors; f++)
+      for (let i = 0; i < n; i++) {
+        const cx = -len / 2 + sp * (i + 0.5),
+          cy = f * fh + sill + wh / 2;
+        k.box(glass, ww, wh, 0.05, cx, cy, 0.02);
+        k.box(frame, ww + 0.1, 0.08, 0.1, cx, cy - wh / 2 - 0.04, 0.04);
+      }
+  });
+  return k;
+}
+
 // 共用的細節材質（不透明、各地圖共用一份；不會隨遮擋半透明，所以只用在小零件）
 export const DETAIL = {
   get yellow() {
@@ -511,17 +601,18 @@ export function buildGridPillar(w, h, d, baseMat) {
   return { mesh: g, mat: m2 };
 }
 
+// 貨櫃的現實尺寸（ISO）：20 呎 6.06 × 2.44 × 2.59 m、40 呎 12.19 m；疊放時上下相接
+export const ISO = { L20: 6.06, L40: 12.19, W: 2.44, H: 2.59 };
 // 貨櫃：箱體＋兩道框＋上下邊條；rot 為真時長邊沿 Z 軸（GLB 以長邊沿 X 製作，rot 時轉 90°）
 export function buildContainer(w, h, d, rot, cm, fm) {
   const glb = propGlb('container', {
     color: cm.color.getHex(),
-    ref: [7.5, 2.8, 2.9],
+    ref: [ISO.L40, ISO.H, ISO.W],
     size: rot ? [d, h, w] : [w, h, d],
     rotY: rot ? Math.PI / 2 : 0,
     fade: true,
   });
   if (glb) return glb;
-  // 以長邊沿 X 建造（L 長、D 寬），rot 時整個轉 90°：角柱＋上下框＋波紋側板＋一端的門（門閂）
   const L = rot ? d : w,
     D = rot ? w : d;
   const k = new PK();
@@ -529,7 +620,45 @@ export function buildContainer(w, h, d, rot, cm, fm) {
   for (const t of [-0.35, 0.35])
     k.ob(rot ? w + 0.1 : 0.3, h + 0.1, rot ? 0.3 : d + 0.1, rot ? 0 : t * w, h / 2, rot ? t * d : 0);
   for (const y of [h, 0.1]) k.ob(w + 0.08, 0.2, d + 0.08, 0, y, 0);
-  k.at(0, 0, 0, 0, rot ? Math.PI / 2 : 0, 0, () => {
+  k.at(0, 0, 0, 0, rot ? Math.PI / 2 : 0, 0, () => containerKit(k, L, h, D, cm, fm));
+  return k.build();
+}
+// 疊放的貨櫃堆（現實尺寸）：rows 排（沿 Z 並排，間隔 gap）× levels 層，長邊沿 X；cms[i]＝第 i 個貨櫃的材質
+// （i＝排 × levels＋層，呼叫端決定顏色）；tops[r]＝第 r 排的層數（沒給時一律 levels）。原點在底面中心。
+// 回傳 { group, w, d, h }：碰撞用的整堆外框（h＝最高的那排）
+export function buildContainerStack(L, rows, levels, cms, fm, tops = null, gap = 0.3) {
+  const D = ISO.W,
+    H = ISO.H,
+    dd = rows * D + (rows - 1) * gap;
+  let top = 0;
+  for (let r = 0; r < rows; r++) top = Math.max(top, tops ? tops[r] : levels);
+  const glb0 = propGlb('container', { color: cms[0].color.getHex(), ref: [ISO.L40, H, D], size: [L, H, D] });
+  if (glb0) {
+    const g = new THREE.Group();
+    for (let r = 0; r < rows; r++)
+      for (let lv = 0; lv < (tops ? tops[r] : levels); lv++) {
+        const c = propGlb('container', {
+          color: cms[(r * levels + lv) % cms.length].color.getHex(),
+          ref: [ISO.L40, H, D],
+          size: [L, H, D],
+          fade: true,
+        });
+        c.position.set(0, lv * H, -dd / 2 + D / 2 + r * (D + gap));
+        g.add(c);
+      }
+    return { group: g, w: L, d: dd, h: top * H };
+  }
+  const k = new PK().bounds(-L / 2, 0, -dd / 2, L / 2, top * H, dd / 2);
+  for (let r = 0; r < rows; r++)
+    for (let lv = 0; lv < (tops ? tops[r] : levels); lv++)
+      k.at(0, lv * H, -dd / 2 + D / 2 + r * (D + gap), 0, 0, 0, () =>
+        containerKit(k, L, H, D, cms[(r * levels + lv) % cms.length], fm),
+      );
+  return { group: k.build(), w: L, d: dd, h: top * H };
+}
+// 一個貨櫃的造型（長邊沿 X、L 長、D 寬、h 高，原點在底面中心）：角柱＋上下框＋波紋側板＋一端的門（門閂）
+function containerKit(k, L, h, D, cm, fm) {
+  {
     const bx = L / 2 - 0.06,
       bz = D / 2 - 0.08;
     k.box(cm, bx * 2, h - 0.3, bz * 2, 0, h / 2, 0);
@@ -570,8 +699,7 @@ export function buildContainer(w, h, d, rot, cm, fm) {
     }
     // 前端（−X）的橫向加強板
     for (const y of [h * 0.35, h * 0.65]) k.box(fm, 0.04, 0.08, D - 0.4, -xd, y, 0);
-  });
-  return k.build();
+  }
 }
 
 // 岩石（十二面體，縮放與旋轉由呼叫端決定）
@@ -993,15 +1121,18 @@ export function buildPipeSupport(h, color) {
   return k.build();
 }
 
-// 鑽井架：格子塔＋中段平台＋頂部滑輪架；原點在底面中心；GLB 以 4 × 18 × 4 m 製作，依高度縮放
+// 鑽井架（現實高 30–45 m）：格子塔＋作業平台（欄杆、樓梯照人的尺寸）＋頂部滑輪架；原點在底面中心；
+// 底寬依高度（derrickBase）；GLB 以高 36 m 製作，依尺寸縮放
+export const derrickBase = (h) => Math.max(2, h * 0.11);
 export function buildDerrick(h, color) {
-  const glb = propGlb('derrick', { color, ref: [4, 18, 4], size: [4, h, 4], fade: true });
+  const B = derrickBase(h);
+  const glb = propGlb('derrick', { color, ref: [7.9, 36, 7.9], size: [B * 2, h, B * 2], fade: true });
   if (glb) return glb;
   const m = fadeMat(color, { roughness: 0.7, metalness: 0.45 }),
     dk = fadeMat(0x34302c, { roughness: 0.9 });
   const k = new PK();
-  const b0 = 2,
-    b1 = 0.6;
+  const b0 = B,
+    b1 = Math.max(0.6, h * 0.035);
   const half = (y) => lerpN(b0, b1, y / h);
   // 外框同原本（四支斜腳、平台、頂部滑輪架、底座）
   const ta = Math.atan2(b0 - b1, h);
@@ -1009,7 +1140,7 @@ export function buildDerrick(h, color) {
     for (const sz of [-1, 1])
       k.ob(0.3, h, 0.3, sx * ((b0 + b1) / 2), h / 2, sz * ((b0 + b1) / 2), -sz * ta, 0, sx * ta);
   k.ob(half(h * 0.35) * 2 + 1.6, 0.3, half(h * 0.35) * 2 + 1.6, 0, h * 0.35, 0);
-  k.ob(1.8, 1.2, 1.8, 0, h + 0.5, 0).ob(4.4, 1.4, 4.4, 0, 0.7, 0);
+  k.ob(b1 * 3, 1.2, b1 * 3, 0, h + 0.5, 0).ob(b0 * 2.2, 1.4, b0 * 2.2, 0, 0.7, 0);
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) k.bar(m, [sx * b0, 0.15, sz * b0], [sx * b1, h, sz * b1], 0.3);
   // 每一節：四面的橫材＋單向斜撐
@@ -1035,15 +1166,19 @@ export function buildDerrick(h, color) {
   k.box(dk, pw, 0.3, pw, 0, py, 0);
   for (let i = 0; i < 4; i++)
     k.at(0, py + 0.15, 0, 0, (i * Math.PI) / 2, 0, () =>
-      railing(k, dk, pw - 0.1, 0.9, 0, 0, pw / 2 - 0.05, 0, 1.6, 0.06),
+      railing(k, dk, pw - 0.1, HUMAN.rail, 0, 0, pw / 2 - 0.05, 0, 1.5, 0.05),
     );
+  // 地面到作業平台的爬梯（人用）
+  humanLadder(k, dk, py, half(py * 0.5), 0, 0, Math.PI / 2, true, 'ladder_floor');
+  k.mark('walk_floor', 0, py + 0.15, 0, 0);
   // 頂部滑輪架與滑輪
-  k.cb(dk, 1.8, 1.2, 1.8, 0, h + 0.5, 0, 0, 0, 0, 0.1);
+  k.cb(dk, b1 * 3, 1.2, b1 * 3, 0, h + 0.5, 0, 0, 0, 0, 0.1);
   k.cyl(m, 0.5, 0.5, 0.3, 0, h + 0.6, 0.75, Math.PI / 2, 0, 0, 10);
   k.pipe(DETAIL.dark, [0, h, 0], [0, 1.5, 0], 0.05, 4); // 鋼索
   // 底座與機房
-  k.cb(dk, 4.36, 1.4, 4.36, 0, 0.7, 0, 0, 0, 0, 0.12);
-  k.box(DETAIL.yellow, 4.4, 0.15, 4.4, 0, 1.25, 0);
+  k.cb(dk, b0 * 2.18, 1.4, b0 * 2.18, 0, 0.7, 0, 0, 0, 0, 0.12);
+  k.box(DETAIL.yellow, b0 * 2.2, 0.15, b0 * 2.2, 0, 1.25, 0);
+  door(k, dk, DETAIL.steel, 0, 0, b0 * 1.09 + 0.02, 0, HUMAN.door[0], 1.2, 'door_cellar');
   return k.build();
 }
 
@@ -1262,43 +1397,55 @@ export function buildRockSpire(r, h, color) {
   g.add(top);
   return g;
 }
-// 照明塔（荒野的柱子）：桿＋橫臂＋燈箱；原點在底面中心；GLB 以高 9 m 製作，依高度縮放
+// 照明塔（現實高 20–35 m）：格子桿（寬度依高度）＋燈架（頂部的燈數依高度）＋人用爬梯與燈架平台；
+// 原點在底面中心；GLB 以高 25 m 製作，依尺寸縮放
+export const floodW = (h) => Math.max(0.45, h * 0.035);
 export function buildFloodlight(h, color) {
-  const glb = propGlb('floodlight', { color, ref: [3, 9, 1], size: [3, h, 1] });
+  const W = floodW(h),
+    hw = Math.max(3, h * 0.2); // 燈架寬
+  const glb = propGlb('floodlight', { color, ref: [5, 25, 1.6], size: [hw, h, hw * 0.32] });
   if (glb) return glb;
   const m = mat(color, { roughness: 0.7, metalness: 0.5 });
-  const k = new PK(); // 外框同原本的零件（桿、橫臂、三盞燈、底座；呼叫端會任意旋轉）
-  k.ob(0.45, h, 0.45, 0, h / 2, 0)
-    .ob(3, 0.25, 0.3, 0, h - 0.4, 0)
-    .ob(1.2, 0.6, 1.2, 0, 0.3, 0);
-  for (const sx of [-1.1, 0, 1.1]) k.ob(0.8, 0.6, 0.5, sx, h - 0.85, 0.2);
   const lm = mat(0xfff2c8, { emissive: 0x806a3a, roughness: 0.4 });
-  // 底座（倒角＋螺栓）＋格子桿（四角材＋橫材）＋爬梯＋燈架與三盞燈（燈罩＋發光面）；分到原本的零件上
+  const nl = Math.max(3, Math.round(hw / 1.1)); // 燈數
+  const k = new PK(); // 外框同原本的零件（桿、燈架、各盞燈、底座；呼叫端會任意旋轉）
+  k.ob(W, h, W, 0, h / 2, 0)
+    .ob(hw, 0.25, 0.3, 0, h - 0.4, 0)
+    .ob(W * 2.6, 0.6, W * 2.6, 0, 0.3, 0);
+  const lx = (j) => -hw / 2 + (hw / nl) * (j + 0.5);
+  for (let j = 0; j < nl; j++) k.ob(0.8, 0.6, 0.5, lx(j), h - 0.85, 0.2);
+  // 底座（倒角＋螺栓）
   k.cur = 2;
-  k.cb(m, 1.2, 0.6, 1.2, 0, 0.3, 0, 0, 0, 0, 0.08);
-  for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) k.box(DETAIL.dark, 0.1, 0.1, 0.1, sx * 0.45, 0.62, sz * 0.45);
+  k.cb(m, W * 2.6, 0.6, W * 2.6, 0, 0.3, 0, 0, 0, 0, 0.08);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box(DETAIL.dark, 0.1, 0.1, 0.1, sx * W, 0.62, sz * W);
+  // 格子桿：四角材＋每 1.4 m 的橫材＋斜撐
   k.cur = 0;
+  const c = W / 2 - 0.05;
   for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) k.box(m, 0.1, h - 0.6, 0.1, sx * 0.18, h / 2 + 0.3, sz * 0.18);
-  for (let y = 1.4; y < h - 1; y += 1.4) {
-    k.box(m, 0.42, 0.06, 0.06, 0, y, 0.18);
-    k.box(m, 0.42, 0.06, 0.06, 0, y, -0.18);
-    k.box(m, 0.06, 0.06, 0.42, 0.18, y, 0);
-    k.box(m, 0.06, 0.06, 0.42, -0.18, y, 0);
+    for (const sz of [-1, 1]) k.box(m, 0.1, h - 0.6, 0.1, sx * c, h / 2 + 0.3, sz * c);
+  let yp = 0.6;
+  for (let y = 2; y < h - 1; y += 1.4) {
+    for (const s of [-1, 1]) {
+      k.box(m, W, 0.06, 0.06, 0, y, s * c);
+      k.box(m, 0.06, 0.06, W, s * c, y, 0);
+      k.bar(m, [-c, yp, s * c], [c, y, s * c], 0.05);
+    }
+    yp = y;
   }
-  ladder(k, m, h - 1.2, 0, 0.6, -0.26, 0, 0.45);
+  humanLadder(k, m, h - 1.2, 0, 0.6, -c - 0.12, Math.PI, true, 'ladder_light');
+  // 燈架：橫臂＋維修平台（格柵＋欄杆）＋各盞燈（燈罩＋發光面），分到原本的零件上
   k.cur = 1;
-  k.box(m, 3, 0.25, 0.3, 0, h - 0.4, 0);
-  k.box(m, 3.0, 0.06, 0.8, 0, h - 0.2, -0.1);
-  [-1.1, 0, 1.1].forEach((sx, j) =>
+  k.box(m, hw, 0.25, 0.3, 0, h - 0.4, 0);
+  k.box(m, hw, 0.06, 1.0, 0, h - 1.4, -0.2);
+  railing(k, m, hw, HUMAN.rail, 0, h - 1.4, -0.7, 0, 1.5, 0.04);
+  k.mark('walk_lamp', 0, h - 1.37, -0.2, 0);
+  for (let j = 0; j < nl; j++)
     k.inPart(3 + j, () =>
-      k.at(sx, h - 0.85, 0.2, 0.3, 0, 0, () => {
+      k.at(lx(j), h - 0.85, 0.2, 0.3, 0, 0, () => {
         k.cb(m, 0.8, 0.6, 0.45, 0, 0, -0.05, 0, 0, 0, 0.05);
         k.box(lm, 0.72, 0.52, 0.05, 0, 0, 0.19);
       }),
-    ),
-  );
+    );
   return k.build();
 }
 // 廢鐵板（純裝飾）：兩片斜插的鐵板；原點在地面中心；GLB 以 1.5 × 0.8 × 1.2 m 製作

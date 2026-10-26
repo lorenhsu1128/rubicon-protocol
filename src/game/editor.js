@@ -4,6 +4,7 @@
 // 編輯中的關卡在 this.ed.L（整份，含多段）；目前這一段的內容是 edCur()（第 0 段＝L 本身）。
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import { applyLevelProps, levelWorldOpt, placeProp, removePlaced } from '../level/build.js';
 import {
   GROUP_COLORS,
@@ -151,7 +152,7 @@ Object.assign(Game.prototype, {
     const go = () => {
       this.edDisposeHelpers();
       this.clearMission();
-      this.camera.far = 400;
+      this.camera.far = 400 * DS;
       if (this.camera.view && this.camera.view.enabled) this.camera.clearViewOffset();
       this.camera.updateProjectionMatrix();
       document.body.classList.remove('editing', 'edPicking');
@@ -1405,7 +1406,7 @@ Object.assign(Game.prototype, {
     ed.camSave = { ...ed.cam };
     this.edDisposeHelpers();
     const at = here ? { x: ed.cam.x, z: ed.cam.z, y: this.world.terrainHeight(ed.cam.x, ed.cam.z) } : null;
-    this.camera.far = 400;
+    this.camera.far = 400 * DS;
     this.camera.updateProjectionMatrix();
     this.lvPlay(full, { test: true, at });
   },

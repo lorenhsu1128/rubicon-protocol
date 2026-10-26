@@ -2,6 +2,7 @@
 //  FIRST PERSON — 第一人稱視角（玩家／觀戰）、指標鎖定、視錐自動鎖定、雷達與羅盤
 // ============================================================
 import { rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { FP_CONE } from './constants.js';
 import { Game } from './game.js';
 
@@ -142,7 +143,7 @@ Object.assign(Game.prototype, {
     return p.pos
       .clone()
       .add(new THREE.Vector3(0, p.model.height * 0.86, 0))
-      .addScaledVector(fwd, 0.35);
+      .addScaledVector(fwd, 0.35 * MS);
   },
   // 第一人稱鏡頭（玩家或觀戰對象 ent）
   fpCamera(ent, dt, yaw, pitch) {
@@ -150,7 +151,7 @@ Object.assign(Game.prototype, {
     const look = this.fpLookDir(yaw, pitch);
     if (this.camShake > 0) {
       this.camShake -= dt;
-      const a = Math.min(1, this.camShake * 4) * 0.35;
+      const a = Math.min(1, this.camShake * 4) * 0.35 * MS;
       eye.x += rnd(-0.3, 0.3) * a;
       eye.y += rnd(-0.2, 0.2) * a;
       eye.z += rnd(-0.3, 0.3) * a;
@@ -235,7 +236,7 @@ Object.assign(Game.prototype, {
       const d = pos.clone().sub(p.pos);
       const dx = d.x * Math.cos(yaw) + d.z * Math.sin(yaw),
         dz = -d.x * Math.sin(yaw) + d.z * Math.cos(yaw);
-      const k = R / 60;
+      const k = R / (60 * DS); // 雷達的範圍（m）
       const x = rx + dx * k,
         y = ry + dz * k;
       c.fillStyle = col;

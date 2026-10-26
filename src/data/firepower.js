@@ -1,5 +1,6 @@
 import { directOf, weaponAttr } from './attrs.js';
 import { assistSpread, fcsAssist, leadOf, trackRate, usesAmmo } from './parts.js';
+import { DS, MS } from '../core/scale.js';
 // 理論火力（機甲庫與靶場顯示用，純函式）：照 MechEntity 的開火方式換算
 // burst＝彈匣打完前（或 EN 用完前）的 DPS、sus＝算進換彈／EN 回復的持續 DPS、imp＝每秒衝擊（持續）
 // d 是套用駕駛員加成後的武器定義（data/pilot.js 的 pilotWeaponDef），gen 是發電機（recharge：每秒 EN 回復）
@@ -80,22 +81,22 @@ export function effectiveAp(ap, def) {
   return ap / Math.max(0.05, 1 - (def || 0));
 }
 
-// 預估命中率（機甲庫顯示）：對「半徑 1.8 m、以 10 m/s 橫移並會 QB 換方向的 AC」在 dist 公尺的命中機率，
+// 預估命中率（機甲庫顯示）：對「半徑 5.4 m、以 30 m/s 橫移並會 QB 換方向的 AC」在 dist 公尺的命中機率，
 // 照 MechEntity.fire 的擴散（武器、手臂的射擊適性、火控的距離輔助）、預判準度與追蹤延遲估算
-const EST_R = 1.8,
-  EST_V = 10;
+const EST_R = 1.8 * MS,
+  EST_V = 10 * DS;
 export function estHit(d, slot, fcs, aim, dist) {
   if (!d || ['none', 'shield', 'emp', 'melee'].includes(d.type)) return null;
   if (dist > (d.range || 0)) return 0;
   const A = fcsAssist(fcs, dist);
   if (d.type === 'missile')
-    return Math.min(0.95, Math.max(0.2, 0.45 + (d.turn || 3) * 0.1 + A * 0.15 - dist / 400));
+    return Math.min(0.95, Math.max(0.2, 0.45 + (d.turn || 3) * 0.1 + A * 0.15 - dist / (400 * DS)));
   const arm = slot.endsWith('arm') ? 1.3 - (aim || 0.6) * 0.6 : 0.55;
   const conv = d.conv ? 0.6 : 1; // 機槍：持續射擊時收斂（取平均）
-  const near = d.near ? Math.min(1, Math.max(0.45, dist / (d.ideal || 14))) : 1; // 霰彈：越近越集中
+  const near = d.near ? Math.min(1, Math.max(0.45, dist / (d.ideal || 14 * DS))) : 1; // 霰彈：越近越集中
   const sErr = (d.spread || 0) * arm * assistSpread(A) * dist * 0.6 * conv * near;
   const hitscan = d.type === 'laser' || d.type === 'empbeam';
-  const t = hitscan ? 0 : dist / (d.speed || 90);
+  const t = hitscan ? 0 : dist / (d.speed || 90 * DS);
   const lErr = EST_V * t * (1 - leadOf(A));
   const jErr = EST_V * Math.min(t, 0.8) * Math.exp(-trackRate(aim) * 0.25);
   let sig = Math.hypot(sErr, lErr, jErr);

@@ -613,7 +613,7 @@ function buildProps(w) {
     false,
   );
   // 浮標：只放在水庫上
-  for (let i = 0, n = Math.round(14 * w.k * w.k); i < n; i++) {
+  for (let i = 0, n = Math.round(14 * w.kk); i < n; i++) {
     const x = rnd(-w.lim, w.lim),
       z = rnd(-w.lim, w.lim);
     if (w.terrainHeight(x, z) > WATER - 0.4 || w.isReserved(x, z, 2)) continue;

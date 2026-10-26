@@ -2034,18 +2034,7 @@ export const variantKeys = (theme) => Object.keys(VARIANTS[theme] || {});
 export const variantOf = (theme, key) => (VARIANTS[theme] || {})[key] || null;
 // 模型庫登記：[key, 名稱, 備註, build]
 export const VARIANT_CATALOG = [
-  [
-    'container_stack',
-    '貨櫃堆',
-    '集散場「貨櫃迷宮」等；2–4 層、長 12–24 m，可破壞',
-    () => buildContainerStack(14, 3, YARD_COLS),
-  ],
-  [
-    'warehouse',
-    '倉庫',
-    '集散場「倉庫區」；寬 18–26、深 14–18、高 9–12 m，大門下 6 m 可通行',
-    () => buildWarehouse(22, 16, 10, 0x7a8894),
-  ],
+  // 貨櫃堆與倉庫：模型庫列共用的 prop/container_stack、prop/warehouse（world/cover-models.js；第 5 期改用）
   ['boxcar', '有蓋貨車', '集散場「貨運調度場」；長 12 m，可破壞', () => buildBoxcar(12, 0x8a3a2a)],
   ['rail_track', '側線軌道', '集散場「貨運調度場」的裝飾；長 12 m', () => buildTrack(12)],
   [

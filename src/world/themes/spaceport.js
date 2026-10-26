@@ -556,7 +556,7 @@ function buildProps(w) {
     w.addSmall(buildAntennaMast(h), x, y - 0.2, z, { r: 0.6, h }, 'mast', 900, 0xc8ccd0);
   });
   // 跑道燈（裝飾）
-  w.addDecor(Math.round(24 * w.k * w.k), () => box(0.5, 0.25, 0.5, mat(0xffe0a0, { emissive: 0x805a20 })));
+  w.addDecor(Math.round(24 * w.kk), () => box(0.5, 0.25, 0.5, mat(0xffe0a0, { emissive: 0x805a20 })));
 }
 
 export const SPACEPORT = {

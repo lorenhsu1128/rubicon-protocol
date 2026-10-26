@@ -256,7 +256,8 @@ export function shadowFrame(renderer) {
 }
 
 export class StylePipeline {
-  // ctx：{ scene, camera, sun, hemi, sunOff（Vector3，太陽相對位置，鏡頭程式每格用它擺太陽）}
+  // ctx：{ scene, camera, sun, hemi, sunOff（Vector3，太陽相對位置，鏡頭程式每格用它擺太陽），
+  //   wscale（場景的尺度：數字或函式；遊戲＝DS，風格參數裡的公尺數乘上它）}
   constructor(renderer, ctx) {
     this.R = renderer;
     this.ctx = ctx;
@@ -409,8 +410,13 @@ export class StylePipeline {
     this.base = null;
   }
   // 套用不需要重新編譯的場景參數（每格、比較時每半邊各一次）
+  // 場景的尺度（風格參數的公尺數：高度霧、描線淡出、SSAO 半徑、太陽距離）
+  wscale() {
+    const w = this.ctx.wscale;
+    return typeof w === 'function' ? w() : w || 1;
+  }
   applyScene(P, time) {
-    setStyleUniforms(P);
+    setStyleUniforms(P, this.wscale());
     const R = this.R,
       s = this.scene,
       c = this.ctx;
@@ -437,7 +443,7 @@ export class StylePipeline {
     if (c.sunOff) {
       const az = (P.sunAz * Math.PI) / 180,
         el = (P.sunEl * Math.PI) / 180,
-        r = 94.3;
+        r = 94.3 * this.wscale();
       c.sunOff.set(Math.cos(el) * Math.cos(az) * r, Math.sin(el) * r, Math.cos(el) * Math.sin(az) * r);
     }
     OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0 && !this.hullOff; // hullOff：RTS 鏡頭拉遠時（game/render-setup.js）
@@ -500,7 +506,7 @@ export class StylePipeline {
     if (ao) {
       const S = this.ssao,
         b = this.ssaoBase;
-      S.kernelRadius = b.kernelRadius;
+      S.kernelRadius = b.kernelRadius * this.wscale();
       S.minDistance = b.minDistance;
       S.maxDistance = b.maxDistance;
       const fromDepth = low && low.ssao === 'depth' && this.rtScene.depthTexture;
@@ -536,7 +542,8 @@ export class StylePipeline {
     u.inkA.value.set(depth ? P.ink : 0, P.inkOuter * pr, P.inkInner * pr, P.crease);
     const ic = lin(P.inkColor);
     u.inkB.value.set(ic.r, ic.g, ic.b, P.inkObj);
-    u.inkC.value.set(P.inkNear, Math.max(P.inkFar, P.inkNear + 1), P.inkEnv, 0);
+    const wk = this.wscale();
+    u.inkC.value.set(P.inkNear * wk, Math.max(P.inkFar, P.inkNear + 1) * wk, P.inkEnv, 0);
     const vp = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     const mb = depth && P.mblur && P.mblurK > 0 && this.hasPrev && !(low && !low.mblur);
     u.mbA.value.set(mb ? P.mblurK * 1.2 : 0, P.mblurMech, 0, 0);

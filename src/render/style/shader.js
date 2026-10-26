@@ -56,7 +56,8 @@ export const SU = {
 };
 
 const lin = (hex) => new THREE.Color(hex).convertSRGBToLinear();
-export function setStyleUniforms(P) {
+// k：場景的尺度（遊戲＝core/scale.js 的 DS，機甲庫與模型庫 1）：高度霧與水彩筆觸的公尺數乘上它
+export function setStyleUniforms(P, k = 1) {
   const sh = lin(P.shade).multiplyScalar(P.shadeK);
   const rc = lin(P.rimColor);
   SU.stA.value.set(P.toon ? 1 : 0, P.steps, P.thresh, P.soft);
@@ -66,8 +67,8 @@ export function setStyleUniforms(P) {
   SU.stE.value.set(P.mechDetail, P.envDetail, P.normalK, P.envRefl);
   SU.stM.value.set(P.metal ? 1 : 0, P.metalness, P.roughness, P.metalTint);
   SU.stN.value.set(P.metalRefl, P.toon ? P.metalAnime : 0, P.litK, P.shadowK);
-  SU.stF.value.set(P.hfog, P.hfogH, P.hfogFall, P.water);
-  SU.stW.value.set(P.waterScale, 0, 0, 0);
+  SU.stF.value.set(P.hfog, P.hfogH * k, P.hfogFall * k, P.water);
+  SU.stW.value.set(P.waterScale / k, 0, 0, 0);
 }
 
 const PARS = /* glsl */ `

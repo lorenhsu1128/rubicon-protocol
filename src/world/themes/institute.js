@@ -313,7 +313,7 @@ function buildProps(w) {
     const [a, h, b] = PIPE_RUN;
     w.addSmall(g, x, y - 0.1, z, { w: rot ? b : a, h, d: rot ? a : b }, 'piperun', 1800, 0x6a5a5a);
   });
-  w.addDecor(Math.round(30 * w.k * w.k), () => buildCoralVein(rnd(4, 8)), 0);
+  w.addDecor(Math.round(30 * w.kk), () => buildCoralVein(rnd(4, 8)), 0);
 }
 
 export const INSTITUTE = {

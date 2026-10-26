@@ -2,6 +2,8 @@
 //  WORLD — 隨機關卡生成
 // ============================================================
 import { RNG, clamp, lerp, makeNoise, makeRng, pick, rnd, rndi, withRng } from '../core/math.js';
+import { DS, MS, WS } from '../core/scale.js';
+import { mergeStatic } from '../render/mesh-merge.js';
 import {
   LANE_MARK,
   RAIL_STRIPS,
@@ -101,10 +103,26 @@ function fadeMatsOf(g) {
   return out;
 }
 // 場地：邊長預設 MAP_SIZE（主題可用 size 另訂）；k＝size／150（原本的場地 150 m），
-// 場地內的位置範圍都乘上 k、物件數量乘上 k²（cnt）
+// 場地內的位置範圍都乘上 k、物件數量乘上 (k／G)²（cnt）。機甲三倍高改版（core/scale.js）：場地與地形放大 G 倍，
+// 地形的尺寸寫成「舊數字 * G」；物件照現實尺寸（docs/world-scale.md）
+const G = WS;
 const ARENA = 150,
-  MAP_SIZE = 230,
-  CELL = 2.5;
+  MAP_SIZE = 230 * G,
+  CELL = 5; // 地形格子：舊尺度 2.5 m（機甲 3.2 m）；地形照舊的形狀放大，5 m 相對機甲反而更細
+// 冰原的冰湖：冰面高度
+const ICE_Y = -0.7 * G;
+// 機體站得上去的高低差（方塊的頂面在腳底這麼高以內就踩上去，否則擋住）
+const STEP_H = 0.6 * MS;
+// 主題的高度（水面、岩頂、虛空）跟著地形放大，霧跟著視距放大（Coral 戰爭的地圖另外處理，不經過這裡）
+function scaleTheme(T) {
+  const o = { ...T };
+  if (T.water) o.water = { ...T.water, level: T.water.level * G };
+  if (T.roof) o.roof = { ...T.roof, y: T.roof.y * G, bump: (T.roof.bump || 8) * G };
+  if (T.void) o.void = { ...T.void, y: T.void.y * G, fall: T.void.fall * G, ref: T.void.ref * G };
+  o.fogNear = (T.fogNear || 60) * DS;
+  o.fogFar = (T.fogFar || 190) * DS;
+  return o;
+}
 export const THEMES = {
   snow: {
     name: '極地封鎖區',
@@ -270,6 +288,7 @@ export class World {
     this.variantKey = this.variant ? opt.variant : '';
     this.theme =
       this.variant && this.variant.theme ? { ...THEMES[theme], ...this.variant.theme } : THEMES[theme];
+    if (!opt.rts) this.theme = scaleTheme(this.theme);
     if (LV && LV.water !== null && LV.water !== undefined) {
       const W0 = this.theme.water || { color: 0x37586a, opacity: 0.85, rough: 0.12 };
       this.theme = { ...this.theme, water: { ...W0, level: LV.water } };
@@ -297,6 +316,11 @@ export class World {
     this.obstacles = [];
     this.occluders = [];
     this.meshes = [];
+    // 純裝飾的小物件（碎石、廢鐵…）：建好地圖後依材質合併成少數網格（自訂關卡不合併：編輯器要能逐一移除）
+    this.decorG = new THREE.Group();
+    this.decorG.userData.noFade = true;
+    scene.add(this.decorG);
+    this.meshes.push(this.decorG);
     this.h = new Float32Array((this.cells + 1) * (this.cells + 1));
     withRng(seed * 31 + 11, () => {
       if (opt.rts) return this.buildRts(); // RTS 的地圖：只有 plan 給的地形與障礙物（一般地圖不經過這裡）
@@ -360,6 +384,7 @@ export class World {
       if (opt.landmark) this.addLandmark(opt.landmark);
       if (opt.entry) this.addEntry(opt.entry);
       if (LV) this.levelGenItems(ob0, me0);
+      else mergeStatic(this.decorG, new Set(), true);
     });
     // 邊界外的遠景地形與剪影物件（edges.js，獨立的亂數串，不影響上面的生成）
     withRng(seed * 97 + 41, () => {
@@ -472,7 +497,7 @@ export class World {
       n = this.noise,
       n2 = this.noise2;
     // 新主題的地形輪廓（canyon／dunes）取代原本的起伏＋台地＋土丘；自訂關卡的空白底圖是平地（有水面時高出水面）
-    const blankH = T.water ? Math.max(0, T.water.level + 1.2) : 0;
+    const blankH = T.water ? Math.max(0, T.water.level + 1.2 * G) : 0;
     const prof =
       this.lvl && this.lvl.blank
         ? () => blankH
@@ -491,23 +516,27 @@ export class World {
         plateaus.push({
           x: rnd(-45 * this.k, 45 * this.k),
           z: rnd(-45 * this.k, 45 * this.k),
-          w: rnd(14, 30),
-          d: rnd(14, 30),
-          h: rnd(3, 7),
-          r: rnd(4, 8),
+          w: rnd(14, 30) * G,
+          d: rnd(14, 30) * G,
+          h: rnd(3, 7) * G,
+          r: rnd(4, 8) * G,
         });
       for (let k = 0, nc = T.flat ? 0 : this.cnt(2, 4); k < nc; k++)
         cliffPts.push({
           x: rnd(-55 * this.k, 55 * this.k),
           z: rnd(-55 * this.k, 55 * this.k),
-          r: rnd(9, 16),
-          h: rnd(6, 10),
+          r: rnd(9, 16) * G,
+          h: rnd(6, 10) * G,
         });
     }
     const lake = T.iceLake && !(this.lvl && this.lvl.blank) ? this.planIceLake() : null;
     // 基本輪廓（地圖外的遠景地形也用它往外延伸，farHeight）
     this.baseH = (x, z) =>
-      prof ? prof(x, z) : T.flat ? 0 : n(x * 0.03, z * 0.03) * 1.2 + n2(x * 0.1, z * 0.1) * 0.3;
+      prof
+        ? prof(x, z)
+        : T.flat
+          ? 0
+          : (n((x / G) * 0.03, (z / G) * 0.03) * 1.2 + n2((x / G) * 0.1, (z / G) * 0.1) * 0.3) * G;
     this.edges = planEdges(this);
     const vt = this.variant && this.variant.terrain ? this.variant.terrain(this) : null;
     for (let j = 0; j <= this.cells; j++)
@@ -561,7 +590,7 @@ export class World {
       this.meshes.push(ice);
     }
     if (T.grid) {
-      const gh = new THREE.GridHelper(this.size * 3, (this.size * 3) / 2.5, 0x6b7280, 0x8b93a0);
+      const gh = new THREE.GridHelper(this.size * 3, (this.size * 3) / (2.5 * G), 0x6b7280, 0x8b93a0);
       gh.position.y = 0.04;
       gh.material.transparent = true;
       gh.material.opacity = 0.35;
@@ -594,7 +623,7 @@ export class World {
       const y = (pp.getY(f) + pp.getY(f + 1) + pp.getY(f + 2)) / 3;
       const steep = clamp((0.93 - ny) * 6, 0, 1);
       tmp.copy(cg).lerp(cs, steep);
-      if (y > 9) tmp.lerp(cr, clamp((y - 9) / 6, 0, 0.7));
+      if (y > 9 * G) tmp.lerp(cr, clamp((y - 9 * G) / (6 * G), 0, 0.7));
       if (this.rtsTint)
         this.rtsTint(
           tmp,
@@ -639,15 +668,15 @@ export class World {
       for (let t = 0; t < 12; t++) {
         const x = rnd(-50 * this.k, 50 * this.k),
           z = rnd(-50 * this.k, 50 * this.k);
-        if (Math.hypot(x, z) < (big ? 26 : 18)) continue;
-        if (mesas.some((m) => Math.hypot(m.x - x, m.z - z) < (big ? 26 : 14))) continue;
+        if (Math.hypot(x, z) < (big ? 26 : 18) * G) continue;
+        if (mesas.some((m) => Math.hypot(m.x - x, m.z - z) < (big ? 26 : 14) * G)) continue;
         const m = {
           x,
           z,
-          w: big ? rnd(14, 24) : rnd(4, 7),
-          d: big ? rnd(12, 22) : rnd(4, 7),
-          h: big ? rnd(9, 14) : rnd(7, 11),
-          r: big ? rnd(2.8, 4.5) : rnd(1.8, 2.8),
+          w: (big ? rnd(14, 24) : rnd(4, 7)) * G,
+          d: (big ? rnd(12, 22) : rnd(4, 7)) * G,
+          h: (big ? rnd(9, 14) : rnd(7, 11)) * G,
+          r: (big ? rnd(2.8, 4.5) : rnd(1.8, 2.8)) * G,
         };
         const a = rnd(0, Math.PI);
         m.c = Math.cos(a);
@@ -658,16 +687,18 @@ export class World {
     };
     for (let k = this.cnt(3, 5); k > 0; k--) add(true);
     for (let k = this.cnt(3, 5); k > 0; k--) add(false);
-    return (x, z) => {
-      let h = n(x * 0.022, z * 0.022) * 1.8 + n2(x * 0.09, z * 0.09) * 0.45;
+    return (x0, z0) => {
+      const x = x0 / G,
+        z = z0 / G; // 雜訊照舊尺度取樣
+      let h = (n(x * 0.022, z * 0.022) * 1.8 + n2(x * 0.09, z * 0.09) * 0.45) * G;
       for (const m of mesas) {
-        const dx0 = x - m.x,
-          dz0 = z - m.z;
+        const dx0 = x0 - m.x,
+          dz0 = z0 - m.z;
         const lx = dx0 * m.c - dz0 * m.s,
           lz = dx0 * m.s + dz0 * m.c;
         const dx = Math.max(Math.abs(lx) - m.w / 2, 0),
           dz = Math.max(Math.abs(lz) - m.d / 2, 0);
-        const d = Math.hypot(dx, dz) + (n2(x * 0.17 + 3, z * 0.17) - 0.5) * 3;
+        const d = Math.hypot(dx, dz) + (n2(x * 0.17 + 3, z * 0.17) - 0.5) * 3 * G;
         const t = clamp(1 - d / m.r, 0, 1);
         // 台地中段一道階梯：t 介於 0.45～0.6 時停在 55% 的高度
         const k = t < 0.45 ? (t / 0.45) * 0.55 : t < 0.6 ? 0.55 : 0.55 + ((t - 0.6) / 0.4) * 0.45;
@@ -686,34 +717,36 @@ export class World {
       d2 = [Math.cos(a2), Math.sin(a2)];
     const lam1 = rnd(24, 32),
       lam2 = rnd(10, 14),
-      amp1 = rnd(5, 7),
-      amp2 = rnd(0.6, 1.1),
+      amp1 = rnd(5, 7) * G,
+      amp2 = rnd(0.6, 1.1) * G,
       ph = rnd(0, 1);
     const dune = (p) => {
       const f = p - Math.floor(p);
       const s = f < 0.72 ? f / 0.72 : (1 - f) / 0.28;
       return s * s * (3 - 2 * s);
     };
-    return (x, z) => {
+    return (x0, z0) => {
+      const x = x0 / G,
+        z = z0 / G; // 波長與雜訊照舊尺度取樣
       const warp = n(x * 0.018, z * 0.018) * 1.1;
       const am = amp1 * (0.35 + 0.65 * n2(x * 0.012 + 7, z * 0.012 - 3));
       let h = dune((x * d1[0] + z * d1[1]) / lam1 + warp + ph) * am;
       h += dune((x * d2[0] + z * d2[1]) / lam2 + warp * 0.6) * amp2;
-      return h + n(x * 0.01 + 5, z * 0.01) * 2.5 + n2(x * 0.07, z * 0.07) * 0.25 - 1.5;
+      return h + (n(x * 0.01 + 5, z * 0.01) * 2.5 + n2(x * 0.07, z * 0.07) * 0.25 - 1.5) * G;
     };
   }
   // 冰湖（冰原）：以獨立的亂數串決定，不動原本的亂數順序；湖面壓平到 level，邊緣以雜訊打亂成自然湖岸
   planIceLake() {
     const rng = makeRng(this.seed * 53 + 19);
     const ang = rng() * Math.PI * 2,
-      dist = 30 + rng() * 14;
+      dist = (30 + rng() * 14) * G;
     const L = {
       x: Math.cos(ang) * dist,
       z: Math.sin(ang) * dist,
-      rx: 12 + rng() * 6,
-      rz: 9 + rng() * 5,
+      rx: (12 + rng() * 6) * G,
+      rz: (9 + rng() * 5) * G,
       rot: rng() * Math.PI,
-      level: -0.7,
+      level: ICE_Y,
       rng,
     };
     const c = Math.cos(L.rot),
@@ -724,7 +757,7 @@ export class World {
         dz = z - L.z;
       const lx = dx * c - dz * s,
         lz = dx * s + dz * c;
-      const d = Math.hypot(lx / L.rx, lz / L.rz) + (n2(x * 0.08, z * 0.08) - 0.5) * 0.24;
+      const d = Math.hypot(lx / L.rx, lz / L.rz) + (n2((x / G) * 0.08, (z / G) * 0.08) - 0.5) * 0.24;
       const t = clamp((1.15 - d) / 0.35, 0, 1);
       return lerp(h, L.level, t * t * (3 - 2 * t));
     };
@@ -775,9 +808,9 @@ export class World {
   }
   slopeOK(x, z) {
     const s =
-      Math.abs(this.terrainHeight(x + 2, z) - this.terrainHeight(x - 2, z)) +
-      Math.abs(this.terrainHeight(x, z + 2) - this.terrainHeight(x, z - 2));
-    return s < 1.6;
+      Math.abs(this.terrainHeight(x + 2 * G, z) - this.terrainHeight(x - 2 * G, z)) +
+      Math.abs(this.terrainHeight(x, z + 2 * G) - this.terrainHeight(x, z - 2 * G));
+    return s < 1.6 * G;
   }
   buildProps() {
     const T = this.theme;
@@ -837,7 +870,7 @@ export class World {
         tries++;
       } while (
         tries < 20 &&
-        (Math.hypot(x, z) < 10 ||
+        (Math.hypot(x, z) < 10 * MS ||
           this.onCorridor(x, z, 4) ||
           !this.slopeOK(x, z) ||
           this.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < 7))
@@ -963,7 +996,7 @@ export class World {
     }
     // scattered debris (visual only)
     const dm = mat(0x55595e);
-    for (let k = 0, n = Math.round(40 * this.k * this.k); k < n; k++) {
+    for (let k = 0, n = Math.round(40 * this.kk); k < n; k++) {
       const x = rnd(-60 * this.k, 60 * this.k),
         z = rnd(-60 * this.k, 60 * this.k);
       const m = buildDebris(rnd(0.3, 1.2), rnd(0.2, 0.5), rnd(0.3, 1.2), dm);
@@ -1019,11 +1052,16 @@ export class World {
   }
   // 最靠近中心、不是虛空也不在保留區的平地（出生點找不到時、墜落沒有紀錄時用）
   safePoint() {
-    for (let r = 0; r < 60 * this.k; r += 3)
+    for (let r = 0; r < 60 * this.k; r += 3 * G)
       for (let a = 0; a < 12; a++) {
         const x = Math.cos(a * 0.5236) * r,
           z = Math.sin(a * 0.5236) * r;
-        if (!this.isVoid(x, z) && !this.isReserved(x, z, 2) && this.slopeOK(x, z) && !this.offLimits(x, z))
+        if (
+          !this.isVoid(x, z) &&
+          !this.isReserved(x, z, 2 * G) &&
+          this.slopeOK(x, z) &&
+          !this.offLimits(x, z)
+        )
           return new THREE.Vector3(x, this.terrainHeight(x, z), z);
       }
     return new THREE.Vector3(0, this.terrainHeight(0, 0), 0);
@@ -1031,11 +1069,11 @@ export class World {
   // 從 (x, z) 往外找最近不是虛空的位置（不是虛空地圖時原樣回傳）
   nearSolid(x, z) {
     if (!this.isVoid(x, z)) return [x, z];
-    for (let r = 3; r < 80 * this.k; r += 3)
+    for (let r = 3 * G; r < 80 * this.k; r += 3 * G)
       for (let a = 0; a < 16; a++) {
         const px = x + Math.cos(a * 0.3927) * r,
           pz = z + Math.sin(a * 0.3927) * r;
-        if (Math.abs(px) < this.lim - 2 && Math.abs(pz) < this.lim - 2 && !this.isVoid(px, pz))
+        if (Math.abs(px) < this.lim - 2 * G && Math.abs(pz) < this.lim - 2 * G && !this.isVoid(px, pz))
           return [px, pz];
       }
     const p = this.safePoint();
@@ -1074,7 +1112,7 @@ export class World {
   }
   // 冰原的冰面（冰湖：地形在冰面高度 −0.7 附近）
   onIce(x, z) {
-    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) + 0.7) < 0.25;
+    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) - ICE_Y) < 0.25 * G;
   }
   // 水深（主題的水面以下多深；沒有水面時 0）
   waterDepth(x, z) {
@@ -1087,7 +1125,7 @@ export class World {
     geo.rotateX(Math.PI / 2);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++)
-      pos.setY(i, -this.noise(pos.getX(i) * 0.02 + 9, pos.getZ(i) * 0.02) * (R.bump || 8));
+      pos.setY(i, -this.noise((pos.getX(i) / G) * 0.02 + 9, (pos.getZ(i) / G) * 0.02) * (R.bump || 8 * G));
     geo.computeVertexNormals();
     const m = new THREE.Mesh(
       geo,
@@ -1102,7 +1140,7 @@ export class World {
   applyLight(g) {
     const T = this.theme;
     g.scene.background = new THREE.Color(T.sky);
-    g.scene.fog = new THREE.Fog(T.fog, T.fogNear || 60, T.fogFar || 190);
+    g.scene.fog = new THREE.Fog(T.fog, T.fogNear || 60 * DS, T.fogFar || 190 * DS);
     g.sun.color.set(T.sun);
     g.sun.intensity = T.sunI !== undefined ? T.sunI : 1;
     g.hemi.color.set(T.sky);
@@ -1120,7 +1158,7 @@ export class World {
         fog = new THREE.Color(T.fog);
       let si = g.sun.intensity,
         hi = g.hemi.intensity,
-        ff = T.fogFar || 190;
+        ff = T.fogFar || 190 * DS;
       if (TOD) {
         sky.lerp(new THREE.Color(TOD.sky), TOD.k);
         fog.lerp(new THREE.Color(TOD.sky), TOD.k * 0.85);
@@ -1137,7 +1175,7 @@ export class World {
         ff *= 1 - dk * 0.5;
       }
       g.scene.background = sky;
-      g.scene.fog = new THREE.Fog(fog, Math.min(T.fogNear || 60, ff * 0.4), ff);
+      g.scene.fog = new THREE.Fog(fog, Math.min(T.fogNear || 60 * DS, ff * 0.4), ff);
       g.sun.intensity = si;
       g.hemi.color.copy(sky);
       g.hemi.intensity = hi;
@@ -1189,10 +1227,10 @@ export class World {
     if (shape && typeof shape === 'object') {
       // 自訂關卡畫的矩形（限制在場地內）
       z = [
-        clamp(shape.x0, -L, L - 20),
-        clamp(shape.x1, -L + 20, L),
-        clamp(shape.z0, -L, L - 20),
-        clamp(shape.z1, -L + 20, L),
+        clamp(shape.x0, -L, L - 20 * G),
+        clamp(shape.x1, -L + 20 * G, L),
+        clamp(shape.z0, -L, L - 20 * G),
+        clamp(shape.z1, -L + 20 * G, L),
       ];
       shape = 'rect';
     } else if (shape === 'long') {
@@ -1213,7 +1251,7 @@ export class World {
     const L = this.lim;
     this.zoneGoal = [-L, L, -L, L];
   }
-  // 分段開放：作戰區域慢慢擴大（每秒 30 m）
+  // 分段開放：作戰區域慢慢擴大（每秒 90 m）
   tickZone(dt) {
     if (!this.zoneGoal) return;
     let done = true;
@@ -1221,7 +1259,7 @@ export class World {
       const d = this.zoneGoal[i] - this.zone[i];
       if (Math.abs(d) > 0.01) {
         done = false;
-        this.zone[i] += Math.sign(d) * Math.min(Math.abs(d), 30 * dt);
+        this.zone[i] += Math.sign(d) * Math.min(Math.abs(d), 30 * DS * dt);
       }
     }
     if (done) this.zoneGoal = null;
@@ -1345,9 +1383,14 @@ export class World {
   }
 
   // ---------- 新主題的物件 ----------
-  // 數量依場地面積放大（k²）
+  // 數量依場地面積放大（舊尺度的 k²：三倍高改版的場地放大不增加數量，物件的密度由各主題另外決定）
   cnt(a, b) {
-    return Math.round(rndi(a, b) * this.k * this.k);
+    return Math.round(rndi(a, b) * this.kk);
+  }
+  // 數量的面積倍率（舊尺度的 k²）
+  get kk() {
+    const k = this.k / G;
+    return k * k;
   }
   // 散布：找 n 個位置（避開出生點、公路／鐵路、其他障礙物間距 gap；slope 時避開斜坡），各呼叫 place(x, z, y)
   scatter(n, gap, place, slope = true) {
@@ -1361,7 +1404,7 @@ export class World {
         tries++;
       } while (
         tries < 20 &&
-        (Math.hypot(x, z) < 10 ||
+        (Math.hypot(x, z) < 10 * MS ||
           this.onCorridor(x, z, 4) ||
           this.offLimits(x, z) ||
           this.isVoid(x, z) ||
@@ -1424,9 +1467,15 @@ export class World {
       if (this.isVoid(x, z)) continue;
       m.position.set(x, this.terrainHeight(x, z) - sink, z);
       m.rotation.y = rnd(0, 6.28);
+      this.addDecorMesh(m);
+    }
+  }
+  // 純裝飾加進場景：一般地圖放進裝飾群組（之後合併），自訂關卡照舊各自一個（編輯器可以移除）
+  addDecorMesh(m) {
+    if (this.lvl) {
       this.scene.add(m);
       this.meshes.push(m);
-    }
+    } else this.decorG.add(m);
   }
   // 純裝飾的廢鐵（不碰撞）
   addScrap(n, color) {
@@ -1436,8 +1485,7 @@ export class World {
       const m = buildScrap(rnd(0.8, 2), rnd(0.4, 1), rnd(0.6, 1.6), color);
       m.position.set(x, this.terrainHeight(x, z), z);
       m.rotation.y = rnd(0, 6.28);
-      this.scene.add(m);
-      this.meshes.push(m);
+      this.addDecorMesh(m);
     }
   }
   buildThemeProps(kind) {
@@ -1474,7 +1522,7 @@ export class World {
         g.rotation.y = rnd(0, 6.28);
         this.addSmall(g, x, y - 0.3, z, { r: 0.6, h }, 'floodlight', 1000, 0x4a4540);
       });
-      this.addScrap(Math.round(40 * this.k * this.k), 0x5a4a3e);
+      this.addScrap(Math.round(40 * this.kk), 0x5a4a3e);
     } else if (kind === 'dunes') {
       this.buildWrecks();
       this.scatter(this.cnt(5, 8), 8, (x, z, y) => {
@@ -1517,7 +1565,7 @@ export class World {
         },
         false,
       );
-      this.addScrap(Math.round(30 * this.k * this.k), 0x8a7458);
+      this.addScrap(Math.round(30 * this.kk), 0x8a7458);
     } else if (kind === 'snow') {
       this.buildIceField();
       this.scatter(this.cnt(6, 9), 9, (x, z, y) => {
@@ -1558,7 +1606,7 @@ export class World {
         const h = rnd(7, 9.5);
         this.addSmall(buildBeacon(h), x, y - 0.2, z, { r: 0.6, h }, 'beacon', 1000, 0xc8322a);
       });
-      for (let k = 0, n = Math.round(30 * this.k * this.k); k < n; k++) {
+      for (let k = 0, n = Math.round(30 * this.kk); k < n; k++) {
         const x = rnd(-60 * this.k, 60 * this.k),
           z = rnd(-60 * this.k, 60 * this.k);
         const m = buildIceShard(rnd(0.6, 1.6), rnd(0.2, 0.5), rnd(0.5, 1.3));
@@ -1603,7 +1651,7 @@ export class World {
       if (Math.max(Math.abs(a[0]), Math.abs(a[1]), Math.abs(a[2]), Math.abs(a[3])) > 56 * this.k) continue;
       const nx = clamp(0, a[0], a[1]),
         nz = clamp(0, a[2], a[3]);
-      if (Math.hypot(nx, nz) < 16) continue;
+      if (Math.hypot(nx, nz) < 16 * MS) continue;
       let ok = true,
         lo = 1e9,
         hi = -1e9,
@@ -1830,6 +1878,7 @@ export class World {
       const a = pick([Math.PI / 4, -Math.PI / 4, 0, Math.PI / 2]);
       const d = new THREE.Vector2(Math.cos(a), Math.sin(a));
       const bend = RNG() < 0.5 ? [rnd(8, 14) * this.k * (RNG() < 0.5 ? 1 : -1), RNG() < 0.5 ? 1 : 0] : null;
+      // 公路與鐵路照現實的寬度（不跟著地形放大）
       this.corridor = {
         kind,
         dir: d,
@@ -1852,10 +1901,10 @@ export class World {
           dir,
           perp,
           off,
-          width: rnd(13, 18),
-          depth: rnd(4.5, 6.5),
-          bridges: [rnd(-38 * this.k, -8), rnd(8, 38 * this.k)],
-          deckW: 9,
+          width: rnd(13, 18) * G,
+          depth: rnd(4.5, 6.5) * G,
+          bridges: [rnd(-38 * this.k, -8 * G), rnd(8 * G, 38 * this.k)],
+          deckW: 9 * G,
         });
         this.featureNames.push('河道與橋梁');
       } else if (k === 'overpass') {
@@ -1865,10 +1914,10 @@ export class World {
           perp,
           off,
           center: rnd(-15 * this.k, 15 * this.k),
-          span: rnd(34, 46),
-          rampL: 18,
-          deckH: 7.5,
-          deckW: 10,
+          span: rnd(34, 46) * G,
+          rampL: 18 * G,
+          deckH: 7.5 * G,
+          deckW: 10 * G,
         });
         this.featureNames.push('高架橋');
       } else if (k === 'bunkers') {
@@ -1880,8 +1929,8 @@ export class World {
           dir,
           perp,
           off: rnd(-30 * this.k, 30 * this.k),
-          width: rnd(6, 9),
-          depth: rnd(2.5, 3.5),
+          width: rnd(6, 9) * G,
+          depth: rnd(2.5, 3.5) * G,
           len: rnd(50 * this.k, 90 * this.k),
         });
         this.featureNames.push('壕溝');
@@ -1906,12 +1955,12 @@ export class World {
     for (const f of this.features) {
       if (f.k === 'river_bridge') {
         const u = x * f.perp.x + z * f.perp.y - f.off;
-        const t = clamp(1 - (Math.abs(u) - f.width / 2 + 2) / 3, 0, 1);
+        const t = clamp(1 - (Math.abs(u) - f.width / 2 + 2 * G) / (3 * G), 0, 1);
         h -= f.depth * t * t * (3 - 2 * t);
       } else if (f.k === 'overpass') {
         const u = x * f.perp.x + z * f.perp.y - f.off,
           v = x * f.dir.x + z * f.dir.y - f.center;
-        const lat = clamp(1 - (Math.abs(u) - f.deckW / 2) / 2.5, 0, 1);
+        const lat = clamp(1 - (Math.abs(u) - f.deckW / 2) / (2.5 * G), 0, 1);
         const half = f.span / 2;
         if (lat > 0 && Math.abs(v) > half && Math.abs(v) < half + f.rampL) {
           const t = 1 - (Math.abs(v) - half) / f.rampL;
@@ -1921,7 +1970,7 @@ export class World {
         const u = x * f.perp.x + z * f.perp.y - f.off,
           v = x * f.dir.x + z * f.dir.y;
         if (Math.abs(v) < f.len / 2) {
-          const t = clamp(1 - (Math.abs(u) - f.width / 2 + 1.5) / 2, 0, 1);
+          const t = clamp(1 - (Math.abs(u) - f.width / 2 + 1.5 * G) / (2 * G), 0, 1);
           h -= f.depth * t;
         }
       }
@@ -1929,7 +1978,7 @@ export class World {
     if (this.corridor) {
       const c = this.corridor;
       const u = this.corridorU(x, z);
-      const inside = clamp(1 - (Math.abs(u) - c.width / 2) / 3.5, 0, 1);
+      const inside = clamp(1 - (Math.abs(u) - c.width / 2) / (3.5 * G), 0, 1); // 路肩的整地（地形的起伏放大了，過渡帶跟著加寬）
       const edge = Math.max(Math.abs(x), Math.abs(z));
       if (inside > 0 && edge < (this.size / 2) * 0.88) {
         const t = inside * inside * (3 - 2 * inside);
@@ -2061,16 +2110,26 @@ export class World {
       this.scene.add(m);
       this.meshes.push(m);
     }
-    const P = road ? LANE_MARK : RAIL_TIE; // 公路中線標線／鐵路枕木
-    for (let s = -half; s < half; s += P.step) {
+    // 公路中線標線／鐵路枕木：一個 InstancedMesh（地圖放大後數量很多）
+    const P = road ? LANE_MARK : RAIL_TIE;
+    const piece = corridorPiece(P);
+    const n = Math.ceil((2 * half) / P.step);
+    const im = new THREE.InstancedMesh(piece.geometry, piece.material, n);
+    const o3 = new THREE.Object3D();
+    let i = 0;
+    for (let s = -half; s < half && i < n; s += P.step, i++) {
       const p = this.corridorPoint(s),
         t = this.corridorDir(s);
-      const m = corridorPiece(P);
-      m.position.set(p.x, p.y + P.y, p.z);
-      m.rotation.y = Math.atan2(t.x, t.y);
-      this.scene.add(m);
-      this.meshes.push(m);
+      o3.position.set(p.x, p.y + P.y, p.z);
+      o3.rotation.set(0, Math.atan2(t.x, t.y), 0);
+      o3.updateMatrix();
+      im.setMatrixAt(i, o3.matrix);
     }
+    im.count = i;
+    im.receiveShadow = true;
+    im.userData.noFade = true; // 貼在地面上，不擋鏡頭
+    this.scene.add(im);
+    this.meshes.push(im);
     // 隧道口：地圖兩端各一座（拱門＋門柱＋黑洞＋山體）
     for (const sgn of [-1, 1]) {
       const s = sgn * ((this.size / 2) * 0.86);
@@ -2104,14 +2163,14 @@ export class World {
               for (const q of [-1, -0.5, 0, 0.5, 1])
                 if (
                   this.onCorridor(
-                    cx0 + f.dir.x * q * (f.deckW / 2 + 2),
-                    cz0 + f.dir.y * q * (f.deckW / 2 + 2),
-                    9,
+                    cx0 + f.dir.x * q * (f.deckW / 2 + 2 * G),
+                    cz0 + f.dir.y * q * (f.deckW / 2 + 2 * G),
+                    9 * G,
                   )
                 )
                   clear = false;
               if (clear) break;
-              bpos += (bpos < 0 ? -1 : 1) * 6;
+              bpos += (bpos < 0 ? -1 : 1) * 6 * G;
               if (Math.abs(bpos) > 52 * this.k) {
                 bpos = NaN;
                 break;
@@ -2122,19 +2181,20 @@ export class World {
           const cx = f.perp.x * f.off + f.dir.x * bpos,
             cz = f.perp.y * f.off + f.dir.y * bpos;
           const rot = Math.abs(f.perp.x) > 0.5;
-          const span = f.width + 8;
+          const span = f.width + 8 * G;
           const deckY =
             Math.max(
               this.terrainHeight(cx + f.perp.x * (span / 2), cz + f.perp.y * (span / 2)),
               this.terrainHeight(cx - f.perp.x * (span / 2), cz - f.perp.y * (span / 2)),
-            ) + 0.3;
-          this.addDeck(cx, cz, rot ? span : f.deckW, rot ? f.deckW : span, deckY, 0.7, !rot, mats);
+            ) +
+            0.3 * G;
+          this.addDeck(cx, cz, rot ? span : f.deckW, rot ? f.deckW : span, deckY, 0.7 * G, !rot, mats);
           for (const s of [-1, 1])
             for (const q of [-1, 1]) {
               const px = cx + f.perp.x * s * f.width * 0.28 + f.dir.x * q * f.deckW * 0.35,
                 pz = cz + f.perp.y * s * f.width * 0.28 + f.dir.y * q * f.deckW * 0.35;
               if (this.onCorridor(px, pz, 1)) continue;
-              this.addPillar(px, pz, 0.6, deckY - f.depth - 1.5, deckY - 0.7, mats.pillar);
+              this.addPillar(px, pz, 0.6 * G, deckY - f.depth - 1.5 * G, deckY - 0.7 * G, mats.pillar);
             }
         }
       } else if (f.k === 'overpass') {
@@ -2143,29 +2203,29 @@ export class World {
         const rot = Math.abs(f.dir.x) > 0.5;
         const deckY = f.deckH + this.terrainHeight(cx, cz) * 0;
         const base = this.terrainHeight(cx, cz);
-        const dy = Math.max(deckY, base + 5, 7.2);
-        this.addDeck(cx, cz, rot ? f.span : f.deckW, rot ? f.deckW : f.span, dy, 0.8, !rot, mats);
-        const np = Math.floor(f.span / 12);
+        const dy = Math.max(deckY, base + 5 * G, 7.2 * G);
+        this.addDeck(cx, cz, rot ? f.span : f.deckW, rot ? f.deckW : f.span, dy, 0.8 * G, !rot, mats);
+        const np = Math.floor(f.span / (12 * G));
         for (let i = 0; i <= np; i++) {
-          const v = -f.span / 2 + 4 + (i * (f.span - 8)) / np;
+          const v = -f.span / 2 + 4 * G + (i * (f.span - 8 * G)) / np;
           for (const s of [-1, 1]) {
             const px = cx + f.dir.x * v + f.perp.x * s * f.deckW * 0.32,
               pz = cz + f.dir.y * v + f.perp.y * s * f.deckW * 0.32;
             if (this.onCorridor(px, pz, 1.5)) continue;
-            this.addPillar(px, pz, 0.55, this.terrainHeight(px, pz) - 0.5, dy - 0.8, mats.pillar);
+            this.addPillar(px, pz, 0.55 * G, this.terrainHeight(px, pz) - 0.5 * G, dy - 0.8 * G, mats.pillar);
           }
         }
       } else if (f.k === 'bunkers') {
         for (let i = 0; i < f.count; i++) {
           let x = rnd(-48 * this.k, 48 * this.k),
             z = rnd(-48 * this.k, 48 * this.k);
-          const w = rnd(9, 14),
-            d = rnd(9, 14);
+          const w = rnd(9, 14) * G,
+            d = rnd(9, 14) * G;
           {
             let tr = 0;
             while (
               tr++ < 10 &&
-              (Math.hypot(x, z) < 10 ||
+              (Math.hypot(x, z) < 10 * G ||
                 this.onCorridor(x, z, Math.max(w, d) * 0.72 + 2) ||
                 this.isVoid(x, z) ||
                 this.isReserved(x, z, Math.max(w, d) * 0.72) ||
@@ -2177,31 +2237,32 @@ export class World {
             if (tr > 10) continue;
           }
           const y0 = this.terrainHeight(x, z);
-          const h = rnd(5, 6.5);
-          this.addDeck(x, z, w, d, y0 + h, 0.8, false, mats);
+          const h = rnd(5, 6.5) * G;
+          this.addDeck(x, z, w, d, y0 + h, 0.8 * G, false, mats);
           for (const sx of [-1, 1])
             for (const sz of [-1, 1])
               this.addPillar(
-                x + sx * (w / 2 - 1),
-                z + sz * (d / 2 - 1),
-                0.5,
-                y0 - 0.5,
-                y0 + h - 0.8,
+                x + sx * (w / 2 - G),
+                z + sz * (d / 2 - G),
+                0.5 * G,
+                y0 - 0.5 * G,
+                y0 + h - 0.8 * G,
                 mats.pillar,
               );
           // one side wall for cover
           const side = RNG() < 0.5;
           const wm = mats.pillar.clone();
           wm.transparent = true;
-          const ww = side ? w - 2 : 0.8,
-            wd = side ? 0.8 : d - 2;
-          const wx = x + (side ? 0 : (w / 2 - 0.4) * (RNG() < 0.5 ? 1 : -1)),
-            wz = z + (side ? (d / 2 - 0.4) * (RNG() < 0.5 ? 1 : -1) : 0);
+          const ww = side ? w - 2 * G : 0.8 * G,
+            wd = side ? 0.8 * G : d - 2 * G;
+          const wx = x + (side ? 0 : (w / 2 - 0.4 * G) * (RNG() < 0.5 ? 1 : -1)),
+            wz = z + (side ? (d / 2 - 0.4 * G) * (RNG() < 0.5 ? 1 : -1) : 0);
+          const wh = h - 0.8 * G;
           let wall;
           if (T.props) {
-            wall = buildThemeWall(T.props, ww, h - 0.8, wd);
-            wall.position.set(wx, y0 + (h - 0.8) / 2, wz);
-          } else wall = box(ww, h - 0.8, wd, wm, wx, y0 + (h - 0.8) / 2, wz);
+            wall = buildThemeWall(T.props, ww, wh, wd);
+            wall.position.set(wx, y0 + wh / 2, wz);
+          } else wall = box(ww, wh, wd, wm, wx, y0 + wh / 2, wz);
           this.scene.add(wall);
           this.meshes.push(wall);
           const bb = new THREE.Box3().setFromObject(wall);
@@ -2224,17 +2285,17 @@ export class World {
         for (let i = 0; i < f.count; i++) {
           let x = rnd(-45 * this.k, 45 * this.k),
             z = rnd(-45 * this.k, 45 * this.k);
-          const w = rnd(10, 18),
-            d = rnd(10, 18),
-            h = rnd(4, 7);
+          const w = rnd(10, 18) * G,
+            d = rnd(10, 18) * G,
+            h = rnd(4, 7) * G;
           {
             let tr = 0;
             while (
               tr++ < 10 &&
-              (Math.hypot(x, z) < 12 ||
-                this.onCorridor(x, z, Math.max(w, d) * 0.72 + 8) ||
+              (Math.hypot(x, z) < 12 * G ||
+                this.onCorridor(x, z, Math.max(w, d) * 0.72 + 8 * G) ||
                 this.isVoid(x, z) ||
-                this.isReserved(x, z, Math.max(w, d) * 0.72 + 4))
+                this.isReserved(x, z, Math.max(w, d) * 0.72 + 4 * G))
             ) {
               x = rnd(-45 * this.k, 45 * this.k);
               z = rnd(-45 * this.k, 45 * this.k);
@@ -2244,11 +2305,12 @@ export class World {
           const y0 = this.terrainHeight(x, z);
           const m2 = pm.clone();
           m2.transparent = true;
+          const sk = 0.5 * G; // 埋進地面
           let g;
           if (T.props) {
             g = buildThemePlatform(T.props, w, h, d);
-            g.position.set(x, y0 - 0.5, z);
-          } else g = box(w, h, d, m2, x, y0 + h / 2 - 0.5, z);
+            g.position.set(x, y0 - sk, z);
+          } else g = box(w, h, d, m2, x, y0 + h / 2 - sk, z);
           this.scene.add(g);
           this.meshes.push(g);
           const ob = {
@@ -2257,13 +2319,13 @@ export class World {
             z,
             w,
             d,
-            top: y0 + h - 0.5,
-            y: y0 - 0.5,
+            top: y0 + h - sk,
+            y: y0 - sk,
             group: g,
             mats: T.props ? propMats(g) || fadeMatsOf(g) : [m2],
             box: new THREE.Box3(
-              new THREE.Vector3(x - w / 2, y0 - 0.5, z - d / 2),
-              new THREE.Vector3(x + w / 2, y0 + h - 0.5, z + d / 2),
+              new THREE.Vector3(x - w / 2, y0 - sk, z - d / 2),
+              new THREE.Vector3(x + w / 2, y0 + h - sk, z + d / 2),
             ),
           };
           this.obstacles.push(ob);
@@ -2278,16 +2340,16 @@ export class World {
           const rl = h * 2.2;
           const rx = x + side[0] * (w / 2 + rl / 2),
             rz = z + side[1] * (d / 2 + rl / 2);
-          const rw = side[0] ? rl : 6,
-            rd = side[1] ? rl : 6;
-          const rg = T.props ? buildThemeRamp(T.props, rw, rd) : box(rw, 0.4, rd, pm, 0, 0, 0);
-          rg.position.set(rx, y0 + h / 2 - 0.7, rz);
-          rg.rotation.z = side[0] ? -side[0] * Math.atan2(h - 0.5, rl) : 0;
-          rg.rotation.x = side[1] ? side[1] * Math.atan2(h - 0.5, rl) : 0;
+          const rw = side[0] ? rl : 6 * G,
+            rd = side[1] ? rl : 6 * G;
+          const rg = T.props ? buildThemeRamp(T.props, rw, rd) : box(rw, 0.4 * G, rd, pm, 0, 0, 0);
+          rg.position.set(rx, y0 + h / 2 - 0.7 * G, rz);
+          rg.rotation.z = side[0] ? -side[0] * Math.atan2(h - sk, rl) : 0;
+          rg.rotation.x = side[1] ? side[1] * Math.atan2(h - sk, rl) : 0;
           this.scene.add(rg);
           this.meshes.push(rg);
           this.ramps = this.ramps || [];
-          this.ramps.push({ x: rx, z: rz, w: rw, d: rd, side, y0: y0 - 0.5, y1: y0 + h - 0.5, len: rl });
+          this.ramps.push({ x: rx, z: rz, w: rw, d: rd, side, y0: y0 - sk, y1: y0 + h - sk, len: rl });
         }
       }
     }
@@ -2301,7 +2363,7 @@ export class World {
       const along = r.side[0] ? (r.x - x) * r.side[0] : (r.z - z) * r.side[1];
       const t = clamp((along + r.len / 2) / r.len, 0, 1);
       const h = lerp(r.y0, r.y1, t);
-      if (r.lift && y !== undefined && y < h - 1.2) continue;
+      if (r.lift && y !== undefined && y < h - 1.2 * MS) continue;
       best = Math.max(best, h);
     }
     return best;
@@ -2310,7 +2372,7 @@ export class World {
     let c = 1e9;
     for (const o of this.obstacles) {
       if (o.kind !== 'box' || !o.deck) continue;
-      if (Math.abs(x - o.x) < o.w / 2 && Math.abs(z - o.z) < o.d / 2 && y < o.y - 0.2 && y + h > o.y)
+      if (Math.abs(x - o.x) < o.w / 2 && Math.abs(z - o.z) < o.d / 2 && y < o.y - 0.2 * MS && y + h > o.y)
         c = Math.min(c, o.y);
     }
     return c;
@@ -2321,9 +2383,9 @@ export class World {
     for (const o of this.obstacles) {
       if (o.kind !== 'box') continue;
       if (
-        Math.abs(x - o.x) < o.w / 2 + 0.3 &&
-        Math.abs(z - o.z) < o.d / 2 + 0.3 &&
-        y >= o.top - 0.6 &&
+        Math.abs(x - o.x) < o.w / 2 + 0.3 * MS &&
+        Math.abs(z - o.z) < o.d / 2 + 0.3 * MS &&
+        y >= o.top - STEP_H &&
         o.top > g
       )
         g = o.top;
@@ -2335,9 +2397,9 @@ export class World {
   collide(x, z, y, r, soft = false) {
     for (const o of this.obstacles) {
       if (o.kind === 'box') {
-        if (y >= o.top - 0.6) continue;
-        if (o.deck && y + 3.2 < o.y) continue;
-        if (o.deck && y < o.y - 0.2) continue;
+        if (y >= o.top - STEP_H) continue;
+        if (o.deck && y + 3.2 * MS < o.y) continue; // 從甲板底下通過（舊尺度的機甲身高 3.2 m）
+        if (o.deck && y < o.y - 0.2 * MS) continue;
         const hw = o.w / 2 + r,
           hd = o.d / 2 + r;
         const dx = x - o.x,
@@ -2349,7 +2411,7 @@ export class World {
           else z = o.z + Math.sign(dz || 1) * hd;
         }
       } else {
-        if (o.top !== undefined && y >= o.top - 0.6) continue;
+        if (o.top !== undefined && y >= o.top - STEP_H) continue;
         const dx = x - o.x,
           dz = z - o.z;
         const d = Math.hypot(dx, dz);
@@ -2411,29 +2473,30 @@ export class World {
     return false;
   }
   // near：在這一點附近找（增援波次的進入地點，找不到時範圍慢慢放大）；minD：離 minDistFrom 至少幾公尺
-  spawnPoint(minDistFrom, others, near = null, minD = 28) {
+  spawnPoint(minDistFrom, others, near = null, minD = 28 * DS) {
     const Z = this.zone,
-      R = 50 * this.k;
+      R = 50 * this.k,
+      M = 4 * MS;
     for (let t = 0; t < (near ? 60 : 40); t++) {
       let x, z;
       if (near) {
-        const r = 6 + t * 0.6;
-        x = clamp(near.x + rnd(-r, r), Z[0] + 4, Z[1] - 4);
-        z = clamp(near.z + rnd(-r, r), Z[2] + 4, Z[3] - 4);
+        const r = (6 + t * 0.6) * DS;
+        x = clamp(near.x + rnd(-r, r), Z[0] + M, Z[1] - M);
+        z = clamp(near.z + rnd(-r, r), Z[2] + M, Z[3] - M);
       } else {
-        x = rnd(Math.max(-R, Z[0] + 4), Math.min(R, Z[1] - 4));
-        z = rnd(Math.max(-R, Z[2] + 4), Math.min(R, Z[3] - 4));
+        x = rnd(Math.max(-R, Z[0] + M), Math.min(R, Z[1] - M));
+        z = rnd(Math.max(-R, Z[2] + M), Math.min(R, Z[3] - M));
       }
-      if (this.onCorridor(x, z, 2) || this.offLimits(x, z)) continue;
+      if (this.onCorridor(x, z, 2 * MS) || this.offLimits(x, z)) continue;
       if (!this.slopeOK(x, z)) continue;
-      if (this.isVoid(x, z) || this.isReserved(x, z, 3)) continue;
+      if (this.isVoid(x, z) || this.isReserved(x, z, 3 * MS)) continue;
       if (Math.hypot(x - minDistFrom.x, z - minDistFrom.z) < minD) continue;
-      if (others.some((o) => Math.hypot(o.x - x, o.z - z) < 6)) continue;
+      if (others.some((o) => Math.hypot(o.x - x, o.z - z) < 6 * MS)) continue;
       if (
         this.obstacles.some((o) =>
           o.kind === 'box'
-            ? Math.abs(x - o.x) < o.w / 2 + 1.5 && Math.abs(z - o.z) < o.d / 2 + 1.5
-            : Math.hypot(x - o.x, z - o.z) < o.r + 1.5,
+            ? Math.abs(x - o.x) < o.w / 2 + 1.5 * MS && Math.abs(z - o.z) < o.d / 2 + 1.5 * MS
+            : Math.hypot(x - o.x, z - o.z) < o.r + 1.5 * MS,
         )
       )
         continue;
@@ -2489,7 +2552,7 @@ export class World {
     const tex = new THREE.CanvasTexture(cv);
     this.bWall = [0, 1].map(() => {
       const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(46, 24),
+        new THREE.PlaneGeometry(46 * DS, 24 * DS),
         new THREE.MeshBasicMaterial({
           map: tex,
           transparent: true,
@@ -2515,7 +2578,7 @@ export class World {
       const lo = Z[k * 2],
         hi = Z[k * 2 + 1];
       const edge = v - lo < hi - v ? lo : hi;
-      const t = clamp(1 - Math.min(v - lo, hi - v) / 22, 0, 1);
+      const t = clamp(1 - Math.min(v - lo, hi - v) / (22 * DS), 0, 1);
       const op = t * t * (3 - 2 * t) * 0.85;
       m.visible = op > 0.01;
       if (!m.visible) continue;
@@ -2523,7 +2586,7 @@ export class World {
       const a = clamp(o, Z[(1 - k) * 2] - OOB_BUF, Z[(1 - k) * 2 + 1] + OOB_BUF);
       const x = k ? a : edge,
         z = k ? edge : a;
-      m.position.set(x, Math.max(this.terrainHeight(x, z), p.y - 6) + 10, z);
+      m.position.set(x, Math.max(this.terrainHeight(x, z), p.y - 6 * DS) + 10 * DS, z);
       m.rotation.y = k ? 0 : Math.PI / 2;
     }
   }
@@ -2543,7 +2606,7 @@ export class World {
       let hit = false;
       for (const R of rays) {
         const r = R.ray.intersectBox(o.box, tmp);
-        if (r && r.distanceTo(camPos) < R.dist - 1) {
+        if (r && r.distanceTo(camPos) < R.dist - MS) {
           hit = true;
           break;
         }
@@ -2574,12 +2637,12 @@ export class World {
     if (!this._fadeHit || this._fadeN % 3 === 0) {
       const hit = new Set();
       const dir = new THREE.Vector3();
-      const floor = Math.min(...pts.map((p) => p.y)) - 0.1; // 比腳底低的命中是地面上的東西（道路、貼花），不淡出
+      const floor = Math.min(...pts.map((p) => p.y)) - 0.1 * MS; // 比腳底低的命中是地面上的東西（道路、貼花），不淡出
       for (const p of pts) {
         dir.copy(p).sub(camPos);
         const dist = dir.length();
         rc.set(camPos, dir.normalize());
-        rc.far = dist - 0.8;
+        rc.far = dist - 0.8 * MS;
         for (const h of rc.intersectObjects(this._occCands, true)) {
           const o = h.object;
           if (!o.isMesh || o.isInstancedMesh || !o.visible || h.point.y < floor) continue;
@@ -2618,7 +2681,7 @@ export class World {
       const x = a.x + (b.x - a.x) * t,
         y = a.y + (b.y - a.y) * t,
         z = a.z + (b.z - a.z) * t;
-      if (this.terrainHeight(x, z) > y - 0.3) return true;
+      if (this.terrainHeight(x, z) > y - 0.3 * MS) return true;
     }
     return false;
   }

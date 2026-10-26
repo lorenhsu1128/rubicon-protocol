@@ -16,6 +16,7 @@
 //   rtsDeposit 的 { salvage: true }（維持費減半）、rtsDropoff 的展開回收拖車、rtsRepairStep 的半價、rtsOnDeath 的 rtsSalvageOnDeath。
 import { SFX } from '../audio/audio.js';
 import { clamp, makeRng } from '../core/math.js';
+import { DS } from '../core/scale.js';
 import { SpatialHash } from '../core/spatial.js';
 import {
   RTS_BUILD_ASSIST,
@@ -1880,7 +1881,7 @@ Object.assign(Game.prototype, {
     if (this.setRtsRender) this.setRtsRender(false);
     else if (this.setLowFx) this.setLowFx(null);
     this.camExtra = 0;
-    this.camera.far = 400;
+    this.camera.far = 400 * DS;
     this.camera.updateProjectionMatrix();
     document.body.classList.remove('rtsOn');
     this.rts = null;

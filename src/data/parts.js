@@ -1,6 +1,9 @@
 import { defCut } from './attrs.js';
+import { DS, MS, scaleKeys } from '../core/scale.js';
 // ============================================================
 //  DATA — 零件資料庫
+//  距離與速度的欄位（腳部的速度與跳躍、QB、火控與武器的射程、彈速、爆炸…）照機甲身高 3.24 m 時的數字寫，
+//  載入時由檔尾的 scaleParts 乘上 core/scale.js 的倍率（說明文字裡的公尺數是乘過之後的）
 // ============================================================
 export const PARTS = {
   head: [
@@ -404,7 +407,7 @@ export const PARTS = {
       weight: 70,
       en: 210,
       price: 36000,
-      desc: '30 m 內幾乎百發百中，遠距離很差',
+      desc: '90 m 內幾乎百發百中，遠距離很差',
     },
     {
       id: 'f_mid',
@@ -415,7 +418,7 @@ export const PARTS = {
       weight: 90,
       en: 240,
       price: 40000,
-      desc: '30～60 m 的預判最準',
+      desc: '90～180 m 的預判最準',
     },
     {
       id: 'f_snipe',
@@ -970,7 +973,7 @@ export const PARTS = {
       weight: 2600,
       en: 320,
       price: 24000,
-      desc: '控場：以自身為中心放出半徑 12 m 電磁波，掃到的敵人硬直 2.5 秒；冷卻 18 秒',
+      desc: '控場：以自身為中心放出半徑 36 m 電磁波，掃到的敵人硬直 2.5 秒；冷卻 18 秒',
       color: 0x80c8ff,
     },
     {
@@ -990,7 +993,7 @@ export const PARTS = {
       weight: 4200,
       en: 520,
       price: 42000,
-      desc: '控場：半徑 22 m 電磁波，掃到的敵人硬直 3.5 秒；冷卻 32 秒',
+      desc: '控場：半徑 66 m 電磁波，掃到的敵人硬直 3.5 秒；冷卻 32 秒',
       color: 0x9fd8ff,
     },
     {
@@ -1140,6 +1143,22 @@ export const FIST_DEF = {
     },
   ],
 };
+// 機甲三倍高改版（core/scale.js）：距離、速度的欄位乘上倍率；近戰的 reach 由實體的 scale 放大，這裡不乘
+const W_DS = ['range', 'ideal', 'speed'],
+  W_MS = ['splash', 'radius', 'hitR'],
+  COMBO_DS = ['dash', 'kb', 'lift'];
+function scaleWeapon(d) {
+  scaleKeys(d, W_DS, DS);
+  scaleKeys(d, W_MS, MS);
+  for (const st of d.combo || []) scaleKeys(st, COMBO_DS, DS);
+}
+(function scaleParts() {
+  for (const p of PARTS.legs) scaleKeys(p, ['speed', 'jumpH', 'airH'], DS);
+  for (const p of PARTS.booster) scaleKeys(p, ['qb'], DS);
+  for (const p of PARTS.fcs) scaleKeys(p, ['range'], DS);
+  for (const p of [...PARTS.arm, ...PARTS.back]) scaleWeapon(p);
+  scaleWeapon(FIST_DEF);
+})();
 export const SLOTS = [
   ['rarm', '右手', 'arm'],
   ['larm', '左手', 'arm'],
@@ -1282,7 +1301,7 @@ export function asmStats(asm) {
 // ---- 跳躍與懸浮（MechEntity.jumpMove、車庫顯示）----
 // 腳部的 jumpH／jumpT：地面跳的高度（m）與到頂時間（s）；airH／airT：空中跳（第 1 次）；airN：空中跳次數。
 // 上升時用各自的重力（2h/t²），過了最高點一律用 GRAVITY 下落；連續的空中跳高度依 AIR_DECAY 遞減
-export const GRAVITY = 42;
+export const GRAVITY = 42 * DS;
 export const JUMP_EN = 40; // 地面跳躍的耗能
 export const AIR_DECAY = [1, 0.75, 0.55];
 // 失衡後保護（只給玩家，MechEntity.pilotEnt）：硬直結束後這段時間內 ACS 只累積 STAG_GUARD_K 倍、最多到 STAG_GUARD_CAP，近戰連段與 EMP 也不會再讓它失衡
@@ -1325,8 +1344,8 @@ export function weaponById(id) {
   return WEAPON_MAP.get(id) || null;
 }
 
-// 火控的距離輔助（0～1）：近 15 m、中 45 m、遠 75 m 之間線性內插（決定預判準度與擴散，MechEntity.fire）
-export const FCS_BANDS = [15, 45, 75];
+// 火控的距離輔助（0～1）：近 45 m、中 135 m、遠 225 m 之間線性內插（決定預判準度與擴散，MechEntity.fire）
+export const FCS_BANDS = [15 * DS, 45 * DS, 75 * DS];
 export function fcsAssist(fcs, dist) {
   const a = (fcs && fcs.assist) || [0.6, 0.6, 0.45];
   if (dist <= FCS_BANDS[0]) return a[0];

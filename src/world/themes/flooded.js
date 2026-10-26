@@ -501,9 +501,9 @@ function buildProps(w) {
     },
     false,
   );
-  w.addDecor(Math.round(26 * w.k * w.k), () => buildRubble(rnd(0.6, 1.4)), 0.2);
+  w.addDecor(Math.round(26 * w.kk), () => buildRubble(rnd(0.6, 1.4)), 0.2);
   // 漂浮雜物：只放在水面上（地形低於水面的地方）
-  for (let i = 0, n = Math.round(30 * w.k * w.k); i < n; i++) {
+  for (let i = 0, n = Math.round(30 * w.kk); i < n; i++) {
     const x = rnd(-w.lim, w.lim),
       z = rnd(-w.lim, w.lim);
     if (w.terrainHeight(x, z) > WATER - 0.2) continue;

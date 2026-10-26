@@ -1,10 +1,13 @@
 // Game：攝影機與觀戰目標
 import { clamp, lerp, rnd } from '../core/math.js';
+import { DS, MS } from '../core/scale.js';
 import { isOutline } from '../render/geometry.js';
 import { Game } from './game.js';
 
 const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
-const CAM_DIST = Math.hypot(30, 17.5);
+// 鏡頭的位移（機甲三倍高改版：跟著機體放大 DS 倍）
+const CAM_OFF = new THREE.Vector3(0, 30, 17.5).multiplyScalar(DS);
+const CAM_DIST = CAM_OFF.length();
 const CAM_PITCH_MAX = 1.31; // 地形擋住時最多轉到約 75°，還是擋住就把鏡頭拉近
 // 鏡頭拉遠的上限（倍率）：設定的「鏡頭最遠距離」，預設 1.8（約 55 m 高，一定在霧的範圍內）
 const CAM_MAX_DEF = 1.8;
@@ -31,7 +34,7 @@ Object.assign(Game.prototype, {
   },
   // 給定注視點與縮放倍率，兩個點是否都在畫面內（NDC 邊距 margin）
   fitsAt(target, zoom, pts, margin = 0.82) {
-    const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(zoom);
+    const off = CAM_OFF.clone().multiplyScalar(zoom);
     this.camScratch.position.copy(target).add(off);
     this.camScratch.lookAt(target.x, target.y, target.z);
     this.camScratch.updateMatrixWorld();
@@ -129,7 +132,7 @@ Object.assign(Game.prototype, {
           const score = (q) => {
             let s = 0;
             for (const e of this.enemies) {
-              if (!e.dead && e.pos.distanceTo(q.pos) < 30) s += 1;
+              if (!e.dead && e.pos.distanceTo(q.pos) < 30 * DS) s += 1;
             }
             if (q.melee.active) s += 5;
             if (q.hp < q.maxHp * 0.4) s += 3;
@@ -171,7 +174,7 @@ Object.assign(Game.prototype, {
     }
     this.camFocus = p;
     if (!this.camScratch) {
-      this.camScratch = new THREE.PerspectiveCamera(42, 1, 0.5, 400);
+      this.camScratch = new THREE.PerspectiveCamera(42, 1, 0.5 * DS, 400 * DS);
     }
     this.camScratch.aspect = this.camera.aspect;
     this.camScratch.fov = this.camera.fov;
@@ -181,10 +184,11 @@ Object.assign(Game.prototype, {
     // 近戰對象：玩家在連段中砍的目標，或正在砍玩家的敵人
     let meleeFoe = null;
     if (p.melee.active && p.melee.target && !p.melee.target.dead) meleeFoe = p.melee.target;
-    else if (p.melee.active && p.lock && !p.lock.dead && p.lock.pos.distanceTo(p.pos) < 18) meleeFoe = p.lock;
+    else if (p.melee.active && p.lock && !p.lock.dead && p.lock.pos.distanceTo(p.pos) < 18 * DS)
+      meleeFoe = p.lock;
     if (!meleeFoe) {
       for (const e of this.enemies) {
-        if (!e.dead && e.melee.active && e.melee.target === p && e.pos.distanceTo(p.pos) < 22) {
+        if (!e.dead && e.melee.active && e.melee.target === p && e.pos.distanceTo(p.pos) < 22 * DS) {
           meleeFoe = e;
           break;
         }
@@ -202,9 +206,9 @@ Object.assign(Game.prototype, {
       this.camMode = 'free';
       this.camZoom = lerp(this.camZoom || 1, this.specZoom || 1, Math.min(1, dt * 5));
       const tgt = focus;
-      tgt.y = this.world.terrainHeight(focus.x, focus.z) + 1.5;
+      tgt.y = this.world.terrainHeight(focus.x, focus.z) + 1.5 * MS;
       this.camTarget.lerp(tgt, Math.min(1, dt * 10));
-      const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(this.camZoom);
+      const off = CAM_OFF.clone().multiplyScalar(this.camZoom);
       this.camera.position.lerp(this.camTarget.clone().add(off), Math.min(1, dt * 10));
       this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
       this.sun.position.copy(this.camTarget).add(this.sunOff);
@@ -227,9 +231,9 @@ Object.assign(Game.prototype, {
         meleeFoe = null;
         this.camZoom = lerp(this.camZoom || 1, zt, Math.min(1, dt * 3));
         const tgt = focus.clone();
-        tgt.y = this.world.terrainHeight(focus.x, focus.z) + 1.5;
+        tgt.y = this.world.terrainHeight(focus.x, focus.z) + 1.5 * MS;
         this.camTarget.lerp(tgt, Math.min(1, dt * 4));
-        const off = new THREE.Vector3(0, 30, 17.5).multiplyScalar(this.camZoom);
+        const off = CAM_OFF.clone().multiplyScalar(this.camZoom);
         this.camera.position.lerp(this.camTarget.clone().add(off), Math.min(1, dt * 4));
         this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
         this.sun.position.copy(this.camTarget).add(this.sunOff);
@@ -279,7 +283,7 @@ Object.assign(Game.prototype, {
     this.camera.position.lerp(desired, Math.min(1, dt * 8));
     if (this.camShake > 0) {
       this.camShake -= dt;
-      const a = Math.min(1, this.camShake * 4) * this.camZoom;
+      const a = Math.min(1, this.camShake * 4) * this.camZoom * DS;
       this.camera.position.x += rnd(-0.6, 0.6) * a;
       this.camera.position.z += rnd(-0.6, 0.6) * a;
       this.camera.position.y += rnd(-0.3, 0.3) * a;
@@ -288,7 +292,7 @@ Object.assign(Game.prototype, {
     this.sun.position.copy(this.camTarget).add(this.sunOff);
     this.sun.target.position.copy(this.camTarget);
     const sc = this.sun.shadow.camera;
-    const ext = 70 * Math.max(1, this.camZoom);
+    const ext = 70 * DS * Math.max(1, this.camZoom);
     if (sc.right !== ext) {
       sc.left = -ext;
       sc.right = ext;
@@ -299,13 +303,13 @@ Object.assign(Game.prototype, {
     // 頭、中心、腳都檢查；還是被擋住（物件或地形）時顯示機體的透視輪廓
     const c = p.center(),
       h = p.model.height || 4;
-    const pts = [c, c.clone().setY(p.pos.y + h * 0.95), c.clone().setY(p.pos.y + 0.4)];
+    const pts = [c, c.clone().setY(p.pos.y + h * 0.95), c.clone().setY(p.pos.y + 0.4 * MS)];
     const occ = this.world.updateOcclusion(this.camera.position, c, dt, pts);
     const fade = this.world.fadeMeshes(this.camera.position, pts, dt);
     const hid = occ || fade || pts.some((q) => this.world.terrainBlocks(this.camera.position, q));
     this.camXray(p, hid && !p.dead, dt);
     this.rangeRing.visible = true;
-    this.rangeRing.position.set(p.pos.x, this.world.terrainHeight(p.pos.x, p.pos.z) + 0.12, p.pos.z);
+    this.rangeRing.position.set(p.pos.x, this.world.terrainHeight(p.pos.x, p.pos.z) + 0.12 * MS, p.pos.z);
     this.rangeRing.scale.setScalar(p.stats.lockRange);
   },
 });
