@@ -67,6 +67,7 @@ Object.assign(Game.prototype, {
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
     $('ctrlCine').value = this.ctrl.cine || 'on';
     $('ctrlExec').value = this.ctrl.exec || 'on';
+    $('ctrlMeleeAssist').value = this.ctrl.meleeAssist || 'easy';
     $('ctrlDmgNum').value = this.ctrl.dmgNum || 'full';
     $('ctrlDmgSelf').value = this.ctrl.dmgSelf === false ? 'off' : 'on';
     $('ctrlHangar').value = this.hangarFx();

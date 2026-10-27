@@ -49,6 +49,7 @@ import {
   SIDE_ANG,
   SWAP_MAX,
   comboDecay,
+  meleeAssist,
   meleeDir,
   meleeIdx,
   meleeMove,
@@ -465,7 +466,10 @@ export class MechEntity {
         this.dmgMul = k0;
       }
     }
-    if (w.cd > 0 || w.reloadT > 0) return false;
+    // 收招的冷卻：寬限中的近戰不受它擋（接下一招）
+    const graceOk =
+      d.type === 'melee' && !this.melee.active && this.meleeGrace && this.meleeGrace.slot === slot;
+    if ((w.cd > 0 && !graceOk) || w.reloadT > 0) return false;
     if (usesAmmo(d) && w.mag <= 0) {
       if (w.ammo <= 0) {
         if (slot.endsWith('arm') && !w.dropped) this.dropWeapon(slot);
@@ -836,10 +840,16 @@ export class MechEntity {
           if (m.active && m.slot === slot) {
             // 排入下一招：依按下這一格的方向（方向派生，data/melee.js）
             const cur = meleeMove(d, m.stage);
-            if (cur && m.t > cur.dur * QUEUE_AT) {
-              // 方向派生只給玩家操作的機體（電腦追著目標跑時不該變成「前＋近戰」）
-              const nx = meleeNext(d, m.stage, this.pilotEnt() ? this.meleeDirKey(m.dir).k : '');
-              if (nx >= 0) m.queued = nx;
+            const A = this.meleeA();
+            if (cur && m.t > cur.dur * (A ? A.buf : QUEUE_AT)) {
+              // 方向派生只給玩家操作的機體（電腦追著目標跑時不該變成「前＋近戰」）；玩家可以先行輸入（A.buf）
+              const k = A ? this.meleeDirKey(m.dir).k : '';
+              const nx = meleeNext(d, m.stage, k);
+              if (nx >= 0) {
+                m.queued = nx;
+                m.qT = this.t; // 按下時沒推方向：之後 dirWin 秒內推的方向還算（move）
+                m.qDir = k;
+              }
               this.tutE('press', { queue: true });
             } else this.tutE('early', { st: cur });
             return true;
@@ -855,6 +865,18 @@ export class MechEntity {
             }
             return false;
           }
+          // 收招後的寬限（玩家）：上一招收招後 grace 秒內按近戰＝接下一招，不從第一招重來
+          const G = this.meleeGrace;
+          if (G && G.slot === slot && this.pilotEnt()) {
+            this.meleeGrace = null;
+            const nx = meleeNext(d, G.stage, this.meleeDirKey().k);
+            if (nx >= 0 && this.useEn(d.enCost * (0.6 + this.pmv('mChain')))) {
+              this.tutE('press', { queue: true });
+              this.startMeleeStage(slot, nx, targetPos, targetEnt || G.target, false);
+              return true;
+            }
+            if (w.cd > 0) return false;
+          }
           if (!this.useEn(d.enCost)) return false;
           this.tutE('press', {});
           // QB 取消後接回連段（meleeResume）、突擊推進中的衝刺斬、空中的空中連段、方向派生的起手
@@ -864,7 +886,15 @@ export class MechEntity {
             this.startMeleeStage(slot, R.next, targetPos, targetEnt || R.target, false);
             this.melee.qbN = R.n;
             this.tutE('resume', {});
-          } else this.startMeleeStage(slot, this.meleeStartIdx(d, slot), targetPos, targetEnt);
+          } else {
+            const si = this.meleeStartIdx(d, slot);
+            this.startMeleeStage(slot, si, targetPos, targetEnt);
+            // 中立起手（第 1 招）：之後 dirWin 秒內推的方向還能改成方向起手（meleeLateDir）
+            const m2 = this.melee;
+            m2.sDir = si === 0 && this.grounded && !(this.abT > 0) ? '' : 'x';
+            m2.sT = this.t;
+            m2.sStage = si;
+          }
         }
         break;
     }
@@ -953,7 +983,11 @@ export class MechEntity {
   }
   // 方向派生的方向（data/melee.js 的 meleeDir）：這一格的移動輸入相對於目標方向（ref＝目標方向，沒有時用鎖定或機體正面）
   meleeDirKey(ref) {
-    const w = this.moveWish;
+    let w = this.moveWish;
+    // 方向的寬容（玩家）：這一格沒推方向時，用 dirWin 秒內最後推過的方向
+    const A = this.meleeA();
+    if (A && (!w || w.lengthSq() < 0.09) && this.wishMem && this.t - this.wishMem.t <= A.dirWin)
+      w = this.wishMem;
     if (!w) return { k: '', side: 0 };
     let tx, tz;
     const lk = this.melee.target && !this.melee.target.dead ? this.melee.target : this.lock;
@@ -977,8 +1011,42 @@ export class MechEntity {
     if (k && d.start && d.start[k] !== undefined && pick(d.start[k]) >= 0) return pick(d.start[k]);
     return 0;
   }
+  // 按下近戰之後才推的方向（玩家，dirWin 秒內）：排好的下一招還沒出手前改成派生；
+  // 中立起手的第一招還沒打中前改成方向起手（start）
+  meleeLateDir() {
+    const m = this.melee,
+      A = m.active && this.meleeA();
+    if (!A || !this.moveWish || this.moveWish.lengthSq() < 0.09) return;
+    const d = this.weapons[m.slot].def;
+    if (m.queued >= 0 && m.qDir === '' && !m.qSlot && this.t - m.qT <= A.dirWin) {
+      const k = this.meleeDirKey(m.dir).k;
+      const nx = k ? meleeNext(d, m.stage, k) : -1;
+      if (nx >= 0) {
+        m.queued = nx;
+        m.qDir = k;
+      }
+    } else if (m.sDir === '' && m.stage === m.sStage && !m.hitAny && this.t - m.sT <= A.dirWin && d.start) {
+      const k = this.meleeDirKey().k;
+      const i = k && d.start[k] !== undefined ? meleeIdx(d, d.start[k]) : -1;
+      if (i >= 0 && i !== m.stage) {
+        m.sDir = k;
+        const tg = m.target && !m.target.dead ? m.target : null;
+        this.startMeleeStage(
+          m.slot,
+          i,
+          tg ? tg.center() : this.center().add(m.dir.clone().multiplyScalar(10)),
+          tg,
+        );
+      }
+    }
+  }
+  // 玩家機體的輸入寬容（data/melee.js 的 MELEE_ASSIST；mAssist＝'easy'｜'std'，由 player.js／mp-host.js 設定）；電腦是 null
+  meleeA() {
+    return this.pilotEnt() ? meleeAssist(this.mAssist) : null;
+  }
   // 中斷近戰（取消、硬直）
   meleeEnd() {
+    this.meleeGrace = null;
     const m = this.melee;
     if (m.exec && m.exec.tg) m.exec.tg.execBy = null;
     m.exec = null;
@@ -1372,6 +1440,18 @@ export class MechEntity {
           this.tutE('swap', {});
         }
       } else {
+        // 收招後的寬限（玩家）：這一招之後還接得下去時，grace 秒內按近戰＝接下一招
+        const A = this.meleeA(),
+          md = this.weapons[m.slot].def;
+        if (A && !st.exec && ['', 'f', 's', 'b'].some((k) => meleeNext(md, m.stage, k) >= 0))
+          this.meleeGrace = {
+            slot: m.slot,
+            stage: m.stage,
+            t: A.grace,
+            target: m.target,
+            T: A.grace,
+            dur: st.dur,
+          };
         m.active = false;
         m.stage = 0;
         this.swing = { l: 0, r: 0 };
@@ -1859,6 +1939,8 @@ export class MechEntity {
     }
     // 這一格的移動輸入（方向派生用，data/melee.js；按近戰之前先移動，所以同一格就讀得到）
     (this.moveWish || (this.moveWish = new THREE.Vector3())).copy(wish);
+    if (wish.lengthSq() >= 0.09) this.wishMem = { x: wish.x, z: wish.z, t: this.t }; // 方向的寬容（meleeDirKey）
+    this.meleeLateDir(dt);
     const spd =
       this.stats.speed *
       this.speedMul *
@@ -1948,6 +2030,7 @@ export class MechEntity {
     const jumpEdge = !!wantHover && !this.mJumpPrev;
     this.mJumpPrev = !!wantHover;
     if (this.meleeResume && (this.meleeResume.t -= dt) <= 0) this.meleeResume = null;
+    if (this.meleeGrace && (this.meleeGrace.t -= dt) <= 0) this.meleeGrace = null;
     for (const k of ['parryT', 'pqbT', 'pqbCD', 'shieldHitT']) if (this[k] > 0) this[k] -= dt;
     if (this.melee.active) {
       const m = this.melee,

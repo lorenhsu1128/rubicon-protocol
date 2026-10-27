@@ -623,6 +623,10 @@ Object.assign(Game.prototype, {
       this.ctrl.exec = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlMeleeAssist').onchange = (e) => {
+      this.ctrl.meleeAssist = e.target.value;
+      this.saveKeys();
+    };
     // 過場動畫：點一下顯示略過提示，觸控長按略過（game/cine.js）
     const cs = document.getElementById('cineScr');
     cs.addEventListener('pointerdown', () => this.cinePointer(true));

@@ -13762,6 +13762,7 @@ async function testMeleeCombo(browser, base) {
       pl.abT = 0;
       pl.meleeEnd();
       pl.meleeResume = null;
+      pl.wishMem = null; // 上一段推過的方向（方向的寬容）不帶到下一段
       pl.staggerT = 0;
       pl.hoverMode = 0;
       pl.aimYaw = 0;
@@ -14021,8 +14022,82 @@ async function testMeleeCombo(browser, base) {
     out.bashLate = pl.melee.active && pl.melee.stage !== idx('bash');
     pl.asm.rback = rb0;
     pl.initWeapons();
+    // 15. 輸入的寬容（data/melee.js 的 MELEE_ASSIST：寬鬆＝預設、標準）
+    const dur0 = d.combo[0].dur;
+    const assist = (k) => (pl.mAssist = k);
+    // 先行輸入：剛出手（約 5%）就按下一下
+    assist('easy');
+    reset();
+    press();
+    step(1);
+    pl.fire('rarm', t.center(), t);
+    out.bufEasy = pl.melee.queued === 1;
+    assist('std');
+    reset();
+    press();
+    step(1);
+    pl.fire('rarm', t.center(), t);
+    out.bufStd = pl.melee.active && pl.melee.queued < 0;
+    // 收招後的寬限：寬鬆 0.35 秒、標準 0.2 秒
+    const graceAt = (k, frames) => {
+      assist(k);
+      reset();
+      press();
+      until(() => !pl.melee.active, 60);
+      step(frames);
+      pl.fire('rarm', t.center(), t);
+      return pl.melee.active && pl.melee.stage === 1;
+    };
+    out.graceEasy = graceAt('easy', 15); // 0.25 秒
+    out.graceStd = !graceAt('std', 15);
+    out.graceStd2 = graceAt('std', 6); // 0.1 秒
+    // 方向的寬容：先推「前」、放開 0.1 秒後才按近戰＝前派生的起手；標準時 0.2 秒後就不算
+    const memAt = (k, frames) => {
+      assist(k);
+      reset();
+      step(4, toT());
+      step(frames);
+      pl.fire('rarm', t.center(), t);
+      return pl.melee.active && pl.melee.stage === idx('bl_f1');
+    };
+    out.memEasy = memAt('easy', 6);
+    out.memStd = !memAt('std', 12);
+    // 按下近戰之後才推「前」：中立起手改成前派生的起手；排好的下一招也改成派生
+    assist('easy');
+    reset();
+    press();
+    step(2, toT());
+    out.lateStart = pl.melee.stage === idx('bl_f1');
+    reset();
+    press();
+    until(() => pl.melee.t > dur0 * 0.4, 40);
+    pl.fire('rarm', t.center(), t);
+    const q0 = pl.melee.queued;
+    step(2, toT());
+    out.lateQ = q0 === 1 && pl.melee.queued === idx('bl_f1');
+    // 角度：朝目標偏 55° 推方向也算「前」（前後各 ±60°）
+    reset();
+    const v55 = toT().applyAxisAngle(new THREE.Vector3(0, 1, 0), (55 * Math.PI) / 180);
+    pl.moveWish.copy(v55);
+    out.ang55 = pl.meleeDirKey().k;
+    // 電腦的機體不套用（照舊 35% 才排入）
+    out.aiNoAssist = (() => {
+      const ai = g.spawnType('mt', 1, 1);
+      return ai.meleeA() === null;
+    })();
+    assist('easy');
+    out.uiAssist = !!document.querySelector('#ctrlMeleeAssist option[value="easy"]');
     return out;
   });
+  check(r.bufEasy && r.bufStd, '先行輸入：寬鬆時剛出手就按也記住下一招、標準時 15% 之前按的不算');
+  check(
+    r.graceEasy && r.graceStd && r.graceStd2,
+    '收招後的寬限：寬鬆 0.25 秒後按還接下一招、標準 0.2 秒內才接（不受收招的冷卻擋住）',
+  );
+  check(r.memEasy && r.memStd, '方向的寬容：放開方向 0.1 秒內按近戰還算派生（標準 0.2 秒後不算）');
+  check(r.lateStart && r.lateQ, '按下近戰後才推方向：起手與排好的下一招都改成派生');
+  check(r.ang55 === 'f', `偏 55° 推方向也算「前」（${r.ang55}）`);
+  check(r.aiNoAssist && r.uiAssist, '電腦的機體不套用輸入寬容、設定有「近戰輸入輔助」');
   check(r.n0 && r.hit, '中立起手的第 1 招打中');
   check(r.stun, '一般敵人被近戰打中後硬直（不能行動）');
   check(r.qF && r.f1, '連段中途按「前＋近戰」派生成突刺連打');

@@ -97,6 +97,7 @@ Object.assign(Game.prototype, {
   updatePlayer(dt) {
     const p = this.player,
       k = this.keys;
+    p.mAssist = this.tut ? 'easy' : this.ctrl.meleeAssist || 'easy'; // 近戰輸入輔助（近戰訓練一律寬鬆）
     this.applySmartAttack(p, dt);
     if (p.dead) {
       p.move(dt, new THREE.Vector3(), false, false, false, null);

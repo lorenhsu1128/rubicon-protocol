@@ -3,8 +3,16 @@
 // 段號（快照的 s.m、動作片段、客機）＝把 combo 與 moves 接起來的索引。招式之間以 id 互相參照（沒有 id 的 combo
 // 招式用索引）。
 
-// 這一招過了這個比例之後按近戰＝排入下一招
+// 這一招過了這個比例之後按近戰＝排入下一招（電腦；玩家照 MELEE_ASSIST 的 buf，可以更早按）
 export const QUEUE_AT = 0.35;
+// 玩家的輸入寬容（設定「近戰輸入輔助」ctrl.meleeAssist，預設寬鬆；近戰訓練一律寬鬆）：
+//   buf＝這一招過了這個比例之後按近戰就記住下一招（先行輸入）；grace＝收招後幾秒內按近戰還是接下一招（不從第一招重來）；
+//   dirWin＝方向派生看按下近戰前後幾秒內推過的方向（按下時沒推方向：用之前推過的；按下後才推：下一招出手前改成派生）
+export const MELEE_ASSIST = {
+  easy: { buf: 0, grace: 0.35, dirWin: 0.25 },
+  std: { buf: 0.15, grace: 0.2, dirWin: 0.15 },
+};
+export const meleeAssist = (k) => MELEE_ASSIST[k] || MELEE_ASSIST.easy;
 // 被近戰打中的硬直（秒）：一般敵人照招式的 stun（沒寫時一般 0.32、終結技 0.6）；敵對 AC 最多 0.12；Boss 沒有
 export const STUN_BASE = 0.32,
   STUN_FIN = 0.6,
@@ -74,8 +82,8 @@ export function meleeDir(wx, wz, tx, tz) {
     fz = wz / l;
   const f = fx * tx + fz * tz,
     s = fx * -tz + fz * tx; // 目標方向 (tx, tz) 的右邊＝(−tz, tx)
-  if (f > 0.6) return { k: 'f', side: 0 };
-  if (f < -0.6) return { k: 'b', side: 0 };
+  if (f > 0.5) return { k: 'f', side: 0 }; // 前、後各 ±60°，其餘是側
+  if (f < -0.5) return { k: 'b', side: 0 };
   return { k: 's', side: s >= 0 ? 1 : -1 };
 }
 // 被打的硬直（秒）：kind＝'boss'｜'ace'｜''（一般）

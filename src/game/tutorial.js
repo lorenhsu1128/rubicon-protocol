@@ -421,7 +421,7 @@ Object.assign(Game.prototype, {
     if (T.phase === 'demo') return 0.5;
     const sp = T.step && T.step.speeds;
     if (!sp || T.phase !== 'try' || this.tutAuto) return 1;
-    return sp[Math.min(T.reps, sp.length - 1)];
+    return sp[Math.min(Math.floor(T.reps / 2), sp.length - 1)]; // 每一段速度成功 2 次才加快
   },
   tutBegin(ph) {
     const T = this.tut;
@@ -704,7 +704,15 @@ Object.assign(Game.prototype, {
       const md = this.player.weapons[o.slot || 'rarm'].def;
       o.tags = meleeTags(md).get(o.stage) || new Set();
       o.prev = !o.fresh && T.lastMv ? T.lastMv : null;
+      // 太晚按：上一招之後接得下去（不是路線的最後一招），卻在收招後才按、從第一招重來
+      o.late =
+        o.fresh &&
+        T.lastMv &&
+        T.lastMvT !== undefined &&
+        T.clock - T.lastMvT < 1.4 &&
+        !['cEnd', 'fEnd', 'sEnd', 'bEnd', 'airEnd', 'dash', 'exec', 'bash'].some((t) => T.lastMv.has(t));
       T.lastMv = o.tags;
+      T.lastMvT = T.clock;
       if (o.st && o.st.id === 'bash') T.log.bashMv = T.clock;
     }
     if (k === 'hit') {
@@ -771,11 +779,14 @@ Object.assign(Game.prototype, {
       if (T.failN === 5) s += '<br><span class="dim">要不要再看一次示範？（暫停選單或面板的「示範」）</span>';
       T.msg = s;
       T.msgT = 3.2;
-      if (T.failN >= 5 && step.speeds && T.reps > 0) T.reps = Math.max(0, T.reps - 1); // 放慢一級
+      if (T.failN % 3 === 0 && step.speeds && T.reps > 0)
+        T.reps = Math.max(0, (Math.floor(T.reps / 2) - 1) * 2); // 失敗 3 次放慢一級
       this.tutPanelRender(true);
     };
     const wantDir = step.dir;
-    if (k === 'early' && step.bar === 'queue') return say('太早按了：等這一刀揮出去一段（時機條變綠）再按');
+    if (k === 'early' && step.bar === 'queue') return say('太早按了：這一刀剛開始揮，晚一點點再按');
+    if (k === 'mv' && o.late && step.bar === 'queue')
+      return say('太晚了：上一刀收招後才按，從第一刀重來了。這一刀揮出去就按下一下');
     if (k === 'whiff' && !T.inR && !(T.dummy && T.dummy.staggerT > 0))
       return say('揮空了：先靠近，等假人腳下的圈變綠再出刀');
     if (k === 'qbEarly' && step.bar === 'resume') return say('QB 太早：這一刀要揮過一半才能取消');
@@ -1224,13 +1235,26 @@ Object.assign(Game.prototype, {
     const e = T.dummy && !T.dummy.dead ? T.dummy : null;
     const tl = e && e.tutD.tele;
     if (T.phase === 'try' || T.phase === 'demo') {
-      if ((kind === 'queue' || kind === 'link') && st && !st.exec) {
+      const A = p.meleeA() || { buf: QUEUE_AT, grace: 0 };
+      const G = p.meleeGrace;
+      if (kind === 'queue' && ((st && !st.exec) || (!m.active && G))) {
+        // 時機條＝這一招＋收招後的寬限：先行輸入（A.buf）到寬限結束都可以按；按了就記住
         show = true;
-        z0 = kind === 'link' ? LINK_SHOT_AT : QUEUE_AT;
+        const dur = st ? st.dur : G.dur,
+          a = dur / (dur + A.grace);
+        z0 = A.buf * a;
+        z1 = 1;
+        x = st ? (m.t / dur) * a : a + (1 - a) * (1 - G.t / G.T);
+        on = true;
+        const q = st && m.queued >= 0 ? meleeMove(p.weapons[m.qSlot || m.slot].def, m.queued) : null;
+        lbl = q ? `記住了：接「${q.name}」` : st ? '現在按就記住下一招' : '收招了：快按，還接得上';
+      } else if (kind === 'link' && st && !st.exec) {
+        show = true;
+        z0 = LINK_SHOT_AT;
         z1 = 1;
         x = m.t / st.dur;
-        on = x >= z0 && (kind === 'queue' || m.hitAny);
-        lbl = kind === 'link' ? (m.hitAny ? '這一刀打中了：綠色時按射擊' : '先打中') : '綠色時按下一下';
+        on = x >= z0 && m.hitAny;
+        lbl = m.hitAny ? '這一刀打中了：綠色時按射擊' : '先打中';
       } else if (kind === 'resume' && p.meleeResume) {
         show = true;
         z0 = 0;

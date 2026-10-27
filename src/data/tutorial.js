@@ -10,7 +10,7 @@
 //          特殊：{ quiz: n }＝依序打出指定的方向起手；{ exam: 秒 }＝結業考核的技巧收集
 //   bar    時機條：'queue'｜'link'｜'resume'｜'parry'｜'pqb'｜'bash'｜'exec'
 //   dir    'f'｜'s'｜'b'：畫面上畫方向箭頭
-//   speeds 依進度的遊戲速度（[0.5, 1]＝第 1 次 0.5 倍、之後 1 倍）
+//   speeds 依進度的遊戲速度（[0.5, 1]＝先在 0.5 倍成功 2 次、之後 1 倍；失敗 3 次放慢一級）
 //   reset  每次成功後把兩台放回開始位置
 //   demo   示範腳本（也是冒煙測試的自動操作）；auto 自動操作另外寫的腳本
 //   hints  [第 1 段提示, 失敗 3 次後更具體的提示]
@@ -170,16 +170,16 @@ export const LESSONS = [
       {
         id: 'combo',
         t: '連段',
-        text: '連按 [melee]，從 {c0} 一路打到 {cEnd}。<br>等這一刀<b>揮出去一段之後</b>（時機條變綠）再按，才會接下一招。',
-        say: '別亂按。每一刀揮到一半再按下一下，節奏對了就會一直接下去。',
+        text: '連按 [melee]，從 {c0} 一路打到 {cEnd}。<br>這一刀揮出去就可以按下一下（早一點按也會<b>先記住</b>），但<b>收招後太久才按</b>會從第一刀重來。',
+        say: '每一刀揮出去就按下一下，按了就會記住。別等它停下來，停太久就斷了。',
         dummy: { lv: 0, dist: 12 },
         bar: 'queue',
         speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'cEnd', n: 3, lbl: '打完一套' }],
         demo: [['near', 0.8], ['press', ''], ['chain', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: [
-          '時機條的指針進到綠色區再按 [melee]。',
-          '太早按會被吃掉：看著時機條，指針過了一半再按下一下。',
+          '這一刀揮出去就按 [melee]，時機條上寫「記住了」就對了。',
+          '太慢了：上一刀收招之後很快就要按，時機條走完之前都還接得上。',
         ],
       },
       {
@@ -218,12 +218,12 @@ export const LESSONS = [
         dummy: { lv: 0, dist: 12 },
         dir: 'f',
         bar: 'queue',
-        speeds: [0.5, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'fEnd', n: 2, lbl: '打到最後一招' }],
         demo: [['near', 0.8], ['press', 'f'], ['chain', 'f'], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: [
           '畫面上的箭頭就是「前」。按住那個方向再按 [melee]。',
-          '方向要在按 [melee] 的那一下按著；連按的時候也一直按著。',
+          '方向和 [melee] 差不多同時按就好（先推方向、或按了之後馬上推都算）；連按的時候也一直按著。',
         ],
       },
       {
@@ -257,6 +257,7 @@ export const LESSONS = [
         say: '起手中立，看情況再轉向。這是近戰的節奏感。',
         dummy: { lv: 0, dist: 12 },
         bar: 'queue',
+        speeds: [0.5, 0.75, 1],
         goal: [
           {
             ev: 'mv',
@@ -279,7 +280,10 @@ export const LESSONS = [
           ['wait', 0.6],
           ['end'],
         ],
-        hints: ['第一刀打出去後，按著方向再按一次 [melee]。', '換方向的那一下也要等時機條變綠。'],
+        hints: [
+          '第一刀打出去後，按著方向再按一次 [melee]。',
+          '換方向的那一下，方向和 [melee] 差不多同時按就好。',
+        ],
       },
       {
         id: 'quiz',
@@ -315,7 +319,7 @@ export const LESSONS = [
         say: '打上去之後別等。跳，跟上去。',
         dummy: { lv: 0, dist: 12 },
         dir: 'b',
-        speeds: [0.5, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'jc', n: 2, lbl: '跳躍取消' }],
         demo: [
           ['near', 0.8],
@@ -359,7 +363,7 @@ export const LESSONS = [
         dummy: { lv: 0, dist: 12 },
         dir: 'b',
         bar: 'queue',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'airEnd', n: 2, lbl: '砸回地面', test: (e, T) => recent(T, 'jc', 5) }],
         demo: [
           ['near', 0.8],
@@ -375,7 +379,7 @@ export const LESSONS = [
           ['wait', 0.6],
           ['end'],
         ],
-        hints: ['空中的每一下也要等時機條變綠再按。'],
+        hints: ['空中也一樣：每一刀揮出去就按下一下。'],
       },
     ],
   },
@@ -404,7 +408,7 @@ export const LESSONS = [
         say: '打兩下、閃一下、再接上。對手會以為你停手了。',
         dummy: { lv: 0, dist: 12 },
         bar: 'resume',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'resume', n: 2, lbl: '接回' }],
         demo: [
           ['near', 0.8],
@@ -458,7 +462,7 @@ export const LESSONS = [
         say: '刀砍完補一槍。距離近的時候，這一槍比平常痛。',
         dummy: { lv: 0, dist: 12 },
         bar: 'link',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'link', n: 2, lbl: '接射擊' }],
         demo: [['near', 0.8], ['press', ''], ['wait', 'half'], ['shot', 1], ['wait', 0.8], ['end']],
         hints: ['近戰打中後按 [shot]。', '要等這一刀揮過一半（時機條變綠）。'],
@@ -600,7 +604,7 @@ export const LESSONS = [
         say: '不是躲，是迎上去。時機條變綠就出刀。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'parry',
-        speeds: [0.5, 0.5, 0.75, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'parry', n: 3, lbl: '彈刀' }],
         demo: [['wait', 'parry'], ['press', ''], ['wait', 'idle'], ['wait', 0.8], ['end']],
         hints: ['等紅光、時機條進到綠色再按 [melee]。', '太早：你的刀先揮完了。太晚：被砍到了。看時機條。'],
@@ -611,7 +615,7 @@ export const LESSONS = [
         text: '彈刀之後的<b>下一下必定打出失衡</b>。彈開後馬上接 [melee]，再按住處決。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3], kill: true },
         bar: 'parry',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         reset: true,
         goal: [{ ev: 'exec', n: 1, lbl: '彈刀 → 處決', test: (e, T) => recent(T, 'parry', 6) }],
         demo: [
@@ -635,7 +639,7 @@ export const LESSONS = [
         say: '太早閃，它會追著你砍。等到最後一刻。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'pqb',
-        speeds: [0.5, 0.5, 0.75, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'pqb', n: 3, lbl: '完美迴避' }],
         demo: [['wait', 'pqb'], ['qb', 's'], ['wait', 0.8], ['end']],
         hints: ['時機條的指針進到綠色的細條才按 [qb]。', '綠色區很短：預警的紅光結束、刀揮下來的那一刻。'],
@@ -646,7 +650,7 @@ export const LESSONS = [
         text: '完美迴避之後 1.5 秒內的第一下近戰：<b>衝擊加倍、突進距離加長</b>。閃開後馬上按 [melee] 反打。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'pqb',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', n: 2, lbl: '反打', test: (e) => e.pqb }],
         demo: [
           ['wait', 'pqb'],
@@ -667,7 +671,7 @@ export const LESSONS = [
         dummy: { lv: 4, dist: 14, atk: 'shot', every: [1.8, 2.4] },
         setup: { shield: true },
         bar: 'bash',
-        speeds: [0.6, 1],
+        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'bash', n: 2, lbl: '盾擊' }],
         demo: [['wait', 'shield'], ['press', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['被子彈打中（盾發光）就按 [melee]。', '0.5 秒很短：一被打中就按。'],
