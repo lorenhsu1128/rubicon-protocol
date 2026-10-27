@@ -595,6 +595,7 @@ Object.assign(Game.prototype, {
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
     }
+    wish = this.swipeWish(wish); // 觸控：攻擊鍵上的滑動＝方向派生（照一般的移動輸入送給房主）
     const qbHeld = this.act('qb');
     const qbEdge = qbHeld && !this._qbPrev;
     this._qbPrev = qbHeld;

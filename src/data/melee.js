@@ -13,6 +13,11 @@ export const MELEE_ASSIST = {
   std: { buf: 0.15, grace: 0.2, dirWin: 0.15 },
 };
 export const meleeAssist = (k) => MELEE_ASSIST[k] || MELEE_ASSIST.easy;
+// 起手的方向（玩家）：按下近戰先「預備」MELEE_PRE_T 秒（停住、面向目標），這段時間推的方向決定起手；
+// 按下之前推的方向只有「剛推、還沒開始移動」的那一下算（按住超過 MOVE_DELAY 秒＝在走路，不算）
+export const MELEE_PRE_T = 0.1;
+// 近戰距離內（鎖定的目標在第一招搆得到的距離）方向要按住超過 MOVE_DELAY 秒才開始移動：方向＋近戰時機體不會先退開
+export const MOVE_DELAY = 0.12;
 // 被近戰打中的硬直（秒）：一般敵人照招式的 stun（沒寫時一般 0.32、終結技 0.6）；敵對 AC 最多 0.12；Boss 沒有
 export const STUN_BASE = 0.32,
   STUN_FIN = 0.6,

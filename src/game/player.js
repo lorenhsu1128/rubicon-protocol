@@ -178,6 +178,7 @@ Object.assign(Game.prototype, {
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
     } // 機體相對方向
+    wish = this.swipeWish(wish); // 觸控：攻擊鍵上的滑動＝方向派生（input.js）
     if (this.tutVirt && this.tutVirt.wish) wish = this.tutVirt.wish.clone(); // 近戰訓練的示範（game/tutorial.js）
     const qb = this.act('qb');
     if (qb) {

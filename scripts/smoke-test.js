@@ -13729,6 +13729,7 @@ async function testMpLevels(browser, url) {
 async function testMeleeCombo(browser, base) {
   console.log('近戰連擊：方向派生、硬直、傷害遞減、上挑與空中連段、QB 接回、近戰接射擊、衝刺斬、突進追擊');
   const { ctx, page } = await newPage(browser, 'melee-combo');
+  await seededRandom(page); // 地圖固定（隨機的地形起伏會讓走路中的機體離地，變成空中招式）
   await page.goto(base + '?test');
   await waitVisible(page, 'title');
   const r = await page.evaluate(() => {
@@ -13763,6 +13764,10 @@ async function testMeleeCombo(browser, base) {
       pl.meleeEnd();
       pl.meleeResume = null;
       pl.wishMem = null; // 上一段推過的方向（方向的寬容）不帶到下一段
+      pl.tapMem = null;
+      pl.dirHeldT = 0;
+      pl.acs = 0; // 上一段被打累積的 ACS（盾擊的兩段都會被打，累積到失衡就不能出招）
+      pl.stagGuardT = 0;
       pl.staggerT = 0;
       pl.hoverMode = 0;
       pl.aimYaw = 0;
@@ -13794,9 +13799,11 @@ async function testMeleeCombo(browser, base) {
       return fn();
     };
     const press = (slot = 'rarm', wish = new THREE.Vector3()) => {
-      // 按下近戰的那一格：先移動（記下方向），再出招
+      // 按下近戰的那一格：先移動（記下方向），再出招；地面的起手先預備 0.1 秒（data/melee.js 的 MELEE_PRE_T）
       step(1, wish);
-      return pl.fire(slot, t.center(), t);
+      const ok = pl.fire(slot, t.center(), t);
+      until(() => !pl.melee.pre, 12);
+      return ok;
     };
     // 1. 中立起手、打中後目標硬直（不能行動）
     reset();
@@ -13996,6 +14003,7 @@ async function testMeleeCombo(browser, base) {
     step(12);
     pl.weapons.rarm.cd = 0;
     pl.fire('rarm', t.center(), t);
+    until(() => !pl.melee.pre, 12);
     out.pqbImp = pl.melee.active && pl.melee.impK === 2 && !(pl.pqbT > 0);
     reset();
     pl.pqbT = pl.pqbCD = 0;
@@ -14018,8 +14026,11 @@ async function testMeleeCombo(browser, base) {
     pl.iFrames = 0;
     hit(t, null);
     step(45);
-    pl.fire('rarm', t.center(), t);
+    const fb = pl.fire('rarm', t.center(), t);
+    const pr = !!pl.melee.pre;
+    until(() => !pl.melee.pre, 12);
     out.bashLate = pl.melee.active && pl.melee.stage !== idx('bash');
+    out.bashInfo = `fire ${fb} 預備 ${pr} 出招 ${pl.melee.active} 段 ${pl.melee.stage} 硬直 ${pl.staggerT.toFixed(2)} ${(pl.hitStunT || 0).toFixed(2)} 地面 ${pl.grounded}`;
     pl.asm.rback = rb0;
     pl.initWeapons();
     // 15. 輸入的寬容（data/melee.js 的 MELEE_ASSIST：寬鬆＝預設、標準）
@@ -14055,13 +14066,52 @@ async function testMeleeCombo(browser, base) {
     const memAt = (k, frames) => {
       assist(k);
       reset();
-      step(4, toT());
+      step(4, toT()); // 點一下（0.07 秒，還沒開始走）就放開
       step(frames);
       pl.fire('rarm', t.center(), t);
+      until(() => !pl.melee.pre, 12);
       return pl.melee.active && pl.melee.stage === idx('bl_f1');
     };
     out.memEasy = memAt('easy', 6);
     out.memStd = !memAt('std', 12);
+    // 起手的預備：按下近戰先停 0.1 秒，這段時間推的方向決定起手（推「後」＝上挑）；機體不移動
+    assist('easy');
+    reset();
+    const p0 = pl.pos.clone(),
+      dPre0 = Math.hypot(t.pos.x - p0.x, t.pos.z - p0.z);
+    pl.fire('rarm', t.center(), t);
+    out.preOn = !!pl.melee.pre && !pl.melee.active;
+    step(3, toT().negate());
+    until(() => !pl.melee.pre, 12);
+    out.preB = pl.melee.active && pl.melee.stage === idx('bl_up');
+    // 推「後」的期間沒有退開（出招之後往目標突進是招式本身）
+    const d1 = Math.hypot(t.pos.x - pl.pos.x, t.pos.z - pl.pos.z);
+    out.preStill = d1 <= dPre0 + 0.05;
+    out.preInfo = `pre ${out.preOn} 段 ${pl.melee.stage}（上挑 ${idx('bl_up')}）距離 ${dPre0.toFixed(1)} → ${d1.toFixed(1)} m`;
+    // 一直走向目標（按住超過 0.12 秒）時按近戰＝中立起手（按之前一直推著的方向不算）
+    reset(20 * 3);
+    step(30, toT());
+    pl.fire('rarm', t.center(), t);
+    until(() => !pl.melee.pre, 12);
+    out.walkN = pl.melee.active && pl.melee.stage === 0;
+    out.walkInfo = `出招 ${pl.melee.active} 段 ${pl.melee.stage} 預備 ${!!pl.melee.pre} 距離 ${Math.hypot(t.pos.x - pl.pos.x, t.pos.z - pl.pos.z).toFixed(1)} 硬直 ${pl.staggerT.toFixed(2)} 地面 ${pl.grounded} EN ${Math.round(pl.en)}`;
+    // 近戰距離內：方向按住 0.12 秒以內不移動，之後才走；距離外馬上走
+    reset();
+    const q1 = pl.pos.clone();
+    step(5, toT().negate());
+    out.delayHold = pl.pos.distanceTo(q1) < 0.05;
+    step(20, toT().negate());
+    out.delayGo = pl.pos.distanceTo(q1) > 1;
+    reset(40 * 3);
+    const q2 = pl.pos.clone();
+    step(5, toT().negate());
+    out.farGo = pl.pos.distanceTo(q2) > 0.05;
+    // 近戰距離內推方向時按 QB：QB 照當下的方向
+    reset();
+    const q3 = pl.pos.clone();
+    step(1, toT().negate(), { qb: true });
+    step(8, toT().negate());
+    out.delayQb = pl.pos.distanceTo(q3) > 2;
     // 按下近戰之後才推「前」：中立起手改成前派生的起手；排好的下一招也改成派生
     assist('easy');
     reset();
@@ -14096,6 +14146,15 @@ async function testMeleeCombo(browser, base) {
   );
   check(r.memEasy && r.memStd, '方向的寬容：放開方向 0.1 秒內按近戰還算派生（標準 0.2 秒後不算）');
   check(r.lateStart && r.lateQ, '按下近戰後才推方向：起手與排好的下一招都改成派生');
+  check(
+    r.preOn && r.preB && r.preStill,
+    `起手的預備：按下近戰先停 0.1 秒，這段時間推「後」＝上挑，機體不會先退開（${r.preInfo}）`,
+  );
+  check(r.walkN, `一直走向目標時按近戰＝中立起手（按之前一直推著的方向不算派生；${r.walkInfo}）`);
+  check(
+    r.delayHold && r.delayGo && r.farGo && r.delayQb,
+    '近戰距離內方向按住 0.12 秒以內不移動、之後才走；距離外馬上走；QB 照常',
+  );
   check(r.ang55 === 'f', `偏 55° 推方向也算「前」（${r.ang55}）`);
   check(r.aiNoAssist && r.uiAssist, '電腦的機體不套用輸入寬容、設定有「近戰輸入輔助」');
   check(r.n0 && r.hit, '中立起手的第 1 招打中');
@@ -14126,7 +14185,7 @@ async function testMeleeCombo(browser, base) {
   check(r.pqbImp, '完美 QB 之後的第一下近戰衝擊 ×2');
   check(r.pqbLate, 'QB 開始太久之後躲掉的不算完美 QB');
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
-  check(r.bashLate, '擋下太久之後按近戰照常出招');
+  check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();
 }
 
@@ -14149,7 +14208,7 @@ function tutRun(page, lid, w, dev) {
           step = T.step,
           sk = T.phase === 'skip';
         // 考核：打中時的頓格讓遊戲時間比推進的時間慢
-        const lim = step.goal && step.goal[0] && step.goal[0].exam ? step.goal[0].exam * 1.8 + 20 : 45;
+        const lim = step.goal && step.goal[0] && step.goal[0].exam ? step.goal[0].exam * 1.8 + 20 : 60;
         const t = window.__pump(lim, () => !g.tut || g.state !== 'play' || g.tut.li !== li);
         out.push({ id: step.id, t: Math.round(t * 10) / 10, prog: T.prog.join('/'), ph: T.phase, sk });
         if (t < 0) break;
@@ -14205,6 +14264,58 @@ async function testMeleeTutDev(browser, base, dev) {
     dev === 'touch' ? /斬擊/.test(txt.dev4) : !txt.dev4,
     dev === 'touch' ? '觸控多一句說明：衝刺斬要等攻擊鍵變成斬擊' : '觸控以外不顯示觸控的說明',
   );
+  // 觸控：在攻擊鍵上往下滑＝後派生（上挑），機體不會先退開
+  if (dev === 'touch') {
+    const sw = await page.evaluate(() => {
+      const g = window.__game;
+      g.tutAuto = false;
+      g.tutNoDemo = true;
+      g.tutStart('L2', 'w_blade');
+      window.__pump(1.2, () => g.tut.phase === 'try');
+      const p = g.player,
+        e = g.tut.dummy;
+      p.pos.set(e.pos.x, p.pos.y, e.pos.z + 14); // 近戰距離內
+      p.lock = e;
+      window.__pump(0.2);
+      const el = document.getElementById('vbAttack');
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2,
+        y = r.top + r.height / 2;
+      const ev = (type, yy) => {
+        const t = new window.Touch({ identifier: 7, target: el, clientX: x, clientY: yy });
+        el.dispatchEvent(
+          new window.TouchEvent(type, {
+            touches: type === 'touchend' ? [] : [t],
+            changedTouches: [t],
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      };
+      const p0 = p.pos.clone();
+      let tags = null;
+      const ev0 = g.tutEv.bind(g);
+      g.tutEv = (k, o = {}) => {
+        const r2 = ev0(k, o);
+        if (k === 'mv' && !tags) tags = [...(o.tags || [])];
+        return r2;
+      };
+      ev('touchstart', y);
+      window.__pump(1 / 60);
+      ev('touchmove', y + 40);
+      window.__pump(0.05);
+      ev('touchend', y + 40);
+      window.__pump(0.3);
+      g.tutEv = ev0;
+      const out = { tags, moved: Math.hypot(p.pos.x - p0.x, p.pos.z - p0.z) };
+      g.tutExit(false);
+      return out;
+    });
+    check(
+      !!sw.tags && sw.tags.includes('b') && sw.moved < 6,
+      `觸控：攻擊鍵上往下滑＝後派生（${(sw.tags || []).join(',')}，起手前沒有退開）`,
+    );
+  }
   // 8 課（每個裝置從不同的武器開始輪）
   const W = ['w_blade', 'w_saber', 'w_claw', 'w_pile', 'w_none'];
   const off = { kb: 1, pad: 2, touch: 3 }[dev];

@@ -11,6 +11,7 @@ import { DS } from '../core/scale.js';
 import {
   EXEC_HOLD,
   LINK_SHOT_AT,
+  MELEE_PRE_T,
   QUEUE_AT,
   RESUME_T,
   SHIELD_BASH_T,
@@ -570,6 +571,7 @@ Object.assign(Game.prototype, {
         const slot = a[2] || 'rarm';
         const k = slot === 'larm' ? 'fireL' : 'fireR';
         if (V[k]) return; // 上一次按下還沒放開：等一格（否則不算按下）
+        if (m.pre) return; // 起手的預備中
         if (!m.active && p.weapons[slot].cd > 0) return; // 收招後武器還在冷卻：等冷卻完再按（否則這一下被吃掉）
         if (!m.active && this.tutTouchWait()) return; // 觸控：攻擊鍵變成「斬擊」才按
         V[k] = 1;
@@ -578,6 +580,7 @@ Object.assign(Game.prototype, {
         return next();
       }
       case 'chain': {
+        if (m.pre) return; // 起手的預備中
         if (!m.active) return next();
         const d = p.weapons[m.slot].def;
         if (meleeNext(d, m.stage, a[1]) < 0 && meleeNext(d, m.stage, '') < 0) return next();
@@ -600,12 +603,12 @@ Object.assign(Game.prototype, {
           queue: m.active && m.t > st.dur * QUEUE_AT + 0.02,
           half: m.active && m.hitAny && m.t > st.dur * 0.56,
           hit: m.active && m.hitAny,
-          idle: !m.active,
+          idle: !m.active && !m.pre,
           air: !p.grounded,
-          ground: p.grounded && !m.active,
+          ground: p.grounded && !m.active && !m.pre,
           stag: e && !e.dead && e.staggerT > 0,
           tele: !!tl,
-          parry: tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45,
+          parry: tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45 + MELEE_PRE_T,
           pqb: tl && tl.k === 'melee' && tl.t <= 0.04,
           shield: p.shieldHitT > 0,
           counter: false,
@@ -613,7 +616,7 @@ Object.assign(Game.prototype, {
         // 綜合練習：揮刀＝彈刀、開槍＝等盾擋下後盾擊
         if (c === 'counter') {
           if (!tl && !(D && D.burst > 0) && S.t > 0.1 && !(p.shieldHitT > 0)) return next();
-          if (tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45) {
+          if (tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45 + MELEE_PRE_T) {
             V.fireR = 1;
             return next();
           }
@@ -1274,8 +1277,9 @@ Object.assign(Game.prototype, {
         const span = TELE + 0.2;
         const dur = meleeMove(this.tutWDef(), 0).dur;
         if (kind === 'parry') {
-          z0 = (TELE - dur * 0.8) / span;
-          z1 = (TELE - dur * 0.15) / span;
+          // 按下後先預備 MELEE_PRE_T 秒才出刀：綠色區往前移
+          z0 = (TELE - dur * 0.8 - MELEE_PRE_T) / span;
+          z1 = (TELE - dur * 0.15 - MELEE_PRE_T) / span;
         } else {
           z0 = (TELE - 0.1) / span;
           z1 = (TELE + 0.02) / span;

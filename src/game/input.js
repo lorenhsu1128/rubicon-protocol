@@ -5,6 +5,9 @@ import { LUNGE_K } from '../data/melee.js';
 import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
+const SWIPE_PX = 26; // 攻擊鍵上滑動多遠算方向派生（px）
+const SWIPE_N = 4; // 滑動換成幾格的方向輸入（比 MOVE_DELAY 短：近戰距離內不會移動）
+
 Object.assign(Game.prototype, {
   // ---------- 自訂按鍵 ----------
   defaultKeys() {
@@ -281,6 +284,36 @@ Object.assign(Game.prototype, {
       b.addEventListener('touchstart', press, { passive: false });
       b.addEventListener('touchend', rel);
       b.addEventListener('touchcancel', rel);
+      // 攻擊鍵上滑一下＝方向派生（上＝前、下＝後、左右＝側；docs/melee-combo-design.md 的起手方向）
+      if (a === 'attack') {
+        let sx = 0,
+          sy = 0,
+          sid = null,
+          done = false;
+        b.addEventListener('touchstart', (e) => {
+          const t = e.changedTouches[0];
+          sid = t.identifier;
+          sx = t.clientX;
+          sy = t.clientY;
+          done = false;
+        });
+        b.addEventListener(
+          'touchmove',
+          (e) => {
+            e.preventDefault();
+            for (const t of e.changedTouches) {
+              if (t.identifier !== sid || done) continue;
+              const dx = t.clientX - sx,
+                dy = t.clientY - sy;
+              if (Math.hypot(dx, dy) < SWIPE_PX) continue;
+              done = true;
+              if (Math.abs(dy) >= Math.abs(dx)) this.touchSwipe(dy < 0 ? 'f' : 'b', 0);
+              else this.touchSwipe('s', dx > 0 ? 1 : -1);
+            }
+          },
+          { passive: false },
+        );
+      }
     }
     this.touchmap = {
       qb: 'Touch_qb',
@@ -304,6 +337,26 @@ Object.assign(Game.prototype, {
     document.getElementById('hud').addEventListener('touchstart', tapLock, { passive: true });
   },
   // 智慧攻擊鍵：射擊 ↔ 近戰 自動切換；肩部鍵＝雙背齊射；QB 長按＝突擊；自動攻擊
+  // 攻擊鍵上的滑動 → 一個朝目標的短暫方向輸入（swipePulse，SWIPE_N 格；swipeWish 換掉這幾格的移動輸入）：
+  // 起手的預備與近戰距離內的移動延遲讓機體不動，多人時照一般的移動輸入送給房主
+  touchSwipe(k, side) {
+    const p = this.player;
+    if (!p || p.dead) return;
+    const t = p.lock && !p.lock.dead ? p.lock : null;
+    const f = t
+      ? new THREE.Vector3(t.pos.x - p.pos.x, 0, t.pos.z - p.pos.z)
+      : new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+    if (f.lengthSq() < 1e-4) f.set(0, 0, -1);
+    f.normalize();
+    const v = k === 'f' ? f : k === 'b' ? f.negate() : new THREE.Vector3(-f.z * side, 0, f.x * side);
+    this.swipePulse = { v, n: SWIPE_N };
+  },
+  swipeWish(wish) {
+    const S = this.swipePulse;
+    if (!S || S.n <= 0) return wish;
+    S.n--;
+    return S.v.clone();
+  },
   applySmartAttack(p, dt) {
     const d = this.down;
     if (!this.vpadWanted() && !this.padActive) return;
