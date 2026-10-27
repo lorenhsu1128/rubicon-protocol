@@ -9,6 +9,7 @@ import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { DS } from '../core/scale.js';
 import {
+  CUE_LEAD,
   EXEC_HOLD,
   LINK_SHOT_AT,
   QUEUE_AT,
@@ -332,6 +333,7 @@ Object.assign(Game.prototype, {
       e.stagGuardT = 0;
       e.staggerT = D.stag ? 6 : 0;
       e.tutD.tele = null;
+      e.cueCancel();
       e.tutD.burst = 0;
       e.tutD.atkT = 1.2;
       p.lock = e;
@@ -818,10 +820,10 @@ Object.assign(Game.prototype, {
       const qb = T.log.qb !== undefined && T.clock - T.log.qb < 1.2;
       if (step.bar === 'parry')
         return say(
-          pr ? '太早了：紅光亮起之前就按了。看到紅光再按' : '太晚了：被砍到了。紅光一亮就按 [melee]',
+          pr ? '太早了：「!」出現之前就按了。等「!」再按' : '太晚了：被砍到了。「!」一出現就按 [melee]',
         );
       return say(
-        qb ? '太早閃了：紅光亮起之前就按了。看到紅光再按 [qb]' : '太晚了：被打到了。紅光一亮就按 [qb]',
+        qb ? '太早閃了：「!」出現之前就按了。等「!」再按 [qb]' : '太晚了：被打到了。「!」一出現就按 [qb]',
       );
     }
     if (k === 'press' && step.bar === 'bash' && !o.queue && T.log.shieldHit !== undefined) {
@@ -925,9 +927,15 @@ Object.assign(Game.prototype, {
     const atkR = blade.reach * e.scale * 0.9 + 1.2 * DS;
     // 預警中：站著、時間到出手
     if (D.tele) {
-      if (e.staggerT > 0) D.tele = null;
-      else {
+      if (e.staggerT > 0) {
+        D.tele = null;
+        e.cueCancel();
+      } else {
         D.tele.t -= dt;
+        if (!D.tele.cue && D.tele.t <= CUE_LEAD) {
+          D.tele.cue = true;
+          this.tutCue(e);
+        }
         if (D.tele.k === 'melee' && dist > atkR * 0.85) wish.set(dx, 0, dz).normalize().multiplyScalar(0.6); // 貼近一點
         if (D.tele.t <= 0) {
           const k = D.tele.k;
@@ -997,20 +1005,25 @@ Object.assign(Game.prototype, {
     e.move(dt, wish, false, qb, false, null);
     return true;
   },
-  // 預警：紅光（揮刀）或紅線（開槍）
+  // 預警：紅光（揮刀）或紅線（開槍）；出手前 CUE_LEAD 秒才出「!」（tutCue）
   tutTele(e, k) {
     const D = e.tutD;
     D.tele = { k, t: TELE, T: TELE };
     D.cd = 99;
-    // 提示中按近戰＝彈刀、按 QB＝完美迴避（MechEntity.atkCue；預警的畫面在這裡畫）
+    // 「!」出現後按近戰＝彈刀、按 QB＝完美迴避（MechEntity.atkCue；畫面在這裡畫）
     e.atkCue(this.player, TELE, k === 'melee' ? meleeMove(e.weapons.rarm.def, 0).dur + 0.15 : 0.55 + 1.2, {
       quiet: true,
     });
     const c = e.center();
+    this.fx.flash(c, 1.4, 0xff4030, 0.2);
+    if (k === 'shot') this.fx.warnLine(e.center(), this.player.center(), TELE, 0xff4030, 0.08);
+  },
+  // 出手前的「!」：紅圈、閃光、警報（看到就按剛好趕上）
+  tutCue(e) {
+    const c = e.center();
     this.fx.flash(c, 2.2, 0xff4030, 0.25);
     this.fx.ring(c, 3 * DS, 0xff4030);
-    if (k === 'shot') this.fx.warnLine(e.center(), this.player.center(), TELE, 0xff4030, 0.08);
-    SFX.play('alarm', 0.35, k === 'shot' ? 1.4 : 1.1, 0.02, 0.02, null, 'ui');
+    SFX.play('alarm', 0.35, e.tutD.tele && e.tutD.tele.k === 'shot' ? 1.4 : 1.1, 0.02, 0.02, null, 'ui');
     if (this.popDamage)
       this.popDamage(c.clone().add(new THREE.Vector3(0, 2.5 * DS, 0)), '!', false, true, false, 0, e.id);
   },
@@ -1270,13 +1283,17 @@ Object.assign(Game.prototype, {
         lbl = '過了一半：按 QB 取消';
       } else if ((kind === 'parry' || kind === 'pqb') && tl && tl.k === 'melee') {
         show = true;
-        // 紅光亮起到刀揮下來之間按都算（MechEntity.atkCue）
+        // 「!」出現（出手前 CUE_LEAD 秒）到刀揮下來之間按都算（MechEntity.atkCue）
         const span = TELE + 0.2;
-        z0 = 0;
+        z0 = (TELE - CUE_LEAD) / span;
         z1 = (TELE + 0.1) / span;
         x = (tl.T - tl.t) / span;
         on = x >= z0 && x <= z1;
-        lbl = kind === 'parry' ? '紅光亮了：按近戰（彈刀）' : '紅光亮了：按 QB（完美迴避）';
+        lbl = !tl.cue
+          ? '假人在預備：等「!」出現'
+          : kind === 'parry'
+            ? '「!」出現了：按近戰（彈刀）'
+            : '「!」出現了：按 QB（完美迴避）';
       } else if (kind === 'bash' && p.shieldHitT > 0) {
         show = true;
         z0 = 0;

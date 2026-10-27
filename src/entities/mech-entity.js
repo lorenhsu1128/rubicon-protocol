@@ -38,7 +38,7 @@ import {
   PQB_LUNGE,
   PQB_SLOW,
   PQB_WIN,
-  CUE_MELEE,
+  CUE_LEAD,
   SHIELD_BASH_T,
   LINK_SHOT_K,
   LINK_SHOT_R,
@@ -840,7 +840,7 @@ export class MechEntity {
       case 'melee':
         {
           const m = this.melee;
-          // 敵人對玩家的近戰：先預備 CUE_MELEE 秒並提示（meleeCueTick 時間到再出手）
+          // 敵人對玩家的近戰：先停 CUE_LEAD 秒並出「!」（meleeCueTick 時間到再出手）
           if (m.cue) return true;
           if (
             !this.pilotEnt() &&
@@ -852,8 +852,8 @@ export class MechEntity {
             targetEnt.pilotEnt &&
             targetEnt.pilotEnt()
           ) {
-            m.cue = { slot, t: CUE_MELEE, te: targetEnt, fx: 0 };
-            this.atkCue(targetEnt, CUE_MELEE, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
+            m.cue = { slot, t: CUE_LEAD, te: targetEnt, fx: 0 };
+            this.atkCue(targetEnt, CUE_LEAD, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
             return true;
           }
           if (m.active && m.slot === slot) {
@@ -1062,13 +1062,22 @@ export class MechEntity {
     this.swing = { l: 0, r: 0 };
   }
   // ---------- 防禦反擊（docs/melee-combo-design.md 第 4 期、「反擊的提示與放寬」）----------
-  // 出招前的提示（敵人）：T＝提示到出手的秒數、post＝出手後還算的秒數（揮刀、子彈飛行）；這段時間內玩家按近戰／QB
-  // 就記下這個敵人（cueArmSet），它這一擊打過來時彈刀／完美迴避。o.quiet＝只記狀態（近戰訓練的假人自己畫預警）
+  // 出招前的提示（敵人）：T＝現在到出手的秒數、post＝出手後還算的秒數（揮刀、子彈飛行）。「!」在出手前 CUE_LEAD 秒
+  // 出現（cueAt，move 每格 cueTick），從那時到這一擊結束前玩家按近戰／QB 就記下這個敵人（cueArmSet），
+  // 它這一擊打過來時彈刀／完美迴避。o.quiet＝只記狀態（近戰訓練的假人自己畫「!」）
   atkCue(tgt, T, post, o = {}) {
     this.cueN = (this.cueN || 0) + 1;
     this.cueTgt = tgt ? tgt.id : -1;
+    this.cueAt = this.t + Math.max(0, T - CUE_LEAD);
+    this.cueRel = this.t + T;
     this.cueUntil = this.t + T + post;
-    if (o.quiet) return;
+    this.cueShow = o.quiet ? 0 : 1; // 1＝「!」還沒出
+    this.cueTick();
+  }
+  // 時間到就出「!」
+  cueTick() {
+    if (this.cueShow !== 1 || this.t < this.cueAt) return;
+    this.cueShow = 0;
     const g = this.game,
       c = this.center();
     g.fx.flash(c, (2.2 * (this.scale || 1)) / g.fx.k, 0xff4030, 0.25);
@@ -1077,14 +1086,14 @@ export class MechEntity {
       g.popDamage(c.clone().add(new THREE.Vector3(0, 2.5 * this.dk, 0)), '!', false, true, false, 0, this.id);
     SFX.play('alarm', 0.4, 1.15, 0.02, 0.02, c);
   }
-  // 出招前的預備中（HUD 的大「!」；快照的 aw 位元 32 給客機）
+  // 招式中斷（失衡、失去權杖）：不出「!」、按了也不算
+  cueCancel() {
+    this.cueShow = 0;
+    this.cueAt = this.cueRel = this.cueUntil = -1;
+  }
+  // 「!」出現到出手（HUD 的大「!」；快照的 aw 位元 32 給客機）
   cueingNow() {
-    const mv = this.sn && this.sn.mv;
-    return !!(
-      (this.melee && this.melee.cue) ||
-      (mv && mv.ph === 'wind' && this.cueUntil > this.t) ||
-      (this.tutD && this.tutD.tele)
-    );
+    return !!this.cueN && this.t >= this.cueAt && this.t <= this.cueRel + 0.1;
   }
   // 敵人近戰的預備（move 每格）：停下來面向目標、紅光閃爍；硬直中暫停，失衡或目標不見就取消；時間到出手
   meleeCueTick(dt, wish) {
@@ -1093,10 +1102,14 @@ export class MechEntity {
       te = C.te;
     if (this.staggerT > 0 || !te || te.dead) {
       m.cue = null;
+      this.cueCancel();
       return wish;
     }
     if (this.hitStunT > 0) {
-      this.cueUntil += dt; // 被打中的硬直期間不算時間
+      // 被打中的硬直期間不算時間
+      this.cueAt += dt;
+      this.cueRel += dt;
+      this.cueUntil += dt;
       return new THREE.Vector3();
     }
     this.aimYaw = Math.atan2(-(te.pos.x - this.pos.x), -(te.pos.z - this.pos.z));
@@ -1117,7 +1130,7 @@ export class MechEntity {
     if (!g.hostilesOfEnt) return;
     const A = this.cueArm || (this.cueArm = { p: new Map(), q: new Map() });
     for (const e of g.hostilesOfEnt(this))
-      if (e.cueN && e.cueTgt === this.id && e.t <= e.cueUntil) A[k].set(e.id, e.cueN);
+      if (e.cueN && e.cueTgt === this.id && e.t >= e.cueAt && e.t <= e.cueUntil) A[k].set(e.id, e.cueN);
   }
   // 這個敵人的這一擊是不是提示中、玩家按過了
   cueArmed(k, from) {
@@ -2029,6 +2042,7 @@ export class MechEntity {
     }
     this.meleeSwipeDir(); // 觸控的滑動派生
     if (this.melee.cue) wish = this.meleeCueTick(dt, wish); // 敵人近戰的預備（提示）
+    if (this.cueShow) this.cueTick(); // 出手前 CUE_LEAD 秒出「!」
     const spd =
       this.stats.speed *
       this.speedMul *

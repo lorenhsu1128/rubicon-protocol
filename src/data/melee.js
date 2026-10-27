@@ -83,10 +83,12 @@ export function meleeKeyDir(x, z) {
   if (up < -0.5) return { k: 'b', side: 0 };
   return { k: 's', side: x >= 0 ? 1 : -1 };
 }
-// 敵人出招前的提示（docs/melee-combo-design.md 的「反擊的提示與放寬」）：一般敵人對玩家的近戰先預備 CUE_MELEE 秒
-// （紅光、「!」、警報），預警招式（data/ai.js 的 MOVES）在準備開始時提示；提示出現後到這一擊結束前，
-// 按近戰＝彈刀、按 QB＝完美迴避（MechEntity.cueArmSet）。CUE_POST＝各預警招式的 [準備秒數, 出手後還算的秒數]
-export const CUE_MELEE = 0.55;
+// 敵人出招前的提示（docs/melee-combo-design.md 的「反擊的提示與放寬」）：紅色「!」（紅光、紅圈、警報、HUD 的大「!」）
+// 在出手前 CUE_LEAD 秒出現，看到就按剛好趕上：一般敵人對玩家的近戰先停 CUE_LEAD 秒（出「!」）再揮刀，
+// 預警招式（data/ai.js 的 MOVES）照原本的預警線，在準備結束（出手）前 CUE_LEAD 秒出「!」。「!」出現後到這一擊結束前
+// 按近戰＝彈刀、按 QB＝完美迴避（MechEntity.cueArmSet），「!」之前按的不算。CUE_POST＝各預警招式的
+// [準備秒數, 出手後還算的秒數]
+export const CUE_LEAD = 0.3;
 export const CUE_POST = {
   burst: [0.45, 1.3],
   aimShot: [0.7, 1.0],

@@ -47,6 +47,7 @@ Object.assign(MechEntity.prototype, {
     const r = { skip: false, ab: false };
     // 失衡、失去權杖（收招以外）時中斷
     if (sn.mv && (this.staggerT > 0 || (!sn.tok && sn.mv.ph !== 'rec'))) {
+      if (sn.mv.ph === 'wind') this.cueCancel();
       sn.mv = null;
       sn.mvCd = rnd(1.2, 2);
     }
@@ -66,7 +67,7 @@ Object.assign(MechEntity.prototype, {
         sn.mvI = (sn.mvI + i + 1) % list.length;
         sn.mv = { k, slot, ph: 'wind', t: 0, fxT: 0 };
         this.moveStart(sn.mv, pl);
-        // 出招前的提示（data/melee.js 的 CUE_POST）：提示中按 QB＝完美迴避
+        // 出招前的提示（data/melee.js 的 CUE_POST）：出手前 CUE_LEAD 秒出「!」，之後按 QB＝完美迴避
         const cp = CUE_POST[k];
         if (cp) this.atkCue(pl, k === 'charge' && this.ai === 'strider' ? 1.1 : cp[0], cp[1]);
         break;
