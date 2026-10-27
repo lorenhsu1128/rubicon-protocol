@@ -9,7 +9,6 @@ import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { DS } from '../core/scale.js';
 import {
-  CUE_LEAD,
   EXEC_HOLD,
   LINK_SHOT_AT,
   QUEUE_AT,
@@ -932,7 +931,7 @@ Object.assign(Game.prototype, {
         e.cueCancel();
       } else {
         D.tele.t -= dt;
-        if (!D.tele.cue && D.tele.t <= CUE_LEAD) {
+        if (!D.tele.cue && D.tele.t <= e.cueLead(p)) {
           D.tele.cue = true;
           this.tutCue(e);
         }
@@ -1005,7 +1004,7 @@ Object.assign(Game.prototype, {
     e.move(dt, wish, false, qb, false, null);
     return true;
   },
-  // 預警：紅光（揮刀）或紅線（開槍）；出手前 CUE_LEAD 秒才出「!」（tutCue）
+  // 預警：紅光（揮刀）或紅線（開槍）；出手前 cueLead 秒才出「!」（tutCue）
   tutTele(e, k) {
     const D = e.tutD;
     D.tele = { k, t: TELE, T: TELE };
@@ -1283,9 +1282,9 @@ Object.assign(Game.prototype, {
         lbl = '過了一半：按 QB 取消';
       } else if ((kind === 'parry' || kind === 'pqb') && tl && tl.k === 'melee') {
         show = true;
-        // 「!」出現（出手前 CUE_LEAD 秒）到刀揮下來之間按都算（MechEntity.atkCue）
+        // 「!」出現（出手前 cueLead 秒）到刀揮下來之間按都算（MechEntity.atkCue）
         const span = TELE + 0.2;
-        z0 = (TELE - CUE_LEAD) / span;
+        z0 = (TELE - e.cueLead(p)) / span;
         z1 = (TELE + 0.1) / span;
         x = (tl.T - tl.t) / span;
         on = x >= z0 && x <= z1;

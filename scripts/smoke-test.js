@@ -14049,8 +14049,8 @@ async function testMeleeCombo(browser, base) {
     foeBlade();
     out.cueOn = !!t.melee.cue && !t.melee.active && t.cueingNow();
     let r0 = foeRun();
-    // 「!」出現後 0.3 秒（CUE_LEAD）就揮刀
-    out.cueSwing = r0.swung && r0.hurt && r0.swingF >= 15 && r0.swingF <= 21;
+    // 「!」出現後 0.33 秒（寬鬆的 lead）就揮刀
+    out.cueSwing = r0.swung && r0.hurt && r0.swingF >= 18 && r0.swingF <= 23;
     out.cueInfo = `「!」${out.cueOn} 出手 ${r0.swung}（第 ${r0.swingF} 格）受傷 ${r0.hurt}`;
     // 提示一出現就按近戰（自己的刀早就揮完了）：敵人的刀還是被彈開
     foeBlade();
@@ -14086,6 +14086,18 @@ async function testMeleeCombo(browser, base) {
     t.cueTick();
     pl.cueArmSet('q');
     out.cueLead = lead0 && t.cueingNow() && pl.cueArmed('q', t);
+    t.cueCancel();
+    // 子彈飛 0.6 秒：「!」在開火（0.5 秒）之後、打到前 0.33 秒；標準的輔助 0.28 秒
+    t.atkCue(pl, 0.5, 1, { travel: 0.6 });
+    t.t += 0.55;
+    t.cueTick();
+    const fly0 = !t.cueingNow();
+    t.t += 0.25;
+    t.cueTick();
+    const ma0 = pl.mAssist;
+    pl.mAssist = 'std';
+    out.cueFly = fly0 && t.cueingNow() && Math.abs(t.cueLead(pl) - 0.28) < 1e-6;
+    pl.mAssist = ma0;
     t.cueCancel();
     // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
     const rb0 = pl.asm.rback;
@@ -14239,11 +14251,12 @@ async function testMeleeCombo(browser, base) {
   check(r.qbIF && r.pqb, '完美 QB：QB 剛開始時躲掉攻擊');
   check(r.pqbImp, '完美 QB 之後的第一下近戰衝擊 ×2');
   check(r.pqbLate, 'QB 開始 0.5 秒之後躲掉的不算完美 QB（PQB_WIN 0.3 秒）');
-  check(r.cueOn && r.cueSwing, `敵人的近戰出「!」後 0.3 秒就揮刀（${r.cueInfo}）`);
+  check(r.cueOn && r.cueSwing, `敵人的近戰出「!」後 0.33 秒就揮刀（${r.cueInfo}）`);
   check(r.cueParry, `提示一出現就按近戰：敵人的刀揮下來時被彈開（${r.cueParryInfo}）`);
   check(r.cuePqb, `提示一出現就按 QB：這一擊完美迴避（${r.cuePqbInfo}）`);
   check(r.cueEarly, '提示出現之前按的 QB 不算完美迴避');
-  check(r.cueLead, '預警招式在出手前 0.3 秒才出「!」：之前按的 QB 不算、之後的算');
+  check(r.cueLead, '預警招式在出手前 0.33 秒才出「!」：之前按的 QB 不算、之後的算');
+  check(r.cueFly, '子彈飛得久時「!」在開火之後、打到前出現；標準的輔助提早 0.28 秒');
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();

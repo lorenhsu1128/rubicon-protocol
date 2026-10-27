@@ -7,10 +7,11 @@
 export const QUEUE_AT = 0.35;
 // 玩家的輸入寬容（設定「近戰輸入輔助」ctrl.meleeAssist，預設寬鬆；近戰訓練一律寬鬆）：
 //   buf＝這一招過了這個比例之後按近戰就記住下一招（先行輸入）；grace＝收招後幾秒內按近戰還是接下一招（不從第一招重來）；
+//   lead＝敵人的紅色「!」比這一擊打到早幾秒（CUE_LEAD 的段落）；
 // 方向派生只看按下近戰那一格按著的方向（meleeKeyDir），沒有前後的時間窗
 export const MELEE_ASSIST = {
-  easy: { buf: 0, grace: 0.35 },
-  std: { buf: 0.15, grace: 0.2 },
+  easy: { buf: 0, grace: 0.35, lead: 0.33 },
+  std: { buf: 0.15, grace: 0.2, lead: 0.28 },
 };
 export const meleeAssist = (k) => MELEE_ASSIST[k] || MELEE_ASSIST.easy;
 // 被近戰打中的硬直（秒）：一般敵人照招式的 stun（沒寫時一般 0.32、終結技 0.6）；敵對 AC 最多 0.12；Boss 沒有
@@ -84,10 +85,10 @@ export function meleeKeyDir(x, z) {
   return { k: 's', side: x >= 0 ? 1 : -1 };
 }
 // 敵人出招前的提示（docs/melee-combo-design.md 的「反擊的提示與放寬」）：紅色「!」（紅光、紅圈、警報、HUD 的大「!」）
-// 在出手前 CUE_LEAD 秒出現，看到就按剛好趕上：一般敵人對玩家的近戰先停 CUE_LEAD 秒（出「!」）再揮刀，
-// 預警招式（data/ai.js 的 MOVES）照原本的預警線，在準備結束（出手）前 CUE_LEAD 秒出「!」。「!」出現後到這一擊結束前
-// 按近戰＝彈刀、按 QB＝完美迴避（MechEntity.cueArmSet），「!」之前按的不算。CUE_POST＝各預警招式的
-// [準備秒數, 出手後還算的秒數]
+// 在這一擊打到前 lead 秒出現（目標玩家的 MELEE_ASSIST 的 lead；不是玩家時 CUE_LEAD），看到就按剛好趕上：
+// 一般敵人對玩家的近戰先停 lead 秒（出「!」）再揮刀；預警招式（data/ai.js 的 MOVES）照原本的預警線，
+// 「!」對著子彈飛到（或衝到）的時間，飛得久的在開火之後才出。「!」出現後到這一擊結束前按近戰＝彈刀、
+// 按 QB＝完美迴避（MechEntity.cueArmSet），「!」之前按的不算。CUE_POST＝各預警招式的 [準備秒數, 出手後還算的秒數]
 export const CUE_LEAD = 0.3;
 export const CUE_POST = {
   burst: [0.45, 1.3],

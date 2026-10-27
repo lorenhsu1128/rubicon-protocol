@@ -852,8 +852,9 @@ export class MechEntity {
             targetEnt.pilotEnt &&
             targetEnt.pilotEnt()
           ) {
-            m.cue = { slot, t: CUE_LEAD, te: targetEnt, fx: 0 };
-            this.atkCue(targetEnt, CUE_LEAD, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
+            const lead = this.cueLead(targetEnt);
+            m.cue = { slot, t: lead, te: targetEnt, fx: 0 };
+            this.atkCue(targetEnt, lead, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
             return true;
           }
           if (m.active && m.slot === slot) {
@@ -1062,15 +1063,22 @@ export class MechEntity {
     this.swing = { l: 0, r: 0 };
   }
   // ---------- 防禦反擊（docs/melee-combo-design.md 第 4 期、「反擊的提示與放寬」）----------
-  // 出招前的提示（敵人）：T＝現在到出手的秒數、post＝出手後還算的秒數（揮刀、子彈飛行）。「!」在出手前 CUE_LEAD 秒
-  // 出現（cueAt，move 每格 cueTick），從那時到這一擊結束前玩家按近戰／QB 就記下這個敵人（cueArmSet），
-  // 它這一擊打過來時彈刀／完美迴避。o.quiet＝只記狀態（近戰訓練的假人自己畫「!」）
+  // 「!」比打到早幾秒：目標玩家的近戰輸入輔助（寬鬆 0.33、標準 0.28），其他 CUE_LEAD
+  cueLead(tgt) {
+    const A = tgt && tgt.meleeA && tgt.meleeA();
+    return A && A.lead ? A.lead : CUE_LEAD;
+  }
+  // 出招前的提示（敵人）：T＝現在到出手的秒數、post＝出手後還算的秒數（揮刀、子彈飛行）、o.travel＝出手到打到的秒數
+  // （子彈飛行、衝過去）。「!」在打到前 cueLead 秒出現（cueAt，move 每格 cueTick；飛得久的在出手之後），
+  // 從那時到這一擊結束前玩家按近戰／QB 就記下這個敵人（cueArmSet），它這一擊打過來時彈刀／完美迴避。
+  // o.quiet＝只記狀態（近戰訓練的假人自己畫「!」）
   atkCue(tgt, T, post, o = {}) {
+    const hit = T + (o.travel || 0);
     this.cueN = (this.cueN || 0) + 1;
     this.cueTgt = tgt ? tgt.id : -1;
-    this.cueAt = this.t + Math.max(0, T - CUE_LEAD);
-    this.cueRel = this.t + T;
-    this.cueUntil = this.t + T + post;
+    this.cueAt = this.t + Math.max(0, hit - this.cueLead(tgt));
+    this.cueRel = this.t + hit; // 打到
+    this.cueUntil = this.t + Math.max(T + post, hit + 0.3);
     this.cueShow = o.quiet ? 0 : 1; // 1＝「!」還沒出
     this.cueTick();
   }
@@ -1091,7 +1099,7 @@ export class MechEntity {
     this.cueShow = 0;
     this.cueAt = this.cueRel = this.cueUntil = -1;
   }
-  // 「!」出現到出手（HUD 的大「!」；快照的 aw 位元 32 給客機）
+  // 「!」出現到打到（HUD 的大「!」；快照的 aw 位元 32 給客機）
   cueingNow() {
     return !!this.cueN && this.t >= this.cueAt && this.t <= this.cueRel + 0.1;
   }
@@ -2042,7 +2050,7 @@ export class MechEntity {
     }
     this.meleeSwipeDir(); // 觸控的滑動派生
     if (this.melee.cue) wish = this.meleeCueTick(dt, wish); // 敵人近戰的預備（提示）
-    if (this.cueShow) this.cueTick(); // 出手前 CUE_LEAD 秒出「!」
+    if (this.cueShow) this.cueTick(); // 打到前 cueLead 秒出「!」
     const spd =
       this.stats.speed *
       this.speedMul *

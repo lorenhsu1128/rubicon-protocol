@@ -67,9 +67,12 @@ Object.assign(MechEntity.prototype, {
         sn.mvI = (sn.mvI + i + 1) % list.length;
         sn.mv = { k, slot, ph: 'wind', t: 0, fxT: 0 };
         this.moveStart(sn.mv, pl);
-        // 出招前的提示（data/melee.js 的 CUE_POST）：出手前 CUE_LEAD 秒出「!」，之後按 QB＝完美迴避
+        // 出招前的提示（data/melee.js 的 CUE_POST）：打到前 cueLead 秒出「!」，之後按 QB＝完美迴避
         const cp = CUE_POST[k];
-        if (cp) this.atkCue(pl, k === 'charge' && this.ai === 'strider' ? 1.1 : cp[0], cp[1]);
+        if (cp)
+          this.atkCue(pl, k === 'charge' && this.ai === 'strider' ? 1.1 : cp[0], cp[1], {
+            travel: this.cueTravel(k, slot, pl),
+          });
         break;
       }
       if (!sn.mv) return null;
@@ -85,6 +88,18 @@ Object.assign(MechEntity.prototype, {
       sn.mvCd = mv.cd !== undefined ? mv.cd : rnd(1.2, 2.2);
     }
     return r;
+  },
+  // 出手到打到目標的估計秒數（「!」對著打到的時間）：子彈＝距離／彈速、雷射 0、衝刺與自爆＝衝過去的時間、
+  // 直升機掃射＝飛到目標前方的時間
+  cueTravel(k, slot, pl) {
+    const d = this.pos.distanceTo(pl.pos);
+    const ab = Math.max(1, this.stats.speed * (this.speedMul || 1) * 2.2);
+    if (k === 'dash') return Math.max(0, d - 10 * DS) / ab + 0.15;
+    if (k === 'beep') return Math.max(0, d - 4 * this.dk) / ab + 0.15;
+    if (k === 'strafeRun') return Math.max(0, d - 12 * DS) / ab + 0.15;
+    const w = slot !== 'none' && this.weapons[slot];
+    if (!w || w.def.type === 'laser' || !w.def.speed) return 0;
+    return Math.min(d, w.def.range || d) / w.def.speed;
   },
   moveStart(mv, pl) {
     const g = this.game;
