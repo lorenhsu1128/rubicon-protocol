@@ -1210,7 +1210,7 @@ select {
   font-weight: 400;
 }
 #pHex {
-  width: 200px;
+  width: 310px;
   margin: 0 auto 4px;
 }
 #pHex .hxL.up {
@@ -1344,7 +1344,10 @@ select {
   color: var(--ink);
 }
 .pPHex {
-  width: 46px;
+  width: 62px;
+}
+.pPHex .hxL {
+  font-size: 11px;
 }
 .pPS {
   font-family: 'Chakra Petch', sans-serif;
@@ -6039,6 +6042,27 @@ select:disabled option {
   fill: none;
   stroke: rgba(255, 255, 255, 0.1);
   stroke-width: 0.4;
+}
+.hexSvg .hxG3 {
+  fill: var(--acc);
+}
+/* 駕駛員畫面：灰＝沒有配點的機體（不透明、蓋在上面），露出來的黃色帶＝配點的加成 */
+.hexSvg .hxBase {
+  fill: #2b3239;
+  stroke: rgba(200, 210, 220, 0.7);
+  stroke-width: 0.6;
+}
+.hexSvg .hxCur.gain {
+  fill: rgba(255, 176, 32, 0.85);
+  stroke: #ffd27a;
+  stroke-width: 1;
+  filter: drop-shadow(0 0 2px rgba(255, 176, 32, 0.8));
+}
+#pHex .hxL {
+  font-size: 9px;
+}
+#pHex .hxV {
+  font-size: 6px;
 }
 .hexSvg .hxCur {
   fill: rgba(255, 176, 32, 0.25);

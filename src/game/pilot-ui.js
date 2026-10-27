@@ -4,7 +4,7 @@ import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { effectiveAp } from '../data/firepower.js';
-import { SLOTS, asmStats, jumpSpec, partById } from '../data/parts.js';
+import { SLOTS, START_ASM, asmStats, jumpSpec, partById } from '../data/parts.js';
 import {
   WEAPON_IDS,
   applyPilotStats,
@@ -23,17 +23,14 @@ import {
   xpProgress,
 } from '../data/pilot.js';
 import { BRANCHES, PROF_MAX, SKILLS, TIER_REQ, skillView } from '../data/skills.js';
-import { radarSvg } from '../render/garage-charts.js';
+import { hexScores } from '../data/garage-hex.js';
+import { hexSvg } from '../render/garage-charts.js';
 import { partIcon } from '../render/garage-icons.js';
 import { branchIcon, skillIcon } from '../render/pilot-icons.js';
 import { Game } from './game.js';
 
 const MODE_NAME = { pve: 'PvE', pvp: 'PvP' };
 const HOLD = 0.45; // 按住幾秒投一點
-const BR_MAX = Object.fromEntries(
-  BRANCHES.map((b) => [b.id, SKILLS.filter((s) => s.br === b.id).reduce((a, s) => a + s.max, 0)]),
-);
-const AXES = BRANCHES.map((b) => [b.id, b.name]);
 const fmt = (v) => Math.round(v).toLocaleString();
 // 機體數值：[鍵, 名稱, 格式, 越小越好, 會影響它的技能效果]
 const STAT_ROWS = [
@@ -392,7 +389,7 @@ Object.assign(Game.prototype, {
     let last = performance.now();
     const tick = (now) => {
       if (this.pHoldId !== id || !this.pilotOn()) return;
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt = Math.min(0.5, (now - last) / 1000); // 照實際經過的時間（畫面卡住時也不會變慢）
       last = now;
       this.pHoldT += dt;
       if (this.pHoldT >= HOLD) {
@@ -508,15 +505,12 @@ Object.assign(Game.prototype, {
     const cur = this.pilotStatVals(this.pilotMods(P.skills));
     const nxt = nx ? this.pilotStatVals(this.pilotMods(nx)) : null;
     const fx = s ? Object.keys(skillView(s, this.pilotMode || 'pve').fx) : [];
-    // 分支點數的六角圖
-    const brPts = (sk) =>
-      Object.fromEntries(
-        BRANCHES.map((b) => [
-          b.id,
-          SKILLS.filter((x) => x.br === b.id).reduce((a, x) => a + (sk[x.id] || 0), 0) / BR_MAX[b.id],
-        ]),
-      );
-    document.getElementById('pHex').innerHTML = radarSvg(AXES, brPts(P.skills), nx ? brPts(nx) : null);
+    // 機體的六角性能圖（data/garage-hex.js，和機甲庫的規格頁同一套）：灰＝沒有配點、黃＝目前、虛線＝投點之後
+    const asm = this.save.asm;
+    const hBase = hexScores(asm, this.pilotMods({})),
+      hCur = hexScores(asm, this.pilotMods(P.skills)),
+      hNx = nx ? hexScores(asm, this.pilotMods(nx)) : null;
+    document.getElementById('pHex').innerHTML = hexSvg(hCur, hNx, true, hBase);
     // 條：灰＝沒有配點、黃＝配點的加成、綠＝投點之後再多的（全長＝沒有配點的 1.4 倍；越小越好的看倒數）
     const rows = STAT_ROWS.map(([k, name, f, low, keys]) => {
       const b = base[k],
@@ -565,14 +559,9 @@ Object.assign(Game.prototype, {
       }
       const w = (k) => partById('arm', pr.asm[k]);
       const sk = pr.skills || {};
-      const brP = Object.fromEntries(
-        BRANCHES.map((b) => [
-          b.id,
-          SKILLS.filter((x) => x.br === b.id).reduce((a, x) => a + (sk[x.id] || 0), 0) / BR_MAX[b.id],
-        ]),
-      );
+      const hx = hexScores({ ...START_ASM, ...pr.asm }, this.pilotMods(sk)); // 這組的機體＋配點
       card.innerHTML =
-        `<button class="pLoad" title="載入「${escHtml(pr.name)}」"><span class="pPN">0${i + 1}</span><span class="pPW">${partIcon('arm', w('rarm'))}${partIcon('arm', w('larm'))}</span><span class="pPHex">${radarSvg(AXES, brP, null, true)}</span><span class="pPS">${spentPoints(sk)} 點</span></button>` +
+        `<button class="pLoad" title="載入「${escHtml(pr.name)}」"><span class="pPN">0${i + 1}</span><span class="pPW">${partIcon('arm', w('rarm'))}${partIcon('arm', w('larm'))}</span><span class="pPHex">${hexSvg(hx, null, false)}</span><span class="pPS">${spentPoints(sk)} 點</span></button>` +
         `<input class="pName" maxlength="16" placeholder="預設組 ${i + 1}">` +
         `<div class="pPBtns"><button class="pSave" title="用目前的機體與配點覆蓋">覆蓋</button><button class="pClr" title="清除">×</button></div>`;
       const name = card.querySelector('.pName');

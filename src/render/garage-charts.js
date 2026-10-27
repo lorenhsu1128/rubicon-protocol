@@ -3,8 +3,9 @@ import { HEX_AXES } from '../data/garage-hex.js';
 
 const fmt = (v) => Math.round(v).toLocaleString();
 
-// 六角圖（SVG）：cur、prev＝hexScores 的結果（prev 可以是 null）；big＝規格頁的大圖（標出數值）
-export function hexSvg(cur, prev, big) {
+// 六角圖（SVG）：cur、prev＝hexScores 的結果（prev 可以是 null）；big＝規格頁的大圖（標出數值）；
+// base＝比較用的底（駕駛員畫面：沒有配點時的機體，灰色）
+export function hexSvg(cur, prev, big, base) {
   const R = 40,
     pt = (i, s) => {
       const a = -Math.PI / 2 + (i * Math.PI) / 3;
@@ -31,6 +32,25 @@ export function hexSvg(cur, prev, big) {
     stab: fmt(raw.stab),
     range: Math.round(raw.lock) + ' m',
   };
+  // 和 base 比的增加比例（駕駛員的加成）
+  const gain = (k) => {
+    if (!base) return 0;
+    const r = (a, b0) => (b0 > 0 ? a / b0 : 1);
+    const B = base.raw;
+    const g =
+      k === 'fire'
+        ? r(raw.fire, B.fire)
+        : k === 'armor'
+          ? r(raw.armor, B.armor)
+          : k === 'mobi'
+            ? (r(raw.speed, B.speed) + r(raw.qb, B.qb)) / 2
+            : k === 'en'
+              ? (r(raw.cap, B.cap) + r(raw.rec, B.rec)) / 2
+              : k === 'stab'
+                ? r(raw.stab, B.stab)
+                : r(raw.lock, B.lock);
+    return Math.round((g - 1) * 100);
+  };
   const labels = HEX_AXES.map(([k, n], i) => {
     const a = -Math.PI / 2 + (i * Math.PI) / 3;
     const x = Math.cos(a) * (R + 9),
@@ -40,14 +60,15 @@ export function hexSvg(cur, prev, big) {
     const dc = Math.abs(d) < 0.005 ? '' : d > 0 ? ' up' : ' dn';
     return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anc}" class="hxL${dc}">${n}</text>${
       big
-        ? `<text x="${x.toFixed(1)}" y="${(y + 6).toFixed(1)}" text-anchor="${anc}" class="hxV">${val[k]}</text>`
+        ? `<text x="${x.toFixed(1)}" y="${(y + 6).toFixed(1)}" text-anchor="${anc}" class="hxV">${val[k]}${gain(k) ? `<tspan class="hxG3"> +${gain(k)}%</tspan>` : ''}</text>`
         : ''
     }`;
   }).join('');
   return `<svg viewBox="${big ? '-80 -62 160 128' : '-74 -58 148 116'}" class="hexSvg" aria-hidden="true">
     <polygon points="${ring(1)}" class="hxG"/><polygon points="${ring(0.66)}" class="hxG2"/><polygon points="${ring(0.33)}" class="hxG2"/>
     ${HEX_AXES.map((_, i) => `<line x1="0" y1="0" x2="${pt(i, 1)[0].toFixed(1)}" y2="${pt(i, 1)[1].toFixed(1)}" class="hxG2"/>`).join('')}
-    <polygon points="${poly(cur)}" class="hxCur"/>
+    <polygon points="${poly(cur)}" class="hxCur${base ? ' gain' : ''}"/>
+    ${base ? `<polygon points="${poly(base)}" class="hxBase"/>` : ''}
     ${prev ? `<polygon points="${poly(prev)}" class="hxPrev"/>` : ''}
     ${labels}</svg>`;
 }

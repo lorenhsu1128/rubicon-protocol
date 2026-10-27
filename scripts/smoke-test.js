@@ -4823,10 +4823,18 @@ async function testPilot(browser, base) {
   const cls = (id) => page.getAttribute(`.pNode[data-skill="${id}"]`, 'class');
   const rank = async (id) => parseInt(await page.textContent(`.pNode[data-skill="${id}"] .pRk`), 10);
   // 按住節點投點（docs/pilot-ui.md）：按住 0.45 秒一點
-  const hold = async (id, ms) => {
+  // 按住到級數變成 to 就放開（負載高時 requestAnimationFrame 不準，不用固定的等待時間；最多 6 秒）
+  const hold = async (id, to) => {
     await page.hover(`.pNode[data-skill="${id}"]`);
     await page.mouse.down();
-    await wait(ms);
+    await page
+      .waitForFunction(
+        ([id, to]) =>
+          parseInt(document.querySelector(`.pNode[data-skill="${id}"] .pRk`).textContent, 10) >= to,
+        [id, to],
+        { timeout: 6000, polling: 16 },
+      )
+      .catch(() => {});
     await page.mouse.up();
   };
   check((await cls('g_mag')).includes('locked'), 'T2 技能在前段未投點時鎖定');
@@ -4846,9 +4854,20 @@ async function testPilot(browser, base) {
     prev.hot && prev.to && prev.info.includes('AP'),
     `機體數值的預覽：AP 列標亮並顯示投點之後（${prev.info.trim().slice(0, 30)}）`,
   );
-  await hold('a_ap', 650);
-  check((await ptsLeft(page)) === before - 1 && (await rank('a_ap')) === 1, '按住 0.65 秒投 1 點');
-  await hold('a_ap', 1150);
+  // 六角圖是機體的性能（和機甲庫同一套）：灰＝沒有配點、實線＝目前、虛線＝再投一點之後
+  const hx = await page.evaluate(() => ({
+    base: !!document.querySelector('#pHex .hxBase'),
+    cur: !!document.querySelector('#pHex .hxCur'),
+    prev: !!document.querySelector('#pHex .hxPrev'),
+    axes: [...document.querySelectorAll('#pHex .hxL')].map((t) => t.textContent).join(''),
+  }));
+  check(
+    hx.base && hx.cur && hx.prev && hx.axes.includes('火力') && hx.axes.includes('裝甲'),
+    `駕駛員的六角圖是機體性能（${hx.axes}）`,
+  );
+  await hold('a_ap', 1);
+  check((await ptsLeft(page)) === before - 1 && (await rank('a_ap')) === 1, '按住投 1 點');
+  await hold('a_ap', 3);
   check((await rank('a_ap')) === 3, `繼續按住連續投點（追加裝甲 ${await rank('a_ap')}／3）`);
   check(!(await cls('a_def')).includes('locked'), '前段投滿 3 點後 T2 解鎖');
   await page.click('.pNode[data-skill="a_ap"]', { button: 'right' });
@@ -4857,7 +4876,17 @@ async function testPilot(browser, base) {
   check((await rank('a_ap')) === 1, '詳細列的「退一點」');
   // 手把：焦點在節點上按住 A 投點、X 退點（pad-ui.js 的 padHold／padDec）
   await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padHold(true));
-  await wait(650);
+  // 投下第一點就放開（負載高時 requestAnimationFrame 不準，不用固定的等待時間）
+  await page
+    .waitForFunction(
+      () => document.querySelector('.pNode[data-skill="v_spd"] .pRk').textContent.startsWith('1/'),
+      null,
+      {
+        timeout: 5000,
+        polling: 16,
+      },
+    )
+    .catch(() => {});
   await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padHold(false));
   const padIn = await rank('v_spd');
   await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padDec());
