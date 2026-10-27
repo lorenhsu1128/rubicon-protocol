@@ -130,6 +130,16 @@ Object.assign(Game.prototype, {
       e.setAim(ap0);
       e.fpFace = !!inp.fp;
       e.mAssist = inp.ma ? 'std' : 'easy'; // 客機的「近戰輸入輔助」（data/melee.js 的 MELEE_ASSIST）
+      {
+        // 客機按著的方向鍵（方向派生，data/melee.js 的 meleeKeyDir）
+        const mk = typeof inp.mk === 'string' ? inp.mk : '';
+        const c = mk[0] || '';
+        e.inKey = {
+          k: c === 'l' || c === 'r' ? 's' : c === 'f' || c === 'b' ? c : '',
+          side: c === 'r' ? 1 : c === 'l' ? -1 : 0,
+          sw: mk[1] === '!',
+        };
+      }
       const qb = !!(b & 32) && !e._qbHeld;
       e._qbHeld = !!(b & 32);
       // 跳躍的按下以次數判斷（客機每次按下加 1），不從按住狀態推算

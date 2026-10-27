@@ -172,13 +172,17 @@ Object.assign(Game.prototype, {
       wish.copy(this.touchMove);
       if (wish.length() > 1) wish.normalize();
     }
+    // 方向派生看按鍵本身的方向（上＝前、下＝後、左右＝側；近戰訓練的示範從世界方向換回按鍵）
+    if (this.tutVirt && this.tutVirt.wish && this.tutVirt.wish.lengthSq() > 0.01) {
+      const [ax, az] = this.tutAxes(this.tutVirt.wish.clone().normalize());
+      p.inKey = this.meleeInKey(ax, az);
+    } else p.inKey = this.meleeInKey(wish.x, wish.z);
     if ((this.ctrl.moveRel === 'mech' || this.camAim()) && wish.lengthSq() > 0) {
       const yy = this.camAim() ? this.fpYaw : p.yaw;
       const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy)),
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
     } // 機體相對方向
-    wish = this.swipeWish(wish); // 觸控：攻擊鍵上的滑動＝方向派生（input.js）
     if (this.tutVirt && this.tutVirt.wish) wish = this.tutVirt.wish.clone(); // 近戰訓練的示範（game/tutorial.js）
     const qb = this.act('qb');
     if (qb) {

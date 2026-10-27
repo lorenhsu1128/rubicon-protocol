@@ -589,13 +589,13 @@ Object.assign(Game.prototype, {
       wish.copy(this.touchMove);
       if (wish.length() > 1) wish.normalize();
     }
+    const mk = this.meleeInKey(wish.x, wish.z); // 方向派生的按鍵方向（送給房主）
     if ((this.ctrl.moveRel === 'mech' || this.camAim()) && wish.lengthSq() > 0) {
       const yy = this.camAim() ? this.fpYaw : p.yaw;
       const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy)),
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
     }
-    wish = this.swipeWish(wish); // 觸控：攻擊鍵上的滑動＝方向派生（照一般的移動輸入送給房主）
     const qbHeld = this.act('qb');
     const qbEdge = qbHeld && !this._qbPrev;
     this._qbPrev = qbHeld;
@@ -648,6 +648,8 @@ Object.assign(Game.prototype, {
       kit: this.kitPressed ? 1 : 0,
       nx: this.ctrl.exec === 'off' ? 1 : 0, // 處決關閉（長按近戰＝一般近戰）
       ma: this.ctrl.meleeAssist === 'std' ? 1 : 0, // 近戰輸入輔助：標準（預設寬鬆）
+      // 方向派生：'' 中立、f 前、b 後、l／r 側，後面加 ! ＝觸控的滑動
+      mk: (mk.k === 's' ? (mk.side > 0 ? 'r' : 'l') : mk.k) + (mk.sw ? '!' : ''),
       cs1: this.cs1Pressed ? 1 : 0,
       cs2: this.cs2Pressed ? 1 : 0,
       csIds: cs,

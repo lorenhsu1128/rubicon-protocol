@@ -7,17 +7,12 @@
 export const QUEUE_AT = 0.35;
 // 玩家的輸入寬容（設定「近戰輸入輔助」ctrl.meleeAssist，預設寬鬆；近戰訓練一律寬鬆）：
 //   buf＝這一招過了這個比例之後按近戰就記住下一招（先行輸入）；grace＝收招後幾秒內按近戰還是接下一招（不從第一招重來）；
-//   dirWin＝方向派生看按下近戰前後幾秒內推過的方向（按下時沒推方向：用之前推過的；按下後才推：下一招出手前改成派生）
+// 方向派生只看按下近戰那一格按著的方向（meleeKeyDir），沒有前後的時間窗
 export const MELEE_ASSIST = {
-  easy: { buf: 0, grace: 0.35, dirWin: 0.25 },
-  std: { buf: 0.15, grace: 0.2, dirWin: 0.15 },
+  easy: { buf: 0, grace: 0.35 },
+  std: { buf: 0.15, grace: 0.2 },
 };
 export const meleeAssist = (k) => MELEE_ASSIST[k] || MELEE_ASSIST.easy;
-// 起手的方向（玩家）：按下近戰先「預備」MELEE_PRE_T 秒（停住、面向目標），這段時間推的方向決定起手；
-// 按下之前推的方向只有「剛推、還沒開始移動」的那一下算（按住超過 MOVE_DELAY 秒＝在走路，不算）
-export const MELEE_PRE_T = 0.1;
-// 近戰距離內（鎖定的目標在第一招搆得到的距離）方向要按住超過 MOVE_DELAY 秒才開始移動：方向＋近戰時機體不會先退開
-export const MOVE_DELAY = 0.12;
 // 被近戰打中的硬直（秒）：一般敵人照招式的 stun（沒寫時一般 0.32、終結技 0.6）；敵對 AC 最多 0.12；Boss 沒有
 export const STUN_BASE = 0.32,
   STUN_FIN = 0.6,
@@ -78,18 +73,15 @@ export function meleeAll(d) {
 export function meleeChainPos(d, i) {
   return d && d.combo && i >= 0 && i < d.combo.length ? i : -1;
 }
-// 方向派生：按下近戰那一格的移動輸入（世界 xz）相對於目標方向（世界 xz，單位向量）
-// 回傳 { k: ''｜'f'｜'s'｜'b', side: ±1（側：往目標的右邊＝+1） }
-export function meleeDir(wx, wz, tx, tz) {
-  const l = Math.hypot(wx, wz);
+// 方向派生（玩家）：按鍵／搖桿本身的方向（輸入軸：x＝右、z＝下，換成世界方向之前），和目標在哪裡無關：
+// 上＝前、下＝後、左右＝側（各 ±60°；斜上、斜下算前、後）；side＝+1 右、−1 左
+export function meleeKeyDir(x, z) {
+  const l = Math.hypot(x, z);
   if (l < 0.3) return { k: '', side: 0 };
-  const fx = wx / l,
-    fz = wz / l;
-  const f = fx * tx + fz * tz,
-    s = fx * -tz + fz * tx; // 目標方向 (tx, tz) 的右邊＝(−tz, tx)
-  if (f > 0.5) return { k: 'f', side: 0 }; // 前、後各 ±60°，其餘是側
-  if (f < -0.5) return { k: 'b', side: 0 };
-  return { k: 's', side: s >= 0 ? 1 : -1 };
+  const up = -z / l;
+  if (up > 0.5) return { k: 'f', side: 0 };
+  if (up < -0.5) return { k: 'b', side: 0 };
+  return { k: 's', side: x >= 0 ? 1 : -1 };
 }
 // 被打的硬直（秒）：kind＝'boss'｜'ace'｜''（一般）
 export function meleeStun(st, kind) {

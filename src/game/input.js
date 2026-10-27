@@ -1,12 +1,12 @@
 // Game：鍵盤／滑鼠、手把、觸控虛擬搖桿與震動
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
-import { LUNGE_K } from '../data/melee.js';
+import { LUNGE_K, meleeKeyDir } from '../data/melee.js';
 import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
 const SWIPE_PX = 26; // 攻擊鍵上滑動多遠算方向派生（px）
-const SWIPE_N = 4; // 滑動換成幾格的方向輸入（比 MOVE_DELAY 短：近戰距離內不會移動）
+const SWIPE_N = 4; // 滑動當成幾格的方向鍵（只給方向派生，不移動）
 
 Object.assign(Game.prototype, {
   // ---------- 自訂按鍵 ----------
@@ -337,25 +337,20 @@ Object.assign(Game.prototype, {
     document.getElementById('hud').addEventListener('touchstart', tapLock, { passive: true });
   },
   // 智慧攻擊鍵：射擊 ↔ 近戰 自動切換；肩部鍵＝雙背齊射；QB 長按＝突擊；自動攻擊
-  // 攻擊鍵上的滑動 → 一個朝目標的短暫方向輸入（swipePulse，SWIPE_N 格；swipeWish 換掉這幾格的移動輸入）：
-  // 起手的預備與近戰距離內的移動延遲讓機體不動，多人時照一般的移動輸入送給房主
+  // 攻擊鍵上的滑動 → SWIPE_N 格的方向鍵（swipePulse；只給方向派生，機體不移動）
   touchSwipe(k, side) {
-    const p = this.player;
-    if (!p || p.dead) return;
-    const t = p.lock && !p.lock.dead ? p.lock : null;
-    const f = t
-      ? new THREE.Vector3(t.pos.x - p.pos.x, 0, t.pos.z - p.pos.z)
-      : new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-    if (f.lengthSq() < 1e-4) f.set(0, 0, -1);
-    f.normalize();
-    const v = k === 'f' ? f : k === 'b' ? f.negate() : new THREE.Vector3(-f.z * side, 0, f.x * side);
-    this.swipePulse = { v, n: SWIPE_N };
+    if (!this.player || this.player.dead) return;
+    this.swipePulse = { k, side, n: SWIPE_N };
   },
-  swipeWish(wish) {
+  // 方向派生的方向（data/melee.js 的 meleeKeyDir）：這一格的移動輸入在換成世界方向之前（輸入軸 x＝右、z＝下）；
+  // 觸控滑動的那幾格換成滑動的方向（sw：按下攻擊之後才滑完，MechEntity.meleeSwipeDir 改成派生）
+  meleeInKey(x, z) {
     const S = this.swipePulse;
-    if (!S || S.n <= 0) return wish;
-    S.n--;
-    return S.v.clone();
+    if (S && S.n > 0) {
+      S.n--;
+      return { k: S.k, side: S.k === 's' ? S.side : 0, sw: true };
+    }
+    return meleeKeyDir(x, z);
   },
   applySmartAttack(p, dt) {
     const d = this.down;

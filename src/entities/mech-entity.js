@@ -42,8 +42,6 @@ import {
   LINK_SHOT_K,
   LINK_SHOT_R,
   LUNGE_K,
-  MELEE_PRE_T,
-  MOVE_DELAY,
   QB_RESUME_MAX,
   QUEUE_AT,
   RESUME_T,
@@ -52,7 +50,6 @@ import {
   SWAP_MAX,
   comboDecay,
   meleeAssist,
-  meleeDir,
   meleeIdx,
   meleeMove,
   meleeNext,
@@ -106,6 +103,8 @@ function scaleJump(J, k) {
     maxH: J.maxH * k,
   };
 }
+const NO_KEY = { k: '', side: 0 };
+
 export class MechEntity {
   constructor(game, asm, pal, opts = {}) {
     this.game = game;
@@ -839,7 +838,6 @@ export class MechEntity {
       case 'melee':
         {
           const m = this.melee;
-          if (m.pre) return true; // 起手的預備中
           if (m.active && m.slot === slot) {
             // 排入下一招：依按下這一格的方向（方向派生，data/melee.js）
             const cur = meleeMove(d, m.stage);
@@ -850,8 +848,7 @@ export class MechEntity {
               const nx = meleeNext(d, m.stage, k);
               if (nx >= 0) {
                 m.queued = nx;
-                m.qT = this.t; // 按下時沒推方向：之後 dirWin 秒內推的方向還算（move）
-                m.qDir = k;
+                m.qDir = k; // 按下時沒推方向：觸控之後的滑動還能改成派生（meleeSwipeDir）
               }
               this.tutE('press', { queue: true });
             } else this.tutE('early', { st: cur });
@@ -889,20 +886,6 @@ export class MechEntity {
             this.startMeleeStage(slot, R.next, targetPos, targetEnt || R.target, false);
             this.melee.qbN = R.n;
             this.tutE('resume', {});
-          } else if (
-            this.meleeA() &&
-            this.grounded &&
-            !(this.abT > 0) &&
-            !(this.shield && this.shieldHitT > 0)
-          ) {
-            // 起手的預備（玩家，地面的一般起手）：MELEE_PRE_T 秒內推的方向決定起手（meleePreTick）
-            this.melee.pre = {
-              slot,
-              t: MELEE_PRE_T,
-              tp: targetPos ? targetPos.clone() : this.center(),
-              te: targetEnt,
-              k: this.meleeFreshDir(),
-            };
           } else this.meleeGo(slot, this.meleeStartIdx(d, slot), targetPos, targetEnt);
         }
         break;
@@ -990,14 +973,9 @@ export class MechEntity {
     }
     SFX.play('hit3', 0.6, 0.7, 0.05, 0.03, this.isPlayer ? null : this.center());
   }
-  // 方向派生的方向（data/melee.js 的 meleeDir）：這一格的移動輸入相對於目標方向（ref＝目標方向，沒有時用鎖定或機體正面）
-  meleeDirKey(ref) {
-    let w = this.moveWish;
-    // 方向的寬容（玩家）：這一格沒推方向時，用 dirWin 秒內最後推過的方向
-    const A = this.meleeA();
-    if (A && (!w || w.lengthSq() < 0.09) && this.wishMem && this.t - this.wishMem.t <= A.dirWin)
-      w = this.wishMem;
-    return this.dirKeyOf(w, ref);
+  // 方向派生的方向（玩家）：這一格按著的方向鍵本身（data/melee.js 的 meleeKeyDir；player.js／mp-host.js 設定 inKey）
+  meleeDirKey() {
+    return (this.pilotEnt() && this.inKey) || NO_KEY;
   }
   // 起手招（玩家）：突擊推進中＝衝刺斬（dashMove）、空中＝空中連段（airMoves）、方向派生的起手（start）；其他＝第 1 招
   // k＝起手的方向（沒給時看這一格的方向）
@@ -1014,7 +992,7 @@ export class MechEntity {
     if (k && d.start && d.start[k] !== undefined && pick(d.start[k]) >= 0) return pick(d.start[k]);
     return 0;
   }
-  // 出起手招（記下中立起手：之後 dirWin 秒內推的方向還能改成方向起手，meleeLateDir）
+  // 出起手招（記下中立起手：觸控之後的滑動還能改成方向起手，meleeSwipeDir）
   meleeGo(slot, si, targetPos, targetEnt, k = '') {
     this.startMeleeStage(slot, si, targetPos, targetEnt);
     const m = this.melee;
@@ -1022,83 +1000,23 @@ export class MechEntity {
     m.sT = this.t;
     m.sStage = si;
   }
-  // 方向（世界 xz）相對目標的派生方向（data/melee.js 的 meleeDir；ref＝參考方向，沒有時用目標或機體正面）
-  dirKeyOf(w, ref) {
-    if (!w || w.x * w.x + w.z * w.z < 0.09) return { k: '', side: 0 };
-    let tx, tz;
-    const lk = this.melee.target && !this.melee.target.dead ? this.melee.target : this.lock;
-    if (ref) ((tx = ref.x), (tz = ref.z));
-    else if (lk && !lk.dead) ((tx = lk.pos.x - this.pos.x), (tz = lk.pos.z - this.pos.z));
-    else ((tx = -Math.sin(this.aimYaw)), (tz = -Math.cos(this.aimYaw)));
-    const l = Math.hypot(tx, tz) || 1;
-    return meleeDir(w.x, w.z, tx / l, tz / l);
-  }
-  // 按下近戰那一刻「剛推的」方向（起手用）：按住還沒超過 MOVE_DELAY（還沒開始走），或剛點一下就放開（dirWin 秒內）
-  meleeFreshDir() {
-    const A = this.meleeA();
-    if (!A) return '';
-    const w = this.moveWish;
-    if (w && w.lengthSq() >= 0.09) return (this.dirHeldT || 0) <= MOVE_DELAY + 0.02 ? this.dirKeyOf(w).k : '';
-    const T = this.tapMem;
-    return T && this.t - T.t <= A.dirWin ? this.dirKeyOf(T).k : '';
-  }
-  // 起手的預備（move 每格）：停住、面向目標；推了方向就記下；時間到出起手招；QB 或跳躍取消預備
-  meleePreTick(dt, wish, wantQB, jumpEdge) {
-    const m = this.melee,
-      P = m.pre;
-    if (wantQB || jumpEdge) {
-      m.pre = null;
-      return wish;
-    }
-    if (wish.lengthSq() >= 0.09) {
-      const k = this.dirKeyOf(wish).k;
-      if (k) P.k = k;
-    }
-    const te = P.te && !P.te.dead ? P.te : null;
-    if (te) this.aimYaw = Math.atan2(-(te.pos.x - this.pos.x), -(te.pos.z - this.pos.z));
-    if ((P.t -= dt) <= 0) {
-      m.pre = null;
-      const d = this.weapons[P.slot].def;
-      this.meleeGo(P.slot, this.meleeStartIdx(d, P.slot, P.k), te ? te.center() : P.tp, te, P.k);
-    }
-    return new THREE.Vector3();
-  }
-  // 鎖定的目標在近戰距離內（第一招的觸及＋突進的一部分，和近戰訓練的距離圈相同）
-  meleeInRange() {
-    const t = this.lock;
-    if (!t || t.dead) return false;
-    for (const s of ['rarm', 'larm']) {
-      const w = this.weapons[s];
-      if (!w || w.def.type !== 'melee') continue;
-      const st = meleeMove(w.def, 0);
-      if (
-        st &&
-        Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z) <=
-          st.reach * this.scale + (st.dash || 0) * 0.45
-      )
-        return true;
-    }
-    return false;
-  }
-  // 按下近戰之後才推的方向（玩家，dirWin 秒內）：排好的下一招還沒出手前改成派生；
+  // 觸控在攻擊鍵上的滑動（inKey.sw，按下攻擊之後才滑完）：排好的下一招還沒出手前改成派生；
   // 中立起手的第一招還沒打中前改成方向起手（start）
-  meleeLateDir() {
+  meleeSwipeDir() {
     const m = this.melee,
-      A = m.active && this.meleeA();
-    if (!A || !this.moveWish || this.moveWish.lengthSq() < 0.09) return;
+      K = this.inKey;
+    if (!m.active || !K || !K.sw || !K.k || !this.meleeA()) return;
     const d = this.weapons[m.slot].def;
-    if (m.queued >= 0 && m.qDir === '' && !m.qSlot && this.t - m.qT <= A.dirWin) {
-      const k = this.meleeDirKey(m.dir).k;
-      const nx = k ? meleeNext(d, m.stage, k) : -1;
+    if (m.queued >= 0 && m.qDir === '' && !m.qSlot) {
+      const nx = meleeNext(d, m.stage, K.k);
       if (nx >= 0) {
         m.queued = nx;
-        m.qDir = k;
+        m.qDir = K.k;
       }
-    } else if (m.sDir === '' && m.stage === m.sStage && !m.hitAny && this.t - m.sT <= A.dirWin && d.start) {
-      const k = this.meleeDirKey().k;
-      const i = k && d.start[k] !== undefined ? meleeIdx(d, d.start[k]) : -1;
+    } else if (m.sDir === '' && m.stage === m.sStage && !m.hitAny && d.start) {
+      const i = d.start[K.k] !== undefined ? meleeIdx(d, d.start[K.k]) : -1;
       if (i >= 0 && i !== m.stage) {
-        m.sDir = k;
+        m.sDir = K.k;
         const tg = m.target && !m.target.dead ? m.target : null;
         this.startMeleeStage(
           m.slot,
@@ -1117,7 +1035,6 @@ export class MechEntity {
   meleeEnd() {
     this.meleeGrace = null;
     const m = this.melee;
-    m.pre = null;
     if (m.exec && m.exec.tg) m.exec.tg.execBy = null;
     m.exec = null;
     m.active = false;
@@ -1305,7 +1222,7 @@ export class MechEntity {
     // 側滑的招式（side）：往目標的左／右繞過去（依按下的方向），出招中不再轉向目標
     m.noTrack = false;
     if (st.side) {
-      const sd = (this.pilotEnt() && this.meleeDirKey(m.dir).side) || (stage % 2 ? -1 : 1);
+      const sd = this.meleeDirKey().side || (stage % 2 ? -1 : 1);
       const a = SIDE_ANG * sd;
       const ca = Math.cos(a),
         sa = Math.sin(a);
@@ -2007,32 +1924,7 @@ export class MechEntity {
       wantQB = false;
       wantAB = false;
     }
-    // 這一格的移動輸入（方向派生用，data/melee.js；按近戰之前先移動，所以同一格就讀得到）
-    (this.moveWish || (this.moveWish = new THREE.Vector3())).copy(wish);
-    // 方向按住多久（起手的方向、近戰距離內的移動延遲）；點一下就放開的方向記在 tapMem
-    if (wish.lengthSq() >= 0.09) this.dirHeldT = (this.dirHeldT || 0) + dt;
-    else {
-      if (this.dirHeldT > 0 && this.dirHeldT <= MOVE_DELAY + 0.02 && this.wishMem)
-        this.tapMem = { x: this.wishMem.x, z: this.wishMem.z, t: this.t };
-      this.dirHeldT = 0;
-    }
-    if (wish.lengthSq() >= 0.09) this.wishMem = { x: wish.x, z: wish.z, t: this.t }; // 方向的寬容（meleeDirKey）
-    this.meleeLateDir(dt);
-    if (this.melee.pre) wish = this.meleePreTick(dt, wish, wantQB, !!wantHover && !this.mJumpPrev);
-    // 近戰距離內：方向按住超過 MOVE_DELAY 才移動（方向＋近戰時不會先退開或側移）；QB、突擊推進照常
-    else if (
-      wish.lengthSq() >= 0.09 &&
-      this.dirHeldT <= MOVE_DELAY &&
-      !this.melee.active &&
-      !wantQB &&
-      !wantAB &&
-      !(this.qbT > 0) &&
-      !(this.abT > 0) &&
-      this.grounded &&
-      this.meleeA() &&
-      this.meleeInRange()
-    )
-      wish = new THREE.Vector3();
+    this.meleeSwipeDir(); // 觸控的滑動派生
     const spd =
       this.stats.speed *
       this.speedMul *

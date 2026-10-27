@@ -11,7 +11,6 @@ import { DS } from '../core/scale.js';
 import {
   EXEC_HOLD,
   LINK_SHOT_AT,
-  MELEE_PRE_T,
   QUEUE_AT,
   RESUME_T,
   SHIELD_BASH_T,
@@ -39,7 +38,7 @@ const TELE = 0.9; // 假人出招前的預警（遊戲秒）
 const LUNGE_MAX = 28; // 突進追擊的練習：假人最遠放多遠（舊尺度 m）
 const SWAP2 = (w) => (w === 'w_claw' ? 'w_blade' : 'w_claw'); // 左右手交替：左手的第二把近戰武器
 const wName = (id) => (id === 'w_none' ? '空手（拳擊）' : (partById('arm', id) || {}).name || id);
-const DIRS = { f: '前', s: '側', b: '後' };
+const DIRS = { f: '上', s: '左右', b: '下' };
 
 Object.assign(Game.prototype, {
   // ---------- 存檔 ----------
@@ -571,23 +570,21 @@ Object.assign(Game.prototype, {
         const slot = a[2] || 'rarm';
         const k = slot === 'larm' ? 'fireL' : 'fireR';
         if (V[k]) return; // 上一次按下還沒放開：等一格（否則不算按下）
-        if (m.pre) return; // 起手的預備中
         if (!m.active && p.weapons[slot].cd > 0) return; // 收招後武器還在冷卻：等冷卻完再按（否則這一下被吃掉）
         if (!m.active && this.tutTouchWait()) return; // 觸控：攻擊鍵變成「斬擊」才按
         V[k] = 1;
-        if (dir) V.wish.copy(this.tutDirVec(dir));
+        if (dir) V.wish.copy(this.tutKeyVec(dir));
         S.lastDir = dir;
         return next();
       }
       case 'chain': {
-        if (m.pre) return; // 起手的預備中
         if (!m.active) return next();
         const d = p.weapons[m.slot].def;
         if (meleeNext(d, m.stage, a[1]) < 0 && meleeNext(d, m.stage, '') < 0) return next();
         if (m.queued >= 0) return; // 已經排好下一招
         if (m.t > st.dur * QUEUE_AT + 0.02 && !V.fireR) {
           V.fireR = 1;
-          if (a[1]) V.wish.copy(this.tutDirVec(a[1]));
+          if (a[1]) V.wish.copy(this.tutKeyVec(a[1]));
         }
         return;
       }
@@ -603,12 +600,12 @@ Object.assign(Game.prototype, {
           queue: m.active && m.t > st.dur * QUEUE_AT + 0.02,
           half: m.active && m.hitAny && m.t > st.dur * 0.56,
           hit: m.active && m.hitAny,
-          idle: !m.active && !m.pre,
+          idle: !m.active,
           air: !p.grounded,
-          ground: p.grounded && !m.active && !m.pre,
+          ground: p.grounded && !m.active,
           stag: e && !e.dead && e.staggerT > 0,
           tele: !!tl,
-          parry: tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45 + MELEE_PRE_T,
+          parry: tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45,
           pqb: tl && tl.k === 'melee' && tl.t <= 0.04,
           shield: p.shieldHitT > 0,
           counter: false,
@@ -616,7 +613,7 @@ Object.assign(Game.prototype, {
         // 綜合練習：揮刀＝彈刀、開槍＝等盾擋下後盾擊
         if (c === 'counter') {
           if (!tl && !(D && D.burst > 0) && S.t > 0.1 && !(p.shieldHitT > 0)) return next();
-          if (tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45 + MELEE_PRE_T) {
+          if (tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45) {
             V.fireR = 1;
             return next();
           }
@@ -684,7 +681,18 @@ Object.assign(Game.prototype, {
     const T = this.tut;
     if (T.step.reset) this.tutReset();
   },
-  // 方向（相對假人）→ 世界座標的移動方向
+  // 方向派生的按鍵（f＝上、b＝下、s＝右）→ 這個按鍵在世界座標的移動方向（player.js 的換算）
+  tutKeyVec(dir) {
+    const x = dir === 's' ? 1 : 0,
+      z = dir === 'f' ? -1 : dir === 'b' ? 1 : 0;
+    if (this.ctrl.moveRel === 'mech' || this.camAim()) {
+      const yy = this.camAim() ? this.fpYaw : this.player.yaw;
+      const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy));
+      return fwd.multiplyScalar(-z).add(new THREE.Vector3(-fwd.z * x, 0, fwd.x * x));
+    }
+    return new THREE.Vector3(x, 0, z);
+  },
+  // 方向（相對假人）→ 世界座標的移動方向（QB、跳躍的移動）
   tutDirVec(dir) {
     const p = this.player,
       e = this.tut.dummy;
@@ -800,7 +808,9 @@ Object.assign(Game.prototype, {
       !o.tags.has(wantDir) &&
       !o.tags.has('air') &&
       !o.tags.has('dash') &&
-      !o.tags.has('bash')
+      !o.tags.has('bash') &&
+      // 觸控的滑動：點下去先出中立的第一招，滑完才改成派生（MechEntity.meleeSwipeDir），中立的先不算錯
+      !(this.vpadWanted() && !['f', 's', 'b'].some((x) => o.tags.has(x)))
     )
       return say(`方向不對：按 [melee] 的那一下要按著「${DIRS[wantDir]}」（看箭頭）`);
     if (k === 'hurt' && o.melee && (step.bar === 'parry' || step.bar === 'pqb')) {
@@ -1103,9 +1113,10 @@ Object.assign(Game.prototype, {
   tutKey(act) {
     const touch = this.vpadWanted(),
       pad = !touch && this.padActive;
-    const dirTxt = { f: '前（朝目標）', s: '側（目標的左右）', b: '後（遠離目標）' };
+    // 方向派生的方向就是按鍵本身的方向（上＝前、下＝後、左右＝側），和目標在哪裡無關
+    const dirTxt = { f: '上', s: '左或右', b: '下' };
     if (dirTxt[act])
-      return `<kbd class="dir">${touch ? '左搖桿 ' : pad ? '左搖桿 ' : escHtml(this.tutDirKeys(act)) + ' '}${dirTxt[act]}</kbd>`;
+      return `<kbd class="dir">${touch ? '搖桿往' + dirTxt[act] : pad ? '左搖桿往' + dirTxt[act] : escHtml(this.tutDirKeys(act))}</kbd>`;
     if (act === 'move') {
       if (touch) return '<kbd>左下的搖桿</kbd>';
       if (pad) return '<kbd>左搖桿</kbd>';
@@ -1138,22 +1149,11 @@ Object.assign(Game.prototype, {
     }
     return [w.x, w.z];
   },
-  // 鍵盤：這個方向（相對目標）現在要按哪幾顆移動鍵（八方向；側＝左右兩邊都可以）
+  // 鍵盤：方向派生要按的移動鍵（f＝上、b＝下、s＝左或右）
   tutDirKeys(dir) {
-    if (!this.player || !this.tut) return '';
-    const K = this.keymap;
-    const one = (v) => {
-      const [x, z] = this.tutAxes(v);
-      const t = 0.38;
-      const ks = [];
-      if (z < -t) ks.push(K.up);
-      if (z > t) ks.push(K.down);
-      if (x < -t) ks.push(K.left);
-      if (x > t) ks.push(K.right);
-      return ks.map((k) => this.keyLabel(k)).join('＋');
-    };
-    const v = this.tutDirVec(dir);
-    return dir === 's' ? `${one(v)} 或 ${one(v.clone().negate())}` : one(v);
+    const K = this.keymap,
+      L = (k) => this.keyLabel(K[k]);
+    return dir === 'f' ? L('up') : dir === 'b' ? L('down') : `${L('left')} 或 ${L('right')}`;
   },
   tutText(s) {
     const d = this.tutWDef();
@@ -1181,10 +1181,6 @@ Object.assign(Game.prototype, {
       this.tutSpeed(),
       this.padActive,
       this.vpadWanted(),
-      // 鍵盤的方向鍵跟著兩台的位置變
-      !this.vpadWanted() && !this.padActive && (step.dir || T.quiz)
-        ? this.tutDirKeys(step.dir || T.quiz.seq[T.quiz.i])
-        : '',
     ].join('|');
     if (!force && key === T.panelKey) return;
     T.panelKey = key;
@@ -1277,9 +1273,8 @@ Object.assign(Game.prototype, {
         const span = TELE + 0.2;
         const dur = meleeMove(this.tutWDef(), 0).dur;
         if (kind === 'parry') {
-          // 按下後先預備 MELEE_PRE_T 秒才出刀：綠色區往前移
-          z0 = (TELE - dur * 0.8 - MELEE_PRE_T) / span;
-          z1 = (TELE - dur * 0.15 - MELEE_PRE_T) / span;
+          z0 = (TELE - dur * 0.8) / span;
+          z1 = (TELE - dur * 0.15) / span;
         } else {
           z0 = (TELE - 0.1) / span;
           z1 = (TELE + 0.02) / span;
@@ -1323,16 +1318,12 @@ Object.assign(Game.prototype, {
     let dir = T.step.dir;
     if (T.quiz) dir = T.quiz.seq[T.quiz.i];
     if (!dir) return;
+    // 畫面上的方向＝按鍵的方向（上＝前、下＝後、右＋淡淡的左＝側）
     const a = this.proj(p.center());
-    const v = this.tutDirVec(dir);
-    const b = this.proj(p.center().addScaledVector(v, 9 * DS));
-    if (!a.in || !b.in) return;
-    const dx = b.x - a.x,
-      dy = b.y - a.y,
-      L = Math.hypot(dx, dy) || 1;
-    const ux = dx / L,
-      uy = dy / L;
-    const len = Math.min(90, Math.max(50, L));
+    if (!a.in) return;
+    const ux = dir === 's' ? 1 : 0,
+      uy = dir === 'f' ? -1 : dir === 'b' ? 1 : 0;
+    const len = 70;
     const x0 = a.x + ux * 30,
       y0 = a.y + uy * 30,
       x1 = a.x + ux * (30 + len),
