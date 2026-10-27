@@ -55,7 +55,8 @@ function serSpecial(e) {
   if (e.domeFrac > 0 || e.linkId >= 0 || fl || e.bossVis)
     o.sx = [Math.round(e.domeFrac * 100), e.linkId, fl, e.linkKind || 0, e.bossVis || 0];
   if (e.gone) o.gn = 1;
-  const aw = e.sn ? e.senseAw() : 0; // 敵人 AI 的警戒狀態與主攻（HUD 標示，mech-sense.js）
+  // 敵人 AI 的警戒狀態與主攻（HUD 標示，mech-sense.js）；32＝出招前的提示（MechEntity.cueingNow）
+  const aw = (e.sn ? e.senseAw() : 0) | (e.cueingNow && e.cueingNow() ? 32 : 0);
   if (aw) o.aw = aw;
   if (e.bx) o.bx = e.bx;
   if (e.sts) o.su = e.statusSer(); // 狀態效果（mech-status.js）

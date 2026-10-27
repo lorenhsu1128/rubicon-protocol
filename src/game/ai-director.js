@@ -212,8 +212,24 @@ Object.assign(Game.prototype, {
   },
   // HUD：名牌上的警戒標示（? 起疑／搜索、! 剛發現、主攻的紅色箭頭、破綻）；s＝名牌在畫面上的位置
   drawAwareMark(c, e, s) {
-    const aw = e.sn ? e.senseAw() : e.aw || 0;
-    if (!aw) return;
+    const aw0 = e.sn ? e.senseAw() : e.aw || 0;
+    // 出招前的提示：名牌上方跳動的大紅「!」（提示中按近戰＝彈刀、按 QB＝完美迴避）
+    if ((e.cueingNow && e.cueingNow()) || aw0 & 32) {
+      const k = 1 + 0.18 * Math.abs(Math.sin(this.time * 14));
+      c.save();
+      c.textAlign = 'center';
+      c.font = `bold ${Math.round(44 * k)}px Chakra Petch`;
+      c.lineWidth = 5;
+      c.strokeStyle = 'rgba(0,0,0,.8)';
+      c.shadowColor = '#ff2a1a';
+      c.shadowBlur = 18;
+      c.strokeText('!', s.x, s.y - 22);
+      c.fillStyle = '#ff3a2a';
+      c.fillText('!', s.x, s.y - 22);
+      c.restore();
+    }
+    const aw = aw0 & 31;
+    if (!(aw & 7)) return;
     const st = (aw - 1) & 7;
     const tok = aw & 8,
       vuln = aw & 16;

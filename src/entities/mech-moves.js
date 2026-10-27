@@ -6,6 +6,7 @@ import { SFX } from '../audio/audio.js';
 import { usesAmmo } from '../data/parts.js';
 import { clamp, rnd } from '../core/math.js';
 import { MOVES } from '../data/ai.js';
+import { CUE_POST } from '../data/melee.js';
 import { DS, MS } from '../core/scale.js';
 import { MechEntity } from './mech-entity.js';
 
@@ -65,6 +66,9 @@ Object.assign(MechEntity.prototype, {
         sn.mvI = (sn.mvI + i + 1) % list.length;
         sn.mv = { k, slot, ph: 'wind', t: 0, fxT: 0 };
         this.moveStart(sn.mv, pl);
+        // 出招前的提示（data/melee.js 的 CUE_POST）：提示中按 QB＝完美迴避
+        const cp = CUE_POST[k];
+        if (cp) this.atkCue(pl, k === 'charge' && this.ai === 'strider' ? 1.1 : cp[0], cp[1]);
         break;
       }
       if (!sn.mv) return null;

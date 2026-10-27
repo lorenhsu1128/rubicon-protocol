@@ -83,6 +83,21 @@ export function meleeKeyDir(x, z) {
   if (up < -0.5) return { k: 'b', side: 0 };
   return { k: 's', side: x >= 0 ? 1 : -1 };
 }
+// 敵人出招前的提示（docs/melee-combo-design.md 的「反擊的提示與放寬」）：一般敵人對玩家的近戰先預備 CUE_MELEE 秒
+// （紅光、「!」、警報），預警招式（data/ai.js 的 MOVES）在準備開始時提示；提示出現後到這一擊結束前，
+// 按近戰＝彈刀、按 QB＝完美迴避（MechEntity.cueArmSet）。CUE_POST＝各預警招式的 [準備秒數, 出手後還算的秒數]
+export const CUE_MELEE = 0.55;
+export const CUE_POST = {
+  burst: [0.45, 1.3],
+  aimShot: [0.7, 1.0],
+  volley: [0.9, 2.2],
+  charge: [0.8, 0.4],
+  sweep: [0.8, 2.1],
+  dash: [0.55, 1.4],
+  lob: [0.55, 1.8],
+  beep: [0.75, 3],
+  strafeRun: [1.1, 2.6],
+};
 // 被打的硬直（秒）：kind＝'boss'｜'ace'｜''（一般）
 export function meleeStun(st, kind) {
   if (kind === 'boss') return 0;
@@ -124,8 +139,9 @@ export const EXEC_HOLD = 0.35,
 export const PARRY_STUN = 1,
   PARRY_STUN_BOSS = 0.4,
   PARRY_T = 1;
-// 完美 QB：QB 開始後 PQB_WIN 秒內躲掉；PQB_BUFF 秒內第一下近戰的衝擊 ×PQB_IMP、突進 ×PQB_LUNGE；單人時頓格 PQB_SLOW 秒
-export const PQB_WIN = 0.15,
+// 完美 QB：QB 開始後 PQB_WIN 秒內被打到＝迴避（不受傷；PvP 照原本的無敵時間）；PQB_BUFF 秒內第一下近戰的衝擊 ×PQB_IMP、
+// 突進 ×PQB_LUNGE；單人時頓格 PQB_SLOW 秒
+export const PQB_WIN = 0.3,
   PQB_BUFF = 1.5,
   PQB_IMP = 2,
   PQB_LUNGE = 2,

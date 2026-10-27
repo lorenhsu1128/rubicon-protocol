@@ -38,6 +38,7 @@ import {
   PQB_LUNGE,
   PQB_SLOW,
   PQB_WIN,
+  CUE_MELEE,
   SHIELD_BASH_T,
   LINK_SHOT_K,
   LINK_SHOT_R,
@@ -447,6 +448,7 @@ export class MechEntity {
       g = this.game;
     if (d.type === 'none' || d.type === 'shield') return false;
     if (!this.canAct()) return false;
+    if (d.type === 'melee' && this.pilotEnt()) this.cueArmSet('p'); // 提示中按近戰＝彈刀（meleeClash）
     if (this.melee.active && d.type !== 'melee') {
       // 近戰 → 射擊（docs/melee-combo-design.md 第 1 期）：玩家的近戰打中過、過了 LINK_SHOT_AT 時，
       // 另一隻手或肩上的射擊武器可以中斷近戰立刻開火；目標在附近時這一發是零距離射擊（傷害加成）
@@ -838,6 +840,22 @@ export class MechEntity {
       case 'melee':
         {
           const m = this.melee;
+          // 敵人對玩家的近戰：先預備 CUE_MELEE 秒並提示（meleeCueTick 時間到再出手）
+          if (m.cue) return true;
+          if (
+            !this.pilotEnt() &&
+            !m.active &&
+            !g.pvp &&
+            !this.rtsDef &&
+            !(this.cueUntil > this.t) &&
+            targetEnt &&
+            targetEnt.pilotEnt &&
+            targetEnt.pilotEnt()
+          ) {
+            m.cue = { slot, t: CUE_MELEE, te: targetEnt, fx: 0 };
+            this.atkCue(targetEnt, CUE_MELEE, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
+            return true;
+          }
           if (m.active && m.slot === slot) {
             // 排入下一招：依按下這一格的方向（方向派生，data/melee.js）
             const cur = meleeMove(d, m.stage);
@@ -1035,6 +1053,7 @@ export class MechEntity {
   meleeEnd() {
     this.meleeGrace = null;
     const m = this.melee;
+    m.cue = null;
     if (m.exec && m.exec.tg) m.exec.tg.execBy = null;
     m.exec = null;
     m.active = false;
@@ -1042,20 +1061,90 @@ export class MechEntity {
     m.qSlot = null;
     this.swing = { l: 0, r: 0 };
   }
-  // ---------- 防禦反擊（docs/melee-combo-design.md 第 4 期）----------
-  // 彈刀：玩家的近戰在有效期間（10%～85%）、面向攻擊者（前方 ±70° 左右）時，敵人的近戰被彈開
+  // ---------- 防禦反擊（docs/melee-combo-design.md 第 4 期、「反擊的提示與放寬」）----------
+  // 出招前的提示（敵人）：T＝提示到出手的秒數、post＝出手後還算的秒數（揮刀、子彈飛行）；這段時間內玩家按近戰／QB
+  // 就記下這個敵人（cueArmSet），它這一擊打過來時彈刀／完美迴避。o.quiet＝只記狀態（近戰訓練的假人自己畫預警）
+  atkCue(tgt, T, post, o = {}) {
+    this.cueN = (this.cueN || 0) + 1;
+    this.cueTgt = tgt ? tgt.id : -1;
+    this.cueUntil = this.t + T + post;
+    if (o.quiet) return;
+    const g = this.game,
+      c = this.center();
+    g.fx.flash(c, (2.2 * (this.scale || 1)) / g.fx.k, 0xff4030, 0.25);
+    g.fx.ring(c, 3 * (this.scale || 1), 0xff4030);
+    if (g.popDamage)
+      g.popDamage(c.clone().add(new THREE.Vector3(0, 2.5 * this.dk, 0)), '!', false, true, false, 0, this.id);
+    SFX.play('alarm', 0.4, 1.15, 0.02, 0.02, c);
+  }
+  // 出招前的預備中（HUD 的大「!」；快照的 aw 位元 32 給客機）
+  cueingNow() {
+    const mv = this.sn && this.sn.mv;
+    return !!(
+      (this.melee && this.melee.cue) ||
+      (mv && mv.ph === 'wind' && this.cueUntil > this.t) ||
+      (this.tutD && this.tutD.tele)
+    );
+  }
+  // 敵人近戰的預備（move 每格）：停下來面向目標、紅光閃爍；硬直中暫停，失衡或目標不見就取消；時間到出手
+  meleeCueTick(dt, wish) {
+    const m = this.melee,
+      C = m.cue,
+      te = C.te;
+    if (this.staggerT > 0 || !te || te.dead) {
+      m.cue = null;
+      return wish;
+    }
+    if (this.hitStunT > 0) {
+      this.cueUntil += dt; // 被打中的硬直期間不算時間
+      return new THREE.Vector3();
+    }
+    this.aimYaw = Math.atan2(-(te.pos.x - this.pos.x), -(te.pos.z - this.pos.z));
+    if ((C.fx -= dt) <= 0) {
+      C.fx = 0.14;
+      const g = this.game;
+      g.fx.flash(this.center(), (1.3 * (this.scale || 1)) / g.fx.k, 0xff4030, 0.1);
+    }
+    if ((C.t -= dt) <= 0) {
+      m.cue = null;
+      this.fire(C.slot, te.center(), te);
+    }
+    return wish.clone().multiplyScalar(0.3);
+  }
+  // 玩家按近戰（k 'p'）或 QB（'q'）：記下現在對自己提示中的敵人（那一次的提示 cueN）
+  cueArmSet(k) {
+    const g = this.game;
+    if (!g.hostilesOfEnt) return;
+    const A = this.cueArm || (this.cueArm = { p: new Map(), q: new Map() });
+    for (const e of g.hostilesOfEnt(this))
+      if (e.cueN && e.cueTgt === this.id && e.t <= e.cueUntil) A[k].set(e.id, e.cueN);
+  }
+  // 這個敵人的這一擊是不是提示中、玩家按過了
+  cueArmed(k, from) {
+    const A = this.cueArm;
+    const n = A && from ? A[k].get(from.id) : undefined;
+    if (n === undefined) return false;
+    if (from.cueN !== n || from.t > from.cueUntil) {
+      A[k].delete(from.id);
+      return false;
+    }
+    return true;
+  }
+  // 彈刀：敵人的近戰打過來時，提示中按過近戰（cueArmed），或自己的近戰出招中（整招）且面向攻擊者（±90°）＝彈開
   meleeClash(from) {
     const m = this.melee;
-    if (!this.pilotEnt() || !m.active || from.team === this.team || !from.melee) return false;
-    const st = meleeMove(this.weapons[m.slot].def, m.stage);
-    if (!st || st.exec) return false;
-    const ph = m.t / st.dur;
-    if (ph < 0.1 || ph > 0.85) return false;
+    if (!this.pilotEnt() || from.team === this.team || !from.melee) return false;
+    const armed = this.cueArmed('p', from);
+    const st = m.active ? meleeMove(this.weapons[m.slot].def, m.stage) : null;
+    if (st && st.exec) return false;
     const to = from.pos.clone().sub(this.pos).setY(0);
-    if (to.lengthSq() < 1e-4) return false;
+    if (to.lengthSq() < 1e-4) to.set(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
     to.normalize();
-    const f = m.dir || new THREE.Vector3(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
-    if (to.dot(f) < 0.35) return false;
+    if (!armed) {
+      if (!st) return false;
+      const f = m.dir || new THREE.Vector3(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
+      if (to.dot(f) < 0) return false;
+    } else this.cueArm.p.delete(from.id); // 一次提示彈一次
     const g = this.game;
     if (from.melee.active) from.meleeEnd();
     from.hitStunT = Math.max(from.hitStunT || 0, from.isBoss ? PARRY_STUN_BOSS : PARRY_STUN);
@@ -1076,10 +1165,16 @@ export class MechEntity {
     }
     return true;
   }
-  // 完美 QB：QB 開始後 PQB_WIN 秒內躲掉敵人的攻擊（無敵擋下）→ 接下來的第一下近戰加強；單人時畫面短暫變慢
-  pqbCheck(from) {
+  // 完美 QB 的迴避（takeDamage）：提示中按過 QB 的那個敵人的這一擊（cueArmed），或 QB 開始後 PQB_WIN 秒內（PvP 除外）
+  pqbDodge(from) {
+    if (!from || from.team === this.team || !this.pilotEnt()) return false;
+    if (this.cueArmed('q', from)) return true;
+    return !this.game.pvp && this.t - (this.qbStartT === undefined ? -9 : this.qbStartT) <= PQB_WIN;
+  }
+  // 完美 QB：躲掉敵人的攻擊 → 接下來的第一下近戰加強；單人時畫面短暫變慢（force＝pqbDodge 已經判定過）
+  pqbCheck(from, force) {
     if (!this.pilotEnt() || !from || from.team === this.team || this.pqbCD > 0) return;
-    if (!(this.t - (this.qbStartT === undefined ? -9 : this.qbStartT) <= PQB_WIN)) return;
+    if (!force && !(this.t - (this.qbStartT === undefined ? -9 : this.qbStartT) <= PQB_WIN)) return;
     const g = this.game;
     this.pqbT = PQB_BUFF;
     this.pqbCD = 0.6;
@@ -1203,6 +1298,9 @@ export class MechEntity {
     m.stage = stage;
     m.t = 0;
     if (fresh) ((m.qbN = 0), (m.swapN = 0));
+    // 提示過的敵人近戰：連段的後面幾招也算在同一次提示裡（按過 QB 的照樣迴避）
+    if (!this.pilotEnt() && this.cueUntil >= this.t)
+      this.cueUntil = Math.max(this.cueUntil, this.t + st.dur + 0.15);
     m.hitAny = false;
     m.exec = null;
     m.qSlot = null;
@@ -1537,6 +1635,11 @@ export class MechEntity {
     if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
     // 彈刀：玩家的近戰在有效期間、面向攻擊者時，敵人的近戰被彈開（出招時的短暫無敵也算）
     if (melee && !melee.exec && from && this.meleeClash(from)) return;
+    // 完美 QB：提示中按了 QB、或 QB 剛開始時被打到＝迴避（不受傷）
+    if (this.pqbDodge(from)) {
+      this.pqbCheck(from, true);
+      return;
+    }
     if (this.iFrames > 0) {
       this.pqbCheck(from); // 完美 QB：QB 的無敵剛開始時躲掉了敵人的攻擊（docs/melee-combo-design.md 第 4 期）
       return;
@@ -1925,6 +2028,7 @@ export class MechEntity {
       wantAB = false;
     }
     this.meleeSwipeDir(); // 觸控的滑動派生
+    if (this.melee.cue) wish = this.meleeCueTick(dt, wish); // 敵人近戰的預備（提示）
     const spd =
       this.stats.speed *
       this.speedMul *
@@ -2071,7 +2175,8 @@ export class MechEntity {
     const qbAny = wish.lengthSq() > 0.1 || (this.sts && this.stsQbEscape());
     if (wantQB && this.qbT <= 0 && qbAny && this.useEn(P.booster.qbCost * (this.sts ? this.stsQbK() : 1))) {
       this.qbT = 0.16;
-      this.qbStartT = this.t; // 完美 QB 的判定（pqbCheck）
+      this.qbStartT = this.t; // 完美 QB 的判定（pqbDodge）
+      if (this.pilotEnt()) this.cueArmSet('q'); // 提示中按 QB＝完美迴避
       this.tutE('qb', {});
       if (wish.lengthSq() > 0.1) this.qbDir.copy(wish).normalize();
       else this.qbDir.set(0, 0, 0);

@@ -13784,6 +13784,7 @@ async function testMeleeCombo(browser, base) {
       pl.lock = t;
     };
     const toT = () => t.pos.clone().sub(pl.pos).setY(0).normalize();
+    const RIGHT = new THREE.Vector3(1, 0, 0);
     // 一格：玩家照輸入移動（近戰中由 updateMelee 接手）、目標照 updateAI；
     // 俯視（鏡頭固定朝向）時輸入軸＝世界的 x／z，方向派生看按鍵本身（player.js 的 meleeInKey）
     const step = (n = 1, wish = new THREE.Vector3(), o = {}) => {
@@ -13908,6 +13909,9 @@ async function testMeleeCombo(browser, base) {
     ai.en = ai.enMax;
     ai.moveWish = new THREE.Vector3(0, 0, 1);
     ai.fire('rarm', pl.center(), pl);
+    // 對玩家的近戰先預備（提示），出手後才開始算
+    for (let i = 0; i < 60 && !ai.melee.active; i++)
+      ai.move(1 / 60, new THREE.Vector3(0, 0, 1), false, false, false, null);
     for (let i = 0; i < 12; i++) ai.move(1 / 60, new THREE.Vector3(0, 0, 1), false, false, false, null);
     ai.fire('rarm', pl.center(), pl);
     out.aiNext = ai.melee.queued;
@@ -14007,10 +14011,69 @@ async function testMeleeCombo(browser, base) {
     reset();
     pl.pqbT = pl.pqbCD = 0;
     step(1, new THREE.Vector3(1, 0, 0), { qb: true });
-    step(18);
+    step(30); // 0.5 秒後（PQB_WIN 0.3 秒）
     pl.iFrames = 0.5;
     hit(t, null);
     out.pqbLate = !(pl.pqbT > 0);
+    // 13b. 敵人近戰的提示：先預備 0.55 秒（紅光、「!」）；提示中按近戰＝彈刀、按 QB＝完美迴避
+    const foeBlade = () => {
+      reset(7 * 3);
+      t.asm.rarm = 'w_blade';
+      t.initWeapons();
+      t.en = t.enMax;
+      t.cueUntil = -1;
+      t.stagGuardT = 99; // 玩家的刀打中時不失衡（失衡會取消預備）
+      pl.cueArm = null;
+      pl.pqbT = pl.pqbCD = pl.parryT = 0;
+      pl.iFrames = 0;
+      pl.qbStartT = -9;
+      t.fire('rarm', pl.center(), pl);
+    };
+    // 跑到敵人這一招結束，記下有沒有彈刀／完美迴避、玩家有沒有受傷
+    const foeRun = () => {
+      const hp = pl.hp;
+      let parry = false,
+        pqb = false,
+        swung = false;
+      for (let i = 0; i < 150; i++) {
+        step(1);
+        if (pl.parryT > 0) parry = true;
+        if (pl.pqbT > 0) pqb = true;
+        if (t.melee.active) swung = true;
+        if (swung && !t.melee.active && !t.melee.cue) break;
+      }
+      return { hurt: pl.hp < hp, parry, pqb, swung };
+    };
+    foeBlade();
+    out.cueOn = !!t.melee.cue && !t.melee.active && t.cueUntil > t.t;
+    let r0 = foeRun();
+    out.cueSwing = r0.swung && r0.hurt;
+    out.cueInfo = `預備 ${out.cueOn} 出手 ${r0.swung} 受傷 ${r0.hurt}`;
+    // 提示一出現就按近戰（自己的刀早就揮完了）：敵人的刀還是被彈開
+    foeBlade();
+    step(2);
+    pl.fire('rarm', t.center(), t);
+    r0 = foeRun();
+    out.cueParry = r0.parry && !r0.hurt;
+    out.cueParryInfo = `彈刀 ${r0.parry} 受傷 ${r0.hurt} 出手 ${r0.swung}`;
+    // 提示一出現就按 QB（QB 的無敵早就過了）：這一擊完美迴避
+    foeBlade();
+    step(2);
+    step(1, toT(), { qb: true }); // 往敵人閃（刀照樣打得到）
+    r0 = foeRun();
+    out.cuePqb = r0.pqb && !r0.hurt;
+    out.cuePqbInfo = `完美 ${r0.pqb} 受傷 ${r0.hurt} 出手 ${r0.swung}`;
+    // 提示之前就按的 QB 不算
+    reset(7 * 3);
+    pl.pqbT = pl.pqbCD = 0;
+    pl.cueArm = null;
+    step(1, RIGHT, { qb: true });
+    step(30);
+    t.cueUntil = -1;
+    t.pos.set(pl.pos.x, gy(pl.pos.x, pl.pos.z - 21), pl.pos.z - 21);
+    t.fire('rarm', pl.center(), pl);
+    r0 = foeRun();
+    out.cueEarly = !r0.pqb && r0.hurt;
     // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
     const rb0 = pl.asm.rback;
     pl.asm.rback = 'bw_sh';
@@ -14061,8 +14124,7 @@ async function testMeleeCombo(browser, base) {
     out.graceStd2 = graceAt('std', 6); // 0.1 秒
     // 方向派生看按下那一格按著的方向鍵本身（上＝前、下＝後、左右＝側），和目標在畫面的哪一邊無關
     const UP = new THREE.Vector3(0, 0, -1),
-      DOWN = new THREE.Vector3(0, 0, 1),
-      RIGHT = new THREE.Vector3(1, 0, 0);
+      DOWN = new THREE.Vector3(0, 0, 1);
     const side = (dist = 8 * 3) => {
       // 目標在右邊（畫面上「上」不是朝目標）
       reset();
@@ -14163,7 +14225,11 @@ async function testMeleeCombo(browser, base) {
   check(r.noParry, '沒在出招時照常受傷');
   check(r.qbIF && r.pqb, '完美 QB：QB 剛開始時躲掉攻擊');
   check(r.pqbImp, '完美 QB 之後的第一下近戰衝擊 ×2');
-  check(r.pqbLate, 'QB 開始太久之後躲掉的不算完美 QB');
+  check(r.pqbLate, 'QB 開始 0.5 秒之後躲掉的不算完美 QB（PQB_WIN 0.3 秒）');
+  check(r.cueOn && r.cueSwing, `敵人的近戰先亮紅光預備 0.55 秒再揮刀（${r.cueInfo}）`);
+  check(r.cueParry, `提示一出現就按近戰：敵人的刀揮下來時被彈開（${r.cueParryInfo}）`);
+  check(r.cuePqb, `提示一出現就按 QB：這一擊完美迴避（${r.cuePqbInfo}）`);
+  check(r.cueEarly, '提示出現之前按的 QB 不算完美迴避');
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();
