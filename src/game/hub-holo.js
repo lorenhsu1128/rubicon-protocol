@@ -29,6 +29,14 @@ import { Game } from './game.js';
 const TILE_N = 64;
 const HUB_LIFT = 8; // 指揮塔的地板比格納庫的地板高幾公尺
 const HUB_BAY = 22; // 整備架在指揮塔後方幾公尺
+// 模型來源的代號（同一個物件＝同一個號碼；null＝程式模型）
+const SRC_IDS = new WeakMap();
+let srcN = 0;
+const srcId = (o) => {
+  if (!o) return 0;
+  if (!SRC_IDS.has(o)) SRC_IDS.set(o, ++srcN);
+  return SRC_IDS.get(o);
+};
 const MECH_POSE = { pose: 'garage', moving: false, grounded: true, hover: false, boost: false, aimPitch: 0 };
 const DEF_CAM = { yaw: 0, pitch: 0.56, dist: 12.6 };
 // 設施：[id, 名稱, 對應的按鈕]
@@ -149,7 +157,40 @@ Object.assign(Game.prototype, {
     H.root.scale.setScalar(MS);
     H.root.position.set(0, -HUB_LIFT, -HUB_BAY);
     s.add(H.root);
-    // 背景的整備位：停著另外兩台機體（外部素材的版本才有整備位）
+    this.hubHg = H;
+    this.hubHgRich = HA.ready;
+    this.hubMechSig = null;
+    this.hubBgSig = null;
+  },
+  // 整備架上的機體＝玩家目前的機甲，模型照機甲庫（伺服器網址時沒有自己的模型組＝伺服器預設組）；
+  // 組裝、配色或模型來源（伺服器預設組讀完、換了模型組）改了才重建
+  hubMechSync() {
+    const src = this.garageSource();
+    const sig = JSON.stringify(this.save.asm) + this.myPalKey() + '|' + srcId(src);
+    if (this.hubMechSig === sig) return;
+    this.hubMechSig = sig;
+    this.hubMechSrc = src;
+    if (this.hubMech) this.hubScene.remove(this.hubMech.group);
+    try {
+      const m = buildMech(this.save.asm, this.myPal(), MS / MB, { source: src });
+      m.group.rotation.y = Math.PI;
+      m.group.position.set(0, -HUB_LIFT, -HUB_BAY);
+      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...MECH_POSE, t: k / 60 });
+      this.hubScene.add(m.group);
+      this.hubMech = m;
+    } catch (e) {
+      console.warn('作戰室的機體', e);
+      this.hubMech = null;
+    }
+  },
+  // 背景的整備位：停著另外兩台機體（外部素材的版本才有整備位；模型＝電腦 AC 的來源，伺服器預設組優先）
+  hubBgSync() {
+    const H = this.hubHg,
+      s = this.hubScene;
+    const src = this.mechSource({ team: 'enemy' });
+    const sig = H.bgBays.length + '|' + srcId(src);
+    if (this.hubBgSig === sig) return;
+    this.hubBgSig = sig;
     for (const m of this.hubBgMechs || []) s.remove(m.group);
     this.hubBgMechs = H.bgBays.map((b, i) => {
       const asm = [
@@ -165,7 +206,7 @@ Object.assign(Game.prototype, {
         },
       ][i % 2];
       const m = buildMech(asm, PALETTES[['gravel', 'nightfall'][i % 2]] || PALETTES.white, MS / MB, {
-        source: this.mechSource({ team: 'enemy' }),
+        source: src,
       });
       m.group.rotation.y = Math.PI + b.ry;
       m.group.position.set(b.x * MS, -HUB_LIFT, b.z * MS - HUB_BAY);
@@ -173,27 +214,6 @@ Object.assign(Game.prototype, {
       s.add(m.group);
       return m;
     });
-    this.hubHg = H;
-    this.hubHgRich = HA.ready;
-    this.hubMechSig = null;
-  },
-  // 整備架上的機體＝玩家目前的機甲（組裝或配色改了才重建）
-  hubMechSync() {
-    const sig = JSON.stringify(this.save.asm) + this.myPalKey();
-    if (this.hubMechSig === sig) return;
-    this.hubMechSig = sig;
-    if (this.hubMech) this.hubScene.remove(this.hubMech.group);
-    try {
-      const m = buildMech(this.save.asm, this.myPal(), MS / MB, { source: this.garageSource() });
-      m.group.rotation.y = Math.PI;
-      m.group.position.set(0, -HUB_LIFT, -HUB_BAY);
-      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...MECH_POSE, t: k / 60 });
-      this.hubScene.add(m.group);
-      this.hubMech = m;
-    } catch (e) {
-      console.warn('作戰室的機體', e);
-      this.hubMech = null;
-    }
   },
   // ---------- 區域地形 ----------
   // 用真的關卡生成取樣：在不加入畫面的場景建 World，讀高度與大型障礙物，然後丟掉
@@ -467,7 +487,13 @@ Object.assign(Game.prototype, {
     }
     tickHubRoom(R, dt, t);
     if (HA.ready && !this.hubHgRich) this.hubHangarBuild();
-    this.hubMechSync();
+    // 模型來源可能晚一點才讀好（伺服器預設組）：每 0.5 秒檢查一次
+    this.hubSrcT = (this.hubSrcT || 0) - dt;
+    if (this.hubSrcT <= 0) {
+      this.hubSrcT = 0.5;
+      this.hubMechSync();
+      this.hubBgSync();
+    }
     tickHangar(this.hubHg, dt, t);
     tickHolo(this.hubHoloG, t);
     for (const b of this.hubBeacons || []) {

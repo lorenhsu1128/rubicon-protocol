@@ -195,6 +195,8 @@ Object.assign(Game.prototype, {
     this.state = 'hub';
     this.showScreen('hub');
     this.renderHub();
+    // 窗外的機體用伺服器預設組（或自己的模型組）：讀一次（有變動才解析，hub-holo.js 的 hubMechSync 會換上）
+    if (!(this.net && this.net.role)) this.lmRefresh().catch(() => {});
     this.campComm('hub', this.hubCtx());
   },
   // 作戰室（docs/hub-ui.md）：指揮室場景與全像戰略桌在 hub-holo.js；這裡更新畫面上的介面

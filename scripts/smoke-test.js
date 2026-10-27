@@ -4662,6 +4662,19 @@ async function testServerModels(browser, url) {
   await wait(1500);
   t = (await game.textContent('#gLocal')) || '';
   check(t.includes('伺服器預設組：此機'), `沒選本地模型組時，車庫的機甲用伺服器預設組（${t.trim()}）`);
+  // 作戰室窗外整備架上的機體（docs/hub-ui.md）：同樣用伺服器預設組
+  const hubSrc = await game.evaluate(async () => {
+    const g = window.__game;
+    g.openHub();
+    const t0 = performance.now();
+    while (!(g.hubMechSrc && g.hubMechSrc === g.srvMechSet()) && performance.now() - t0 < 8000)
+      await new Promise((r) => setTimeout(r, 100));
+    const ok = !!g.hubMechSrc && g.hubMechSrc === g.srvMechSet() && g.hubBgMechs.length >= 0;
+    g.openGarage();
+    return ok;
+  });
+  check(hubSrc, '作戰室窗外的機體用伺服器預設組');
+  await waitVisible(game, 'garage');
   await gSetTab(game);
   await game.waitForSelector('#gModelSetSel');
   await game.selectOption('#gModelSetSel', idA);
