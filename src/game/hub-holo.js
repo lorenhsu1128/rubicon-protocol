@@ -154,7 +154,15 @@ Object.assign(Game.prototype, {
     this.hubBgMechs = H.bgBays.map((b, i) => {
       const asm = [
         { ...START_ASM, head: 'h_hv', core: 'c_hv', arms: 'a_hv', legs: 'l_hv', rback: 'bw_gr', lback: null },
-        { ...START_ASM, head: 'h_lt', core: 'c_lt', arms: 'a_lt', legs: 'l_bp2', rarm: 'w_mg', larm: 'w_blade' },
+        {
+          ...START_ASM,
+          head: 'h_lt',
+          core: 'c_lt',
+          arms: 'a_lt',
+          legs: 'l_bp2',
+          rarm: 'w_mg',
+          larm: 'w_blade',
+        },
       ][i % 2];
       const m = buildMech(asm, PALETTES[['gravel', 'nightfall'][i % 2]] || PALETTES.white, MS / MB, {
         source: this.mechSource({ team: 'enemy' }),
