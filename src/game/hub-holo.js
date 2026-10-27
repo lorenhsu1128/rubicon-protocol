@@ -3,7 +3,7 @@
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
-import { WS } from '../core/scale.js';
+import { MB, MS, WS } from '../core/scale.js';
 import { SORTIES, TRANSITIONS } from '../data/campaign.js';
 import { BRIEFINGS, FACTIONS, REGIONS, briefClient } from '../data/story.js';
 import {
@@ -17,12 +17,20 @@ import {
   tickHolo,
 } from '../render/holo-map.js';
 import { buildHubRoom, tickHubRoom } from '../render/hub-room.js';
+import { addHangarLife, buildHangar, disposeHangar, tickHangar } from '../render/hangar.js';
+import { HA, loadHangarAssets } from '../render/hangar-assets.js';
+import { animateMech, buildMech } from '../render/mech-model.js';
 import { StylePipeline } from '../render/style/pipeline.js';
 import { World } from '../world/world.js';
+import { START_ASM } from '../data/parts.js';
+import { PALETTES } from '../render/materials.js';
 import { Game } from './game.js';
 
 const TILE_N = 64;
-const DEF_CAM = { yaw: 0, pitch: 0.7, dist: 11.8 };
+const HUB_LIFT = 8; // 指揮塔的地板比格納庫的地板高幾公尺
+const HUB_BAY = 22; // 整備架在指揮塔後方幾公尺
+const MECH_POSE = { pose: 'garage', moving: false, grounded: true, hover: false, boost: false, aimPitch: 0 };
+const DEF_CAM = { yaw: 0, pitch: 0.56, dist: 12.6 };
 // 設施：[id, 名稱, 對應的按鈕]
 const HUB_SPOTS = [
   ['garage', '機甲庫', 'btnHubGarage'],
@@ -50,16 +58,17 @@ Object.assign(Game.prototype, {
   hubSetup() {
     if (this.hubScene) return;
     const s = new THREE.Scene();
-    s.background = new THREE.Color(0x07090c);
-    s.fog = new THREE.Fog(0x07090c, 16, 34);
-    const hemi = new THREE.HemisphereLight(0xbcd8ff, 0x1a2026, 0.28);
+    this.hubScene = s;
+    s.background = new THREE.Color(0x141920);
+    s.fog = new THREE.Fog(0x141920, 40, 140);
+    const hemi = new THREE.HemisphereLight(0xdfeeff, 0x2a3036, 0.55);
     s.add(hemi);
-    const d = new THREE.DirectionalLight(0xfff0dc, 0.4);
+    const d = new THREE.DirectionalLight(0xfff0dc, 0.8);
     d.position.set(4, 9, 5);
     d.castShadow = true;
     d.shadow.mapSize.set(2048, 2048);
-    d.shadow.camera.left = d.shadow.camera.bottom = -12;
-    d.shadow.camera.right = d.shadow.camera.top = 12;
+    d.shadow.camera.left = d.shadow.camera.bottom = -14;
+    d.shadow.camera.right = d.shadow.camera.top = 14;
     d.shadow.normalBias = 0.02;
     s.add(d);
     if (this.envTex) s.environment = this.envTex;
@@ -68,10 +77,28 @@ Object.assign(Game.prototype, {
     const holo = new THREE.Group();
     holo.position.y = TABLE_Y + 0.035;
     R.root.add(holo);
+    // 玻璃外面：格納庫（機甲庫的基地格納庫，乘 MS 換成公尺）；指揮塔架在格納庫前段的半空，往下看得到整備架上的機體
+    loadHangarAssets();
+    this.hubHangarBuild();
+    // 指揮塔的支柱
+    const pm = new THREE.MeshStandardMaterial({ color: 0x2a323a, roughness: 0.6, metalness: 0.7 });
+    for (const [x, z] of [
+      [-6, -5.5],
+      [6, -5.5],
+      [-6, 5.5],
+      [6, 5.5],
+    ]) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.8, HUB_LIFT, 0.8), pm);
+      c.position.set(x, -HUB_LIFT / 2, z);
+      R.root.add(c);
+    }
+    const under = new THREE.Mesh(new THREE.BoxGeometry(13.4, 0.6, 12.4), pm);
+    under.position.y = -0.3;
+    R.root.add(under);
     this.hubScene = s;
     this.hubRoom = R;
     this.hubHoloG = holo;
-    this.hubCamera = new THREE.PerspectiveCamera(46, 1, 0.1, 80);
+    this.hubCamera = new THREE.PerspectiveCamera(46, 1, 0.1, 400);
     this.hubCamS = { ...DEF_CAM, tgt: new THREE.Vector3(0, TABLE_Y + 0.7, -0.8), drag: 0 };
     this.hubTiles = new Map(); // 「主題|種子|選項」→ 取樣結果
     this.hubQ = [];
@@ -102,6 +129,63 @@ Object.assign(Game.prototype, {
       this.hubCamS.drag = 3;
     });
     addEventListener('pointerup', () => (drag = null));
+  },
+  // 格納庫（外部素材載入後重建成細緻的版本）
+  hubHangarBuild() {
+    const s = this.hubScene;
+    if (this.hubHg) {
+      s.remove(this.hubHg.root);
+      disposeHangar(this.hubHg);
+    }
+    const H = buildHangar('base');
+    // 隨機多放走動的技師與維修車（避開整備架與指揮塔的支柱；指揮塔在格納庫座標的 z＝HUB_BAY／MS 附近）
+    const tz = HUB_BAY / MS;
+    addHangarLife(
+      H,
+      9,
+      4,
+      (x, z) => (Math.abs(x) < 3.4 && Math.abs(z) < 3.4) || (Math.abs(x) < 2.6 && Math.abs(z - tz) < 2.4),
+    );
+    H.root.scale.setScalar(MS);
+    H.root.position.set(0, -HUB_LIFT, -HUB_BAY);
+    s.add(H.root);
+    // 背景的整備位：停著另外兩台機體（外部素材的版本才有整備位）
+    for (const m of this.hubBgMechs || []) s.remove(m.group);
+    this.hubBgMechs = H.bgBays.map((b, i) => {
+      const asm = [
+        { ...START_ASM, head: 'h_hv', core: 'c_hv', arms: 'a_hv', legs: 'l_hv', rback: 'bw_gr', lback: null },
+        { ...START_ASM, head: 'h_lt', core: 'c_lt', arms: 'a_lt', legs: 'l_bp2', rarm: 'w_mg', larm: 'w_blade' },
+      ][i % 2];
+      const m = buildMech(asm, PALETTES[['gravel', 'nightfall'][i % 2]] || PALETTES.white, MS / MB, {
+        source: this.mechSource({ team: 'enemy' }),
+      });
+      m.group.rotation.y = Math.PI + b.ry;
+      m.group.position.set(b.x * MS, -HUB_LIFT, b.z * MS - HUB_BAY);
+      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...MECH_POSE, t: k / 60 });
+      s.add(m.group);
+      return m;
+    });
+    this.hubHg = H;
+    this.hubHgRich = HA.ready;
+    this.hubMechSig = null;
+  },
+  // 整備架上的機體＝玩家目前的機甲（組裝或配色改了才重建）
+  hubMechSync() {
+    const sig = JSON.stringify(this.save.asm) + this.myPalKey();
+    if (this.hubMechSig === sig) return;
+    this.hubMechSig = sig;
+    if (this.hubMech) this.hubScene.remove(this.hubMech.group);
+    try {
+      const m = buildMech(this.save.asm, this.myPal(), MS / MB, { source: this.garageSource() });
+      m.group.rotation.y = Math.PI;
+      m.group.position.set(0, -HUB_LIFT, -HUB_BAY);
+      for (let k = 0; k < 40; k++) animateMech(m, 1 / 60, { ...MECH_POSE, t: k / 60 });
+      this.hubScene.add(m.group);
+      this.hubMech = m;
+    } catch (e) {
+      console.warn('作戰室的機體', e);
+      this.hubMech = null;
+    }
   },
   // ---------- 區域地形 ----------
   // 用真的關卡生成取樣：在不加入畫面的場景建 World，讀高度與大型障礙物，然後丟掉
@@ -374,6 +458,9 @@ Object.assign(Game.prototype, {
       sp.on = !(id === 'echo' && this.hubEchoOff);
     }
     tickHubRoom(R, dt, t);
+    if (HA.ready && !this.hubHgRich) this.hubHangarBuild();
+    this.hubMechSync();
+    tickHangar(this.hubHg, dt, t);
     tickHolo(this.hubHoloG, t);
     for (const b of this.hubBeacons || []) {
       if (b.bc.userData.dot) b.bc.userData.dot.position.y = b.bc.userData.top + Math.sin(t * 3) * 0.02;

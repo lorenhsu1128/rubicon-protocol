@@ -9573,6 +9573,40 @@ async function testHubUi(browser, base) {
     `區域地形取自關卡生成（起伏 ${r.sd.toFixed(3)}、大型障礙物 ${r.obs}、${r.tiles} 區）`,
   );
   check(r.nodes > 4 && r.badge === '1', `委託的標籤（${r.nodes}）與新通訊的紅點（${r.badge}）`);
+  // 玻璃指揮塔：窗外的格納庫、整備架上的機體與走動的技師、維修車（比例：機體約 9.7 m、人約 1.8 m）
+  // 外部素材載入後格納庫會重建成細緻的版本：先等它
+  await page
+    .waitForFunction(() => window.__game.hubHgRich, null, { timeout: 30000 })
+    .catch(() => console.log('  （格納庫的外部素材沒有載入，用程式模型）'));
+  const hg = await page.evaluate(() => {
+    const g = window.__game;
+    const hgt = (o) => {
+      const bb = new THREE.Box3().setFromObject(o);
+      return bb.max.y - bb.min.y;
+    };
+    const W = g.hubHg.workers;
+    const ws = W.map((w) => w.g.getWorldPosition(new THREE.Vector3()));
+    for (let k = 0; k < 120; k++) g.hubTick(1 / 30, k / 30);
+    const moved = Math.max(...W.map((w, i) => w.g.getWorldPosition(new THREE.Vector3()).distanceTo(ws[i])));
+    const w0 = W[W.length - 1].g;
+    return {
+      mech: hgt(g.hubMech.group),
+      man: hgt(w0),
+      crew: g.hubHg.workers.length,
+      cars: g.hubHg.cars.length,
+      moved,
+    };
+  });
+  check(
+    hg.mech > 9 &&
+      hg.mech < 13.5 &&
+      hg.man > 1.5 &&
+      hg.man < 2.1 &&
+      hg.crew >= 10 &&
+      hg.cars >= 4 &&
+      hg.moved > 0.2,
+    `窗外的格納庫：機體 ${hg.mech.toFixed(1)} m、技師 ${hg.man.toFixed(2)} m、技師 ${hg.crew} 人（會走動 ${hg.moved.toFixed(1)} m）、維修車 ${hg.cars} 台`,
+  );
   await page.screenshot({ path: path.join(SHOT_DIR, 'hub-ui.png') });
   // 設施：場景裡的標籤點了開通訊紀錄，紅點消失
   await page.click('#hubSpots .hubSpot[data-spot="log"]');
@@ -9597,6 +9631,16 @@ async function testHubUi(browser, base) {
   check(
     bf.cap.includes('第 1 段') && bf.segs === 6 && bf.icons === 6 && bf.key,
     `簡報：背景是第一段的地形（和戰略桌同一份）、路線 ${bf.segs} 個區段圖示（${bf.cap.trim()}）`,
+  );
+  const intel = await page.evaluate(() => ({
+    boss: !!document.querySelector('#brIntel .brFoe.boss'),
+    ace: !!document.querySelector('#brIntel .brFoe.ace'),
+    foes: document.querySelectorAll('#brIntel .brFoe:not(.boss):not(.ace)').length,
+    weak: document.querySelectorAll('#brIntel .brW').length,
+  }));
+  check(
+    intel.boss && intel.ace && intel.foes >= 2 && intel.weak >= 3,
+    `簡報的敵情：終點 Boss、宿敵 AC、專屬敵人 ${intel.foes} 種與弱點（${intel.weak} 個）`,
   );
   await page.screenshot({ path: path.join(SHOT_DIR, 'hub-brief.png') });
   const go = await page.evaluate(() => {

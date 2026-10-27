@@ -2400,3 +2400,69 @@ export function disposeHangar(H) {
   }
   for (const tx of H.scroll) tx.dispose();
 }
+
+// 作戰室窗外的格納庫（game/hub-holo.js）：隨機多放幾個走動的技師與來回的維修車（座標是格納庫的單位，1＝3 m）。
+// avoid(x, z)＝不能站的地方（整備架、指揮塔的支柱）
+export function addHangarLife(H, nCrew, nCars, avoid, rng = Math.random) {
+  const W = 12.5,
+    z0 = -9,
+    z1 = 14;
+  const spot = () => {
+    for (let k = 0; k < 40; k++) {
+      const x = (rng() * 2 - 1) * W,
+        z = z0 + rng() * (z1 - z0);
+      if (!avoid(x, z)) return [x, 0, z];
+    }
+    return [W - 1, 0, z1 - 1];
+  };
+  const suits = [
+    [0x5a6a3a, 0xc8b070],
+    [0x3a4a5a, 0xe0e0e0],
+    [0x8a5a2a, 0xffd040],
+  ];
+  const who = ['worker', 'crew', 'worker', 'soldier'];
+  for (let i = 0; i < nCrew; i++) {
+    // 走到幾個地方，每個地方看一下或用平板
+    const tasks = [];
+    for (let k = 0; k < 3 + Math.floor(rng() * 3); k++) {
+      const p = spot();
+      tasks.push(['walk', p]);
+      tasks.push(rng() < 0.5 ? ['look', p, 2 + rng() * 5] : ['tab', p, 3 + rng() * 5]);
+    }
+    const [suit, hat] = suits[i % suits.length];
+    const w = (H.rich && buildCrewChar(who[i % who.length])) || buildWorker(suit, hat);
+    const p0 = tasks[0][1];
+    w.g.position.set(p0[0], 0, p0[2]);
+    H.root.add(w.g);
+    H.workers.push({ ...w, tasks, ti: Math.floor(rng() * tasks.length), tt: rng() * 3, yaw: rng() * 6.28 });
+  }
+  const colors = [0xc8a020, 0x3a78c0, 0xd05a30, 0x6a8a40];
+  for (let i = 0; i < nCars; i++) {
+    const tug = buildTug(H.M, colors[i % colors.length], rng() < 0.4);
+    tug.g.scale.setScalar(HU);
+    H.root.add(tug.g);
+    // 沿著格納庫的通道繞一圈（矩形，避開整備架）
+    const xa = -W + 1 + rng() * 4,
+      xb = W - 1 - rng() * 4,
+      za = z0 + 1 + rng() * 3,
+      zb = z1 - 1 - rng() * 3;
+    const path =
+      rng() < 0.5
+        ? [
+            [xa, za],
+            [xb, za],
+            [xb, zb],
+            [xa, zb],
+          ]
+        : [
+            [xb, zb],
+            [xa, zb],
+            [xa, za],
+            [xb, za],
+          ];
+    const k0 = Math.floor(rng() * 4);
+    tug.g.position.set(path[k0][0], 0, path[k0][1]);
+    H.cars.push({ ...tug, path, i: (k0 + 1) % 4, v: (2 + rng() * 1.5) * HU, yaw: 0, wait: rng() * 2 });
+    if (tug.beacon) H.beacons.push(tug.beacon);
+  }
+}

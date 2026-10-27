@@ -2,7 +2,10 @@
 // 模擬器與作戰紀錄在第 6 期
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
-import { SEG_TYPES, SORTIES } from '../data/campaign.js';
+import { SEG_TYPES, SORTIES, sortieBoss } from '../data/campaign.js';
+import { ATTRS, ATTR_KEYS, weaponAttr } from '../data/attrs.js';
+import { ACES, FOES, THEME_ACE, themeFoes } from '../data/foes.js';
+import { asmStats, partById } from '../data/parts.js';
 import {
   BRIEFINGS,
   CHAPTER_NAMES,
@@ -36,7 +39,102 @@ const SEG_ICON = {
 const segIcon = (t) =>
   `<svg viewBox="0 0 24 24" class="brSI" aria-hidden="true"><path d="${SEG_ICON[t] || 'M9 9a3 3 0 1 1 4 2.8c-.8.4-1 1-1 2 M12 17v.5'}"/></svg>`;
 
+// 武器零件的分類（手持或背部）
+const sl0 = (id) => (partById('arm', id) && partById('arm', id).id === id ? 'arm' : 'back');
+// 敵人說明的打法（intro 的「名稱：打法」或「名稱 — 打法」）
+const tactic = (t) => {
+  const s = String(t || '');
+  const i = s.search(/：| — /);
+  return i < 0 ? s : s.slice(i + (s[i] === '：' ? 1 : 3));
+};
+// 屬性的強弱晶片：res＝[實彈, 爆發, 能量] 的額外減傷（負的＝弱點）
+const resChips = (res, laserK) =>
+  ATTR_KEYS.map((k, i) => {
+    const v = res ? res[i] : 0;
+    if (v <= -0.08) return `<i class="brW" style="--c:${ATTRS[k].color}">弱 ${ATTRS[k].name}</i>`;
+    if (v >= 0.12) return `<i class="brR" style="--c:${ATTRS[k].color}">抗 ${ATTRS[k].name}</i>`;
+    return '';
+  }).join('') +
+  (laserK != null && Math.abs(laserK - 1) > 0.01
+    ? `<i class="brR">雷射 ${Math.round(laserK * 100)}%</i>`
+    : '');
+
 Object.assign(Game.prototype, {
+  // 簡報的情報：這次出擊會遇到的主題專屬敵人（依預排的主題與深度）、宿敵 AC、終點 Boss 的弱點與打法
+  briefIntelHtml(sid, pre) {
+    const so = SORTIES[sid];
+    const foes = new Map(); // key → 第幾段起
+    const aces = new Map();
+    let boss = null;
+    so.segs.forEach((sg, i) => {
+      const t = i === 0 ? pre.type0 : null;
+      const pool = t ? [t] : sg.pool;
+      if (pool.length === 1 && pool[0] === 'boss') boss = sortieBoss(sg, 'boss');
+      if (pool.includes('elite')) {
+        // 依抉擇的宿敵（campSegAce 要有進行中的出擊，簡報時用存檔裡最近的抉擇）
+        const a = sg.ace;
+        let ace = typeof a === 'string' ? a : '';
+        if (a && typeof a === 'object') {
+          const pc = this.campPickCtx();
+          const ck = Object.keys(a).find((k) => /^c\d$/.test(k) && typeof a[k] === 'object');
+          ace = ck ? a[ck][pc[ck]] || '' : a[this.campLastPick(so.chapter)] || '';
+        }
+        ace = ace || THEME_ACE[sg.theme];
+        if (ace && !aces.has(ace)) aces.set(ace, i);
+      }
+      if (pool.every((x) => x === 'supply')) return;
+      for (const k of themeFoes(sg.theme, (pre.plan[i] && pre.plan[i].depth) || 0))
+        if (!foes.has(k)) foes.set(k, i);
+    });
+    const row = (cls, name, sub, chips, tip) =>
+      `<div class="brFoe ${cls}"><div class="brFN"><b>${escHtml(name)}</b><span class="dim">${escHtml(sub)}</span>${chips}</div><div class="brFT">${escHtml(tip)}</div></div>`;
+    let h = '';
+    if (boss)
+      h += row(
+        'boss',
+        boss.name,
+        '終點 Boss',
+        resChips(boss.res),
+        tactic(boss.intro) || '三個型態，第三型態有專屬招式',
+      );
+    for (const [k, i] of aces) {
+      const A = ACES[k];
+      let chips = '',
+        sub = `宿敵 AC・第 ${i + 1} 段（精英）`;
+      if (A.asm) {
+        const st = asmStats(A.asm);
+        const D = st.defs || { kin: 0, exp: 0, en: 0 };
+        const lo = ATTR_KEYS.reduce((a, b) => (D[b] < D[a] ? b : a));
+        const atk = [
+          ...new Set(
+            ['rarm', 'larm', 'rback', 'lback']
+              .map((sl) => A.asm[sl])
+              .filter(Boolean)
+              .map((id) => partById(sl0(id), id))
+              .filter((p) => p && p.type !== 'none')
+              .map((p) => weaponAttr(p)),
+          ),
+        ];
+        chips =
+          `<i class="brW" style="--c:${ATTRS[lo].color}">防禦最弱 ${ATTRS[lo].name}</i>` +
+          atk
+            .map((k2) => `<i class="brA" style="--c:${ATTRS[k2].color}">攻擊 ${ATTRS[k2].name}</i>`)
+            .join('');
+      } else sub += '・每次組裝不同';
+      h += row('ace', A.name, sub, chips, tactic(A.intro));
+    }
+    for (const [k, i] of foes) {
+      const F = FOES[k];
+      h += row(
+        '',
+        F.name,
+        `${THEMES[F.theme].name}・第 ${i + 1} 段起${F.depth ? '（深層）' : ''}`,
+        resChips(F.res, F.laserK),
+        tactic(F.intro),
+      );
+    }
+    return h ? `<div class="brIntelH">敵情</div>${h}` : '';
+  },
   // 出擊的狀態：done 完成過、open 可以接、locked 前置還沒完成、hidden 陣營抉擇不符（總覽圖上不出現）
   hubSortieState(sid) {
     const st = this.campStory();
@@ -221,6 +319,7 @@ Object.assign(Game.prototype, {
     $('brMapCap').innerHTML =
       `<b>第 1 段</b>　${escHtml(THEMES[so.segs[0].theme].name)}${v0 ? '・' + escHtml(v0.name) : ''}　<span>${escHtml(SEG_TYPES[pre.type0].name)}</span>`;
     $('brRouteH').textContent = `路線　${themes}　${so.segs.length} 個區段`;
+    $('brIntel').innerHTML = this.briefIntelHtml(sid, pre);
     $('brRoute').innerHTML = route;
     $('brReward').textContent =
       `完成報酬 ${so.reward.toLocaleString()} COAM（另有區段報酬）　完成次數 ${this.campStory().done[sid] || 0}`;
