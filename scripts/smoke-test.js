@@ -14056,6 +14056,110 @@ async function testMeleeCombo(browser, base) {
 }
 
 // 狀態效果（entities/mech-status.js、game/status-hud.js）：每種狀態的移動效果、掙脫規則、HUD、截圖
+// 近戰訓練：一課 × 一把武器自動跑完（主迴圈要先 freezeLoop）。dev＝'kb'｜'pad'｜'touch' 時腳本寫進那個裝置真正的輸入
+// （g.tutAutoDev），否則是虛擬輸入。回傳每一步的耗時（遊戲秒；-1＝時限內沒過）與是不是「這個裝置或武器沒有」跳過的
+function tutRun(page, lid, w, dev) {
+  return page.evaluate(
+    ([lid, w, dev]) => {
+      const g = window.__game;
+      window.__reseed(7);
+      g.tutAuto = true;
+      g.tutNoDemo = true;
+      g.tutAutoDev = dev || null;
+      g.tutStart(lid, w);
+      const out = [];
+      for (let k = 0; k < 12 && g.tut && g.state === 'play'; k++) {
+        const T = g.tut,
+          li = T.li,
+          step = T.step,
+          sk = T.phase === 'skip';
+        // 考核：打中時的頓格讓遊戲時間比推進的時間慢
+        const lim = step.goal && step.goal[0] && step.goal[0].exam ? step.goal[0].exam * 1.8 + 20 : 45;
+        const t = window.__pump(lim, () => !g.tut || g.state !== 'play' || g.tut.li !== li);
+        out.push({ id: step.id, t: Math.round(t * 10) / 10, prog: T.prog.join('/'), ph: T.phase, sk });
+        if (t < 0) break;
+      }
+      return { out, state: g.state, coam: g.save.coam, rec: JSON.stringify(g.tutSave().les[lid] || null) };
+    },
+    [lid, w, dev],
+  );
+}
+const tutRunTxt = (r) =>
+  r.out
+    .map((s) => `${s.id} ${s.sk ? '跳過' : s.t < 0 ? '✗(' + s.prog + ' ' + s.ph + ')' : s.t + 's'}`)
+    .join('、');
+
+// 近戰訓練的三種操作方式：以鍵盤滑鼠／手把／觸控真正的輸入（按鍵、手把的按鈕與搖桿、觸控的按鈕與搖桿）自動跑 8 課，
+// 按鍵對應、觸控攻擊鍵依距離切換射擊與斬擊、觸控 QB 鍵長按變突擊推進都照實際的流程；說明文字依裝置
+async function testMeleeTutDev(browser, base, dev) {
+  const NM = { kb: '鍵盤滑鼠', pad: '手把', touch: '手機觸控' }[dev];
+  console.log(`近戰訓練課程（${NM}）：以${NM}的輸入自動跑 8 課、依裝置的說明`);
+  const { ctx, page } = await newPage(browser, 'melee-tut-' + dev);
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate((dev) => {
+    const g = window.__game;
+    g.ctrl.touch = dev === 'touch' ? 'on' : 'off';
+    if (dev === 'touch') document.body.classList.add('touchDev');
+  }, dev);
+  await freezeLoop(page);
+  // 說明文字：移動與方向的按鍵依裝置
+  const txt = await page.evaluate((dev) => {
+    const g = window.__game;
+    g.tutAuto = false;
+    const panel = (lid) => {
+      g.tutStart(lid, 'w_blade');
+      g.padActive = dev === 'pad';
+      g.tutPanelRender(true);
+      return document.getElementById('tutPanel');
+    };
+    const near = panel('L1').querySelector('.tpText').textContent;
+    const fwd = panel('L2').querySelector('.tpText kbd.dir').textContent;
+    const dev4 = (panel('L4').querySelector('.tpDev') || {}).textContent || '';
+    g.tutExit(false);
+    return { near, fwd, dev4 };
+  }, dev);
+  const want = { kb: /W A S D/, pad: /左搖桿/, touch: /左下的搖桿/ }[dev];
+  check(want.test(txt.near), `第 1 課的移動依裝置（${txt.near.slice(0, 22)}）`);
+  check(
+    dev === 'kb' ? /^W /.test(txt.fwd) : /左搖桿/.test(txt.fwd),
+    `方向派生的「前」依裝置${dev === 'kb' ? '標出移動鍵' : ''}（${txt.fwd}）`,
+  );
+  check(
+    dev === 'touch' ? /斬擊/.test(txt.dev4) : !txt.dev4,
+    dev === 'touch' ? '觸控多一句說明：衝刺斬要等攻擊鍵變成斬擊' : '觸控以外不顯示觸控的說明',
+  );
+  // 8 課（每個裝置從不同的武器開始輪）
+  const W = ['w_blade', 'w_saber', 'w_claw', 'w_pile', 'w_none'];
+  const off = { kb: 1, pad: 2, touch: 3 }[dev];
+  for (let i = 0; i < 8; i++) {
+    const w = W[(i + off) % W.length];
+    const r = await tutRun(page, 'L' + (i + 1), w, dev);
+    const stuck = r.out.filter((s) => s.t < 0);
+    check(r.state === 'tutdone' && !stuck.length, `${NM}：第 ${i + 1} 課 × ${w}（${tutRunTxt(r)}）`);
+    if (i === 4) {
+      const sk = r.out.filter((s) => s.sk).map((s) => s.id);
+      check(
+        dev === 'touch'
+          ? sk.includes('link') && sk.includes('swap')
+          : !sk.includes('link') && !sk.includes('swap'),
+        dev === 'touch'
+          ? `觸控跳過近戰接射擊與左右手交替（${sk.join('、')}）`
+          : `近戰接射擊與左右手交替都有練（跳過：${sk.join('、') || '無'}）`,
+      );
+    }
+    await page.evaluate(() => window.__game.tutExit(false));
+  }
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.tutAutoDev = null;
+    g.tutAuto = false;
+  });
+  await thawLoop(page);
+  await ctx.close();
+}
+
 // 近戰訓練課程（docs/melee-tutorial.md）：自動操作（g.tutAuto，try 也照示範腳本）＋不看示範，以固定 dt 推進主迴圈，
 // 每一個練習都要在時限內過關。預設每一課換一把武器；TUT_ALL=1 時每一課 × 5 把武器全部跑（找卡住的練習用）
 async function testMeleeTut(browser, base) {
@@ -14093,28 +14197,7 @@ async function testMeleeTut(browser, base) {
   check(pick.length === 5, '選課後列出 5 把近戰武器（' + pick.join('、') + '）');
   await freezeLoop(page);
   // 一課 × 一把武器：回傳每一步的耗時（遊戲秒；-1＝時限內沒過）
-  const run = (lid, w) =>
-    page.evaluate(
-      ([lid, w]) => {
-        const g = window.__game;
-        window.__reseed(7);
-        g.tutAuto = true;
-        g.tutNoDemo = true;
-        g.tutStart(lid, w);
-        const out = [];
-        for (let k = 0; k < 12 && g.tut && g.state === 'play'; k++) {
-          const T = g.tut,
-            li = T.li,
-            step = T.step;
-          const lim = step.goal && step.goal[0] && step.goal[0].exam ? step.goal[0].exam * 1.8 + 20 : 45; // 打中時的頓格讓遊戲時間比推進的時間慢
-          const t = window.__pump(lim, () => !g.tut || g.state !== 'play' || g.tut.li !== li);
-          out.push({ id: step.id, t: Math.round(t * 10) / 10, prog: T.prog.join('/'), ph: T.phase });
-          if (t < 0) break;
-        }
-        return { out, state: g.state, coam: g.save.coam, rec: JSON.stringify(g.tutSave().les[lid] || null) };
-      },
-      [lid, w],
-    );
+  const run = (lid, w) => tutRun(page, lid, w);
   const W = ['w_blade', 'w_saber', 'w_claw', 'w_pile', 'w_none'];
   const L = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8'];
   const all = process.env.TUT_ALL === '1';
@@ -14167,9 +14250,7 @@ async function testMeleeTut(browser, base) {
     for (const w of all ? W : [W[i % W.length]]) {
       const r = await run(L[i], w);
       const stuck = r.out.filter((s) => s.t < 0);
-      const txt = r.out
-        .map((s) => `${s.id} ${s.t < 0 ? '✗(' + s.prog + ' ' + s.ph + ')' : s.t + 's'}`)
-        .join('、');
+      const txt = tutRunTxt(r);
       check(
         r.state === 'tutdone' && !stuck.length,
         `第 ${i + 1} 課 × ${w}：每個練習都在時限內過關（${txt}）`,
@@ -14235,7 +14316,11 @@ async function testMeleeTut(browser, base) {
       }
       g.tutStart('L2', 'w_blade');
     }, touch);
-    await page.waitForTimeout(2200);
+    // 等說明結束、換你練習（不用固定的時間：負載高時說明的 0.9 秒要更久）
+    await page.waitForFunction(() => window.__game.tut && window.__game.tut.phase === 'try', null, {
+      timeout: 20000,
+    });
+    await page.waitForTimeout(800);
     const ok = await page.evaluate(() => {
       const g = window.__game;
       const el = document.getElementById('tutPanel');
@@ -17113,6 +17198,12 @@ const STEPS = [
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
+  // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
+  ...['kb', 'pad', 'touch'].map((d) => [
+    'testMeleeTutDev:' + d,
+    (c) => testMeleeTutDev(c.browser, c.base, d),
+    { family: 'testMeleeTutDev' },
+  ]),
   ['testHazards2', (c) => testHazards2(c.browser, c.base)],
   ['testRtsFog', (c) => RTS.testRtsFog(c.browser, c.base)],
   ['testRtsInput', (c) => RTS.testRtsInput(c.browser, c.base)],

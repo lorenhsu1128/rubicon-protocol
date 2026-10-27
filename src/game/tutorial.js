@@ -174,6 +174,7 @@ Object.assign(Game.prototype, {
   // clearMission 呼叫：模型與畫面
   tutClear() {
     this.tutVirt = null;
+    this.tutDevRelease();
     if (this.tutRing) {
       this.scene.remove(this.tutRing);
       this.tutRing = null;
@@ -214,6 +215,7 @@ Object.assign(Game.prototype, {
   },
   tutStep(i) {
     const T = this.tut;
+    this.tutDevRelease();
     T.li = i;
     const step = T.L.steps[i];
     if (!step) return this.tutLessonDone();
@@ -423,17 +425,16 @@ Object.assign(Game.prototype, {
   },
   tutBegin(ph) {
     const T = this.tut;
+    this.tutDevRelease();
     T.phase = ph;
     this.tutReset();
     this.tutVirt = null;
     if (ph === 'demo') {
       T.seenDemo = T.seenDemo || {};
       T.seenDemo[T.step.id] = 1;
-      T.scr = { list: T.step.demo, i: 0, t: 0, virt: {} };
-      this.tutVirt = { wish: new THREE.Vector3() };
+      T.scr = { list: T.step.demo, i: 0, t: 0 };
     } else if (this.tutAuto) {
-      T.scr = { list: T.step.auto || T.step.demo, i: 0, t: 0, virt: {} };
-      this.tutVirt = { wish: new THREE.Vector3() };
+      T.scr = { list: T.step.auto || T.step.demo, i: 0, t: 0 };
     }
     this.tutPanelRender(true);
   },
@@ -454,13 +455,77 @@ Object.assign(Game.prototype, {
     this.tutStep(T.li + 1);
   },
   // ---------- 示範腳本 ----------
+  // 每格：照腳本算出這一格的輸入 V（{ 動作: 1 按下／2 還按著／true 按住, wish: 世界座標的移動方向 }）。
+  // 示範與一般的自動操作直接當虛擬輸入（tutVirt，input.js 的 act 讀它）；冒煙測試的 tutAutoDev（'kb'｜'pad'｜'touch'）
+  // 改成寫進那個裝置真正的輸入（按鍵、手把的按鈕與搖桿、觸控的按鈕與搖桿），按鍵對應、觸控攻擊鍵的自動切換、
+  // QB 長按變突擊推進都照實際的流程跑
   tutScriptTick(dt) {
+    const T = this.tut,
+      S = T.scr;
+    if (!S) return;
+    const dev = this.tutDevOn();
+    const V = (S.v = S.v || { wish: new THREE.Vector3() });
+    this.tutVirt = dev ? null : V;
+    this.tutScriptStep(dt, V);
+    if (dev && this.tut && this.tut.scr === S) this.tutDevApply(V);
+  },
+  tutDevOn() {
+    const T = this.tut;
+    return !!(this.tutAutoDev && this.tutAuto && T && T.phase === 'try');
+  },
+  // 觸控：攻擊鍵在近戰距離內才是近戰（applySmartAttack）；還是射擊時腳本的近戰要等一下
+  tutTouchWait() {
+    return this.tutDevOn() && this.tutAutoDev === 'touch' && this.smartMode !== 'melee';
+  },
+  // 裝置模式：V → 裝置的輸入（移動方向換回畫面／機體的軸，照 player.js 的換算反過來）
+  tutDevApply(V) {
+    const dev = this.tutAutoDev,
+      d = this.down;
+    const [x, z] = V.wish.lengthSq() > 0.01 ? this.tutAxes(V.wish.clone().normalize()) : [0, 0];
+    const on = (k) => !!V[k];
+    if (dev === 'kb') {
+      const K = this.keymap,
+        t = 0.38; // 八方向
+      d[K.right] = x > t;
+      d[K.left] = x < -t;
+      d[K.down] = z > t;
+      d[K.up] = z < -t;
+      for (const k of ['fireR', 'fireL', 'jump', 'ab']) d[K[k]] = on(k);
+      d[K.qb] = V.qb === 1; // 鍵盤的 QB 按下一次（player.js 用掉就清掉）
+      this.padActive = false;
+      this.touchActive = false;
+    } else if (dev === 'pad') {
+      this.padMove = new THREE.Vector3(x, 0, z);
+      const P = this.padmap;
+      for (const k of ['fireR', 'fireL', 'qb', 'jump', 'ab']) d[P[k]] = on(k);
+      this.padActive = true;
+      this.touchActive = false;
+    } else if (dev === 'touch') {
+      this.touchActive = true;
+      this.touchMove.set(x, 0, z);
+      d['Touch_attack'] = on('fireR') || on('fireL'); // 觸控只有一顆攻擊鍵
+      d['Touch_jump'] = on('jump');
+      d['Touch_qbHold'] = on('ab'); // 按住 QB 鍵 0.4 秒＝突擊推進
+      if (V.qb === 1) this.qbPulse = 2; // 點一下 QB 鍵
+    }
+  },
+  // 裝置模式的輸入全部放開（換練習、過關、離開）
+  tutDevRelease() {
+    if (!this.tutAutoDev) return;
+    const d = this.down;
+    for (const k of ['up', 'down', 'left', 'right', 'fireR', 'fireL', 'qb', 'jump', 'ab']) {
+      d[this.keymap[k]] = false;
+      d[this.padmap[k]] = false;
+    }
+    for (const k of ['Touch_attack', 'Touch_jump', 'Touch_qbHold', 'Touch_ab']) d[k] = false;
+    if (this.padMove) this.padMove.set(0, 0, 0);
+    if (this.touchMove) this.touchMove.set(0, 0, 0);
+  },
+  tutScriptStep(dt, V) {
     const T = this.tut,
       S = T.scr,
       p = this.player,
       e = T.dummy;
-    if (!S) return;
-    const V = (this.tutVirt = this.tutVirt || { wish: new THREE.Vector3() });
     // 前一格按下的鍵放開（press＝一格）
     for (const k of ['fireR', 'fireL', 'qb'])
       if (V[k] === 1) V[k] = 2;
@@ -506,6 +571,7 @@ Object.assign(Game.prototype, {
         const k = slot === 'larm' ? 'fireL' : 'fireR';
         if (V[k]) return; // 上一次按下還沒放開：等一格（否則不算按下）
         if (!m.active && p.weapons[slot].cd > 0) return; // 收招後武器還在冷卻：等冷卻完再按（否則這一下被吃掉）
+        if (!m.active && this.tutTouchWait()) return; // 觸控：攻擊鍵變成「斬擊」才按
         V[k] = 1;
         if (dir) V.wish.copy(this.tutDirVec(dir));
         S.lastDir = dir;
@@ -572,18 +638,22 @@ Object.assign(Game.prototype, {
       case 'jump':
         S.hold = { k: 'jump', t: a[1], w: 'f', async: true };
         return next();
-      case 'ab':
-        // 按住突擊推進 a[1] 秒後往下（之後的 press 在推進中，推進再多按 0.35 秒）
+      case 'ab': {
+        // 按住突擊推進 a[1] 秒後往下（之後的 press 在推進中，推進再多按 0.35 秒）；
+        // 觸控按住 QB 鍵 0.4 秒才推進，之後的 press 還要等攻擊鍵變成斬擊，所以按久一點
+        const tw = this.tutDevOn() && this.tutAutoDev === 'touch' ? 0.4 : 0;
         if (!S.abOn) {
           S.abOn = true;
-          S.hold = { k: 'ab', t: a[1] + 0.35, w: 'f', async: true };
+          S.hold = { k: 'ab', t: a[1] + 0.35 + tw * 4, w: 'f', async: true };
         }
-        if (S.t >= a[1]) {
+        if (S.t >= a[1] + tw) {
           S.abOn = false;
           next();
         }
         return;
+      }
       case 'hold':
+        if (this.tutTouchWait()) return;
         S.hold = { k: 'fireR', t: a[1], async: false };
         return next();
       case 'shootStag':
@@ -680,6 +750,7 @@ Object.assign(Game.prototype, {
   },
   tutPass() {
     const T = this.tut;
+    this.tutDevRelease();
     T.phase = 'ok';
     T.okT = 1.4;
     this.tutVirt = null;
@@ -1020,7 +1091,13 @@ Object.assign(Game.prototype, {
       pad = !touch && this.padActive;
     const dirTxt = { f: '前（朝目標）', s: '側（目標的左右）', b: '後（遠離目標）' };
     if (dirTxt[act])
-      return `<kbd class="dir">${touch ? '左搖桿 ' : pad ? '左搖桿 ' : ''}${dirTxt[act]}</kbd>`;
+      return `<kbd class="dir">${touch ? '左搖桿 ' : pad ? '左搖桿 ' : escHtml(this.tutDirKeys(act)) + ' '}${dirTxt[act]}</kbd>`;
+    if (act === 'move') {
+      if (touch) return '<kbd>左下的搖桿</kbd>';
+      if (pad) return '<kbd>左搖桿</kbd>';
+      const K = this.keymap;
+      return `<kbd>${['up', 'left', 'down', 'right'].map((k) => escHtml(this.keyLabel(K[k]))).join(' ')}</kbd>`;
+    }
     if (touch) {
       const t = {
         melee: '攻擊鍵',
@@ -1037,10 +1114,37 @@ Object.assign(Game.prototype, {
     const lbl = pad ? this.padLabel(this.padmap[name]) : this.keyLabel(this.keymap[name]);
     return `<kbd>${escHtml(lbl)}</kbd>`;
   },
+  // 世界座標的方向 → 畫面（或機體）的軸 [右, 下]（player.js 的移動換算反過來）
+  tutAxes(w) {
+    const p = this.player;
+    if (this.ctrl.moveRel === 'mech' || this.camAim()) {
+      const yy = this.camAim() ? this.fpYaw : p.yaw;
+      const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy));
+      return [w.dot(new THREE.Vector3(-fwd.z, 0, fwd.x)), -w.dot(fwd)];
+    }
+    return [w.x, w.z];
+  },
+  // 鍵盤：這個方向（相對目標）現在要按哪幾顆移動鍵（八方向；側＝左右兩邊都可以）
+  tutDirKeys(dir) {
+    if (!this.player || !this.tut) return '';
+    const K = this.keymap;
+    const one = (v) => {
+      const [x, z] = this.tutAxes(v);
+      const t = 0.38;
+      const ks = [];
+      if (z < -t) ks.push(K.up);
+      if (z > t) ks.push(K.down);
+      if (x < -t) ks.push(K.left);
+      if (x > t) ks.push(K.right);
+      return ks.map((k) => this.keyLabel(k)).join('＋');
+    };
+    const v = this.tutDirVec(dir);
+    return dir === 's' ? `${one(v)} 或 ${one(v.clone().negate())}` : one(v);
+  },
   tutText(s) {
     const d = this.tutWDef();
     return s
-      .replace(/\[(melee2|melee|shot|qb|jump|ab|f|s|b)\]/g, (m, k) => this.tutKey(k))
+      .replace(/\[(melee2|melee|shot|qb|jump|ab|move|f|s|b)\]/g, (m, k) => this.tutKey(k))
       .replace(/\{w\}/g, escHtml(wName(this.tut.wid)))
       .replace(/\{(\w+)\}/g, (m, t) => `<b class="mv">${escHtml(tagName(d, t) || t)}</b>`);
   },
@@ -1063,6 +1167,10 @@ Object.assign(Game.prototype, {
       this.tutSpeed(),
       this.padActive,
       this.vpadWanted(),
+      // 鍵盤的方向鍵跟著兩台的位置變
+      !this.vpadWanted() && !this.padActive && (step.dir || T.quiz)
+        ? this.tutDirKeys(step.dir || T.quiz.seq[T.quiz.i])
+        : '',
     ].join('|');
     if (!force && key === T.panelKey) return;
     T.panelKey = key;
@@ -1076,6 +1184,7 @@ Object.assign(Game.prototype, {
     }
     h += `<div class="tpText">${this.tutText(step.text)}</div>`;
     if (step.tip) h += `<div class="tpTip">${escHtml(step.tip)}</div>`;
+    if (step.touch && this.vpadWanted()) h += `<div class="tpDev">${escHtml(step.touch)}</div>`;
     if (T.phase === 'demo') h += '<div class="tpDemo">▶ 示範中（0.5 倍速）——看清楚按鍵的順序</div>';
     else if (T.phase === 'ok') h += '<div class="tpOk">✓ 過關</div>';
     else {

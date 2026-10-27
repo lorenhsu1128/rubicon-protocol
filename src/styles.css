@@ -6652,6 +6652,10 @@ select:disabled option {
   color: var(--dim);
   font-size: 12px;
 }
+#tutPanel .tpDev {
+  color: #ffd060;
+  font-size: 12px;
+}
 #tutPanel .tpDemo {
   color: #7fc8ff;
 }

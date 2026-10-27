@@ -14,8 +14,9 @@
 //   reset  每次成功後把兩台放回開始位置
 //   demo   示範腳本（也是冒煙測試的自動操作）；auto 自動操作另外寫的腳本
 //   hints  [第 1 段提示, 失敗 3 次後更具體的提示]
+//   touch  只在觸控時多顯示的一句（觸控的攻擊鍵會依距離自動切換射擊與斬擊）
 //   skip(d, g) 回傳說明文字＝這把武器（或這個裝置）跳過這一步；opt 選修（可以直接跳過）
-// 說明文字的記號：[melee] [shot] [qb] [jump] [ab]＝依裝置的按鍵；[f] [s] [b]＝方向；{標籤}＝這把武器的招式名稱；{w}＝武器名稱
+// 說明文字的記號：[melee] [shot] [qb] [jump] [ab] [move]＝依裝置的按鍵（移動＝WASD／左搖桿）；[f] [s] [b]＝方向；{標籤}＝這把武器的招式名稱；{w}＝武器名稱
 //
 // 示範腳本：陣列，每一項 [指令, 參數…]
 //   ['near', 距離倍率]  朝假人移動到近戰距離×倍率以內        ['dir', 方向, 秒]  只按方向
@@ -149,7 +150,7 @@ export const LESSONS = [
       {
         id: 'near',
         t: '靠近目標',
-        text: '用方向鍵靠近訓練假人。假人腳下的圈變成<b class="ok">綠色</b>＝近戰打得到。',
+        text: '用 [move] 靠近訓練假人。假人腳下的圈變成<b class="ok">綠色</b>＝近戰打得到。',
         say: '近戰的第一步是距離。圈變綠就是你的刀搆得到的地方。',
         dummy: { lv: 0, dist: 26 },
         goal: [{ ev: 'near', n: 1, lbl: '靠近' }],
@@ -394,6 +395,7 @@ export const LESSONS = [
         goal: [{ ev: 'hit', tag: 'dash', n: 2, lbl: '衝刺斬' }],
         demo: [['ab', 0.45], ['press', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['先按住 [ab] 衝出去，衝刺途中按 [melee]。', '[ab] 要一直按住，在衝刺「中」按 [melee]。'],
+        touch: '觸控：按住 QB 鍵衝出去，衝到近處、攻擊鍵變成「斬擊」時再按（太早按是開槍）。',
       },
       {
         id: 'resume',
@@ -473,6 +475,7 @@ export const LESSONS = [
         goal: [{ ev: 'hit', n: 2, lbl: '突進打中', test: (e) => e.lunge }],
         demo: [['shootStag'], ['press', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['連續按 [shot] 打到它失衡。', '黃框出現就按 [melee]，不用先走近。'],
+        touch: '觸控：遠處的攻擊鍵是射擊；假人失衡後攻擊鍵自動變成「斬擊」，再按一下就突進。',
       },
       {
         id: 'swap',
@@ -492,6 +495,8 @@ export const LESSONS = [
           ['end'],
         ],
         hints: ['右手打中後按 [melee2]。'],
+        skip: (d, g) =>
+          g.vpadWanted() ? '觸控只有一顆攻擊鍵（固定用右手的近戰），左右手交替請用鍵盤或手把練習。' : '',
       },
     ],
   },
@@ -533,6 +538,7 @@ export const LESSONS = [
           ['end'],
         ],
         hints: ['先打到失衡，再按住 [melee]。', '按住不放，時機條滿了才會發動；距離要在近戰的圈裡。'],
+        touch: '觸控：攻擊鍵是「斬擊」的時候按住不放。',
       },
       {
         id: 'reward',
@@ -665,6 +671,7 @@ export const LESSONS = [
         goal: [{ ev: 'hit', tag: 'bash', n: 2, lbl: '盾擊' }],
         demo: [['wait', 'shield'], ['press', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['被子彈打中（盾發光）就按 [melee]。', '0.5 秒很短：一被打中就按。'],
+        touch: '觸控：盾擋下攻擊的 0.5 秒內，攻擊鍵會變成「斬擊」，這時按就是盾擊。',
       },
       {
         id: 'mix',

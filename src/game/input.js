@@ -316,7 +316,9 @@ Object.assign(Game.prototype, {
         const st = w.def.combo[0];
         // 失衡中的目標：突進追擊的距離（射擊 → 近戰的連接，data/melee.js 的 LUNGE_K）
         const rng = (st.dash || 0) * (lock && lock.staggerT > 0 ? LUNGE_K : 1) + (st.reach || 3) + 2;
-        if (dist <= rng || (p.melee.active && p.melee.slot === s)) {
+        // 脈衝盾剛擋下攻擊（shieldHitT）：盾擊只能用近戰鍵，遠處也改成近戰（docs/melee-combo-design.md 第 4 期）
+        const bash = p.shield && p.shieldHitT > 0;
+        if (dist <= rng || bash || (p.melee.active && p.melee.slot === s)) {
           meleeSlot = s;
           break;
         }
