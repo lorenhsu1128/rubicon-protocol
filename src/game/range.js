@@ -786,10 +786,10 @@ Object.assign(Game.prototype, {
       };
   },
   // ---------- 機甲庫：理論火力與防禦 ----------
-  // 目前組裝（或換上某個零件後）的理論值
-  garageFire(asm) {
+  // 目前組裝（或換上某個零件後）的理論值；pm 沒給時用靶場設定的加成（駕駛員畫面直接給）
+  garageFire(asm, pm0) {
     const st = asmStats(asm);
-    const pm = this.rangePm();
+    const pm = pm0 === undefined ? this.rangePm() : pm0;
     const ef = applyPilotStats(st, pm);
     const gen = ef.parts.generator;
     const ws = [];

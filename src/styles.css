@@ -795,44 +795,76 @@ select {
   }
 }
 
-/* ---------- 駕駛員 ---------- */
+/* ---------- 駕駛員（docs/pilot-ui.md）：圖示節點的技能樹、詳細列、右側欄（機體數值、預設組、熟練度） ---------- */
 #pilot {
   flex-direction: column;
-  background: var(--bg);
+  background: radial-gradient(120% 90% at 40% 0%, #18202a, var(--bg) 70%);
 }
 #pilotHead {
   display: flex;
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
-  padding: 12px 18px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: rgba(14, 18, 22, 0.85);
 }
 #pilotHead h2 {
   margin: 0;
 }
+.pModes {
+  display: flex;
+}
+.pModes button {
+  min-width: 64px;
+}
 .pModes button.sel {
   border-color: var(--acc);
-  color: var(--acc);
+  background: var(--acc);
+  color: #111;
 }
 #pLevel {
   flex: 1;
   min-width: 220px;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.pLvRing {
+  width: 46px;
+  height: 46px;
+  flex: none;
+}
+.pLvRing .bg,
+.pLvRing .fg {
+  fill: none;
+  stroke-width: 4;
+}
+.pLvRing .bg {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+.pLvRing .fg {
+  stroke: var(--acc2);
+}
+.pLvRing text {
+  fill: var(--ink);
+  font:
+    700 14px 'Chakra Petch',
+    sans-serif;
+}
+.pLvT {
+  flex: 1;
+  max-width: 520px;
 }
 .pLv b {
-  font-size: 20px;
-  color: var(--acc);
-}
-.pPts b {
-  color: var(--acc);
   font-size: 16px;
+  color: var(--acc);
 }
 .xpBar {
   height: 6px;
   background: rgba(255, 255, 255, 0.08);
-  margin: 4px 0;
+  margin: 3px 0;
 }
 .xpBar.thin {
   height: 4px;
@@ -842,127 +874,591 @@ select {
   height: 100%;
   background: var(--acc2);
 }
+#pPts {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: 'Chakra Petch', 'Noto Sans TC', sans-serif;
+}
+#pPts b {
+  font-size: 26px;
+  color: var(--ink);
+}
+#pPts.has b {
+  color: var(--acc);
+  text-shadow: 0 0 12px rgba(255, 176, 32, 0.45);
+}
 #pilotBody {
   flex: 1;
   display: flex;
   min-height: 0;
 }
+#pMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 技能樹：欄＝分支，列＝標題、T1、T2 門檻、T2、T3 門檻、T3 */
 #pTree {
+  --nd: clamp(48px, 6.6vh, 80px);
+  position: relative;
   flex: 1;
   overflow: auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
-  align-content: start;
+  grid-template-columns: repeat(6, minmax(112px, 1fr));
+  grid-template-rows: auto auto clamp(26px, 4vh, 48px) auto clamp(26px, 4vh, 48px) auto;
+  align-content: center;
+  column-gap: 8px;
+  padding: 14px 18px;
 }
-#pSide {
-  width: min(340px, 34vw);
-  overflow: auto;
-  border-left: 1px solid var(--line);
-  background: var(--panel);
-  padding: 12px;
+#pLinks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
 }
-#pSide h3 {
-  font-size: 14px;
-  margin: 4px 0 8px;
+#pLinks line,
+#pLinks path {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 2;
+  fill: none;
 }
-#pSide h3 .dim {
-  font-size: 11px;
-  font-weight: 400;
+#pLinks .on {
+  stroke: var(--acc);
 }
-.pBranch {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  padding: 8px;
+#pLinks .req {
+  stroke-dasharray: 4 4;
 }
 .pBrHead {
   display: flex;
-  justify-content: space-between;
-  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0 clamp(14px, 2.4vh, 30px);
+  font-family: 'Chakra Petch', 'Noto Sans TC', sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+}
+.pBrHead .pIco {
+  width: 20px;
+  height: 20px;
   color: var(--acc2);
-  margin-bottom: 6px;
+}
+.pBrN {
+  min-width: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  text-align: center;
+  color: var(--acc);
+}
+.pCell {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 4px 0 18px;
+  position: relative;
+  z-index: 1;
+}
+.pGate {
+  align-self: center;
+  height: 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.18);
+  position: relative;
+  margin: 0 -4px;
+}
+.pGate span {
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  transform: translateX(-50%);
+  padding: 0 6px;
+  background: #121820;
+  font:
+    600 11px 'Chakra Petch',
+    sans-serif;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.pGate.ok {
+  border-top-color: rgba(255, 176, 32, 0.45);
+}
+.pGate.ok span {
+  color: var(--acc);
 }
 .pNode {
-  border: 1px solid var(--line);
-  padding: 6px 8px;
-  margin-bottom: 6px;
-  font-size: 12px;
+  position: relative;
+  width: var(--nd);
+  height: var(--nd);
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #44505b;
+  background: radial-gradient(circle at 50% 35%, #222b34, #12171c);
+  color: #8d99a4;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pNode.t3 {
+  width: calc(var(--nd) * 1.16);
+  height: calc(var(--nd) * 1.16);
+  border: 2px solid #b48a32;
+}
+.pNode .pIco {
+  width: 46%;
+  height: 46%;
+  pointer-events: none;
+}
+.pRing,
+.pHold {
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+}
+.pRing svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pRing circle {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 2.4;
+}
+.pRing circle.on {
+  stroke: var(--acc);
+}
+/* 按住的進度圈 */
+.pHold {
+  border-radius: 50%;
+  background: conic-gradient(var(--acc2) calc(var(--hold, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+.pRk {
+  position: absolute;
+  bottom: -19px;
+  left: 50%;
+  transform: translateX(-50%);
+  font:
+    600 11px 'Chakra Petch',
+    sans-serif;
+  color: var(--dim);
+  pointer-events: none;
 }
 .pNode.on {
-  border-color: var(--acc2);
+  color: var(--acc);
+  border-color: rgba(255, 176, 32, 0.6);
+  background: radial-gradient(circle at 50% 35%, #3d2f10, #17130a);
+}
+.pNode.on .pRk {
+  color: var(--acc);
 }
 .pNode.max {
-  border-color: var(--acc);
-  background: rgba(255, 176, 32, 0.06);
+  background: radial-gradient(circle at 50% 35%, #6e5216, #2a1f08);
+  color: #ffd98a;
+  box-shadow: 0 0 14px rgba(255, 176, 32, 0.35);
 }
 .pNode.locked {
-  opacity: 0.55;
+  opacity: 0.4;
 }
-.pNTop {
+.pNode.can {
+  animation: pCan 1.8s ease-in-out infinite;
+}
+@keyframes pCan {
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(92, 200, 255, 0.18),
+      0 0 14px rgba(92, 200, 255, 0.3);
+  }
+}
+.pNode:hover,
+.pNode.sel {
+  border-color: var(--acc2);
+}
+.pNode.sel {
+  outline: 2px solid var(--acc2);
+  outline-offset: 7px;
+}
+.pNode.pop {
+  animation: pPop 0.35s ease-out;
+}
+@keyframes pPop {
+  0% {
+    transform: scale(1.25);
+    box-shadow: 0 0 26px rgba(255, 176, 32, 0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pNode.can,
+  .pNode.pop {
+    animation: none;
+  }
+}
+/* 詳細列 */
+#pInfo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 18px 14px;
+  padding: 10px 14px;
+  min-height: 64px;
+  background: rgba(22, 27, 32, 0.9);
+  border: 1px solid #33404b;
+  border-left: 3px solid var(--acc2);
+}
+#pInfo.t3 {
+  border-left-color: #e0b24a;
+}
+.pInfoIco .pIco {
+  width: 38px;
+  height: 38px;
+  color: var(--acc);
+  display: block;
+}
+.pInfoT {
+  flex: 1;
+  min-width: 0;
+}
+.pInfoH {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pInfoH b {
+  font:
+    700 17px 'Chakra Petch',
+    'Noto Sans TC',
+    sans-serif;
+}
+.pPips i {
+  display: inline-block;
+  width: 12px;
+  height: 9px;
+  margin-right: 3px;
+  border: 1px solid var(--acc);
+  transform: skewX(-18deg);
+}
+.pPips i.on {
+  background: var(--acc);
+}
+.pInfoE {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  margin-top: 2px;
+}
+.pInfoE s {
+  color: var(--dim);
+  text-decoration: none;
+}
+#pilot .up {
+  color: #6fe39a;
+}
+.pTo {
+  color: var(--dim);
+  margin: 0 3px;
+}
+.pInfoE .lock {
+  color: var(--danger);
+}
+.pInfoB {
+  display: flex;
+  gap: 8px;
+}
+#pHoldBtn {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#pHoldBtn .pHold {
+  inset: auto 0 0 0;
+  height: 3px;
+  border-radius: 0;
+  -webkit-mask: none;
+  mask: none;
+  background: linear-gradient(90deg, #111 calc(var(--hold, 0) * 100%), transparent 0);
+}
+/* 右側欄 */
+#pSide {
+  width: min(380px, 32vw);
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: rgba(14, 18, 22, 0.7);
+  padding: 10px 12px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.pBox h3 {
+  font-size: 14px;
+  margin: 2px 0 8px;
+}
+.pBox h3 .dim {
+  font-size: 10px;
+  font-weight: 400;
+}
+#pHex {
+  width: 200px;
+  margin: 0 auto 4px;
+}
+#pHex .hxL.up {
+  fill: #6fe39a;
+}
+.pSR {
+  display: grid;
+  grid-template-columns: 70px 1fr minmax(92px, auto);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 0;
+  color: var(--dim);
+}
+.pSR.hot {
+  color: var(--ink);
+}
+.pSR.hot > span:first-child {
+  color: var(--acc2);
+}
+.pSB {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+}
+.pSB i {
+  background: rgba(255, 255, 255, 0.28);
+}
+.pSB b {
+  background: var(--acc);
+}
+.pSB u {
+  background: #6fe39a;
+}
+.pSV {
+  text-align: right;
+  font-family: 'Chakra Petch', sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.pSV em {
+  font-style: normal;
+  margin-left: 6px;
+  color: var(--acc);
+}
+.pSV em.up {
+  color: #6fe39a;
+}
+#pOther {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+#pOther span {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.pNTop b {
-  flex: 1;
-}
-.pT {
-  font-size: 10px;
-  color: var(--dim);
-  border: 1px solid var(--line);
-  padding: 0 4px;
-}
-.pR {
+#pOther .pIco {
+  width: 14px;
+  height: 14px;
   color: var(--acc);
-  font-weight: 600;
-  white-space: nowrap;
+  flex: none;
 }
-.pD {
-  color: var(--ink);
-  margin-top: 3px;
-  line-height: 1.4;
-}
-.pD.next {
+.pOtH {
   color: var(--dim);
+  font-size: 11px;
 }
-.pD.lock {
-  color: var(--danger);
-}
-.pBtns {
-  display: flex;
+/* 預設組的卡片 */
+#pPresets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
-  margin-top: 5px;
-  justify-content: flex-end;
-}
-.pBtns button {
-  padding: 4px 12px;
-  min-width: 40px;
 }
 .pPreset {
+  position: relative;
   border: 1px solid var(--line);
-  padding: 6px 8px;
-  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pPreset.empty {
+  border-style: dashed;
+}
+.pPreset .pLoad,
+.pPreset .pNew {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px 4px;
+  border: none;
+  background: none;
+  min-width: 0;
+  font-size: 11px;
+}
+.pPreset .pNew {
+  justify-content: center;
+  color: var(--dim);
+  min-height: 112px;
+}
+.pPreset.empty .pName {
+  display: none;
+}
+.pPreset .pLoad:hover {
+  background: rgba(255, 176, 32, 0.08);
+}
+.pPN {
+  font:
+    600 10px 'Chakra Petch',
+    sans-serif;
+  color: var(--dim);
+  align-self: flex-start;
+}
+.pPreset.empty .pPN {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+}
+.pPW {
+  display: flex;
+  gap: 2px;
+}
+.pPW .gIco {
+  width: 20px;
+  height: 20px;
+  color: var(--ink);
+}
+.pPHex {
+  width: 46px;
+}
+.pPS {
+  font-family: 'Chakra Petch', sans-serif;
+  color: var(--acc);
 }
 .pName {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
-  font-size: 13px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  padding: 4px 6px;
-}
-.pSum {
-  display: block;
   font-size: 11px;
-  margin-top: 3px;
+  background: transparent;
+  color: var(--ink);
+  border: none;
+  border-top: 1px solid var(--line);
+  padding: 3px 4px;
+  text-align: center;
+}
+.pName:focus {
+  outline: 1px solid var(--acc2);
+  background: rgba(255, 255, 255, 0.05);
+}
+.pPBtns {
+  display: flex;
+  border-top: 1px solid var(--line);
+}
+.pPBtns button {
+  flex: 1;
+  padding: 2px 0;
+  min-width: 0;
+  font-size: 10px;
+  border: none;
+  background: none;
+}
+.pPBtns .pClr {
+  flex: 0 0 22px;
+  color: var(--dim);
+  border-left: 1px solid var(--line);
+}
+/* 熟練度的徽章 */
+#pProf {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 .pProfRow {
-  padding: 5px 0;
-  border-bottom: 1px dashed var(--line);
-  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  min-width: 0;
+}
+.pPfB {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+}
+.pPfB svg {
+  position: absolute;
+  inset: 0;
+}
+.pPfB .bg,
+.pPfB .fg {
+  fill: none;
+  stroke-width: 3;
+}
+.pPfB .bg {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+.pPfB .fg {
+  stroke: var(--acc2);
+}
+.pProfRow.max .pPfB .fg {
+  stroke: #e0b24a;
+}
+.pPfB .gIco {
+  width: 18px;
+  height: 18px;
+}
+.pPfB i {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  font:
+    700 10px 'Chakra Petch',
+    sans-serif;
+  font-style: normal;
+  background: #0d1013;
+  border: 1px solid var(--line);
+  padding: 0 3px;
+}
+.pPfT {
+  display: grid;
+  min-width: 0;
+}
+.pPfT b,
+.pPfT .dim {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pStars {
+  color: #e0b24a;
+  letter-spacing: 1px;
+  font-size: 10px;
+}
+.pStars .off {
+  color: #3a4651;
 }
 #rPilot {
   margin: 0 0 14px;
@@ -986,34 +1482,82 @@ select {
   font-weight: 400;
   font-size: 11px;
 }
-@media (max-width: 1000px), (max-height: 540px) {
-  #pTree {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 8px;
-    gap: 8px;
+@media (max-width: 1280px) {
+  #pSide {
+    width: 320px;
   }
+  #pTree {
+    grid-template-columns: repeat(6, minmax(92px, 1fr));
+    padding: 12px;
+  }
+}
+@media (max-height: 540px), (max-width: 900px) {
   #pilotHead {
-    padding: 6px 10px;
+    padding: 4px 10px;
     gap: 10px;
   }
   #pilotHead h2 {
     font-size: 15px;
   }
-}
-@media (max-width: 720px) {
+  .pLvRing {
+    width: 32px;
+    height: 32px;
+  }
+  #pLevel .xpBar,
+  #pLevel .dim {
+    display: none;
+  }
+  #pPts b {
+    font-size: 18px;
+  }
   #pilotBody {
     flex-direction: column;
     overflow: auto;
   }
+  #pMain {
+    flex: none;
+  }
   #pTree {
-    grid-template-columns: minmax(0, 1fr);
+    --nd: 40px;
     overflow: visible;
+    flex: none;
+    grid-template-columns: repeat(6, minmax(72px, 1fr));
+    grid-template-rows: auto auto 22px auto 22px auto;
+    padding: 6px 10px;
+  }
+  .pBrHead {
+    padding: 2px 0 8px;
+    font-size: 12px;
+  }
+  .pCell {
+    padding-bottom: 14px;
+  }
+  .pRk {
+    bottom: -16px;
+    font-size: 10px;
+  }
+  #pInfo {
+    margin: 0 10px 8px;
+    padding: 6px 10px;
+    min-height: 0;
+    gap: 10px;
+  }
+  .pInfoIco .pIco {
+    width: 26px;
+    height: 26px;
+  }
+  .pInfoH b {
+    font-size: 14px;
+  }
+  .pInfoE {
+    font-size: 12px;
   }
   #pSide {
     width: auto;
     border-left: none;
     border-top: 1px solid var(--line);
     overflow: visible;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   }
 }
 /* 本地模型庫 */

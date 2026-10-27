@@ -524,18 +524,32 @@
             <button id="pMode_pvp">PvP</button>
           </div>
           <div id="pLevel"></div>
+          <div id="pPts"></div>
           <div class="row">
-            <button id="btnPilotReset">全部重置（免費）</button>
+            <button id="btnPilotReset">全部重置</button>
             <button class="primary" id="btnPilotBack">返回機甲庫</button>
           </div>
         </div>
         <div id="pilotBody">
-          <div id="pTree"></div>
+          <div id="pMain">
+            <div id="pTree"></div>
+            <div id="pInfo"></div>
+          </div>
           <div id="pSide">
-            <h3>配置預設組 <span class="dim">機體裝備＋本模式配點</span></h3>
-            <div id="pPresets"></div>
-            <h3>武器熟練度</h3>
-            <div id="pProf"></div>
+            <section class="pBox">
+              <h3>機體數值 <span class="dim">灰＝沒有配點　黃＝配點加成　綠＝投點之後</span></h3>
+              <div id="pHex"></div>
+              <div id="pStats"></div>
+              <div id="pOther"></div>
+            </section>
+            <section class="pBox">
+              <h3>配置預設組 <span class="dim">機體裝備＋本模式配點，點卡片載入</span></h3>
+              <div id="pPresets"></div>
+            </section>
+            <section class="pBox">
+              <h3>武器熟練度</h3>
+              <div id="pProf"></div>
+            </section>
           </div>
         </div>
       </div>

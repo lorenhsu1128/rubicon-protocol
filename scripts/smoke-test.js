@@ -4820,15 +4820,57 @@ async function testPilot(browser, base) {
   await continueToPilot(page);
   const before = await ptsLeft(page);
   check(before === 6, `經驗 5000 時有 6 點（${before}）`);
-  check(await page.isDisabled('.pNode[data-skill="g_mag"] .pInc'), 'T2 技能在前段未投點時鎖定');
-  await page.click('.pNode[data-skill="a_ap"] .pInc');
-  check((await ptsLeft(page)) === before - 1, '投點後剩餘點數減少');
-  await page.click('.pNode[data-skill="a_ap"] .pInc');
-  await page.click('.pNode[data-skill="a_ap"] .pInc');
-  check(!(await page.isDisabled('.pNode[data-skill="a_def"] .pInc')), '前段投滿 3 點後 T2 解鎖');
-  await page.fill('#pPresets .pPreset:first-child .pName', '<b>測試</b>');
+  const cls = (id) => page.getAttribute(`.pNode[data-skill="${id}"]`, 'class');
+  const rank = async (id) => parseInt(await page.textContent(`.pNode[data-skill="${id}"] .pRk`), 10);
+  // 按住節點投點（docs/pilot-ui.md）：按住 0.45 秒一點
+  const hold = async (id, ms) => {
+    await page.hover(`.pNode[data-skill="${id}"]`);
+    await page.mouse.down();
+    await wait(ms);
+    await page.mouse.up();
+  };
+  check((await cls('g_mag')).includes('locked'), 'T2 技能在前段未投點時鎖定');
+  await page.click('.pNode[data-skill="a_ap"]');
+  check((await ptsLeft(page)) === before, '點一下只選取、不投點');
+  // 機體數值的預覽：游標停在追加裝甲上，AP 列有「→ 新的值」
+  await page.hover('.pNode[data-skill="a_ap"]');
+  const prev = await page.evaluate(() => {
+    const r = document.querySelector('#pStats .pSR[data-stat="ap"]');
+    return {
+      hot: r.classList.contains('hot'),
+      to: r.textContent.includes('→'),
+      info: document.getElementById('pInfo').textContent,
+    };
+  });
+  check(
+    prev.hot && prev.to && prev.info.includes('AP'),
+    `機體數值的預覽：AP 列標亮並顯示投點之後（${prev.info.trim().slice(0, 30)}）`,
+  );
+  await hold('a_ap', 650);
+  check((await ptsLeft(page)) === before - 1 && (await rank('a_ap')) === 1, '按住 0.65 秒投 1 點');
+  await hold('a_ap', 1150);
+  check((await rank('a_ap')) === 3, `繼續按住連續投點（追加裝甲 ${await rank('a_ap')}／3）`);
+  check(!(await cls('a_def')).includes('locked'), '前段投滿 3 點後 T2 解鎖');
+  await page.click('.pNode[data-skill="a_ap"]', { button: 'right' });
+  check((await rank('a_ap')) === 2, '右鍵退一點');
+  await page.click('#pDecBtn');
+  check((await rank('a_ap')) === 1, '詳細列的「退一點」');
+  // 手把：焦點在節點上按住 A 投點、X 退點（pad-ui.js 的 padHold／padDec）
+  await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padHold(true));
+  await wait(650);
+  await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padHold(false));
+  const padIn = await rank('v_spd');
+  await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padDec());
+  check(padIn === 1 && (await rank('v_spd')) === 0, '手把按住 A 投點、X 退點');
   await page.click('#pPresets .pPreset:first-child .pSave');
-  check(!(await page.isDisabled('#pPresets .pPreset:first-child .pLoad')), '預設組儲存後可載入');
+  check(!!(await page.$('#pPresets .pPreset:first-child .pLoad')), '預設組儲存後可載入（卡片）');
+  await page.fill('#pPresets .pPreset:first-child .pName', '<b>測試</b>');
+  await page.press('#pPresets .pPreset:first-child .pName', 'Enter');
+  await page.click('#pPresets .pPreset:first-child .pLoad');
+  check(
+    (await page.inputValue('#pPresets .pPreset:first-child .pName')) === '<b>測試</b>',
+    '預設組改名與載入（名稱不當成 HTML）',
+  );
   await page.click('#pMode_pvp');
   check((await page.textContent('#pLevel')).includes('PvP'), '可切換到 PvP 駕駛員');
   check((await ptsLeft(page)) === 0, 'PvP 駕駛員的經驗與配點獨立');

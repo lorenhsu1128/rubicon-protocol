@@ -51,3 +51,39 @@ export function hexSvg(cur, prev, big) {
     ${prev ? `<polygon points="${poly(prev)}" class="hxPrev"/>` : ''}
     ${labels}</svg>`;
 }
+
+// 一般的六角雷達圖：axes＝[[鍵, 名稱]]（6 個）、cur／prev＝{ 鍵: 0～1 }（prev 可以是 null）；small＝不標名稱
+export function radarSvg(axes, cur, prev, small) {
+  const R = 40,
+    n = axes.length,
+    ang = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n,
+    pt = (i, s) => [Math.cos(ang(i)) * R * (0.1 + 0.9 * s), Math.sin(ang(i)) * R * (0.1 + 0.9 * s)];
+  const poly = (S) =>
+    axes
+      .map(([k], i) =>
+        pt(i, Math.min(1, Math.max(0, S[k] || 0)))
+          .map((v) => v.toFixed(1))
+          .join(','),
+      )
+      .join(' ');
+  const ring = (s) =>
+    axes
+      .map((_, i) => (Math.cos(ang(i)) * R * s).toFixed(1) + ',' + (Math.sin(ang(i)) * R * s).toFixed(1))
+      .join(' ');
+  const labels = small
+    ? ''
+    : axes
+        .map(([k, nm], i) => {
+          const x = Math.cos(ang(i)) * (R + 8),
+            y = Math.sin(ang(i)) * (R + 8) + 2.5;
+          const anc = Math.abs(x) < 2 ? 'middle' : x > 0 ? 'start' : 'end';
+          const d = prev ? (prev[k] || 0) - (cur[k] || 0) : 0;
+          return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anc}" class="hxL${d > 0.001 ? ' up' : ''}">${nm}</text>`;
+        })
+        .join('');
+  return `<svg viewBox="${small ? '-44 -44 88 88' : '-74 -54 148 108'}" class="hexSvg" aria-hidden="true">
+    <polygon points="${ring(1)}" class="hxG"/><polygon points="${ring(0.55)}" class="hxG2"/>
+    <polygon points="${poly(cur)}" class="hxCur"/>
+    ${prev ? `<polygon points="${poly(prev)}" class="hxPrev"/>` : ''}
+    ${labels}</svg>`;
+}

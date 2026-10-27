@@ -346,11 +346,23 @@ Object.assign(Game.prototype, {
       if (sc) sc.scrollTop += ry * dt * 900;
     }
     if (eA) this.padUiActivate(this.puEl);
+    // 按住 A：焦點元素有 padHold 時把按住的狀態交給它（駕駛員畫面的按住投點，docs/pilot-ui.md）
+    const holdEl = this.puEl && this.puEl.padHold ? this.puEl : null;
+    const down = !!holdEl && btn(0);
+    if (this.puHoldEl && (this.puHoldEl !== holdEl || !down)) {
+      this.puHoldEl.padHold(false);
+      this.puHoldEl = null;
+    }
+    if (down && !this.puHoldEl) {
+      this.puHoldEl = holdEl;
+      holdEl.padHold(true);
+    }
     if (eB) this.padUiBack();
     if (eLB) this.padUiTab(-1);
     if (eRB) this.padUiTab(1);
-    if (eX) {
-      // X：通訊下一句、略過逐字
+    if (eX && this.puEl && this.puEl.padDec) this.puEl.padDec();
+    else if (eX) {
+      // X：通訊下一句、略過逐字（焦點元素有 padDec 時改成它：駕駛員畫面的退一點）
       const cm = document.getElementById('comm');
       if (cm && cm.classList.contains('on')) cm.click();
       else if (this.tfxSkip) this.tfxSkip();
