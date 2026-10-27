@@ -1048,7 +1048,8 @@ export class MechEntity {
       !t.isProp &&
       !t.decoy &&
       !['part', 'objective', 'convoy', 'holo', 'bld'].includes(t.ai) &&
-      t.pos.distanceTo(this.pos) < R;
+      Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z) < R && // 水平距離（斜坡上的高低差不算）
+      Math.abs(t.pos.y - this.pos.y) < R;
     if (ok(this.lock)) return this.lock;
     if (ok(this.melee.target)) return this.melee.target;
     let best = null,
