@@ -1903,78 +1903,321 @@ body.lab #fps {
   margin-top: 6px;
 }
 
-/* 主線：機庫據點、簡報、通訊（game/hub.js、game/comms.js） */
-#hub,
+/* 主線：作戰室（docs/hub-ui.md：指揮室場景與全像戰略桌在 3D，這裡是疊在上面的介面）、簡報、通訊 */
 #brief {
-  background: radial-gradient(ellipse at 30% 20%, #142030, #070a0e 75%);
+  background: radial-gradient(ellipse at 30% 20%, rgba(20, 32, 48, 0.82), rgba(7, 10, 14, 0.94) 75%);
   flex-direction: column;
   padding: 16px;
   gap: 12px;
   overflow: auto;
 }
+#hub {
+  background: none;
+  overflow: hidden;
+}
 #hubHead {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  top: 12px;
   display: flex;
   align-items: baseline;
   gap: 14px;
   flex-wrap: wrap;
+  pointer-events: none;
+  text-shadow: 0 1px 6px #000;
 }
 #hubHead h2 {
   margin: 0;
 }
 #hubHead .coam {
-  margin-left: auto;
   color: var(--acc);
-}
-#hubBody {
-  display: flex;
-  gap: 14px;
-  flex: 1;
-  min-height: 0;
-  flex-wrap: wrap;
-}
-#hubMapWrap {
-  flex: 3 1 360px;
-  display: flex;
-  flex-direction: column;
-  min-height: 300px;
+  font:
+    700 20px 'Chakra Petch',
+    sans-serif;
 }
 .hubCap {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  transform: translateX(-50%);
   font-size: 12px;
-  margin-bottom: 6px;
+  color: var(--dim);
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-#hubMap {
+.hubCap.warn {
+  color: #ffb070;
+}
+/* 進行中的出擊與持有的模組（左上） */
+#hubTopL {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  top: 52px;
+  display: grid;
+  gap: 8px;
+  max-width: min(440px, 44vw);
+}
+#hubActive {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(16, 21, 26, 0.88);
+  border: 1px solid #33404b;
+  border-left: 3px solid var(--acc);
+}
+#hubActiveTxt {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
   flex: 1;
-  border: 1px solid #22303c;
-  min-height: 280px;
-  position: relative;
 }
-#hubMap svg {
+#hubActiveTxt small {
+  color: var(--dim);
+  font-size: 11px;
+}
+#hubActiveTxt b {
+  font:
+    700 15px 'Chakra Petch',
+    'Noto Sans TC',
+    sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#hubActiveTxt .dim {
+  font-size: 11px;
+}
+.hubPips i {
+  display: inline-block;
+  width: 12px;
+  height: 9px;
+  margin-right: 3px;
+  border: 1px solid var(--acc);
+  transform: skewX(-18deg);
+}
+.hubPips i.on {
+  background: var(--acc);
+}
+.hubPips i.cur {
+  background: rgba(255, 176, 32, 0.4);
+}
+.hubActB {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#btnHubDrop {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+#hubMods {
+  font-size: 12px;
+  text-shadow: 0 1px 4px #000;
+}
+#hubMods:empty {
+  display: none;
+}
+/* 戰略桌的標籤（每格由 hub-holo.js 投影到光柱頂端） */
+#hubMap,
+#hubSpots {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
+  pointer-events: none;
+}
+.hubNode,
+.hubReg,
+.hubSpot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
 }
 .hubNode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: -46px 0 0 -70px;
+  width: 140px;
+  pointer-events: auto;
   cursor: pointer;
+}
+.hubNode .hnI {
+  width: 22px;
+  height: 22px;
+  order: 2;
+}
+.hubNode .hnT {
+  order: 1;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  background: rgba(12, 18, 24, 0.85);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  text-shadow: none;
+}
+.hubNode.done .hnT,
+.hubNode.locked .hnT {
+  font-weight: 400;
+  font-size: 11px;
+  background: rgba(12, 18, 24, 0.6);
+  border-color: transparent;
 }
 .hubNode.locked {
   cursor: not-allowed;
 }
-.hubNode:hover circle {
-  stroke-width: 1.2;
+.hubNode.open .hnT {
+  font-size: 14px;
+  box-shadow: 0 0 14px rgba(255, 176, 32, 0.35);
 }
-#hubSide {
-  flex: 1 1 220px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 340px;
+.hubNode:hover .hnT,
+.hubNode.hot .hnT,
+.hubNode.padFocus .hnT {
+  background: rgba(40, 30, 10, 0.95);
 }
-#hubActive button {
+.hubNode.padFocus {
+  outline: none;
+}
+.hubNode.padFocus .hnT {
+  outline: 2px solid var(--acc2);
+}
+.hnF {
+  color: #ff8a50;
+  font-style: normal;
+  margin-right: 4px;
+}
+.hubReg {
+  margin: 0 0 0 -80px;
+  width: 160px;
+  text-align: center;
+  font-size: 13px;
+  color: #a8d4f0;
+  text-shadow:
+    0 0 6px #000,
+    0 1px 3px #000;
+  letter-spacing: 0.1em;
+}
+.hubReg.locked {
+  color: #3f5a6e;
+}
+.hubReg small {
   display: block;
-  width: 100%;
-  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+/* 場景裡的設施 */
+.hubSpot {
+  margin: -40px 0 0 -70px;
+  width: 140px;
+  pointer-events: auto;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 4px 6px;
+  background: rgba(16, 21, 26, 0.72);
+  border: 1px solid #33404b;
+  font-size: 12px;
+}
+.hubSpot small {
+  font-size: 10px;
+  color: var(--dim);
+  font-weight: 400;
+}
+.hubSpot small.hot {
+  color: var(--acc);
+}
+.hubSpot:hover,
+.hubSpot.padFocus {
+  border-color: var(--acc2);
+  background: rgba(20, 40, 56, 0.9);
+}
+/* 下方的圖示列 */
+#hubDock {
+  position: absolute;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(10, 14, 18, 0.78);
+  border: 1px solid #2a3540;
+  max-width: calc(100vw - 32px);
+}
+#hubDock button {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 76px;
+  padding: 7px 8px 5px;
+  font-size: 11px;
+}
+#hubDock .hdI {
+  width: 24px;
+  height: 24px;
+}
+#hubDock .hdI path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+#hubDock .hdT {
+  white-space: nowrap;
+}
+.hdN {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #ff5b4b;
+  color: #fff;
+  font:
+    700 10px/16px 'Chakra Petch',
+    sans-serif;
+  font-style: normal;
+  display: none;
+}
+.hdN.on {
+  display: block;
+}
+#btnHubBack {
+  margin-left: 10px;
+}
+@media (max-height: 540px) {
+  #hubHead h2 {
+    font-size: 16px;
+  }
+  .hubCap {
+    top: 40px;
+  }
+  #hubTopL {
+    top: 40px;
+  }
+  .hubSpot,
+  .hubReg {
+    display: none;
+  }
+  #hubMap.small .hubNode:not(.open) .hnT {
+    display: none;
+  }
+  #hubDock button {
+    min-width: 0;
+    padding: 4px 6px;
+  }
+  #hubDock .hdT {
+    display: none;
+  }
 }
 #hubLogBox,
 #hubFacBox,
@@ -2165,8 +2408,7 @@ body.lab #fps {
   font-size: 11px;
 }
 #ctMods,
-.gCampMods,
-#hubMods {
+.gCampMods {
   font-size: 12px;
 }
 
@@ -2465,9 +2707,6 @@ body.touchDev #cineSkip span::after {
 .modSum {
   margin-top: 4px;
 }
-.hubCap.warn {
-  color: #ffb070;
-}
 #brInfo {
   font-size: 13px;
   margin: 4px 0;
@@ -2715,19 +2954,6 @@ body.vpad #comm.on:not(.menu) {
     padding: 5px 8px;
     gap: 6px;
   }
-}
-/* 總覽圖：文字加深色描邊，疊在線上也看得清楚；地圖很小時只留可以接的委託名稱並放大 */
-#hubMap text.nl,
-#hubMap text.rl {
-  paint-order: stroke;
-  stroke: #0b1117;
-  stroke-width: 0.6px;
-}
-#hubMap.small .hubNode:not(.open) text.nl {
-  display: none;
-}
-#hubMap.small .hubNode.open text.nl {
-  font-size: 3px;
 }
 /* 戰術模組三選一、抉擇說明卡：矮螢幕時三張排一列、縮小，超出時可以捲動 */
 #modPick {

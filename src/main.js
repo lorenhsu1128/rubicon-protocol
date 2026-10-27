@@ -40,6 +40,7 @@ import './game/fullscreen.js';
 import './game/campaign.js';
 import './game/comms.js';
 import './game/hub.js';
+import './game/hub-holo.js';
 import './game/story.js';
 import './game/cine.js';
 import './game/cine-lib.js';

@@ -59,11 +59,11 @@ Object.assign(Game.prototype, {
   },
   // 色調映射、陰影種類改變時要重新編譯材質
   styleStructural(P) {
-    const pipes = [this.stylePipe, this.garagePipe].filter(Boolean);
+    const pipes = [this.stylePipe, this.garagePipe, this.hubPipe].filter(Boolean);
     let ch = false;
     for (const p of pipes) ch = p.applyStructural(P) || ch;
     if (!ch) return;
-    for (const s of [this.scene, this.garageScene])
+    for (const s of [this.scene, this.garageScene, this.hubScene])
       if (s)
         s.traverse((o) => {
           const m = o.material;
@@ -73,6 +73,7 @@ Object.assign(Game.prototype, {
   postResize(w, h) {
     if (this.stylePipe) this.stylePipe.setSize(w, h);
     if (this.garagePipe) this.garagePipe.setSize(w, h);
+    if (this.hubPipe) this.hubPipe.setSize(w, h);
   },
   renderMain() {
     const lab = this.lab;

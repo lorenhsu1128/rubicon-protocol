@@ -212,35 +212,70 @@
 
       <!-- 主線：作戰室（game/hub.js） -->
       <div id="hub" class="screen">
+        <div id="hubMap"></div>
+        <div id="hubSpots"></div>
         <div id="hubHead">
           <h2>作戰室 <span class="gCtx hub">主線</span></h2>
           <span id="hubChapter" class="dim"></span>
           <span class="coam">COAM <span id="hubCoam">0</span></span>
         </div>
-        <div id="hubBody">
-          <div id="hubMapWrap">
-            <div class="dim hubCap" id="hubCap">戰區總覽圖：點選委託查看簡報</div>
-            <div id="hubMap"></div>
-          </div>
-          <div id="hubSide">
-            <div id="hubActive" class="mySetBox" style="display: none">
-              <div id="hubActiveTxt"></div>
+        <div class="hubCap" id="hubCap"></div>
+        <div id="hubTopL">
+          <div id="hubActive" style="display: none">
+            <div id="hubActiveTxt"></div>
+            <div class="hubActB">
               <button class="primary" id="btnHubResume">繼續出擊</button>
-              <button id="btnHubDrop">放棄紀錄點</button>
+              <button id="btnHubDrop" title="刪除紀錄點">放棄</button>
             </div>
-            <div id="hubMods" class="mySetBox"></div>
-            <button id="btnHubGarage">機甲庫（組裝）</button>
-            <button id="btnHubPilot">駕駛員（技能）</button>
-            <button id="btnHubFac" title="四家委託方的風格、模組與你的抉擇">委託方與模組</button>
-            <button id="btnHubLog">通訊紀錄</button>
-            <button id="btnHubEcho" style="display: none" title="第 3 周目：ECHO 的委託回收的記憶片段">
-              ECHO 的紀錄
-            </button>
-            <button id="btnHubStory" title="看過的序章、章節的開場與章末">章節回顧</button>
-            <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">模擬器</button>
-            <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">作戰紀錄</button>
-            <button id="btnHubBack">回標題</button>
           </div>
+          <div id="hubMods"></div>
+        </div>
+        <div id="hubDock">
+          <button id="btnHubGarage">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M4 20V8l8-5 8 5v12 M8 20v-7h8v7 M8 16h8" /></svg
+            ><span class="hdT">機甲庫</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubPilot">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M12 4a4 4 0 1 0 .01 0 M5 21c1-4.5 4-6.5 7-6.5s6 2 7 6.5" /></svg
+            ><span class="hdT">駕駛員</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubFac" title="四家委託方的風格、模組與你的抉擇">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z M9 11h6 M12 8v6" /></svg
+            ><span class="hdT">委託方</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubLog">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M4 5h16v11H9l-5 4z M8 9h8 M8 12h5" /></svg
+            ><span class="hdT">通訊紀錄</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubEcho" style="display: none" title="第 3 周目：ECHO 的委託回收的記憶片段">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M12 4a8 8 0 1 0 .01 0 M12 8l3 4-3 4-3-4z" /></svg
+            ><span class="hdT">ECHO 的紀錄</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubStory" title="看過的序章、章節的開場與章末">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M5 4h14v16H5z M9 8h6 M9 12h6 M9 16h3" /></svg
+            ><span class="hdT">章節回顧</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubSim" title="重現遇過的敵人、宿敵與 Boss；教官考核">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M4 6h16v10H4z M8 20h8 M12 16v4 M9 11l2 2 4-4" /></svg
+            ><span class="hdT">模擬器</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubRecord" title="重打完成過的委託，可加上危險條款">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M6 3h9l4 4v14H6z M9 12l2 2 4-4" /></svg
+            ><span class="hdT">作戰紀錄</span><i class="hdN"></i>
+          </button>
+          <button id="btnHubBack">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M10 6l-6 6 6 6 M4 12h12a4 4 0 0 1 4 4v3" /></svg
+            ><span class="hdT">回標題</span><i class="hdN"></i>
+          </button>
         </div>
         <div id="hubFacBox" class="hubBox" style="display: none">
           <div class="hubLogHead"><b>委託方與戰術模組</b><button id="btnHubFacClose">關閉</button></div>

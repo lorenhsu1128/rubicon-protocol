@@ -144,6 +144,46 @@ Object.assign(Game.prototype, {
     const roof = (v && v.theme && v.theme.roof) || THEMES[seg.theme].roof;
     return `${THEMES[seg.theme].name}${v ? '・' + v.name : ''}${p.tod && !roof ? `（${TOD_NAMES[p.tod]}）` : ''}`;
   },
+  // 區段的 World 參數（campEnterSeg 與作戰室的全像地形 hub-holo.js 共用，地形才會一致）
+  campSegWorld(so, i, type, p = {}, tr = {}) {
+    const seg = so.segs[i];
+    const bd = sortieBoss(seg, type);
+    p = p || {};
+    // 作戰區域：Boss、護送、防衛、補給用全區，精英用小型戰場，其餘照排程
+    const zone = ['boss', 'escort', 'defend', 'supply'].includes(type)
+      ? 'full'
+      : type === 'elite'
+        ? 'arena'
+        : p.zone || 'full';
+    return {
+      rail: !!(bd && bd.rail),
+      road: type === 'escort',
+      variant: p.variant,
+      landmark: p.landmark,
+      tod: p.tod,
+      weather: p.weather,
+      depth: p.depth,
+      zone,
+      zoneAxis: p.zoneAxis,
+      entry: (tr || {}).entry,
+    };
+  },
+  // 預排的出擊（docs/hub-ui.md）：可以接的委託先排好種子、排程與第一段的類型，作戰室的全像戰略桌顯示的就是
+  // 第一段真的地圖；campBegin 照它出擊（重打、危險條款不用）
+  hubPrePlan(sid) {
+    const st = this.campStory();
+    st.pre = st.pre || {};
+    if (st.pre[sid]) return st.pre[sid];
+    const so = SORTIES[sid];
+    const plan = planSortie(so, Math.random, st.recent);
+    const seeds = so.segs.map(() => Math.floor(Math.random() * 1e9));
+    const c0 = this.camp;
+    this.camp = { sid, plan, seg: 0 };
+    const pool0 = so.segs[0].pool.filter((t) => this.campTypeOk(t, 0));
+    this.camp = c0;
+    st.pre[sid] = { plan, seeds, type0: pick(pool0.length ? pool0 : ['battle']) };
+    return st.pre[sid];
+  },
   // 這個區段能不能是某種類型（護送要有公路）
   campTypeOk(type, i) {
     if (type !== 'escort') return true;
@@ -159,12 +199,15 @@ Object.assign(Game.prototype, {
   campBegin(sid = SORTIE_DEFAULT, o = {}) {
     const so = SORTIES[sid],
       st = this.campStory();
-    const plan = planSortie(so, Math.random, st.recent);
+    // 作戰室預排的（全像戰略桌顯示的第一段地圖）；重打、危險條款另外排
+    const pre = !o.replay && !(o.heat && Object.keys(o.heat).length) && st.pre && st.pre[sid];
+    if (st.pre) delete st.pre[sid];
+    const plan = pre ? pre.plan : planSortie(so, Math.random, st.recent);
     st.recent = [...st.recent, ...planKeys(so, plan)].slice(-40);
     this.camp = {
       sid,
       seg: 0,
-      seeds: so.segs.map(() => Math.floor(Math.random() * 1e9)),
+      seeds: pre ? pre.seeds.slice() : so.segs.map(() => Math.floor(Math.random() * 1e9)),
       plan,
       types: [],
       trans: [TRANSITIONS.drop],
@@ -185,7 +228,8 @@ Object.assign(Game.prototype, {
     const pool0 = so.segs[0].pool.filter(
       (t) => this.campTypeOk(t, 0) && !(o.heat && o.heat.nosupply && t === 'supply'),
     );
-    this.camp.types[0] = pick(pool0.length ? pool0 : ['battle']);
+    this.camp.types[0] =
+      pre && pool0.includes(pre.type0) ? pre.type0 : pick(pool0.length ? pool0 : ['battle']);
     this.campCheckpoint();
     this.campShowTrans(TRANSITIONS.drop, true);
   },
@@ -217,32 +261,14 @@ Object.assign(Game.prototype, {
       S = this.save;
     this.clearMission();
     const type = this.campSegType();
-    const p = c.plan[c.seg] || {};
     const L = this.campLevel();
     const bd = sortieBoss(seg, type);
     const seed = c.seeds[c.seg];
-    // 作戰區域：Boss、護送、防衛、補給用全區，精英用小型戰場，其餘照排程
-    const zone = ['boss', 'escort', 'defend', 'supply'].includes(type)
-      ? 'full'
-      : type === 'elite'
-        ? 'arena'
-        : p.zone || 'full';
-    const tr = c.trans[c.seg] || {};
+    const W = this.campSegWorld(so, c.seg, type, c.plan[c.seg], c.trans[c.seg]);
     this.worldSeed = seed;
     this.worldTheme = seg.theme;
     this.styleRefresh();
-    this.world = new World(this.scene, seg.theme, seed, L, null, {
-      rail: !!(bd && bd.rail),
-      road: type === 'escort',
-      variant: p.variant,
-      landmark: p.landmark,
-      tod: p.tod,
-      weather: p.weather,
-      depth: p.depth,
-      zone,
-      zoneAxis: p.zoneAxis,
-      entry: tr.entry,
-    });
+    this.world = new World(this.scene, seg.theme, seed, L, null, W);
     this.isClient = false;
     this.net.spawnReg = {};
     this.mpStats = c.stats;

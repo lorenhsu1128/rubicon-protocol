@@ -428,6 +428,12 @@ export class Game {
       this.hctx.clearRect(0, 0, w, h);
       return;
     }
+    // 作戰室與簡報：指揮室場景與全像戰略桌（game/hub-holo.js，docs/hub-ui.md）
+    if (this.state === 'hub' || this.state === 'brief') {
+      this.hubTick(dt, now / 1000);
+      this.hctx.clearRect(0, 0, innerWidth, innerHeight);
+      return;
+    }
     if (
       this.state === 'title' ||
       this.state === 'saves' ||

@@ -9525,6 +9525,108 @@ async function testAttrs(browser, base) {
   await page.evaluate(() => window.__game.rangeExit());
   await ctx.close();
 }
+// 作戰室（docs/hub-ui.md）：指揮室場景、全像戰略桌的地形取自真的關卡生成、預排的出擊、標籤與設施
+async function testHubUi(browser, base) {
+  console.log('作戰室：指揮室場景、全像戰略桌（關卡生成的地形）、預排的出擊、標籤、設施、手機橫式');
+  const { ctx, page } = await newPage(browser, 'hub-ui');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    st.done = { c1s1: 1, c1s2: 1, c2s1: 1 };
+    st.log = [{ sp: 'echo', text: '測試通訊' }];
+    st.logSeen = 0;
+    g.openHub();
+  });
+  await waitVisible(page, 'hub');
+  await page.waitForFunction(() => window.__game.hubQ && window.__game.hubQ.length === 0, null, {
+    timeout: 30000,
+  });
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const st = g.campStory();
+    const pre = st.pre && st.pre.c2s2;
+    const info = g.hubReg.find((i) => i.R.chapter === 2);
+    const S = info && info.S;
+    // 同樣的參數再取樣一次：一樣（以種子決定）
+    const S2 = g.hubHoloSample(info.src.theme, info.src.seed, info.src.L, info.src.opt);
+    let same = S.h.length === S2.h.length;
+    for (let i = 0; same && i < S.h.length; i++) same = Math.abs(S.h[i] - S2.h[i]) < 1e-6;
+    let sd = 0;
+    const m = S.h.reduce((a, v) => a + v, 0) / S.h.length;
+    for (const v of S.h) sd += (v - m) * (v - m);
+    return {
+      pre: !!pre,
+      seed: info.src.seed === (pre && pre.seeds[0]),
+      same,
+      sd: Math.sqrt(sd / S.h.length),
+      obs: S.obs.length,
+      tiles: g.hubReg.filter((i) => i.S).length,
+      nodes: document.querySelectorAll('#hubMap .hubNode').length,
+      badge: document.querySelector('#btnHubLog .hdN').textContent,
+    };
+  });
+  check(r.pre && r.seed, '可以接的委託有預排的出擊，戰略桌那一區用它第一段的種子');
+  check(
+    r.same && r.sd > 0.02 && r.obs > 0 && r.tiles >= 2,
+    `區域地形取自關卡生成（起伏 ${r.sd.toFixed(3)}、大型障礙物 ${r.obs}、${r.tiles} 區）`,
+  );
+  check(r.nodes > 4 && r.badge === '1', `委託的標籤（${r.nodes}）與新通訊的紅點（${r.badge}）`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hub-ui.png') });
+  // 設施：場景裡的標籤點了開通訊紀錄，紅點消失
+  await page.click('#hubSpots .hubSpot[data-spot="log"]');
+  const lg = await page.evaluate(() => ({
+    box: getComputedStyle(document.getElementById('hubLogBox')).display,
+    badge: document.querySelector('#btnHubLog .hdN').classList.contains('on'),
+  }));
+  check(lg.box !== 'none' && !lg.badge, '設施的標籤開啟通訊紀錄、看過後紅點消失');
+  await page.click('#btnHubLogClose');
+  // 點委託的標籤：簡報；從簡報出擊：照預排的出擊，第一段的地形和戰略桌一樣
+  await page.click('#hubMap .hubNode[data-sid="c2s2"]');
+  check(await waitVisible(page, 'brief'), '點委託的標籤開啟簡報');
+  const go = await page.evaluate(() => {
+    const g = window.__game;
+    const info = g.hubReg.find((i) => i.R.chapter === 2);
+    const S = info.S;
+    const pre = JSON.parse(JSON.stringify(g.campStory().pre.c2s2));
+    g.campBegin('c2s2');
+    const c = g.camp;
+    const okPlan =
+      c.seeds[0] === pre.seeds[0] &&
+      JSON.stringify(c.plan[0]) === JSON.stringify(pre.plan[0]) &&
+      c.types[0] === pre.type0;
+    g.campEnterSeg();
+    let err = 0;
+    for (let j = 4; j < S.n; j += 9)
+      for (let i = 4; i < S.n; i += 9) {
+        const x = -S.half + (2 * S.half * i) / (S.n - 1),
+          z = -S.half + (2 * S.half * j) / (S.n - 1);
+        err = Math.max(err, Math.abs(g.world.terrainHeight(x, z) - (S.h[j * S.n + i] * S.range + S.lo)));
+      }
+    const left = !!(g.campStory().pre && g.campStory().pre.c2s2);
+    g.campEnd(false, true);
+    g.clearMission();
+    return { okPlan, err, left };
+  });
+  check(go.okPlan && !go.left, '出擊照預排的種子、排程與第一段的類型（用掉後刪除）');
+  check(go.err < 0.05, `第一段的地形和戰略桌上的一樣（最大誤差 ${go.err.toFixed(3)} m）`);
+  // 手機橫式：圖示列在畫面裡、委託標籤還在
+  await page.evaluate(() => window.__game.openHub());
+  await page.setViewportSize({ width: 844, height: 390 });
+  await wait(800);
+  const ph = await page.evaluate(() => {
+    const d = document.getElementById('hubDock').getBoundingClientRect();
+    return {
+      dock: d.bottom <= window.innerHeight && d.right <= window.innerWidth && d.left >= 0,
+      open: !!document.querySelector('#hubMap .hubNode.open'),
+    };
+  });
+  check(ph.dock && ph.open, '手機橫式：圖示列在畫面裡、可以接的委託標籤還在');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hub-ui-phone.png') });
+  await ctx.close();
+}
+
 // 機甲庫的換裝介面（docs/garage-ui.md）：雙翼的部位格、零件格子與小卡片、標註線、六角圖與量表、零件縮圖、規格頁、設定頁、手把的 Y
 async function testGarageUi(browser, base) {
   console.log('機甲庫的換裝介面：雙翼、零件格子、小卡片、標註線、六角圖、量表、零件縮圖、規格頁、設定頁');
@@ -16352,6 +16454,7 @@ const STEPS = [
   ['testGuide', (c) => testGuide(c.browser, c.base)],
   ['testRange', (c) => testRange(c.browser, c.base)],
   ['testGarageUi', (c) => testGarageUi(c.browser, c.base)],
+  ['testHubUi', (c) => testHubUi(c.browser, c.base)],
   ['testAttrs', (c) => testAttrs(c.browser, c.base)],
   ['testAim', (c) => testAim(c.browser, c.base)],
   ['testAudio', (c) => testAudio(c.browser, c.base)],
