@@ -261,6 +261,35 @@ Object.assign(Game.prototype, {
       b.bc.position.y = y;
     }
   },
+  // 簡報的背景：這個委託第一段的地形，放大到整張桌子（同一份預排、同一個快取）
+  hubBriefShow(sid) {
+    this.hubSetup();
+    const so = SORTIES[sid];
+    const pre = this.hubPrePlan(sid);
+    const opt = this.campSegWorld(so, 0, pre.type0, pre.plan[0], TRANSITIONS.drop);
+    const src = { sid, theme: so.segs[0].theme, seed: pre.seeds[0], L: so.level, opt };
+    const key = this.hubTileKey(src);
+    if (this.hubBrief && this.hubBrief.g) {
+      this.hubRoom.root.remove(this.hubBrief.g);
+      disposeTree(this.hubBrief.g);
+    }
+    this.hubBrief = { sid, key, g: null };
+    const S = this.hubTiles.get(key);
+    if (S) this.hubBriefPut(S);
+    else if (!this.hubQ.some((q) => q.key === key)) this.hubQ.unshift({ key, src });
+    this.writeSave(); // 預排的出擊
+  },
+  hubBriefPut(S) {
+    const B = this.hubBrief;
+    if (!B) return;
+    if (B.g) {
+      this.hubRoom.root.remove(B.g);
+      disposeTree(B.g);
+    }
+    B.g = buildHoloTile(S, 0x6fd3ff, 3.4, { hs: 0.24, alpha: 0.55 });
+    B.g.position.y = TABLE_Y + 0.04;
+    this.hubRoom.root.add(B.g);
+  },
   hubNodeClick(sid) {
     if (this.hubSortieState(sid) === 'locked') {
       // 鎖住的委託：在上方寫出開放條件
@@ -291,6 +320,7 @@ Object.assign(Game.prototype, {
         this.hubTiles.set(q.key, S);
       }
       for (const info of this.hubReg || []) if (info.key === q.key) this.hubPutTile(info, S);
+      if (this.hubBrief && this.hubBrief.key === q.key) this.hubBriefPut(S);
       this.hubBeaconY();
     }
     // 鏡頭：繞桌子（拖曳轉一點，停手後回到正面）；標籤要能點，所以游標停留時鏡頭不動
@@ -304,12 +334,23 @@ Object.assign(Game.prototype, {
       if (Math.abs(C.yaw) < 1e-3) C.yaw = 0;
       if (Math.abs(C.pitch - DEF_CAM.pitch) < 1e-3) C.pitch = DEF_CAM.pitch;
     }
-    const dist = DEF_CAM.dist * (innerWidth < innerHeight * 1.4 ? 1.15 : 1);
+    // 簡報：桌上只留第一段的地形（慢慢轉），鏡頭靠近、畫面中心移到右側（左邊是簡報的文字）
+    const brief = this.state === 'brief' && this.hubBrief;
+    this.hubHoloG.visible = !brief;
+    if (this.hubBrief && this.hubBrief.g) {
+      this.hubBrief.g.visible = !!brief;
+      if (brief) this.hubBrief.g.rotation.y += dt * 0.06;
+    }
+    const goalT = brief ? _v.set(0, TABLE_Y + 0.15, 0) : _v.set(0, TABLE_Y + 0.7, -0.8);
+    C.tgt.lerp(goalT, k);
+    if (C.tgt.distanceTo(goalT) < 1e-4) C.tgt.copy(goalT);
+    const pitch = brief ? 0.66 : C.pitch;
+    const dist = (brief ? 7.4 : DEF_CAM.dist) * (innerWidth < innerHeight * 1.4 ? 1.15 : 1);
     C.cur.yaw += (C.yaw - C.cur.yaw) * k;
-    C.cur.pitch += (C.pitch - C.cur.pitch) * k;
+    C.cur.pitch += (pitch - C.cur.pitch) * k;
     C.cur.dist += (dist - C.cur.dist) * k;
     if (Math.abs(C.cur.yaw - C.yaw) < 1e-4) C.cur.yaw = C.yaw;
-    if (Math.abs(C.cur.pitch - C.pitch) < 1e-4) C.cur.pitch = C.pitch;
+    if (Math.abs(C.cur.pitch - pitch) < 1e-4) C.cur.pitch = pitch;
     if (Math.abs(C.cur.dist - dist) < 1e-4) C.cur.dist = dist;
     const cam = this.hubCamera;
     const cp = Math.cos(C.cur.pitch);
@@ -319,6 +360,9 @@ Object.assign(Game.prototype, {
       C.tgt.z + Math.cos(C.cur.yaw) * cp * C.cur.dist,
     );
     cam.lookAt(C.tgt);
+    if (brief && innerWidth > innerHeight * 1.2)
+      cam.setViewOffset(innerWidth, innerHeight, -innerWidth * 0.2, 0, innerWidth, innerHeight);
+    else cam.clearViewOffset();
     cam.aspect = innerWidth / innerHeight;
     cam.updateProjectionMatrix();
     // 設施的發光：游標停留或有新東西
@@ -345,11 +389,17 @@ Object.assign(Game.prototype, {
     this.hubScene.updateMatrixWorld();
     const W = innerWidth,
       H = innerHeight;
-    const place = (el, p, dy = 0) => {
+    // edge＝貼著畫面邊緣（設施的標籤：場景裡的位置在畫面外時，停在邊上）
+    const place = (el, p, edge) => {
       _v.copy(p).project(cam);
-      const vis = _v.z < 1;
-      el.style.transform = `translate(${(((_v.x + 1) / 2) * W).toFixed(1)}px, ${(((1 - _v.y) / 2) * H + dy).toFixed(1)}px)`;
-      el.style.visibility = vis ? '' : 'hidden';
+      let x = ((_v.x + 1) / 2) * W,
+        y = ((1 - _v.y) / 2) * H;
+      if (edge) {
+        x = clamp(x, 78, W - 78);
+        y = clamp(y, 96, H - 110);
+      }
+      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      el.style.visibility = _v.z < 1 ? '' : 'hidden';
     };
     for (const b of this.hubBeacons || []) {
       b.bc.localToWorld(_v.set(0, b.bc.userData.top, 0));
@@ -362,7 +412,7 @@ Object.assign(Game.prototype, {
     }
     for (const el of document.querySelectorAll('#hubSpots .hubSpot')) {
       const sp = this.hubRoom.spots[el.dataset.spot];
-      if (sp) place(el, sp.anchor.clone());
+      if (sp) place(el, sp.anchor.clone(), true);
     }
   },
   // 設施的熱點（renderHub 呼叫）：場景裡的名稱標籤，點了＝對應的圖示列按鈕

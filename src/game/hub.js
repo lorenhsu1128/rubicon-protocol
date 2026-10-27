@@ -17,8 +17,24 @@ import {
   speakerBadge,
 } from '../data/story.js';
 import { levelOf, pointsAt, spentPoints } from '../data/pilot.js';
+import { VARIANTS } from '../world/variants.js';
 import { THEMES } from '../world/world.js';
 import { Game } from './game.js';
+
+// 區段類型的圖示（簡報的路線；null＝還沒決定）
+const SEG_ICON = {
+  battle: 'M5 19L19 5 M9 5h10v10',
+  elite: 'M12 3l2.6 5.6 6 .6-4.6 4 1.4 6-5.4-3.2-5.4 3.2 1.4-6-4.6-4 6-.6z',
+  destroy: 'M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 8a4 4 0 1 0 .01 0',
+  defend: 'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z',
+  escort: 'M3 15h12l3-4h3v4 M6 18a2 2 0 1 0 .01 0 M16 18a2 2 0 1 0 .01 0 M3 15V9h9v6',
+  breakthrough: 'M4 12h12 M12 6l6 6-6 6 M4 6v12',
+  supply: 'M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8',
+  intel: 'M5 4h10l4 4v12H5z M8 11h8 M8 15h6',
+  boss: 'M4 18l2-10 4 4 2-7 2 7 4-4 2 10z',
+};
+const segIcon = (t) =>
+  `<svg viewBox="0 0 24 24" class="brSI" aria-hidden="true"><path d="${SEG_ICON[t] || 'M9 9a3 3 0 1 1 4 2.8c-.8.4-1 1-1 2 M12 17v.5'}"/></svg>`;
 
 Object.assign(Game.prototype, {
   // 出擊的狀態：done 完成過、open 可以接、locked 前置還沒完成、hidden 陣營抉擇不符（總覽圖上不出現）
@@ -179,16 +195,37 @@ Object.assign(Game.prototype, {
       .map((l) => `<p>${escHtml(l)}</p>`)
       .join('');
     $('brGoal').textContent = '作戰目標：' + B.goal;
+    // 路線：每個區段一個圖示（第一段的類型已經預排好；其他的固定類型照寫，會抽的是「?」），換主題時換底色
+    const pre = this.hubPrePlan(sid);
+    let th0 = null,
+      band = 0;
     const route = so.segs
       .map((sg, i) => {
-        const t = sg.pool.length === 1 ? SEG_TYPES[sg.pool[0]].name : '？';
-        return `<span class="brSeg${sg.pool[0] === 'boss' ? ' boss' : ''}">${i + 1}. ${escHtml(THEMES[sg.theme].name)}${sg.border ? '（交界）' : ''}・${escHtml(t)}</span>`;
+        const t = i === 0 ? pre.type0 : sg.pool.length === 1 ? sg.pool[0] : null;
+        if (sg.theme !== th0) {
+          if (th0) band++;
+          th0 = sg.theme;
+        }
+        const nm = t ? SEG_TYPES[t].name : '？';
+        const v =
+          pre.plan[i] && pre.plan[i].variant && VARIANTS[sg.theme] && VARIANTS[sg.theme][pre.plan[i].variant];
+        return `<span class="brSeg b${band % 2}${t === 'boss' ? ' boss' : ''}${i === 0 ? ' first' : ''}" title="${i + 1}. ${escHtml(THEMES[sg.theme].name)}${v ? '・' + escHtml(v.name) : ''}${sg.border ? '（交界）' : ''}・${escHtml(nm)}">${segIcon(t)}<small>${i + 1}</small></span>`;
       })
       .join('<i>›</i>');
+    const themes = [...new Set(so.segs.map((sg) => THEMES[sg.theme].name))].join(' → ');
+    const v0 =
+      pre.plan[0] &&
+      pre.plan[0].variant &&
+      VARIANTS[so.segs[0].theme] &&
+      VARIANTS[so.segs[0].theme][pre.plan[0].variant];
+    $('brMapCap').innerHTML =
+      `<b>第 1 段</b>　${escHtml(THEMES[so.segs[0].theme].name)}${v0 ? '・' + escHtml(v0.name) : ''}　<span>${escHtml(SEG_TYPES[pre.type0].name)}</span>`;
+    $('brRouteH').textContent = `路線　${themes}　${so.segs.length} 個區段`;
     $('brRoute').innerHTML = route;
     $('brReward').textContent =
       `完成報酬 ${so.reward.toLocaleString()} COAM（另有區段報酬）　完成次數 ${this.campStory().done[sid] || 0}`;
     this.tfxBrief(cl === 'echo'); // 文字演出：系統日誌樣式逐字（點一下全部顯示）
+    this.hubBriefShow(sid); // 背景：第一段地形的全像（hub-holo.js）
   },
   // 從簡報出擊：有別的出擊進行中時先確認
   briefGo(ok) {

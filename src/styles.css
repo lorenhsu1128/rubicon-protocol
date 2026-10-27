@@ -1905,7 +1905,12 @@ body.lab #fps {
 
 /* 主線：作戰室（docs/hub-ui.md：指揮室場景與全像戰略桌在 3D，這裡是疊在上面的介面）、簡報、通訊 */
 #brief {
-  background: radial-gradient(ellipse at 30% 20%, rgba(20, 32, 48, 0.82), rgba(7, 10, 14, 0.94) 75%);
+  background: linear-gradient(
+    90deg,
+    rgba(6, 9, 13, 0.94) 0%,
+    rgba(6, 9, 13, 0.82) 38%,
+    rgba(6, 9, 13, 0) 62%
+  );
   flex-direction: column;
   padding: 16px;
   gap: 12px;
@@ -2272,9 +2277,13 @@ body.lab #fps {
   flex: none;
 }
 #brief {
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   justify-content: safe center;
+  padding-left: max(16px, 4vw);
+}
+#brief .brBox {
+  width: min(600px, 44vw);
 }
 .brBox {
   width: min(720px, 100%);
@@ -2305,21 +2314,84 @@ body.lab #fps {
 #brRoute {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 6px;
+  gap: 4px 4px;
   align-items: center;
   font-size: 12px;
 }
 .brSeg {
-  border: 1px solid #2a3946;
-  padding: 3px 6px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #3a4651;
+  background: #1a2735;
+}
+.brSeg.b1 {
+  background: #1d2e24;
+}
+.brSeg.first {
+  outline: 2px solid var(--acc2);
+  outline-offset: 2px;
+}
+.brSeg .brSI {
+  width: 24px;
+  height: 24px;
+}
+.brSeg .brSI path {
+  fill: none;
+  stroke: #c9d2da;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.brSeg small {
+  position: absolute;
+  left: 2px;
+  top: 0;
+  font:
+    600 9px 'Chakra Petch',
+    sans-serif;
+  color: var(--dim);
 }
 .brSeg.boss {
   border-color: #ff6b6b;
-  color: #ff9a9a;
+}
+.brSeg.boss .brSI path {
+  stroke: #ff8a8a;
 }
 #brRoute i {
   color: #4a5a68;
   font-style: normal;
+}
+#brRouteH {
+  font-size: 12px;
+  margin-bottom: -6px;
+}
+#brMapCap {
+  position: absolute;
+  right: max(16px, 4vw);
+  bottom: 24px;
+  padding: 6px 12px;
+  background: rgba(10, 16, 22, 0.8);
+  border: 1px solid #2f4a5c;
+  border-left: 3px solid var(--acc2);
+  font-size: 13px;
+  color: #bfe4ff;
+}
+#brMapCap span {
+  color: var(--acc);
+}
+@media (max-width: 900px), (max-height: 540px) {
+  #brief {
+    background: rgba(6, 9, 13, 0.88);
+  }
+  #brief .brBox {
+    width: 100%;
+  }
+  #brMapCap {
+    display: none;
+  }
 }
 /* 任務中的通訊（右下角，不擋操作） */
 #comm {

@@ -9585,6 +9585,20 @@ async function testHubUi(browser, base) {
   // 點委託的標籤：簡報；從簡報出擊：照預排的出擊，第一段的地形和戰略桌一樣
   await page.click('#hubMap .hubNode[data-sid="c2s2"]');
   check(await waitVisible(page, 'brief'), '點委託的標籤開啟簡報');
+  await page.waitForFunction(() => !!(window.__game.hubBrief && window.__game.hubBrief.g), null, {
+    timeout: 20000,
+  });
+  const bf = await page.evaluate(() => ({
+    cap: document.getElementById('brMapCap').textContent,
+    segs: document.querySelectorAll('#brRoute .brSeg').length,
+    icons: document.querySelectorAll('#brRoute .brSeg .brSI').length,
+    key: window.__game.hubBrief.key === window.__game.hubReg.find((i) => i.R.chapter === 2).key,
+  }));
+  check(
+    bf.cap.includes('第 1 段') && bf.segs === 6 && bf.icons === 6 && bf.key,
+    `簡報：背景是第一段的地形（和戰略桌同一份）、路線 ${bf.segs} 個區段圖示（${bf.cap.trim()}）`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hub-brief.png') });
   const go = await page.evaluate(() => {
     const g = window.__game;
     const info = g.hubReg.find((i) => i.R.chapter === 2);

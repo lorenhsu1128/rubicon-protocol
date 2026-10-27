@@ -53,7 +53,7 @@ const lineMat = (color, opacity) =>
   });
 
 // 一塊區域的地形：S＝{ n, h（0～1，n×n）, obs: [[x, z, w, d, h]（0～1 的座標與高度）], water（0～1 或 null）}
-export function buildHoloTile(S, color, scale = 1) {
+export function buildHoloTile(S, color, scale = 1, o = {}) {
   const g = new THREE.Group();
   const R = TILE_R * scale;
   const N = S.n;
@@ -61,7 +61,7 @@ export function buildHoloTile(S, color, scale = 1) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const hk = new Float32Array(pos.count);
-  const HS = 0.42 * scale; // 最高處的高度（公尺）
+  const HS = (o.hs || 0.42) * scale; // 最高處的高度（公尺）
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i),
       z = pos.getZ(i);
@@ -74,7 +74,7 @@ export function buildHoloTile(S, color, scale = 1) {
     hk[i] = h * fall;
   }
   geo.setAttribute('hk', new THREE.BufferAttribute(hk, 1));
-  const m = holoMat(color, { r: R });
+  const m = holoMat(color, { r: R, alpha: o.alpha });
   const mesh = new THREE.Mesh(geo, m);
   g.add(mesh);
   // 大型障礙物：線框
