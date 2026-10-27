@@ -2,6 +2,9 @@
 import { clamp, lerp, rnd } from '../core/math.js';
 import { DS, MS } from '../core/scale.js';
 import { isOutline } from '../render/geometry.js';
+import { meleeMove } from '../data/melee.js';
+
+const EXEC_ZOOM = 0.5; // 處決中的鏡頭距離倍率
 import { Game } from './game.js';
 
 const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
@@ -266,6 +269,10 @@ Object.assign(Game.prototype, {
     }
     if (this.spectator) zoomT *= this.specZoom || 1;
     else zoomT = clamp(zoomT * (this.camUser || 1), ZMELEE, ZMAX); // 滾輪手動調整的距離
+    // 處決中：鏡頭拉近（docs/melee-combo-design.md）
+    const mst =
+      p.melee.active && p.weapons[p.melee.slot] && meleeMove(p.weapons[p.melee.slot].def, p.melee.stage);
+    if (mst && mst.exec) zoomT = Math.min(zoomT, EXEC_ZOOM);
     this.camZoom = lerp(this.camZoom || 1, zoomT, Math.min(1, dt * (zoomT < (this.camZoom || 1) ? 5 : 3.5)));
     const tgt = focus;
     tgt.y = p.pos.y + p.model.height * 0.35; // 以機體中段為中心

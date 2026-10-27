@@ -6,6 +6,7 @@
 // - 資料來源：預設片段（TEMPLATES）＜內建 src/assets/anims/melee.json（模型庫的動作編輯器匯出後放回）＜
 //   單人時模型庫動作編輯器存在瀏覽器的版本（localStorage rubicon_melee_anim；多人一律用內建，各端一致）。
 import BUILTIN from '../assets/anims/melee.json';
+import { meleeMove } from '../data/melee.js';
 
 // 關節：[鍵, 名稱, 軸]；值的單位：drop 是公尺，其他是度
 export const MJ = [
@@ -527,8 +528,108 @@ const TP = {
     [1, 0],
   ]),
 };
+// 近戰連擊（docs/melee-combo-design.md）的派生招式用的片段：上挑（把目標打上去）、踢（踢開）
+const UPPER = {
+  name: '上挑',
+  keys: [
+    K(0, 'out', {
+      twist: [-20],
+      torso: [10, 0],
+      upR: [20, 10, 25],
+      foreR: [100, 0],
+      wpnR: [30, 0, 0],
+      ...GUARD_L,
+      ...legs([14, -50, 6], [10, -42, 6]),
+      drop: [0.16],
+      hip: [0],
+      root: [0, 0],
+    }),
+    K(0.3, 'in', {
+      twist: [-35],
+      torso: [18, 0],
+      upR: [5, 15, 30],
+      foreR: [115, 0],
+      wpnR: [55, 0, 0],
+      drop: [0.24],
+      root: [-0.08, 0],
+    }),
+    K(0.46, 'out', {
+      twist: [20],
+      torso: [16, 0],
+      upR: [150, -10, 25],
+      foreR: [20, 0],
+      wpnR: [-40, 0, 0],
+      ...legs([-8, -6, 4], [28, -34, 8]),
+      drop: [0],
+      root: [0.34, 0],
+    }),
+    K(0.72, 'io', { upR: [165, -5, 20], foreR: [30, 0], torso: [20, 0], drop: [-0.02] }),
+    K(1, 'io', {
+      twist: [0],
+      torso: [0, 0],
+      upR: [50, 0, 15],
+      foreR: [70, 0],
+      wpnR: [0, 0, 0],
+      ...STAND,
+      drop: [0.04],
+      root: [0, 0],
+    }),
+  ],
+};
+const KICK = {
+  name: '踢',
+  keys: [
+    K(0, 'out', {
+      twist: [10],
+      torso: [0, 0],
+      upR: [40, 0, 30],
+      foreR: [90, 0],
+      ...GUARD_L,
+      ...STAND,
+      drop: [0.04],
+      root: [0, 0],
+    }),
+    K(0.3, 'in', {
+      twist: [28],
+      torso: [10, 0],
+      thighR: [75, 0, 6],
+      kneeR: [-100],
+      footR: [20],
+      thighL: [-6, 0, -6],
+      kneeL: [-18],
+      footL: [24],
+      upR: [25, 0, 55],
+      drop: [0.08],
+      root: [-0.06, 0],
+    }),
+    K(0.46, 'out', {
+      twist: [12],
+      torso: [22, 0],
+      thighR: [92, 0, 8],
+      kneeR: [-6],
+      footR: [-30],
+      upR: [15, 0, 70],
+      upL: [10, 0, -70],
+      drop: [0.04],
+      root: [0.32, 0],
+    }),
+    K(0.72, 'io', { thighR: [80, 0, 6], kneeR: [-20], torso: [18, 0] }),
+    K(1, 'io', {
+      twist: [0],
+      torso: [0, 0],
+      upR: [45, 0, 15],
+      foreR: [70, 0],
+      ...GUARD_L,
+      ...STAND,
+      drop: [0.03],
+      root: [0, 0],
+    }),
+  ],
+};
 export const TEMPLATES = {
   ...TP,
+  upper: UPPER,
+  kick: KICK,
   bigSlash: scaled(TP.slash, '大斬', 1.25),
   bigSlashB: scaled(TP.slashB, '大逆斬', 1.25),
   claw: scaled(TP.slash, '爪', 0.7),
@@ -572,11 +673,12 @@ export const MeleeAnim = {
   // 武器定義與招式編號 → 片段（沒有時 null，照程式算的近戰姿勢）
   clipFor(def, stage) {
     const S = this.set();
-    const st = def.combo && def.combo[stage];
+    const st = meleeMove(def, stage);
     if (!st) return null;
     const m = S.map[def.id];
     const id =
       (m && m[stage]) ||
+      st.clip ||
       (st.spin ? 'spin' : st.thrust ? 'thrust' : st.slam ? 'slam' : st.mirror ? 'slashB' : 'slash');
     return S.clips[id] || null;
   },

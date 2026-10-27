@@ -187,6 +187,18 @@ Object.assign(Game.prototype, {
       SFX.breakFx();
       const t = this.entById(e.i);
       if (t) this.popBreak(t);
+    } else if (e.k === 'pqb') {
+      const p = this.entById(e.i);
+      if (p) this.pqbFx(p);
     }
+  },
+  // 完美 QB 的回饋（只給本人：房主／單機直接呼叫，客機由 fb 事件）
+  pqbFx(p) {
+    const c = p.center();
+    this.fx.flash(c, 2.2, 0x9fe8ff, 0.18);
+    this.fx.shockwave(c, 6, 0x9fe8ff, 0.35);
+    SFX.play('thrBurst', 1.2, 1.3, 0.04, 0.03, null, 'ui');
+    this.popDamage(c.clone().add(new THREE.Vector3(0, 2 * p.dk, 0)), '完美迴避', false, true, false, 0, p.id);
+    this.rumble(0.4, 0.9, 140);
   },
 });

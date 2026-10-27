@@ -229,6 +229,7 @@ Object.assign(Game.prototype, {
           if (p.fire(slot, aimPos, aimEnt)) this.playerFiredAt = 0.3;
         }
         if (!held) this[key] = false;
+        p.meleeHeld(slot, held, dt, this.ctrl.exec !== 'off'); // 長按＝處決（docs/melee-combo-design.md）
         return;
       }
       if (w.def.type === 'laser' && w.def.chargeT > 0) {

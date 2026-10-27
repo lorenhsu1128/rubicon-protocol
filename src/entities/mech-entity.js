@@ -24,6 +24,38 @@ import {
 import { assistSpread, fcsAssist, leadOf, rtsWeaponDef, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import {
+  DIVE_V,
+  EXEC_ACE_K,
+  EXEC_HEAL,
+  EXEC_HOLD,
+  EXEC_R,
+  LINK_SHOT_AT,
+  PARRY_STUN,
+  PARRY_STUN_BOSS,
+  PARRY_T,
+  PQB_BUFF,
+  PQB_IMP,
+  PQB_LUNGE,
+  PQB_SLOW,
+  PQB_WIN,
+  SHIELD_BASH_T,
+  LINK_SHOT_K,
+  LINK_SHOT_R,
+  LUNGE_K,
+  QB_RESUME_MAX,
+  QUEUE_AT,
+  RESUME_T,
+  STUN_ACE,
+  SIDE_ANG,
+  SWAP_MAX,
+  comboDecay,
+  meleeDir,
+  meleeIdx,
+  meleeMove,
+  meleeNext,
+  meleeStun,
+} from '../data/melee.js';
+import {
   CHARGE_AI,
   HOLDER_IDLE_FIRE,
   NOISE_QB,
@@ -162,7 +194,7 @@ export class MechEntity {
       active: false,
       stage: 0,
       t: 0,
-      queued: false,
+      queued: -1, // 排入的下一招（段號；−1＝沒有）
       hit: new Set(),
       dir: new THREE.Vector3(0, 0, -1),
       target: null,
@@ -393,7 +425,7 @@ export class MechEntity {
     return to.sub(from).normalize();
   }
   canAct() {
-    return !this.dead && !this.downed && this.staggerT <= 0;
+    return !this.dead && !this.downed && this.staggerT <= 0 && !(this.hitStunT > 0);
   }
   useEn(v) {
     if (this.en < v) return false;
@@ -408,7 +440,25 @@ export class MechEntity {
       g = this.game;
     if (d.type === 'none' || d.type === 'shield') return false;
     if (!this.canAct()) return false;
-    if (this.melee.active && d.type !== 'melee') return false;
+    if (this.melee.active && d.type !== 'melee') {
+      // 近戰 → 射擊（docs/melee-combo-design.md 第 1 期）：玩家的近戰打中過、過了 LINK_SHOT_AT 時，
+      // 另一隻手或肩上的射擊武器可以中斷近戰立刻開火；目標在附近時這一發是零距離射擊（傷害加成）
+      const m = this.melee,
+        cur = meleeMove(this.weapons[m.slot].def, m.stage);
+      if (!(this.pilotEnt() && m.hitAny && cur && slot !== m.slot && m.t > cur.dur * LINK_SHOT_AT))
+        return false;
+      if (w.cd > 0 || w.reloadT > 0 || (usesAmmo(d) && w.mag <= 0)) return false;
+      const near = m.target && !m.target.dead && m.target.pos.distanceTo(this.pos) < LINK_SHOT_R * this.dk;
+      this.meleeEnd();
+      if (!near) return this.fire(slot, targetPos, targetEnt);
+      const k0 = this.dmgMul;
+      this.dmgMul *= LINK_SHOT_K;
+      try {
+        return this.fire(slot, targetPos, targetEnt || m.target);
+      } finally {
+        this.dmgMul = k0;
+      }
+    }
     if (w.cd > 0 || w.reloadT > 0) return false;
     if (usesAmmo(d) && w.mag <= 0) {
       if (w.ammo <= 0) {
@@ -778,12 +828,33 @@ export class MechEntity {
         {
           const m = this.melee;
           if (m.active && m.slot === slot) {
-            if (m.stage < d.combo.length - 1 && m.t > d.combo[m.stage].dur * 0.35) m.queued = true;
+            // 排入下一招：依按下這一格的方向（方向派生，data/melee.js）
+            const cur = meleeMove(d, m.stage);
+            if (cur && m.t > cur.dur * QUEUE_AT) {
+              // 方向派生只給玩家操作的機體（電腦追著目標跑時不該變成「前＋近戰」）
+              const nx = meleeNext(d, m.stage, this.pilotEnt() ? this.meleeDirKey(m.dir).k : '');
+              if (nx >= 0) m.queued = nx;
+            }
             return true;
           }
-          if (m.active) return false;
+          if (m.active) {
+            // 左右手交替：一隻手的近戰過了一半，另一隻手的近戰武器接它的第一招（玩家；次數有上限）
+            const cur = meleeMove(this.weapons[m.slot].def, m.stage);
+            if (this.pilotEnt() && cur && !cur.exec && m.t > cur.dur * 0.5 && (m.swapN || 0) < SWAP_MAX) {
+              m.queued = this.meleeStartIdx(d, slot);
+              m.qSlot = slot;
+              return true;
+            }
+            return false;
+          }
           if (!this.useEn(d.enCost)) return false;
-          this.startMeleeStage(slot, 0, targetPos, targetEnt);
+          // QB 取消後接回連段（meleeResume）、突擊推進中的衝刺斬、空中的空中連段、方向派生的起手
+          const R = this.meleeResume;
+          if (R && R.slot === slot && R.next >= 0 && this.pilotEnt()) {
+            this.meleeResume = null;
+            this.startMeleeStage(slot, R.next, targetPos, targetEnt || R.target, false);
+            this.melee.qbN = R.n;
+          } else this.startMeleeStage(slot, this.meleeStartIdx(d, slot), targetPos, targetEnt);
         }
         break;
     }
@@ -870,17 +941,203 @@ export class MechEntity {
     }
     SFX.play('hit3', 0.6, 0.7, 0.05, 0.03, this.isPlayer ? null : this.center());
   }
-  startMeleeStage(slot, stage, targetPos, targetEnt) {
+  // 方向派生的方向（data/melee.js 的 meleeDir）：這一格的移動輸入相對於目標方向（ref＝目標方向，沒有時用鎖定或機體正面）
+  meleeDirKey(ref) {
+    const w = this.moveWish;
+    if (!w) return { k: '', side: 0 };
+    let tx, tz;
+    const lk = this.melee.target && !this.melee.target.dead ? this.melee.target : this.lock;
+    if (ref) ((tx = ref.x), (tz = ref.z));
+    else if (lk && !lk.dead) ((tx = lk.pos.x - this.pos.x), (tz = lk.pos.z - this.pos.z));
+    else ((tx = -Math.sin(this.aimYaw)), (tz = -Math.cos(this.aimYaw)));
+    const l = Math.hypot(tx, tz) || 1;
+    return meleeDir(w.x, w.z, tx / l, tz / l);
+  }
+  // 起手招（玩家）：突擊推進中＝衝刺斬（dashMove）、空中＝空中連段（airMoves）、方向派生的起手（start）；其他＝第 1 招
+  meleeStartIdx(d) {
+    if (!this.pilotEnt() || !d.combo) return 0;
+    const pick = (ref) => meleeIdx(d, ref);
+    if (this.shield && this.shieldHitT > 0 && pick('bash') >= 0) {
+      this.shieldHitT = 0;
+      return pick('bash');
+    }
+    if (this.abT > 0 && d.dashMove !== undefined && pick(d.dashMove) >= 0) return pick(d.dashMove);
+    if (!this.grounded && d.airMoves !== undefined && pick(d.airMoves) >= 0) return pick(d.airMoves);
+    const k = this.meleeDirKey().k;
+    if (k && d.start && d.start[k] !== undefined && pick(d.start[k]) >= 0) return pick(d.start[k]);
+    return 0;
+  }
+  // 中斷近戰（取消、硬直）
+  meleeEnd() {
+    const m = this.melee;
+    if (m.exec && m.exec.tg) m.exec.tg.execBy = null;
+    m.exec = null;
+    m.active = false;
+    m.queued = -1;
+    m.qSlot = null;
+    this.swing = { l: 0, r: 0 };
+  }
+  // ---------- 防禦反擊（docs/melee-combo-design.md 第 4 期）----------
+  // 彈刀：玩家的近戰在有效期間（10%～85%）、面向攻擊者（前方 ±70° 左右）時，敵人的近戰被彈開
+  meleeClash(from) {
+    const m = this.melee;
+    if (!this.pilotEnt() || !m.active || from.team === this.team || !from.melee) return false;
+    const st = meleeMove(this.weapons[m.slot].def, m.stage);
+    if (!st || st.exec) return false;
+    const ph = m.t / st.dur;
+    if (ph < 0.1 || ph > 0.85) return false;
+    const to = from.pos.clone().sub(this.pos).setY(0);
+    if (to.lengthSq() < 1e-4) return false;
+    to.normalize();
+    const f = m.dir || new THREE.Vector3(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
+    if (to.dot(f) < 0.35) return false;
+    const g = this.game;
+    if (from.melee.active) from.meleeEnd();
+    from.hitStunT = Math.max(from.hitStunT || 0, from.isBoss ? PARRY_STUN_BOSS : PARRY_STUN);
+    from.vel.addScaledVector(to, 10 * this.dk);
+    this.vel.addScaledVector(to, -6 * this.dk);
+    this.parryT = PARRY_T;
+    const c = this.center().lerp(from.center(), 0.5);
+    g.fx.flash(c, 1.6, 0xfff0c0, 0.12);
+    g.fx.streaks(c, 16, 0xffe0a0, 22, 0.3, 22);
+    g.fx.shockwave(c, 4, 0xffd070, 0.3);
+    g.fx.hitStop = Math.max(g.fx.hitStop, 0.12);
+    SFX.play('shield', 1, 0.8, 0.05, 0.03, this.isPlayer ? null : c);
+    g.popDamage(c, '彈刀', false, true, false, 0, from.id);
+    if (this.isPlayer) {
+      g.camShake = Math.max(g.camShake, 0.2);
+      g.rumble(0.9, 0.7, 200);
+    }
+    return true;
+  }
+  // 完美 QB：QB 開始後 PQB_WIN 秒內躲掉敵人的攻擊（無敵擋下）→ 接下來的第一下近戰加強；單人時畫面短暫變慢
+  pqbCheck(from) {
+    if (!this.pilotEnt() || !from || from.team === this.team || this.pqbCD > 0) return;
+    if (!(this.t - (this.qbStartT === undefined ? -9 : this.qbStartT) <= PQB_WIN)) return;
+    const g = this.game;
+    this.pqbT = PQB_BUFF;
+    this.pqbCD = 0.6;
+    if (!g.net) g.fx.hitStop = Math.max(g.fx.hitStop, PQB_SLOW);
+    if (this.isPlayer) g.pqbFx(this);
+    else if (this.slot !== undefined && g.net && g.net.role === 'host')
+      g.netEv({ t: 'fb', s: this.slot, k: 'pqb', i: this.id });
+  }
+  // ---------- 處決（docs/melee-combo-design.md 第 3 期）----------
+  // 近戰鍵按住的時間（玩家：player.js、房主處理客機：mp-host.js）；按住 EXEC_HOLD 秒、附近有失衡的敵人＝處決
+  meleeHeld(slot, held, dt, allow) {
+    const k = slot === 'rarm' ? 'mHoldR' : 'mHoldL';
+    if (!held) return void (this[k] = 0);
+    const t0 = this[k] || 0;
+    this[k] = t0 + dt;
+    if (!allow || t0 >= EXEC_HOLD || this[k] < EXEC_HOLD || !this.pilotEnt() || !this.canAct()) return;
+    const d = this.weapons[slot] && this.weapons[slot].def;
+    if (!d || d.type !== 'melee' || meleeIdx(d, d.exec) < 0) return;
+    if (this.melee.active && meleeMove(this.weapons[this.melee.slot].def, this.melee.stage).exec) return;
+    const tg = this.execTarget(d);
+    if (tg) this.startExec(slot, tg);
+  }
+  // 可以處決的目標：失衡中、在近戰距離＋EXEC_R 內；Boss、部位、目標物、物件不行；鎖定的優先，其他取最近
+  execTarget(d) {
+    const st = meleeMove(d, meleeIdx(d, d.exec));
+    const R = st.reach * this.scale + EXEC_R * this.dk;
+    const ok = (t) =>
+      t &&
+      !t.dead &&
+      t.staggerT > 0 &&
+      !t.isBoss &&
+      !t.isProp &&
+      !t.decoy &&
+      !['part', 'objective', 'convoy', 'holo', 'bld'].includes(t.ai) &&
+      t.pos.distanceTo(this.pos) < R;
+    if (ok(this.lock)) return this.lock;
+    if (ok(this.melee.target)) return this.melee.target;
+    let best = null,
+      bd = 1e9;
+    for (const t of this.game.hostilesOfEnt(this)) {
+      if (!ok(t)) continue;
+      const dd = t.pos.distanceTo(this.pos);
+      if (dd < bd) ((bd = dd), (best = t));
+    }
+    return best;
+  }
+  startExec(slot, tg) {
+    const g = this.game,
+      d = this.weapons[slot].def,
+      idx = meleeIdx(d, d.exec),
+      st = meleeMove(d, idx);
+    this.meleeEnd();
+    this.meleeResume = null;
+    // 對位：處決方站到目標的正面、面向它
+    const dir = this.pos.clone().sub(tg.pos).setY(0);
+    if (dir.lengthSq() < 1e-4) dir.set(-Math.sin(tg.yaw), 0, -Math.cos(tg.yaw));
+    dir.normalize();
+    const p = tg.pos.clone().addScaledVector(dir, st.reach * this.scale * 0.55);
+    p.y = g.world.groundAt(p.x, p.z, tg.pos.y + 4 * this.dk);
+    this.pos.copy(p);
+    this.vel.set(0, 0, 0);
+    tg.vel.set(0, 0, 0);
+    tg.yaw = tg.aimYaw = Math.atan2(-dir.x, -dir.z); // 目標面向處決方
+    this.startMeleeStage(slot, idx, tg.center(), tg);
+    this.melee.exec = { tg, hit: 0 };
+    this.iFrames = Math.max(this.iFrames, st.dur + 0.2);
+    tg.staggerT = Math.max(tg.staggerT, st.dur + 0.4);
+    tg.execBy = this.id;
+    g.fx.hitStop = Math.max(g.fx.hitStop, 0.08);
+    if (this.isPlayer) g.flashMsg('處決 — ' + st.name.replace(/^處決・/, ''), 0xffd040, 1.2);
+    SFX.stagger(this.isPlayer ? null : this.center());
+  }
+  // 處決的每一下（updateMelee）：最後一下＝一般敵人擊破、AC 與精英 EXEC_ACE_K 的 AP；回復 AP、EN 全滿、掉彈藥箱
+  execHit(st, d, last) {
+    const g = this.game,
+      m = this.melee,
+      tg = m.exec && m.exec.tg;
+    if (!tg || tg.dead) return;
+    const hp = tg.center().lerp(this.center(), 0.3);
+    const ace = tg.ace || tg.ai === 'ac' || tg.isElite;
+    const dmg = last ? (ace ? tg.maxHp * EXEC_ACE_K : tg.hp + tg.maxHp) : tg.maxHp * 0.04;
+    tg.takeDamage(
+      dmg,
+      0,
+      this,
+      hp,
+      m.dir.clone(),
+      { kb: 0, lift: 0, exec: true, finisher: last },
+      d.id,
+      'none',
+    );
+    g.fx.meleeHit(hp, d.color, last, m.dir);
+    mechFlash(tg.model, d.color, 0.2);
+    g.fx.hitStop = Math.max(g.fx.hitStop, last ? 0.16 : 0.07);
+    if (this.isPlayer) {
+      g.camShake = Math.max(g.camShake, last ? 0.34 : 0.16);
+      g.rumble(last ? 1 : 0.6, last ? 0.9 : 0.4, last ? 360 : 120);
+    }
+    SFX.meleeHit(last, this.isPlayer ? null : hp);
+    if (!last) return;
+    if (!tg.dead) tg.staggerT = Math.max(tg.staggerT, 0.6);
+    this.hp = Math.min(this.maxHp, this.hp + this.maxHp * EXEC_HEAL);
+    this.en = this.enMax;
+    if (g.spawnPickup && g.world && !g.pvp && !g.lab) {
+      const [x, z] = g.world.nearSolid ? g.world.nearSolid(tg.pos.x, tg.pos.z) : [tg.pos.x, tg.pos.z];
+      g.spawnPickup('ammo', new THREE.Vector3(x, g.world.groundAt(x, z, tg.pos.y + 1) + 0.6, z));
+    }
+  }
+  // fresh＝新的連段（連段裡的接招、QB 接回時 false：保留取消與換手的次數）
+  startMeleeStage(slot, stage, targetPos, targetEnt, fresh = true) {
     const m = this.melee,
       d = this.weapons[slot].def,
-      st = d.combo[stage];
+      st = meleeMove(d, stage);
     const g = this.game;
     m.active = true;
     m.slot = slot;
     m.stage = stage;
     m.t = 0;
+    if (fresh) ((m.qbN = 0), (m.swapN = 0));
+    m.hitAny = false;
+    m.exec = null;
+    m.qSlot = null;
     if (this.sts) this.statusMelee(); // 近戰割開捕獲網、纏附（mech-status.js）
-    m.queued = false;
+    m.queued = -1;
     m.hit = new Set();
     m.target = targetEnt || null;
     m.window = 0;
@@ -892,7 +1149,37 @@ export class MechEntity {
     }
     if (dir.lengthSq() < 0.01) dir.set(-Math.sin(this.aimYaw), 0, -Math.cos(this.aimYaw));
     m.dir = dir.normalize();
+    // 側滑的招式（side）：往目標的左／右繞過去（依按下的方向），出招中不再轉向目標
+    m.noTrack = false;
+    if (st.side) {
+      const sd = (this.pilotEnt() && this.meleeDirKey(m.dir).side) || (stage % 2 ? -1 : 1);
+      const a = SIDE_ANG * sd;
+      const ca = Math.cos(a),
+        sa = Math.sin(a);
+      // 右邊＝(−z, x)：dir·cos + 右·sin
+      m.dir.set(m.dir.x * ca - m.dir.z * sa, 0, m.dir.z * ca + m.dir.x * sa).normalize();
+      m.noTrack = true;
+    }
     this.aimYaw = Math.atan2(-m.dir.x, -m.dir.z);
+    // 突進追擊（射擊 → 近戰的連接）：對失衡中的目標，突進距離放寬到 LUNGE_K 倍，從遠處一口氣貼上去
+    m.lungeK = 1;
+    if (this.pilotEnt() && m.target && !m.target.dead && m.target.staggerT > 0 && st.dash > 0) {
+      const need = m.target.pos.distanceTo(this.pos) - st.reach * this.scale;
+      m.lungeK = clamp(need / st.dash, 1, LUNGE_K);
+    }
+    // 完美 QB 之後的第一下：衝擊 ×PQB_IMP、突進距離 ×PQB_LUNGE
+    m.impK = 1;
+    if (fresh && this.pqbT > 0 && !st.exec) {
+      this.pqbT = 0;
+      m.impK = PQB_IMP;
+      if (m.target && !m.target.dead) m.lungeK = Math.max(m.lungeK, PQB_LUNGE);
+    }
+    // 衝刺斬：傷害與衝擊依出招時的速度
+    m.spdK = 1;
+    if (st.dashSlash) {
+      const v = Math.hypot(this.vel.x, this.vel.z);
+      m.spdK = clamp(1 + (v / (this.stats.speed * this.speedMul * 2.2)) * 0.35, 1, 1.35);
+    }
     const yaw = this.aimYaw;
     const c = this.center();
     c.y -= 0.3;
@@ -934,10 +1221,30 @@ export class MechEntity {
     if (!m.active) return;
     const g = this.game,
       d = this.weapons[m.slot].def,
-      st = d.combo[m.stage];
+      st = meleeMove(d, m.stage);
     m.t += dt;
+    // 處決：兩台都不動，照招式的 hits 打出每一下（execHit），結束後回到一般狀態
+    if (st.exec) {
+      const ex = m.exec,
+        tg = ex && ex.tg;
+      this.vel.x = this.vel.z = 0;
+      if (tg && !tg.dead) {
+        tg.vel.x = tg.vel.z = 0;
+        tg.staggerT = Math.max(tg.staggerT, 0.3);
+      }
+      const hits = st.hits || [0.8];
+      while (ex && ex.hit < hits.length && m.t / st.dur >= hits[ex.hit]) {
+        ex.hit++;
+        this.execHit(st, d, ex.hit === hits.length);
+      }
+      if (m.t >= st.dur) {
+        this.meleeEnd();
+        this.weapons[m.slot].cd = 0.4;
+      }
+      return;
+    }
     // tracking toward target during wind-up
-    if (m.target && !m.target.dead && m.t < st.dur * 0.5) {
+    if (m.target && !m.target.dead && m.t < st.dur * 0.5 && !m.noTrack) {
       const to = m.target.pos.clone().sub(this.pos);
       to.y = 0;
       if (to.length() > 1 * this.dk) m.dir.lerp(to.normalize(), Math.min(1, dt * 8)).normalize();
@@ -945,10 +1252,23 @@ export class MechEntity {
     }
     const ph = m.t / st.dur;
     const burst = d.id === 'w_fist' ? 0.3 : 0.6;
-    const dashSpd = ph < burst ? st.dash / (st.dur * burst) : 0; // 拳擊：前 30% 瞬間衝刺；其他近戰前 60%
+    let dashSpd = ph < burst ? (st.dash * (m.lungeK || 1)) / (st.dur * burst) : 0; // 拳擊：前 30% 瞬間衝刺；其他近戰前 60%
+    // 突進追擊：貼上目標就停（不穿過去）
+    if (m.lungeK > 1 && m.target && !m.target.dead) {
+      const dd = Math.hypot(m.target.pos.x - this.pos.x, m.target.pos.z - this.pos.z);
+      if (dd < st.reach * this.scale * 0.7) dashSpd = 0;
+    }
     this.vel.x = m.dir.x * dashSpd;
     this.vel.z = m.dir.z * dashSpd;
     if (st.slam && ph < 0.4) this.vel.y = Math.max(this.vel.y, 3 * this.dk);
+    // 空中招式：出招期間滯空、高度往目標靠；下劈（dive）後半往下砸
+    if (st.air && !this.grounded) {
+      if (st.dive && ph > 0.35) this.vel.y = Math.min(this.vel.y, -DIVE_V * this.dk);
+      else {
+        const ty = m.target && !m.target.dead ? m.target.pos.y - this.pos.y : 0;
+        this.vel.y = clamp(ty * 3, -8, 8) * this.dk;
+      }
+    }
     if (Math.random() < dt * 30) g.fx.boostFlame(this.center(), m.dir.clone().negate(), d.color);
     // hit window
     if (ph > 0.1 && ph < 0.85) {
@@ -973,18 +1293,27 @@ export class MechEntity {
         if (a2 > THREE.MathUtils.degToRad(st.arc) / 2) continue;
         m.hit.add(t.id);
         const hp = t.shape ? near : t.center().lerp(c, 0.3);
+        const mk = m.spdK || 1; // 衝刺斬的速度加成
         if (t.isProp) {
-          g.damageProp(t, st.dmg * this.dmgMul * this.stats.parts.arms.melee, st.impact, hp);
+          g.damageProp(t, st.dmg * mk * this.dmgMul * this.stats.parts.arms.melee, st.impact, hp);
           g.fx.meleeHit(hp, d.color, m.dir.clone(), !!st.finisher);
           continue;
         }
+        m.hitAny = true;
         t.takeDamage(
-          st.dmg * this.dmgMul * this.stats.parts.arms.melee,
-          st.impact * this.dmgMul,
+          st.dmg * mk * this.dmgMul * this.stats.parts.arms.melee,
+          st.impact * mk * (m.impK || 1) * this.dmgMul,
           this,
           hp,
           m.dir.clone(),
-          { kb: st.kb, lift: st.lift, finisher: !!st.finisher, stagBonus: st.stagBonus },
+          {
+            kb: st.kb,
+            lift: st.lift,
+            down: st.dive ? DIVE_V * this.dk : 0,
+            finisher: !!st.finisher,
+            stagBonus: st.stagBonus,
+            stun: meleeStun(st, ''),
+          },
           d.id,
         );
         g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir);
@@ -1000,13 +1329,20 @@ export class MechEntity {
       }
     }
     if (m.t >= st.dur) {
-      if (m.queued && m.stage < d.combo.length - 1 && this.useEn(d.enCost * (0.6 + this.pmv('mChain')))) {
+      // 接下一招（換手時用另一隻手的武器與它的 EN 消耗）
+      const ns = m.qSlot || m.slot,
+        nd = this.weapons[ns].def;
+      if (m.queued >= 0 && this.useEn(nd.enCost * (0.6 + this.pmv('mChain')))) {
+        const swap = ns !== m.slot;
+        const n0 = m.swapN || 0;
         this.startMeleeStage(
-          m.slot,
-          m.stage + 1,
+          ns,
+          m.queued,
           this.center().add(m.dir.clone().multiplyScalar(10)),
           m.target,
+          false,
         );
+        if (swap) m.swapN = n0 + 1;
       } else {
         m.active = false;
         m.stage = 0;
@@ -1104,7 +1440,12 @@ export class MechEntity {
   takeDamage(dmg, impact, from, at, dir, melee, wid, attr) {
     if (this.dead) return;
     if (from && from.name) this.lastHitBy = from.name; // 主線失敗時的通訊用
-    if (this.iFrames > 0) return;
+    // 彈刀：玩家的近戰在有效期間、面向攻擊者時，敵人的近戰被彈開（出招時的短暫無敵也算）
+    if (melee && !melee.exec && from && this.meleeClash(from)) return;
+    if (this.iFrames > 0) {
+      this.pqbCheck(from); // 完美 QB：QB 的無敵剛開始時躲掉了敵人的攻擊（docs/melee-combo-design.md 第 4 期）
+      return;
+    }
     if (this.sn) this.senseHit(from, dmg); // 仇恨與交戰（mech-sense.js）
     // DUELIST 格擋：未在連段中、未硬直、面向攻擊者時 55% 擋下近戰第 1 段並反擊
     if (
@@ -1140,7 +1481,14 @@ export class MechEntity {
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
       this.comboT = 1.2;
+      if (!melee.exec) dmg *= comboDecay(this.comboHits); // 同一個目標連續被打：傷害遞減（data/melee.js）；處決不算
       if (melee.stagBonus && this.staggerT > 0) dmg *= melee.stagBonus;
+      // 被打的硬直（電腦的機體；Boss、部位、目標物沒有，敵對 AC 很短）
+      if (melee.stun > 0 && !this.pilotEnt() && !this.isBoss && this.ai !== 'part' && !this.isProp) {
+        const kind = this.ace || this.ai === 'ac' || this.isElite ? 'ace' : '';
+        const s = kind === 'ace' ? Math.min(melee.stun, STUN_ACE) : melee.stun;
+        this.hitStunT = Math.max(this.hitStunT || 0, s);
+      }
       if (dir) {
         const kb = melee.kb * (this.isBoss ? 0.2 : 1);
         this.vel.x += dir.x * kb;
@@ -1150,8 +1498,11 @@ export class MechEntity {
         this.vel.y = Math.max(this.vel.y, melee.lift);
         this.grounded = false;
       }
+      if (melee.down && !this.isBoss && !this.grounded) this.vel.y = Math.min(this.vel.y, -melee.down); // 下劈：砸回地面
+      const parried = !!(from && from.parryT > 0 && !this.isBoss);
+      if (parried) from.parryT = 0;
       if (
-        (this.comboHits >= 3 || melee.finisher) &&
+        (this.comboHits >= 3 || melee.finisher || parried) &&
         this.staggerT <= 0 &&
         !this.isBoss &&
         !(this.stagGuardT > 0)
@@ -1186,8 +1537,8 @@ export class MechEntity {
     }
     let mul = 1;
     const A = attr || (wid && ATTRS[wid] ? wid : W ? weaponAttr(W) : 'kin');
-    // 直擊補正（依武器）＋攻擊者的「破甲射擊」＋自己的「不屈」
-    if (this.staggerT > 0) {
+    // 直擊補正（依武器）＋攻擊者的「破甲射擊」＋自己的「不屈」；處決的傷害是固定的，不套用
+    if (this.staggerT > 0 && !(melee && melee.exec)) {
       mul = directOf(W) + (from && from.pmv ? from.pmv('stagDmg') : 0) + this.pmv('stagTaken');
       // 失衡連攜：打出失衡的人改用不同種類的武器打 → 直擊補正再 ×LINK_K
       const sb = this.stagBy;
@@ -1214,6 +1565,7 @@ export class MechEntity {
     if (this.shield) {
       if (g.pilotCreditShield) g.pilotCreditShield(this, dmg * mul * this.shield);
       mul *= 1 - this.shield;
+      if (from && from.team !== this.team) this.shieldHitT = SHIELD_BASH_T; // 盾擊的時機（meleeStartIdx）
     }
     const real = Math.round(dmg * mul);
     if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.defCut(A)), impact, wid, A); // 靶場的量測
@@ -1470,6 +1822,8 @@ export class MechEntity {
       wantQB = false;
       wantAB = false;
     }
+    // 這一格的移動輸入（方向派生用，data/melee.js；按近戰之前先移動，所以同一格就讀得到）
+    (this.moveWish || (this.moveWish = new THREE.Vector3())).copy(wish);
     const spd =
       this.stats.speed *
       this.speedMul *
@@ -1525,6 +1879,18 @@ export class MechEntity {
       }
     }
     if (this.stagGuardT > 0) this.stagGuardT -= dt;
+    // 被近戰打中的硬直（只有房主／單機的電腦機體，takeDamage 設定）：不移動、不出招
+    if (this.hitStunT > 0) {
+      this.hitStunT -= dt;
+      wish = new THREE.Vector3();
+      wantHover = false;
+      wantQB = false;
+      wantAB = false;
+      if (this.melee.active) {
+        this.melee.active = false;
+        this.swing = { l: 0, r: 0 };
+      }
+    }
     if (this.staggerT > 0) {
       this.staggerT -= dt;
       if (this.staggerT <= 0) {
@@ -1542,10 +1908,36 @@ export class MechEntity {
         this.swing = { l: 0, r: 0 };
       }
     }
+    // 近戰的取消（docs/melee-combo-design.md 第 1 期）：上挑打中後按跳躍＝往目標追上去（接空中連段）；
+    // QB 取消（過了一半）；玩家打中過時記下接回點，RESUME_T 秒內再按近戰從下一招接回
+    const jumpEdge = !!wantHover && !this.mJumpPrev;
+    this.mJumpPrev = !!wantHover;
+    if (this.meleeResume && (this.meleeResume.t -= dt) <= 0) this.meleeResume = null;
+    for (const k of ['parryT', 'pqbT', 'pqbCD', 'shieldHitT']) if (this[k] > 0) this[k] -= dt;
     if (this.melee.active) {
-      if (wantQB && this.melee.t > this.weapons[this.melee.slot].def.combo[this.melee.stage].dur * 0.5) {
-        this.melee.active = false;
-        this.swing = { l: 0, r: 0 };
+      const m = this.melee,
+        md = this.weapons[m.slot].def,
+        mst = meleeMove(md, m.stage);
+      const pilot = this.pilotEnt();
+      if (pilot && jumpEdge && mst && mst.launch && m.hitAny && m.t > mst.dur * 0.35) {
+        const tg = m.target && !m.target.dead ? m.target : null;
+        this.meleeEnd();
+        if (tg) {
+          const to = tg.pos.clone().sub(this.pos).setY(0);
+          if (to.lengthSq() > 1e-4) to.normalize().multiplyScalar(spd * 1.1);
+          this.vel.x = to.x;
+          this.vel.z = to.z;
+        }
+      } else if (wantQB && !(mst && mst.exec) && (!mst || m.t > mst.dur * 0.5)) {
+        if (pilot && m.hitAny && (m.qbN || 0) < QB_RESUME_MAX)
+          this.meleeResume = {
+            slot: m.slot,
+            next: meleeNext(md, m.stage, ''),
+            t: RESUME_T,
+            n: (m.qbN || 0) + 1,
+            target: m.target,
+          };
+        this.meleeEnd();
       } else {
         wish = new THREE.Vector3();
         wantHover = false;
@@ -1574,6 +1966,7 @@ export class MechEntity {
     const qbAny = wish.lengthSq() > 0.1 || (this.sts && this.stsQbEscape());
     if (wantQB && this.qbT <= 0 && qbAny && this.useEn(P.booster.qbCost * (this.sts ? this.stsQbK() : 1))) {
       this.qbT = 0.16;
+      this.qbStartT = this.t; // 完美 QB 的判定（pqbCheck）
       if (wish.lengthSq() > 0.1) this.qbDir.copy(wish).normalize();
       else this.qbDir.set(0, 0, 0);
       if (this.sts) this.statusQB(); // 掙脫（mech-status.js）
@@ -1869,7 +2262,7 @@ export class MechEntity {
           melee: this.melee.active
             ? (() => {
                 const d = this.weapons[this.melee.slot].def,
-                  st2 = d.combo[this.melee.stage];
+                  st2 = meleeMove(d, this.melee.stage);
                 return {
                   kind: st2.spin ? 'spin' : st2.thrust ? 'thrust' : st2.slam ? 'slam' : 'slash',
                   ph: clamp(this.melee.t / st2.dur, 0, 1),

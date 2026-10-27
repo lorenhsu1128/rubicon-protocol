@@ -962,7 +962,7 @@ async function testHangar(browser) {
 
 async function testLabDemo(browser) {
   console.log(
-    '實驗室的動作展示：清掉兩隊、28 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
+    '實驗室的動作展示：清掉兩隊、29 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
   );
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   const page = await ctx.newPage();
@@ -2162,7 +2162,11 @@ async function testMotion(browser, base) {
   check(await page.evaluate(() => !document.getElementById('motion').hidden), '網址 #motion 開啟動作編輯頁');
   await page.selectOption('#moWpn', 'w_blade');
   await wait(800);
-  check((await page.$$eval('#moStages .moStage', (a) => a.length)) === 3, '脈衝刀列出 3 段招式');
+  const stN = await page.$$eval('#moStages .moStage', (a) => [
+    a.length,
+    a.filter((e) => !e.classList.contains('branch')).length,
+  ]);
+  check(stN[1] === 3 && stN[0] > 3, `脈衝刀列出 3 段招式＋派生招式（共 ${stN[0]}）`);
   const r = await page.evaluate(() => {
     const m = window.__motion;
     m.stage = 0;
@@ -13720,6 +13724,337 @@ async function testMpLevels(browser, url) {
   await ctx.close();
 }
 
+// 近戰連擊與連繫技（docs/melee-combo-design.md）：方向派生、被打的硬直、傷害遞減、上挑 → 跳躍取消 → 空中連段、
+// QB 取消後接回、近戰 → 射擊、衝刺斬、對失衡目標的突進追擊、Boss 不硬直、電腦不用方向派生
+async function testMeleeCombo(browser, base) {
+  console.log('近戰連擊：方向派生、硬直、傷害遞減、上挑與空中連段、QB 接回、近戰接射擊、衝刺斬、突進追擊');
+  const { ctx, page } = await newPage(browser, 'melee-combo');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    g.save.level = 1;
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.asm.rarm = 'w_blade';
+    pl.asm.larm = 'w_sg';
+    pl.initWeapons();
+    g.world.obstacles = g.world.obstacles.filter((o) => Math.hypot(o.x - pl.pos.x, o.z - pl.pos.z) > 60 * 3);
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    // 目標固定是一般的二足 MT（隨機編成裡的履帶、無人機不能被上挑）
+    const t = g.spawnType('mt', 1, 1);
+    t.updateAI = function (dt) {
+      this.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    const d = pl.weapons.rarm.def;
+    const idx = (id) => [...d.combo, ...(d.moves || [])].findIndex((s) => s.id === id);
+    const gy = (x, z) => g.world.groundAt(x, z, 999);
+    const reset = (dist = 8 * 3) => {
+      pl.pos.set(0, gy(0, 0), 0);
+      pl.vel.set(0, 0, 0);
+      pl.grounded = true;
+      pl.en = pl.enMax;
+      pl.qbT = 0;
+      pl.abT = 0;
+      pl.meleeEnd();
+      pl.meleeResume = null;
+      pl.staggerT = 0;
+      pl.hoverMode = 0;
+      pl.aimYaw = 0;
+      for (const s of ['rarm', 'larm']) ((pl.weapons[s].cd = 0), (pl.weapons[s].reloadT = 0));
+      t.pos.set(0, gy(0, -dist), -dist);
+      t.vel.set(0, 0, 0);
+      t.grounded = true;
+      t.hp = t.maxHp = 1e8;
+      t.staggerT = 0;
+      t.stagGuardT = 0;
+      t.comboHits = 0;
+      t.hitStunT = 0;
+      t.isBoss = false;
+      pl.lock = t;
+    };
+    const toT = () => t.pos.clone().sub(pl.pos).setY(0).normalize();
+    // 一格：玩家照輸入移動（近戰中由 updateMelee 接手）、目標照 updateAI
+    const step = (n = 1, wish = new THREE.Vector3(), o = {}) => {
+      for (let i = 0; i < n; i++) {
+        pl.move(1 / 60, wish.clone(), !!o.hover, !!(o.qb && i === 0), false, pl.lock);
+        t.updateAI(1 / 60);
+      }
+    };
+    const until = (fn, max = 120, wish, o) => {
+      for (let i = 0; i < max; i++) {
+        if (fn()) return true;
+        step(1, wish, o);
+      }
+      return fn();
+    };
+    const press = (slot = 'rarm', wish = new THREE.Vector3()) => {
+      // 按下近戰的那一格：先移動（記下方向），再出招
+      step(1, wish);
+      return pl.fire(slot, t.center(), t);
+    };
+    // 1. 中立起手、打中後目標硬直（不能行動）
+    reset();
+    press();
+    out.n0 = pl.melee.active && pl.melee.stage === 0;
+    until(() => pl.melee.hitAny, 40);
+    out.hit = pl.melee.hitAny;
+    out.stun = t.hitStunT > 0 && !t.canAct();
+    // 2. 方向派生：連段中途按「前＋近戰」→ 突刺連打
+    until(() => pl.melee.t > d.combo[0].dur * 0.4, 40);
+    press('rarm', toT());
+    out.qF = pl.melee.queued === idx('bl_f1');
+    until(() => pl.melee.stage === idx('bl_f1'), 40);
+    out.f1 = pl.melee.stage === idx('bl_f1');
+    // 3. 起手按「後」＝上挑 → 打中後按跳躍 → 空中按近戰＝空中連段
+    reset();
+    press('rarm', toT().negate());
+    out.up = pl.melee.stage === idx('bl_up');
+    until(() => pl.melee.hitAny && pl.melee.t > d.moves[idx('bl_up') - d.combo.length].dur * 0.4, 60);
+    out.lifted = t.vel.y > 0 || !t.grounded;
+    out.liftInfo = `hit ${pl.melee.hitAny} t ${pl.melee.t.toFixed(2)} vy ${t.vel.y.toFixed(1)} g ${t.grounded} stg ${t.staggerT.toFixed(2)}`;
+    step(1, toT(), { hover: true });
+    out.jumpCancel = !pl.melee.active;
+    step(10, toT(), { hover: true });
+    out.air = !pl.grounded;
+    pl.weapons.rarm.cd = 0;
+    out.airStart = pl.fire('rarm', t.center(), t) && pl.melee.stage === idx('bl_a1');
+    // 4. QB 取消後 0.6 秒內按近戰：從下一招接回
+    reset();
+    press();
+    until(() => pl.melee.hitAny && pl.melee.t > d.combo[0].dur * 0.55, 60);
+    step(1, new THREE.Vector3(1, 0, 0), { qb: true });
+    out.qbCancel = !pl.melee.active && !!pl.meleeResume && pl.meleeResume.next === 1;
+    step(6);
+    pl.fire('rarm', t.center(), t);
+    out.resume = pl.melee.active && pl.melee.stage === 1;
+    // 5. 近戰 → 射擊：打中後按左手的霰彈
+    reset();
+    press();
+    until(() => pl.melee.hitAny && pl.melee.t > d.combo[0].dur * 0.55, 60);
+    const np = g.projectiles.length;
+    out.shot = pl.fire('larm', t.center(), t) && !pl.melee.active && g.projectiles.length > np;
+    // 6. 突擊推進中按近戰＝衝刺斬
+    reset();
+    pl.abT = 0.1;
+    out.dash = pl.fire('rarm', t.center(), t) && pl.melee.stage === idx('bl_dash');
+    // 7. 對失衡中的遠處目標：突進追擊
+    reset(30 * 3);
+    t.staggerT = 2;
+    press();
+    out.lunge = pl.melee.lungeK > 1.5;
+    const d0 = t.pos.distanceTo(pl.pos);
+    step(20);
+    out.lungeGo = d0 - t.pos.distanceTo(pl.pos) > 30;
+    // 8. 傷害遞減：第 10 下的傷害比第 1 下少（擋住失衡，避免直擊補正混進來）
+    reset();
+    t.stagGuardT = 99;
+    const hp0 = t.hp;
+    t.takeDamage(
+      1000,
+      0,
+      pl,
+      t.center(),
+      new THREE.Vector3(0, 0, -1),
+      { kb: 0, lift: 0, stun: 0.3 },
+      'w_blade',
+    );
+    const dmg1 = hp0 - t.hp;
+    t.comboHits = 9;
+    const hp1 = t.hp;
+    t.takeDamage(
+      1000,
+      0,
+      pl,
+      t.center(),
+      new THREE.Vector3(0, 0, -1),
+      { kb: 0, lift: 0, stun: 0.3 },
+      'w_blade',
+    );
+    out.decay = (hp1 - t.hp) / dmg1;
+    // 9. Boss 不硬直
+    reset();
+    t.isBoss = true;
+    t.takeDamage(
+      100,
+      0,
+      pl,
+      t.center(),
+      new THREE.Vector3(0, 0, -1),
+      { kb: 0, lift: 0, stun: 0.3 },
+      'w_blade',
+    );
+    out.bossStun = t.hitStunT || 0;
+    t.isBoss = false;
+    // 10. 電腦的機體不用方向派生（追著目標跑＝前，照預設的下一招）
+    reset();
+    const ai = t;
+    ai.asm.rarm = 'w_blade';
+    ai.initWeapons();
+    ai.pos.set(0, gy(0, -20), -20);
+    pl.pos.set(0, gy(0, 0), 0);
+    ai.en = ai.enMax;
+    ai.moveWish = new THREE.Vector3(0, 0, 1);
+    ai.fire('rarm', pl.center(), pl);
+    for (let i = 0; i < 12; i++) ai.move(1 / 60, new THREE.Vector3(0, 0, 1), false, false, false, null);
+    ai.fire('rarm', pl.center(), pl);
+    out.aiNext = ai.melee.queued;
+    ai.meleeEnd();
+    ai.updateAI = function (dt) {
+      this.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    // 11. 處決：失衡中的敵人在近戰距離內、按住近戰鍵 → 處決招式、無敵、擊破、回復 EN、掉彈藥箱
+    const holdExec = (allow = true) => {
+      for (let i = 0; i < 3; i++) {
+        step(1);
+        pl.meleeHeld('rarm', true, 0.15, allow);
+      }
+    };
+    reset();
+    t.staggerT = 3;
+    pl.en = pl.enMax * 0.3;
+    const pk0 = (g.pickups || []).length;
+    holdExec(false);
+    out.execOff = !pl.melee.active || pl.melee.stage !== idx('bl_ex');
+    pl.meleeEnd();
+    pl.meleeHeld('rarm', false, 0, true);
+    reset(6 * 3);
+    t.staggerT = 3;
+    pl.en = pl.enMax * 0.3;
+    holdExec(true);
+    out.exec = pl.melee.active && pl.melee.stage === idx('bl_ex') && pl.iFrames > 0;
+    out.execDist = t.pos.distanceTo(pl.pos);
+    until(() => !pl.melee.active, 120);
+    out.execKill = t.dead || t.hp <= 0;
+    out.execEn = pl.en > pl.enMax * 0.9;
+    out.execAmmo = (g.pickups || []).length > pk0;
+    pl.meleeHeld('rarm', false, 0, true);
+    // AC 只受到一部分；Boss 不能處決
+    const t2 = g.spawnType('mt', 1, 1);
+    t2.updateAI = t.updateAI;
+    const re2 = () => {
+      pl.pos.set(0, gy(0, 0), 0);
+      pl.meleeEnd();
+      pl.weapons.rarm.cd = 0;
+      t2.pos.set(0, gy(0, -18), -18);
+      t2.hp = t2.maxHp = 1e6;
+      t2.staggerT = 3;
+      t2.dead = false;
+      pl.lock = t2;
+    };
+    re2();
+    t2.ace = true;
+    for (let i = 0; i < 3; i++)
+      (pl.move(1 / 60, new THREE.Vector3(), false, false, false, t2), pl.meleeHeld('rarm', true, 0.15, true));
+    for (let i = 0; i < 120 && pl.melee.active; i++)
+      (pl.move(1 / 60, new THREE.Vector3(), false, false, false, t2), t2.updateAI(1 / 60));
+    out.execAce = t2.hp / t2.maxHp;
+    pl.meleeHeld('rarm', false, 0, true);
+    re2();
+    t2.ace = false;
+    t2.isBoss = true;
+    for (let i = 0; i < 3; i++)
+      (pl.move(1 / 60, new THREE.Vector3(), false, false, false, t2), pl.meleeHeld('rarm', true, 0.15, true));
+    out.execBoss = pl.melee.active && pl.melee.stage === idx('bl_ex');
+    t2.isBoss = false;
+    pl.meleeHeld('rarm', false, 0, true);
+    t2.pos.set(900, -80, 900);
+    t.dead = false; // 上面處決擊破了
+    // 12. 彈刀：玩家的近戰有效期間被正面的敵人近戰打中 → 彈開（不受傷）、敵人硬直、下一下必定失衡
+    const hit = (from, melee) =>
+      pl.takeDamage(800, 900, from, pl.center(), new THREE.Vector3(0, 0, 1), melee, 'w_blade');
+    reset();
+    press();
+    until(() => pl.melee.t > d.combo[0].dur * 0.3, 40);
+    let hp0p = pl.hp;
+    hit(t, { kb: 0, lift: 0 });
+    out.parry = pl.hp === hp0p && t.hitStunT >= 0.9 && pl.parryT > 0;
+    t.stagGuardT = 0;
+    t.staggerT = 0;
+    t.comboHits = 0;
+    t.takeDamage(10, 10, pl, t.center(), new THREE.Vector3(0, 0, -1), { kb: 0, lift: 0 }, 'w_blade');
+    out.parryStag = t.staggerT > 0 && !(pl.parryT > 0);
+    // 沒在出招時照常受傷
+    reset();
+    hp0p = pl.hp;
+    pl.iFrames = 0;
+    hit(t, { kb: 0, lift: 0 });
+    out.noParry = pl.hp < hp0p;
+    // 13. 完美 QB：QB 剛開始時躲掉攻擊 → 下一下近戰衝擊 ×2；太晚的不算
+    reset();
+    pl.pqbT = pl.pqbCD = 0;
+    step(1, new THREE.Vector3(1, 0, 0), { qb: true });
+    hp0p = pl.hp;
+    out.qbIF = pl.iFrames > 0;
+    hit(t, null);
+    out.pqb = pl.hp === hp0p && pl.pqbT > 0;
+    step(12);
+    pl.weapons.rarm.cd = 0;
+    pl.fire('rarm', t.center(), t);
+    out.pqbImp = pl.melee.active && pl.melee.impK === 2 && !(pl.pqbT > 0);
+    reset();
+    pl.pqbT = pl.pqbCD = 0;
+    step(1, new THREE.Vector3(1, 0, 0), { qb: true });
+    step(18);
+    pl.iFrames = 0.5;
+    hit(t, null);
+    out.pqbLate = !(pl.pqbT > 0);
+    // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
+    const rb0 = pl.asm.rback;
+    pl.asm.rback = 'bw_sh';
+    pl.initWeapons();
+    reset();
+    out.hasShield = pl.shield > 0;
+    pl.iFrames = 0;
+    hit(t, null);
+    step(1);
+    out.bash = pl.fire('rarm', t.center(), t) && pl.melee.stage === idx('bash');
+    reset();
+    pl.iFrames = 0;
+    hit(t, null);
+    step(45);
+    pl.fire('rarm', t.center(), t);
+    out.bashLate = pl.melee.active && pl.melee.stage !== idx('bash');
+    pl.asm.rback = rb0;
+    pl.initWeapons();
+    return out;
+  });
+  check(r.n0 && r.hit, '中立起手的第 1 招打中');
+  check(r.stun, '一般敵人被近戰打中後硬直（不能行動）');
+  check(r.qF && r.f1, '連段中途按「前＋近戰」派生成突刺連打');
+  check(r.up, '起手按「後＋近戰」＝上挑');
+  check(r.lifted, `上挑把目標打上去（${r.liftInfo}）`);
+  check(r.jumpCancel && r.air && r.airStart, '上挑打中後按跳躍取消、空中按近戰出空中連段');
+  check(r.qbCancel && r.resume, 'QB 取消後再按近戰從下一招接回');
+  check(r.shot, '近戰打中後按另一隻手的射擊武器：中斷近戰立刻開火');
+  check(r.dash, '突擊推進中按近戰＝衝刺斬');
+  check(r.lunge && r.lungeGo, '對失衡中的遠處目標突進追擊');
+  check(r.decay < 0.8 && r.decay > 0.4, `同一個目標連續被打時傷害遞減（第 10 下 ×${r.decay.toFixed(2)}）`);
+  check(r.bossStun === 0, 'Boss 不硬直');
+  check(r.aiNext === 1, `電腦的機體照預設的下一招（${r.aiNext}）`);
+  check(r.execOff, '處決關閉時長按不發動');
+  check(
+    r.exec && r.execDist < 30,
+    `長按近戰鍵處決失衡中的敵人（對位後距離 ${r.execDist.toFixed(1)} m、處決中無敵）`,
+  );
+  check(r.execKill && r.execEn && r.execAmmo, '處決擊破一般敵人、EN 全滿、掉彈藥箱');
+  check(r.execAce > 0.45 && r.execAce < 0.7, `AC 只受到一部分（剩 ${(r.execAce * 100).toFixed(0)}%）`);
+  check(!r.execBoss, 'Boss 不能處決');
+  check(r.parry, '彈刀：近戰出招中被正面的敵人近戰打中＝彈開、不受傷、敵人硬直');
+  check(r.parryStag, '彈刀之後的下一下必定打出失衡');
+  check(r.noParry, '沒在出招時照常受傷');
+  check(r.qbIF && r.pqb, '完美 QB：QB 剛開始時躲掉攻擊');
+  check(r.pqbImp, '完美 QB 之後的第一下近戰衝擊 ×2');
+  check(r.pqbLate, 'QB 開始太久之後躲掉的不算完美 QB');
+  check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
+  check(r.bashLate, '擋下太久之後按近戰照常出招');
+  await ctx.close();
+}
+
 // 狀態效果（entities/mech-status.js、game/status-hud.js）：每種狀態的移動效果、掙脫規則、HUD、截圖
 async function testStatusFx(browser, base) {
   console.log('狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN（移動、掙脫、HUD）');
@@ -16563,6 +16898,7 @@ const STEPS = [
   ['testBossPower', (c) => testBossPower(c.browser, c.base)],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
+  ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
   ['testHazards2', (c) => testHazards2(c.browser, c.base)],
   ['testRtsFog', (c) => RTS.testRtsFog(c.browser, c.base)],
   ['testRtsInput', (c) => RTS.testRtsInput(c.browser, c.base)],

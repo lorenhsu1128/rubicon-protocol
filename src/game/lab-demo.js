@@ -45,6 +45,25 @@ const melee = (D, t, dt, g) => {
   p.startMeleeStage('rarm', i, g.labDemoAhead(30), null);
   D.mi = i + 1;
 };
+// 派生招式的段落：依序打出武器的每一個派生招式（data/melee.js 的 moves）
+const meleeMoves = (D, t, dt, g) => {
+  const p = g.player;
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const def = p.weapons.rarm.def;
+  if (!def.moves || p.melee.active) return;
+  D.mWait = (D.mWait || 0) - dt;
+  if (D.mWait > 0) return;
+  const i = D.mi || 0;
+  if (i >= def.moves.length) {
+    D.mi = 0;
+    D.mWait = 0.8;
+    p.pos.copy(D.C);
+    return;
+  }
+  p.startMeleeStage('rarm', def.combo.length + i, g.labDemoAhead(30), null);
+  D.mi = i + 1;
+  D.mWait = 0.15;
+};
 const comboT = (id) => {
   // 段落長度：整個連段兩次＋休息
   const d = { w_blade: 1.08, w_saber: 1.99, w_pile: 1.1, w_none: 0.9 }[id] || 1.2;
@@ -179,6 +198,13 @@ const DEMO_SEGS = [
   },
   { n: '近戰：打樁機', d: comboT('w_pile'), s: '撞擊 → 樁擊', w: { rarm: 'w_pile' }, run: melee },
   { n: '近戰：拳擊', d: comboT('w_none'), s: '直拳 → 勾拳 → 重擊', w: { rarm: 'w_none' }, run: melee },
+  {
+    n: '近戰：派生招式（脈衝刀）',
+    d: 9.5,
+    s: '前＝突刺連打 → 踢開、側＝側滑迴旋斬、後＝上挑、空中連段、衝刺斬（docs/melee-combo-design.md）',
+    w: { rarm: 'w_blade' },
+    run: meleeMoves,
+  },
   {
     n: '受擊（前、側、背）',
     d: 4.2,

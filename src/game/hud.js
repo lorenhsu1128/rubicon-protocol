@@ -5,6 +5,7 @@ import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
 import { MS } from '../core/scale.js';
 import { CONSUMABLES, usesAmmo } from '../data/parts.js';
+import { meleeChainPos, meleeMove } from '../data/melee.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
 
@@ -206,7 +207,9 @@ Object.assign(Game.prototype, {
       else if (w.def.type === 'melee')
         txt =
           p.melee.active && p.melee.slot === s
-            ? `連擊 ${p.melee.stage + 1}/${w.def.combo.length}`
+            ? meleeChainPos(w.def, p.melee.stage) >= 0
+              ? `連擊 ${p.melee.stage + 1}/${w.def.combo.length}`
+              : (meleeMove(w.def, p.melee.stage) || {}).name || '連擊'
             : `${w.def.combo.length} 段連擊`;
       else if (w.def.type === 'shield') txt = '盾 (被動)';
       else if (w.def.type === 'emp') txt = w.cd > 0 ? `冷卻 ${Math.ceil(w.cd)}s` : '就緒';
@@ -480,7 +483,12 @@ Object.assign(Game.prototype, {
       c.textAlign = 'center';
       c.lineWidth = 4;
       c.strokeStyle = 'rgba(0,0,0,.7)';
-      const txt = `${d.combo[p.melee.stage].name}  ${p.melee.stage + 1}/${d.combo.length}`;
+      const mst = meleeMove(d, p.melee.stage);
+      const txt = !mst
+        ? ''
+        : meleeChainPos(d, p.melee.stage) >= 0
+          ? `${mst.name}  ${p.melee.stage + 1}/${d.combo.length}`
+          : mst.name;
       c.strokeText(txt, W / 2, H * 0.68);
       c.fillStyle = '#ff7a30';
       c.fillText(txt, W / 2, H * 0.68);

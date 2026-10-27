@@ -2,6 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { MeleeAnim } from '../render/melee-anim.js';
+import { meleeMove } from '../data/melee.js';
 import { animateMech } from '../render/mech-model.js';
 import { applyIK, ikRestore } from '../render/mech-ik.js';
 import { MechEntity } from './mech-entity.js';
@@ -58,7 +59,7 @@ Object.assign(MechEntity.prototype, {
     const ml = this.melee.active
       ? (() => {
           const d = this.weapons[this.melee.slot].def,
-            st2 = d.combo && d.combo[this.melee.stage];
+            st2 = meleeMove(d, this.melee.stage);
           if (!st2) return null;
           return {
             kind: st2.spin ? 'spin' : st2.thrust ? 'thrust' : st2.slam ? 'slam' : 'slash',

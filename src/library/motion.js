@@ -6,6 +6,7 @@
 // （localStorage rubicon_melee_anim）；要變成內建（多人也用）就匯出 melee.json 覆蓋 src/assets/anims/melee.json 後重新建置。
 import { escHtml } from '../core/html.js';
 import { FIST_DEF, PARTS, START_ASM } from '../data/parts.js';
+import { meleeAll, meleeMove } from '../data/melee.js';
 import { PALETTES } from '../render/materials.js';
 import { animateMech } from '../render/mech-model.js';
 import { springClear } from '../render/mech-spring.js';
@@ -130,7 +131,7 @@ export class MotionEditor {
   // 這把武器各段用的片段 id
   mapOf(w = this.weapon()) {
     const m = this.data.map[w.id] || DEFAULT_MAP[w.id] || [];
-    return w.combo.map((st, i) => m[i] || defaultClipId(st));
+    return meleeAll(w).map((st, i) => m[i] || st.clip || defaultClipId(st));
   }
   clipId() {
     return this.mapOf()[this.stage];
@@ -340,11 +341,12 @@ export class MotionEditor {
             `<option value="${id}"${id === sel ? ' selected' : ''}>${escHtml(c.name)}${this.data.clips[id] ? (TEMPLATES[id] ? '（已修改）' : '（自訂）') : ''}</option>`,
         )
         .join('');
-    $('moStages').innerHTML = w.combo
+    // 預設連段＋派生招式（派生的前面標「派生」，docs/melee-combo-design.md）
+    $('moStages').innerHTML = meleeAll(w)
       .map(
         (st, i) =>
-          `<div class="moStage${i === this.stage ? ' sel' : ''}" data-i="${i}">` +
-          `<span>${i + 1}. ${escHtml(st.name)} <span class="dim">${st.dur}s・${kindOf(st)}${st.mirror ? '・逆' : ''}${st.finisher ? '・終結' : ''}</span></span>` +
+          `<div class="moStage${i === this.stage ? ' sel' : ''}${i >= w.combo.length ? ' branch' : ''}" data-i="${i}">` +
+          `<span>${i < w.combo.length ? i + 1 + '.' : '派生'} ${escHtml(st.name)} <span class="dim">${st.dur}s・${kindOf(st)}${st.mirror ? '・逆' : ''}${st.finisher ? '・終結' : ''}</span></span>` +
           `<select data-i="${i}" title="這一段用的動作片段">${opts(map[i])}</select></div>`,
       )
       .join('');
@@ -475,7 +477,7 @@ export class MotionEditor {
   renderTime() {
     $('moPlay').textContent = this.playing ? '❚❚ 暫停' : '▶ 播放';
     $('moTime').value = this.ph;
-    const st = this.weapon().combo[this.stage];
+    const st = meleeMove(this.weapon(), this.stage);
     $('moTimeText').textContent = `${this.ph.toFixed(2)}（${(this.ph * st.dur).toFixed(2)} / ${st.dur} s）`;
   }
 
@@ -552,7 +554,7 @@ export class MotionEditor {
     }
   }
   meleeSt(ph) {
-    const st = this.weapon().combo[this.stage];
+    const st = meleeMove(this.weapon(), this.stage);
     return {
       kind: kindOf(st),
       ph,
@@ -600,7 +602,7 @@ export class MotionEditor {
       this.simT = -1;
       return;
     }
-    const dur = this.weapon().combo[this.stage].dur;
+    const dur = meleeMove(this.weapon(), this.stage).dur;
     if (this.simT < 0 || this.ph < this.simT - 1e-6) {
       this.basePose();
       rig.group.traverse((o) => {
@@ -644,7 +646,7 @@ export class MotionEditor {
     this.last = now;
     if (!this.open_ || !this.rig) return;
     if (this.playing) {
-      const dur = this.weapon().combo[this.stage].dur;
+      const dur = meleeMove(this.weapon(), this.stage).dur;
       this.ph += (dt * this.speed) / dur;
       if (this.ph > 1) {
         this.ph = 0;

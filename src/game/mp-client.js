@@ -645,6 +645,7 @@ Object.assign(Game.prototype, {
       jc: this._jc || 0,
       lock: p.lock ? p.lock.id : -1,
       kit: this.kitPressed ? 1 : 0,
+      nx: this.ctrl.exec === 'off' ? 1 : 0, // 處決關閉（長按近戰＝一般近戰）
       cs1: this.cs1Pressed ? 1 : 0,
       cs2: this.cs2Pressed ? 1 : 0,
       csIds: cs,

@@ -2,6 +2,7 @@
 //  狀態序列化（房主 → 客機 快照）
 // ============================================================
 import { STAG_GUARD } from '../data/parts.js';
+import { meleeMove } from '../data/melee.js';
 
 export function serEnt(e) {
   const w = e.weapons;
@@ -99,7 +100,7 @@ export function applyEnt(e, s, g) {
       e.melee.stage = stage;
       e.melee.t = t;
       const d = e.weapons[slot].def;
-      const st = d.combo && d.combo[stage];
+      const st = meleeMove(d, stage);
       if (st) e.swing = st.spin ? { l: 1, r: 1 } : { l: st.mirror ? 1 : -0.3, r: st.mirror ? -0.3 : 1 };
     }
     e.melee.t = s.m[2];

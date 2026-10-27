@@ -157,6 +157,7 @@ Object.assign(Game.prototype, {
         if (w.def.type === 'melee') {
           if (held && !e[edgeKey]) e.fire(slot, ap, ae);
           e[edgeKey] = held;
+          e.meleeHeld(slot, held, dt, !inp.nx); // 長按＝處決（客機關掉時 nx）
           return;
         }
         if (w.def.type === 'laser' && w.def.chargeT > 0) {

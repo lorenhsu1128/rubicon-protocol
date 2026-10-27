@@ -289,12 +289,14 @@ export function pilotWeaponDef(def, pm) {
   const d = { ...def };
   if (d.type === 'melee') {
     d.enCost = d.enCost * downF(f, 'mEn');
-    d.combo = def.combo.map((st) => ({
+    const mk = (st) => ({
       ...st,
       dmg: st.dmg * upF(f, 'mDmg'),
       impact: st.impact * upF(f, 'mImp'),
       reach: st.reach * upF(f, 'mRch'),
-    }));
+    });
+    d.combo = def.combo.map(mk);
+    if (def.moves) d.moves = def.moves.map(mk); // 派生招式（data/melee.js）
     return d;
   }
   if (d.dmg) d.dmg *= upF(f, 'dmg');

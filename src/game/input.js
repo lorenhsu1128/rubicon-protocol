@@ -1,6 +1,7 @@
 // Game：鍵盤／滑鼠、手把、觸控虛擬搖桿與震動
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
+import { LUNGE_K } from '../data/melee.js';
 import { StyleStore } from '../render/style/store.js';
 import { Game } from './game.js';
 
@@ -312,7 +313,8 @@ Object.assign(Game.prototype, {
       const w = p.weapons[s];
       if (w.def.type === 'melee') {
         const st = w.def.combo[0];
-        const rng = (st.dash || 0) + (st.reach || 3) + 2;
+        // 失衡中的目標：突進追擊的距離（射擊 → 近戰的連接，data/melee.js 的 LUNGE_K）
+        const rng = (st.dash || 0) * (lock && lock.staggerT > 0 ? LUNGE_K : 1) + (st.reach || 3) + 2;
         if (dist <= rng || (p.melee.active && p.melee.slot === s)) {
           meleeSlot = s;
           break;
@@ -329,7 +331,11 @@ Object.assign(Game.prototype, {
     d['Touch_fireR'] = d['Touch_fireL'] = false;
     d['Touch_meleeR'] = d['Touch_meleeL'] = false;
     if (meleeSlot) {
-      if (held && !this._atkPrev) d[meleeSlot === 'rarm' ? 'Touch_meleeR' : 'Touch_meleeL'] = true;
+      // 按下的那一格開始近戰；同一次按住期間一直按著（長按＝處決，docs/melee-combo-design.md）
+      if (held && !this._atkPrev) this._meleeHold = meleeSlot;
+      if (!held) this._meleeHold = null;
+      if (held && this._meleeHold === meleeSlot)
+        d[meleeSlot === 'rarm' ? 'Touch_meleeR' : 'Touch_meleeL'] = true;
     } else if (held || (auto && inRange)) {
       for (const s of ranged) d[s === 'rarm' ? 'Touch_fireR' : 'Touch_fireL'] = true;
     }
@@ -608,6 +614,10 @@ Object.assign(Game.prototype, {
     };
     document.getElementById('ctrlCine').onchange = (e) => {
       this.ctrl.cine = e.target.value;
+      this.saveKeys();
+    };
+    document.getElementById('ctrlExec').onchange = (e) => {
+      this.ctrl.exec = e.target.value;
       this.saveKeys();
     };
     // 過場動畫：點一下顯示略過提示，觸控長按略過（game/cine.js）
