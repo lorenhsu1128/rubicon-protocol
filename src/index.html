@@ -983,6 +983,8 @@
             <button class="primary" id="btnResume">繼續</button
             ><button id="btnSuspend" class="campSusp">保存並回作戰室</button
             ><button id="btnRangeCfgP" class="rangeOnly">靶場設定</button
+            ><button id="btnTutDemoP" class="tutOnly">再看一次示範</button
+            ><button id="btnTutSkipP" class="tutOnly">跳過這一步</button
             ><button id="btnAbort">放棄任務</button><button id="btnSettingsP">按鍵設定</button
             ><button id="btnFullscreenP">全螢幕</button>
           </div>
@@ -995,6 +997,8 @@
         </div>
       </div>
 
+      <!-- 近戰訓練：一課完成（game/tutorial.js） -->
+      <div id="tutDoneCard" class="screen center"></div>
       <!-- 渲染風格實驗室（game/style-lab.js 產生內容）-->
       <div id="labPanel" hidden></div>
       <div id="labBar" hidden></div>
@@ -1004,6 +1008,8 @@
       <!-- In-game HUD -->
       <div id="hudWrap" style="display: none; position: absolute; inset: 0">
         <div id="rangePanel" style="display: none"></div>
+        <!-- 近戰訓練（game/tutorial.js）：目標、按鍵、進度、時機條 -->
+        <div id="tutPanel" style="display: none"></div>
         <div id="hudTop"></div>
         <div id="hudBottom">
           <div id="kits"></div>

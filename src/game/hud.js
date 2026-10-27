@@ -264,6 +264,7 @@ Object.assign(Game.prototype, {
     const ob = document.getElementById('oob');
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
     this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
+    if (this.tut) this.tutHud(c); // 近戰訓練的方向箭頭（tutorial.js）
     document.getElementById('kits').innerHTML =
       `修復套件 <b>${'▮'.repeat(p.kits)}${'▯'.repeat(Math.max(0, (p.kitsMax || 3) - p.kits))}</b>　<span class="dim">[R]</span>`;
     const alive = this.isClient

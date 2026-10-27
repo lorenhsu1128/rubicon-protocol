@@ -65,6 +65,7 @@ import './entities/mech-foe-b2.js'; // 擴充：第 2 章的新敵人（B2）
 import './entities/mech-foe-c1.js';
 import './entities/mech-foe-c2.js'; // 地圖專屬敵人擴充（C2 組）
 import './game/sim.js';
+import './game/tutorial.js';
 import './game/waves.js';
 import './game/ai-director.js';
 import './game/goals.js';

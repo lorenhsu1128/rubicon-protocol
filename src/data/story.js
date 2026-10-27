@@ -24,6 +24,7 @@ export function clientInfo(key) {
 // 說話者：name、頭像的顏色與縮寫（程式產生的徽章）、所屬；角色設定見 docs/story-script.md 第三節
 export const SPEAKERS = {
   echo: { name: '操作員 ECHO', color: '#7fc8ff', mark: 'E', note: '你的作戰管制官' },
+  instructor: { name: '教官 INSTRUCTOR', color: '#c8a0ff', mark: 'I', note: '模擬艙的戰技教官' },
   castron: {
     name: '霍斯特（卡斯特隆）',
     color: '#d8903a',

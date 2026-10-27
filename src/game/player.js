@@ -177,6 +177,7 @@ Object.assign(Game.prototype, {
         right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       wish = fwd.multiplyScalar(-wish.z).add(right.multiplyScalar(wish.x)).normalize();
     } // 機體相對方向
+    if (this.tutVirt && this.tutVirt.wish) wish = this.tutVirt.wish.clone(); // 近戰訓練的示範（game/tutorial.js）
     const qb = this.act('qb');
     if (qb) {
       this.down[this.keymap.qb] = false;
@@ -229,7 +230,7 @@ Object.assign(Game.prototype, {
           if (p.fire(slot, aimPos, aimEnt)) this.playerFiredAt = 0.3;
         }
         if (!held) this[key] = false;
-        p.meleeHeld(slot, held, dt, this.ctrl.exec !== 'off'); // 長按＝處決（docs/melee-combo-design.md）
+        p.meleeHeld(slot, held, dt, !!this.tut || this.ctrl.exec !== 'off'); // 長按＝處決（docs/melee-combo-design.md）
         return;
       }
       if (w.def.type === 'laser' && w.def.chargeT > 0) {

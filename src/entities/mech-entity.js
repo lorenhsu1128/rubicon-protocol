@@ -385,6 +385,11 @@ export class MechEntity {
         ? Math.max(this.weapons.rback.def.absorb || 0, this.weapons.lback.def.absorb || 0)
         : 0;
   }
+  // 近戰訓練的判定事件（game/tutorial.js 的 tutEv）：只有教學中的玩家機體
+  tutE(k, o) {
+    const g = this.game;
+    if (g.tut && this === g.player) g.tutEv(k, o);
+  }
   // 玩家操作的機體（單機與多人的玩家，不含友軍、敵人與 PvP 電腦）：失衡後保護只給它們
   pilotEnt() {
     return this.team === 'player' && typeof this.slot === 'number' && !this.pvpAi;
@@ -450,6 +455,7 @@ export class MechEntity {
       if (w.cd > 0 || w.reloadT > 0 || (usesAmmo(d) && w.mag <= 0)) return false;
       const near = m.target && !m.target.dead && m.target.pos.distanceTo(this.pos) < LINK_SHOT_R * this.dk;
       this.meleeEnd();
+      this.tutE('link', { near });
       if (!near) return this.fire(slot, targetPos, targetEnt);
       const k0 = this.dmgMul;
       this.dmgMul *= LINK_SHOT_K;
@@ -834,7 +840,8 @@ export class MechEntity {
               // 方向派生只給玩家操作的機體（電腦追著目標跑時不該變成「前＋近戰」）
               const nx = meleeNext(d, m.stage, this.pilotEnt() ? this.meleeDirKey(m.dir).k : '');
               if (nx >= 0) m.queued = nx;
-            }
+              this.tutE('press', { queue: true });
+            } else this.tutE('early', { st: cur });
             return true;
           }
           if (m.active) {
@@ -843,17 +850,20 @@ export class MechEntity {
             if (this.pilotEnt() && cur && !cur.exec && m.t > cur.dur * 0.5 && (m.swapN || 0) < SWAP_MAX) {
               m.queued = this.meleeStartIdx(d, slot);
               m.qSlot = slot;
+              this.tutE('press', { queue: true });
               return true;
             }
             return false;
           }
           if (!this.useEn(d.enCost)) return false;
+          this.tutE('press', {});
           // QB 取消後接回連段（meleeResume）、突擊推進中的衝刺斬、空中的空中連段、方向派生的起手
           const R = this.meleeResume;
           if (R && R.slot === slot && R.next >= 0 && this.pilotEnt()) {
             this.meleeResume = null;
             this.startMeleeStage(slot, R.next, targetPos, targetEnt || R.target, false);
             this.melee.qbN = R.n;
+            this.tutE('resume', {});
           } else this.startMeleeStage(slot, this.meleeStartIdx(d, slot), targetPos, targetEnt);
         }
         break;
@@ -1004,6 +1014,7 @@ export class MechEntity {
     g.fx.hitStop = Math.max(g.fx.hitStop, 0.12);
     SFX.play('shield', 1, 0.8, 0.05, 0.03, this.isPlayer ? null : c);
     g.popDamage(c, '彈刀', false, true, false, 0, from.id);
+    this.tutE('parry', {});
     if (this.isPlayer) {
       g.camShake = Math.max(g.camShake, 0.2);
       g.rumble(0.9, 0.7, 200);
@@ -1018,6 +1029,7 @@ export class MechEntity {
     this.pqbT = PQB_BUFF;
     this.pqbCD = 0.6;
     if (!g.net) g.fx.hitStop = Math.max(g.fx.hitStop, PQB_SLOW);
+    this.tutE('pqb', {});
     if (this.isPlayer) g.pqbFx(this);
     else if (this.slot !== undefined && g.net && g.net.role === 'host')
       g.netEv({ t: 'fb', s: this.slot, k: 'pqb', i: this.id });
@@ -1083,6 +1095,7 @@ export class MechEntity {
     this.iFrames = Math.max(this.iFrames, st.dur + 0.2);
     tg.staggerT = Math.max(tg.staggerT, st.dur + 0.4);
     tg.execBy = this.id;
+    this.tutE('exec', {});
     g.fx.hitStop = Math.max(g.fx.hitStop, 0.08);
     if (this.isPlayer) g.flashMsg('處決 — ' + st.name.replace(/^處決・/, ''), 0xffd040, 1.2);
     SFX.stagger(this.isPlayer ? null : this.center());
@@ -1115,6 +1128,7 @@ export class MechEntity {
     }
     SFX.meleeHit(last, this.isPlayer ? null : hp);
     if (!last) return;
+    this.tutE('execKill', { kill: tg.dead });
     if (!tg.dead) tg.staggerT = Math.max(tg.staggerT, 0.6);
     this.hp = Math.min(this.maxHp, this.hp + this.maxHp * EXEC_HEAL);
     this.en = this.enMax;
@@ -1181,6 +1195,7 @@ export class MechEntity {
       const v = Math.hypot(this.vel.x, this.vel.z);
       m.spdK = clamp(1 + (v / (this.stats.speed * this.speedMul * 2.2)) * 0.35, 1, 1.35);
     }
+    this.tutE('mv', { slot, stage, st, fresh, lunge: m.lungeK > 1.3, pqb: m.impK > 1 });
     const yaw = this.aimYaw;
     const c = this.center();
     c.y -= 0.3;
@@ -1319,6 +1334,14 @@ export class MechEntity {
         );
         g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir);
         mechFlash(t.model, d.color, 0.16);
+        this.tutE('hit', {
+          stage: m.stage,
+          st,
+          tgt: t,
+          air: !t.grounded,
+          lunge: m.lungeK > 1.3,
+          pqb: m.impK > 1,
+        });
         g.fx.hitStop = st.finisher ? 0.11 : 0.06;
         if (this.isPlayer) {
           g.camShake = Math.max(g.camShake, st.finisher ? 0.26 : 0.14);
@@ -1330,6 +1353,7 @@ export class MechEntity {
       }
     }
     if (m.t >= st.dur) {
+      if (!m.hitAny) this.tutE('whiff', { st });
       // 接下一招（換手時用另一隻手的武器與它的 EN 消耗）
       const ns = m.qSlot || m.slot,
         nd = this.weapons[ns].def;
@@ -1343,7 +1367,10 @@ export class MechEntity {
           m.target,
           false,
         );
-        if (swap) m.swapN = n0 + 1;
+        if (swap) {
+          m.swapN = n0 + 1;
+          this.tutE('swap', {});
+        }
       } else {
         m.active = false;
         m.stage = 0;
@@ -1448,6 +1475,7 @@ export class MechEntity {
       return;
     }
     if (this.sn) this.senseHit(from, dmg); // 仇恨與交戰（mech-sense.js）
+    this.tutE('hurt', { melee: !!melee, shield: this.shield > 0 }); // 近戰訓練（game/tutorial.js）
     // DUELIST 格擋：未在連段中、未硬直、面向攻擊者時 55% 擋下近戰第 1 段並反擊
     if (
       melee &&
@@ -1512,6 +1540,7 @@ export class MechEntity {
         this.staggerT = melee.finisher ? 2.2 : 1.6;
         this.stagBy = from ? { id: from.id, cls } : null;
         this.knockSide = Math.random() < 0.5 ? -1 : 1;
+        if (from && from.tutE) from.tutE('stag', { tgt: this, melee: true });
         this.game.fx.ring(this.center(), 4, 0xff6040);
         SFX.stagger(this.isPlayer ? null : this.center());
         this.game.fbBreak(this, from);
@@ -1566,7 +1595,10 @@ export class MechEntity {
     if (this.shield) {
       if (g.pilotCreditShield) g.pilotCreditShield(this, dmg * mul * this.shield);
       mul *= 1 - this.shield;
-      if (from && from.team !== this.team) this.shieldHitT = SHIELD_BASH_T; // 盾擊的時機（meleeStartIdx）
+      if (from && from.team !== this.team) {
+        this.shieldHitT = SHIELD_BASH_T; // 盾擊的時機（meleeStartIdx）
+        this.tutE('shieldHit', {});
+      }
     }
     const real = Math.round(dmg * mul);
     if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.defCut(A)), impact, wid, A); // 靶場的量測
@@ -1630,6 +1662,7 @@ export class MechEntity {
                   : 2.0) *
           (1 - this.pmv('stagT'));
         this.stagBy = from ? { id: from.id, cls } : null;
+        if (from && from.tutE) from.tutE('stag', { tgt: this, melee: !!melee }); // 近戰訓練：ACS 過載也算打出失衡
         this.game.fx.ring(this.center(), 4, 0xffb020);
         // 打出敵人的失衡：短暫頓格（文字提示是命中位置的 BREAK，juice.js）
         if (this.team === 'enemy' && from && from.isPlayer) {
@@ -1657,6 +1690,7 @@ export class MechEntity {
       impact,
     );
     if (this.hp <= 0 && g.range && g.rangeSave(this)) return; // 靶場：目標 AP 無限、自己不會被擊破
+    if (this.hp <= 0 && g.tut && g.tutSaveEnt(this)) return; // 近戰訓練：自己不會被擊破、假人照練習的設定
     if (this.hp <= 0) {
       if (mp && this.team === 'player' && !this.downed && !g.pvp) {
         this.enterDowned();
@@ -1923,6 +1957,7 @@ export class MechEntity {
       if (pilot && jumpEdge && mst && mst.launch && m.hitAny && m.t > mst.dur * 0.35) {
         const tg = m.target && !m.target.dead ? m.target : null;
         this.meleeEnd();
+        this.tutE('jc', {});
         if (tg) {
           const to = tg.pos.clone().sub(this.pos).setY(0);
           if (to.lengthSq() > 1e-4) to.normalize().multiplyScalar(spd * 1.1);
@@ -1938,8 +1973,10 @@ export class MechEntity {
             n: (m.qbN || 0) + 1,
             target: m.target,
           };
+        this.tutE('qbc', { resume: !!this.meleeResume });
         this.meleeEnd();
       } else {
+        if (wantQB && pilot) this.tutE('qbEarly', {});
         wish = new THREE.Vector3();
         wantHover = false;
         wantAB = false;
@@ -1968,6 +2005,7 @@ export class MechEntity {
     if (wantQB && this.qbT <= 0 && qbAny && this.useEn(P.booster.qbCost * (this.sts ? this.stsQbK() : 1))) {
       this.qbT = 0.16;
       this.qbStartT = this.t; // 完美 QB 的判定（pqbCheck）
+      this.tutE('qb', {});
       if (wish.lengthSq() > 0.1) this.qbDir.copy(wish).normalize();
       else this.qbDir.set(0, 0, 0);
       if (this.sts) this.statusQB(); // 掙脫（mech-status.js）
@@ -2693,6 +2731,7 @@ export class MechEntity {
     if (this.dead) return;
     if (this.rtsDef && g.rts) return this.rtsUnitAI(dt); // Coral 戰爭的單位與建築（entities/mech-rts.js）
     if (this.rangeB && g.range && g.rangeAI(this, dt)) return; // 靶場的目標：靜止／橫移（game/range.js）
+    if (this.tutD && g.tut && g.tutAI(this, dt)) return; // 近戰訓練的假人（game/tutorial.js）
     dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）
     if ((this.ai === 'objective' || this.ai === 'convoy') && this.objectiveAI(dt)) return; // 主線的目標物（mech-objective.js）
     // 據點的守衛：還沒出動時守在原地（game/outposts.js）

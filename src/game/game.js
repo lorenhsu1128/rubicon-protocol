@@ -370,13 +370,16 @@ export class Game {
     const susp = !!(this.camp && !this.campMp() && !this.sim && !this.lab);
     for (const b of document.querySelectorAll('.campSusp')) b.style.display = susp ? '' : 'none';
     for (const b of document.querySelectorAll('.rangeOnly')) b.style.display = this.range ? '' : 'none';
+    for (const b of document.querySelectorAll('.tutOnly')) b.style.display = this.tut ? '' : 'none';
     // 自訂關卡的試玩：暫停選單的「放棄任務」＝回編輯器
     if (id === 'pause' && !this.lab)
       document.getElementById('btnAbort').textContent = this.rts
         ? '放棄（回 Coral 戰爭選單）'
         : this.lv && this.lv.test
           ? '回編輯器'
-          : '放棄任務';
+          : this.tut
+            ? '離開訓練（回模擬器）'
+            : '放棄任務';
   }
   // ---------- loop ----------
   loop() {
@@ -395,6 +398,10 @@ export class Game {
     if ((this.state === 'play' || this.state === 'ending') && !this.rts) {
       const pace = this.net && this.net.role === 'client' ? this.hostPace || 1 : this.ctrl.pace || 1;
       dt *= pace;
+      this.lastDt = dt;
+    }
+    if (this.tut) {
+      dt *= this.tutSpeed(); // 近戰訓練：示範與剛開始練習時放慢（game/tutorial.js）
       this.lastDt = dt;
     }
     if (this.fx.hitStop > 0) {
@@ -473,7 +480,8 @@ export class Game {
       this.state === 'pause' ||
       this.state === 'settings' ||
       this.state === 'modpick' ||
-      this.state === 'rangecfg'
+      this.state === 'rangecfg' ||
+      this.state === 'tutdone'
     ) {
       this.renderMain();
       return;
@@ -581,6 +589,7 @@ export class Game {
     } else if (
       !this.pvp &&
       !this.range &&
+      !this.tut &&
       alive === 0 &&
       !this.waves.length &&
       this.playersAlive().length &&
@@ -604,6 +613,7 @@ export class Game {
       if (!this.player) return; // 走進出口：已經轉場
     }
     if (this.range) this.rangeTick(dt); // 靶場（range.js）
+    if (this.tut) this.tutTick(dt); // 近戰訓練（tutorial.js）
     this.updateCamera(dt);
     SFX.setListener((this.camFocus || this.player).center());
     this.updateLoops();

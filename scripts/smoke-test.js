@@ -14056,6 +14056,219 @@ async function testMeleeCombo(browser, base) {
 }
 
 // 狀態效果（entities/mech-status.js、game/status-hud.js）：每種狀態的移動效果、掙脫規則、HUD、截圖
+// 近戰訓練課程（docs/melee-tutorial.md）：自動操作（g.tutAuto，try 也照示範腳本）＋不看示範，以固定 dt 推進主迴圈，
+// 每一個練習都要在時限內過關。預設每一課換一把武器；TUT_ALL=1 時每一課 × 5 把武器全部跑（找卡住的練習用）
+async function testMeleeTut(browser, base) {
+  console.log('近戰訓練課程：8 課自動跑完、獎勵與存檔、開放順序、作戰室的紅點、面板的版面');
+  const { ctx, page } = await newPage(browser, 'melee-tut');
+  page.on('pageerror', (e) =>
+    console.log('    pageerror 的位置：' + (e.stack || '').split('\n').slice(0, 4).join(' ← ')),
+  );
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.coam = 0;
+    g.save.owned = g.save.owned.filter((w) => !['w_blade', 'w_claw', 'w_pile'].includes(w));
+    g.writeSave();
+  });
+  // 開放順序與作戰室的紅點（還沒上第 1 課）
+  const menu0 = await page.evaluate(() => {
+    const g = window.__game;
+    g.openHub();
+    const dot = document.querySelector('#btnHubSim .hdN').classList.contains('on');
+    g.openSim();
+    const b = [...document.querySelectorAll('#simList .tutItem')].map((x) => x.disabled);
+    return { dot, b };
+  });
+  check(menu0.dot, '作戰室的模擬器有紅點（還沒上第 1 課）');
+  check(
+    menu0.b.length === 8 && !menu0.b[0] && menu0.b.slice(1).every((x) => x),
+    '近戰訓練課程照順序開放：只有第 1 課能選（' + menu0.b.map((x) => (x ? '鎖' : '開')).join('') + '）',
+  );
+  // 選課畫面：武器 5 把
+  await page.click('#simList .tutItem[data-tut="L1"]');
+  const pick = await page.$$eval('.tutWep', (l) => l.map((b) => b.dataset.w));
+  check(pick.length === 5, '選課後列出 5 把近戰武器（' + pick.join('、') + '）');
+  await freezeLoop(page);
+  // 一課 × 一把武器：回傳每一步的耗時（遊戲秒；-1＝時限內沒過）
+  const run = (lid, w) =>
+    page.evaluate(
+      ([lid, w]) => {
+        const g = window.__game;
+        window.__reseed(7);
+        g.tutAuto = true;
+        g.tutNoDemo = true;
+        g.tutStart(lid, w);
+        const out = [];
+        for (let k = 0; k < 12 && g.tut && g.state === 'play'; k++) {
+          const T = g.tut,
+            li = T.li,
+            step = T.step;
+          const lim = step.goal && step.goal[0] && step.goal[0].exam ? step.goal[0].exam * 1.8 + 20 : 45; // 打中時的頓格讓遊戲時間比推進的時間慢
+          const t = window.__pump(lim, () => !g.tut || g.state !== 'play' || g.tut.li !== li);
+          out.push({ id: step.id, t: Math.round(t * 10) / 10, prog: T.prog.join('/'), ph: T.phase });
+          if (t < 0) break;
+        }
+        return { out, state: g.state, coam: g.save.coam, rec: JSON.stringify(g.tutSave().les[lid] || null) };
+      },
+      [lid, w],
+    );
+  const W = ['w_blade', 'w_saber', 'w_claw', 'w_pile', 'w_none'];
+  const L = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8'];
+  const all = process.env.TUT_ALL === '1';
+  // 除錯：TUT_ONLY=L6:w_blade 只跑這一課這把武器，印出事件紀錄
+  if (process.env.TUT_ONLY) {
+    const [lid, w] = process.env.TUT_ONLY.split(':');
+    await page.evaluate(() => {
+      const g = window.__game;
+      window.__tr = [];
+      const ev = g.tutEv.bind(g);
+      g.tutEv = (k, o = {}) => {
+        const T = g.tut;
+        if (T && !['press'].includes(k))
+          window.__tr.push(
+            `${T.clock.toFixed(2)} ${T.step.id}/${T.phase} ${k}${o.stage !== undefined ? '#' + o.stage : ''}${o.lunge ? ' lunge' : ''} d${T.dummy && !T.dummy.dead ? Math.round(T.dummy.pos.distanceTo(g.player.pos)) + ' st' + T.dummy.staggerT.toFixed(1) : '-'} en${Math.round((g.player.en / g.player.enMax) * 100)}`,
+          );
+        return ev(k, o);
+      };
+      // 腳本換指令時記一筆
+      const sc = g.tutScriptTick.bind(g);
+      let last = '';
+      g.tutScriptTick = (dt) => {
+        const r = sc(dt);
+        const S = g.tut && g.tut.scr;
+        const p = g.player;
+        const k = S ? S.i + ':' + JSON.stringify(S.list[S.i]) : '-';
+        if (k !== last) {
+          last = k;
+          window.__tr.push(
+            `${g.tut.clock.toFixed(2)}   scr ${k} act${p.melee.active ? 1 : 0} cd${(p.weapons.rarm.cd || 0).toFixed(2)} stun${(p.hitStunT || 0).toFixed(2)} stag${p.staggerT.toFixed(2)}`,
+          );
+        }
+        return r;
+      };
+    });
+    const r = await run(lid, w);
+    console.log(JSON.stringify(r.out));
+    console.log(
+      'exam',
+      await page.evaluate(() => {
+        const T = window.__game.tut;
+        return T && T.exam ? JSON.stringify({ t: T.exam.t, k: [...T.exam.kinds], stars: T.stars }) : '-';
+      }),
+    );
+    console.log((await page.evaluate(() => window.__tr.slice(-300))).join('\n'));
+    await ctx.close();
+    return;
+  }
+  for (let i = 0; i < L.length; i++) {
+    for (const w of all ? W : [W[i % W.length]]) {
+      const r = await run(L[i], w);
+      const stuck = r.out.filter((s) => s.t < 0);
+      const txt = r.out
+        .map((s) => `${s.id} ${s.t < 0 ? '✗(' + s.prog + ' ' + s.ph + ')' : s.t + 's'}`)
+        .join('、');
+      check(
+        r.state === 'tutdone' && !stuck.length,
+        `第 ${i + 1} 課 × ${w}：每個練習都在時限內過關（${txt}）`,
+      );
+      if (i === 0 && w === W[0])
+        check(r.coam === 2000 && /w_blade/.test(r.rec), '第 1 課第一次完成：COAM +2000、記下完成的武器');
+      if (i === 7 && w === W[i % W.length]) {
+        // 結業：挑一把武器
+        const pz = await page.evaluate(() => {
+          const g = window.__game;
+          const b = [...document.querySelectorAll('#tutDoneCard .tutPrize')];
+          const ws = b.map((x) => x.dataset.w);
+          if (b[1]) b[1].click();
+          return {
+            ws,
+            owned: g.save.owned.includes(ws[1]),
+            prize: g.tutSave().prize,
+            stars: g.tutSave().les.L8 && g.tutSave().les.L8.stars,
+          };
+        });
+        check(
+          pz.ws.length === 3 && pz.owned && pz.prize === pz.ws[1] && pz.stars >= 1,
+          `結業：挑一把近戰武器加入機甲庫（${pz.ws.join('、')} → ${pz.prize}）、考核 ★${pz.stars}`,
+        );
+        await page.screenshot({ path: path.join(SHOT_DIR, 'tut-done.png') });
+      }
+      await page.evaluate(() => window.__game.tutExit(false));
+    }
+  }
+  const after = await page.evaluate(() => {
+    const g = window.__game;
+    const coam = g.save.coam;
+    g.openHub();
+    const dot = document.querySelector('#btnHubSim .hdN').classList.contains('on');
+    g.openSim();
+    const b = [...document.querySelectorAll('#simList .tutItem')].map((x) => x.disabled);
+    // 存檔讀回
+    g.save = g.loadSave ? g.loadSave() : g.save;
+    return { coam, dot, b, les: Object.keys(g.campStory().tut.les), prize: g.campStory().tut.prize };
+  });
+  check(after.coam === 28000, `第 1～7 課第一次完成的 COAM 合計 28,000（${after.coam}）`);
+  check(!after.dot, '上完第 1 課後作戰室的模擬器沒有紅點');
+  check(
+    after.b.every((x) => !x),
+    '全部完成後 8 課都能選',
+  );
+  check(after.les.length === 8 && !!after.prize, '存檔記下 8 課的完成與結業獎勵（讀回後）');
+  // 面板的版面：電腦、平板、手機橫式（觸控）；照常跑主迴圈（換畫面大小與文字演出照實際時間）
+  await thawLoop(page);
+  for (const [vw, vh, touch, nm] of [
+    [1920, 1080, false, 'pc'],
+    [1180, 820, false, 'tablet'],
+    [844, 390, true, 'phone'],
+  ]) {
+    await page.setViewportSize({ width: vw, height: vh });
+    await page.evaluate((touch) => {
+      const g = window.__game;
+      g.tutAuto = false;
+      g.tutNoDemo = true;
+      if (touch) {
+        g.vpadWanted = () => true;
+        document.body.classList.add('touchDev');
+      }
+      g.tutStart('L2', 'w_blade');
+    }, touch);
+    await page.waitForTimeout(2200);
+    const ok = await page.evaluate(() => {
+      const g = window.__game;
+      const el = document.getElementById('tutPanel');
+      const r = el.getBoundingClientRect();
+      // 假人與玩家的機體在畫面上的位置不在面板裡
+      const inP = (e) => {
+        const v = g.proj(e.center());
+        return v.x > r.left && v.x < r.right && v.y > r.top && v.y < r.bottom;
+      };
+      // 觸控的按鈕不在面板底下
+      const btns = [...document.querySelectorAll('#vpad button, #vpad .vbtn, .vpadBtn')]
+        .filter((b) => b.offsetParent)
+        .map((b) => b.getBoundingClientRect())
+        .filter((b) => b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom).length;
+      return {
+        on: g.tut.phase === 'try',
+        r: [r.left, r.top, r.right, r.bottom].map(Math.round),
+        vw: window.innerWidth,
+        vh: window.innerHeight,
+        cover: inP(g.tut.dummy) || inP(g.player),
+        btns,
+      };
+    });
+    await page.screenshot({ path: path.join(SHOT_DIR, `tut-panel-${nm}.png`) });
+    check(
+      ok.on && ok.r[0] >= 0 && ok.r[1] >= 0 && ok.r[2] <= ok.vw && ok.r[3] <= ok.vh && !ok.cover && !ok.btns,
+      `面板在 ${vw}×${vh}${touch ? ' 觸控' : ''} 的畫面裡、不蓋住假人與機體${touch ? '與觸控按鈕' : ''}（${ok.r.join(',')}${ok.cover ? '，蓋住機體' : ''}${ok.btns ? '，蓋住 ' + ok.btns + ' 個按鈕' : ''}）`,
+    );
+    await page.evaluate(() => window.__game.tutExit(false));
+  }
+  await ctx.close();
+}
+
 async function testStatusFx(browser, base) {
   console.log('狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN（移動、掙脫、HUD）');
   const { ctx, page } = await newPage(browser, 'status');
@@ -16899,6 +17112,7 @@ const STEPS = [
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
+  ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   ['testHazards2', (c) => testHazards2(c.browser, c.base)],
   ['testRtsFog', (c) => RTS.testRtsFog(c.browser, c.base)],
   ['testRtsInput', (c) => RTS.testRtsInput(c.browser, c.base)],

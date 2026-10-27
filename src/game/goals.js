@@ -21,7 +21,7 @@ Object.assign(Game.prototype, {
   },
   // 過關條件：{ sub 這一回合, win [過關], lose [失敗] }；PvP、靶場、實驗室沒有
   goalSpec() {
-    if (this.pvp || this.range || this.lab) return null;
+    if (this.pvp || this.range || this.lab || this.tut) return null;
     const mp = (this.players || []).length > 1;
     const down = mp ? '全員被擊破' : '機體被擊破';
     const bossNames = () => {

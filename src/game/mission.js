@@ -729,6 +729,10 @@ Object.assign(Game.prototype, {
       this.fbKill(e, from); // 靶場：只有擊破音與連殺，不計入存檔
       return this.rangeKilled(e);
     }
+    if (this.tut) {
+      this.fbKill(e, from); // 近戰訓練：不計入存檔
+      return this.tutKilled(e);
+    }
     this.foeScavenge(e);
     // 自訂關卡：沒有擊破獎金、不寫存檔（擊破音、連殺、彈藥箱照常）
     if (this.lv) {
@@ -793,6 +797,7 @@ Object.assign(Game.prototype, {
   onPlayerDead() {
     if (this.lab || this.cine || this.rts) return; // 實驗室：由 labTick 重新空降（過場動畫不會倒下）
     if (this.range) return this.rangePlayerDead(); // 靶場：重新出場
+    if (this.tut) return; // 近戰訓練：不會被擊破（tutSaveEnt）
     if (this.sim) {
       this.flashMsg('AC 已被擊破', 0xff4d4d, 2);
       return setTimeout(() => this.sim && this.simEnd(false), 1800); // 模擬戰
@@ -821,6 +826,7 @@ Object.assign(Game.prototype, {
     this.spawnIdle = false;
     this.lvClear(); // 自訂關卡的光環與區域圈（level-play.js）
     this.rangeRing.visible = false;
+    this.tutClear(); // 近戰訓練的圈與面板（tutorial.js）
     this.campClearExits();
     this.campClearClientVis();
     SFX.stopLoops();

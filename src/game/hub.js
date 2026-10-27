@@ -198,6 +198,7 @@ Object.assign(Game.prototype, {
     // 窗外的機體用伺服器預設組（或自己的模型組）：讀一次（有變動才解析，hub-holo.js 的 hubMechSync 會換上）
     if (!(this.net && this.net.role)) this.lmRefresh().catch(() => {});
     this.campComm('hub', this.hubCtx());
+    this.tutHubIntro(); // 第一次：教官建議先上近戰訓練的第 1 課（tutorial.js）
   },
   // 作戰室（docs/hub-ui.md）：指揮室場景與全像戰略桌在 hub-holo.js；這裡更新畫面上的介面
   renderHub() {
@@ -232,6 +233,7 @@ Object.assign(Game.prototype, {
     };
     badge('btnHubLog', newLog);
     badge('btnHubPilot', pts);
+    badge('btnHubSim', this.tutDone('L1') ? 0 : 1); // 近戰訓練的第 1 課還沒上
     // 場景裡的設施標籤（hub-holo.js）
     const nOpen = Object.keys(SORTIES).filter((sid) => this.hubSortieState(sid) === 'open').length;
     this.hubSpotsUi({
@@ -239,6 +241,7 @@ Object.assign(Game.prototype, {
       log: newLog > 0 ? { t: `新的通訊 ${newLog}`, hot: true } : null,
       echo: echoOn ? { t: `記憶片段 ${this.campMemN()}／6` } : null,
       record: { t: '重打完成過的委託' },
+      sim: this.tutDone('L1') ? null : { t: '近戰訓練 第 1 課', hot: true },
       garage: { t: '組裝與整備' },
     });
     $('hubCap').textContent = nOpen

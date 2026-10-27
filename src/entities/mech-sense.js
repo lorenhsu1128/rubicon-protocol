@@ -39,6 +39,7 @@ Object.assign(MechEntity.prototype, {
       !g.cine &&
       !g.rts &&
       !g.range &&
+      !g.tut &&
       !g.aiOld &&
       !this.isBoss &&
       !this.opts.bossKind &&

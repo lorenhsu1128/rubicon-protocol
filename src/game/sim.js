@@ -65,7 +65,8 @@ Object.assign(Game.prototype, {
     const s = this.simSeen();
     const row = (kind, key, name, note) =>
       `<button class="simItem" data-k="${kind}" data-key="${escHtml(key)}"><b>${escHtml(name)}</b><span class="dim">${escHtml(note)}</span></button>`;
-    let h = '<h3>考核</h3>';
+    let h = this.net && this.net.role ? '' : this.tutMenuHtml(); // 近戰訓練課程（tutorial.js；只有單人）
+    h += '<h3>考核</h3>';
     h += row(
       'instructor',
       'instructor',
@@ -95,7 +96,8 @@ Object.assign(Game.prototype, {
     const el = document.getElementById('simList');
     el.innerHTML = h;
     for (const b of el.querySelectorAll('.simItem'))
-      b.onclick = () => this.simStart(b.dataset.k, b.dataset.key);
+      b.onclick = () =>
+        b.dataset.tut ? this.tutPick(b.dataset.tut) : this.simStart(b.dataset.k, b.dataset.key);
   },
   // ---------- 模擬戰 ----------
   simStart(kind, key) {

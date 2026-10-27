@@ -63,6 +63,7 @@ Object.assign(Game.prototype, {
     } catch (e) {}
   },
   act(name) {
+    if (this.tutVirt) return !!this.tutVirt[name]; // 近戰訓練的示範：照腳本的虛擬輸入（game/tutorial.js）
     return (
       !!this.down[this.keymap[name]] ||
       !!this.down[this.padmap[name]] ||
@@ -971,10 +972,25 @@ Object.assign(Game.prototype, {
     };
     $('optPost').checked = this.post.enabled;
     $('optPost').onchange = (e) => this.setPost(e.target.checked);
+    // 近戰訓練（tutorial.js）：暫停選單與面板的按鈕
+    $('btnTutDemoP').onclick = () => this.tutDemoAgain();
+    $('btnTutSkipP').onclick = () => this.tutSkip();
+    // 面板的按鈕：pointerdown 就處理並停止傳遞（滑鼠左鍵是近戰，不能讓遊戲收到）
+    const tutBtn = (e) => {
+      const b = e.target.closest('button[data-a]');
+      if (!b || !this.tut) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type !== 'pointerdown') return;
+      if (b.dataset.a === 'demo') this.tutDemoAgain();
+      else if (b.dataset.a === 'skip') this.tutSkip();
+    };
+    for (const ev of ['pointerdown', 'mousedown', 'touchstart']) $('tutPanel').addEventListener(ev, tutBtn);
     $('btnAbort').onclick = () => {
       if (this.rts) return this.rtsAbort(); // Coral 戰爭：回 Coral 戰爭選單
       if (this.lv) return this.lvAbort(); // 自訂關卡（編輯器的試玩：回編輯器）
       if (this.range) return this.rangeExit();
+      if (this.tut) return this.tutExit(); // 近戰訓練：回模擬器
       if (this.lab) return this.exitLab();
       if (this.camp) return this.campEnd(false, true); // 多人時 campEnd 會通知客機
       if (this.sim) return this.simEnd(false);
