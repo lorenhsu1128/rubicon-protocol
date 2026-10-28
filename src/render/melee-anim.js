@@ -71,6 +71,7 @@ const K = (t, e, p) => ({ t, e, p });
 function scaled(clip, name, k) {
   return {
     name,
+    hit: clip.hit,
     keys: clip.keys.map((key) => {
       const p = {};
       for (const [j, v] of Object.entries(key.p))
@@ -255,6 +256,7 @@ const SLAM = {
 };
 const SPIN = {
   name: '迴旋斬',
+  hit: 0.2, // 出手的時間點（clipStrike）：迴旋一開始轉就算
   keys: [
     K(0, 'out', {
       twist: [0],
@@ -444,6 +446,7 @@ function amp(clip, k, roots) {
   const kl = 1 + (k - 1) * 0.6;
   return {
     name: clip.name,
+    hit: clip.hit,
     keys: clip.keys.map((key) => {
       const p = {};
       for (const [j, v] of Object.entries(key.p)) {
@@ -682,7 +685,32 @@ export const MeleeAnim = {
       (st.spin ? 'spin' : st.thrust ? 'thrust' : st.slam ? 'slam' : st.mirror ? 'slashB' : 'slash');
     return S.clips[id] || null;
   },
+  // 這一招的出手時間點（比例）：招式的 hitAt＞片段的 clipStrike
+  strikeFor(def, stage) {
+    const st = meleeMove(def, stage);
+    if (st && typeof st.hitAt === 'number') return st.hitAt;
+    return clipStrike(this.clipFor(def, stage));
+  },
 };
+
+// 片段的出手時間點（比例；判定從這裡開始，MechEntity.updateMelee）：片段的 hit，沒寫時＝蓄力的關鍵影格（緩動 in）
+// 到下一個關鍵影格之間的 55%（揮下去最快的地方），都沒有時 0.3
+const STRIKE = new WeakMap();
+export function clipStrike(clip) {
+  if (!clip) return 0.3;
+  if (typeof clip.hit === 'number') return clip.hit;
+  let v = STRIKE.get(clip);
+  if (v !== undefined) return v;
+  const ks = [...(clip.keys || [])].sort((a, b) => a.t - b.t);
+  v = 0.3;
+  for (let i = 1; i < ks.length - 1; i++)
+    if (ks[i].e === 'in') {
+      v = ks[i].t + 0.55 * (ks[i + 1].t - ks[i].t);
+      break;
+    }
+  STRIKE.set(clip, v);
+  return v;
+}
 
 // ---------- 求值 ----------
 const TRACKS = new WeakMap();

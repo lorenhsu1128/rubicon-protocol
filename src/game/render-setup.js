@@ -242,6 +242,7 @@ Object.assign(Game.prototype, {
   },
   wrapFx() {
     const g0 = this;
+    this.fx.onMeleeStop = (p, s, r) => g0.meleeStopNear(p, s, r); // 客機的近戰頓格（juice.js）
     const origEmp = this.fx.empBeam;
     this.fx.empBeam = function (w, a, b, color) {
       if (g0.net && g0.net.role === 'host') {

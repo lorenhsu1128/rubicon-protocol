@@ -55,6 +55,13 @@ import {
   meleeMove,
   meleeNext,
   meleeStun,
+  meleeCat,
+  meleeWeight,
+  HITSTOP,
+  HITSTOP_K,
+  CHAIN_AFTER,
+  CHAIN_MIN,
+  STRIKE_PRE,
 } from '../data/melee.js';
 import {
   CHARGE_AI,
@@ -106,6 +113,17 @@ function scaleJump(J, k) {
 }
 const NO_KEY = { k: '', side: 0 };
 
+// 近戰武器的音色（audio.js 的 meleeSwing／meleeHit）
+const MELEE_FAM = { w_blade: 'blade', w_saber: 'saber', w_claw: 'claw', w_pile: 'pile', w_fist: 'fist' };
+const meleeFam = (d) => MELEE_FAM[d.id] || 'blade';
+// 揮的方向（刀痕、鏡頭的推動）：'t' 突刺、's' 迴旋、'v' 往下砸、'u' 往上挑、'h' 橫斬、'hm' 反手的橫斬
+function meleeSwingOf(st) {
+  if (st.spin) return 's';
+  if (st.slam || st.dive) return 'v';
+  if (st.launch) return 'u';
+  if (st.thrust || st.dashSlash) return 't';
+  return st.mirror ? 'hm' : 'h';
+}
 export class MechEntity {
   constructor(game, asm, pal, opts = {}) {
     this.game = game;
@@ -278,6 +296,16 @@ export class MechEntity {
       !this.game.rts &&
       !this.cine
     );
+  }
+  meleeCatOf(d, i) {
+    return meleeCat(d, i); // 測試用
+  }
+  // 頓格：自己（與 other）在 sec 秒內時間放慢到 HITSTOP_K（move／remoteUpdate）；全場不變慢
+  hitStopLocal(sec, other) {
+    if (!(sec > 0)) return;
+    this.hsT = Math.max(this.hsT || 0, sec);
+    if (other && other !== this && !other.dead && other.hitStopLocal)
+      other.hsT = Math.max(other.hsT || 0, sec);
   }
   // 受擊的動作（animateMech 的 st.hits）：d＝打過來的方向（世界，攻擊者 → 自己），k＝強度；也記下失衡的倒向
   hitAnim(d, k) {
@@ -853,8 +881,11 @@ export class MechEntity {
             targetEnt.pilotEnt()
           ) {
             const lead = this.cueLead(targetEnt);
-            m.cue = { slot, t: lead, te: targetEnt, fx: 0 };
-            this.atkCue(targetEnt, lead, (meleeMove(d, 0) || { dur: 0.4 }).dur + 0.15);
+            const st0 = meleeMove(d, 0) || { dur: 0.4 };
+            const sOff = MeleeAnim.strikeFor(d, 0) * st0.dur; // 出招到揮下去（判定開始）的秒數
+            const pre = Math.max(0.05, lead - sOff);
+            m.cue = { slot, t: pre, te: targetEnt, fx: 0 };
+            this.atkCue(targetEnt, pre + sOff, st0.dur + 0.15);
             return true;
           }
           if (m.active && m.slot === slot) {
@@ -1176,7 +1207,7 @@ export class MechEntity {
     g.fx.flash(c, 1.6, 0xfff0c0, 0.12);
     g.fx.streaks(c, 16, 0xffe0a0, 22, 0.3, 22);
     g.fx.shockwave(c, 4, 0xffd070, 0.3);
-    g.fx.hitStop = Math.max(g.fx.hitStop, 0.12);
+    this.hitStopLocal(0.12, from);
     SFX.play('shield', 1, 0.8, 0.05, 0.03, this.isPlayer ? null : c);
     g.popDamage(c, '彈刀', false, true, false, 0, from.id);
     this.tutE('parry', {});
@@ -1267,7 +1298,7 @@ export class MechEntity {
     tg.staggerT = Math.max(tg.staggerT, st.dur + 0.4);
     tg.execBy = this.id;
     this.tutE('exec', {});
-    g.fx.hitStop = Math.max(g.fx.hitStop, 0.08);
+    this.hitStopLocal(0.08, tg);
     if (this.isPlayer) g.flashMsg('處決 — ' + st.name.replace(/^處決・/, ''), 0xffd040, 1.2);
     SFX.stagger(this.isPlayer ? null : this.center());
   }
@@ -1290,14 +1321,19 @@ export class MechEntity {
       d.id,
       'none',
     );
-    g.fx.meleeHit(hp, d.color, last, m.dir);
+    const hs = last ? HITSTOP[3] : HITSTOP[1];
+    g.fx.meleeHit(hp, d.color, last, m.dir, {
+      sw: last ? 'v' : 't',
+      s: hs,
+      r: this.pos.distanceTo(hp) + 2 * this.dk,
+    });
     mechFlash(tg.model, d.color, 0.2);
-    g.fx.hitStop = Math.max(g.fx.hitStop, last ? 0.16 : 0.07);
+    this.hitStopLocal(hs, tg);
     if (this.isPlayer) {
       g.camShake = Math.max(g.camShake, last ? 0.34 : 0.16);
       g.rumble(last ? 1 : 0.6, last ? 0.9 : 0.4, last ? 360 : 120);
     }
-    SFX.meleeHit(last, this.isPlayer ? null : hp);
+    SFX.meleeHit(last, this.isPlayer ? null : hp, 'e', meleeFam(d), last ? 3 : 1);
     if (!last) return;
     this.tutE('execKill', { kill: tg.dead });
     if (!tg.dead) tg.staggerT = Math.max(tg.staggerT, 0.6);
@@ -1330,6 +1366,9 @@ export class MechEntity {
     m.hit = new Set();
     m.target = targetEnt || null;
     m.window = 0;
+    m.strike = MeleeAnim.strikeFor(d, stage); // 出手的時間點（比例）：判定從這裡開始
+    m.dashGone = 0;
+    m.cat = meleeCat(d, stage); // 派生的種類（音效、刀痕）
     let dir = targetPos.clone().sub(this.center());
     dir.y = 0;
     if (m.target && !m.target.dead) {
@@ -1400,7 +1439,7 @@ export class MechEntity {
       );
     } else g.fx.slash(c, yaw, st.arc, st.reach * 0.95 * this.scale, d.color, !!st.mirror, 0.35, st.dur * 0.8);
     if (this.grounded) g.fx.dust(this.pos.clone(), 1.6, 6);
-    SFX.shot('blade', undefined, this.isPlayer ? null : this.center());
+    SFX.meleeSwing(meleeFam(d), m.cat, st, this.isPlayer ? null : this.center());
     if (this.isPlayer) g.rumble(0.3, 0.5, 90);
     this.recoil[stage % 2 ? 'l' : 'r'] = 0;
     this.swing = { l: st.mirror ? 1 : -0.3, r: st.mirror ? -0.3 : 1 };
@@ -1441,13 +1480,24 @@ export class MechEntity {
       this.aimYaw = Math.atan2(-m.dir.x, -m.dir.z);
     }
     const ph = m.t / st.dur;
-    const burst = d.id === 'w_fist' ? 0.3 : 0.6;
-    let dashSpd = ph < burst ? (st.dash * (m.lungeK || 1)) / (st.dur * burst) : 0; // 拳擊：前 30% 瞬間衝刺；其他近戰前 60%
-    // 突進追擊：貼上目標就停（不穿過去）
-    if (m.lungeK > 1 && m.target && !m.target.dead) {
+    // 拳擊：前 30% 瞬間衝刺；其他近戰前 60%；至少衝到出手的時間點（判定從那裡開始）
+    const burst = Math.max(d.id === 'w_fist' ? 0.3 : 0.6, (m.strike || 0) + 0.03);
+    // 突進的距離照招式（dash × 突進倍率）：每格離散會少衝一截，突進結束的那一格補足（m.dashGone＝已經衝了多少）
+    const dashTot = st.dash * (m.lungeK || 1),
+      gone = m.dashGone || 0;
+    let dashSpd = 0;
+    if (gone < dashTot && dt > 0)
+      dashSpd =
+        ph < burst
+          ? dashTot / (st.dur * burst)
+          : Math.min((dashTot - gone) / dt, (dashTot / (st.dur * burst)) * 2);
+    // 貼上目標就停（不穿過去）：判定在揮下去時才開始，衝過頭就打不到；突進追擊停得早一點，側滑不停
+    if (m.target && !m.target.dead && (m.lungeK > 1 || !m.noTrack)) {
       const dd = Math.hypot(m.target.pos.x - this.pos.x, m.target.pos.z - this.pos.z);
-      if (dd < st.reach * this.scale * 0.7) dashSpd = 0;
+      if (dd < st.reach * this.scale * (m.lungeK > 1 ? 0.7 : 0.5)) dashSpd = 0;
     }
+    if (dashSpd > 0) m.dashGone = gone + dashSpd * dt;
+    else if (ph >= burst) m.dashGone = dashTot;
     this.vel.x = m.dir.x * dashSpd;
     this.vel.z = m.dir.z * dashSpd;
     if (st.slam && ph < 0.4) this.vel.y = Math.max(this.vel.y, 3 * this.dk);
@@ -1460,8 +1510,8 @@ export class MechEntity {
       }
     }
     if (Math.random() < dt * 30) g.fx.boostFlame(this.center(), m.dir.clone().negate(), d.color);
-    // hit window
-    if (ph > 0.1 && ph < 0.85) {
+    // 判定：出手的時間點（動作揮下去）前一點點開始，到 85%
+    if (ph > Math.max(0.05, (m.strike !== undefined ? m.strike : 0.1) - STRIKE_PRE) && ph < 0.85) {
       const targets = g.hostilesOfEnt(this).concat(g.destructibles(this.team));
       const c = this.center();
       g.tempWallMelee(
@@ -1484,9 +1534,11 @@ export class MechEntity {
         m.hit.add(t.id);
         const hp = t.shape ? near : t.center().lerp(c, 0.3);
         const mk = m.spdK || 1; // 衝刺斬的速度加成
+        const wgt = meleeWeight(d, st),
+          sw = meleeSwingOf(st);
         if (t.isProp) {
           g.damageProp(t, st.dmg * mk * this.dmgMul * this.stats.parts.arms.melee, st.impact, hp);
-          g.fx.meleeHit(hp, d.color, m.dir.clone(), !!st.finisher);
+          g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir.clone(), { sw });
           continue;
         }
         m.hitAny = true;
@@ -1506,7 +1558,11 @@ export class MechEntity {
           },
           d.id,
         );
-        g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir);
+        g.fx.meleeHit(hp, d.color, !!st.finisher, m.dir, {
+          sw,
+          s: HITSTOP[wgt],
+          r: this.pos.distanceTo(hp) + 2 * this.dk,
+        });
         mechFlash(t.model, d.color, 0.16);
         this.tutE('hit', {
           stage: m.stage,
@@ -1516,17 +1572,24 @@ export class MechEntity {
           lunge: m.lungeK > 1.3,
           pqb: m.impK > 1,
         });
-        g.fx.hitStop = st.finisher ? 0.11 : 0.06;
+        this.hitStopLocal(HITSTOP[wgt], t); // 只有自己與被打的目標停住
         if (this.isPlayer) {
-          g.camShake = Math.max(g.camShake, st.finisher ? 0.26 : 0.14);
+          g.camPunch(m.dir, sw, 0.5 + wgt * 0.35);
+          g.camShake = Math.max(g.camShake, [0.08, 0.14, 0.24, 0.32][wgt]);
           g.meleeHitFlash = 0.12;
           g.rumble(st.finisher ? 1.0 : 0.7, st.finisher ? 0.8 : 0.3, st.finisher ? 280 : 130);
         }
         if (t.isPlayer) g.rumble(1.0, 0.6, st.finisher ? 320 : 160);
-        SFX.meleeHit(!!st.finisher, this.isPlayer || t.isPlayer ? null : hp);
+        SFX.meleeHit(!!st.finisher, this.isPlayer || t.isPlayer ? null : hp, m.cat, meleeFam(d), wgt);
       }
     }
-    if (m.t >= st.dur) {
+    // 玩家：打中了而且已經排好下一招時，過了出手＋CHAIN_AFTER 就切進下一招（不等收招播完）
+    const early =
+      m.queued >= 0 &&
+      m.hitAny &&
+      this.pilotEnt() &&
+      ph >= Math.max(CHAIN_MIN, (m.strike || 0.3) + CHAIN_AFTER);
+    if (m.t >= st.dur || early) {
       if (!m.hitAny) this.tutE('whiff', { st });
       // 接下一招（換手時用另一隻手的武器與它的 EN 消耗）
       const ns = m.qSlot || m.slot,
@@ -1754,7 +1817,7 @@ export class MechEntity {
       this.game.rumble(clamp(impact / 700, 0.2, 1), clamp(impact / 400, 0.3, 1), clamp(impact / 4, 60, 260));
     } else if (impact >= 500) {
       this.game.camShake = Math.max(this.game.camShake, 0.12);
-      this.game.fx.hitStop = 0.05;
+      if (!melee) this.hitStopLocal(0.05); // 近戰的頓格由攻擊者設定（updateMelee）
     }
     let mul = 1;
     const A = attr || (wid && ATTRS[wid] ? wid : W ? weaponAttr(W) : 'kin');
@@ -1857,7 +1920,7 @@ export class MechEntity {
         this.game.fx.ring(this.center(), 4, 0xffb020);
         // 打出敵人的失衡：短暫頓格（文字提示是命中位置的 BREAK，juice.js）
         if (this.team === 'enemy' && from && from.isPlayer) {
-          this.game.fx.hitStop = Math.max(this.game.fx.hitStop, 0.07);
+          this.hitStopLocal(0.07, from);
           this.game.fx.shockwave(this.center(), 4, 0xffb020, 0.3);
         }
         this.game.fbBreak(this, from);
@@ -1952,7 +2015,8 @@ export class MechEntity {
     }
     // 自己擊破敵人：頓格與衝擊環（擊破的回饋）
     if (this.team === 'enemy' && from && from.isPlayer && !g.pvp) {
-      g.fx.hitStop = Math.max(g.fx.hitStop, this.isBoss ? 0.18 : 0.045);
+      if (this.isBoss) g.fx.hitStop = Math.max(g.fx.hitStop, 0.18);
+      else from.hitStopLocal(0.045);
       g.fx.shockwave(c, this.isBoss ? 10 : 5, 0xffa040, this.isBoss ? 0.6 : 0.35);
       g.fx.flash(c, this.isBoss ? 4 : 2, 0xffc080, 0.12);
     }
@@ -2036,6 +2100,11 @@ export class MechEntity {
     if (this.aiFrame) {
       dt = this.aiFrame;
       this.aiLast = { wish: wish.clone(), hover: wantHover, ab: wantAB, tgt: targetEnt };
+    }
+    // 近戰的頓格（hitStopLocal）：只有攻擊者與被打的目標放慢，其他照常
+    if (this.hsT > 0) {
+      this.hsT -= dt;
+      dt *= HITSTOP_K;
     }
     if (this.buffT > 0) this.buffT -= dt;
     if (this.sts) this.statusTick(dt); // 狀態效果（entities/mech-status.js）：倒數、黏附炸彈、纏附、吸取 EN
@@ -2232,7 +2301,7 @@ export class MechEntity {
           const dir = h.pos.clone().sub(this.pos).setY(0).normalize();
           h.takeDamage(600 * k, 1100 * k, this, h.center(), dir);
           g.fx.meleeHit(h.center(), 0xffd090);
-          g.fx.hitStop = Math.max(g.fx.hitStop, 0.06);
+          this.hitStopLocal(0.06, h);
         }
       }
     }

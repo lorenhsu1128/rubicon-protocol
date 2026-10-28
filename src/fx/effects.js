@@ -828,26 +828,51 @@ export class Effects {
     );
     this.flashLight(center, color, 10);
   }
-  meleeHit(p, color, big, dir) {
+  // 近戰命中：o.sw＝揮的方向（刀痕的角度：'h' 橫斬、'hm' 反手、'u' 上挑、'v' 往下砸、't' 突刺、's' 迴旋），
+  // o.s＝頓格秒數與 o.r＝範圍（客機用 onMeleeStop 讓附近的機體一起停住）
+  meleeHit(p, color, big, dir, o) {
+    o = o || {};
+    if (o.s && this.onMeleeStop) this.onMeleeStop(p, o.s, o.r || 0);
     this.flash(p, big ? 0.9 : 0.5, 0xffffff, 0.06);
     this.flash(p, big ? 1.6 : 1.1, color, 0.22);
-    // cut mark: bright slash line across the target
+    // 刀痕：依揮的方向（Euler YXZ：先俯仰再偏航，長邊是本地 z）
     const cut = this.P('ba', 0xffffff, 1);
     cut.position.copy(p);
-    const yaw = dir ? Math.atan2(dir.x, dir.z) : 0;
-    cut.rotation.set(0.6, yaw + Math.PI / 2 + (Math.random() < 0.5 ? 0.5 : -0.5), 0);
+    const yaw = dir && dir.x !== undefined ? Math.atan2(dir.x, dir.z) : 0;
+    const sw = o.sw || 'h';
+    const tilt = (Math.random() - 0.5) * 0.3;
+    let pitch = 0.6 * (Math.random() < 0.5 ? 1 : -1),
+      ry = yaw + Math.PI / 2,
+      len = 1,
+      mv = null; // 刀痕移動的方向（往上挑、往下砸）
+    if (sw === 'h') pitch = -0.35 + tilt;
+    else if (sw === 'hm') pitch = 0.35 + tilt;
+    else if (sw === 's') pitch = tilt * 0.3;
+    else if (sw === 'u' || sw === 'v') {
+      pitch = Math.PI / 2 + tilt;
+      mv = sw === 'u' ? 1 : -1;
+    } else if (sw === 't') {
+      pitch = tilt;
+      ry = yaw;
+      len = 0.75;
+    }
+    cut.rotation.set(pitch, ry, 0, 'YXZ');
     const K = this.k;
+    const p0 = p.clone();
     this.add(cut, 0.28, (e, t) => {
-      e.mesh.scale.set((0.12 + t * 0.1) * K, 0.12 * K, (big ? 6 : 4.2) * K * (0.6 + t * 0.7));
+      e.mesh.scale.set((0.12 + t * 0.1) * K, 0.12 * K, (big ? 6 : 4.2) * len * K * (0.6 + t * 0.7));
       e.mesh.material.opacity = 1 - t * t;
+      if (mv) e.mesh.position.set(p0.x, p0.y + mv * t * 1.6 * K, p0.z);
     });
     const cut2 = this.P('ba', color, 0.9);
     cut2.position.copy(p);
     cut2.rotation.copy(cut.rotation);
     this.add(cut2, 0.32, (e, t) => {
-      e.mesh.scale.set((0.35 + t * 0.3) * K, 0.35 * K, (big ? 6.5 : 4.6) * K * (0.6 + t * 0.7));
+      e.mesh.scale.set((0.35 + t * 0.3) * K, 0.35 * K, (big ? 6.5 : 4.6) * len * K * (0.6 + t * 0.7));
       e.mesh.material.opacity = 0.9 * (1 - t);
+      if (mv) e.mesh.position.set(p0.x, p0.y + mv * t * 1.6 * K, p0.z);
     });
+    if (sw === 't') this.shockwave(p, big ? 3.5 : 2.2, 0xffffff, 0.18); // 突刺：貫穿的小衝擊環
     this.shockwave(p.clone().setY(p.y - K), big ? 5 : 3, color, 0.3);
     this.streaks(p, big ? 24 : 12, color, big ? 26 : 18, 0.35, 24);
     this.streaks(p, big ? 8 : 4, 0xffffff, 30, 0.2, 8);

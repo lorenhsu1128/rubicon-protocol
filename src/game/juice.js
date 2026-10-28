@@ -5,6 +5,7 @@
 // ============================================================
 import { Game } from './game.js';
 import { clamp, lerp } from '../core/math.js';
+import { DS } from '../core/scale.js';
 
 const POP_MERGE = 0.3; // 同一個目標在這段時間內的非近戰命中合併成一個數字
 const POP_MERGE_C = 0.6; // 精簡模式：合併的時間更長（近戰也合併），連射時只剩一個累加的數字
@@ -26,6 +27,35 @@ const STREAK_NAMES = [
 const font = (px) => `bold ${Math.round(px)}px Chakra Petch`;
 
 Object.assign(Game.prototype, {
+  // 近戰命中時鏡頭往揮的方向推一下（camera.js／chase.js／first-person.js 加在位置上，很快衰減）：
+  // 突刺＝往前、往下砸＝往下、上挑＝往上、橫斬與迴旋＝往側面（反手的往另一邊）
+  camPunch(dir, sw, k = 1) {
+    const v = this.camKick || (this.camKick = new THREE.Vector3());
+    const d = dir && dir.x !== undefined ? dir : { x: 0, z: -1 };
+    if (sw === 'v') v.set(0, -0.9, 0);
+    else if (sw === 'u') v.set(0, 0.8, 0);
+    else if (sw === 't') v.set(d.x * 0.9, 0, d.z * 0.9);
+    else {
+      const s = sw === 'hm' ? -1 : 1;
+      v.set(-d.z * 0.7 * s, 0, d.x * 0.7 * s);
+    }
+    v.multiplyScalar(k);
+  },
+  // 鏡頭推動的位移（每格，sc＝各視角的大小倍率）
+  camKickTick(pos, dt, sc) {
+    const v = this.camKick;
+    if (!v || v.lengthSq() < 1e-6) return;
+    pos.addScaledVector(v, sc);
+    v.multiplyScalar(Math.exp(-dt * 16));
+  },
+  // 客機：房主的近戰命中特效帶著頓格秒數，命中點附近的機體一起停住（房主與單機由攻擊者自己設定）
+  meleeStopNear(p, s, r) {
+    if (!(this.net && this.net.role === 'client') || !p) return;
+    const L = [this.player, ...(this.players || []), ...this.enemies, ...this.allies];
+    for (const e of L)
+      if (e && !e.dead && e.pos && e.pos.distanceTo(p) <= Math.max(r, 4 * DS))
+        e.hsT = Math.max(e.hsT || 0, s);
+  },
   // 加入一個傷害數字（hud.js 的 popDamage 呼叫）；key＝目標，用來合併連續命中。
   // 數字一律畫在目標機體的輪廓外（左右兩側輪流、往外上方飄），狀態字（BREAK、連攜…）
   // 疊在名牌上方，所以不會蓋住機體

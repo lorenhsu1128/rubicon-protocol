@@ -156,6 +156,7 @@ Object.assign(Game.prototype, {
       eye.y += rnd(-0.2, 0.2) * a;
       eye.z += rnd(-0.3, 0.3) * a;
     }
+    this.camKickTick(eye, dt, 0.25 * MS); // 近戰命中的鏡頭推動（juice.js）
     this.camera.position.copy(eye);
     this.camera.lookAt(eye.clone().add(look));
     this.camTarget.copy(ent.pos);

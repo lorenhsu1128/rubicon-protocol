@@ -31,6 +31,7 @@ import {
   tagName,
 } from '../data/tutorial.js';
 import { MechEntity } from '../entities/mech-entity.js';
+import { MeleeAnim } from '../render/melee-anim.js';
 import { World } from '../world/world.js';
 import { Game } from './game.js';
 
@@ -606,15 +607,15 @@ Object.assign(Game.prototype, {
           ground: p.grounded && !m.active,
           stag: e && !e.dead && e.staggerT > 0,
           tele: !!tl,
-          parry: tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45,
-          pqb: tl && tl.k === 'melee' && tl.t <= 0.04,
+          parry: tl && tl.k === 'melee' && tl.t <= (tl.so || 0) + meleeMove(this.tutWDef(), 0).dur * 0.45,
+          pqb: tl && tl.k === 'melee' && tl.t <= (tl.so || 0) + 0.04, // 假人提早 so 秒出刀（tutTele）
           shield: p.shieldHitT > 0,
           counter: false,
         }[c];
         // 綜合練習：揮刀＝彈刀、開槍＝等盾擋下後盾擊
         if (c === 'counter') {
           if (!tl && !(D && D.burst > 0) && S.t > 0.1 && !(p.shieldHitT > 0)) return next();
-          if (tl && tl.k === 'melee' && tl.t <= meleeMove(this.tutWDef(), 0).dur * 0.45) {
+          if (tl && tl.k === 'melee' && tl.t <= (tl.so || 0) + meleeMove(this.tutWDef(), 0).dur * 0.45) {
             V.fireR = 1;
             return next();
           }
@@ -936,7 +937,8 @@ Object.assign(Game.prototype, {
           this.tutCue(e);
         }
         if (D.tele.k === 'melee' && dist > atkR * 0.85) wish.set(dx, 0, dz).normalize().multiplyScalar(0.6); // 貼近一點
-        if (D.tele.t <= 0) {
+        // 揮刀提早「出招到揮下去」的秒數（so），刀照舊在預警結束時打到
+        if (D.tele.t <= (D.tele.k === 'melee' ? D.tele.so || 0 : 0)) {
           const k = D.tele.k;
           D.tele = null;
           D.cd = 0.6;
@@ -1007,7 +1009,9 @@ Object.assign(Game.prototype, {
   // 預警：紅光（揮刀）或紅線（開槍）；出手前 cueLead 秒才出「!」（tutCue）
   tutTele(e, k) {
     const D = e.tutD;
-    D.tele = { k, t: TELE, T: TELE };
+    const bd = e.weapons.rarm.def;
+    const so = k === 'melee' ? MeleeAnim.strikeFor(bd, 0) * meleeMove(bd, 0).dur : 0;
+    D.tele = { k, t: TELE, T: TELE, so };
     D.cd = 99;
     // 「!」出現後按近戰＝彈刀、按 QB＝完美迴避（MechEntity.atkCue；畫面在這裡畫）
     e.atkCue(this.player, TELE, k === 'melee' ? meleeMove(e.weapons.rarm.def, 0).dur + 0.15 : 0.55 + 1.2, {

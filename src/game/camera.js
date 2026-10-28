@@ -302,6 +302,7 @@ Object.assign(Game.prototype, {
       this.camera.position.z += rnd(-0.6, 0.6) * a;
       this.camera.position.y += rnd(-0.3, 0.3) * a;
     }
+    this.camKickTick(this.camera.position, dt, this.camZoom * this.camK()); // 近戰命中的鏡頭推動（juice.js）
     this.camera.lookAt(this.camTarget.x, this.camTarget.y, this.camTarget.z);
     this.sun.position.copy(this.camTarget).add(this.sunOff);
     this.sun.target.position.copy(this.camTarget);

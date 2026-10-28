@@ -2,7 +2,7 @@
 import { SFX } from '../audio/audio.js';
 import { angLerp, clamp, lerp, rnd } from '../core/math.js';
 import { MeleeAnim } from '../render/melee-anim.js';
-import { meleeMove } from '../data/melee.js';
+import { meleeMove, HITSTOP_K } from '../data/melee.js';
 import { animateMech } from '../render/mech-model.js';
 import { applyIK, ikRestore } from '../render/mech-ik.js';
 import { MechEntity } from './mech-entity.js';
@@ -10,6 +10,11 @@ import { MechEntity } from './mech-entity.js';
 Object.assign(MechEntity.prototype, {
   remoteUpdate(dt) {
     const g = this.game;
+    // 近戰的頓格（房主的命中特效 fx.meleeHit 帶的秒數，Game 的 fx.onMeleeStop 設定）
+    if (this.hsT > 0) {
+      this.hsT -= dt;
+      dt *= HITSTOP_K;
+    }
     this.t += dt;
     if (this.staggerT > 0) this.staggerT = Math.max(0, this.staggerT - dt);
     if (this.stagGuardT > 0) this.stagGuardT -= dt;

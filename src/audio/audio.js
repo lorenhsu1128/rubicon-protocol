@@ -586,11 +586,127 @@ export const SFX = {
   hitDome(pos) {
     this.pickPlay(['dome1', 'dome2'], 0.5, 1.4, pos, 0.1, 0.06);
   },
-  meleeHit(big, pos) {
+  // 近戰的揮擊音（docs/melee-combo-design.md 的「打擊感改版」）：fam＝武器的音色（blade／saber／claw／pile／fist），
+  // cat＝派生的種類（data/melee.js 的 meleeCat：n 連段、f 前、s 側、b 後（上挑）、a 空中、d 下劈、x 衝刺斬、e 處決、h 盾擊）
+  meleeSwing(fam, cat, st, pos) {
+    const P = (k, v, r, dl = 0) => this.play(k, v, r, 0.08, 0.02, pos, null, dl);
+    switch (fam) {
+      case 'saber':
+        P('laserBig2', 0.35, 0.75);
+        P('boostUp', 0.55, 1.15);
+        break;
+      case 'claw':
+        P('boostUp', 0.45, 1.9);
+        P('crunch1', 0.22, 1.7);
+        break;
+      case 'pile':
+        P('thrBurst', 0.5, 1.0);
+        P('heavy', 0.3, 1.35);
+        break;
+      case 'fist':
+        P('boostUp', 0.5, 1.3);
+        break;
+      default:
+        P('boostUp', 0.55, 1.5);
+        P('laser2', 0.3, 0.65);
+    }
+    const own = !pos;
+    switch (cat) {
+      case 'f': // 前派生：短促、尖的突刺聲
+        P('laser', 0.28, 1.8);
+        P('thrBurst', 0.4, 2.5);
+        if (own) this.noise(0.1, 3400, 0.5, 'bandpass', 'sfx', 2);
+        break;
+      case 's': // 側派生：拉長、轉一圈的風切聲
+        P('boostUp', 0.45, 0.85, 0.12);
+        P('thrBurst', 0.35, 1.2, 0.05);
+        if (own) this.noise(0.42, 900, 0.55, 'bandpass', 'sfx', 1.5);
+        break;
+      case 'b': // 後派生（上挑）：往上爬的音
+        P('charge', 0.32, 2.6);
+        P('boostUp', 0.5, 2.1, 0.04);
+        break;
+      case 'a': // 空中：推進器噴一下
+        P('thrBurst', 0.45, 1.5);
+        P('laser2', 0.22, 1.25);
+        break;
+      case 'd': // 下劈：往下衝
+        P('boostDown', 0.7, 0.9);
+        P('thrBurst', 0.5, 0.85);
+        break;
+      case 'x': // 衝刺斬：推進器的爆發
+        P('boostUp', 0.75, 1.0);
+        P('thrBurst', 0.6, 1.3);
+        if (own) this.noise(0.25, 600, 0.5, 'lowpass', 'sfx', 1);
+        break;
+      case 'e': // 處決
+        P('charge', 0.5, 1.2);
+        P('overload', 0.3, 1.4);
+        break;
+      case 'h': // 盾擊
+        P('shield', 0.5, 1.4);
+        P('thud1', 0.5, 0.9);
+        break;
+      default:
+        P('thrBurst', 0.3, st && st.finisher ? 1.5 : 2.0);
+    }
+  },
+  // 近戰命中：big＝終結技；cat／fam 同 meleeSwing；w＝重量（data/melee.js 的 meleeWeight，0 輕～3 極重）
+  meleeHit(big, pos, cat, fam, w) {
+    if (w === undefined) w = big ? 2 : 1;
+    const P = (k, v, r, dl = 0) => this.play(k, v, r, 0.06, 0.02, pos, null, dl);
     this.pickPlay(['hit', 'hit2'], 0.9, 0.8, pos);
-    this.pickPlay(['punch1', 'punch2'], 0.8, 0.8, pos);
-    this.play(big ? 'explode2' : 'explode3', big ? 0.9 : 0.45, big ? 0.9 : 1.4, 0.06, 0.03, pos);
-    if (big) this.play('boom2', 0.6, 1.1, 0.06, 0.05, pos);
+    switch (fam) {
+      case 'saber':
+        P('laserBig', 0.3, 1.7);
+        P('armor1', 0.45, 0.95);
+        break;
+      case 'claw':
+        this.pickPlay(['crunch1', 'crunch2', 'crunch3'], 0.75, 1.1, pos);
+        break;
+      case 'pile':
+        P('heavy', 0.85, 0.9);
+        P('armor3', 0.6, 0.8);
+        break;
+      case 'fist':
+        this.pickPlay(['punch1', 'punch2'], 1, 0.8, pos);
+        P('thud2', 0.5, 0.9);
+        break;
+      default:
+        this.pickPlay(['punch1', 'punch2'], 0.7, 0.85, pos);
+        P('armor1', 0.4, 1.3);
+    }
+    switch (cat) {
+      case 'f': // 突刺：貫穿
+        P('armor2', 0.5, 1.5);
+        break;
+      case 's': // 迴旋：刮過裝甲
+        P('plate1', 0.55, 1.2);
+        break;
+      case 'b': // 上挑：鏗一聲＋往上飛
+        P('plate2', 0.5, 1.0);
+        P('boostUp', 0.3, 2.4, 0.03);
+        break;
+      case 'd': // 下劈：砸進地面
+        P('rock1', 0.7, 0.8);
+        P('boom1', 0.7, 0.9);
+        P('debris', 0.4, 1.0, 0.05);
+        break;
+      case 'x': // 衝刺斬：衝撞
+        P('thud1', 0.7, 0.75);
+        break;
+      case 'h':
+        P('shield', 0.6, 0.9);
+        P('thud2', 0.6, 0.8);
+        break;
+    }
+    if (w <= 0) P('explode3', 0.3, 1.6);
+    else if (w === 1) P('explode3', 0.45, 1.4);
+    else {
+      P('explode2', w >= 3 ? 1 : 0.9, w >= 3 ? 0.75 : 0.9);
+      P('boom2', w >= 3 ? 0.8 : 0.6, w >= 3 ? 0.85 : 1.1, 0.02);
+      if (w >= 3) P('explodeBig', 0.4, 1.2, 0.03);
+    }
   },
   qb(pos) {
     this.play('boostUp', 0.8, 1.15, 0.08, 0.03, pos);

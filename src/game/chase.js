@@ -237,6 +237,7 @@ Object.assign(Game.prototype, {
       pos.y += rnd(-0.25, 0.25) * a;
       pos.z += rnd(-0.4, 0.4) * a;
     }
+    this.camKickTick(pos, dt, 0.5 * MS); // 近戰命中的鏡頭推動（juice.js）
     this.camera.position.copy(pos);
     this.camera.lookAt(pos.clone().add(look));
     this.camera.updateMatrixWorld();

@@ -166,3 +166,49 @@ export const SHIELD_BASH = {
   clip: 'ram',
   end: true,
 };
+
+// ---------- 打擊感（docs/melee-combo-design.md 的「打擊感改版」）----------
+// 招式的派生種類（音效、刀痕、受擊反應用）：'n' 預設連段、'f' 前派生、's' 側派生、'b' 後派生（上挑）、
+// 'a' 空中、'd' 空中的下劈、'x' 衝刺斬、'e' 處決、'h' 盾擊
+const CAT = new WeakMap();
+export function meleeCat(d, i) {
+  let m = CAT.get(d);
+  if (!m) {
+    m = new Map();
+    const walk = (ref, k) => {
+      for (let j = meleeIdx(d, ref), n = 0; j >= 0 && n < 8 && !m.has(j); n++) {
+        const st = meleeMove(d, j);
+        m.set(j, k === 'a' && st.dive ? 'd' : k);
+        if (st.end || st.next === undefined || typeof st.next === 'number') break;
+        j = meleeIdx(d, st.next);
+      }
+    };
+    if (d.start) for (const k of ['f', 's', 'b']) if (d.start[k] !== undefined) walk(d.start[k], k);
+    walk(d.airMoves, 'a');
+    walk(d.dashMove, 'x');
+    (d.moves || []).forEach((st, j) => {
+      const idx = (d.combo || []).length + j;
+      if (st.exec) m.set(idx, 'e');
+      else if (st.id === 'bash') m.set(idx, 'h');
+    });
+    CAT.set(d, m);
+  }
+  return m.get(i) || 'n';
+}
+// 招式的重量（頓格、震動）：0 輕、1 一般、2 重（終結技）、3 極重（打樁機與大劍的終結技、處決的最後一下）
+export function meleeWeight(d, st) {
+  if (!st) return 1;
+  if (st.weight !== undefined) return st.weight;
+  if (st.finisher) return d.id === 'w_pile' || d.id === 'w_saber' ? 3 : 2;
+  if (d.id === 'w_pile') return 2;
+  return st.dur <= 0.22 ? 0 : 1;
+}
+// 依重量的頓格秒數（只有攻擊者與被打的目標停住，MechEntity.hitStopLocal）
+export const HITSTOP = [0.04, 0.065, 0.1, 0.15];
+// 頓格中的時間倍率
+export const HITSTOP_K = 0.06;
+// 打中之後提早接下一招：過了「出手的時間點＋CHAIN_AFTER」（且至少 CHAIN_MIN）就切進下一招，不等收招播完（玩家）
+export const CHAIN_AFTER = 0.24,
+  CHAIN_MIN = 0.6;
+// 判定從出手的時間點前 STRIKE_PRE 開始（比例）
+export const STRIKE_PRE = 0.06;

@@ -14035,23 +14035,25 @@ async function testMeleeCombo(browser, base) {
       let parry = false,
         pqb = false,
         swung = false,
-        swingF = -1;
+        swingF = -1,
+        hurtF = -1;
       for (let i = 0; i < 150; i++) {
         step(1);
+        if (hurtF < 0 && pl.hp < hp) hurtF = i + 1;
         if (pl.parryT > 0) parry = true;
         if (pl.pqbT > 0) pqb = true;
         if (t.melee.active && !swung) swingF = i + 1;
         if (t.melee.active) swung = true;
         if (swung && !t.melee.active && !t.melee.cue) break;
       }
-      return { hurt: pl.hp < hp, parry, pqb, swung, swingF };
+      return { hurt: pl.hp < hp, parry, pqb, swung, swingF, hurtF };
     };
     foeBlade();
     out.cueOn = !!t.melee.cue && !t.melee.active && t.cueingNow();
     let r0 = foeRun();
-    // 「!」出現後 0.33 秒（寬鬆的 lead）就揮刀
-    out.cueSwing = r0.swung && r0.hurt && r0.swingF >= 18 && r0.swingF <= 23;
-    out.cueInfo = `「!」${out.cueOn} 出手 ${r0.swung}（第 ${r0.swingF} 格）受傷 ${r0.hurt}`;
+    // 「!」出現後 0.33 秒（寬鬆的 lead）刀就打到（出招提早「出招到揮下去」的秒數）
+    out.cueSwing = r0.swung && r0.hurt && r0.swingF < r0.hurtF && r0.hurtF >= 18 && r0.hurtF <= 24;
+    out.cueInfo = `「!」${out.cueOn} 出手 ${r0.swung}（第 ${r0.swingF} 格）受傷 ${r0.hurt}（第 ${r0.hurtF} 格）`;
     // 提示一出現就按近戰（自己的刀早就揮完了）：敵人的刀還是被彈開
     foeBlade();
     step(2);
@@ -14099,6 +14101,51 @@ async function testMeleeCombo(browser, base) {
     out.cueFly = fly0 && t.cueingNow() && Math.abs(t.cueLead(pl) - 0.28) < 1e-6;
     pl.mAssist = ma0;
     t.cueCancel();
+    // 13c. 打擊感：傷害在動作揮下去（出手的時間點）才算、頓格只停攻擊者與目標、打中後提早接下一招、派生的種類
+    {
+      reset(6 * 3);
+      t.cueUntil = -1;
+      t.hp = t.maxHp = 1e8;
+      const hp1 = t.hp;
+      press();
+      const m = pl.melee,
+        dur = d.combo[0].dur;
+      let hitPh = -1;
+      for (let i = 0; i < 40 && hitPh < 0; i++) {
+        step(1);
+        if (t.hp < hp1) hitPh = m.t / dur;
+      }
+      out.strikeAt = m.strike;
+      out.strikeOk = hitPh >= m.strike - 0.07 && hitPh < 0.85;
+      out.stopOk = pl.hsT > 0 && t.hsT > 0 && !(g.fx.hitStop > 0);
+      const other = g.enemies.find((e) => e !== t && !e.dead);
+      out.stopOther = !other || !(other.hsT > 0);
+      out.strikeInfo = `出手 ${m.strike.toFixed(2)} 命中 ${hitPh.toFixed(2)} 頓格 ${(pl.hsT || 0).toFixed(3)}／${(t.hsT || 0).toFixed(3)} 全場 ${(g.fx.hitStop || 0).toFixed(3)}`;
+      // 排好下一招：打中後不等收招（dur）就切進下一招
+      step(2);
+      pl.fire('rarm', t.center(), t);
+      let sw = -1,
+        lastT = 0;
+      for (let i = 0; i < 60 && sw < 0; i++) {
+        step(1);
+        if (m.stage === 1) sw = lastT < dur - 0.03 ? 1 : 0;
+        else lastT = m.t;
+      }
+      out.earlyChain = sw === 1;
+      out.cats = [
+        idx('bl_f1'),
+        idx('bl_s'),
+        idx('bl_up'),
+        idx('bl_a1'),
+        idx('bl_a3'),
+        idx('bl_dash'),
+        idx('bl_ex'),
+        0,
+      ]
+        .map((i) => pl.meleeCatOf(d, i))
+        .join('');
+      pl.hsT = t.hsT = 0;
+    }
     // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
     const rb0 = pl.asm.rback;
     pl.asm.rback = 'bw_sh';
@@ -14251,12 +14298,16 @@ async function testMeleeCombo(browser, base) {
   check(r.qbIF && r.pqb, '完美 QB：QB 剛開始時躲掉攻擊');
   check(r.pqbImp, '完美 QB 之後的第一下近戰衝擊 ×2');
   check(r.pqbLate, 'QB 開始 0.5 秒之後躲掉的不算完美 QB（PQB_WIN 0.3 秒）');
-  check(r.cueOn && r.cueSwing, `敵人的近戰出「!」後 0.33 秒就揮刀（${r.cueInfo}）`);
+  check(r.cueOn && r.cueSwing, `敵人的近戰出「!」後 0.33 秒刀就打到（${r.cueInfo}）`);
   check(r.cueParry, `提示一出現就按近戰：敵人的刀揮下來時被彈開（${r.cueParryInfo}）`);
   check(r.cuePqb, `提示一出現就按 QB：這一擊完美迴避（${r.cuePqbInfo}）`);
   check(r.cueEarly, '提示出現之前按的 QB 不算完美迴避');
   check(r.cueLead, '預警招式在出手前 0.33 秒才出「!」：之前按的 QB 不算、之後的算');
   check(r.cueFly, '子彈飛得久時「!」在開火之後、打到前出現；標準的輔助提早 0.28 秒');
+  check(r.strikeOk, `近戰的傷害在動作揮下去時才算（${r.strikeInfo}）`);
+  check(r.stopOk && r.stopOther, `頓格只停攻擊者與被打的目標，全場不變慢（${r.strikeInfo}）`);
+  check(r.earlyChain, '打中後排好的下一招不等收招就接上');
+  check(r.cats === 'fsbadxen', `派生的種類（音效、刀痕）：${r.cats}`);
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();
