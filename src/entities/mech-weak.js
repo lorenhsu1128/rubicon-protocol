@@ -168,8 +168,14 @@ Object.assign(MechEntity.prototype, {
     );
     g.netEv({ t: 'wpb', i: this.id, k: w.k });
     if (w.k === 'thr') this.speedMul *= WP.THR_SPD;
-    if (w.k === 'ammo') {
-      // 殉爆：自己受重傷，附近的友軍一起受傷
+    if (w.k === 'ammo') g.later(0, () => this.wpCookOff(from)); // 殉爆：下一格（不在 takeDamage 裡再受傷）
+  },
+  // 彈藥箱殉爆：自己受重傷，附近的友軍一起受傷
+  wpCookOff(from) {
+    if (this.dead) return;
+    const g = this.game,
+      c = this.center();
+    {
       g.fx.explosion(c, 3.2, 0xff8030, true);
       SFX.explode(true, c);
       this.wpNo = true;

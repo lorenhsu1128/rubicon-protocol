@@ -60,6 +60,7 @@ import './entities/mech-status.js';
 import './entities/mech-ranged.js'; // 遠程射擊：邊閃邊打的加成（docs/ranged-design.md）
 import './entities/mech-weak.js'; // 遠程射擊：弱點、打斷預警、QB 甩掉導彈
 import './entities/mech-charge.js'; // 遠程射擊：蓄力射擊（強力彈、連發、充能）
+import './entities/mech-react.js'; // 遠程射擊：屬性反應
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-foe-d2.js';

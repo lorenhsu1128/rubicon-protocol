@@ -9517,6 +9517,7 @@ async function testAttrs(browser, base) {
       e.hp = e.maxHp;
       e.iFrames = 0;
       e.staggerT = stag ? 2 : 0;
+      Object.assign(e, { rxPrev: null, rxHotT: 0, rxJamT: 0 }); // 不算屬性反應（換屬性打會觸發過熱裝甲）
       const h0 = e.hp;
       e.takeDamage(1000, 0, g.player, e.center(), null, undefined, wid, attr);
       const d = h0 - e.hp;
@@ -14298,6 +14299,141 @@ async function testRangedCharge(browser, base) {
   await ctx.close();
 }
 
+async function testRangedReact(browser, base) {
+  console.log('遠程射擊：屬性反應（過熱裝甲、破甲爆裂、EMP 干擾、時間窗、Boss 減半、機甲庫的搭配）');
+  const { ctx, page } = await newPage(browser, 'ranged-react');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'rx-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const tg = g.spawnType('mt', 1, 1);
+    const nb = g.spawnType('mt', 1, 1);
+    tg.ai = nb.ai = 'none';
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 30 * pl.dk);
+    nb.pos.copy(tg.pos).add(new THREE.Vector3(2 * pl.dk, 0, 0));
+    const fresh = (e) => {
+      e.hp = e.maxHp = 1e8;
+      e.staggerT = 0;
+      e.acs = 0;
+      e.iFrames = 0;
+      e.wpNo = true; // 只看屬性反應（不算弱點）
+      Object.assign(e, { rxPrev: null, rxCdT: 0, rxHotT: 0, rxJamT: 0 });
+    };
+    // 正面打（不打到弱點）
+    const front = new THREE.Vector3(0, 0, -1);
+    const hit = (wid, e = tg, from = pl) => {
+      const h0 = e.hp;
+      e.takeDamage(1000, 0, from, e.center(), front, undefined, wid);
+      return h0 - e.hp;
+    };
+    const pop = (t) => g.popups.some((q) => q.val === t);
+    const out = {};
+    fresh(tg);
+    const base = hit('w_rifle');
+    fresh(tg);
+    hit('w_lr'); // 能量
+    hit('w_rifle'); // 實彈 → 過熱裝甲
+    out.hot = { t: tg.rxHotT, pop: pop('過熱裝甲') };
+    out.hotK = +(hit('w_rifle') / base).toFixed(2);
+    // 實彈 → 爆發：破甲爆裂（下一格爆炸，附近的敵人一起受傷）
+    fresh(tg);
+    fresh(nb);
+    hit('w_rifle');
+    hit('w_bz');
+    const a0 = tg.hp,
+      b0 = nb.hp;
+    g.updateHazards(1 / 60);
+    out.burst = { self: Math.round(a0 - tg.hp), nb: Math.round(b0 - nb.hp), pop: pop('破甲爆裂') };
+    // 爆發 → 能量：EMP 干擾（不能開火、不能 QB）
+    fresh(tg);
+    hit('w_bz');
+    hit('w_lr');
+    out.jam = tg.rxJamT;
+    const sl = Object.keys(tg.weapons).find((k) => tg.weapons[k].def.type !== 'none');
+    tg.weapons[sl].cd = 0;
+    out.jamFire = tg.fire(sl, pl.center(), pl);
+    tg.qbT = 0;
+    tg.en = tg.enMax;
+    tg.move(1 / 60, new THREE.Vector3(1, 0, 0), false, true, false, null);
+    out.jamQb = tg.qbT;
+    // 同屬性、超過時間窗、冷卻中：沒有反應
+    fresh(tg);
+    hit('w_rifle');
+    hit('w_rifle');
+    out.same = !tg.rxHotT && !tg.rxJamT;
+    fresh(tg);
+    hit('w_lr');
+    tg.rxPrev.t -= 4;
+    hit('w_rifle');
+    out.late = !(tg.rxHotT > 0);
+    fresh(tg);
+    hit('w_bz');
+    hit('w_lr');
+    tg.rxJamT = 0;
+    hit('w_bz');
+    hit('w_lr');
+    out.cd = !(tg.rxJamT > 0);
+    // 電腦打的不算
+    fresh(tg);
+    const al = { pilotEnt: () => false, team: 'player', center: () => pl.center(), pos: pl.pos, id: -5 };
+    hit('w_lr', tg, al);
+    hit('w_rifle', tg, al);
+    out.npc = !(tg.rxHotT > 0);
+    // Boss 減半
+    fresh(tg);
+    tg.isBoss = true;
+    hit('w_bz');
+    hit('w_lr');
+    out.boss = +tg.rxJamT.toFixed(2);
+    tg.isBoss = false;
+    // 彈藥箱的殉爆（第 2 期的弱點）：打壞後下一格爆炸
+    fresh(tg);
+    tg.wpNo = false;
+    tg.etype = 'mt_gren';
+    tg.wp = undefined;
+    tg.wpOff = undefined;
+    tg.yaw = Math.PI;
+    const back = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i < 40 && !tg.wpBroken('ammo'); i++)
+      tg.takeDamage(tg.maxHp * 0.05, 0, pl, tg.center(), back, undefined, 'w_rifle');
+    const c0 = tg.hp;
+    g.updateHazards(1 / 60);
+    out.cook = { off: tg.wpBroken('ammo'), d: Math.round(c0 - tg.hp), max: tg.maxHp };
+    // 機甲庫的搭配
+    out.combo = g.garageComboTxt({ type: 'bullet', id: 'w_rifle' });
+    return out;
+  });
+  check(r.hot.t > 3.9 && r.hot.pop, '能量 → 實彈：過熱裝甲（4 秒）');
+  check(Math.abs(r.hotK - 1.2) < 0.02, `過熱裝甲中受到的傷害 ×${r.hotK}`);
+  check(
+    r.burst.self > 0 && r.burst.nb > 0 && r.burst.pop,
+    `實彈 → 爆發：破甲爆裂（自己 ${r.burst.self}、附近的敵人 ${r.burst.nb}）`,
+  );
+  check(
+    Math.abs(r.jam - 1.5) < 0.01 && r.jamFire === false && !(r.jamQb > 0),
+    '爆發 → 能量：EMP 干擾 1.5 秒（不能開火、不能 QB）',
+  );
+  check(r.same && r.late && r.cd, '同屬性、超過 3 秒、冷卻中：沒有反應');
+  check(r.npc, '電腦打的不算');
+  check(Math.abs(r.boss - 0.75) < 0.01, `Boss 的效果減半（干擾 ${r.boss} 秒）`);
+  check(r.cook.off && r.cook.d >= r.cook.max * 0.25, `彈藥箱打壞：下一格殉爆（${r.cook.d}）`);
+  check(
+    r.combo.length === 2 &&
+      r.combo.some((x) => x.includes('過熱裝甲')) &&
+      r.combo.some((x) => x.includes('破甲爆裂')),
+    `機甲庫的搭配：${r.combo.join('／')}`,
+  );
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -16162,6 +16298,7 @@ async function testHazards2(browser, base) {
       e.hp = e.maxHp = 1e6;
       e.iFrames = 0;
       e.staggerT = 0;
+      Object.assign(e, { rxPrev: null, rxHotT: 0, rxJamT: 0 }); // 不算屬性反應
       e.takeDamage(1000, 0, pl, e.center(), null, undefined, wid);
       return 1e6 - e.hp;
     };
@@ -18224,6 +18361,7 @@ const STEPS = [
   ['testRangedDodge', (c) => testRangedDodge(c.browser, c.base)],
   ['testRangedWeak', (c) => testRangedWeak(c.browser, c.base)],
   ['testRangedCharge', (c) => testRangedCharge(c.browser, c.base)],
+  ['testRangedReact', (c) => testRangedReact(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [

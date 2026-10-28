@@ -5966,6 +5966,12 @@ select:disabled option {
   font-size: 11px;
   line-height: 1.4;
 }
+/* 屬性反應的搭配（data/react.js） */
+#gTip .tCombo {
+  color: #ffd890;
+  font-size: 11px;
+  line-height: 1.4;
+}
 #gTip .tR {
   display: grid;
   grid-template-columns: 72px 1fr 56px 58px;

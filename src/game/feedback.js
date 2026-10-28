@@ -195,6 +195,8 @@ Object.assign(Game.prototype, {
       if (p) this.rbCtrFx(p, e.d); // 完美 QB 反擊的射擊（game/ranged.js）
     } else if (e.k === 'rb') SFX.rangedBonus(e.b);
     else if (e.k === 'crit') SFX.crit();
+    else if (e.k === 'rx')
+      SFX.reaction(e.r); // 屬性反應
     else if (e.k === 'pwr' && this.player) this.pwReadyLocal(this.player, e.w); // 蓄力射擊的充能完成
   },
   // 完美 QB 的回饋（只給本人：房主／單機直接呼叫，客機由 fb 事件）

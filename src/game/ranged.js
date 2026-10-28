@@ -3,6 +3,8 @@ import { Game } from './game.js';
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { RB } from '../data/ranged.js';
+import { ATTRS } from '../data/attrs.js';
+import { RX } from '../data/react.js';
 
 Object.assign(Game.prototype, {
   // 反擊開始的慢動作：一開始最慢，慢慢回到原速
@@ -26,6 +28,33 @@ Object.assign(Game.prototype, {
     if (w) w.pwFlashT = 0.6;
     SFX.play('uiOk', 0.5, 1.4, 0.02, 0.1, null, 'ui');
     SFX.play('bell', 0.25, 1.8, 0.02, 0.1, null, 'ui');
+  },
+  // HUD：鎖定目標上的屬性反應（上一次打中的屬性與剩下的時間、效果中）；判定在房主，客機沒有
+  rxHud(c, p, W, H) {
+    const L = p.lock;
+    if (!L || L.dead || !L.center) return;
+    const P = L.rxPrev;
+    const items = [];
+    if (P && L.t - P.t <= RX.WIN && ATTRS[P.a])
+      items.push([`${ATTRS[P.a].short} ▸`, ATTRS[P.a].color, 1 - (L.t - P.t) / RX.WIN]);
+    if (L.rxHotT > 0) items.push(['過熱', '#ff9a40', L.rxHotT / RX.HOT_T]);
+    if (L.rxJamT > 0) items.push(['干擾', '#7fc8ff', L.rxJamT / RX.JAM_T]);
+    if (!items.length) return;
+    const s = this.proj(L.center().setY(L.pos.y - 0.5 * L.dk));
+    if (!s.in || s.x < 0 || s.x > W || s.y < 0 || s.y > H) return;
+    c.save();
+    c.font = 'bold 11px Chakra Petch';
+    c.textAlign = 'center';
+    let x = s.x - (items.length - 1) * 26;
+    for (const [txt, col, k] of items) {
+      c.fillStyle = 'rgba(0,0,0,.55)';
+      c.fillRect(x - 22, s.y + 14, 44, 16);
+      c.fillStyle = col;
+      c.fillRect(x - 22, s.y + 28, 44 * clamp(k, 0, 1), 2);
+      c.fillText(txt, x, s.y + 26);
+      x += 52;
+    }
+    c.restore();
   },
   // HUD：反擊時間（畫面邊緣的藍光＋倒數）、繞射（鎖定目標周圍的環，滿了顯示 ORBIT）
   rbHud(c, p, W, H) {

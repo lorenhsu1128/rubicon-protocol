@@ -566,6 +566,7 @@ export class MechEntity {
       g = this.game;
     if (d.type === 'none' || d.type === 'shield') return false;
     if (!this.canAct()) return false;
+    if (this.rxJamT > 0) return false; // 屬性反應的 EMP 干擾：不能開火（mech-react.js）
     if (d.type === 'melee' && this.pilotEnt()) this.cueArmSet('p'); // 提示中按近戰＝彈刀（meleeClash）
     if (this.melee.active && d.type !== 'melee') {
       // 近戰 → 射擊（docs/melee-combo-design.md 第 1 期）：玩家的近戰打中過、過了 LINK_SHOT_AT 時，
@@ -2027,6 +2028,7 @@ export class MechEntity {
         }
       }
     }
+    mul *= this.rxHit(A, from); // 屬性反應：換屬性打中觸發、過熱裝甲中受傷變重（mech-react.js）
     mul *= 1 - this.defCut(A);
     if (A === 'en' && W && from && from.stats && from.stats.enAdapt) mul *= from.stats.enAdapt; // 能量武器適性
     const g = this.game;
@@ -2287,6 +2289,8 @@ export class MechEntity {
       this.aiLast = { wish: wish.clone(), hover: wantHover, ab: wantAB, tgt: targetEnt };
     }
     if (this.wpOff && this.wpOff.thr) wantQB = wantAB = false; // 推進器被打壞（mech-weak.js）
+    if (this.rxHotT > 0 || this.rxJamT > 0) this.rxTick(dt); // 屬性反應的效果（mech-react.js）
+    if (this.rxJamT > 0) wantQB = wantAB = false; // EMP 干擾
     // 近戰的頓格（hitStopLocal）：只有攻擊者與被打的目標放慢，其他照常
     if (this.hsT > 0) {
       this.hsT -= dt;

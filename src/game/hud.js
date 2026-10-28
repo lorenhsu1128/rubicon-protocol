@@ -337,6 +337,7 @@ Object.assign(Game.prototype, {
     if (!oob) this.zoneEdgeHud(c, p, W, H, dt); // 靠近邊界：朝邊界那一側的畫面邊緣發光
     this.rbHud(c, p, W, H, dt); // 邊閃邊打：反擊時間、繞射（game/ranged.js）
     this.wpHud(c, p, W, H); // 鎖定目標的弱點、追尾／第一人稱的改瞄（game/weak.js）
+    this.rxHud(c, p, W, H); // 鎖定目標的屬性反應（game/ranged.js）
     this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
     if (this.tut) this.tutHud(c); // 近戰訓練的方向箭頭（tutorial.js）
     document.getElementById('kits').innerHTML =

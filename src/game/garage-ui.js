@@ -2,6 +2,7 @@
 // 標註線（水平線＋固定 45° 斜線）、六角性能圖、量表、規格頁的圖表。組裝與存檔在 garage.js 的 renderGarage
 import { SFX } from '../audio/audio.js';
 import { ATTRS, ATTR_KEYS, directOf, weaponAttr } from '../data/attrs.js';
+import { comboText } from '../data/react.js';
 import { hexBounds, hexScores } from '../data/garage-hex.js';
 import { hexSvg } from '../render/garage-charts.js';
 import { PARTS, SLOTS, asmStats, jumpSpec, partById, usesAmmo } from '../data/parts.js';
@@ -174,7 +175,11 @@ Object.assign(Game.prototype, {
         spec = `傷 ${p.dmg} · 衝擊 ${p.impact} · 射程 ${p.range}${usesAmmo(p) ? ' · 彈匣 ' + p.mag : ''}`;
       else if (p.type === 'shield') spec = '被動減傷 55%';
       if (!['none', 'shield'].includes(p.type))
-        spec = `[${ATTRS[weaponAttr(p)].name}] ${spec}${p.ideal ? ' · 理想射程 ' + p.ideal : ''} · 直擊 ×${directOf(p)}`;
+        spec = `[${ATTRS[weaponAttr(p)].name}] ${spec}${p.ideal ? ' · 理想射程 ' + p.ideal : ''} · 直擊 ×${directOf(p)}${this.garageComboTxt(
+          p,
+        )
+          .map((x) => ' · ' + x)
+          .join('')}`;
     } else if (cat === 'legs') spec = `AP ${p.ap} · 負重 ${p.load} · 速 ${p.speed}`;
     else if (cat === 'generator') spec = `容量 ${p.cap} · 輸出 ${p.output} · 回充 ${p.recharge}`;
     else if (cat === 'booster') spec = `推力 ×${p.thrust} · QB ${p.qb}`;
@@ -303,11 +308,24 @@ Object.assign(Game.prototype, {
         : owned
           ? '<button class="tEq">裝備</button>'
           : `<button class="tEq">購買並裝備 ${p.price.toLocaleString()} C</button>`;
-    tip.innerHTML = `<div class="tH"><b>${escHtml(p.name)}</b>${attr}</div>${p.desc ? `<div class="tD">${escHtml(p.desc)}</div>` : ''}${body}${defs}<div class="tA">${act}</div>`;
+    // 屬性反應的搭配（data/react.js）
+    const combo =
+      (cat === 'arm' || cat === 'back') && !['none', 'shield'].includes(p.type)
+        ? this.garageComboTxt(p)
+            .map((x) => `<div class="tCombo">◆ ${escHtml(x)}</div>`)
+            .join('')
+        : '';
+    tip.innerHTML = `<div class="tH"><b>${escHtml(p.name)}</b>${attr}</div>${p.desc ? `<div class="tD">${escHtml(p.desc)}</div>` : ''}${combo}${body}${defs}<div class="tA">${act}</div>`;
     const be = tip.querySelector('.tEq');
     if (be) be.onclick = () => this.garagePick(key, cat, p);
     const bb = tip.querySelector('.tBuy');
     if (bb) bb.onclick = () => this.garageBuyItem(p);
+  },
+  // 這把武器的屬性反應搭配：「先用這把再接實彈＝過熱裝甲」
+  garageComboTxt(p) {
+    if (!p || ['none', 'shield'].includes(p.type)) return [];
+    const names = { kin: '實彈', exp: '爆發', en: '能量' };
+    return comboText(weaponAttr(p), names);
   },
   // 武器在這個武器槽的理論 DPS（套用加成）
   garageWeaponV(slot, p) {

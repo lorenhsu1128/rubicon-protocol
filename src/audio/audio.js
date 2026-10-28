@@ -757,6 +757,13 @@ export const SFX = {
     this.play('plate1', 0.35, 1.25, 0.05, 0.07, null, 'ui');
     if (tags & 2) this.play('bell', 0.3, 1.4, 0.02, 0.15, null, 'ui');
   },
+  // 屬性反應（data/react.js）：過熱＝低沉的轟、爆裂＝鐘＋碎裂、干擾＝電子的嗶
+  reaction(id) {
+    if (id === 'hot') this.play('heavy', 0.5, 1.3, 0.05, 0.1, null, 'ui');
+    else if (id === 'burst') this.play('bell', 0.45, 1.1, 0.03, 0.1, null, 'ui');
+    else this.play('glitch', 0.5, 1.2, 0.05, 0.1, null, 'ui');
+    this.play('uiTick', 0.4, 0.8, 0.02, 0.05, null, 'ui');
+  },
   // 打在弱點上（CRITICAL）：重一點的金屬碎裂
   crit() {
     this.play('glass', 0.35, 1.5, 0.05, 0.08, null, 'ui');
