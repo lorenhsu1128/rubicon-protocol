@@ -216,7 +216,7 @@ export const STRIKE_PRE = 0.06;
 // ---------- 第 2 期：敵人依招式的受擊反應（animateMech 的 st.react）----------
 // light 輕擊（小後仰）、slash 被斬（往被推的一側扭身）、thrust 被刺（往前彎腰、骨盆往後）、spin 被轉開（整台轉過去）、
 // blow 被打飛（大後仰、往後滑、腳下揚塵）、launch 被挑飛（空中往後翻）、slam 被往下砸（空中時落地才倒）、
-// down 倒地（跪地前屈，一般敵人另外硬直）、land 被挑飛之後落地（蹲一下）
+// down 倒地（跪地前屈，一般敵人另外硬直）、land 被挑飛之後落地（蹲一下）、held 被處決中（垂著頭撐住，每一下之間回到這個姿勢）
 export function meleeReactOf(st) {
   if (!st) return 'light';
   if (st.react) return st.react;
@@ -240,6 +240,7 @@ export const REACT_T = {
   slam: 1.0,
   down: 0.85,
   land: 0.4,
+  held: 1.2,
 };
 // 被打倒（down）時一般敵人的硬直秒數
 export const DOWN_STUN = 0.7;

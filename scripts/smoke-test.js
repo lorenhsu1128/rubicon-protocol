@@ -14173,6 +14173,26 @@ async function testMeleeCombo(browser, base) {
       t.react = null;
       t.hitStunT = 0;
     }
+    // 13d. 派生招式的動作：每把近戰武器的派生（前／側／後／空中／下劈／衝刺斬／處決）都有自己的片段，不和預設連段共用
+    {
+      const bad = [];
+      const rb = pl.asm.rarm;
+      for (const w of ['w_blade', 'w_saber', 'w_claw', 'w_pile', 'w_none']) {
+        pl.asm.rarm = w;
+        pl.initWeapons();
+        const dd = pl.weapons.rarm.def;
+        const C = new Set(dd.combo.map((_, i) => pl.meleeClipOf(dd, i)));
+        const all = [...dd.combo, ...(dd.moves || [])];
+        for (let i = dd.combo.length; i < all.length; i++) {
+          const k = pl.meleeCatOf(dd, i);
+          const c = pl.meleeClipOf(dd, i);
+          if ('fsbadxe'.includes(k) && (!c || C.has(c))) bad.push(`${dd.id}:${all[i].id}`);
+        }
+      }
+      pl.asm.rarm = rb;
+      pl.initWeapons();
+      out.ownClips = bad.join(' ') || 'ok';
+    }
     // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
     const rb0 = pl.asm.rback;
     pl.asm.rback = 'bw_sh';
@@ -14341,6 +14361,7 @@ async function testMeleeCombo(browser, base) {
     `被挑飛在空中維持、落地蹲一下；被往下砸落地時倒地並硬直（${r.reactInfo}）`,
   );
   check(r.cats === 'fsbadxen', `派生的種類（音效、刀痕）：${r.cats}`);
+  check(r.ownClips === 'ok', `派生招式都有自己的動作，不和預設連段共用（${r.ownClips}）`);
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();

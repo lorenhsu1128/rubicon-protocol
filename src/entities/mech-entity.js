@@ -352,10 +352,24 @@ export class MechEntity {
         this.game.fx.dust(this.pos.clone(), 1.3, 3);
       }
     }
-    if (R.t >= R.T) this.react = null;
+    if (R.t >= R.T) {
+      this.react = null;
+      // 被處決中：每一下的反應結束後回到撐住的姿勢
+      if (
+        R.k !== 'held' &&
+        !this.remote &&
+        this.execBy !== null &&
+        this.execBy !== undefined &&
+        this.staggerT > 0.15
+      )
+        this.reactSet('held', this.staggerT, 0);
+    }
   }
   meleeReactOfStage(d, i) {
     return meleeReactOf(meleeMove(d, i)); // 測試用
+  }
+  meleeClipOf(d, i) {
+    return MeleeAnim.clipFor(d, i); // 測試用
   }
   meleeCatOf(d, i) {
     return meleeCat(d, i); // 測試用
@@ -1370,6 +1384,7 @@ export class MechEntity {
     this.iFrames = Math.max(this.iFrames, st.dur + 0.2);
     tg.staggerT = Math.max(tg.staggerT, st.dur + 0.4);
     tg.execBy = this.id;
+    tg.reactSet('held', st.dur + 0.3, 0); // 被處決方的配對動作：垂著頭撐住，每一下照招式反應後回到這個姿勢
     this.tutE('exec', {});
     this.hitStopLocal(0.08, tg);
     if (this.isPlayer) g.flashMsg('處決 — ' + st.name.replace(/^處決・/, ''), 0xffd040, 1.2);

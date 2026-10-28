@@ -3240,6 +3240,11 @@ function reactPose(R) {
       o.tx = -0.72;
       o.crouch = 0.4;
       break;
+    case 'held': // 被處決中：垂著頭撐住
+      o.rx = -0.08;
+      o.tx = -0.42;
+      o.crouch = 0.2;
+      break;
     case 'land':
       o.rx = -0.06;
       o.tx = -0.3;

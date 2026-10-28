@@ -179,6 +179,24 @@
 - 多人：房主送 `rx` 事件（`{ i, k, T, s }`），客機 `reactSet(…, false)`；空中的姿勢在客機維持到下一個 rx 事件（最多 2.5 秒）。`NET_VERSION` 11.4。
 - 冒煙測試 `testMeleeCombo` 13c：橫斬打中＝slash 且維持到硬直結束、各招式的反應種類、被挑飛在空中維持後落地、被往下砸落地時倒地並硬直。
 
+### 第 3 期：派生招式的專屬動作、被處決方的配對動作
+
+- 新片段（`render/melee-anim.js`，第 3 期的段落；`tweak`＝複製後逐個關鍵影格修改、`airify`＝空中版（拿掉腿與壓低、改成收腿，出手時兩腿前後甩開））。武器資料的招式以 `clip` 指定（`data/parts.js`）：
+
+| 派生   | 刀                                                       | 大劍                     | 爪                               | 打樁機                            | 拳                            |
+| ------ | -------------------------------------------------------- | ------------------------ | -------------------------------- | --------------------------------- | ----------------------------- |
+| 前     | 快刺 thrustRush → 高位刺 thrustHi → 低位刺 thrustLo → 踢 | 突進刺（thrust）         | 抓住 grab → 撕扯 rip → 撕開 tear | 衝刺樁擊 pileRush（雙手架著樁）   | 肘擊 elbow                    |
+| 側     | 低身迴旋 spinLow                                         | 大迴旋 bigSpin（轉兩圈） | 低身迴旋 spinLow                 | —                                 | 迴旋踢 spinKick（右腳伸出去） |
+| 後     | 上挑 upper                                               | 斬上 bigUpper            | 上撈 scoop（兩手一起）           | 上頂 pileUp（全身伸直往上打）     | 上勾拳 uppercut               |
+| 空中   | 空中斬 airSlash／airSlashB                               | 空中大斬 airBigSlash     | 空中爪 airClaw／airClawB         | —                                 | 空中拳 airPunch               |
+| 下劈   | 空中下劈 dive（舉過頭、往後弓、整個人往下砸）            | bigDive                  | 下撕 clawDive                    | 空中樁擊 pileDive（樁對著正下方） | 下踢 axeKick（劈腿）          |
+| 衝刺斬 | 衝刺斬 dash（拔刀式）                                    | bigDash                  | 衝刺爪 clawDash                  | 肩撞 shoulder                     | 衝刺拳 dashPunch              |
+| 處決   | exStab（兩刺）                                           | exSlam（一刀兩斷）       | exClaw（三下）                   | exPile（抵住擊發）                | exFist（三刺拳＋重擊）        |
+
+- 處決的片段每一下都有出手，時間對齊招式的 `hits`（打樁機以前 55% 出手、72% 才算）。
+- 被處決方：`startExec` 時 `reactSet('held')`（垂著頭撐住），每一下照招式反應（刺／斬），反應結束後回到 held，最後一下被打飛。
+- 冒煙測試 `testMeleeCombo` 13d：每把近戰武器的派生（前／側／後／空中／下劈／衝刺斬／處決）都有自己的片段、不和預設連段共用。
+
 ## 實作紀錄
 
 - **第 0 期**：`data/melee.js`（招式圖的純函式與全部常數）、`moves` 陣列與段號、排入下一招（`QUEUE_AT`）、被打的硬直 `hitStunT`（`move` 裡不能行動、`canAct` 擋下）、傷害遞減 `comboDecay`；HUD、客機、快照、動作片段、模型庫的動作編輯（派生招式標「派生」）都改用 `meleeMove`。新片段 upper（上挑）、kick（踢）。
