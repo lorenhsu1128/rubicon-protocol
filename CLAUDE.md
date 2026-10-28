@@ -320,7 +320,7 @@ library/             模型庫：library.js（入口）、grid.js（共用畫布
 
 ### 動作 IK（render/mech-ik.js）
 
-- **動作層**（`animateMech`，詳見 `docs/mech-animation.md`）：各關節以 `mech-spring.js` 的二階彈簧往目標角度前進（動漫風格的過衝），每台的移動狀態在 `m.an`（滑行 `gW`、QB `qW`、煞車 `bW`、起跳、原地轉身踏步）；`st` 另外要 `MechEntity.animExtra()` 的 `vr`／`vy`／`dyaw`／`landV`／`heavy`。開火時手臂上跳的彈簧在 `m.an.kk`（IK 瞄準之後才套用）；近戰有片段（`st.melee.clip`）時片段寫到的關節跟著片段。武器槽位的關節設定 `hold`＝持握角度（`arms[k].aim`）。受擊 `MechEntity.hitAnim`→`st.hits`；人形機甲擊破時 `fx.collapse` 先跪倒 0.55 秒再碎裂（`fx.task` 的 `end`）。下半身 `legsG` 的偏航＝上下半身分離（朝移動方向），上半身 `torso` 不在 `legsG` 底下。膝的旋轉負值才是正常彎曲。
+- **動作層**（`animateMech`，詳見 `docs/mech-animation.md`）：各關節以 `mech-spring.js` 的二階彈簧往目標角度前進（動漫風格的過衝），每台的移動狀態在 `m.an`（滑行 `gW`、QB `qW`、煞車 `bW`、起跳、原地轉身踏步）；`st` 另外要 `MechEntity.animExtra()` 的 `vr`／`vy`／`dyaw`／`landV`／`heavy`。開火時手臂上跳的彈簧在 `m.an.kk`（IK 瞄準之後才套用）；近戰有片段（`st.melee.clip`）時片段寫到的關節跟著片段。武器槽位的關節設定 `hold`＝持握角度（`arms[k].aim`）；刀與大劍是正手握（`arms[k].grip`，刀尖朝上，揮擊時 `bladeWrist` 轉手腕，`docs/mech-animation.md` 的持握角度）。受擊 `MechEntity.hitAnim`→`st.hits`；人形機甲擊破時 `fx.collapse` 先跪倒 0.55 秒再碎裂（`fx.task` 的 `end`）。下半身 `legsG` 的偏航＝上下半身分離（朝移動方向），上半身 `torso` 不在 `legsG` 底下。膝的旋轉負值才是正常彎曲。
 
 - `animateMech` 是純 FK（每格往目標角度 lerp）；IK 是疊在它之後的修正層：`MechEntity.move`／`remoteUpdate` 在設定機體位置前先 `ikRestore`（把 IK 改過的關節還原成上一格動作層的結果，否則 lerp 會從 IK 的結果出發），`animateMech` 之後 `applyIK(rig, this.ikCtx(dt))`。只在遊戲實體使用；模型庫、車庫、組裝調整、實驗室展示台不套用。
 - 項目（`IK_ITEMS`，各自開關＋總開關，`rubicon_ik`）：二足／逆關節腳貼地（兩段骨頭解析解、腳掌貼齊地面法線、伸不到時壓低 `lift`）、機體隨地形傾斜（轉 `lift`）、步伐依移動距離（實體的 `gaitPh`／`gaitAmp` 傳給 `animateMech` 的 `st.gait`／`st.amp`，此時抬腳改在腿往前擺的期間）、腳步鎖定、四足腳貼地、履帶貼合地形、失衡時腳貼地、頭部注視、手臂瞄準（繞肩關節轉到槍管＝武器關節 −Z 對準 `aimPoint()`）、肩上武器指向、空手扶槍（持槍手繞槍管方向轉向身體中線，另一手兩段骨頭伸到槍身）、近戰對準高度。

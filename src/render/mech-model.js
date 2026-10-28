@@ -28,7 +28,7 @@ import { providedModel } from './model-provider.js';
 import { tagStyle } from './style/shader.js';
 import { kick, spring, springSet, springVel } from './mech-spring.js';
 import { FIRE } from './mech-fire.js';
-import { MJ_AXES, clipPose, clipTarget } from './melee-anim.js';
+import { MJ_AXES, clipPose, clipStrike, clipTarget } from './melee-anim.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -2172,13 +2172,23 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
     const weapon = joint(mountAt(hand, ap('hand'), 'grip'));
     const wi = bySlot((i) => i.cat === 'weapon' && i.key === k);
     // 持握角度：武器槽位的關節設定 hold（以握點為中心轉動武器，讓槍身避開前臂；手臂瞄準 IK 以它的 −Z 當槍管）
-    let aim = weapon;
+    let aim = weapon,
+      grip = null;
     if (wi) {
       const h = resolveConn(wi.slot, 'hold');
+      // 刀與大劍：正手握（鋼彈式），整把繞握點往上轉 BLADE_GRIP，刀尖朝上；揮擊時 animateMech 轉手腕（bladeWrist）
+      let par = weapon;
+      if (BLADE_SLOT.test(wi.slot)) {
+        grip = new THREE.Group();
+        grip.rotation.x = BLADE_GRIP;
+        grip.userData.big = wi.slot.includes('w_saber'); // 大劍：平時扛在肩上
+        weapon.add(grip);
+        par = grip;
+      }
       aim = new THREE.Group();
       aim.position.copy(h.p);
       aim.rotation.copy(h.r);
-      weapon.add(aim);
+      par.add(aim);
       place(aim, wi);
     }
     up.rotation.order = 'ZYX';
@@ -2197,6 +2207,7 @@ export function buildMech(asm, pal, scale = 1, opts = {}) {
       hand,
       weapon,
       aim,
+      grip,
       back,
       spin,
       spinV: 0,
@@ -2390,6 +2401,10 @@ function groundNow(rig) {
   rig.lift.quaternion.identity();
 }
 
+// 刀與大劍的正手握（2026-10-28 使用者定案：鋼彈式，刀尖朝上）：武器繞握點往上轉的角度；其他近戰武器（爪、打樁機、拳）照舊沿著前臂
+const BLADE_SLOT = /^weapon\/w_(blade|saber)\//;
+const BLADE_GRIP = 1.45;
+const BLADE_REST = [-0.35, 0.55]; // 平時的手腕（刀：刀尖往前上方、大劍：往後倒在肩上）
 const SPIN_MAX = 32; // 槍管全速（rad/s）
 const WK_GUN = (st, k) => !!(st.wk && st.wk[k]);
 const NO_WK = {},
@@ -3104,6 +3119,12 @@ export function animateMech(m, dt, st) {
     const ck = kk === 'r' ? an.relax.r : 0; // 檢查武器：右手把槍舉到面前
     up += 0.55 * ck;
     foreT += 0.45 * ck;
+    // 刀與大劍平時的架式（BLADE_GRIP）：刀放低、刀尖往前上方；大劍扛在肩上（手腕往後倒，BLADE_REST）
+    if (a.grip && !(ML && ML.side === side)) {
+      const big = a.grip.userData.big;
+      up += (big ? 0.15 : -0.15) * free;
+      foreT += (big ? 0.6 : -0.25) * free;
+    }
     if (ML) {
       const ph = ML.ph,
         s = ML.mirror ? -1 : 1;
@@ -3151,7 +3172,16 @@ export function animateMech(m, dt, st) {
     // 換彈：槍往下、往內翻（an.rl＝0～1～0）
     const rl = an.rl[kk];
     S(a.weapon.rotation, 'z', side * 0.6 * Math.max(rl, kk === 'r' ? an.relax.r : 0), SP.arm);
-    S(a.weapon.rotation, 'x', -0.45 * rl, SP.arm);
+    if (a.grip) {
+      // 刀與大劍的手腕（正手握的刀尖朝上；揮到出手時往前轉，刀身順著手臂揮出去）
+      const ov = CO && CO.get(a.weapon.rotation);
+      const mine = ML && ML.side === side;
+      const wr = mine
+        ? bladeWrist(ML)
+        : (a.grip.userData.big ? BLADE_REST[1] : BLADE_REST[0]) * (1 - 0.7 * rl);
+      const base = ov && ov.x !== undefined ? ov.x : -0.45 * rl;
+      spring(a.weapon.rotation, 'x', base + wr, ML ? SP.clip[0] : SP.arm[0], ML ? SP.clip[1] : SP.arm[1], dt);
+    } else S(a.weapon.rotation, 'x', -0.45 * rl, SP.arm);
   }
   // ===== 失衡傾倒 =====
   // 依最後一次受擊的方向（st.knockF：前面打＝正，st.knockX：往哪一側推）：前面或側面打＝往後仰、屈膝撐住，
@@ -3187,6 +3217,22 @@ export function animateMech(m, dt, st) {
 // 受擊反應（st.react＝{ k, ph 0～1, sd 往哪一側推, w 強度 }）的姿勢偏移：rx／rz＝全身傾斜（lift，正 x＝後仰、
 // 負 z＝往右傾）、yaw＝整台轉、flip＝繞髖往後翻、tx／tz／tw＝上身（正 tx＝後仰）、crouch＝屈膝；on＝有沒有反應（彈簧加快）
 const RE0 = { rx: 0, rz: 0, yaw: 0, flip: 0, tx: 0, tz: 0, tw: 0, crouch: 0, on: 0 };
+// 刀與大劍的手腕角度（weapon 關節的 x，加在近戰片段的 wpnR 上；負值＝刀尖往前倒）：
+// 平時 0（刀尖朝上）；揮擊時蓄力往後扳、出手時往前轉到和前臂成一直線（−BLADE_GRIP）、收招慢慢回來；
+// 突刺全程往前、迴旋一開始就往前（刀身伸出去）
+export function bladeWrist(ML) {
+  if (!ML) return 0;
+  const ph = ML.ph,
+    F = -BLADE_GRIP * 0.95;
+  const ramp = (a, b, x) => clamp((x - a) / Math.max(1e-3, b - a), 0, 1);
+  if (ML.kind === 'thrust') return F * ramp(0, 0.12, ph) * (1 - ramp(0.82, 1, ph));
+  if (ML.kind === 'spin') return F * ramp(0, 0.08, ph) * (1 - ramp(0.8, 1, ph));
+  const s = ML.clip ? clipStrike(ML.clip) : 0.35;
+  const back = ML.kind === 'slam' ? 0.45 : 0.3; // 蓄力時往後扳（下劈舉過頭更多）
+  if (ph < s - 0.1) return back * ramp(0, Math.max(0.05, s - 0.1), ph);
+  if (ph < s + 0.04) return back + (F - back) * ramp(s - 0.1, s + 0.04, ph);
+  return F * (1 - ramp(s + 0.3, 1, ph));
+}
 function reactPose(R) {
   if (!R) return RE0;
   const ph = R.ph,

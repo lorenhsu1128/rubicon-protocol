@@ -13790,6 +13790,84 @@ async function testMpLevels(browser, url) {
 
 // 近戰連擊與連繫技（docs/melee-combo-design.md）：方向派生、被打的硬直、傷害遞減、上挑 → 跳躍取消 → 空中連段、
 // QB 取消後接回、近戰 → 射擊、衝刺斬、對失衡目標的突進追擊、Boss 不硬直、電腦不用方向派生
+// 刀與大劍的正手握（render/mech-model.js 的 BLADE_GRIP／bladeWrist）：平時刀尖朝上、揮擊時轉手腕、突刺全程往前；
+// 爪等其他近戰武器照舊沿著前臂；刀光的刀尖跟著握法（measureBlades 在 aim 的座標量）
+async function testBladeGrip(browser, base) {
+  console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
+  const { ctx, page } = await newPage(browser, 'blade-grip');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'grip-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.asm.rarm = 'w_blade';
+    pl.asm.larm = 'w_claw';
+    pl.initWeapons();
+    pl.swapModel();
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const dt = 1 / 60;
+    const step = (n) => {
+      for (let i = 0; i < n; i++) pl.move(dt, new THREE.Vector3(), false, false, false, null);
+    };
+    const out = {};
+    const A = pl.model.arms;
+    out.grip = !!A.r.grip && !A.l.grip;
+    step(60);
+    // 平時：刀尖（刀光量的點）比握點高
+    const tipY = () => {
+      const a = A.r;
+      if (!a.bladeTip) return null;
+      a.bladeRef.updateWorldMatrix(true, false);
+      const tp = a.bladeTip.clone().applyMatrix4(a.bladeRef.matrixWorld);
+      const hp = new THREE.Vector3();
+      a.weapon.getWorldPosition(hp);
+      return +(tp.y - hp.y).toFixed(2);
+    };
+    out.tipUp = tipY();
+    out.hasTip = !!A.r.bladeTip;
+    // 揮擊：固定在某個進度（不跑判定）
+    const d = pl.weapons.rarm.def;
+    const all = [...d.combo, ...(d.moves || [])];
+    const hold = (id, ph) => {
+      const stage = all.findIndex((x) => x.id === id);
+      const m = pl.melee;
+      pl.updateMelee = () => {};
+      Object.assign(m, {
+        active: true,
+        slot: 'rarm',
+        stage,
+        t: ph * all[stage].dur,
+        dir: new THREE.Vector3(0, 0, -1),
+        hit: new Set(),
+        target: null,
+      });
+      step(40);
+      return +A.r.weapon.rotation.x.toFixed(2);
+    };
+    out.wind = hold(all[0].id, 0.02);
+    out.thrust = hold('bl_f1', 0.5);
+    out.spin = hold('bl_s', 0.5);
+    pl.melee.active = false;
+    step(90);
+    out.back = +A.r.weapon.rotation.x.toFixed(2);
+    g.clearMission();
+    g.state = 'title';
+    return out;
+  });
+  check(r.grip, '刀用正手握（握點下多一層 grip），爪照舊');
+  check(r.hasTip && r.tipUp > 1, `平時刀尖朝上（刀尖比握點高 ${r.tipUp} m）`);
+  check(
+    r.wind > -0.5 && r.thrust < -1.2 && r.spin < -1.2 && r.back < -0.2 && r.back > -0.6,
+    `手腕：蓄力 ${r.wind}、突刺 ${r.thrust}、迴旋 ${r.spin}（往前和前臂成一直線）、結束後回到平時的 ${r.back}`,
+  );
+  await ctx.close();
+}
 async function testMeleeCombo(browser, base) {
   console.log('近戰連擊：方向派生、硬直、傷害遞減、上挑與空中連段、QB 接回、近戰接射擊、衝刺斬、突進追擊');
   const { ctx, page } = await newPage(browser, 'melee-combo');
@@ -17636,6 +17714,7 @@ const STEPS = [
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
+  ['testBladeGrip', (c) => testBladeGrip(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [
