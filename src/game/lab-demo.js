@@ -64,6 +64,24 @@ const meleeMoves = (D, t, dt, g) => {
   D.mi = i + 1;
   D.mWait = 0.15;
 };
+// 受擊反應的段落（docs/melee-combo-design.md 的打擊感改版第 2 期）：依序做每一種反應，最後被挑飛
+const REACTS = ['light', 'slash', 'thrust', 'spin', 'blow', 'down', 'held'];
+const reacts = (D, t, dt, g) => {
+  const p = g.player;
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const i = Math.floor(t / 1.1);
+  if (i === D.ri) return;
+  D.ri = i;
+  if (i < REACTS.length) {
+    p.reactSet(REACTS[i], 0.95, i % 2 ? -1 : 1);
+    mechFlash(p.model);
+  } else if (i === REACTS.length) {
+    p.vel.y = 22 * p.dk; // 被挑飛：空中往後翻，落地蹲一下
+    p.grounded = false;
+    p.reactSet('launch', 1, 1);
+    mechFlash(p.model);
+  }
+};
 const comboT = (id) => {
   // 段落長度：整個連段兩次＋休息
   const d = { w_blade: 1.08, w_saber: 1.99, w_pile: 1.1, w_none: 0.9 }[id] || 1.2;
@@ -204,6 +222,40 @@ const DEMO_SEGS = [
     s: '前＝突刺連打 → 踢開、側＝側滑迴旋斬、後＝上挑、空中連段、衝刺斬（docs/melee-combo-design.md）',
     w: { rarm: 'w_blade' },
     run: meleeMoves,
+  },
+  {
+    n: '近戰：派生招式（光束大劍）',
+    d: 7.5,
+    s: '突進刺、大迴旋（轉兩圈）、斬上、空中大斬、大衝刺斬、處決・兩斷',
+    w: { rarm: 'w_saber' },
+    run: meleeMoves,
+  },
+  {
+    n: '近戰：派生招式（破碎爪）',
+    d: 8.5,
+    s: '抓住 → 撕扯 → 撕開、迴旋爪、上撈、空中爪、下撕、衝刺爪、處決・撕裂',
+    w: { rarm: 'w_claw' },
+    run: meleeMoves,
+  },
+  {
+    n: '近戰：派生招式（打樁機）',
+    d: 6.5,
+    s: '衝刺樁擊、上頂、空中樁擊、肩撞、處決・打穿',
+    w: { rarm: 'w_pile' },
+    run: meleeMoves,
+  },
+  {
+    n: '近戰：派生招式（拳擊）',
+    d: 7,
+    s: '肘擊、迴旋踢、上勾拳、空中拳、下踢、衝刺拳、處決・連打',
+    w: { rarm: 'w_none' },
+    run: meleeMoves,
+  },
+  {
+    n: '受擊反應（依招式）',
+    d: 10.5,
+    s: '輕擊、被斬、被刺、被轉開、被打飛、倒地、被處決中、被挑飛',
+    run: reacts,
   },
   {
     n: '受擊（前、側、背）',
@@ -349,6 +401,7 @@ Object.assign(Game.prototype, {
     D.t = 0;
     D.t0 = -1;
     D.mi = 0;
+    D.ri = -1;
     D.mWait = 0.3;
     if (D.dummy) this.labDemoDummyClear();
     const seg = DEMO_SEGS[D.i];

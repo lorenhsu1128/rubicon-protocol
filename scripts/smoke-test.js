@@ -962,7 +962,7 @@ async function testHangar(browser) {
 
 async function testLabDemo(browser) {
   console.log(
-    '實驗室的動作展示：清掉兩隊、29 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
+    '實驗室的動作展示：清掉兩隊、34 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
   );
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   const page = await ctx.newPage();
@@ -14187,6 +14187,12 @@ async function testMeleeCombo(browser, base) {
           const k = pl.meleeCatOf(dd, i);
           const c = pl.meleeClipOf(dd, i);
           if ('fsbadxe'.includes(k) && (!c || C.has(c))) bad.push(`${dd.id}:${all[i].id}`);
+          // 處決：每一下（hits）都對著片段裡的一個出手（緩動 out 的關鍵影格）
+          if (all[i].exec && c) {
+            const outs = c.keys.filter((key, n) => n > 0 && key.e === 'out').map((key) => key.t);
+            for (const h of all[i].hits || [])
+              if (!outs.some((o) => Math.abs(o - h) < 0.04)) bad.push(`${dd.id}:${all[i].id}@${h}`);
+          }
         }
       }
       pl.asm.rarm = rb;
@@ -14269,6 +14275,7 @@ async function testMeleeCombo(browser, base) {
     pl.grounded = true;
     press('rarm', UP);
     out.walkF = pl.melee.active && pl.melee.stage === idx('bl_f1');
+    out.walkInfo = `出招 ${pl.melee.active} 段 ${pl.melee.stage} 地面 ${pl.grounded} 距離 ${t.pos.distanceTo(pl.pos).toFixed(1)} cd ${pl.weapons.rarm.cd.toFixed(2)} EN ${pl.en.toFixed(0)} 硬直 ${(pl.hitStunT || 0).toFixed(2)}／${pl.staggerT.toFixed(2)} 頓格 ${(pl.hsT || 0).toFixed(2)}`;
     // 按下前就放開、按下後才推的方向都不算（沒有前後的時間窗）
     reset();
     step(4, UP);
@@ -14313,7 +14320,7 @@ async function testMeleeCombo(browser, base) {
     r.keyF && r.keyB && r.keyS,
     `方向派生看按鍵本身：目標在右邊時按上＝前、下＝上挑、右＝側（${r.keyInfo}）`,
   );
-  check(r.walkF, '一直按著上走向目標再按近戰＝前派生');
+  check(r.walkF, `一直按著上走向目標再按近戰＝前派生（${r.walkInfo}）`);
   check(r.relN && r.afterN && r.afterQ, `按下前放開、按下後才推的方向都不算（只看按下那一格；${r.relInfo}）`);
   check(r.swipe, '觸控在攻擊鍵上往下滑（按下之後才滑完）：中立起手改成上挑');
   check(r.ang55 === 'f', `斜上偏 55° 也算「前」（${r.ang55}）`);
@@ -14361,7 +14368,10 @@ async function testMeleeCombo(browser, base) {
     `被挑飛在空中維持、落地蹲一下；被往下砸落地時倒地並硬直（${r.reactInfo}）`,
   );
   check(r.cats === 'fsbadxen', `派生的種類（音效、刀痕）：${r.cats}`);
-  check(r.ownClips === 'ok', `派生招式都有自己的動作，不和預設連段共用（${r.ownClips}）`);
+  check(
+    r.ownClips === 'ok',
+    `派生招式都有自己的動作、不和預設連段共用，處決的每一下都對著動作的出手（${r.ownClips}）`,
+  );
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);
   await ctx.close();
