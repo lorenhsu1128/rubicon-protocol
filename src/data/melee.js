@@ -212,3 +212,34 @@ export const CHAIN_AFTER = 0.24,
   CHAIN_MIN = 0.6;
 // 判定從出手的時間點前 STRIKE_PRE 開始（比例）
 export const STRIKE_PRE = 0.06;
+
+// ---------- 第 2 期：敵人依招式的受擊反應（animateMech 的 st.react）----------
+// light 輕擊（小後仰）、slash 被斬（往被推的一側扭身）、thrust 被刺（往前彎腰、骨盆往後）、spin 被轉開（整台轉過去）、
+// blow 被打飛（大後仰、往後滑、腳下揚塵）、launch 被挑飛（空中往後翻）、slam 被往下砸（空中時落地才倒）、
+// down 倒地（跪地前屈，一般敵人另外硬直）、land 被挑飛之後落地（蹲一下）
+export function meleeReactOf(st) {
+  if (!st) return 'light';
+  if (st.react) return st.react;
+  if (st.exec) return st.thrust ? 'thrust' : 'slash';
+  if (st.launch) return 'launch';
+  if (st.dive || st.slam) return 'slam';
+  if (st.spin) return 'spin';
+  if (st.finisher || st.kb >= 40) return 'blow';
+  if (st.thrust) return 'thrust';
+  if (st.dur <= 0.22) return 'light';
+  return 'slash';
+}
+// 受擊動作的秒數（至少照被打的硬直；被挑飛／往下砸在空中時維持到落地）
+export const REACT_T = {
+  light: 0.3,
+  slash: 0.42,
+  thrust: 0.45,
+  spin: 0.5,
+  blow: 0.65,
+  launch: 1.0,
+  slam: 1.0,
+  down: 0.85,
+  land: 0.4,
+};
+// 被打倒（down）時一般敵人的硬直秒數
+export const DOWN_STUN = 0.7;

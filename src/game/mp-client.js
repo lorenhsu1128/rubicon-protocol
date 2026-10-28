@@ -348,6 +348,12 @@ Object.assign(Game.prototype, {
           if (!/missile|grenade|torpedo|crate|mortar/.test(e.k || '')) this.clientShotRecoil(p.pos);
         }
         break;
+      case 'rx': // 受擊反應（房主的 MechEntity.reactSet）
+        {
+          const tgt = this.entById(e.i);
+          if (tgt && tgt.reactSet) tgt.reactSet(e.k, e.T, e.s, false);
+        }
+        break;
       case 'pend':
         {
           const i = this.projectiles.findIndex((p) => p.netId === e.i);

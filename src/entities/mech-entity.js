@@ -62,6 +62,9 @@ import {
   CHAIN_AFTER,
   CHAIN_MIN,
   STRIKE_PRE,
+  meleeReactOf,
+  REACT_T,
+  DOWN_STUN,
 } from '../data/melee.js';
 import {
   CHARGE_AI,
@@ -255,6 +258,15 @@ export class MechEntity {
       aj: this.remote ? undefined : this.airJumps, // 空中跳的次數（減少＝空中跳，動作的翻轉）
       heavy: this.animHeavy,
       hits: this.takeHits(),
+      react: this.react
+        ? {
+            k: this.react.k,
+            ph: clamp(this.react.t / this.react.T, 0, 1),
+            sd: this.react.sd,
+            w: this.react.w,
+            n: this.react.n,
+          }
+        : null,
       knockF: this.knockF,
       knockX: this.knockX,
       persona: this.animPersonaOf(),
@@ -297,8 +309,69 @@ export class MechEntity {
       !this.cine
     );
   }
+  // 受擊反應（animateMech 的 st.react）：k＝種類（data/melee.js 的 meleeReactOf），T＝秒數，sd＝往機體的哪一側推
+  // （+1＝機體的 +x 右側）；房主送 rx 事件給客機。Boss 與敵對 AC 幅度小（霸體）
+  reactSet(k, T, sd, net = true) {
+    if (!this.model || this.model.vehicle || this.isProp || this.opts.modelKind) return;
+    const w = this.isBoss ? 0.3 : this.ace || this.ai === 'ac' || this.isElite ? 0.5 : 1;
+    this.react = {
+      k,
+      t: 0,
+      T: Math.max(0.1, T),
+      sd: sd || 0,
+      w,
+      n: ((this.react && this.react.n) || 0) + 1,
+      hold: 0,
+    };
+    if (k === 'down' && !this.pilotEnt() && !this.isBoss && w >= 1)
+      this.hitStunT = Math.max(this.hitStunT || 0, DOWN_STUN); // 被打倒：一般敵人爬起來之前不能行動
+    const g = this.game;
+    if (net && g.net && g.net.role === 'host')
+      g.netEv({ t: 'rx', i: this.id, k, T: +this.react.T.toFixed(2), s: Math.sign(sd || 0) });
+  }
+  // 每格（move／remoteUpdate）：被挑飛、往下砸的在空中維持姿勢，落地時換成落地／倒地（房主判斷落地，客機等 rx 事件）
+  reactTick(dt) {
+    const R = this.react;
+    if (!R) return;
+    R.t += dt;
+    if (R.k === 'launch' || R.k === 'slam') {
+      if (!this.remote) {
+        if (this.grounded && R.t > 0.12) {
+          this.reactSet(R.k === 'slam' ? 'down' : 'land', REACT_T[R.k === 'slam' ? 'down' : 'land'], R.sd);
+          if (R.k === 'slam') this.game.fx.dust(this.pos.clone(), 2.4, 10); // 砸在地上
+          return;
+        }
+        if (!this.grounded && R.t > R.T * 0.5 && (R.hold += dt) < 3) R.t = R.T * 0.5; // 空中維持
+      } else if (R.t > R.T * 0.5 && (R.hold += dt) < 2.5) R.t = R.T * 0.5;
+    }
+    // 被打飛：往後滑時腳下揚塵（房主，dust 會轉送給客機）
+    if (R.k === 'blow' && !this.remote && this.grounded && R.t < R.T * 0.75) {
+      const v = Math.hypot(this.vel.x, this.vel.z);
+      if (v > 5 * this.dk && (this.reactDust = (this.reactDust || 0) - dt) <= 0) {
+        this.reactDust = 0.06;
+        this.game.fx.dust(this.pos.clone(), 1.3, 3);
+      }
+    }
+    if (R.t >= R.T) this.react = null;
+  }
+  meleeReactOfStage(d, i) {
+    return meleeReactOf(meleeMove(d, i)); // 測試用
+  }
   meleeCatOf(d, i) {
     return meleeCat(d, i); // 測試用
+  }
+  // 近戰把目標往它自己的哪一側推（+1＝目標的 +x）：右手的橫斬往攻擊者的左邊掃、反手往右，左手武器相反
+  meleePushSide(t, st) {
+    const m = this.melee,
+      f = m.dir;
+    let s = st.mirror ? 1 : -1; // +1＝往攻擊者的右邊
+    if (m.slot === 'larm') s = -s;
+    const px = -f.z * s,
+      pz = f.x * s; // 攻擊者的右邊＝(−z, x)
+    const c = Math.cos(t.yaw || 0),
+      sn = Math.sin(t.yaw || 0);
+    const lx = px * c - pz * sn;
+    return lx >= 0 ? 1 : -1;
   }
   // 頓格：自己（與 other）在 sec 秒內時間放慢到 HITSTOP_K（move／remoteUpdate）；全場不變慢
   hitStopLocal(sec, other) {
@@ -1317,7 +1390,14 @@ export class MechEntity {
       this,
       hp,
       m.dir.clone(),
-      { kb: 0, lift: 0, exec: true, finisher: last },
+      {
+        kb: 0,
+        lift: 0,
+        exec: true,
+        finisher: last,
+        react: last ? 'blow' : meleeReactOf(st),
+        sd: m.exec.hit % 2 ? 1 : -1,
+      },
       d.id,
       'none',
     );
@@ -1494,7 +1574,7 @@ export class MechEntity {
     // 貼上目標就停（不穿過去）：判定在揮下去時才開始，衝過頭就打不到；突進追擊停得早一點，側滑不停
     if (m.target && !m.target.dead && (m.lungeK > 1 || !m.noTrack)) {
       const dd = Math.hypot(m.target.pos.x - this.pos.x, m.target.pos.z - this.pos.z);
-      if (dd < st.reach * this.scale * (m.lungeK > 1 ? 0.7 : 0.5)) dashSpd = 0;
+      if (dd < st.reach * this.scale * (m.lungeK > 1 ? 0.7 : 0.75)) dashSpd = 0;
     }
     if (dashSpd > 0) m.dashGone = gone + dashSpd * dt;
     else if (ph >= burst) m.dashGone = dashTot;
@@ -1555,6 +1635,8 @@ export class MechEntity {
             finisher: !!st.finisher,
             stagBonus: st.stagBonus,
             stun: meleeStun(st, ''),
+            react: meleeReactOf(st),
+            sd: this.meleePushSide(t, st),
           },
           d.id,
         );
@@ -1782,6 +1864,13 @@ export class MechEntity {
         this.grounded = false;
       }
       if (melee.down && !this.isBoss && !this.grounded) this.vel.y = Math.min(this.vel.y, -melee.down); // 下劈：砸回地面
+      // 受擊反應（依招式）：往下砸時已經在地上的直接倒地；一般敵人照被打的硬直維持姿勢
+      if (melee.react) {
+        let rk = melee.react;
+        if (rk === 'slam' && this.grounded) rk = 'down';
+        if (rk === 'launch' && (this.isBoss || this.stats.parts.legs.type === 'tank')) rk = 'blow';
+        this.reactSet(rk, Math.max(REACT_T[rk] || 0.4, melee.stun || 0), melee.sd || 0);
+      }
       const parried = !!(from && from.parryT > 0 && !this.isBoss);
       if (parried) from.parryT = 0;
       if (
@@ -2107,6 +2196,7 @@ export class MechEntity {
       dt *= HITSTOP_K;
     }
     if (this.buffT > 0) this.buffT -= dt;
+    if (this.react) this.reactTick(dt); // 受擊反應
     if (this.sts) this.statusTick(dt); // 狀態效果（entities/mech-status.js）：倒數、黏附炸彈、纏附、吸取 EN
     // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
     if (this.team === 'player' && this.slot !== undefined && 'lock' in this)

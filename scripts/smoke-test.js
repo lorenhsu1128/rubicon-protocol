@@ -14120,6 +14120,7 @@ async function testMeleeCombo(browser, base) {
       out.stopOk = pl.hsT > 0 && t.hsT > 0 && !(g.fx.hitStop > 0);
       const other = g.enemies.find((e) => e !== t && !e.dead);
       out.stopOther = !other || !(other.hsT > 0);
+      out.reactSlash = !!t.react && t.react.k === 'slash' && t.react.T >= 0.4;
       out.strikeInfo = `出手 ${m.strike.toFixed(2)} 命中 ${hitPh.toFixed(2)} 頓格 ${(pl.hsT || 0).toFixed(3)}／${(t.hsT || 0).toFixed(3)} 全場 ${(g.fx.hitStop || 0).toFixed(3)}`;
       // 排好下一招：打中後不等收招（dur）就切進下一招
       step(2);
@@ -14145,6 +14146,32 @@ async function testMeleeCombo(browser, base) {
         .map((i) => pl.meleeCatOf(d, i))
         .join('');
       pl.hsT = t.hsT = 0;
+      // 受擊反應的種類（data/melee.js 的 meleeReactOf）：照招式
+      out.reacts = [0, idx('bl_f1'), idx('bl_s'), idx('bl_up'), idx('bl_a3'), idx('bl_kick'), 2]
+        .map((i) => pl.meleeReactOfStage(d, i))
+        .join(',');
+      // 被挑飛：空中維持姿勢，落地換成落地；往下砸：落地時倒地＋一般敵人硬直
+      reset(6 * 3);
+      t.pos.y += 12;
+      t.grounded = false;
+      t.reactSet('launch', 1, 1);
+      let air = 0;
+      for (let i = 0; i < 240 && !t.grounded; i++) {
+        step(1);
+        if (t.react && t.react.k === 'launch') air++;
+      }
+      step(2);
+      out.reactLand = air > 15 && !!t.react && t.react.k === 'land';
+      reset(6 * 3);
+      t.pos.y += 12;
+      t.grounded = false;
+      t.reactSet('slam', 1, 1);
+      for (let i = 0; i < 240 && !t.grounded; i++) step(1);
+      step(2);
+      out.reactDown = !!t.react && t.react.k === 'down' && t.hitStunT > 0.3;
+      out.reactInfo = `落地 ${air} 格 ${t.react && t.react.k} 硬直 ${(t.hitStunT || 0).toFixed(2)}`;
+      t.react = null;
+      t.hitStunT = 0;
     }
     // 14. 盾擊：脈衝盾擋下攻擊後 0.5 秒內按近戰
     const rb0 = pl.asm.rback;
@@ -14307,6 +14334,12 @@ async function testMeleeCombo(browser, base) {
   check(r.strikeOk, `近戰的傷害在動作揮下去時才算（${r.strikeInfo}）`);
   check(r.stopOk && r.stopOther, `頓格只停攻擊者與被打的目標，全場不變慢（${r.strikeInfo}）`);
   check(r.earlyChain, '打中後排好的下一招不等收招就接上');
+  check(r.reactSlash, '敵人被橫斬打中＝被斬的受擊反應，維持到硬直結束');
+  check(r.reacts === 'slash,thrust,spin,launch,slam,blow,blow', `受擊反應依招式：${r.reacts}`);
+  check(
+    r.reactLand && r.reactDown,
+    `被挑飛在空中維持、落地蹲一下；被往下砸落地時倒地並硬直（${r.reactInfo}）`,
+  );
   check(r.cats === 'fsbadxen', `派生的種類（音效、刀痕）：${r.cats}`);
   check(r.hasShield && r.bash, '脈衝盾擋下攻擊後按近戰＝盾擊');
   check(r.bashLate, `擋下太久之後按近戰照常出招（${r.bashInfo}）`);

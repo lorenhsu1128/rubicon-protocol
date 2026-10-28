@@ -2466,6 +2466,7 @@ export function animateMech(m, dt, st) {
   const fwdV = st.fwd || 0; // 前進速度比例（-1 後退 ~ 1 前進，機體座標）
   const ML = st.melee; // 近戰姿勢 {kind, ph, mirror, side}
   const SP = springSet(clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1));
+  const RE = reactPose(st.react); // 被近戰打中的受擊反應（全身傾斜、轉身、翻、上身、壓低）
   // 近戰的關鍵影格（melee-anim.js）：片段寫到的關節改成跟著片段（比較硬的彈簧 SP.clip），其他照程式算的姿勢
   let CP = null,
     CO = null;
@@ -2624,6 +2625,21 @@ export function animateMech(m, dt, st) {
         an.stumD = h.z >= 0 ? 1 : -1;
       }
     }
+  if (st.react && st.react.n !== an.reN) {
+    an.reN = st.react.n;
+    const k = st.react.k,
+      w = st.react.w;
+    const big = k === 'blow' || k === 'launch' || k === 'spin' || k === 'down';
+    const ak = (big ? 3.4 : k === 'thrust' ? 1.6 : 2.2) * w;
+    kick(m.arms.r.up.rotation, 'z', ak); // 兩手往外甩
+    kick(m.arms.l.up.rotation, 'z', -ak);
+    if (k === 'thrust') {
+      kick(m.arms.r.up.rotation, 'x', 2.5 * w); // 被刺：兩手往前縮
+      kick(m.arms.l.up.rotation, 'x', 2.5 * w);
+    }
+    if (m.pack) kick(m.pack.rotation, 'x', (big ? 3.5 : 1.5) * w);
+    if (m.head) kick(m.head.rotation, 'x', (k === 'thrust' || k === 'down' ? -3 : 3) * w);
+  }
   an.stum = Math.max(0, (an.stum || 0) - dt);
   const stW = an.stum > 0 ? Math.sin((an.stum / 0.35) * Math.PI) : 0; // 踉蹌（0→1→0）
   // QB 一開始：背包、肩上武器往後甩
@@ -2660,7 +2676,8 @@ export function animateMech(m, dt, st) {
   }
   const crouch =
     (0.08 * an.gW + 0.08 * an.bW + 0.08 * an.qW + 0.05 * an.brW + 0.09 * antW) * (grounded ? 1 : 0) +
-    (CP && CP.drop ? CP.drop[0] : 0); // 滑行／煞車／QB（含預備）的壓低（屈膝的部分由 IK 壓低骨盆）
+    (CP && CP.drop ? CP.drop[0] : 0) + // 滑行／煞車／QB（含預備）的壓低（屈膝的部分由 IK 壓低骨盆）
+    RE.crouch * (grounded ? 1 : 0); // 受擊反應的屈膝
   // ===== 全身傾斜（第四期）：lift 繞腳底（原點＝地面）轉，整台連腿一起倒向移動方向，轉彎往內側傾 =====
   // 軀幹的前傾（tX）疊在上面；IK 的地形傾斜只加坡度、不再把這個傾斜拉回垂直（mech-ik.js）
   if (legged && m.lift) {
@@ -2690,8 +2707,10 @@ export function animateMech(m, dt, st) {
       rx = clamp(rx, -ROOT_MAX, ROOT_MAX);
       rz = clamp(rz, -ROOT_MAX, ROOT_MAX);
     }
-    // QB、預備、滑停時彈簧加快（短時間的動作也要倒得下去）
-    const rw = SP.root[0] * (1 + 1.6 * clamp(an.qW + antW + skW, 0, 1));
+    rx += RE.rx;
+    rz += RE.rz;
+    // QB、預備、滑停、受擊時彈簧加快（短時間的動作也要倒得下去）
+    const rw = SP.root[0] * (1 + 1.6 * clamp(an.qW + antW + skW + RE.on * 1.2, 0, 1.6));
     spring(rr, 'x', rx, rw, SP.root[1], dt);
     spring(rr, 'z', rz, rw, SP.root[1], dt);
     // 空中跳的翻轉：往前移動＝前空翻（−x）、往側移動＝側翻（往移動方向，−z 是往右）
@@ -2710,7 +2729,13 @@ export function animateMech(m, dt, st) {
       syT = CP && CP.twist ? CP.twist[0] : ML.ph * Math.PI * 2 * (ML.mirror ? -1 : 1);
     else if (Math.abs(sy.y) > Math.PI) sy.y -= Math.PI * 2 * Math.round(sy.y / (Math.PI * 2));
     spring(sy, 'y', syT, SP.clip[0], SP.clip[1], dt);
-    m.lift.rotation.set(rr.x + fx, sy.y, rr.z + fz);
+    // 受擊反應：被挑飛往後翻（繞髖，和空中跳的翻轉同一個位移）、被斬／被轉開時整台轉過去
+    an.reFlip = an.reFlip || { x: 0 };
+    spring(an.reFlip, 'x', RE.flip, 26, 0.7, dt);
+    fx += an.reFlip.x;
+    an.reYaw = an.reYaw || { y: 0 };
+    spring(an.reYaw, 'y', RE.yaw, 34, 0.55, dt);
+    m.lift.rotation.set(rr.x + fx, sy.y + an.reYaw.y, rr.z + fz);
     // 近戰片段的骨盆位移（root：往前、往右，舊尺度的公尺）
     const mr = an.mroot || (an.mroot = { x: 0, z: 0 });
     spring(mr, 'z', CP && CP.root ? CP.root[0] : 0, SP.clip[0], SP.clip[1], dt);
@@ -2979,6 +3004,9 @@ export function animateMech(m, dt, st) {
     }
   }
   if (CP && CP.twist) tYoff = ML.kind === 'spin' ? 0 : CP.twist[0];
+  tX += RE.tx;
+  tZ += RE.tz;
+  tYoff += RE.tw;
   // 部位之間的先後（第四期）：全身傾斜轉得快時軀幹晚一點跟上，頭、手臂再晚一點（目標加上父部位角速度 × −LAG）
   const lagC = (v) => clamp(-LAG * v, -0.3, 0.3);
   const rvx = an.root ? springVel(an.root, 'x') : 0,
@@ -3154,6 +3182,72 @@ export function animateMech(m, dt, st) {
     m.flashT -= dt;
     if (m.flashT <= 0) unflash(m);
   }
+}
+
+// 受擊反應（st.react＝{ k, ph 0～1, sd 往哪一側推, w 強度 }）的姿勢偏移：rx／rz＝全身傾斜（lift，正 x＝後仰、
+// 負 z＝往右傾）、yaw＝整台轉、flip＝繞髖往後翻、tx／tz／tw＝上身（正 tx＝後仰）、crouch＝屈膝；on＝有沒有反應（彈簧加快）
+const RE0 = { rx: 0, rz: 0, yaw: 0, flip: 0, tx: 0, tz: 0, tw: 0, crouch: 0, on: 0 };
+function reactPose(R) {
+  if (!R) return RE0;
+  const ph = R.ph,
+    sd = R.sd || 0;
+  // 包絡：很快到滿、維持、最後 40% 慢慢放開；倒地維持得久一點
+  const hold = R.k === 'down' ? 0.7 : 0.55;
+  let e = ph < 0.08 ? ph / 0.08 : ph < hold ? 1 : 1 - (ph - hold) / (1 - hold);
+  e = e * e * (3 - 2 * e) * R.w;
+  const o = { rx: 0, rz: 0, yaw: 0, flip: 0, tx: 0, tz: 0, tw: 0, crouch: 0, on: R.w };
+  switch (R.k) {
+    case 'light':
+      o.rx = 0.1;
+      o.tx = 0.2;
+      o.crouch = 0.03;
+      break;
+    case 'slash':
+      o.rx = 0.1;
+      o.rz = -0.14 * sd;
+      o.yaw = -0.55 * sd;
+      o.tw = -0.4 * sd;
+      o.tx = 0.14;
+      o.crouch = 0.05;
+      break;
+    case 'thrust':
+      o.rx = 0.16; // 骨盆被往後推
+      o.tx = -0.62; // 往前彎腰
+      o.crouch = 0.1;
+      break;
+    case 'spin':
+      o.yaw = -1.1 * (sd || 1);
+      o.rz = -0.2 * (sd || 1);
+      o.tx = 0.12;
+      o.crouch = 0.07;
+      break;
+    case 'blow':
+      o.rx = 0.4;
+      o.tx = 0.3;
+      o.rz = -0.08 * sd;
+      o.crouch = 0.12;
+      break;
+    case 'launch':
+      o.flip = 0.95; // 往後翻
+      o.tx = 0.25;
+      break;
+    case 'slam':
+      o.flip = -0.5; // 被往下砸：往前栽
+      o.tx = -0.3;
+      break;
+    case 'down':
+      o.rx = -0.24;
+      o.tx = -0.72;
+      o.crouch = 0.4;
+      break;
+    case 'land':
+      o.rx = -0.06;
+      o.tx = -0.3;
+      o.crouch = 0.22;
+      break;
+  }
+  for (const k of ['rx', 'rz', 'yaw', 'flip', 'tx', 'tz', 'tw', 'crouch']) o[k] *= e;
+  return o;
 }
 
 export function mechFlash(m, color, dur = 0.07) {
