@@ -408,6 +408,10 @@ export class Game {
       this.fx.hitStop -= dt;
       dt *= 0.25;
     }
+    if (this.rbSlowT > 0) {
+      this.rbSlowT -= dt; // 完美 QB 反擊的射擊：畫面稍微變慢（game/ranged.js）
+      dt *= this.rbSlowK();
+    }
     this.frames++;
     this.fpsT += dt;
     if (this.fpsT > 0.5) {

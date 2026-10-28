@@ -186,7 +186,8 @@ export class Projectile {
             im = 0;
           }
           if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos);
-          else
+          else {
+            t.rbGold = !!this.rb; // 邊閃邊打的加成：金色的傷害數字（mech-ranged.js）
             t.takeDamage(
               this.dmg * k,
               im,
@@ -197,6 +198,12 @@ export class Projectile {
               this.wid,
               this.attr || (this.wid ? undefined : 'exp'), // 沒有武器 id 的爆炸（迫擊砲、魚雷…）算爆發
             );
+            t.rbGold = false;
+            if (this.rb && this.owner && this.owner.rbHit && g.isHostile(this.owner, t)) {
+              this.owner.rbHit(t, this.rb);
+              this.rb = 0; // 一顆只提示一次
+            }
+          }
         }
       }
     } else if (direct) {
@@ -213,6 +220,7 @@ export class Projectile {
               (1 - KIN_FALL_MIN) *
                 Math.min(1, (dd - this.fall[0]) / Math.max(1, this.fall[1] - this.fall[0]));
         }
+        direct.rbGold = !!this.rb;
         direct.takeDamage(
           this.dmg * fk,
           this.impactV,
@@ -223,6 +231,8 @@ export class Projectile {
           this.wid,
           this.attr,
         );
+        direct.rbGold = false;
+        if (this.rb && this.owner && this.owner.rbHit) this.owner.rbHit(direct, this.rb);
       }
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
       SFX.hit(direct.isPlayer ? null : this.pos, direct);

@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/rts-design.md`：即時戰略模式「Coral 戰爭」（魔獸爭霸3 式：指揮官視角、蓋基地採資源、英雄、四陣營、戰爭迷霧、對稱地圖產生器）的設計文件與分期；做相關功能時照它進行，設計有變動時同步更新。
 - `docs/mech-animation.md`：機甲動作改版（動漫風格、滑行／跑步／走路、彈簧、上下半身分離、QB／跳躍／落地；第二期持握角度、依武器的射擊動作與可編輯的近戰關鍵影格；第三期受擊、依方向的失衡、擊破跪倒、附加晃動、待機與個性；第四期動感：全身傾斜與轉彎傾斜、QB 的預備與滑停、空中跳翻轉、部位之間的先後、近戰片段放大與骨盆位移、連腿一起的迴旋斬、刀光、地面的推進氣流帶與腳印）的定案與實作；改 `animateMech` 時照它進行並同步更新。
 - `docs/melee-combo-design.md`：近戰連擊與連繫技（招式圖 `moves`、被打的硬直、傷害遞減；跨系統的連接與取消（近戰↔射擊、QB 接回、左右手交替、上挑 → 跳躍取消 → 空中連段、衝刺斬）；方向派生；長按處決；彈刀、完美 QB、盾擊）的定案與實作紀錄；改近戰的招式與判定時照它進行並同步更新。
+- `docs/ranged-design.md`：遠程射擊改版（不做方向派生、獎勵邊閃邊打；6 期：邊閃邊打、反擊與弱點、蓄力射擊、屬性反應、手感、風格評價）的定案與實作；改射擊的加成、弱點、蓄力時照它進行並同步更新。
 - `docs/melee-tutorial.md`：近戰訓練課程（作戰室的模擬器：8 課、選近戰武器、示範、時機條、假人 0～4 級、獎勵；`data/tutorial.js` 課程資料、`game/tutorial.js` 流程與畫面）的定案、實作與交接；改教學時照它進行並同步更新。
 - `docs/garage-hangar.md`：機甲庫的格納庫演出（鋼彈式整備架、依場合的場景、部位鏡頭、全像預覽、換裝、維修、出擊演出）的定案與分期；改機甲庫的展示場景時照它進行並同步更新。
 - `docs/garage-ui.md`：機甲庫的換裝介面（雙翼裝備欄、零件縮圖格子與小卡片、固定角度的標註線、量表、規格頁的圖表與六角性能圖、設定子分頁）的定案與分期；改機甲庫的操作介面時照它進行並同步更新。
@@ -72,7 +73,7 @@ main.js              進入點：依序 import 所有 mixin，最後 new Game()
 index.html／styles.css
 core/                math.js（RNG、makeRng、makeNoise、withRng、clamp/lerp/rnd…）、scale.js（尺度的倍率 MS／WS／DS、scaleKeys）、html.js（escHtml）、zip.js（zip 讀寫）、
                      sha256.js（模型組上傳的內容雜湊；區網 http 不是安全環境，不能用 crypto.subtle）
-data/                parts.js（零件、START_ASM、asmStats）、melee.js（近戰的招式圖：meleeMove／meleeNext／meleeDir、硬直與傷害遞減、連接與處決、防禦反擊的常數，純函式）、tutorial.js（近戰訓練課程：8 課的練習、目標、示範腳本、假人的等級、招式標籤 meleeTags，純資料與純函式）、garage-hex.js（機甲庫的六角性能圖：hexScores／hexBounds，純函式）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
+data/                parts.js（零件、START_ASM、asmStats）、ranged.js（遠程射擊的「邊閃邊打」加成的數值 RB 與種類位元）、melee.js（近戰的招式圖：meleeMove／meleeNext／meleeDir、硬直與傷害遞減、連接與處決、防禦反擊的常數，純函式）、tutorial.js（近戰訓練課程：8 課的練習、目標、示範腳本、假人的等級、招式標籤 meleeTags，純資料與純函式）、garage-hex.js（機甲庫的六角性能圖：hexScores／hexBounds，純函式）、enemies.js（AC_ROSTER、BOSS_DEFS、ENEMY_TYPES）、
                      skills.js（駕駛員技能樹、熟練度加成、經驗曲線）、ai.js（敵人 AI 的感知、仇恨、攻擊權杖、招式的數值）、attrs.js（武器屬性：實彈／爆發／能量、防禦換算、直擊補正、實彈距離衰減、弱點文字）、firepower.js（理論火力：每把武器的 DPS／持續 DPS／衝擊、有效 AP，純函式）、pilot.js（駕駛員純函式：等級、配點驗證、加成套用）、
                      campaign.js（主線：出擊、主題的轉場方式、轉場演出、區段類型、出口獎勵）、campaign-plan.js（區段排程）、cine/（過場動畫的劇本：prologue.js 序章、chapters.js 各章開場／章末、index.js 目錄）、story.js（主線的委託方、說話者、總覽圖區域、簡報、序章與章節的開場／章末、結局、記憶片段）、story-comms.js（主線的通訊）、modules.js（主線的戰術模組）、foes.js（主題專屬敵人與專屬 AC）、
                      foes-b1.js／foes-b2.js／foes-c1.js／foes-c2.js（地圖專屬敵人擴充的四組新敵人）、status.js（狀態效果的定義與文字）、
@@ -119,7 +120,7 @@ entities/            projectile.js、mech-entity.js（MechEntity）、mech-boss3
                      mech-special.js（MechEntity 擴充：特殊一般敵人的行為與顯示）、mech-boss.js（MechEntity 擴充：新 Boss 與附屬部位）、
                      mech-boss2.js（第三批 Boss）、mech-objective.js（主線的目標物與護送車隊）、mech-foe.js（主題專屬敵人的行為、擴充組的分派 foeExt）、
                      mech-foe-b1／b2／c1／c2.js（擴充組的新敵人）、mech-foe-d2.js（第 3～6 章模型的動作旗標）、
-                     mech-trails.js（動作的特效：刀光、地面的推進氣流帶、腳印與揚塵，trailsTick 在動作與 IK 之後）、mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
+                     mech-trails.js（動作的特效：刀光、地面的推進氣流帶、腳印與揚塵，trailsTick 在動作與 IK 之後）、mech-ranged.js（遠程射擊的邊閃邊打：rbTick 記落地／最高點／繞射、rbShot 算這一發的加成、rbHit 的提示）、mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
                      mech-sense.js（一般敵人的感知、警戒狀態、仇恨、找射線）、mech-moves.js（主攻的預警招式）、
                      mech-rts.js（Coral 戰爭的單位行為 rtsUnitAI：指令佇列、流場／A* 移動、索敵與交戰、採集、建造、修理、rtsDie）、
                      mech-rts-creep.js（Coral 戰爭的野怪 rtsCreepAI：待機、整營出動、追擊上限、回營回血）、
@@ -138,7 +139,7 @@ game/*.js            Game 的 mixin：render-setup、save（三個存檔槽與�
                      mp-models（伺服器模型組：我的機甲模型組上傳、大廳狀態、出擊前備齊、客機換模型）、
                      style-lab（渲染風格實驗室：模擬戰鬥、鏡頭、調整面板）、lab-demo（實驗室的「動作展示」：清掉兩隊、腳本操作玩家的機體依序表演 34 段動作）、levels（自訂關卡的選單）、editor（關卡編輯器的核心：地圖、鏡頭、點選擺放、
                      地形筆刷、復原、存檔、試玩）、editor-ui（編輯器的面板）、editor-trig（觸發器面板）、editor-pick（挑底圖：預覽、歷史縮圖、並排比較）、level-play（自訂關卡的遊玩：單位行為、
-                     觸發器、勝敗、同步）、level-net（多人的關卡傳送、大廳的自訂關卡模式）、campaign（主線任務模式：區段、出口、轉場、轉場整備、紀錄點）、hub（主線的機庫據點：畫面上的介面、簡報、通訊紀錄）、hub-holo（作戰室的指揮室場景與全像戰略桌：區域地形以 World 取樣、標籤投影、設施熱點（點場景模型進入、游標停留的發光輪廓 hubOutline）；docs/hub-ui.md）、story（主線的序章、章節的開場／章末的全畫面、章節回顧）、comms（主線的通訊：依事件與條件挑台詞、右下角播放）、tactics（主線的戰術模組：三選一、商店）、range（機甲庫的靶場：目標設定、量測輸出與承受、靶場紀錄、機甲庫的理論火力與換零件的差異）、guide（主線的說明：抉擇說明卡、出口光環與 HUD 的獎勵／下一段文字、模組卡片的白話效果與升級前後數值、對目前武器的適用性、雙重模組提示、總覽圖節點的開放條件、作戰室的委託方面板）、campaign-mp（主線的多人合作：出口投票、轉場等待、各自選模組、紀錄點同步、房主遷移）、waves（增援波次：分波、預告方向、邊緣進入或空降）、ai-director（敵人 AI 的導演：攻擊權杖、節奏導演、小隊共享位置、無線電、聲音、防止停擺、HUD 的警戒標示）、goals（過關條件：每個回合開始時畫面中央的過關／失敗條件卡片，之後左上的任務資訊一直顯示一行）、outposts（據點：補給箱與守衛、自由出擊的撤離時間）、textfx（文字演出：橫幅、中央訊息的種類、結果、簡報、結局、通訊框逐字）、feedback（聲音與打擊回饋：各主題的環境音與殘響、腳步、低 AP 心跳、擊破確認音與連殺、打出失衡、Boss 第二型態）、juice（畫面的打擊回饋：傷害數字、連殺計數、BREAK、重擊閃光與色差、低 AP 紅框、速度線、增援方向的邊緣警示、Boss 登場與擊破的橫幅）、sim（主線機庫的模擬器、教官考核、作戰紀錄與危險條款）、tutorial（近戰訓練課程：模擬器裡的 8 課、示範與自動操作的虛擬輸入 tutVirt、判定事件 tutEv、假人的行為 tutAI、面板與時機條、完成與獎勵；docs/melee-tutorial.md）、fullscreen（標題與暫停選單的全螢幕按鈕；
+                     觸發器、勝敗、同步）、level-net（多人的關卡傳送、大廳的自訂關卡模式）、campaign（主線任務模式：區段、出口、轉場、轉場整備、紀錄點）、hub（主線的機庫據點：畫面上的介面、簡報、通訊紀錄）、hub-holo（作戰室的指揮室場景與全像戰略桌：區域地形以 World 取樣、標籤投影、設施熱點（點場景模型進入、游標停留的發光輪廓 hubOutline）；docs/hub-ui.md）、story（主線的序章、章節的開場／章末的全畫面、章節回顧）、comms（主線的通訊：依事件與條件挑台詞、右下角播放）、tactics（主線的戰術模組：三選一、商店）、range（機甲庫的靶場：目標設定、量測輸出與承受、靶場紀錄、機甲庫的理論火力與換零件的差異）、guide（主線的說明：抉擇說明卡、出口光環與 HUD 的獎勵／下一段文字、模組卡片的白話效果與升級前後數值、對目前武器的適用性、雙重模組提示、總覽圖節點的開放條件、作戰室的委託方面板）、campaign-mp（主線的多人合作：出口投票、轉場等待、各自選模組、紀錄點同步、房主遷移）、waves（增援波次：分波、預告方向、邊緣進入或空降）、ai-director（敵人 AI 的導演：攻擊權杖、節奏導演、小隊共享位置、無線電、聲音、防止停擺、HUD 的警戒標示）、goals（過關條件：每個回合開始時畫面中央的過關／失敗條件卡片，之後左上的任務資訊一直顯示一行）、outposts（據點：補給箱與守衛、自由出擊的撤離時間）、textfx（文字演出：橫幅、中央訊息的種類、結果、簡報、結局、通訊框逐字）、feedback（聲音與打擊回饋：各主題的環境音與殘響、腳步、低 AP 心跳、擊破確認音與連殺、打出失衡、Boss 第二型態）、ranged（遠程射擊的邊閃邊打：反擊的慢動作與回饋、HUD 的反擊時間與繞射環；docs/ranged-design.md）、juice（畫面的打擊回饋：傷害數字、連殺計數、BREAK、重擊閃光與色差、低 AP 紅框、速度線、增援方向的邊緣警示、Boss 登場與擊破的橫幅）、sim（主線機庫的模擬器、教官考核、作戰紀錄與危險條款）、tutorial（近戰訓練課程：模擬器裡的 8 課、示範與自動操作的虛擬輸入 tutVirt、判定事件 tutEv、假人的行為 tutAI、面板與時機條、完成與獎勵；docs/melee-tutorial.md）、fullscreen（標題與暫停選單的全螢幕按鈕；
                      平板沒有鍵盤靠按鈕離開，Chrome／Edge 以 Keyboard Lock 鎖 Esc，Esc 照常暫停、長按才離開）；
                      cine（過場動畫：時間軸、鏡頭、演員、字幕與字卡、遮幅、配樂；劇本在 data/cine/）、cine-lib（過場動畫劇場：
                      標題的「過場動畫」，依周目與抉擇列出全部、暫停與逐鏡跳轉的控制列、選前演出的代替戰場）；

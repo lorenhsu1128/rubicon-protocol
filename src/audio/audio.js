@@ -751,6 +751,12 @@ export const SFX = {
     this.play('glass', 0.6, 0.8, 0.05, 0.1, null, 'ui');
     this.play('boom2', 0.55, 1.2, 0.05, 0.1);
   },
+  // 邊閃邊打的加成打中（data/ranged.js 的位元）：清脆的金屬聲，反擊多一聲鐘
+  rangedBonus(tags) {
+    this.play('uiTick', 0.45, 1.5, 0.03, 0.07, null, 'ui');
+    this.play('plate1', 0.35, 1.25, 0.05, 0.07, null, 'ui');
+    if (tags & 2) this.play('bell', 0.3, 1.4, 0.02, 0.15, null, 'ui');
+  },
   // 擊破確認：連續擊破時音高一級級往上（n＝連擊數），精英／AC 多一聲重音並短暫壓低其他聲音
   killConfirm(n, big) {
     const st = Math.min(Math.max(0, n - 1), 9);

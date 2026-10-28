@@ -13837,6 +13837,151 @@ async function testMpLevels(browser, url) {
 // QB 取消後接回、近戰 → 射擊、衝刺斬、對失衡目標的突進追擊、Boss 不硬直、電腦不用方向派生
 // 刀與大劍的正手握（render/mech-model.js 的 BLADE_GRIP／bladeWrist）：平時刀尖朝上、揮擊時轉手腕、突刺全程往前；
 // 爪等其他近戰武器照舊沿著前臂；刀光的刀尖跟著握法（measureBlades 在 aim 的座標量）
+async function testRangedDodge(browser, base) {
+  console.log('遠程射擊：邊閃邊打（QB 射擊、完美 QB 反擊、頂點、落地、繞射）');
+  const { ctx, page } = await newPage(browser, 'ranged-dodge');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'rb-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    pl.asm.rarm = 'w_rifle';
+    pl.initWeapons();
+    const tg = g.enemies[0];
+    for (const e of g.enemies) if (e !== tg) e.pos.set(900, -80, 900);
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 40 * pl.dk);
+    tg.hp = tg.maxHp = 1e7;
+    tg.ai = 'none';
+    pl.lock = tg;
+    const reset = () => {
+      Object.assign(pl, {
+        qbStartT: -99,
+        pqbT: 0,
+        rbCtrT: 0,
+        rbLandT: undefined,
+        rbOrbT: 0,
+        rbApexT: undefined,
+      });
+      pl.grounded = true;
+      pl.hoverMode = 0;
+      pl.vel.set(0, 0, 0);
+      g.rbSlowT = 0;
+    };
+    const shot = () => {
+      const w = pl.weapons.rarm;
+      w.cd = 0;
+      w.reloadT = 0;
+      w.mag = Math.max(w.mag, 5);
+      const n = g.projectiles.length;
+      pl.fire('rarm', tg.center(), tg);
+      const pr = g.projectiles[n];
+      return pr
+        ? { imp: pr.impactV, dmg: pr.dmg, rb: pr.rb || 0, hitR: pr.hitR || 0, bend: pr.bend || 0 }
+        : null;
+    };
+    const out = {};
+    reset();
+    out.base = shot();
+    reset();
+    pl.qbStartT = pl.t;
+    out.qb = shot();
+    reset();
+    pl.pqbT = 1.5;
+    out.ctr = shot();
+    out.ctrState = { pqb: pl.pqbT, ctr: pl.rbCtrT, slow: g.rbSlowT };
+    out.ctr2 = shot(); // 反擊時間內的第二發也有
+    reset();
+    pl.qbStartT = pl.t;
+    pl.pqbT = 1.5;
+    out.cap = shot();
+    // 頂點：在空中、往上的速度快要歸零
+    reset();
+    pl.grounded = false;
+    pl.vel.y = 0.2 * (pl.riseG || 40);
+    out.apex = shot();
+    reset();
+    pl.grounded = false;
+    pl.vel.y = 30 * pl.dk;
+    pl.riseG = 20 * pl.dk;
+    out.rise = shot(); // 還在快速上升：不是頂點
+    // 落地：空中 1 秒後落地
+    reset();
+    pl.grounded = false;
+    pl.rbTick(0.016);
+    pl.rbAir0 = pl.t - 1;
+    pl.grounded = true;
+    pl.rbTick(0.016);
+    out.land = shot();
+    out.land2 = shot(); // 只有第一輪
+    // 繞射：繞著目標橫移
+    reset();
+    for (let i = 0; i < 20; i++) {
+      pl.vel.set(12 * pl.dk, 0, 0);
+      pl.rbTick(0.1);
+    }
+    out.orbK = pl.rbOrbK();
+    out.orbit = pl.rbShot();
+    // 直直走向目標：繞射消退
+    for (let i = 0; i < 20; i++) {
+      pl.vel.set(0, 0, -12 * pl.dk);
+      pl.rbTick(0.1);
+    }
+    out.orbK2 = pl.rbOrbK();
+    // 敵人沒有加成
+    reset();
+    tg.qbStartT = tg.t;
+    const ew = Object.values(tg.weapons).find((w) => w.def && ['bullet', 'shotgun'].includes(w.def.type));
+    if (ew) {
+      const slot = Object.keys(tg.weapons).find((k) => tg.weapons[k] === ew);
+      ew.cd = 0;
+      ew.reloadT = 0;
+      ew.mag = Math.max(ew.mag, 5);
+      const n = g.projectiles.length;
+      tg.fire(slot, pl.center(), pl);
+      const pr = g.projectiles[n];
+      out.foe = pr ? { rb: pr.rb || 0, imp: pr.impactV, base: ew.def.impact * tg.dmgMul } : null;
+    }
+    // 打中：提示文字與金色數字
+    g.popups.length = 0;
+    pl.rbTagT = -9;
+    pl.rbHit(tg, 3);
+    tg.rbGold = true;
+    tg.takeDamage(10, 0, pl, tg.center(), null, undefined, 'w_rifle');
+    tg.rbGold = false;
+    out.tag = g.popups.some((q) => q.val === 'COUNTER + QB SHOT');
+    out.gold = g.popups.some((q) => q.num && q.stag);
+    return out;
+  });
+  const k = (a, b) => (a && b ? +(a.imp / b.imp).toFixed(2) : 0);
+  check(!!r.base && !r.base.rb, '一般射擊沒有加成');
+  check(r.qb && r.qb.rb & 1 && Math.abs(k(r.qb, r.base) - 1.4) < 0.02, `QB 射擊：衝擊 ×${k(r.qb, r.base)}`);
+  check(
+    r.ctr && r.ctr.rb & 2 && Math.abs(k(r.ctr, r.base) - 1.8) < 0.02 && r.ctr.dmg > r.base.dmg * 1.2,
+    `完美 QB 反擊：衝擊 ×${k(r.ctr, r.base)}、傷害 ×${r.ctr && (r.ctr.dmg / r.base.dmg).toFixed(2)}`,
+  );
+  check(
+    r.ctrState.pqb === 0 && r.ctrState.ctr > 1 && r.ctrState.slow > 0 && r.ctr2 && r.ctr2.rb & 2,
+    `反擊用掉近戰的完美 QB 加成、持續到時間結束、畫面變慢（${JSON.stringify(r.ctrState)}）`,
+  );
+  check(r.ctr.hitR > r.base.hitR && r.ctr.bend > r.base.bend, '反擊：彈道修正與命中判定加大');
+  check(Math.abs(k(r.cap, r.base) - 2) < 0.02, `加成的衝擊上限 ×2（QB＋反擊＝${k(r.cap, r.base)}）`);
+  check(r.apex && r.apex.rb & 4 && !(r.rise.rb & 4), '頂點射擊：快到最高點時有、快速上升中沒有');
+  check(r.land && r.land.rb & 8 && !(r.land2.rb & 8), '落地反擊：落地後的第一輪有、第二輪沒有');
+  check(
+    r.orbK === 1 && r.orbit.tags & 16 && r.orbit.spread <= 0.51 && r.orbK2 < 0.3,
+    `繞射：繞著目標滿了（擴散 ×${r.orbit.spread.toFixed(2)}）、直直走向目標時消退（${r.orbK2.toFixed(2)}）`,
+  );
+  check(!r.foe || (!r.foe.rb && Math.abs(r.foe.imp - r.foe.base) < 1), '電腦開火沒有加成');
+  check(r.tag && r.gold, '打中時顯示加成的文字、傷害數字是金色');
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -17760,6 +17905,7 @@ const STEPS = [
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
   ['testBladeGrip', (c) => testBladeGrip(c.browser, c.base)],
+  ['testRangedDodge', (c) => testRangedDodge(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [

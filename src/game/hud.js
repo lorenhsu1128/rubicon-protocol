@@ -325,6 +325,7 @@ Object.assign(Game.prototype, {
     const ob = document.getElementById('oob');
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
     if (!oob) this.zoneEdgeHud(c, p, W, H, dt); // 靠近邊界：朝邊界那一側的畫面邊緣發光
+    this.rbHud(c, p, W, H, dt); // 邊閃邊打：反擊時間、繞射（game/ranged.js）
     this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
     if (this.tut) this.tutHud(c); // 近戰訓練的方向箭頭（tutorial.js）
     document.getElementById('kits').innerHTML =
@@ -695,7 +696,7 @@ Object.assign(Game.prototype, {
       if (isLock) {
         const cs = this.proj(e.center());
         const base = (e.isBoss ? 56 : 34) * Math.min(1.6, e.scale || 1);
-        const bx = base * (1 + Math.max(0, 0.5 - p.lockT) * 1.2);
+        const bx = base * (1 + Math.max(0, 0.5 - p.lockT) * 1.2) * (1 - 0.35 * p.rbOrbK()); // 繞射：框縮小
         const L = bx * 0.45; // animated shrink-in lock box
         c.save();
         c.shadowColor = 'rgba(0,0,0,.8)';

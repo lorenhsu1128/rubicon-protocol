@@ -190,7 +190,10 @@ Object.assign(Game.prototype, {
     } else if (e.k === 'pqb') {
       const p = this.entById(e.i);
       if (p) this.pqbFx(p);
-    }
+    } else if (e.k === 'ctr') {
+      const p = this.entById(e.i);
+      if (p) this.rbCtrFx(p, e.d); // 完美 QB 反擊的射擊（game/ranged.js）
+    } else if (e.k === 'rb') SFX.rangedBonus(e.b);
   },
   // 完美 QB 的回饋（只給本人：房主／單機直接呼叫，客機由 fb 事件）
   pqbFx(p) {

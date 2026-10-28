@@ -88,6 +88,7 @@ import { measureBlades } from '../fx/trail.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
+import { RB_TYPES } from '../data/ranged.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
@@ -622,6 +623,8 @@ export class MechEntity {
     const conv = d.conv ? 1.15 - 0.7 * clamp(w.streak / d.conv, 0, 1) : 1;
     // 霰彈：理想射程以內越近越集中
     const near = d.near ? clamp(distT / (d.ideal || 14 * this.dk), 0.45, 1) : 1;
+    // 邊閃邊打（data/ranged.js、mech-ranged.js）：QB、完美 QB 反擊、最高點、落地、繞射的加成，只給玩家操作的機體
+    const rb = this.pilotEnt() && RB_TYPES.has(d.type) ? this.rbShot() : null;
     const spread =
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
@@ -630,19 +633,25 @@ export class MechEntity {
         (this.supK || 1) * // 壓制射擊（沒拿到攻擊權杖）的擴散
         assistSpread(assist) *
         conv *
-        near +
+        near *
+        (rb ? rb.spread : 1) +
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
     const dir = targetPos.clone().sub(muzzle).normalize();
     // 玩家操作的機體用武器的數值；電腦（敵人、友軍）乘 npcK，武器調強時敵人的威脅不跟著變
     const pilot = this.pilotEnt();
     const dk = pilot ? 1 : d.npcK || 1;
-    const dmg = d.dmg * this.dmgMul * dk,
-      imp = d.impact * this.dmgMul;
+    const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1),
+      imp = d.impact * this.dmgMul * (rb ? rb.imp : 1);
+    const rbT = rb && rb.tags ? { rb: rb.tags } : null; // 投射物打中時顯示提示（projectile.js 的 rbHit）
     // 彈道修正與命中判定（只給玩家操作的機體）：子彈差一點擦過時往鎖定的目標偏轉，判定半徑加大
     const aimX =
-      pilot && tgtOk && (d.bend || d.hitR)
-        ? { target: targetEnt, bend: (d.bend || 0) * (0.5 + assist), hitR: d.hitR || 0 }
+      pilot && tgtOk && (d.bend || d.hitR || rb)
+        ? {
+            target: targetEnt,
+            bend: (d.bend || 0) * (0.5 + assist) * (rb ? rb.bend : 1),
+            hitR: (d.hitR || 0) + (rb ? rb.hitR : 0),
+          }
         : null;
     const shoot = (dirv, kind, extra) => {
       if (g.range && this === g.player) g.rangeShot(d.id); // 靶場的命中率
@@ -664,6 +673,7 @@ export class MechEntity {
               fall: d.ideal ? [d.ideal, d.range] : null, // 實彈的距離衰減（projectile.js）
             },
             aimX || {},
+            rbT || {},
             extra || {},
           ),
         ),
@@ -753,6 +763,7 @@ export class MechEntity {
               splash: d.splash,
               gravity: 26,
               wid: d.id,
+              rb: rbT ? rbT.rb : 0,
             }),
           );
           g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
@@ -788,6 +799,7 @@ export class MechEntity {
                 turn: (d.turn * 1.4 * (this.stats.parts.fcs.id === 'f_near' ? 1.5 : 1)) / hmul,
                 splash: d.splash,
                 wid: d.id,
+                rb: rbT ? rbT.rb : 0,
               }),
             );
           }
@@ -888,7 +900,7 @@ export class MechEntity {
       case 'laser':
         {
           const charged = w.charge >= d.chargeT && d.chargeT > 0;
-          const ldmg = charged ? d.chargeDmg * this.dmgMul * dk : dmg;
+          const ldmg = charged ? d.chargeDmg * this.dmgMul * dk * (rb ? rb.dmg : 1) : dmg;
           const limp = charged ? imp * 2.2 : imp;
           w.charge = 0;
           w.charging = false;
@@ -927,7 +939,12 @@ export class MechEntity {
             const pt = muzzle.clone().addScaledVector(bdir, h.proj);
             const fall = Math.max(0.55, 1 - n * 0.15);
             if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt);
-            else h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
+            else {
+              h.t.rbGold = !!rbT; // 有加成的命中：金色的傷害數字
+              h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
+              h.t.rbGold = false;
+              if (rbT && !n) this.rbHit(h.t, rbT.rb);
+            }
             g.fx.spark(pt, d.color, bdir);
             SFX.hit(h.t.isPlayer ? null : pt, h.t);
             n++;
@@ -2046,7 +2063,7 @@ export class MechEntity {
       at || this.center(),
       real,
       this.isPlayer,
-      this.staggerT > 0,
+      this.staggerT > 0 || !!this.rbGold, // 邊閃邊打的加成（mech-ranged.js）也是金色
       !!melee,
       melee ? this.comboHits : 0,
       this.id,
@@ -2540,6 +2557,7 @@ export class MechEntity {
       this.vel.y = Math.max(0, this.vel.y);
       this.grounded = true;
     } else if (this.pos.y > g2 + 0.15 * this.dk) this.grounded = false;
+    if (this.pilotEnt()) this.rbTick(dt); // 邊閃邊打：落地、最高點、繞射（mech-ranged.js）
     const [nx, nz] = w.collide(this.pos.x, this.pos.z, this.pos.y, this.radius * 0.8, this.pilotEnt());
     this.aiState.stuck =
       Math.abs(nx - this.pos.x) + Math.abs(nz - this.pos.z) > 0.05 * this.dk ? this.aiState.stuck + dt : 0;
