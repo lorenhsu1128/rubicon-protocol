@@ -6,6 +6,7 @@ import { clamp } from '../core/math.js';
 import { DS, MS } from '../core/scale.js';
 import { CONSUMABLES, usesAmmo } from '../data/parts.js';
 import { meleeChainPos, meleeMove } from '../data/melee.js';
+import { PW, PW_FX } from '../data/charge.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
 
@@ -189,7 +190,7 @@ Object.assign(Game.prototype, {
         ['larm', 'rarm', 'lback', 'rback']
           .map(
             (s) =>
-              `<div class="wslot" id="ws_${s}"><b>${labels[s]}</b><em>—</em><span class="k">${keys[s]}</span><div class="rl"></div></div>`,
+              `<div class="wslot" id="ws_${s}"><b>${labels[s]}</b><em>—</em><span class="k">${keys[s]}</span><div class="rl"></div><div class="pw"></div></div>`,
           )
           .join('') +
         ['c1', 'c2']
@@ -220,6 +221,15 @@ Object.assign(Game.prototype, {
       else if (!usesAmmo(w.def))
         txt = w.charging ? '蓄力 ' + Math.round(clamp(w.charge / w.def.chargeT, 0, 1) * 100) + '%' : '∞';
       else txt = (w.reloadT > 0 ? '裝填中' : w.mag) + ' / ' + w.ammo;
+      // 蓄力射擊：充能（連射累積）或按住蓄力的進度；充滿時發光並標出強力彈的名稱
+      const pk = p.pwKind && p.pwKind(w.def);
+      const pv = !pk || pk === 'fin' ? 0 : p.pwMode === 'hold' ? (w.pwCh || 0) / PW.CH_T : w.pwc || 0;
+      const full = !!pk && pk !== 'fin' && (pv >= 1 || w.pwReady || w.pwFlashT > 0);
+      d.classList.toggle('pwFull', full);
+      const pwEl = d.querySelector('.pw');
+      if (pwEl) pwEl.style.height = clamp(pv, 0, 1) * 100 + '%';
+      if (full && pk) txt += '　' + PW_FX[pk].name;
+      if (w.pwFlashT > 0) w.pwFlashT -= 1 / 30;
       d.querySelector('b').textContent = labels[s] + ' ' + w.def.name.split(' ')[0];
       d.querySelector('em').textContent = txt;
       d.querySelector('.rl').style.width =

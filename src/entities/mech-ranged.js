@@ -35,6 +35,7 @@ Object.assign(MechEntity.prototype, {
     const o = this.rbOrbT || 0;
     this.rbOrbT = on ? Math.min(RB.ORBIT_T, o + dt) : Math.max(0, o - dt * RB.ORBIT_DECAY);
     if (this.rbCtrT > 0) this.rbCtrT -= dt;
+    if (this.pwQ) this.pwTick(dt); // 蓄力射擊的連發（mech-charge.js）
   },
   rbOrbK() {
     return clamp((this.rbOrbT || 0) / RB.ORBIT_T, 0, 1);

@@ -90,6 +90,7 @@ import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
 import { RB_TYPES } from '../data/ranged.js';
 import { WP } from '../data/weak.js';
+import { PW_FX } from '../data/charge.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
@@ -626,6 +627,10 @@ export class MechEntity {
     const near = d.near ? clamp(distT / (d.ideal || 14 * this.dk), 0.45, 1) : 1;
     // 邊閃邊打（data/ranged.js、mech-ranged.js）：QB、完美 QB 反擊、最高點、落地、繞射的加成，只給玩家操作的機體
     const rb = this.pilotEnt() && RB_TYPES.has(d.type) ? this.rbShot() : null;
+    // 蓄力射擊（data/charge.js、mech-charge.js）：這一發是不是強力彈
+    if (this.pilotEnt()) this.pwLast = { e: tgtOk ? targetEnt : null, p: targetPos.clone() };
+    const pwfx = this.pilotEnt() ? this.pwShot(slot, w, d) : null;
+    const pwK = pwfx ? (this.pwFollow ? this.pwFollow.k : this.pwKind(d)) : null;
     const spread =
       (d.spread || 0) *
         (slot.endsWith('arm') ? 1.3 - this.stats.parts.arms.aim * 0.6 : 0.55) *
@@ -636,6 +641,7 @@ export class MechEntity {
         conv *
         near *
         (rb ? rb.spread : 1) *
+        (pwfx ? pwfx.spread : 1) *
         (this.wpOff && this.wpOff.sen ? WP.SEN_SPREAD : 1) + // 感測器被打壞（mech-weak.js）
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
@@ -643,13 +649,24 @@ export class MechEntity {
     // 玩家操作的機體用武器的數值；電腦（敵人、友軍）乘 npcK，武器調強時敵人的威脅不跟著變
     const pilot = this.pilotEnt();
     const dk = pilot ? 1 : d.npcK || 1;
-    const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1),
-      imp = d.impact * this.dmgMul * (rb ? rb.imp : 1);
+    const pwN = pwK === 'slug' ? d.pellets || 1 : 1; // 獨頭彈＝所有彈丸合成一發
+    const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1) * (pwfx ? pwfx.dmg * pwN : 1),
+      imp = d.impact * this.dmgMul * (rb ? rb.imp : 1) * (pwfx ? pwfx.imp * pwN : 1);
     const rbT = rb && rb.tags ? { rb: rb.tags } : null; // 投射物打中時顯示提示（projectile.js 的 rbHit）
     // 追尾視角／第一人稱的準星壓在鎖定目標的弱點上（game/weak.js 的 wpAimTick）：這一發算打在那個弱點
     const wpk = pilot && tgtOk && this.wpAim && this.wpAim.e === targetEnt ? this.wpAim.k : null;
     // 敵人的導彈、火箭彈、榴彈可以打掉（hazards2.js 的 shotInit）：擊落時在原地爆炸
     const foeShot = !pilot && this.team === 'enemy' && !g.rts && !g.pvp;
+    // 蓄力射擊：充能用的射擊編號（一次射擊只算一次）、強力彈的外觀與命中判定
+    const pwX = {};
+    if (pilot && this.pwKind(d)) {
+      if (!pwfx) Object.assign(pwX, { pwSlot: slot, pwGrp: (this.pwSeq = (this.pwSeq || 0) + 1) });
+      else {
+        pwX.pwk = pwK;
+        pwX.scale = pwfx.scale;
+        if (pwfx.hitR) pwX.hitR = pwfx.hitR * this.dk; // 加在彈道修正的 hitR 上（aimX 之後）
+      }
+    }
     // 彈道修正與命中判定（只給玩家操作的機體）：子彈差一點擦過時往鎖定的目標偏轉，判定半徑加大
     const aimX =
       pilot && tgtOk && (d.bend || d.hitR || rb)
@@ -659,6 +676,7 @@ export class MechEntity {
             hitR: (d.hitR || 0) + (rb ? rb.hitR : 0),
           }
         : null;
+    if (pwX.hitR && aimX) pwX.hitR += aimX.hitR;
     const shoot = (dirv, kind, extra) => {
       if (g.range && this === g.player) g.rangeShot(d.id); // 靶場的命中率
       g.projectiles.push(
@@ -681,6 +699,7 @@ export class MechEntity {
             aimX || {},
             rbT || {},
             wpk ? { wpk } : {},
+            pwX,
             extra || {},
           ),
         ),
@@ -711,7 +730,7 @@ export class MechEntity {
         break;
       case 'shotgun':
         if (d.enShot && !this.useEn(d.enShot * (1 - this.pmv('enWpn')))) return false; // 能量霰彈：每發耗 EN
-        for (let i = 0; i < d.pellets; i++) shoot(jitter(dir), 'bullet');
+        for (let i = 0; i < (pwK === 'slug' ? 1 : d.pellets); i++) shoot(jitter(dir), 'bullet');
         g.fx.muzzle(muzzle, dir, 0xffa050, 1.8);
         g.fx.casing(muzzle.clone().addScaledVector(dir, -1 * this.dk), w.side, dir);
         SFX.shot('shotgun', undefined, SP);
@@ -723,7 +742,14 @@ export class MechEntity {
         }
         break;
       case 'shell':
-        shoot(jitter(dir), 'shell', Object.assign({ splash: d.splash }, foeShot ? this.foeShotOpt(dmg) : {}));
+        shoot(
+          jitter(dir),
+          'shell',
+          Object.assign(
+            { splash: d.splash * (pwfx && pwfx.splash ? pwfx.splash : 1) },
+            foeShot ? this.foeShotOpt(dmg) : {},
+          ),
+        );
         g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
         g.fx.smoke(muzzle.clone().addScaledVector(dir, -1.5), 1.2, 0x9a9ea6, 0.8, 2);
         SFX.shot('shell', undefined, SP);
@@ -767,11 +793,12 @@ export class MechEntity {
               owner: this,
               color: d.color,
               life: tt + 1.5,
-              splash: d.splash,
+              splash: d.splash * (pwfx && pwfx.splash ? pwfx.splash : 1),
               gravity: 26,
               wid: d.id,
               rb: rbT ? rbT.rb : 0,
               wpk,
+              ...pwX,
               ...(foeShot ? this.foeShotOpt(dmg) : {}),
             }),
           );
@@ -1058,6 +1085,8 @@ export class MechEntity {
         break;
     }
     if (this.wpOff && this.wpOff.rad && d.type !== 'melee') w.cd *= WP.RAD_CD; // 散熱片被打壞（mech-weak.js）
+    if (pwK && (!this.pwFollow || (pwK === 'fin' && this.pwFollow.n === PW_FX.fin.n)))
+      this.pwFireFx(pwK, muzzle, dir); // 強力彈的開火演出（第一發）
     if (usesAmmo(d)) {
       w.mag--;
       w.ammo--;

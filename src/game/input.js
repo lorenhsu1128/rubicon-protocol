@@ -680,6 +680,10 @@ Object.assign(Game.prototype, {
       this.ctrl.exec = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlCharge').onchange = (e) => {
+      this.ctrl.chargeMode = e.target.value; // 蓄力射擊的方式（data/charge.js）
+      this.saveKeys();
+    };
     document.getElementById('ctrlMeleeAssist').onchange = (e) => {
       this.ctrl.meleeAssist = e.target.value;
       this.saveKeys();

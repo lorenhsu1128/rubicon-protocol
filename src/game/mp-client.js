@@ -662,6 +662,7 @@ Object.assign(Game.prototype, {
       kit: this.kitPressed ? 1 : 0,
       nx: this.ctrl.exec === 'off' ? 1 : 0, // 處決關閉（長按近戰＝一般近戰）
       ma: this.ctrl.meleeAssist === 'std' ? 1 : 0, // 近戰輸入輔助：標準（預設寬鬆）
+      cm: this.ctrl.chargeMode === 'hold' ? 1 : 0, // 蓄力射擊：按住蓄力（預設連射累積充能）
       // 方向派生：'' 中立、f 前、b 後、l／r 側，後面加 ! ＝觸控的滑動
       mk: (mk.k === 's' ? (mk.side > 0 ? 'r' : 'l') : mk.k) + (mk.sw ? '!' : ''),
       cs1: this.cs1Pressed ? 1 : 0,

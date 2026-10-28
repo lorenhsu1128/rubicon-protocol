@@ -197,6 +197,7 @@ Object.assign(Game.prototype, {
     // weapons
     const aimR = this.chase ? this.mouseWorld.clone() : this.reticlePoint(p);
     this.aimRet = aimR;
+    p.pwMode = this.ctrl.chargeMode === 'hold' ? 'hold' : 'auto'; // 蓄力射擊的方式（data/charge.js）
     const fireSlot = (slot, held) => {
       const w = p.weapons[slot];
       const isBeam = w.def.type === 'laser' || w.def.type === 'empbeam';
@@ -214,6 +215,7 @@ Object.assign(Game.prototype, {
           aimEnt = null;
         }
       }
+      if (p.pwInput(slot, held, dt, aimPos, aimEnt)) return; // 蓄力射擊的按住蓄力（mech-charge.js）
       if (w.def.type === 'laser' && w.def.chargeT > 0 && held && !w.charging && w.cd <= 0) SFX.charge(null);
       if (
         !this.ctrl.holdFire &&

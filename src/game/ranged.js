@@ -20,6 +20,13 @@ Object.assign(Game.prototype, {
     SFX.play('thrBurst', 0.9, 1.5, 0.04, 0.1, null, 'ui');
     this.rumble(0.5, 0.8, 160);
   },
+  // 蓄力射擊的充能完成（只給本人：房主／單機直接呼叫，客機由 fb 事件 'pwr'）
+  pwReadyLocal(p, slot) {
+    const w = p.weapons[slot];
+    if (w) w.pwFlashT = 0.6;
+    SFX.play('uiOk', 0.5, 1.4, 0.02, 0.1, null, 'ui');
+    SFX.play('bell', 0.25, 1.8, 0.02, 0.1, null, 'ui');
+  },
   // HUD：反擊時間（畫面邊緣的藍光＋倒數）、繞射（鎖定目標周圍的環，滿了顯示 ORBIT）
   rbHud(c, p, W, H) {
     if (!p || p.dead) return;

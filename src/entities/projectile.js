@@ -206,6 +206,11 @@ export class Projectile {
               this.owner.rbHit(t, this.rb);
               this.rb = 0; // 一顆只提示一次
             }
+            if ((this.pwSlot || this.pwk) && this.owner && this.owner.pwGain && g.isHostile(this.owner, t)) {
+              if (this.pwSlot) this.owner.pwGain(this.pwSlot, this.pwGrp); // 蓄力射擊的充能（mech-charge.js）
+              if (this.pwk) this.owner.pwHitPop(t, this.pwk);
+              this.pwSlot = this.pwk = null;
+            }
           }
         }
       }
@@ -238,6 +243,10 @@ export class Projectile {
         direct.rbGold = false;
         direct.wpAimK = null;
         if (this.rb && this.owner && this.owner.rbHit) this.owner.rbHit(direct, this.rb);
+        if (this.owner && this.owner.pwGain && !direct.isShot && g.isHostile(this.owner, direct)) {
+          if (this.pwSlot) this.owner.pwGain(this.pwSlot, this.pwGrp); // 蓄力射擊的充能（mech-charge.js）
+          if (this.pwk) this.owner.pwHitPop(direct, this.pwk);
+        }
       }
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
       SFX.hit(direct.isPlayer ? null : this.pos, direct);

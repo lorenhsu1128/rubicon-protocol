@@ -747,6 +747,16 @@
             ><label><input type="checkbox" id="ctrlHold" /> 按住連射（取消則每按一次射一發）</label>
           </div>
           <div class="krow">
+            <span>蓄力射擊</span
+            ><select
+              id="ctrlCharge"
+              title="步槍、手槍、霰彈、火箭筒、榴彈的強力彈：連射累積＝打中累積充能，充滿後下一發自動變強力彈；按住蓄力＝按一下開一槍，按住開始蓄力、放開打出（不再按住連射）。機槍類兩種都是持續射擊後放開打出收尾連射"
+            >
+              <option value="auto">連射累積充能（預設）</option>
+              <option value="hold">按住蓄力</option>
+            </select>
+          </div>
+          <div class="krow">
             <span>遊戲節奏</span
             ><select id="ctrlPace">
               <option value="0.7">慢（70%）</option>

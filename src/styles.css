@@ -263,6 +263,19 @@ table.keys td {
 .wslot.empty {
   opacity: 0.35;
 }
+/* 蓄力射擊的充能（data/charge.js）：右側的直條，充滿時發光 */
+.wslot .pw {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  height: 0;
+  background: #7fe8ff;
+}
+.wslot.pwFull {
+  border-color: #7fe8ff;
+  box-shadow: 0 0 8px rgba(127, 232, 255, 0.6) inset;
+}
 .wslot.cs b {
   color: var(--acc2);
 }

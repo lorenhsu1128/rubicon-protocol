@@ -14140,6 +14140,164 @@ async function testRangedWeak(browser, base) {
   await ctx.close();
 }
 
+async function testRangedCharge(browser, base) {
+  console.log('遠程射擊：蓄力射擊（連射累積充能、按住蓄力、強力彈、機槍的收尾連射）');
+  const { ctx, page } = await newPage(browser, 'ranged-charge');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'pw-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const tg = g.spawnType('mt', 1, 1);
+    tg.ai = 'none';
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 30 * pl.dk);
+    tg.hp = tg.maxHp = 1e9;
+    pl.lock = tg;
+    const arm = (id) => {
+      pl.asm.rarm = id;
+      pl.initWeapons();
+      Object.assign(pl, { qbStartT: -99, pqbT: 0, rbCtrT: 0, rbLandT: undefined, rbOrbT: 0, pwQ: null });
+      return pl.weapons.rarm;
+    };
+    const shot = () => {
+      const w = pl.weapons.rarm;
+      w.cd = 0;
+      w.reloadT = 0;
+      w.mag = Math.max(w.mag, 10);
+      const n = g.projectiles.length;
+      pl.fire('rarm', tg.center(), tg);
+      return g.projectiles.slice(n);
+    };
+    const out = {};
+    pl.pwMode = 'auto';
+    // 步槍：打中 14 次充滿 → 下一發穿甲彈
+    let w = arm('w_rifle');
+    const base = shot()[0];
+    out.base = { dmg: base.dmg, imp: base.impactV, slot: base.pwSlot };
+    base.impact(tg);
+    for (let i = 0; i < 13; i++) shot()[0].impact(tg);
+    out.ready = { rdy: w.pwReady, c: w.pwc };
+    const pw = shot()[0];
+    out.pierce = {
+      k: +(pw.dmg / base.dmg).toFixed(2),
+      i: +(pw.impactV / base.impactV).toFixed(2),
+      pwk: pw.pwk,
+      used: !w.pwReady,
+    };
+    out.after = +(shot()[0].dmg / base.dmg).toFixed(2);
+    for (const q of g.projectiles) q.dead = true;
+    // 霰彈：一次射擊的彈丸只算一次充能；獨頭彈＝一發
+    w = arm('w_sg');
+    const pel = shot();
+    for (const q of pel) q.impact(tg);
+    out.sgGain = +w.pwc.toFixed(3);
+    w.pwReady = true;
+    const slug = shot();
+    out.slug = { n: slug.length, k: +(slug[0].dmg / pel[0].dmg).toFixed(2), pellets: w.def.pellets };
+    // 手槍：三連發
+    w = arm('w_hg');
+    w.pwReady = true;
+    const b0 = shot().length;
+    let bn = b0;
+    for (let i = 0; i < 10; i++) {
+      const n = g.projectiles.length;
+      pl.pwTick(0.05);
+      bn += g.projectiles.length - n;
+    }
+    out.burst = bn;
+    // 火箭筒：大爆炸
+    w = arm('w_bz');
+    const z0 = shot()[0];
+    w.pwReady = true;
+    const z1 = shot()[0];
+    out.blast = +(z1.splash / z0.splash).toFixed(2);
+    // 按住蓄力：按下開一槍、按住不連射、蓄滿放開＝穿甲彈
+    pl.pwMode = 'hold';
+    w = arm('w_rifle');
+    w.mag = 24;
+    const h0 = g.projectiles.length;
+    pl.pwInput('rarm', true, 1 / 60, tg.center(), tg);
+    const first = g.projectiles.length - h0;
+    for (let i = 0; i < 90; i++) {
+      w.cd = 0;
+      pl.pwInput('rarm', true, 1 / 60, tg.center(), tg);
+    }
+    const held = g.projectiles.length - h0;
+    out.hold = { first, held, ch: +w.pwCh.toFixed(2) };
+    const h1 = g.projectiles.length;
+    pl.pwInput('rarm', false, 1 / 60, tg.center(), tg);
+    const rel = g.projectiles.slice(h1);
+    out.hold.rel = rel.length;
+    out.hold.k = rel[0] ? +(rel[0].dmg / base.dmg).toFixed(2) : 0;
+    // 按住蓄力時打中不累積
+    rel[0] && rel[0].impact(tg);
+    out.hold.gain = w.pwc || 0;
+    // 短按放開：沒有強力彈
+    const s0 = g.projectiles.length;
+    w.cd = 0;
+    pl.pwInput('rarm', true, 1 / 60, tg.center(), tg);
+    pl.pwInput('rarm', false, 1 / 60, tg.center(), tg);
+    out.tap = g.projectiles.length - s0;
+    // 機槍：持續射擊 1 秒以上放開 → 收尾連射 8 發（衝擊 ×2.5）
+    pl.pwMode = 'auto';
+    w = arm('w_mg');
+    w.mag = 200;
+    const m0 = shot()[0];
+    w.streak = 1.3;
+    w.lastShot = pl.t;
+    pl.pwInput('rarm', true, 1 / 60, tg.center(), tg);
+    pl.pwInput('rarm', false, 1 / 60, tg.center(), tg);
+    const f0 = g.projectiles.length;
+    for (let i = 0; i < 40; i++) pl.pwTick(0.02);
+    const fin = g.projectiles.slice(f0);
+    out.fin = { n: fin.length, i: fin[0] ? +(fin[0].impactV / m0.impactV).toFixed(2) : 0 };
+    w.streak = 0.3;
+    w.lastShot = pl.t;
+    pl.pwInput('rarm', true, 1 / 60, tg.center(), tg);
+    pl.pwInput('rarm', false, 1 / 60, tg.center(), tg);
+    out.finShort = !pl.pwQ;
+    for (const q of g.projectiles) q.dead = true;
+    return out;
+  });
+  check(r.base.slot === 'rarm' && r.ready.rdy && r.ready.c === 1, '連射累積充能：步槍打中 14 次充滿');
+  check(
+    Math.abs(r.pierce.k - 2.5) < 0.02 &&
+      Math.abs(r.pierce.i - 3) < 0.02 &&
+      r.pierce.pwk === 'pierce' &&
+      r.pierce.used &&
+      r.after === 1,
+    `充滿後的下一發＝穿甲彈（傷害 ×${r.pierce.k}、衝擊 ×${r.pierce.i}），用掉後恢復`,
+  );
+  check(Math.abs(r.sgGain - 1 / 3) < 0.01, `霰彈一次射擊的彈丸只算一次充能（${r.sgGain}）`);
+  check(
+    r.slug.n === 1 && Math.abs(r.slug.k - 0.9 * r.slug.pellets) < 0.05,
+    `霰彈的獨頭彈：一發、傷害 ×${r.slug.k}`,
+  );
+  check(r.burst === 3, `手槍的三連發（${r.burst} 發）`);
+  check(Math.abs(r.blast - 2) < 0.01, `火箭筒的大爆炸：範圍 ×${r.blast}`);
+  check(
+    r.hold.first === 1 && r.hold.held === 1 && Math.abs(r.hold.ch - 0.8) < 0.01,
+    '按住蓄力：按下開一槍、按住不連射、蓄滿',
+  );
+  check(
+    r.hold.rel === 1 && Math.abs(r.hold.k - 2.5) < 0.02 && !r.hold.gain,
+    `按住蓄力：放開打出穿甲彈（×${r.hold.k}），打中不累積充能`,
+  );
+  check(r.tap === 1, '按住蓄力：短按只開一槍');
+  check(
+    r.fin.n === 8 && Math.abs(r.fin.i - 2.5) < 0.02 && r.finShort,
+    `機槍：持續射擊後放開＝收尾連射 ${r.fin.n} 發（衝擊 ×${r.fin.i}），射擊太短沒有`,
+  );
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -18065,6 +18223,7 @@ const STEPS = [
   ['testBladeGrip', (c) => testBladeGrip(c.browser, c.base)],
   ['testRangedDodge', (c) => testRangedDodge(c.browser, c.base)],
   ['testRangedWeak', (c) => testRangedWeak(c.browser, c.base)],
+  ['testRangedCharge', (c) => testRangedCharge(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [
