@@ -598,7 +598,7 @@ export class StylePipeline {
   }
   // SSAO 的法線（同 SSAOPass 的 overrideVisibility＋renderOverride＋restoreVisibility，但只走訪場景一次）：
   // 隱藏點、線（SSAOPass 原本就隱藏），以及描邊外殼（覆蓋材質下它和本體是同一份幾何、同樣的深度與法線，畫了結果相同，
-  // 只是多一倍 draw call）。沒有蒙皮網格時用覆蓋材質；有的話逐個網格換材質（蒙皮網格用蒙皮版：three.js r128 的同一個
+  // 只是多一倍 draw call）、userData.noAO 的網格。沒有蒙皮網格時用覆蓋材質；有的話逐個網格換材質（蒙皮網格用蒙皮版：three.js r128 的同一個
   // 材質不會依物件換蒙皮／非蒙皮的程式）。
   renderNormals(S) {
     const R = this.R,
@@ -609,7 +609,8 @@ export class StylePipeline {
       mats = this.nMats;
     let skin = false;
     s.traverseVisible((o) => {
-      if (o.isPoints || o.isLine) hide.push(o);
+      if (o.isPoints || o.isLine || o.userData.noAO)
+        hide.push(o); // noAO：貼地的半透明標示（作戰區域的邊界線）
       else if (o.material && (o.isMesh || o.isSprite)) {
         if (o.isMesh && isOutline(o.material)) hide.push(o);
         else {

@@ -1016,7 +1016,7 @@ Object.assign(Game.prototype, {
     this.camTarget.copy(focus);
     if (this.world) {
       this.world.updateOcclusion(cam.position, focus, dt);
-      for (const m of this.world.bWall || []) m.visible = false; // 作戰區域的警示光幕不顯示
+      if (this.world.bLine) this.world.bLine.visible = false; // 作戰區域的邊界線不顯示
     }
   },
   // ---------- 事件 ----------

@@ -5868,6 +5868,20 @@ async function testBoundary(browser, base) {
       pl = g.player;
     pl.hp = pl.maxHp = 1e7;
     const dt = 1 / 60;
+    // 靠近邊界（場內）：地面的邊界線亮起、畫面邊緣發光；沒有以前的警示光幕
+    const xn = w.zone[1] - 15;
+    pl.pos.set(xn, w.groundAt(xn, 0, 99) + 0.1, 0);
+    for (let i = 0; i < 60; i++) g.updateCamera(dt);
+    g.camera.updateMatrixWorld();
+    w.updateBoundary(pl.pos);
+    g.drawHud(dt);
+    const nearLine = w.bLine.visible && w.bLine.material.uniforms.uK.value > 0.3;
+    const nearHud = g.zoneNear > 0.4;
+    const noWall = !w.bWall;
+    pl.pos.set(0, w.groundAt(0, 0, 99) + 0.1, 0);
+    w.updateBoundary(pl.pos);
+    g.drawHud(dt);
+    const farOff = !w.bLine.visible && !g.zoneNear;
     const x0 = w.lim + 8;
     pl.pos.set(x0, w.groundAt(x0, 0, 99) + 0.1, 0);
     pl.vel.set(0, 0, 0);
@@ -5891,8 +5905,12 @@ async function testBoundary(browser, base) {
     const ai = e.pos.x <= w.lim + 1e-6;
     g.clearMission();
     g.state = 'title';
-    return { warn, maxX, held, back, off, ai, lim: w.lim, out: w.limOut };
+    return { warn, maxX, held, back, off, ai, lim: w.lim, out: w.limOut, nearLine, nearHud, noWall, farOff };
   });
+  check(
+    r.nearLine && r.nearHud && r.noWall && r.farOff,
+    `靠近邊界：地面的邊界線亮起（${r.nearLine}）、畫面邊緣提示（${r.nearHud}）、沒有警示光幕（${r.noWall}），場地中央都不顯示（${r.farOff}）`,
+  );
   check(r.warn, '超出作戰區域時顯示警告');
   check(
     r.maxX <= r.out + 1e-6 && r.held < r.lim + 8 && r.back <= r.lim + 0.5 && r.off,

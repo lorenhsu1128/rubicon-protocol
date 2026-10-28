@@ -3,11 +3,13 @@ import { weakText } from '../data/attrs.js';
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
-import { MS } from '../core/scale.js';
+import { DS, MS } from '../core/scale.js';
 import { CONSUMABLES, usesAmmo } from '../data/parts.js';
 import { meleeChainPos, meleeMove } from '../data/melee.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
+
+const ZONE_WARN = 14; // ×DS：離作戰區域的邊界這麼近時畫面邊緣發光（hud.js 的 zoneEdgeHud）
 
 Object.assign(Game.prototype, {
   // 多連導彈的鎖定數（火控的 lockSpeed；MechEntity.missileN）
@@ -246,6 +248,65 @@ Object.assign(Game.prototype, {
       behind: p.z > 1,
     };
   },
+  // 靠近作戰區域的邊界（ZONE_WARN 內）：朝邊界那一側的畫面邊緣發橘光、標出距離（取代以前的警示光幕；
+  // 地面上另有邊界線 World.updateBoundary）。同時靠近兩條邊（角落）時兩側都畫
+  zoneEdgeHud(c, p, W, H, dt) {
+    const w = this.world;
+    const show = w && w.zone && !p.dead && !this.spectator && !this.rts && !this.cine;
+    const Z = show ? w.zone : null;
+    const E = Z
+      ? [
+          [p.pos.x - Z[0], -1, 0],
+          [Z[1] - p.pos.x, 1, 0],
+          [p.pos.z - Z[2], 0, -1],
+          [Z[3] - p.pos.z, 0, 1],
+        ]
+      : [];
+    const R = ZONE_WARN * DS;
+    let near = 0;
+    const a = p.pos.clone().project(this.camera);
+    for (const [d, nx, nz] of E) {
+      if (d >= R) continue;
+      const t = 1 - d / R;
+      near = Math.max(near, t);
+      // 邊界方向換成畫面上的方向
+      const b = p.pos
+        .clone()
+        .add(new THREE.Vector3(nx, 0, nz).multiplyScalar(10 * DS))
+        .project(this.camera);
+      let dx = (b.x - a.x) * W,
+        dy = -(b.y - a.y) * H;
+      const L = Math.hypot(dx, dy);
+      if (!(L > 1e-3)) continue; // 也擋掉 NaN（鏡頭還沒更新）
+      dx /= L;
+      dy /= L;
+      // 從畫面中央往這個方向，碰到畫面邊緣的點
+      const k = Math.min(dx ? W / 2 / Math.abs(dx) : 1e9, dy ? H / 2 / Math.abs(dy) : 1e9);
+      if (!Number.isFinite(k)) continue;
+      const ex = W / 2 + dx * k,
+        ey = H / 2 + dy * k;
+      const r = Math.min(W, H) * (0.3 + 0.15 * t);
+      const al = 0.12 + 0.4 * t * t;
+      const g = c.createRadialGradient(ex, ey, 0, ex, ey, r);
+      g.addColorStop(0, `rgba(255,110,40,${al.toFixed(3)})`);
+      g.addColorStop(1, 'rgba(255,110,40,0)');
+      c.fillStyle = g;
+      c.fillRect(ex - r, ey - r, r * 2, r * 2);
+      if (t > 0.35) {
+        const ix = W / 2 + dx * (k - 70),
+          iy = H / 2 + dy * (k - 46);
+        c.save();
+        c.font = '700 13px sans-serif';
+        c.textAlign = 'center';
+        c.fillStyle = `rgba(255,200,160,${Math.min(1, (t - 0.35) * 3).toFixed(2)})`;
+        c.shadowColor = 'rgba(0,0,0,0.7)';
+        c.shadowBlur = 4;
+        c.fillText(`作戰區域邊界 ${Math.max(0, d).toFixed(0)} m`, ix, iy);
+        c.restore();
+      }
+    }
+    this.zoneNear = near; // 冒煙測試看它
+  },
   drawHud(dt) {
     const p = this.player,
       c = this.hctx,
@@ -263,6 +324,7 @@ Object.assign(Game.prototype, {
     const oob = this.world ? this.world.zoneExcess(p.pos.x, p.pos.z) : 0;
     const ob = document.getElementById('oob');
     if (ob) ob.classList.toggle('on', oob > 0 && !p.dead);
+    if (!oob) this.zoneEdgeHud(c, p, W, H, dt); // 靠近邊界：朝邊界那一側的畫面邊緣發光
     this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
     if (this.tut) this.tutHud(c); // 近戰訓練的方向箭頭（tutorial.js）
     document.getElementById('kits').innerHTML =

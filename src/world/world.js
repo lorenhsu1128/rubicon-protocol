@@ -77,6 +77,8 @@ import {
 import { propShape, shapeContains, shapeSegT } from './prop-hit.js';
 import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
+
+const BOUND_R = 20 * DS; // 作戰區域的邊界線：機體離邊界這麼近才顯示、亮的半徑
 import { NavGrid } from './nav.js';
 import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
 import { RTS_CELL, rtsReserveWater, rtsDuneShade } from './rts-map.js';
@@ -2591,68 +2593,126 @@ export class World {
       });
     }
   }
-  // 作戰區域邊界的警示光幕：機體靠近 ±lim 時在邊界上浮現（跟著機體在邊界上的投影位置，兩個方向各一片）
+  // 作戰區域的邊界線：貼在地面上的發光線（往外有一條淡出的光暈帶、流動的斜紋），只在機體附近亮起，
+  // 離邊界越近越亮；不立牆（2026-10-28 使用者定案：拿掉大片的警示光幕，改成地面線＋HUD 提示 game/hud.js 的 zoneEdgeHud）
   buildBoundary() {
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 128;
-    const c = cv.getContext('2d');
-    c.fillStyle = 'rgba(255,90,30,0.18)';
-    c.fillRect(0, 0, 128, 128);
-    c.strokeStyle = 'rgba(255,120,30,0.95)';
-    c.lineWidth = 9;
-    for (let k = -128; k < 256; k += 32) {
-      c.beginPath();
-      c.moveTo(k, 128);
-      c.lineTo(k + 128, 0);
-      c.stroke();
-    }
-    // 中央濃、四周淡出
-    c.globalCompositeOperation = 'destination-in';
-    const g = c.createRadialGradient(64, 64, 8, 64, 64, 64);
-    g.addColorStop(0, 'rgba(0,0,0,1)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = g;
-    c.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(cv);
-    this.bWall = [0, 1].map(() => {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(46 * DS, 24 * DS),
-        new THREE.MeshBasicMaterial({
-          map: tex,
-          transparent: true,
-          opacity: 0,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-      );
-      m.visible = false;
-      m.renderOrder = 3;
-      this.scene.add(m);
-      this.meshes.push(m);
-      return m;
-    });
+    this.bLine = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uP: { value: new THREE.Vector3(0, -1e6, 0) },
+          uR: { value: BOUND_R },
+          uK: { value: 0 },
+          uT: { value: 0 },
+          uC: { value: new THREE.Color(0xff7a28) },
+        },
+        vertexShader: `attribute vec2 aB; varying vec2 vB; varying vec3 vW;
+          void main() {
+            vec4 w = modelMatrix * vec4(position, 1.0);
+            vW = w.xyz; vB = aB;
+            gl_Position = projectionMatrix * viewMatrix * w;
+          }`,
+        fragmentShader: `uniform vec3 uP; uniform float uR; uniform float uK; uniform float uT; uniform vec3 uC;
+          varying vec2 vB; varying vec3 vW;
+          void main() {
+            float near = 1.0 - smoothstep(uR * 0.3, uR, distance(vW.xz, uP.xz));
+            if (near <= 0.0) discard;
+            float s = vB.y; // 0＝內側、0.2＝邊界線、1＝外側
+            float core = 1.0 - smoothstep(0.0, 0.07, abs(s - 0.2));
+            float glow = s > 0.2 ? pow(1.0 - (s - 0.2) / 0.8, 2.0) * 0.35 : (s / 0.2) * 0.2;
+            float dash = step(0.5, fract(vB.x / ${(8 * DS).toFixed(1)} + s * 0.6 - uT * 0.5));
+            float a = (core * (0.55 + 0.45 * dash) + glow * (0.6 + 0.4 * dash)) * near * (0.3 + 0.7 * uK);
+            gl_FragColor = vec4(uC * (0.9 + core * 0.8), a);
+          }`,
+        transparent: true,
+        depthWrite: false,
+        // 加色，但不寫 alpha（後處理以 alpha 分辨材質種類：描線、動態模糊；同 render/hangar.js 的 keepAlpha）
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.SrcAlphaFactor,
+        blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.ZeroFactor,
+        blendDstAlpha: THREE.OneFactor,
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+      }),
+    );
+    const m = this.bLine;
+    m.frustumCulled = false;
+    m.renderOrder = 3;
+    m.visible = false;
+    m.userData.noFade = true;
+    m.userData.helper = true;
+    m.userData.noAO = true; // SSAO 的法線不畫它（style/pipeline.js 的 renderNormals）
+    m.raycast = () => {};
+    this.scene.add(m);
+    this.meshes.push(m);
   }
-  updateBoundary(p) {
-    if (!this.bWall || !p) return;
-    const Z = this.zone;
-    for (let k = 0; k < 2; k++) {
-      const m = this.bWall[k];
-      const v = k ? p.z : p.x,
-        o = k ? p.x : p.z;
-      const lo = Z[k * 2],
-        hi = Z[k * 2 + 1];
-      const edge = v - lo < hi - v ? lo : hi;
-      const t = clamp(1 - Math.min(v - lo, hi - v) / (22 * DS), 0, 1);
-      const op = t * t * (3 - 2 * t) * 0.85;
-      m.visible = op > 0.01;
-      if (!m.visible) continue;
-      m.material.opacity = op;
-      const a = clamp(o, Z[(1 - k) * 2] - OOB_BUF, Z[(1 - k) * 2 + 1] + OOB_BUF);
-      const x = k ? a : edge,
-        z = k ? edge : a;
-      m.position.set(x, Math.max(this.terrainHeight(x, z), p.y - 6 * DS) + 10 * DS, z);
-      m.rotation.y = k ? 0 : Math.PI / 2;
+  // 作戰區域（矩形）的四條邊：每條沿著邊取樣、貼地形，往內 1 格、往外 5 格寬的帶狀網格
+  boundaryGeom() {
+    const Z = this.zone,
+      step = 3 * DS,
+      w0 = 0.8 * DS,
+      w1 = 3.2 * DS,
+      lift = 0.35 * DS;
+    const pos = [],
+      ab = [],
+      idx = [];
+    // 每條邊：起點、方向、往外的法線
+    const E = [
+      [Z[0], Z[2], 0, 1, -1, 0],
+      [Z[1], Z[2], 0, 1, 1, 0],
+      [Z[0], Z[2], 1, 0, 0, -1],
+      [Z[0], Z[3], 1, 0, 0, 1],
+    ];
+    for (const [x0, z0, dx, dz, nx, nz] of E) {
+      const len = dx ? Z[1] - Z[0] : Z[3] - Z[2];
+      const n = Math.max(1, Math.ceil(len / step));
+      const v0 = pos.length / 3;
+      for (let i = 0; i <= n; i++) {
+        const u = (len * i) / n;
+        for (const [o, t] of [
+          [-w0, 0],
+          [0, 0.2],
+          [w1, 1],
+        ]) {
+          // 線心（0.2）在邊界上，內外兩條邊依寬度換算
+          const x = x0 + dx * u + nx * o,
+            z = z0 + dz * u + nz * o;
+          pos.push(x, this.terrainHeight(x, z) + lift, z);
+          ab.push(u, t);
+        }
+        if (i < n) {
+          const a = v0 + i * 3,
+            b = a + 3;
+          idx.push(a, b, a + 1, a + 1, b, b + 1, a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
+        }
+      }
     }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aB', new THREE.Float32BufferAttribute(ab, 2));
+    g.setIndex(idx);
+    return g;
+  }
+  // 每格：機體的位置（p）決定亮的範圍；作戰區域改變（分段開放）時重建網格
+  updateBoundary(p) {
+    const m = this.bLine;
+    if (!m || !p) return;
+    const key = this.zone.join(',');
+    if (this.bZone !== key) {
+      this.bZone = key;
+      m.geometry.dispose();
+      m.geometry = this.boundaryGeom();
+    }
+    const Z = this.zone;
+    const d = Math.min(p.x - Z[0], Z[1] - p.x, p.z - Z[2], Z[3] - p.z);
+    const k = clamp(1 - d / BOUND_R, 0, 1);
+    m.visible = d < BOUND_R;
+    const U = m.material.uniforms;
+    U.uP.value.copy(p);
+    U.uK.value = k * k;
+    U.uT.value = (performance.now() / 1000) % 1000;
   }
   // fade objects between camera and player
   // 鏡頭和機體之間的物件淡出；pts＝機體上要看得到的點（頭、中心、腳，沒給時只用 playerPos）。
