@@ -126,7 +126,7 @@ function panelTex(base, seam, seed) {
     }
   });
 }
-// 地板：金屬板、防滑紋、接縫
+// 地板：金屬板、接縫
 function floorTex() {
   return canvasTex(
     512,
@@ -140,24 +140,11 @@ function floorTex() {
           y0 = (k >> 1) * 256;
         c.fillStyle = k % 3 ? '#363f47' : '#3d464e';
         c.fillRect(x0 + 3, y0 + 3, 250, 250);
-        if (k === 1 || k === 2) {
-          // 防滑紋
-          c.strokeStyle = 'rgba(255,255,255,0.06)';
-          c.lineWidth = 3;
-          for (let i = 0; i < 14; i++)
-            for (let j = 0; j < 14; j++) {
-              const x = x0 + 14 + i * 17,
-                y = y0 + 14 + j * 17;
-              c.beginPath();
-              if ((i + j) % 2) (c.moveTo(x, y), c.lineTo(x + 9, y + 6));
-              else (c.moveTo(x, y + 6), c.lineTo(x + 9, y));
-              c.stroke();
-            }
-        }
       }
-      for (let i = 0; i < 500; i++) {
-        c.fillStyle = `rgba(0,0,0,${(R() * 0.12).toFixed(3)})`;
-        c.fillRect(R() * w, R() * h, 1 + R() * 18, 1 + R() * 2);
+      // 很淡的大斑塊（細的防滑紋與刮痕斜看時會產生摩爾紋、鏡頭一動就閃，不用）
+      for (let i = 0; i < 120; i++) {
+        c.fillStyle = `rgba(0,0,0,${(R() * 0.05).toFixed(3)})`;
+        c.fillRect(R() * w, R() * h, 8 + R() * 40, 6 + R() * 20);
       }
       c.strokeStyle = '#1b2026';
       c.lineWidth = 4;
@@ -411,6 +398,7 @@ export function buildHubRoom(factions) {
   };
   M.podShell = M.panel.clone();
   M.podShell.side = THREE.DoubleSide;
+  M.floor.map.anisotropy = 16;
   const spots = {};
   const spin = []; // 每格轉動的節點：[節點, 軸, 速度]
   const spot = (id, anchor, glow, obj) =>

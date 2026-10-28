@@ -136,11 +136,11 @@ Object.assign(Game.prototype, {
       [6, 5.5],
     ]) {
       const c = new THREE.Mesh(new THREE.BoxGeometry(0.8, HUB_LIFT, 0.8), pm);
-      c.position.set(x, -HUB_LIFT / 2, z);
+      c.position.set(x, -HUB_LIFT / 2 - 0.02, z); // 頂面不和地板同高
       R.root.add(c);
     }
     const under = new THREE.Mesh(new THREE.BoxGeometry(13.4, 0.6, 12.4), pm);
-    under.position.y = -0.3;
+    under.position.y = -0.32; // 頂面低於地板 2 cm（同高時兩個面搶深度，地板會一直閃線條）
     R.root.add(under);
     this.hubScene = s;
     this.hubRoom = R;
