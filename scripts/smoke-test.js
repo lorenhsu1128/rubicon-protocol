@@ -13982,6 +13982,164 @@ async function testRangedDodge(browser, base) {
   await ctx.close();
 }
 
+async function testRangedWeak(browser, base) {
+  console.log('遠程射擊：弱點（方向、準備中露出、打壞的效果）、打掉投射物、QB 甩掉導彈');
+  const { ctx, page } = await newPage(browser, 'ranged-weak');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'wp-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const tg = g.spawnType('mt', 1, 1);
+    tg.senseOn(); // 感知開始時決定轉身的速度
+    const out = { keys: tg.wpKeys(), yawRate: tg.yawRate };
+    tg.ai = 'none';
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 30 * pl.dk);
+    tg.yaw = Math.PI; // 正面朝 +Z＝面向玩家
+    const D = 1000;
+    const hit = (dir, o = {}) => {
+      tg.hp = tg.maxHp = 1e7;
+      tg.staggerT = 0;
+      tg.acs = 0;
+      tg.iFrames = 0;
+      const h0 = tg.hp;
+      if (o.aim) tg.wpAimK = o.aim;
+      tg.takeDamage(D, o.imp || 0, pl, tg.center(), dir, undefined, 'w_rifle');
+      tg.wpAimK = null;
+      return Math.round(h0 - tg.hp);
+    };
+    const reset = () => {
+      tg.wp = undefined;
+      tg.wpOff = undefined;
+      tg.speedMul = 1;
+    };
+    const front = new THREE.Vector3(0, 0, -1); // 從玩家往目標飛（打在正面）
+    const back = new THREE.Vector3(0, 0, 1); // 從目標背後往前飛
+    const top = new THREE.Vector3(0, -1, 0.3).normalize();
+    reset();
+    out.front = hit(front);
+    out.back = hit(back);
+    out.top = hit(top);
+    out.aim = hit(front, { aim: 'thr' }); // 追尾視角的準星壓在推進器上
+    // 打壞推進器：不能 QB
+    reset();
+    for (let i = 0; i < 60 && !tg.wpBroken('thr'); i++) {
+      tg.hp = tg.maxHp;
+      tg.takeDamage(tg.maxHp * 0.05, 0, pl, tg.center(), back, undefined, 'w_rifle');
+    }
+    out.thrOff = tg.wpBroken('thr');
+    out.spd = tg.speedMul;
+    out.breakPop = g.popups.some((q) => q.val === '推進器 破壞');
+    tg.qbT = 0;
+    tg.en = tg.enMax;
+    tg.move(1 / 60, new THREE.Vector3(1, 0, 0), false, true, false, null);
+    out.qb = tg.qbT;
+    // 準備中：整台露出，衝擊夠了打斷招式並失衡
+    reset();
+    if (!tg.sn) tg.senseInit(false);
+    tg.sn.mv = { k: 'burst', slot: 'rarm', ph: 'wind', t: 0, fxT: 0 };
+    out.aw = tg.senseAw() & 32;
+    out.open = hit(front);
+    tg.sn.mv = { k: 'burst', slot: 'rarm', ph: 'wind', t: 0, fxT: 0 };
+    tg.staggerT = 0;
+    tg.hp = tg.maxHp;
+    tg.takeDamage(10, tg.acsMax * 0.5, pl, tg.center(), front, undefined, 'w_rifle');
+    out.intr = { mv: tg.sn.mv, stag: tg.staggerT, pop: g.popups.some((q) => q.val === 'INTERRUPT') };
+    tg.sn.mv = null;
+    tg.staggerT = 0;
+    // 電腦打的不算
+    reset();
+    const al = { pilotEnt: () => false, team: 'player', center: () => pl.center(), pos: pl.pos, id: -5 };
+    tg.hp = tg.maxHp;
+    const h1 = tg.hp;
+    tg.takeDamage(D, 0, al, tg.center(), back, undefined, 'w_rifle');
+    out.npc = Math.round(h1 - tg.hp);
+    // 敵人的導彈：可以打掉，擊落時爆炸
+    tg.asm.rback = 'bw_ms';
+    tg.initWeapons();
+    const n0 = g.projectiles.length;
+    tg.weapons.rback.cd = 0;
+    tg.weapons.rback.mag = Math.max(1, tg.weapons.rback.mag);
+    tg.lkT0 = -99;
+    tg.staggerT = 0;
+    tg.hitStunT = 0;
+    tg.fire('rback', pl.center(), pl);
+    tg.weapons.rback.cd = 0;
+    tg.fire('rback', pl.center(), pl);
+    const ms = g.projectiles.slice(n0).filter((q) => q.kind === 'missile');
+    out.msl = ms.length;
+    out.shootable = ms.length > 0 && ms.every((q) => q.tgt && q.tgt.isShot);
+    out.lockable = ms.length > 0 && g.destructibles('player').includes(ms[0].tgt);
+    if (ms.length) {
+      g.damageProp(ms[0].tgt, 50, 0, ms[0].pos.clone());
+      out.shotDown = ms[0].dead && g.popups.some((q) => q.val === '擊落');
+    }
+    // QB 甩掉導彈：快打到時 QB → 失去追蹤、完美 QB 的加成
+    const m2 = ms[1];
+    if (m2) {
+      m2.pos.copy(pl.center()).add(new THREE.Vector3(0, 0, -6 * pl.dk));
+      m2.vel.set(0, 0, 1).multiplyScalar(40 * pl.dk);
+      m2.target = pl;
+      pl.pqbT = 0;
+      pl.pqbCD = 0;
+      pl.qbStartT = -99;
+      m2.update(1 / 60);
+      out.keep = m2.target === pl;
+      pl.qbStartT = pl.t;
+      m2.update(1 / 60);
+      out.dodge = { lost: m2.target === null, pqb: pl.pqbT };
+    }
+    // 玩家的子彈不能打掉（只有敵人的）
+    out.mine = g.projectiles.filter((q) => q.team === 'player' && q.tgt).length;
+    // 追尾視角：準星壓在弱點上的一發帶著弱點的種類
+    pl.asm.rarm = 'w_rifle';
+    pl.initWeapons();
+    pl.lock = tg;
+    pl.wpAim = { e: tg, k: 'sen' };
+    const n1 = g.projectiles.length;
+    pl.weapons.rarm.cd = 0;
+    pl.fire('rarm', tg.center(), tg);
+    out.wpk = g.projectiles[n1] && g.projectiles[n1].wpk;
+    out.hint = g.wpHint(tg);
+    for (const q of g.projectiles) q.dead = true;
+    return out;
+  });
+  check(
+    JSON.stringify(r.keys) === '["thr","sen"]' && r.yawRate > 0 && r.yawRate < 5,
+    `MT 的弱點：背後推進器、頭頂感測器；轉身變慢（${r.yawRate}）`,
+  );
+  const k = (a) => +(a / r.front).toFixed(2);
+  check(r.front > 0 && Math.abs(k(r.back) - 1.5) < 0.02, `從背後打 CRITICAL ×${k(r.back)}、正面 ×1`);
+  check(Math.abs(k(r.top) - 1.5) < 0.02, `從頭頂打 CRITICAL ×${k(r.top)}`);
+  check(Math.abs(k(r.aim) - 1.5) < 0.02, `追尾視角的準星壓在弱點上：正面打也算（×${k(r.aim)}）`);
+  check(
+    r.thrOff && r.spd < 1 && r.breakPop && !(r.qb > 0),
+    `打壞推進器：不能 QB、速度 ×${r.spd}、顯示「推進器 破壞」`,
+  );
+  check(
+    r.aw === 32 && Math.abs(k(r.open) - 1.5) < 0.02,
+    `準備中整台露出（正面也 ×${k(r.open)}）、快照的 aw 帶 32`,
+  );
+  check(!r.intr.mv && r.intr.stag > 0 && r.intr.pop, '準備中衝擊夠了：打斷招式、失衡、顯示 INTERRUPT');
+  check(Math.abs(r.npc / r.front - 1) < 0.02, '電腦打的不算弱點');
+  check(r.msl > 0 && r.shootable && r.lockable, `敵人的導彈可以打掉、在玩家的目標清單裡（${r.msl} 發）`);
+  check(r.shotDown, '打掉導彈：在原地爆炸、顯示「擊落」');
+  check(r.keep && r.dodge && r.dodge.lost && r.dodge.pqb > 0, '導彈快打到時 QB：失去追蹤、算完美 QB');
+  check(r.mine === 0, '玩家的投射物不能被打掉');
+  check(
+    r.wpk === 'sen' && r.hint.includes('背：推進器') && r.hint.includes('上：感測器'),
+    `準星改瞄弱點的子彈帶弱點；鎖定提示「${r.hint.trim()}」`,
+  );
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -17906,6 +18064,7 @@ const STEPS = [
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],
   ['testBladeGrip', (c) => testBladeGrip(c.browser, c.base)],
   ['testRangedDodge', (c) => testRangedDodge(c.browser, c.base)],
+  ['testRangedWeak', (c) => testRangedWeak(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [

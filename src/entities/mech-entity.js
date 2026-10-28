@@ -89,6 +89,7 @@ import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js
 import { buildBossModel } from '../render/boss-models.js';
 import { Projectile } from './projectile.js';
 import { RB_TYPES } from '../data/ranged.js';
+import { WP } from '../data/weak.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
@@ -634,7 +635,8 @@ export class MechEntity {
         assistSpread(assist) *
         conv *
         near *
-        (rb ? rb.spread : 1) +
+        (rb ? rb.spread : 1) *
+        (this.wpOff && this.wpOff.sen ? WP.SEN_SPREAD : 1) + // 感測器被打壞（mech-weak.js）
       (hmul > 1 ? 0.015 * (hmul - 1) * 4 : 0);
     // 彈道方向：從實際槍口指向瞄準點（不是從機體中心），手部與肩部武器落點都對準準星
     const dir = targetPos.clone().sub(muzzle).normalize();
@@ -644,6 +646,10 @@ export class MechEntity {
     const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1),
       imp = d.impact * this.dmgMul * (rb ? rb.imp : 1);
     const rbT = rb && rb.tags ? { rb: rb.tags } : null; // 投射物打中時顯示提示（projectile.js 的 rbHit）
+    // 追尾視角／第一人稱的準星壓在鎖定目標的弱點上（game/weak.js 的 wpAimTick）：這一發算打在那個弱點
+    const wpk = pilot && tgtOk && this.wpAim && this.wpAim.e === targetEnt ? this.wpAim.k : null;
+    // 敵人的導彈、火箭彈、榴彈可以打掉（hazards2.js 的 shotInit）：擊落時在原地爆炸
+    const foeShot = !pilot && this.team === 'enemy' && !g.rts && !g.pvp;
     // 彈道修正與命中判定（只給玩家操作的機體）：子彈差一點擦過時往鎖定的目標偏轉，判定半徑加大
     const aimX =
       pilot && tgtOk && (d.bend || d.hitR || rb)
@@ -674,6 +680,7 @@ export class MechEntity {
             },
             aimX || {},
             rbT || {},
+            wpk ? { wpk } : {},
             extra || {},
           ),
         ),
@@ -716,7 +723,7 @@ export class MechEntity {
         }
         break;
       case 'shell':
-        shoot(jitter(dir), 'shell', { splash: d.splash });
+        shoot(jitter(dir), 'shell', Object.assign({ splash: d.splash }, foeShot ? this.foeShotOpt(dmg) : {}));
         g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
         g.fx.smoke(muzzle.clone().addScaledVector(dir, -1.5), 1.2, 0x9a9ea6, 0.8, 2);
         SFX.shot('shell', undefined, SP);
@@ -764,6 +771,8 @@ export class MechEntity {
               gravity: 26,
               wid: d.id,
               rb: rbT ? rbT.rb : 0,
+              wpk,
+              ...(foeShot ? this.foeShotOpt(dmg) : {}),
             }),
           );
           g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
@@ -800,6 +809,8 @@ export class MechEntity {
                 splash: d.splash,
                 wid: d.id,
                 rb: rbT ? rbT.rb : 0,
+                wpk,
+                ...(foeShot ? this.foeShotOpt(dmg) : {}),
               }),
             );
           }
@@ -941,8 +952,10 @@ export class MechEntity {
             if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt);
             else {
               h.t.rbGold = !!rbT; // 有加成的命中：金色的傷害數字
+              h.t.wpAimK = wpk;
               h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
               h.t.rbGold = false;
+              h.t.wpAimK = null;
               if (rbT && !n) this.rbHit(h.t, rbT.rb);
             }
             g.fx.spark(pt, d.color, bdir);
@@ -1044,6 +1057,7 @@ export class MechEntity {
         }
         break;
     }
+    if (this.wpOff && this.wpOff.rad && d.type !== 'melee') w.cd *= WP.RAD_CD; // 散熱片被打壞（mech-weak.js）
     if (usesAmmo(d)) {
       w.mag--;
       w.ammo--;
@@ -1872,6 +1886,7 @@ export class MechEntity {
       }
     }
     // 護盾產生器的護盾、盾牌 MT 的正面（mech-special.js）：null＝完全擋下
+    const dmg0 = dmg;
     const sd = this.specialDefense(dmg, impact, from, at, melee, wid);
     if (!sd) return;
     [dmg, impact] = sd;
@@ -1880,6 +1895,20 @@ export class MechEntity {
     if (this.markT > 0) dmg *= 1.3; // 被軌道標定衛星標定（mech-foe.js）
     if (this.laserK !== 1 && isLaserWeapon(W)) dmg *= this.laserK; // 雷射類的傷害倍率（laserK）
     if (this.sn && this.sn.vuln > 0) dmg *= 1.25; // 招式後的破綻（過熱，mech-moves.js）
+    // 弱點（mech-weak.js）：玩家操作的機體的遠程攻擊打在弱點的那一面、準備中露出的弱點 → CRITICAL
+    if (
+      !melee &&
+      !this.isBoss &&
+      from &&
+      from !== this &&
+      from.pilotEnt &&
+      from.pilotEnt() &&
+      from.team !== this.team
+    )
+      [dmg, impact] = this.wpTake(dmg, impact, from, dir);
+    // Boss 的時機型弱點（各 Boss 的 bossDefense 倍率 ≥ 1.25：散熱片打開、過熱、失速…）也顯示 CRITICAL
+    else if (this.isBoss && !melee && from && from.pilotEnt && from.pilotEnt() && dmg > dmg0 * 1.25)
+      this.wpBossCrit(from);
     if (melee) {
       this.comboHits = (this.comboHits || 0) + 1;
       this.comboT = 1.2;
@@ -2063,12 +2092,13 @@ export class MechEntity {
       at || this.center(),
       real,
       this.isPlayer,
-      this.staggerT > 0 || !!this.rbGold, // 邊閃邊打的加成（mech-ranged.js）也是金色
+      this.staggerT > 0 || !!this.rbGold || !!this.wpGold, // 邊閃邊打的加成（mech-ranged.js）、弱點（mech-weak.js）也是金色
       !!melee,
       melee ? this.comboHits : 0,
       this.id,
       impact,
     );
+    this.wpGold = false;
     if (this.hp <= 0 && g.range && g.rangeSave(this)) return; // 靶場：目標 AP 無限、自己不會被擊破
     if (this.hp <= 0 && g.tut && g.tutSaveEnt(this)) return; // 近戰訓練：自己不會被擊破、假人照練習的設定
     if (this.hp <= 0) {
@@ -2227,6 +2257,7 @@ export class MechEntity {
       dt = this.aiFrame;
       this.aiLast = { wish: wish.clone(), hover: wantHover, ab: wantAB, tgt: targetEnt };
     }
+    if (this.wpOff && this.wpOff.thr) wantQB = wantAB = false; // 推進器被打壞（mech-weak.js）
     // 近戰的頓格（hitStopLocal）：只有攻擊者與被打的目標放慢，其他照常
     if (this.hsT > 0) {
       this.hsT -= dt;

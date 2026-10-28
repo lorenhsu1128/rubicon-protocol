@@ -58,6 +58,7 @@ import './entities/mech-objective.js';
 import './entities/mech-foe.js';
 import './entities/mech-status.js';
 import './entities/mech-ranged.js'; // 遠程射擊：邊閃邊打的加成（docs/ranged-design.md）
+import './entities/mech-weak.js'; // 遠程射擊：弱點、打斷預警、QB 甩掉導彈
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-foe-d2.js';
@@ -76,6 +77,7 @@ import './game/outposts.js';
 import './game/feedback.js';
 import './game/juice.js';
 import './game/ranged.js'; // 遠程射擊：邊閃邊打的回饋與 HUD
+import './game/weak.js'; // 遠程射擊：弱點的 HUD 與追尾視角的改瞄
 import './game/status-hud.js';
 import './game/textfx.js';
 import './game/level-play.js';

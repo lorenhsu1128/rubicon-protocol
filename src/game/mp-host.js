@@ -65,6 +65,7 @@ Object.assign(Game.prototype, {
       extraWeapons: o.extraWeapons || null,
       res: e.res || null, // 弱點（客機的鎖定提示）
       laserK: e.laserK !== 1 ? e.laserK : undefined, // 雷射類的傷害倍率（鎖定提示）
+      wpk: e.wpKeys ? e.wpKeys() || undefined : undefined, // 弱點的種類（mech-weak.js）
       allyDur: e.allyT || 0,
       slot: e.slot !== undefined ? e.slot : -1,
       wantDist: o.wantDist || 22,

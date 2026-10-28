@@ -757,6 +757,11 @@ export const SFX = {
     this.play('plate1', 0.35, 1.25, 0.05, 0.07, null, 'ui');
     if (tags & 2) this.play('bell', 0.3, 1.4, 0.02, 0.15, null, 'ui');
   },
+  // 打在弱點上（CRITICAL）：重一點的金屬碎裂
+  crit() {
+    this.play('glass', 0.35, 1.5, 0.05, 0.08, null, 'ui');
+    this.play('plate2', 0.45, 0.9, 0.05, 0.08, null, 'ui');
+  },
   // 擊破確認：連續擊破時音高一級級往上（n＝連擊數），精英／AC 多一聲重音並短暫壓低其他聲音
   killConfirm(n, big) {
     const st = Math.min(Math.max(0, n - 1), 9);

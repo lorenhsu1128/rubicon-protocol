@@ -145,6 +145,7 @@ Object.assign(Game.prototype, {
     e.slot = r.slot;
     e.pvpAi = !!r.pvpAi;
     if (r.guard) e.guardOf = r.guard;
+    e.wpKeysC = r.wpk || null; // 弱點（mech-weak.js）
     if (r.edu) e.edu = { ...r.edu };
     if (r.pvpTeam !== undefined && r.pvpTeam !== null) e.pvpTeam = r.pvpTeam;
     e.kills = 0;
@@ -417,6 +418,12 @@ Object.assign(Game.prototype, {
         break;
       case 'shock':
         this.shockFx(new THREE.Vector3(e.p[0], e.p[1], e.p[2]), e.R, e.sp, e.dl);
+        break;
+      case 'wpb':
+        {
+          const t = this.entById(e.i);
+          if (t && t.wpBreakC) t.wpBreakC(e.k); // 弱點被打壞（mech-weak.js）
+        }
         break;
       case 'stag':
         {

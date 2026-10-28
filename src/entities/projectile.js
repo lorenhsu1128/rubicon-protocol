@@ -61,6 +61,9 @@ export class Projectile {
   update(dt) {
     const g = this.game;
     this.age = (this.age || 0) + dt;
+    // 追著玩家的導彈：快打到時 QB＝甩掉追蹤，算完美 QB（mech-weak.js；只在房主／單機）
+    if (this.kind === 'missile' && this.target && !this.target.dead && this.target.missileDodge)
+      this.target.missileDodge(this);
     if (this.kind === 'missile' && this.target && !this.target.dead) {
       const tc = this.target.center();
       const d0 = tc.distanceTo(this.pos);
@@ -221,6 +224,7 @@ export class Projectile {
                 Math.min(1, (dd - this.fall[0]) / Math.max(1, this.fall[1] - this.fall[0]));
         }
         direct.rbGold = !!this.rb;
+        direct.wpAimK = this.wpk || null; // 準星壓在弱點上射出的（mech-weak.js）
         direct.takeDamage(
           this.dmg * fk,
           this.impactV,
@@ -232,6 +236,7 @@ export class Projectile {
           this.attr,
         );
         direct.rbGold = false;
+        direct.wpAimK = null;
         if (this.rb && this.owner && this.owner.rbHit) this.owner.rbHit(direct, this.rb);
       }
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);

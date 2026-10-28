@@ -24,6 +24,7 @@ import {
   THREAT_NEAR,
 } from '../data/ai.js';
 import { MechEntity } from './mech-entity.js';
+import { WP } from '../data/weak.js';
 
 const FLYERS = new Set(['drone', 'heli', 'swarm', 'minelayer']);
 
@@ -87,6 +88,8 @@ Object.assign(MechEntity.prototype, {
       ring: rnd(SUP_RING[0], SUP_RING[1]),
     };
     if (this.guardOf) this.sn.st = 2; // 守衛：還沒出動時由 guardIdle 守在原地，出動後直接交戰
+    // 有方向型弱點的敵人轉身慢一點（mech-weak.js）：玩家 QB 繞到側面、背後才打得到
+    if (!this.yawRate && this.wpKeys()) this.yawRate = this.ace || this.ai === 'ac' ? WP.YAW_AC : WP.YAW;
   },
   // 每格（updateAI 選目標之前）：待機／起疑／搜索時自己移動並回傳 true；交戰時更新目標、視線，回傳 false
   senseTick(dt) {
@@ -366,6 +369,6 @@ Object.assign(MechEntity.prototype, {
   senseAw() {
     const sn = this.sn;
     if (!sn || !sn.on) return 0;
-    return 1 + sn.st + (sn.tok ? 8 : 0) + (sn.vuln > 0 ? 16 : 0);
+    return 1 + sn.st + (sn.tok ? 8 : 0) + (sn.vuln > 0 ? 16 : 0) + (sn.mv && sn.mv.ph === 'wind' ? 32 : 0); // 32＝準備中（弱點露出，mech-weak.js）
   },
 });
