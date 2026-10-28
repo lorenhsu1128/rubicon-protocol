@@ -1295,6 +1295,7 @@ export class MechEntity {
     g.fx.streaks(c, 16, 0xffe0a0, 22, 0.3, 22);
     g.fx.shockwave(c, 4, 0xffd070, 0.3);
     this.hitStopLocal(0.12, from);
+    if (this === g.player) g.camCloseup(from, 0.7); // 彈刀的特寫
     SFX.play('shield', 1, 0.8, 0.05, 0.03, this.isPlayer ? null : c);
     g.popDamage(c, '彈刀', false, true, false, 0, from.id);
     this.tutE('parry', {});
@@ -1637,6 +1638,7 @@ export class MechEntity {
           continue;
         }
         m.hitAny = true;
+        const stag0 = t.staggerT > 0;
         t.takeDamage(
           st.dmg * mk * this.dmgMul * this.stats.parts.arms.melee,
           st.impact * mk * (m.impK || 1) * this.dmgMul,
@@ -1670,6 +1672,9 @@ export class MechEntity {
           pqb: m.impK > 1,
         });
         this.hitStopLocal(HITSTOP[wgt], t); // 只有自己與被打的目標停住
+        // 特寫鏡頭（camera.js）：終結技、擊破、打出失衡
+        if (this === g.player && (st.finisher || t.dead || (!stag0 && t.staggerT > 0)))
+          g.camCloseup(t, st.finisher || t.dead ? 0.8 : 0.65);
         if (this.isPlayer) {
           g.camPunch(m.dir, sw, 0.5 + wgt * 0.35);
           g.camShake = Math.max(g.camShake, [0.08, 0.14, 0.24, 0.32][wgt]);

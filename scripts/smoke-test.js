@@ -5751,6 +5751,37 @@ async function testCamOcclusion(browser, base) {
     run(240);
     out.back = +(g.camPitch - base).toFixed(3);
     out.xray2 = +xray().toFixed(2);
+    // 平時的距離、近戰時拉近並壓低俯角、特寫鏡頭（camera.js）
+    out.zDef = +g.camZoom.toFixed(2);
+    const foe = g.spawnType('mt', 1, 1);
+    foe.updateAI = () => {};
+    foe.pos.set(open[0] + 12, w.groundAt(open[0] + 12, open[1], 99), open[1]);
+    pl.melee.active = true;
+    pl.melee.target = foe;
+    run(180);
+    out.zMelee = +g.camZoom.toFixed(2);
+    out.pMelee = +g.camPitch.toFixed(2);
+    pl.melee.active = false;
+    pl.melee.target = null;
+    run(30);
+    out.zHold = +g.camZoom.toFixed(2); // 剛結束：還維持近戰鏡頭
+    run(360);
+    out.zBack = +g.camZoom.toFixed(2);
+    out.pBack = +(g.camPitch - base).toFixed(3);
+    g.camCloseup(foe, 0.8);
+    run(20);
+    const cv = g.camera.position.clone().sub(pl.center());
+    out.cuPitch = +Math.atan2(cv.y, Math.hypot(cv.x, cv.z)).toFixed(2);
+    out.cuDist = +cv.length().toFixed(1);
+    out.cuH = +pl.model.height.toFixed(1);
+    run(90);
+    out.cuEnd = !g.camCU;
+    g.ctrl.camCU = 'off';
+    g.camCUcd = 0;
+    g.camCloseup(foe, 0.8);
+    out.cuOff = !g.camCU;
+    g.ctrl.camCU = 'on';
+    foe.takeDamage(1e9, 0, null, foe.center());
     return out;
   });
   check(
@@ -5765,7 +5796,22 @@ async function testCamOcclusion(browser, base) {
     r.zoom <= 1.81 && r.extra > 10 && Math.abs(r.fogPush - r.extra) < 0.6,
     `鎖定 140 m 外的敵人：鏡頭只拉到 ${r.zoom} 倍、霧往外推 ${r.fogPush} m（鏡頭遠出 ${r.extra} m）`,
   );
-  check(r.userIn < 1 && r.userOut === 1.8, `滾輪調整鏡頭距離（拉近 ${r.userIn}、拉遠到上限 ${r.userOut}）`);
+  check(
+    r.userIn < 1 && Math.abs(r.userOut * 0.65 - 1.8) < 0.01,
+    `滾輪調整鏡頭距離（拉近 ${r.userIn}、拉遠到上限 ${r.userOut}×0.65）`,
+  );
+  check(
+    Math.abs(r.zDef - 0.65) < 0.02 && r.zMelee < 0.5 && r.pMelee < 0.95 && r.zHold < 0.55,
+    `鏡頭：平時 ${r.zDef} 倍、近戰拉近到 ${r.zMelee} 倍並壓低俯角（${r.pMelee} rad），剛結束時維持（${r.zHold}）`,
+  );
+  check(
+    Math.abs(r.zBack - 0.65) < 0.03 && Math.abs(r.pBack) < 0.02,
+    `近戰結束後回到平時的距離（${r.zBack}）與俯角（${r.pBack}）`,
+  );
+  check(
+    r.cuPitch < 0.6 && r.cuDist < r.cuH * 5 && r.cuEnd && r.cuOff,
+    `特寫鏡頭：低角度（${r.cuPitch} rad）、距離 ${r.cuDist} m（機體 ${r.cuH} m）、時間到結束（${r.cuEnd}）、設定關閉時不觸發（${r.cuOff}）`,
+  );
   check(r.clearSpot, '找到測試用的平地');
   check(
     r.ob && r.fade < 0.4 && r.xray > 0.3,

@@ -644,7 +644,16 @@ Object.assign(Game.prototype, {
     };
     document.getElementById('ctrlCamMax').onchange = (e) => {
       this.ctrl.camMax = parseFloat(e.target.value) || 1.8;
-      this.camUser = Math.min(this.camUser || 1, this.ctrl.camMax);
+      this.camUser = Math.min(this.camUser || 1, this.ctrl.camMax / this.camBase());
+      this.saveKeys();
+    };
+    document.getElementById('ctrlCamDist').onchange = (e) => {
+      this.ctrl.camDist = e.target.value;
+      this.saveKeys();
+    };
+    document.getElementById('ctrlCamCU').onchange = (e) => {
+      this.ctrl.camCU = e.target.value;
+      if (e.target.value === 'off') this.camCU = null;
       this.saveKeys();
     };
     document.getElementById('ctrlTfx').onchange = (e) => {
@@ -850,8 +859,9 @@ Object.assign(Game.prototype, {
           this.chaseUser = clamp((this.chaseUser || 1) * (e.deltaY > 0 ? 1.08 : 0.93), 0.7, 1.6);
         } else if (this.state === 'play' && !this.lab && !this.fp && this.player) {
           // 第三人稱：滾輪調整鏡頭距離（上限是設定的「鏡頭最遠距離」）
-          const mx = this.ctrl.camMax || 1.8;
-          this.camUser = clamp((this.camUser || 1) * (e.deltaY > 0 ? 1.1 : 0.91), 0.65, mx);
+          // camUser 乘在平時的距離上（camera.js 的 camBase）
+          const mx = (this.ctrl.camMax || 1.8) / this.camBase();
+          this.camUser = clamp((this.camUser || 1) * (e.deltaY > 0 ? 1.1 : 0.91), 0.6, mx);
         }
       },
       { passive: true },

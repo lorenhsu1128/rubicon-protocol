@@ -64,6 +64,8 @@ Object.assign(Game.prototype, {
     $('ctrlInvY').checked = !!this.ctrl.invY;
     $('ctrlPace').value = String(this.ctrl.pace || 0.85);
     $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
+    $('ctrlCamDist').value = this.ctrl.camDist || 'std';
+    $('ctrlCamCU').value = this.ctrl.camCU || 'on';
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
     $('ctrlCine').value = this.ctrl.cine || 'on';
     $('ctrlExec').value = this.ctrl.exec || 'on';

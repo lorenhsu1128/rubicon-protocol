@@ -326,7 +326,8 @@ Object.assign(Game.prototype, {
     this.state = 'play';
     this.showScreen('');
     this.lastT = performance.now();
-    this.camZoom = 1;
+    this.camZoom = this.camBase();
+    this.camCU = null;
     this.camera.position.set(0, 40, 24);
     this.renderWeaponHud(true);
     this.viewReset();

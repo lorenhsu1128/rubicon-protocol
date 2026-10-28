@@ -793,6 +793,24 @@
             ><label><input type="checkbox" id="ctrlInvY" /> 追尾與第一人稱的鏡頭上下反轉</label>
           </div>
           <div class="krow">
+            <span>鏡頭距離（第三人稱）</span
+            ><select id="ctrlCamDist" title="平時的鏡頭距離；近戰時會再拉近、鎖定遠方敵人時拉遠">
+              <option value="near">近</option>
+              <option value="std">標準（預設）</option>
+              <option value="far">遠</option>
+            </select>
+          </div>
+          <div class="krow">
+            <span>近戰特寫鏡頭</span
+            ><select
+              id="ctrlCamCU"
+              title="處決、彈刀、終結技、打出失衡時短暫切到低角度的側面特寫（第三人稱）"
+            >
+              <option value="on">開啟（預設）</option>
+              <option value="off">關閉</option>
+            </select>
+          </div>
+          <div class="krow">
             <span>鏡頭最遠距離（第三人稱）</span
             ><select id="ctrlCamMax" title="鎖定遠方敵人或滾輪拉遠時的上限；太遠會被霧蓋住">
               <option value="1.4">近（1.4 倍）</option>

@@ -156,7 +156,8 @@ Object.assign(Game.prototype, {
     this.showScreen('');
     this.labSetMode(L.mode, true);
     this.lastT = performance.now();
-    this.camZoom = 1;
+    this.camZoom = this.camBase();
+    this.camCU = null;
     this.camera.position.set(-30, 25, 30);
     L.tgt = null;
     L.free.pivot.set(0, this.world.terrainHeight(0, 0), 0);
