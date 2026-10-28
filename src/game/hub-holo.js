@@ -16,7 +16,7 @@ import {
   mapToTable,
   tickHolo,
 } from '../render/holo-map.js';
-import { buildHubRoom, tickHubRoom } from '../render/hub-room.js';
+import { buildHubRoom, hubRoomRich, tickHubRoom } from '../render/hub-room.js';
 import { addHangarLife, buildHangar, disposeHangar, tickHangar } from '../render/hangar.js';
 import { HA, loadHangarAssets } from '../render/hangar-assets.js';
 import { animateMech, buildMech } from '../render/mech-model.js';
@@ -51,6 +51,45 @@ const HUB_SPOTS = [
   ['record', '作戰紀錄', 'btnHubRecord'],
 ];
 const _v = new THREE.Vector3();
+// 設施的發光輪廓（游標停留）：只畫那個設施的圖層成遮罩（buildHubRoom 的 spots[id].layer），
+// 再以邊緣偵測加色疊在畫面上，所以模型的外緣出現發亮的線條＋淡淡的光暈
+const OL = { rt: null, mask: null, quad: null, scene: null, cam: null, size: new THREE.Vector2() };
+function outlineInit() {
+  OL.mask = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+  OL.quad = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        tM: { value: null },
+        px: { value: new THREE.Vector2() },
+        col: { value: new THREE.Color(0x8fe0ff) },
+        k: { value: 0 },
+      },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `uniform sampler2D tM; uniform vec2 px; uniform vec3 col; uniform float k; varying vec2 vUv;
+        void main() {
+          float c = texture2D(tM, vUv).r;
+          float e = 0.0, gs = 0.0;
+          for (int i = 0; i < 12; i++) {
+            float a = float(i) * 0.5235988;
+            vec2 d = vec2(cos(a), sin(a));
+            e = max(e, texture2D(tM, vUv + d * px * 2.0).r);
+            gs += texture2D(tM, vUv + d * px * 5.0).r + texture2D(tM, vUv + d * px * 10.0).r;
+          }
+          float a = (e * (1.0 - c) * 1.1 + gs / 24.0 * (1.0 - c) * 0.55 + c * 0.03) * k;
+          gl_FragColor = vec4(col * a, 1.0);
+        }`,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  OL.quad.frustumCulled = false;
+  OL.scene = new THREE.Scene();
+  OL.scene.add(OL.quad);
+  OL.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+}
 const nodeCol = (s, B) =>
   s === 'done'
     ? '#7ee081'
@@ -80,7 +119,7 @@ Object.assign(Game.prototype, {
     d.shadow.normalBias = 0.02;
     s.add(d);
     if (this.envTex) s.environment = this.envTex;
-    const R = buildHubRoom(Object.values(FACTIONS).map((f) => [f.color, f.short[0]]));
+    const R = buildHubRoom(Object.values(FACTIONS).map((f) => [f.color, f.short[0], f.short]));
     s.add(R.root);
     const holo = new THREE.Group();
     holo.position.y = TABLE_Y + 0.035;
@@ -125,10 +164,30 @@ Object.assign(Game.prototype, {
     // 拖曳背景：繞桌子轉一點
     const el = document.getElementById('hub');
     let drag = null;
+    // 場景裡的設施模型：游標停留＝發光輪廓，點一下（沒有拖曳）＝對應的圖示列按鈕
+    const onScene = (e) => (e.target === el || e.target.closest('#hubMap')) && !e.target.closest('.hubNode');
     el.addEventListener('pointerdown', (e) => {
-      if (e.target !== el && !e.target.closest('#hubMap')) return;
-      if (e.target.closest('.hubNode')) return;
+      if (!onScene(e)) return;
       drag = { x: e.clientX, y: e.clientY, yaw: this.hubCamS.yaw, pitch: this.hubCamS.pitch };
+      this.hubDown = { x: e.clientX, y: e.clientY, id: this.hubPick(e.clientX, e.clientY) };
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (this.state !== 'hub' || e.pointerType === 'touch') return;
+      const id = onScene(e) && !(drag && this.hubCamS.drag > 0) ? this.hubPick(e.clientX, e.clientY) : null;
+      this.hubSpotHoverM = id;
+      el.style.cursor = id ? 'pointer' : '';
+    });
+    el.addEventListener('pointerleave', () => {
+      this.hubSpotHoverM = null;
+      el.style.cursor = '';
+    });
+    addEventListener('pointerup', (e) => {
+      const d = this.hubDown;
+      this.hubDown = null;
+      if (!d || !d.id || this.state !== 'hub') return;
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) return;
+      if (this.hubPick(e.clientX, e.clientY) !== d.id) return;
+      this.hubSpotGo(d.id);
     });
     addEventListener('pointermove', (e) => {
       if (!drag || this.state !== 'hub') return;
@@ -137,6 +196,73 @@ Object.assign(Game.prototype, {
       this.hubCamS.drag = 3;
     });
     addEventListener('pointerup', () => (drag = null));
+  },
+  // 畫面座標下的設施（模型的射線；戰略桌擋在前面時不算）：回傳設施 id 或 null
+  hubPick(cx, cy) {
+    const R = this.hubRoom;
+    if (!R || !this.hubSpotAvail) return null;
+    const ray = this.hubRay || (this.hubRay = new THREE.Raycaster());
+    ray.setFromCamera(
+      new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1),
+      this.hubCamera,
+    );
+    const objs = [R.table.g];
+    for (const id of this.hubSpotAvail) if (R.spots[id] && R.spots[id].obj) objs.push(R.spots[id].obj);
+    for (const h of ray.intersectObjects(objs, true)) {
+      if (!h.object.visible || h.object.material.transparent) continue;
+      for (let o = h.object; o; o = o.parent) if (o.userData.hubSpot) return o.userData.hubSpot;
+      return null;
+    }
+    return null;
+  },
+  // 進入設施＝按對應的圖示列按鈕
+  hubSpotGo(id) {
+    const s = HUB_SPOTS.find((x) => x[0] === id);
+    const b = s && document.getElementById(s[2]);
+    if (!b || b.style.display === 'none') return;
+    this.hubSpotHoverM = null;
+    document.getElementById('hub').style.cursor = '';
+    b.click();
+  },
+  // 游標停留的設施：發光輪廓（主畫面算繪之後加色疊上去）
+  hubOutline(sp, k) {
+    if (!OL.quad) outlineInit();
+    const r = this.renderer,
+      sc = this.hubScene,
+      cam = this.hubCamera;
+    r.getDrawingBufferSize(OL.size);
+    const w = Math.max(1, Math.round(OL.size.x)),
+      h = Math.max(1, Math.round(OL.size.y));
+    if (!OL.rt || OL.rt.width !== w || OL.rt.height !== h) {
+      if (OL.rt) OL.rt.dispose();
+      OL.rt = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true });
+    }
+    const bg = sc.background,
+      au = r.shadowMap.autoUpdate,
+      cc = r.getClearColor(new THREE.Color()),
+      ca = r.getClearAlpha(),
+      ac = r.autoClear;
+    sc.background = null;
+    sc.overrideMaterial = OL.mask;
+    r.shadowMap.autoUpdate = false;
+    cam.layers.set(sp.layer);
+    r.setClearColor(0x000000, 0);
+    r.setRenderTarget(OL.rt);
+    r.clear();
+    r.render(sc, cam);
+    cam.layers.set(0);
+    sc.overrideMaterial = null;
+    sc.background = bg;
+    r.shadowMap.autoUpdate = au;
+    r.setClearColor(cc, ca);
+    r.setRenderTarget(null);
+    const U = OL.quad.material.uniforms;
+    U.tM.value = OL.rt.texture;
+    U.px.value.set(r.getPixelRatio() / w, r.getPixelRatio() / h);
+    U.k.value = k;
+    r.autoClear = false;
+    r.render(OL.scene, OL.cam);
+    r.autoClear = ac;
   },
   // 格納庫（外部素材載入後重建成細緻的版本）
   hubHangarBuild() {
@@ -481,12 +607,13 @@ Object.assign(Game.prototype, {
     for (const [id] of HUB_SPOTS) {
       const sp = R.spots[id];
       if (!sp) continue;
-      const want = this.hubSpotHover === id ? 1 : this.hubSpotNew && this.hubSpotNew[id] ? 0.7 : 0;
+      const want = this.hubHoverSpot() === id ? 1 : this.hubSpotNew && this.hubSpotNew[id] ? 0.7 : 0;
       sp.hot += (want - sp.hot) * Math.min(1, dt * 8);
       sp.on = !(id === 'echo' && this.hubEchoOff);
     }
     tickHubRoom(R, dt, t);
     if (HA.ready && !this.hubHgRich) this.hubHangarBuild();
+    if (HA.ready && !R.rich) hubRoomRich(R);
     // 模型來源可能晚一點才讀好（伺服器預設組）：每 0.5 秒檢查一次
     this.hubSrcT = (this.hubSrcT || 0) - dt;
     if (this.hubSrcT <= 0) {
@@ -503,6 +630,17 @@ Object.assign(Game.prototype, {
     if (this.state === 'hub') this.hubLabels();
     if (this.post.enabled && this.hubPipe) this.hubPipe.render(this.styleP, t);
     else this.renderer.render(this.hubScene, cam);
+    // 游標停留的設施：發光輪廓（標籤或模型；淡入淡出）
+    const hv = this.state === 'hub' ? this.hubHoverSpot() : null;
+    if (hv) this.hubOlId = hv;
+    this.hubOlK = clamp((this.hubOlK || 0) + (hv ? dt * 6 : -dt * 6), 0, 1);
+    const osp = this.hubOlId && R.spots[this.hubOlId];
+    if (osp && osp.layer && this.hubOlK > 0)
+      this.hubOutline(osp, this.hubOlK * (0.85 + 0.15 * Math.sin(t * 5)));
+  },
+  // 游標停留中的設施：標籤優先，其次是模型
+  hubHoverSpot() {
+    return this.hubSpotHover || this.hubSpotHoverM || null;
   },
   // DOM 標籤：委託（光柱頂端）、區域名稱、設施
   hubLabels() {
@@ -541,9 +679,11 @@ Object.assign(Game.prototype, {
     const box = document.getElementById('hubSpots');
     box.replaceChildren();
     this.hubSpotNew = {};
+    this.hubSpotAvail = [];
     for (const [id, name, btn] of HUB_SPOTS) {
       const b = document.getElementById(btn);
       if (!b || b.style.display === 'none') continue;
+      this.hubSpotAvail.push(id);
       const el = document.createElement('button');
       el.className = 'hubSpot';
       el.dataset.spot = id;

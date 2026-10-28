@@ -9726,6 +9726,51 @@ async function testHubUi(browser, base) {
   }));
   check(lg.box !== 'none' && !lg.badge, '設施的標籤開啟通訊紀錄、看過後紅點消失');
   await page.click('#btnHubLogClose');
+  // 設施的模型：游標停在通訊台的模型上＝發光輪廓與手形游標，點一下＝開通訊紀錄；停在地板上沒有
+  const spt = await page.evaluate(() => {
+    const g = window.__game;
+    let at = null,
+      floor = null;
+    for (let y = 120; y < window.innerHeight - 120 && !(at && floor); y += 12)
+      for (let x = 40; x < window.innerWidth - 40; x += 12) {
+        const el = document.elementFromPoint(x, y);
+        if (!el || (el.id !== 'hub' && !el.closest('#hubMap')) || el.closest('.hubNode,.hubSpot,button'))
+          continue;
+        const id = g.hubPick(x, y);
+        if (id === 'log' && !at) at = [x, y];
+        if (!id && !floor && y > window.innerHeight * 0.6) floor = [x, y];
+      }
+    return { at, floor };
+  });
+  check(!!spt.at, '找得到通訊台模型在畫面上的位置');
+  if (spt.at) {
+    await page.mouse.move(spt.floor ? spt.floor[0] : 10, spt.floor ? spt.floor[1] : 10);
+    await page.mouse.move(spt.at[0], spt.at[1]);
+    await page.waitForTimeout(500);
+    const hv = await page.evaluate(() => ({
+      id: window.__game.hubSpotHoverM,
+      ol: window.__game.hubOlK,
+      cur: document.getElementById('hub').style.cursor,
+      hot: window.__game.hubRoom.spots.log.hot,
+    }));
+    await page.screenshot({ path: path.join(SHOT_DIR, 'hub-hover.png') });
+    check(
+      hv.id === 'log' && hv.ol > 0.5 && hv.cur === 'pointer' && hv.hot > 0.5,
+      `游標停在通訊台的模型上：發光輪廓 ${hv.ol.toFixed(2)}、設施發光 ${hv.hot.toFixed(2)}、游標 ${hv.cur}`,
+    );
+    if (spt.floor) {
+      await page.mouse.move(spt.floor[0], spt.floor[1]);
+      await page.waitForTimeout(100);
+      check(!(await page.evaluate(() => window.__game.hubSpotHoverM)), '游標在地板上時沒有設施');
+      await page.mouse.move(spt.at[0], spt.at[1]);
+    }
+    await page.mouse.down();
+    await page.mouse.up();
+    const lg2 = await page.evaluate(() => getComputedStyle(document.getElementById('hubLogBox')).display);
+    check(lg2 !== 'none', '點通訊台的模型開啟通訊紀錄');
+    await page.click('#btnHubLogClose');
+    await page.mouse.move(5, 5);
+  }
   // 點委託的標籤：簡報；從簡報出擊：照預排的出擊，第一段的地形和戰略桌一樣
   await page.click('#hubMap .hubNode[data-sid="c2s2"]');
   check(await waitVisible(page, 'brief'), '點委託的標籤開啟簡報');

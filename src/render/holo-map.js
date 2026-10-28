@@ -130,12 +130,58 @@ export function buildHoloTable() {
   // 桌子：圓形底座＋發光的桌緣
   const metal = new THREE.MeshStandardMaterial({ color: 0x1c2228, roughness: 0.5, metalness: 0.75 });
   const dark = new THREE.MeshBasicMaterial({ color: 0x04080b });
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(TABLE_R + 0.25, TABLE_R + 0.45, TABLE_Y, 64, 1),
+  const trim = new THREE.MeshStandardMaterial({ color: 0x3a434c, roughness: 0.4, metalness: 0.85 });
+  const light = new THREE.MeshStandardMaterial({ color: 0x9aa3ab, roughness: 0.5, metalness: 0.6 });
+  const add = (geo, m, x, y, z, ry = 0, rx = 0) => {
+    const o = new THREE.Mesh(geo, m);
+    o.position.set(x, y, z);
+    o.rotation.set(rx, ry, 0);
+    o.castShadow = o.receiveShadow = true;
+    g.add(o);
+    return o;
+  };
+  // 底座：踏板、往內縮的裙邊＋直肋、上緣的斜面環
+  add(new THREE.CylinderGeometry(TABLE_R + 0.75, TABLE_R + 0.8, 0.06, 64), light, 0, 0.03, 0);
+  add(new THREE.CylinderGeometry(TABLE_R + 0.45, TABLE_R + 0.55, 0.16, 64), trim, 0, 0.14, 0);
+  add(
+    new THREE.CylinderGeometry(TABLE_R + 0.18, TABLE_R + 0.3, TABLE_Y - 0.3, 64, 1),
     metal,
+    0,
+    0.22 + (TABLE_Y - 0.3) / 2,
+    0,
   );
-  base.position.y = TABLE_Y / 2;
-  g.add(base);
+  add(new THREE.CylinderGeometry(TABLE_R + 0.32, TABLE_R + 0.2, 0.1, 64), trim, 0, TABLE_Y - 0.06, 0);
+  const ribG = new THREE.BoxGeometry(0.07, TABLE_Y - 0.36, 0.1);
+  for (let k = 0; k < 48; k++) {
+    const a = (k / 48) * Math.PI * 2;
+    const r = TABLE_R + 0.28;
+    add(ribG, trim, Math.sin(a) * r, 0.22 + (TABLE_Y - 0.36) / 2, Math.cos(a) * r, a);
+  }
+  // 桌緣下方的操作面板（斜面＋小螢幕），避開正面
+  const scrM = new THREE.MeshBasicMaterial({ color: 0x3a9fd0 });
+  for (const a of [Math.PI * 0.62, Math.PI, -Math.PI * 0.62, Math.PI * 0.3, -Math.PI * 0.3]) {
+    const r = TABLE_R + 0.42;
+    const p = add(
+      new THREE.BoxGeometry(0.62, 0.2, 0.12),
+      trim,
+      Math.sin(a) * r,
+      TABLE_Y - 0.3,
+      Math.cos(a) * r,
+      a,
+      -0.35,
+    );
+    const sc = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.12), scrM);
+    sc.position.z = 0.061;
+    p.add(sc);
+  }
+  // 桌腳的燈帶
+  const glow = new THREE.Mesh(
+    new THREE.TorusGeometry(TABLE_R + 0.5, 0.012, 6, 128),
+    new THREE.MeshBasicMaterial({ color: 0x5cc8ff }),
+  );
+  glow.rotation.x = Math.PI / 2;
+  glow.position.y = 0.225;
+  g.add(glow);
   const top = new THREE.Mesh(new THREE.CylinderGeometry(TABLE_R + 0.2, TABLE_R + 0.2, 0.04, 64), dark);
   top.position.y = TABLE_Y;
   g.add(top);
