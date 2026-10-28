@@ -764,6 +764,19 @@ export const SFX = {
     else this.play('glitch', 0.5, 1.2, 0.05, 0.1, null, 'ui');
     this.play('uiTick', 0.4, 0.8, 0.02, 0.05, null, 'ui');
   },
+  // 命中確認（自己打中，data/feel.js）：依武器種類的短音，重擊多一聲低音
+  hitConfirm(type, heavy) {
+    const r =
+      type === 'shotgun'
+        ? 0.85
+        : type === 'laser'
+          ? 1.6
+          : type === 'shell' || type === 'grenade'
+            ? 0.7
+            : 1.25;
+    this.play('uiTick', 0.22, r, 0.04, 0.045, null, 'ui');
+    if (heavy) this.play('thud1', 0.4, 1.1, 0.04, 0.08, null, 'ui');
+  },
   // 打在弱點上（CRITICAL）：重一點的金屬碎裂
   crit() {
     this.play('glass', 0.35, 1.5, 0.05, 0.08, null, 'ui');

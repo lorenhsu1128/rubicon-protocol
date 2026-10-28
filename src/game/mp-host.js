@@ -132,6 +132,7 @@ Object.assign(Game.prototype, {
       e.fpFace = !!inp.fp;
       e.mAssist = inp.ma ? 'std' : 'easy'; // 客機的「近戰輸入輔助」（data/melee.js 的 MELEE_ASSIST）
       e.pwMode = inp.cm ? 'hold' : 'auto'; // 客機的「蓄力射擊」方式（data/charge.js）
+      e.arOn = !inp.aro; // 客機的「主動裝填」（關掉時 aro）
       {
         // 客機按著的方向鍵（方向派生，data/melee.js 的 meleeKeyDir）
         const mk = typeof inp.mk === 'string' ? inp.mk : '';
@@ -167,6 +168,7 @@ Object.assign(Game.prototype, {
             ae = null;
           }
         }
+        e.arInput(slot, held); // 主動裝填（mech-feel.js）
         if (e.pwInput(slot, held, dt, ap, ae)) return; // 蓄力射擊（mech-charge.js）
         if (w.def.type === 'melee') {
           if (held && !e[edgeKey]) e.fire(slot, ap, ae);

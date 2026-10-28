@@ -91,6 +91,7 @@ import { Projectile } from './projectile.js';
 import { RB_TYPES } from '../data/ranged.js';
 import { WP } from '../data/weak.js';
 import { PW_FX } from '../data/charge.js';
+import { FEEL } from '../data/feel.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
 const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
@@ -651,7 +652,8 @@ export class MechEntity {
     const pilot = this.pilotEnt();
     const dk = pilot ? 1 : d.npcK || 1;
     const pwN = pwK === 'slug' ? d.pellets || 1 : 1; // 獨頭彈＝所有彈丸合成一發
-    const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1) * (pwfx ? pwfx.dmg * pwN : 1),
+    const arK = pilot && w.arN > 0 ? FEEL.AR_DMG : 1; // 主動裝填成功的彈匣（mech-feel.js）
+    const dmg = d.dmg * this.dmgMul * dk * (rb ? rb.dmg : 1) * (pwfx ? pwfx.dmg * pwN : 1) * arK,
       imp = d.impact * this.dmgMul * (rb ? rb.imp : 1) * (pwfx ? pwfx.imp * pwN : 1);
     const rbT = rb && rb.tags ? { rb: rb.tags } : null; // 投射物打中時顯示提示（projectile.js 的 rbHit）
     // 追尾視角／第一人稱的準星壓在鎖定目標的弱點上（game/weak.js 的 wpAimTick）：這一發算打在那個弱點
@@ -660,6 +662,8 @@ export class MechEntity {
     const foeShot = !pilot && this.team === 'enemy' && !g.rts && !g.pvp;
     // 蓄力射擊：充能用的射擊編號（一次射擊只算一次）、強力彈的外觀與命中判定
     const pwX = {};
+    // 手感（mech-feel.js）：投射物記下武器種類，打中時依種類做受擊反應
+    if (pilot) Object.assign(pwX, { wty: d.type, mg: !!(d.conv || d.spin) });
     if (pilot && this.pwKind(d)) {
       if (!pwfx) Object.assign(pwX, { pwSlot: slot, pwGrp: (this.pwSeq = (this.pwSeq || 0) + 1) });
       else {
@@ -984,6 +988,7 @@ export class MechEntity {
               h.t.takeDamage(ldmg * fall, limp * fall, this, pt, bdir.clone(), undefined, d.id);
               h.t.rbGold = false;
               h.t.wpAimK = null;
+              this.feelHit(h.t, 'laser', bdir, limp * fall); // 手感（mech-feel.js）
               if (rbT && !n) this.rbHit(h.t, rbT.rb);
             }
             g.fx.spark(pt, d.color, bdir);
@@ -1091,6 +1096,7 @@ export class MechEntity {
     if (usesAmmo(d)) {
       w.mag--;
       w.ammo--;
+      if (w.arN > 0) w.arN--;
       if (w.mag <= 0 && w.ammo > 0) w.reloadT = d.reload;
     }
     return true;
@@ -2291,6 +2297,10 @@ export class MechEntity {
     if (this.wpOff && this.wpOff.thr) wantQB = wantAB = false; // 推進器被打壞（mech-weak.js）
     if (this.rxHotT > 0 || this.rxJamT > 0) this.rxTick(dt); // 屬性反應的效果（mech-react.js）
     if (this.rxJamT > 0) wantQB = wantAB = false; // EMP 干擾
+    if (this.flinchT > 0) {
+      this.flinchT -= dt; // 被機槍連續打中：移動變慢（mech-feel.js）
+      wish = wish.clone().multiplyScalar(FEEL.MG_SLOW);
+    }
     // 近戰的頓格（hitStopLocal）：只有攻擊者與被打的目標放慢，其他照常
     if (this.hsT > 0) {
       this.hsT -= dt;
@@ -2348,6 +2358,10 @@ export class MechEntity {
         ww.reloadT -= dt;
         if (ww.reloadT <= 0) {
           ww.mag = Math.min(ww.def.mag, ww.ammo);
+          // 主動裝填（mech-feel.js）：成功的話這個彈匣傷害加成；下次換彈重新一次機會
+          ww.arN = ww.arBuff ? ww.mag : 0;
+          ww.arBuff = false;
+          ww.arTried = false;
         }
       }
     }

@@ -7,6 +7,7 @@ import { DS, MS } from '../core/scale.js';
 import { CONSUMABLES, usesAmmo } from '../data/parts.js';
 import { meleeChainPos, meleeMove } from '../data/melee.js';
 import { PW, PW_FX } from '../data/charge.js';
+import { FEEL } from '../data/feel.js';
 import { PICKUP_DEFS } from '../world/map-extras.js';
 import { Game } from './game.js';
 
@@ -190,7 +191,7 @@ Object.assign(Game.prototype, {
         ['larm', 'rarm', 'lback', 'rback']
           .map(
             (s) =>
-              `<div class="wslot" id="ws_${s}"><b>${labels[s]}</b><em>—</em><span class="k">${keys[s]}</span><div class="rl"></div><div class="pw"></div></div>`,
+              `<div class="wslot" id="ws_${s}"><b>${labels[s]}</b><em>—</em><span class="k">${keys[s]}</span><div class="rl"></div><div class="ar"></div><div class="pw"></div></div>`,
           )
           .join('') +
         ['c1', 'c2']
@@ -230,6 +231,22 @@ Object.assign(Game.prototype, {
       if (pwEl) pwEl.style.height = clamp(pv, 0, 1) * 100 + '%';
       if (full && pk) txt += '　' + PW_FX[pk].name;
       if (w.pwFlashT > 0) w.pwFlashT -= 1 / 30;
+      // 主動裝填（data/feel.js）：換彈中顯示亮區，結果顯示一下
+      const arOk = w.reloadT > 0 && p.arOn !== false && (w.def.reload || 0) >= FEEL.AR_MIN && !w.arTried;
+      const arEl = d.querySelector('.ar');
+      if (arEl) {
+        arEl.style.display = arOk ? 'block' : 'none';
+        if (arOk) {
+          arEl.style.left = FEEL.AR_A * 100 + '%';
+          arEl.style.width = (FEEL.AR_B - FEEL.AR_A) * 100 + '%';
+        }
+      }
+      if (arOk) txt = '裝填中 ▸ 開火鍵';
+      if (w.arFxT && w.arFxT.t > 0) {
+        w.arFxT.t -= 1 / 30;
+        txt = w.arFxT.ok ? '完美裝填' : '卡彈';
+      } else if (w.arN > 0) txt += '　強化彈';
+      d.classList.toggle('arGood', !!(w.arFxT && w.arFxT.t > 0 && w.arFxT.ok));
       d.querySelector('b').textContent = labels[s] + ' ' + w.def.name.split(' ')[0];
       d.querySelector('em').textContent = txt;
       d.querySelector('.rl').style.width =
@@ -338,6 +355,7 @@ Object.assign(Game.prototype, {
     this.rbHud(c, p, W, H, dt); // 邊閃邊打：反擊時間、繞射（game/ranged.js）
     this.wpHud(c, p, W, H); // 鎖定目標的弱點、追尾／第一人稱的改瞄（game/weak.js）
     this.rxHud(c, p, W, H); // 鎖定目標的屬性反應（game/ranged.js）
+    this.hitMarkHud(c, W, H, dt); // 命中標記（game/feel.js）
     this.statusHud(dt); // 狀態效果：狀態列、倒數、掙脫提示、畫面邊緣（status-hud.js）
     if (this.tut) this.tutHud(c); // 近戰訓練的方向箭頭（tutorial.js）
     document.getElementById('kits').innerHTML =

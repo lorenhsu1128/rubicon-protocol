@@ -14434,6 +14434,131 @@ async function testRangedReact(browser, base) {
   await ctx.close();
 }
 
+async function testRangedFeel(browser, base) {
+  console.log('遠程射擊：手感（霰彈推退、爆炸打飛小型敵人、機槍抖動、重擊頓格、命中標記、主動裝填）');
+  const { ctx, page } = await newPage(browser, 'ranged-feel');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'fe-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const tg = g.spawnType('mt', 1, 1);
+    tg.ai = 'none';
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 30 * pl.dk);
+    pl.lock = tg;
+    const fresh = () => {
+      tg.hp = tg.maxHp = 1e9;
+      tg.vel.set(0, 0, 0);
+      tg.grounded = true;
+      tg.flinchT = 0;
+      tg.hsT = 0;
+      tg.staggerT = 0;
+      tg.acs = 0;
+      tg.wpNo = true;
+      Object.assign(tg, { rxPrev: null, rxHotT: 0, rxJamT: 0 });
+    };
+    const arm = (id) => {
+      pl.asm.rarm = id;
+      pl.initWeapons();
+      Object.assign(pl, { qbStartT: -99, pqbT: 0, rbCtrT: 0, rbLandT: undefined, rbOrbT: 0, pwQ: null });
+      return pl.weapons.rarm;
+    };
+    const shot = () => {
+      const w = pl.weapons.rarm;
+      w.cd = 0;
+      w.reloadT = 0;
+      w.mag = Math.max(w.mag, 10);
+      const n = g.projectiles.length;
+      pl.fire('rarm', tg.center(), tg);
+      return g.projectiles.slice(n);
+    };
+    const out = { r: tg.radius / tg.dk };
+    // 霰彈：推退
+    arm('w_sg');
+    fresh();
+    for (const q of shot()) q.impact(tg);
+    out.sg = +Math.hypot(tg.vel.x, tg.vel.z).toFixed(1);
+    out.sgDir = tg.vel.z < 0; // 往遠離玩家的方向（目標在 −Z）
+    // 火箭筒：爆炸把小型敵人打飛
+    arm('w_bz');
+    fresh();
+    const bz = shot()[0];
+    bz.pos.copy(tg.center()).add(new THREE.Vector3(0, 0, 1.5 * pl.dk));
+    bz.impact(null);
+    out.bz = { vy: +tg.vel.y.toFixed(1), air: !tg.grounded };
+    // 機槍：持續抖動（移動變慢）
+    arm('w_mg');
+    fresh();
+    shot()[0].impact(tg);
+    out.mg = tg.flinchT;
+    // 重的單發（穿甲彈）：目標頓格；命中標記
+    arm('w_rifle');
+    fresh();
+    g.hmk = null;
+    pl.weapons.rarm.pwReady = true;
+    shot()[0].impact(tg);
+    out.heavy = { hs: tg.hsT > 0, mark: !!(g.hmk && g.hmk.h) };
+    // Boss 不推動
+    fresh();
+    tg.isBoss = true;
+    arm('w_sg');
+    for (const q of shot()) q.impact(tg);
+    out.boss = +Math.hypot(tg.vel.x, tg.vel.z).toFixed(1); // 只有原本的輕微擊退（takeDamage 的 ×0.15）
+    tg.isBoss = false;
+    // 主動裝填：亮區內按＝瞬間裝填＋下一個彈匣 ×1.15
+    const w = arm('w_rifle');
+    pl.arOn = true;
+    const b0 = shot()[0].dmg;
+    w.reloadT = w.def.reload * 0.5; // 進度 50%（亮區 42～60%）
+    w.arTried = false;
+    pl.arInput('rarm', false);
+    pl.arInput('rarm', true);
+    pl.move(1 / 60, new THREE.Vector3(), false, false, false, null);
+    out.ar = { done: w.reloadT <= 0, n: w.arN, mag: w.mag };
+    const pr = shot()[0];
+    out.ar.k = +(pr.dmg / b0).toFixed(2);
+    out.ar.n2 = w.arN;
+    // 亮區外：卡彈（換彈變長），同一次換彈只有一次機會
+    w.reloadT = w.def.reload * 0.8; // 進度 20%
+    w.arTried = false;
+    pl.arInput('rarm', false);
+    pl.arInput('rarm', true);
+    out.jam = +(w.reloadT / w.def.reload).toFixed(2);
+    pl.arInput('rarm', false);
+    const j1 = w.reloadT;
+    pl.arInput('rarm', true);
+    out.once = w.reloadT === j1;
+    // 關閉時沒有
+    w.reloadT = w.def.reload * 0.5;
+    w.arTried = false;
+    pl.arOn = false;
+    pl.arInput('rarm', false);
+    pl.arInput('rarm', true);
+    out.off = !w.arTried;
+    for (const q of g.projectiles) q.dead = true;
+    return out;
+  });
+  check(r.sg > 0 && r.sgDir, `霰彈打中：目標往後退（${r.sg}）`);
+  check(r.bz.vy > 0 && r.bz.air, `火箭筒的爆炸：小型敵人被打飛（往上 ${r.bz.vy}、半徑 ${r.r.toFixed(1)}）`);
+  check(r.mg > 0, '機槍打中：目標抖動變慢');
+  check(r.heavy.hs && r.heavy.mark, '重的單發：目標頓格、命中標記放大');
+  check(r.boss < r.sg * 0.3, `Boss 不會被霰彈推退（${r.boss}／一般 ${r.sg}）`);
+  check(
+    r.ar.done && r.ar.n === r.ar.mag && Math.abs(r.ar.k - 1.15) < 0.02 && r.ar.n2 === r.ar.mag - 1,
+    `主動裝填：亮區內按＝瞬間裝填、下一個彈匣傷害 ×${r.ar.k}`,
+  );
+  check(r.jam > 0.8 && r.once, `主動裝填：亮區外按＝卡彈（剩 ${r.jam}）、一次換彈只有一次機會`);
+  check(r.off, '主動裝填關閉時沒有');
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -18362,6 +18487,7 @@ const STEPS = [
   ['testRangedWeak', (c) => testRangedWeak(c.browser, c.base)],
   ['testRangedCharge', (c) => testRangedCharge(c.browser, c.base)],
   ['testRangedReact', (c) => testRangedReact(c.browser, c.base)],
+  ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [

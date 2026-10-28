@@ -71,6 +71,7 @@ Object.assign(Game.prototype, {
     $('ctrlExec').value = this.ctrl.exec || 'on';
     $('ctrlMeleeAssist').value = this.ctrl.meleeAssist || 'easy';
     $('ctrlCharge').value = this.ctrl.chargeMode || 'auto';
+    $('ctrlAR').value = this.ctrl.activeReload || 'on';
     $('ctrlDmgNum').value = this.ctrl.dmgNum || 'full';
     $('ctrlDmgSelf').value = this.ctrl.dmgSelf === false ? 'off' : 'on';
     $('ctrlHangar').value = this.hangarFx();

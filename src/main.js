@@ -61,6 +61,7 @@ import './entities/mech-ranged.js'; // 遠程射擊：邊閃邊打的加成（do
 import './entities/mech-weak.js'; // 遠程射擊：弱點、打斷預警、QB 甩掉導彈
 import './entities/mech-charge.js'; // 遠程射擊：蓄力射擊（強力彈、連發、充能）
 import './entities/mech-react.js'; // 遠程射擊：屬性反應
+import './entities/mech-feel.js'; // 遠程射擊：手感（受擊反應、命中標記、主動裝填）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-foe-d2.js';
@@ -80,6 +81,7 @@ import './game/feedback.js';
 import './game/juice.js';
 import './game/ranged.js'; // 遠程射擊：邊閃邊打的回饋與 HUD
 import './game/weak.js'; // 遠程射擊：弱點的 HUD 與追尾視角的改瞄
+import './game/feel.js'; // 遠程射擊：命中標記與主動裝填的畫面
 import './game/status-hud.js';
 import './game/textfx.js';
 import './game/level-play.js';

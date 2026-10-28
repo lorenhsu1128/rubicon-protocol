@@ -206,6 +206,8 @@ export class Projectile {
               this.owner.rbHit(t, this.rb);
               this.rb = 0; // 一顆只提示一次
             }
+            if (this.wty && this.owner && this.owner.feelHit && g.isHostile(this.owner, t))
+              this.owner.feelHit(t, this.kind, t.pos.clone().sub(this.pos), im); // 手感：爆炸把小型敵人打飛（mech-feel.js）
             if ((this.pwSlot || this.pwk) && this.owner && this.owner.pwGain && g.isHostile(this.owner, t)) {
               if (this.pwSlot) this.owner.pwGain(this.pwSlot, this.pwGrp); // 蓄力射擊的充能（mech-charge.js）
               if (this.pwk) this.owner.pwHitPop(t, this.pwk);
@@ -243,6 +245,8 @@ export class Projectile {
         direct.rbGold = false;
         direct.wpAimK = null;
         if (this.rb && this.owner && this.owner.rbHit) this.owner.rbHit(direct, this.rb);
+        if (this.wty && this.owner && this.owner.feelHit && !direct.isShot && g.isHostile(this.owner, direct))
+          this.owner.feelHit(direct, this.wty, dir, this.impactV, { mg: this.mg, slug: this.pwk === 'slug' }); // 手感
         if (this.owner && this.owner.pwGain && !direct.isShot && g.isHostile(this.owner, direct)) {
           if (this.pwSlot) this.owner.pwGain(this.pwSlot, this.pwGrp); // 蓄力射擊的充能（mech-charge.js）
           if (this.pwk) this.owner.pwHitPop(direct, this.pwk);
@@ -254,6 +258,7 @@ export class Projectile {
     } else {
       g.fx.spark(this.pos, 0xfff0d0, this.vel.clone().normalize());
       SFX.hitWorld(this.pos);
+      if (this.wty && this.kind === 'bullet' && g.bulletMark) g.bulletMark(this.pos, this.wty); // 地面的彈痕（game/feel.js）
     }
   }
 }

@@ -197,7 +197,11 @@ Object.assign(Game.prototype, {
     else if (e.k === 'crit') SFX.crit();
     else if (e.k === 'rx')
       SFX.reaction(e.r); // 屬性反應
-    else if (e.k === 'pwr' && this.player) this.pwReadyLocal(this.player, e.w); // 蓄力射擊的充能完成
+    else if (e.k === 'pwr' && this.player)
+      this.pwReadyLocal(this.player, e.w); // 蓄力射擊的充能完成
+    else if (e.k === 'hm')
+      this.hitMarkLocal(e.y, !!e.h); // 命中標記（feel.js）
+    else if (e.k === 'ar') this.arFx(e.w, !!e.ok); // 主動裝填
   },
   // 完美 QB 的回饋（只給本人：房主／單機直接呼叫，客機由 fb 事件）
   pqbFx(p) {

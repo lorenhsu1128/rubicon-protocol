@@ -263,6 +263,18 @@ table.keys td {
 .wslot.empty {
   opacity: 0.35;
 }
+/* 主動裝填（data/feel.js）：換彈中的亮區 */
+.wslot .ar {
+  position: absolute;
+  bottom: 0;
+  height: 5px;
+  background: rgba(255, 216, 96, 0.85);
+  box-shadow: 0 0 6px rgba(255, 216, 96, 0.8);
+  display: none;
+}
+.wslot.arGood {
+  border-color: #ffd860;
+}
 /* 蓄力射擊的充能（data/charge.js）：右側的直條，充滿時發光 */
 .wslot .pw {
   position: absolute;
