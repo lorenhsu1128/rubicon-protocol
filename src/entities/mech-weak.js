@@ -116,6 +116,7 @@ Object.assign(MechEntity.prototype, {
     if (from.isPlayer) SFX.crit();
     else if (from.slot !== undefined && g.net && g.net.role === 'host')
       g.netEv({ t: 'fb', s: from.slot, k: 'crit' });
+    if (from.syEvent) from.syEvent('crit'); // 風格評價
     if (hit) {
       hit.hp -= dmg;
       if (hit.hp <= 0) this.wpBreak(hit, from);
@@ -148,6 +149,7 @@ Object.assign(MechEntity.prototype, {
     );
     SFX.stagger(this.center());
     g.netEv({ t: 'stag', i: this.id });
+    if (from && from.syEvent) from.syEvent('interrupt'); // 風格評價
   },
   // 打壞弱點
   wpBreak(w, from) {
@@ -167,6 +169,7 @@ Object.assign(MechEntity.prototype, {
       this.id,
     );
     g.netEv({ t: 'wpb', i: this.id, k: w.k });
+    if (from && from.syEvent) from.syEvent('wpBreak', WP_KINDS[w.k].name + ' 破壞'); // 風格評價
     if (w.k === 'thr') this.speedMul *= WP.THR_SPD;
     if (w.k === 'ammo') g.later(0, () => this.wpCookOff(from)); // 殉爆：下一格（不在 takeDamage 裡再受傷）
   },

@@ -511,6 +511,7 @@ export class MechEntity {
   tutE(k, o) {
     const g = this.game;
     if (g.tut && this === g.player) g.tutEv(k, o);
+    if (this.syEv) this.syEv(k, o); // 風格評價也用這些事件（mech-style.js）
   }
   // 玩家操作的機體（單機與多人的玩家，不含友軍、敵人與 PvP 電腦）：失衡後保護只給它們
   pilotEnt() {
@@ -2047,6 +2048,9 @@ export class MechEntity {
       }
     }
     const real = Math.round(dmg * mul);
+    // 風格評價（mech-style.js）：射擊打中加分（近戰由 tutE 的 hit）、自己被打中掉分
+    if (real > 0 && !melee && from && from !== this && from.syHit) from.syHit(this, real, wid);
+    if (real > 0 && this.sy) this.syHurt(real);
     if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.defCut(A)), impact, wid, A); // 靶場的量測
     const mp = g.net && g.net.role;
     if (mp && this.team === 'player' && this.downed) {

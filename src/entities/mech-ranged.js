@@ -8,6 +8,12 @@ import { GRAVITY } from '../data/parts.js';
 import { RB, RB_APEX, RB_CTR, RB_LAND, RB_ORBIT, RB_QB, rbLabel } from '../data/ranged.js';
 import { MechEntity } from './mech-entity.js';
 
+const popCount = (n) => {
+  let c = 0;
+  for (; n; n &= n - 1) c++;
+  return c;
+};
+
 Object.assign(MechEntity.prototype, {
   rbTick(dt) {
     const t = this.t;
@@ -36,6 +42,7 @@ Object.assign(MechEntity.prototype, {
     this.rbOrbT = on ? Math.min(RB.ORBIT_T, o + dt) : Math.max(0, o - dt * RB.ORBIT_DECAY);
     if (this.rbCtrT > 0) this.rbCtrT -= dt;
     if (this.pwQ) this.pwTick(dt); // 蓄力射擊的連發（mech-charge.js）
+    if (this.sy) this.syTick(dt); // 風格評價（mech-style.js）
   },
   rbOrbK() {
     return clamp((this.rbOrbT || 0) / RB.ORBIT_T, 0, 1);
@@ -112,6 +119,7 @@ Object.assign(MechEntity.prototype, {
         target.id,
       );
     }
+    this.syAdd('rb' + tags, 12 * Math.max(1, popCount(tags)), rbLabel(tags)); // 風格評價（mech-style.js）
     if (this.isPlayer) SFX.rangedBonus(tags);
     else if (this.slot !== undefined && g.net && g.net.role === 'host')
       g.netEv({ t: 'fb', s: this.slot, k: 'rb', b: tags });

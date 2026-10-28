@@ -772,7 +772,10 @@ Object.assign(Game.prototype, {
           2,
         );
     }
-    const bounty = Math.round((e.isBoss ? e.maxHp * 2.2 : e.maxHp * 1.8) / 100) * 100;
+    // 風格評價（mech-style.js）：擊破加分；主線的擊破獎金依擊破時的等級
+    if (from && from.syEvent) from.syEvent('kill');
+    const syK = this.camp && from && from.syCoamK ? from.syCoamK() : 1;
+    const bounty = Math.round(((e.isBoss ? e.maxHp * 2.2 : e.maxHp * 1.8) * syK) / 100) * 100;
     this.save.coam += bounty;
     this.missionEarned = (this.missionEarned || 0) + bounty;
     this.writeSave();

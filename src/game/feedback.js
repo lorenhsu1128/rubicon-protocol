@@ -201,7 +201,9 @@ Object.assign(Game.prototype, {
       this.pwReadyLocal(this.player, e.w); // 蓄力射擊的充能完成
     else if (e.k === 'hm')
       this.hitMarkLocal(e.y, !!e.h); // 命中標記（feel.js）
-    else if (e.k === 'ar') this.arFx(e.w, !!e.ok); // 主動裝填
+    else if (e.k === 'ar')
+      this.arFx(e.w, !!e.ok); // 主動裝填
+    else if (e.k === 'sty') this.syClient(e.v, e.a); // 風格評價（style-meter.js）
   },
   // 完美 QB 的回饋（只給本人：房主／單機直接呼叫，客機由 fb 事件）
   pqbFx(p) {

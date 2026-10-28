@@ -14559,6 +14559,101 @@ async function testRangedFeel(browser, base) {
   await ctx.close();
 }
 
+async function testRangedStyle(browser, base) {
+  console.log(
+    '遠程射擊：風格評價（加分、重複遞減、換武器、事件、被打中掉分、隨時間掉、升級回復 ACS、主線獎金）',
+  );
+  const { ctx, page } = await newPage(browser, 'ranged-style');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'sy-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const tg = g.spawnType('mt', 1, 1);
+    tg.ai = 'none';
+    tg.pos.set(pl.pos.x, pl.pos.y, pl.pos.z - 30 * pl.dk);
+    tg.hp = tg.maxHp = 1e5;
+    const hit = (wid) => {
+      tg.hp = tg.maxHp;
+      tg.wpNo = true;
+      Object.assign(tg, { rxPrev: null, rxHotT: 0, rxJamT: 0, staggerT: 0, acs: 0, iFrames: 0 });
+      const p0 = pl.sy ? pl.sy.pts : 0;
+      tg.takeDamage(3000, 0, pl, tg.center(), new THREE.Vector3(0, 0, -1), undefined, wid);
+      return +(pl.sy.pts - p0).toFixed(2);
+    };
+    const out = {};
+    pl.sy = null;
+    // 同一把武器重複打：加分越來越少
+    const g1 = [hit('w_rifle'), hit('w_rifle'), hit('w_rifle'), hit('w_rifle')];
+    out.rep = g1;
+    // 換武器：多加分並顯示「換武器」
+    const before = pl.sy.labels.length;
+    out.swap = hit('w_bz');
+    out.swapLbl = pl.sy.labels.some((l) => l.txt === '換武器') && pl.sy.labels.length > before;
+    // 事件：完美迴避、打出失衡、擊破
+    const p1 = pl.sy.pts;
+    pl.tutE('pqb', {});
+    pl.tutE('stag', { tgt: tg });
+    pl.syEvent('kill');
+    out.events = +(pl.sy.pts - p1).toFixed(1);
+    // 升級：ACS 回復
+    pl.acs = pl.acsMax * 0.8;
+    const a0 = pl.acs;
+    const r0 = pl.sy.rank;
+    pl.sy.pts = 499;
+    pl.syRankCheck();
+    pl.syAdd('test', 20, '');
+    out.rankUp = { from: r0, to: pl.sy.rank, acs: +((a0 - pl.acs) / pl.acsMax).toFixed(2) };
+    out.coam = pl.syCoamK();
+    // 被打中：掉一截
+    const p2 = pl.sy.pts;
+    pl.iFrames = 0;
+    pl.qbStartT = -99;
+    pl.takeDamage(pl.maxHp * 0.05, 0, tg, pl.center(), null, undefined, 'w_rifle');
+    out.hurt = +(pl.sy.pts / p2).toFixed(2);
+    // 隨時間掉（加分後 1.2 秒內不掉）
+    const p3 = pl.sy.pts;
+    pl.syTick(0.5);
+    out.idle = pl.sy.pts === p3;
+    for (let i = 0; i < 10; i++) pl.syTick(0.2);
+    out.decay = pl.sy.pts < p3;
+    // 敵人打的不算、近戰打中由 tutE 加分
+    const e0 = tg.sy;
+    pl.takeDamage(100, 0, tg, pl.center(), null, undefined, 'w_rifle');
+    out.foe = !tg.sy && !e0;
+    const p4 = pl.sy.pts;
+    pl.tutE('hit', { st: { id: 'x1', name: '斬擊' }, tgt: tg, air: true });
+    out.melee = { d: +(pl.sy.pts - p4).toFixed(1), lbl: pl.sy.labels.some((l) => l.txt === '斬擊') };
+    // HUD 畫得出來
+    pl.sy.pts = 1100;
+    pl.syRankCheck();
+    g.syHud(g.hctx, pl, window.innerWidth, window.innerHeight, 0.016);
+    out.rankTop = pl.sy.rank;
+    return out;
+  });
+  check(
+    r.rep[0] > r.rep[1] && r.rep[1] > r.rep[2] && r.rep[2] > r.rep[3],
+    `同一把武器重複打：加分遞減（${r.rep.join(' → ')}）`,
+  );
+  check(r.swap > r.rep[3] && r.swapLbl, `換武器：加分（${r.swap}）並顯示「換武器」`);
+  check(r.events >= 90, `完美迴避＋打出失衡＋擊破：加 ${r.events} 分`);
+  check(r.rankUp.to === 4 && r.rankUp.acs > 0.2, `升到 S：ACS 回復 ${Math.round(r.rankUp.acs * 100)}%`);
+  check(Math.abs(r.coam - 1.1) < 0.001, `主線的擊破獎金：S ×${r.coam}`);
+  check(r.hurt < 0.8, `被打中：分數 ×${r.hurt}`);
+  check(r.idle && r.decay, '加分後短暫不掉，之後隨時間掉');
+  check(r.foe, '敵人沒有風格評價');
+  check(r.melee.d > 20 && r.melee.lbl, `近戰打中也加分（${r.melee.d}，招式名稱）`);
+  check(r.rankTop === 6, 'SSS 的 HUD');
+  await ctx.close();
+}
+
 async function testBladeGrip(browser, base) {
   console.log('刀與大劍的握法：刀尖朝上、揮擊轉手腕、突刺往前');
   const { ctx, page } = await newPage(browser, 'blade-grip');
@@ -18488,6 +18583,7 @@ const STEPS = [
   ['testRangedCharge', (c) => testRangedCharge(c.browser, c.base)],
   ['testRangedReact', (c) => testRangedReact(c.browser, c.base)],
   ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
+  ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [
