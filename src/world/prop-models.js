@@ -482,7 +482,8 @@ export function bakeGroup(root, o) {
   root.traverse((m) => {
     if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || Array.isArray(m.material) || !m.geometry) return;
     if (!m.material || m.material.isShaderMaterial || m.material.isLineBasicMaterial) return;
-    k.geoM(m.material, m.geometry, new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+    const mm = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
+    k.geoM(m.material, m.geometry, mm);
     rm.push(m);
   });
   for (const m of rm) m.parent.remove(m);
