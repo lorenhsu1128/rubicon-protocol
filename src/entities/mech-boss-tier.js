@@ -278,6 +278,8 @@ Object.assign(MechEntity.prototype, {
     if (!pl || this.staggerT > 0 || (this.noLock && this.opts.bossKind === 'trinity')) return;
     s.cdI -= dt;
     if (s.cdI > 0) return;
+    const kit0 = this.tierKit();
+    if (kit0.canCharge && !kit0.canCharge(this)) return (s.cdI = 0.5); // 這隻現在不能蓄力（地下、隧道裡…）
     const mv = this.tierMove(ph);
     if (!mv) return (s.cdI = I_CD[1]);
     const face = pl.pos.clone().sub(this.pos).setY(0);
@@ -318,7 +320,9 @@ Object.assign(MechEntity.prototype, {
     const b = this.tierBoss();
     if (!b || !b.bt || !b.bt.ch || !b.tierOn()) return;
     const ch = b.bt.ch;
-    ch.dealt += real * (this.cpHitK || 1); // 反擊點：累積 ×2（第 2 期）
+    // 本體被自己的裝甲（砲台、引擎在的時候…）擋掉的部分也算：以裝甲之前的傷害累積；反擊點 ×2
+    const arm = this === b && this.tkArmor > 0 && this.tkArmor < 1 ? Math.max(0.1, this.tkArmor) : 1;
+    ch.dealt += (real / arm) * (this.cpHitK || 1);
     if (ch.dealt < ch.need) return;
     const g = b.game;
     if (ch.k < ch.n) {
@@ -538,11 +542,22 @@ Object.assign(MechEntity.prototype, {
     const s = this.bt;
     return !!(s && s.lost && s.lost[id] > 0);
   },
-  // 部位被打壞／重建：停用或恢復它負責的招式
-  tierPartLost(stops, on) {
+  // 部位被打壞（on）／重建：停用或恢復它負責的招式（stops）、機能（flag）、武器（slots）、移動（speedK）、高度（hoverK）
+  tierPartLost(sp, on) {
     const s = this.tierState();
+    const d = on ? 1 : -1;
     s.lost = s.lost || {};
-    for (const id of stops || []) s.lost[id] = Math.max(0, (s.lost[id] || 0) + (on ? 1 : -1));
+    s.lostF = s.lostF || {};
+    for (const id of sp.stops || []) s.lost[id] = Math.max(0, (s.lost[id] || 0) + d);
+    if (sp.flag) s.lostF[sp.flag] = Math.max(0, (s.lostF[sp.flag] || 0) + d);
+    for (const k of sp.slots || []) if (this.weapons[k]) this.weapons[k].tierOff = on;
+    if (sp.speedK) this.speedMul *= on ? sp.speedK : 1 / sp.speedK;
+    if (sp.hoverK && this.hoverH) this.hoverH *= on ? sp.hoverK : 1 / sp.hoverK;
+  },
+  // 部位負責的機能（BOSS_KIT 的 parts[].flag）被打壞了沒
+  tierFlag(f) {
+    const s = this.bt;
+    return !!(s && s.lostF && s.lostF[f] > 0);
   },
   // ---------- M 打回去 ----------
   // 完美 QB 躲開這隻（或它的部位、彈）的攻擊：Boss 身上出現反擊點（pqbCheck 呼叫）
@@ -560,7 +575,7 @@ Object.assign(MechEntity.prototype, {
     const b = this.tierBoss();
     const T = tierRow(b.bossTier());
     const kit = b.tierKit();
-    if (kit.reflect && kit.reflect.length && !kit.reflect.includes(kind)) return this.foeShotBase(dmg);
+    if (!this.tierReflects(kind)) return this.foeShotBase(dmg);
     if (T.mFake && Math.random() < 0.35) return { color: 0xff3040 }; // 假彈：顏色不同、打不掉
     const hits = T.mHits % 1 ? (Math.random() < 0.5 ? Math.floor(T.mHits) : Math.ceil(T.mHits)) : T.mHits;
     return {
@@ -574,9 +589,24 @@ Object.assign(MechEntity.prototype, {
       popDmg: 0,
     };
   },
+  // 這種彈體可以打回去嗎（沒寫 reflect 時：飛彈、榴彈、砲彈都可以；迫擊砲彈要寫明）
+  tierReflects(kind) {
+    const b = this.tierBoss();
+    const kit = b ? b.tierKit() : {};
+    if (kit.reflect) return kit.reflect.includes(kind);
+    return kind !== 'mortar';
+  },
   // 打掉的彈：反轉飛回 Boss（hazards2.js 的 shotDamage 呼叫；from＝打掉它的人）
   tierReflect(pr, from) {
     const g = this.game;
+    const kit = this.tierKit();
+    if (kit.reflectPool) {
+      // 熔渣彈：打掉的落在 Boss 腳下變成燃燒地面
+      g.addPool(this, this.pos.clone(), 7, 12, 220 * this.dmgMul);
+      g.popDamage(pr.pos.clone().setY(pr.pos.y + 1), '打回去！', false, true, false, 0, -1);
+      if (from && from.syEvent) from.syEvent('shotDown', '打回去');
+      return;
+    }
     const T = tierRow(this.bossTier());
     const p = pr.pos.clone();
     const to = this.center().sub(p);
@@ -620,6 +650,22 @@ Object.assign(MechEntity.prototype, {
       pr.vel.addScaledVector(side, -10 * DS);
       g.popDamage(this.center().setY(this.center().y + 3 * DS), '躲開了', false, false, false, 0, this.id);
     }
+  },
+  // 衝撞（大招與應對用）：一般大型 Boss 的突進、推土要塞的衝撞
+  tierRush() {
+    const s = this.aiState;
+    if (this.ai === 'rampart') {
+      if ((!s.rm || s.rm === 'walk') && this.canAct() && this.rampartAim) {
+        const pl = this.game.playersAlive()[0];
+        if (pl) this.rampartAim(pl.pos.clone().sub(this.pos).setY(0).normalize());
+      }
+      return;
+    }
+    s.pattern = 3;
+    s.patT = 1.8;
+    s.rushT = 1.3;
+    s.rammed = false;
+    s.rushMiss = false;
   },
   // ---------- C 應對玩家 ----------
   // 看目標玩家最近 cWin 秒的習慣（每 C_SAMPLE 秒取樣），比例超過門檻就應對 C_RESP 秒

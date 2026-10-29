@@ -43,7 +43,8 @@ const GENERIC_PARTS = [
   { id: 'g2', name: '右肩武裝', off: [0.42, 0.85, 0.1], stops: ['p2'] },
   { id: 'g3', name: '背部推進器', off: [0, 0.7, -0.45], stops: ['p3'] },
 ];
-const SWAP = { p1: 'p2', p2: 'p3', p3: 'p1' }; // J：刁鑽度 7～8 重建的部位換成另一種招式
+const SWAP = { p1: 'p2', p2: 'p3', p3: 'p1' };
+const CARS_J = new Set(['car_aa', 'car_ms', 'car_lz', 'car_mine']); // J：刁鑽度 7～8 重建的部位換成另一種招式
 // 冒煙測試（網址帶 ?test）：刁鑽度的換算
 if (typeof window !== 'undefined' && /[?&]test/.test(location.search))
   window.__bossTier = { campaignTier, freeTier, oRank, aNeedK, aStagT };
@@ -151,21 +152,25 @@ Object.assign(Game.prototype, {
     if (!b || !b.isBoss || !b.tierOn()) return;
     const T = tierRow(b.bossTier());
     const kit = b.tierKit();
-    const own = b.partsOf();
-    // 原本就有的部位算在部位數裡（浮游砲在戰鬥中才放出，整群算一個）
-    const have =
-      own.filter((p) => J_KINDS.has(p.opts.partKind)).length + (b.opts.bossKind === 'funnel' ? 1 : 0);
-    let list = (kit.parts || GENERIC_PARTS).slice(0, T.jParts);
-    if (!kit.parts) list = list.slice(0, Math.max(0, T.jParts - have));
+    // 原本就有的部位算在部位數裡：同一種（四座砲台、六條腳…）算一個；浮游砲在戰鬥中才放出，整群算一個
+    const kinds = new Set(
+      b
+        .partsOf()
+        .filter((p) => J_KINDS.has(p.opts.partKind))
+        .map((p) => (CARS_J.has(p.opts.partKind) ? 'car' : p.opts.partKind)),
+    );
+    const have = kinds.size + (b.opts.bossKind === 'funnel' ? 1 : 0);
+    const list = (kit.parts || GENERIC_PARTS).slice(0, Math.max(0, T.jParts - have));
     list.forEach((sp, i) => {
       const s = { ...sp };
-      // 刁鑽度 3 起：其中 1 個在背後或底下；5 起：其中 1 個只在出招時露出
-      if (!kit.parts && T.jParts >= 3 && i === list.length - 1) s.back = true;
-      if (!kit.parts && T.jRebuild && i === list.length - 1) s.expose = true;
+      // 刁鑽度 3 起：其中 1 個在背後或底下；5 起：最後一個只在出招時露出
+      const last = i === list.length - 1;
+      if (T.jParts >= 3 && last && s.back === undefined) s.back = true;
+      if (T.jRebuild && last) s.expose = true;
       this.tierSpawnPart(b, s);
     });
   },
-  tierSpawnPart(b, sp) {
+  tierSpawnPart(b, sp, rebuild) {
     const T = tierRow(b.bossTier());
     const off = sp.off ? sp.off.slice() : [0, 0.7, 0];
     if (sp.back && off[2] >= 0) off[2] = -Math.max(0.4, Math.abs(off[2]) || 0.45);
@@ -177,8 +182,14 @@ Object.assign(Game.prototype, {
     });
     e.tierSpec = { ...sp, off };
     e.tierExpose = !!sp.expose;
-    b.tierPartLost(sp.stops, false); // 重建時恢復（第一次生成時是 0，不變）
+    if (rebuild) b.tierPartLost(sp, false); // 重建：恢復它負責的招式與機能
     return e;
+  },
+  // 這隻 Boss 的破綻與部位（BOSS_KIT 的 tip）：開打後跳一次
+  tierTip(b) {
+    const kit = b.tierKit();
+    if (!kit.tip || !b.tierOn()) return;
+    this.later(5, () => !b.dead && this.flashAlert(kit.tip));
   },
   // 部位被擊破（onEnemyKilled，房主／單機）：停用招式、掉補給、結算加成、重建
   tierPartDown(e) {
@@ -188,7 +199,7 @@ Object.assign(Game.prototype, {
     const T = tierRow(b.bossTier());
     this.tierPartsBroken = (this.tierPartsBroken || 0) + 1;
     const sp = e.tierSpec;
-    if (sp) b.tierPartLost(sp.stops, true);
+    if (sp) b.tierPartLost(sp, true);
     const c = e.center();
     this.popDamage(c.clone().setY(c.y + 2 * DS), '部位破壞', false, true, false, 0, e.id);
     this.flashMsg(
@@ -221,12 +232,60 @@ Object.assign(Game.prototype, {
     if (!T.eWhen.includes(ph)) return;
     const kit = b.tierKit();
     const f = kit.field && kit.field[ph];
-    if (typeof f === 'function') return f(this, b);
+    if (typeof f === 'function') {
+      f(this, b, T);
+      return;
+    }
     const tier = b.bossTier();
     const good = tier <= 2 || (tier <= 4 && ph === 2);
     if (good) this.tierFieldGood(b);
     else this.tierFieldBad(b, ph, T);
     if (T.eZone < 1 && ph === 2) this.tierShrinkZone(T.eZone);
+  },
+  // 場地的小工具（BOSS_KIT 的 field 用）：玩家和 Boss 之間的掩體牆
+  // o：h／w／d（舊尺度的公尺）、hp、life、spread（牆的間距）
+  tierWalls(b, n, o = {}) {
+    const pl = this.playersAlive()[0];
+    if (!pl) return;
+    const mid = pl.pos.clone().lerp(b.pos, 0.35);
+    const dir = b.pos.clone().sub(pl.pos).setY(0);
+    const yaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : 0;
+    const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const K = this.fx.k;
+    for (let i = 0; i < n; i++) {
+      const p = mid.clone().addScaledVector(side, (i - (n - 1) / 2) * (o.spread || 14) * K);
+      this.addTempWall(p, {
+        kind: 'rock',
+        w: (o.w || 7) * K,
+        h: (o.h || 4) * K,
+        d: (o.d || 1.6) * K,
+        yaw,
+        hp: o.hp || 1400,
+        life: o.life || 60,
+      });
+    }
+  },
+  // 燃燒地面：at＝'player'（玩家周圍）、'boss'（Boss 周圍）、'line'（兩者之間一條）
+  tierPools(b, n, at, R = 6) {
+    const pl = this.playersAlive()[0];
+    if (!pl) return;
+    const K = this.fx.k;
+    for (let i = 0; i < n; i++) {
+      let p;
+      if (at === 'line') p = pl.pos.clone().lerp(b.pos, (i + 1) / (n + 1));
+      else {
+        const c = at === 'boss' ? b.pos : pl.pos;
+        const a = Math.random() * Math.PI * 2,
+          r = rnd(8, 18) * K;
+        p = c.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+      }
+      this.addPool(b, p, R, 25, 150 * b.dmgMul);
+    }
+  },
+  // 煙霧（follow＝跟著 Boss 移動，刁鑽度 7～8）
+  tierSmoke(b, R, follow) {
+    const id = this.addZone('smoke', b.pos.clone(), R * this.fx.k, follow ? 9999 : 30, { src: b });
+    if (follow && id > 0) b.tierState().fzone = id;
   },
   // 有利：多出掩體與彈藥箱
   tierFieldGood(b) {
@@ -263,7 +322,7 @@ Object.assign(Game.prototype, {
     this.flashAlert(T.eMove ? '戰場改變 — 煙霧跟著 Boss 移動' : '戰場改變 — 燃燒地面與煙霧');
   },
   // 作戰區域縮小到比例 k（以目前作戰區域的中心）
-  tierShrinkZone(k) {
+  tierShrinkZone(k, at) {
     const w = this.world;
     if (!w || !w.zone) return;
     const Z = w.zone;
@@ -272,6 +331,12 @@ Object.assign(Game.prototype, {
       hx = ((Z[1] - Z[0]) / 2) * k,
       hz = ((Z[3] - Z[2]) / 2) * k;
     w.zoneGoal = [cx - hx, cx + hx, cz - hz, cz + hz];
+    if (at) {
+      // 以某個位置為中心（例如陣地周圍），超出原本的作戰區域的部分夾回去
+      const ax = clamp(at.x, Z[0] + hx, Z[1] - hx),
+        az = clamp(at.z, Z[2] + hz, Z[3] - hz);
+      w.zoneGoal = [ax - hx, ax + hx, az - hz, az + hz];
+    }
     this.netEv({ t: 'tzone', z: w.zoneGoal.map((v) => +v.toFixed(1)) });
     this.flashAlert('作戰區域縮小');
   },
@@ -291,7 +356,7 @@ Object.assign(Game.prototype, {
       r.t -= dt;
       if (r.t > 0 || r.b.dead) continue;
       r.done = true;
-      const e = this.tierSpawnPart(r.b, r.sp);
+      const e = this.tierSpawnPart(r.b, r.sp, true);
       this.flashMsg(`${r.b.name.split(' ')[0]} 的部位重建：${e.name}`, 0xff9040, 1.8);
     }
     this.tierReb = this.tierReb.filter((r) => !r.done && !r.b.dead);

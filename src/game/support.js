@@ -155,6 +155,10 @@ Object.assign(Game.prototype, {
         splash: o.R,
         gravity: MORTAR_G,
         wid: 'bw_gr',
+        // Boss 改版的 M：BOSS_KIT 的 reflect 有 'mortar' 的 Boss（與部位）的砲彈可以打回去
+        ...((src.isBoss || src.ai === 'part') && src.tierOn && src.tierOn() && src.tierReflects('mortar')
+          ? src.tierShotOpt(o.dmg, 'mortar')
+          : {}),
       }),
     );
     this.fx.muzzle(mz, new THREE.Vector3(0, 1, 0), 0xff8040, 2.2);

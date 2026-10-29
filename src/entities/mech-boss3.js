@@ -77,7 +77,10 @@ Object.assign(MechEntity.prototype, {
         if (this.dead || pl.dead) return;
         const a = Math.random() * Math.PI * 2,
           r = (i === 0 ? rnd(0, 2) : rnd(2, R)) * DS;
-        const lead = pl.vel.clone().setY(0).multiplyScalar(0.4);
+        const lead = pl.vel
+          .clone()
+          .setY(0)
+          .multiplyScalar(this.tierFlag && this.tierFlag('lead') ? 0 : 0.4);
         const tp = pl.pos
           .clone()
           .add(lead)

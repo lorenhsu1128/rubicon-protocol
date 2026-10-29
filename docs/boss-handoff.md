@@ -89,8 +89,8 @@
 | 期 | 狀態 | commit | 備註 |
 |---|---|---|---|
 | 1 共用架構 | 完成 | ab0c28f | 見下方「第 1 期的實作」 |
-| 2 部位、打回去、應對、場地 | 完成 | （見 git log） | 見下方「第 2 期的實作」 |
-| 3 第 1、2 章的 Boss | 未開始 | | |
+| 2 部位、打回去、應對、場地 | 完成 | ecef294 | 見下方「第 2 期的實作」 |
+| 3 第 1、2 章的 Boss | 完成 | （見 git log） | 見下方「第 3 期的實作」 |
 | 4 第 3、4 章的 Boss | 未開始 | | |
 | 5 第 5、6 章的 Boss | 未開始 | | |
 | 6 收尾 | 未開始 | | |
@@ -115,3 +115,13 @@
 - **C**：`tierHabitTick`（在 `tierTick` 裡）每 0.25 秒取樣目標玩家：離地 4 m×DS、15 m×DS 內、60 m×DS 外、`losBlocked`；超過 `C_THR` 就應對 12 秒，期間每 4 秒 `tierCounterMove`（`BOSS_KIT.counter[習慣]` 或共用的：對空掃射、衝擊波、砲擊、曲射）。HUD `#bossHabit`。同步在 `bt` 的第 7 格（位元）。
 - **E**：`bossPhaseShift` → `tierFieldShift(b, ph)`（`BOSS_KIT.field[ph]` 是函式時用它）：有利＝3 道岩牆＋2 個彈藥箱；不利＝3 處燃燒地面＋（第三型態或刁鑽度 7～8）煙霧，7～8 的煙霧跟著 Boss（`bt.fzone`）；刁鑽度 5 起第二型態作戰區域縮到 75%（`world.zoneGoal`，客機收到 `tzone` 直接套用）。`tierFieldTick` 在 `bossTierTick` 裡（重建、移動的區域、`tickZone`）。
 - 測試：`testBossTier2`。
+
+### 第 3 期的實作
+
+- **`BOSS_KIT` 已填**：artillery、worm、JUGGERNAUT、railgun、heli、rampart、train、furnace（`src/data/boss-kit.js` 的 `K1`）。每隻有 `tip`（開打 5 秒後的說明）、`parts`、`open2`／`open1`、`big`（第一、二型態的大招，取代 `mech-boss-tier.js` 的暫代 `BIG`）、`reflect`、`field[2]`／`field[3]`（函式 `(g, b, T)`）、`counter`（四種）、需要時 `canCharge`（鑽地蟲只在鑽出來時、列車不在隧道時）。
+- **部位的機能**（`parts[]`）：`stops`（停用大招）、`flag`（各 Boss 的 AI 用 `b.tierFlag(flag)` 看）、`slots`（停用武器：`fire()` 看 `w.tierOff`）、`speedK`、`hoverK`；`tierPartLost(sp, on)` 統一處理，重建時（`tierSpawnPart(..., true)`）才恢復。部位數的計算改成「原本就有的部位一種算一個」（四座砲台＝1、四節車廂＝1）。
+- **接到各 Boss 的 AI 的機能**：BASTILLE 的 `lead`（砲台與 `b3Rain` 不預判）／`mines`（不補布雷無人機）；SANDWORM 的 `track`（鑽出點不追）／`bite`（沒有地下衝刺）、鑽出撲空＝停留 +2 秒＋破綻；JUGGERNAUT 衝撞撞空＝破綻；HALBERD 的 `aim`／`cap`／`vent`；BEHEMOTH 的 `blade`／`side`／`exhaust`、衝撞落空＝破綻；CITADEL 的 `valve`；CINDER 的 `slag`／`flame`／`hinge`。`b.tierRush()`＝一般大型 Boss 的突進或推土要塞的衝撞（大招與應對用）。
+- **打回去**：`tierReflects(kind)`（`reflect` 沒寫時：飛彈、榴彈、砲彈；迫擊砲彈 `'mortar'` 要寫明）；`mortarShot` 也會帶 `tierShotOpt`。CINDER 的 `reflectPool`：打掉的熔渣落在它腳下變成燃燒地面。
+- **打斷量表**：本體被自己的裝甲（`bossDefense` 的 k，例如 BASTILLE 砲台在時 ×0.12）擋掉的部分也算（`tkArmor`），否則有部位擋住本體的 Boss 打不斷。
+- 場地的小工具：`g.tierWalls(b, n, o)`、`g.tierPools(b, n, 'player'|'boss'|'line', R)`、`g.tierSmoke(b, R, follow)`、`g.tierShrinkZone(k, at)`。
+- 測試：`testBossKit12`（`testBossKit(browser, base, [[等級, 標籤], …], 名稱)`：部位與機能、三個大招都打斷、打回去、場地、四種反制、截圖 `test-results/boss-<種類>-kit.png`）；`testBossTier2` 以 `g.bossKit = () => null` 只測共用的框架。

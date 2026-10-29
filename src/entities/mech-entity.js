@@ -540,6 +540,7 @@ export class MechEntity {
       d = w.def,
       g = this.game;
     if (d.type === 'none' || d.type === 'shield') return false;
+    if (w.tierOff) return false; // Boss 改版：負責這把武器的部位被打壞了
     if (!this.canAct()) return false;
     if (this.rxJamT > 0) return false; // 屬性反應的 EMP 干擾：不能開火（mech-react.js）
     if (d.type === 'melee' && this.pilotEnt()) this.cueArmSet('p'); // 提示中按近戰＝彈刀（meleeClash）
@@ -3706,6 +3707,7 @@ export class MechEntity {
         s.patT = 1.8;
         s.rushT = 1.3;
         s.rammed = false;
+        s.rushMiss = false;
       }
       if (s.pattern === 4) {
         s.patT = s.phase >= 2 ? 2.6 : 2.4;
@@ -3717,6 +3719,10 @@ export class MechEntity {
     if (s.pattern === 3 && s.rushT > 0) {
       // 突進：衝向目標，撞上時造成傷害並撞開
       s.rushT -= dt;
+      if (s.rushT <= 0 && !s.rammed && !s.rushMiss) {
+        s.rushMiss = true;
+        this.bossOpen(); // Boss 改版：衝撞撞空的滑停＝破綻
+      }
       wish.copy(dir);
       rush = d > 7 * this.dk;
       if (!s.rammed && d < this.radius + pl.radius + 1.5 * this.dk && this.canAct()) {

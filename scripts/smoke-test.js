@@ -10765,6 +10765,7 @@ async function testBossTier2(browser, base) {
   const r = await page.evaluate(() => {
     const g = window.__game;
     const out = {};
+    g.bossKit = () => null; // 共用的框架（各 Boss 的專屬內容在 testBossKit）
     const start = (L, tier) => {
       g.clearMission();
       g.save.level = L;
@@ -10950,6 +10951,7 @@ async function testBossTier2(browser, base) {
     out.e7move = !!zz && Math.abs(zz.p.x - b.pos.x) < 0.1;
     // 截圖用：刁鑽度 1 的部位標記與應對
     ({ pl, b } = start(3, 1));
+    delete g.bossKit;
     return out;
   });
   check(
@@ -10966,7 +10968,7 @@ async function testBossTier2(browser, base) {
   check(r.jRebuild === 1, '刁鑽度 5：打壞的部位 45 秒後重建');
   check(r.jSwap, '刁鑽度 7：重建的部位換成另一種招式');
   check(
-    r.jArt === 'artillery:0' && r.jFun === 'funnel:1',
+    r.jArt === 'artillery:2' && r.jFun === 'funnel:1',
     `原本就有部位的 Boss 算在部位數裡（${r.jArt}、${r.jFun}）`,
   );
   check(r.mShoot, 'Boss 的飛彈是可以打回去的彈');
@@ -11009,6 +11011,172 @@ async function testBossTier2(browser, base) {
       window.__pump(0.3);
     }, touch);
     await page.screenshot({ path: path.join(SHOT_DIR, `boss-tier-parts-${tag}.png`) });
+  }
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+  });
+  await ctx.close();
+}
+
+// Boss 改版第 3～5 期：每隻 Boss 的專屬內容（部位與機能、三個大招都打斷一次、打回去的彈、場地、四種反制），並截圖
+async function testBossKit(browser, base, list, label) {
+  console.log(`Boss 改版：${label} 的專屬內容`);
+  const { ctx, page } = await newPage(browser, 'bosskit-' + list[0][1]);
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  for (const [L, key] of list) {
+    const r = await page.evaluate(
+      ([L, key]) => {
+        const g = window.__game;
+        const out = { key };
+        g.clearMission();
+        g.save.level = L;
+        g.startMission();
+        g.state = 'kit-test';
+        const pl = g.player;
+        pl.hp = pl.maxHp = 1e8;
+        pl.iFrames = 1e9;
+        let b = g.boss;
+        out.name = b.name;
+        out.k = b.boss3Key();
+        // 刁鑽度 3 的部位（原本的部位之外）
+        for (const e of g.enemies) if (e.opts.parent === b.id && e.opts.partKind === 'bpart') e.depart();
+        g.enemies = g.enemies.filter((e) => !e.gone);
+        b.opts.tier = 3;
+        b.bt = null;
+        g.tierSetupParts(b);
+        const kit = g.bossKit(out.k) || {};
+        out.hasKit = !!kit.parts;
+        const parts = g.enemies.filter(
+          (e) => !e.dead && e.opts.parent === b.id && e.opts.partKind === 'bpart',
+        );
+        out.parts = parts.map((p) => p.name);
+        // 打壞每個部位：它的機能、武器、招式、移動都要有變化
+        out.partFx = parts.map((p) => {
+          const sp = p.tierSpec;
+          const sp0 = b.speedMul,
+            hv0 = b.hoverH;
+          p.iFrames = 0;
+          p.takeDamage(p.maxHp * 3, 0, pl, p.center());
+          const ok =
+            p.dead &&
+            ((sp.flag && b.tierFlag(sp.flag)) ||
+              (sp.slots && sp.slots.every((s) => b.weapons[s].tierOff)) ||
+              (sp.stops && sp.stops.every((id) => b.tierMoveStopped(id))) ||
+              (sp.speedK && b.speedMul < sp0) ||
+              (sp.hoverK && b.hoverH < hv0));
+          return ok ? 1 : 0;
+        });
+        // 部位重建回去（下面要放大招）
+        b.bt.lost = {};
+        b.bt.lostF = {};
+        for (const k in b.weapons) b.weapons[k].tierOff = false;
+        // 三個型態的大招都打斷一次
+        b.opts.tier = 3;
+        out.ints = [];
+        for (const ph of [1, 2, 3]) {
+          b.hp = b.maxHp * (ph === 1 ? 0.95 : ph === 2 ? 0.6 : 0.3);
+          b.staggerT = 0;
+          b.stagGuardT = 0;
+          b.iFrames = 0;
+          b.noLock = false;
+          if (key === 'worm') b.aiState.wm = 'up';
+          if (key === 'citadel') b.aiState.ts = 0;
+          b.tierTick(0.016, pl);
+          b.bt.cdI = 0;
+          b.tierTick(0.016, pl);
+          const ch = b.bt.ch;
+          const name = ch && ch.name;
+          if (ch) {
+            b.iFrames = 0;
+            b.takeDamage(b.maxHp * 0.2, 0, pl, b.center());
+          }
+          out.ints.push(name && !b.bt.ch && b.staggerT >= 4 ? name : '×');
+        }
+        // 可以打回去的彈
+        const kinds = kit.reflect || ['missile'];
+        const o = b.tierShotOpt(100, kinds[0]);
+        out.reflect = kinds[0] + ':' + (o.shootable > 0 && o.reflect === b.id ? 'ok' : 'no');
+        // 場地（刁鑽度 5：每個型態都變）
+        b.opts.tier = 5;
+        b.hp = b.maxHp;
+        const fc = () =>
+          (g.tWalls || []).length +
+          (g.zones || []).length +
+          (g.hzPools || []).length +
+          (g.mines || []).length +
+          (g.world.zoneGoal ? 1 : 0);
+        const f0 = fc();
+        g.tierFieldShift(b, 2);
+        const f1 = fc();
+        g.tierFieldShift(b, 3);
+        out.field = [f1 - f0, fc() - f1];
+        // 四種反制
+        const cnt = () =>
+          (g.hzLater || []).length +
+          (g.shocks || []).length +
+          (g.hzRings || []).length +
+          (g.mines || []).length +
+          (g.hzPools || []).length +
+          g.projectiles.length +
+          g.enemies.length +
+          (b.aiState.pattern === 3 || b.aiState.rm === 'aim' ? 1000 : 0) +
+          Math.round(pl.vel.length());
+        out.counters = ['air', 'close', 'far', 'cover'].map((h) => {
+          b.aiState.pattern = 0;
+          if (b.aiState.rm === 'aim') b.aiState.rm = 'walk';
+          pl.vel.set(0, 0, 0);
+          b.staggerT = 0;
+          const c0 = cnt();
+          b.tierCounterMove(h, pl);
+          return cnt() !== c0 ? 1 : 0;
+        });
+        out.tip = !!kit.tip;
+        return out;
+      },
+      [L, key],
+    );
+    check(r.hasKit && r.tip, `${r.name}：有專屬內容與說明`);
+    check(
+      r.parts.length > 0 && r.partFx.every((x) => x === 1),
+      `${r.name}：部位 ${r.parts.join('、')}，打壞後機能停用（${r.partFx.join('')}）`,
+    );
+    check(
+      r.ints.every((x) => x !== '×'),
+      `${r.name}：三個大招都打斷了（${r.ints.join('、')}）`,
+    );
+    check(/:ok$/.test(r.reflect), `${r.name}：可以打回去的彈（${r.reflect}）`);
+    check(r.field[0] > 0 && r.field[1] > 0, `${r.name}：第二、三型態改變場地（${r.field.join('／')}）`);
+    check(
+      r.counters.every((x) => x === 1),
+      `${r.name}：四種反制都會放（${r.counters.join('')}）`,
+    );
+    // 截圖：蓄力中、部位與破綻
+    await page.evaluate(() => {
+      const g = window.__game;
+      const b = g.boss,
+        pl = g.player;
+      for (const e of g.enemies) if (e.opts.parent === b.id && e.opts.partKind === 'bpart') e.depart();
+      g.enemies = g.enemies.filter((e) => !e.gone);
+      b.opts.tier = 1;
+      b.bt = null;
+      b.hp = b.maxHp;
+      g.tierSetupParts(b);
+      g.state = 'play';
+      pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, 45));
+      pl.pos.y = g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 30);
+      if (b.aiState.wm) b.aiState.wm = 'up';
+      b.tierTick(0.016, pl);
+      b.bt.cdI = 0;
+      b.tierTick(0.016, pl);
+      if (b.bt.ch) b.bt.ch.T = 99;
+      window.__pump(0.4);
+    });
+    await page.screenshot({ path: path.join(SHOT_DIR, `boss-${r.k}-kit.png`) });
   }
   await page.evaluate(() => {
     const g = window.__game;
@@ -19196,6 +19364,25 @@ const STEPS = [
   ['testBossPower', (c) => testBossPower(c.browser, c.base)],
   ['testBossTier', (c) => testBossTier(c.browser, c.base)],
   ['testBossTier2', (c) => testBossTier2(c.browser, c.base)],
+  [
+    'testBossKit12',
+    (c) =>
+      testBossKit(
+        c.browser,
+        c.base,
+        [
+          [18, 'artillery'],
+          [12, 'worm'],
+          [3, 'juggernaut'],
+          [10, 'railgun'],
+          [15, 'heli'],
+          [19, 'rampart'],
+          [31, 'citadel'],
+          [16, 'furnace'],
+        ],
+        '第 1、2 章',
+      ),
+  ],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],

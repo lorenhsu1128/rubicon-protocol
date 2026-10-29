@@ -164,7 +164,7 @@ Object.assign(MechEntity.prototype, {
     const mz = this.muzzle('rback');
     // 瞄準點慢慢跟上目標（橫移能讓砲擊落後）
     const want = pl.center().addScaledVector(pl.vel, 0.15);
-    s.tp.lerp(want, Math.min(1, dt * (s.rg === 'aim' ? 2.0 : 4)));
+    s.tp.lerp(want, Math.min(1, dt * (s.rg === 'aim' ? 2.0 : 4) * (this.tierFlag('aim') ? 0.4 : 1)));
     this.aimYaw = yawOf(s.tp.clone().sub(this.pos));
     this.bx = null;
     if (s.rg === 'idle') {
@@ -176,7 +176,7 @@ Object.assign(MechEntity.prototype, {
         s.rg = 'aim';
         s.charge = 0;
         s.lost = 0;
-        s.chargeMax = s.burst ? 1.0 : p2 ? 2.0 : 2.6;
+        s.chargeMax = (s.burst ? 1.0 : p2 ? 2.0 : 2.6) * (this.tierFlag('cap') ? 1.5 : 1); // 電容器組壞了充能變慢
         SFX.play('charge', 1, 0.6, 0.05, 0.05, this.center());
         if (!s.burst) g.alertAll('電磁砲鎖定 — 躲到掩體後面擋住射線！');
       }
@@ -219,7 +219,7 @@ Object.assign(MechEntity.prototype, {
           } else {
             s.burst = false;
             s.rg = 'vent';
-            s.rgT = 3.5;
+            s.rgT = this.tierFlag('vent') ? 6 : 3.5; // 散熱片壞了冷卻更久（破綻更長）
             if (!s.ventSaid) {
               s.ventSaid = true;
               g.alertAll('散熱片展開 — 現在攻擊！');
@@ -377,7 +377,7 @@ Object.assign(MechEntity.prototype, {
         accel = 26 * DS;
         if ((s.stT -= dt) <= 0) {
           s.st = 'hot';
-          s.stT = 3.5;
+          s.stT = this.tierFlag('valve') ? 6 : 3.5; // Boss 改版：煙囪閥壞了過熱更久
           g.msgAll('鍋爐過熱 — 列車減速！', 0x7ee081);
         }
         break;
@@ -556,10 +556,13 @@ Object.assign(MechEntity.prototype, {
               : Math.random() < 0.6
                 ? 'slag'
                 : 'wall';
+        // Boss 改版：噴火口壞了沒有近身火焰、熔渣砲壞了沒有熔渣
+        if (s.act === 'flame' && this.tierFlag('flame')) s.act = 'wall';
+        if (s.act === 'slag' && this.tierFlag('slag')) s.act = 'wall';
         s.actT = 0;
         s.done = false;
         if (s.act !== 'heat') {
-          s.mouthT = s.act === 'flame' ? 2.8 : 2.4;
+          s.mouthT = (s.act === 'flame' ? 2.8 : 2.4) + (this.tierFlag('hinge') ? 1.6 : 0); // 爐門鉸鏈壞了開得更久
           SFX.play('charge', 0.9, 0.5, 0.05, 0.05, this.center());
           if (!s.mouthSaid) {
             s.mouthSaid = true;
@@ -1121,7 +1124,7 @@ Object.assign(MechEntity.prototype, {
     const f = fwdOf(this.yaw),
       rt = V(-f.z, 0, f.x);
     // 兩側的絞碎滾筒
-    if ((s.grT = (s.grT || 0) - dt) <= 0) {
+    if ((s.grT = (s.grT || 0) - dt) <= 0 && !this.tierFlag('side')) {
       s.grT = 0.25;
       for (const t of g.hostilesOfEnt(this)) {
         if (t.dead || !t.pos || altOf(g, t) > 3 * MS) continue;
@@ -1161,7 +1164,7 @@ Object.assign(MechEntity.prototype, {
           // 前方的可破壞物件直接撞碎
           const front = V(nx, this.pos.y, nz).addScaledVector(s.cdir, 4.5 * MS);
           let broke = false;
-          for (const p of g.destructibles()) {
+          for (const p of this.tierFlag('blade') ? [] : g.destructibles()) {
             if (!p.isProp || p.dead || !p.center) continue;
             if (p.center().setY(front.y).distanceTo(front) < 5 * MS + (p.radius || 1)) {
               g.damageProp(p, 1e5, 2000, p.center());
@@ -1179,7 +1182,8 @@ Object.assign(MechEntity.prototype, {
             ll = rel.dot(V(-s.cdir.z, 0, s.cdir.x));
           if (ff < -2 * MS || ff > 6.5 * MS || Math.abs(ll) > 5 * MS + t.radius * 0.5) continue;
           s.hitSet.add(t);
-          t.takeDamage(800 * dm, 1700 * dm, this, t.center(), s.cdir.clone());
+          const bk = this.tierFlag('blade') ? 0.6 : 1; // 推土鏟壞了衝撞變弱
+          t.takeDamage(800 * dm * bk, 1700 * dm * bk, this, t.center(), s.cdir.clone());
           t.vel
             .addScaledVector(s.cdir, 20 * DS)
             .addScaledVector(V(-s.cdir.z, 0, s.cdir.x), Math.sign(ll || 1) * 10 * DS);
@@ -1205,12 +1209,13 @@ Object.assign(MechEntity.prototype, {
           s.dist += step.length();
           if (Math.random() < dt * 20) g.fx.dust(this.pos.clone(), 2.5, 4, 0xb09070);
           if (s.dist > 75 * DS) {
-            if (p2 && !s.second) {
+            if (p2 && !s.second && !this.tierFlag('exhaust')) {
               s.second = true;
               this.rampartAim(dir, 1.0);
             } else {
               s.rm = 'recover';
               s.rmT = 1.4;
+              if (!s.hitSet.size) this.bossOpen(); // Boss 改版：衝撞落空的滑停＝破綻
             }
           }
         }

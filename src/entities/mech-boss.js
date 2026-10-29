@@ -151,7 +151,8 @@ Object.assign(MechEntity.prototype, {
       // Boss 改版的部位：跟著 Boss；只在出招時露出的（刁鑽度 5 起）平時藏起來、打不到
       this.partFollow();
       const par = this.parentEnt();
-      const hide = !!(this.tierExpose && par && !(par.bt && (par.bt.ch || par.bt.openT > 0)));
+      const parHid = !!(par && (par.noLock || (par.ai === 'worm' && par.bossVis & 1)));
+      const hide = parHid || !!(this.tierExpose && par && !(par.bt && (par.bt.ch || par.bt.openT > 0)));
       this.bossVis = hide ? this.bossVis | 1 : this.bossVis & ~1;
       this.bossTick(dt);
       return;
@@ -172,7 +173,11 @@ Object.assign(MechEntity.prototype, {
       s.salT = (s.salT === undefined ? rnd(2, 5) : s.salT) - dt;
       if (s.salT <= 0 && this.canAct() && d < 95 * DS) {
         s.salT = p2 ? rnd(3.5, 5) : rnd(5, 7);
-        const lead = pl.vel.clone().setY(0).multiplyScalar(0.5);
+        // Boss 改版：雷達天線壞了不再預判落點
+        const lead = pl.vel
+          .clone()
+          .setY(0)
+          .multiplyScalar(par && par.tierFlag('lead') ? 0 : 0.5);
         if (lead.length() > 6 * DS) lead.setLength(6 * DS);
         const c = pl.pos.clone().add(lead);
         for (let i = 0; i < 3; i++) {
@@ -224,7 +229,9 @@ Object.assign(MechEntity.prototype, {
     switch (s.wm) {
       case 'burrow': {
         this.iFrames = Math.max(this.iFrames, 0.15);
-        const to = pl.pos.clone().sub(this.pos).setY(0);
+        // Boss 改版：頭部感測器壞了不再追著目標，往記下的舊位置鑽
+        if (!s.lostAt || !this.tierFlag('track') || Math.random() < dt * 0.3) s.lostAt = pl.pos.clone();
+        const to = (this.tierFlag('track') ? s.lostAt : pl.pos).clone().sub(this.pos).setY(0);
         const dd = to.length();
         const sp = (p2 ? 22 : 17) * DS;
         if (dd > 0.1) to.divideScalar(dd);
@@ -241,7 +248,7 @@ Object.assign(MechEntity.prototype, {
         } else {
           v.x = lerp(v.x, to.x * sp, Math.min(1, dt * 2));
           v.z = lerp(v.z, to.z * sp, Math.min(1, dt * 2));
-          if (p2 && !s.sweep && dd < 25 * DS && Math.random() < dt * 0.4) {
+          if (p2 && !s.sweep && !this.tierFlag('bite') && dd < 25 * DS && Math.random() < dt * 0.4) {
             s.sweep = to.clone().multiplyScalar(26 * DS);
             s.sweepT = 2.2;
             g.alertAll('鑽地蟲地下衝刺 — 沿路噴發！');
@@ -276,10 +283,12 @@ Object.assign(MechEntity.prototype, {
           s.wmT = 0.7;
           this.pos.y = gy - 3 * MS;
           // 鑽出：正上方 7 m 內大傷害並往上掀，外圍衝擊波
+          s.whiff = true;
           for (const t of g.hostilesOfEnt(this)) {
             if (t.dead || t.isProp || !t.pos) continue;
             if (Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z) > 7 * MS + t.radius * 0.5) continue;
             if (t.pos.y - gy > 5 * MS) continue;
+            s.whiff = false;
             t.takeDamage(560 * dm, 1200 * dm, this, t.center(), new THREE.Vector3(0, 1, 0));
             if (!t.flying) {
               t.vel.y = Math.max(t.vel.y, 16 * DS);
@@ -298,6 +307,11 @@ Object.assign(MechEntity.prototype, {
         if (s.wmT <= 0) {
           s.wm = 'up';
           s.wmT = p2 ? 3.5 : 4.5;
+          // Boss 改版：鑽出撲空＝身體卡在地上（停留更久、破綻）
+          if (s.whiff && this.tierOn()) {
+            s.wmT += 2;
+            this.bossOpen();
+          }
         }
         break;
       case 'up': {
@@ -535,7 +549,8 @@ Object.assign(MechEntity.prototype, {
       }
     }
     s.mlT = (s.mlT === undefined ? 18 : s.mlT) - dt;
-    if (s.mlT <= 0) {
+    if (s.mlT <= 0 && !this.tierFlag('mines')) {
+      // Boss 改版：布雷器壞了不再補布雷無人機
       s.mlT = 25;
       if (g.enemies.filter((e) => !e.dead && e.ai === 'minelayer').length < 2)
         g.spawnType('minelayer', g.scaleHp || 1, g.scaleDmg || 1, this.center().setY(this.pos.y + 8 * MS), 1);
@@ -649,6 +664,7 @@ Object.assign(MechEntity.prototype, {
         break;
     }
     if (k < 1 && at && Math.random() < 0.5) g.fx.spark(at, 0xffd080);
+    this.tkArmor = k; // 這隻自己的裝甲倍率（打斷量表以裝甲之前的傷害計算，mech-boss-tier.js）
     // Boss 改版的 D：本體平時減傷、破綻時加倍；蓄力的護盾擋住一側（mech-boss-tier.js）
     if (this.isBoss && this.tierOn()) {
       const kg = this.tierGuardK(from, at);
