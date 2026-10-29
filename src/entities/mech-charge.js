@@ -126,6 +126,7 @@ Object.assign(MechEntity.prototype, {
   pwHitPop(target, k) {
     if (!target || !target.center || this.t - (this.pwPopT || -9) < 0.6) return;
     this.syAdd('pw:' + k, 25, PW_FX[k].name); // 風格評價（mech-style.js）
+    if (this.game.tut) this.tutE('pw', { k, tgt: target }); // 遠程訓練
     this.pwPopT = this.t;
     this.game.popDamage(
       target.center().add(new THREE.Vector3(0, 3.2 * this.dk, 0)),

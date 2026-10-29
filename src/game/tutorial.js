@@ -216,6 +216,7 @@ Object.assign(Game.prototype, {
   // clearMission 呼叫：模型與畫面
   tutClear() {
     this.tutVirt = null;
+    this.tutRRestore(); // 遠程訓練暫時換掉的設定（蓄力射擊的方式）
     this.tutDevRelease();
     if (this.tutRing) {
       this.scene.remove(this.tutRing);
@@ -1127,6 +1128,7 @@ Object.assign(Game.prototype, {
       L = T.L;
     T.phase = 'done';
     this.tutVirt = null;
+    this.tutRRestore(); // 遠程訓練暫時換掉的設定
     const S = this.tutSave();
     const r = (S.les[L.id] = S.les[L.id] || { w: [] });
     const first = !r.w.length;

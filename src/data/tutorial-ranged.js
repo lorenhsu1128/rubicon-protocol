@@ -5,8 +5,10 @@
 //   課程：course 'r'、pick 開始前挑主武器（RT_WEAPONS；否則用 kit）、kit 固定組合 { rarm, larm, rback, lback }、skippable 可以直接跳過（不給獎勵）
 //   dummy  { type 敵人類型（ENEMY_TYPES）, lv 0 靜止／1 走動／2 攻擊（atk）, dist 開始距離（m，新尺度）, n 幾台（排成扇形）, far 理想射程外（ideal 練習）,
 //            atk 'shot' 預警後點放（「!」）｜'aim' 長預備（整台弱點、可以打斷）｜'missile' 導彈｜'rocket' 榴彈（可以擊落）, every [最短, 最長] 秒,
-//            asm 換掉類型的武器, turn 轉身的速度（弧度／秒，繞背的練習）, sense 建立感知狀態（弱點的預備要它）, hpMul 血量 }
-//   setup  { fcs 換火控（理想射程的練習要長距離的鎖定）, view 'chase' 這一步換成追尾視角（結束後換回）}
+//            asm 換掉類型的武器, spread 扇形的寬度倍率（擠在一起）, turn 轉身的速度（弧度／秒，繞背的練習）, sense 建立感知狀態（弱點的預備要它）, hpMul 血量 }
+//   setup  { fcs 換火控（理想射程的練習要長距離的鎖定）, view 'chase' 這一步換成追尾視角（結束後換回）,
+//            charge 'auto'｜'hold' 這一步暫時換「蓄力射擊」的方式（結束後換回）}
+//   kit    這一步的組合（蓋在課程的 kit 上）
 //   ring   'ideal'＝假人腳下畫主武器的理想射程（圈裡＝理想射程內）
 //   goal 的 distinct(o)＝回傳這一次的種類（字串或陣列），只有新的種類才算
 // 說明文字的記號：[fire] [fire2] [lock]＝依裝置的按鍵（其他同近戰）
@@ -15,6 +17,7 @@
 //   ['empty']  按住開火直到開始換彈再放開      ['arTap', 'ok'｜'bad']  換彈中在亮區（ok）或太早（bad）按一下
 //   ['approach', 倍率]  走到離假人「理想射程 × 倍率」以內      ['orbit', 秒]  繞著假人橫移，環滿了就一直按一下開火
 //   ['wait', 'apex'｜'cue'｜'pqbDone'｜'missile'｜'shell']  最高點的前後／「!」出現／完美迴避的加成中／導彈快打到／飛來的榴彈（其他條件同近戰）
+//   ['tap2']  左手的武器按一下      ['charge']  按住開火直到充能滿了再放開
 //   ['lockShot']  把鎖定換到飛來的彈上      ['behind']  繞到假人的背後      ['aimWeak']  追尾視角把準星移到弱點上
 import { RB_APEX, RB_CTR, RB_LAND, RB_ORBIT, RB_QB } from './ranged.js';
 
@@ -319,6 +322,140 @@ export const R_LESSONS = [
         demo: [['aimWeak'], ['tap'], ['wait', 0.4], ['end']],
         hints: ['移動滑鼠，讓準星蓋住菱形（出現圓圈）再開火。'],
         skip: (d, g) => (g.vpadWanted() ? '觸控的鏡頭沒有準星改瞄：這一步跳過。' : ''),
+      },
+    ],
+  },
+  {
+    id: 'R5',
+    course: 'r',
+    n: '蓄力射擊',
+    d: '連射累積充能與按住蓄力兩種方式、各種強力彈、邊閃邊蓄',
+    coam: 5000,
+    kit: { rarm: 'w_rifle', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' },
+    steps: [
+      {
+        id: 'auto',
+        t: '連射累積充能：穿甲彈',
+        text: '設定「蓄力射擊」的<b>連射累積充能</b>（預設）：照舊按住 [fire] 連射，打中會累積充能（武器欄右側的直條），充滿後下一發自動變成<b>強力彈</b>。突擊步槍的強力彈是穿甲彈（傷害 ×2.5、衝擊 ×3）。',
+        say: '一直打中，槍就會越來越燙。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        setup: { charge: 'auto' },
+        bar: 'pw',
+        goal: [{ ev: 'pw', n: 2, test: (o) => o.k === 'pierce', lbl: '穿甲彈' }],
+        demo: [['fire', 2], ['wait', 0.5], ['end']],
+        hints: ['按住 [fire] 一直打中，充能條滿了下一發就是穿甲彈。'],
+      },
+      {
+        id: 'slug',
+        t: '霰彈槍：獨頭彈',
+        text: '霰彈槍打中 3 次充滿，強力彈是<b>獨頭彈</b>：所有彈丸合成一發，遠一點也打得中。',
+        dummy: { type: 'mt', lv: 0, dist: 40 },
+        kit: { rarm: 'w_sg' },
+        setup: { charge: 'auto' },
+        bar: 'pw',
+        goal: [{ ev: 'pw', n: 2, test: (o) => o.k === 'slug', lbl: '獨頭彈' }],
+        demo: [['fire', 2.5], ['wait', 0.5], ['end']],
+        hints: ['靠近一點打，彈丸打中才會充能。'],
+      },
+      {
+        id: 'blast',
+        t: '火箭筒：大爆炸',
+        text: '火箭筒打中 2 次充滿，強力彈是<b>大爆炸</b>（傷害 ×2、爆炸範圍 ×2）。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        kit: { rarm: 'w_bz' },
+        setup: { charge: 'auto' },
+        bar: 'pw',
+        goal: [{ ev: 'pw', n: 1, test: (o) => o.k === 'blast', lbl: '大爆炸' }],
+        demo: [['tap'], ['wait', 0.3], ['end']],
+        hints: ['打中 2 次，第 3 發就是大爆炸。'],
+      },
+      {
+        id: 'fin',
+        t: '機槍：收尾連射',
+        text: '機槍類（機槍、肩上加特林）兩種方式都一樣：<b>持續射擊 1 秒以上再放開</b>＝收尾連射 8 發（衝擊 ×2.5）。',
+        say: '掃完了別直接停：放開的那一下，還有一輪。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        kit: { rarm: 'w_mg' },
+        bar: 'fin',
+        goal: [{ ev: 'pw', n: 2, test: (o) => o.k === 'fin', lbl: '收尾連射' }],
+        demo: [['fire', 1.3], ['wait', 1], ['end']],
+        hints: ['按住 [fire] 超過 1 秒（時機條滿了）再放開。'],
+      },
+      {
+        id: 'move',
+        t: '邊閃邊蓄',
+        text: '充能和蓄力都可以<b>邊移動、跳、QB</b>：充滿之後先 [qb]，再開火＝QB 射擊＋穿甲彈一起來。',
+        say: '強力彈留到閃開的那一下再打。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        setup: { charge: 'auto' },
+        bar: 'pw',
+        goal: [
+          {
+            ev: 'pw',
+            n: 2,
+            test: (o, T) => T.log.qb !== undefined && T.clock - T.log.qb < 0.8,
+            lbl: 'QB 中的強力彈',
+          },
+        ],
+        demo: [['charge'], ['qb', 's'], ['wait', 0.05], ['tap'], ['wait', 0.8], ['end']],
+        hints: ['充能條滿了先放開 [fire]，[qb] 之後再按。', '一直按著會在 QB 之前就打出去。'],
+      },
+      {
+        id: 'hold',
+        t: '按住蓄力',
+        text: '設定「蓄力射擊」換成<b>按住蓄力</b>時：按一下立刻開一槍；<b>按住</b> 0.25 秒後開始蓄力（不再連射），0.8 秒蓄滿，<b>放開</b>打出強力彈；沒蓄滿放開沒有。這一步暫時換成這個方式（結束後換回你的設定）。',
+        say: '兩種方式挑順手的。設定裡隨時可以換。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        setup: { charge: 'hold' },
+        bar: 'pw',
+        goal: [{ ev: 'pw', n: 2, test: (o) => o.k === 'pierce', lbl: '蓄滿放開' }],
+        demo: [['fire', 1.25], ['wait', 0.6], ['end']],
+        hints: ['按住 [fire] 到充能條滿了再放開。', '太早放開不算：要蓄滿。'],
+        skip: (d, g) => (g.vpadWanted() ? '觸控只有連射累積充能：這一步跳過。' : ''),
+      },
+    ],
+  },
+  {
+    id: 'R6',
+    course: 'r',
+    n: '屬性反應',
+    d: '換屬性打中同一個目標：過熱裝甲、破甲爆裂、EMP 干擾',
+    coam: 5000,
+    kit: { rarm: 'w_rifle', larm: 'w_lr', rback: 'bw_none', lback: 'bw_none' },
+    steps: [
+      {
+        id: 'hot',
+        t: '能量 → 實彈＝過熱裝甲',
+        text: '3 秒內<b>先用一種屬性、再換另一種</b>打中同一個目標會觸發屬性反應。先用左手的雷射步槍（能量，[fire2]），再用右手的突擊步槍（實彈，[fire]）＝<b>過熱裝甲</b>：4 秒內受到的傷害 ×1.2。',
+        say: '先燒紅它，再打穿它。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        bar: 'rx',
+        goal: [{ ev: 'rx', n: 2, test: (o) => o.id === 'hot', lbl: '過熱裝甲' }],
+        demo: [['tap2'], ['wait', 0.4], ['tap'], ['wait', 1.8], ['end']],
+        hints: ['[fire2] 打中 → 3 秒內 [fire] 打中。', '順序反了不算：先能量、再實彈。'],
+      },
+      {
+        id: 'burst',
+        t: '實彈 → 爆發＝破甲爆裂',
+        text: '先用突擊步槍（實彈），再用左手的火箭筒（爆發）＝<b>破甲爆裂</b>：額外一次爆炸，附近的敵人也受一半。對擠在一起的目標用。',
+        dummy: { type: 'mt', lv: 0, dist: 45, n: 3, spread: 0.18 },
+        kit: { larm: 'w_bz' },
+        bar: 'rx',
+        goal: [{ ev: 'rx', n: 2, test: (o) => o.id === 'burst', lbl: '破甲爆裂' }],
+        demo: [['tap'], ['wait', 0.3], ['tap2'], ['wait', 1.8], ['end']],
+        hints: ['[fire] 打中 → 3 秒內 [fire2] 打中。'],
+      },
+      {
+        id: 'jam',
+        t: '爆發 → 能量＝EMP 干擾',
+        text: '先用火箭筒（爆發），再用雷射步槍（能量）＝<b>EMP 干擾</b>：1.5 秒不能開火、QB、突擊推進。Boss 的效果減半。',
+        tip: '機甲庫的武器小卡片與說明有「適合的搭配」：挑武器時看它。',
+        dummy: { type: 'mt', lv: 0, dist: 45 },
+        kit: { rarm: 'w_lr', larm: 'w_bz' },
+        bar: 'rx',
+        goal: [{ ev: 'rx', n: 2, test: (o) => o.id === 'jam', lbl: 'EMP 干擾' }],
+        demo: [['tap2'], ['wait', 0.5], ['tap'], ['wait', 1.8], ['end']],
+        hints: ['[fire2] 的火箭筒打中 → 3 秒內 [fire] 的雷射打中。'],
       },
     ],
   },

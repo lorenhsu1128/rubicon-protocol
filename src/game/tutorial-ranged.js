@@ -3,16 +3,19 @@
 //   組裝（主武器或固定組合）、假人（真的敵人類型 ENEMY_TYPES，可以好幾台）、開始的位置（理想射程的練習拉開距離）、
 //   每格（理想射程的圈、換鎖定目標）、事件的整理（tutREv）、示範腳本的指令、時機條、失敗的原因、假人的行為。
 import { clamp } from '../core/math.js';
+import { PW } from '../data/charge.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { FEEL } from '../data/feel.js';
 import { partById } from '../data/parts.js';
 import { RB } from '../data/ranged.js';
+import { RX } from '../data/react.js';
 import { WP } from '../data/weak.js';
 import { rbTags } from '../data/tutorial-ranged.js';
 import { Game } from './game.js';
 
 const FAN = [0, -0.42, 0.42, -0.84, 0.84]; // 好幾台假人：排成扇形（弧度）
-const R_BARS = new Set(['qb', 'apex', 'land', 'ar', 'orbit', 'pqb', 'missile']);
+const R_BARS = new Set(['qb', 'apex', 'land', 'ar', 'orbit', 'pqb', 'missile', 'pw', 'fin', 'rx']);
+const ATTR_TXT = { kin: '實彈', exp: '爆發', en: '能量' };
 const APEX_SPAN = 1.6; // 頂點射擊的時機條：最高點前後各 0.8 秒
 const TELE = 0.9; // 點放的預警（遊戲秒；「!」在打到前 cueLead 秒）
 const AIM_T = 1.7; // 長預備（打斷招式的練習）
@@ -23,7 +26,7 @@ Object.assign(Game.prototype, {
   tutRAsm(step) {
     const T = this.tut;
     const su = step.setup || {};
-    const kit = step.kit || T.L.kit || {};
+    const kit = { ...(T.L.kit || {}), ...(step.kit || {}) };
     const asm = {
       ...this.save.asm,
       rarm: 'w_none',
@@ -93,7 +96,7 @@ Object.assign(Game.prototype, {
     p.rbOrbT = 0;
     for (const e of T.dummies || []) {
       if (e.dead) continue;
-      const a = FAN[e.tutD.i % FAN.length];
+      const a = FAN[e.tutD.i % FAN.length] * (D.spread || 1);
       const x = Math.sin(a) * d,
         z = pz - Math.cos(a) * d;
       e.pos.set(x, W.terrainHeight(x, z), z);
@@ -117,6 +120,13 @@ Object.assign(Game.prototype, {
       p = this.player,
       e = T.dummy,
       ring = this.tutRing;
+    // 這一步暫時換「蓄力射擊」的方式（tutRRestore 換回）
+    const ch = T.step.setup && T.step.setup.charge;
+    const cur = this.ctrl.chargeMode === 'hold' ? 'hold' : 'auto';
+    if (ch && T.phase !== 'skip' && cur !== ch) {
+      if (this.tutChargePrev === undefined) this.tutChargePrev = this.ctrl.chargeMode || 'auto';
+      this.ctrl.chargeMode = ch;
+    } else if (!ch) this.tutRRestore();
     const want = T.step.setup && T.step.setup.view;
     if (want && T.phase !== 'skip' && this.viewName() !== want) {
       if (T.viewPrev === undefined) T.viewPrev = this.viewName();
@@ -138,6 +148,12 @@ Object.assign(Game.prototype, {
     if (p.lock && T.lastLock && p.lock !== T.lastLock && !T.lastLock.dead && T.phase === 'try')
       this.tutGoal('lockSw', {});
     T.lastLock = p.lock;
+  },
+  // 換回暫時換掉的設定（換練習、離開教學）
+  tutRRestore() {
+    if (this.tutChargePrev === undefined) return;
+    this.ctrl.chargeMode = this.tutChargePrev;
+    this.tutChargePrev = undefined;
   },
   // 事件的整理（tutEv 在判定之前呼叫）：加成的位元 → 標籤、射擊打中在不在理想射程內
   tutREv(k, o) {
@@ -174,6 +190,21 @@ Object.assign(Game.prototype, {
         if (V.fireR || !ready()) return true;
         V.fireR = 1;
         next();
+        return true;
+      case 'tap2': {
+        const w2 = p.weapons.larm;
+        if (V.fireL || w2.cd > 0 || w2.reloadT > 0) return true;
+        V.fireL = 1;
+        next();
+        return true;
+      }
+      case 'charge':
+        // 按住開火直到充能滿了（連射累積充能），再放開
+        if (w.pwReady) {
+          V.fireR = false;
+          next();
+        } else V.fireR = true;
+        S.t = Math.min(S.t, 6);
         return true;
       case 'lock':
         this.cycleLock();
@@ -383,6 +414,34 @@ Object.assign(Game.prototype, {
           o.on = m.tt <= WP.MSL_T;
           o.lbl = o.on ? '導彈貼近了：按 QB' : '導彈飛來：等它靠近';
         }
+      }
+    } else if (kind === 'pw') {
+      const w = p.weapons.rarm;
+      if (p.pwMode === 'hold') {
+        if (w.pwH !== undefined) {
+          const x = (w.pwCh || 0) / PW.CH_T;
+          Object.assign(o, { show: true, z0: 0.98, z1: 1, x, on: x >= 1 });
+          o.lbl = x >= 1 ? '蓄滿了：放開' : w.pwH > PW.HOLD_T ? '蓄力中…按著' : '按住';
+        }
+      } else if (w.pwc !== undefined || w.pwReady) {
+        const x = w.pwReady ? 1 : w.pwc || 0;
+        Object.assign(o, { show: true, z0: 0.98, z1: 1, x, on: !!w.pwReady });
+        o.lbl = w.pwReady ? '充能滿了：下一發是強力彈' : '打中累積充能';
+      }
+    } else if (kind === 'fin') {
+      const w = p.weapons.rarm;
+      if (w.pwHeld) {
+        const x = clamp((w.streak || 0) / PW.MG_HOLD, 0, 1);
+        Object.assign(o, { show: true, z0: 0.98, z1: 1, x, on: x >= 1 });
+        o.lbl = x >= 1 ? '放開＝收尾連射' : '持續射擊…';
+      }
+    } else if (kind === 'rx') {
+      const e = this.tut.dummy,
+        r = e && !e.dead ? e.rxPrev : null;
+      if (r && e.t - r.t <= RX.WIN) {
+        const x = (e.t - r.t) / RX.WIN;
+        Object.assign(o, { show: true, z0: 0, z1: 1, x, on: true });
+        o.lbl = `上一次打中：${ATTR_TXT[r.a] || r.a}　${RX.WIN} 秒內換另一種屬性`;
       }
     } else if (kind === 'orbit') {
       const k = p.rbOrbK();

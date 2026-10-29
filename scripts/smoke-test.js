@@ -15782,7 +15782,7 @@ async function testRangedTut(browser, base) {
   );
   await freezeLoop(page);
   const W = ['w_rifle', 'w_hg', 'w_sg', 'w_bz', 'w_mg'];
-  const L = ['R1', 'R2', 'R3', 'R4'];
+  const L = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'];
   if (process.env.TUT_ONLY) {
     const [lid, w] = process.env.TUT_ONLY.split(':');
     await page.evaluate(() => {
@@ -15843,6 +15843,10 @@ async function testRangedTut(browser, base) {
           '火箭筒沒有理想射程：理想射程的練習說明後跳過',
         );
       if (i === 1 && w === W[0]) await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-done.png') });
+      if (L[i] === 'R5') {
+        const cm = await page.evaluate(() => window.__game.ctrl.chargeMode || 'auto');
+        check(cm === 'auto', `第 5 課「按住蓄力」那一步結束後，蓄力射擊的設定換回原本的（${cm}）`);
+      }
       await page.evaluate(() => window.__game.tutExit(false));
     }
   }
@@ -15853,7 +15857,7 @@ async function testRangedTut(browser, base) {
     const b = [...document.querySelectorAll('#simList .tutItem')].filter((x) => /^R/.test(x.dataset.tut));
     return { coam, les: g.tutSave().les, dis: b.map((x) => x.disabled) };
   });
-  check(after.coam === 13000, `第 1～4 課第一次完成的 COAM 合計 13,000（${after.coam}）`);
+  check(after.coam === 23000, `第 1～6 課第一次完成的 COAM 合計 23,000（${after.coam}）`);
   check(
     after.les.R1 && after.les.R1.w.length === 5 && after.les.R2 && after.les.R2.w.length === 5,
     '存檔記下兩課完成過的主武器',
@@ -15872,6 +15876,22 @@ async function testRangedTut(browser, base) {
   const bar = await page.evaluate(() => getComputedStyle(document.getElementById('tutBar')).visibility);
   await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-apex.png') });
   check(bar === 'visible', `頂點射擊的時機條在空中顯示（${bar}）`);
+  await page.evaluate(() => window.__game.tutExit(false));
+  // 第 6 課：屬性反應的時機條（目標上記著上一次的屬性）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.tutStart('R6', null);
+    window.__pump(1.2, () => g.tut.phase === 'try');
+    let rx = 0;
+    const ev = g.tutEv.bind(g);
+    g.tutEv = (k, o = {}) => {
+      if (k === 'rx') rx++;
+      return ev(k, o);
+    };
+    window.__pump(8, () => rx > 0);
+    window.__pump(0.25);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-react.png') });
   await page.evaluate(() => window.__game.tutExit(false));
   // 第 4 課：繞到背後的 CRITICAL（弱點的菱形）、追尾視角的改瞄（準星壓在弱點上）、離開那一步換回俯視
   const wk = await page.evaluate(() => {
