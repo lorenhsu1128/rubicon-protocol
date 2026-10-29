@@ -4,7 +4,9 @@ import { MS } from '../core/scale.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { materialSlot } from '../render/glb.js';
 import { providedModel } from '../render/model-provider.js';
-import { classMat, fineReg, matClass, tintCtx, tintMerge, upgradeGeo, vcMat } from '../render/detail.js';
+import { D, classMat, fineReg, matClass, tintCtx, tintMerge, upgradeGeo, vcMat } from '../render/detail.js';
+// 岩石的形狀：依尺寸決定 24 種之一（不用亂數；同一種共用幾何）
+const rockSeed = (v) => (Math.floor(Math.abs(v) * 977) % 24) + 1;
 
 const MatCache = {};
 
@@ -159,8 +161,11 @@ function chamferGeo(w, h, d, c) {
   g.computeVertexNormals();
   return g;
 }
+// 精細版的預設選項（docs/model-detail.md）：地圖物件一律打開；建好之後還會改材質顏色的模型（RTS 的建築、過場）用 new PK(false)
+const PK_TINT = { ao: 0.75, grime: 0.22, lite: true };
 export class PK {
-  constructor() {
+  constructor(t) {
+    this.tintOpts = t === false ? null : t || PK_TINT;
     this.by = new Map(); // [材質, 零件] → [[幾何, 矩陣]…]
     this.keys = new Map();
     this.stack = [new THREE.Matrix4()];
@@ -184,8 +189,14 @@ export class PK {
     this.stack.pop();
     return this;
   }
+  // 以矩陣加入一個幾何（bakeGroup 用）
+  geoM(m, g, matrix) {
+    return this.geoAt(m, g, matrix.clone().premultiply(this.top));
+  }
   geo(m, g, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
-    const mm = compose(x, y, z, rx, ry, rz, sx, sy, sz).premultiply(this.top);
+    return this.geoAt(m, g, compose(x, y, z, rx, ry, rz, sx, sy, sz).premultiply(this.top));
+  }
+  geoAt(m, g, mm) {
     let km = this.keys.get(m);
     if (!km) this.keys.set(m, (km = new Map()));
     const kk = this.isFine ? this.cur + 'f' : this.cur;
@@ -359,7 +370,9 @@ export class PK {
     for (const [key, list] of this.by) {
       const m = key[0];
       // 舊的基本形體換成精細的（倒角方塊、段數多的圓柱）
-      if (this.tintOpts.upgrade !== false) for (const e of list) [e[0], e[1]] = upgradeGeo(e[0], e[1]);
+      if (this.tintOpts.upgrade !== false)
+        for (const e of list)
+          [e[0], e[1]] = upgradeGeo(e[0], e[1], this.tintOpts.k || 1, !!this.tintOpts.lite);
       if (m.transparent && m.opacity < 1) continue;
       for (const e of list) all.push({ geo: e[0], mm: e[1] });
     }
@@ -390,7 +403,8 @@ export class PK {
       geo.computeBoundingSphere();
       if (part) geo.boundingBox = part.box.clone();
       else if (union) geo.boundingBox = union.clone();
-      const mat = G.c !== null ? classMat(G.c, G.fade) : G.m.isMeshStandardMaterial ? vcMat(G.m) : G.m;
+      const mat =
+        G.c !== null ? classMat(G.c, G.fade ? G.m : null) : G.m.isMeshStandardMaterial ? vcMat(G.m) : G.m;
       if (G.c === null && !G.m.isMeshStandardMaterial) geo.deleteAttribute('color');
       const mesh = new PropMesh(geo, mat);
       if (part) part.mm.decompose(mesh.position, mesh.quaternion, mesh.scale);
@@ -457,6 +471,22 @@ export class PK {
     g.remove(m);
     return m;
   }
+}
+// 一般網格組成的群組（地標等用 box()／cyl() 拼的模型）整個換成精細版：網格依矩陣放進 PK（基本形體升級、頂點色、
+// 同類材質合併），原本的網格移除。o＝tintCtx 的選項（k＝之後才放大的倍率）。實例化、蒙皮、多重材質、著色器材質的網格不動
+export function bakeGroup(root, o) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const k = new PK(o || PK_TINT);
+  const rm = [];
+  root.traverse((m) => {
+    if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || Array.isArray(m.material) || !m.geometry) return;
+    if (!m.material || m.material.isShaderMaterial || m.material.isLineBasicMaterial) return;
+    k.geoM(m.material, m.geometry, new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+    rm.push(m);
+  });
+  for (const m of rm) m.parent.remove(m);
+  return k.build(root);
 }
 // 合併網格：geometry.boundingBox 是登記的外框（可能比實際的三角形小），射線檢測時改用實際的三角形
 class PropMesh extends THREE.Mesh {
@@ -758,6 +788,14 @@ function containerLite(k, L, h, D, cm, fm) {
     k.box(fm, L, 0.18, D, 0, y, 0);
   }
   for (const z of [-D * 0.24, D * 0.24]) k.box(fm, 0.05, h - 0.4, 0.05, L / 2 - 0.02, h / 2, z);
+  // 波紋側板的肋（小細節：遠處隱藏）
+  k.fine(() => {
+    const n = Math.max(4, Math.round((L - 0.5) / 0.62)),
+      sp = (L - 0.5) / n;
+    for (const sz of [-1, 1])
+      for (let i = 0; i < n; i++)
+        k.box(cm, sp * 0.4, h - 0.42, 0.05, -L / 2 + 0.25 + sp * (i + 0.5), h / 2, sz * (D / 2 - 0.05));
+  });
 }
 function containerKit(k, L, h, D, cm, fm) {
   {
@@ -814,7 +852,11 @@ export function buildRock(r, m) {
     fade: true,
   });
   if (glb) return glb;
-  const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), m);
+  // 雜訊岩石（render/detail.js 的 D.rock）：形狀依尺寸決定（24 種），大的細分多一層
+  // 呼叫端會改 scale，所以半徑放進幾何（複本）
+  const geo = D.rock(rockSeed(r), r > 5 ? 6 : 3, 0.35, 0.45, 0.3).clone();
+  geo.scale(r, r, r);
+  const mesh = new THREE.Mesh(geo, vcMat(m));
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -1562,12 +1604,17 @@ export function buildRockSpire(r, h, color) {
   if (glb) return glb;
   const g = new THREE.Group();
   const m = fadeMat(color, { roughness: 1 });
-  const p = cyl(r * 0.55, r, h * 0.85, m, 0, h * 0.425, 0, 6);
-  p.receiveShadow = true;
+  m.vertexColors = true;
+  const sd = rockSeed(r + h);
+  // 柱身：拉長的雜訊岩石（層理明顯）＋頂上一塊
+  const p = new THREE.Mesh(D.rock(sd, 6, 0.28, 0.95, 0.65), m);
+  p.scale.set(r * 0.85, h * 0.48, r * 0.85);
+  p.position.y = h * 0.44;
+  p.castShadow = p.receiveShadow = true;
   g.add(p);
-  const top = new THREE.Mesh(new THREE.DodecahedronGeometry(r * 0.7, 0), m);
-  top.position.y = h * 0.85;
-  top.scale.set(1, 0.6, 1);
+  const top = new THREE.Mesh(D.rock(sd + 7, 4, 0.4, 0.5, 0.4), m);
+  top.position.y = h * 0.86;
+  top.scale.set(r * 0.65, r * 0.42, r * 0.65);
   top.castShadow = true;
   g.add(top);
   return g;
@@ -1700,9 +1747,16 @@ export function buildSandstone(r, h, color) {
   if (glb) return glb;
   const g = new THREE.Group();
   const m = fadeMat(color, { roughness: 1 });
-  g.add(cyl(r * 0.4, r * 0.6, h * 0.7, m, 0, h * 0.35, 0, 7));
-  const cap = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), m);
-  cap.scale.set(1, 0.38, 0.85);
+  m.vertexColors = true;
+  const sd = rockSeed(r * 3 + h);
+  // 風蝕的柱身（細腰、層理）＋寬的岩帽
+  const st = new THREE.Mesh(D.rock(sd, 6, 0.3, 0.95, 0.8), m);
+  st.scale.set(r * 0.5, h * 0.4, r * 0.5);
+  st.position.y = h * 0.37;
+  st.castShadow = st.receiveShadow = true;
+  g.add(st);
+  const cap = new THREE.Mesh(D.rock(sd + 11, 5, 0.3, 0.6, 0.7), m);
+  cap.scale.set(r, r * 0.38, r * 0.85);
   cap.position.y = h * 0.78;
   cap.castShadow = true;
   g.add(cap);
@@ -1797,13 +1851,17 @@ export function buildIceChunk(r) {
   if (glb) return glb;
   const g = new THREE.Group();
   const m = fadeMat(0xbfe0f0, { roughness: 0.15, metalness: 0.1 });
-  const a = new THREE.Mesh(new THREE.OctahedronGeometry(r, 0), m);
-  a.scale.set(1, 0.8, 0.85);
+  m.vertexColors = true;
+  // 冰塊：稜角分明（雜訊小、沒有層理、細分少）的兩塊
+  const sd = rockSeed(r * 5);
+  const a = new THREE.Mesh(D.rock(sd, 1, 0.18, 0.7, 0), m);
+  a.scale.set(r, r * 0.8, r * 0.85);
   a.position.y = r * 0.5;
   a.rotation.set(0.3, 0.5, 0.2);
   a.castShadow = true;
   g.add(a);
-  const b = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.6, 0), m);
+  const b = new THREE.Mesh(D.rock(sd + 3, 1, 0.18, 0.7, 0), m);
+  b.scale.setScalar(r * 0.6);
   b.position.set(r * 0.7, r * 0.3, r * 0.3);
   b.rotation.set(0.6, 0.2, 0.9);
   b.castShadow = true;

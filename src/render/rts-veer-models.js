@@ -73,7 +73,7 @@ function addMat(color, opacity) {
 }
 // 一組 PK 的零件合成一個獨立網格（第一種材質；用在會自己動的零件）
 function oneMesh(fn, material) {
-  const k = new PK();
+  const k = new PK(false);
   fn(k, material);
   const g = k.build(new THREE.Group(), false);
   const m = g.children[0];
@@ -161,7 +161,7 @@ export function addPackRig(body, M, w, d, y0 = 1.6) {
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
       // 起落架（收起時往上縮）：支柱、斜撐、腳墊（黃黑）
-      const k = new PK();
+      const k = new PK(false);
       k.cyl(M.steel, 0.16, 0.2, 1.1, 0, -0.45, 0, 0, 0, 0, 6);
       k.bar(M.yellow, [0, 0.0, 0], [sx * 0.5, -0.7, sz * 0.5], 0.14);
       k.cyl(M.black, 0.42, 0.48, 0.16, 0, -0.98, 0, 0, 0, 0, 8);
@@ -173,7 +173,7 @@ export function addPackRig(body, M, w, d, y0 = 1.6) {
       // 涵道風扇：鉸鏈在外牆的角落；展開好時貼著外牆直立、收好時轉成水平往外伸
       const piv = new THREE.Group();
       piv.position.set(sx * (w / 2 + 0.05), y0, sz * (d / 2 - r - 0.3));
-      const f = new PK();
+      const f = new PK(false);
       f.at(sx * r, 0, 0, 0, 0, 0, () => {
         f.geo(M.olive2, new THREE.TorusGeometry(r, 0.2, 5, 14), 0, 0, 0, Math.PI / 2, 0, 0);
         f.cyl(M.gray, r * 0.98, r * 0.98, 0.28, 0, 0, 0, 0, 0, 0, 14);
@@ -202,7 +202,7 @@ export function addPackRig(body, M, w, d, y0 = 1.6) {
   for (const s of [-1, 1]) {
     const p = new THREE.Group();
     p.position.set((s * w) / 4, 0.9, d / 2 + 0.06);
-    const k = new PK();
+    const k = new PK(false);
     k.cb(M.olive2, w / 2 - 0.3, 1.6, 0.12, 0, 0.8, 0, 0, 0, 0, 0.03);
     hazard(k, M.yellow, M.black, w / 2 - 0.6, 0.2, 0, 1.45, 0.07);
     k.build(p);
@@ -311,7 +311,7 @@ function yardStacks(M) {
     [2.2, 0.6],
   ];
   POS.forEach(([x, z], i) => {
-    const k = new PK();
+    const k = new PK(false);
     const ore = mat(0xe0b040, {
       emissive: 0x7a5410,
       emissiveIntensity: 0.6,
@@ -454,13 +454,13 @@ function samBody(k, M) {
   k.cyl(M.dark, 1.2, 1.3, 0.6, 0, 4.7, 0, 0, 0, 0, 10);
 }
 function samTurret(M) {
-  const k = new PK();
+  const k = new PK(false);
   k.cyl(M.olive, 1.1, 1.2, 0.8, 0, 0.4, 0, 0, 0, 0, 10);
   k.box(M.steel, 0.4, 1.2, 0.5, 0, 1.2, 0.6);
   const tur = k.build(new THREE.Group());
   const gun = new THREE.Group();
   gun.position.set(0, 1.5, 0);
-  const g = new PK();
+  const g = new PK(false);
   // 誘導飛彈架的發射器（兩組、各 2×2 管）
   for (const s of [-1, 1]) {
     g.cb(M.olive2, 1.2, 1.2, 2.6, s * 0.9, 0, 0, 0, 0, 0, 0.08);
@@ -539,7 +539,7 @@ export const isVeerBuilding = (id) => !!BODY[id];
 // 空投展開中的地基（取代鷹架）：攤平的貨櫃底板＋四片依序立起的牆板（panels，依進度從平放翻到直立）
 function foldShell(w, d, M) {
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.olive2, w, 0.35, d, 0, 0.18, 0, 0, 0, 0, 0.08);
   hazard(k, M.yellow, M.black, w * 0.85, 0.25, 0, 0.2, d / 2 + 0.02);
   hazard(k, M.yellow, M.black, w * 0.85, 0.25, 0, 0.2, -d / 2 - 0.02, Math.PI);
@@ -557,7 +557,7 @@ function foldShell(w, d, M) {
     hinge.position.set(x, 0.35, z);
     hinge.rotation.y = ry;
     const p = new THREE.Group();
-    const kk = new PK();
+    const kk = new PK(false);
     kk.cb(M.olive, L - 0.2, H, 0.14, 0, H / 2, 0, 0, 0, 0, 0.03);
     const n = Math.max(2, Math.round(L / 1.2));
     for (let i = 1; i < n; i++) kk.box(M.dark, 0.06, H * 0.9, 0.2, -L / 2 + (L * i) / n, H / 2, 0);
@@ -575,7 +575,7 @@ export function buildVeerBuilding(id, pal) {
   const M = mats(pal);
   const group = new THREE.Group();
   const body = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   (BODY[id] || depotBody)(k, M);
   k.build(body);
   group.add(body);
@@ -626,7 +626,7 @@ export function buildVeerBuilding(id, pal) {
   // 調度中心三階
   if (HQ_IDS.has(id)) {
     const mk = (fn) => {
-      const kk = new PK();
+      const kk = new PK(false);
       fn(kk, M);
       const grp = kk.build(new THREE.Group());
       body.add(grp);
@@ -700,7 +700,7 @@ export function buildVeerBuilding(id, pal) {
 export function buildDropPod(pal) {
   const M = mats(pal);
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   k.cyl(M.dark, 1.3, 1.5, 0.5, 0, 0.25, 0, 0, 0, 0, 10);
   k.cyl(M.team, 0.4, 1.0, 1.6, 0, 3.6, 0, 0, 0, 0, 10);
   k.cyl(M.black, 0.15, 0.4, 0.6, 0, 4.7, 0, 0, 0, 0, 8);
@@ -729,7 +729,7 @@ export function buildDropPod(pal) {
     const hinge = new THREE.Group();
     hinge.position.set(Math.cos(a) * 1.05, 0.5, Math.sin(a) * 1.05);
     hinge.rotation.y = -a + Math.PI / 2;
-    const kk = new PK();
+    const kk = new PK(false);
     kk.cb(i ? M.olive : M.olive2, 1.8, 2.4, 0.16, 0, 1.2, 0, 0, 0, 0, 0.04);
     hazard(kk, M.yellow, M.black, 1.2, 0.18, 0, 2.1, 0.09);
     kk.build(hinge);
@@ -761,7 +761,7 @@ export function addCarrierCargo(rig, defId) {
   const D = defId && RTS_DEFS[defId];
   const s = D && D.foot ? Math.max(0.75, Math.min(1.5, Math.max(D.foot[0], D.foot[1]) / 10)) : 1;
   const M = mats(palOf(0));
-  const k = new PK();
+  const k = new PK(false);
   // 吊架與四條吊索
   k.box(M.steel, 1.6, 0.25, 2.4, 0, -0.9, 0.1);
   for (const sx of [-1, 1])
@@ -780,7 +780,7 @@ export function addCarrierCargo(rig, defId) {
 // ---------- 物流無人機（集貨站 → 調度中心的小型四旋翼，帶一個貨箱；原點在機體中心） ----------
 export function buildHaulDrone(pal) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.olive, 0.9, 0.35, 0.9, 0, 0, 0, 0, 0, 0, 0.06);
   for (const a of [0.785, 2.356, 3.927, 5.498]) {
     k.bar(M.dark, [0, 0, 0], [Math.cos(a) * 1.0, 0.1, Math.sin(a) * 1.0], 0.08);
@@ -796,7 +796,7 @@ export function buildHaulDrone(pal) {
 export function buildTempBeacon(pal) {
   const M = mats(pal);
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
     k.bar(M.yellow, [Math.cos(a) * 0.8, 0, Math.sin(a) * 0.8], [0, 1.4, 0], 0.1);
@@ -818,7 +818,7 @@ export function addVeerWorkerKit(rig, pal, buildOreCrate) {
   const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const kit = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   // 貨架：框＋兩個小貨箱
   for (const s of [-1, 1]) k.box(M.steel, 0.08, 1.3, 0.08, s * 0.45, 1.75, 0.95);
   k.box(M.steel, 1.0, 0.08, 0.6, 0, 1.15, 0.75);
@@ -833,14 +833,14 @@ export function addVeerWorkerKit(rig, pal, buildOreCrate) {
   // 吊索（rtsCable：上端在吊臂尖，長度＝scale.y）與吊鉤（rtsHook：掛在吊索下端）；採集時放下
   const cable = new THREE.Group();
   cable.position.set(0.3, 2.95, -0.9);
-  const ck = new PK();
+  const ck = new PK(false);
   ck.box(M.steel, 0.04, 1, 0.04, 0, -0.5, 0);
   ck.build(cable);
   cable.scale.y = HOOK_UP;
   kit.add(cable);
   const hook = new THREE.Group();
   hook.position.set(0.3, 2.95 - HOOK_UP, -0.9);
-  const hk = new PK();
+  const hk = new PK(false);
   hk.cb(M.yellow, 0.22, 0.2, 0.22, 0, -0.05, 0, 0, 0, 0, 0.03);
   hk.geo(M.black, new THREE.TorusGeometry(0.12, 0.04, 4, 8, Math.PI * 1.5), 0, -0.26, 0, 0, Math.PI / 2, 0);
   hk.build(hook);
@@ -860,7 +860,7 @@ export function addVeerWorkerKit(rig, pal, buildOreCrate) {
   // 右手的絞盤
   const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
-    const dk = new PK();
+    const dk = new PK(false);
     dk.cyl(M.dark, 0.18, 0.18, 0.36, 0, -0.35, 0, 0, 0, Math.PI / 2, 8);
     dk.box(M.yellow, 0.06, 0.4, 0.06, 0, -0.35, 0.16);
     const drum = dk.build(new THREE.Group());

@@ -2,7 +2,8 @@
 // 網格建造是純函式（不呼叫亂數，尺寸固定）；原點在地面中心，+Z 為正面。放置由 World.addLandmark 處理。
 // 欄位：name、build()、bx＝局部外框 [x0, x1, z0, z1]（findSpot 用）、range＝容許的地面高低差、
 //       sink＝往地面下沉的深度、shapes＝局部碰撞形狀（box 的 y／top 相對原點；circle 的 h）
-import { box, cyl, mat } from './prop-models.js';
+import { WS } from '../core/scale.js';
+import { bakeGroup, box, cyl, mat } from './prop-models.js';
 
 const M = {
   hull: mat(0x6c7176),
@@ -1790,4 +1791,12 @@ export const LANDMARKS = {
     },
   },
 };
+// 精細版（docs/model-detail.md）：box()／cyl() 拼的網格整個換成精細版（基本形體升級以放大 WS 倍之後的尺寸判斷）
+const LM_TINT = { ao: 0.75, grime: 0.2, k: WS };
+for (const th in LANDMARKS)
+  for (const key in LANDMARKS[th]) {
+    const L = LANDMARKS[th][key];
+    const f = L.build;
+    L.build = () => bakeGroup(f(), LM_TINT);
+  }
 export const landmarkKeys = (theme) => Object.keys(LANDMARKS[theme] || {});

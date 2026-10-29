@@ -257,7 +257,7 @@ function towerBody(k, M) {
 }
 // 吊臂（原點在旋轉軸、吊臂朝 −Z）：駕駛室、配重、吊臂、吊鉤與貨櫃
 function towerArm(M) {
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.main, 2.2, 1.6, 2.4, 0, 0.8, 0.4, 0, 0, 0, 0.1);
   k.box(M.glass, 1.6, 0.7, 0.08, 0, 1.0, -0.82);
   k.cb(M.sub, 2, 1.2, 1.6, 0, 0.7, 2.6, 0, 0, 0, 0.08); // 配重
@@ -374,12 +374,12 @@ function flakBody(k, M) {
 }
 // 防空砲塔的砲塔（原點在旋轉軸）：砲塔本體＋可以俯仰的四管機砲（gun，朝 −Z）
 function flakTurret(M) {
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.main, 2.6, 1.4, 2.6, 0, 0.7, 0, 0, 0, 0, 0.15);
   k.box(M.glass, 1, 0.35, 0.08, 0.6, 1.1, -1.32);
   k.cyl(M.dark, 0.5, 0.5, 0.3, -0.8, 1.55, 0.6, 0, 0, 0, 8);
   const tur = k.build(new THREE.Group());
-  const g = new PK();
+  const g = new PK(false);
   g.cb(M.sub, 1.6, 0.8, 1.2, 0, 0, 0, 0, 0, 0, 0.08);
   for (const x of [-0.45, -0.15, 0.15, 0.45])
     g.cyl(M.dark, 0.08, 0.1, 3, x, 0.05, -1.9, Math.PI / 2, 0, 0, 6);
@@ -437,7 +437,7 @@ const HQ_IDS = new Set(['c_hq', 'c_hq2', 'c_hq3']);
 
 // 鷹架：佔地四周的柱子與每 2.5 m 一圈橫桿（建造中顯示）
 function scaffold(w, d, h, M) {
-  const k = new PK();
+  const k = new PK(false);
   const hw = w / 2 + 0.3,
     hd = d / 2 + 0.3;
   const nx = Math.max(2, Math.round(w / 4)),
@@ -469,7 +469,7 @@ export function buildRtsBuilding(id, pal) {
   const M = mats(pal);
   const group = new THREE.Group();
   const body = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   (BODY[id] || depotBody)(k, M);
   k.build(body);
   group.add(body);
@@ -498,7 +498,7 @@ export function buildRtsBuilding(id, pal) {
   // 主堡三階（docs 13.3）：T2 外牆與砲座、T3 司令塔與天線；同一個模型切換子群組的 visible
   if (HQ_IDS.has(id)) {
     const mk = (fn) => {
-      const kk = new PK();
+      const kk = new PK(false);
       fn(kk, M);
       const grp = kk.build(new THREE.Group());
       body.add(grp);
@@ -549,7 +549,7 @@ export function buildRtsBuilding(id, pal) {
 // 臨時障礙物換上這個外觀，所以尺寸跟著臨時牆）
 export function buildCoverCrates(w = 8, h = 3, d = 2.6, pal = rtsPal('castron', 0)) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   const cw = w / 2 - 0.05;
   for (const s of [-1, 1]) {
     k.cb(s < 0 ? M.team : M.main3, cw, h * 0.5, d, (s * w) / 4, h * 0.25, 0, 0, 0, 0, 0.05);
@@ -576,7 +576,7 @@ export function buildCoverCrates(w = 8, h = 3, d = 2.6, pal = rtsPal('castron', 
 // 自走砲架設時放下的四支駐鋤（MechEntity 的 sx.rtsLegs；原點在車體中心的地面，k＝放下的程度 0～1 由 scale 控制）
 export function buildArtyLegs(pal) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
       k.cb(M.dark, 0.5, 0.5, 0.5, sx * 1.3, 1.2, sz * 1.7, 0, 0, 0, 0.04);
@@ -594,7 +594,7 @@ export function buildMineNode() {
   const rock = mat(0x5a4c40, { roughness: 1, metalness: 0.05 }),
     rock2 = mat(0x6e5e4c, { roughness: 1, metalness: 0.05 }),
     ore = mat(0xe0b040, { emissive: 0x7a5410, emissiveIntensity: 0.6, roughness: 0.35, metalness: 0.7 });
-  const k = new PK();
+  const k = new PK(false);
   const ROCKS = [
     [0, 1.3, 0, 2.2, 2.6, 0.2],
     [2.1, 0.8, 1, 1.5, 1.6, 0.9],
@@ -647,7 +647,7 @@ export function CORAL_GLOW() {
 }
 export function buildCoralVent() {
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const rock = mat(0x3a3330, { roughness: 1, metalness: 0.05 });
   const tor = new THREE.TorusGeometry(3.4, 0.8, 5, 10);
   k.geo(rock, tor, 0, 0.2, 0, Math.PI / 2, 0, 0, 1, 1, 0.55);
@@ -676,7 +676,7 @@ export function addWorkerKit(rig, pal, faction) {
   if (faction === 'sancta') return addSancWorkerKit(rig, pal, buildOreCrate); // 互助作業機的拾荒網籃與磁吸臂（R5）
   const t = mechKit(rig, rig.torso || rig.group);
   const kit = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const y = mat(0xd8a020, { roughness: 0.6, metalness: 0.25 }),
     st = DETAIL.steel,
     dk = DETAIL.dark;
@@ -701,7 +701,7 @@ export function addWorkerKit(rig, pal, faction) {
   // 右手的鑽頭
   const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
-    const dr = new PK();
+    const dr = new PK(false);
     dr.cyl(st, 0.02, 0.22, 0.8, 0, -0.55, 0, 0, 0, 0, 8);
     dr.cyl(y, 0.25, 0.25, 0.25, 0, -0.1, 0, 0, 0, 0, 8);
     const drill = dr.build(new THREE.Group());
@@ -720,7 +720,7 @@ export function buildRtsWorker(pal) {
 }
 // 攜帶礦石的小貨箱（約 1 × 0.6 × 0.8 m，原點在底面中心）
 export function buildOreCrate() {
-  const k = new PK();
+  const k = new PK(false);
   const fr = mat(0x4a4438, { roughness: 0.8, metalness: 0.5 }),
     ore = mat(0xe0b040, { emissive: 0x7a5410, emissiveIntensity: 0.6, roughness: 0.35, metalness: 0.7 });
   k.cb(fr, 1, 0.5, 0.8, 0, 0.25, 0, 0, 0, 0, 0.05);

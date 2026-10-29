@@ -83,7 +83,7 @@ function addMat(color, opacity) {
 }
 // 一組 PK 的零件合成一個獨立網格（用在會自己動的零件）
 function oneMesh(fn, material) {
-  const k = new PK();
+  const k = new PK(false);
   fn(k, material);
   const g = k.build(new THREE.Group(), false);
   const m = g.children[0];
@@ -555,12 +555,12 @@ function towerBody(k, M) {
 }
 function towerTurret(M) {
   const tur = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   k.cyl(M.dark, 0.5, 0.6, 0.4, 0, 0.2, 0, 0, 0, 0, 8);
   k.build(tur);
   const gun = new THREE.Group();
   gun.position.y = 0.75;
-  const kk = new PK();
+  const kk = new PK(false);
   kk.box(M.dark, 0.5, 0.45, 0.8, 0, 0, 0.1);
   kk.cyl(M.steel, 0.07, 0.07, 1.6, 0.14, 0, -0.9, Math.PI / 2, 0, 0, 6);
   kk.cyl(M.steel, 0.07, 0.07, 1.6, -0.14, 0, -0.9, Math.PI / 2, 0, 0, 6);
@@ -576,7 +576,7 @@ function towerTurret(M) {
 }
 // 廢鐵路障（4×2、高 3）：4 種外觀（v＝0 車門、1 鋼板、2 輪胎堆、3 混合）
 function barricadeVariant(v, M) {
-  const k = new PK();
+  const k = new PK(false);
   if (v === 0) {
     for (let i = 0; i < 4; i++) {
       const x = -1.5 + i;
@@ -723,7 +723,7 @@ export const isSancBuilding = (id) => Object.prototype.hasOwnProperty.call(BODY,
 
 // 施工的木架＋帆布（取代卡斯特隆的鋼鷹架）：佔地四周的木柱、每 2.5 m 一圈橫木、兩面的帆布
 function woodScaffold(w, d, h, M) {
-  const k = new PK();
+  const k = new PK(false);
   const hw = w / 2 + 0.3,
     hd = d / 2 + 0.3;
   const nx = Math.max(2, Math.round(w / 4)),
@@ -755,7 +755,7 @@ export function buildSancBuilding(id, pal) {
   const body = new THREE.Group();
   const fn = BODY[id];
   if (fn) {
-    const k = new PK();
+    const k = new PK(false);
     fn(k, M);
     k.build(body);
   }
@@ -784,7 +784,7 @@ export function buildSancBuilding(id, pal) {
   };
   if (HQ_IDS.has(id)) {
     const mk = (f) => {
-      const kk = new PK();
+      const kk = new PK(false);
       f(kk, M);
       const grp = kk.build(new THREE.Group());
       body.add(grp);
@@ -888,7 +888,7 @@ export function addSancWorkerKit(rig, pal, buildOreCrate) {
   const t = mechKit(rig, rig.torso || rig.group);
   const M = mats(pal);
   const kit = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   // 網籃：木框＋網（細條）＋裡面的廢鐵
   for (const sx of [-1, 1])
     for (const sz of [0, 1]) k.box(M.wood, 0.07, 0.9, 0.07, sx * 0.45, 1.6, 0.6 + sz * 0.6);
@@ -919,7 +919,7 @@ export function addSancWorkerKit(rig, pal, buildOreCrate) {
   // 右手的磁吸臂（圓盤磁鐵＋短臂；採集、拾荒、修理時轉）
   const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
-    const dk = new PK();
+    const dk = new PK(false);
     dk.box(M.dark, 0.12, 0.45, 0.12, 0, -0.3, 0);
     dk.cyl(M.rust, 0.26, 0.26, 0.1, 0, -0.58, 0, 0, 0, 0, 10);
     dk.cyl(M.dark, 0.12, 0.12, 0.06, 0, -0.65, 0, 0, 0, 0, 8);
@@ -939,7 +939,7 @@ export function addHaulerKit(rig, pal) {
   // 砲塔（torso 下的程式網格）拿掉
   for (const c of [...t.children]) if (c.isMesh) t.remove(c);
   const base = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   // 貨斗（在車身後段，掛在 torso 上：torso 會轉向，所以貨斗放在轉台的正後方）
   k.cyl(M.dark, 0.7, 0.8, 0.3, 0, 0.1, 0, 0, 0, 0, 10);
   k.cb(M.rust, 2.0, 0.8, 1.5, 0, 0.6, 1.2, 0, 0, 0, 0.06);
@@ -952,7 +952,7 @@ export function addHaulerKit(rig, pal) {
   // 吊臂（boom：根部在轉台上，往前（−Z）伸；展開時放低）
   const boom = new THREE.Group();
   boom.position.set(0, 0.5, 0.1);
-  const bk = new PK();
+  const bk = new PK(false);
   bk.bar(M.rust, [0, 0, 0], [0, 0.4, -3.2], 0.24);
   bk.bar(M.dark, [0, -0.15, 0.1], [0, 0.25, -3.0], 0.1);
   bk.box(M.dark, 0.36, 0.3, 0.36, 0, 0.4, -3.2);
@@ -961,12 +961,12 @@ export function addHaulerKit(rig, pal) {
   // 吊索與磁鐵（掛在吊臂尖端；scale.y＝吊索長度）
   const cable = new THREE.Group();
   cable.position.set(0, 0.35, -3.2);
-  const ck = new PK();
+  const ck = new PK(false);
   ck.box(M.steel, 0.05, 1, 0.05, 0, -0.5, 0);
   ck.build(cable);
   boom.add(cable);
   const magnet = new THREE.Group();
-  const mk = new PK();
+  const mk = new PK(false);
   mk.cyl(M.rust, 0.55, 0.55, 0.2, 0, -0.1, 0, 0, 0, 0, 10);
   mk.cyl(M.dark, 0.2, 0.2, 0.2, 0, 0.1, 0, 0, 0, 0, 8);
   mk.build(magnet);
@@ -978,7 +978,7 @@ export function addHaulerKit(rig, pal) {
     for (const sz of [-1, 1]) {
       const lg = new THREE.Group();
       lg.position.set(sx * 1.9, 0.9, sz * 1.3);
-      const lk = new PK();
+      const lk = new PK(false);
       lk.box(M.dark, 0.18, 0.9, 0.18, 0, -0.45, 0);
       lk.box(M.rust, 0.5, 0.08, 0.5, 0, -0.9, 0);
       lk.build(lg);
@@ -1015,7 +1015,7 @@ export function addColossusKit(rig, pal) {
     cz = (bb.min.z + bb.max.z) / 2,
     hw = (bb.max.x - bb.min.x) / 2;
   const kit = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const s = Math.max(0.6, hw / 2.2);
   k.at(0, top - 0.3 * s, cz + 0.4 * s, 0, 0, 0, () => {
     crate(k, M, 2.6 * s, 1.1 * s, 1.2 * s, -0.4 * s, 0, 0.7 * s, 0.1, M.brown);
@@ -1080,7 +1080,7 @@ export function addRefitKits(rig, pal, ids = null) {
 // 一種改裝的零件（bb＝模型在掛載節點座標裡的外框；正面 −Z、背面 +Z）
 export function addRefitKit(rf, bb, M) {
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const cx = (bb.min.x + bb.max.x) / 2,
     cz = (bb.min.z + bb.max.z) / 2;
   const hw = Math.max(0.3, (bb.max.x - bb.min.x) / 2),

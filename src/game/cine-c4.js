@@ -66,7 +66,7 @@ function buildRocket(h, r) {
   const white = mat(0xe8eaec, { roughness: 0.45, metalness: 0.15 }),
     dk = mat(0x2a2d31, { roughness: 0.7 }),
     org = mat(0xd86a20, { roughness: 0.6 });
-  const k = new PK();
+  const k = new PK(false);
   k.cyl(white, r, r, h * 0.78, 0, h * 0.39 + 1.2, 0, 0, 0, 0, 18);
   k.geo(white, new THREE.ConeGeometry(r, h * 0.2, 18), 0, h * 0.88 + 1.2, 0);
   for (const y of [h * 0.22, h * 0.5, h * 0.74]) k.cyl(dk, r * 1.02, r * 1.02, 0.6, 0, y, 0, 0, 0, 0, 18);
@@ -118,7 +118,7 @@ function buildPadTower(h, tx, w = 7) {
   const steel = mat(0xb04a2a, { roughness: 0.6, metalness: 0.5 }),
     dk = mat(0x3d4044, { roughness: 0.8 }),
     pad = mat(0x7a7c7e, { roughness: 0.95 });
-  const k = new PK();
+  const k = new PK(false);
   k.cb(pad, 30, 0.8, 30, 0, 0.4, 0, 0, 0, 0, 0.2);
   k.box(dk, 9, 0.1, 9, 0, 0.82, 0);
   const a = w / 2 - 0.2;
@@ -142,7 +142,7 @@ function buildPadTower(h, tx, w = 7) {
 // Doser／難民的帳篷（布＋支架），原點在底面中心
 function buildTent(color) {
   const cloth = new THREE.MeshStandardMaterial({ color, roughness: 0.95, flatShading: true });
-  const k = new PK();
+  const k = new PK(false);
   k.geo(cloth, new THREE.ConeGeometry(2.4, 2.6, 4), 0, 1.3, 0, 0, Math.PI / 4, 0);
   k.cyl(mat(0x3a3836), 0.06, 0.06, 3.1, 0, 1.55, 0, 0, 0, 0, 5);
   return k.build();
@@ -275,7 +275,7 @@ Object.assign(Game.prototype, {
     R.obs = w.obstacles.slice(n0);
     R.wm = w.meshes.slice(m0);
     // 斜撐：每兩層之間、四個面的 X 形鋼骨
-    const k = new PK();
+    const k = new PK(false);
     const steel = mat(0x4a4540, { roughness: 0.6, metalness: 0.6 }),
       a = T.col;
     const cn = [
@@ -884,7 +884,7 @@ Object.assign(Game.prototype, {
       const [gx, gz] = G.at;
       const gy = this.c4At({ g: G.at }).y - c.set.anchor.y;
       // 門框：兩根柱子＋橫樑（警示條紋）
-      const k = new PK();
+      const k = new PK(false);
       for (const s of [-1, 1]) {
         k.cb(steel, 7, 36, 7, s * 19, 18, 0, 0, 0, 0, 0.3);
         for (let y = 3; y < 34; y += 4) k.box(dk, 7.1, 0.4, 7.1, s * 19, y, 0);
@@ -898,7 +898,7 @@ Object.assign(Game.prototype, {
       // 兩扇門：鋼板＋加強肋＋警示條紋（往中間滑動）
       const doors = [];
       for (const s of [-1, 1]) {
-        const d = new PK();
+        const d = new PK(false);
         d.cb(steel, 15.6, 32, 2.6, 0, 16, 0, 0, 0, 0, 0.15);
         for (let y = 2; y < 32; y += 3.2) d.box(dk, 15.2, 0.35, 2.8, 0, y, 0);
         for (const x of [-5, 0, 5]) d.box(dk, 0.5, 31, 2.9, x, 16, 0);

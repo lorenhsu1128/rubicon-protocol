@@ -549,7 +549,24 @@ export const D = {
         if (_v.y < -flat) _v.y = -flat + (_v.y + flat) * 0.15;
         p.setXYZ(i, _v.x, _v.y, _v.z);
       }
-      return nonIdx(g);
+      const o = nonIdx(g);
+      o.computeVertexNormals();
+      // 頂點色：凹進去的地方暗、朝上的面亮一點（灰塵），底部暗
+      const q = o.attributes.position,
+        nn = o.attributes.normal;
+      const col = new Float32Array(q.count * 3);
+      for (let i = 0; i < q.count; i++) {
+        const x = q.getX(i),
+          y = q.getY(i),
+          z = q.getZ(i);
+        const r = Math.hypot(x, y, z);
+        let k = 0.72 + Math.max(-0.2, Math.min(0.3, (r - 0.85) * 1.1));
+        k *= 0.9 + 0.18 * Math.max(0, nn.getY(i));
+        k *= y < -flat * 0.9 ? 0.75 : 1;
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = Math.min(1.15, k);
+      }
+      o.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return o;
     });
   },
 };
@@ -648,7 +665,9 @@ function valueNoise(seed) {
 const _t = new THREE.Vector3(),
   _q = new THREE.Quaternion(),
   _s = new THREE.Vector3();
-export function upgradeGeo(geo, mm, k = 1) {
+// lite（地圖物件）：只升級 0.3 m 以上的零件、圓柱最多 20 段（物件多、細的零件倒角看不出來）
+export function upgradeGeo(geo, mm, k = 1, lite = false) {
+  const lim = lite ? 0.3 : 0.12;
   const P = geo.parameters;
   if (!P) return [geo, mm];
   const t = geo.userData.ptype || geo.type;
@@ -658,7 +677,7 @@ export function upgradeGeo(geo, mm, k = 1) {
       h = P.height * Math.abs(_s.y),
       d = P.depth * Math.abs(_s.z);
     const m = Math.min(w, h, d) * k;
-    if (m < 0.12 || mm.determinant() < 0) return [geo, mm];
+    if (m < lim || mm.determinant() < 0) return [geo, mm];
     const c = Math.max(0.012, Math.min(0.06, m * 0.12));
     return [D.box(w, h, d, c), new THREE.Matrix4().compose(_t, _q, _s.set(1, 1, 1))];
   }
@@ -667,8 +686,8 @@ export function upgradeGeo(geo, mm, k = 1) {
     mm.decompose(_t, _q, _s);
     const sr = Math.max(Math.abs(_s.x), Math.abs(_s.z)),
       r = Math.max(P.radiusTop, P.radiusBottom) * sr * k;
-    if (r < 0.12) return [geo, mm];
-    const seg = r >= 0.6 ? 24 : r >= 0.3 ? 18 : 14;
+    if (r < lim) return [geo, mm];
+    const seg = lite ? (r >= 1 ? 20 : 14) : r >= 0.6 ? 24 : r >= 0.3 ? 18 : 14;
     if (P.radialSegments >= seg) return [geo, mm];
     const h = P.height * Math.abs(_s.y);
     const c = h > 0.08 ? Math.min(0.04, r * 0.08, h * 0.2) / Math.abs(_s.y || 1) : 0;
@@ -677,7 +696,7 @@ export function upgradeGeo(geo, mm, k = 1) {
   if (t === 'SphereGeometry') {
     mm.decompose(_t, _q, _s);
     const r = P.radius * Math.max(Math.abs(_s.x), Math.abs(_s.y), Math.abs(_s.z)) * k;
-    if (r < 0.15 || P.widthSegments >= 16) return [geo, mm];
+    if (r < (lite ? 0.3 : 0.15) || P.widthSegments >= 16) return [geo, mm];
     const seg = r >= 0.6 ? 20 : 16;
     return [
       cached(key('sph', [P.radius, seg]), () => nonIdx(new THREE.SphereGeometry(P.radius, seg, seg >> 1))),
@@ -691,6 +710,8 @@ export function upgradeGeo(geo, mm, k = 1) {
 // list：[{ geo, mm, wm?, col? }]（同一個合併網格的零件，mm＝到合併後座標的矩陣、col＝一起烘進去的顏色）；ctx：整個模型共用的遮蔽資料
 // （tintCtx 建立，所有零件的外框都在裡面，不同材質的零件也互相遮蔽）。回傳合併後的幾何（含 color）。
 // opts：{ ao 遮蔽強度（預設 0.55）, wear 凸邊變亮（0.16）, grime 貼地髒污（0.22）, gh 髒污的高度（1.2 m）, y0 地面高度 }
+// 整數座標的數字鍵（字串鍵太慢：每個頂點都要查）；每軸 ±65536 以內
+const cellKey = (x, y, z) => ((x + 65536) * 131072 + (y + 65536)) * 131072 + (z + 65536);
 export function tintCtx(all, opts = {}) {
   // all：[{ geo, mm }]（整個模型的零件）；外框在合併後的座標
   const boxes = [];
@@ -722,7 +743,7 @@ export function tintCtx(all, opts = {}) {
     for (let x = Math.floor((b.min.x - r) / cell); x <= Math.floor((b.max.x + r) / cell); x++)
       for (let y = Math.floor((b.min.y - r) / cell); y <= Math.floor((b.max.y + r) / cell); y++)
         for (let z = Math.floor((b.min.z - r) / cell); z <= Math.floor((b.max.z + r) / cell); z++) {
-          const k = x + ',' + y + ',' + z;
+          const k = cellKey(x, y, z);
           let a = ctx.grid.get(k);
           if (!a) ctx.grid.set(k, (a = []));
           a.push(i);
@@ -734,7 +755,7 @@ export function tintCtx(all, opts = {}) {
 const _cp = new THREE.Vector3();
 function occlusion(ctx, self, p, n) {
   const a = ctx.grid.get(
-    Math.floor(p.x / ctx.cell) + ',' + Math.floor(p.y / ctx.cell) + ',' + Math.floor(p.z / ctx.cell),
+    cellKey(Math.floor(p.x / ctx.cell), Math.floor(p.y / ctx.cell), Math.floor(p.z / ctx.cell)),
   );
   if (!a) return 0;
   let occ = 0;
@@ -761,11 +782,7 @@ function occlusion(ctx, self, p, n) {
 function edgeWear(pos, nor, n) {
   const map = new Map();
   const q = (i) =>
-    Math.round(pos[i * 3] * 500) +
-    ',' +
-    Math.round(pos[i * 3 + 1] * 500) +
-    ',' +
-    Math.round(pos[i * 3 + 2] * 500);
+    cellKey(Math.round(pos[i * 3] * 500), Math.round(pos[i * 3 + 1] * 500), Math.round(pos[i * 3 + 2] * 500));
   for (let i = 0; i < n; i++) {
     const k = q(i);
     let a = map.get(k);
@@ -937,7 +954,8 @@ export function matClass(m) {
 }
 const CLS = new Map();
 const BINV = [0.2, 0.5, 0.82];
-// 類別的材質（白色＋頂點色）：可以淡出（fade）的每次建立一份（每個物件各自淡出），其他共用
+// 類別的材質（白色＋頂點色）：可以淡出的（fade＝來源的淡出材質）每次建立一份，透明度等跟著來源（遮擋淡出改的可能是來源），
+// 其他共用
 export function classMat(c, fade) {
   const make = () =>
     new THREE.MeshStandardMaterial({
@@ -948,7 +966,18 @@ export function classMat(c, fade) {
       vertexColors: true,
       transparent: !!fade,
     });
-  if (fade) return make();
+  if (fade) {
+    const t = make();
+    for (const p of ['opacity', 'transparent', 'depthWrite', 'visible'])
+      Object.defineProperty(t, p, {
+        get: () => fade[p],
+        set: (v) => {
+          fade[p] = v;
+        },
+        configurable: true,
+      });
+    return t;
+  }
   let m = CLS.get(c);
   if (!m) CLS.set(c, (m = make()));
   return m;

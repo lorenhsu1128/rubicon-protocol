@@ -171,7 +171,7 @@ function hqTier3(k, M) {
 }
 function prismRing() {
   const g = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const M = new THREE.MeshBasicMaterial({ color: CORAL_CYAN });
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
@@ -349,7 +349,7 @@ function fenceBody(k, M) {
   k.cyl(M.white2, 0.8, 1, 3, 0, 2, -1.3, 0, 0, 0, 10);
 }
 function fenceHead(M) {
-  const k = new PK();
+  const k = new PK(false);
   k.cyl(M.white, 0.7, 0.8, 0.6, 0, 0, 0, 0, 0, 0, 10);
   k.cb(M.white2, 1, 0.6, 1.4, 0, 0.5, -0.3, 0, 0, 0, 0.15);
   k.cyl(M.dark, 0.18, 0.24, 1.1, 0, 0.5, -1.3, Math.PI / 2, 0, 0, 8);
@@ -436,7 +436,7 @@ function crystalShell(w, d, h) {
   shell.position.y = 0.5;
   shell.userData.rtsShell = 1;
   g.add(shell);
-  const k = new PK();
+  const k = new PK(false);
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
     k.geo(S.crystal, oct(), Math.cos(a) * r * 0.95, 0.5, Math.sin(a) * r * 0.95, 0.3, a, 0.2, 0.5, 1.1, 0.5);
@@ -456,7 +456,7 @@ export function buildAethBuilding(id, pal) {
   const M = mats(pal);
   const group = new THREE.Group();
   const body = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   (BODY[id] || nodeBody)(k, M);
   k.build(body);
   group.add(body);
@@ -508,7 +508,7 @@ export function buildAethBuilding(id, pal) {
   // 研究中樞三階（同一個模型切換子群組的 visible）
   if (HQ_IDS.has(id)) {
     const mk = (fn) => {
-      const kk = new PK();
+      const kk = new PK(false);
       fn(kk, M);
       const grp = kk.build(new THREE.Group());
       body.add(grp);
@@ -566,7 +566,7 @@ export function buildAethBuilding(id, pal) {
 export function addAethWorkerKit(rig, pal, buildOreCrate) {
   const t = mechKit(rig, rig.torso || rig.group);
   const kit = new THREE.Group();
-  const k = new PK();
+  const k = new PK(false);
   const wh = mat(0xd8e0e8, { roughness: 0.4, metalness: 0.15 }),
     gl = mat(CORAL_BASE, { emissive: CORAL_CYAN, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.1 }),
     dk = mat(0x1e2632, { roughness: 0.6, metalness: 0.45 });
@@ -598,11 +598,11 @@ export function addAethWorkerKit(rig, pal, buildOreCrate) {
   // 右手的掃描頭：支架＋會轉的掃描環＋發光的鏡頭
   const hand = mechKit(rig, rig.arms && rig.arms.r && rig.arms.r.hand);
   if (hand) {
-    const sk = new PK();
+    const sk = new PK(false);
     sk.cyl(dk, 0.1, 0.12, 0.45, 0, -0.3, 0, 0, 0, 0, 8);
     sk.cyl(gl, 0.14, 0.14, 0.08, 0, -0.58, 0, 0, 0, 0, 10);
     const head = sk.build(new THREE.Group());
-    const sr = new PK();
+    const sr = new PK(false);
     sr.geo(wh, ring(0.32, 0.05, 12), 0, 0, 0, Math.PI / 2, 0, 0);
     sr.box(gl, 0.1, 0.06, 0.1, 0.32, 0, 0);
     sr.box(gl, 0.1, 0.06, 0.1, -0.32, 0, 0);
@@ -624,7 +624,7 @@ export function addProtoKit(rig) {
   const re = rig.merged && rig.unmerge;
   if (re) rig.unmerge();
   const t = mechKit(rig, rig.torso || rig.group);
-  const k = new PK();
+  const k = new PK(false);
   const gl = mat(CORAL_BASE, {
       emissive: CORAL_CYAN,
       emissiveIntensity: 1.6,

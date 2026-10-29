@@ -57,7 +57,7 @@ function finish(k, height, M) {
 // 酒館（12×12、高 9）：廢棄的貨櫃改裝的兩層酒吧，霓虹招牌、露台的桌子、門口的燈
 export function buildTavern(pal) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.conc, 12, 0.5, 12, 0, 0.25, 0, 0, 0, 0, 0.15);
   // 一樓：兩個並排的貨櫃（後方）＋正面的木頭露台
   k.cb(M.rust, 10.5, 3, 4.6, 0, 2, -3.4, 0, 0, 0, 0.06);
@@ -107,7 +107,7 @@ export function buildTavern(pal) {
 // 中立商店（10×8、高 8）：鐵皮攤位＋貨架、櫃台上的道具箱、旋轉的招牌燈
 export function buildNeutralShop(pal) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.conc, 10, 0.4, 8, 0, 0.2, 0, 0, 0, 0, 0.12);
   // 後牆與兩側
   k.cb(M.plate, 9.4, 4.2, 0.4, 0, 2.5, -3.6);
@@ -148,7 +148,7 @@ export function buildNeutralShop(pal) {
 // 傭兵營（12×10、高 6）：沙包圍起來的營地、帳篷、雷達車、旗桿
 export function buildMercCamp(pal) {
   const M = mats(pal);
-  const k = new PK();
+  const k = new PK(false);
   k.cb(M.conc, 12, 0.3, 10, 0, 0.15, 0, 0, 0, 0, 0.1);
   // 沙包牆（三面）
   const sand = mat(0x9a8a62, { roughness: 1, metalness: 0 });
@@ -205,7 +205,7 @@ export function buildMercCamp(pal) {
 // 地上的道具箱（C 包的 R.items 用：rtsItemSpawn）：發光的小箱子，tier 1～3 的光色不同；約 1.1 m
 export function buildItemCrate(tier = 1) {
   const c = [0x9fe8ff, 0x7dff9a, 0xffc04a][Math.max(0, Math.min(2, (tier || 1) - 1))];
-  const k = new PK();
+  const k = new PK(false);
   const shell = mat(0x3a3f46, { roughness: 0.55, metalness: 0.55 });
   const g = glowMat(c, 1.6);
   k.cb(shell, 1, 0.7, 0.8, 0, 0.35, 0, 0, 0, 0, 0.08);
@@ -233,7 +233,7 @@ export function buildItemCrate(tier = 1) {
 
 // 野怪營地的地面標示（營火的灰燼與廢料，tier 越高越大）：只是外觀，不碰撞
 export function buildCampMarker(tier = 1) {
-  const k = new PK();
+  const k = new PK(false);
   const ash = mat(0x2c2622, { roughness: 1, metalness: 0 });
   const scrap = mat(0x5e5246, { roughness: 0.9, metalness: 0.3 });
   const r = 2.2 + tier * 0.6;
