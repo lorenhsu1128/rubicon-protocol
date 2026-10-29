@@ -395,35 +395,11 @@ export function buildTransport(kind, cars, carLen, first = 0) {
 
 // 掉落物：發光方塊＋金屬框＋地面光環。kind：掉落物種類（GLB 槽位 small/pickup_<kind>，只取代方塊，光環維持程式特效）
 // ring：false 時只建立方塊（模型庫用，作為 GLB 的參考）
-export function buildPickupMesh(color, kind, ring = true) {
+export function buildPickupMesh(color, kind, ring = true, shape = kind) {
   const g = new THREE.Group();
   const glb = kind ? providedModel('small/pickup_' + kind) : null;
   if (glb) g.add(glb);
-  else {
-    const b = new THREE.Group();
-    g.add(b);
-    const m = new THREE.MeshStandardMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: 0.8,
-      roughness: 0.4,
-    });
-    const fm = new THREE.MeshStandardMaterial({
-      color: 0x2a2d33,
-      roughness: 0.5,
-      metalness: 0.7,
-      flatShading: true,
-    });
-    P(b, gBox(0.86, 0.86, 0.86), m);
-    // 十二條邊的框
-    for (const a of [-1, 1])
-      for (const c of [-1, 1]) {
-        P(b, gBox(0.1, 1.0, 0.1), fm, a * 0.45, 0, c * 0.45);
-        P(b, gBox(0.8, 0.1, 0.1), fm, 0, a * 0.45, c * 0.45);
-        P(b, gBox(0.1, 0.1, 0.8), fm, a * 0.45, c * 0.45, 0);
-      }
-    bakeAll(b);
-  }
+  else g.add(pickupModel(color, shape));
   if (!ring) return g;
   const halo = new THREE.Mesh(
     new THREE.RingGeometry(1.2, 1.5, 24),
@@ -433,6 +409,135 @@ export function buildPickupMesh(color, kind, ring = true) {
   halo.position.y = -0.55;
   g.add(halo);
   return g;
+}
+// 掉落物的程式模型（約 1 m，中心在原點）：依種類的造型，發光的本體顏色＝掉落物的顏色（遠處看得到）
+//   repair 修補包（有十字的硬殼箱＋提把）、ammo 彈藥箱（彈藥罐＋蓋上的一排砲彈）、cs_bomber 空襲信標（天線＋螢幕）、
+//   cs_ally 友軍通訊箱（摺疊天線＋旋鈕）；其他照舊的發光方塊＋框
+function pickupModel(color, shape) {
+  const b = new THREE.Group();
+  const lit = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.55,
+    roughness: 0.4,
+  });
+  const fm = new THREE.MeshStandardMaterial({
+    color: 0x2a2d33,
+    roughness: 0.5,
+    metalness: 0.7,
+    flatShading: true,
+  });
+  const shell = new THREE.MeshStandardMaterial({
+    color: 0x3c4148,
+    roughness: 0.55,
+    metalness: 0.45,
+    flatShading: true,
+  });
+  const wh = new THREE.MeshStandardMaterial({
+    color: 0xf0f0f0,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.6,
+    roughness: 0.5,
+  });
+  const handle = (y, w) =>
+    P(
+      b,
+      D.sweep(
+        [
+          [-w, y, 0],
+          [-w, y + 0.14, 0],
+          [w, y + 0.14, 0],
+          [w, y, 0],
+        ],
+        D.ring(0.035, 6),
+      ),
+      fm,
+    );
+  if (shape === 'repair') {
+    P(b, D.box(0.95, 0.62, 0.62, 0.08), lit, 0, -0.05, 0);
+    P(b, D.box(0.97, 0.08, 0.64, 0.02), fm, 0, 0.12, 0);
+    for (const z of [-0.32, 0.32]) {
+      P(b, D.box(0.42, 0.12, 0.02, 0.01), wh, 0, -0.06, z);
+      P(b, D.box(0.12, 0.42, 0.02, 0.01), wh, 0, -0.06, z);
+    }
+    handle(0.27, 0.22);
+    fine(() => {
+      for (const x of [-0.32, 0.32]) P(b, D.box(0.1, 0.14, 0.05, 0.01), fm, x, 0.12, 0.33);
+      for (const x of [-0.46, 0.46])
+        for (const y of [-0.3, 0.2]) P(b, D.box(0.06, 0.06, 0.64, 0.01), fm, x, y, 0);
+    });
+  } else if (shape === 'ammo') {
+    P(b, D.box(0.9, 0.55, 0.5, 0.05), shell, 0, -0.15, 0);
+    P(b, D.box(0.92, 0.1, 0.52, 0.03), lit, 0, 0.17, 0);
+    // 蓋上的一排砲彈（發光的彈頭）
+    for (let i = 0; i < 5; i++) {
+      const x = -0.32 + i * 0.16;
+      P(b, D.cyl(0.055, 0.055, 0.22, 12, 0.01), fm, x, 0.33, 0);
+      P(
+        b,
+        D.lathe(
+          [
+            [0, 0],
+            [0.055, 0],
+            [0.05, 0.06],
+            [0.02, 0.14],
+            [0, 0.15],
+          ],
+          10,
+        ),
+        lit,
+        x,
+        0.44,
+        0,
+      );
+    }
+    fine(() => {
+      for (const z of [-0.26, 0.26]) P(b, D.box(0.5, 0.25, 0.02, 0.01), lit, 0, -0.15, z);
+      for (const x of [-0.4, 0.4]) P(b, D.box(0.08, 0.2, 0.05, 0.01), fm, x, 0.05, 0.27);
+    });
+  } else if (shape === 'cs_bomber' || shape === 'cs_ally') {
+    const ally = shape === 'cs_ally';
+    P(b, D.box(0.8, 0.5, 0.55, 0.07), shell, 0, -0.2, 0);
+    P(b, D.box(0.82, 0.12, 0.57, 0.03), lit, 0, 0.0, 0);
+    // 螢幕（發光）、天線
+    P(b, D.box(0.42, 0.22, 0.02, 0.01), lit, -0.1, -0.2, -0.285);
+    if (ally) {
+      for (const x of [-0.3, 0.3]) P(b, D.cyl(0.015, 0.02, 0.7, 6), fm, x, 0.4, 0.15, 0, 0, x * 0.6);
+      P(b, D.cyl(0.07, 0.07, 0.06, 12), fm, 0.25, -0.15, -0.29, HP);
+    } else {
+      P(b, D.cyl(0.02, 0.03, 0.65, 6), fm, 0.28, 0.4, 0.15);
+      P(
+        b,
+        D.lathe(
+          [
+            [0, 0],
+            [0.18, 0.02],
+            [0.2, 0.08],
+            [0, 0.06],
+          ],
+          14,
+        ),
+        lit,
+        -0.15,
+        0.08,
+        0.08,
+      );
+    }
+    fine(() => {
+      for (const x of [0.18, 0.3]) P(b, D.cyl(0.035, 0.035, 0.05, 10), fm, x, -0.12, -0.29, HP);
+      for (const x of [-0.38, 0.38]) P(b, D.box(0.05, 0.5, 0.57, 0.01), fm, x, -0.2, 0);
+    });
+  } else {
+    P(b, gBox(0.86, 0.86, 0.86), lit);
+    for (const a of [-1, 1])
+      for (const c of [-1, 1]) {
+        P(b, gBox(0.1, 1.0, 0.1), fm, a * 0.45, 0, c * 0.45);
+        P(b, gBox(0.8, 0.1, 0.1), fm, 0, a * 0.45, c * 0.45);
+        P(b, gBox(0.1, 0.1, 0.8), fm, a * 0.45, c * 0.45, 0);
+      }
+  }
+  bakeAll(b, { tint: { ao: 0.7, grime: 0 }, cache: 'pickup:' + (shape || 'box') });
+  return b;
 }
 
 // 據點的補給箱：原點在底面中心；color 是獎勵種類的顏色（發光條與光柱，glow 材質）
@@ -473,8 +578,31 @@ export function buildCacheMesh(color, beam = true) {
       P(b, gBox(0.06, 0.08, 0.5), frame, sx * 0.93, 0.5, 0);
       P(b, gCyl(0.05, 0.05, 0.25, 6), frame, sx * 0.5, 1.06, 0.65, 0, 0, HP);
       P(b, gBox(1.9, 0.1, 0.16), frame, 0, 0.05, sx * 0.45);
+      // 兩側的提把（彎管）、角落的護角
+      P(
+        b,
+        D.sweep(
+          [
+            [sx * 0.92, 0.7, -0.25],
+            [sx * 1.0, 0.7, -0.2],
+            [sx * 1.0, 0.7, 0.2],
+            [sx * 0.92, 0.7, 0.25],
+          ],
+          D.ring(0.03, 6),
+        ),
+        frame,
+      );
+      for (const sz of [-1, 1]) P(b, D.box(0.2, 0.2, 0.2, 0.04), frame, sx * 0.86, 1.08, sz * 0.56);
     }
-    bakeAll(b);
+    fine(() => {
+      // 蓋子的鉚釘、正面的標示板與條碼、氣密閥
+      for (const x of [-0.75, -0.25, 0.25, 0.75])
+        for (const z of [-0.58, 0.58]) P(b, D.cyl(0.025, 0.025, 0.02, 6), frame, x, 1.26, z);
+      P(b, D.box(0.5, 0.26, 0.02, 0.01), glow, -0.45, 0.45, -0.61);
+      for (let i = 0; i < 6; i++) P(b, gBox(0.025, 0.18, 0.012), frame, 0.3 + i * 0.05, 0.42, -0.615);
+      P(b, D.cyl(0.07, 0.07, 0.05, 10), frame, 0.55, 0.3, -0.62, HP);
+    });
+    bakeAll(b, { tint: { ao: 0.8, grime: 0.25, gh: 0.5 }, cache: 'cache' });
   }
   if (!beam) return g;
   const bm = new THREE.Mesh(

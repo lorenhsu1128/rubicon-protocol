@@ -776,8 +776,8 @@ for (const [k, d] of Object.entries(PICKUP_DEFS))
     'small',
     'pickup_' + k,
     '掉落物：' + d.name,
-    '浮動旋轉的方塊；底下的光環是程式特效',
-    () => buildPickupMesh(d.color, null, false),
+    '浮動旋轉、依種類的造型（約 1 m）；底下的光環是程式特效',
+    () => buildPickupMesh(d.color, null, false, k),
     { origin: CENTER },
   );
 addPlain(
