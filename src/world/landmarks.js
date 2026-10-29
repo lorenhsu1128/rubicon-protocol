@@ -881,8 +881,12 @@ function controlTower() {
     [-5.3, 30.8, 5.3],
     [-5.3, 30.8, -5.3],
   ]);
-  lattice(g, M.steel, 0.8, 0.3, 7, 2, 1, 3, 0.15);
-  g.children[g.children.length - 1].position.y = 30.8;
+  {
+    const lt = new THREE.Group();
+    lt.position.y = 30.8;
+    g.add(lt);
+    lattice(lt, M.steel, 0.8, 0.3, 7, 2, 1, 3, 0.15);
+  }
   g.add(mesh(D.cyl(1.6, 1.6, 0.3, 18), M.steel, -2, 31.2, -2));
   g.add(mesh(D.box(3.6, 0.6, 0.4, 0.05), M.steel, -2, 32, -2));
   plated(g, 6, 4, 6, M.concrete, 0, 2, 0, 0, 0, 0, 9);
@@ -1592,72 +1596,239 @@ const CORAL = new THREE.MeshStandardMaterial({
 // Coral 反應爐：圓筒爐心＋四根冷卻柱＋發光的爐口
 function coralReactor() {
   const g = new THREE.Group();
-  g.add(cyl(6, 7, 12, M.hullD, 0, 6, 0, 18));
-  g.add(cyl(3, 3, 1, CORAL, 0, 12.5, 0, 16));
+  // 反應爐：爐體（剖面、補強環、觀察窗）＋頂部發光的 Coral 核心與蓋框＋四支冷卻柱（有環）與連接的管
+  g.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [7, 0],
+          [7, 1],
+          [6, 2],
+          [6, 11],
+          [6.6, 12],
+          [0, 12],
+        ],
+        24,
+      ),
+      M.hullD,
+      0,
+      0,
+      0,
+    ),
+  );
+  for (const y of [4, 8]) g.add(mesh(D.cyl(6.15, 6.15, 0.4, 24), M.steel, 0, y, 0));
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    g.add(mesh(D.box(1.4, 0.8, 0.2, 0.03), CORAL, Math.cos(a) * 6.05, 6, Math.sin(a) * 6.05, 0, -a + HP, 0));
+  }
+  g.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [3, 0],
+          [3.2, 0.8],
+          [2, 1.4],
+          [0, 1.5],
+        ],
+        18,
+      ),
+      CORAL,
+      0,
+      12,
+      0,
+    ),
+  );
+  g.add(mesh(new THREE.TorusGeometry(3.4, 0.35, 8, 24), M.steel, 0, 12.6, 0, HP, 0, 0));
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    g.add(cyl(1.2, 1.2, 18, M.steel, Math.cos(a) * 9, 9, Math.sin(a) * 9, 10));
-    g.add(rot(box(0.6, 0.6, 9, M.steel, Math.cos(a) * 5, 15, Math.sin(a) * 5), 0, -a + Math.PI / 2, 0));
+    const x = Math.cos(a) * 9,
+      z = Math.sin(a) * 9;
+    g.add(mesh(D.cyl(1.2, 1.4, 18, 14, 0.1), M.steel, x, 9, z));
+    for (let y = 3; y < 18; y += 4) g.add(mesh(D.cyl(1.35, 1.35, 0.3, 14), M.dark, x, y, z));
+    pipe(
+      g,
+      M.steel,
+      [
+        [x, 15, z],
+        [Math.cos(a) * 6.5, 15, Math.sin(a) * 6.5],
+        [Math.cos(a) * 5, 12.2, Math.sin(a) * 5],
+      ],
+      0.4,
+    );
   }
   return g;
 }
 // 巨大結晶柱：從地面長到很高的 Coral 結晶
 function coralSpire() {
   const g = new THREE.Group();
+  // Coral 的晶柱：六角柱＋尖端、旁邊的小晶簇、底部的岩床（發光的裂縫）
   for (const [x, z, h, r, tx, tz] of [
     [0, 0, 28, 3, 0.05, 0],
     [3, 2, 16, 1.8, 0.3, 0.2],
     [-3, 1, 12, 1.5, -0.3, 0.1],
     [1, -3, 10, 1.3, 0.1, -0.35],
-  ]) {
-    const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), CORAL);
-    m.position.set(x, h / 2 - 0.5, z);
-    m.rotation.set(tx, 0, tz);
-    g.add(m);
-  }
+    [-2, -2.6, 7, 1, -0.2, -0.3],
+    [4, -1.5, 6, 0.8, 0.45, -0.2],
+  ])
+    g.add(
+      mesh(
+        D.lathe(
+          [
+            [0, 0],
+            [r, 0],
+            [r * 1.04, h * 0.78],
+            [r * 0.25, h * 0.98],
+            [0, h],
+          ],
+          6,
+        ),
+        CORAL,
+        x,
+        -0.5,
+        z,
+        tx,
+        x * 0.7,
+        tz,
+      ),
+    );
+  const bed = mesh(D.rock(17, 3, 0.35, 0.5, 0.3), M.hullD, 0, 0, 0);
+  bed.scale.set(6, 1.6, 6);
+  g.add(bed);
   return g;
 }
 // 大型貨運升降梯：四角的導軌塔與停在中間的平台
 function freightLift() {
   const g = new THREE.Group();
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(1.4, 26, 1.4, M.yellow, sx * 9, 13, sz * 7));
-  g.add(box(18, 1.2, 14, M.hullD, 0, 4, 0));
-  for (const sz of [-1, 1]) g.add(box(20, 1.2, 1.2, M.yellow, 0, 26.5, sz * 7));
-  g.add(box(4, 3, 3, M.hull, 0, 28, 0));
+  // 貨運升降梯：四支格子柱、升降台（有欄杆、警示條、貨櫃）、頂部的卷揚機與鋼索、配重
+  for (const sx of [-1, 1])
+    for (const sz of [-1, 1]) lattice(g, M.yellow, 1.6, 1.4, 26, sx * 9, sz * 7, 6, 0.25);
+  plated(g, 18, 1.2, 14, M.hullD, 0, 4, 0, 0, 0, 0, 9);
+  rail(g, M.yellow, [
+    [-8.6, 4.6, -6.6],
+    [8.6, 4.6, -6.6],
+    [8.6, 4.6, 6.6],
+    [-8.6, 4.6, 6.6],
+  ]);
+  for (let x = -8; x < 8; x += 1.2)
+    g.add(mesh(D.box(0.6, 0.05, 0.4, 0.01), x % 2.4 < 1.2 ? M.yellow : M.dark, x, 4.62, -6.6));
+  cont(g, M.blue, -2, 5.9, 0);
+  for (const sz of [-1, 1]) plated(g, 20, 1.2, 1.2, M.yellow, 0, 26.5, sz * 7, 0, 0, 0, 9);
+  plated(g, 4, 3, 3, M.hull, 0, 28, 0, 0, 0, 0, 9);
+  for (const x of [-6, 6]) for (const z of [-5, 5]) g.add(mesh(D.cyl(0.06, 0.06, 22, 4), M.dark, x, 15.5, z));
+  plated(g, 2, 6, 1.4, M.concrete, 10, 14, 0, 0, 0, 0, 9);
   return g;
 }
 // 實驗體收容籠：格子籠與破掉的一面
 function specimenCage() {
   const g = new THREE.Group();
-  g.add(box(14, 0.6, 10, M.hullD, 0, 0.3, 0));
-  g.add(box(14, 0.6, 10, M.hullD, 0, 9.7, 0));
+  // 實驗體的籠子：上下的框（螺栓）、圓柱的鐵欄、破開的缺口（彎曲的欄）、裡面發光的實驗體殘骸
+  plated(g, 14, 0.6, 10, M.hullD, 0, 0.3, 0, 0, 0, 0, 9);
+  plated(g, 14, 0.6, 10, M.hullD, 0, 9.7, 0, 0, 0, 0, 9);
   for (let x = -7; x <= 7; x += 1.75)
-    for (const z of [-5, 5]) if (!(z === 5 && x > -2 && x < 3)) g.add(box(0.25, 9.4, 0.25, M.steel, x, 5, z));
-  for (let z = -5; z <= 5; z += 1.75) for (const x of [-7, 7]) g.add(box(0.25, 9.4, 0.25, M.steel, x, 5, z));
-  g.add(rot(box(5, 0.25, 0.25, M.steel, 0.5, 1.2, 6.5), 0, 0.3, 0.2));
-  g.add(cyl(1.6, 2.2, 3, CORAL, 0, 1.5, 0, 8));
+    for (const z of [-5, 5])
+      if (!(z === 5 && x > -2 && x < 3)) g.add(mesh(D.cyl(0.14, 0.14, 9.4, 8), M.steel, x, 5, z));
+  for (let z = -5; z <= 5; z += 1.75)
+    for (const x of [-7, 7]) g.add(mesh(D.cyl(0.14, 0.14, 9.4, 8), M.steel, x, 5, z));
+  for (const x of [-1.2, 0.5, 2.2])
+    pipe(
+      g,
+      M.steel,
+      [
+        [x, 0.6, 5],
+        [x + 0.4, 3, 6.4],
+        [x + 0.2, 6, 5.6],
+        [x, 9.4, 5],
+      ],
+      0.14,
+    );
+  g.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [2.2, 0],
+          [1.8, 1.6],
+          [1, 3],
+          [0, 3.2],
+        ],
+        10,
+      ),
+      CORAL,
+      0,
+      0.6,
+      0,
+    ),
+  );
+  const blob = mesh(D.rock(19, 2, 0.4, 0.6, 0), M.hullD, 2, 1.4, -1);
+  blob.scale.setScalar(1.5);
+  g.add(blob);
   return g;
 }
 // 斷裂的輸送管：粗大的管線從高處斷開，一截倒在地上
 function brokenTube() {
   const g = new THREE.Group();
-  g.add(box(3, 16, 3, M.concrete, -12, 8, 0));
-  g.add(rot(cyl(2.2, 2.2, 14, M.steel, -5, 15, 0, 14), 0, 0, Math.PI / 2));
-  g.add(rot(cyl(2.2, 2.2, 14, M.steel, 7, 6, 0, 14), 0, 0.2, Math.PI / 2 + 0.7));
-  g.add(cyl(1.4, 1.4, 0.3, CORAL, 2, 11.2, 0, 12));
+  // 斷裂的輸送管：支柱、管（補強環、斷口的內部是暗色）、外漏的 Coral、垂下的電纜
+  plated(g, 3, 16, 3, M.concrete, -12, 8, 0, 0, 0, 0, 4);
+  const tube = (x, y, z, ry, rz) => {
+    const o = new THREE.Group();
+    o.position.set(x, y, z);
+    o.rotation.set(0, ry, rz);
+    g.add(o);
+    o.add(mesh(D.cyl(2.2, 2.2, 14, 18, 0.05), M.steel, 0, 0, 0));
+    o.add(mesh(D.cyl(1.9, 1.9, 0.1, 18), M.dark, 0, 7.02, 0));
+    for (let yy = -5; yy <= 5; yy += 2.5) o.add(mesh(D.cyl(2.32, 2.32, 0.35, 18), M.hullD, 0, yy, 0));
+    return o;
+  };
+  tube(-5, 15, 0, 0, HP);
+  tube(7, 6, 0, 0.2, HP + 0.7);
+  g.add(mesh(D.cyl(1.4, 1.4, 0.3, 14), CORAL, 2, 11.2, 0));
+  g.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [2, 0],
+          [0.4, 1.6],
+          [0, 1.7],
+        ],
+        8,
+      ),
+      CORAL,
+      4,
+      0,
+      1,
+    ),
+  );
+  for (let i = 0; i < 3; i++)
+    g.add(mesh(D.cable([1.8, 14 - i * 0.3, -1 + i], [3, 1, -2 + i * 1.5], 0.08, 0.8, 6), M.dark));
+  rubble(g, 6, 0, 7, 10, 137, M.hullD);
   return g;
 }
 // 研究所紀念碑：台座上的環形雕塑
 function monument() {
   const g = new THREE.Group();
-  g.add(box(10, 2, 10, M.concrete, 0, 1, 0));
-  g.add(box(6, 2, 6, M.concrete, 0, 3, 0));
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(5, 0.7, 8, 24), M.steel);
-  ring.position.y = 10;
-  g.add(ring);
-  g.add(cyl(0.6, 0.6, 5, M.steel, 0, 6.5, 0, 8));
-  g.add(new THREE.Mesh(new THREE.SphereGeometry(1.4, 12, 8), CORAL));
-  g.children[g.children.length - 1].position.y = 10;
+  // 紀念碑：三層的台座（銘板）、支柱、圓環（內圈的肋）、中心發光的 Coral 球、周圍的燈柱
+  plated(g, 10, 2, 10, M.concrete, 0, 1, 0, 0, 0, 0, 9);
+  plated(g, 6, 2, 6, M.concrete, 0, 3, 0, 0, 0, 0, 9);
+  g.add(mesh(D.box(3, 1, 0.1, 0.02), M.steel, 0, 3, -3.06));
+  g.add(mesh(new THREE.TorusGeometry(5, 0.7, 10, 36), M.steel, 0, 10, 0));
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    g.add(mesh(D.box(0.3, 1.2, 0.3, 0.04), M.dark, Math.cos(a) * 4.2, 10 + Math.sin(a) * 4.2, 0, 0, 0, a));
+  }
+  g.add(mesh(D.cyl(0.6, 0.8, 5, 12), M.steel, 0, 6.5, 0));
+  g.add(mesh(new THREE.IcosahedronGeometry(1.4, 2), CORAL, 0, 10, 0));
+  for (const [x, z] of [
+    [-4.5, -4.5],
+    [4.5, -4.5],
+    [-4.5, 4.5],
+    [4.5, 4.5],
+  ]) {
+    g.add(mesh(D.cyl(0.12, 0.15, 3, 8), M.dark, x, 3.5, z));
+    g.add(mesh(D.box(0.5, 0.3, 0.5, 0.04), CORAL, x, 5.1, z));
+  }
   return g;
 }
 
@@ -1667,73 +1838,347 @@ const SNOW = mat(0xf2f6fa, { roughness: 1, metalness: 0 });
 function icebreaker() {
   const g = new THREE.Group();
   const h = new THREE.Group();
-  h.add(box(10, 6, 30, M.red, 0, 3, 0));
-  h.add(rot(box(8, 5, 6, M.red, 0, 3, -17), 0.4, 0, 0));
-  h.add(box(10.4, 0.6, 30, SNOW, 0, 6.2, 0));
-  h.add(box(7, 6, 7, M.white, 0, 9, 6));
-  h.add(box(7.4, 1.4, 0.3, M.window, 0, 10.5, 2.4));
-  h.add(cyl(1.4, 1.6, 6, M.dark, 0, 14, 10, 10));
+  // 船殼（船首尖、往上外擴）＋舷側的水線帶、積雪的甲板、艙樓（三層、窗帶、雷達桅）、煙囪、吊臂
+  h.add(
+    mesh(
+      D.extrude(
+        [
+          [-15, 0.5],
+          [12, 0],
+          [16, 3.5],
+          [17, 6],
+          [-15, 6],
+        ],
+        10,
+        0.3,
+      ),
+      M.red,
+      0,
+      0,
+      0,
+      0,
+      -HP,
+      0,
+    ),
+  );
+  for (const s2 of [-1, 1]) h.add(mesh(D.box(0.2, 0.8, 31, 0.04), M.dark, s2 * 5.02, 1.4, 0.5));
+  h.add(mesh(D.box(10.4, 0.6, 31, 0.1), SNOW, 0, 6.2, 0.5));
+  for (let i = 0; i < 3; i++) {
+    plated(h, 7 - i * 1.2, 2, 7 - i, M.white, 0, 7.5 + i * 2, 6 - i * 0.3, 0, 0, 0, 9);
+    h.add(mesh(D.box(7.2 - i * 1.2, 0.9, 0.2, 0.02), M.window, 0, 7.8 + i * 2, 2.45 + i * 0.2));
+    h.add(mesh(D.box(7.4 - i * 1.2, 0.3, 7.4 - i, 0.04), SNOW, 0, 8.6 + i * 2, 6 - i * 0.3));
+  }
+  h.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [1.6, 0],
+          [1.4, 6],
+          [1.6, 6.3],
+          [0, 6.3],
+        ],
+        14,
+      ),
+      M.dark,
+      0,
+      11,
+      10,
+    ),
+  );
+  {
+    const lt = new THREE.Group();
+    lt.position.y = 13.4;
+    h.add(lt);
+    lattice(lt, M.steel, 1, 0.3, 6, 0, 4, 3, 0.15);
+  }
+  bar(h, M.yellow, [-3, 6.4, -6], [-3, 12, -10], 0.4);
+  h.add(mesh(D.cable([-3, 12, -10], [-3, 7, -11], 0.06, 0.1, 4), M.dark));
   rot(h, 0.06, 0.3, 0.14);
   h.position.y = -2;
   g.add(h);
+  rubble(g, 0, -6, 12, 12, 107, SNOW);
   return g;
 }
 // 巨型雷達罩：球形雷達罩＋底座
 function radome() {
   const g = new THREE.Group();
-  g.add(cyl(7, 8, 6, M.concrete, 0, 3, 0, 16));
-  const s = new THREE.Mesh(new THREE.SphereGeometry(9, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), M.white);
-  s.position.y = 6;
-  g.add(s);
-  g.add(box(3, 4, 0.4, M.dark, 0, 2, 8));
+  // 雷達罩：基座（有門、通風口、外梯）＋球形罩（六角面板感：段數低的球＋縫）＋頂上的避雷針
+  g.add(
+    mesh(
+      D.lathe(
+        [
+          [0, 0],
+          [8, 0],
+          [7, 6],
+          [0, 6],
+        ],
+        20,
+      ),
+      M.concrete,
+      0,
+      0,
+      0,
+    ),
+  );
+  g.add(mesh(new THREE.IcosahedronGeometry(9, 2), M.white, 0, 6, 0));
+  g.add(mesh(D.cyl(7.2, 7.2, 0.4, 20), M.hullD, 0, 6.1, 0));
+  g.add(mesh(D.box(3, 4, 0.4, 0.05), M.dark, 0, 2, 7.6));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    g.add(mesh(D.box(1.6, 0.8, 0.3, 0.04), M.dark, Math.cos(a) * 7.4, 4.6, Math.sin(a) * 7.4, 0, -a + HP, 0));
+  }
+  ladder(g, M.steel, 7.7, 0, -2, 6);
+  g.add(mesh(D.cyl(0.08, 0.12, 3, 6), M.steel, 0, 16.4, 0));
+  rubble(g, 0, 0, 10, 8, 109, SNOW);
   return g;
 }
 // 冰封的運輸機：機身、主翼與尾翼，一半被雪埋住
 function frozenPlane() {
   const g = new THREE.Group();
   const p = new THREE.Group();
-  p.add(rot(cyl(2.6, 2.2, 26, M.hull, 0, 0, 0, 12), Math.PI / 2, 0, 0));
-  p.add(box(34, 0.6, 5, M.hull, 0, 0.6, 2));
-  p.add(box(10, 0.4, 3, M.hull, 0, 1.6, 12));
-  p.add(box(0.4, 6, 4, M.hull, 0, 4, 12));
-  p.add(box(30, 0.5, 4, SNOW, 0, 1.1, 2));
+  // 機身（剖面旋轉、機首圓、機尾往上收）＋駕駛艙的窗、主翼（翼剖面＋引擎）、尾翼、積雪
+  const prof = [];
+  for (let i = 0; i <= 10; i++) {
+    const u = i / 10;
+    prof.push([u < 0.15 ? 2.6 * Math.sqrt(u / 0.15) : u > 0.75 ? 2.6 - (u - 0.75) * 7 : 2.6, -13 + u * 26]);
+  }
+  prof[0][0] = 0;
+  p.add(mesh(D.lathe(prof, 18), M.hull, 0, 0, 0, HP, 0, 0));
+  p.add(mesh(D.box(2.2, 0.8, 0.2, 0.05), M.window, 0, 1.2, -11.6, -0.6, 0, 0));
+  for (const s2 of [-1, 1]) {
+    p.add(
+      mesh(
+        D.extrude(
+          [
+            [0, -2],
+            [17, 0.5],
+            [17, 2],
+            [0, 3],
+          ],
+          0.6,
+          0.15,
+        ),
+        M.hull,
+        s2 * 0.5,
+        0.6,
+        2,
+        HP,
+        s2 > 0 ? 0 : Math.PI,
+        0,
+      ),
+    );
+    p.add(
+      mesh(
+        D.lathe(
+          [
+            [0, -1.6],
+            [0.9, -1.3],
+            [1, 1.2],
+            [0.7, 1.6],
+          ],
+          14,
+        ),
+        M.hullD,
+        s2 * 7,
+        -0.4,
+        1.5,
+        HP,
+        0,
+        0,
+      ),
+    );
+  }
+  p.add(mesh(D.box(10, 0.4, 3, 0.1), M.hull, 0, 1.6, 12));
+  p.add(
+    mesh(
+      D.extrude(
+        [
+          [0, 0],
+          [4, 0],
+          [4, 1],
+          [1.6, 6],
+        ],
+        0.4,
+        0.1,
+      ),
+      M.hull,
+      0,
+      1.6,
+      10,
+      0,
+      -HP,
+      0,
+    ),
+  );
+  p.add(mesh(D.box(30, 0.5, 4, 0.2), SNOW, 0, 1.1, 2));
   rot(p, 0.05, 0.4, 0.1);
   p.position.y = 1.2;
   g.add(p);
+  rubble(g, 0, 0, 14, 12, 113, SNOW);
   return g;
 }
 // 凍結的輸送管橋：兩座橋墩撐起的大管線
 function pipeBridge() {
   const g = new THREE.Group();
-  for (const x of [-12, 12]) g.add(box(2, 10, 3, M.concrete, x, 5, 0));
-  g.add(rot(cyl(1.6, 1.6, 36, M.pipe || M.steel, 0, 11.4, 0, 12), 0, 0, Math.PI / 2));
-  g.add(rot(box(36, 0.5, 2.2, SNOW, 0, 13.1, 0), 0, 0, 0));
-  for (let i = 0; i < 6; i++)
-    g.add(box(0.3, rnd0(i) * 3 + 1, 0.3, M.crystal, -14 + i * 5.5, 9.6 - rnd0(i) * 1.5, 1.2));
+  // 管橋：橋墩（有積雪）、桁架、兩根輸送管（有保溫套的環）、垂下的冰柱
+  for (const x of [-12, 12]) {
+    g.add(
+      mesh(
+        D.extrude(
+          [
+            [-1.2, 0],
+            [1.2, 0],
+            [1, 10],
+            [-1, 10],
+          ],
+          3,
+          0.1,
+        ),
+        M.concrete,
+        x,
+        0,
+        0,
+      ),
+    );
+    g.add(mesh(D.box(2.4, 0.3, 3.2, 0.05), SNOW, x, 10.1, 0));
+  }
+  for (const [y, z] of [
+    [10.2, -1.2],
+    [10.2, 1.2],
+    [12.6, -1.2],
+    [12.6, 1.2],
+  ])
+    bar(g, M.steel, [-18, y, z], [18, y, z], 0.3);
+  for (let x = -18; x < 18; x += 3) {
+    bar(g, M.steel, [x, 10.2, -1.2], [x + 3, 12.6, -1.2], 0.18);
+    bar(g, M.steel, [x, 10.2, 1.2], [x + 3, 12.6, 1.2], 0.18);
+  }
+  for (const z of [-0.6, 0.6]) {
+    g.add(mesh(D.cyl(0.8, 0.8, 36, 14), M.steel, 0, 11.4, z, 0, 0, HP));
+    for (let x = -16; x <= 16; x += 4) g.add(mesh(D.cyl(0.86, 0.86, 0.3, 14), M.dark, x, 11.4, z, 0, 0, HP));
+  }
+  g.add(mesh(D.box(36, 0.5, 3, 0.2), SNOW, 0, 12.9, 0));
+  for (let i = 0; i < 10; i++)
+    g.add(
+      mesh(
+        D.lathe(
+          [
+            [0, 0],
+            [0.25, 0],
+            [0, -(rnd0(i) * 3 + 1)],
+          ],
+          5,
+        ),
+        M.crystal,
+        -14 + i * 3,
+        10,
+        1.2 - (i % 2) * 2.4,
+      ),
+    );
   return g;
 }
 const rnd0 = (i) => ((i * 7919) % 13) / 13; // 固定的「亂數」（地標是純函式）
 // 墜毀的軌道艙：圓錐形的返回艙斜插在雪裡，旁邊是降落傘
 function capsule() {
   const g = new THREE.Group();
-  const c = cyl(1.5, 4.5, 6, M.hullD, 0, 0, 0, 14);
+  // 軌道艙：圓錐的艙體（隔熱罩、艙門、窗、推進器）＋展開的降落傘（拖在地上）＋撞擊坑
+  const c = new THREE.Group();
+  c.add(
+    mesh(
+      D.lathe(
+        [
+          [0, -3],
+          [4.5, -3],
+          [4.6, -2.6],
+          [1.6, 3],
+          [0, 3.2],
+        ],
+        20,
+      ),
+      M.hullD,
+      0,
+      0,
+      0,
+    ),
+  );
+  c.add(
+    mesh(
+      D.lathe(
+        [
+          [0, -3.4],
+          [4.6, -3.2],
+          [4.4, -2.8],
+          [0, -2.9],
+        ],
+        20,
+      ),
+      M.dark,
+      0,
+      0,
+      0,
+    ),
+  );
+  c.add(mesh(D.box(1.4, 2, 0.3, 0.05), M.dark, 0, 0, 3.2, -0.45, 0, 0));
+  c.add(mesh(D.cyl(0.4, 0.4, 0.2, 10), M.window, 2.2, 0.8, 1.4, 0, 0.9, HP));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    c.add(mesh(D.box(0.6, 0.6, 0.6, 0.05), M.steel, Math.cos(a) * 2.6, 1.6, Math.sin(a) * 2.6));
+  }
   rot(c, 0.7, 0, 0.2);
   c.position.set(0, 2.6, 0);
   g.add(c);
-  g.add(rot(box(9, 0.2, 6, M.orange, 0, 0.3, 8), 0.05, 0.3, 0.04));
-  for (let i = 0; i < 4; i++) g.add(rot(box(3, 1.5, 2, SNOW, -6 + i * 3.5, 0.5, -5), 0, i, 0.2));
+  for (let i = 0; i < 5; i++)
+    g.add(
+      rot(
+        mesh(D.box(1.8, 0.1, 9, 0.02), i % 2 ? M.orange : M.white, -3.5 + i * 1.8, 0.2, 9),
+        0.05,
+        0.3,
+        0.04,
+      ),
+    );
+  for (let i = 0; i < 4; i++) g.add(mesh(D.cable([0, 3, 4], [-3.5 + i * 2.3, 0.3, 5], 0.04, 0.2, 4), M.dark));
+  rubble(g, 0, -2, 8, 14, 127, SNOW);
   return g;
 }
 // 冰封的巨型 AC：埋到胸口的巨大機甲頭部與肩甲
 function frozenGiant() {
   const g = new THREE.Group();
-  g.add(box(14, 10, 8, M.hullD, 0, 3, 0));
-  for (const s of [-1, 1]) g.add(rot(box(6, 5, 9, M.hull, s * 9, 6, 0), 0, 0, s * 0.3));
-  g.add(box(5, 4, 5, M.hull, 0, 10, -1));
-  g.add(box(3.6, 0.6, 0.3, M.glow, 0, 10.4, -3.6));
-  g.add(box(16, 1, 9, SNOW, 0, 8.4, 0));
-  for (let i = 0; i < 5; i++)
-    g.add(rot(box(0.6, 3 + i, 0.6, M.crystal, -6 + i * 3, 1.5, 5), 0.2, 0, -0.3 + i * 0.15));
+  // 冰封的巨型 AC：胸甲（分層）、肩甲、頭部（單眼）、冰的結晶、積雪
+  plated(g, 14, 10, 8, M.hullD, 0, 3, 0, 0, 0, 0, 2);
+  for (const s2 of [-1, 1]) {
+    const sh = new THREE.Group();
+    sh.position.set(s2 * 9, 6, 0);
+    sh.rotation.z = s2 * 0.3;
+    g.add(sh);
+    plated(sh, 6, 5, 9, M.hull, 0, 0, 0, 0, 0, 0, 1.6);
+    sh.add(mesh(D.box(6.4, 0.6, 9.4, 0.1), SNOW, 0, 2.7, 0));
+  }
+  plated(g, 5, 4, 5, M.hull, 0, 10, -1, 0, 0, 0, 9);
+  g.add(mesh(D.box(3.6, 0.6, 0.3, 0.05), M.glow, 0, 10.4, -3.6));
+  g.add(mesh(D.box(16, 1, 9, 0.3), SNOW, 0, 8.4, 0));
+  for (let i = 0; i < 9; i++)
+    g.add(
+      mesh(
+        D.lathe(
+          [
+            [0, 0],
+            [0.5 + rnd0(i) * 0.4, 0],
+            [0.4, 2 + i * 0.5],
+            [0, 3 + i * 0.6],
+          ],
+          6,
+        ),
+        M.crystal,
+        -7 + i * 1.8,
+        0,
+        5 + (i % 3) - 1,
+        0.2,
+        i,
+        -0.3 + i * 0.07,
+      ),
+    );
+  rubble(g, 0, 0, 11, 14, 131, SNOW);
   return g;
 }
 
