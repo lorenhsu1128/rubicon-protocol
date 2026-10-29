@@ -7,7 +7,7 @@
 //   reflect：可以打掉的彈體種類（Projectile 的 kind：'missile'／'shell'／'grenade'…）
 //   open2／open1：有破綻的大招（刁鑽度 3～4／5～8）
 //   big：[第一型態, 第二型態]（第三型態＝mech-boss3.js 的 SPECIALS）的 [名稱, fn]——放在 mech-boss-tier.js
-//   field：{ 2: 'cover'|'fire'|'smoke'|…, 3: … }（換型態的場地）
+//   field：{ 2: fn, 3: fn }（換型態的場地，(g, b, T)；用 game/boss-field.js 的新效果，寫在檔案後面的 FIELD）
 // 第 3～5 期依 docs/boss-design.md 逐隻補上。
 
 // 刁鑽度 1～2 的應對（設計文件標★的那一種；沒有標的依 Boss 的打法）
@@ -57,29 +57,6 @@ K1.artillery = {
     ['追蹤彈幕', (b, pl) => b.b3Rain(pl, 10, 9, 0.3)],
   ],
   reflect: ['mortar'],
-  field: {
-    // 二型：地雷區擴大、壞掉的砲台變成掩體
-    2: (g, b) => {
-      if (!b.tierFlag('mines')) b.b3Mines(g.playersAlive()[0] || b, 6, 14);
-      for (const c of g.enemies.filter(
-        (e) => e.dead && e.opts.parent === b.id && e.opts.partKind === 'cannon',
-      ))
-        g.addTempWall(c.pos.clone(), {
-          kind: 'rock',
-          w: 8 * g.fx.k,
-          h: 4 * g.fx.k,
-          d: 2 * g.fx.k,
-          hp: 1600,
-          life: 90,
-        });
-      g.flashAlert('戰場改變 — 地雷區擴大，壞掉的砲台成為掩體');
-    },
-    // 三型：塵土煙霧、作戰區域縮到陣地周圍
-    3: (g, b, T) => {
-      g.tierSmoke(b, 18, T.eMove);
-      g.tierShrinkZone(Math.min(T.eZone, 0.6), b.pos);
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 3, 0.12), // 防空砲彈
     close: (b) => b.b3Shock(16), // 指揮所周圍的噴射衝擊波
@@ -102,24 +79,6 @@ K1.worm = {
     ['噴砂吐息', (b, pl) => b.b3Fan(pl, 3, 0.25)],
     ['連續鑽出', (b, pl) => b.b3Erupt(pl, 3, 7)],
   ],
-  field: {
-    // 二型：流沙區（往中心吸、緩速）、碎掉的岩柱成為高台
-    2: (g, b) => {
-      const pl = g.playersAlive()[0];
-      if (pl)
-        g.addZone('suction', pl.pos.clone(), 14 * g.fx.k, 30, {
-          src: b,
-          to: pl.pos.clone(),
-          pull: 5 * g.fx.k,
-        });
-      g.tierWalls(b, 2, { h: 7, w: 6, d: 6, life: 80 });
-      g.flashAlert('戰場改變 — 流沙區，碎掉的岩柱成為高台');
-    },
-    3: (g, b, T) => {
-      g.tierPools(b, 3, 'player', 7);
-      g.tierShrinkZone(Math.min(T.eZone, 0.7));
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Erupt(pl, 1, 0), // 從地下撲向空中
     close: (b) => b.b3Shock(16), // 鑽出時周圍的衝擊波
@@ -149,13 +108,6 @@ K1.JUGGERNAUT = {
     ['齊射', (b, pl) => b.b3Volley(pl, 3, 0.3, ['rback', 'lback'])],
   ],
   reflect: ['missile'],
-  field: {
-    2: (g, b) => {
-      g.tierWalls(b, 4, { h: 2.4, w: 5, d: 2, life: 90, spread: 22 }); // 彈坑的土堤
-      g.flashAlert('戰場改變 — 砲擊留下的彈坑可以當掩體');
-    },
-    3: (g, b) => g.tierPools(b, 4, 'line', 6),
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.15, ['rarm']), // 對空機槍
     close: (b) => b.tierRush(), // 履帶輾壓衝撞
@@ -177,17 +129,6 @@ K1.railgun = {
     ['貫穿砲擊', (b, pl) => b.b3Fan(pl, 1, 0)],
     ['連射', (b, pl) => b.b3Fan(pl, 3, 0.1)],
   ],
-  field: {
-    // 二型：被貫穿的掩體碎掉、新的臨時掩體牆升起
-    2: (g, b) => {
-      g.tierWalls(b, 3, { h: 4.5, w: 7, d: 1.6, life: 70 });
-      g.flashAlert('戰場改變 — 新的掩體牆升起');
-    },
-    3: (g, b, T) => {
-      g.tierSmoke(b, 16, T.eMove);
-      g.tierShrinkZone(Math.min(T.eZone, 0.75));
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 3, 0.15), // 散射對空
     close: (b) => b.b3Ring(14), // 近防電弧
@@ -210,10 +151,6 @@ K1.heli = {
     ['火箭齊射', (b, pl) => b.b3Volley(pl, 3, 0.25, ['larm'])],
   ],
   reflect: ['shell', 'missile'],
-  field: {
-    2: (g, b) => g.tierPools(b, 4, 'line', 6),
-    3: (g, b, T) => g.tierSmoke(b, 18, T.eMove),
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.15, ['rarm']), // 機槍掃射上方
     close: (b, pl) => {
@@ -240,14 +177,6 @@ K1.rampart = {
     ['引擎蓄力衝撞', (b) => (b.b3Shock(24), b.tierRush())],
     ['連續衝撞', (b) => (b.b3Shocks(2, 0.8), b.tierRush())],
   ],
-  field: {
-    // 二型：多出可以打碎的混凝土牆（誘它撞）
-    2: (g, b) => {
-      g.tierWalls(b, 4, { h: 4, w: 8, d: 2, hp: 900, life: 90, spread: 26 });
-      g.flashAlert('戰場改變 — 混凝土牆：誘它撞上去');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 3, 0.2), // 散彈對空
     close: (b) => b.b3Shock(14), // 原地旋轉甩尾
@@ -266,16 +195,6 @@ K1.train = {
     ['停車的雷射舷砲', (b, pl) => b.b3Fan(pl, 3, 0.2)],
     ['飛彈齊射', (b, pl) => b.b3Rain(pl, 8, 12, 0.25)],
   ],
-  field: {
-    2: (g, b) => {
-      g.tierWalls(b, 3, { h: 4, w: 7, d: 1.6, life: 90 });
-      g.flashAlert('戰場改變 — 鐵路旁升起掩體');
-    },
-    3: (g, b) => {
-      g.tierPools(b, 4, 'boss', 10);
-      g.flashAlert('戰場改變 — 軌道兩側起火');
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.15), // 防空車廂集中射擊
     close: (b, pl) => b.b3Line(pl, 5, 4, 0.08), // 站在軌道上：加速衝撞
@@ -299,14 +218,6 @@ K1.furnace = {
   ],
   reflect: ['mortar'],
   reflectPool: true,
-  field: {
-    2: (g, b) => g.tierPools(b, 5, 'player', 10),
-    // 三型：冷卻水管破裂，蒸氣煙霧（另有熄火的安全區：掩體牆）
-    3: (g, b, T) => {
-      g.tierSmoke(b, 18, T.eMove);
-      g.tierWalls(b, 2, { h: 4, w: 6, d: 1.5, life: 60 });
-    },
-  },
   counter: {
     air: (b) => b.b3Ring(20), // 熱浪
     close: (b) => b.b3Shock(14), // 近身火焰
@@ -350,22 +261,6 @@ K2.STRIDER = {
     ['跳躍踩踏', (b) => b.b3Shocks(2, 0.6)],
   ],
   reflect: ['grenade', 'missile'],
-  field: {
-    2: (g, b) => {
-      const pl = g.playersAlive()[0];
-      if (pl)
-        g.addZone('suction', pl.pos.clone(), 18 * g.fx.k, 30, {
-          src: b,
-          to: b.pos.clone(),
-          pull: 3 * g.fx.k,
-        });
-      g.flashAlert('戰場改變 — 冰面：腳下會滑');
-    },
-    3: (g, b, T) => {
-      g.tierSmoke(b, 20, T.eMove);
-      g.tierShrinkZone(Math.min(T.eZone, 0.75));
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 2, 0.12), // 對空雷射
     close: (b) => b.b3Shock(18), // 腹下：踩踏衝擊波
@@ -387,14 +282,6 @@ K2.phantom = {
     ['鎖定干擾', (b) => b.b3Ring(26)],
     ['分身展開', (b) => b.game.spawnHolos(b, b.tierFlag('holo') ? 1 : 2)],
   ],
-  field: {
-    2: (g, b, T) => g.tierSmoke(b, 18, T.eMove),
-    3: (g, b) => {
-      g.spawnHolos(b, b.tierFlag('holo') ? 1 : 2);
-      g.tierPools(b, 3, 'player', 6);
-      g.flashAlert('戰場改變 — 全場變暗、分身增加');
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Pillars(pl, 2, 4), // 分身從上方突襲
     close: (b) => b.b3Ring(16), // 迷彩後退
@@ -416,14 +303,6 @@ K2.ibis = {
     ['雷射扇形', (b, pl) => b.b3Fan(pl, 4, 0.18)],
     ['直線突刺', (b, pl) => b.b3Line(pl, 6, 4, 0.08)],
   ],
-  field: {
-    2: (g, b) => {
-      const pl = g.playersAlive()[0];
-      if (pl) g.tierPools(b, 3, 'player', 6);
-      g.flashAlert('戰場改變 — 能量殘留區');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b) => b.b3Ring(30), // 向上的能量環
     close: (b) => b.b3Shock(14), // 翼刃迴旋
@@ -445,16 +324,6 @@ K2.spider = {
     ['跳躍', (b) => b.b3Shocks(2, 0.7)],
   ],
   reflect: ['missile', 'grenade', 'shell'],
-  field: {
-    2: (g, b) => {
-      g.tierPools(b, 3, 'player', 8);
-      g.flashAlert('戰場改變 — 平台崩落一部分');
-    },
-    3: (g, b, T) => {
-      g.tierSmoke(b, 18, T.eMove);
-      g.tierShrinkZone(Math.min(T.eZone, 0.75));
-    },
-  },
   counter: {
     air: (b) => b.b3Shock(22), // 跳躍撲擊
     close: (b) => b.b3Shocks(2, 0.6), // 震地
@@ -477,13 +346,6 @@ K2.trinity = {
     ['三連射', (b, pl) => b.b3Volley(pl, 3, 0.25)],
     ['分離前的集結', (b) => b.b3Ring(30)],
   ],
-  field: {
-    2: (g, b) => {
-      g.tierWalls(b, 3, { h: 5, w: 6, d: 2.5, life: 90 });
-      g.flashAlert('戰場改變 — 吊掛的貨櫃落下');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 1, 0), // β 對空狙擊
     close: (b) => b.tierRush(), // α 突進
@@ -505,13 +367,6 @@ K2.hunter = {
     ['EMP 充能', (b) => b.game.hunterEmp(b, (b.tierFlag('coil') ? 12 : 20) * b.dk)],
     ['牽引', (b, pl) => (b.tierFlag('anchor') ? b.b3Mines(pl, 4, 8) : ((pl.pullT = 2), (pl.pullSrc = b)))],
   ],
-  field: {
-    2: (g, b) => {
-      g.tierPools(b, 3, 'player', 7);
-      g.flashAlert('戰場改變 — 電擊地面');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => {
       // 牽引拉下來
@@ -554,13 +409,6 @@ K2.orbital = {
     ['追蹤光柱', (b, pl) => b.b3Pillars(pl, 3, 8)],
     ['格子砲擊', (b, pl) => b.b3Rain(pl, 10, 14, 0.15)],
   ],
-  field: {
-    2: (g, b) => {
-      g.tierPools(b, 4, 'player', 7);
-      g.flashAlert('戰場改變 — 光柱打過的地面燃燒');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Pillars(pl, 2, 3), // 光柱往上掃
     close: (b) => b.b3Ring(16), // 塔基的放電
@@ -582,17 +430,6 @@ K3.flagship = {
     ['艦砲連射', (b, pl) => b.b3Line(pl, 5, 4.5, 0.15)],
   ],
   reflect: ['missile', 'shell', 'grenade'],
-  field: {
-    2: (g, b, T) => {
-      g.tierShrinkZone(Math.min(T.eZone, 0.85));
-      g.tierPools(b, 2, 'player', 6);
-      g.flashAlert('戰場改變 — 甲板邊緣崩落');
-    },
-    3: (g, b, T) => {
-      g.tierSmoke(b, 18, T.eMove);
-      g.tierShrinkZone(Math.min(T.eZone, 0.7));
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Fan(pl, 3, 0.15), // 防空砲
     close: (b) => b.b3Shock(16), // 護盾衝擊
@@ -613,10 +450,6 @@ K3.fortress = {
     ['飛彈雨', (b, pl) => b.b3Rain(pl, 9, 14, 0.2)],
   ],
   reflect: ['mortar', 'missile'],
-  field: {
-    2: (g, b) => g.tierPools(b, 4, 'player', 7),
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.15), // 機槍掃射
     close: (b, pl) => b.b3Line(pl, 4, 3, 0.1), // 下方：轟炸
@@ -637,14 +470,6 @@ K3.interceptor = {
     ['進場掃射', (b, pl) => b.b3Line(pl, 6, 4, 0.08)],
     ['音爆', (b) => b.b3Ring(32)],
   ],
-  field: {
-    2: (g, b) => {
-      const pl = g.playersAlive()[0];
-      if (pl) b.b3Mines(pl, 6, 14, true);
-      g.flashAlert('戰場改變 — 空雷殘留區');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Mines(pl, 4, 8, true), // 空雷
     close: (b) => b.b3Ring(18), // 貼近時的音爆
@@ -687,13 +512,6 @@ K3.duo = {
     ['交叉火線', (b, pl) => b.b3Cross(pl)],
   ],
   reflect: ['missile', 'grenade'],
-  field: {
-    2: (g, b) => {
-      g.tierPools(b, 2, 'line', 6);
-      g.flashAlert('戰場改變 — 掩體被打碎');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.2), // 兩台同時對空
     close: (b) => b.tierRush(), // 另一台從背後
@@ -711,13 +529,6 @@ K3.funnel = {
     ['包圍', (b, pl) => b.b3Cage(pl, 4, 14)],
     ['全方位開火', (b) => b.b3Ring(34)],
   ],
-  field: {
-    2: (g, b) => {
-      g.tierPools(b, 3, 'player', 6);
-      g.flashAlert('戰場改變 — 浮游砲殘骸變成電擊區');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     air: (b, pl) => b.b3Pillars(pl, 2, 4), // 浮游砲從上方
     close: (b) => b.b3Shock(14), // 本體近身光劍
@@ -747,14 +558,6 @@ K3.mirror = {
     ['適應裝甲強化', (b) => b.b3Shock(22)],
   ],
   reflect: ['missile'],
-  field: {
-    2: (g, b) => {
-      const pl = g.playersAlive()[0];
-      if (pl) b.b3Mines(pl, 6, 12);
-      g.flashAlert('戰場改變 — 布雷區');
-    },
-    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
-  },
   counter: {
     // 複製你的習慣
     air: (b, pl) => b.b3Fan(pl, 2, 0.12), // 跟著你飛
@@ -785,14 +588,6 @@ K3.BALTEUS = {
     ['脈衝爆發', (b) => b.b3Shock(26)],
   ],
   reflect: ['missile'],
-  field: {
-    2: (g, b) => g.tierPools(b, 4, 'player', 7),
-    3: (g, b, T) => {
-      g.tierShrinkZone(Math.min(T.eZone, 0.75));
-      g.tierPools(b, 4, 'line', 6);
-      g.tierSmoke(b, 14, true); // 移動的燃燒帶（跟著 Boss）
-    },
-  },
   counter: {
     air: (b, pl) => b.b3Volley(pl, 2, 0.25, ['rback', 'lback']), // 導彈追擊
     close: (b, pl) => (b.tierFlag('flame') ? b.b3Shock(12) : b.b3Pools(pl, 2, 4)), // 火焰噴射
@@ -801,6 +596,223 @@ K3.BALTEUS = {
   },
 };
 Object.assign(BOSS_KIT, K3);
+
+// ---------- 各 Boss 的場地變化（第二型態／第三型態；game/boss-field.js 的新效果）----------
+// (g＝Game, b＝Boss, T＝刁鑽度的參數)：T.eZone＜1 時作戰區域另外縮小，T.eMove 時不利的效果跟著 Boss
+const SAND = 0xc8a070,
+  SMOKE = 0x8a8e96,
+  SNOW = 0xeef6ff;
+const FIELD = {
+  // BASTILLE：二型 地雷區擴大、壞掉的砲台變成碎石掩體；三型 塵土、作戰區域縮到陣地周圍
+  artillery: {
+    2: (g, b) => {
+      g.bfAround(b, 'minefield', 'player', 1, 16, 60);
+      for (const c of g.enemies.filter(
+        (e) => e.dead && e.opts.parent === b.id && e.opts.partKind === 'cannon',
+      ))
+        g.bfCover(b, 'rubble', 1, { at: c.pos, w: 8, h: 3.5, d: 4, life: 90 });
+      g.flashAlert('戰場改變 — 地雷區擴大，壞掉的砲台成為掩體');
+    },
+    3: (g, b, T) => {
+      g.bfHaze(b, SAND, 20, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.6), b.pos);
+      g.flashAlert('戰場改變 — 塵土瀰漫，作戰區域縮到陣地周圍');
+    },
+  },
+  // SANDWORM：二型 流沙區、碎掉的岩柱成為高台；三型 地面塌陷出坑洞
+  worm: {
+    2: (g, b) => {
+      g.bfAround(b, 'quicksand', 'player', 1, 14, 35);
+      g.bfCover(b, 'pillar', 2, { w: 6, h: 7, d: 6, life: 90, spread: 22 });
+      g.flashAlert('戰場改變 — 流沙區，碎掉的岩柱成為高台');
+    },
+    3: (g, b, T) => {
+      g.bfAround(b, 'collapse', 'player', 3, 7, 40);
+      g.tierShrinkZone(Math.min(T.eZone, 0.7));
+      g.flashAlert('戰場改變 — 地面塌陷');
+    },
+  },
+  // JUGGERNAUT：二型 砲擊的彈坑（土堤掩體）；三型 移動的燃燒帶
+  JUGGERNAUT: {
+    2: (g, b) => {
+      g.bfCover(b, 'berm', 4, { w: 8, h: 2.6, d: 3, life: 90, spread: 20 });
+      g.flashAlert('戰場改變 — 砲擊留下的彈坑可以當掩體');
+    },
+    3: (g, b) => {
+      g.bfBelt(b, 45);
+      g.flashAlert('戰場改變 — 燃燒帶掃過戰場');
+    },
+  },
+  // HALBERD：二型 新的混凝土掩體牆升起；三型 煙霧、作戰區域縮小
+  railgun: {
+    2: (g, b) => {
+      g.bfCover(b, 'slab', 3, { w: 8, h: 5, d: 1.8, life: 80 });
+      g.flashAlert('戰場改變 — 新的掩體牆升起');
+    },
+    3: (g, b, T) => {
+      g.bfHaze(b, SMOKE, 18, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+    },
+  },
+  // HELIOS：二型 燃燒帶；三型 煙霧
+  heli: {
+    2: (g, b) => g.bfBelt(b, 40),
+    3: (g, b, T) => g.bfHaze(b, SMOKE, 20, T.eMove),
+  },
+  // BEHEMOTH：二型 可以打碎的混凝土牆（誘它撞上去）；三型 作戰區域縮小＋塌陷
+  rampart: {
+    2: (g, b) => {
+      g.bfCover(b, 'slab', 4, { w: 9, h: 4.5, d: 2, hp: 900, life: 90, spread: 26 });
+      g.flashAlert('戰場改變 — 混凝土牆：誘它撞上去');
+    },
+    3: (g, b, T) => {
+      g.tierShrinkZone(Math.min(T.eZone, 0.7));
+      g.bfAround(b, 'collapse', 'line', 2, 7, 40);
+    },
+  },
+  // IRON CITADEL：二型 鐵路旁升起掩體；三型 軌道兩側起火（熔岩裂地）
+  train: {
+    2: (g, b) => {
+      g.bfCover(b, 'slab', 3, { w: 8, h: 4, d: 1.8, life: 90 });
+      g.flashAlert('戰場改變 — 鐵路旁升起掩體');
+    },
+    3: (g, b) => {
+      g.bfAround(b, 'magma', 'boss', 4, 9, 40);
+      g.flashAlert('戰場改變 — 軌道兩側起火');
+    },
+  },
+  // CINDER：二型 熔岩裂地擴大；三型 冷卻水管破裂：蒸氣的安全區
+  furnace: {
+    2: (g, b) => {
+      g.bfAround(b, 'magma', 'player', 5, 8, 40);
+      g.flashAlert('戰場改變 — 熔岩裂地擴大');
+    },
+    3: (g, b, T) => {
+      g.bfAround(b, 'steam', 'player', 2, 12, 40);
+      if (T.eMove) g.bfHaze(b, SMOKE, 14, true);
+      g.flashAlert('戰場改變 — 冷卻水管破裂：蒸氣裡的火會熄滅');
+    },
+  },
+  // STRIDER：二型 冰面（滑）；三型 暴風雪、作戰區域縮小
+  STRIDER: {
+    2: (g, b) => {
+      g.bfAround(b, 'ice', 'player', 1, 22, 50);
+      g.flashAlert('戰場改變 — 冰面：腳下會滑');
+    },
+    3: (g, b, T) => {
+      g.bfHaze(b, SNOW, 24, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+      g.flashAlert('戰場改變 — 暴風雪');
+    },
+  },
+  // MIRAGE：二型 煙霧區；三型 全場變暗、分身增加
+  phantom: {
+    2: (g, b, T) => g.bfHaze(b, SMOKE, 20, T.eMove),
+    3: (g, b) => {
+      g.bfDarkness(30);
+      g.spawnHolos(b, b.tierFlag('holo') ? 1 : 2);
+      g.flashAlert('戰場改變 — 全場變暗、分身增加');
+    },
+  },
+  // PULSAR：二型 能量殘留區（電擊地面）；三型 作戰區域縮小
+  ibis: {
+    2: (g, b) => {
+      g.bfAround(b, 'shock', 'player', 3, 7, 40, { color: '#b07dff' });
+      g.flashAlert('戰場改變 — 能量殘留區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // ARACHNE：二型 平台崩落一部分（塌陷）；三型 煙霧、作戰區域縮小
+  spider: {
+    2: (g, b) => {
+      g.bfAround(b, 'collapse', 'player', 2, 8, 50);
+      g.flashAlert('戰場改變 — 平台崩落一部分');
+    },
+    3: (g, b, T) => {
+      g.bfHaze(b, SMOKE, 18, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+    },
+  },
+  // CERBERUS：二型 機庫的吊掛貨櫃落下（之後當掩體）；三型 作戰區域縮小
+  trinity: {
+    2: (g, b) => g.bfCrates(b, 3),
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // NULLIFIER：二型 電擊地面；三型 作戰區域縮小
+  hunter: {
+    2: (g, b) => {
+      g.bfAround(b, 'shock', 'player', 3, 7, 40);
+      g.flashAlert('戰場改變 — 電擊地面');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // JUDGEMENT：二型 光柱打過的地面燃燒（熔岩裂地）；三型 作戰區域縮小
+  orbital: {
+    2: (g, b) => {
+      g.bfAround(b, 'magma', 'player', 4, 7, 40);
+      g.flashAlert('戰場改變 — 光柱打過的地面燃燒');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // AEGIS：二型 甲板邊緣崩落；三型 煙霧、作戰區域縮小
+  flagship: {
+    2: (g, b, T) => {
+      g.tierShrinkZone(Math.min(T.eZone, 0.85));
+      g.bfAround(b, 'collapse', 'player', 2, 8, 50);
+      g.flashAlert('戰場改變 — 甲板邊緣崩落');
+    },
+    3: (g, b, T) => {
+      g.bfHaze(b, SMOKE, 18, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.7));
+    },
+  },
+  // LEVIATHAN：二型 燃燒地面（熔岩裂地）；三型 作戰區域縮小
+  fortress: {
+    2: (g, b) => g.bfAround(b, 'magma', 'player', 4, 8, 40),
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // VIPER：二型 空雷殘留區（浮在空中的地雷區）；三型 作戰區域縮小
+  interceptor: {
+    2: (g, b) => {
+      g.bfAround(b, 'minefield', 'player', 1, 18, 50, { air: true });
+      g.flashAlert('戰場改變 — 空雷殘留區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // IGUAZU & VOLTA：二型 掩體被打碎（碎石）；三型 作戰區域縮小
+  duo: {
+    2: (g, b) => {
+      g.bfCover(b, 'rubble', 3, { w: 7, h: 2.5, d: 4, life: 90 });
+      g.flashAlert('戰場改變 — 掩體被打碎');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // SERAPHIM：二型 浮游砲殘骸變成電擊區；三型 作戰區域縮小
+  funnel: {
+    2: (g, b) => {
+      g.bfAround(b, 'shock', 'player', 3, 6, 40, { color: '#b07dff' });
+      g.flashAlert('戰場改變 — 浮游砲殘骸變成電擊區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // DOPPEL：二型 布雷區；三型 作戰區域縮小
+  mirror: {
+    2: (g, b) => {
+      g.bfAround(b, 'minefield', 'player', 1, 16, 60);
+      g.flashAlert('戰場改變 — 布雷區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  // BALTEUS：二型 熔岩裂地；三型 作戰區域縮小、移動的燃燒帶
+  BALTEUS: {
+    2: (g, b) => g.bfAround(b, 'magma', 'player', 4, 8, 40),
+    3: (g, b, T) => {
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+      g.bfBelt(b, 60);
+    },
+  },
+};
+for (const k in FIELD) BOSS_KIT[k].field = FIELD[k];
 
 export function bossKitOf(key) {
   return BOSS_KIT[key] || null;

@@ -291,6 +291,7 @@ Object.assign(Game.prototype, {
   clientEvent(e) {
     if (this.clientMapEvent(e)) return;
     if (this.tierClientEvent(e)) return; // Boss 改版：作戰區域縮小（boss-tier.js）
+    if (this.bfClientEvent(e)) return; // Boss 改版的場地效果（boss-field.js）
     if (this.clientCacheEvent(e)) return;
     if (this.lvClientEvent(e)) return;
     if (this.campClientEvent(e)) return;

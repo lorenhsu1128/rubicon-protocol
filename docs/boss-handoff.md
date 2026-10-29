@@ -93,8 +93,8 @@
 | 3 第 1、2 章的 Boss | 完成 | 1ba92c8 | 見下方「第 3 期的實作」 |
 | 4 第 3、4 章的 Boss | 完成 | 09d3d82 | 見下方「第 4 期的實作」 |
 | 5 第 5、6 章的 Boss | 完成 | 93c456e | 見下方「第 5 期的實作」 |
-| 7 部位的造型 | 完成 | （見 git log） | 使用者 2026-10-30：新部位要全新設計（render/boss-models.js 的 BP，43 種） |
-| 8 場地效果 | 進行中 | | 使用者 2026-10-30：場地效果要全新設計（game/boss-field.js、render/boss-field-models.js） |
+| 7 部位的造型 | 完成 | be19cbc | 使用者 2026-10-30：新部位要全新設計（render/boss-models.js 的 BP，43 種） |
+| 8 場地效果 | 完成 | （見 git log） | 使用者 2026-10-30：場地效果要全新設計（game/boss-field.js、render/boss-field-models.js） |
 | 9 開場介紹 | 未開始 | | 使用者 2026-10-30：配合更改原本的開場介紹（取代開打 5 秒後的 tip） |
 | 6 收尾 | 完成 | 0cf2391 | CLAUDE.md 同步、每隻 Boss 的破綻檢查、boss-design.md 第 5 節「實作的說明」 |
 
@@ -142,3 +142,10 @@
 - 接到 AI 的機能：AEGIS 發生器重建中＝破綻；LEVIATHAN 引擎全毀降下＝6 秒破綻、下方砲台 `weak`（全彈發射減半）；VIPER 的 `wing`（掉頭 2.6 → 4 秒）／`gun`（掃射 3.2 → 1.8 秒）；SERAPHIM 的 `bay`（浮游砲少 3 座）；BALTEUS 的脈衝裝甲（第一型態的大招 `tierArmor(比例, 秒)`：打破之前只有 30% 打得進去，打破＝破綻；`bossDefense` 的 `tierArmorK`）。
 - 周目與殘響 Boss：`testCycle3` 檢查殘響 Boss 是 8、同一區段不殘響化時是章 +2（第 3 周目）。
 - 測試：`testBossKit56`；`testBossKit` 的打斷在本體被護盾或裝甲擋住時改打部位（部位的傷害也算進量表）。
+
+### 第 7～8 期的實作（使用者 2026-10-30 的回覆：部位的模型、場地效果都要全新設計）
+
+- **部位的造型**：`render/boss-models.js` 最後的 `BP`（43 種）＋`BP_CATALOG`，登記成 `BUILDERS['bp_<種類>']`；`BOSS_KIT` 的 `parts[].model` → `tierSpawnPart` 給 `spawnPart` 的 `vehKey`（`size`＝模型倍率）。會轉的節點掛在 rig 的 `rotor`，`bossFx` 裡各端自己轉。模型庫的 `vehicle/bpart_<種類>`。
+- **場地效果**：`game/boss-field.js`（判定與同步）＋`render/boss-field-models.js`（外觀）。`bfAdd(種類, 位置, 半徑（世界）, 秒, o)` 只在房主，客機收 `bfadd`／`bfst`／`bfmv`／`bfrm`／`bfdark`；房主每格 `bfTick`（在 `updateHazards` 開頭），外觀 `bfVis`（`renderMain`，各端）。移動的效果在 `MechEntity.move` 的 `bfMove`（客機的自身預測也算）、鎖定距離 `bfLockK`（`player.js` 的 `lockReach`）、視線 `World.losHook2`、燃燒地面的安全區 `bfSafe`（`bosses2.js` 的燃燒地面判定）。不會移動的圓盤用 `conformField` 貼著地形（只貼附近高度的表面，不爬上高物件）。掩體的新種類（berm／rubble／crate／pillar／slab）走 `addTempWall`（碰撞、血量、同步照舊，外觀 `buildCover`）。`clearMission` → `bfClear`。
+- `BOSS_KIT` 的 `field` 統一寫在 `data/boss-kit.js` 後面的 `FIELD`；共用的 `tierWalls`／`tierPools`／`tierSmoke`／`tierFieldGood`／`tierFieldBad` 都改用新效果。
+- 測試：`testBossField`（每種效果的判定、客機的事件、清除、截圖 `boss-field-<種類>.png`）；`testBossKit` 的場地計數改看 `g.bfs`。

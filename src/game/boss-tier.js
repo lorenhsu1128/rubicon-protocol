@@ -247,84 +247,37 @@ Object.assign(Game.prototype, {
     else this.tierFieldBad(b, ph, T);
     if (T.eZone < 1 && ph === 2) this.tierShrinkZone(T.eZone);
   },
-  // 場地的小工具（BOSS_KIT 的 field 用）：玩家和 Boss 之間的掩體牆
-  // o：h／w／d（舊尺度的公尺）、hp、life、spread（牆的間距）
+  // 場地的小工具（舊的名稱，改用 boss-field.js 的新效果）：掩體、熔岩裂地、煙霧
   tierWalls(b, n, o = {}) {
-    const pl = this.playersAlive()[0];
-    if (!pl) return;
-    const mid = pl.pos.clone().lerp(b.pos, 0.35);
-    const dir = b.pos.clone().sub(pl.pos).setY(0);
-    const yaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : 0;
-    const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const K = this.fx.k;
-    for (let i = 0; i < n; i++) {
-      const p = mid.clone().addScaledVector(side, (i - (n - 1) / 2) * (o.spread || 14) * K);
-      this.addTempWall(p, {
-        kind: 'rock',
-        w: (o.w || 7) * K,
-        h: (o.h || 4) * K,
-        d: (o.d || 1.6) * K,
-        yaw,
-        hp: o.hp || 1400,
-        life: o.life || 60,
-      });
-    }
+    this.bfCover(b, o.kind || 'slab', n, o);
   },
-  // 燃燒地面：at＝'player'（玩家周圍）、'boss'（Boss 周圍）、'line'（兩者之間一條）
   tierPools(b, n, at, R = 6) {
-    const pl = this.playersAlive()[0];
-    if (!pl) return;
-    const K = this.fx.k;
-    for (let i = 0; i < n; i++) {
-      let p;
-      if (at === 'line') p = pl.pos.clone().lerp(b.pos, (i + 1) / (n + 1));
-      else {
-        const c = at === 'boss' ? b.pos : pl.pos;
-        const a = Math.random() * Math.PI * 2,
-          r = rnd(8, 18) * K;
-        p = c.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
-      }
-      this.addPool(b, p, R, 25, 150 * b.dmgMul);
-    }
+    this.bfAround(b, 'magma', at, n, R, 25);
   },
-  // 煙霧（follow＝跟著 Boss 移動，刁鑽度 7～8）
   tierSmoke(b, R, follow) {
-    const id = this.addZone('smoke', b.pos.clone(), R * this.fx.k, follow ? 9999 : 30, { src: b });
-    if (follow && id > 0) b.tierState().fzone = id;
+    this.bfHaze(b, 0x8a8e96, R, follow);
   },
-  // 有利：多出掩體與彈藥箱
+  // 有利：多出掩體（彈坑土堤）與彈藥箱
   tierFieldGood(b) {
     const pl = this.playersAlive()[0];
     if (!pl) return;
-    const mid = pl.pos.clone().lerp(b.pos, 0.35);
+    this.bfCover(b, 'berm', 3, { h: 3, w: 8, d: 3 });
+    const K = this.fx.k;
     const dir = b.pos.clone().sub(pl.pos).setY(0);
     const yaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : 0;
     const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    for (const k of [-1, 0, 1]) {
-      const p = mid.clone().addScaledVector(side, k * 14 * DS);
-      this.addTempWall(p, { kind: 'rock', w: 7 * DS, h: 4 * DS, d: 1.6 * DS, yaw, hp: 1400, life: 60 });
-    }
     for (const k of [-1, 1]) {
-      const p = pl.pos.clone().addScaledVector(side, k * 9 * DS);
+      const p = pl.pos.clone().addScaledVector(side, k * 9 * K);
       this.spawnPickup('ammo', new THREE.Vector3(p.x, this.world.groundAt(p.x, p.z, p.y + 1) + 0.6, p.z));
     }
     this.flashAlert('戰場改變 — 出現掩體與彈藥箱');
   },
-  // 不利：燃燒地面與煙霧；刁鑽度 7～8 的煙霧跟著 Boss 移動
+  // 不利：熔岩裂地；第三型態或刁鑽度 7～8 加上煙霧（7～8 跟著 Boss）
   tierFieldBad(b, ph, T) {
-    const pl = this.playersAlive()[0];
-    if (!pl) return;
-    for (let i = 0; i < 3; i++) {
-      const a = Math.random() * Math.PI * 2,
-        r = rnd(8, 18) * DS;
-      const p = pl.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
-      this.addPool(b, p, 6, 25, 150 * b.dmgMul);
-    }
-    if (ph >= 3 || T.eMove) {
-      const id = this.addZone('smoke', b.pos.clone(), 16 * DS, T.eMove ? 9999 : 30, { src: b });
-      if (T.eMove && id > 0) b.tierState().fzone = id;
-    }
-    this.flashAlert(T.eMove ? '戰場改變 — 煙霧跟著 Boss 移動' : '戰場改變 — 燃燒地面與煙霧');
+    if (!this.playersAlive()[0]) return;
+    this.bfAround(b, 'magma', 'player', 3, 6, 25);
+    if (ph >= 3 || T.eMove) this.bfHaze(b, 0x8a8e96, 16, T.eMove);
+    this.flashAlert(T.eMove ? '戰場改變 — 煙霧跟著 Boss 移動' : '戰場改變 — 熔岩裂地與煙霧');
   },
   // 作戰區域縮小到比例 k（以目前作戰區域的中心）
   tierShrinkZone(k, at) {

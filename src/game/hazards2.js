@@ -16,6 +16,7 @@
 // - 可以打掉的投射物：Projectile 的 shootable＝血量（shotR 判定半徑、popDmg 擊落時的爆炸傷害）：
 //   以代理目標（isShot）加進 destructibles(隊伍)，子彈、爆炸、雷射、近戰都打得到；鎖定清單排在敵人後面。
 import { SFX } from '../audio/audio.js';
+import { COVER_KINDS, buildCover } from '../render/boss-field-models.js';
 import { clamp, lerp, rnd } from '../core/math.js';
 import { flingDebris } from '../render/foe-damage.js';
 import { Game } from './game.js';
@@ -661,7 +662,7 @@ Object.assign(Game.prototype, {
     const rec = {
       i: this.wallSeq,
       p: arr(pos),
-      k: o.kind === 'rock' ? 'rock' : 'ice',
+      k: o.kind === 'rock' || COVER_KINDS.includes(o.kind) ? o.kind : 'ice', // Boss 改版的掩體（boss-field-models.js）
       w: o.w || 6 * this.fx.k,
       h: o.h || 3.5 * this.fx.k,
       d: o.d || 1.2 * this.fx.k,
@@ -725,6 +726,7 @@ Object.assign(Game.prototype, {
   },
   // 外觀：冰（半透明的冰塊＋上緣的冰刺）、岩（崎嶇的岩塊＋碎石）；原點在底面中心、寬沿 X、厚沿 Z
   tempWallMesh(rec) {
+    if (COVER_KINDS.includes(rec.k)) return buildCover(rec); // Boss 改版的掩體：彈坑土堤、碎石、貨櫃、岩柱、混凝土牆
     const g = new THREE.Group();
     const { w, h, d } = rec;
     if (rec.k === 'ice') {

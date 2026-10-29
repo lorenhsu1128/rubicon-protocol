@@ -10544,6 +10544,8 @@ async function testBossTier(browser, base) {
       b.hitStunT = 0;
     };
     // A：刁鑽度 3 前兩次不變，第三次要 +25%、失衡時間 −10%
+    // （玩家和 Boss 同高：高 12 m 以上時衝擊 ×1.25 的高處優勢會讓結果跟地形有關）
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -30));
     const stag = (k) => {
       reset();
       b.takeDamage(1, b.acsMax * k, pl, b.center());
@@ -10937,20 +10939,19 @@ async function testBossTier2(browser, base) {
       g.pickups.filter((p) => !p.dead && p.kind === 'ammo').length - am0,
     ];
     ({ pl, b } = start(3, 5));
-    const pool0 = (g.hzPools || []).length;
+    const pool0 = (g.bfs || []).filter((f) => f.k === 'magma').length;
     const z0 = g.world.zone.slice();
     g.tierFieldShift(b, 2);
-    out.e5pool = (g.hzPools || []).length - pool0;
+    out.e5pool = (g.bfs || []).filter((f) => f.k === 'magma').length - pool0;
     const zg = g.world.zoneGoal;
     out.e5zone = zg ? +((zg[1] - zg[0]) / (z0[1] - z0[0])).toFixed(2) : 0;
     g.tierFieldTick(10);
     out.e5zoneNow = +((g.world.zone[1] - g.world.zone[0]) / (z0[1] - z0[0])).toFixed(2);
     ({ pl, b } = start(3, 7));
     g.tierFieldShift(b, 3);
-    const fz = b.bt && b.bt.fzone;
     b.pos.x += 30;
-    g.tierFieldTick(0.016);
-    const zz = (g.zones || []).find((z) => z.i === fz);
+    g.bfTick(0.016);
+    const zz = (g.bfs || []).find((f) => f.k === 'haze' && f.o.follow === b.id);
     out.e7move = !!zz && Math.abs(zz.p.x - b.pos.x) < 0.1;
     // 截圖用：刁鑽度 1 的部位標記與應對
     ({ pl, b } = start(3, 1));
@@ -10994,7 +10995,7 @@ async function testBossTier2(browser, base) {
   );
   check(
     r.e5pool >= 3 && r.e5zone === 0.75 && r.e5zoneNow < 1,
-    `刁鑽度 5：燃燒地面 ${r.e5pool} 處、作戰區域縮小到 ${r.e5zone}`,
+    `刁鑽度 5：熔岩裂地 ${r.e5pool} 處、作戰區域縮小到 ${r.e5zone}`,
   );
   check(r.e7move, '刁鑽度 7：不利的區域跟著 Boss 移動');
   for (const [w, h, touch, tag] of [
@@ -11135,8 +11136,10 @@ async function testBossKit(browser, base, list, label) {
         b.hp = b.maxHp;
         const fc = () =>
           (g.tWalls || []).length +
+          (g.bfs || []).length +
+          (g.bfDarkT > 0 ? 1 : 0) +
+          (g.hzLater || []).length +
           (g.zones || []).length +
-          (g.hzPools || []).length +
           (g.mines || []).length +
           (g.world.zoneGoal ? 1 : 0);
         const f0 = fc();
@@ -11219,6 +11222,216 @@ async function testBossKit(browser, base, list, label) {
     g.clearMission();
     g.state = 'title';
   });
+  await ctx.close();
+}
+
+async function testBossField(browser, base) {
+  console.log(
+    'Boss 改版第 8 期：場地效果（流沙、冰面、電擊地面、塌陷、熔岩、燃燒帶、地雷區、煙霧、蒸氣、變暗、掩體）',
+  );
+  const { ctx, page } = await newPage(browser, 'bossfield');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    g.save.level = 3;
+    g.startMission();
+    g.state = 'bf-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    const b = g.boss;
+    for (const e of g.enemies) if (e !== b) e.depart();
+    const K = g.fx.k;
+    const here = () => pl.pos.clone();
+    const ground = () => (pl.pos.y = g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 20));
+    ground();
+    pl.vel.set(0, 0, 0);
+    // 流沙：緩速＋往中心吸
+    let id = g.bfAdd('quicksand', here().add(new THREE.Vector3(6 * K, 0, 0)), 14 * K, 30, { src: b.id });
+    const t1 = new THREE.Vector3(0, 0, 10);
+    const a1 = g.bfMove(pl, t1, 18);
+    out.qs = [+t1.z.toFixed(1), +t1.x.toFixed(1), a1];
+    g.bfRemove(id);
+    // 冰面：加速度變小（滑）
+    id = g.bfAdd('ice', here(), 14 * K, 30, { src: b.id });
+    out.ice = g.bfMove(pl, new THREE.Vector3(0, 0, 10), 18);
+    g.bfRemove(id);
+    // 電擊地面：預警 → 放電（傷害、扣 EN）
+    pl.iFrames = 0;
+    id = g.bfAdd('shock', here(), 10 * K, 30, { src: b.id });
+    const f = g.bfs.find((x) => x.i === id);
+    const h0 = pl.hp,
+      en0 = (pl.en = pl.enMax);
+    let ph = [];
+    for (let i = 0; i < 160; i++) {
+      g.bfTick(1 / 60);
+      if (!ph.includes(f.st.ph)) ph.push(f.st.ph);
+    }
+    out.shock = { ph: ph.join(','), dmg: h0 - pl.hp > 0, en: pl.en < en0 };
+    g.bfRemove(id);
+    // 地面塌陷：裂縫 1.6 秒後打開（傷害、往外推），之後坑洞裡緩速
+    const h1 = pl.hp;
+    id = g.bfAdd('collapse', here(), 8 * K, 30, { src: b.id });
+    const fc = g.bfs.find((x) => x.i === id);
+    for (let i = 0; i < 60; i++) g.bfTick(1 / 60);
+    const pre = !fc.st.open;
+    for (let i = 0; i < 60; i++) g.bfTick(1 / 60);
+    out.collapse = { pre, open: !!fc.st.open, dmg: h1 - pl.hp > 0 };
+    pl.pos.copy(fc.p);
+    ground();
+    const t2 = new THREE.Vector3(0, 0, 10);
+    g.bfMove(pl, t2, 18);
+    out.collapse.slow = t2.z < 10;
+    g.bfRemove(id);
+    // 熔岩裂地：站在上面持續受傷
+    const h2 = pl.hp;
+    id = g.bfAdd('magma', here(), 8 * K, 30, { src: b.id });
+    for (let i = 0; i < 40; i++) g.bfTick(1 / 60);
+    out.magma = h2 - pl.hp > 0;
+    g.bfRemove(id);
+    // 燃燒帶：會移動、碰到就受傷
+    g.bfBelt(b, 30);
+    const fb = g.bfs.find((x) => x.k === 'belt');
+    const p0 = fb.p.clone();
+    for (let i = 0; i < 30; i++) g.bfTick(1 / 60);
+    out.belt = { moved: +fb.p.distanceTo(p0).toFixed(1) };
+    pl.pos.copy(fb.p);
+    ground();
+    const h3 = pl.hp;
+    for (let i = 0; i < 20; i++) g.bfTick(1 / 60);
+    out.belt.dmg = h3 - pl.hp > 0;
+    g.bfRemove(fb.i);
+    // 地雷區：走進去 0.7 秒後在腳下爆炸
+    const lat0 = (g.hzLater || []).length;
+    id = g.bfAdd('minefield', here(), 12 * K, 30, { src: b.id });
+    g.bfTick(1 / 60);
+    out.mine = (g.hzLater || []).length > lat0;
+    g.bfRemove(id);
+    // 煙霧：擋住視線、鎖定距離變短
+    const far = b.center();
+    const lr0 = g.lockReach(pl);
+    id = g.bfAdd('haze', here(), 16 * K, 30, { src: b.id, color: 0x8a8e96 });
+    out.haze = { los: g.world.losBlocked(pl.center(), far), lock: +(g.lockReach(pl) / lr0).toFixed(2) };
+    g.bfRemove(id);
+    out.hazeAfter = g.world.losHook2 === null;
+    // 蒸氣：裡面的燃燒地面熄滅、是安全區
+    g.addPool(b, here(), 6, 30, 200);
+    id = g.bfAdd('steam', here(), 12 * K, 30, { src: b.id });
+    g.bfTick(1 / 60);
+    out.steam = { safe: g.bfSafe(here()), pool: g.hzPools[g.hzPools.length - 1].life <= 0.3 };
+    g.bfRemove(id);
+    // 全場變暗：畫面疊加、鎖定距離 ×0.75
+    g.bfDarkness(10);
+    g.state = 'play'; // 疊加只在任務中顯示
+    g.bfVis(0.016);
+    g.state = 'bf-test';
+    out.dark = {
+      op: +document.getElementById('bfDark').style.opacity,
+      lock: +(g.lockReach(pl) / lr0).toFixed(2),
+    };
+    g.bfDarkT = 0;
+    // 掩體的新種類：碰撞、外觀各自不同
+    const w0 = (g.tWalls || []).length;
+    for (const k of ['berm', 'rubble', 'crate', 'pillar', 'slab'])
+      g.addTempWall(here().add(new THREE.Vector3(30 * K, 0, 0)), {
+        kind: k,
+        w: 7 * K,
+        h: 4 * K,
+        d: 2 * K,
+        life: 30,
+      });
+    out.covers = (g.tWalls || []).slice(w0).map((w) => w.k || (w.rec && w.rec.k) || '?');
+    // 客機：收到 bfadd 事件就建出同樣的外觀
+    const n0 = g.bfs.length;
+    g.bfClientEvent({
+      t: 'bfadd',
+      i: 9999,
+      k: 'quicksand',
+      p: [pl.pos.x, pl.pos.y, pl.pos.z],
+      r: 30,
+      l: 10,
+      o: {},
+    });
+    out.client = g.bfs.length === n0 + 1 && !!g.bfs.find((x) => x.i === 9999).vis;
+    g.bfClientEvent({ t: 'bfrm', i: 9999 });
+    // 結束任務時清掉
+    g.bfAdd('magma', here(), 8 * K, 30, { src: b.id });
+    g.clearMission();
+    out.clear = (g.bfs || []).length === 0;
+    g.state = 'title';
+    return out;
+  });
+  check(r.qs[0] < 10 && Math.abs(r.qs[1]) > 0.5, `流沙：緩速並往中心吸（${JSON.stringify(r.qs)}）`);
+  check(r.ice < 5, `冰面：加速度 18 → ${r.ice}（滑）`);
+  check(
+    r.shock.ph === '0,1,2' && r.shock.dmg && r.shock.en,
+    `電擊地面：平時 → 預警 → 放電，受傷並扣 EN（${JSON.stringify(r.shock)}）`,
+  );
+  check(
+    r.collapse.pre && r.collapse.open && r.collapse.dmg && r.collapse.slow,
+    `地面塌陷：裂縫預警後打開、受傷、坑洞裡緩速`,
+  );
+  check(r.magma, '熔岩裂地：站在上面受傷');
+  check(r.belt.moved > 0 && r.belt.dmg, `燃燒帶：會移動（${r.belt.moved}）、碰到受傷`);
+  check(r.mine, '地雷區：走進去會在腳下引爆（預警後）');
+  check(
+    r.haze.los && r.haze.lock === 0.6 && r.hazeAfter,
+    `煙霧：擋住視線、鎖定距離 ×${r.haze.lock}，消失後恢復`,
+  );
+  check(r.steam.safe && r.steam.pool, '蒸氣：裡面是安全區、燃燒地面熄滅');
+  check(
+    r.dark.op > 0.3 && r.dark.lock === 0.75,
+    `全場變暗：畫面變暗（${r.dark.op}）、鎖定距離 ×${r.dark.lock}`,
+  );
+  check(r.covers.join() === 'berm,rubble,crate,pillar,slab', `新的掩體：${r.covers.join('、')}`);
+  check(r.client, '客機收到事件建出同樣的場地');
+  check(r.clear, '結束任務時場地效果清掉');
+  // 截圖：每種效果
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const kind of [
+    'quicksand',
+    'ice',
+    'shock',
+    'collapse',
+    'magma',
+    'belt',
+    'minefield',
+    'haze',
+    'steam',
+  ]) {
+    await page.evaluate((kind) => {
+      const g = window.__game;
+      g.save.level = 3;
+      g.startMission();
+      const pl = g.player,
+        b = g.boss;
+      pl.hp = pl.maxHp = 1e8;
+      pl.iFrames = 1e9;
+      for (const e of g.enemies) if (e !== b) e.depart();
+      const K = g.fx.k;
+      if (kind === 'belt') g.bfBelt(b, 30);
+      else {
+        const id = g.bfAdd(kind, pl.pos.clone().add(new THREE.Vector3(0, 0, -6 * K)), 12 * K, 30, {
+          src: b.id,
+          color: kind === 'haze' ? 0xc8a070 : undefined,
+        });
+        const f = g.bfs.find((x) => x.i === id);
+        if (kind === 'shock') f.st = { ph: 2, n: 1 };
+        if (kind === 'collapse') f.st = { open: false };
+      }
+      g.state = 'play';
+      window.__pump(0.6);
+    }, kind);
+    await page.screenshot({ path: path.join(SHOT_DIR, `boss-field-${kind}.png`) });
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.clearMission();
+      g.state = 'title';
+    });
+  }
   await ctx.close();
 }
 
@@ -19409,6 +19622,7 @@ const STEPS = [
   ['testBossPower', (c) => testBossPower(c.browser, c.base)],
   ['testBossTier', (c) => testBossTier(c.browser, c.base)],
   ['testBossTier2', (c) => testBossTier2(c.browser, c.base)],
+  ['testBossField', (c) => testBossField(c.browser, c.base)],
   [
     'testBossKit12',
     (c) =>

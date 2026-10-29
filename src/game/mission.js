@@ -889,6 +889,7 @@ Object.assign(Game.prototype, {
     this.shocks = [];
     this.clearSupport();
     this.clearHazards();
+    if (this.bfClear) this.bfClear(); // Boss 改版的場地效果
     this.wavePend = null;
     this.waveMarks = [];
     this.clearCaches();

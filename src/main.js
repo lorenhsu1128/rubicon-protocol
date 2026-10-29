@@ -30,6 +30,7 @@ import './game/support.js';
 import './game/bosses.js';
 import './game/bosses2.js';
 import './game/boss-tier.js'; // Boss 改版：雜兵小隊、破甲充能、擊破評價、HUD
+import './game/boss-field.js'; // Boss 改版：場地效果（流沙、冰面、電擊地面、塌陷、熔岩、燃燒帶、地雷區、煙霧、蒸氣、變暗）
 import './game/hazards2.js';
 import './game/first-person.js';
 import './game/chase.js';

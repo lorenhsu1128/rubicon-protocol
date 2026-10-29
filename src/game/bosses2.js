@@ -216,6 +216,7 @@ Object.assign(Game.prototype, {
     SFX.play('laserBig', 0.8, 1.4, 0.05, 0.05, c);
   },
   updateHazards(dt) {
+    if (this.bfTick) this.bfTick(dt); // Boss 改版的場地效果（boss-field.js）
     if (this.hzLater && this.hzLater.length) {
       const due = [];
       for (let i = this.hzLater.length - 1; i >= 0; i--) {
@@ -244,6 +245,7 @@ Object.assign(Game.prototype, {
         for (const t of src ? this.hostilesOfEnt(src) : this.hostilesOf('enemy', null)) {
           if (!t || t.dead || t.isProp || !t.pos) continue;
           if (Math.hypot(t.pos.x - P.p.x, t.pos.z - P.p.z) > P.R + t.radius * 0.4) continue;
+          if (this.bfSafe && this.bfSafe(t.pos)) continue; // Boss 改版：蒸氣裡是安全區
           if (t.pos.y - w.groundAt(t.pos.x, t.pos.z, t.pos.y) > 1.2 * this.fx.k) continue;
           if (P.acid) t.corrodeT = 0.6;
           t.takeDamage(P.dps * 0.25, 40, P.owner, t.center(), null, undefined, undefined, 'exp');

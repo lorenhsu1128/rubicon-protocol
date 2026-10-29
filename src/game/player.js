@@ -18,7 +18,7 @@ Object.assign(Game.prototype, {
     const jam = (this.enemies || []).some(
       (e) => !e.dead && e.opts && e.opts.vehKey === 'jammer' && e.pos.distanceTo(p.pos) < 25 * DS,
     );
-    return jam ? base * 0.5 : base;
+    return (jam ? base * 0.5 : base) * (this.bfLockK ? this.bfLockK(p) : 1); // Boss 改版：煙霧、全場變暗
   },
   // 在畫面內（鏡頭前方、投影在視窗範圍裡）
   onScreen(e) {

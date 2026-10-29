@@ -2694,6 +2694,7 @@ export class World {
   losBlocked(a, b) {
     if (this.terrainBlocks(a, b, 12)) return true;
     if (this.losHook && this.losHook(a, b)) return true; // 煙霧（game/hazards2.js 的區域效果）
+    if (this.losHook2 && this.losHook2(a, b)) return true; // Boss 改版的煙霧與蒸氣（game/boss-field.js）
     const dx = b.x - a.x,
       dy = b.y - a.y,
       dz = b.z - a.z;

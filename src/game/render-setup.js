@@ -71,6 +71,7 @@ Object.assign(Game.prototype, {
     const P = lab ? lab.P : this.cine ? this.cine.P : this.styleP; // 過場動畫：風格＋過場的調色（game/cine.js）
     const t = performance.now() / 1000;
     if (this.fx) this.fx.flush(); // 粒子批次：fx.update 之後才產生的粒子也寫進去（fx/batch.js）
+    if (this.bfVis) this.bfVis(this.lastDt || 0.016); // Boss 改版的場地效果（boss-field.js）
     fineTick(this.camera, 1); // 小細節的距離分級（render/detail.js）
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
