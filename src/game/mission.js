@@ -377,6 +377,7 @@ Object.assign(Game.prototype, {
     this.boss = null;
     this.bosses = [];
     this.bossRank = null; // Boss 擊破評價（boss-tier.js）
+    this.tierPartsBroken = 0;
     this.missionEarned = 0;
     this.bountyPops = [];
     this.levelName =
@@ -524,6 +525,9 @@ Object.assign(Game.prototype, {
     this.waves = []; // Boss 關的增援改在換型態時派出（bosses.js 的 bossPhaseTick）
     this.spawnRes = null;
     this.spawnTier = 0;
+    this.tierPartsBroken = 0;
+    this.tierReb = [];
+    for (const b of this.bosses) this.tierSetupParts(b); // Boss 改版的 J：部位（boss-tier.js）
   },
   // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
   // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js
@@ -660,6 +664,7 @@ Object.assign(Game.prototype, {
     if (!o.res && o.isBoss && this.spawnRes) o.res = this.spawnRes; // Boss 的弱點（spawnBossDef）
     if (o.isBoss && this.spawnTier && o.tier === undefined) o.tier = this.spawnTier; // Boss 改版的刁鑽度
     const e = new MechEntity(this, o.asm, PALETTES[o.pal], o);
+    if (o.hpAbs) e.maxHp = e.hp = Math.round(o.hpAbs); // 指定的血量（Boss 改版的部位：Boss 的比例）
     // 增援波次：在預告的地點附近（空降的從上空落下）
     // 據點的守衛（guardAt）：一律在箱子旁（不上高處），離玩家 GUARD_MIN_D 以上（否則一開場就出動）
     const guard = !!this.guardAt;
@@ -746,6 +751,7 @@ Object.assign(Game.prototype, {
       return this.tutKilled(e);
     }
     this.foeScavenge(e);
+    if (!this.isClient) this.tierPartDown(e); // Boss 改版的 J：部位破壞（boss-tier.js）
     // 自訂關卡：沒有擊破獎金、不寫存檔（擊破音、連殺、彈藥箱照常）
     if (this.lv) {
       if (!this.isClient) this.dropAmmo(e);
@@ -906,7 +912,7 @@ Object.assign(Game.prototype, {
       const score = (p.dmgTaken / p.maxHp) * 0.6 + (Math.max(0, this.missionT - 90) / 180) * 0.4;
       rank = score < 0.25 ? 'S' : score < 0.5 ? 'A' : score < 0.85 ? 'B' : 'C';
       const mul = { S: 1.5, A: 1.2, B: 1, C: 0.8 }[rank];
-      baseBonus = Math.round(bonus * mul);
+      baseBonus = Math.round(bonus * mul * this.tierPartsK()); // Boss 改版的 J：打壞的部位 COAM +8%
       bonus = Math.round(baseBonus * (1 + p.pmv('coam'))); // 駕駛員技能「報酬交涉」只加在自己身上
       S.coam += bonus;
       S.level++;
@@ -936,6 +942,9 @@ Object.assign(Game.prototype, {
       ['受損 AP', Math.round(p.dmgTaken)],
       // Boss 改版：擊破速度的評價（S 擊破獎金 ×1.5、A ×1.2）
       ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
+      ...(this.tierPartsBroken
+        ? [['部位破壞', `${this.tierPartsBroken} 個（完成獎金 ×${this.tierPartsK().toFixed(2)}）`]]
+        : []),
       ['擊破獎金（已即時入帳）', '+' + earned.toLocaleString()],
       ['任務完成獎金', '+' + bonus.toLocaleString()],
       ['COAM 結餘', S.coam.toLocaleString()],

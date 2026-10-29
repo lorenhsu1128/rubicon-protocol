@@ -216,7 +216,13 @@ Object.assign(MechEntity.prototype, {
       g.netEv({ t: 'fb', s: from.slot, k: 'crit' });
   },
   // 敵人的導彈、火箭彈、榴彈：可以打掉（一發就掉），擊落時在原地爆炸
-  foeShotOpt(dmg) {
+  foeShotOpt(dmg, kind) {
+    // Boss 改版的 M：Boss 與部位的大型彈體可以打回去（mech-boss-tier.js）
+    if ((this.isBoss || this.ai === 'part') && this.tierOn && this.tierOn())
+      return this.tierShotOpt(dmg, kind);
+    return this.foeShotBase(dmg);
+  },
+  foeShotBase(dmg) {
     return { shootable: 1, shotR: 0.9, popDmg: dmg * 0.6 };
   },
   // 追著自己的導彈快打到時（MSL_T 秒內）按了 QB：導彈失去追蹤＋算完美 QB（反擊時間）

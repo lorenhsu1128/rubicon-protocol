@@ -201,6 +201,7 @@ Object.assign(Game.prototype, {
     const so = SORTIES[sid],
       st = this.campStory();
     this.bossRank = null; // Boss 擊破評價（boss-tier.js）
+    this.tierPartsBroken = 0;
     // 作戰室預排的（全像戰略桌顯示的第一段地圖）；重打、危險條款另外排
     const pre = !o.replay && !(o.heat && Object.keys(o.heat).length) && st.pre && st.pre[sid];
     if (st.pre) delete st.pre[sid];
@@ -1357,7 +1358,7 @@ Object.assign(Game.prototype, {
     const e = xpAll[mp ? this.net.me : 0];
     let bonus = 0;
     if (success) {
-      bonus = Math.round((so.reward * this.heatMul(c.heat)) / 100) * 100; // 危險條款的報酬加成
+      bonus = Math.round((so.reward * this.heatMul(c.heat) * this.tierPartsK()) / 100) * 100; // 危險條款的報酬加成、打壞的 Boss 部位（boss-tier.js）
       S.coam += bonus;
       st.done[c.sid] = (st.done[c.sid] || 0) + 1;
       if (c.choice && !c.replay) st.choices[c.choice.id] = c.choice.key; // 陣營抉擇（重打不改）
@@ -1414,6 +1415,9 @@ Object.assign(Game.prototype, {
       ['擊破數', String(c.stats[0] ? c.stats[0].kills : 0)],
       // Boss 改版：最後一段 Boss 的擊破評價（S＝多一個戰術模組三選一）
       ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
+      ...(this.tierPartsBroken && success
+        ? [['部位破壞', `${this.tierPartsBroken} 個（完成報酬 ×${this.tierPartsK().toFixed(2)}）`]]
+        : []),
       ['報酬（已即時入帳）', '+' + c.earned.toLocaleString()],
       ['作戰完成報酬', '+' + bonus.toLocaleString()],
       ['COAM 結餘', S.coam.toLocaleString()],

@@ -10755,6 +10755,269 @@ async function testBossTier(browser, base) {
   await ctx.close();
 }
 
+async function testBossTier2(browser, base) {
+  console.log('Boss 改版第 2 期：部位破壞、打回去與反擊點、應對玩家、型態改變場地');
+  const { ctx, page } = await newPage(browser, 'bosstier2');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    const start = (L, tier) => {
+      g.clearMission();
+      g.save.level = L;
+      g.startMission();
+      const pl = g.player;
+      pl.hp = pl.maxHp = 1e8;
+      pl.iFrames = 1e9;
+      const b = g.boss;
+      // 刁鑽度換掉之後重新生成部位
+      for (const e of g.enemies) if (e.opts.parent === b.id && e.opts.partKind === 'bpart') e.depart();
+      g.enemies = g.enemies.filter((e) => !e.gone);
+      b.opts.tier = tier;
+      b.bt = null;
+      g.tierReb = [];
+      g.tierPartsBroken = 0;
+      g.tierSetupParts(b);
+      g.state = 'bt2-test';
+      return { pl, b };
+    };
+    const parts = (b) =>
+      g.enemies.filter((e) => !e.dead && e.opts.parent === b.id && e.opts.partKind === 'bpart');
+    // ---- J：部位 ----
+    let { pl, b } = start(3, 1);
+    let ps = parts(b);
+    out.j1 = ps.map((p) => p.name);
+    out.jHp = +(ps[0].maxHp / b.maxHp).toFixed(2);
+    out.jRec = !!(g.net.spawnReg[ps[0].id] && g.net.spawnReg[ps[0].id].off);
+    // 跟著 Boss 移動
+    b.pos.x += 20;
+    ps[0].partAI(0.016, 50, pl);
+    out.jFollow = Math.abs(ps[0].pos.x - b.pos.x) < 20;
+    // 打壞第一個（負責第一型態的大招）
+    const pk0 = g.pickups.filter((p) => !p.dead && p.kind === 'bossPart').length;
+    ps[0].iFrames = 0;
+    ps[0].takeDamage(ps[0].maxHp * 2, 0, pl, ps[0].center());
+    out.jDead = ps[0].dead;
+    out.jStop = b.tierMove(1) === null && b.tierMove(2) !== null;
+    out.jPk = g.pickups.filter((p) => !p.dead && p.kind === 'bossPart').length - pk0;
+    out.jK = +g.tierPartsK().toFixed(2);
+    // 刁鑽度 3：3 個、其中一個在背後
+    ({ pl, b } = start(3, 3));
+    ps = parts(b);
+    out.j3 = ps.length;
+    out.j3back = ps.some((p) => p.opts.off[2] < 0);
+    // 刁鑽度 5：只在出招時露出、45 秒後重建
+    ({ pl, b } = start(3, 5));
+    ps = parts(b);
+    const ex = ps.find((p) => p.tierExpose);
+    ex.partAI(0.016, 50, pl);
+    g.drawHud(0.016);
+    ex.bossFx(0.016);
+    out.jHide = !!(ex.bossVis & 1) && ex.noLock;
+    const h0 = ex.hp;
+    ex.iFrames = 0;
+    ex.takeDamage(1000, 0, pl, ex.center());
+    out.jHideDmg = h0 - ex.hp;
+    b.tierTick(0.016, pl);
+    b.bt.cdI = 0;
+    b.tierTick(0.016, pl);
+    ex.partAI(0.016, 50, pl);
+    out.jShow = !(ex.bossVis & 1);
+    ps[0].iFrames = 0;
+    ps[0].takeDamage(ps[0].maxHp * 2, 0, pl, ps[0].center());
+    const n0 = parts(b).length;
+    g.tierFieldTick(46);
+    out.jRebuild = parts(b).length - n0;
+    // 刁鑽度 7：重建的部位換成另一種招式
+    ({ pl, b } = start(3, 7));
+    ps = parts(b);
+    const st0 = ps[0].tierSpec.stops[0];
+    ps[0].iFrames = 0;
+    ps[0].takeDamage(ps[0].maxHp * 2, 0, pl, ps[0].center());
+    g.tierFieldTick(31);
+    const nw = parts(b).find((p) => !ps.includes(p));
+    out.jSwap = !!nw && nw.tierSpec.stops[0] !== st0;
+    // 原本就有部位的 Boss（BASTILLE 的四座砲台）不再加
+    g.clearMission();
+    g.save.level = 18;
+    g.startMission();
+    out.jArt = g.bossDef.kind + ':' + parts(g.boss).length;
+    g.clearMission();
+    g.save.level = 13;
+    g.startMission();
+    out.jFun = g.bossDef.kind + ':' + parts(g.boss).length;
+    // ---- M：打回去、反擊點 ----
+    ({ pl, b } = start(3, 1));
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -50));
+    const w = b.weapons.rback;
+    w.cd = 0;
+    w.mag = Math.max(w.mag, 4);
+    w.reloadT = 0;
+    b.staggerT = 0;
+    const np0 = g.projectiles.length;
+    b.fire('rback', pl.center(), pl);
+    const shots = g.projectiles.slice(np0);
+    out.mShoot = shots.length > 0 && shots.every((p) => p.reflect === b.id && p.shootable === 1 && p.tgt);
+    const pr = shots[0];
+    g.damageProp(pr.tgt, 50, 0, pr.pos, pl);
+    const back = g.projectiles.find((p) => p.tierRef === b.id);
+    out.mBack = !!back && back.target === b && back.team === 'player';
+    out.mDmg = back ? +(back.dmg / b.maxHp).toFixed(3) : 0;
+    // 刁鑽度 3：要打 2～3 發
+    b.opts.tier = 3;
+    const o3 = b.tierShotOpt(100, 'missile');
+    out.mHits = o3.hitsNeed;
+    // 刁鑽度 5：混進打不掉的假彈
+    b.opts.tier = 5;
+    let fake = 0;
+    for (let i = 0; i < 40; i++) if (!b.tierShotOpt(100, 'missile').shootable) fake++;
+    out.mFake = fake;
+    // 刁鑽度 7：離 Boss 太遠才打掉的會被躲開
+    b.opts.tier = 7;
+    const fakePr = {
+      pos: b.pos.clone().add(new THREE.Vector3(0, 0, -100 * 3)),
+      vel: new THREE.Vector3(0, 0, 30),
+      kind: 'missile',
+    };
+    b.tierReflect(fakePr, pl);
+    const fb = g.projectiles.filter((p) => p.tierRef === b.id).pop();
+    out.mDodge = !!fb && fb.tierDodge;
+    // 反擊點：完美 QB 躲開 Boss 的攻擊 → 打中 ×2、打斷量表 ×2
+    b.opts.tier = 1;
+    b.staggerT = 0;
+    b.stagGuardT = 0;
+    pl.pqbCD = 0;
+    pl.pqbCheck(b, true);
+    out.cp = !!(b.bt && b.bt.cp) && b.bt.cp.by === pl.id;
+    g.drawHud(0.016);
+    const hit = () => {
+      b.iFrames = 0;
+      b.staggerT = 0;
+      const h = b.hp;
+      b.takeDamage(1000, 0, pl, b.center());
+      return h - b.hp;
+    };
+    const dCp = hit();
+    const dN = hit();
+    out.cpK = +(dCp / dN).toFixed(2);
+    out.cpUsed = !b.bt.cp;
+    // ---- C：應對玩家 ----
+    ({ pl, b } = start(3, 1));
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -8));
+    pl.pos.y = g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 5);
+    for (let i = 0; i < 64; i++) b.tierHabitTick(0.25, pl);
+    out.c1 = b.tierHabitBits();
+    g.drawHud(0.016);
+    out.cHud = document.getElementById('bossHabit').textContent;
+    const cnt = () => (g.hzLater || []).length + (g.shocks || []).length + g.projectiles.length;
+    const c0 = cnt();
+    for (let i = 0; i < 12; i++) b.tierHabitTick(0.25, pl);
+    out.cAct = cnt() - c0;
+    // 刁鑽度 5：四種都偵測（遠距）、6 秒就應對
+    ({ pl, b } = start(3, 5));
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -70 * 3));
+    for (let i = 0; i < 26; i++) b.tierHabitTick(0.25, pl);
+    out.c5 = b.tierHabitBits();
+    // ---- E：型態改變場地 ----
+    ({ pl, b } = start(3, 1));
+    const wl0 = (g.tWalls || []).length,
+      am0 = g.pickups.filter((p) => !p.dead && p.kind === 'ammo').length;
+    g.tierFieldShift(b, 2);
+    out.e1p2 = (g.tWalls || []).length - wl0;
+    g.tierFieldShift(b, 3);
+    out.e1 = [
+      (g.tWalls || []).length - wl0,
+      g.pickups.filter((p) => !p.dead && p.kind === 'ammo').length - am0,
+    ];
+    ({ pl, b } = start(3, 5));
+    const pool0 = (g.hzPools || []).length;
+    const z0 = g.world.zone.slice();
+    g.tierFieldShift(b, 2);
+    out.e5pool = (g.hzPools || []).length - pool0;
+    const zg = g.world.zoneGoal;
+    out.e5zone = zg ? +((zg[1] - zg[0]) / (z0[1] - z0[0])).toFixed(2) : 0;
+    g.tierFieldTick(10);
+    out.e5zoneNow = +((g.world.zone[1] - g.world.zone[0]) / (z0[1] - z0[0])).toFixed(2);
+    ({ pl, b } = start(3, 7));
+    g.tierFieldShift(b, 3);
+    const fz = b.bt && b.bt.fzone;
+    b.pos.x += 30;
+    g.tierFieldTick(0.016);
+    const zz = (g.zones || []).find((z) => z.i === fz);
+    out.e7move = !!zz && Math.abs(zz.p.x - b.pos.x) < 0.1;
+    // 截圖用：刁鑽度 1 的部位標記與應對
+    ({ pl, b } = start(3, 1));
+    return out;
+  });
+  check(
+    r.j1.length === 2 && r.jHp === 0.08 && r.jRec,
+    `刁鑽度 1：2 個部位（${r.j1.join('、')}，血量 ${r.jHp}，生成紀錄帶偏移）`,
+  );
+  check(r.jFollow, '部位跟著 Boss 移動');
+  check(
+    r.jDead && r.jStop && r.jPk === 1 && r.jK === 1.08,
+    `打壞部位：停用它的大招、掉 ${r.jPk} 個部位殘骸、結算 ×${r.jK}`,
+  );
+  check(r.j3 === 3 && r.j3back, '刁鑽度 3：3 個部位、其中一個在背後');
+  check(r.jHide && r.jHideDmg === 0 && r.jShow, '刁鑽度 5：其中一個只在出招時露出（平時打不到）');
+  check(r.jRebuild === 1, '刁鑽度 5：打壞的部位 45 秒後重建');
+  check(r.jSwap, '刁鑽度 7：重建的部位換成另一種招式');
+  check(
+    r.jArt === 'artillery:0' && r.jFun === 'funnel:1',
+    `原本就有部位的 Boss 算在部位數裡（${r.jArt}、${r.jFun}）`,
+  );
+  check(r.mShoot, 'Boss 的飛彈是可以打回去的彈');
+  check(r.mBack && r.mDmg === 0.015, `打掉之後飛回 Boss（最大 AP ${(r.mDmg * 100).toFixed(1)}%）`);
+  check(r.mHits >= 2 && r.mHits <= 3, `刁鑽度 3：要打 ${r.mHits} 發`);
+  check(r.mFake > 3 && r.mFake < 30, `刁鑽度 5：混進打不掉的假彈（40 發裡 ${r.mFake} 發）`);
+  check(r.mDodge, '刁鑽度 7：離 Boss 太遠才打掉的會被躲開');
+  check(
+    r.cp && r.cpK > 1.9 && r.cpK < 2.1 && r.cpUsed,
+    `完美 QB 之後的反擊點：傷害 ×${r.cpK}（打中一次就用掉）`,
+  );
+  check(
+    r.c1 === 2 && /貼身/.test(r.cHud) && r.cAct > 0,
+    `刁鑽度 1：一直貼身 → 應對（${r.cHud}），並放出反制的招式`,
+  );
+  check(r.c5 > 0 && !(r.c5 & 2), `刁鑽度 5：四種都偵測（站在遠處 6 秒就應對，習慣位元 ${r.c5}）`);
+  check(
+    r.e1p2 === 0 && r.e1[0] === 3 && r.e1[1] === 2,
+    `刁鑽度 1：只有第三型態改變場地（掩體 ${r.e1[0]}、彈藥箱 ${r.e1[1]}）`,
+  );
+  check(
+    r.e5pool >= 3 && r.e5zone === 0.75 && r.e5zoneNow < 1,
+    `刁鑽度 5：燃燒地面 ${r.e5pool} 處、作戰區域縮小到 ${r.e5zone}`,
+  );
+  check(r.e7move, '刁鑽度 7：不利的區域跟著 Boss 移動');
+  for (const [w, h, touch, tag] of [
+    [1920, 1080, false, 'pc'],
+    [844, 390, true, 'phone'],
+  ]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.evaluate((touch) => {
+      const g = window.__game;
+      g.ctrl.touch = touch ? 'on' : 'off';
+      document.body.classList.toggle('touchDev', touch);
+      g.state = 'play';
+      const b = g.boss,
+        pl = g.player;
+      pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, 40));
+      b.tierState().hb = { smp: [], t: 0, resp: [{ h: 'close', t: 99 }], act: 99 };
+      window.__pump(0.3);
+    }, touch);
+    await page.screenshot({ path: path.join(SHOT_DIR, `boss-tier-parts-${tag}.png`) });
+  }
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+  });
+  await ctx.close();
+}
+
 async function testBoss3(browser, base) {
   console.log('Boss 最終型態的專屬招式（22 隻）');
   const { ctx, page } = await newPage(browser, 'boss3');
@@ -18932,6 +19195,7 @@ const STEPS = [
   ['testFoesB1', (c) => testFoesB1(c.browser, c.base)],
   ['testBossPower', (c) => testBossPower(c.browser, c.base)],
   ['testBossTier', (c) => testBossTier(c.browser, c.base)],
+  ['testBossTier2', (c) => testBossTier2(c.browser, c.base)],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],

@@ -89,6 +89,7 @@ const DEFAULT_TIMES = {
   testFoesB1: 29235,
   testBossPower: 1775,
   testBossTier: 6000,
+  testBossTier2: 6000,
   testBoss3: 5041,
   testStatusFx: 18931,
   testHazards2: 13837,

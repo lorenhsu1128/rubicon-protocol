@@ -107,7 +107,10 @@ Object.assign(Game.prototype, {
       wantDist: 40,
       parent: boss.id,
       mount: o.mount !== undefined ? o.mount : null,
+      off: o.off || undefined, // Boss 改版的部位：Boss 座標的偏移（Boss 身高的倍數）
+      hpAbs: o.hpAbs || undefined,
       at: o.at || boss.center(),
+      ...(o.name ? { name: o.name } : {}),
     });
   },
   // 護盾指揮艦的四座發生器（開場與重建）
@@ -205,6 +208,7 @@ Object.assign(Game.prototype, {
   },
   bossPhaseShift(b, ph) {
     b.tierPhaseReset(); // Boss 改版：失衡的次數重置、蓄力取消（mech-boss-tier.js）
+    this.tierFieldShift(b, ph); // Boss 改版的 E：型態改變場地（boss-tier.js）
     b.iFrames = Math.max(b.iFrames || 0, 1.5);
     b.staggerT = 0;
     b.acs = 0;

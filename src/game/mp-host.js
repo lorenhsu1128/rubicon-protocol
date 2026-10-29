@@ -72,6 +72,8 @@ Object.assign(Game.prototype, {
       speedMul: o.speedMul || 1,
       bossKind: o.bossKind || null,
       bt: o.tier || 0, // Boss 改版的刁鑽度（data/boss-tier.js）
+      off: o.off || undefined, // Boss 改版的部位：Boss 座標的偏移
+      ha: o.hpAbs ? Math.round(o.hpAbs) : undefined,
       flankAngle: o.flankAngle || 0,
       pvpTeam: e.pvpTeam,
       pvpAi: !!e.pvpAi,

@@ -187,7 +187,7 @@ export class Projectile {
             k *= 0.3;
             im = 0;
           }
-          if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos);
+          if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos, this.owner);
           else {
             t.rbGold = !!this.rb; // 邊閃邊打的加成：金色的傷害數字（mech-ranged.js）
             t.takeDamage(
@@ -217,7 +217,7 @@ export class Projectile {
       }
     } else if (direct) {
       const dir = this.vel.clone().normalize();
-      if (direct.isProp) g.damageProp(direct, this.dmg, this.impactV, this.pos);
+      if (direct.isProp) g.damageProp(direct, this.dmg, this.impactV, this.pos, this.owner);
       else {
         // 實彈：超過理想射程遞減（data/attrs.js）
         let fk = 1;

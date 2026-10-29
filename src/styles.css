@@ -353,6 +353,15 @@ table.keys td {
   height: 2px;
   background: #ff7030;
 }
+#bossHabit {
+  display: none;
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: #ff9a50;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
 #bossTier.guard .lab::after {
   content: '　護盾：從側面或背後打';
   color: #9fd0ff;

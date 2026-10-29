@@ -708,6 +708,8 @@ const PART_ASM = {
 };
 export const PART_DEFS = {
   joint: { name: '腳部關節', hpMul: 0.45, stabMul: 2, dmgMul: 0.5, radius: 1.3, asm: PART_ASM },
+  // Boss 改版的部位（docs/boss-design.md 的 J；血量由 hpAbs 指定，名稱依各 Boss）
+  bpart: { name: '部位', hpMul: 0.3, stabMul: 4, dmgMul: 0.5, radius: 1.4, asm: PART_ASM },
   fturret: {
     name: '懸吊砲塔',
     hpMul: 0.35,

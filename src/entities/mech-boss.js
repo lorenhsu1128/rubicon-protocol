@@ -13,6 +13,7 @@ import { buildWormSegments } from '../render/boss-models.js';
 import { MechEntity } from './mech-entity.js';
 import { BOSS_ENRAGE_TEMPO, BOSS_PHASES, BOSS_STAG_GUARD, BOSS_TEMPO } from '../data/enemies.js';
 
+const UP = new THREE.Vector3(0, 1, 0);
 const BOSS_AI = new Set(['worm', 'spider', 'fortress', 'flagship', 'artillery', 'hunter']);
 const WORM_SEGS = 16;
 
@@ -36,12 +37,24 @@ Object.assign(MechEntity.prototype, {
   },
   // 掛載的部位：移到 Boss 模型節點的世界位置（中心對齊節點）
   partFollow() {
+    if (this.opts.off) return this.partFollowOff();
     if (this.opts.mount === undefined || this.opts.mount === null) return;
     const par = this.parentEnt();
     const node = par && par.model.mounts && par.model.mounts[this.opts.mount];
     if (!node) return;
     par.mesh.updateMatrixWorld(true);
     node.getWorldPosition(this.pos);
+    this.pos.y -= this.model.height * 0.5;
+    this.yaw = par.yaw;
+  },
+  // Boss 改版的部位：Boss 座標的偏移（off＝Boss 身高的倍數，+Z 往前）
+  partFollowOff() {
+    const par = this.parentEnt();
+    if (!par || par.dead) return;
+    const H = (par.model && par.model.height) || 4 * (par.scale || 1);
+    const o = this.opts.off;
+    const v = new THREE.Vector3(o[0] * H, o[1] * H, -o[2] * H).applyAxisAngle(UP, par.yaw);
+    this.pos.copy(par.pos).add(v);
     this.pos.y -= this.model.height * 0.5;
     this.yaw = par.yaw;
   },
@@ -134,6 +147,15 @@ Object.assign(MechEntity.prototype, {
   // ---------- 附屬部位 ----------
   partAI(dt, d, pl) {
     if (this.part2AI(dt, d, pl)) return; // 浮游砲、列車車廂
+    if (this.opts.partKind === 'bpart') {
+      // Boss 改版的部位：跟著 Boss；只在出招時露出的（刁鑽度 5 起）平時藏起來、打不到
+      this.partFollow();
+      const par = this.parentEnt();
+      const hide = !!(this.tierExpose && par && !(par.bt && (par.bt.ch || par.bt.openT > 0)));
+      this.bossVis = hide ? this.bossVis | 1 : this.bossVis & ~1;
+      this.bossTick(dt);
+      return;
+    }
     const g = this.game,
       s = this.aiState;
     const k = this.opts.partKind;
@@ -583,6 +605,7 @@ Object.assign(MechEntity.prototype, {
   bossDefense(dmg, impact, from, at, wid, melee) {
     const g = this.game,
       s = this.aiState;
+    if (this.opts.partKind === 'bpart' && this.bossVis & 1) return null; // 藏起來的部位打不到
     let k = 1;
     const hint = (txt) => {
       if (from && from.isPlayer && !s.hinted) {
@@ -643,6 +666,12 @@ Object.assign(MechEntity.prototype, {
   // ---------- 顯示（房主與客機）：部位跟隨、鑽地蟲身體、多足要塞的腿 ----------
   bossFx(dt) {
     if (this.ai === 'part' && this.remote) this.partFollow();
+    if (this.opts.partKind === 'bpart') {
+      // 藏起來的部位：看不到、不能鎖定（房主與客機各自設定）
+      const hide = !!(this.bossVis & 1);
+      this.mesh.visible = !hide && !this.dead;
+      this.noLock = hide;
+    }
     if (this.ai === 'worm') this.wormFx();
     if (this.model.legNodes && this.model.legNodes.length) this.spiderFx(dt);
     this.boss2Fx(dt);

@@ -6,8 +6,24 @@ import { SFX } from '../audio/audio.js';
 import { DS } from '../core/scale.js';
 import { rnd } from '../core/math.js';
 import { MechEntity } from './mech-entity.js';
+import { Projectile } from './projectile.js';
 import { syRank } from '../data/style-meter.js';
-import { D_FAKE_T, D_OPEN, I_CD, K_HIT, L_BONUS, aNeedK, aStagT, tierRow } from '../data/boss-tier.js';
+import {
+  C_RESP,
+  C_SAMPLE,
+  C_THR,
+  D_FAKE_T,
+  D_OPEN,
+  I_CD,
+  K_HIT,
+  L_BONUS,
+  M_ACS,
+  M_HIT,
+  aNeedK,
+  aStagT,
+  tierRow,
+} from '../data/boss-tier.js';
+import { C_STAR, HABITS, HABIT_NAMES } from '../data/boss-kit.js';
 
 // 第一、二型態的大招（第三型態＝mech-boss3.js 的 SPECIALS）：[名稱, fn(Boss, 目標)]；
 // 種類鍵照 boss3Key()。各 Boss 的專屬內容（第 3～5 期）會換成自己的招式，這裡先用共用零件組成。
@@ -224,6 +240,9 @@ Object.assign(MechEntity.prototype, {
     if (s.fake > 0) s.fake -= dt;
     if (s.halfT > 0) s.halfT -= dt;
     if (this.boss2Open && this.boss2Open()) this.bossOpen(0.25, true); // 原本就有的弱點時機＝破綻
+    if (s.cp && (s.cp.t -= dt) <= 0) s.cp = null; // 反擊點（M）
+    this.tierHabitTick(dt, pl); // 應對玩家的習慣（C）
+    this.tierDodgeTick(); // 打回去的彈（M：刁鑽度 7～8 會躲）
     const ch = s.ch;
     if (ch) {
       if (this.staggerT > 0 || this.dead) {
@@ -285,6 +304,7 @@ Object.assign(MechEntity.prototype, {
   tierMove(ph) {
     const key = this.boss3Key();
     const kit = this.tierKit();
+    if (this.tierMoveStopped('p' + ph)) return null; // 負責這一招的部位被打壞了（J）
     if (kit.big && kit.big[ph - 1]) return kit.big[ph - 1];
     if (ph >= 3) {
       const S = this.boss3Spec && this.boss3Spec();
@@ -359,6 +379,21 @@ Object.assign(MechEntity.prototype, {
     if (!from || !from.pilotEnt || !from.pilotEnt() || !this.tierOn()) return [1, 0];
     let k = 1,
       extra = 0;
+    // M：反擊點（完美 QB 躲開這隻的攻擊之後，在時間內打中）＝傷害 ×2、打斷量表 ×2
+    const tb = this.tierBoss();
+    const cp = tb && tb.bt && tb.bt.cp;
+    this.cpHitK = 1;
+    if (cp && cp.by === from.id) {
+      tb.bt.cp = null;
+      k *= 2;
+      this.cpHitK = 2;
+      const g = this.game,
+        c = this.center();
+      g.popDamage(c.clone().setY(c.y + 3 * DS), '反擊！', false, true, false, 0, this.id);
+      g.fx.shockwave(c, 6 * (this.scale || 1), 0x60b0ff, 0.35);
+      SFX.crit();
+      if (from.syEvent) from.syEvent('pqb', '反擊點');
+    }
     // L：S 以上的風格評價
     const r = from.sy ? syRank(from.sy.pts) : -1;
     if (L_BONUS[r]) k += L_BONUS[r];
@@ -418,13 +453,17 @@ Object.assign(MechEntity.prototype, {
     const s = this.bt;
     if (!s || !this.isBoss) return null;
     const ch = s.ch;
-    if (!ch && !(s.openT > 0)) return null;
+    const hb = this.tierHabitBits();
+    if (!ch && !(s.openT > 0) && !s.cp && !hb) return null;
     const T = tierRow(this.bossTier());
     return [
       ch ? Math.round((ch.t / ch.T) * 100) : -1,
       ch ? Math.round(Math.min(1, ch.dealt / ch.need) * 100) : 0,
       Math.round(Math.max(0, s.openT) * 10),
       (s.fake > 0 ? 1 : 0) | (ch && T.iTrick === 'guard' ? 2 : 0) | (ch && ch.k > 1 ? 4 : 0),
+      s.cp ? Math.round(s.cp.t * 10) : 0, // 反擊點的剩餘秒數 ×10
+      s.cp ? s.cp.by : -1, // 誰的反擊點
+      hb, // 正在應對的習慣（1 空中 2 貼身 4 遠距 8 掩體）
     ];
   },
   // 顯示用的狀態（房主＝自己的 bt；客機＝快照）：{ chg, gauge, open, fake, guard, second, name }
@@ -442,6 +481,9 @@ Object.assign(MechEntity.prototype, {
         guard: !!(v[3] & 2),
         second: !!(v[3] & 4),
         name: mv ? mv[0] : '',
+        cp: (v[4] || 0) / 10,
+        cpBy: v[5] === undefined ? -1 : v[5],
+        habits: v[6] || 0,
       };
     }
     const s = this.bt;
@@ -455,12 +497,28 @@ Object.assign(MechEntity.prototype, {
       guard: !!(ch && tierRow(this.bossTier()).iTrick === 'guard'),
       second: !!(ch && ch.k > 1),
       name: ch ? ch.name : '',
+      cp: s.cp ? s.cp.t : 0,
+      cpBy: s.cp ? s.cp.by : -1,
+      habits: this.tierHabitBits(),
     };
   },
   // 破綻的金色光環（房主與客機各自畫，不轉送）
   tierFx(dt) {
     const v = this.tierView();
-    if (!v || !(v.open > 0) || this.dead) return;
+    if (!v || this.dead) return;
+    // 反擊點：Boss 身上的藍光
+    if (v.cp > 0 && (this.cpFxT = (this.cpFxT || 0) - dt) <= 0) {
+      this.cpFxT = 0.18;
+      const fx = this.game.fx;
+      const nest = fx._nested;
+      fx._nested = true;
+      try {
+        fx.flash(this.center().setY(this.center().y + (this.model.height || 4) * 0.25), 1.6, 0x50a8ff, 0.12);
+      } finally {
+        fx._nested = nest;
+      }
+    }
+    if (!(v.open > 0)) return;
     this.btFxT = (this.btFxT || 0) - dt;
     if (this.btFxT > 0) return;
     this.btFxT = 0.3;
@@ -473,5 +531,160 @@ Object.assign(MechEntity.prototype, {
     } finally {
       fx._nested = nest;
     }
+  },
+  // ---------- J 部位破壞 ----------
+  // 這一招有沒有被打壞的部位停用（Boss 的 bt.lost；部位重建後恢復）
+  tierMoveStopped(id) {
+    const s = this.bt;
+    return !!(s && s.lost && s.lost[id] > 0);
+  },
+  // 部位被打壞／重建：停用或恢復它負責的招式
+  tierPartLost(stops, on) {
+    const s = this.tierState();
+    s.lost = s.lost || {};
+    for (const id of stops || []) s.lost[id] = Math.max(0, (s.lost[id] || 0) + (on ? 1 : -1));
+  },
+  // ---------- M 打回去 ----------
+  // 完美 QB 躲開這隻（或它的部位、彈）的攻擊：Boss 身上出現反擊點（pqbCheck 呼叫）
+  tierCounterOn(pl) {
+    const b = this.tierBoss();
+    if (!b || !b.tierOn() || !pl) return;
+    const T = tierRow(b.bossTier());
+    b.tierState().cp = { t: T.mCounter, by: pl.id };
+    const g = b.game;
+    g.fx.shockwave(b.center(), 5 * (b.scale || 1), 0x50a8ff, 0.4);
+    g.tierIntro('cp', '反擊點 — 完美 QB 躲開 Boss 的攻擊後，Boss 身上的藍光在時間內打中＝傷害與打斷量表 ×2');
+  },
+  // Boss 的大型彈體（foeShotOpt 轉過來）：可以打掉、打掉時飛回 Boss；刁鑽度 5 起混進打不掉的假彈
+  tierShotOpt(dmg, kind) {
+    const b = this.tierBoss();
+    const T = tierRow(b.bossTier());
+    const kit = b.tierKit();
+    if (kit.reflect && kit.reflect.length && !kit.reflect.includes(kind)) return this.foeShotBase(dmg);
+    if (T.mFake && Math.random() < 0.35) return { color: 0xff3040 }; // 假彈：顏色不同、打不掉
+    const hits = T.mHits % 1 ? (Math.random() < 0.5 ? Math.floor(T.mHits) : Math.ceil(T.mHits)) : T.mHits;
+    return {
+      shootable: hits,
+      hitsNeed: hits,
+      shotR: T.mHits > 1 ? 1.1 : 1.5,
+      shotName: '可以打回去',
+      reflect: b.id,
+      color: 0xffd040,
+      scale: T.mHits > 1 ? 1.2 : 1.6,
+      popDmg: 0,
+    };
+  },
+  // 打掉的彈：反轉飛回 Boss（hazards2.js 的 shotDamage 呼叫；from＝打掉它的人）
+  tierReflect(pr, from) {
+    const g = this.game;
+    const T = tierRow(this.bossTier());
+    const p = pr.pos.clone();
+    const to = this.center().sub(p);
+    const sp = Math.max(60 * DS, pr.vel.length() * 1.4);
+    const far = T.mDodge && p.distanceTo(this.pos) > (T.mNear || 25) * DS;
+    const r = new Projectile(g, {
+      pos: p,
+      vel: to.normalize().multiplyScalar(sp),
+      kind: pr.kind === 'missile' ? 'missile' : 'shell',
+      dmg: this.maxHp * M_HIT,
+      impactV: this.acsMax * M_ACS,
+      team: from && from.team ? from.team : 'player',
+      owner: from || null,
+      color: 0x7fd8ff,
+      life: 4,
+      target: this,
+      turn: 9,
+      splash: 0,
+      attr: 'exp',
+      tierRef: this.id,
+      tierDodge: far, // 刁鑽度 7～8：離 Boss 太遠才打掉的，Boss 會躲開
+    });
+    g.projectiles.push(r);
+    g.popDamage(p.clone().setY(p.y + 1), '打回去！', false, true, false, 0, -1);
+    g.fx.shockwave(p, 3, 0x7fd8ff, 0.3);
+    SFX.play('shield', 0.9, 1.4, 0.03, 0.05, p);
+    if (from && from.syEvent) from.syEvent('shotDown', '打回去');
+    g.tierIntro('reflect', '打回去 — Boss 的金色彈體打掉之後會飛回去打中 Boss（紅色的是打不掉的假彈）');
+  },
+  // 刁鑽度 7～8：飛回來的彈快到時 QB 躲開
+  tierDodgeTick() {
+    const g = this.game;
+    for (const pr of g.projectiles) {
+      if (pr.dead || pr.tierRef !== this.id || !pr.tierDodge || pr.target !== this) continue;
+      if (pr.pos.distanceTo(this.center()) > 14 * DS * (this.scale || 1)) continue;
+      pr.target = null;
+      pr.tierDodge = false;
+      const side = new THREE.Vector3(-pr.vel.z, 0, pr.vel.x).normalize();
+      if (Math.random() < 0.5) side.negate();
+      if (this.ai !== 'part') this.vel.addScaledVector(side, 40 * DS);
+      pr.vel.addScaledVector(side, -10 * DS);
+      g.popDamage(this.center().setY(this.center().y + 3 * DS), '躲開了', false, false, false, 0, this.id);
+    }
+  },
+  // ---------- C 應對玩家 ----------
+  // 看目標玩家最近 cWin 秒的習慣（每 C_SAMPLE 秒取樣），比例超過門檻就應對 C_RESP 秒
+  tierHabitTick(dt, pl) {
+    const s = this.tierState(),
+      g = this.game,
+      T = tierRow(this.bossTier());
+    s.hb = s.hb || { smp: [], t: 0, resp: [], act: 0 };
+    const H = s.hb;
+    for (const r of H.resp) r.t -= dt;
+    H.resp = H.resp.filter((r) => r.t > 0);
+    // 應對中：每 4 秒出一次反制的招式
+    if (H.resp.length && pl && !pl.dead && this.staggerT <= 0 && !s.ch && (H.act -= dt) <= 0) {
+      H.act = 4;
+      const r = H.resp[Math.floor(Math.random() * H.resp.length)];
+      this.tierCounterMove(r.h, pl);
+    }
+    if (!pl || pl.dead || (H.t -= dt) > 0) return;
+    H.t = C_SAMPLE;
+    const gy = g.world.groundAt(pl.pos.x, pl.pos.z, pl.pos.y + 1);
+    const dd = Math.hypot(pl.pos.x - this.pos.x, pl.pos.z - this.pos.z);
+    const blocked = g.world.losBlocked ? g.world.losBlocked(this.center(), pl.center()) : false;
+    H.smp.push({ air: pl.pos.y - gy > 4 * DS, close: dd < 15 * DS, far: dd > 60 * DS, cover: blocked });
+    const n = Math.round(T.cWin / C_SAMPLE);
+    while (H.smp.length > n) H.smp.shift();
+    if (H.smp.length < n || H.resp.length >= T.cMax) return;
+    for (const h of this.tierHabitKinds()) {
+      if (H.resp.some((r) => r.h === h)) continue;
+      const k = H.smp.filter((x) => x[h]).length / H.smp.length;
+      if (k < C_THR[h]) continue;
+      H.resp.push({ h, t: C_RESP });
+      H.smp = [];
+      H.act = 1.5;
+      g.flashMsg(`${this.name.split(' ')[0]} 正在應對：${HABIT_NAMES[h]}`, 0xff9040, 1.8);
+      g.tierIntro(
+        'habit',
+        'Boss 會應對你的打法 — 一直用同一種打法（空中、貼身、遠距、躲掩體）時 Boss 會換招逼你換',
+      );
+      break;
+    }
+  },
+  // 這個刁鑽度偵測哪幾種習慣
+  tierHabitKinds() {
+    const T = tierRow(this.bossTier());
+    const kit = this.tierKit();
+    const star = kit.star || C_STAR[this.boss3Key()] || 'close';
+    if (T.cKinds <= 1) return [star];
+    if (T.cKinds === 2) return (kit.habits || [star, HABITS.find((h) => h !== star)]).slice(0, 2);
+    return HABITS;
+  },
+  tierHabitBits() {
+    const H = this.bt && this.bt.hb;
+    if (!H) return 0;
+    let b = 0;
+    for (const r of H.resp) b |= 1 << HABITS.indexOf(r.h);
+    return b;
+  },
+  // 反制的招式：Boss 自己的（BOSS_KIT 的 counter）或共用的
+  tierCounterMove(h, pl) {
+    const kit = this.tierKit();
+    const fn = kit.counter && kit.counter[h];
+    if (fn) return fn(this, pl);
+    if (h === 'air') return this.b3Fan(pl, 3, 0.14); // 對空：朝空中的目標掃射
+    if (h === 'close') return this.b3Shock(18); // 貼身：周圍的衝擊波
+    if (h === 'far') return this.b3Rain(pl, 4, 6, 0.3); // 遠距：砲擊追著落點
+    return this.b3Rain(pl, 5, 4, 0.25); // 掩體：曲射越過掩體
   },
 });

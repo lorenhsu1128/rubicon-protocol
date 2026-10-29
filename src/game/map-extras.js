@@ -32,9 +32,9 @@ Object.assign(Game.prototype, {
     if (team) out.push(...this.shotTargets(team));
     return out;
   },
-  damageProp(p, dmg, impact, at) {
+  damageProp(p, dmg, impact, at, from) {
     if (p.dead) return;
-    if (p.isShot) return this.shotDamage(p, dmg, at); // 可以打掉的投射物（hazards2.js）
+    if (p.isShot) return this.shotDamage(p, dmg, at, from); // 可以打掉的投射物（hazards2.js）
     p.hp -= Math.round(dmg);
     p.flashT = 0.06;
     if (p.ob.mats)
@@ -74,6 +74,14 @@ Object.assign(Game.prototype, {
     if (pk.kind === 'repair') {
       ent.hp = Math.min(ent.maxHp, ent.hp + Math.round(ent.maxHp * 0.4));
       this.fx.ring(ent.center(), 5, 0x7ee081);
+    } else if (pk.kind === 'bossPart') {
+      // 部位殘骸：彈藥 35%＋AP 12%
+      for (const w of Object.values(ent.weapons || {}))
+        if (w && w.def && w.def.ammo > 0)
+          w.ammo = Math.min(w.def.ammo, w.ammo + Math.ceil(w.def.ammo * 0.35));
+      ent.hp = Math.min(ent.maxHp, ent.hp + Math.round(ent.maxHp * 0.12));
+      this.fx.ring(ent.center(), 5, 0xffe070);
+      if (ent.isPlayer) this.renderWeaponHud(true);
     } else if (pk.kind === 'ammo') {
       // 彈藥箱：每個實彈武器補充總彈數的 35%（彈數隨快照同步給客機）
       for (const w of Object.values(ent.weapons || {}))

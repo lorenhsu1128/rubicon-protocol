@@ -86,6 +86,14 @@ export const L_BONUS = { 4: 0.2, 5: 0.28, 6: 0.35 }; // L：S／SS／SSS（風�
 export const O_PAR = 180; // O：擊破的基準時間（每隻 Boss 的 par 沒寫時）
 export const O_A = 1.5; // O：A 級＝基準 × 1.5
 export const O_COAM = { S: 1.5, A: 1.2, B: 1 }; // O：Boss 擊破獎金的倍率
+export const J_COAM = 0.08; // J：結算時每個打壞的部位 COAM +8%
+export const J_COAM_MAX = 0.4; // J：最多 +40%
+export const M_HIT = 0.015; // M：打回去的彈打中 Boss：最大 AP 1.5%
+export const M_ACS = 0.6; // M：打回去的彈的衝擊（Boss 的 ACS 上限比例）
+export const C_SAMPLE = 0.25; // C：每 0.25 秒看一次玩家的位置
+export const C_RESP = 12; // C：應對持續 12 秒
+export const C_THR = { air: 0.6, close: 0.6, far: 0.6, cover: 0.4 }; // C：這種習慣佔觀察時間的比例超過它就應對
+export const E_ZONE_T = 6; // E：作戰區域縮小花的秒數
 
 export function tierRow(t) {
   return TIER[Math.max(1, Math.min(8, t | 0))];

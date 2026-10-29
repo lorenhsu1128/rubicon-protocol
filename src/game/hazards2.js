@@ -956,10 +956,10 @@ Object.assign(Game.prototype, {
     return pr ? pr.tgt : null;
   },
   // damageProp 轉過來（房主／單機）
-  shotDamage(t, dmg, at) {
+  shotDamage(t, dmg, at, from) {
     const pr = t.proj;
     if (pr.dead) return;
-    pr.hp -= Math.round(dmg);
+    pr.hp -= pr.hitsNeed ? 1 : Math.round(dmg); // Boss 改版的 M：要打幾發（不看傷害）
     this.popDamage(at || pr.pos, Math.round(dmg), false, false, false, 0, t.id);
     if (pr.netId) this.netEv({ t: 'shp', i: pr.netId, h: pr.hp });
     if (pr.hp > 0) {
@@ -971,6 +971,12 @@ Object.assign(Game.prototype, {
     this.scene.remove(pr.mesh);
     if (pr.netId) this.netEv({ t: 'pend', i: pr.netId });
     const p = pr.pos.clone();
+    // Boss 改版的 M：Boss 的彈打掉之後飛回 Boss（mech-boss-tier.js）
+    const rb = pr.reflect && this.entById(pr.reflect);
+    if (rb && !rb.dead && rb.tierReflect) {
+      rb.tierReflect(pr, from);
+      return;
+    }
     if (pr.popDmg > 0)
       this.explodeAt(p, pr.popDmg, 300, Math.max(3 * this.fx.k, pr.splash || 0), pr.owner, true);
     else {

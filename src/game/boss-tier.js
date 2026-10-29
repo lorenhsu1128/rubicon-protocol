@@ -4,9 +4,12 @@
 import { Game } from './game.js';
 import { SFX } from '../audio/audio.js';
 import { DS } from '../core/scale.js';
-import { clamp } from '../core/math.js';
+import { clamp, rnd } from '../core/math.js';
 import { syRank } from '../data/style-meter.js';
+import { HABITS, HABIT_NAMES, bossKitOf } from '../data/boss-kit.js';
 import {
+  J_COAM,
+  J_COAM_MAX,
   K_SQUAD_MAX,
   K_SQUAD_T,
   L_BONUS,
@@ -21,6 +24,26 @@ import {
   tierRow,
 } from '../data/boss-tier.js';
 
+// J：算進部位數、打壞時掉補給與結算加成的部位種類（浮游砲、分身、三機合體的分離機體不算）
+const J_KINDS = new Set([
+  'bpart',
+  'cannon',
+  'engine',
+  'pylon',
+  'joint',
+  'fturret',
+  'car_aa',
+  'car_ms',
+  'car_lz',
+  'car_mine',
+]);
+// 還沒有專屬內容（BOSS_KIT 的 parts）的 Boss：共用的部位（off＝Boss 身高的倍數，+Z 往前），各停用一個型態的大招
+const GENERIC_PARTS = [
+  { id: 'g1', name: '左肩武裝', off: [-0.42, 0.85, 0.1], stops: ['p1'] },
+  { id: 'g2', name: '右肩武裝', off: [0.42, 0.85, 0.1], stops: ['p2'] },
+  { id: 'g3', name: '背部推進器', off: [0, 0.7, -0.45], stops: ['p3'] },
+];
+const SWAP = { p1: 'p2', p2: 'p3', p3: 'p1' }; // J：刁鑽度 7～8 重建的部位換成另一種招式
 // 冒煙測試（網址帶 ?test）：刁鑽度的換算
 if (typeof window !== 'undefined' && /[?&]test/.test(location.search))
   window.__bossTier = { campaignTier, freeTier, oRank, aNeedK, aStagT };
@@ -63,6 +86,7 @@ Object.assign(Game.prototype, {
     const t = this.tierFightTier();
     if (!t) return;
     for (const p of this.players || []) if (p && !p.dead && p.bkTick) p.bkTick(dt, t);
+    this.tierFieldTick(dt); // 部位重建、跟著 Boss 的區域、作戰區域縮小
     this.kSquadT = (this.kSquadT === undefined ? K_SQUAD_T : this.kSquadT) - dt;
     if (this.kSquadT > 0) return;
     this.kSquadT = K_SQUAD_T;
@@ -117,6 +141,167 @@ Object.assign(Game.prototype, {
       s = Math.floor(rk.sec % 60);
     return `評價 ${rk.r}（${m}:${String(s).padStart(2, '0')}）`;
   },
+  // 這隻 Boss 的專屬內容（data/boss-kit.js；第 3～5 期逐隻補上）
+  bossKit(key) {
+    return bossKitOf(key);
+  },
+  // ---------- J 部位破壞 ----------
+  // spawnBossDef 之後：每隻 Boss 補到刁鑽度要的部位數（原本就有的部位算在裡面）
+  tierSetupParts(b) {
+    if (!b || !b.isBoss || !b.tierOn()) return;
+    const T = tierRow(b.bossTier());
+    const kit = b.tierKit();
+    const own = b.partsOf();
+    // 原本就有的部位算在部位數裡（浮游砲在戰鬥中才放出，整群算一個）
+    const have =
+      own.filter((p) => J_KINDS.has(p.opts.partKind)).length + (b.opts.bossKind === 'funnel' ? 1 : 0);
+    let list = (kit.parts || GENERIC_PARTS).slice(0, T.jParts);
+    if (!kit.parts) list = list.slice(0, Math.max(0, T.jParts - have));
+    list.forEach((sp, i) => {
+      const s = { ...sp };
+      // 刁鑽度 3 起：其中 1 個在背後或底下；5 起：其中 1 個只在出招時露出
+      if (!kit.parts && T.jParts >= 3 && i === list.length - 1) s.back = true;
+      if (!kit.parts && T.jRebuild && i === list.length - 1) s.expose = true;
+      this.tierSpawnPart(b, s);
+    });
+  },
+  tierSpawnPart(b, sp) {
+    const T = tierRow(b.bossTier());
+    const off = sp.off ? sp.off.slice() : [0, 0.7, 0];
+    if (sp.back && off[2] >= 0) off[2] = -Math.max(0.4, Math.abs(off[2]) || 0.45);
+    const e = this.spawnPart(b, 'bpart', {
+      name: sp.name,
+      off,
+      hpAbs: b.maxHp * T.jHp,
+      at: b.center(),
+    });
+    e.tierSpec = { ...sp, off };
+    e.tierExpose = !!sp.expose;
+    b.tierPartLost(sp.stops, false); // 重建時恢復（第一次生成時是 0，不變）
+    return e;
+  },
+  // 部位被擊破（onEnemyKilled，房主／單機）：停用招式、掉補給、結算加成、重建
+  tierPartDown(e) {
+    if (e.ai !== 'part' || !J_KINDS.has(e.opts.partKind)) return;
+    const b = e.parentEnt && e.parentEnt();
+    if (!b || !b.isBoss || b.dead || !b.tierOn()) return;
+    const T = tierRow(b.bossTier());
+    this.tierPartsBroken = (this.tierPartsBroken || 0) + 1;
+    const sp = e.tierSpec;
+    if (sp) b.tierPartLost(sp.stops, true);
+    const c = e.center();
+    this.popDamage(c.clone().setY(c.y + 2 * DS), '部位破壞', false, true, false, 0, e.id);
+    this.flashMsg(
+      `部位破壞：${e.name}${sp && sp.stops && sp.stops.length ? ' — 招式停用' : ''}`,
+      0xffe070,
+      1.8,
+    );
+    const [x, z] = this.world.nearSolid ? this.world.nearSolid(c.x, c.z) : [c.x, c.z];
+    this.spawnPickup('bossPart', new THREE.Vector3(x, this.world.groundAt(x, z, c.y) + 0.6, z));
+    this.tierIntro(
+      'part',
+      '部位破壞 — 打壞 Boss 的部位會停用它負責的招式並掉落補給，結算時每個部位 COAM +8%',
+    );
+    // 重建（刁鑽度 5 起）；7～8 重建的部位換成另一種招式
+    if (sp && T.jRebuild) {
+      const nsp = { ...sp };
+      if (T.jSwap && nsp.stops) nsp.stops = nsp.stops.map((id) => SWAP[id] || id);
+      (this.tierReb || (this.tierReb = [])).push({ b, sp: nsp, t: T.jRebuild });
+    }
+  },
+  // 結算時的部位加成（COAM 倍率）
+  tierPartsK() {
+    return 1 + Math.min(J_COAM_MAX, J_COAM * (this.tierPartsBroken || 0));
+  },
+  // ---------- E 型態改變場地 ----------
+  // 換型態（bossPhaseShift）：依刁鑽度與 BOSS_KIT 的 field
+  tierFieldShift(b, ph) {
+    if (!b.tierOn()) return;
+    const T = tierRow(b.bossTier());
+    if (!T.eWhen.includes(ph)) return;
+    const kit = b.tierKit();
+    const f = kit.field && kit.field[ph];
+    if (typeof f === 'function') return f(this, b);
+    const tier = b.bossTier();
+    const good = tier <= 2 || (tier <= 4 && ph === 2);
+    if (good) this.tierFieldGood(b);
+    else this.tierFieldBad(b, ph, T);
+    if (T.eZone < 1 && ph === 2) this.tierShrinkZone(T.eZone);
+  },
+  // 有利：多出掩體與彈藥箱
+  tierFieldGood(b) {
+    const pl = this.playersAlive()[0];
+    if (!pl) return;
+    const mid = pl.pos.clone().lerp(b.pos, 0.35);
+    const dir = b.pos.clone().sub(pl.pos).setY(0);
+    const yaw = dir.lengthSq() > 0.01 ? Math.atan2(dir.x, dir.z) : 0;
+    const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    for (const k of [-1, 0, 1]) {
+      const p = mid.clone().addScaledVector(side, k * 14 * DS);
+      this.addTempWall(p, { kind: 'rock', w: 7 * DS, h: 4 * DS, d: 1.6 * DS, yaw, hp: 1400, life: 60 });
+    }
+    for (const k of [-1, 1]) {
+      const p = pl.pos.clone().addScaledVector(side, k * 9 * DS);
+      this.spawnPickup('ammo', new THREE.Vector3(p.x, this.world.groundAt(p.x, p.z, p.y + 1) + 0.6, p.z));
+    }
+    this.flashAlert('戰場改變 — 出現掩體與彈藥箱');
+  },
+  // 不利：燃燒地面與煙霧；刁鑽度 7～8 的煙霧跟著 Boss 移動
+  tierFieldBad(b, ph, T) {
+    const pl = this.playersAlive()[0];
+    if (!pl) return;
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2,
+        r = rnd(8, 18) * DS;
+      const p = pl.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
+      this.addPool(b, p, 6, 25, 150 * b.dmgMul);
+    }
+    if (ph >= 3 || T.eMove) {
+      const id = this.addZone('smoke', b.pos.clone(), 16 * DS, T.eMove ? 9999 : 30, { src: b });
+      if (T.eMove && id > 0) b.tierState().fzone = id;
+    }
+    this.flashAlert(T.eMove ? '戰場改變 — 煙霧跟著 Boss 移動' : '戰場改變 — 燃燒地面與煙霧');
+  },
+  // 作戰區域縮小到比例 k（以目前作戰區域的中心）
+  tierShrinkZone(k) {
+    const w = this.world;
+    if (!w || !w.zone) return;
+    const Z = w.zone;
+    const cx = (Z[0] + Z[1]) / 2,
+      cz = (Z[2] + Z[3]) / 2,
+      hx = ((Z[1] - Z[0]) / 2) * k,
+      hz = ((Z[3] - Z[2]) / 2) * k;
+    w.zoneGoal = [cx - hx, cx + hx, cz - hz, cz + hz];
+    this.netEv({ t: 'tzone', z: w.zoneGoal.map((v) => +v.toFixed(1)) });
+    this.flashAlert('作戰區域縮小');
+  },
+  // bossTierTick 每格：部位重建、跟著 Boss 的區域、作戰區域縮小
+  tierFieldTick(dt) {
+    for (const b of this.bosses || []) {
+      const fz = b.bt && b.bt.fzone;
+      if (!fz) continue;
+      if (b.dead) {
+        this.removeZone(fz);
+        b.bt.fzone = 0;
+      } else this.moveZone(fz, b.pos.clone());
+    }
+    if (this.world && this.world.zoneGoal && !this.camp) this.world.tickZone(dt);
+    if (!this.tierReb) return;
+    for (const r of this.tierReb) {
+      r.t -= dt;
+      if (r.t > 0 || r.b.dead) continue;
+      r.done = true;
+      const e = this.tierSpawnPart(r.b, r.sp);
+      this.flashMsg(`${r.b.name.split(' ')[0]} 的部位重建：${e.name}`, 0xff9040, 1.8);
+    }
+    this.tierReb = this.tierReb.filter((r) => !r.done && !r.b.dead);
+  },
+  // 客機的事件
+  tierClientEvent(e) {
+    if (e.t !== 'tzone') return false;
+    if (this.world) this.world.zone = e.z.slice();
+    return true;
+  },
   // ---------- HUD ----------
   // Boss 血條下的打斷量表與破綻（DOM）、Boss 頭上的量表（畫布）、自己的破甲充能、風格評價的傷害加成
   tierHud(c, p, W, H) {
@@ -169,6 +354,56 @@ Object.assign(Game.prototype, {
         c.fillText('打斷！', s.x, s.y - 68);
         c.restore();
       }
+    }
+    // 應對中的習慣（Boss 血條下）
+    const hb = document.getElementById('bossHabit');
+    if (hb) {
+      let bits = 0;
+      for (const b of bs) {
+        const x = b.tierView && b.tierView();
+        if (x) bits |= x.habits || 0;
+      }
+      const names = HABITS.filter((h, i) => bits & (1 << i)).map((h) => HABIT_NAMES[h]);
+      hb.style.display = names.length ? 'block' : 'none';
+      if (names.length) hb.textContent = 'BOSS 正在應對：' + names.join('、');
+    }
+    // 反擊點（自己的）：Boss 頭上的藍字
+    for (const b of bs) {
+      const x = b.tierView && b.tierView();
+      if (!x || !(x.cp > 0) || !p || x.cpBy !== p.id) continue;
+      const s = this.proj(b.center());
+      if (!s.in) continue;
+      c.save();
+      c.textAlign = 'center';
+      c.font = 'bold 14px Chakra Petch';
+      c.fillStyle = '#7fc8ff';
+      c.shadowColor = 'rgba(0,0,0,.9)';
+      c.shadowBlur = 6;
+      c.fillText(`反擊點 ${x.cp.toFixed(1)}s`, s.x, s.y - 20);
+      c.restore();
+    }
+    // 部位：刁鑽度 1～2 有黃色標記
+    if (this.tierFightTier() && this.tierFightTier() <= 2) {
+      c.save();
+      for (const e of this.enemies || []) {
+        if (e.dead || e.ai !== 'part' || e.opts.partKind !== 'bpart' || e.bossVis & 1) continue;
+        const s = this.proj(e.center());
+        if (!s.in) continue;
+        c.strokeStyle = '#ffe070';
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(s.x, s.y - 11);
+        c.lineTo(s.x + 11, s.y);
+        c.lineTo(s.x, s.y + 11);
+        c.lineTo(s.x - 11, s.y);
+        c.closePath();
+        c.stroke();
+        c.font = 'bold 11px Chakra Petch';
+        c.textAlign = 'center';
+        c.fillStyle = '#ffe070';
+        c.fillText(e.name, s.x, s.y - 16);
+      }
+      c.restore();
     }
     // 破甲充能（EN 條旁）
     const bk = document.getElementById('bkWrap');

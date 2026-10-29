@@ -88,8 +88,8 @@
 
 | 期 | 狀態 | commit | 備註 |
 |---|---|---|---|
-| 1 共用架構 | 完成 | （見 git log） | 見下方「第 1 期的實作」 |
-| 2 部位、打回去、應對、場地 | 未開始 | | |
+| 1 共用架構 | 完成 | ab0c28f | 見下方「第 1 期的實作」 |
+| 2 部位、打回去、應對、場地 | 完成 | （見 git log） | 見下方「第 2 期的實作」 |
 | 3 第 1、2 章的 Boss | 未開始 | | |
 | 4 第 3、4 章的 Boss | 未開始 | | |
 | 5 第 5、6 章的 Boss | 未開始 | | |
@@ -106,3 +106,12 @@
 - **L**：`tierHitMods` 依風格評價等級加成（本體與部位）；`syHurt` 在 Boss 戰中掉 `lDrop` 級、`syAdd` 重複的加分乘 `lRepeat`。
 - **O**：最後一個 Boss 的 `die` → `tierBossRank`（`bossRank`），橫幅與 `bossDown` 事件帶評價；擊破獎金乘 `tierBountyK`；結算畫面多一列「Boss 擊破評價」；主線評價 S＝`camp.bossS` → `campEnd` 多一個三選一（`modPickQ` 排在 `endPick` 之後；**只有單人與房主**，客機沒有）。
 - **還沒做（排在之後的期）**：J、M（反擊點的 `cpHitK` 已在 `tierGauge` 預留）、C、E、每隻 Boss 的 `intro` 多一句、`BOSS_KIT`、每隻的 `par`。
+
+### 第 2 期的實作
+
+- **每隻 Boss 的資料**：`src/data/boss-kit.js` 的 `BOSS_KIT[key]`（現在是空的，第 3～5 期逐隻補）＋`C_STAR`（刁鑽度 1～2 偵測的那一種習慣，已照設計文件的★填好）。`MechEntity.tierKit()` → `game.bossKit(key)`。欄位說明寫在檔頭（`parts`、`reflect`、`open2`／`open1`、`big`、`field`、`counter`、`star`、`habits`）。
+- **J 部位**：`tierSetupParts(b)`（spawnBossDef 的最後）補到 `jParts` 個；原本就有部位的 Boss（`J_KINDS`：砲台、引擎、發生器、腳部關節、懸吊砲塔、列車車廂；浮游砲整群算一個）只補不夠的。還沒有 `BOSS_KIT.parts` 的用 `GENERIC_PARTS`（左肩／右肩／背部，各停用 p1／p2／p3）。部位是 `partKind 'bpart'` 的實體（模型暫用腳部關節），`opts.off`＝Boss 座標的偏移（Boss 身高的倍數，+Z 往前，`partFollowOff`）、`opts.hpAbs`＝血量（Boss 的 `jHp`）；生成紀錄帶 `off`／`ha`。`tierExpose` 的部位在 Boss 沒蓄力、沒破綻時 `bossVis` 1（隱藏、`noLock`、打不到）。打壞：`onEnemyKilled` → `tierPartDown`（`bt.lost` 停用 `stops` 的招式、掉 `bossPart`、`tierPartsBroken` → 結算 `tierPartsK()`），刁鑽度 5 起 `tierReb` 重建（7～8 換招）。刁鑽度 1～2 的部位在 HUD 有黃色菱形與名稱。
+- **M**：Boss 與部位的 `foeShotOpt(dmg, kind)` → `tierShotOpt`（金色、`reflect`＝Boss id、`hitsNeed`；刁鑽度 5 起 35% 是紅色的假彈、不能打）。`damageProp`／`shotDamage` 多了第 5 個參數 `from`（射擊、雷射、近戰、投射物都有傳）；打掉時 `tierReflect` 生成一顆追著 Boss 的彈（最大 AP 1.5%、ACS 上限 60% 的衝擊）。刁鑽度 7～8 離 Boss 25 m×DS 以外打掉的，Boss 在快到時 `tierDodgeTick` 躲開。反擊點：`pqbCheck` → `from.tierCounterOn(玩家)` → `bt.cp`；那個玩家下一次打中＝傷害 ×2、打斷量表 ×2（`cpHitK`），HUD 是 Boss 頭上的藍字、Boss 身上的藍光。
+- **C**：`tierHabitTick`（在 `tierTick` 裡）每 0.25 秒取樣目標玩家：離地 4 m×DS、15 m×DS 內、60 m×DS 外、`losBlocked`；超過 `C_THR` 就應對 12 秒，期間每 4 秒 `tierCounterMove`（`BOSS_KIT.counter[習慣]` 或共用的：對空掃射、衝擊波、砲擊、曲射）。HUD `#bossHabit`。同步在 `bt` 的第 7 格（位元）。
+- **E**：`bossPhaseShift` → `tierFieldShift(b, ph)`（`BOSS_KIT.field[ph]` 是函式時用它）：有利＝3 道岩牆＋2 個彈藥箱；不利＝3 處燃燒地面＋（第三型態或刁鑽度 7～8）煙霧，7～8 的煙霧跟著 Boss（`bt.fzone`）；刁鑽度 5 起第二型態作戰區域縮到 75%（`world.zoneGoal`，客機收到 `tzone` 直接套用）。`tierFieldTick` 在 `bossTierTick` 裡（重建、移動的區域、`tickZone`）。
+- 測試：`testBossTier2`。

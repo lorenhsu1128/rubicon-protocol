@@ -727,7 +727,7 @@ export class MechEntity {
           'shell',
           Object.assign(
             { splash: d.splash * (pwfx && pwfx.splash ? pwfx.splash : 1) },
-            foeShot ? this.foeShotOpt(dmg) : {},
+            foeShot ? this.foeShotOpt(dmg, 'shell') : {},
           ),
         );
         g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
@@ -779,7 +779,7 @@ export class MechEntity {
               rb: rbT ? rbT.rb : 0,
               wpk,
               ...pwX,
-              ...(foeShot ? this.foeShotOpt(dmg) : {}),
+              ...(foeShot ? this.foeShotOpt(dmg, 'grenade') : {}),
             }),
           );
           g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
@@ -817,7 +817,7 @@ export class MechEntity {
                 wid: d.id,
                 rb: rbT ? rbT.rb : 0,
                 wpk,
-                ...(foeShot ? this.foeShotOpt(dmg) : {}),
+                ...(foeShot ? this.foeShotOpt(dmg, 'missile') : {}),
               }),
             );
           }
@@ -880,7 +880,7 @@ export class MechEntity {
           if (pf) {
             stop *= pf[1];
             const pt = muzzle.clone().addScaledVector(bdir, stop);
-            g.damageProp(pf[0], dmg * dtb, imp * dtb, pt);
+            g.damageProp(pf[0], dmg * dtb, imp * dtb, pt, this);
             if (Math.random() < dtb * 4) g.fx.spark(pt, d.color, bdir);
           }
           const targets = g.hostilesOf(this.team, this).concat(g.destructibles(this.team));
@@ -893,7 +893,7 @@ export class MechEntity {
             const perp = ap.clone().sub(bdir.clone().multiplyScalar(proj)).length();
             if (perp < t.radius + 0.8) {
               const pt = muzzle.clone().addScaledVector(bdir, proj);
-              if (t.isProp) g.damageProp(t, dmg * dtb, imp * dtb, pt);
+              if (t.isProp) g.damageProp(t, dmg * dtb, imp * dtb, pt, this);
               else {
                 t.empTickT = (t.empTickT || 0) + dtb;
                 if (t.empTickT >= 0.2) {
@@ -956,7 +956,7 @@ export class MechEntity {
           for (const h of hits) {
             const pt = muzzle.clone().addScaledVector(bdir, h.proj);
             const fall = Math.max(0.55, 1 - n * 0.15);
-            if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt);
+            if (h.t.isProp) g.damageProp(h.t, ldmg * fall, limp * fall, pt, this);
             else {
               h.t.rbGold = !!rbT; // 有加成的命中：金色的傷害數字
               h.t.wpAimK = wpk;
@@ -1359,6 +1359,7 @@ export class MechEntity {
     const g = this.game;
     this.pqbT = PQB_BUFF;
     this.pqbCD = 0.6;
+    if (from.tierCounterOn) from.tierCounterOn(this); // Boss 改版的 M：Boss 身上出現反擊點（mech-boss-tier.js）
     if (!g.net) g.fx.hitStop = Math.max(g.fx.hitStop, PQB_SLOW);
     this.tutE('pqb', {});
     if (this.isPlayer) g.pqbFx(this);
