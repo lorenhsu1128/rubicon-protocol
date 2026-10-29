@@ -188,14 +188,19 @@ function rigOf(root, torso, M, o) {
     mats: [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun],
     flashT: 0,
     mounts: o.mounts || [],
+    // 受損：AP ≤ 50% 時在機體上方冒煙（render/foe-damage.js；沒有自己指定時依外框取三個點）
+    dmg: o.dmg || autoSmoke(root),
     body: o.body || null,
     legNodes: o.legNodes || [],
     rotor: o.rotor || null,
     ...(o.extra || {}), // 各 Boss 自己會動的節點（mech-boss2.js 的 boss2Fx 使用）
   };
 }
+// 精細版（docs/model-detail.md）：頂點色烘焙與基本形體升級，以 Boss 的種類當快取鍵（buildBossModel 設定 CUR_KEY）
+let CUR_KEY = '';
+const BOSS_TINT = { ao: 0.8, grime: 0.25 };
 function finish(root, scale) {
-  bakeAll(root);
+  bakeAll(root, { tint: BOSS_TINT, cache: CUR_KEY ? 'boss:' + CUR_KEY : null, k: scale });
   root.scale.setScalar(scale);
   root.traverse((o) => {
     if (o.isMesh) o.castShadow = true;
@@ -203,6 +208,22 @@ function finish(root, scale) {
   tagStyle(root);
 }
 
+// 冒煙點：外框（模型座標，不含縮放）頂面附近的三個點
+function autoSmoke(root) {
+  const b = new THREE.Box3().setFromObject(root);
+  if (b.isEmpty()) return null;
+  const s = root.scale.x || 1;
+  const c = b.getCenter(new THREE.Vector3()).divideScalar(s),
+    z = b.getSize(new THREE.Vector3()).divideScalar(s);
+  const y = c.y + z.y * 0.35;
+  return {
+    smoke: [
+      [c.x, y, c.z],
+      [c.x - z.x * 0.25, y - z.y * 0.1, c.z + z.z * 0.2],
+      [c.x + z.x * 0.25, y - z.y * 0.15, c.z - z.z * 0.2],
+    ],
+  };
+}
 // 圓周上的擺放：角度 a、半徑 r、z；區域 +Y 朝外、區域 Z 沿機體軸
 const radial = (a, r, z) => [T(Math.cos(a) * r, Math.sin(a) * r, z), RZ(a - HP)];
 
@@ -3467,5 +3488,10 @@ const BUILDERS = {
 export const BOSS_MODEL_KEYS = Object.keys(BUILDERS);
 // o＝{ raw }：地圖專屬敵人的模型不先合併（RTS 渲染設定，render/foe-merge.js）
 export function buildBossModel(key, pal, scale = 1, o) {
-  return (BUILDERS[key] || buildJoint)(pal, scale, o);
+  CUR_KEY = BUILDERS[key] ? key : 'joint';
+  try {
+    return (BUILDERS[key] || buildJoint)(pal, scale, o);
+  } finally {
+    CUR_KEY = '';
+  }
 }

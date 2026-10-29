@@ -405,7 +405,7 @@ function bakeTint(root, opts) {
     root.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
     const all = [];
-    const sc = root.scale.x || 1;
+    const sc = opts.k || root.scale.x || 1; // 之後才縮放的模型（Boss）由呼叫端給倍率
     for (const n of nodes) {
       const nm = new THREE.Matrix4().multiplyMatrices(inv, n.matrixWorld);
       for (const p of n.userData.prims) {
