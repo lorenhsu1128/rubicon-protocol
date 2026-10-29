@@ -545,6 +545,220 @@ K2.orbital = {
   },
 };
 Object.assign(BOSS_KIT, K2);
+// ---------- 第 5、6 章的 Boss（第 5 期）----------
+const K3 = {};
+// AEGIS 護盾指揮艦
+K3.flagship = {
+  tip: 'AEGIS — 艦砲齊射之後、護盾發生器重建中是破綻；發生器全毀才打得動本體，艦砲可以打壞',
+  parts: [{ id: 'gun', name: '艦砲', off: [0, 0.85, 0.45], stops: ['p3'] }],
+  open2: ['p3', 'p2'],
+  open1: ['p3'],
+  big: [
+    ['護盾強化', (b) => b.b3Ring(30)],
+    ['艦砲連射', (b, pl) => b.b3Line(pl, 5, 4.5, 0.15)],
+  ],
+  reflect: ['missile', 'shell', 'grenade'],
+  field: {
+    2: (g, b, T) => {
+      g.tierShrinkZone(Math.min(T.eZone, 0.85));
+      g.tierPools(b, 2, 'player', 6);
+      g.flashAlert('戰場改變 — 甲板邊緣崩落');
+    },
+    3: (g, b, T) => {
+      g.tierSmoke(b, 18, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.7));
+    },
+  },
+  counter: {
+    air: (b, pl) => b.b3Fan(pl, 3, 0.15), // 防空砲
+    close: (b) => b.b3Shock(16), // 護盾衝擊
+    far: (b, pl) => b.b3Line(pl, 4, 5, 0.15), // 艦砲
+    cover: (b, pl) => b.b3Rain(pl, 5, 4, 0.25), // 曲射
+  },
+};
+// LEVIATHAN 空中要塞
+K3.fortress = {
+  tip: 'LEVIATHAN — 引擎全毀降下之後、全彈發射之後是破綻；四具引擎在時機身打不動，下方砲台壞了全彈發射變弱',
+  parts: [{ id: 'under', name: '下方砲台', off: [0, -0.05, 0], weak: ['p3'], back: false }],
+  open2: ['p3', 'p1'],
+  open1: ['p3'],
+  big: [
+    ['轟炸', (b, pl) => b.b3Line(pl, 6, 4, 0.12)],
+    ['飛彈雨', (b, pl) => b.b3Rain(pl, 9, 14, 0.2)],
+  ],
+  reflect: ['mortar', 'missile'],
+  field: {
+    2: (g, b) => g.tierPools(b, 4, 'player', 7),
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Volley(pl, 2, 0.15), // 機槍掃射
+    close: (b, pl) => b.b3Line(pl, 4, 3, 0.1), // 下方：轟炸
+    far: (b, pl) => b.b3Rain(pl, 6, 10, 0.2), // 飛彈雨
+    cover: (b, pl) => b.b3Line(pl, 5, 4, 0.1), // 轟炸掩體
+  },
+};
+// VIPER 高速突擊機
+K3.interceptor = {
+  tip: 'VIPER — 掃射後掉頭減速是破綻；左右機翼壞了掉頭更慢、機砲壞了掃射變短',
+  parts: [
+    { id: 'wing', name: '左右機翼', off: [0.5, 0.45, -0.1], flag: 'wing' },
+    { id: 'gun', name: '機砲', off: [0, 0.3, 0.55], flag: 'gun' },
+  ],
+  open2: ['p1', 'p3'],
+  open1: ['p1'],
+  big: [
+    ['進場掃射', (b, pl) => b.b3Line(pl, 6, 4, 0.08)],
+    ['音爆', (b) => b.b3Ring(32)],
+  ],
+  field: {
+    2: (g, b) => {
+      const pl = g.playersAlive()[0];
+      if (pl) b.b3Mines(pl, 6, 14, true);
+      g.flashAlert('戰場改變 — 空雷殘留區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Mines(pl, 4, 8, true), // 空雷
+    close: (b) => b.b3Ring(18), // 貼近時的音爆
+    far: (b, pl) => b.b3Line(pl, 5, 5, 0.08), // 遠距掃射
+    cover: (b, pl) => b.b3Line(pl, 4, 3, 0.1), // 俯衝轟炸
+  },
+};
+// IGUAZU & VOLTA 雙 AC 小隊
+K3.duo = {
+  tip: 'IGUAZU & VOLTA — 連攜齊射之後是破綻；一台被打出失衡時另一台會來救（救的路上是破綻），肩上武器可以打壞',
+  parts: [
+    {
+      id: 'ms',
+      name: 'IGUAZU 的肩上飛彈',
+      on: 'IGUAZU',
+      off: [0.42, 0.95, 0],
+      slots: ['rback'],
+      weak: ['p3'],
+    },
+    {
+      id: 'gr',
+      name: 'VOLTA 的肩上榴彈',
+      on: 'VOLTA',
+      off: [-0.42, 0.95, 0],
+      slots: ['lback', 'rback'],
+      weak: ['p3'],
+    },
+  ],
+  // 一台被打出失衡：另一台來救（救的路上是破綻）
+  onStag: (b) => {
+    const g = b.game;
+    for (const o of g.bosses || []) if (o !== b && !o.dead && o.bossOpen) o.bossOpen(2.5);
+  },
+  open2: ['p3', 'p2'],
+  open1: ['p3'],
+  big: [
+    ['夾擊', (b, pl) => b.b3Volley(pl, 2, 0.3)],
+    ['交叉火線', (b, pl) => b.b3Cross(pl)],
+  ],
+  reflect: ['missile', 'grenade'],
+  field: {
+    2: (g, b) => {
+      g.tierPools(b, 2, 'line', 6);
+      g.flashAlert('戰場改變 — 掩體被打碎');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Volley(pl, 2, 0.2), // 兩台同時對空
+    close: (b) => b.tierRush(), // 另一台從背後
+    far: (b) => b.tierRush(), // 一台突進一台狙擊
+    cover: (b, pl) => b.b3Rain(pl, 4, 4, 0.25), // 分頭包夾
+  },
+};
+// SERAPHIM 浮游砲指揮機
+K3.funnel = {
+  tip: 'SERAPHIM — 回收浮游砲充能時是破綻；浮游砲被 EMP 打中會墜毀，浮游砲艙壞了補充變少',
+  parts: [{ id: 'bay', name: '浮游砲艙', off: [0, 0.7, -0.45], flag: 'bay', back: true }],
+  open2: ['p1', 'p3'],
+  open1: ['p3'],
+  big: [
+    ['包圍', (b, pl) => b.b3Cage(pl, 4, 14)],
+    ['全方位開火', (b) => b.b3Ring(34)],
+  ],
+  field: {
+    2: (g, b) => {
+      g.tierPools(b, 3, 'player', 6);
+      g.flashAlert('戰場改變 — 浮游砲殘骸變成電擊區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Pillars(pl, 2, 4), // 浮游砲從上方
+    close: (b) => b.b3Shock(14), // 本體近身光劍
+    far: (b, pl) => b.b3Cage(pl, 3, 10), // 浮游砲追擊
+    cover: (b, pl) => b.b3Cage(pl, 3, 6), // 浮游砲繞到掩體後
+  },
+};
+// DOPPEL 複製 AC
+K3.mirror = {
+  tip: 'DOPPEL — 適應過載之後是破綻；它複製你的裝備：打壞的那一把武器不能用',
+  parts: [
+    { id: 'r', name: '右手武器', off: [0.42, 0.55, 0.15], slots: ['rarm'] },
+    { id: 'l', name: '左手武器', off: [-0.42, 0.55, 0.15], slots: ['larm'] },
+    { id: 'back', name: '肩上武器', off: [0, 0.95, -0.35], slots: ['rback', 'lback'], back: true },
+  ],
+  open2: ['p3', 'p1'],
+  open1: ['p3'],
+  big: [
+    ['照你的武器連射', (b, pl) => b.b3Volley(pl, 3, 0.3)],
+    ['適應裝甲強化', (b) => b.b3Shock(22)],
+  ],
+  reflect: ['missile'],
+  field: {
+    2: (g, b) => {
+      const pl = g.playersAlive()[0];
+      if (pl) b.b3Mines(pl, 6, 12);
+      g.flashAlert('戰場改變 — 布雷區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    // 複製你的習慣
+    air: (b, pl) => b.b3Fan(pl, 2, 0.12), // 跟著你飛
+    close: (b) => b.tierRush(), // 改用近戰
+    far: (b) => b.tierRush(), // 突進
+    cover: (b, pl) => b.b3Rain(pl, 4, 4, 0.25), // 繞到側面
+  },
+};
+// BALTEUS 自律型艦載機動兵器
+K3.BALTEUS = {
+  tip: 'BALTEUS — 脈衝裝甲被打破之後、導彈牆之後是破綻；飛彈莢艙壞了導彈牆變一半、火焰噴射器與脈衝裝甲發生器可以打壞',
+  parts: [
+    { id: 'pods', name: '左右飛彈莢艙', off: [0, 0.95, -0.1], slots: ['rback', 'lback'], weak: ['p3'] },
+    { id: 'flame', name: '火焰噴射器', off: [0.45, 0.5, 0.25], flag: 'flame' },
+    { id: 'pa', name: '脈衝裝甲發生器', off: [0, 0.7, -0.45], stops: ['p1'], back: true },
+  ],
+  open2: ['p3', 'p1'],
+  open1: ['p3'],
+  big: [
+    ['脈衝裝甲展開', (b) => (b.b3Ring(28), b.tierArmor(0.05, 10))],
+    ['脈衝爆發', (b) => b.b3Shock(26)],
+  ],
+  reflect: ['missile'],
+  field: {
+    2: (g, b) => g.tierPools(b, 4, 'player', 7),
+    3: (g, b, T) => {
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+      g.tierPools(b, 4, 'line', 6);
+      g.tierSmoke(b, 14, true); // 移動的燃燒帶（跟著 Boss）
+    },
+  },
+  counter: {
+    air: (b, pl) => b.b3Volley(pl, 2, 0.25, ['rback', 'lback']), // 導彈追擊
+    close: (b, pl) => (b.tierFlag('flame') ? b.b3Shock(12) : b.b3Pools(pl, 2, 4)), // 火焰噴射
+    far: (b) => b.tierRush(), // 突進
+    cover: (b, pl) => b.b3Rain(pl, 5, 4, 0.25), // 導彈從上方
+  },
+};
+Object.assign(BOSS_KIT, K3);
 
 export function bossKitOf(key) {
   return BOSS_KIT[key] || null;

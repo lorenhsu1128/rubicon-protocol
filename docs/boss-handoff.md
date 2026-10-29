@@ -91,8 +91,8 @@
 | 1 共用架構 | 完成 | ab0c28f | 見下方「第 1 期的實作」 |
 | 2 部位、打回去、應對、場地 | 完成 | ecef294 | 見下方「第 2 期的實作」 |
 | 3 第 1、2 章的 Boss | 完成 | 1ba92c8 | 見下方「第 3 期的實作」 |
-| 4 第 3、4 章的 Boss | 完成 | （見 git log） | 見下方「第 4 期的實作」 |
-| 5 第 5、6 章的 Boss | 未開始 | | |
+| 4 第 3、4 章的 Boss | 完成 | 09d3d82 | 見下方「第 4 期的實作」 |
+| 5 第 5、6 章的 Boss | 完成 | （見 git log） | 見下方「第 5 期的實作」 |
 | 6 收尾 | 未開始 | | |
 
 ### 第 1 期的實作（接手的人先看）
@@ -132,3 +132,10 @@
 - 接到 AI 的機能：ARACHNE 倒下與跳躍落地＝破綻、背部砲塔 `mines`（`b3Mines` 都看這個旗標）；NULLIFIER 的 `coil`（EMP 範圍 20 → 12）／`anchor`（沒有牽引）、EMP 放完＝破綻；JUDGEMENT 的 `antenna`（光柱追得慢）／`relay`（沒有格子砲擊）；MIRAGE 的 `cloak`（迷彩時間 ×0.55）／`holo`（分身最多 1 台）、現形開火結束＝破綻；PULSAR 的 `wingL`／`wingR`（各少一種招式）／`ring`（能量環變慢），能量環被 QB 的無敵時間穿過＝反擊點（`bosses2.js` 的能量環判定）；CERBERUS 分離的瞬間＝破綻，`alpha`／`beta`／`gamma` 讓分離後那一台變弱（武器 `tierOff`、`repairOff`）。
 - `canCharge`：ARACHNE 要在地上、CERBERUS 分離中（本體藏起來）不蓄力。
 - 測試：`testBossKit34`。另外修正 testBosses 的 NULLIFIER 牽引檢查（玩家放在距離下限上，時有時無）。
+
+### 第 5 期的實作
+
+- `BOSS_KIT` 加上 flagship、fortress、interceptor、duo、funnel、mirror、BALTEUS（`K3`），22 隻都有了。新的欄位：部位的 `on`（雙 AC：名稱開頭符合的那一台才有這個部位）、`kit.onStag(b)`（Boss 被 ACS 打出失衡時；雙 AC＝另一台 2.5 秒破綻）。
+- 接到 AI 的機能：AEGIS 發生器重建中＝破綻；LEVIATHAN 引擎全毀降下＝6 秒破綻、下方砲台 `weak`（全彈發射減半）；VIPER 的 `wing`（掉頭 2.6 → 4 秒）／`gun`（掃射 3.2 → 1.8 秒）；SERAPHIM 的 `bay`（浮游砲少 3 座）；BALTEUS 的脈衝裝甲（第一型態的大招 `tierArmor(比例, 秒)`：打破之前只有 30% 打得進去，打破＝破綻；`bossDefense` 的 `tierArmorK`）。
+- 周目與殘響 Boss：`testCycle3` 檢查殘響 Boss 是 8、同一區段不殘響化時是章 +2（第 3 周目）。
+- 測試：`testBossKit56`；`testBossKit` 的打斷在本體被護盾或裝甲擋住時改打部位（部位的傷害也算進量表）。

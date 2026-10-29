@@ -271,7 +271,7 @@ Object.assign(MechEntity.prototype, {
     if (s.fm === 'wait') {
       s.fmT -= dt;
       if (s.fmT <= 0 && this.canAct()) {
-        const n = p2 ? 8 : 6;
+        const n = (p2 ? 8 : 6) - (this.tierFlag('bay') ? 3 : 0); // Boss 改版：浮游砲艙壞了補充變少
         for (let i = bits.length; i < n; i++) g.spawnPart(this, 'bit', { at: this.center() });
         this.partsOf('bit').forEach((b, i, all) => {
           b.aiState.slot = i;
@@ -989,7 +989,7 @@ Object.assign(MechEntity.prototype, {
         k = 3;
         if ((s.vmT -= dt) <= 0) {
           s.vm = 'run';
-          s.vmT = 3.2;
+          s.vmT = this.tierFlag('gun') ? 1.8 : 3.2; // Boss 改版：機砲壞了掃射變短
           s.boomed = new Set();
           s.v.copy(s.runDir).multiplyScalar(40 * DS);
         }
@@ -1055,7 +1055,7 @@ Object.assign(MechEntity.prototype, {
           this.pos.x * s.runDir.x + this.pos.z * s.runDir.z > 0;
         if (past > 50 * DS || leaving || (s.vmT -= dt) <= 0) {
           s.vm = 'turn';
-          s.vmT = 2.6;
+          s.vmT = this.tierFlag('wing') ? 4 : 2.6; // Boss 改版：機翼壞了掉頭更慢（破綻更長）
         }
         break;
       }

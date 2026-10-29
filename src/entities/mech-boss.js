@@ -426,6 +426,7 @@ Object.assign(MechEntity.prototype, {
       this.hoverH = 10 * DS;
       this.speedMul *= 0.7;
       g.msgAll('引擎全毀 — 空中要塞高度下降！', 0xffb020);
+      this.bossOpen(6); // Boss 改版：降下之後＝破綻
     }
     // 繞著目標慢慢盤旋
     wish.copy(perp).multiplyScalar(0.8);
@@ -493,6 +494,7 @@ Object.assign(MechEntity.prototype, {
         g.msgAll('護盾發生器全毀 — 指揮艦護盾解除（25 秒後重建）', 0x7ee081);
       }
       s.rebuildT -= dt;
+      this.bossOpen(0.25, true); // Boss 改版：發生器重建中＝破綻
       if (s.rebuildT <= 0) {
         s.rebuildT = 0;
         g.spawnPylons(this);
@@ -672,7 +674,7 @@ Object.assign(MechEntity.prototype, {
     this.tkArmor = k; // 這隻自己的裝甲倍率（打斷量表以裝甲之前的傷害計算，mech-boss-tier.js）
     // Boss 改版的 D：本體平時減傷、破綻時加倍；蓄力的護盾擋住一側（mech-boss-tier.js）
     if (this.isBoss && this.tierOn()) {
-      const kg = this.tierGuardK(from, at);
+      const kg = this.tierGuardK(from, at) * this.tierArmorK(dmg * k, at); // 蓄力的護盾、脈衝裝甲
       return [dmg * k * this.tierDmgK() * kg, impact * k * kg]; // 破綻只改傷害（ACS 由 A 處理）
     }
     return [dmg * k, impact * k];

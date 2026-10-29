@@ -11098,6 +11098,12 @@ async function testBossKit(browser, base, list, label) {
           if (ch) {
             b.iFrames = 0;
             b.takeDamage(b.maxHp * 0.2, 0, pl, b.center());
+            // 本體被護盾或裝甲擋住時（發生器、引擎在）：打部位也算進打斷量表
+            for (const p of g.enemies.filter((e) => !e.dead && e.opts.parent === b.id))
+              if (b.bt.ch) {
+                p.iFrames = 0;
+                p.takeDamage(b.maxHp * 0.2, 0, pl, p.center());
+              }
           }
           out.ints.push(name && !b.bt.ch && b.staggerT >= 4 ? name : '×');
         }
@@ -11578,6 +11584,8 @@ async function testCycle3(browser, base) {
         p2: !!(b && b.forceP2 && b.phase2()),
         en: b && b.res ? b.res[2] : null,
         echo: !!(g.bossDef && g.bossDef.echo),
+        tier: b ? b.opts.tier : 0, // Boss 改版的刁鑽度：殘響 Boss 固定 8
+        ch: g.campSortie().chapter,
       };
       g.campEnd(false, true);
       // 同一個區段不殘響化時的能量減傷（原版 Boss 的 res）：殘響化＝原版 +0.2（上限 0.6）
@@ -11594,6 +11602,7 @@ async function testCycle3(browser, base) {
       }
       const b0 = g.bosses[0];
       o.en0 = b0 && b0.res ? b0.res[2] : 0;
+      o.tier0 = b0 ? b0.opts.tier : 0; // 不殘響化：章＋周目（第 3 周目 +2）
       out.push(o);
       g.campEnd(false, true);
       g.state = 'play';
@@ -11606,6 +11615,12 @@ async function testCycle3(browser, base) {
       'ECHO-BASTILLE,ECHO-HALBERD,ECHO-MIRAGE,ECHO-JUDGEMENT,ECHO-AEGIS,ECHO-DOPPEL' &&
       bs.every((b) => b.p2 && b.echo && Math.abs(b.en - Math.min(0.6, b.en0 + 0.2)) < 1e-6),
     '殘響化的 Boss：名稱、第二型態開始、能量減傷比原版多 0.2（' + JSON.stringify(bs) + '）',
+  );
+  check(
+    bs.every((b) => b.tier === 8 && b.tier0 === Math.min(8, b.ch + 2)),
+    'Boss 改版的刁鑽度：殘響 Boss 固定 8、第 3 周目的 Boss＝章 +2（' +
+      bs.map((b) => `${b.name}:${b.tier}/${b.tier0}`).join('、') +
+      '）',
   );
   // 完成 → 回收記憶片段 → ECHO 的紀錄
   const mem = await page.evaluate(() => {
@@ -19408,6 +19423,24 @@ const STEPS = [
           [25, 'judgement'],
         ],
         '第 3、4 章',
+      ),
+  ],
+  [
+    'testBossKit56',
+    (c) =>
+      testBossKit(
+        c.browser,
+        c.base,
+        [
+          [6, 'aegis'],
+          [33, 'leviathan'],
+          [7, 'viper'],
+          [21, 'duo'],
+          [13, 'seraphim'],
+          [4, 'doppel'],
+          [27, 'balteus'],
+        ],
+        '第 5、6 章',
       ),
   ],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],

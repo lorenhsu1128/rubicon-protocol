@@ -160,7 +160,8 @@ Object.assign(Game.prototype, {
         .map((p) => (CARS_J.has(p.opts.partKind) ? 'car' : p.opts.partKind)),
     );
     const have = kinds.size + (b.opts.bossKind === 'funnel' ? 1 : 0);
-    const list = (kit.parts || GENERIC_PARTS).slice(0, Math.max(0, T.jParts - have));
+    const mine = (kit.parts || GENERIC_PARTS).filter((sp) => !sp.on || String(b.name).startsWith(sp.on)); // 雙 AC：各自的部位
+    const list = mine.slice(0, Math.max(0, T.jParts - have));
     list.forEach((sp, i) => {
       const s = { ...sp };
       // 刁鑽度 3 起：其中 1 個在背後或底下；5 起：最後一個只在出招時露出

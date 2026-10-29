@@ -157,6 +157,8 @@ Object.assign(MechEntity.prototype, {
     const s = this.tierState();
     const t = aStagT(this.bossTier(), s.stagN, base);
     s.stagN++;
+    const kit = this.tierKit();
+    if (kit.onStag) kit.onStag(this); // 這隻自己的（雙 AC：另一台來救＝破綻）
     return t;
   },
   // 換型態：重置（bosses.js 的 bossPhaseShift）
@@ -239,6 +241,7 @@ Object.assign(MechEntity.prototype, {
     if (s.openT > 0) s.openT -= dt;
     if (s.fake > 0) s.fake -= dt;
     if (s.halfT > 0) s.halfT -= dt;
+    if (s.pa && (s.pa.t -= dt) <= 0) s.pa = null; // 脈衝裝甲到時間消失
     if (this.boss2Open && this.boss2Open()) this.bossOpen(0.25, true); // 原本就有的弱點時機＝破綻
     if (s.cp && (s.cp.t -= dt) <= 0) s.cp = null; // 反擊點（M）
     this.tierHabitTick(dt, pl); // 應對玩家的習慣（C）
@@ -372,6 +375,29 @@ Object.assign(MechEntity.prototype, {
     if (to.normalize().dot(s.ch.face) < 0.5) return 1;
     if (at && Math.random() < 0.4) this.game.fx.spark(at, 0x80c8ff);
     return 0.25;
+  },
+  // 脈衝裝甲（BALTEUS 的大招）：frac＝裝甲量（最大 AP 比例），sec 秒；打破之前傷害只有 30% 打得進去
+  tierArmor(frac, sec) {
+    const s = this.tierState();
+    s.pa = { hp: this.maxHp * frac, t: sec };
+    this.game.flashMsg(`${this.name.split(' ')[0]} 展開脈衝裝甲 — 打破它！`, 0x60e0ff, 1.8);
+  },
+  // bossDefense：脈衝裝甲吸收（回傳打得進去的倍率）
+  tierArmorK(dmg, at) {
+    const s = this.bt;
+    if (!s || !s.pa) return 1;
+    s.pa.hp -= dmg * 0.7;
+    if (at && Math.random() < 0.4) this.game.fx.spark(at, 0x60e0ff);
+    if (s.pa.hp > 0) return 0.3;
+    // 打破：破綻
+    s.pa = null;
+    const g = this.game,
+      c = this.center();
+    g.popDamage(c.clone().setY(c.y + 3 * DS), '脈衝裝甲破壞', false, true, false, 0, this.id);
+    g.fx.shockwave(c, 9 * (this.scale || 1), 0x60e0ff, 0.5);
+    SFX.stagger(c);
+    this.bossOpen();
+    return 0.3;
   },
   // 只斷一次的大招：傷害減半（b3Dm）
   tierHalfK() {
