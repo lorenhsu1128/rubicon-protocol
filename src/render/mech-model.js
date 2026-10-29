@@ -2407,6 +2407,38 @@ const BLADE_GRIP = 1.45;
 const BLADE_REST = [-0.35, 0.55]; // 平時的手腕（刀：刀尖往前上方、大劍：往後倒在肩上）
 const SPIN_MAX = 32; // 槍管全速（rad/s）
 const WK_GUN = (st, k) => !!(st.wk && st.wk[k]);
+// 載具的動作（docs/model-detail.md）：依車身前後方向的移動距離轉車輪（rig.wheels：[{ o, r }]）、捲動履帶的貼圖
+// （rig.treads：貼圖）、車身（rig.susp）依加減速前後傾與行駛中的起伏。只改外觀，各端各自算
+const _vf = new THREE.Vector3();
+function vehicleRoll(m, dt) {
+  const g = m.group;
+  const p = g.position;
+  const V = m.vr || (m.vr = { lp: p.clone(), sp: 0, ac: 0, ph: 0 });
+  const dx = p.x - V.lp.x,
+    dz = p.z - V.lp.z;
+  V.lp.copy(p);
+  let d = 0;
+  if (dx * dx + dz * dz < 36) {
+    // 車身的前方（−Z）：legsG 的世界矩陣（上一格的）
+    const e = (m.legsG || g).matrixWorld.elements;
+    _vf.set(-e[8], 0, -e[10]);
+    const L = _vf.length();
+    if (L > 1e-6) d = (dx * _vf.x + dz * _vf.z) / L;
+  }
+  if (m.wheels) for (const w of m.wheels) w.o.rotation.x -= d / w.r;
+  if (m.treads) for (const t of m.treads) t.offset.x = (t.offset.x + d * t.repeat.x) % 1;
+  if (m.susp && dt > 0) {
+    const v = d / dt;
+    const k = Math.min(1, dt * 6);
+    V.ac += ((v - V.sp) / dt - V.ac) * k;
+    V.sp = v;
+    V.ph += d * 2.2;
+    const run = Math.min(1, Math.abs(v) / 6);
+    const pitch = Math.max(-0.035, Math.min(0.035, V.ac * 0.004));
+    m.susp.rotation.x += (pitch - m.susp.rotation.x) * k;
+    m.susp.position.y = Math.sin(V.ph) * 0.012 * run;
+  }
+}
 const NO_WK = {},
   NO_LR = { l: 0, r: 0 };
 export function animateMech(m, dt, st) {
@@ -2417,6 +2449,7 @@ export function animateMech(m, dt, st) {
     if (m.rotor) {
       m.rotor.rotation.y += dt * 28;
     }
+    if (m.wheels || m.treads || m.susp) vehicleRoll(m, dt);
     if (m.tail) m.tail.rotation.x += dt * 40;
     for (const n of m.nozzles) {
       n.scale.y = lerp(n.scale.y, 1.2 + Math.random() * 0.5, 0.4);

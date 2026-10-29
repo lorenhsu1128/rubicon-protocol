@@ -286,6 +286,7 @@ async function main() {
   // 冒煙測試用：網址帶 ?test 時讓測試取得編輯器（算控制點在畫面上的位置）與檢視窗（固定視角截圖）
   if (/[?&]test\b/.test(location.search)) window.__glbEditor = editor;
   if (/[?&]test\b/.test(location.search)) window.__inspect = inspector;
+  if (/[?&]test\b/.test(location.search)) window.__catalog = MODEL_CATALOG; // scripts/model-bench.js
   workshop = new Workshop({
     store,
     toast,

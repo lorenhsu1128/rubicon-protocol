@@ -2,6 +2,7 @@
 import { BlobShadows } from '../fx/batch.js';
 import { RTS_LAZY, rtsMergeNow } from '../render/rts-merge.js';
 import { makeStudioEnv } from '../render/environment.js';
+import { fineTick } from '../render/detail.js';
 import { StylePipeline, manualShadows } from '../render/style/pipeline.js';
 import { installStyleShader } from '../render/style/shader.js';
 import { StyleStore } from '../render/style/store.js';
@@ -81,6 +82,7 @@ Object.assign(Game.prototype, {
     const t = performance.now() / 1000;
     if (this.fx) this.fx.flush(); // 粒子批次：fx.update 之後才產生的粒子也寫進去（fx/batch.js）
     if (this.rtsR) this.rtsRenderTick();
+    fineTick(this.camera, this.rtsR ? 0.6 : 1); // 小細節的距離分級（render/detail.js）
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
     if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);

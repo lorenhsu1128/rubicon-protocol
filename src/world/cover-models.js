@@ -15,6 +15,8 @@ import {
   railing,
   windowRows,
 } from './prop-models.js';
+import { D } from '../render/detail.js';
+import { vLamp, vMirror, vWheel } from '../render/vehicle-kit.js';
 
 // ---------- 防爆 T 型牆（低掩體，成排）：每片寬 1.52、高 3.66 m，底座深 1.2 m；n 片沿 X 排成一列 ----------
 export const TWALL = { w: 1.52, h: 3.66, d: 1.2 };
@@ -223,35 +225,86 @@ export function buildCar(color) {
   const glb = propGlb('car', { color, ref: CAR, size: CAR });
   if (glb) return glb;
   const body = mat(color, { roughness: 0.4, metalness: 0.5 }),
-    D = DETAIL;
-  const k = new PK().bounds(-0.9, 0, -2.25, 0.9, 1.5, 2.25);
-  k.cb(body, 1.78, 0.65, 4.4, 0, 0.62, 0, 0, 0, 0, 0.12);
-  k.prism(
-    body,
-    [
-      [-1.2, 0.95],
-      [-0.55, 1.45],
-      [0.9, 1.45],
-      [1.35, 0.95],
-    ],
-    1.62,
-    0,
-    0,
-    0,
-    0,
-    Math.PI / 2,
-    0,
-  );
-  k.box(D.glass, 1.64, 0.4, 0.05, 0, 1.2, -0.95, -0.66, 0, 0);
-  for (const s of [-1, 1]) k.box(D.glass, 0.04, 0.38, 1.7, s * 0.82, 1.2, 0.15);
-  for (const sx of [-0.78, 0.78])
-    for (const sz of [-1.4, 1.4]) k.cyl(D.rubber, 0.33, 0.33, 0.22, sx, 0.33, sz, 0, 0, Math.PI / 2, 10);
-  for (const sx of [-0.6, 0.6]) {
-    k.box(D.lamp, 0.35, 0.12, 0.04, sx, 0.75, -2.22);
-    k.box(D.red, 0.3, 0.1, 0.04, sx, 0.8, 2.22);
+    Dt = DETAIL,
+    M = vkMats();
+  const k = new PK().bounds(-0.9, 0, -2.25, 0.9, 1.5, 2.25).tint(VEH_TINT);
+  const HP = Math.PI / 2;
+  // 車身側面的輪廓（u＝往前、y），沿 X 擠出；輪拱是往上的半圓缺口
+  const arch = (uc, r, yc) => {
+    const pts = [];
+    for (let i = 0; i <= 8; i++) {
+      const a = Math.PI - (i / 8) * Math.PI;
+      pts.push([uc + Math.cos(a) * r, yc + Math.sin(a) * r]);
+    }
+    return pts;
+  };
+  const lower = [
+    [-2.2, 0.3],
+    ...arch(-1.4, 0.42, 0.33),
+    ...arch(1.4, 0.42, 0.33),
+    [2.2, 0.3],
+    [2.27, 0.45],
+    [2.25, 0.68],
+    [2.08, 0.84],
+    [1.2, 0.95],
+    [-1.9, 0.98],
+    [-2.22, 0.9],
+    [-2.27, 0.6],
+  ];
+  k.geo(body, D.extrude(lower, 1.78, 0.05), 0, 0, 0, 0, HP, 0);
+  const cabin = [
+    [-1.72, 0.94],
+    [1.08, 0.94],
+    [0.35, 1.47],
+    [-1.15, 1.5],
+    [-1.74, 1.04],
+  ];
+  k.geo(body, D.extrude(cabin, 1.5, 0.06), 0, 0, 0, 0, HP, 0);
+  // 玻璃：擋風、後窗、側窗
+  k.box(Dt.glass, 1.36, 0.03, 0.84, 0, 1.268, -0.765, -0.62, 0, 0);
+  k.box(Dt.glass, 1.34, 0.03, 0.7, 0, 1.33, 1.495, 0.66, 0, 0);
+  const win = [
+    [-1.52, 1.0],
+    [0.95, 1.0],
+    [0.36, 1.41],
+    [-1.1, 1.44],
+    [-1.52, 1.07],
+  ];
+  for (const s2 of [-1, 1]) {
+    k.geo(Dt.glass, D.extrude(win, 0.02), s2 * 0.758, 0, 0, 0, HP, 0);
+    k.box(body, 0.03, 0.46, 0.1, s2 * 0.772, 1.21, 0.3); // B 柱
   }
+  // 保險桿、水箱護罩、底盤
+  k.cb(Dt.dark, 1.82, 0.22, 0.2, 0, 0.42, -2.2, 0, 0, 0, 0.06);
+  k.cb(Dt.dark, 1.82, 0.22, 0.2, 0, 0.42, 2.2, 0, 0, 0, 0.06);
+  k.cb(Dt.black, 0.9, 0.2, 0.04, 0, 0.64, -2.25, 0, 0, 0, 0.02);
+  k.box(Dt.dark, 1.5, 0.14, 3.4, 0, 0.28, 0);
+  // 燈
+  for (const sx of [-1, 1]) {
+    vLamp(k, M, Dt.lamp, sx * 0.64, 0.7, -2.21, 0.34, 0.13);
+    vLamp(k, M, Dt.red, sx * 0.66, 0.8, 2.25, 0.3, 0.12, Math.PI);
+    vMirror(k, M, sx * 0.78, 1.04, -0.92, sx, 0.12);
+    // 車輪
+    for (const sz of [-1.4, 1.4]) vWheel(k, M, sx * 0.78, 0.33, sz, 0.33, 0.22, { lugs: 24, depth: 0.012 });
+  }
+  // 小細節：門縫、把手、車牌、護罩的橫條、排氣管
+  k.fine(() => {
+    for (const sx of [-1, 1]) {
+      for (const z of [-0.88, 0.3, 1.35]) k.box(Dt.black, 0.01, 0.52, 0.015, sx * 0.9, 0.68, z);
+      for (const z of [-0.15, 1.0]) k.box(Dt.steel, 0.025, 0.035, 0.16, sx * 0.9, 0.86, z);
+    }
+    for (const z of [-2.3, 2.31]) k.box(Dt.white, 0.5, 0.12, 0.015, 0, 0.45, z);
+    for (const y of [0.6, 0.66, 0.72]) k.box(Dt.steel, 0.84, 0.015, 0.02, 0, y, -2.27);
+    k.cyl(Dt.steel, 0.035, 0.035, 0.25, 0.5, 0.26, 2.2, HP, 0, 0, 8);
+  });
   return k.build();
 }
+// 地圖物件的車輛零件用的材質（render/vehicle-kit.js 的 M）
+function vkMats() {
+  const Dt = DETAIL;
+  return { joint: Dt.dark, rubber: Dt.rubber, gun: Dt.steel, lens: Dt.glass, sub: Dt.dark, main3: Dt.dark };
+}
+const VEH_TINT = { ao: 0.85, grime: 0.32, gh: 0.9 };
 // 公車 12 × 3.2 × 2.5 m（長沿 Z、車頭朝 −Z）
 export const BUS = [2.5, 3.2, 12];
 export function buildBus(color) {

@@ -3,13 +3,18 @@
 //   戰車 hull 車身（地面中心）／turret 砲塔含砲管（砲塔旋轉中心）
 //   直升機 body 機身（機身傾斜中心）／rotor 主旋翼（旋翼軸心）／tail 尾旋翼（尾旋翼軸心）
 //   無人機整塊（vehicle/<key>，機身中心）
-import { CB, OUTLINE_MAT, P, bakeAll, decal, gBox, gCyl, gPlate, gPod, gSph, kitBolts } from './geometry.js';
+import { CB, OUTLINE_MAT, P, bakeAll, decal, fine, gBox, gCyl, gPod, gSph, kitBolts } from './geometry.js';
+import { D } from './detail.js';
 import { PB, beam, plate, rod, side, slats, top, track } from './foe-models.js';
 import { matsOf } from './glb.js';
 import { mechMats } from './materials.js';
 import { providedModel } from './model-provider.js';
 import { tagStyle } from './style/shader.js';
+import { vAntenna, vExhaust, vHatch, vJerry, vLamp, vLight, vRotorDisc, vTrack } from './vehicle-kit.js';
 
+const HP2 = Math.PI / 2;
+// 載具的頂點色烘焙（render/detail.js）：遮蔽與貼地的髒污比預設強一點
+const VEH_TINT = { ao: 0.85, grime: 0.32, gh: 1.1 };
 export const VEHICLE_PIECES = {
   tank: ['hull', 'turret'],
   heli: ['body', 'rotor', 'tail'],
@@ -47,12 +52,14 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
   const root = new THREE.Group();
   const legsG = new THREE.Group();
   root.add(legsG);
+  const hull = new THREE.Group(); // 車身（懸吊：依加減速前後傾與起伏，rig.susp）；履帶與車輪留在 legsG
+  legsG.add(hull);
   const torso = new THREE.Group();
   root.add(torso);
   const red = new THREE.MeshStandardMaterial({ color: 0xff3a2a, emissive: 0xff2a1a, emissiveIntensity: 1.2 });
   // ===== 車身：上下兩道斜板的楔形車體＋引擎甲板 =====
   side(
-    legsG,
+    hull,
     M.main2,
     [
       [-2.0, 0.95],
@@ -68,23 +75,38 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
     0.08,
   );
   // 砲塔座圈、引擎甲板的格柵、後面的排氣柵
-  P(legsG, gCyl(0.88, 0.92, 0.18, 12), M.main, 0, 1.71, 0.1);
-  CB(legsG, 1.8, 0.1, 0.9, M.main, 0, 1.64, 1.35, 0, 0, 0, 0.03);
-  for (let i = 0; i < 5; i++) P(legsG, gBox(1.5, 0.04, 0.07), M.joint, 0, 1.7, 1.03 + i * 0.16);
-  slats(legsG, M.joint, 0, 1.38, 1.94, 1.6, 4, 0.12);
+  P(hull, gCyl(0.88, 0.92, 0.18, 12), M.main, 0, 1.71, 0.1);
+  CB(hull, 1.8, 0.1, 0.9, M.main, 0, 1.64, 1.35, 0, 0, 0, 0.03);
+  for (let i = 0; i < 5; i++) P(hull, gBox(1.5, 0.04, 0.07), M.joint, 0, 1.7, 1.03 + i * 0.16);
+  slats(hull, M.joint, 0, 1.38, 1.94, 1.6, 4, 0.12);
   // 正面：頭燈、拖鉤、備用履帶片
+  const lamp = new THREE.MeshStandardMaterial({
+    color: 0xfff2d0,
+    emissive: 0xffd890,
+    emissiveIntensity: 0.9,
+  });
   for (const s of [-1, 1]) {
-    P(legsG, gCyl(0.09, 0.1, 0.12, 8), M.joint, s * 0.85, 1.12, -1.75, -0.5);
-    P(legsG, gCyl(0.07, 0.07, 0.04, 8), M.lens, s * 0.85, 1.15, -1.82, -0.5);
-    P(legsG, gBox(0.14, 0.16, 0.24), M.joint, s * 0.6, 0.62, -1.8);
+    vLight(hull, M, lamp, s * 0.85, 1.16, -1.8, 0.1);
+    // 拖鉤：底座＋鉤環
+    P(hull, gBox(0.18, 0.18, 0.2), M.joint, s * 0.6, 0.64, -1.8);
+    fine(() => P(hull, D.cyl(0.07, 0.07, 0.05, 10), M.gun, s * 0.6, 0.64, -1.93, HP2));
   }
-  for (let i = 0; i < 4; i++) P(legsG, gBox(0.32, 0.05, 0.2), M.rubber, -0.5 + i * 0.34, 1.48, -1.17, -0.55);
-  decal(legsG, 1, 0.5, 0.5, 0.75, 1.19, -1.626, 1.02, Math.PI, 0);
+  for (let i = 0; i < 4; i++) P(hull, gBox(0.32, 0.05, 0.2), M.rubber, -0.5 + i * 0.34, 1.48, -1.17, -0.55);
+  decal(hull, 1, 0.5, 0.5, 0.75, 1.19, -1.626, 1.02, Math.PI, 0);
   // ===== 履帶：負重輪、驅動輪、側裙、擋泥板、收納箱 =====
+  const wheels = [],
+    treads = [],
+    skirts = [];
   for (const s of [-1, 1]) {
-    track(legsG, M, s * 1.6, 0, 4.1, 1.0, 0.8, 5, M.sub);
+    const T = vTrack(legsG, M, s * 1.6, 0, 4.1, 1.0, 0.8, 5);
+    wheels.push(...T.wheels);
+    treads.push(T.mat.map);
+    // 側裙（獨立的群組：AP 低時脫落，rig.dmg.plates）
+    const sk = new THREE.Group();
+    hull.add(sk);
+    skirts.push(sk);
     side(
-      legsG,
+      sk,
       M.main3,
       [
         [-2.12, 1.0],
@@ -98,8 +120,17 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
       s * 2.04,
       0.02,
     );
+    // 側裙的接縫與螺栓
+    fine(() => {
+      for (let i = 0; i < 7; i++) {
+        const z = -1.8 + i * 0.6;
+        P(sk, gBox(0.02, 0.44, 0.035), M.joint, s * 2.085, 0.86, z);
+        for (const y of [0.7, 1.02])
+          P(sk, gCyl(0.025, 0.025, 0.02, 6), M.joint, s * 2.09, y, z + 0.06, 0, 0, HP2);
+      }
+    });
     top(
-      legsG,
+      hull,
       M.main2,
       [
         [s * 1.18, -2.0],
@@ -110,11 +141,11 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
       0.05,
       1.12,
     );
-    P(legsG, gBox(0.06, 0.06, 3.9), M.acc, s * 2.08, 1.05, 0);
-    CB(legsG, 0.6, 0.28, 0.9, M.sub, s * 1.62, 1.28, 1.2, 0, 0, 0, 0.04);
-    decal(legsG, 2, 0.6, 0.3, s * 2.085, 0.86, 0.9, 0, (s * Math.PI) / 2, 0);
+    P(hull, gBox(0.06, 0.06, 3.9), M.acc, s * 2.08, 1.05, 0);
+    CB(hull, 0.6, 0.28, 0.9, M.sub, s * 1.62, 1.28, 1.2, 0, 0, 0, 0.04);
+    decal(hull, 2, 0.6, 0.3, s * 2.085, 0.86, 0.9, 0, (s * Math.PI) / 2, 0);
   }
-  kitBolts(legsG, M, [
+  kitBolts(hull, M, [
     [0.8, 1.5, -1.3, 0],
     [-0.8, 1.5, -1.3, 0],
   ]);
@@ -191,11 +222,12 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
   for (const x of [-0.08, 0.08]) P(back, gCyl(0.06, 0.06, 0.04, 8), M.joint, x, -0.05, -0.45, Math.PI / 2);
   P(back, gCyl(0.06, 0.06, 0.9, 6), M.sub, 0, 0.05, -0.8, Math.PI / 2);
   P(back, gBox(0.1, 0.1, 0.3), M.joint, 0, -0.18, 0.2);
-  tankDetail(legsG, torso, M, red);
+  const tankDmg = tankDetail(hull, torso, M, red, lamp);
+  tankDmg.plates.push(skirts[0]);
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun];
-  swapPiece(`vehicle/${key}/hull`, pal, [legsG], mats);
+  swapPiece(`vehicle/${key}/hull`, pal, [legsG, hull, ...wheels.map((w) => w.o)], mats);
   swapPiece(`vehicle/${key}/turret`, pal, [torso, hand, back], mats);
-  bakeAll(root);
+  bakeAll(root, { tint: VEH_TINT, cache: 'veh:' + key });
   root.scale.setScalar(scale);
   root.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
@@ -205,7 +237,7 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
     l: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
   };
   tagStyle(root);
-  return {
+  const rig = {
     group: root,
     legsG,
     torso,
@@ -216,21 +248,21 @@ export function buildVehicle(pal, scale = 1, key = 'tank') {
     hipY: 1.8,
     type: 'tank',
     cls: 'vehicle',
+    wheels,
+    treads,
+    susp: hull,
+    dmg: tankDmg,
     vehicle: true,
     height: 3.0 * scale,
     coreH: 1.0,
     mats,
     flashT: 0,
   };
+  // 脫落零件前還原合併的網格（MechEntity.mergeModel 的 mergeRig）
+  tankDmg.unmerge = () => rig.unmerge && rig.unmerge();
+  tankDmg.remerge = () => rig.remerge && rig.remerge();
+  return rig;
 }
-// 主旋翼的葉片（俯視輪廓：翼根到翼尖逐漸變窄）
-const BLADE = [
-  [0.3, -0.15],
-  [4.25, -0.1],
-  [4.4, 0.0],
-  [4.25, 0.1],
-  [0.3, 0.15],
-];
 export function buildHeli(pal, scale = 1, key = 'heli') {
   const M = mechMats(pal);
   const root = new THREE.Group();
@@ -366,9 +398,33 @@ export function buildHeli(pal, scale = 1, key = 'heli') {
         -0.44,
         Math.PI / 2,
       );
-    P(torso, gCyl(0.06, 0.06, 3.0, 6), M.joint, s * 1.0, -0.36, 0.2, Math.PI / 2);
-    rod(torso, M.joint, [s * 1.0, -0.36, -1.3], [s * 1.0, -0.18, -1.55], 0.06);
-    for (const z of [-0.6, 1.0]) rod(torso, M.joint, [s * 0.6, 0.08, z], [s * 1.0, -0.36, z], 0.05);
+    // 起落橇：前端往上翹的滑管＋兩支彎的支柱
+    P(
+      torso,
+      D.sweep(
+        [
+          [s * 1.0, -0.36, 1.7],
+          [s * 1.0, -0.36, -1.2],
+          [s * 1.0, -0.3, -1.45],
+          [s * 1.0, -0.16, -1.6],
+        ],
+        D.ring(0.06, 8),
+      ),
+      M.joint,
+    );
+    for (const z of [-0.6, 1.0])
+      P(
+        torso,
+        D.sweep(
+          [
+            [s * 0.6, 0.08, z],
+            [s * 0.9, -0.1, z],
+            [s * 1.0, -0.36, z],
+          ],
+          D.ring(0.05, 8),
+        ),
+        M.joint,
+      );
   }
   // 機砲：球形砲塔＋三管機砲
   const hand = new THREE.Group();
@@ -400,15 +456,20 @@ export function buildHeli(pal, scale = 1, key = 'heli') {
     const a = (i * Math.PI) / 2;
     const c = Math.cos(a),
       s = Math.sin(a);
-    PB(rotor, gPlate(BLADE, 0.05, 0.012), M.sub, [0, 0, 0], [c, 0, -s], [s, 0, c]);
+    // 葉片（根部寬、往外收窄、有扭轉）＋槳夾
+    P(rotor, D.blade(4.4, 0.34, 0.24, 0.055, 0.22), M.sub, 0, 0, 0, 0, a, 0);
     CB(rotor, 0.4, 0.12, 0.2, M.joint, c * 0.38, 0, -s * 0.38, 0, a, 0, 0.02);
   }
   heliDetail(torso, rotor, M, red);
+  // 旋翼的轉動圓盤（半透明）
+  const disc = vRotorDisc(4.45);
+  disc.position.y = 0.02;
+  rotor.add(disc);
   const mats = [M.main, M.main2, M.main3, M.sub, M.acc, M.joint, M.gun];
   swapPiece(`vehicle/${key}/body`, pal, [torso, hand, back], mats);
   swapPiece(`vehicle/${key}/rotor`, pal, [rotor], mats);
   swapPiece(`vehicle/${key}/tail`, pal, [tail], mats);
-  bakeAll(root);
+  bakeAll(root, { tint: VEH_TINT, cache: 'veh:' + key });
   root.scale.setScalar(scale);
   root.traverse((o) => {
     if (o.isMesh && o.material !== OUTLINE_MAT) o.castShadow = true;
@@ -428,6 +489,12 @@ export function buildHeli(pal, scale = 1, key = 'heli') {
     nozzles: [],
     rotor,
     tail,
+    dmg: {
+      smoke: [
+        [0, 1.6, 1.2],
+        [0.4, 1.5, 1.7],
+      ],
+    },
     hipY: 1.2,
     type: 'heli',
     cls: 'heli',
@@ -557,38 +624,38 @@ export function buildDrone(pal, scale = 1, key = 'swarm') {
 // ---------- 精細零件（三倍高改版：載具跟著機甲放大 3 倍，近看的細節）----------
 // 戰車：正面與砲塔的反應裝甲、側裙的接縫、艙蓋與把手、潛望鏡、同軸機槍、遙控武器站、天線、
 // 砲塔尾部的置物架與收納箱、拖曳鋼索、排氣、尾燈、油桶、擋泥板
-function tankDetail(hull, tur, M, red) {
+function tankDetail(hull, tur, M, red, lamp) {
   const era = M.main3;
   // 上斜板的反應裝甲（兩排、沿斜板擺放）
   for (const t of [0.16, 0.36])
     for (const x of [-0.54, -0.18, 0.18, 0.54])
       CB(hull, 0.32, 0.07, 0.24, era, x, 0.95 + 0.67 * t + 0.035, -2.0 + 1.1 * t - 0.02, -0.54, 0, 0, 0.015);
-  // 側裙的接縫與螺栓
+  // 駕駛艙蓋與潛望鏡
+  vHatch(hull, M, 0.55, 1.62, -0.72, 0.22);
+  fine(() => {
+    for (const x of [0.3, 0.55, 0.8]) P(hull, D.box(0.12, 0.07, 0.06, 0.01), M.lens, x, 1.66, -0.96);
+  });
+  // 拖曳鋼索（甲板邊緣下垂）＋鋼索夾
   for (const s of [-1, 1])
-    for (let i = 0; i < 7; i++) {
-      const z = -1.8 + i * 0.6;
-      P(hull, gBox(0.02, 0.44, 0.035), M.joint, s * 2.085, 0.86, z);
-      for (const y of [0.7, 1.02])
-        P(hull, gCyl(0.025, 0.025, 0.02, 6), M.joint, s * 2.09, y, z + 0.06, 0, 0, Math.PI / 2);
-    }
-  // 駕駛艙蓋（把手、潛望鏡）
-  P(hull, gCyl(0.22, 0.22, 0.04, 10), M.sub, 0.55, 1.64, -0.72);
-  rod(hull, M.joint, [0.45, 1.68, -0.72], [0.65, 1.68, -0.72], 0.015, 4);
-  for (const x of [0.3, 0.55, 0.8]) P(hull, gBox(0.12, 0.06, 0.05), M.lens, x, 1.66, -0.94);
-  // 拖曳鋼索（車身兩側的甲板邊緣）＋鋼索夾
-  for (const s of [-1, 1]) {
-    rod(hull, M.rubber, [s * 1.12, 1.66, -1.4], [s * 1.12, 1.66, 1.5], 0.025, 5);
-    for (const z of [-1.2, 0, 1.2]) P(hull, gBox(0.08, 0.05, 0.06), M.joint, s * 1.12, 1.67, z);
-  }
-  // 後方：排氣口（格柵）、尾燈、拖鉤、油桶
+    fine(() => {
+      P(hull, D.cable([s * 1.12, 1.67, -1.4], [s * 1.12, 1.67, 1.5], 0.025, 0.03, 8), M.rubber);
+      for (const z of [-1.2, 0, 1.2]) P(hull, gBox(0.08, 0.05, 0.06), M.joint, s * 1.12, 1.68, z);
+    });
+  // 後方：排氣格柵、尾燈、拖鉤、油桶、排氣管、擋泥板
+  const back = new THREE.Group(); // 後方的收納箱（AP 低時脫落）
+  hull.add(back);
   for (const s of [-1, 1]) {
     CB(hull, 0.55, 0.26, 0.12, M.joint, s * 0.72, 1.3, 2.0, 0, 0, 0, 0.02);
-    for (let i = 0; i < 3; i++) P(hull, gBox(0.5, 0.03, 0.02), M.gun, s * 0.72, 1.22 + i * 0.08, 2.07);
-    P(hull, gBox(0.12, 0.07, 0.03), red, s * 1.45, 1.42, 2.09);
+    fine(() => {
+      for (let i = 0; i < 3; i++) P(hull, gBox(0.5, 0.03, 0.02), M.gun, s * 0.72, 1.22 + i * 0.08, 2.07);
+    });
+    vLamp(hull, M, red, s * 1.45, 1.42, 2.08, 0.12, 0.07, Math.PI);
     P(hull, gBox(0.14, 0.18, 0.2), M.joint, s * 0.55, 0.62, 2.0);
-    for (const k of [0, 1])
-      P(hull, gCyl(0.15, 0.15, 0.42, 10), M.acc, s * (1.48 + k * 0.32), 1.36, 1.86, Math.PI / 2, 0, 0);
+    for (const k of [0, 1]) vJerry(back, M, M.acc, s * (1.42 + k * 0.24), 1.12, 1.84, HP2);
+    vExhaust(hull, M, s * 0.95, 1.55, 1.75, 0.35, 0.06);
+    P(hull, gBox(0.85, 0.36, 0.03), M.rubber, s * 1.6, 0.8, 2.12);
   }
+  vBoxTank(back, M);
   // 履帶前的擋泥板（橡膠）
   for (const s of [-1, 1]) P(hull, gBox(0.85, 0.32, 0.03), M.rubber, s * 1.6, 0.82, -2.12);
   // 砲塔：正面兩側的反應裝甲
@@ -609,40 +676,89 @@ function tankDetail(hull, tur, M, red) {
         0.012,
       );
   // 同軸機槍
-  P(tur, gBox(0.1, 0.1, 0.3), M.joint, 0.28, 0.42, -1.05);
-  P(tur, gCyl(0.025, 0.025, 0.5, 6), M.gun, 0.28, 0.42, -1.4, Math.PI / 2);
-  // 車長塔上的遙控武器站
+  P(tur, D.box(0.1, 0.1, 0.3, 0.015), M.joint, 0.28, 0.42, -1.05);
+  fine(() => P(tur, D.cyl(0.025, 0.03, 0.5, 8), M.gun, 0.28, 0.42, -1.4, HP2));
+  // 車長塔上的遙控武器站：基座＋槍身＋彈藥箱＋光學鏡
   CB(tur, 0.2, 0.15, 0.3, M.sub, -0.35, 1.17, 0.12, 0, 0, 0, 0.02);
-  P(tur, gCyl(0.025, 0.025, 0.65, 6), M.gun, -0.35, 1.2, -0.3, Math.PI / 2);
-  P(tur, gBox(0.12, 0.08, 0.06), M.lens, -0.24, 1.2, -0.02);
+  fine(() => {
+    P(tur, D.cyl(0.025, 0.03, 0.65, 8), M.gun, -0.35, 1.2, -0.3, HP2);
+    P(tur, D.box(0.12, 0.1, 0.16, 0.01), M.acc, -0.22, 1.16, 0.15);
+    P(tur, gBox(0.12, 0.08, 0.06), M.lens, -0.24, 1.2, -0.02);
+  });
   // 潛望鏡與雷射警告接收器
-  for (const x of [0.12, 0.3]) P(tur, gBox(0.1, 0.08, 0.06), M.lens, x, 0.9, -0.62);
-  for (const [x, z] of [
-    [-0.82, -0.7],
-    [0.82, -0.7],
-    [-0.7, 1.3],
-    [0.7, 1.3],
-  ])
-    P(tur, gCyl(0.06, 0.07, 0.06, 8), M.joint, x, 0.82, z);
+  fine(() => {
+    for (const x of [0.12, 0.3]) P(tur, D.box(0.1, 0.08, 0.06, 0.01), M.lens, x, 0.9, -0.62);
+    for (const [x, z] of [
+      [-0.82, -0.7],
+      [0.82, -0.7],
+      [-0.7, 1.3],
+      [0.7, 1.3],
+    ])
+      P(tur, D.cyl(0.06, 0.07, 0.06, 10), M.joint, x, 0.82, z);
+    // 吊環
+    for (const [x, z] of [
+      [-0.6, -0.4],
+      [0.6, -0.4],
+      [-0.55, 0.9],
+      [0.55, 0.9],
+    ])
+      P(tur, D.cyl(0.05, 0.05, 0.02, 8), M.joint, x, 0.86, z, HP2);
+  });
   // 天線（兩根）
-  for (const x of [-0.5, 0.5]) {
-    P(tur, gCyl(0.05, 0.06, 0.08, 6), M.joint, x, 0.82, 1.3);
-    P(tur, gCyl(0.012, 0.012, 2.2, 4), M.joint, x, 1.95, 1.3);
-  }
-  // 砲塔尾部的置物架（欄杆）與收納箱
-  for (const s of [-1, 1]) {
-    rod(tur, M.joint, [s * 0.66, 0.78, 0.9], [s * 0.66, 0.78, 1.45], 0.02, 4);
-    CB(tur, 0.22, 0.3, 0.42, M.sub, s * 0.76, 0.5, 1.12, 0, 0, 0, 0.03);
-  }
-  rod(tur, M.joint, [-0.66, 0.78, 1.45], [0.66, 0.78, 1.45], 0.02, 4);
-  for (const x of [-0.3, 0.3]) CB(tur, 0.42, 0.18, 0.3, M.acc, x, 0.84, 1.18, 0, 0, 0, 0.02);
-  // 砲塔頂的艙蓋（裝填手）
-  P(tur, gCyl(0.2, 0.2, 0.04, 10), M.sub, 0.3, 0.92, 0.3);
-  rod(tur, M.joint, [0.2, 0.96, 0.3], [0.4, 0.96, 0.3], 0.015, 4);
+  for (const x of [-0.5, 0.5]) vAntenna(tur, M, x, 0.77, 1.3, 2.2);
+  // 砲塔尾部的置物架（欄杆）與收納袋
+  fine(() => {
+    for (const s of [-1, 1])
+      P(
+        tur,
+        D.sweep(
+          [
+            [s * 0.66, 0.6, 0.9],
+            [s * 0.66, 0.78, 0.95],
+            [s * 0.66, 0.78, 1.45],
+            [s * 0.66, 0.6, 1.5],
+          ],
+          D.ring(0.02, 5),
+        ),
+        M.joint,
+      );
+    P(
+      tur,
+      D.sweep(
+        [
+          [-0.66, 0.78, 1.45],
+          [0.66, 0.78, 1.45],
+        ],
+        D.ring(0.02, 5),
+      ),
+      M.joint,
+    );
+  });
+  for (const s of [-1, 1]) CB(tur, 0.22, 0.3, 0.42, M.sub, s * 0.76, 0.5, 1.12, 0, 0, 0, 0.03);
+  for (const x of [-0.3, 0.3]) P(tur, D.box(0.42, 0.2, 0.3, 0.06), M.acc, x, 0.85, 1.18);
+  // 裝填手的艙蓋
+  vHatch(tur, M, 0.3, 0.9, 0.3, 0.2);
+  // 受損：冒煙點（引擎甲板、砲塔後）、脫落的零件（呼叫端再加側裙）
+  return {
+    smoke: [
+      [0, 1.75, 1.3],
+      [0.5, 1.9, 0.9],
+    ],
+    plates: [back],
+  };
+}
+// 車尾的大收納箱
+function vBoxTank(n, M) {
+  P(n, D.box(1.1, 0.34, 0.32, 0.04), M.sub, 0, 1.45, 1.95);
+  fine(() => {
+    P(n, gBox(1.12, 0.03, 0.33), M.joint, 0, 1.55, 1.95);
+    for (const x of [-0.35, 0.35]) P(n, gBox(0.06, 0.1, 0.02), M.joint, x, 1.48, 2.12);
+  });
 }
 // 直升機：機鼻的光電球與剪線器、座艙側的踏板與把手、艙門的輪廓、排氣抑制器、熱焰彈發射器、天線、
 // 航行燈、旋翼葉尖與變距桿、火箭莢艙的管口
 function heliDetail(tor, rotor, M, red) {
+  fine(() => heliFine(tor, rotor, M, red));
   // 機鼻上方的光電球
   P(tor, gCyl(0.1, 0.12, 0.1, 8), M.joint, 0, 0.7, -1.95);
   P(tor, gSph(0.12, 10), M.sub, 0, 0.84, -1.95);
@@ -709,6 +825,15 @@ function heliDetail(tor, rotor, M, red) {
     CB(rotor, 0.22, 0.06, 0.28, M.acc, c * 4.25, 0, -s * 4.25, 0, a, 0, 0.01);
     rod(rotor, M.joint, [c * 0.16, -0.12, -s * 0.16], [c * 0.3, 0.02, -s * 0.3], 0.02, 4);
   }
+}
+// 直升機的小細節：鉚釘列、面板接縫、皮託管、空速管、側門的把手、HF 天線線
+function heliFine(tor, rotor, M, red) {
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 9; i++)
+      P(tor, D.cyl(0.018, 0.018, 0.012, 6), M.joint, s * 0.8, 0.95, -0.9 + i * 0.22, 0, 0, HP2);
+    P(tor, D.cyl(0.012, 0.012, 0.45, 6), M.joint, s * 0.25, 0.42, -2.25, HP2);
+  }
+  P(tor, D.cable([0, 1.85, 0.2], [0, 1.25, 4.6], 0.008, 0.05, 6), M.joint);
 }
 // 無人機：背上的面板與 GPS 天線罩、兩側的進氣口、感測器的萬向環、機腹的天線
 function droneDetail(tor, M) {

@@ -24,6 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/ranged-design.md`：遠程射擊改版（不做方向派生、獎勵邊閃邊打；6 期全部完成：邊閃邊打、反擊與弱點、蓄力射擊、屬性反應、手感與主動裝填、風格評價；多人時的限制）的定案與實作；改射擊的加成、弱點、蓄力時照它進行並同步更新。
 - `docs/melee-tutorial.md`：近戰訓練課程（作戰室的模擬器：8 課、選近戰武器、示範、時機條、假人 0～4 級、獎勵；`data/tutorial.js` 課程資料、`game/tutorial.js` 流程與畫面）的定案、實作與交接；改教學時照它進行並同步更新。
 - `docs/ranged-tutorial.md`：遠程訓練課程（作戰室的模擬器：7 課、第 1～2 課挑主武器、之後固定組合、兩種蓄力都教、真敵人類型的假人、第 1 課可跳過、風格評價的結業考核、結業挑一把遠程武器；近戰與遠程的教學都不做放慢；4 期全部完成）的定案與實作；改遠程教學時照它進行並同步更新。
+- `docs/model-detail.md`：程式模型精細化（載具優先，再來小物件與地圖物件；依照現有風格、內顯電腦要順、全部維持程式模型；12 期）的定案、品質標準與實作（頂點色烘焙、基本形體升級、小細節分級、載具零件、車輛的動作與損壞外觀）；改程式模型時照它進行並同步更新。
 - `docs/garage-hangar.md`：機甲庫的格納庫演出（鋼彈式整備架、依場合的場景、部位鏡頭、全像預覽、換裝、維修、出擊演出）的定案與分期；改機甲庫的展示場景時照它進行並同步更新。
 - `docs/garage-ui.md`：機甲庫的換裝介面（雙翼裝備欄、零件縮圖格子與小卡片、固定角度的標註線、量表、規格頁的圖表與六角性能圖、設定子分頁）的定案與分期；改機甲庫的操作介面時照它進行並同步更新。
 - `docs/pilot-ui.md`：駕駛員畫面的操作介面（圖示節點的技能樹、按住投點、詳細列、機體數值的預覽、預設組卡片、熟練度徽章）的定案；改駕駛員畫面時照它進行並同步更新。
@@ -45,6 +46,8 @@ npm start            # 先 build，再啟動伺服器：控制台 http://localho
 npm run build:exe    # build ＋ 用 @yao-pkg/pkg 打包 dist/rubicon-server.exe（目標 Node 22）
 npm run bench:rts    # 大量單位的效能基準（要先 build；見下方）
 npm run balance:rts  # Coral 戰爭的靜態平衡（純 node；--check 超出範圍時結束碼 1，--md 印表格；docs/rts-design.md 17.5、17.9）
+node scripts/model-bench.js  # 程式模型的量測：每個模型的三角形與網格數、各地圖的繪製次數／三角形／幀時間（--only=models|maps、--cat、--maps、--tag、--compare）
+node scripts/model-shots.js vehicle/tank prop/car  # 模型庫檢視窗的近拍（test-results/shots/，--html 用舊版比較、--tag）
 npm run publish:server  # 伺服器預設組的來源發佈到執行中的伺服器：內建的玩家預設機甲（src/assets/player-mech/）＋地圖物件等其他槽位（src/assets/server-default/）（--host、--src 只發佈一個資料夾、--force 全部重傳、--keep 不移除多的機甲區塊）
 ```
 
@@ -89,7 +92,10 @@ data/                parts.js（零件、START_ASM、asmStats）、ranged.js（�
                      難度參數 RTS_AI_DIFFS、英雄技能的施放條件 RTS_AI_CAST、單位技能 RTS_AI_ABILS、永久道具的順序 RTS_AI_ITEMS）
 render/style/        渲染風格：params.js（參數表、內建預設）、shader.js（標準材質的著色器修改、材質分類 tagStyle）、
                      pipeline.js（後處理管線）、atmos.js（天空、塵埃）、store.js（選擇、我的預設、伺服器分享）
-render/              garage-icons.js（機甲庫的部位與零件圖示）、garage-charts.js（六角圖 hexSvg、一般的雷達圖 radarSvg）、pilot-icons.js（駕駛員技能與分支的圖示）、hub-room.js（作戰室的玻璃指揮塔與精細的設施模型、靜態合併 mergeStatic）、holo-map.js（全像戰略桌：區域地形、光柱、全像材質）、cine-sets.js（過場動畫的太空場景、軌道站、空降艙、墜落現場）、textfx.js（文字演出：APNG 產生器的模板與引擎、疊加畫布、DOM 逐字）、materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
+render/              detail.js（程式模型的精細化工具：倒角方塊、剖面旋轉、擠出、掃出、輪胎、輪框、齒輪、葉片、雜訊岩石的幾何 D.*；
+                     頂點色烘焙 tintCtx／tintMerge（遮蔽、凸邊、髒污）、基本形體升級 upgradeGeo、vcMat、小細節分級 fineReg／fineTick；
+                     docs/model-detail.md）、vehicle-kit.js（載具的零件：車輪、履帶、燈、後照鏡、排氣管、艙蓋、油桶、旋翼的轉動圓盤；
+                     geometry.js 的 P 與地圖物件的 PK 都能用）、garage-icons.js（機甲庫的部位與零件圖示）、garage-charts.js（六角圖 hexSvg、一般的雷達圖 radarSvg）、pilot-icons.js（駕駛員技能與分支的圖示）、hub-room.js（作戰室的玻璃指揮塔與精細的設施模型、靜態合併 mergeStatic）、holo-map.js（全像戰略桌：區域地形、光柱、全像材質）、cine-sets.js（過場動畫的太空場景、軌道站、空降艙、墜落現場）、textfx.js（文字演出：APNG 產生器的模板與引擎、疊加畫布、DOM 逐字）、materials.js（Canvas 貼圖、mechMats、PALETTES、palColor）、geometry.js（幾何快取與拼接工具）、
                      mech-model.js（機甲區塊、連接點、buildMech、animateMech、武器模型）、mech-joints.js（關節設定）、
                      mech-ik.js（動作的 IK 修正層與開關 IK／setIK）、hangar.js（機甲庫的格納庫場景：四種場景、整備架、技師人偶、車輛、吊車、換裝的機械臂與地板開口、維修無人機、補給車、出擊用的天花板開口與閘門、火花、蒸氣、tickHangar；外部素材載入後 `H.rich` 的細緻版本：PBR 材質與投影 UV、道具佈置、天車、骨架動畫的技師）、hangar-assets.js（格納庫的外部素材：載入 lib/hangar-assets.js、PBR 材質 pbrMat、道具 haProp、人物 haChar）、mech-spring.js（動作的彈簧 spring／springSet／kick）、mech-fire.js（依武器種類的射擊動作）、melee-anim.js（近戰的關鍵影格：預設片段、求值、鏡像、片段的來源 MeleeAnim）、
                      vehicle-models.js、boss-models.js（新 Boss 與附屬部位的程式模型）、foe-models.js（主題專屬敵人的程式模型、

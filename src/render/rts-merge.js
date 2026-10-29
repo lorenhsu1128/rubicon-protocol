@@ -123,8 +123,7 @@ function meshOK(o, root, moving, only) {
 // 材質能不能併進單一材質（base＝整台共用的貼圖）
 function matOK(m, base, keep) {
   if (keep.has(m) || m.transparent || m.visible === false || m.side !== THREE.FrontSide) return false;
-  if (m.alphaTest > 0 || m.wireframe || m.vertexColors || (m.opacity !== undefined && m.opacity < 1))
-    return false;
+  if (m.alphaTest > 0 || m.wireframe || (m.opacity !== undefined && m.opacity < 1)) return false;
   if (m.isMeshStandardMaterial) {
     for (const k of BAD_MAPS) if (m[k]) return false;
     for (const k of OK_MAPS) if (m[k] && m[k] !== base[k]) return false;
@@ -202,6 +201,7 @@ function buildSolid(items, base, pulse) {
     const g = it.geo,
       P = g.attributes.position,
       U = g.attributes.uv,
+      VC = it.mat.vertexColors ? g.attributes.color : null, // 精細版烘焙的頂點色（render/detail.js）乘進顏色
       I = g.index;
     const n = I ? I.count : P.count;
     const flip = it.mm.determinant() < 0;
@@ -220,9 +220,15 @@ function buildSolid(items, base, pulse) {
         uv[t * 2] = U.getX(k);
         uv[t * 2 + 1] = U.getY(k);
       }
-      col[t * 4] = mv.c[0];
-      col[t * 4 + 1] = mv.c[1];
-      col[t * 4 + 2] = mv.c[2];
+      if (VC) {
+        col[t * 4] = Math.min(255, mv.c[0] * VC.getX(k));
+        col[t * 4 + 1] = Math.min(255, mv.c[1] * VC.getY(k));
+        col[t * 4 + 2] = Math.min(255, mv.c[2] * VC.getZ(k));
+      } else {
+        col[t * 4] = mv.c[0];
+        col[t * 4 + 1] = mv.c[1];
+        col[t * 4 + 2] = mv.c[2];
+      }
       for (let c = 0; c < 4; c++) {
         at[t * 8 + c] = mv.a[c];
         at[t * 8 + 4 + c] = mv.b[c];

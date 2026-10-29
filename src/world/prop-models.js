@@ -4,6 +4,7 @@ import { MS } from '../core/scale.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { materialSlot } from '../render/glb.js';
 import { providedModel } from '../render/model-provider.js';
+import { fineReg, tintCtx, tintMerge, upgradeGeo, vcMat } from '../render/detail.js';
 
 const MatCache = {};
 
@@ -71,7 +72,16 @@ const _mx = new THREE.Matrix4(),
   _v1 = new THREE.Vector3(),
   _v2 = new THREE.Vector3();
 const UNIT_GEO = {};
-const nonIdx = (g) => (g.index ? g.toNonIndexed() : g);
+// 攤平索引時保留形體的參數（精細版的 upgradeGeo 依它換成倒角方塊／段數多的圓柱）
+const nonIdx = (g) => {
+  if (!g.index) return g;
+  const o = g.toNonIndexed();
+  if (g.parameters) {
+    o.parameters = g.parameters;
+    o.userData.ptype = g.type;
+  }
+  return o;
+};
 const unitGeo = (k, make) => UNIT_GEO[k] || (UNIT_GEO[k] = nonIdx(make()));
 function compose(x, y, z, rx, ry, rz, sx, sy, sz) {
   return new THREE.Matrix4().compose(
@@ -178,10 +188,11 @@ export class PK {
     const mm = compose(x, y, z, rx, ry, rz, sx, sy, sz).premultiply(this.top);
     let km = this.keys.get(m);
     if (!km) this.keys.set(m, (km = new Map()));
-    let key = km.get(this.cur);
+    const kk = this.isFine ? this.cur + 'f' : this.cur;
+    let key = km.get(kk);
     if (!key) {
-      key = [m, this.cur];
-      km.set(this.cur, key);
+      key = [m, this.cur, !!this.isFine];
+      km.set(kk, key);
       this.by.set(key, []);
     }
     this.by.get(key).push([nonIdx(g), mm]);
@@ -250,6 +261,21 @@ export class PK {
     g.computeVertexNormals();
     return this.geo(m, g);
   }
+  // 精細版（docs/model-detail.md）：build 時整個物件一起烘焙頂點色（遮蔽、凸邊、貼地的髒污，render/detail.js），
+  // 材質換成打開 vertexColors 的複本（vcMat）。o＝tintCtx 的選項
+  tint(o = {}) {
+    this.tintOpts = o;
+    return this;
+  }
+  // fn 裡加的零件是小細節：tint 時另外合併成一個網格，鏡頭遠了隱藏（fineReg；沒有 tint 時照一般零件）
+  fine(fn, dist) {
+    const prev = this.isFine;
+    this.isFine = true;
+    if (dist) this.fineDist = dist;
+    fn();
+    this.isFine = prev;
+    return this;
+  }
   // 人的介面標記（門、樓梯、爬梯、可以走的面；之後的小人互動用）：build 時加成這個名稱的空節點
   mark(name, x = 0, y = 0, z = 0, ry = 0) {
     (this.marks = this.marks || []).push([name, compose(x, y, z, 0, ry, 0, 1, 1, 1).premultiply(this.top)]);
@@ -275,6 +301,7 @@ export class PK {
     const inv = new THREE.Matrix4(),
       m2 = new THREE.Matrix4(),
       nm = new THREE.Matrix3();
+    if (this.tintOpts) return this.buildTint(group, shadow, parts, union);
     for (const [key, list] of this.by) {
       const [m, pi] = key;
       const part = pi >= 0 ? parts[pi] : null;
@@ -320,6 +347,44 @@ export class PK {
       if (part) part.mm.decompose(mesh.position, mesh.quaternion, mesh.scale);
       mesh.castShadow = shadow;
       mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    this.by.clear();
+    this.keys.clear();
+    this.parts = null;
+    return group;
+  }
+  buildTint(group, shadow, parts, union) {
+    const all = [];
+    for (const [key, list] of this.by) {
+      const m = key[0];
+      // 舊的基本形體換成精細的（倒角方塊、段數多的圓柱）
+      if (this.tintOpts.upgrade !== false) for (const e of list) [e[0], e[1]] = upgradeGeo(e[0], e[1]);
+      if (m.transparent && m.opacity < 1) continue;
+      for (const e of list) all.push({ geo: e[0], mm: e[1] });
+    }
+    const ctx = tintCtx(all, this.tintOpts);
+    let ai = 0;
+    for (const [key, list] of this.by) {
+      const [m, pi, isFine] = key;
+      const part = pi >= 0 ? parts[pi] : null;
+      const inv = part ? new THREE.Matrix4().copy(part.mm).invert() : null;
+      const skip = m.transparent && m.opacity < 1;
+      const items = list.map(([g, mm]) => {
+        const it = { geo: g, mm: part ? new THREE.Matrix4().multiplyMatrices(inv, mm) : mm, wm: mm };
+        if (!skip) ctx.index.set(it, ai++);
+        return it;
+      });
+      const geo = tintMerge(items, ctx);
+      geo.computeBoundingSphere();
+      if (part) geo.boundingBox = part.box.clone();
+      else if (union) geo.boundingBox = union.clone();
+      const mesh = new PropMesh(geo, m.isMeshStandardMaterial ? vcMat(m) : m);
+      if (!m.isMeshStandardMaterial) geo.deleteAttribute('color');
+      if (part) part.mm.decompose(mesh.position, mesh.quaternion, mesh.scale);
+      mesh.castShadow = shadow && !isFine;
+      mesh.receiveShadow = true;
+      if (isFine) fineReg(mesh, this.fineDist);
       group.add(mesh);
     }
     this.by.clear();
@@ -560,6 +625,9 @@ export const DETAIL = {
   },
   get rubber() {
     return mat(0x1c1e20, { roughness: 0.9 });
+  },
+  get white() {
+    return mat(0xe6e8ea, { roughness: 0.5 });
   },
 };
 

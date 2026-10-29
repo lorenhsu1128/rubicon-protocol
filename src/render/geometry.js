@@ -1,6 +1,7 @@
 // --- geometry helpers ---
 import { rnd } from '../core/math.js';
 import { DECAL } from './materials.js';
+import { fineReg, tintCtx, tintMerge, upgradeGeo } from './detail.js';
 
 const GEO_CACHE = {};
 export function gBox(w, h, d) {
@@ -255,6 +256,18 @@ function gHexSlab(r, h) {
   return gCyl(r, r, h, 6);
 }
 
+// 小細節（螺栓、把手、天線…）：fine(fn) 裡加的零件在 bakeAll({ tint }) 時合併成另一個網格，鏡頭遠了就隱藏
+// （render/detail.js 的 fineReg）；沒有 tint 時照一般零件
+let FINE_ON = false;
+export function fine(fn) {
+  const prev = FINE_ON;
+  FINE_ON = true;
+  try {
+    fn();
+  } finally {
+    FINE_ON = prev;
+  }
+}
 export function P(node, geo, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
   if (!node.userData.prims) node.userData.prims = [];
   const mm = new THREE.Matrix4();
@@ -263,7 +276,7 @@ export function P(node, geo, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx 
     new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
     new THREE.Vector3(sx, sy, sz),
   );
-  node.userData.prims.push({ geo, m, mm });
+  node.userData.prims.push({ geo, m, mm, fine: FINE_ON });
 }
 // chamfered box = mid box + top/bottom frustums (bevelled edges like the concept art)
 export function CB(node, w, h, d, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, c = 0.06) {
@@ -276,7 +289,7 @@ export function CB(node, w, h, d, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0
   const add = (geo, ox, oy, oz) => {
     const m2 = new THREE.Matrix4().makeTranslation(ox, oy, oz).premultiply(mm);
     if (!node.userData.prims) node.userData.prims = [];
-    node.userData.prims.push({ geo, m, mm: m2 });
+    node.userData.prims.push({ geo, m, mm: m2, fine: FINE_ON });
   };
   const cc = Math.min(c, h / 3, w / 3, d / 3);
   add(gBox(w, h - 2 * cc, d), 0, 0, 0);
@@ -376,7 +389,92 @@ function bake(node, outline = true) {
   }
   node.userData.prims = null;
 }
-export function bakeAll(root) {
+// 精細版的合併（opts.tint）：整個模型一起算頂點色（零件之間的遮蔽、凸邊、貼地的髒污，render/detail.js），
+// 小細節（fine）另外合併並登記距離分級；opts.cache＝快取鍵：同樣的模型第二次建造時直接沿用合併好的幾何
+// （呼叫端照常呼叫 P／CB，零件的數量與材質出現的順序要相同，不同時重新計算）。材質會打開 vertexColors。
+const BAKE_CACHE = new Map();
+function bakeTint(root, opts) {
+  const nodes = [];
+  root.traverse((o) => {
+    if (o.isGroup && o.userData.prims) nodes.push(o);
+  });
+  const sig = nodes.map((n) => n.userData.prims.length).join(',');
+  const ck = opts.cache ? opts.cache + '|' + sig : null;
+  let C = ck ? BAKE_CACHE.get(ck) : null;
+  if (!C) {
+    root.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const all = [];
+    const sc = root.scale.x || 1;
+    for (const n of nodes) {
+      const nm = new THREE.Matrix4().multiplyMatrices(inv, n.matrixWorld);
+      for (const p of n.userData.prims) {
+        // 舊的基本形體換成精細的（倒角方塊、段數多的圓柱與球）
+        if (opts.upgrade !== false) [p.geo, p.mm] = upgradeGeo(p.geo, p.mm, sc);
+        p.wm = new THREE.Matrix4().multiplyMatrices(nm, p.mm);
+        if (p.m.type !== 'MeshBasicMaterial' && !p.m.transparent) all.push({ geo: p.geo, mm: p.wm, src: p });
+      }
+    }
+    const ctx = tintCtx(all, typeof opts.tint === 'object' ? opts.tint : {});
+    // ctx 以 all 的項目當索引；零件自己不遮蔽自己
+    const self = new Map(all.map((it, i) => [it.src, i]));
+    C = nodes.map((n) => {
+      const prims = n.userData.prims;
+      const mats = [];
+      const groups = new Map();
+      for (const p of prims) {
+        let mi = mats.indexOf(p.m);
+        if (mi < 0) mi = mats.push(p.m) - 1;
+        const gk = mi + (p.fine ? 'f' : '');
+        if (!groups.has(gk)) groups.set(gk, { mi, fine: p.fine, list: [] });
+        groups.get(gk).list.push(p);
+      }
+      const out = [];
+      for (const gr of groups.values()) {
+        const list = gr.list.map((p) => {
+          const it = { geo: p.geo, mm: p.mm, wm: p.wm };
+          if (self.has(p)) ctx.index.set(it, self.get(p));
+          return it;
+        });
+        out.push({ mi: gr.mi, fine: gr.fine, geo: tintMerge(list, ctx) });
+      }
+      const ol = prims.filter((p) => !p.fine && p.m.type !== 'MeshBasicMaterial');
+      return { out, outline: ol.length ? mergeGeos(ol) : null };
+    });
+    if (ck) BAKE_CACHE.set(ck, C);
+  }
+  nodes.forEach((n, i) => {
+    const prims = n.userData.prims;
+    const mats = [];
+    for (const p of prims) if (!mats.includes(p.m)) mats.push(p.m);
+    for (const e of C[i].out) {
+      const m = mats[e.mi];
+      if (m.type !== 'MeshBasicMaterial') m.vertexColors = true;
+      const mesh = new THREE.Mesh(e.geo, m);
+      mesh.castShadow = !e.fine;
+      mesh.receiveShadow = true;
+      if (e.fine) fineReg(mesh, opts.fineDist);
+      n.add(mesh);
+    }
+    if (C[i].outline && opts.outline !== false) {
+      const o = new THREE.Mesh(C[i].outline, OUTLINE_MAT);
+      o.castShadow = false;
+      n.add(o);
+    }
+    n.userData.prims = null;
+  });
+}
+export function bakeAll(root, opts) {
+  if (opts && opts.tint) {
+    bakeTint(root, opts);
+    // 同一個材質也用在沒有頂點色的網格上（例如另外加的網格）時補上白色，否則會變黑
+    root.traverse((o) => {
+      if (!o.isMesh || !o.material || o.material.vertexColors !== true || o.geometry.attributes.color) return;
+      const n = o.geometry.attributes.position.count;
+      o.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+    });
+    return;
+  }
   root.traverse((o) => {
     if (o.isGroup) bake(o);
   });
