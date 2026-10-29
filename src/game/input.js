@@ -360,7 +360,8 @@ Object.assign(Game.prototype, {
     let meleeSlot = null;
     for (const s of ['rarm', 'larm']) {
       const w = p.weapons[s];
-      if (w.def.type === 'melee') {
+      // 遠程訓練：空的手（拳擊）不要把攻擊鍵切成近戰（失衡的目標會被衝上去處決）
+      if (w.def.type === 'melee' && !(w.def.id === 'w_fist' && this.tutRanged())) {
         const st = w.def.combo[0];
         // 失衡中的目標：突進追擊的距離（射擊 → 近戰的連接，data/melee.js 的 LUNGE_K）
         const rng = (st.dash || 0) * (lock && lock.staggerT > 0 ? LUNGE_K : 1) + (st.reach || 3) + 2;

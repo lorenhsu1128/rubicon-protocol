@@ -15782,7 +15782,7 @@ async function testRangedTut(browser, base) {
   );
   await freezeLoop(page);
   const W = ['w_rifle', 'w_hg', 'w_sg', 'w_bz', 'w_mg'];
-  const L = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'];
+  const L = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7'];
   if (process.env.TUT_ONLY) {
     const [lid, w] = process.env.TUT_ONLY.split(':');
     await page.evaluate(() => {
@@ -15814,13 +15814,28 @@ async function testRangedTut(browser, base) {
               .join('/')} lc${g
               .lockCands(p)
               .map((t) => (t.isShot ? 'S' : 'E'))
-              .join('')} reach${Math.round(g.lockReach(p))}`,
+              .join(
+                '',
+              )} reach${Math.round(g.lockReach(p))} sy${p.sy ? Math.round(p.sy.pts) + ':' + p.sy.rank : '-'}`,
           );
         }
         return r;
       };
     });
-    const r = await tutRun(page, lid, w);
+    // TUT_PRE=R1:w_rifle,R2:w_mg：先跑這幾課；TUT_DEV=kb｜pad｜touch：用那個裝置真正的輸入
+    const dv = process.env.TUT_DEV || null;
+    if (dv === 'touch')
+      await page.evaluate(() => {
+        window.__game.ctrl.touch = 'on';
+        document.body.classList.add('touchDev');
+      });
+    for (const pre of (process.env.TUT_PRE || '').split(',').filter(Boolean)) {
+      const [pl, pw] = pre.split(':');
+      await tutRun(page, pl, pw || null, dv);
+      await page.evaluate(() => window.__game.tutExit(false));
+    }
+    await page.evaluate(() => (window.__tr = []));
+    const r = await tutRun(page, lid, w || null, dv);
     console.log(JSON.stringify(r.out));
     console.log((await page.evaluate(() => window.__tr.slice(-300))).join('\n'));
     await ctx.close();
@@ -15843,6 +15858,26 @@ async function testRangedTut(browser, base) {
           '火箭筒沒有理想射程：理想射程的練習說明後跳過',
         );
       if (i === 1 && w === W[0]) await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-done.png') });
+      if (L[i] === 'R7') {
+        // 結業：挑一把遠程武器
+        const pz = await page.evaluate(() => {
+          const g = window.__game;
+          const b = [...document.querySelectorAll('#tutDoneCard .tutPrize')];
+          const ws = b.map((x) => x.dataset.w);
+          if (b[1]) b[1].click();
+          return {
+            ws,
+            owned: g.save.owned.includes(ws[1]),
+            prize: g.tutSave().rprize,
+            stars: g.tutSave().les.R7 && g.tutSave().les.R7.stars,
+          };
+        });
+        check(
+          pz.ws.length === 3 && pz.owned && pz.prize === pz.ws[1] && pz.stars >= 1,
+          `結業：挑一把遠程武器加入機甲庫（${pz.ws.join('、')} → ${pz.prize}）、風格評價考試 ★${pz.stars}`,
+        );
+        await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-final.png') });
+      }
       if (L[i] === 'R5') {
         const cm = await page.evaluate(() => window.__game.ctrl.chargeMode || 'auto');
         check(cm === 'auto', `第 5 課「按住蓄力」那一步結束後，蓄力射擊的設定換回原本的（${cm}）`);
@@ -15858,6 +15893,10 @@ async function testRangedTut(browser, base) {
     return { coam, les: g.tutSave().les, dis: b.map((x) => x.disabled) };
   });
   check(after.coam === 23000, `第 1～6 課第一次完成的 COAM 合計 23,000（${after.coam}）`);
+  check(
+    after.dis.length === 7 && after.dis.every((x) => !x),
+    `全部完成後遠程 7 課都能選（${after.dis.map((x) => (x ? '鎖' : '開')).join('')}）`,
+  );
   check(
     after.les.R1 && after.les.R1.w.length === 5 && after.les.R2 && after.les.R2.w.length === 5,
     '存檔記下兩課完成過的主武器',
@@ -15926,11 +15965,120 @@ async function testRangedTut(browser, base) {
     window.__pump(0.2);
     return g.viewName();
   });
+  const layoutAt = async () => {
+    await thawLoop(page);
+    for (const [vw, vh, touch, nm] of [
+      [1920, 1080, false, 'pc'],
+      [1180, 820, false, 'tablet'],
+      [844, 390, true, 'phone'],
+    ]) {
+      await page.setViewportSize({ width: vw, height: vh });
+      await page.evaluate((touch) => {
+        const g = window.__game;
+        g.tutExit(false);
+        g.tutAuto = false;
+        g.tutNoDemo = true;
+        if (touch) {
+          g.vpadWanted = () => true;
+          document.body.classList.add('touchDev');
+        }
+        g.tutStart('R2', 'w_rifle');
+      }, touch);
+      await page.waitForFunction(() => window.__game.tut && window.__game.tut.phase === 'try', null, {
+        timeout: 20000,
+      });
+      await page.waitForTimeout(800);
+      const ok = await page.evaluate(() => {
+        const g = window.__game;
+        const r = document.getElementById('tutPanel').getBoundingClientRect();
+        const inP = (e) => {
+          const v = g.proj(e.center());
+          return v.x > r.left && v.x < r.right && v.y > r.top && v.y < r.bottom;
+        };
+        const btns = [...document.querySelectorAll('#vpad button, #vpad .vbtn, .vpadBtn')]
+          .filter((b) => b.offsetParent)
+          .map((b) => b.getBoundingClientRect())
+          .filter((b) => b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom).length;
+        return {
+          r: [r.left, r.top, r.right, r.bottom].map(Math.round),
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+          cover: inP(g.tut.dummy) || inP(g.player),
+          btns,
+        };
+      });
+      await page.screenshot({ path: path.join(SHOT_DIR, `rtut-panel-${nm}.png`) });
+      check(
+        ok.r[0] >= 0 && ok.r[1] >= 0 && ok.r[2] <= ok.vw && ok.r[3] <= ok.vh && !ok.cover && !ok.btns,
+        `遠程的面板在 ${vw}×${vh}${touch ? ' 觸控' : ''} 的畫面裡、不蓋住假人與機體${touch ? '與觸控按鈕' : ''}（${ok.r.join(',')}${ok.cover ? '，蓋住機體' : ''}${ok.btns ? '，蓋住 ' + ok.btns + ' 個按鈕' : ''}）`,
+      );
+    }
+    await page.evaluate(() => window.__game.tutExit(false));
+  };
   check(
     ra.view === 'chase' && ra.aim === 'sen' && back === 'top',
     `改瞄的練習換成追尾視角、準星壓在感測器上（${ra.view}、${ra.aim}），下一步換回俯視（${back}）`,
   );
   await page.evaluate(() => window.__game.tutExit(false));
+  await layoutAt();
+  await ctx.close();
+}
+
+// 遠程訓練課程的三種操作方式：以鍵盤滑鼠／手把／觸控真正的輸入自動跑 7 課，按鍵的說明依裝置、觸控跳過做不到的練習
+async function testRangedTutDev(browser, base, dev) {
+  const NM = { kb: '鍵盤滑鼠', pad: '手把', touch: '手機觸控' }[dev];
+  console.log(`遠程訓練課程（${NM}）：以${NM}的輸入自動跑 7 課、依裝置的說明`);
+  const { ctx, page } = await newPage(browser, 'ranged-tut-' + dev);
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate((dev) => {
+    const g = window.__game;
+    g.ctrl.touch = dev === 'touch' ? 'on' : 'off';
+    if (dev === 'touch') document.body.classList.add('touchDev');
+  }, dev);
+  await freezeLoop(page);
+  const txt = await page.evaluate((dev) => {
+    const g = window.__game;
+    g.tutAuto = false;
+    g.tutStart('R1', 'w_rifle');
+    g.padActive = dev === 'pad';
+    g.tutPanelRender(true);
+    const t = document.querySelector('#tutPanel .tpText').textContent;
+    g.tutExit(false);
+    return t;
+  }, dev);
+  const want = { kb: /滑鼠左鍵/, pad: /RT/, touch: /攻擊鍵/ }[dev];
+  check(want.test(txt), `開火的按鍵依裝置標出（${txt.slice(0, 40)}）`);
+  const W = ['w_rifle', 'w_hg', 'w_sg', 'w_bz', 'w_mg'];
+  const off = { kb: 1, pad: 2, touch: 3 }[dev];
+  const skips = [];
+  for (let i = 0; i < 7; i++) {
+    const w = i < 2 ? W[(i + off) % W.length] : null;
+    const r = await tutRun(page, 'R' + (i + 1), w, dev);
+    const stuck = r.out.filter((s) => s.t < 0);
+    check(
+      r.state === 'tutdone' && !stuck.length,
+      `${NM}：遠程第 ${i + 1} 課 × ${w || '固定組合'}（${tutRunTxt(r)}）`,
+    );
+    skips.push(...r.out.filter((s) => s.sk).map((s) => s.id));
+    await page.evaluate(() => window.__game.tutExit(false));
+  }
+  const sk = skips.filter((x) => x !== 'ideal');
+  check(
+    dev === 'touch'
+      ? ['reaim', 'hold', 'jam'].every((x) => sk.includes(x))
+      : !['reaim', 'hold', 'jam'].some((x) => sk.includes(x)),
+    dev === 'touch'
+      ? `觸控跳過改瞄、按住蓄力、EMP 干擾（${sk.join('、')}）`
+      : `改瞄、按住蓄力、EMP 干擾都有練（跳過：${sk.join('、') || '無'}）`,
+  );
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.tutAutoDev = null;
+    g.tutAuto = false;
+  });
+  await thawLoop(page);
   await ctx.close();
 }
 
@@ -18787,6 +18935,12 @@ const STEPS = [
   ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   ['testRangedTut', (c) => testRangedTut(c.browser, c.base)],
+  // 遠程訓練的三種操作方式各自跑 7 課
+  ...['kb', 'pad', 'touch'].map((d) => [
+    'testRangedTutDev:' + d,
+    (c) => testRangedTutDev(c.browser, c.base, d),
+    { family: 'testRangedTutDev' },
+  ]),
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [
     'testMeleeTutDev:' + d,

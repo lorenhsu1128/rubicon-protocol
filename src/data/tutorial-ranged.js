@@ -4,18 +4,19 @@
 // 和近戰不同的欄位：
 //   課程：course 'r'、pick 開始前挑主武器（RT_WEAPONS；否則用 kit）、kit 固定組合 { rarm, larm, rback, lback }、skippable 可以直接跳過（不給獎勵）
 //   dummy  { type 敵人類型（ENEMY_TYPES）, lv 0 靜止／1 走動／2 攻擊（atk）, dist 開始距離（m，新尺度）, n 幾台（排成扇形）, far 理想射程外（ideal 練習）,
-//            atk 'shot' 預警後點放（「!」）｜'aim' 長預備（整台弱點、可以打斷）｜'missile' 導彈｜'rocket' 榴彈（可以擊落）, every [最短, 最長] 秒,
+//            atk 'shot' 預警後點放（「!」）｜'aim' 長預備（整台弱點、可以打斷）｜'missile' 導彈｜'rocket' 榴彈（可以擊落）｜'mix' 點放或導彈, every [最短, 最長] 秒,
+//            kill 可以擊破（1.5 秒後重生）, duel 教官的訓練機,
 //            asm 換掉類型的武器, spread 扇形的寬度倍率（擠在一起）, turn 轉身的速度（弧度／秒，繞背的練習）, sense 建立感知狀態（弱點的預備要它）, hpMul 血量 }
 //   setup  { fcs 換火控（理想射程的練習要長距離的鎖定）, view 'chase' 這一步換成追尾視角（結束後換回）,
 //            charge 'auto'｜'hold' 這一步暫時換「蓄力射擊」的方式（結束後換回）}
 //   kit    這一步的組合（蓋在課程的 kit 上）
 //   ring   'ideal'＝假人腳下畫主武器的理想射程（圈裡＝理想射程內）
-//   goal 的 distinct(o)＝回傳這一次的種類（字串或陣列），只有新的種類才算
+//   goal 的 distinct(o)＝回傳這一次的種類（字串或陣列），只有新的種類才算；{ exam: 秒, style: true }＝結業考核：風格評價的最高等級（A／S／SS＝★／★★／★★★）
 // 說明文字的記號：[fire] [fire2] [lock]＝依裝置的按鍵（其他同近戰）
 // 示範腳本（近戰的指令都能用，另外）：
 //   ['fire', 秒]  按住主武器開火      ['tap']  等武器能開火時按一下      ['lock']  換鎖定目標
 //   ['empty']  按住開火直到開始換彈再放開      ['arTap', 'ok'｜'bad']  換彈中在亮區（ok）或太早（bad）按一下
-//   ['approach', 倍率]  走到離假人「理想射程 × 倍率」以內      ['orbit', 秒]  繞著假人橫移，環滿了就一直按一下開火
+//   ['approach', 倍率]  走到離假人「理想射程 × 倍率」以內      ['closeIn', 公尺]  離假人太遠就走回去      ['orbit', 秒]  繞著假人橫移，環滿了就一直按一下開火
 //   ['wait', 'apex'｜'cue'｜'pqbDone'｜'missile'｜'shell']  最高點的前後／「!」出現／完美迴避的加成中／導彈快打到／飛來的榴彈（其他條件同近戰）
 //   ['tap2']  左手的武器按一下      ['charge']  按住開火直到充能滿了再放開
 //   ['lockShot']  把鎖定換到飛來的彈上      ['behind']  繞到假人的背後      ['aimWeak']  追尾視角把準星移到弱點上
@@ -456,6 +457,85 @@ export const R_LESSONS = [
         goal: [{ ev: 'rx', n: 2, test: (o) => o.id === 'jam', lbl: 'EMP 干擾' }],
         demo: [['tap2'], ['wait', 0.5], ['tap'], ['wait', 1.8], ['end']],
         hints: ['[fire2] 的火箭筒打中 → 3 秒內 [fire] 的雷射打中。'],
+        skip: (d, g) =>
+          g.vpadWanted()
+            ? '觸控的攻擊鍵兩手一起開火，雷射一定比火箭筒先打到：這個順序做不出來，這一步跳過（第 1 步的過熱裝甲就是雷射先到）。'
+            : '',
+      },
+    ],
+  },
+  {
+    id: 'R7',
+    course: 'r',
+    n: '結業考核',
+    d: '限時的風格評價＋對教官的實戰',
+    coam: 0,
+    final: true,
+    kit: { rarm: 'w_rifle', larm: 'w_lr', rback: 'bw_none', lback: 'bw_none' },
+    steps: [
+      {
+        id: 'exam',
+        t: '風格評價考試',
+        text: '60 秒內，對會走動、會開火的目標把<b>風格評價</b>（畫面右側）打到越高越好：<b>A</b> 及格、<b>S</b> ★★、<b>SS</b> ★★★。一直用同一招加得越來越少——QB 射擊、頂點、反擊、弱點、屬性反應、強力彈、擊破，換著用。',
+        say: '把學過的全拿出來。花俏一點。',
+        dummy: { type: 'mt', lv: 2, dist: 45, n: 2, kill: true, hpMul: 0.5, atk: 'shot', every: [2.6, 3.4] },
+        bar: 'style',
+        goal: [{ exam: 60, style: true, lbl: '風格評價' }],
+        demo: [
+          ['closeIn', 70],
+          ['qb', 's'],
+          ['wait', 0.05],
+          ['tap2'],
+          ['wait', 0.25],
+          ['tap'],
+          ['jump', 0.2],
+          ['wait', 'air'],
+          ['wait', 'apex'],
+          ['tap'],
+          ['wait', 'ground'],
+          ['tap'],
+          ['fire', 0.6],
+          ['end'],
+        ],
+        hints: ['QB → 開火、跳起來 → 最高點、落地 → 開火，雷射和步槍輪流打出過熱裝甲。'],
+      },
+      {
+        id: 'duel',
+        t: '實戰：教官',
+        text: '教官的訓練機會一邊移動一邊開火、發射導彈。用學過的技巧擊敗它。',
+        say: '來吧。讓我看看你的槍。',
+        dummy: {
+          type: 'ac',
+          lv: 2,
+          dist: 55,
+          kill: true,
+          hpMul: 1.6,
+          atk: 'mix',
+          every: [2, 2.8],
+          duel: true,
+          asm: {
+            head: 'h_std',
+            core: 'c_std',
+            arms: 'a_std',
+            legs: 'l_bp',
+            rarm: 'w_rifle',
+            larm: 'w_none',
+            rback: 'bw_ms',
+            lback: 'bw_none',
+          },
+        },
+        bar: 'pqb',
+        goal: [{ ev: 'kill', n: 1, lbl: '擊敗教官' }],
+        demo: [
+          ['closeIn', 70],
+          ['qb', 's'],
+          ['wait', 0.05],
+          ['tap2'],
+          ['wait', 0.25],
+          ['fire', 0.8],
+          ['end'],
+        ],
+        hints: ['看到「!」就 QB，閃完馬上打（COUNTER）；導彈貼近再閃。'],
       },
     ],
   },

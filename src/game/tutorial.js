@@ -32,6 +32,7 @@ import {
   tagName,
 } from '../data/tutorial.js';
 import { RT_PRIZES, RT_PRIZE_COAM, RT_WEAPONS, R_LESSONS } from '../data/tutorial-ranged.js';
+import { SY } from '../data/style-meter.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { MeleeAnim } from '../render/melee-anim.js';
 import { World } from '../world/world.js';
@@ -295,7 +296,8 @@ Object.assign(Game.prototype, {
     this.tutSpawnDummy(step);
     this.tutReset();
     if (step.goal && step.goal[0] && step.goal[0].quiz) this.tutQuizNew();
-    if (step.goal && step.goal[0] && step.goal[0].exam) T.exam = { t: step.goal[0].exam, kinds: new Set() };
+    if (step.goal && step.goal[0] && step.goal[0].exam)
+      T.exam = { t: step.goal[0].exam, kinds: new Set(), style: !!step.goal[0].style, best: -1 };
     if (step.say && !sk) this.commSay('instructor', step.say);
     this.tutPanelRender(true);
   },
@@ -480,6 +482,10 @@ Object.assign(Game.prototype, {
       T.scr = { list: T.step.demo, i: 0, t: 0 };
     } else if (this.tutAuto) {
       T.scr = { list: T.step.auto || T.step.demo, i: 0, t: 0 };
+    }
+    if (ph === 'try' && T.exam && T.exam.style) {
+      this.player.sy = null;
+      T.exam.best = -1;
     }
     this.tutPanelRender(true);
   },
@@ -949,6 +955,7 @@ Object.assign(Game.prototype, {
     if (['jc', 'resume', 'link', 'exec', 'parry', 'pqb'].includes(k)) add(k);
   },
   tutExamEnd() {
+    if (this.tut.exam.style) return this.tutRExamEnd(); // 遠程：風格評價（tutorial-ranged.js）
     const T = this.tut,
       n = T.exam.kinds.size;
     const stars = EXAM_STARS.filter((s) => n >= s).length;
@@ -1110,6 +1117,7 @@ Object.assign(Game.prototype, {
     if (T.phase === 'try') this.tutGoal('kill', {});
   },
   tutPlaceDummy() {
+    if (this.tutRanged()) return this.tutRPlace();
     const T = this.tut,
       e = T.dummy,
       p = this.player;
@@ -1282,6 +1290,8 @@ Object.assign(Game.prototype, {
       T.msgT > 0,
       T.quiz && T.quiz.i,
       T.exam && T.exam.kinds.size,
+      T.exam && T.exam.best,
+      this.player && this.player.sy ? this.player.sy.rank : -1,
       Math.ceil(T.exam ? T.exam.t : 0),
       this.padActive,
       this.vpadWanted(),
@@ -1306,6 +1316,11 @@ Object.assign(Game.prototype, {
       if (T.quiz) {
         const Q = T.quiz;
         h += `<div class="tpQuiz">${Q.seq.map((x, j) => `<b class="${j < Q.i ? 'd' : j === Q.i ? 'c' : ''}">${DIRS[x]}</b>`).join(' → ')}</div>`;
+      } else if (T.exam && T.exam.style) {
+        const p = this.player,
+          r = p && p.sy ? p.sy.rank : -1,
+          nm = (i) => (i >= 0 ? SY.RANKS[i][1] : '—');
+        h += `<div class="tpProg">剩下 <b>${Math.max(0, Math.ceil(T.exam.t))}</b> 秒　目前 <b>${nm(r)}</b>　最高 <b>${nm(T.exam.best)}</b>（A／S／SS＝★／★★／★★★）</div>`;
       } else if (T.exam) {
         h += `<div class="tpProg">剩下 <b>${Math.max(0, Math.ceil(T.exam.t))}</b> 秒　技巧 <b>${T.exam.kinds.size}</b> 種（${EXAM_STARS.join('／')} 種＝★／★★／★★★）</div>`;
         h += `<div class="tpKinds">${EXAM_KINDS.map(([k, n]) => `<i class="${T.exam.kinds.has(k) ? 'd' : ''}">${n}</i>`).join('')}</div>`;

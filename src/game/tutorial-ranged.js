@@ -9,12 +9,14 @@ import { FEEL } from '../data/feel.js';
 import { partById } from '../data/parts.js';
 import { RB } from '../data/ranged.js';
 import { RX } from '../data/react.js';
+import { SY } from '../data/style-meter.js';
 import { WP } from '../data/weak.js';
 import { rbTags } from '../data/tutorial-ranged.js';
 import { Game } from './game.js';
 
 const FAN = [0, -0.42, 0.42, -0.84, 0.84]; // 好幾台假人：排成扇形（弧度）
-const R_BARS = new Set(['qb', 'apex', 'land', 'ar', 'orbit', 'pqb', 'missile', 'pw', 'fin', 'rx']);
+const R_BARS = new Set(['qb', 'apex', 'land', 'ar', 'orbit', 'pqb', 'missile', 'pw', 'fin', 'rx', 'style']);
+const R_EXAM_RANKS = [3, 4, 5]; // 結業考核：A／S／SS（SY.RANKS 的索引）＝★／★★／★★★
 const ATTR_TXT = { kin: '實彈', exp: '爆發', en: '能量' };
 const APEX_SPAN = 1.6; // 頂點射擊的時機條：最高點前後各 0.8 秒
 const TELE = 0.9; // 點放的預警（遊戲秒；「!」在打到前 cueLead 秒）
@@ -47,9 +49,9 @@ Object.assign(Game.prototype, {
     T.dummies = [];
     for (let i = 0; i < (D.n || 1); i++) {
       const e = this.spawnEnemy({
-        name: `訓練目標（${d.name}）`,
+        name: D.duel ? '教官 INSTRUCTOR' : `訓練目標（${d.name}）`,
         asm: { ...d.gen(), ...(D.asm || {}) },
-        pal: d.pal,
+        pal: D.duel ? 'duelist' : d.pal,
         scale: d.scale,
         hpMul: D.hpMul || 3,
         dmgMul: 0.12,
@@ -59,7 +61,7 @@ Object.assign(Game.prototype, {
         grunt: true,
         wantDist: d.wantDist,
         speedMul: 0.6,
-        at: new THREE.Vector3(0, this.world.terrainHeight(0, -40), -40),
+        at: new THREE.Vector3(i * 12, this.world.terrainHeight(i * 12, -40), -40),
       });
       e.tutD = { ...D, ph: Math.random() * 6, i, tele: null, burst: 0, atkT: 1.4 };
       // 弱點的預備（時機型弱點）看感知狀態的 sn.mv：建立感知狀態（行為照舊由 tutRAI 接手）
@@ -145,9 +147,58 @@ Object.assign(Game.prototype, {
         ring.material.color.setHex(inR ? 0x7ee081 : 0x8a97a6);
       }
     }
+    this.tutRExamTick();
     if (p.lock && T.lastLock && p.lock !== T.lastLock && !T.lastLock.dead && T.phase === 'try')
       this.tutGoal('lockSw', {});
     T.lastLock = p.lock;
+  },
+  // 假人被擊破後重生：照扇形放在玩家前方（不動玩家）
+  tutRPlace() {
+    const T = this.tut,
+      p = this.player,
+      W = this.world;
+    const D = T.step.dummy || {};
+    const d = this.tutRDist(D);
+    const fy = Math.atan2(-(0 - p.pos.x), -(0 - p.pos.z)); // 朝場地中央
+    for (const e of T.dummies || []) {
+      if (e.dead) continue;
+      const a = fy + FAN[e.tutD.i % FAN.length] * (D.spread || 1);
+      let x = p.pos.x - Math.sin(a) * d,
+        z = p.pos.z - Math.cos(a) * d;
+      const r = Math.hypot(x, z);
+      if (r > 85) ((x *= 85 / r), (z *= 85 / r));
+      e.pos.set(x, W.terrainHeight(x, z), z);
+      e.vel.set(0, 0, 0);
+    }
+    if (T.dummy && !T.dummy.dead) p.lock = T.dummy;
+  },
+  // 結業考核：每格記下風格評價的最高等級
+  tutRExamTick() {
+    const T = this.tut,
+      X = T.exam,
+      p = this.player;
+    if (!X || !X.style || T.phase !== 'try') return;
+    X.best = Math.max(X.best, p.sy ? p.sy.rank : -1);
+    if (X.best >= R_EXAM_RANKS[2]) this.tutRExamEnd(); // 已經三顆星：不用等到時間結束
+  },
+  tutRExamEnd() {
+    const T = this.tut,
+      X = T.exam;
+    const stars = R_EXAM_RANKS.filter((r) => X.best >= r).length;
+    T.stars = Math.max(T.stars || 0, stars);
+    const nm = X.best >= 0 ? SY.RANKS[X.best][1] : '—';
+    if (stars > 0) {
+      T.prog[0] = 1;
+      this.tutPass();
+      this.commSay('instructor', ['及格。', '漂亮。看得出你在動腦。', '……完美。挑不出毛病。'][stars - 1]);
+    } else {
+      T.msg = `<b class="ng">時間到：最高 ${nm}，及格是 A。</b>　換著用不同的招式，再來一次`;
+      T.msgT = 4;
+      T.exam = { t: T.step.goal[0].exam, kinds: new Set(), style: true, best: -1 };
+      this.player.sy = null;
+      this.tutReset();
+      this.tutPanelRender(true);
+    }
   },
   // 換回暫時換掉的設定（換練習、離開教學）
   tutRRestore() {
@@ -231,6 +282,15 @@ Object.assign(Game.prototype, {
           V.fireR = 1;
           next();
         }
+        return true;
+      }
+      case 'closeIn': {
+        // 離假人超過 a[1] 公尺就走回去（一直往同一側 QB 會越繞越遠）
+        if (!e || e.dead) return true;
+        const dx = e.pos.x - p.pos.x,
+          dz = e.pos.z - p.pos.z;
+        if (Math.hypot(dx, dz) <= a[1]) next();
+        else V.wish.set(dx, 0, dz).normalize();
         return true;
       }
       case 'approach': {
@@ -388,7 +448,7 @@ Object.assign(Game.prototype, {
         const left = p.rbCtrT > 0 ? p.rbCtrT : p.pqbT;
         Object.assign(o, { show: true, z0: 0, z1: 1, x: 1 - left / 1.5, on: true });
         o.lbl = p.rbCtrT > 0 ? 'COUNTER 中：繼續開火' : '完美迴避：現在開火';
-      } else if (D && (D.tele || D.burst > 0) && D.atk === 'shot') {
+      } else if (D && (D.tele || D.burst > 0) && (D.atk === 'shot' || D.atk === 'mix')) {
         const span = TELE + 0.6,
           lead = e.cueLead(p);
         const x = D.tele ? (D.tele.T - D.tele.t) / span : (TELE + 0.55 - D.burst) / span;
@@ -443,6 +503,19 @@ Object.assign(Game.prototype, {
         Object.assign(o, { show: true, z0: 0, z1: 1, x, on: true });
         o.lbl = `上一次打中：${ATTR_TXT[r.a] || r.a}　${RX.WIN} 秒內換另一種屬性`;
       }
+    } else if (kind === 'style') {
+      const s = p.sy,
+        pts = s ? s.pts : 0,
+        top = SY.RANKS[R_EXAM_RANKS[2]][0];
+      const r = s ? s.rank : -1;
+      Object.assign(o, {
+        show: true,
+        z0: SY.RANKS[R_EXAM_RANKS[0]][0] / top,
+        z1: 1,
+        x: Math.min(1, pts / top),
+      });
+      o.on = r >= R_EXAM_RANKS[0];
+      o.lbl = `目前 ${r >= 0 ? SY.RANKS[r][1] : '—'}`;
     } else if (kind === 'orbit') {
       const k = p.rbOrbK();
       Object.assign(o, { show: true, z0: 0.97, z1: 1, x: k, on: k >= 1 });
@@ -576,20 +649,21 @@ Object.assign(Game.prototype, {
     if (e.staggerT > 0 || (D.atkT -= dt) > 0) return;
     const ev = D.every || [2.4, 3.2];
     D.atkT = ev[0] + Math.random() * (ev[1] - ev[0]);
-    if (D.atk === 'missile') {
+    const atk = D.atk === 'mix' ? (Math.random() < 0.5 ? 'shot' : 'missile') : D.atk;
+    if (atk === 'missile') {
       refill('rback');
       this.fx.flash(e.center(), 1.4, 0xff8040, 0.2);
       e.fire('rback', p.center(), p);
-    } else if (D.atk === 'rocket') {
+    } else if (atk === 'rocket') {
       refill('larm');
       this.fx.flash(e.center(), 1.4, 0xff8040, 0.2);
       e.fire('larm', p.center(), p);
-    } else if (D.atk === 'shot') {
+    } else if (atk === 'shot') {
       D.tele = { k: 'shot', t: TELE, T: TELE, fx: 0 };
       // 「!」出現後按 QB＝完美迴避（MechEntity.atkCue；「!」由 tutCue 畫）
       e.atkCue(p, TELE, 0.55 + 1.2, { quiet: true });
       this.fx.warnLine(e.center(), p.center(), TELE, 0xff4030, 0.08);
-    } else if (D.atk === 'aim') {
+    } else if (atk === 'aim') {
       // 長預備：整台露出弱點（sn.mv 的 wind），衝擊累積夠了被打斷（mech-weak.js 的 wpInterrupt）
       D.tele = { k: 'aim', t: AIM_T, T: AIM_T, fx: 0 };
       if (e.sn) e.sn.mv = { ph: 'wind', brk: 0 };
