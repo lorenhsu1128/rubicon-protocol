@@ -375,3 +375,91 @@ export function vRotorDisc(r) {
   g.renderOrder = 2;
   return g;
 }
+
+// ---------- 卡車的駕駛室 ----------
+// 平頭的駕駛室（側面輪廓擠出）：後面在 z0、車頭在 z1（車頭朝 z1 的方向），寬 w、底 y0、頂 h；sl＝擋風玻璃的斜長（沿 z）
+// o：{ body, glass, lamp, amber, grille（材質）, mirror, steps } ；M＝零件的材質（joint／rubber／gun／lens…）
+export function vCab(n, M, z0, z1, w, y0, h, o) {
+  withSink(n, () => {
+    const fz = Math.sign(z1 - z0) || 1,
+      L = Math.abs(z1 - z0),
+      sl = o.sl ?? Math.min(0.5, L * 0.22),
+      yb = y0 + (h - y0) * 0.45;
+    const prof = [
+      [0, y0],
+      [L, y0],
+      [L, yb],
+      [L - sl, h],
+      [0, h],
+    ];
+    // 擠出沿 Z、轉成寬度沿 X：u（往前）→ z0 + fz·u
+    P(n, D.extrude(prof, w, 0.07), o.body, 0, 0, z0, 0, -fz * HP, 0);
+    // 擋風玻璃
+    const dz = -fz * sl,
+      dy = h - yb,
+      len = Math.hypot(dz, dy);
+    const th = Math.atan2(-dy, dz);
+    // 玻璃往外推一點（駕駛室的倒角會蓋住）：外側法線的 y、z 分量
+    const oy = fz > 0 ? -dz / len : dz / len,
+      oz = fz > 0 ? dy / len : -dy / len;
+    const mz = z1 - fz * sl * 0.5,
+      my = (yb + h) / 2;
+    P(n, D.box(w - 0.3, 0.03, len - 0.14, 0.01), o.glass, 0, my + oy * 0.08, mz + oz * 0.08, th, 0, 0);
+    // 側窗、門縫、把手
+    const wz = z1 - fz * (sl + 0.55);
+    for (const s of [-1, 1]) {
+      P(n, D.box(0.03, (h - yb) * 0.72, 0.85, 0.01), o.glass, s * (w / 2 + 0.005), yb + (h - yb) * 0.5, wz);
+      if (o.mirror !== false) vMirror(n, M, s * (w / 2), yb + 0.25, z1 - fz * 0.25, s, 0.3);
+      fine(() => {
+        P(n, gBox(0.02, h - y0 - 0.25, 0.02), M.joint, s * (w / 2 + 0.01), (y0 + h) / 2, wz - fz * 0.55);
+        P(n, gBox(0.03, 0.04, 0.18), M.gun, s * (w / 2 + 0.02), yb + 0.05, wz - fz * 0.35);
+        if (o.steps !== false)
+          for (const y of [y0 - 0.15, y0 + 0.15])
+            P(n, D.box(0.28, 0.04, 0.38, 0.01), M.gun, s * (w / 2 - 0.12), y, wz);
+      });
+    }
+    // 正面：水箱護罩、頭燈、方向燈、保險桿
+    const fzz = z1 + fz * 0.04;
+    P(n, D.box(w * 0.55, (yb - y0) * 0.62, 0.06, 0.02), o.grille || M.joint, 0, y0 + (yb - y0) * 0.55, fzz);
+    for (const s of [-1, 1]) {
+      vLamp(n, M, o.lamp, s * w * 0.36, y0 + (yb - y0) * 0.35, fzz, w * 0.14, 0.18, fz > 0 ? 0 : Math.PI);
+      if (o.amber)
+        vLamp(n, M, o.amber, s * w * 0.45, y0 + (yb - y0) * 0.35, fzz, 0.1, 0.16, fz > 0 ? 0 : Math.PI);
+    }
+    P(n, D.box(w + 0.04, 0.3, 0.24, 0.05), M.joint, 0, y0 - 0.02, z1 + fz * 0.1);
+    fine(() => {
+      for (let i = 0; i < 5; i++)
+        P(n, gBox(w * 0.5, 0.03, 0.04), M.gun, 0, y0 + (yb - y0) * (0.32 + i * 0.11), fzz + fz * 0.03);
+    });
+  });
+}
+// 火車的車輪（有輪緣的鋼輪，軸沿 X）
+export function vRailWheel(parent, M, x, y, z, R, w, s = Math.sign(x) || 1) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  parent.add(g);
+  P0(
+    g,
+    D.lathe(
+      [
+        [0, -w / 2],
+        [R * 0.9, -w / 2],
+        [R, -w * 0.3],
+        [R, w * 0.3],
+        [R * 1.12, w * 0.4], // 輪緣（內側）
+        [R * 1.12, w / 2],
+        [R * 0.45, w * 0.6],
+        [0, w * 0.6],
+      ],
+      18,
+    ),
+    M.gun,
+    0,
+    0,
+    0,
+    0,
+    0,
+    s * HP, // 輪緣在內側
+  );
+  return g;
+}

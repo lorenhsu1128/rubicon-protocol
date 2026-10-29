@@ -7,7 +7,8 @@
 //
 // 參數：--only=models|maps、--cat=vehicle,prop,small（模型的分類）、--maps=industrial,snow（地圖）、
 //       --measure=3（每個鏡頭量幾秒）、--hp（強制高效能顯示卡；預設讓系統挑，雙顯示卡的筆電通常是內顯）、
-//       --tag=名稱、--compare=名稱（和之前的結果比較，印出差異最大的項目）。需要先 npm run build。
+//       --tag=名稱、--compare=名稱（和之前的結果比較，印出差異最大的項目）、--dist=資料夾（別的建置，例如舊版）。
+//       頁面的亂數固定種子，每次的地圖相同。需要先 npm run build。
 /* global window, document, getComputedStyle, localStorage, requestAnimationFrame -- page.evaluate 的回呼在瀏覽器端執行 */
 const path = require('path');
 const fs = require('fs');
@@ -34,7 +35,9 @@ const BROWSERS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
 ].filter(Boolean);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const url = (f) => require('url').pathToFileURL(path.join(ROOT, 'dist', f)).href + '?test';
+// --dist＝改用別的建置資料夾（含 lib/；比較舊版用）
+const DIST = args.dist ? path.resolve(args.dist) : path.join(ROOT, 'dist');
+const url = (f) => require('url').pathToFileURL(path.join(DIST, f)).href + '?test';
 
 async function models(browser) {
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -83,6 +86,18 @@ async function models(browser) {
 
 async function maps(browser) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+  // 頁面的亂數固定種子：每次量測的地圖相同，才能比較
+  await page.addInitScript(() => {
+    let a = 12345;
+    window.__reseed = (v) => (a = v >>> 0);
+    Math.random = () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  });
   await page.goto(url('rubicon-protocol.html'));
   await page.waitForFunction(
     () => {
@@ -92,7 +107,7 @@ async function maps(browser) {
     null,
     { timeout: 60000 },
   );
-  await sleep(1000);
+  await sleep(5000); // 等內建的玩家預設機甲（GLB）載入：沒載入時玩家的機體是沒合併的程式模型，繪製次數不同
   const gl = await page.evaluate(() => {
     const c = window.__game.renderer.getContext(),
       e = c.getExtension('WEBGL_debug_renderer_info');
@@ -107,6 +122,7 @@ async function maps(browser) {
       localStorage.setItem('rubicon_variant', 'base');
       const g = window.__game;
       g.save.level = 1;
+      window.__reseed(7777); // 出擊前重設亂數：每個版本的地圖相同
       window.__tStart = performance.now();
       g.startMission();
       window.__tBuilt = performance.now() - window.__tStart;
@@ -140,18 +156,29 @@ async function maps(browser) {
               g.camExtra = 160;
             };
           g.renderer.info.autoReset = false;
+          // 暖機 1 秒（著色器編譯、陰影貼圖），之後量每一格的時間，取中位數與 90%
+          await new Promise((res) => {
+            const t1 = performance.now();
+            const f = () => requestAnimationFrame(() => (performance.now() - t1 < 1000 ? f() : res()));
+            f();
+          });
           let n = 0,
             calls = 0,
             tr = 0;
+          const dts = [];
           const t0 = performance.now();
+          let last = t0;
           await new Promise((res) => {
             const f = () => {
               g.renderer.info.reset();
               requestAnimationFrame(() => {
+                const now = performance.now();
+                dts.push(now - last);
+                last = now;
                 calls += g.renderer.info.render.calls;
                 tr += g.renderer.info.render.triangles;
                 n++;
-                if (performance.now() - t0 < sec * 1000) f();
+                if (now - t0 < sec * 1000) f();
                 else res();
               });
             };
@@ -159,8 +186,10 @@ async function maps(browser) {
           });
           g.updateCamera = uc;
           g.renderer.info.autoReset = true;
+          dts.sort((a, b) => a - b);
           return {
-            ms: +((performance.now() - t0) / n).toFixed(2),
+            ms: +dts[Math.floor(dts.length / 2)].toFixed(2),
+            p90: +dts[Math.floor(dts.length * 0.9)].toFixed(2),
             calls: Math.round(calls / n),
             tris: Math.round(tr / n),
           };

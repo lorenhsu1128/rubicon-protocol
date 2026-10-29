@@ -688,7 +688,7 @@ export function upgradeGeo(geo, mm, k = 1) {
 }
 
 // ---------- 頂點色烘焙 ----------
-// list：[{ geo, mm, fine? }]（同一個合併網格的零件，mm＝到合併後座標的矩陣）；ctx：整個模型共用的遮蔽資料
+// list：[{ geo, mm, wm?, col? }]（同一個合併網格的零件，mm＝到合併後座標的矩陣、col＝一起烘進去的顏色）；ctx：整個模型共用的遮蔽資料
 // （tintCtx 建立，所有零件的外框都在裡面，不同材質的零件也互相遮蔽）。回傳合併後的幾何（含 color）。
 // opts：{ ao 遮蔽強度（預設 0.55）, wear 凸邊變亮（0.16）, grime 貼地髒污（0.22）, gh 髒污的高度（1.2 m）, y0 地面高度 }
 export function tintCtx(all, opts = {}) {
@@ -854,7 +854,12 @@ export function tintMerge(list, ctx, outline = false) {
         if (_n.y < -0.5) k *= 0.85;
       }
       if (wear && wear[i]) k *= 1 + ctx.wear;
-      col[j * 3] = col[j * 3 + 1] = col[j * 3 + 2] = k;
+      if (it.col) {
+        // 材質的顏色也烘進頂點色（同類的材質合併成一個網格時）
+        col[j * 3] = k * it.col.r;
+        col[j * 3 + 1] = k * it.col.g;
+        col[j * 3 + 2] = k * it.col.b;
+      } else col[j * 3] = col[j * 3 + 1] = col[j * 3 + 2] = k;
     }
     o += cnt;
   }
@@ -920,6 +925,34 @@ export function fineReg(mesh, dist = FINE_DIST) {
   FINE.set(mesh, dist);
 }
 export const isFine = (mesh) => FINE.has(mesh);
+// 同類材質的合併（地圖物件的 PK.tint）：沒有貼圖、不發光、正面、不透明度 1 的標準材質，依粗糙度與金屬感分成 3×3 類，
+// 顏色烘進頂點色；回傳類別的鍵（null＝不能合併，照原本的材質）
+const bin = (v) => (v < 0.35 ? 0 : v < 0.65 ? 1 : 2);
+export function matClass(m) {
+  if (!m.isMeshStandardMaterial || m.map || m.normalMap || m.side !== THREE.FrontSide || m.alphaTest > 0)
+    return null;
+  if (m.depthWrite === false || m.polygonOffset || m.opacity < 1) return null;
+  if (m.emissive && (m.emissive.r > 0.01 || m.emissive.g > 0.01 || m.emissive.b > 0.01)) return null;
+  return bin(m.roughness) * 3 + bin(m.metalness);
+}
+const CLS = new Map();
+const BINV = [0.2, 0.5, 0.82];
+// 類別的材質（白色＋頂點色）：可以淡出（fade）的每次建立一份（每個物件各自淡出），其他共用
+export function classMat(c, fade) {
+  const make = () =>
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: BINV[Math.floor(c / 3)],
+      metalness: BINV[c % 3] * 0.8,
+      flatShading: true,
+      vertexColors: true,
+      transparent: !!fade,
+    });
+  if (fade) return make();
+  let m = CLS.get(c);
+  if (!m) CLS.set(c, (m = make()));
+  return m;
+}
 const _fp = new THREE.Vector3();
 // 每格（renderMain）：用上一格算好的 matrixWorld（不往上更新），k＝距離倍率
 export function fineTick(cam, k = 1) {

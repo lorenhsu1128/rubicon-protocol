@@ -595,7 +595,7 @@ export function buildDrone(pal, scale = 1, key = 'swarm') {
   torso.add(fl);
   const mats = [M.main, M.main2, M.acc, M.sub, M.joint];
   swapPiece(`vehicle/${key}`, pal, [torso], mats, [fl]); // 尾焰維持程式特效
-  bakeAll(root);
+  bakeAll(root, { tint: VEH_TINT, cache: 'drone:' + key });
   root.scale.setScalar(scale);
   const arms = {
     r: { hand, back, sh: new THREE.Group(), up: new THREE.Group(), fore: new THREE.Group() },
@@ -837,6 +837,15 @@ function heliFine(tor, rotor, M, red) {
 }
 // 無人機：背上的面板與 GPS 天線罩、兩側的進氣口、感測器的萬向環、機腹的天線
 function droneDetail(tor, M) {
+  // 機身的面板縫、尾部噴口的導流片、感測器的護框
+  fine(() => {
+    for (const z of [-0.3, 0.15]) P(tor, D.cyl(0.255, 0.255, 0.012, 12), M.joint, 0, 0, z, HP2);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      P(tor, gBox(0.015, 0.1, 0.14), M.sub, Math.cos(a) * 0.15, Math.sin(a) * 0.15, 0.66, 0, 0, a);
+    }
+    for (const s of [-1, 1]) P(tor, gBox(0.02, 0.2, 0.02), M.joint, s * 0.18, 0, -0.68);
+  });
   CB(tor, 0.26, 0.03, 0.36, M.main3, 0, 0.255, -0.05, 0, 0, 0, 0.01);
   P(tor, gSph(0.06, 8), M.sub, 0, 0.27, 0.28);
   for (const s of [-1, 1]) {

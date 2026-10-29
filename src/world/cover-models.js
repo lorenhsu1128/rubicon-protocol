@@ -16,7 +16,7 @@ import {
   windowRows,
 } from './prop-models.js';
 import { D } from '../render/detail.js';
-import { vLamp, vMirror, vWheel } from '../render/vehicle-kit.js';
+import { vCab, vExhaust, vLamp, vMirror, vWheel } from '../render/vehicle-kit.js';
 
 // ---------- 防爆 T 型牆（低掩體，成排）：每片寬 1.52、高 3.66 m，底座深 1.2 m；n 片沿 X 排成一列 ----------
 export const TWALL = { w: 1.52, h: 3.66, d: 1.2 };
@@ -311,19 +311,65 @@ export function buildBus(color) {
   const glb = propGlb('bus', { color, ref: BUS, size: BUS, fade: true });
   if (glb) return glb;
   const body = fadeMat(color, { roughness: 0.5, metalness: 0.4 }),
-    D = DETAIL;
-  const k = new PK().bounds(-1.25, 0, -6, 1.25, 3.2, 6);
-  k.cb(body, 2.5, 2.8, 12, 0, 1.75, 0, 0, 0, 0, 0.15);
-  for (const s of [-1, 1]) {
-    k.box(D.glass, 0.04, 0.95, 10.4, s * 1.26, 2.25, 0.4);
-    for (let z = -4.6; z < 5.8; z += 1.3) k.box(body, 0.06, 0.95, 0.1, s * 1.27, 2.25, z);
+    Dt = DETAIL,
+    M = vkMats(),
+    HP = Math.PI / 2;
+  const k = new PK().bounds(-1.25, 0, -6, 1.25, 3.2, 6).tint(VEH_TINT);
+  // 車身：側面輪廓（有輪拱）沿 X 擠出；u＝往前（z＝−u）
+  const arch = (uc) => {
+    const pts = [];
+    for (let i = 0; i <= 8; i++) {
+      const a = Math.PI - (i / 8) * Math.PI;
+      pts.push([uc + Math.cos(a) * 0.62, 0.5 + Math.sin(a) * 0.62]);
+    }
+    return pts;
+  };
+  k.geo(
+    body,
+    D.extrude([[-5.85, 0.5], ...arch(-3.6), ...arch(4), [5.85, 0.5], [5.85, 3.0], [-5.85, 3.0]], 2.2, 0.15),
+    0,
+    0,
+    0,
+    0,
+    HP,
+    0,
+  );
+  // 窗帶（玻璃）與窗柱、前後的大玻璃
+  for (const s2 of [-1, 1]) {
+    k.box(Dt.glass, 0.03, 0.95, 10.6, s2 * 1.255, 2.25, 0.3);
+    for (let z = -4.9; z < 5.7; z += 1.32) k.box(body, 0.05, 0.98, 0.12, s2 * 1.265, 2.25, z);
+    k.box(body, 0.05, 0.12, 10.6, s2 * 1.265, 1.72, 0.3); // 窗下緣
   }
-  k.box(D.glass, 2.3, 1.3, 0.05, 0, 2.2, -6.01);
-  k.box(D.dark, 0.9, 2.1, 0.04, 0.6, 1.4, -6.02); // 前門
+  k.box(Dt.glass, 2.3, 1.4, 0.05, 0, 2.15, -6.01, 0.06, 0, 0);
+  k.box(Dt.glass, 2.1, 0.8, 0.05, 0, 2.4, 6.01);
+  // 車門（前面右側：兩片折門）
+  k.box(Dt.dark, 0.9, 2.1, 0.04, 0.6, 1.4, -6.02); // 前門
   k.mark('door_bus', 0.6, 0.3, -6.3, Math.PI);
+  for (const s2 of [-1, 1]) k.box(Dt.glass, 0.38, 1.2, 0.05, 0.6 + s2 * 0.2, 1.75, -6.04);
+  // 車頂：冷氣機、行先表示器（發光）
+  k.geo(Dt.white, D.box(1.6, 0.3, 2.4, 0.08), 0, 3.28, 0.8);
+  k.geo(Dt.lamp, D.box(1.6, 0.22, 0.04, 0.01), 0, 2.98, -6.03);
+  // 燈、保險桿、後照鏡
+  for (const s2 of [-1, 1]) {
+    vLamp(k, M, Dt.lamp, s2 * 0.95, 0.85, -6.03, 0.3, 0.16);
+    vLamp(k, M, Dt.red, s2 * 1.0, 1.0, 6.03, 0.22, 0.4, Math.PI);
+    vMirror(k, M, s2 * 1.25, 2.6, -5.8, s2, 0.45);
+  }
+  k.geo(Dt.dark, D.box(2.54, 0.3, 0.2, 0.05), 0, 0.5, -6.05);
+  k.geo(Dt.dark, D.box(2.54, 0.3, 0.2, 0.05), 0, 0.5, 6.05);
+  // 車輪（前 1 軸、後 1 軸）與輪拱的暗色
   for (const sx of [-1.05, 1.05])
-    for (const sz of [-4, 3.6]) k.cyl(D.rubber, 0.5, 0.5, 0.3, sx, 0.5, sz, 0, 0, Math.PI / 2, 12);
-  k.box(D.lamp, 2.0, 0.15, 0.05, 0, 0.75, -6.02);
+    for (const sz of [-4, 3.6]) {
+      vWheel(k, M, sx * 1.02, 0.5, sz, 0.5, 0.32, { lugs: 20, depth: 0.02 });
+    }
+  k.fine(() => {
+    // 雨刷、車身的面板縫、引擎室的散熱格柵（車尾）
+    for (const x of [-0.5, 0.5]) k.box(Dt.black, 0.9, 0.03, 0.03, x, 1.55, -6.06, 0, 0, 0.5);
+    for (const s2 of [-1, 1])
+      for (const z of [-2.5, 1.2]) k.box(Dt.black, 0.01, 1.0, 0.015, s2 * 1.26, 1.1, z);
+    for (let i = 0; i < 6; i++) k.box(Dt.black, 1.6, 0.03, 0.02, 0, 1.0 + i * 0.1, 6.04);
+    k.geo(Dt.steel, D.cyl(0.05, 0.05, 0.3, 8), 0.9, 0.35, 6.0, HP, 0, 0);
+  });
   return k.build();
 }
 // 聯結車（曳引車＋貨櫃拖車）16.5 × 4.0 × 2.5 m（長沿 Z、車頭朝 −Z）；cm＝拖車上貨櫃的材質
@@ -331,25 +377,82 @@ export const SEMI = [2.5, 4.0, 16.5];
 export function buildSemiTruck(cm, cab = 0xd8d8d8) {
   const glb = propGlb('parked_truck', { color: cm.color.getHex(), ref: SEMI, size: SEMI, fade: true });
   if (glb) return glb;
-  const D = DETAIL,
-    cb = mat(cab, { roughness: 0.45, metalness: 0.4 });
-  const k = new PK().bounds(-1.25, 0, -8.25, 1.25, 4.0, 8.25);
-  // 曳引車：車頭（長 6 m）
-  k.cb(cb, 2.45, 2.2, 2.6, 0, 2.0, -6.8, 0, 0, 0, 0.12);
-  k.cb(cb, 2.45, 1.0, 1.6, 0, 1.3, -7.9, 0, 0, 0, 0.1);
-  k.box(D.glass, 2.2, 0.9, 0.05, 0, 2.55, -8.11);
-  k.box(D.dark, 1.4, 0.8, 0.05, 0, 1.3, -8.72);
-  for (const sx of [-0.85, 0.85]) k.box(D.lamp, 0.35, 0.18, 0.05, sx, 1.0, -8.72);
-  for (const s of [-1, 1]) k.cyl(D.steel, 0.09, 0.09, 1.8, s * 1.15, 3.1, -5.6, 0, 0, 0, 6); // 排氣管
-  k.box(D.dark, 1.0, 0.3, 4.6, 0, 0.95, -4.6); // 底盤
-  // 拖車：40 呎貨櫃＋底架
-  k.box(D.dark, 2.4, 0.3, 12.4, 0, 1.15, 1.9);
-  k.at(0, 1.3, 1.9, 0, Math.PI / 2, 0, () => containerKitRef(k, cm));
-  for (const sx of [-1.0, 1.0]) {
-    for (const sz of [-7.6, -5.6, -4.4])
-      k.cyl(D.rubber, 0.52, 0.52, 0.32, sx, 0.52, sz, 0, 0, Math.PI / 2, 12);
-    for (const sz of [5.4, 6.7]) k.cyl(D.rubber, 0.52, 0.52, 0.32, sx, 0.52, sz, 0, 0, Math.PI / 2, 12);
+  const Dt = DETAIL,
+    cb = mat(cab, { roughness: 0.45, metalness: 0.4 }),
+    M = vkMats(),
+    HP = Math.PI / 2;
+  const k = new PK().bounds(-1.25, 0, -8.25, 1.25, 4.0, 8.25).tint(VEH_TINT);
+  // 曳引車：平頭駕駛室＋車頂導流罩、排氣管、油箱、底盤與第五輪
+  vCab(k, M, -5.5, -8.2, 2.45, 0.9, 3.15, { body: cb, glass: Dt.glass, lamp: Dt.lamp, amber: Dt.yellow });
+  k.geo(
+    cb,
+    D.extrude(
+      [
+        [0, 3.1],
+        [1.6, 3.1],
+        [1.3, 3.75],
+        [0, 3.8],
+      ],
+      2.3,
+      0.06,
+    ),
+    0,
+    0,
+    -5.6,
+    0,
+    HP,
+    0,
+  );
+  for (const s2 of [-1, 1]) {
+    vExhaust(k, M, s2 * 1.12, 1.1, -5.35, 2.6, 0.09);
+    k.geo(
+      Dt.steel,
+      D.lathe(
+        [
+          [0, -0.6],
+          [0.32, -0.58],
+          [0.34, -0.5],
+          [0.34, 0.5],
+          [0.32, 0.58],
+          [0, 0.6],
+        ],
+        16,
+      ),
+      s2 * 1.0,
+      0.75,
+      -4.95,
+      0,
+      0,
+      HP,
+    );
   }
+  k.box(Dt.dark, 1.0, 0.3, 4.6, 0, 0.95, -4.6); // 底盤
+  k.geo(Dt.steel, D.cyl(0.8, 0.8, 0.1, 18), 0, 1.15, -4.3);
+  // 拖車：40 呎貨櫃＋底架、支撐腳、尾燈、防鑽撞桿
+  k.box(Dt.dark, 2.4, 0.3, 12.4, 0, 1.15, 1.9);
+  k.at(0, 1.3, 1.9, 0, Math.PI / 2, 0, () => containerKitRef(k, cm));
+  for (const s2 of [-1, 1]) {
+    k.box(Dt.dark, 0.14, 0.9, 0.14, s2 * 0.9, 0.55, -2.8);
+    k.box(Dt.dark, 0.35, 0.06, 0.35, s2 * 0.9, 0.08, -2.8);
+    vLamp(k, M, Dt.red, s2 * 1.0, 0.95, 8.12, 0.22, 0.12, Math.PI);
+  }
+  k.box(Dt.dark, 2.3, 0.12, 0.12, 0, 0.6, 8.1);
+  // 車輪：前輪、驅動軸 2 軸、拖車 2 軸（雙輪）
+  for (const sx of [-1, 1]) {
+    vWheel(k, M, sx * 1.0, 0.52, -7.55, 0.52, 0.32, { lugs: 14, depth: 0.035 });
+    // 雙輪：外側是完整的車輪，內側只有輪胎（看不太到）
+    for (const sz of [-5.6, -4.4, 5.4, 6.7]) {
+      vWheel(k, M, sx * 1.0, 0.52, sz, 0.52, 0.3, { lugs: 14, depth: 0.035 });
+      k.geo(Dt.rubber, D.cyl(0.52, 0.52, 0.28, 18, 0.04), sx * 0.68, 0.52, sz, 0, 0, HP);
+    }
+    k.box(Dt.rubber, 0.6, 0.5, 0.02, sx * 0.85, 0.6, 7.4);
+  }
+  k.fine(() => {
+    // 支撐腳的搖柄、空氣管（駕駛室後到拖車）
+    k.box(Dt.steel, 0.4, 0.03, 0.03, 1.1, 0.8, -2.8);
+    for (const x of [-0.2, 0.2])
+      k.geo(x < 0 ? Dt.red : Dt.yellow, D.cable([x, 1.6, -5.4], [x, 1.45, -4.05], 0.02, 0.15, 6), 0, 0, 0);
+  });
   k.mark('door_cab', 1.3, 0.4, -6.8, Math.PI / 2);
   return k.build();
 }

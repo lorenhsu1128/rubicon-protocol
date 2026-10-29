@@ -2,6 +2,8 @@
 // 可以走進去的機庫、管制塔、球形燃料槽
 import { RNG, clamp, pick, rnd } from '../../core/math.js';
 import { WS } from '../../core/scale.js';
+import { D } from '../../render/detail.js';
+import { vCab, vLamp, vWheel } from '../../render/vehicle-kit.js';
 import {
   box,
   fadeMat,
@@ -255,42 +257,68 @@ export function buildFuelTruck() {
   if (glb) return glb;
   const m = fadeMat(0xd8d8d0, { roughness: 0.5, metalness: 0.4 }),
     cab = fadeMat(0xb04a2a, { roughness: 0.6 }),
-    dk = fadeMat(0x22262a, { roughness: 0.9 });
-  const k = new PK().bounds(-1.3, 0, -4, 1.3, 3.15, 3.7); // 外框同原本
-  // 底盤＋油罐（罐箍、頂部的走道與人孔、警示帶）＋駕駛艙（斜擋風玻璃）＋車輪
-  k.box(dk, 1.4, 0.3, 7.6, 0, 0.75, -0.2);
-  k.cyl(m, 1.25, 1.25, 5.6, 0, 1.9, 0.9, Math.PI / 2, 0, 0, 12);
-  for (const z of [-1.6, 0.9, 3.4]) k.cyl(dk, 1.29, 1.29, 0.15, 0, 1.9, z, Math.PI / 2, 0, 0, 12);
-  k.box(dk, 0.6, 0.08, 5.0, 0, 3.17, 0.9);
-  for (const z of [-0.5, 2.3]) k.cyl(dk, 0.35, 0.35, 0.2, 0, 3.2, z, 0, 0, 0, 8);
-  k.box(DETAIL.yellow, 0.05, 0.25, 5.4, 1.26, 1.6, 0.9);
-  k.box(DETAIL.yellow, 0.05, 0.25, 5.4, -1.26, 1.6, 0.9);
-  k.prism(
-    cab,
-    [
-      [2.0, 0.5],
-      [4.0, 0.5],
-      [4.0, 1.6],
-      [3.7, 2.7],
-      [2.0, 2.7],
-    ],
-    2.5,
+    dk = fadeMat(0x22262a, { roughness: 0.9 }),
+    Dt = DETAIL,
+    HP = Math.PI / 2;
+  const M = { joint: dk, rubber: Dt.rubber, gun: Dt.steel, lens: Dt.glass, sub: dk, main3: dk };
+  const k = new PK().bounds(-1.3, 0, -4, 1.3, 3.15, 3.7).tint({ ao: 0.85, grime: 0.32, gh: 1.1 }); // 外框同原本
+  // 底盤：兩根大樑＋保險桿
+  for (const x of [-0.5, 0.5]) k.box(dk, 0.2, 0.3, 7.6, x, 0.75, -0.2);
+  // 油罐：剖面旋轉（兩端是弧形的封頭）＋罐箍、頂部的走道與欄杆、人孔、警示帶
+  k.geo(
+    m,
+    D.lathe(
+      [
+        [0, -2.8],
+        [0.75, -2.76],
+        [1.1, -2.6],
+        [1.25, -2.3],
+        [1.25, 2.3],
+        [1.1, 2.6],
+        [0.75, 2.76],
+        [0, 2.8],
+      ],
+      24,
+    ),
     0,
+    1.9,
+    0.9,
+    HP,
     0,
-    0,
-    0,
-    Math.PI / 2,
     0,
   );
-  k.quad(DETAIL.glass, [1.1, 1.75, -3.99], [-1.1, 1.75, -3.99], [-1.1, 2.55, -3.76], [1.1, 2.55, -3.76]);
-  for (const s of [-1, 1]) k.box(DETAIL.glass, 0.04, 0.6, 1.0, s * 1.26, 2.1, -2.9);
-  k.box(dk, 2.6, 0.3, 0.2, 0, 0.6, -4.0);
-  for (const s of [-1, 1]) k.box(DETAIL.lamp, 0.35, 0.18, 0.05, s * 0.9, 1.0, -4.02);
-  for (const sx of [-1.1, 1.1])
-    for (const sz of [-3, 0.5, 2.6]) {
-      k.cyl(dk, 0.5, 0.5, 0.4, sx, 0.5, sz, 0, 0, Math.PI / 2, 10);
-      k.cyl(DETAIL.steel, 0.25, 0.25, 0.42, sx, 0.5, sz, 0, 0, Math.PI / 2, 6);
+  for (const z of [-1.0, 0.9, 2.8]) k.geo(dk, D.cyl(1.29, 1.29, 0.15, 24, 0.02), 0, 1.9, z, HP, 0, 0);
+  k.box(dk, 0.6, 0.08, 5.0, 0, 3.17, 0.9);
+  for (const z of [-0.5, 2.3]) {
+    k.geo(dk, D.cyl(0.35, 0.38, 0.12, 16, 0.02), 0, 3.2, z);
+    k.geo(Dt.steel, D.cyl(0.26, 0.26, 0.06, 14, 0.01), 0, 3.28, z);
+  }
+  k.box(Dt.yellow, 0.05, 0.25, 5.4, 1.26, 1.6, 0.9);
+  k.box(Dt.yellow, 0.05, 0.25, 5.4, -1.26, 1.6, 0.9);
+  // 罐的支架（鞍座）
+  for (const z of [-1.4, 3.2]) k.box(dk, 1.9, 0.45, 0.25, 0, 0.95, z);
+  // 駕駛室
+  vCab(k, M, -1.9, -4.0, 2.5, 0.55, 2.75, { body: cab, glass: Dt.glass, lamp: Dt.lamp, amber: Dt.yellow });
+  // 車輪與擋泥板
+  for (const sx of [-1.1, 1.1]) {
+    for (const sz of [-3, 0.5, 2.6]) vWheel(k, M, sx, 0.5, sz, 0.5, 0.38, { lugs: 14, depth: 0.035 });
+    k.box(dk, 0.5, 0.05, 1.3, sx, 1.08, -3);
+    k.box(dk, 0.5, 0.05, 3.3, sx, 1.08, 1.55);
+  }
+  // 車尾：閥箱、捲管器、尾燈、爬梯
+  k.cb(dk, 1.6, 0.6, 0.4, 0, 1.0, 3.6, 0, 0, 0, 0.04);
+  k.geo(Dt.steel, D.cyl(0.32, 0.32, 0.9, 16, 0.03), 0, 1.6, 3.55, 0, 0, HP);
+  for (const s2 of [-1, 1]) vLamp(k, M, Dt.red, s2 * 1.05, 0.9, 3.72, 0.2, 0.12, Math.PI);
+  k.fine(() => {
+    // 走道的欄杆、爬梯、閥門的把手、罐箍的螺栓
+    for (const s2 of [-1, 1]) {
+      for (const z of [-1.4, 0.2, 1.8, 3.2]) k.box(Dt.steel, 0.03, 0.5, 0.03, s2 * 0.32, 3.45, z);
+      k.box(Dt.steel, 0.03, 0.03, 4.8, s2 * 0.32, 3.7, 0.9);
     }
+    for (let i = 0; i < 6; i++) k.box(Dt.steel, 0.5, 0.03, 0.03, 0.6, 0.6 + i * 0.42, 3.72);
+    for (const x of [0.45, 0.95]) k.box(Dt.steel, 0.03, 2.6, 0.03, x, 1.9, 3.72);
+    for (const x of [-0.5, 0, 0.5]) k.geo(Dt.red, D.cyl(0.07, 0.07, 0.05, 10), x, 1.0, 3.82, HP, 0, 0);
+  });
   return k.build();
 }
 // 防爆牆：8 × 4 × 1（沿 X），原點在底面中心

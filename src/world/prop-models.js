@@ -4,7 +4,7 @@ import { MS } from '../core/scale.js';
 import { OUTLINE_MAT } from '../render/geometry.js';
 import { materialSlot } from '../render/glb.js';
 import { providedModel } from '../render/model-provider.js';
-import { fineReg, tintCtx, tintMerge, upgradeGeo, vcMat } from '../render/detail.js';
+import { classMat, fineReg, matClass, tintCtx, tintMerge, upgradeGeo, vcMat } from '../render/detail.js';
 
 const MatCache = {};
 
@@ -364,27 +364,39 @@ export class PK {
       for (const e of list) all.push({ geo: e[0], mm: e[1] });
     }
     const ctx = tintCtx(all, this.tintOpts);
+    // 同類的材質合併成一個網格（顏色烘進頂點色，減少繪製次數）；小細節（fine）全部併成一類
+    const groups = new Map();
     let ai = 0;
     for (const [key, list] of this.by) {
       const [m, pi, isFine] = key;
+      const skip = m.transparent && m.opacity < 1;
+      const c = matClass(m);
+      const fade = !!m.transparent;
+      const gk = c === null ? m : `${isFine ? 'f' : c}|${pi}|${fade ? 1 : 0}`;
+      let G = groups.get(gk);
+      if (!G) groups.set(gk, (G = { m, c: isFine && c !== null ? 4 : c, pi, isFine, fade, items: [] }));
       const part = pi >= 0 ? parts[pi] : null;
       const inv = part ? new THREE.Matrix4().copy(part.mm).invert() : null;
-      const skip = m.transparent && m.opacity < 1;
-      const items = list.map(([g, mm]) => {
+      for (const [g, mm] of list) {
         const it = { geo: g, mm: part ? new THREE.Matrix4().multiplyMatrices(inv, mm) : mm, wm: mm };
+        if (c !== null) it.col = m.color;
         if (!skip) ctx.index.set(it, ai++);
-        return it;
-      });
-      const geo = tintMerge(items, ctx);
+        G.items.push(it);
+      }
+    }
+    for (const G of groups.values()) {
+      const part = G.pi >= 0 ? parts[G.pi] : null;
+      const geo = tintMerge(G.items, ctx);
       geo.computeBoundingSphere();
       if (part) geo.boundingBox = part.box.clone();
       else if (union) geo.boundingBox = union.clone();
-      const mesh = new PropMesh(geo, m.isMeshStandardMaterial ? vcMat(m) : m);
-      if (!m.isMeshStandardMaterial) geo.deleteAttribute('color');
+      const mat = G.c !== null ? classMat(G.c, G.fade) : G.m.isMeshStandardMaterial ? vcMat(G.m) : G.m;
+      if (G.c === null && !G.m.isMeshStandardMaterial) geo.deleteAttribute('color');
+      const mesh = new PropMesh(geo, mat);
       if (part) part.mm.decompose(mesh.position, mesh.quaternion, mesh.scale);
-      mesh.castShadow = shadow && !isFine;
+      mesh.castShadow = shadow && !G.isFine;
       mesh.receiveShadow = true;
-      if (isFine) fineReg(mesh, this.fineDist);
+      if (G.isFine) fineReg(mesh, this.fineDist);
       group.add(mesh);
     }
     this.by.clear();

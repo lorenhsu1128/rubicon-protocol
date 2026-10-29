@@ -2,7 +2,7 @@
 // 遊戲的本地模型庫可以用 GLB 取代（model-provider.js）：每節車廂、掉落物本體、轟炸機、彈體各自一個槽位
 import { CB, P, bakeAll, fine, gBox, gCyl, gPod, mergeGeos } from './geometry.js';
 import { D } from './detail.js';
-import { vExhaust, vLamp, vMirror, vWheel } from './vehicle-kit.js';
+import { vExhaust, vLamp, vLight, vMirror, vRailWheel, vWheel } from './vehicle-kit.js';
 import { rod, side, slats, top } from './foe-models.js';
 import { providedModel } from './model-provider.js';
 import { tagStyle } from './style/shader.js';
@@ -31,11 +31,59 @@ function transportMats() {
   };
 }
 // 列車的台車：框架＋兩軸的車輪＋彈簧
-function bogie(n, T, z) {
-  P(n, gBox(2.7, 0.32, 2.2), T.dark, 0, 0.62, z);
-  for (const dz of [-0.62, 0.62])
-    for (const s of [-1, 1]) P(n, gCyl(0.45, 0.45, 0.22, 8), T.tire, s * 1.4, 0.45, z + dz, 0, 0, HP);
-  for (const s of [-1, 1]) P(n, gBox(0.2, 0.3, 0.5), T.metal, s * 1.36, 0.82, z);
+function bogie(n, T, z, wheels) {
+  const M = { joint: T.dark, rubber: T.tire, gun: T.metal, lens: T.glass, sub: T.dark };
+  P(n, D.box(2.2, 0.3, 2.0, 0.03), T.dark, 0, 0.66, z);
+  for (const dz of [-0.62, 0.62]) {
+    // 車軸＋有輪緣的鋼輪（會轉）＋軸箱
+    P(n, D.cyl(0.08, 0.08, 2.6, 8), T.metal, 0, 0.45, z + dz, 0, 0, HP);
+    for (const s of [-1, 1]) {
+      wheels.push({ o: vRailWheel(n, M, s * 1.28, 0.45, z + dz, 0.42, 0.18), r: 0.45 });
+      P(n, D.box(0.24, 0.26, 0.34, 0.03), T.dark, s * 1.48, 0.47, z + dz);
+    }
+  }
+  // 側架（台車的框）＋彈簧
+  for (const s of [-1, 1]) {
+    P(
+      n,
+      D.extrude(
+        [
+          [-1.1, 0.4],
+          [1.1, 0.4],
+          [1.0, 0.75],
+          [0.4, 0.85],
+          [-0.4, 0.85],
+          [-1.0, 0.75],
+        ],
+        0.16,
+        0.03,
+      ),
+      T.dark,
+      s * 1.5,
+      0,
+      z,
+      0,
+      HP,
+      0,
+    );
+    P(n, D.box(0.2, 0.3, 0.5, 0.03), T.metal, s * 1.36, 0.86, z);
+    fine(() => {
+      const pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const a = (i / 24) * Math.PI * 8;
+        pts.push([s * 1.5 + Math.cos(a) * 0.1, 0.7 + i * 0.012, Math.sin(a) * 0.1]);
+      }
+      for (const dz of [-0.2, 0.2])
+        P(
+          n,
+          D.sweep(
+            pts.map((p) => [p[0], p[1], p[2] + z + dz]),
+            D.ring(0.025, 5),
+          ),
+          T.metal,
+        );
+    });
+  }
 }
 function buildTruck(n, T, wheels) {
   const M = { joint: T.dark, rubber: T.tire, gun: T.metal, lens: T.glass, sub: T.dark, main3: T.dark };
@@ -160,13 +208,13 @@ function buildTruck(n, T, wheels) {
   vExhaust(n, M, 1.25, 1.0, 2.25, 2.1, 0.08);
   P(n, D.cyl(0.18, 0.18, 0.6, 14, 0.02), T.metal, -1.25, 1.6, 2.25);
 }
-function buildLoco(n, T) {
+function buildLoco(n, T, wheels) {
   // 底架、緩衝樑與緩衝器、台車
   CB(n, 3.4, 0.4, 7.2, T.yellow, 0, 0.7, 0, 0, 0, 0, 0.05);
   for (const s of [-1, 1]) {
     P(n, gBox(3.2, 0.45, 0.18), T.dark, 0, 0.85, s * 3.68);
     for (const x of [-1, 1]) P(n, gCyl(0.14, 0.14, 0.3, 8), T.metal, x, 0.85, s * 3.85, HP);
-    bogie(n, T, s * 2.4);
+    bogie(n, T, s * 2.4, wheels);
   }
   // 車體：前端往下收的引擎罩＋駕駛室＋煙囪
   side(
@@ -206,12 +254,90 @@ function buildLoco(n, T) {
     P(n, gCyl(0.08, 0.08, 0.06, 8), T.light, s * 1.0, 2.6, 3.53, HP);
   }
   P(n, gCyl(0.18, 0.18, 0.08, 8), T.light, 0, 3.3, 3.42, HP + 0.5);
+  locoDetail(n, T);
 }
-function buildCar(n, T, i) {
+// 機車頭的細節：側門的輪廓、百葉的框、車頂的散熱風扇與喇叭、前後的頭燈與號碼板、踏階、聯結器、駕駛室的窗框
+function locoDetail(n, T) {
+  const M = { joint: T.dark, rubber: T.tire, gun: T.metal, lens: T.glass, sub: T.dark };
+  for (const s of [-1, 1]) {
+    // 側門（三扇）與百葉的框
+    for (const z of [-2.6, -0.4, 1.0]) {
+      P(n, D.box(0.04, 1.5, 0.9, 0.01), T.red, s * 1.62, 2.3, z);
+      fine(() => {
+        P(n, gBox(0.02, 0.06, 0.06), T.metal, s * 1.65, 2.3, z + 0.32);
+        for (const y of [1.6, 3.0]) P(n, gBox(0.02, 0.05, 0.12), T.dark, s * 1.65, y, z - 0.42);
+      });
+    }
+    P(n, D.box(0.05, 0.95, 2.4, 0.02), T.dark, s * 1.61, 3.1, -1.5);
+    // 角落的踏階與扶手
+    for (const z of [-3.45, 3.45]) {
+      P(n, D.box(0.5, 0.05, 0.3, 0.01), T.metal, s * 1.45, 0.45, z);
+      fine(() => {
+        P(n, gBox(0.5, 0.05, 0.3), T.metal, s * 1.45, 0.15, z);
+        P(
+          n,
+          D.sweep(
+            [
+              [s * 1.7, 0.5, z],
+              [s * 1.72, 1.6, z],
+            ],
+            D.ring(0.025, 5),
+          ),
+          T.metal,
+        );
+      });
+    }
+  }
+  // 車頂：兩個散熱風扇（網罩）、喇叭、天線
+  for (const z of [-1.8, -0.4]) {
+    P(n, D.cyl(0.62, 0.66, 0.2, 20, 0.03), T.dark, 0, 3.9, z);
+    fine(() => {
+      for (let i = 0; i < 4; i++) P(n, gBox(1.2, 0.02, 0.03), T.metal, 0, 4.01, z, 0, (i * Math.PI) / 4);
+    });
+  }
+  fine(() => {
+    for (const x of [-0.3, 0, 0.3])
+      P(
+        n,
+        D.lathe(
+          [
+            [0, 0],
+            [0.06, 0],
+            [0.04, 0.18],
+            [0.09, 0.3],
+            [0, 0.3],
+          ],
+          8,
+        ),
+        T.metal,
+        x,
+        5.0,
+        2.0,
+        HP,
+      );
+    P(n, D.cyl(0.01, 0.01, 0.8, 4), T.metal, 0.9, 5.3, 1.2);
+  });
+  // 前後的頭燈（雙燈）、號碼板、聯結器
+  for (const sz of [-1, 1]) {
+    const z = sz * 3.57,
+      ry = sz > 0 ? 0 : Math.PI;
+    for (const x of [-0.25, 0.25])
+      vLight(n, M, T.light, x, 3.35, z * 0.985, 0.1, sz > 0 ? Math.PI : 0, false);
+    P(n, D.box(0.8, 0.22, 0.04, 0.01), T.white, 0, 3.0, z);
+    vLamp(n, M, T.red, 1.2, 1.35, sz * 3.6, 0.12, 0.12, ry);
+    P(n, D.box(0.36, 0.3, 0.5, 0.04), T.dark, 0, 0.85, sz * 3.95);
+    fine(() => P(n, D.cyl(0.08, 0.1, 0.15, 10), T.metal, 0, 0.85, sz * 4.25, HP));
+  }
+  // 駕駛室的窗框
+  fine(() => {
+    for (const x of [-0.95, 0, 0.95]) P(n, gBox(0.06, 0.5, 0.06), T.dark, x, 4.45, 3.03);
+  });
+}
+function buildCar(n, T, i, wheels) {
   const cm = i % 2 ? T.carA : T.carB;
   P(n, gBox(3.4, 0.3, 7.2), T.dark, 0, 0.55, 0);
   for (const s of [-1, 1]) {
-    bogie(n, T, s * 2.4);
+    bogie(n, T, s * 2.4, wheels);
     P(n, gBox(0.3, 0.25, 0.4), T.dark, 0, 0.8, s * 3.7);
   }
   // 車廂：浪板的肋、中間的拉門與門軌、梯子
@@ -258,14 +384,11 @@ export function buildTransport(kind, cars, carLen, first = 0) {
     n.position.z = zc;
     g.add(n);
     if (kind === 'train') {
-      if (i === 0) buildLoco(n, T);
-      else buildCar(n, T, i);
+      if (i === 0) buildLoco(n, T, wheels);
+      else buildCar(n, T, i, wheels);
     } else buildTruck(n, T, wheels);
   }
-  bakeAll(
-    g,
-    kind === 'truck' ? { tint: { ao: 0.85, grime: 0.32, gh: 1.1 }, cache: 'transport:truck' } : undefined,
-  );
+  bakeAll(g, { tint: { ao: 0.85, grime: 0.32, gh: 1.1 }, cache: 'transport:' + kind });
   g.wheels = wheels; // 依行駛距離轉動（world/map-extras.js 的 Vehicle）
   return tagStyle(g);
 }
@@ -469,7 +592,84 @@ export function buildBomberMesh() {
     0,
     0.04,
   );
-  bakeAll(b);
+  // 引擎的進氣口（唇口）與排氣錐、翼下的掛架與炸彈、座艙的框、面板縫、天線
+  for (const s of [-1, 1])
+    for (const x of [3.5, 7]) {
+      const z = (x - 3.5) * 0.25;
+      P(
+        b,
+        D.lathe(
+          [
+            [0.55, 0],
+            [0.74, 0.05],
+            [0.7, 0.16],
+            [0.6, 0.2],
+          ],
+          20,
+        ),
+        dk,
+        s * x,
+        -0.6,
+        -1.0 + z,
+        -HP,
+        0,
+        0,
+      );
+      P(
+        b,
+        D.lathe(
+          [
+            [0.42, 0],
+            [0.32, 0.35],
+            [0.1, 0.6],
+            [0, 0.62],
+          ],
+          16,
+        ),
+        dk,
+        s * x,
+        -0.6,
+        2.25 + z,
+        HP,
+        0,
+        0,
+      );
+      fine(() => P(b, D.cyl(0.5, 0.5, 0.04, 16), dk, s * x, -0.6, -0.9 + z, HP));
+    }
+  for (const s of [-1, 1]) {
+    P(b, D.box(0.3, 0.3, 1.6, 0.04), dk, s * 5.2, -0.45, 0.9);
+    for (const k of [-1, 1])
+      P(
+        b,
+        D.lathe(
+          [
+            [0, -0.9],
+            [0.16, -0.75],
+            [0.2, -0.5],
+            [0.2, 0.5],
+            [0.14, 0.7],
+            [0, 0.8],
+          ],
+          12,
+        ),
+        mm,
+        s * 5.2 + k * 0.22,
+        -0.8,
+        0.9,
+        HP,
+        0,
+        0,
+      );
+  }
+  fine(() => {
+    for (const z of [-5.0, -4.3]) P(b, gBox(1.25, 0.05, 0.05), dk, 0, 1.12 - (z + 5) * 0.1, z);
+    for (const z of [-2.0, 0.5, 3.0]) P(b, D.cyl(0.8, 0.8, 0.02, 16), dk, 0, 0.7, z, HP);
+    for (const s of [-1, 1])
+      for (const x of [2.0, 5.5, 9.0]) P(b, gBox(0.03, 0.02, 1.6), dk, s * x, 0.22, 1.2 + x * 0.12);
+    P(b, D.box(0.06, 0.5, 0.4, 0.01), dk, 0, 1.45, -1.5);
+    P(b, D.cyl(0.01, 0.01, 1.2, 4), dk, 0, -1.3, -2.0, 0.6);
+  });
+  bakeAll(b, { tint: { ao: 0.7, grime: 0, gh: 1 }, cache: 'bomber' });
   return tagStyle(bm);
 }
 

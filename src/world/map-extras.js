@@ -1,6 +1,7 @@
 // ============================================================
 //  MAP EXTRAS — 穿越公路／鐵路的運輸車輛、可破壞散置物件、掉落物
 // ============================================================
+import { mergeRig } from '../render/mesh-merge.js';
 import { SFX } from '../audio/audio.js';
 import { pick, rnd, rndi } from '../core/math.js';
 import { MS } from '../core/scale.js';
@@ -72,6 +73,8 @@ export class Vehicle {
       for (const m of Array.isArray(o.material) ? o.material : [o.material])
         if (m.emissive && !this.mats.includes(m)) this.mats.push(m);
     });
+    // 依材質合併（車輪是骨頭，照樣轉動；render/mesh-merge.js），閃光改的是原本的材質（合併的複本每格同步）
+    mergeRig({ group: g, wheels: g.wheels });
     this.update(0);
   }
   carPos(i) {
