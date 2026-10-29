@@ -11107,6 +11107,22 @@ async function testBossKit(browser, base, list, label) {
           }
           out.ints.push(name && !b.bt.ch && b.staggerT >= 4 ? name : '×');
         }
+        // 破綻：刁鑽度 3 的指定招式收招（open2），刁鑽度 5 以上連續兩招
+        b.opts.tier = 3;
+        b.bt.openT = 0;
+        b.bt.fake = 0;
+        b.bt.chain = 0;
+        b.tierMoveEnd((kit.open2 || ['p3'])[0]);
+        const o3 = b.bt.openT > 0;
+        b.bt.openT = 0;
+        b.opts.tier = 5;
+        b.bt.chain = 0;
+        b.tierMoveEnd('x');
+        const o5a = b.bt.openT > 0;
+        b.tierMoveEnd('x');
+        out.open = o3 && !o5a && b.bt.openT > 0;
+        b.bt.openT = 0;
+        b.opts.tier = 3; // 打回去的彈照刁鑽度 3（5 起有假彈）
         // 可以打回去的彈
         const kinds = kit.reflect || ['missile'];
         const o = b.tierShotOpt(100, kinds[0]);
@@ -11165,6 +11181,7 @@ async function testBossKit(browser, base, list, label) {
       `${r.name}：三個大招都打斷了（${r.ints.join('、')}）`,
     );
     check(/:ok$/.test(r.reflect), `${r.name}：可以打回去的彈（${r.reflect}）`);
+    check(r.open, `${r.name}：破綻（刁鑽度 3 指定的招式收招、刁鑽度 5 連續兩招之後）`);
     check(r.field[0] > 0 && r.field[1] > 0, `${r.name}：第二、三型態改變場地（${r.field.join('／')}）`);
     check(
       r.counters.every((x) => x === 1),
