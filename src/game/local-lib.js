@@ -93,8 +93,8 @@ Object.assign(Game.prototype, {
     const human = o.team === 'player' && o.slot !== undefined && o.slot >= 0 && !o.pvpAi && !o.modelKind;
     const mp = !!(this.net && this.net.role);
     // 電腦的 AC（具名 AC、宿敵、Boss 的 AC、隨機的敵對 AC、友軍、PvP 電腦）：和玩家同零件的部位也用內建預設機甲的 GLB，
-    // 依各自的配色換色。MT 等雜兵（grunt）、載具外形（modelKind）、Coral 戰爭的單位照舊
-    const ac = !human && !o.grunt && !o.modelKind && !this.rts;
+    // 依各自的配色換色。MT 等雜兵（grunt）、載具外形（modelKind）照舊
+    const ac = !human && !o.grunt && !o.modelKind;
     if (!onServer()) {
       if (!human) return ac ? BuiltinMech.source() : null;
       return (!mp && LocalModels.mySource()) || BuiltinMech.source();

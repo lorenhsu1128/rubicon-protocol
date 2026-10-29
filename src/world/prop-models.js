@@ -161,7 +161,7 @@ function chamferGeo(w, h, d, c) {
   g.computeVertexNormals();
   return g;
 }
-// 精細版的預設選項（docs/model-detail.md）：地圖物件一律打開；建好之後還會改材質顏色的模型（RTS 的建築、過場）用 new PK(false)
+// 精細版的預設選項（docs/model-detail.md）：地圖物件一律打開；建好之後還會改材質顏色的模型（過場）用 new PK(false)
 const PK_TINT = { ao: 0.75, grime: 0.22, lite: true };
 export class PK {
   constructor(t) {

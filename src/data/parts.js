@@ -1828,20 +1828,6 @@ function scaleWeapon(d) {
   for (const st of d.combo || []) scaleKeys(st, COMBO_DS, DS);
   for (const st of d.moves || []) scaleKeys(st, COMBO_DS, DS); // 近戰的派生招式（data/melee.js）
 }
-// Coral 戰爭照舊尺度（實體的 dk＝1）：武器定義換回放大前的數字（副本，依原定義快取）
-const RTS_W = new WeakMap();
-export function rtsWeaponDef(d) {
-  if (!d || d.type === 'none') return d;
-  let r = RTS_W.get(d);
-  if (r) return r;
-  r = { ...d };
-  scaleKeys(r, W_DS, 1 / DS);
-  scaleKeys(r, W_MS, 1 / MS);
-  if (d.combo) r.combo = d.combo.map((st) => scaleKeys({ ...st }, COMBO_DS, 1 / DS));
-  if (d.moves) r.moves = d.moves.map((st) => scaleKeys({ ...st }, COMBO_DS, 1 / DS));
-  RTS_W.set(d, r);
-  return r;
-}
 (function scaleParts() {
   for (const p of PARTS.legs) scaleKeys(p, ['speed', 'jumpH', 'airH'], DS);
   for (const p of PARTS.booster) scaleKeys(p, ['qb'], DS);

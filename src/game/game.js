@@ -62,7 +62,7 @@ export class Game {
     this.setupEnvironment();
     this.setupPost();
     this.fx = new Effects(this.scene);
-    this.fx.setK(DS); // 特效的大小倍率（Coral 戰爭的 setRtsRender 設成 1）
+    this.fx.setK(DS); // 特效的大小倍率
     this.wrapFx();
     this.projSeq = 0;
     this.rangeRing = new THREE.Mesh(
@@ -109,7 +109,6 @@ export class Game {
     this.mpModelsInit();
     this.levelsInit(); // 自訂關卡的選單（levels.js）
     this.edInit(); // 關卡編輯器（editor.js）
-    this.rtsInit(); // Coral 戰爭（rts.js）
     // 冒煙測試用：網址帶 ?test 時把遊戲實例放在 window.__game（檢查各機甲用的模型組）
     if (/[?&]test\b/.test(location.search)) {
       window.__game = this;
@@ -277,8 +276,6 @@ export class Game {
   // 以實體為準的敵對名單（PVP：不同隊的玩家也是敵人）
   hostilesOfEnt(e) {
     if (!e) return this.enemies;
-    // Coral 戰爭：依隊伍編號（含中立的第 3 隊）；rts.js 每格重建（呼叫端不要修改這個陣列）
-    if (this.rts && e.rtsTeam !== undefined && this.rts.hostile) return this.rts.hostile[e.rtsTeam] || [];
     if (this.pvp) {
       const all = [...(this.players || []), ...this.enemies];
       return all.filter((q) => q !== e && !q.dead && this.isHostile(e, q));
@@ -289,7 +286,6 @@ export class Game {
   }
   isHostile(a, b) {
     if (!a || !b || a === b) return false;
-    if (this.rts && a.rtsTeam !== undefined && b.rtsTeam !== undefined) return a.rtsTeam !== b.rtsTeam;
     if (this.pvp) {
       const ta = this.pvpTeamOf(a),
         tb = this.pvpTeamOf(b);
@@ -373,13 +369,8 @@ export class Game {
     for (const b of document.querySelectorAll('.tutOnly')) b.style.display = this.tut ? '' : 'none';
     // 自訂關卡的試玩：暫停選單的「放棄任務」＝回編輯器
     if (id === 'pause' && !this.lab)
-      document.getElementById('btnAbort').textContent = this.rts
-        ? '放棄（回 Coral 戰爭選單）'
-        : this.lv && this.lv.test
-          ? '回編輯器'
-          : this.tut
-            ? '離開訓練（回模擬器）'
-            : '放棄任務';
+      document.getElementById('btnAbort').textContent =
+        this.lv && this.lv.test ? '回編輯器' : this.tut ? '離開訓練（回模擬器）' : '放棄任務';
   }
   // ---------- loop ----------
   loop() {
@@ -394,8 +385,8 @@ export class Game {
     this.pollGamepad(dt);
     if (this.camp && this.camp.wait) this.campWaitTick(); // 主線多人：轉場中等待隊友（不靠會被節流的計時器）
     if ((this.frames & 15) === 0) this.updateVpad();
-    // 一般任務的節奏設定（ctrl.pace）；Coral 戰爭（含親自駕駛時 state 'play'）一律原速，不拖慢整個模擬
-    if ((this.state === 'play' || this.state === 'ending') && !this.rts) {
+    // 一般任務的節奏設定（ctrl.pace）
+    if (this.state === 'play' || this.state === 'ending') {
       const pace = this.net && this.net.role === 'client' ? this.hostPace || 1 : this.ctrl.pace || 1;
       dt *= pace;
       this.lastDt = dt;
@@ -458,8 +449,6 @@ export class Game {
       this.state === 'campfail' ||
       this.state === 'rangemenu' ||
       this.state === 'levels' ||
-      this.state === 'rtsmenu' ||
-      this.state === 'rtsend' ||
       (this.state === 'settings' && this.settingsFrom !== 'pause')
     ) {
       if (this.world) {
@@ -484,13 +473,6 @@ export class Game {
       this.state === 'tutdone'
     ) {
       this.renderMain();
-      return;
-    }
-    // Coral 戰爭（RTS）：rts.js 的 rtsTick 接手更新與算繪（沒有玩家的機甲）
-    if (this.state === 'rts' || (this.state === 'play' && this.rts)) {
-      // 親自駕駛（rts-pilot.js）時 state 是 'play'（一般任務的輸入），更新仍由 rtsTick 接手
-      if (this.rts) this.rtsTick(dt);
-      else this.renderMain();
       return;
     }
     // play
@@ -621,8 +603,8 @@ export class Game {
     this.drawHud(dt);
   }
   // ---------- 距離分級（LOD）----------
-  // 每格依上一格的鏡頭決定各機體的 IK 與陰影：離鏡頭遠（lodIkDist）或在畫面外的不跑 IK（權重淡出後略過，
-  // render/mech-ik.js），離鏡頭更遠（lodShadowDist）的不投影；有遲滯，不會在門檻附近來回切換。
+  // 每格依上一格的鏡頭決定各機體的 IK 與陰影：離鏡頭遠（LOD_IK_DIST）或在畫面外的不跑 IK（權重淡出後略過，
+  // render/mech-ik.js），離鏡頭更遠（LOD_SHADOW_DIST）的不投影；有遲滯，不會在門檻附近來回切換。
   // this.lod＝false 時全部關掉（量測與比較用）。自己的機體一律照常
   lodTick() {
     const cam = this.camera;
@@ -632,9 +614,8 @@ export class Game {
     for (const e of this.allies) list.push(e);
     if (this.players) for (const e of this.players) list.push(e);
     const off = this.lod === false;
-    const lk = this.rts ? 1 : DS;
-    const ikD = this.lodIkDist || LOD_IK_DIST * lk,
-      shD = this.lodShadowDist || LOD_SHADOW_DIST * lk;
+    const ikD = LOD_IK_DIST * DS,
+      shD = LOD_SHADOW_DIST * DS;
     if (!off) {
       cam.updateMatrixWorld();
       _lodM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
@@ -642,26 +623,24 @@ export class Game {
     }
     this.fx.view = off ? null : _lodF; // 粒子很多時略過畫面外的小粒子、遠處的減量（fx/effects.js 的 skip／far）
     this.fx.viewPos.copy(cam.position);
-    const cp = this.lodFrom || cam.position; // RTS 渲染設定：以鏡頭注視點計算（鏡頭很高）
-    const rr = this.rtsR;
-    if (rr) rr.lodDone = true;
+    const cp = cam.position;
     for (const e of list) {
       if (!e || e.dead || !e.mesh) continue;
       if (off || e === this.player || e === this.camFocus) {
         e.lodIk = false;
         e.lodVis = true;
-        if (e.shLodOff && !(rr && !e.bld && !e.hero)) e.setShadowLod(true);
+        if (e.shLodOff) e.setShadowLod(true);
         continue;
       }
       const d = Math.sqrt(cp.distanceToSquared(e.pos));
       const h = (e.model && e.model.height ? e.model.height : 4) * (e.scale || 1);
       _lodS.center.set(e.pos.x, e.pos.y + h * 0.5, e.pos.z);
-      _lodS.radius = h * 0.75 + 3 * (this.rts ? 1 : MS); // 留一點邊：進入畫面前先淡入
+      _lodS.radius = h * 0.75 + 3 * MS; // 留一點邊：進入畫面前先淡入
       const vis = _lodF.intersectsSphere(_lodS);
-      e.lodVis = vis; // 在畫面內（RTS 的單位在畫面外時降低動作與推進器的更新，MechEntity.move）
+      e.lodVis = vis; // 在畫面內
       e.lodIk = !vis || d > (e.lodIk ? ikD * 0.92 : ikD);
-      // 全像的假敵人自己關掉陰影，不碰；RTS 渲染設定的單位不投影（render-setup.js 的 rtsRenderTick），建築與英雄照常
-      if (!e.decoy && !(rr && !e.bld && !e.hero)) e.setShadowLod(d < (e.shLodOff ? shD * 0.92 : shD));
+      // 全像的假敵人自己關掉陰影，不碰
+      if (!e.decoy) e.setShadowLod(d < (e.shLodOff ? shD * 0.92 : shD));
     }
     list.length = 0;
   }
@@ -676,9 +655,9 @@ export class Game {
   aiBatchK(e) {
     if (!e.aiBatchable()) return 1;
     const pls = this.players && this.players.length ? this.players : [this.player];
-    let dm = this.lodFrom ? this.lodFrom.distanceToSquared(e.pos) : Infinity; // RTS：鏡頭注視點附近照常每格
+    let dm = Infinity;
     for (const p of pls) if (p && !p.dead) dm = Math.min(dm, p.pos.distanceToSquared(e.pos));
-    const nr = AI_BATCH_NEAR * (this.rts ? 1 : DS);
+    const nr = AI_BATCH_NEAR * DS;
     if (dm < nr * nr) return 1;
     return e.sn && e.sn.st !== 2 ? 4 : 2;
   }

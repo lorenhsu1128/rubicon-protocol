@@ -904,11 +904,10 @@ export class Effects {
       e.fn(e, 1 - e.life / e.max, dt);
       L[j++] = e;
     }
-    // lateFlush（RTS 渲染設定）：只在算繪前（Game.renderMain）寫一次批次，不在這裡先寫一次
-    if (this.list !== L) return this.lateFlush ? undefined : this.flush(); // fn 裡呼叫了 clear()
+    if (this.list !== L) return this.flush(); // fn 裡呼叫了 clear()
     for (let i = n; i < L.length; i++) L[j++] = L[i];
     L.length = j;
-    if (!this.lateFlush) this.flush();
+    this.flush();
   }
   // 移除到期的特效網格並釋放材質與（非共用的）幾何
   dispose(mesh) {

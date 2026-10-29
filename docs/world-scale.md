@@ -11,10 +11,9 @@
 | `WS` | 3   | 地圖範圍（230 → 690 m）、地形的起伏與地形特徵、水面／岩頂／虛空的高度、作戰區域、出界緩衝                                                                                      |
 | `DS` | 3   | 移動速度、QB、重力（42 → 126 m/s²，跳躍的時間不變）、跳躍與懸浮（上限 22 → 66 m）、射程、彈速、鎖定距離、火控距離帶、AI 的感知與距離、鏡頭的距離、霧、聲音的距離、距離分級     |
 
-- **機甲的建模尺寸就是遊戲尺寸（9.72 m）**：內建 GLB（`src/assets/player-mech/`）與 joints.json 由 `scripts/scale-mech-glb.js` 整體放大 3 倍，模型庫、組裝調整、GLB 規格看到的都是新高度。程式裡的骨架數值（`mech-model.js` 的 `LAY`、`JOINT`、`REV`、`QD`、`TK`、`PIECE_BOX`）與程式模型的造型照舊尺度寫，輸出的連接點、身高、程式模型整塊乘建模倍率 `MB`（`core/scale.js`），動作裡的位移也乘 `MB`。機甲實體的 `scale` 照舊是 MS（判定用），`buildMech` 收到 `scale / MB`；舊尺度的場景（格納庫、Coral 戰爭、過場的軌道站）照比例縮回。掛在機甲節點上、照舊尺度做的附加物用 `mechKit(rig, 節點)`（放大 MB 的群組）。伺服器預設組裡舊尺度的機甲 GLB 與關節設定，伺服器啟動時自動換算一次（`server.js` 的 `migrateMechScale`，`manifest.mechK`）；玩家本地的模型庫已由 GLB 重置清空（第 12 節）。
+- **機甲的建模尺寸就是遊戲尺寸（9.72 m）**：內建 GLB（`src/assets/player-mech/`）與 joints.json 由 `scripts/scale-mech-glb.js` 整體放大 3 倍，模型庫、組裝調整、GLB 規格看到的都是新高度。程式裡的骨架數值（`mech-model.js` 的 `LAY`、`JOINT`、`REV`、`QD`、`TK`、`PIECE_BOX`）與程式模型的造型照舊尺度寫，輸出的連接點、身高、程式模型整塊乘建模倍率 `MB`（`core/scale.js`），動作裡的位移也乘 `MB`。機甲實體的 `scale` 照舊是 MS（判定用），`buildMech` 收到 `scale / MB`；舊尺度的場景（格納庫、過場的軌道站）照比例縮回。掛在機甲節點上、照舊尺度做的附加物用 `mechKit(rig, 節點)`（放大 MB 的群組）。伺服器預設組裡舊尺度的機甲 GLB 與關節設定，伺服器啟動時自動換算一次（`server.js` 的 `migrateMechScale`，`manifest.mechK`）；玩家本地的模型庫已由 GLB 重置清空（第 12 節）。
 - 程式裡寫死的距離寫成「舊數字 * 倍率」（例如 `22 * DS`），方便搜尋與微調；資料表（`data/parts.js` 的零件）的數字照舊，載入時由 `scaleKeys` 乘上。
 - 傷害、AP、攻擊頻率不變，擊破所需的時間和以前相同。
-- Coral 戰爭在第 11 期之前照舊（`game.rts` 時倍率是 1）。
 
 ## 2. 人的尺寸（之後的小人互動）
 
@@ -84,7 +83,7 @@
 ## 6. 戰鬥與一般敵人 AI（第 6 期）
 
 - `data/ai.js` 的距離（視野 `SENSE` 的 `sight`、`SENSE_NEAR`／`SENSE_INSTANT`、共享位置、無線電、聲音 `NOISE`、仇恨的距離加成、壓制的外圈 `SUP_RING`）乘 `DS`；視角、秒數、倍率不變。
-- `MechEntity` 有 `this.dk`（一般 3、Coral 戰爭 1），`updateAI`、`fire`、近戰、特殊敵人（`mech-special.js`）裡寫死的距離乘它；`ENEMY_TYPES` 與 AC 的 `wantDist`、`hoverH` 照舊尺度寫，生成時乘上。
+- `MechEntity` 有 `this.dk`（＝DS），`updateAI`、`fire`、近戰、特殊敵人（`mech-special.js`）裡寫死的距離乘它；`ENEMY_TYPES` 與 AC 的 `wantDist`、`hoverH` 照舊尺度寫，生成時乘上。
 - 地面衝擊波 `shockStart` 的 `R`、`sp` 照舊尺度傳入，函式裡乘 `DS`；貼地的門檻、地面爆炸對空中目標的減傷高度、地雷的觸發距離與高度、迫擊砲的重力乘倍率。
 - 高處優勢（衝擊 +25%、盾牌擋不住）＝攻擊者高 12 m 以上。
 - 補給箱、掉落物（機甲用的補給，模型放大 3 倍）、出口與補給台的光環、救援範圍乘 `MS`；據點的間距、守衛出動距離、增援的進場距離、護送車隊的間距乘 `DS`。
@@ -93,7 +92,7 @@
 
 ## 7. Boss、地圖專屬敵人、場上機制、特效（第 7 期）
 
-- **特效**（`fx/effects.js`）：`Effects.k`（`setK`：一般 3、Coral 戰爭 1）。裝飾性的大小與速度（閃光、火花、煙、塵土、衝擊環、爆炸、槍口、光束寬、碎片、彈殼、斬擊的火花）的參數照舊尺度傳，Effects 裡乘 `k`；**和判定一致的範圍是世界尺寸、不乘**：`warnCircle` 的 R、`warnRect` 的寬長、`groundWave`、`pulseShell`、`firePool`、`flameCone` 的長度、`pillarStrike` 的半徑、`slash` 的半徑。呼叫端手上已經是世界尺寸的大小（乘過 `scale`、`splash`、爆炸半徑）要除以 `fx.k` 再傳。子彈的外觀（`Projectile`）整體放大 MS（曳光的長度依舊尺度的彈速）。
+- **特效**（`fx/effects.js`）：`Effects.k`（`setK`：3）。裝飾性的大小與速度（閃光、火花、煙、塵土、衝擊環、爆炸、槍口、光束寬、碎片、彈殼、斬擊的火花）的參數照舊尺度傳，Effects 裡乘 `k`；**和判定一致的範圍是世界尺寸、不乘**：`warnCircle` 的 R、`warnRect` 的寬長、`groundWave`、`pulseShell`、`firePool`、`flameCone` 的長度、`pillarStrike` 的半徑、`slash` 的半徑。呼叫端手上已經是世界尺寸的大小（乘過 `scale`、`splash`、爆炸半徑）要除以 `fx.k` 再傳。子彈的外觀（`Projectile`）整體放大 MS（曳光的長度依舊尺度的彈速）。
 - **場上機制**：`addZone`、`addTempWall` 的半徑與尺寸是世界尺寸（呼叫端乘倍率），內部的高度與門檻乘 `fx.k`；`addPool`、`pulseRing`、`beamAttack`（range、w）、`slagShot` 的半徑照舊尺度傳、函式裡乘 `fx.k`（和 `shockStart` 相同）；可以打掉的投射物的 `shotR` 照舊尺度。
 - **Boss 與地圖專屬敵人**：行為裡寫死的距離、速度、高度乘 DS／MS（`mech-boss*.js`、`mech-foe*.js`、`bosses*.js`）；`s.want`（`wantDist`）在生成時已經乘過，不要再乘。鑽地蟲的身體、旋風、水面的環紋、迴旋刃等直接放在場景裡的網格放大 MS。Boss 最終型態招式（`mech-boss3.js` 的 `SPECIALS`）的參數照舊尺度寫。
 - **戰鬥載具的精細化**（`render/vehicle-models.js` 的 `tankDetail`／`heliDetail`／`droneDetail`）：放大 3 倍後近看的零件——戰車的反應裝甲、側裙接縫、艙蓋、潛望鏡、同軸機槍、遙控武器站、天線、置物架、拖曳鋼索、排氣、尾燈、油桶；直升機的光電球、剪線器、艙門輪廓、排氣抑制器、熱焰彈、航行燈、葉尖配重；無人機的面板、進氣口、天線罩。
@@ -115,9 +114,8 @@
 
 ## 11. Coral 戰爭（第 11 期）
 
-- Coral 戰爭照舊尺度：地圖（`world/rts-map.js`，400／300 m、地形格子 `RTS_CELL` 2.5 m；World 的 `this.cell`）、單位（MechEntity 的 `scale` 1、`dk` 1）、特效（`fx.k` 1）、聲音（`SFX.dk` 1）。
-- 零件表是放大過的，所以 Coral 戰爭的實體換回舊的數字：武器定義 `rtsWeaponDef`（射程、理想射程、彈速、爆炸半徑、命中半徑、近戰的突進）、`dkStats`（火控距離、跳躍）、跳躍規格、QB、重力；火控的距離帶以「距離 × DS ／ dk」查。MechEntity 裡寫死的距離一律乘 `this.dk`（不要直接乘 DS／MS）。親自駕駛的鏡頭用 `camK()`／`camOff()`。冰面（`World.onIce`）與涉水（`waterK`）的門檻也照實體的倍率。
-- 延後：改版後電腦對手對不動玩家的測試（升 T2、第 2 個英雄、部隊人口、施放次數）偏離改版前，野怪對電腦部隊的傷害偏高（cr_mth、cr_scav、cr_junk），之後再查。
+- 2026-10-29 起 main 拿掉了 Coral 戰爭（RTS），保留在 `coral-war` 分支與標籤 `rts-final`。當時 Coral 戰爭照舊尺度
+  （實體的 `dk`＝1、`scale` 1，地形格子 2.5 m），做法寫在那個分支的這份文件；main 的實體一律 `dk`＝DS。
 
 ## 12. 模型庫與 GLB 重置（第 12 期）
 

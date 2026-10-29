@@ -112,11 +112,7 @@ export class ThrusterFx {
       v = new THREE.Vector3();
     const nzs = model.nozzles;
     for (let i = 0; i < nzs.length; i++) {
-      const c = model.nzFresh && model.nzW && model.nzW[i]; // MechEntity.thrusterFx 剛算好的
-      if (c) {
-        pos.copy(c.p);
-        dir.copy(c.d);
-      } else nozzleWorld(nzs[i], pos, dir, model.nzFresh);
+      nozzleWorld(nzs[i], pos, dir, model.nzFresh);
       for (let k = 0; k < n; k++) {
         const sp = (3 + 8 * thrust) * scale * (0.8 + Math.random() * 0.4);
         v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)

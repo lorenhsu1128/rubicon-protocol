@@ -21,7 +21,7 @@ import {
   partById,
   usesAmmo,
 } from '../data/parts.js';
-import { assistSpread, fcsAssist, leadOf, rtsWeaponDef, trackRate, weaponById } from '../data/parts.js';
+import { assistSpread, fcsAssist, leadOf, trackRate, weaponById } from '../data/parts.js';
 import { BOSS_STAG_GUARD } from '../data/enemies.js';
 import {
   DIVE_V,
@@ -82,8 +82,7 @@ import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikMeasure, ikOn, ikRestore } from '../render/mech-ik.js';
 import { fireClass } from '../render/mech-fire.js';
 import { mergeRig } from '../render/mesh-merge.js';
-import { mergeRtsRig } from '../render/rts-merge.js';
-import { nozzleFrom, nozzleWorld } from '../fx/thruster.js';
+import { nozzleWorld } from '../fx/thruster.js';
 import { measureBlades } from '../fx/trail.js';
 import { buildDrone, buildHeli, buildVehicle } from '../render/vehicle-models.js';
 import { buildBossModel } from '../render/boss-models.js';
@@ -94,10 +93,7 @@ import { PW_FX } from '../data/charge.js';
 import { FEEL } from '../data/feel.js';
 import { PROP_PAD, targetDist, targetNear } from '../world/prop-hit.js';
 
-const RAW_FOE = { raw: true }; // RTS 渲染設定時地圖專屬敵人的模型不先合併（render/foe-merge.js）
 let MECH_ID = 0;
-const _rwM = new THREE.Matrix4(),
-  _nzM = new THREE.Matrix4(); // thrusterFx 的暫存
 
 // 射擊動作的武器槽位：[武器槽, 動作的鍵, 肩上武器]
 const ANIM_SLOTS = [
@@ -106,18 +102,6 @@ const ANIM_SLOTS = [
   ['rback', 'br', true],
   ['lback', 'bl', true],
 ];
-// 跳躍規格的高度與速度乘 k（Coral 戰爭照舊尺度）
-function scaleJump(J, k) {
-  return {
-    ...J,
-    v: J.v * k,
-    g: J.g * k,
-    height: J.height * k,
-    airH: J.airH * k,
-    airG: J.airG * k,
-    maxH: J.maxH * k,
-  };
-}
 const NO_KEY = { k: '', side: 0 };
 
 // 近戰武器的音色（audio.js 的 meleeSwing／meleeHit）
@@ -148,8 +132,8 @@ export class MechEntity {
     this.downT = 0;
     this.team = opts.team || 'enemy';
     this.isPlayer = this.team === 'player';
-    // 機甲三倍高改版：所有實體放大 MS 倍（Coral 戰爭照舊尺度：scale 1、dk 1）
-    this.scale = (opts.scale || 1) * (game && game.rts ? 1 : MS);
+    // 機甲三倍高改版：所有實體放大 MS 倍
+    this.scale = (opts.scale || 1) * MS;
     this.isBoss = !!opts.isBoss;
     this.name = opts.name || 'AC';
     this.model =
@@ -160,10 +144,8 @@ export class MechEntity {
           : opts.modelKind === 'drone'
             ? buildDrone(pal, this.scale, opts.vehKey || 'swarm')
             : opts.modelKind === 'boss' || opts.modelKind === 'part'
-              ? buildBossModel(opts.vehKey, pal, this.scale, game && game.rtsR ? RAW_FOE : undefined) // 新 Boss 與附屬部位（render/boss-models.js；RTS 渲染設定時地圖專屬敵人改用單一材質合併）
-              : opts.buildModel
-                ? opts.buildModel(pal, this.scale) // 呼叫端給的模型（RTS 的建築，render/rts-models.js）
-                : this.buildRig();
+              ? buildBossModel(opts.vehKey, pal, this.scale) // 新 Boss 與附屬部位（render/boss-models.js）
+              : this.buildRig();
     if (opts.modelKind) this.mergeModel(this.model);
     this.mesh = this.model.group;
     game.scene.add(this.mesh);
@@ -190,8 +172,7 @@ export class MechEntity {
     this.themeFoe = !!opts.themeFoe;
     this.pvpAi = !!opts.pvpAi;
     this.pvpTeam = opts.pvpTeam !== undefined ? opts.pvpTeam : opts.team === 'enemy' ? -1 : 0;
-    this.dk = game && game.rts ? 1 : DS; // 距離與尺寸的倍率（Coral 戰爭照舊尺度；程式裡的數字照舊尺度寫再乘它）
-    this.stats = this.dkStats(this.stats);
+    this.dk = DS; // 距離與尺寸的倍率（程式裡的數字照舊尺度寫再乘它）
     this.hoverH = (opts.hoverH || 7) * this.dk;
     this.turnRate = opts.turnRate || 14;
     this.explodeOnDeath = opts.explodeOnDeath || null;
@@ -236,7 +217,7 @@ export class MechEntity {
       timer: 0,
       qbT: 0,
       jumpT: 0,
-      want: (opts.wantDist || 22) * (game && game.rts ? 1 : DS),
+      want: (opts.wantDist || 22) * DS,
       fireT: 0,
       pattern: 0,
       patT: 0,
@@ -298,7 +279,7 @@ export class MechEntity {
     }
     return { wk, ch, rl };
   }
-  // 擊破時先跪倒崩落的機體：人形（二足、逆關節）的機甲，不是 Coral 戰爭、過場動畫
+  // 擊破時先跪倒崩落的機體：人形（二足、逆關節）的機甲，不是過場動畫
   canCollapse() {
     const m = this.model;
     return !!(
@@ -309,7 +290,6 @@ export class MechEntity {
       (m.type === 'biped' || m.type === 'reverse') &&
       m.legs &&
       m.legs.length &&
-      !this.game.rts &&
       !this.cine
     );
   }
@@ -442,8 +422,7 @@ export class MechEntity {
     if (!rig.vehicle && rig.legs) ikMeasure(rig);
     if (!rig.vehicle) measureBlades(rig); // 刀光用的刀尖（entities/mech-trails.js）
     if (!rig.vehicle) measureBlades(rig); // 刀光用的刀尖（entities/mech-trails.js）
-    // RTS 渲染設定：整台併成一個網格＋描邊外殼（render/rts-merge.js）
-    return this.game && this.game.rtsR ? mergeRtsRig(rig) : mergeRig(rig);
+    return mergeRig(rig);
   }
   // 換成新的模型（客機下載完玩家的模型組後）：保留位置、可見度與已丟出的武器，只換外觀
   swapModel() {
@@ -471,11 +450,6 @@ export class MechEntity {
     this.mergeModel(this.model); // 拿掉丟出的武器之後才合併
     g.scene.add(this.mesh);
   }
-  // Coral 戰爭照舊尺度：組裝數值裡放大過的火控距離與跳躍換回（零件表是放大過的；其他移動數值由 speedMul 等換算）
-  dkStats(st) {
-    if (this.dk === DS) return st;
-    return { ...st, lockRange: (st.lockRange * this.dk) / DS, jump: (st.jump * this.dk) / DS };
-  }
   // 駕駛員加成值（沒有時為 0）
   pmv(k) {
     return (this.pm && this.pm[k]) || 0;
@@ -487,7 +461,6 @@ export class MechEntity {
       const fist = s.endsWith('arm') && def.type === 'none' && !this.model.vehicle;
       if (fist) def = FIST_DEF; // 空手 → 拳擊
       def = pilotWeaponDef(def, this.pm);
-      if (this.dk === 1) def = rtsWeaponDef(def); // Coral 戰爭照舊尺度
       this.weapons[s] = {
         def,
         ammo: def.ammo || 0,
@@ -661,7 +634,7 @@ export class MechEntity {
     // 追尾視角／第一人稱的準星壓在鎖定目標的弱點上（game/weak.js 的 wpAimTick）：這一發算打在那個弱點
     const wpk = pilot && tgtOk && this.wpAim && this.wpAim.e === targetEnt ? this.wpAim.k : null;
     // 敵人的導彈、火箭彈、榴彈可以打掉（hazards2.js 的 shotInit）：擊落時在原地爆炸
-    const foeShot = !pilot && this.team === 'enemy' && !g.rts && !g.pvp;
+    const foeShot = !pilot && this.team === 'enemy' && !g.pvp;
     // 蓄力射擊：充能用的射擊編號（一次射擊只算一次）、強力彈的外觀與命中判定
     const pwX = {};
     // 手感（mech-feel.js）：投射物記下武器種類，打中時依種類做受擊反應
@@ -1026,7 +999,6 @@ export class MechEntity {
             !this.pilotEnt() &&
             !m.active &&
             !g.pvp &&
-            !this.rtsDef &&
             !(this.cueUntil > this.t) &&
             targetEnt &&
             targetEnt.pilotEnt &&
@@ -1157,7 +1129,7 @@ export class MechEntity {
       });
     }
     this.weapons[slot] = {
-      def: this.dk === 1 ? rtsWeaponDef(FIST_DEF) : pilotWeaponDef(FIST_DEF, this.pm),
+      def: pilotWeaponDef(FIST_DEF, this.pm),
       ammo: 999,
       mag: 99,
       cd: 0.4,
@@ -1835,7 +1807,7 @@ export class MechEntity {
   // attr＝攻擊屬性（data/attrs.js：kin／exp／en／none）；沒給時依 wid（武器 id）推算，都沒有時算實彈
   // ---------- 命中（火控、手臂的射擊適性） ----------
   fcsAssist(dist) {
-    return fcsAssist(this.stats.parts.fcs, (dist * DS) / this.dk); // 距離帶是新尺度（Coral 戰爭換算）
+    return fcsAssist(this.stats.parts.fcs, dist); // 距離帶是新尺度
   }
   // 預判準度：玩家照火控；電腦另外乘技巧（Boss 稍準、一般敵人保持原本的命中）
   leadK(dist) {
@@ -2106,19 +2078,9 @@ export class MechEntity {
       this.acsDecayDelay = pve ? PVE_ACS_DELAY : 1.2;
       if (this.acs >= this.acsMax) {
         this.acs = this.acsMax;
-        // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）。
-        // Coral 戰爭（RTS）的單位兩隊一樣 2 秒：team 字串是沿用的 'player'／'enemy'，以前隊伍 1 的單位
-        // 失衡 2.6 秒、隊伍 0 只有 1.4 秒，電腦對電腦時隊伍 0 的勝率明顯偏高（docs 13.18）
+        // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）
         this.staggerT =
-          (this.isBoss
-            ? 1.5
-            : this.rtsTeam !== undefined
-              ? 2.0
-              : this.team === 'player'
-                ? 1.4
-                : this.team === 'enemy'
-                  ? FOE_STAG_T
-                  : 2.0) *
+          (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
           (1 - this.pmv('stagT'));
         this.stagBy = from ? { id: from.id, cls } : null;
         if (from && from.tutE) from.tutE('stag', { tgt: this, melee: !!melee }); // 近戰訓練：ACS 過載也算打出失衡
@@ -2552,10 +2514,8 @@ export class MechEntity {
       }
       this.boost = true;
     } else {
-      // 起跳後一小段時間維持地面的速度與轉向（跳躍要輕快）；Coral 戰爭的空中單位一直在空中，照定義的速度（R5）
-      target
-        .copy(wish)
-        .multiplyScalar(spd * (this.grounded || this.jumpT > 0 || (this.flying && this.rtsDef) ? 1 : 0.85));
+      // 起跳後一小段時間維持地面的速度與轉向（跳躍要輕快）
+      target.copy(wish).multiplyScalar(spd * (this.grounded || this.jumpT > 0 ? 1 : 0.85));
       this.boost = false;
     }
     // 電磁牽引：往牽引源拉（48 m/s；自己往反方向移動或 QB 可以抵銷）
@@ -2749,20 +2709,7 @@ export class MechEntity {
       this.landT = this.landT === undefined ? 9 : this.landT + dt;
       const fwdV = clamp(this.vel.dot(fwd) / spd, -1, 1);
       this.ikGait(dt);
-      // RTS 渲染設定：畫面外的單位（Game.lodTick 的 lodVis）動作每 4 格、鏡頭拉遠時每 2 格才更新一次（累積的 dt）；
-      // 沒更新的格子骨頭只跟著整台移動（render/rts-merge.js 的 rtsPosed）
-      let adt = dt;
-      const ak = g.rtsR && !this.isPlayer ? (this.lodVis === false ? 4 : g.rtsR.hullOff ? 2 : 1) : 1;
-      if (ak > 1) {
-        this.animAcc = (this.animAcc || 0) + dt;
-        this.animN = ((this.animN === undefined ? this.id || 0 : this.animN) + 1) % ak;
-        adt = this.animN ? 0 : this.animAcc;
-        if (adt) this.animAcc = 0;
-      } else if (this.animAcc) {
-        adt += this.animAcc;
-        this.animAcc = 0;
-      }
-      if (g.rtsR) this.mesh.rtsPosed = adt > 0;
+      const adt = dt;
       if (adt)
         animateMech(this.model, adt, {
           moving: this.moving,
@@ -2806,8 +2753,7 @@ export class MechEntity {
       if (adt) this.trailsTick(adt);
     }
     // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
-    // RTS 渲染設定：畫面外的單位不更新推進器（光暈與噴焰）
-    if (!(g.rtsR && this.lodVis === false && !this.isPlayer)) {
+    {
       this.thrusterFx(dt, this.isPlayer ? 0x9fe8ff : 0xffb070, this.isPlayer ? 0x8fe8ff : 0xffb060, true);
       // 側移／急減速時的肩腰側噴嘴
       const ar = this.leanZ || 0,
@@ -2891,7 +2837,7 @@ export class MechEntity {
   jumpMove(dt, wish, want, spd, altCap) {
     const g = this.game,
       P = this.stats.parts,
-      J = this.dk === DS ? jumpSpec(P.legs) : scaleJump(jumpSpec(P.legs), this.dk / DS); // Coral 戰爭照舊尺度
+      J = jumpSpec(P.legs);
     const held = !!want;
     const press = this.jumpExt ? !!this.jumpPressQ : held && !this.jumpPrev;
     this.jumpPressQ = false;
@@ -2974,24 +2920,8 @@ export class MechEntity {
     const wp = new THREE.Vector3(),
       dir = new THREE.Vector3();
     const veh = this.model.vehicle;
-    // RTS 單位的骨頭群組（render/rts-merge.js）：噴口＝現在的根 × 上次算繪時相對根的矩陣，不往上更新一整串
-    const rel = this.mesh.rtsRel;
-    let rw = null;
-    if (rel) {
-      this.mesh.updateMatrix();
-      rw = _rwM.copy(this.mesh.matrix);
-      if (this.mesh.parent) rw.premultiply(this.mesh.parent.matrixWorld);
-    }
-    const cache = rw ? this.model.nzW || (this.model.nzW = []) : null;
-    this.model.nzW = cache;
     this.model.nozzles.forEach((n, i) => {
-      if (rw && rel(n, _nzM)) nozzleFrom(_nzM.premultiply(rw), wp, dir);
-      else nozzleWorld(n, wp, dir);
-      if (cache) {
-        const c = cache[i] || (cache[i] = { p: new THREE.Vector3(), d: new THREE.Vector3() });
-        c.p.copy(wp);
-        c.d.copy(dir);
-      }
+      nozzleWorld(n, wp, dir);
       if (veh) dir.set(0, -1, 0);
       const m = this.glare[i];
       m.position.copy(wp).addScaledVector(dir, 0.35 * this.scale);
@@ -3002,7 +2932,6 @@ export class MechEntity {
       m.material.opacity = (0.15 + this.thrS * 0.55) * (this.cine ? 0.75 : 1);
     });
     if (!veh) {
-      if (this.fogHid) return; // 戰爭迷霧裡看不到（game/rts-fog.js）：不噴（噴焰粒子沒有擁有者，不會跟著隱藏）
       this.model.nzFresh = true; // 噴口的世界矩陣剛算過（fx/thruster.js 的 nozzleWorld 不用再往上更新）
       g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);
       this.model.nzFresh = false;
@@ -3209,9 +3138,8 @@ export class MechEntity {
   updateAI(dt) {
     const g = this.game,
       s = this.aiState,
-      K = g.rts ? 1 : DS; // 距離的倍率（下面的數字照舊尺度）
+      K = DS; // 距離的倍率（下面的數字照舊尺度）
     if (this.dead) return;
-    if (this.rtsDef && g.rts) return this.rtsUnitAI(dt); // Coral 戰爭的單位與建築（entities/mech-rts.js）
     if (this.rangeB && g.range && g.rangeAI(this, dt)) return; // 靶場的目標：靜止／橫移（game/range.js）
     if (this.tutD && g.tut && g.tutAI(this, dt)) return; // 近戰訓練的假人（game/tutorial.js）
     dt *= this.bossTempo(); // Boss 與部位：型態越後面、狂暴時節奏越快（mech-boss.js）

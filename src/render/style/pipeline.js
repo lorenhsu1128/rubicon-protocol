@@ -353,7 +353,7 @@ export class StylePipeline {
       ? new THREE.UnrealBloomPass(new THREE.Vector2(4, 4), 0.45, 0.4, 0.9)
       : null;
     this.low = null; // 低特效（setLowFx）
-    this.hullOff = false; // true＝不畫描邊外殼（RTS 渲染設定拉遠時）
+    this.hullOff = false; // true＝暫時不畫描邊外殼
     this.prevVP = new THREE.Matrix4();
     this.hasPrev = false;
     this.base = null;
@@ -375,7 +375,7 @@ export class StylePipeline {
     const k = this.low && (this.low.ssao === 'half' || this.low.ssao === 'depth') ? 2 : 1;
     this.ssao.setSize(Math.max(1, Math.ceil(this.w / k)), Math.max(1, Math.ceil(this.h / k)));
   }
-  // 低特效（給大量單位的模式，例如 RTS）：o＝{ ssao, mblur: 是否保留動態模糊（預設 false）}；ssao：
+  // 低特效（給大量單位的場面）：o＝{ ssao, mblur: 是否保留動態模糊（預設 false）}；ssao：
   // 'off'（預設）關掉、'depth' 半解析度且法線從深度貼圖重建（不重畫場景，最省）、'half' 半解析度、'full' 照原本。
   // null／false＝恢復（照風格參數）。只影響這條管線，風格參數不變。
   setLowFx(o) {
@@ -446,7 +446,7 @@ export class StylePipeline {
         r = 94.3 * this.wscale();
       c.sunOff.set(Math.cos(el) * Math.cos(az) * r, Math.sin(el) * r, Math.cos(el) * Math.sin(az) * r);
     }
-    OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0 && !this.hullOff; // hullOff：RTS 鏡頭拉遠時（game/render-setup.js）
+    OUTLINE_MAT.visible = OUTLINE_SKIN.visible = P.hull > 0 && !this.hullOff;
     OUTLINE_MAT.uniforms.th.value = 0.012 * P.hull;
     if (!this.atmos) return;
     const fc = s.fog ? s.fog.color : B.fogColor;

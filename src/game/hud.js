@@ -279,7 +279,7 @@ Object.assign(Game.prototype, {
   // 地面上另有邊界線 World.updateBoundary）。同時靠近兩條邊（角落）時兩側都畫
   zoneEdgeHud(c, p, W, H, dt) {
     const w = this.world;
-    const show = w && w.zone && !p.dead && !this.spectator && !this.rts && !this.cine;
+    const show = w && w.zone && !p.dead && !this.spectator && !this.cine;
     const Z = show ? w.zone : null;
     const E = Z
       ? [

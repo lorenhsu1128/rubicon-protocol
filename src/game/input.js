@@ -1060,7 +1060,6 @@ Object.assign(Game.prototype, {
     };
     for (const ev of ['pointerdown', 'mousedown', 'touchstart']) $('tutPanel').addEventListener(ev, tutBtn);
     $('btnAbort').onclick = () => {
-      if (this.rts) return this.rtsAbort(); // Coral 戰爭：回 Coral 戰爭選單
       if (this.lv) return this.lvAbort(); // 自訂關卡（編輯器的試玩：回編輯器）
       if (this.range) return this.rangeExit();
       if (this.tut) return this.tutExit(); // 近戰訓練：回模擬器
@@ -1104,7 +1103,7 @@ Object.assign(Game.prototype, {
     }
   },
   resume() {
-    this.state = this.rts ? 'rts' : 'play'; // Coral 戰爭（rts.js）回到 'rts'
+    this.state = 'play';
     this.showScreen('');
     this.lastT = performance.now();
   },

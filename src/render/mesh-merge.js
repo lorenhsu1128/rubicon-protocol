@@ -224,7 +224,7 @@ function mergeable(o, root, moving, names) {
   if ((o.name && !names) || Object.keys(o.userData).length || o.children.length) return false;
   const m = o.material;
   // 半透明的只合併不寫深度的（貼花、加色的光）：彼此不重疊，不受排序影響
-  // 描邊外殼的材質由渲染風格整個開關（RTS 拉遠時暫時關掉，style/pipeline.js 的 hullOff），關著時照樣合併
+  // 描邊外殼的材質由渲染風格整個開關（style/pipeline.js 的 hull、hullOff），關著時照樣合併
   if (!m || Array.isArray(m) || (m.transparent && m.depthWrite) || (!m.visible && !isOutline(m)))
     return false;
   const g = o.geometry;
@@ -281,7 +281,7 @@ function skinMat(orig) {
 function boneVisSlow(root, b) {
   let p = b;
   // 和 three.js 一樣只認 === false（有些動作把 visible 設成 0 之類的假值，畫面上照樣顯示）
-  for (; p && p !== root; p = p.parent) if (p.visible === false && !p.rtsGlass) return false;
+  for (; p && p !== root; p = p.parent) if (p.visible === false) return false;
   if (!p) {
     // 走到最上層還沒遇到根：拆離了模型。在場景裡的照常跟著它（例如被丟到場上的零件）
     let top = b;
@@ -290,7 +290,6 @@ function boneVisSlow(root, b) {
   }
   return true;
 }
-// rtsGlass 的節點（render/rts-merge.js 收骨頭的群組）不看 visible。
 // 骨頭的可見度由上往下算：建立時記下每根骨頭到上一根骨頭（或根）之間的節點，每格只看這段＋上一根骨頭的結果
 // （原本每根骨頭都走到根，骨頭多時是 O(骨頭數×深度)）；中間的節點被拆離、換了上層時改走慢的版本
 export function makeSkeleton(root, bones, syncs) {
@@ -322,7 +321,6 @@ export function makeSkeleton(root, bones, syncs) {
   const vis = new Uint8Array(n);
   const upd = sk.update;
   sk.update = function () {
-    if (root.rtsLazyUpd) root.rtsLazyUpd(); // RTS 單位：骨頭的矩陣延到算繪時才算（render/rts-merge.js）
     upd.call(this);
     const a = this.boneMatrices;
     for (const i of order) {
@@ -336,7 +334,7 @@ export function makeSkeleton(root, bones, syncs) {
         if (!ok) v = boneVisSlow(root, b) ? 1 : 0;
         else {
           v = pb[i] < 0 ? 1 : vis[pb[i]];
-          for (let k = 0; v && k < c.length; k++) if (c[k].visible === false && !c[k].rtsGlass) v = 0;
+          for (let k = 0; v && k < c.length; k++) if (c[k].visible === false) v = 0;
         }
       }
       vis[i] = v;

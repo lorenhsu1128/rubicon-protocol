@@ -78,7 +78,6 @@ Object.assign(Game.prototype, {
     this.renderLocalModels();
     this.renderStyleSettings();
     this.renderIkSettings();
-    if (this.rtsSetRender) this.rtsSetRender(); // Coral 戰爭的設定（game/rts-tips.js）
   },
   // 動作 IK：和渲染風格實驗室的面板共用開關（rubicon_ik），任務中也能改、立即生效
   renderIkSettings() {

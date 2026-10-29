@@ -22,7 +22,6 @@ Object.assign(MechEntity.prototype, {
     const g = this.game,
       m = this.model;
     if (!g || !g.fx || !g.fx.ribbons || !m || m.vehicle || !m.arms || this.dead || !(dt > 0)) return;
-    if (g.rtsR && this.lodVis === false) return; // Coral 戰爭：畫面外的單位不畫
     if (this.mesh && !this.mesh.visible) return;
     const R = g.fx.ribbons,
       k = this.scale || 1;
@@ -52,7 +51,7 @@ Object.assign(MechEntity.prototype, {
     }
     // ----- 地面的推進氣流帶 -----
     const an = m.an;
-    if (!an || !m.legs || !m.legs.length || g.rts) return; // Coral 戰爭：單位很多，不畫地面的帶子與腳印
+    if (!an || !m.legs || !m.legs.length) return;
     const legged = m.type === 'biped' || m.type === 'reverse';
     const hv = Math.hypot(this.vel.x, this.vel.z);
     const on =

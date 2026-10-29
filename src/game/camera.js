@@ -9,9 +9,7 @@ import { Game } from './game.js';
 
 const CAM_PITCH = Math.atan2(30, 17.5); // 第三人稱鏡頭的俯角（約 60°）
 // 鏡頭的位移（機甲三倍高改版：跟著機體放大 DS 倍）
-// Coral 戰爭（親自駕駛）照舊尺度：camK()＝1
-const CAM_OFF = new THREE.Vector3(0, 30, 17.5).multiplyScalar(DS),
-  CAM_OFF1 = new THREE.Vector3(0, 30, 17.5);
+const CAM_OFF = new THREE.Vector3(0, 30, 17.5).multiplyScalar(DS);
 const CAM_PITCH_MAX = 1.31; // 地形擋住時最多轉到約 75°，還是擋住就把鏡頭拉近
 // 鏡頭拉遠的上限（倍率）：設定的「鏡頭最遠距離」，預設 1.8（約 55 m 高，一定在霧的範圍內）
 const CAM_MAX_DEF = 1.8;
@@ -38,10 +36,10 @@ XRAY_SKIN.skinning = true;
 
 Object.assign(Game.prototype, {
   camK() {
-    return this.rts ? 1 : DS;
+    return DS;
   },
   camOff() {
-    return this.rts ? CAM_OFF1 : CAM_OFF;
+    return CAM_OFF;
   },
   spectateList() {
     return [
@@ -67,12 +65,11 @@ Object.assign(Game.prototype, {
   },
   // 平時的鏡頭距離（倍率）
   camBase() {
-    return this.rts ? 1 : CAM_DIST[this.ctrl.camDist] || CAM_DIST.std;
+    return CAM_DIST[this.ctrl.camDist] || CAM_DIST.std;
   },
   // 特寫鏡頭：foe＝對手（可以沒有），sec＝秒數；exec＝處決（每格延長，不看間隔）
   camCloseup(foe, sec, exec) {
-    if (this.ctrl.camCU === 'off' || this.fp || this.chase || this.spectator || this.rts || !this.player)
-      return;
+    if (this.ctrl.camCU === 'off' || this.fp || this.chase || this.spectator || !this.player) return;
     const cu = this.camCU;
     if (!exec && !cu && (this.camCUcd || 0) > 0) return;
     if (cu && cu.foe === foe) {

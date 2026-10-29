@@ -79,9 +79,6 @@ import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 
 const BOUND_R = 20 * DS; // 作戰區域的邊界線：機體離邊界這麼近才顯示、亮的半徑
-import { NavGrid } from './nav.js';
-import { mergeRtsProps, rtsPropMesh } from './rts-props.js';
-import { RTS_CELL, rtsReserveWater, rtsDuneShade } from './rts-map.js';
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -149,7 +146,7 @@ const ARENA = 150,
 const ICE_Y = -0.7 * G;
 // 機體站得上去的高低差（方塊的頂面在腳底這麼高以內就踩上去，否則擋住）
 const STEP_H = 0.6 * MS;
-// 主題的高度（水面、岩頂、虛空）跟著地形放大，霧跟著視距放大（Coral 戰爭的地圖另外處理，不經過這裡）
+// 主題的高度（水面、岩頂、虛空）跟著地形放大，霧跟著視距放大
 function scaleTheme(T) {
   const o = { ...T };
   if (T.water) o.water = { ...T.water, level: T.water.level * G };
@@ -282,33 +279,6 @@ const LIN_EXP = {
 };
 for (const k in LIN_EXP) THEMES[k].linExp = LIN_EXP[k];
 
-// RTS 的沙丘地帶（plan.dunes，R6 之後的 C 包）：原本沙丘和地面同色、只有光影看得出起伏 →
-// 丘間地面（沒有沙丘的地方）偏深的礫石色、沙丘本身是亮沙色（迎風面較亮、背風面較暗）、脊線最亮；陡坡照舊
-function rtsDuneTint(P, T) {
-  const shade = rtsDuneShade(P);
-  if (!shade) return null;
-  // 頂點色在線性空間（畫面上是 sRGB）：差距要大才看得出來
-  const gravel = new THREE.Color(T.ground).lerp(new THREE.Color(0x4a3f35), 0.7),
-    wind = new THREE.Color(T.ground).lerp(new THREE.Color(0xf2d6a0), 0.45),
-    lee = new THREE.Color(T.ground).lerp(new THREE.Color(0x7a5232), 0.5),
-    crest = new THREE.Color(0xfbe9bf),
-    c = new THREE.Color();
-  return (tmp, x, z, steep) => {
-    const q = shade(x, z);
-    // 丘間：平地換成礫石色（台地、山脊的陡坡照原本的），每面明暗不同（固定的雜湊，不用亂數）
-    const flat = 1 - steep;
-    const sp = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
-    const n = 0.92 + 0.16 * (sp - Math.floor(sp));
-    c.copy(gravel).multiplyScalar(n);
-    if (q.a <= 0) return void tmp.lerp(c, 0.9 * flat);
-    tmp.lerp(c, 0.9 * flat * (1 - clamp(q.a / 0.2, 0, 1)));
-    // 沙丘：迎風面亮、背風面暗、脊線最亮（坡腳 20% 高度內和礫石漸變）
-    const k = clamp((q.a - 0.03) / 0.2, 0, 1);
-    c.copy(q.lee ? lee : wind).lerp(crest, q.crest * 0.7);
-    tmp.lerp(c, k);
-  };
-}
-
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
     this.scene = scene;
@@ -319,12 +289,11 @@ export class World {
     // removed 移除的產生器物件 [[x, z]] }；全部在原本的亂數呼叫之外套用，一般地圖與主線不受影響
     const LV = (this.lvl = opt.level || null);
     // 主題變體（world/variants.js）：覆寫主題欄位、改地形、加結構；沒有變體時完全照原本生成
-    // RTS（opt.rts＝world/rts-map.js 的 planRtsMap 結果）：不用變體
-    this.variant = opt.rts || (LV && LV.blank) ? null : variantOf(theme, opt.variant);
+    this.variant = LV && LV.blank ? null : variantOf(theme, opt.variant);
     this.variantKey = this.variant ? opt.variant : '';
     this.theme =
       this.variant && this.variant.theme ? { ...THEMES[theme], ...this.variant.theme } : THEMES[theme];
-    if (!opt.rts) this.theme = scaleTheme(this.theme);
+    this.theme = scaleTheme(this.theme);
     if (LV && LV.water !== null && LV.water !== undefined) {
       const W0 = this.theme.water || { color: 0x37586a, opacity: 0.85, rough: 0.12 };
       this.theme = { ...this.theme, water: { ...W0, level: LV.water } };
@@ -332,17 +301,12 @@ export class World {
     this.tod = opt.tod || ''; // 時間（主線）：'' 或 day／dusk／night／dawn
     this.depth = opt.depth || 0; // 垂直下降的深度（主線）：越深越暗
     this.themeKey = theme;
-    this.size = opt.rts ? opt.rts.size : this.theme.size || MAP_SIZE;
+    this.size = this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
-    this.cell = opt.rts ? RTS_CELL : CELL; // Coral 戰爭的地圖照舊尺度（rts-map.js 的高度圖是 2.5 m 格子）
+    this.cell = CELL;
     this.cells = Math.round(this.size / this.cell);
     this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
     this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
-    if (opt.rts) {
-      // RTS：作戰區域＝整張圖（地圖邊緣是斷崖），不能出界
-      this.rts = opt.rts;
-      this.lim = this.limOut = this.size / 2;
-    }
     this.setZone(opt.zone, opt.zoneAxis);
     this.trackS = (this.size / 2) * 0.86; // 公路／鐵路兩端隧道口
     this.level = level;
@@ -360,7 +324,6 @@ export class World {
     this.meshes.push(this.decorG);
     this.h = new Float32Array((this.cells + 1) * (this.cells + 1));
     withRng(seed * 31 + 11, () => {
-      if (opt.rts) return this.buildRts(); // RTS 的地圖：只有 plan 給的地形與障礙物（一般地圖不經過這裡）
       if (feat) {
         this.features = feat.map((f) => ({
           k: f.k,
@@ -435,81 +398,6 @@ export class World {
     // 天氣粒子：只有外觀，各端各自用 Math.random（不影響地圖）
     const wk = opt.weather === 'none' ? null : opt.weather || this.theme.weather;
     this.weather = wk ? new Weather(scene, wk, this.theme) : null;
-  }
-  // RTS 的對稱地圖（world/rts-map.js）：高度圖整張取代；跳過地形特徵、公路／鐵路、變體、大型結構、一般物件、
-  // 邊界處理的地形修改（planEdges 只給遠景用）；障礙物照 plan 建，最後建導航格 this.nav
-  buildRts() {
-    const P = this.opt.rts;
-    // 主題的覆寫（rts-map.js 的 RTS_THEMES[].look：不畫岩頂、不疊加時間、地表的光線與顏色）
-    if (P.themeOver) this.theme = { ...this.theme, ...P.themeOver };
-    const T = this.theme,
-      S = this.size / 2;
-    this.features = [];
-    this.featureNames = [];
-    this.corridor = null;
-    if (P.h.length === this.h.length) this.h = Float32Array.from(P.h);
-    // 遠景：地圖外以邊緣（斷崖頂）的高度往外延伸，再加邊界的段落
-    this.baseH = (x, z) => this.terrainHeight(clamp(x, -S, S), clamp(z, -S, S));
-    this.edges = planEdges(this);
-    this.rtsTint = rtsDuneTint(P, T); // 沙丘地帶：沙丘與丘間地面的顏色（其他 RTS 主題是 null）
-    this.buildTerrainMesh();
-    if (T.water) this.addWater(T.water);
-    const rp = [];
-    for (const o of P.obstacles) {
-      const g = rtsPropMesh(o, T);
-      if (!g) continue;
-      g.rotation.y = o.yaw || 0;
-      const ob = this.addSmall(
-        g,
-        o.x,
-        o.y,
-        o.z,
-        o.kind === 'box' ? { w: o.w, h: o.h, d: o.d } : { r: o.r, h: o.h },
-      );
-      // 圓柱（煙囪、天線桿、岩柱）也記頂面高度：空中單位飛過上方時不碰撞（collide 看 top），
-      // rtsFlyAlt 依它爬升（groundAt 只看方塊）
-      if (ob.kind === 'circle' && o.h) ob.top = o.y + o.h;
-      rp.push(ob);
-    }
-    // 裝飾（plan.decor：技研都市的 Coral 脈）：不碰撞，和障礙物一起合併（迷霧的著色器同樣隱藏沒探索過的）
-    for (const o of P.decor || []) {
-      const g = rtsPropMesh(o, T);
-      if (!g) continue;
-      g.position.set(o.x, o.y, o.z);
-      g.rotation.y = o.yaw || 0;
-      this.scene.add(g);
-      this.meshes.push(g);
-      rp.push({ group: g, x: o.x, z: o.z });
-    }
-    mergeRtsProps(this, rp); // 外觀依材質靜態合併（world/rts-props.js；迷霧的隱藏改在著色器）
-    // 冰湖（plan.ice）：冰面（地形的一部分：不受迷霧影響）；兩個鏡像的湖共用一張貼圖
-    let ice0 = null;
-    for (const L of P.ice || []) {
-      const m = ice0 ? ice0.clone() : (ice0 = buildIceSheet(1, 1, makeRng(((P.seed >>> 0) * 3 + 1) >>> 0)));
-      m.scale.set(L.rx, 1, L.rz);
-      m.position.set(L.x, L.y + 0.05, L.z);
-      m.rotation.y = -L.rot;
-      // 不設 noFade：rts-fog.js 把 world.meshes 裡 noFade 的網格當成遠景一直隱藏
-      m.updateMatrix(); // 靜止的冰面：矩陣先算好（RTS 的場景更新會略過沒有標記的節點）
-      m.matrixAutoUpdate = false;
-      m.updateMatrixWorld(true);
-      this.scene.add(m);
-      this.meshes.push(m);
-    }
-    this.nav = new NavGrid(this, { cell: 2 });
-    for (const m of P.mines || []) this.nav.reserve(m.pos.x, m.pos.z, 7);
-    for (const c of P.corals || []) this.nav.reserve(c.pos.x, c.pos.z, 5);
-    // R5 的水面主題（汙染水沒市街、多重水壩）：水深 > 0.3 m 的格子不能蓋建築（同 validate；空投、展開都看 buildable）
-    if (P.waterY !== undefined && T.water) rtsReserveWater(this.nav, T.water.level);
-    // 冰湖不能蓋建築：沿長軸放幾個圓
-    for (const L of P.ice || []) {
-      const n = Math.ceil(L.rx / L.rz) + 1;
-      for (let k = 0; k < n; k++) {
-        const f = n > 1 ? (k / (n - 1)) * 2 - 1 : 0;
-        const e = L.rx - L.rz;
-        this.nav.reserve(L.x + Math.cos(L.rot) * e * f, L.z + Math.sin(L.rot) * e * f, L.rz + 1);
-      }
-    }
   }
   hAt(i, j) {
     i = clamp(i, 0, this.cells);
@@ -663,13 +551,6 @@ export class World {
       const steep = clamp((0.93 - ny) * 6, 0, 1);
       tmp.copy(cg).lerp(cs, steep);
       if (y > 9 * G) tmp.lerp(cr, clamp((y - 9 * G) / (6 * G), 0, 0.7));
-      if (this.rtsTint)
-        this.rtsTint(
-          tmp,
-          (pp.getX(f) + pp.getX(f + 1) + pp.getX(f + 2)) / 3,
-          (pp.getZ(f) + pp.getZ(f + 1) + pp.getZ(f + 2)) / 3,
-          steep,
-        );
       tmp.offsetHSL(0, 0, keepMesh ? ((f * 0.618) % 1) * 0.04 - 0.02 : rnd(-0.02, 0.02));
       for (let q = 0; q < 3; q++) {
         col[(f + q) * 3] = tmp.r;
@@ -1134,8 +1015,7 @@ export class World {
   }
   // 冰原的冰面（冰湖：地形在冰面高度 −0.7 附近）
   onIce(x, z) {
-    const k = this.rts ? 1 : G; // Coral 戰爭的地圖照舊尺度
-    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) - (ICE_Y / G) * k) < 0.25 * k;
+    return this.themeKey === 'snow' && Math.abs(this.terrainHeight(x, z) - ICE_Y) < 0.25 * G;
   }
   // 水深（主題的水面以下多深；沒有水面時 0）
   waterDepth(x, z) {

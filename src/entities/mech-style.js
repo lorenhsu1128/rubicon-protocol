@@ -7,7 +7,7 @@ import { MechEntity } from './mech-entity.js';
 Object.assign(MechEntity.prototype, {
   syOn() {
     const g = this.game;
-    return this.pilotEnt() && !g.pvp && !g.rts && !g.cine && !(g.net && g.net.role === 'client');
+    return this.pilotEnt() && !g.pvp && !g.cine && !(g.net && g.net.role === 'client');
   },
   syState() {
     if (!this.sy) this.sy = { pts: 0, idle: 0, hist: [], labels: [], rank: -1, cls: '', sendT: 0 };

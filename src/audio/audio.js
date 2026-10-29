@@ -13,7 +13,7 @@ const arnd = makeRng(0x5f3759df);
 // 介面與通訊（ui）不受影響直接進 master。音效另外送一份到殘響（依地圖主題，地下長、空曠短）。
 // 配樂（mus，過場動畫用）也直接進 master；曲子由 musicDecode 解碼快取、musicPlay 依 ctx 時間排程。
 export const SFX = {
-  dk: DS, // 3D 音效的距離倍率（Coral 戰爭的 rtsStart 設成 1，rtsClear 還原）
+  dk: DS, // 3D 音效的距離倍率
   ctx: null,
   master: null,
   on: true,

@@ -11,8 +11,6 @@
     "start": "node server.js",
     "pretest": "npm run build",
     "test": "node scripts/smoke-test.js",
-    "bench:rts": "node scripts/rts-bench.js",
-    "balance:rts": "node scripts/rts-balance.js",
     "publish:server": "node scripts/publish-server-set.js",
     "lint": "eslint server.js eslint.config.js scripts src",
     "format": "prettier --write src scripts server.js eslint.config.js",

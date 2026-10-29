@@ -7,7 +7,7 @@
 //  不透明的（碎片、彈殼）：MeshStandardMaterial（同一個顏色，一樣經過渲染風格的著色器）。
 //  attached（推進器光暈、子彈這種一直存在、由別處移除的）：代理掛在場景或別的群組裡（沒有幾何，不會畫），
 //  別處照舊 scene.remove(代理或群組)／visible＝false；flush 只畫掛在場景底下且一路看得到的（用世界矩陣），
-//  不在場景底下的放掉。代理的 owner（實體）在戰爭迷霧裡（fogHid）時也不畫。
+//  不在場景底下的放掉。
 // ============================================================
 
 const START = 128; // 初始容量（不夠時加倍）
@@ -129,13 +129,13 @@ export class FxBatch {
   flush() {
     const it = this.items;
     if (this.attached) {
-      // 不在場景底下的放掉；看不到的（自己或上層 visible＝false、所屬實體在迷霧裡）這一格不畫（_hide）
+      // 不在場景底下的放掉；看不到的（自己或上層 visible＝false）這一格不畫（_hide）
       const S = this.scene;
       let j = 0;
       for (let i = 0; i < it.length; i++) {
         const p = it[i];
         let o = p,
-          vis = !(p.owner && p.owner.fogHid);
+          vis = true;
         while (o && o !== S) {
           if (!o.visible) vis = false;
           o = o.parent;
@@ -196,114 +196,5 @@ export class FxBatch {
       this.iCol.updateRange.count = n * 4;
       this.iCol.needsUpdate = true;
     }
-  }
-}
-
-// ============================================================
-//  圓形假影子（RTS 渲染設定：單位不投影，腳下改畫一個淡淡的圓）：所有單位共用一個 InstancedMesh。
-//  update(list, ground) 每格重寫：list＝實體陣列，ground(e)＝腳下地面高度。離地越高越淡。
-// ============================================================
-let BLOB_TEX = null;
-function blobTex() {
-  if (BLOB_TEX) return BLOB_TEX;
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const x = c.getContext('2d');
-  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.45, 'rgba(255,255,255,0.8)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  x.fillStyle = g;
-  x.fillRect(0, 0, 64, 64);
-  BLOB_TEX = new THREE.CanvasTexture(c);
-  return BLOB_TEX;
-}
-export class BlobShadows {
-  constructor(scene, alpha = 0.6) {
-    this.scene = scene;
-    this.alpha = alpha;
-    this.geo = new THREE.PlaneGeometry(2, 2);
-    this.geo.rotateX(-Math.PI / 2); // 平放（矩陣只要縮放＋位移）
-    this.mat = patchBasic(
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        map: blobTex(),
-        transparent: true,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
-      }),
-    );
-    this.cap = 0;
-    this.mesh = null;
-    this.grow(256);
-  }
-  grow(cap) {
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      this.geo.dispose();
-    }
-    this.cap = cap;
-    this.col = new Float32Array(cap * 4); // rgb＝0（黑），a＝濃淡
-    this.iCol = new THREE.InstancedBufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage);
-    this.geo.setAttribute('iCol', this.iCol);
-    const m = new THREE.InstancedMesh(this.geo, this.mat, cap);
-    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    m.frustumCulled = false;
-    m.count = 0;
-    m.renderOrder = -1; // 透明物件裡最先畫（壓在地面上，其他特效在它上面）
-    m.userData.noFade = true;
-    m.userData.fxBatch = true;
-    this.scene.add(m);
-    this.mesh = m;
-  }
-  update(list, ground) {
-    if (list.length > this.cap) {
-      let c = this.cap;
-      while (c < list.length) c *= 2;
-      this.grow(c);
-    }
-    const M = this.mesh.instanceMatrix.array,
-      C = this.col;
-    let n = 0;
-    for (const e of list) {
-      const gy = ground(e);
-      const h = e.pos.y - gy;
-      // 空中（flying：空中單位、低空、收好在飛的建築）一律用同一個淡的濃度（低空的不會比較深），
-      // 地面單位跳起來時才依離地高度變淡
-      const a = this.alpha * Math.max(0.25, Math.min(e.flying ? 0.4 : 1, 1 - h / 25));
-      const r = Math.max(1.1, (e.radius || 1.3) * 1.4) * (h > 1 ? 1 + Math.min(h, 20) * 0.02 : 1);
-      const o = n * 16;
-      M[o] = r;
-      M[o + 1] = M[o + 2] = M[o + 3] = M[o + 4] = 0;
-      M[o + 5] = 1;
-      M[o + 6] = M[o + 7] = M[o + 8] = M[o + 9] = 0;
-      M[o + 10] = r;
-      M[o + 11] = 0;
-      M[o + 12] = e.pos.x;
-      M[o + 13] = gy + 0.08;
-      M[o + 14] = e.pos.z;
-      M[o + 15] = 1;
-      const q = n * 4;
-      C[q] = C[q + 1] = C[q + 2] = 0;
-      C[q + 3] = a;
-      n++;
-    }
-    const m = this.mesh;
-    m.count = n;
-    m.visible = n > 0;
-    if (!n) return;
-    m.instanceMatrix.updateRange.offset = 0;
-    m.instanceMatrix.updateRange.count = n * 16;
-    m.instanceMatrix.needsUpdate = true;
-    this.iCol.updateRange.offset = 0;
-    this.iCol.updateRange.count = n * 4;
-    this.iCol.needsUpdate = true;
-  }
-  dispose() {
-    this.scene.remove(this.mesh);
-    this.geo.dispose();
-    this.mat.dispose();
   }
 }

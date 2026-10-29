@@ -87,8 +87,6 @@
     </div>
 
     <div id="ui">
-      <!-- Coral 戰爭（RTS）的 HUD：資源列、小地圖、選取面板、指令卡（game/rts-hud.js 產生內容） -->
-      <div id="rtsHud" hidden></div>
       <div id="comm"></div>
       <!-- 主線：戰術模組的三選一與商店（game/tactics.js），遊戲暫停 -->
       <div id="modPick">
@@ -163,12 +161,6 @@
               title="玩別人做的關卡，或用關卡編輯器自己做（地形、物件、敵人、巡邏、觸發器）"
             >
               自訂關卡
-            </button>
-            <button
-              id="btnRts"
-              title="即時戰略遭遇戰：蓋基地、採礦、生產部隊，摧毀對方的所有建築（魔獸爭霸3 式）"
-            >
-              Coral 戰爭
             </button>
             <button id="btnSettings">按鍵與操作設定</button>
             <button id="btnFullscreen" title="切換全螢幕（平板請用這個按鈕離開；鍵盤長按 Esc 也可離開）">
@@ -956,8 +948,6 @@
           </div>
           <h3 style="margin: 14px 0 6px; font-size: 15px">動作 IK</h3>
           <div id="ikBox"></div>
-          <h3 style="margin: 14px 0 6px; font-size: 15px">Coral 戰爭</h3>
-          <div id="rtsSetBox"></div>
           <h3 style="margin: 14px 0 6px; font-size: 15px">本地模型庫與伺服器模型組</h3>
           <div id="lmBox"></div>
           <div class="row" style="margin-top: 14px">
@@ -1014,12 +1004,6 @@
           </p>
         </div>
       </div>
-
-      <!-- Coral 戰爭（RTS）的選單與結果（game/rts-menu.js 產生內容） -->
-      <div id="rtsMenu" class="screen center"></div>
-      <div id="rtsEnd" class="screen center"></div>
-      <!-- Coral 戰爭：第一次玩的開局卡（game/rts-tips.js；開局暫停） -->
-      <div id="rtsTipCard" class="screen center"></div>
 
       <!-- 關卡編輯器（game/editor.js、editor-ui.js、editor-trig.js 產生內容） -->
       <div id="editor" class="screen edScreen"></div>

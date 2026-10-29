@@ -38,7 +38,6 @@ Object.assign(MechEntity.prototype, {
       !g.pvp &&
       !g.lab &&
       !g.cine &&
-      !g.rts &&
       !g.range &&
       !g.tut &&
       !g.aiOld &&
