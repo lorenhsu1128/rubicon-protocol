@@ -533,6 +533,7 @@ Object.assign(MechEntity.prototype, {
       }
       tgt = s.healTgt = best;
     }
+    if (this.repairOff) tgt = s.healTgt = null; // Boss 改版：CERBERUS 的修理臂被打壞了
     this.linkId = -1;
     this.linkKind = 0;
     if (tgt) {

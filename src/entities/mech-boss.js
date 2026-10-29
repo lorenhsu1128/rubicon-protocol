@@ -385,6 +385,7 @@ Object.assign(MechEntity.prototype, {
       this.acs = this.acsMax;
       this.staggerT = 7;
       g.msgAll('多足要塞失去平衡 — 核心暴露！', 0xffb020);
+      this.bossOpen(7); // Boss 改版：倒下＝破綻
       g.fx.dust(this.pos.clone(), 8, 24, 0xb09070);
       g.camShake = Math.max(g.camShake, 0.35);
     }
@@ -407,6 +408,7 @@ Object.assign(MechEntity.prototype, {
       if (!this.grounded) s.wasAir = true;
       else if (s.wasAir) {
         s.slamAir = false;
+        this.bossOpen(); // Boss 改版：跳躍落地＝破綻
         g.shockStart(this, { R: 26, sp: 22, dl: 0.2, dmg: 420 * this.dmgMul, im: 1000 * this.dmgMul });
         g.fx.dust(this.pos.clone(), 7, 20, 0xb09070);
         g.camShake = Math.max(g.camShake, 0.4);
@@ -567,7 +569,10 @@ Object.assign(MechEntity.prototype, {
     if (s.empC > 0) {
       s.empC -= dt;
       wish.set(0, 0, 0);
-      if (s.empC <= 0) g.hunterEmp(this, 20 * MS);
+      if (s.empC <= 0) {
+        g.hunterEmp(this, (this.tierFlag('coil') ? 12 : 20) * MS); // Boss 改版：EMP 線圈壞了範圍變小
+        this.bossOpen(); // EMP 放完的散熱＝破綻
+      }
       return;
     }
     s.empT = (s.empT === undefined ? rnd(5, 7) : s.empT) - dt;
@@ -595,7 +600,7 @@ Object.assign(MechEntity.prototype, {
       return;
     }
     s.pullCd = (s.pullCd === undefined ? rnd(5, 7) : s.pullCd) - dt;
-    if (s.pullCd <= 0 && d > 10 * DS && d < 40 * DS && this.canAct()) {
+    if (s.pullCd <= 0 && d > 10 * DS && d < 40 * DS && this.canAct() && !this.tierFlag('anchor')) {
       s.pullCd = p2 ? rnd(6, 8) : rnd(9, 12);
       s.pull = 2.0;
       SFX.play('laser2', 0.8, 0.5, 0.05, 0.05, this.center());

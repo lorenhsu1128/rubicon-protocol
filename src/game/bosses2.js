@@ -264,6 +264,8 @@ Object.assign(Game.prototype, {
           const dd = t.center().distanceTo(R.c);
           if (Math.abs(dd - R.r) > R.band / 2 + t.radius * 0.6) continue;
           R.hit.add(t);
+          // Boss 改版：QB 的無敵時間穿過能量環＝一定給反擊點
+          if (t.iFrames > 0 && src && src.tierCounterOn && t.pilotEnt && t.pilotEnt()) src.tierCounterOn(t);
           t.takeDamage(
             R.dmg,
             R.im,
@@ -345,6 +347,10 @@ Object.assign(Game.prototype, {
         at,
       });
       e.kits = 0;
+      // Boss 改版：本體上對應的部位打壞了，分離後那一台變弱（α 沒有近戰突進、β 沒有狙擊、γ 不能修理）
+      if (D.ai === 'rusher' && boss.tierFlag('alpha')) e.weapons.rarm.tierOff = true;
+      if (D.ai === 'sniper' && boss.tierFlag('beta')) e.weapons.rarm.tierOff = true;
+      if (D.repair && boss.tierFlag('gamma')) e.repairOff = true;
       this.fx.ring(e.center(), 5, 0xff7040);
     }
     this.fx.explosion(boss.center(), 6, 0xff7040, true);

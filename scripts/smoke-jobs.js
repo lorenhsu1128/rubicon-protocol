@@ -91,6 +91,7 @@ const DEFAULT_TIMES = {
   testBossTier: 6000,
   testBossTier2: 6000,
   testBossKit12: 20000,
+  testBossKit34: 20000,
   testBoss3: 5041,
   testStatusFx: 18931,
   testHazards2: 13837,

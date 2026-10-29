@@ -308,6 +308,243 @@ K1.furnace = {
   },
 };
 Object.assign(BOSS_KIT, K1);
+// ---------- 第 3、4 章的 Boss（第 4 期）----------
+const K2 = {};
+// STRIDER 巡邏用超大型四足
+K2.STRIDER = {
+  tip: 'STRIDER — 十字雷射後砲管過熱、跳躍落地是破綻；背部雷射砲可以打壞，左右前腳都壞了會跪下 6 秒',
+  parts: [
+    { id: 'laser', name: '背部雷射砲', off: [0, 0.95, -0.15], slots: ['lback'], stops: ['p3'] },
+    { id: 'legL', name: '左前腳', off: [-0.45, 0.25, 0.35], flag: 'legL' },
+    { id: 'legR', name: '右前腳', off: [0.45, 0.25, 0.35], flag: 'legR', back: false },
+  ],
+  // 兩隻前腳都壞了：跪下 6 秒（破綻），之後重新站起
+  onLost: (g, b) => {
+    if (!b.tierFlag('legL') || !b.tierFlag('legR') || b.aiState.knelt) return;
+    b.aiState.knelt = true;
+    b.stagGuardT = 0;
+    b.acs = b.acsMax;
+    b.staggerT = Math.max(b.staggerT, 6);
+    b.bossOpen(6);
+    g.netEv({ t: 'stag', i: b.id });
+    g.flashMsg('STRIDER 跪下 — 前腳全毀！', 0x7ee081, 2);
+  },
+  open2: ['p3', 'p2'],
+  open1: ['p3'],
+  big: [
+    ['雷射蓄力', (b, pl) => b.b3Fan(pl, 1, 0)],
+    ['跳躍踩踏', (b) => b.b3Shocks(2, 0.6)],
+  ],
+  reflect: ['grenade', 'missile'],
+  field: {
+    2: (g, b) => {
+      const pl = g.playersAlive()[0];
+      if (pl)
+        g.addZone('suction', pl.pos.clone(), 18 * g.fx.k, 30, {
+          src: b,
+          to: b.pos.clone(),
+          pull: 3 * g.fx.k,
+        });
+      g.flashAlert('戰場改變 — 冰面：腳下會滑');
+    },
+    3: (g, b, T) => {
+      g.tierSmoke(b, 20, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+    },
+  },
+  counter: {
+    air: (b, pl) => b.b3Fan(pl, 2, 0.12), // 對空雷射
+    close: (b) => b.b3Shock(18), // 腹下：踩踏衝擊波
+    far: (b, pl) => b.b3Fan(pl, 1, 0), // 雷射
+    cover: (b, pl) => b.b3Rain(pl, 5, 4, 0.25), // 榴彈
+  },
+};
+// MIRAGE 光學迷彩電戰機
+K2.phantom = {
+  tip: 'MIRAGE — 現形開火之後、分身突襲收招是破綻；迷彩發生器、分身投影器、干擾天線可以打壞',
+  parts: [
+    { id: 'gen', name: '迷彩發生器', off: [0, 0.75, -0.3], flag: 'cloak' },
+    { id: 'proj', name: '分身投影器', off: [0.4, 0.7, 0.1], flag: 'holo' },
+    { id: 'jam', name: '干擾天線', off: [0, 1.05, 0], stops: ['p1'] },
+  ],
+  open2: ['p3', 'p1'],
+  open1: ['p3'],
+  big: [
+    ['鎖定干擾', (b) => b.b3Ring(26)],
+    ['分身展開', (b) => b.game.spawnHolos(b, b.tierFlag('holo') ? 1 : 2)],
+  ],
+  field: {
+    2: (g, b, T) => g.tierSmoke(b, 18, T.eMove),
+    3: (g, b) => {
+      g.spawnHolos(b, b.tierFlag('holo') ? 1 : 2);
+      g.tierPools(b, 3, 'player', 6);
+      g.flashAlert('戰場改變 — 全場變暗、分身增加');
+    },
+  },
+  counter: {
+    air: (b, pl) => b.b3Pillars(pl, 2, 4), // 分身從上方突襲
+    close: (b) => b.b3Ring(16), // 迷彩後退
+    far: (b) => b.game.spawnHolos(b, 1), // 分身突襲
+    cover: (b, pl) => b.b3Rain(pl, 4, 3, 0.25), // 繞到背後
+  },
+};
+// PULSAR 脈衝刃翼
+K2.ibis = {
+  tip: 'PULSAR — 過熱是破綻；穿過能量環的 QB 一定給反擊點；左右翼刃各負責一種斬擊、環發生器壞了能量環變慢',
+  parts: [
+    { id: 'wingL', name: '左翼刃', off: [-0.55, 0.6, 0], flag: 'wingL' },
+    { id: 'wingR', name: '右翼刃', off: [0.55, 0.6, 0], flag: 'wingR' },
+    { id: 'ring', name: '環發生器', off: [0, 0.5, -0.4], flag: 'ring', back: true },
+  ],
+  open2: ['p1', 'p3'],
+  open1: ['p3'],
+  big: [
+    ['雷射扇形', (b, pl) => b.b3Fan(pl, 4, 0.18)],
+    ['直線突刺', (b, pl) => b.b3Line(pl, 6, 4, 0.08)],
+  ],
+  field: {
+    2: (g, b) => {
+      const pl = g.playersAlive()[0];
+      if (pl) g.tierPools(b, 3, 'player', 6);
+      g.flashAlert('戰場改變 — 能量殘留區');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b) => b.b3Ring(30), // 向上的能量環
+    close: (b) => b.b3Shock(14), // 翼刃迴旋
+    far: (b, pl) => b.b3Line(pl, 5, 4, 0.08), // 直線突刺
+    cover: (b, pl) => b.b3Fan(pl, 4, 0.2), // 雷射扇形掃過掩體
+  },
+};
+// ARACHNE 多足要塞
+K2.spider = {
+  tip: 'ARACHNE — 倒下、跳躍落地是破綻；六條腳斷三條會倒下，背部砲塔壞了沒有布雷與砲擊',
+  parts: [{ id: 'turret', name: '背部砲塔', off: [0, 1.0, -0.1], flag: 'mines', stops: ['p1'] }],
+  canCharge: (b) => b.grounded,
+  open2: ['p2', 'p3'],
+  open1: ['p2'],
+  big: [
+    ['砲塔齊射', (b, pl) => b.b3Rain(pl, 7, 10, 0.25)],
+    ['跳躍', (b) => b.b3Shocks(2, 0.7)],
+  ],
+  reflect: ['missile', 'grenade', 'shell'],
+  field: {
+    2: (g, b) => {
+      g.tierPools(b, 3, 'player', 8);
+      g.flashAlert('戰場改變 — 平台崩落一部分');
+    },
+    3: (g, b, T) => {
+      g.tierSmoke(b, 18, T.eMove);
+      g.tierShrinkZone(Math.min(T.eZone, 0.75));
+    },
+  },
+  counter: {
+    air: (b) => b.b3Shock(22), // 跳躍撲擊
+    close: (b) => b.b3Shocks(2, 0.6), // 震地
+    far: (b, pl) => b.b3Rain(pl, 5, 6, 0.25), // 砲塔
+    cover: (b, pl) => b.b3Rain(pl, 5, 3, 0.25), // 曲射
+  },
+};
+// CERBERUS 三機合體
+K2.trinity = {
+  tip: 'CERBERUS — 合體動作中、分離的瞬間是破綻；α 的刃、β 的狙擊砲、γ 的修理臂打壞了，分離之後那一台變弱',
+  parts: [
+    { id: 'a', name: 'α 的刃', off: [-0.45, 0.6, 0.2], flag: 'alpha' },
+    { id: 'b', name: 'β 的狙擊砲', off: [0.45, 0.85, 0.1], flag: 'beta' },
+    { id: 'c', name: 'γ 的修理臂', off: [0, 0.7, -0.45], flag: 'gamma', back: true },
+  ],
+  canCharge: (b) => !b.noLock,
+  open2: ['p2', 'p3'],
+  open1: ['p2'],
+  big: [
+    ['三連射', (b, pl) => b.b3Volley(pl, 3, 0.25)],
+    ['分離前的集結', (b) => b.b3Ring(30)],
+  ],
+  field: {
+    2: (g, b) => {
+      g.tierWalls(b, 3, { h: 5, w: 6, d: 2.5, life: 90 });
+      g.flashAlert('戰場改變 — 吊掛的貨櫃落下');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Fan(pl, 1, 0), // β 對空狙擊
+    close: (b) => b.tierRush(), // α 突進
+    far: (b, pl) => b.b3Fan(pl, 1, 0), // β 狙擊
+    cover: (b, pl) => b.b3Mines(pl, 4, 8), // γ 布雷
+  },
+};
+// NULLIFIER 電磁狩獵機
+K2.hunter = {
+  tip: 'NULLIFIER — EMP 放完的散熱是破綻；EMP 線圈壞了範圍變小、牽引錨壞了沒有牽引、背部電容壞了電磁風暴變弱',
+  parts: [
+    { id: 'coil', name: 'EMP 線圈', off: [0, 0.8, 0.2], flag: 'coil' },
+    { id: 'anchor', name: '牽引錨', off: [0.45, 0.5, 0.1], flag: 'anchor' },
+    { id: 'cap', name: '背部電容', off: [0, 0.7, -0.45], weak: ['p3'], back: true },
+  ],
+  open2: ['p1', 'p3'],
+  open1: ['p1'],
+  big: [
+    ['EMP 充能', (b) => b.game.hunterEmp(b, (b.tierFlag('coil') ? 12 : 20) * b.dk)],
+    ['牽引', (b, pl) => (b.tierFlag('anchor') ? b.b3Mines(pl, 4, 8) : ((pl.pullT = 2), (pl.pullSrc = b)))],
+  ],
+  field: {
+    2: (g, b) => {
+      g.tierPools(b, 3, 'player', 7);
+      g.flashAlert('戰場改變 — 電擊地面');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => {
+      // 牽引拉下來
+      if (!b.tierFlag('anchor')) {
+        pl.pullT = 1.2;
+        pl.pullSrc = b;
+      }
+      b.b3Fan(pl, 1, 0);
+    },
+    close: (b) => b.game.hunterEmp(b, (b.tierFlag('coil') ? 8 : 12) * b.dk), // 近身 EMP
+    far: (b, pl) => b.b3Volley(pl, 2, 0.25), // 電磁彈
+    cover: (b, pl) => {
+      // 牽引把你拉出掩體
+      if (!b.tierFlag('anchor')) {
+        pl.pullT = 1.5;
+        pl.pullSrc = b;
+      } else b.b3Rain(pl, 4, 3, 0.25);
+    },
+  },
+};
+// JUDGEMENT 衛星砲導引塔
+K2.orbital = {
+  tip: 'JUDGEMENT — 光柱結束後導引鏡冷卻是破綻；導引天線壞了光柱追得慢、中繼碟壞了沒有格子砲擊',
+  parts: [
+    { id: 'ant', name: '導引天線', off: [0.35, 1.0, 0], flag: 'antenna' },
+    { id: 'relay', name: '中繼碟', off: [0, 0.8, -0.4], flag: 'relay', stops: ['p2'], back: true },
+    { id: 'ant2', name: '導引天線（副）', off: [-0.35, 1.0, 0], flag: 'antenna' },
+  ],
+  open2: ['p1', 'p3'],
+  open1: ['p1'],
+  big: [
+    ['追蹤光柱', (b, pl) => b.b3Pillars(pl, 3, 8)],
+    ['格子砲擊', (b, pl) => b.b3Rain(pl, 10, 14, 0.15)],
+  ],
+  field: {
+    2: (g, b) => {
+      g.tierPools(b, 4, 'player', 7);
+      g.flashAlert('戰場改變 — 光柱打過的地面燃燒');
+    },
+    3: (g, b, T) => g.tierShrinkZone(Math.min(T.eZone, 0.7)),
+  },
+  counter: {
+    air: (b, pl) => b.b3Pillars(pl, 2, 3), // 光柱往上掃
+    close: (b) => b.b3Ring(16), // 塔基的放電
+    far: (b, pl) => b.b3Rain(pl, 6, 8, 0.15), // 格子砲擊
+    cover: (b, pl) => b.b3Pillars(pl, 2, 2), // 光柱打穿掩體
+  },
+};
+Object.assign(BOSS_KIT, K2);
 
 export function bossKitOf(key) {
   return BOSS_KIT[key] || null;

@@ -5033,7 +5033,7 @@ async function testBosses(browser, base) {
           let emp = 0;
           step(4, () => (emp += pl.empLockT > 0 ? 1 : 0));
           r.emp = emp;
-          place(30);
+          place(60); // 牽引的距離是 10～40 m（舊尺度），放在中間（30 剛好在下限上，會時有時無）
           boss.aiState.pullCd = 0;
           boss.aiState.empT = 99;
           let pull = 0;
@@ -5083,7 +5083,10 @@ async function testBosses(browser, base) {
     `${r.name}：關節掛在膝上、腳全在時 ${r.a}／斷三條倒下後 ${r.b}`,
   );
   r = await run(30, 'nullifier');
-  check(r.emp > 0 && r.pull > 0 && r.dead, `${r.name}：EMP 封鎖 QB 與懸浮、電磁牽引`);
+  check(
+    r.emp > 0 && r.pull > 0 && r.dead,
+    `${r.name}：EMP 封鎖 QB 與懸浮（${r.emp}）、電磁牽引（${r.pull}）`,
+  );
   r = await run(33, 'leviathan');
   check(
     r.alt > 18 && r.a < r.b * 0.2 && r.altDown < r.alt - 5 && r.dead && r.left === 0,
@@ -11068,7 +11071,8 @@ async function testBossKit(browser, base, list, label) {
               (sp.slots && sp.slots.every((s) => b.weapons[s].tierOff)) ||
               (sp.stops && sp.stops.every((id) => b.tierMoveStopped(id))) ||
               (sp.speedK && b.speedMul < sp0) ||
-              (sp.hoverK && b.hoverH < hv0));
+              (sp.hoverK && b.hoverH < hv0) ||
+              (sp.weak && sp.weak.every((id) => b.bt.lostW && b.bt.lostW[id] > 0)));
           return ok ? 1 : 0;
         });
         // 部位重建回去（下面要放大招）
@@ -11125,8 +11129,13 @@ async function testBossKit(browser, base, list, label) {
           g.projectiles.length +
           g.enemies.length +
           (b.aiState.pattern === 3 || b.aiState.rm === 'aim' ? 1000 : 0) +
+          (pl.pullT > 0 ? 500 : 0) +
+          (pl.empLockT > 0 ? 300 : 0) +
           Math.round(pl.vel.length());
+        pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, 24));
         out.counters = ['air', 'close', 'far', 'cover'].map((h) => {
+          pl.pullT = 0;
+          pl.empLockT = 0;
           b.aiState.pattern = 0;
           if (b.aiState.rm === 'aim') b.aiState.rm = 'walk';
           pl.vel.set(0, 0, 0);
@@ -19381,6 +19390,24 @@ const STEPS = [
           [16, 'furnace'],
         ],
         '第 1、2 章',
+      ),
+  ],
+  [
+    'testBossKit34',
+    (c) =>
+      testBossKit(
+        c.browser,
+        c.base,
+        [
+          [9, 'strider'],
+          [22, 'mirage'],
+          [34, 'pulsar'],
+          [24, 'arachne'],
+          [28, 'cerberus'],
+          [30, 'nullifier'],
+          [25, 'judgement'],
+        ],
+        '第 3、4 章',
       ),
   ],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],

@@ -200,6 +200,8 @@ Object.assign(Game.prototype, {
     this.tierPartsBroken = (this.tierPartsBroken || 0) + 1;
     const sp = e.tierSpec;
     if (sp) b.tierPartLost(sp, true);
+    const kit = b.tierKit();
+    if (sp && kit.onLost) kit.onLost(this, b, sp); // 這隻自己的（STRIDER 兩隻前腳都壞了跪下…）
     const c = e.center();
     this.popDamage(c.clone().setY(c.y + 2 * DS), '部位破壞', false, true, false, 0, e.id);
     this.flashMsg(

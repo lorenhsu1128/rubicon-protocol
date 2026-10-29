@@ -692,18 +692,22 @@ Object.assign(MechEntity.prototype, {
     if (s.holoT <= 0) {
       s.holoT = 16;
       const n = this.partsOf('holo').length;
-      if (n < 3) {
-        g.spawnHolos(this, 3 - n);
+      const nMax = this.tierFlag('holo') ? 1 : 3; // Boss 改版：分身投影器壞了分身變少
+      if (n < nMax) {
+        g.spawnHolos(this, nMax - n);
         g.alertAll('MIRAGE 展開全息分身 — 只有本體有影子');
       }
     }
     s.cycT -= dt;
     if (s.cycT <= 0) {
-      s.cycT = this.phase2() ? rnd(6, 8) : rnd(8, 10);
+      s.cycT = (this.phase2() ? rnd(6, 8) : rnd(8, 10)) * (this.tierFlag('cloak') ? 0.55 : 1); // 迷彩發生器壞了迷彩時間變短
       s.reveal = 2.6;
       g.alertAll('MIRAGE 現形齊射！');
     }
-    if (s.reveal > 0) s.reveal -= dt;
+    if (s.reveal > 0) {
+      s.reveal -= dt;
+      if (s.reveal <= 0) this.bossOpen(); // Boss 改版：現形開火之後＝破綻
+    }
     if (s.selfRev > 0) s.selfRev -= dt;
     // 硬直（EMP、ACS 過載）：分身全部消失、本體現形 3 秒
     if (this.staggerT > 0) {
@@ -744,7 +748,8 @@ Object.assign(MechEntity.prototype, {
     this.bx = null;
     if (s.om === 'idle') {
       if ((s.omT -= dt) <= 0 && this.canAct()) {
-        if (p2 && s.n % 2 === 1) this.orbitalGrid(pl);
+        if (p2 && s.n % 2 === 1 && !this.tierFlag('relay'))
+          this.orbitalGrid(pl); // 中繼碟壞了沒有格子砲擊
         else {
           s.om = 'track';
           s.omT = p2 ? 8 : 7;
@@ -761,13 +766,14 @@ Object.assign(MechEntity.prototype, {
     } else if (s.om === 'track') {
       s.el += dt;
       // 光柱越追越快；最高速與轉向都壓低，不用 QB 也有機會跑開
-      const sp = lerp(4, p2 ? 14 : 12, clamp(s.el / 5, 0, 1)) * DS;
+      const ak = this.tierFlag('antenna') ? 0.6 : 1; // Boss 改版：導引天線壞了光柱追得慢
+      const sp = lerp(4, p2 ? 14 : 12, clamp(s.el / 5, 0, 1)) * DS * ak;
       const want = V(pl.pos.x - s.pp.x, 0, pl.pos.z - s.pp.z);
       const cur = s.pv.clone().normalize();
       if (want.lengthSq() > 0.01) {
         want.normalize();
         const da = Math.atan2(cur.x * want.z - cur.z * want.x, cur.dot(want));
-        const turn = (p2 ? 1.6 : 1.3) * dt;
+        const turn = (p2 ? 1.6 : 1.3) * dt * ak;
         cur.applyAxisAngle(V(0, 1, 0), -clamp(da, -turn, turn));
       }
       s.pv.copy(cur).multiplyScalar(sp);
@@ -860,6 +866,7 @@ Object.assign(MechEntity.prototype, {
       this.bossVis = 0;
       if (this.hp < s.nextSplit && s.nextSplit > 0 && this.canAct()) {
         g.trinitySplit(this);
+        this.bossOpen(); // Boss 改版：分離的瞬間＝破綻（本體藏起來之前）
         s.split = true;
         s.splitT = 30;
         s.merge = 0;
@@ -1290,6 +1297,9 @@ Object.assign(MechEntity.prototype, {
         s.cdT = p2 ? rnd(2.5, 3.5) : rnd(3.5, 4.5);
         const x = Math.random();
         s.pa = x < 0.45 ? 'pulse' : x < 0.75 || d < 12 * DS ? 'lasers' : 'dash';
+        // Boss 改版：左翼刃壞了沒有雷射扇形、右翼刃壞了沒有突刺
+        if (s.pa === 'lasers' && this.tierFlag('wingL')) s.pa = this.tierFlag('wingR') ? 'pulse' : 'dash';
+        if (s.pa === 'dash' && this.tierFlag('wingR')) s.pa = this.tierFlag('wingL') ? 'pulse' : 'lasers';
         s.paT = 0;
         s.done = false;
         if (s.pa === 'pulse') {
@@ -1312,7 +1322,14 @@ Object.assign(MechEntity.prototype, {
           const n = p2 ? 3 : 1;
           for (let i = 0; i < n; i++)
             g.later(i * 0.55, () => {
-              if (!this.dead) g.pulseRing(this, { R: 48, sp: 24, band: 1.8, dmg: 420 * dm, im: 900 * dm });
+              if (!this.dead)
+                g.pulseRing(this, {
+                  R: 48,
+                  sp: this.tierFlag('ring') ? 15 : 24,
+                  band: 1.8,
+                  dmg: 420 * dm,
+                  im: 900 * dm,
+                }); // 環發生器壞了能量環變慢
             });
           s.overT = 2.5 + 0.55 * (n - 1);
         }

@@ -90,8 +90,8 @@
 |---|---|---|---|
 | 1 共用架構 | 完成 | ab0c28f | 見下方「第 1 期的實作」 |
 | 2 部位、打回去、應對、場地 | 完成 | ecef294 | 見下方「第 2 期的實作」 |
-| 3 第 1、2 章的 Boss | 完成 | （見 git log） | 見下方「第 3 期的實作」 |
-| 4 第 3、4 章的 Boss | 未開始 | | |
+| 3 第 1、2 章的 Boss | 完成 | 1ba92c8 | 見下方「第 3 期的實作」 |
+| 4 第 3、4 章的 Boss | 完成 | （見 git log） | 見下方「第 4 期的實作」 |
 | 5 第 5、6 章的 Boss | 未開始 | | |
 | 6 收尾 | 未開始 | | |
 
@@ -125,3 +125,10 @@
 - **打斷量表**：本體被自己的裝甲（`bossDefense` 的 k，例如 BASTILLE 砲台在時 ×0.12）擋掉的部分也算（`tkArmor`），否則有部位擋住本體的 Boss 打不斷。
 - 場地的小工具：`g.tierWalls(b, n, o)`、`g.tierPools(b, n, 'player'|'boss'|'line', R)`、`g.tierSmoke(b, R, follow)`、`g.tierShrinkZone(k, at)`。
 - 測試：`testBossKit12`（`testBossKit(browser, base, [[等級, 標籤], …], 名稱)`：部位與機能、三個大招都打斷、打回去、場地、四種反制、截圖 `test-results/boss-<種類>-kit.png`）；`testBossTier2` 以 `g.bossKit = () => null` 只測共用的框架。
+
+### 第 4 期的實作
+
+- `BOSS_KIT` 加上 STRIDER、phantom、ibis、spider、trinity、hunter、orbital（`K2`）。新的欄位：部位的 `weak`（負責的大招放出時減半：`bt.lostW` → `halfT`）、`kit.onLost(g, b, sp)`（STRIDER 兩隻前腳都壞了跪下 6 秒＋破綻）。
+- 接到 AI 的機能：ARACHNE 倒下與跳躍落地＝破綻、背部砲塔 `mines`（`b3Mines` 都看這個旗標）；NULLIFIER 的 `coil`（EMP 範圍 20 → 12）／`anchor`（沒有牽引）、EMP 放完＝破綻；JUDGEMENT 的 `antenna`（光柱追得慢）／`relay`（沒有格子砲擊）；MIRAGE 的 `cloak`（迷彩時間 ×0.55）／`holo`（分身最多 1 台）、現形開火結束＝破綻；PULSAR 的 `wingL`／`wingR`（各少一種招式）／`ring`（能量環變慢），能量環被 QB 的無敵時間穿過＝反擊點（`bosses2.js` 的能量環判定）；CERBERUS 分離的瞬間＝破綻，`alpha`／`beta`／`gamma` 讓分離後那一台變弱（武器 `tierOff`、`repairOff`）。
+- `canCharge`：ARACHNE 要在地上、CERBERUS 分離中（本體藏起來）不蓄力。
+- 測試：`testBossKit34`。另外修正 testBosses 的 NULLIFIER 牽引檢查（玩家放在距離下限上，時有時無）。

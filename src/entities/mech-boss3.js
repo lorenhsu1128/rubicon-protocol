@@ -146,6 +146,7 @@ Object.assign(MechEntity.prototype, {
   },
   // 地雷：目標周圍 n 顆（air＝空中地雷）
   b3Mines(pl, n, R, air = false) {
+    if (this.tierFlag && this.tierFlag('mines')) return; // Boss 改版：布雷的部位壞了
     const g = this.game,
       dm = this.b3Dm();
     for (let i = 0; i < n; i++) {

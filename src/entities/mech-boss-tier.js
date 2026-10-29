@@ -266,7 +266,7 @@ Object.assign(MechEntity.prototype, {
       if (ch.t >= ch.T) {
         // 放出（只斷一次＝大招減半）
         s.ch = null;
-        if (ch.broke) s.halfT = 4;
+        if (ch.broke || (s.lostW && s.lostW[ch.id] > 0)) s.halfT = 4; // 只斷一次、負責的部位壞了：減半
         s.cdI = I_CD[1] * rnd(0.85, 1.15);
         g.flashMsg(`${this.name.split(' ')[0]}：${ch.name}！`, 0xff4030, 1.4);
         SFX.play('alarm', 0.5, 0.9, 0.02, 0.5, this.center());
@@ -550,6 +550,8 @@ Object.assign(MechEntity.prototype, {
     s.lostF = s.lostF || {};
     for (const id of sp.stops || []) s.lost[id] = Math.max(0, (s.lost[id] || 0) + d);
     if (sp.flag) s.lostF[sp.flag] = Math.max(0, (s.lostF[sp.flag] || 0) + d);
+    s.lostW = s.lostW || {};
+    for (const id of sp.weak || []) s.lostW[id] = Math.max(0, (s.lostW[id] || 0) + d); // 這一招變弱（減半）
     for (const k of sp.slots || []) if (this.weapons[k]) this.weapons[k].tierOff = on;
     if (sp.speedK) this.speedMul *= on ? sp.speedK : 1 / sp.speedK;
     if (sp.hoverK && this.hoverH) this.hoverH *= on ? sp.hoverK : 1 / sp.hoverK;
