@@ -421,6 +421,7 @@ Object.assign(MechEntity.prototype, {
     const w = this.game.world;
     const gy = w.terrainHeight(this.pos.x, this.pos.z);
     this.flying = true;
+    this.bobK = 0.15; // 貼著水面：上下晃動很小
     this.hoverH = Math.max((lift *= MS), (w.theme.water ? w.theme.water.level : -1e9) - gy + lift * 0.4);
   },
   eelMove_b2(dt, d, dir, perp, wish, pl, r) {

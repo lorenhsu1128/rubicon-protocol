@@ -2582,7 +2582,8 @@ export class MechEntity {
       if (this.altWarnT > 0) this.altWarnT -= dt;
     }
     if (this.flying) {
-      const ty = ground + this.hoverH + Math.sin(this.t * 2) * 0.6 * this.dk;
+      // 上下晃動：貼著水面的（電鰻、漂流水雷）只晃一點點，否則會跳出水面（skimH_b2 設 bobK）
+      const ty = ground + this.hoverH + Math.sin(this.t * 2) * 0.6 * this.dk * (this.bobK ?? 1);
       this.vel.y = lerp(this.vel.y, (ty - this.pos.y) * 3, 0.2);
       this.grounded = false;
       this.hover = true;
