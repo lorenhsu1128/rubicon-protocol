@@ -11058,6 +11058,9 @@ async function testBossKit(browser, base, list, label) {
           (e) => !e.dead && e.opts.parent === b.id && e.opts.partKind === 'bpart',
         );
         out.parts = parts.map((p) => p.name);
+        // 每個部位都用自己的造型（render/boss-models.js 的 BP），不是借用的腳部關節
+        out.models = parts.map((p) => p.opts.vehKey);
+        out.ownModel = parts.every((p) => /^bp_/.test(p.opts.vehKey) && p.model.type === 'bpart');
         // 打壞每個部位：它的機能、武器、招式、移動都要有變化
         out.partFx = parts.map((p) => {
           const sp = p.tierSpec;
@@ -11176,6 +11179,7 @@ async function testBossKit(browser, base, list, label) {
       r.parts.length > 0 && r.partFx.every((x) => x === 1),
       `${r.name}：部位 ${r.parts.join('、')}，打壞後機能停用（${r.partFx.join('')}）`,
     );
+    check(r.ownModel, `${r.name}：部位的造型（${r.models.join('、')}）`);
     check(
       r.ints.every((x) => x !== '×'),
       `${r.name}：三個大招都打斷了（${r.ints.join('、')}）`,

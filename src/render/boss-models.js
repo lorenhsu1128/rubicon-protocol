@@ -3494,3 +3494,891 @@ export function buildBossModel(key, pal, scale = 1) {
     CUR_KEY = '';
   }
 }
+
+// ---------- Boss 改版的部位（docs/boss-design.md 的 J）：每種部位各自的造型 ----------
+// 部位實體的 vehKey＝'bp_<種類>'（data/boss-kit.js 的 parts[].model），模型的正面朝 −Z、原點在底面中心。
+// 會動的節點：rotor（旋轉的雷達、旋翼轂、環）；發光材質依部位的作用（橘＝武器、青＝能量、綠＝感測）。
+function bpBase(y) {
+  const root = new THREE.Group();
+  const torso = new THREE.Group();
+  torso.position.y = y;
+  root.add(torso);
+  return { root, torso };
+}
+function bpEnd(root, torso, M, scale, h, o = {}) {
+  finish(root, scale);
+  return rigOf(root, torso, M, { type: 'bpart', height: h * scale, ...o });
+}
+// 共用的底座：切角八角的座板＋固定螺栓（部位裝在 Boss 身上的那一面）
+function bpMount(node, M, r = 0.9, y = -0.15) {
+  PM(node, gPlate(chamferNgon(8, r, 0.18, Math.PI / 8), 0.22, 0.05), M.joint, T(0, y, 0), FLAT());
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    P(node, gCyl(0.06, 0.06, 0.1, 6), M.sub, Math.cos(a) * r * 0.82, y + 0.08, Math.sin(a) * r * 0.82);
+  }
+}
+const BP = {};
+// 雷達天線：格子桅杆＋旋轉的雷達板
+BP.radar = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.7);
+  for (const [x, z] of [
+    [-0.22, -0.22],
+    [0.22, -0.22],
+    [0.22, 0.22],
+    [-0.22, 0.22],
+  ])
+    rod(torso, M.joint, [x * 1.6, 0, z * 1.6], [x * 0.5, 1.7, z * 0.5], 0.05);
+  for (let i = 1; i < 5; i++) {
+    const y = i * 0.38,
+      k = 1.6 - (i / 5) * 1.1;
+    PM(torso, gBox(0.7 * k * 0.5, 0.04, 0.04), M.sub, T(0, y, 0.22 * k));
+    PM(torso, gBox(0.7 * k * 0.5, 0.04, 0.04), M.sub, T(0, y, -0.22 * k));
+  }
+  const rotor = new THREE.Group();
+  rotor.position.y = 1.85;
+  torso.add(rotor);
+  P(rotor, gCyl(0.16, 0.2, 0.25, 8), M.joint, 0, 0, 0);
+  PM(rotor, gPlate(cutRect(2.4, 0.7, 0.18), 0.1, 0.03, 0.9), M.main2, T(0, 0.45, 0), RX(0.35));
+  for (let i = -3; i <= 3; i++) PM(rotor, gBox(0.05, 0.6, 0.04), M.sub, T(i * 0.32, 0.45, -0.08), RX(0.35));
+  P(rotor, gSph(0.09, 6), glow(0x7dff9a, 2.2), 0, 0.85, 0);
+  return bpEnd(root, torso, M, scale, 2.6, { rotor });
+};
+// 布雷器：裝著地雷的轉輪彈匣＋投放口
+BP.mines = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.6);
+  bpMount(torso, M, 0.9, -0.55);
+  PM(torso, gPlate(cutRect(1.6, 1.0, 0.2), 1.1, 0.08), M.main, RY(HP));
+  const rotor = new THREE.Group();
+  torso.add(rotor);
+  P(rotor, gCyl(0.55, 0.55, 1.2, 12), M.main3, 0, 0.1, 0, 0, 0, HP);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    PM(
+      rotor,
+      gCyl(0.16, 0.16, 0.12, 8),
+      glow(0xffb040, 1.4),
+      T(0.62, Math.cos(a) * 0.38 + 0.1, Math.sin(a) * 0.38),
+      RZ(HP),
+    );
+    PM(
+      rotor,
+      gCyl(0.16, 0.16, 0.12, 8),
+      glow(0xffb040, 1.4),
+      T(-0.62, Math.cos(a) * 0.38 + 0.1, Math.sin(a) * 0.38),
+      RZ(HP),
+    );
+  }
+  PM(torso, gBox(0.8, 0.12, 0.5), M.joint, T(0, -0.5, 0.45));
+  louver(torso, M, mx(T(0, 0.3, -0.56)), 1.2, 0.5, 4);
+  return bpEnd(root, torso, M, scale, 1.6, { rotor });
+};
+// 感測器：裝甲半球＋三個鏡頭
+BP.sensor = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.35);
+  bpMount(torso, M, 0.75, -0.3);
+  PM(
+    torso,
+    gLoft([
+      { z: -0.3, pts: chamferNgon(8, 0.72, 0.18) },
+      { z: 0.25, pts: chamferNgon(8, 0.66, 0.18) },
+      { z: 0.55, pts: chamferNgon(8, 0.38, 0.2) },
+    ]),
+    M.main2,
+    UP(),
+  );
+  lens(torso, M, mx(T(0, 0.15, -0.62)), 0.2, glow(0x7dff9a, 2.4));
+  lens(torso, M, mx(T(-0.36, 0.05, -0.52), RY(0.5)), 0.12, glow(0x7dff9a, 2));
+  lens(torso, M, mx(T(0.36, 0.05, -0.52), RY(-0.5)), 0.12, glow(0x7dff9a, 2));
+  PM(torso, gBox(0.08, 0.5, 0.08), M.joint, T(0, 0.75, 0.2));
+  return bpEnd(root, torso, M, scale, 1.3);
+};
+// 鑽頭顎：左右兩片彎曲的顎刃＋鋸齒
+BP.jaw = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  P(torso, gCyl(0.5, 0.6, 0.6, 10), M.joint, 0, 0, 0.2, HP);
+  for (const s of [-1, 1]) {
+    PM(
+      torso,
+      gPlate(
+        sideProfile([
+          [0, 0.0],
+          [0.6, 0.15],
+          [1.4, 0.05],
+          [1.6, -0.25],
+          [0.9, -0.2],
+          [0.2, -0.3],
+        ]),
+        0.18,
+        0.04,
+      ),
+      M.acc,
+      T(s * 0.42, 0, -0.2),
+      RY(-HP + s * 0.25),
+    );
+    for (let i = 0; i < 5; i++)
+      PM(
+        torso,
+        gCyl(0, 0.06, 0.2, 4),
+        M.sub,
+        T(s * 0.42 - s * 0.05 * i, -0.2, -0.35 - i * 0.24),
+        RX(Math.PI),
+      );
+  }
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 排氣孔：三根排氣管＋發熱的格柵
+BP.vent = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.85);
+  PM(torso, gPlate(cutRect(1.4, 0.9, 0.15), 0.5, 0.06), M.main, T(0, 0.25, 0), FLAT());
+  for (const x of [-0.42, 0, 0.42]) {
+    P(torso, gCyl(0.16, 0.2, 1.1, 10), M.main3, x, 0.85, 0.1);
+    P(torso, gCyl(0.2, 0.2, 0.08, 10), M.joint, x, 1.4, 0.1);
+    P(torso, gCyl(0.12, 0.12, 0.04, 10), glow(0xff6a20, 2.4), x, 1.45, 0.1);
+  }
+  louver(torso, M, mx(T(0, 0.3, -0.46)), 1.2, 0.36, 5);
+  return bpEnd(root, torso, M, scale, 1.6);
+};
+// 飛彈莢艙：箱型、4×3 的發射管與紅色彈頭
+BP.missiles = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.55);
+  bpMount(torso, M, 0.8, -0.5);
+  PM(
+    torso,
+    gPod([
+      [-0.8, 0.9, 0.1, 0.55, 0.5, 0.12],
+      [0.6, 0.95, 0.1, 0.6, 0.5, 0.12],
+    ]),
+    M.main,
+    RX(-0.25),
+  );
+  for (let i = 0; i < 4; i++)
+    for (let j = 0; j < 3; j++) {
+      const x = -0.33 + i * 0.22,
+        y = -0.18 + j * 0.2;
+      PM(torso, gCyl(0.08, 0.08, 0.06, 8), M.joint, RX(-0.25), T(x, y, -0.82), RX(HP));
+      PM(torso, gCyl(0, 0.055, 0.1, 6), glow(0xff4030, 1.6), RX(-0.25), T(x, y, -0.86), RX(-HP));
+    }
+  PM(torso, gBox(1.0, 0.06, 1.4), M.acc, RX(-0.25), T(0, 0.52, -0.1));
+  return bpEnd(root, torso, M, scale, 1.4);
+};
+// 主砲：防盾＋長砲管＋砲口制退器
+BP.cannon = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.6);
+  bpMount(torso, M, 0.85, -0.55);
+  PM(torso, gPlate(cutRect(1.3, 0.95, 0.22), 0.7, 0.08, 0.85), M.main, T(0, 0, -0.1));
+  P(torso, gCyl(0.17, 0.2, 2.6, 12), M.main3, 0, 0, -1.6, HP);
+  for (let i = 0; i < 3; i++) P(torso, gCyl(0.22, 0.22, 0.08, 12), M.joint, 0, 0, -0.9 - i * 0.55, HP);
+  PM(torso, gBox(0.5, 0.36, 0.42), M.joint, T(0, 0, -2.95));
+  for (const s of [-1, 1]) PM(torso, gBox(0.06, 0.24, 0.3), M.sub, T(s * 0.27, 0, -2.95));
+  return bpEnd(root, torso, M, scale, 1.3);
+};
+// 履帶：側面的履帶段＋負重輪
+BP.track = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  PM(torso, gPlate(cutRect(2.6, 0.9, 0.38), 0.5, 0.05), M.joint, RY(HP));
+  for (let i = 0; i < 5; i++) P(torso, gCyl(0.3, 0.3, 0.56, 12), M.main3, 0, -0.05, -1.0 + i * 0.5, 0, 0, HP);
+  for (let i = 0; i < 18; i++) PM(torso, gBox(0.6, 0.06, 0.1), M.sub, T(0, 0.46, -1.2 + i * 0.14));
+  PM(torso, gPlate(cutRect(2.4, 0.45, 0.1), 0.06, 0.02), M.main, T(0.3, 0.2, 0), RY(HP));
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 電容器組：框架裡一排發光的電容
+BP.capacitor = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.9);
+  PM(torso, gBox(1.5, 0.14, 1.0), M.joint, T(0, 0.05, 0));
+  PM(torso, gBox(1.5, 0.14, 1.0), M.joint, T(0, 1.25, 0));
+  for (let i = 0; i < 4; i++) {
+    const x = -0.54 + i * 0.36;
+    P(torso, gCyl(0.15, 0.15, 1.05, 10), M.main2, x, 0.65, 0.15);
+    P(torso, gCyl(0.1, 0.1, 0.9, 10), glow(0x6ad8ff, 1.8), x, 0.65, -0.15);
+  }
+  for (const s of [-1, 1]) PM(torso, gBox(0.08, 1.2, 0.9), M.main, T(s * 0.78, 0.65, 0));
+  return bpEnd(root, torso, M, scale, 1.5);
+};
+// 散熱片：扇形排列的散熱鰭片
+BP.fins = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 1.0);
+  P(torso, gCyl(0.3, 0.38, 0.4, 10), M.joint, 0, 0.1, 0);
+  for (let i = 0; i < 7; i++) {
+    const a = -0.75 + i * 0.25;
+    PM(
+      torso,
+      gPlate(
+        sideProfile([
+          [0, 0.1],
+          [1.3, 0.1],
+          [1.1, 1.5],
+          [0.2, 1.7],
+        ]),
+        0.06,
+        0.015,
+      ),
+      i % 2 ? M.main2 : M.acc,
+      RZ(a),
+      T(0, 0.1, 0.65),
+      RY(HP),
+    );
+  }
+  P(torso, gBox(1.6, 0.06, 0.06), glow(0xff7030, 1.4), 0, 0.45, 0.25);
+  return bpEnd(root, torso, M, scale, 1.9);
+};
+// 旋翼轂：轉動的轂與六片短槳
+BP.rotor = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.3);
+  P(torso, gCyl(0.35, 0.5, 0.5, 10), M.main3, 0, 0, 0);
+  const rotor = new THREE.Group();
+  rotor.position.y = 0.4;
+  torso.add(rotor);
+  P(rotor, gCyl(0.45, 0.45, 0.25, 12), M.joint, 0, 0, 0);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    PM(rotor, gPlate(cutRect(1.6, 0.26, 0.08), 0.05, 0.02), M.main2, RY(a), T(1.0, 0.05, 0), FLAT());
+  }
+  P(rotor, gCyl(0.12, 0.12, 0.5, 8), M.sub, 0, 0.3, 0);
+  return bpEnd(root, torso, M, scale, 1.0, { rotor });
+};
+// 機槍莢艙：雙管轉輪機槍＋彈鏈箱
+BP.gunpod = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  PM(
+    torso,
+    gPod([
+      [-0.9, 0.6, 0.12, 0.5, 0.42, 0.1],
+      [0.7, 0.55, 0.12, 0.45, 0.36, 0.1],
+    ]),
+    M.main,
+  );
+  for (const x of [-0.18, 0.18]) {
+    P(torso, gCyl(0.12, 0.12, 1.2, 10), M.main3, x, -0.05, -1.25, HP);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      P(
+        torso,
+        gCyl(0.025, 0.025, 1.3, 5),
+        M.sub,
+        x + Math.cos(a) * 0.07,
+        -0.05 + Math.sin(a) * 0.07,
+        -1.3,
+        HP,
+      );
+    }
+  }
+  PM(torso, gBox(0.5, 0.4, 0.6), M.joint, T(0, -0.4, 0.2));
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 炸彈艙：腹部的艙門與掛著的炸彈
+BP.bombbay = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.55);
+  PM(torso, gPlate(cutRect(1.8, 1.3, 0.25), 0.5, 0.06), M.main, T(0, 0.2, 0), FLAT());
+  for (const s of [-1, 1])
+    PM(
+      torso,
+      gPlate(cutRect(0.8, 1.2, 0.08), 0.06, 0.02),
+      M.main2,
+      T(s * 0.62, -0.2, 0),
+      RZ(s * 0.9),
+      FLAT(),
+    );
+  for (let i = 0; i < 3; i++) {
+    P(torso, gCyl(0.16, 0.16, 0.8, 10), M.main3, -0.4 + i * 0.4, -0.2, 0, HP);
+    P(torso, gCyl(0, 0.16, 0.25, 10), glow(0xff8030, 1.3), -0.4 + i * 0.4, -0.2, -0.52, -HP);
+  }
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 推土鏟：彎曲的大鏟板＋鏟齒＋液壓缸
+BP.blade = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.6);
+  for (let i = 0; i < 4; i++) {
+    const a = -0.5 + i * 0.33;
+    PM(
+      torso,
+      gBox(2.6, 0.34, 0.14),
+      i % 2 ? M.main : M.acc,
+      T(0, Math.sin(a) * 0.65, -Math.cos(a) * 0.3 - 0.2),
+      RX(a),
+    );
+  }
+  for (let i = 0; i < 8; i++)
+    PM(torso, gCyl(0, 0.09, 0.3, 4), M.sub, T(-1.15 + i * 0.33, -0.65, -0.62), RX(-HP - 0.3));
+  for (const s of [-1, 1]) piston(torso, M, [s * 0.9, 0.2, 0.6], [s * 0.9, 0.05, -0.2], 0.08);
+  return bpEnd(root, torso, M, scale, 1.4);
+};
+// 側面砲塔：小砲塔＋雙砲管
+BP.turret = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  bpMount(torso, M, 0.7, -0.35);
+  PM(
+    torso,
+    gLoft([
+      { z: -0.3, pts: chamferNgon(6, 0.62, 0.2, Math.PI / 6) },
+      { z: 0.3, pts: chamferNgon(6, 0.5, 0.2, Math.PI / 6) },
+    ]),
+    M.main,
+    UP(),
+  );
+  for (const x of [-0.16, 0.16]) P(torso, gCyl(0.07, 0.08, 1.2, 8), M.main3, x, 0.05, -0.9, HP);
+  lens(torso, M, mx(T(0.35, 0.18, -0.42)), 0.08, glow(0xff8030, 2));
+  return bpEnd(root, torso, M, scale, 0.9);
+};
+// 閥門：手輪閥＋彎管
+BP.valve = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.25);
+  bpMount(torso, M, 0.7);
+  P(torso, gCyl(0.18, 0.18, 1.0, 10), M.main3, 0, 0.45, 0);
+  P(torso, gCyl(0.3, 0.3, 0.3, 10), M.main, 0, 0.6, 0);
+  const rotor = new THREE.Group();
+  rotor.position.y = 1.05;
+  torso.add(rotor);
+  P(rotor, gCyl(0.55, 0.55, 0.06, 16), M.acc, 0, 0, 0);
+  P(rotor, gCyl(0.48, 0.48, 0.07, 16), M.joint, 0, 0, 0);
+  for (let i = 0; i < 4; i++) PM(rotor, gBox(0.95, 0.05, 0.06), M.sub, RY((i * Math.PI) / 4));
+  rod(torso, M.main2, [0.25, 0.6, 0], [0.8, 0.6, 0], 0.12, 8);
+  rod(torso, M.main2, [0.8, 0.6, 0], [0.8, 0.0, 0], 0.12, 8);
+  P(torso, gSph(0.1, 6), glow(0xff5020, 2), 0, 1.15, 0);
+  return bpEnd(root, torso, M, scale, 1.3, { rotor });
+};
+// 熔渣砲：坩堝型的短砲身、發紅的砲口
+BP.slag = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  bpMount(torso, M, 0.85, -0.45);
+  PM(
+    torso,
+    gLoft([
+      { z: 0, pts: chamferNgon(10, 0.55, 0.15) },
+      { z: 0.9, pts: chamferNgon(10, 0.7, 0.15) },
+      { z: 1.2, pts: chamferNgon(10, 0.6, 0.15) },
+    ]),
+    M.main3,
+    T(0, 0, 0),
+    RX(-HP + 0.6),
+    UP(),
+  );
+  PM(torso, gCyl(0.48, 0.48, 0.06, 12), glow(0xff5a10, 2.6), RX(0.6), T(0, 1.18, 0));
+  for (const s of [-1, 1]) piston(torso, M, [s * 0.65, -0.2, 0.3], [s * 0.55, 0.5, -0.4], 0.07);
+  return bpEnd(root, torso, M, scale, 1.4);
+};
+// 噴火口：環狀噴嘴＋點火器
+BP.nozzle = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  P(torso, gCyl(0.55, 0.42, 0.7, 12), M.main, 0, 0, 0, HP);
+  for (let i = 0; i < 3; i++)
+    P(torso, gCyl(0.6 - i * 0.08, 0.6 - i * 0.08, 0.06, 12), M.joint, 0, 0, -0.38 - i * 0.12, HP);
+  P(torso, gCyl(0.3, 0.3, 0.05, 12), glow(0xff7020, 2.4), 0, 0, -0.68, HP);
+  for (const s of [-1, 1]) P(torso, gCyl(0.05, 0.05, 0.5, 6), M.sub, s * 0.5, 0.35, -0.45, HP);
+  PM(torso, gBox(0.3, 0.4, 0.5), M.main3, T(0, 0.45, 0.25));
+  return bpEnd(root, torso, M, scale, 0.9);
+};
+// 鉸鏈：粗大的鉸鏈節＋兩根液壓缸
+BP.hinge = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  for (const z of [-0.45, 0, 0.45]) P(torso, gCyl(0.4, 0.4, 0.38, 12), z ? M.main3 : M.acc, 0, 0, z, HP);
+  P(torso, gCyl(0.14, 0.14, 1.5, 8), M.joint, 0, 0, 0, HP);
+  PM(torso, gPlate(cutRect(1.1, 1.4, 0.2), 0.16, 0.04), M.main, T(0, -0.45, 0), FLAT());
+  for (const s of [-1, 1]) piston(torso, M, [0.5, -0.4, s * 0.5], [0.15, 0.3, s * 0.5], 0.07);
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 雷射砲：長的透鏡砲身＋線圈＋發光的砲口
+BP.laser = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.55);
+  bpMount(torso, M, 0.8, -0.5);
+  PM(
+    torso,
+    gPod([
+      [-0.8, 0.7, 0.12, 0.45, 0.4, 0.1],
+      [0.4, 0.6, 0.12, 0.4, 0.34, 0.1],
+    ]),
+    M.main,
+  );
+  P(torso, gCyl(0.13, 0.16, 2.0, 10), M.main3, 0, 0.05, -1.25, HP);
+  for (let i = 0; i < 4; i++)
+    P(torso, gCyl(0.22, 0.22, 0.1, 10), glow(0x6ad8ff, 1.2), 0, 0.05, -0.65 - i * 0.35, HP);
+  P(torso, gCyl(0.1, 0.1, 0.06, 10), glow(0xbff0ff, 3), 0, 0.05, -2.27, HP);
+  return bpEnd(root, torso, M, scale, 1.1);
+};
+// 腿甲：前腳的護甲板與膝蓋的裝甲
+BP.legplate = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.8);
+  PM(
+    torso,
+    gPlate(
+      sideProfile([
+        [-0.3, -0.8],
+        [0.35, -0.8],
+        [0.45, 0.5],
+        [0.0, 0.9],
+        [-0.4, 0.5],
+      ]),
+      0.9,
+      0.08,
+      0.8,
+    ),
+    M.main,
+    RY(HP),
+  );
+  P(torso, gCyl(0.32, 0.32, 0.9, 10), M.joint, 0, 0.55, 0.1, 0, 0, HP);
+  P(torso, gSph(0.12, 6), glow(0xff8030, 1.6), 0, 0.55, -0.42);
+  for (let i = 0; i < 3; i++) PM(torso, gBox(0.8, 0.05, 0.05), M.sub, T(0, -0.4 + i * 0.3, -0.38));
+  return bpEnd(root, torso, M, scale, 1.7);
+};
+// 迷彩發生器：格子球＋三圈發射環（環會轉）
+BP.cloak = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.7);
+  bpMount(torso, M, 0.6, -0.65);
+  P(torso, gSph(0.42, 8), glow(0x80fff0, 1.1), 0, 0, 0);
+  const rotor = new THREE.Group();
+  torso.add(rotor);
+  for (let i = 0; i < 3; i++) {
+    const g = new THREE.TorusGeometry(0.62 + i * 0.12, 0.035, 6, 24);
+    PM(rotor, g, i === 1 ? M.acc : M.joint, RX(HP + i * 0.6), RY(i * 0.9));
+  }
+  return bpEnd(root, torso, M, scale, 1.4, { rotor });
+};
+// 分身投影器：稜鏡＋投射鏡頭
+BP.projector = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  bpMount(torso, M, 0.7, -0.35);
+  PM(
+    torso,
+    gLoft([
+      { z: 0, pts: ngon(3, 0.55) },
+      { z: 0.9, pts: ngon(3, 0.25) },
+    ]),
+    M.main2,
+    UP(),
+  );
+  PM(
+    torso,
+    gLoft([
+      { z: 0.0, pts: ngon(3, 0.32) },
+      { z: 0.7, pts: ngon(3, 0.06) },
+    ]),
+    glow(0x8afff0, 1.6),
+    T(0, 0.4, 0),
+    UP(),
+  );
+  lens(torso, M, mx(T(0, 0.3, -0.5)), 0.14, glow(0x8afff0, 2.6));
+  return bpEnd(root, torso, M, scale, 1.3);
+};
+// 干擾天線：放射狀的天線陣
+BP.jammer = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.6);
+  P(torso, gCyl(0.2, 0.28, 0.5, 8), M.main3, 0, 0.2, 0);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    rod(torso, M.sub, [0, 0.4, 0], [Math.cos(a) * 0.55, 1.5, Math.sin(a) * 0.55], 0.03);
+    P(torso, gSph(0.05, 6), glow(0xff40c0, 2.2), Math.cos(a) * 0.55, 1.52, Math.sin(a) * 0.55);
+  }
+  rod(torso, M.joint, [0, 0.4, 0], [0, 1.9, 0], 0.04);
+  return bpEnd(root, torso, M, scale, 2.0);
+};
+// 翼刃：彎曲的能量刃與刃根
+BP.wingblade = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.6);
+  P(torso, gCyl(0.3, 0.3, 0.5, 10), M.joint, 0, 0, 0, 0, 0, HP);
+  PM(
+    torso,
+    gPlate(
+      sideProfile([
+        [-0.1, -0.15],
+        [1.0, -0.25],
+        [2.4, 0.2],
+        [1.1, 0.25],
+        [-0.1, 0.15],
+      ]),
+      0.08,
+      0.03,
+    ),
+    M.acc,
+    RY(-HP),
+    T(0, 0, 0.3),
+  );
+  PM(
+    torso,
+    gPlate(
+      sideProfile([
+        [0.3, -0.05],
+        [2.1, 0.12],
+        [1.0, 0.12],
+      ]),
+      0.1,
+      0.02,
+    ),
+    glow(0x9a7dff, 2),
+    RY(-HP),
+    T(0, 0.02, 0.3),
+  );
+  return bpEnd(root, torso, M, scale, 0.9);
+};
+// 環發生器：直立的大環＋中央的核心（環會轉）
+BP.ringgen = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.95);
+  bpMount(torso, M, 0.6, -0.9);
+  rod(torso, M.joint, [0, -0.9, 0], [0, -0.3, 0], 0.12);
+  const rotor = new THREE.Group();
+  torso.add(rotor);
+  PM(rotor, new THREE.TorusGeometry(0.75, 0.1, 8, 28), M.main2);
+  PM(rotor, new THREE.TorusGeometry(0.62, 0.04, 6, 28), glow(0x9a7dff, 2));
+  P(torso, gSph(0.25, 8), glow(0xc8b0ff, 2.4), 0, 0, 0);
+  return bpEnd(root, torso, M, scale, 1.8, { rotor });
+};
+// 背部砲塔：圓頂砲塔＋四管迫擊砲
+BP.mortar = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.3);
+  bpMount(torso, M, 0.85, -0.25);
+  PM(
+    torso,
+    gLoft([
+      { z: -0.25, pts: chamferNgon(8, 0.8, 0.18) },
+      { z: 0.2, pts: chamferNgon(8, 0.72, 0.18) },
+      { z: 0.45, pts: chamferNgon(8, 0.42, 0.2) },
+    ]),
+    M.main,
+    UP(),
+  );
+  for (const [x, z] of [
+    [-0.2, -0.2],
+    [0.2, -0.2],
+    [-0.2, 0.2],
+    [0.2, 0.2],
+  ])
+    P(torso, gCyl(0.1, 0.12, 0.8, 8), M.main3, x, 0.75, z - 0.15, -0.5, 0, 0);
+  return bpEnd(root, torso, M, scale, 1.4);
+};
+// 光刃臂（α）：機械臂＋光束刃
+BP.saber = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  P(torso, gCyl(0.28, 0.28, 0.4, 10), M.joint, 0, 0, 0, 0, 0, HP);
+  rod(torso, M.main3, [0, 0, 0], [0, 0.1, -0.8], 0.14, 8);
+  PM(torso, gBox(0.3, 0.3, 0.35), M.main, T(0, 0.1, -0.9));
+  PM(torso, gBox(0.08, 0.1, 1.8), glow(0xff5a40, 2.4), T(0, 0.1, -1.95));
+  return bpEnd(root, torso, M, scale, 0.8);
+};
+// 狙擊砲（β）：長砲管＋瞄準鏡＋雙腳架
+BP.sniper = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  PM(torso, gBox(0.36, 0.34, 1.0), M.main, T(0, 0, 0));
+  P(torso, gCyl(0.07, 0.08, 2.6, 8), M.main3, 0, 0.05, -1.8, HP);
+  P(torso, gCyl(0.12, 0.12, 0.4, 8), M.joint, 0, 0.05, -3.1, HP);
+  P(torso, gCyl(0.09, 0.09, 0.6, 8), M.sub, 0, 0.32, -0.1, HP);
+  lens(torso, M, mx(T(0, 0.32, -0.42)), 0.07, glow(0x7dff9a, 2.6));
+  for (const s of [-1, 1]) rod(torso, M.joint, [0, -0.1, -1.6], [s * 0.3, -0.5, -1.7], 0.03);
+  return bpEnd(root, torso, M, scale, 0.8);
+};
+// 修理臂（γ）：三節機械臂＋焊炬
+BP.repair = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.3);
+  bpMount(torso, M, 0.55, -0.25);
+  piston(torso, M, [0, 0, 0], [0, 0.9, -0.3], 0.07);
+  piston(torso, M, [0, 0.9, -0.3], [0, 0.6, -1.0], 0.06);
+  PM(torso, gCyl(0.1, 0.06, 0.35, 8), M.main3, T(0, 0.55, -1.15), RX(HP));
+  P(torso, gSph(0.08, 6), glow(0x7ee081, 3), 0, 0.55, -1.35);
+  return bpEnd(root, torso, M, scale, 1.2);
+};
+// EMP 線圈：特斯拉線圈（疊層的盤＋頂端的球）
+BP.coil = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.7);
+  P(torso, gCyl(0.22, 0.3, 1.2, 10), M.main3, 0, 0.6, 0);
+  for (let i = 0; i < 5; i++)
+    P(
+      torso,
+      gCyl(0.42 - i * 0.04, 0.42 - i * 0.04, 0.06, 14),
+      i % 2 ? M.joint : glow(0x60a8ff, 1.2),
+      0,
+      0.2 + i * 0.22,
+      0,
+    );
+  P(torso, gSph(0.3, 10), glow(0x9fd0ff, 2.2), 0, 1.4, 0);
+  PM(torso, new THREE.TorusGeometry(0.5, 0.05, 6, 20), M.acc, T(0, 1.4, 0), RX(HP));
+  return bpEnd(root, torso, M, scale, 1.8);
+};
+// 牽引錨：鋼索捲筒＋三爪錨
+BP.anchor = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  P(torso, gCyl(0.4, 0.4, 0.7, 12), M.main, 0, 0, 0.2, 0, 0, HP);
+  for (let i = 0; i < 6; i++) P(torso, gCyl(0.42, 0.42, 0.05, 12), M.sub, -0.3 + i * 0.12, 0, 0.2, 0, 0, HP);
+  rod(torso, M.joint, [0, 0, -0.1], [0, 0, -0.9], 0.05);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    rod(torso, M.acc, [0, 0, -0.9], [Math.cos(a) * 0.35, Math.sin(a) * 0.35, -1.25], 0.06);
+  }
+  P(torso, gSph(0.1, 6), glow(0x60a8ff, 2), 0, 0, -0.9);
+  return bpEnd(root, torso, M, scale, 0.9);
+};
+// 導引天線：高桅杆＋頂端的導引燈
+BP.beacon = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.2);
+  bpMount(torso, M, 0.55);
+  rod(torso, M.main3, [0, 0, 0], [0, 2.4, 0], 0.09);
+  for (let i = 0; i < 3; i++)
+    PM(torso, gBox(0.7 - i * 0.15, 0.05, 0.05), M.sub, T(0, 0.8 + i * 0.5, 0), RY(i * 0.6));
+  P(torso, gSph(0.18, 8), glow(0xffe070, 2.6), 0, 2.5, 0);
+  return bpEnd(root, torso, M, scale, 2.7);
+};
+// 中繼碟：拋物面碟＋饋電喇叭（碟會轉）
+BP.dish = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  bpMount(torso, M, 0.65, -0.35);
+  P(torso, gCyl(0.15, 0.2, 0.6, 8), M.joint, 0, 0, 0);
+  const rotor = new THREE.Group();
+  rotor.position.y = 0.4;
+  torso.add(rotor);
+  const dish = new THREE.SphereGeometry(1.0, 16, 6, 0, Math.PI * 2, 0, 0.75);
+  PM(rotor, dish, M.main2, RX(-HP - 0.4), T(0, -0.7, 0));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    rod(rotor, M.sub, [Math.cos(a) * 0.6, 0.1, Math.sin(a) * 0.6 - 0.2], [0, 0.4, -0.8], 0.03);
+  }
+  P(rotor, gSph(0.1, 6), glow(0xffe070, 2), 0, 0.4, -0.8);
+  return bpEnd(root, torso, M, scale, 1.6, { rotor });
+};
+// 艦砲：雙聯裝的艦砲砲塔
+BP.navalgun = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  bpMount(torso, M, 1.0, -0.45);
+  PM(
+    torso,
+    gPod([
+      [-0.9, 1.2, 0.15, 0.55, 0.5, 0.12],
+      [0.8, 1.1, 0.15, 0.45, 0.42, 0.12],
+    ]),
+    M.main,
+  );
+  for (const x of [-0.25, 0.25]) {
+    P(torso, gCyl(0.1, 0.13, 2.0, 10), M.main3, x, 0.1, -1.7, HP);
+    P(torso, gCyl(0.15, 0.15, 0.2, 10), M.joint, x, 0.1, -2.6, HP);
+  }
+  return bpEnd(root, torso, M, scale, 1.1);
+};
+// 下方砲台：吊在底面的球形砲塔
+BP.ballturret = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.7);
+  P(torso, gCyl(0.5, 0.35, 0.3, 10), M.joint, 0, 0.45, 0);
+  P(torso, gSph(0.55, 10), M.main, 0, 0, 0);
+  PM(torso, new THREE.TorusGeometry(0.56, 0.06, 6, 20), M.acc, RX(HP));
+  for (const x of [-0.14, 0.14]) P(torso, gCyl(0.06, 0.07, 1.1, 8), M.main3, x, -0.1, -0.8, HP + 0.3, 0, 0);
+  lens(torso, M, mx(T(0.3, 0.15, -0.45)), 0.08, glow(0xff8030, 2));
+  return bpEnd(root, torso, M, scale, 1.3);
+};
+// 機翼：後掠翼段＋翼下的小推進器
+BP.wing = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.3);
+  PM(
+    torso,
+    gPlate(
+      [
+        [0, -0.5],
+        [2.2, 0.4],
+        [2.2, 0.9],
+        [0, 0.6],
+      ],
+      0.12,
+      0.04,
+    ),
+    M.main,
+    FLAT(),
+  );
+  PM(
+    torso,
+    gPlate(
+      [
+        [0.2, 0.55],
+        [2.0, 0.85],
+        [2.0, 0.95],
+        [0.2, 0.68],
+      ],
+      0.14,
+      0.02,
+    ),
+    M.acc,
+    FLAT(),
+    T(0, 0, -0.02),
+  );
+  P(torso, gCyl(0.14, 0.18, 0.8, 10), M.main3, 1.3, -0.15, 0.2, HP);
+  P(torso, gCyl(0.12, 0.12, 0.05, 10), glow(0x7fd8ff, 2.2), 1.3, -0.15, 0.62, HP);
+  return bpEnd(root, torso, M, scale, 0.6);
+};
+// 機砲：機首的轉輪機砲
+BP.autocannon = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  PM(
+    torso,
+    gLoft([
+      { z: 0.4, pts: chamferNgon(8, 0.42, 0.2) },
+      { z: -0.4, pts: chamferNgon(8, 0.34, 0.2) },
+    ]),
+    M.main,
+  );
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    P(torso, gCyl(0.035, 0.035, 1.4, 6), M.main3, Math.cos(a) * 0.12, Math.sin(a) * 0.12, -1.1, HP);
+  }
+  P(torso, gCyl(0.2, 0.2, 0.1, 10), M.joint, 0, 0, -1.7, HP);
+  return bpEnd(root, torso, M, scale, 0.9);
+};
+// 榴彈砲：轉鼓式的榴彈發射器
+BP.grenade = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  bpMount(torso, M, 0.7, -0.45);
+  P(torso, gCyl(0.42, 0.42, 0.6, 8), M.main, 0, 0.1, 0.1, HP);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    P(torso, gCyl(0.11, 0.11, 0.62, 8), M.joint, Math.cos(a) * 0.26, 0.1 + Math.sin(a) * 0.26, 0.1, HP);
+  }
+  P(torso, gCyl(0.16, 0.18, 0.9, 10), M.main3, 0, 0.1, -0.7, HP);
+  PM(torso, gBox(0.5, 0.12, 0.3), M.acc, T(0, 0.55, 0));
+  return bpEnd(root, torso, M, scale, 1.1);
+};
+// 浮游砲艙：裝著浮游砲的機庫格
+BP.bay = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  PM(torso, gPlate(cutRect(1.8, 1.0, 0.2), 0.9, 0.08), M.main, RY(HP));
+  for (let i = 0; i < 3; i++) {
+    PM(torso, gBox(0.42, 0.55, 0.06), M.joint, T(-0.55 + i * 0.55, 0, -0.47));
+    PM(
+      torso,
+      gLoft([
+        { z: -0.25, pts: chamferNgon(6, 0.1, 0.2) },
+        { z: 0.2, pts: chamferNgon(6, 0.16, 0.2) },
+      ]),
+      glow(0x9a7dff, 1.4),
+      T(-0.55 + i * 0.55, 0, -0.38),
+    );
+  }
+  return bpEnd(root, torso, M, scale, 1.0);
+};
+// 複製的武器：半透明框架裡的武器輪廓（DOPPEL 複製你的裝備）
+BP.replica = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  const holo = new THREE.MeshStandardMaterial({
+    color: 0x9ff4ff,
+    emissive: 0x6ae0ff,
+    emissiveIntensity: 1.2,
+    transparent: true,
+    opacity: 0.55,
+  });
+  PM(torso, gBox(0.32, 0.36, 1.1), holo, T(0, 0, -0.3));
+  PM(torso, gCyl(0.08, 0.08, 1.2, 8), holo, T(0, 0.05, -1.4), RX(HP));
+  for (const z of [0.25, -0.85]) PM(torso, new THREE.TorusGeometry(0.34, 0.03, 6, 18), M.acc, T(0, 0, z));
+  P(torso, gCyl(0.24, 0.24, 0.2, 10), M.joint, 0, 0, 0.35, HP);
+  return bpEnd(root, torso, M, scale, 0.8);
+};
+// 火焰噴射器：燃料罐＋噴嘴
+BP.flamer = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.4);
+  for (const x of [-0.22, 0.22]) {
+    P(torso, gCyl(0.2, 0.2, 0.8, 10), M.acc, x, 0.15, 0.3, HP);
+    P(torso, gSph(0.2, 8), M.acc, x, 0.15, 0.7);
+  }
+  P(torso, gCyl(0.1, 0.14, 1.0, 10), M.main3, 0, -0.05, -0.55, HP);
+  P(torso, gCyl(0.08, 0.08, 0.05, 10), glow(0x5ab8ff, 2.6), 0, -0.05, -1.07, HP);
+  rod(torso, M.joint, [-0.22, 0.15, -0.1], [0, -0.05, -0.2], 0.04);
+  return bpEnd(root, torso, M, scale, 0.8);
+};
+// 脈衝裝甲發生器：脈動的核心＋六支放射器
+BP.pulse = (pal, scale) => {
+  const M = mechMats(pal);
+  const { root, torso } = bpBase(0.5);
+  bpMount(torso, M, 0.7, -0.45);
+  P(torso, gSph(0.38, 10), glow(0x60e0ff, 1.8), 0, 0.1, 0);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    rod(torso, M.main3, [0, 0.1, 0], [Math.cos(a) * 0.7, 0.1 + Math.sin(a) * 0.35, Math.sin(a) * 0.4], 0.06);
+    P(torso, gSph(0.09, 6), M.joint, Math.cos(a) * 0.7, 0.1 + Math.sin(a) * 0.35, Math.sin(a) * 0.4);
+  }
+  PM(torso, new THREE.TorusGeometry(0.5, 0.05, 6, 20), M.acc, T(0, 0.1, 0), RX(HP));
+  return bpEnd(root, torso, M, scale, 1.1);
+};
+// 部位的造型清單（模型庫的目錄）：[種類, 名稱]
+export const BP_CATALOG = [
+  ['radar', '雷達天線'],
+  ['mines', '布雷器'],
+  ['sensor', '感測器'],
+  ['jaw', '鑽頭顎'],
+  ['vent', '排氣孔'],
+  ['missiles', '飛彈莢艙'],
+  ['cannon', '主砲'],
+  ['track', '履帶'],
+  ['capacitor', '電容器組'],
+  ['fins', '散熱片'],
+  ['rotor', '旋翼轂'],
+  ['gunpod', '機槍莢艙'],
+  ['bombbay', '炸彈艙'],
+  ['blade', '推土鏟'],
+  ['turret', '側面砲塔'],
+  ['valve', '煙囪閥'],
+  ['slag', '熔渣砲'],
+  ['nozzle', '噴火口'],
+  ['hinge', '爐門鉸鏈'],
+  ['laser', '雷射砲'],
+  ['legplate', '腳部裝甲'],
+  ['cloak', '迷彩發生器'],
+  ['projector', '分身投影器'],
+  ['jammer', '干擾天線'],
+  ['wingblade', '翼刃'],
+  ['ringgen', '環發生器'],
+  ['mortar', '背部砲塔'],
+  ['saber', '光刃臂'],
+  ['sniper', '狙擊砲'],
+  ['repair', '修理臂'],
+  ['coil', 'EMP 線圈'],
+  ['anchor', '牽引錨'],
+  ['beacon', '導引天線'],
+  ['dish', '中繼碟'],
+  ['navalgun', '艦砲'],
+  ['ballturret', '下方砲台'],
+  ['wing', '機翼'],
+  ['autocannon', '機砲'],
+  ['grenade', '榴彈砲'],
+  ['bay', '浮游砲艙'],
+  ['replica', '複製的武器'],
+  ['flamer', '火焰噴射器'],
+  ['pulse', '脈衝裝甲發生器'],
+];
+for (const [k] of BP_CATALOG) BUILDERS['bp_' + k] = BP[k];

@@ -39,9 +39,9 @@ const J_KINDS = new Set([
 ]);
 // 還沒有專屬內容（BOSS_KIT 的 parts）的 Boss：共用的部位（off＝Boss 身高的倍數，+Z 往前），各停用一個型態的大招
 const GENERIC_PARTS = [
-  { id: 'g1', name: '左肩武裝', off: [-0.42, 0.85, 0.1], stops: ['p1'] },
-  { id: 'g2', name: '右肩武裝', off: [0.42, 0.85, 0.1], stops: ['p2'] },
-  { id: 'g3', name: '背部推進器', off: [0, 0.7, -0.45], stops: ['p3'] },
+  { id: 'g1', name: '左肩武裝', model: 'missiles', off: [-0.42, 0.85, 0.1], stops: ['p1'] },
+  { id: 'g2', name: '右肩武裝', model: 'cannon', off: [0.42, 0.85, 0.1], stops: ['p2'] },
+  { id: 'g3', name: '背部推進器', model: 'vent', off: [0, 0.7, -0.45], stops: ['p3'] },
 ];
 const SWAP = { p1: 'p2', p2: 'p3', p3: 'p1' };
 const CARS_J = new Set(['car_aa', 'car_ms', 'car_lz', 'car_mine']); // J：刁鑽度 7～8 重建的部位換成另一種招式
@@ -177,6 +177,8 @@ Object.assign(Game.prototype, {
     if (sp.back && off[2] >= 0) off[2] = -Math.max(0.4, Math.abs(off[2]) || 0.45);
     const e = this.spawnPart(b, 'bpart', {
       name: sp.name,
+      vehKey: 'bp_' + (sp.model || 'sensor'), // 各部位自己的造型（render/boss-models.js 的 BP）
+      scale: sp.size || 1,
       off,
       hpAbs: b.maxHp * T.jHp,
       at: b.center(),

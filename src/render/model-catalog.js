@@ -8,7 +8,7 @@
 import { withRng } from '../core/math.js';
 import { WS } from '../core/scale.js';
 import { AC_ROSTER, BOSS_DEFS, DUO_BOSS, ENEMY_TYPES, PART_DEFS } from '../data/enemies.js';
-import { buildBossModel } from './boss-models.js';
+import { buildBossModel, BP_CATALOG } from './boss-models.js';
 import { buildPod, buildStation } from './cine-sets.js';
 import { FOE_CATALOG } from './foe-models.js';
 import { PARTS, START_ASM } from '../data/parts.js';
@@ -318,6 +318,20 @@ for (const [key, d] of Object.entries(PART_DEFS))
     spec: 'vehicle-boss',
     noGlb: true,
     build: (k) => wholeRig(buildBossModel(key, pal(k), 1), 1),
+  });
+
+// Boss 改版的部位（docs/boss-design.md 的 J；render/boss-models.js 的 BP）：目前只預覽，不接受 GLB
+for (const [key, name] of BP_CATALOG)
+  add({
+    id: `vehicle/bpart_${key}`,
+    cat: 'vehicle',
+    name: `Boss 部位・${name}`,
+    note: 'Boss 改版的部位（可以打壞、獨立血量）',
+    pal: 'boss',
+    gameScale: 1,
+    spec: 'vehicle-boss',
+    noGlb: true,
+    build: (k) => wholeRig(buildBossModel('bp_' + key, pal(k), 1), 1),
   });
 
 // 主題專屬敵人的程式模型（render/foe-models.js）：目前只預覽，不接受 GLB

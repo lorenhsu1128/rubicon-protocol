@@ -694,6 +694,7 @@ Object.assign(MechEntity.prototype, {
       const hide = !!(this.bossVis & 1);
       this.mesh.visible = !hide && !this.dead;
       this.noLock = hide;
+      if (this.model.rotor) this.model.rotor.rotation.y += dt * 1.6; // 雷達、旋翼轂、環
     }
     if (this.ai === 'worm') this.wormFx();
     if (this.model.legNodes && this.model.legNodes.length) this.spiderFx(dt);
