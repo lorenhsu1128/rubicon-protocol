@@ -188,12 +188,6 @@ Object.assign(Game.prototype, {
     if (rebuild) b.tierPartLost(sp, false); // 重建：恢復它負責的招式與機能
     return e;
   },
-  // 這隻 Boss 的破綻與部位（BOSS_KIT 的 tip）：開打後跳一次
-  tierTip(b) {
-    const kit = b.tierKit();
-    if (!kit.tip || !b.tierOn()) return;
-    this.later(5, () => !b.dead && this.flashAlert(kit.tip));
-  },
   // 部位被擊破（onEnemyKilled，房主／單機）：停用招式、掉補給、結算加成、重建
   tierPartDown(e) {
     if (e.ai !== 'part' || !J_KINDS.has(e.opts.partKind)) return;

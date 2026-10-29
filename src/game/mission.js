@@ -527,10 +527,9 @@ Object.assign(Game.prototype, {
     this.spawnTier = 0;
     this.tierPartsBroken = 0;
     this.tierReb = [];
-    for (const b of this.bosses) {
-      this.tierSetupParts(b); // Boss 改版的 J：部位（boss-tier.js）
-      this.tierTip(b); // 這隻的破綻與部位的說明
-    }
+    for (const b of this.bosses) this.tierSetupParts(b); // Boss 改版的 J：部位（boss-tier.js）
+    // 開場介紹（新 Boss 在 spawnBossKind 已經顯示）：破綻與部位寫在 BOSS_DEFS 的 intro
+    if (bd0.intro && (!bd0.kind || bd0.kind === 'heli' || bd0.kind === 'duo')) this.flashAlert(bd0.intro);
   },
   // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
   // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js

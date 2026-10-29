@@ -11172,12 +11172,19 @@ async function testBossKit(browser, base, list, label) {
           b.tierCounterMove(h, pl);
           return cnt() !== c0 ? 1 : 0;
         });
-        out.tip = !!kit.tip;
+        // 開場介紹（BOSS_DEFS 的 intro）寫了破綻與部位
+        out.tip = !!(
+          g.bossDef &&
+          g.bossDef.intro &&
+          /破綻/.test(g.bossDef.intro) &&
+          /打壞/.test(g.bossDef.intro)
+        );
+        out.intro = g.bossDef && g.bossDef.intro;
         return out;
       },
       [L, key],
     );
-    check(r.hasKit && r.tip, `${r.name}：有專屬內容與說明`);
+    check(r.hasKit && r.tip, `${r.name}：有專屬內容、開場介紹寫了破綻與部位（${r.intro}）`);
     check(
       r.parts.length > 0 && r.partFx.every((x) => x === 1),
       `${r.name}：部位 ${r.parts.join('、')}，打壞後機能停用（${r.partFx.join('')}）`,

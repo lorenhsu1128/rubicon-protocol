@@ -94,8 +94,8 @@
 | 4 第 3、4 章的 Boss | 完成 | 09d3d82 | 見下方「第 4 期的實作」 |
 | 5 第 5、6 章的 Boss | 完成 | 93c456e | 見下方「第 5 期的實作」 |
 | 7 部位的造型 | 完成 | be19cbc | 使用者 2026-10-30：新部位要全新設計（render/boss-models.js 的 BP，43 種） |
-| 8 場地效果 | 完成 | （見 git log） | 使用者 2026-10-30：場地效果要全新設計（game/boss-field.js、render/boss-field-models.js） |
-| 9 開場介紹 | 未開始 | | 使用者 2026-10-30：配合更改原本的開場介紹（取代開打 5 秒後的 tip） |
+| 8 場地效果 | 完成 | 536a5dd | 使用者 2026-10-30：場地效果要全新設計（game/boss-field.js、render/boss-field-models.js） |
+| 9 開場介紹 | 完成 | （見 git log） | 使用者 2026-10-30：配合更改原本的開場介紹（取代開打 5 秒後的 tip） |
 | 6 收尾 | 完成 | 0cf2391 | CLAUDE.md 同步、每隻 Boss 的破綻檢查、boss-design.md 第 5 節「實作的說明」 |
 
 ### 第 1 期的實作（接手的人先看）
@@ -149,3 +149,7 @@
 - **場地效果**：`game/boss-field.js`（判定與同步）＋`render/boss-field-models.js`（外觀）。`bfAdd(種類, 位置, 半徑（世界）, 秒, o)` 只在房主，客機收 `bfadd`／`bfst`／`bfmv`／`bfrm`／`bfdark`；房主每格 `bfTick`（在 `updateHazards` 開頭），外觀 `bfVis`（`renderMain`，各端）。移動的效果在 `MechEntity.move` 的 `bfMove`（客機的自身預測也算）、鎖定距離 `bfLockK`（`player.js` 的 `lockReach`）、視線 `World.losHook2`、燃燒地面的安全區 `bfSafe`（`bosses2.js` 的燃燒地面判定）。不會移動的圓盤用 `conformField` 貼著地形（只貼附近高度的表面，不爬上高物件）。掩體的新種類（berm／rubble／crate／pillar／slab）走 `addTempWall`（碰撞、血量、同步照舊，外觀 `buildCover`）。`clearMission` → `bfClear`。
 - `BOSS_KIT` 的 `field` 統一寫在 `data/boss-kit.js` 後面的 `FIELD`；共用的 `tierWalls`／`tierPools`／`tierSmoke`／`tierFieldGood`／`tierFieldBad` 都改用新效果。
 - 測試：`testBossField`（每種效果的判定、客機的事件、清除、截圖 `boss-field-<種類>.png`）；`testBossKit` 的場地計數改看 `g.bfs`。
+
+### 第 9 期的實作
+
+- 每隻 Boss 的破綻與部位寫進 `data/enemies.js` 的 `BOSS_DEFS` 的 `intro`（原本的打法說明保留，22 隻都有；JUGGERNAUT、HELIOS、STRIDER、BALTEUS、雙 AC 原本沒有，補上）。開場顯示：新 Boss 照舊在 `spawnBossKind`，一般大型 Boss、直升機、雙 AC 在 `spawnBossDef` 的最後。拿掉開打 5 秒後的 `tierTip` 與 `BOSS_KIT` 的 `tip`；作戰室簡報的敵情也用 `intro`，所以一起更新了。

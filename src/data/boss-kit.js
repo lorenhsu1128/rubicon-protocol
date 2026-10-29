@@ -7,6 +7,7 @@
 //   reflect：可以打掉的彈體種類（Projectile 的 kind：'missile'／'shell'／'grenade'…）
 //   open2／open1：有破綻的大招（刁鑽度 3～4／5～8）
 //   big：[第一型態, 第二型態]（第三型態＝mech-boss3.js 的 SPECIALS）的 [名稱, fn]——放在 mech-boss-tier.js
+//   （每隻的破綻與部位的說明寫在 data/enemies.js 的 BOSS_DEFS 的 intro）
 //   field：{ 2: fn, 3: fn }（換型態的場地，(g, b, T)；用 game/boss-field.js 的新效果，寫在檔案後面的 FIELD）
 // 第 3～5 期依 docs/boss-design.md 逐隻補上。
 
@@ -45,7 +46,6 @@ export const BOSS_KIT = {};
 const K1 = {};
 // BASTILLE 砲兵陣地
 K1.artillery = {
-  tip: 'BASTILLE — 飽和砲擊之後砲管冷卻是破綻；雷達天線壞了砲擊不再預判落點、布雷器壞了不再補地雷',
   parts: [
     { id: 'radar', name: '雷達天線', model: 'radar', off: [0, 1.05, 0.05], flag: 'lead' },
     { id: 'mine', name: '布雷器', model: 'mines', off: [0, 0.55, -0.5], flag: 'mines', back: true },
@@ -66,7 +66,6 @@ K1.artillery = {
 };
 // SANDWORM 巨型鑽地蟲
 K1.worm = {
-  tip: 'SANDWORM — 鑽出撲空時身體卡在地上是破綻；頭部感測器壞了鑽出點不再追著你、鑽頭顎壞了沒有地下衝刺',
   parts: [
     { id: 'sensor', name: '頭部感測器', model: 'sensor', off: [0, 0.75, 0.35], flag: 'track' },
     { id: 'jaw', name: '鑽頭顎', model: 'jaw', off: [0, 0.3, 0.55], flag: 'bite' },
@@ -88,7 +87,6 @@ K1.worm = {
 };
 // JUGGERNAUT 戰略級移動要塞
 K1.JUGGERNAUT = {
-  tip: 'JUGGERNAUT — 衝撞撞空的滑停、齊射之後是破綻；肩上飛彈莢艙、主砲、履帶可以打壞',
   parts: [
     {
       id: 'pod',
@@ -117,7 +115,6 @@ K1.JUGGERNAUT = {
 };
 // HALBERD 超長程電磁砲台
 K1.railgun = {
-  tip: 'HALBERD — 貫穿砲擊後散熱片打開是破綻；散熱片壞了冷卻更久、電容器組壞了充能變慢、瞄準感測器壞了瞄準線跟得慢',
   parts: [
     { id: 'cap', name: '電容器組', model: 'capacitor', off: [0.45, 0.45, 0], flag: 'cap' },
     { id: 'sensor', name: '瞄準感測器', model: 'sensor', off: [0, 1.0, 0.3], flag: 'aim' },
@@ -138,7 +135,6 @@ K1.railgun = {
 };
 // HELIOS 重武裝母艦直升機
 K1.heli = {
-  tip: 'HELIOS — 地毯轟炸後拉高、投放空降兵時艙門打開是破綻；主旋翼壞了高度下降、機槍莢艙與炸彈艙可以打壞',
   parts: [
     { id: 'pod', name: '側邊機槍莢艙', model: 'gunpod', off: [0.5, 0.35, 0.1], slots: ['rarm'] },
     { id: 'rotor', name: '主旋翼', model: 'rotor', off: [0, 1.0, 0], hoverK: 0.45 },
@@ -165,7 +161,6 @@ K1.heli = {
 };
 // BEHEMOTH 衝撞推土要塞
 K1.rampart = {
-  tip: 'BEHEMOTH — 撞牆硬直、衝撞落空的滑停是破綻；推土鏟壞了撞不碎掩體、排氣管壞了不能連續衝撞',
   parts: [
     { id: 'blade', name: '推土鏟', model: 'blade', off: [0, 0.35, 0.6], flag: 'blade' },
     { id: 'turret', name: '側面砲塔', model: 'turret', off: [0.5, 0.75, 0], flag: 'side' },
@@ -186,7 +181,6 @@ K1.rampart = {
 };
 // IRON CITADEL 武裝列車
 K1.train = {
-  tip: 'IRON CITADEL — 衝撞後鍋爐過熱是破綻；煙囪閥壞了過熱更久，四節車廂各負責一種攻擊',
   parts: [{ id: 'valve', name: '煙囪閥', model: 'valve', off: [0, 1.05, 0.25], flag: 'valve' }],
   canCharge: (b) => !b.inTunnel(),
   open2: ['p1', 'p3'],
@@ -204,7 +198,6 @@ K1.train = {
 };
 // CINDER 熔爐清掃機
 K1.furnace = {
-  tip: 'CINDER — 爐口打開是破綻（打掉的熔渣落回它腳下）；熔渣砲、噴火口可以打壞，爐門鉸鏈壞了爐口開得更久',
   parts: [
     { id: 'slag', name: '熔渣砲', model: 'slag', off: [0.4, 0.8, 0.1], flag: 'slag' },
     { id: 'flame', name: '噴火口', model: 'nozzle', off: [0, 0.4, 0.55], flag: 'flame' },
@@ -230,7 +223,6 @@ Object.assign(BOSS_KIT, K1);
 const K2 = {};
 // STRIDER 巡邏用超大型四足
 K2.STRIDER = {
-  tip: 'STRIDER — 十字雷射後砲管過熱、跳躍落地是破綻；背部雷射砲可以打壞，左右前腳都壞了會跪下 6 秒',
   parts: [
     {
       id: 'laser',
@@ -270,7 +262,6 @@ K2.STRIDER = {
 };
 // MIRAGE 光學迷彩電戰機
 K2.phantom = {
-  tip: 'MIRAGE — 現形開火之後、分身突襲收招是破綻；迷彩發生器、分身投影器、干擾天線可以打壞',
   parts: [
     { id: 'gen', name: '迷彩發生器', model: 'cloak', off: [0, 0.75, -0.3], flag: 'cloak' },
     { id: 'proj', name: '分身投影器', model: 'projector', off: [0.4, 0.7, 0.1], flag: 'holo' },
@@ -291,7 +282,6 @@ K2.phantom = {
 };
 // PULSAR 脈衝刃翼
 K2.ibis = {
-  tip: 'PULSAR — 過熱是破綻；穿過能量環的 QB 一定給反擊點；左右翼刃各負責一種斬擊、環發生器壞了能量環變慢',
   parts: [
     { id: 'wingL', name: '左翼刃', model: 'wingblade', off: [-0.55, 0.6, 0], flag: 'wingL' },
     { id: 'wingR', name: '右翼刃', model: 'wingblade', off: [0.55, 0.6, 0], flag: 'wingR' },
@@ -312,7 +302,6 @@ K2.ibis = {
 };
 // ARACHNE 多足要塞
 K2.spider = {
-  tip: 'ARACHNE — 倒下、跳躍落地是破綻；六條腳斷三條會倒下，背部砲塔壞了沒有布雷與砲擊',
   parts: [
     { id: 'turret', name: '背部砲塔', model: 'mortar', off: [0, 1.0, -0.1], flag: 'mines', stops: ['p1'] },
   ],
@@ -333,7 +322,6 @@ K2.spider = {
 };
 // CERBERUS 三機合體
 K2.trinity = {
-  tip: 'CERBERUS — 合體動作中、分離的瞬間是破綻；α 的刃、β 的狙擊砲、γ 的修理臂打壞了，分離之後那一台變弱',
   parts: [
     { id: 'a', name: 'α 的刃', model: 'saber', off: [-0.45, 0.6, 0.2], flag: 'alpha' },
     { id: 'b', name: 'β 的狙擊砲', model: 'sniper', off: [0.45, 0.85, 0.1], flag: 'beta' },
@@ -355,7 +343,6 @@ K2.trinity = {
 };
 // NULLIFIER 電磁狩獵機
 K2.hunter = {
-  tip: 'NULLIFIER — EMP 放完的散熱是破綻；EMP 線圈壞了範圍變小、牽引錨壞了沒有牽引、背部電容壞了電磁風暴變弱',
   parts: [
     { id: 'coil', name: 'EMP 線圈', model: 'coil', off: [0, 0.8, 0.2], flag: 'coil' },
     { id: 'anchor', name: '牽引錨', model: 'anchor', off: [0.45, 0.5, 0.1], flag: 'anchor' },
@@ -389,7 +376,6 @@ K2.hunter = {
 };
 // JUDGEMENT 衛星砲導引塔
 K2.orbital = {
-  tip: 'JUDGEMENT — 光柱結束後導引鏡冷卻是破綻；導引天線壞了光柱追得慢、中繼碟壞了沒有格子砲擊',
   parts: [
     { id: 'ant', name: '導引天線', model: 'beacon', off: [0.35, 1.0, 0], flag: 'antenna' },
     {
@@ -421,7 +407,6 @@ Object.assign(BOSS_KIT, K2);
 const K3 = {};
 // AEGIS 護盾指揮艦
 K3.flagship = {
-  tip: 'AEGIS — 艦砲齊射之後、護盾發生器重建中是破綻；發生器全毀才打得動本體，艦砲可以打壞',
   parts: [{ id: 'gun', name: '艦砲', model: 'navalgun', off: [0, 0.85, 0.45], stops: ['p3'] }],
   open2: ['p3', 'p2'],
   open1: ['p3'],
@@ -439,7 +424,6 @@ K3.flagship = {
 };
 // LEVIATHAN 空中要塞
 K3.fortress = {
-  tip: 'LEVIATHAN — 引擎全毀降下之後、全彈發射之後是破綻；四具引擎在時機身打不動，下方砲台壞了全彈發射變弱',
   parts: [
     { id: 'under', name: '下方砲台', model: 'ballturret', off: [0, -0.05, 0], weak: ['p3'], back: false },
   ],
@@ -459,7 +443,6 @@ K3.fortress = {
 };
 // VIPER 高速突擊機
 K3.interceptor = {
-  tip: 'VIPER — 掃射後掉頭減速是破綻；左右機翼壞了掉頭更慢、機砲壞了掃射變短',
   parts: [
     { id: 'wing', name: '左右機翼', model: 'wing', off: [0.5, 0.45, -0.1], flag: 'wing' },
     { id: 'gun', name: '機砲', model: 'autocannon', off: [0, 0.3, 0.55], flag: 'gun' },
@@ -479,7 +462,6 @@ K3.interceptor = {
 };
 // IGUAZU & VOLTA 雙 AC 小隊
 K3.duo = {
-  tip: 'IGUAZU & VOLTA — 連攜齊射之後是破綻；一台被打出失衡時另一台會來救（救的路上是破綻），肩上武器可以打壞',
   parts: [
     {
       id: 'ms',
@@ -521,7 +503,6 @@ K3.duo = {
 };
 // SERAPHIM 浮游砲指揮機
 K3.funnel = {
-  tip: 'SERAPHIM — 回收浮游砲充能時是破綻；浮游砲被 EMP 打中會墜毀，浮游砲艙壞了補充變少',
   parts: [{ id: 'bay', name: '浮游砲艙', model: 'bay', off: [0, 0.7, -0.45], flag: 'bay', back: true }],
   open2: ['p1', 'p3'],
   open1: ['p3'],
@@ -538,7 +519,6 @@ K3.funnel = {
 };
 // DOPPEL 複製 AC
 K3.mirror = {
-  tip: 'DOPPEL — 適應過載之後是破綻；它複製你的裝備：打壞的那一把武器不能用',
   parts: [
     { id: 'r', name: '右手武器', model: 'replica', off: [0.42, 0.55, 0.15], slots: ['rarm'] },
     { id: 'l', name: '左手武器', model: 'replica', off: [-0.42, 0.55, 0.15], slots: ['larm'] },
@@ -568,7 +548,6 @@ K3.mirror = {
 };
 // BALTEUS 自律型艦載機動兵器
 K3.BALTEUS = {
-  tip: 'BALTEUS — 脈衝裝甲被打破之後、導彈牆之後是破綻；飛彈莢艙壞了導彈牆變一半、火焰噴射器與脈衝裝甲發生器可以打壞',
   parts: [
     {
       id: 'pods',
