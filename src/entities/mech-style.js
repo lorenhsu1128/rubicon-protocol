@@ -3,6 +3,7 @@
 // syHurt 被打中掉分、syTick 隨時間掉分與升級時的 ACS 回復。只在房主／單機計算，客機由 fb 事件 'sty' 顯示。
 import { SY, SY_EV, SY_HIT_MAX, syRank } from '../data/style-meter.js';
 import { MechEntity } from './mech-entity.js';
+import { tierRow } from '../data/boss-tier.js';
 
 Object.assign(MechEntity.prototype, {
   syOn() {
@@ -19,7 +20,9 @@ Object.assign(MechEntity.prototype, {
     const s = this.syState();
     let n = 0;
     for (const k of s.hist) if (k === key) n++;
-    const gain = base * Math.pow(SY.REPEAT, n);
+    // Boss 改版的 L（刁鑽度 7～8）：Boss 戰中重複同一招的加分再少一半
+    const bt = n > 0 ? this.game.tierFightTier() : 0;
+    const gain = base * Math.pow(SY.REPEAT, n) * (bt ? tierRow(bt).lRepeat : 1);
     s.hist.push(key);
     if (s.hist.length > SY.HIST) s.hist.shift();
     s.pts = Math.min(SY.MAX, s.pts + gain);
@@ -71,6 +74,12 @@ Object.assign(MechEntity.prototype, {
     if (!this.sy || real < this.maxHp * 0.01) return;
     const s = this.sy;
     s.pts = Math.max(0, s.pts * SY.HURT_K - SY.HURT_PTS);
+    // Boss 改版的 L：Boss 戰中被打中掉 1～2 級（刁鑽度 5 起掉 2 級）
+    const bt = this.game.tierFightTier();
+    if (bt && s.rank >= 0) {
+      const to = s.rank - tierRow(bt).lDrop;
+      s.pts = Math.min(s.pts, to >= 0 ? SY.RANKS[to][0] + 1 : 0);
+    }
     this.syRankCheck();
   },
   syTick(dt) {

@@ -325,7 +325,7 @@ Object.assign(Game.prototype, {
     if (kind === 'boss') {
       const bd = BOSS_DEFS.find((b) => b.kind === key);
       if (bd) {
-        this.spawnBossDef(bd, sh, sd);
+        this.spawnBossDef(bd, sh, sd, 0); // 靶場：不套用 Boss 改版的刁鑽度
         document.getElementById('bossBar').style.display = 'block';
         document.getElementById('bossName').textContent = bd.name;
         for (const b of this.bosses) out.push(b);

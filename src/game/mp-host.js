@@ -71,6 +71,7 @@ Object.assign(Game.prototype, {
       wantDist: o.wantDist || 22,
       speedMul: o.speedMul || 1,
       bossKind: o.bossKind || null,
+      bt: o.tier || 0, // Boss 改版的刁鑽度（data/boss-tier.js）
       flankAngle: o.flankAngle || 0,
       pvpTeam: e.pvpTeam,
       pvpAi: !!e.pvpAi,

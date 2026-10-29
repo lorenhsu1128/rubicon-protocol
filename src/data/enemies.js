@@ -682,11 +682,15 @@ export const BOSS_DEFS = [
 export function isBossLevel(L) {
   return L >= 3 && L % 3 !== 2;
 }
+// 該等級是第幾場 Boss 關（從 0 起算；不是 Boss 關時為 -1）
+export function bossIndexForLevel(L) {
+  if (!isBossLevel(L)) return -1;
+  return Math.floor(L / 3) * 2 - 2 + (L % 3 === 1 ? 1 : 0);
+}
 // 該等級的 Boss（不是 Boss 關時為 null）：第 n 場 Boss 關用 BOSS_DEFS[n]，繞完一輪從頭
 export function bossForLevel(L) {
   if (!isBossLevel(L)) return null;
-  const i = Math.floor(L / 3) * 2 - 2 + (L % 3 === 1 ? 1 : 0);
-  return BOSS_DEFS[i % BOSS_DEFS.length];
+  return BOSS_DEFS[bossIndexForLevel(L) % BOSS_DEFS.length];
 }
 // 新 Boss 的附屬部位（獨立的敵方實體，game/bosses.js 生成；mount＝掛在 Boss 模型的節點上）
 const PART_ASM = {

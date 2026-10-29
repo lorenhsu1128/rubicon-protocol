@@ -129,6 +129,7 @@ Object.assign(Game.prototype, {
       wantDist: r.wantDist,
       speedMul: r.speedMul,
       bossKind: r.bossKind,
+      tier: r.bt || 0,
       flankAngle: r.flankAngle,
       pvpTeam: r.pvpTeam,
       pvpAi: !!r.pvpAi,
@@ -405,10 +406,13 @@ Object.assign(Game.prototype, {
       case 'fb':
         this.fbEvent(e);
         break;
-      case 'bossDown':
+      case 'bossDown': {
         this.fx.hitStop = Math.max(this.fx.hitStop, 0.5);
-        this.showBanner('TARGET DESTROYED', `${e.n} 擊破`, '#ffb020', 3, { k: 'kill', m: '擊破', s: e.n });
+        this.tierClientRank(e.r); // Boss 改版：擊破速度的評價（房主的計時）
+        const sub = `${e.n} 擊破` + (e.r ? ' — ' + this.tierRankTxt(e.r) : '');
+        this.showBanner('TARGET DESTROYED', sub, '#ffb020', 3, { k: 'kill', m: '擊破', s: sub });
         break;
+      }
       case 'bounty':
         this.save.coam += e.v;
         this.missionEarned = (this.missionEarned || 0) + e.v;

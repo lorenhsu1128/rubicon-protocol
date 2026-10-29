@@ -2020,7 +2020,14 @@ export class MechEntity {
         this.tutE('shieldHit', {});
       }
     }
-    const real = Math.round(dmg * mul);
+    // Boss 改版（mech-boss-tier.js）：風格評價 S 以上的傷害加成、破甲彈的額外傷害
+    let tierX = 0;
+    if (this.isBoss || this.opts.parent !== undefined) {
+      const [lk, ex] = this.tierHitMods(from);
+      mul *= lk;
+      tierX = ex;
+    }
+    const real = Math.round(dmg * mul + tierX);
     // 風格評價（mech-style.js）：射擊打中加分（近戰由 tutE 的 hit）、自己被打中掉分
     if (real > 0 && !melee && from && from !== this && from.syHit) from.syHit(this, real, wid);
     // 遠程訓練（tutorial-ranged.js）：射擊打中（dist＝射手到目標的水平距離，判斷理想射程）
@@ -2046,6 +2053,7 @@ export class MechEntity {
     const hpBefore = Math.max(0, this.hp);
     if (g.pilotCreditHit) g.pilotCreditHit(from, this, wid, Math.min(real, hpBefore));
     this.hp -= real;
+    if (real > 0 && (this.isBoss || this.opts.parent !== undefined)) this.tierGauge(real, from); // 打斷大招的量表
     // 戰術模組「能量虹吸」：命中回復 EN（近戰多）
     if (from && from !== this && from.pm && real > 0 && from.pmv('hitEn') > 0)
       from.en = Math.min(from.enMax, from.en + from.enMax * from.pmv('hitEn') * (melee ? 0.15 : 0.004));
@@ -2076,11 +2084,18 @@ export class MechEntity {
         impact * (this.shield ? 0.6 : 1) * high * (guard ? STAG_GUARD_K : 1) * (pve ? PVE_IMP_K : 1);
       if (guard) this.acs = Math.min(this.acs, this.acsMax * STAG_GUARD_CAP);
       this.acsDecayDelay = pve ? PVE_ACS_DELAY : 1.2;
-      if (this.acs >= this.acsMax) {
+      // Boss 改版的 A：每打出一次失衡，下一次需要的 ACS 變多、失衡時間變短（換型態重置，mech-boss-tier.js）
+      if (this.acs >= this.acsMax * this.tierAcsK()) {
         this.acs = this.acsMax;
         // 玩家機體一律 1.4 秒（房主端的遠端玩家 isPlayer 為 false，不能用它判斷）
         this.staggerT =
-          (this.isBoss ? 1.5 : this.team === 'player' ? 1.4 : this.team === 'enemy' ? FOE_STAG_T : 2.0) *
+          (this.isBoss
+            ? this.tierStagT(1.5)
+            : this.team === 'player'
+              ? 1.4
+              : this.team === 'enemy'
+                ? FOE_STAG_T
+                : 2.0) *
           (1 - this.pmv('stagT'));
         this.stagBy = from ? { id: from.id, cls } : null;
         if (from && from.tutE) from.tutE('stag', { tgt: this, melee: !!melee }); // 近戰訓練：ACS 過載也算打出失衡
@@ -2174,12 +2189,11 @@ export class MechEntity {
       (g.bosses || []).every((b) => b.dead || b === this)
     ) {
       g.fx.hitStop = Math.max(g.fx.hitStop, 0.5);
-      g.showBanner('TARGET DESTROYED', `${this.name} 擊破`, '#ffb020', 3, {
-        k: 'kill',
-        m: '擊破',
-        s: this.name,
-      });
-      g.netEv({ t: 'bossDown', n: this.name });
+      // Boss 改版的 O：擊破速度的評價（boss-tier.js）
+      const rk = g.tierBossRank(this);
+      const sub = `${this.name} 擊破` + (rk ? ' — ' + g.tierRankTxt(rk) : '');
+      g.showBanner('TARGET DESTROYED', sub, '#ffb020', 3, { k: 'kill', m: '擊破', s: sub });
+      g.netEv({ t: 'bossDown', n: this.name, r: rk || undefined });
     }
     // 自己擊破敵人：頓格與衝擊環（擊破的回饋）
     if (this.team === 'enemy' && from && from.isPlayer && !g.pvp) {
@@ -3168,7 +3182,9 @@ export class MechEntity {
       }
     }
     this.lockAge(pl); // 導彈的鎖定時間
-    if (this.isBoss && pl) this.boss3Tick(dt, pl); // 第三型態的專屬招式（mech-boss3.js）
+    // 第三型態的專屬招式（mech-boss3.js）；有刁鑽度時每個型態的大招都先蓄力、可以打斷（mech-boss-tier.js）
+    if (this.isBoss && this.tierOn()) this.tierTick(dt, pl);
+    else if (this.isBoss && pl) this.boss3Tick(dt, pl);
     if (this.team === 'ally') {
       this.allyT -= dt;
       if (this.allyT <= 0) {

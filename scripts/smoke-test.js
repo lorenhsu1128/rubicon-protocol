@@ -4950,7 +4950,9 @@ async function testBosses(browser, base) {
       ([L, key]) => {
         const g = window.__game;
         g.save.level = L;
+        g.tierTestOff = true; // 各 Boss 原本的機制（刁鑽度的規則在 testBossTier）
         g.startMission();
+        g.tierTestOff = false;
         g.state = 'boss-test'; // 停住主迴圈，由這裡推進
         const pl = g.player;
         Object.assign(pl, { hp: 1e7, maxHp: 1e7, acsMax: 1e9 });
@@ -10496,6 +10498,263 @@ async function testBossPower(browser, base) {
   await ctx.close();
 }
 
+async function testBossTier(browser, base) {
+  console.log('Boss 改版第 1 期：刁鑽度、失衡遞增、破綻、打斷大招、破甲充能、風格加成、擊破評價');
+  const { ctx, page } = await newPage(browser, 'bosstier');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const BT = window.__bossTier;
+    const out = {};
+    // 刁鑽度的換算
+    out.camp = [
+      BT.campaignTier(1, 1),
+      BT.campaignTier(3, 2),
+      BT.campaignTier(6, 3),
+      BT.campaignTier(2, 1, true),
+    ];
+    out.free = [BT.freeTier(0), BT.freeTier(4), BT.freeTier(21), BT.freeTier(22), BT.freeTier(40)];
+    // 自由出擊：等級 3（第 1 場 Boss 關）與等級 34（第 22 場）
+    g.save.level = 34;
+    g.startMission();
+    out.t34 = g.boss.opts.tier;
+    g.clearMission();
+    g.save.level = 3;
+    g.startMission();
+    g.state = 'bt-test';
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    pl.iFrames = 1e9;
+    const b = g.boss;
+    out.t3 = b.opts.tier;
+    out.name = b.name;
+    b.opts.tier = 3;
+    b.iFrames = 0;
+    const reset = () => {
+      b.staggerT = 0;
+      b.stagGuardT = 0;
+      b.acs = 0;
+      b.iFrames = 0;
+      b.hitStunT = 0;
+    };
+    // A：刁鑽度 3 前兩次不變，第三次要 +25%、失衡時間 −10%
+    const stag = (k) => {
+      reset();
+      b.takeDamage(1, b.acsMax * k, pl, b.center());
+      return b.staggerT;
+    };
+    out.a = [stag(1.02), stag(1.02), stag(1.02), stag(1.27), stag(1.6)].map((x) => +x.toFixed(2));
+    out.aN = b.bt.stagN;
+    g.bossPhaseShift(b, 2);
+    out.aReset = b.bt.stagN;
+    reset();
+    // D：平時 65%、破綻 ×1.6
+    const hit = (dmg) => {
+      reset();
+      const h0 = b.hp;
+      b.takeDamage(dmg, 0, pl, b.center());
+      return h0 - b.hp;
+    };
+    b.hp = b.maxHp;
+    const dN = hit(1000);
+    b.bossOpen();
+    const dO = hit(1000);
+    out.dRatio = +(dO / dN).toFixed(2);
+    g.drawHud(0.016);
+    out.openHud = document.getElementById('bossTier').style.display === 'block';
+    out.openTxt = document.getElementById('bossTierLab').textContent;
+    b.bt.openT = 0;
+    // I：蓄力 → 打斷（失衡 4.5 秒、掉彈藥箱、量表）
+    reset();
+    b.tierTick(0.016, pl); // 記下目前的型態（型態改變時重新等待）
+    b.bt.cdI = 0;
+    b.tierTick(0.016, pl);
+    out.chg = !!b.bt.ch;
+    out.chgName = b.bt.ch && b.bt.ch.name;
+    g.drawHud(0.016);
+    out.chgHud = document.getElementById('bossTierLab').textContent;
+    const pk0 = g.pickups.filter((p) => !p.dead).length;
+    b.iFrames = 0;
+    b.takeDamage(b.maxHp * 0.12, 0, pl, b.center());
+    out.intStag = +b.staggerT.toFixed(2);
+    out.intDone = !b.bt.ch;
+    out.intPk = g.pickups.filter((p) => !p.dead).length - pk0;
+    // 打不斷就放出
+    reset();
+    b.bt.cdI = 0;
+    b.tierTick(0.016, pl);
+    const fx0 = (g.hzLater || []).length + (g.shocks || []).length + g.projectiles.length;
+    b.tierTick(3, pl);
+    out.release = !b.bt.ch;
+    out.relFx = (g.hzLater || []).length + (g.shocks || []).length + g.projectiles.length - fx0;
+    // 同步：快照的 bt 給客機的 tierView
+    reset();
+    b.bt.cdI = 0;
+    b.tierTick(0.016, pl);
+    b.bt.ch.dealt = b.bt.ch.need * 0.5;
+    b.btC = b.serTier();
+    b.remote = true;
+    const v = b.tierView();
+    b.remote = false;
+    out.sync = !!v && v.chg >= 0 && Math.abs(v.gauge - 0.5) < 0.02;
+    b.bt.ch = null;
+    // 刁鑽度 7～8：連續蓄力兩次，兩次都斷才失衡
+    b.opts.tier = 7;
+    reset();
+    b.bt.cdI = 0;
+    b.tierTick(0.016, pl);
+    b.takeDamage(b.maxHp * 0.3, 0, pl, b.center());
+    out.dbl1 = !!b.bt.ch && b.bt.ch.k === 2 && b.staggerT <= 0;
+    b.iFrames = 0;
+    b.takeDamage(b.maxHp * 0.3, 0, pl, b.center());
+    out.dbl2 = !b.bt.ch && b.staggerT > 3;
+    // 刁鑽度 5～6：蓄力時正面有護盾
+    b.opts.tier = 5;
+    reset();
+    b.hp = b.maxHp;
+    b.bt.cdI = 0;
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -40));
+    b.tierTick(0.016, pl);
+    const front = hit(1000);
+    pl.pos.copy(b.pos).add(new THREE.Vector3(40, 0, 0));
+    const sideD = hit(1000);
+    out.guard = +(front / sideD).toFixed(2);
+    b.bt.ch = null;
+    pl.pos.copy(b.pos).add(new THREE.Vector3(0, 0, -40));
+    // K：刁鑽度 3 擊破 6 台雜兵充滿 → 破甲彈（最大 AP 4% 的額外傷害＋失衡）
+    b.opts.tier = 3;
+    const dummy = { isBoss: false, ai: 'mt' };
+    for (let i = 0; i < 6; i++) g.tierOnKill(dummy, pl);
+    out.bkFull = !!(pl.bk && pl.bk.full);
+    g.drawHud(0.016);
+    out.bkHud = document.getElementById('bkWrap').style.display !== 'none';
+    out.bkFullCls = document.getElementById('bkWrap').classList.contains('full');
+    reset();
+    const h0 = b.hp;
+    b.takeDamage(1, 0, pl, b.center());
+    out.bkHit = +((h0 - b.hp) / b.maxHp).toFixed(3);
+    out.bkStag = b.staggerT > 0;
+    out.bkUsed = !pl.bk.full;
+    pl.bk = { n: 3, idle: 0, full: false };
+    pl.bkTick(11, 3);
+    out.bkDecay = pl.bk.n < 3;
+    // 雜兵小隊：每 25 秒從邊緣進來 3～4 台
+    const e0 = g.enemies.filter((e) => !e.dead).length;
+    g.kSquadT = 0;
+    g.bossTierTick(0.016);
+    out.squad = g.enemies.filter((e) => !e.dead).length - e0;
+    // L：風格評價 S 以上對 Boss 的傷害加成；Boss 戰中被打中掉級
+    pl.sy = null;
+    const lN = hit(1000);
+    pl.syState().pts = 520;
+    pl.syRankCheck();
+    const lS = hit(1000);
+    out.lK = +(lS / lN).toFixed(2);
+    b.opts.tier = 5;
+    pl.sy.pts = 730;
+    pl.syRankCheck();
+    pl.syHurt(pl.maxHp * 0.1);
+    out.lDrop = pl.sy.rank;
+    // O：擊破速度的評價（刁鑽度 3：S＝180 × 1.1 秒內）
+    b.opts.tier = 3;
+    for (const e of g.enemies) if (e !== b && !e.dead && !e.isBoss) e.depart();
+    g.bossFightT = 120;
+    const coam0 = g.missionEarned || 0;
+    pl.sy = null;
+    reset();
+    b.hp = 5;
+    b.takeDamage(1e6, 0, pl, b.center());
+    out.rank = g.bossRank && g.bossRank.r;
+    out.bounty = (g.missionEarned || 0) - coam0;
+    out.bountyBase = b.maxHp * 2.2;
+    out.rkTxt = g.tierRankTxt(g.bossRank);
+    out.oB = [BT.oRank(3, 100), BT.oRank(3, 250), BT.oRank(3, 300), BT.oRank(7, 300)];
+    g.clearMission();
+    g.state = 'title';
+    return out;
+  });
+  check(
+    r.camp.join() === '1,4,8,8' && r.free.join() === '1,2,6,6,6' && r.t34 === 6 && r.t3 === 1,
+    `刁鑽度：主線 ${r.camp.join('／')}、自由出擊 ${r.free.join('／')}（等級 3＝${r.t3}、等級 34＝${r.t34}）`,
+  );
+  check(
+    r.a[0] === 1.5 && r.a[1] === 1.5 && r.a[2] === 0 && r.a[3] === 1.35 && r.a[4] === 1.2 && r.aN === 4,
+    `失衡越打越難：${r.a.join('／')} 秒（第三次起要更多 ACS、時間縮短）`,
+  );
+  check(r.aReset === 0, '換型態時失衡的次數重置');
+  check(r.dRatio > 2.3 && r.dRatio < 2.6, `破綻時受到的傷害是平時的 ${r.dRatio} 倍（65% → ×1.6）`);
+  check(r.openHud && /破綻/.test(r.openTxt), `HUD 顯示破綻（${r.openTxt}）`);
+  check(r.chg && /蓄力中/.test(r.chgHud), `大招蓄力與打斷量表（${r.chgName}：${r.chgHud}）`);
+  check(r.intStag >= 4.4 && r.intDone && r.intPk >= 1, `打斷：失衡 ${r.intStag} 秒、掉 ${r.intPk} 個彈藥箱`);
+  check(r.release && r.relFx > 0, '打不斷時照常放出大招');
+  check(r.sync, '客機由快照的 bt 顯示蓄力與量表');
+  check(r.dbl1 && r.dbl2, '刁鑽度 7：連續蓄力兩次，兩次都打斷才失衡');
+  check(r.guard < 0.35, `刁鑽度 5：蓄力時正面的護盾（正面／側面 ${r.guard}）`);
+  check(r.bkFull && r.bkHud && r.bkFullCls, '擊破 6 台雜兵破甲充能滿（HUD 發光）');
+  check(
+    r.bkHit >= 0.04 && r.bkStag && r.bkUsed,
+    `破甲彈：最大 AP ${(r.bkHit * 100).toFixed(1)}% 的傷害並打出失衡`,
+  );
+  check(r.bkDecay, '刁鑽度 3：10 秒沒擊破後破甲充能開始減少');
+  check(r.squad >= 3 && r.squad <= 4, `Boss 戰的雜兵小隊（${r.squad} 台）`);
+  check(r.lK > 1.18 && r.lK < 1.22, `風格評價 S：對 Boss 的傷害 ×${r.lK}`);
+  check(r.lDrop === 3, `刁鑽度 5：SS 被打中掉兩級（等級 ${r.lDrop}＝A）`);
+  const want = Math.round((r.bountyBase * 1.5) / 100) * 100;
+  check(
+    r.rank === 'S' && r.bounty === want && /評價 S/.test(r.rkTxt),
+    `擊破${r.rkTxt}，擊破獎金 ×1.5（${r.bounty}）`,
+  );
+  check(
+    r.oB.join() === 'S,A,B,B',
+    '評價的時間（刁鑽度 3：100 秒 S、250 秒 A、300 秒 B；刁鑽度 7：300 秒 B）',
+  );
+  // HUD 的截圖：蓄力中的打斷量表、破甲充能、風格加成（三種畫面大小）
+  for (const [w, h, touch, tag] of [
+    [1920, 1080, false, 'pc'],
+    [1180, 820, false, 'tablet'],
+    [844, 390, true, 'phone'],
+  ]) {
+    await page.setViewportSize({ width: w, height: h });
+    const ok = await page.evaluate((touch) => {
+      const g = window.__game;
+      g.ctrl.touch = touch ? 'on' : 'off';
+      document.body.classList.toggle('touchDev', touch);
+      g.save.level = 3;
+      g.startMission();
+      const pl = g.player;
+      pl.hp = pl.maxHp = 1e8;
+      pl.iFrames = 1e9;
+      const b = g.boss;
+      b.opts.tier = 3;
+      for (let i = 0; i < 6; i++) g.tierOnKill({ isBoss: false, ai: 'mt' }, pl);
+      window.__pump(1.5);
+      pl.syState().pts = 760;
+      pl.syRankCheck();
+      b.tierState().cdI = 0;
+      b.staggerT = 0;
+      b.tierTick(0.016, pl);
+      b.bt.ch.dealt = b.bt.ch.need * 0.4;
+      b.bt.ch.t = 0;
+      b.bt.ch.T = 99;
+      window.__pump(0.2);
+      const el = document.getElementById('bossTier').getBoundingClientRect();
+      const bk = document.getElementById('bkWrap').getBoundingClientRect();
+      return el.width > 0 && el.right <= window.innerWidth && bk.width > 0 && bk.bottom <= window.innerHeight;
+    }, touch);
+    check(ok, `HUD 的打斷量表與破甲充能在畫面裡（${w}×${h}）`);
+    await page.screenshot({ path: path.join(SHOT_DIR, `boss-tier-hud-${tag}.png`) });
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.clearMission();
+      g.state = 'title';
+    });
+  }
+  await ctx.close();
+}
+
 async function testBoss3(browser, base) {
   console.log('Boss 最終型態的專屬招式（22 隻）');
   const { ctx, page } = await newPage(browser, 'boss3');
@@ -12078,7 +12337,9 @@ async function testBosses2(browser, base) {
       ([L, key]) => {
         const g = window.__game;
         g.save.level = L;
+        g.tierTestOff = true; // 各 Boss 原本的機制（刁鑽度的規則在 testBossTier）
         g.startMission();
+        g.tierTestOff = false;
         g.state = 'boss-test';
         const pl = g.player;
         Object.assign(pl, { hp: 1e7, maxHp: 1e7, acsMax: 1e9 });
@@ -18670,6 +18931,7 @@ const STEPS = [
   ['testJuice', (c) => testJuice(c.browser, c.base)],
   ['testFoesB1', (c) => testFoesB1(c.browser, c.base)],
   ['testBossPower', (c) => testBossPower(c.browser, c.base)],
+  ['testBossTier', (c) => testBossTier(c.browser, c.base)],
   ['testBoss3', (c) => testBoss3(c.browser, c.base)],
   ['testStatusFx', (c) => testStatusFx(c.browser, c.base)],
   ['testMeleeCombo', (c) => testMeleeCombo(c.browser, c.base)],

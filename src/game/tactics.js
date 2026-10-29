@@ -125,6 +125,11 @@ Object.assign(Game.prototype, {
       this.state = this.modPrev === 'modpick' ? 'play' : this.modPrev || 'play';
       this.lastT = performance.now();
     }
+    // 排隊的三選一（Boss 擊破評價 S 的獎勵，boss-tier.js）
+    if (this.modPickQ && this.modPickQ.length) {
+      const f = this.modPickQ.shift();
+      setTimeout(() => this.campOpenPick(f, 'Boss 擊破評價 S 的獎勵'), 300);
+    }
     this.campChoicePendShow(); // 排隊的抉擇說明卡（guide.js）
     this.fpRelock(); // 追尾／第一人稱：選完直接回到瞄準（first-person.js）
   },

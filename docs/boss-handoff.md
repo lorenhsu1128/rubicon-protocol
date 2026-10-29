@@ -88,9 +88,21 @@
 
 | 期 | 狀態 | commit | 備註 |
 |---|---|---|---|
-| 1 共用架構 | 未開始 | | |
+| 1 共用架構 | 完成 | （見 git log） | 見下方「第 1 期的實作」 |
 | 2 部位、打回去、應對、場地 | 未開始 | | |
 | 3 第 1、2 章的 Boss | 未開始 | | |
 | 4 第 3、4 章的 Boss | 未開始 | | |
 | 5 第 5、6 章的 Boss | 未開始 | | |
 | 6 收尾 | 未開始 | | |
+
+### 第 1 期的實作（接手的人先看）
+
+- **檔案**：`src/data/boss-tier.js`（`TIER[1..8]` 的全部數字、`campaignTier`／`freeTier`／`aNeedK`／`aStagT`／`oRank`／`kSquad`）、`src/entities/mech-boss-tier.js`（A、D、I、K 的破甲彈、L 的加成、同步 `serTier`／`tierView`、破綻光環 `tierFx`）、`src/game/boss-tier.js`（K 的雜兵小隊與充能、O 的評價與獎勵、`tierIntro`、HUD `tierHud`）。網路版本 `11.8`。
+- **刁鑽度的來源**：`spawnBossDef(bd, sh, sd, tier)` 的第 4 個參數（沒給時照自由出擊的索引；`0`＝不套用，靶場傳 0）→ `this.spawnTier` → `spawnEnemy` 給 `isBoss` 的實體設 `opts.tier` → 生成紀錄 `bt`。主線在 `campSpawnType`（`campaignTier`），模擬器照 `simSeen().bossT[kind]`（主線第一次遇到時 `simMark('bosses', kind, tier)` 記下），自訂關卡照 BOSS_DEFS 的索引。`g.tierTestOff = true` 時生成的 Boss 不套用（舊的 testBosses／testBosses2 用它檢查各 Boss 原本的機制）。
+- **A**：`takeDamage` 的過載門檻乘 `tierAcsK()`，失衡秒數 `tierStagT(1.5)`（計入 `bt.stagN`）；`bossPhaseShift` 呼叫 `tierPhaseReset`。打斷與破甲彈直接設 `staggerT`，不算次數。
+- **D**：`bossDefense` 最後乘 `tierDmgK()`（破綻 1.6、平時 `dBase`），**只改傷害、不改衝擊**。破綻＝`bt.openT`（`bossOpen(秒)`）或 `boss2Open()`（第三批 Boss 原本的弱點時機：散熱、爐口、冷卻、回收充能、過熱、撞牆、掉頭／失速、鍋爐過熱）。這 8 隻的 `boss2Defense` 在有刁鑽度時回傳 1（推土要塞保留正面 0.6／背後 1.3），原本的倍率只在沒有刁鑽度時用。大招收招 `tierMoveEnd(id)` 依 `dWhich` 決定（'two'／'one' 的招式清單先用 `OPEN_DEF`，第 3～5 期由 `BOSS_KIT` 的 `open2`／`open1` 覆寫；`game.bossKit(key)` 還沒有實作，`tierKit()` 回傳空物件）。
+- **I**：`updateAI` 有刁鑽度時改呼叫 `tierTick`（第三型態的專屬招式也走這裡，沒有刁鑽度時照舊 `boss3Tick`）。每個型態先等 `I_CD[0]` 秒、之後每 `I_CD[1]` 秒蓄力一次；第一、二型態的大招先放在 `mech-boss-tier.js` 的 `BIG`（名稱照設計文件，內容是共用零件組成的暫代版本），第三型態＝`boss3Spec()`。**第 3～5 期把 `BIG` 換成每隻的專屬招式**（`BOSS_KIT[key].big`）。量表：本體與部位的 `takeDamage` → `tierGauge`；刁鑽度 3～4 後退／升高、5～6 正面護盾（`tierGuardK`，傷害與量表 ×0.25）、7～8 連續兩次（只斷一次＝`halfT` 讓 `b3Dm` 減半）。
+- **K**：`onEnemyKilled` → `tierOnKill` → 玩家實體的 `bkAdd`（`this.bk`，快照 `bk` 給客機）；破甲彈在 `tierHitMods`（只打本體）。小隊在 `bossPhaseTick` → `bossTierTick`（`spawnType(..., null, 1)` 一台一台）。
+- **L**：`tierHitMods` 依風格評價等級加成（本體與部位）；`syHurt` 在 Boss 戰中掉 `lDrop` 級、`syAdd` 重複的加分乘 `lRepeat`。
+- **O**：最後一個 Boss 的 `die` → `tierBossRank`（`bossRank`），橫幅與 `bossDown` 事件帶評價；擊破獎金乘 `tierBountyK`；結算畫面多一列「Boss 擊破評價」；主線評價 S＝`camp.bossS` → `campEnd` 多一個三選一（`modPickQ` 排在 `endPick` 之後；**只有單人與房主**，客機沒有）。
+- **還沒做（排在之後的期）**：J、M（反擊點的 `cpHitK` 已在 `tierGauge` 預留）、C、E、每隻 Boss 的 `intro` 多一句、`BOSS_KIT`、每隻的 `par`。

@@ -171,6 +171,7 @@ Object.assign(Game.prototype, {
     const live = this.bosses.filter((b) => !b.dead);
     if (!live.length) return;
     this.bossFightT = (this.bossFightT || 0) + dt;
+    this.bossTierTick(dt); // Boss 改版：雜兵小隊、破甲充能（boss-tier.js）
     if (!this.bossEnraged && this.bossFightT >= BOSS_ENRAGE_T) {
       this.bossEnraged = true;
       for (const b of live) {
@@ -203,6 +204,7 @@ Object.assign(Game.prototype, {
     }
   },
   bossPhaseShift(b, ph) {
+    b.tierPhaseReset(); // Boss 改版：失衡的次數重置、蓄力取消（mech-boss-tier.js）
     b.iFrames = Math.max(b.iFrames || 0, 1.5);
     b.staggerT = 0;
     b.acs = 0;

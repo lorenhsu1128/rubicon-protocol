@@ -13,6 +13,17 @@ import { firePoint, losTol, measureLocal } from './fire-point.js';
 import { MechEntity } from './mech-entity.js';
 
 // 場地依主題縮放（World.k、World.lim）；鐵路兩端隧道口的位置（World.trackS）
+// Boss 改版：原本有「平時倍率＋弱點時機」的 Boss（換成刁鑽度的平時減傷＋破綻）
+const TIER_WEAK = new Set([
+  'railgun',
+  'funnel',
+  'train',
+  'furnace',
+  'orbital',
+  'interceptor',
+  'rampart',
+  'ibis',
+]);
 const TRACK = (e) => e.game.world.trackS;
 const LIM = (e) => e.game.world.lim;
 const KS = (e) => e.game.world.k;
@@ -1469,6 +1480,18 @@ Object.assign(MechEntity.prototype, {
     }
     if (k === 'holo') return 1;
     if (this.opts.bossKind === 'mirror') return this.mirrorDefense(dmg, wid, melee);
+    // Boss 改版（docs/boss-design.md 的 D）：原本的弱點時機變成破綻（boss2Open），倍率交給刁鑽度
+    if (this.isBoss && this.tierOn() && TIER_WEAK.has(this.ai)) {
+      if (this.ai === 'train' && this.inTunnel()) return null;
+      if (this.ai !== 'rampart') return 1;
+      // 推土要塞：正面照舊很硬、背後比較脆弱（撞牆硬直時也一樣）
+      const src = from && from.pos && from !== this ? from.pos : at;
+      if (!src) return 1;
+      const rel = src.clone().sub(this.pos).setY(0);
+      const fd = rel.lengthSq() > 0.01 ? rel.normalize().dot(fwdOf(this.yaw)) : 0;
+      if (fd > 0.5) hint('正面裝甲極厚 — 繞到背後，或誘它撞上高台');
+      return fd > 0.5 ? 0.6 : fd < -0.5 ? 1.3 : 1;
+    }
     switch (this.ai) {
       case 'railgun':
         if (this.bossVis & 1) return 1.7;
@@ -1513,6 +1536,24 @@ Object.assign(MechEntity.prototype, {
         return this.bossVis & 1 ? 1.6 : this.bossVis & 4 ? 0.6 : 0.9;
     }
     return undefined;
+  },
+  // 原本就有的弱點時機＝破綻（Boss 改版，mech-boss-tier.js 的 tierTick 每格看）
+  boss2Open() {
+    if (!this.isBoss) return false;
+    switch (this.ai) {
+      case 'railgun':
+      case 'funnel':
+      case 'furnace':
+      case 'orbital':
+      case 'rampart':
+      case 'ibis':
+        return !!(this.bossVis & 1);
+      case 'train':
+        return !!(this.bossVis & 2) && !this.inTunnel();
+      case 'interceptor':
+        return this.aiState.vm === 'stall' || this.aiState.vm === 'turn';
+    }
+    return false;
   },
   // 武裝列車（機車頭／車廂）是否在隧道裡：房主用軌道參數判斷（剛生成、還沒更新時也正確），客機看 bossVis
   inTunnel() {

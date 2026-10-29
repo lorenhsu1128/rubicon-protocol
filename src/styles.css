@@ -202,6 +202,17 @@ table.keys td {
 .bar.acs > i.guard {
   background: #6fb8ff;
 }
+/* Boss 改版：破甲充能（Boss 戰中擊破雜兵累積，滿了發光） */
+.bar.bk > i {
+  background: #d070ff;
+}
+.bar.bk.full > i {
+  background: #ff90ff;
+  box-shadow: 0 0 10px #ff70ff;
+}
+.bar.bk.full label {
+  color: #ffb0ff;
+}
 .bar label {
   position: absolute;
   right: 0;
@@ -308,6 +319,52 @@ table.keys td {
 }
 #bossBar .bar > i {
   background: var(--danger);
+}
+/* Boss 改版：Boss 血條下的打斷量表（蓄力中）與破綻 */
+#bossTier {
+  display: none;
+  margin-top: 6px;
+}
+#bossTier .lab {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: #ffc890;
+  margin-bottom: 3px;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+#bossTier .tbar {
+  position: relative;
+  height: 7px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+#bossTier .tbar > i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #7fd8ff;
+}
+#bossTier .tbar > b {
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  height: 2px;
+  background: #ff7030;
+}
+#bossTier.guard .lab::after {
+  content: '　護盾：從側面或背後打';
+  color: #9fd0ff;
+}
+#bossTier.open .lab {
+  color: #ffd040;
+  font-weight: bold;
+  font-size: 14px;
+}
+#bossTier.open .tbar > i {
+  background: #ffd040;
+  box-shadow: 0 0 8px #ffd040;
 }
 #kits {
   font-size: 12px;

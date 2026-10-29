@@ -626,6 +626,11 @@ Object.assign(MechEntity.prototype, {
         break;
     }
     if (k < 1 && at && Math.random() < 0.5) g.fx.spark(at, 0xffd080);
+    // Boss 改版的 D：本體平時減傷、破綻時加倍；蓄力的護盾擋住一側（mech-boss-tier.js）
+    if (this.isBoss && this.tierOn()) {
+      const kg = this.tierGuardK(from, at);
+      return [dmg * k * this.tierDmgK() * kg, impact * k * kg]; // 破綻只改傷害（ACS 由 A 處理）
+    }
     return [dmg * k, impact * k];
   },
   bossDie(from) {
@@ -641,6 +646,7 @@ Object.assign(MechEntity.prototype, {
     if (this.ai === 'worm') this.wormFx();
     if (this.model.legNodes && this.model.legNodes.length) this.spiderFx(dt);
     this.boss2Fx(dt);
+    if (this.isBoss) this.tierFx(dt); // 破綻的金色光環（mech-boss-tier.js）
   },
   // 身體各節沿著頭部走過的軌跡排列（入地的部分被地形擋住）
   wormFx() {

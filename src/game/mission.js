@@ -12,10 +12,12 @@ import {
   ENEMY_TYPES,
   FOE_HP_K,
   bossForLevel,
+  bossIndexForLevel,
   enemyScale,
   isBossLevel,
 } from '../data/enemies.js';
 import { CONSUMABLES, FOE_STAB_K, PARTS, partById } from '../data/parts.js';
+import { bossDefIndex, freeTier } from '../data/boss-tier.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { Projectile } from '../entities/projectile.js';
 import { buildBomberMesh } from '../render/extra-models.js';
@@ -374,6 +376,7 @@ Object.assign(Game.prototype, {
     this.missionT = 0;
     this.boss = null;
     this.bosses = [];
+    this.bossRank = null; // Boss 擊破評價（boss-tier.js）
     this.missionEarned = 0;
     this.bountyPops = [];
     this.levelName =
@@ -385,7 +388,7 @@ Object.assign(Game.prototype, {
     const sc = enemyScale(L, np),
       scaleHp = sc.hp,
       scaleDmg = sc.dmg;
-    if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg);
+    if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg, freeTier(bossIndexForLevel(L)));
     else this.spawnComp(this.foeMix(this.rollComp(L, np), theme, 0, true), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
@@ -439,12 +442,17 @@ Object.assign(Game.prototype, {
     if (boss) document.getElementById('bossName').textContent = this.bossDef.name;
   },
   // Boss 關：生成 Boss（新 Boss 交給 spawnBossKind）與兩波增援（主線的 Boss 區段共用）
-  spawnBossDef(bd0, scaleHp, scaleDmg) {
+  // tier＝Boss 改版的刁鑽度（data/boss-tier.js；沒給時照自由出擊的算法，0＝不套用）
+  spawnBossDef(bd0, scaleHp, scaleDmg, tier) {
     this.bossDef = bd0;
     this.bosses = [];
     this.bossFightT = 0;
     this.bossEnraged = false;
     this.bossAdds = {};
+    this.bossRank = null;
+    this.kSquadT = undefined;
+    this.spawnTier = tier === undefined ? freeTier(bossDefIndex(bd0)) : tier;
+    if (this.tierTestOff) this.spawnTier = 0; // 冒煙測試：檢查各 Boss 原本的機制時不套用刁鑽度
     // Boss 本體的血量與火力加強（部位與增援用原本的 scaleHp）
     const bd = { ...bd0, hpMul: bd0.hpMul * BOSS_HP_K, dmgMul: bd0.dmgMul * BOSS_DMG_K };
     this.spawnRes = bd0.res || null; // 本體的弱點（spawnEnemy 依 isBoss 套用）
@@ -515,6 +523,7 @@ Object.assign(Game.prototype, {
     }
     this.waves = []; // Boss 關的增援改在換型態時派出（bosses.js 的 bossPhaseTick）
     this.spawnRes = null;
+    this.spawnTier = 0;
   },
   // 一般關卡的敵人編成（依等級的點數與人數）：雜兵數量多；等級 2 起最後加一台敵對 AC 當小頭目
   // （排在陣列最後，spawnComp 把它放進最後一波；取前幾個當增援的地方不會拿到它）。分波見 game/waves.js
@@ -649,6 +658,7 @@ Object.assign(Game.prototype, {
   spawnEnemy(o) {
     o.palKey = o.pal;
     if (!o.res && o.isBoss && this.spawnRes) o.res = this.spawnRes; // Boss 的弱點（spawnBossDef）
+    if (o.isBoss && this.spawnTier && o.tier === undefined) o.tier = this.spawnTier; // Boss 改版的刁鑽度
     const e = new MechEntity(this, o.asm, PALETTES[o.pal], o);
     // 增援波次：在預告的地點附近（空降的從上空落下）
     // 據點的守衛（guardAt）：一律在箱子旁（不上高處），離玩家 GUARD_MIN_D 以上（否則一開場就出動）
@@ -774,8 +784,10 @@ Object.assign(Game.prototype, {
     }
     // 風格評價（mech-style.js）：擊破加分；主線的擊破獎金依擊破時的等級
     if (from && from.syEvent) from.syEvent('kill');
+    this.tierOnKill(e, from); // Boss 戰中擊破雜兵：破甲充能（boss-tier.js）
     const syK = this.camp && from && from.syCoamK ? from.syCoamK() : 1;
-    const bounty = Math.round(((e.isBoss ? e.maxHp * 2.2 : e.maxHp * 1.8) * syK) / 100) * 100;
+    const rkK = this.tierBountyK(e); // Boss 擊破速度的評價（S ×1.5、A ×1.2）
+    const bounty = Math.round(((e.isBoss ? e.maxHp * 2.2 : e.maxHp * 1.8) * syK * rkK) / 100) * 100;
     this.save.coam += bounty;
     this.missionEarned = (this.missionEarned || 0) + bounty;
     this.writeSave();
@@ -922,6 +934,8 @@ Object.assign(Game.prototype, {
           this.enemies.filter((e) => !e.decoy).length,
       ],
       ['受損 AP', Math.round(p.dmgTaken)],
+      // Boss 改版：擊破速度的評價（S 擊破獎金 ×1.5、A ×1.2）
+      ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
       ['擊破獎金（已即時入帳）', '+' + earned.toLocaleString()],
       ['任務完成獎金', '+' + bonus.toLocaleString()],
       ['COAM 結餘', S.coam.toLocaleString()],

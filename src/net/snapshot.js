@@ -60,6 +60,12 @@ function serSpecial(e) {
   if (aw) o.aw = aw;
   if (e.bx) o.bx = e.bx;
   if (e.sts) o.su = e.statusSer(); // 狀態效果（mech-status.js）
+  // Boss 改版（mech-boss-tier.js）：bt＝Boss 的蓄力、打斷量表、破綻；bk＝玩家的破甲充能 %
+  if (e.isBoss && e.bt) {
+    const t = e.serTier();
+    if (t) o.bt = t;
+  }
+  if (e.bk && e.game) o.bk = Math.round(e.bkFrac(e.game.tierFightTier()) * 100);
   return o;
 }
 export function applyEnt(e, s, g) {
@@ -127,6 +133,8 @@ export function applyEnt(e, s, g) {
   e.bossVis = sx[4];
   e.bx = s.bx || null;
   e.aw = s.aw || 0;
+  e.btC = s.bt || null;
+  e.bkC = (s.bk || 0) / 100;
   if (s.su || e.sts) e.statusApply(s.su);
   if (sx[2] & 4) e.empLockT = Math.max(e.empLockT || 0, 0.25); // 客機自己的機體：移動預測也封鎖 QB 與懸浮
   if (s.gn && !e.dead) e.depart();

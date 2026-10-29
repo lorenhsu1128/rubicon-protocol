@@ -50,12 +50,22 @@ Object.assign(Game.prototype, {
     if (!st.seen2 || typeof st.seen2 !== 'object') st.seen2 = { foes: {}, aces: {}, bosses: {} };
     return st.seen2;
   },
-  simMark(kind, key) {
+  // tier：Boss 第一次遇到時的刁鑽度（模擬器的 Boss 模擬戰照它，data/boss-tier.js）
+  simMark(kind, key, tier) {
     const s = this.simSeen();
+    let dirty = false;
     if (!s[kind][key]) {
       s[kind][key] = 1;
-      this.writeSave();
+      dirty = true;
     }
+    if (tier && kind === 'bosses') {
+      const bt = s.bossT || (s.bossT = {});
+      if (!bt[key]) {
+        bt[key] = tier;
+        dirty = true;
+      }
+    }
+    if (dirty) this.writeSave();
   },
   // ---------- 模擬器畫面 ----------
   openSim() {
@@ -159,7 +169,8 @@ Object.assign(Game.prototype, {
     } else if (kind === 'boss') {
       const bd = BOSS_DEFS.find((b) => b.kind === key);
       if (bd) {
-        this.spawnBossDef(bd, sh, sd);
+        const bt = this.simSeen().bossT || {};
+        this.spawnBossDef(bd, sh, sd, bt[key] || 3); // 刁鑽度照遇到那一隻時的章（沒有紀錄時 3）
         document.getElementById('bossBar').style.display = 'block';
         document.getElementById('bossName').textContent = bd.name;
       }

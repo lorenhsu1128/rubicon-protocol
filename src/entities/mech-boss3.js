@@ -45,7 +45,11 @@ Object.assign(MechEntity.prototype, {
     const n = String(this.name || '');
     return Object.keys(SPECIALS).find((k) => /^[A-Z]/.test(k) && n.startsWith(k)) || null;
   },
-  // 第三型態的專屬招式（updateAI 每格；dt 已乘上節奏）
+  // 這隻 Boss 的最終型態專屬招式（Boss 改版的打斷大招也用它當第三型態的大招，mech-boss-tier.js）
+  boss3Spec() {
+    return SPECIALS[this.boss3Key()] || null;
+  },
+  // 第三型態的專屬招式（updateAI 每格；dt 已乘上節奏）。有刁鑽度時改由 tierTick 蓄力後放出
   boss3Tick(dt, pl) {
     if (!this.isBoss || !pl || this.bossPhase() < 3) return;
     const S = SPECIALS[this.boss3Key()];
@@ -62,7 +66,7 @@ Object.assign(MechEntity.prototype, {
   },
   // ----- 招式的零件 -----
   b3Dm() {
-    return this.dmgMul;
+    return this.dmgMul * (this.tierHalfK ? this.tierHalfK() : 1); // 只打斷一次的大招：減半
   },
   // 迫擊砲雨：目標附近 R 公尺內 n 發（gap 秒間隔），每發有落點預警
   b3Rain(pl, n, R, gap) {

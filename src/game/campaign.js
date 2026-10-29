@@ -17,6 +17,7 @@ import {
 } from '../data/campaign.js';
 import { TOD_NAMES, planKeys, planSortie } from '../data/campaign-plan.js';
 import { AC_ROSTER, PART_DEFS, enemyScale } from '../data/enemies.js';
+import { campaignTier } from '../data/boss-tier.js';
 import { ACES, THEME_ACE } from '../data/foes.js';
 import { FACTIONS, MEMORIES, speakerBadge, SPEAKERS } from '../data/story.js';
 import { partById } from '../data/parts.js';
@@ -199,6 +200,7 @@ Object.assign(Game.prototype, {
   campBegin(sid = SORTIE_DEFAULT, o = {}) {
     const so = SORTIES[sid],
       st = this.campStory();
+    this.bossRank = null; // Boss 擊破評價（boss-tier.js）
     // 作戰室預排的（全像戰略桌顯示的第一段地圖）；重打、危險條款另外排
     const pre = !o.replay && !(o.heat && Object.keys(o.heat).length) && st.pre && st.pre[sid];
     if (st.pre) delete st.pre[sid];
@@ -368,8 +370,10 @@ Object.assign(Game.prototype, {
     // 一般敵人＋主題專屬敵人（data/foes.js）
     const comp = (lv) => this.foeMix(this.rollComp(Math.max(1, lv), ss.np || 1), seg.theme, p.depth || 0);
     if (type === 'boss') {
-      this.spawnBossDef(bd, sh, sd);
-      if (bd.kind) this.simMark('bosses', bd.kind);
+      // Boss 改版的刁鑽度：出擊所在的章＋周目，殘響 Boss 固定 8（data/boss-tier.js）
+      const tier = campaignTier(this.campSortie().chapter, (this.save.story || {}).cycle || 1, bd.echo);
+      this.spawnBossDef(bd, sh, sd, tier);
+      if (bd.kind) this.simMark('bosses', bd.kind, tier);
       // 危險條款：Boss 一開始就是第二型態
       // 殘響化的 Boss（第 3 周目的 ECHO 委託，data/campaign.js 的 echoBoss）也是
       if ((c.heat && c.heat.p2) || bd.echo) for (const b of this.bosses) b.forceP2 = true;
@@ -1408,6 +1412,8 @@ Object.assign(Game.prototype, {
       ['重試次數', String(c.fails)],
       ...(c.replay ? [['作戰紀錄', this.heatNames(c.heat).join('、') || '無危險條款']] : []),
       ['擊破數', String(c.stats[0] ? c.stats[0].kills : 0)],
+      // Boss 改版：最後一段 Boss 的擊破評價（S＝多一個戰術模組三選一）
+      ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
       ['報酬（已即時入帳）', '+' + c.earned.toLocaleString()],
       ['作戰完成報酬', '+' + bonus.toLocaleString()],
       ['COAM 結餘', S.coam.toLocaleString()],
@@ -1435,7 +1441,12 @@ Object.assign(Game.prototype, {
         });
       for (const x of this.net.players) x.ready = false;
     }
-    if (success && c.endPick) this.campOpenPick(c.endPick);
+    // Boss 擊破評價 S：多一個戰術模組三選一（單人與房主；有 endPick 時排在它之後）
+    const sPick = success && c.bossS && !c.replay ? this.tierPickFaction(so) : null;
+    if (success && c.endPick) {
+      this.campOpenPick(c.endPick);
+      if (sPick) this.modPickQ = [sPick];
+    } else if (sPick) this.campOpenPick(sPick, 'Boss 擊破評價 S 的獎勵');
   },
 
   // ---------- HUD ----------

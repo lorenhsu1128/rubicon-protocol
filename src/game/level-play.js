@@ -9,6 +9,7 @@ import { clamp } from '../core/math.js';
 import { DS, MS } from '../core/scale.js';
 import { AC_ROSTER, BOSS_DEFS, enemyScale } from '../data/enemies.js';
 import { ACES } from '../data/foes.js';
+import { freeTier } from '../data/boss-tier.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { applyLevelProps, levelWorldOpt, setPlacedVisible } from '../level/build.js';
 import { ACTIONS, CONDS, cmpOp, inArea, segCount, segOf } from '../level/format.js';
@@ -367,7 +368,7 @@ Object.assign(Game.prototype, {
         const bd = BOSS_DEFS[+u.type];
         if (bd && !(bd.rail && !(w.corridor && w.corridor.kind === 'rail'))) {
           if (!usePt) this.waveAt = { pos: { x: u.x, z: u.z }, drop: false };
-          this.spawnBossDef(bd, sh, sd);
+          this.spawnBossDef(bd, sh, sd, freeTier(+u.type));
           ents = this.bosses.slice();
           this.isBossLevel = true;
           this.bossFightT = 0;
