@@ -978,6 +978,7 @@ Object.assign(Game.prototype, {
       SFX.explode(false, p);
     }
     this.popDamage(p.clone().setY(p.y + 1), '擊落', false, false, false, 0, -1);
+    if (this.tut && this.player) this.player.tutE('shotDown', {}); // 遠程訓練（只有玩家在開火）
   },
   // 小血條（主 HUD）：畫面上的可以打掉的投射物；鎖定中的另外畫框
   drawShotHud(c, p) {

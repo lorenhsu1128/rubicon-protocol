@@ -77,6 +77,7 @@ Object.assign(Game.prototype, {
       const done = r && ((r.w && r.w.length) || r.skip);
       const ws = done
         ? (r.w || [])
+            .filter((w) => w !== 'kit')
             .map((w) => `<i class="tutW">${escHtml(wName(w).replace(/^[A-Z0-9-]+ /, ''))}</i>`)
             .join('') + (r.skip && !(r.w && r.w.length) ? '<i class="tutW">已跳過</i>' : '')
         : '';
@@ -424,7 +425,7 @@ Object.assign(Game.prototype, {
         if (step.reset) this.tutReset();
         else this.tutPlaceDummy();
       }
-    } else if (!ranged(T.L) && (!p.lock || p.lock.dead)) p.lock = e;
+    } else if (!p.lock || p.lock.dead) p.lock = e; // 鎖定空了（遠程：鎖定的彈被打掉）就鎖回假人
     if (ranged(T.L)) this.tutRTick(dt);
     else if (e && !e.dead && this.tutRing) {
       const st = meleeMove(this.tutWDef(), 0);
@@ -654,6 +655,11 @@ Object.assign(Game.prototype, {
           apex: !!(p.rbApex && p.rbApex()),
           counter: false,
         }[c];
+        // 遠程訓練的條件（tutorial-ranged.js）
+        if (ok === undefined && this.tutRanged()) {
+          if (this.tutRWait(c)) next();
+          return;
+        }
         // 綜合練習：揮刀＝彈刀、開槍＝等盾擋下後盾擊
         if (c === 'counter') {
           if (!tl && !(D && D.burst > 0) && S.t > 0.1 && !(p.shieldHitT > 0)) return next();
@@ -1124,7 +1130,8 @@ Object.assign(Game.prototype, {
     const S = this.tutSave();
     const r = (S.les[L.id] = S.les[L.id] || { w: [] });
     const first = !r.w.length;
-    if (!r.w.includes(T.wid)) r.w.push(T.wid);
+    const wk = T.wid || 'kit'; // 固定組合的課（遠程第 3 課起）
+    if (!r.w.includes(wk)) r.w.push(wk);
     if (T.stars) r.stars = Math.max(r.stars || 0, T.stars);
     let reward = '';
     if (first && L.coam) {

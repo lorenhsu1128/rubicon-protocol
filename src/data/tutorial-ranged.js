@@ -3,8 +3,10 @@
 //
 // 和近戰不同的欄位：
 //   課程：course 'r'、pick 開始前挑主武器（RT_WEAPONS；否則用 kit）、kit 固定組合 { rarm, larm, rback, lback }、skippable 可以直接跳過（不給獎勵）
-//   dummy  { type 敵人類型（ENEMY_TYPES）, lv 0 靜止／1 走動, dist 開始距離（m，新尺度）, n 幾台（排成扇形）, far 理想射程外（ideal 練習）}
-//   setup  { fcs 換火控（理想射程的練習要長距離的鎖定）}
+//   dummy  { type 敵人類型（ENEMY_TYPES）, lv 0 靜止／1 走動／2 攻擊（atk）, dist 開始距離（m，新尺度）, n 幾台（排成扇形）, far 理想射程外（ideal 練習）,
+//            atk 'shot' 預警後點放（「!」）｜'aim' 長預備（整台弱點、可以打斷）｜'missile' 導彈｜'rocket' 榴彈（可以擊落）, every [最短, 最長] 秒,
+//            asm 換掉類型的武器, turn 轉身的速度（弧度／秒，繞背的練習）, sense 建立感知狀態（弱點的預備要它）, hpMul 血量 }
+//   setup  { fcs 換火控（理想射程的練習要長距離的鎖定）, view 'chase' 這一步換成追尾視角（結束後換回）}
 //   ring   'ideal'＝假人腳下畫主武器的理想射程（圈裡＝理想射程內）
 //   goal 的 distinct(o)＝回傳這一次的種類（字串或陣列），只有新的種類才算
 // 說明文字的記號：[fire] [fire2] [lock]＝依裝置的按鍵（其他同近戰）
@@ -12,7 +14,8 @@
 //   ['fire', 秒]  按住主武器開火      ['tap']  等武器能開火時按一下      ['lock']  換鎖定目標
 //   ['empty']  按住開火直到開始換彈再放開      ['arTap', 'ok'｜'bad']  換彈中在亮區（ok）或太早（bad）按一下
 //   ['approach', 倍率]  走到離假人「理想射程 × 倍率」以內      ['orbit', 秒]  繞著假人橫移，環滿了就一直按一下開火
-//   ['wait', 'apex']  到了最高點的前後（其他條件同近戰）
+//   ['wait', 'apex'｜'cue'｜'pqbDone'｜'missile'｜'shell']  最高點的前後／「!」出現／完美迴避的加成中／導彈快打到／飛來的榴彈（其他條件同近戰）
+//   ['lockShot']  把鎖定換到飛來的彈上      ['behind']  繞到假人的背後      ['aimWeak']  追尾視角把準星移到弱點上
 import { RB_APEX, RB_CTR, RB_LAND, RB_ORBIT, RB_QB } from './ranged.js';
 
 // 第 1～2 課可以挑的主武器
@@ -210,6 +213,112 @@ export const R_LESSONS = [
           ['end'],
         ],
         hints: ['QB → 開火、跳起來 → 最高點開火、落地 → 開火，換著來。'],
+      },
+    ],
+  },
+  {
+    id: 'R3',
+    course: 'r',
+    n: '反擊與迎擊',
+    d: '完美 QB 之後的反擊射擊、甩掉導彈、把飛來的砲彈打下來',
+    coam: 4000,
+    kit: { rarm: 'w_rifle', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' },
+    steps: [
+      {
+        id: 'counter',
+        t: '完美 QB → 反擊射擊',
+        text: '假人開火前會亮紅光、出現「<b>!</b>」。「!」一出現就按 [qb]＝完美迴避；之後 1.5 秒內開火＝<b>COUNTER</b>（傷害 ×1.25、衝擊 ×1.8，畫面會稍微變慢）。',
+        say: '看到「!」就閃，閃完馬上還手。',
+        dummy: { type: 'mt', lv: 2, dist: 45, atk: 'shot', every: [2.4, 3] },
+        bar: 'pqb',
+        goal: [{ ev: 'rb', tag: 'ctr', n: 3, lbl: '反擊射擊' }],
+        demo: [['wait', 'cue'], ['qb', 's'], ['wait', 'pqbDone'], ['tap'], ['wait', 1], ['end']],
+        hints: ['「!」→ [qb] → [fire]。', '「!」之前就閃不算；閃開之後 1.5 秒內開火。'],
+      },
+      {
+        id: 'mdodge',
+        t: 'QB 甩掉導彈',
+        text: '假人會發射追蹤導彈。導彈<b>快打到時</b>（剩不到 0.45 秒）按 [qb]＝甩掉追蹤，也算完美迴避。',
+        say: '導彈不用跑，等它靠近再閃。',
+        dummy: { type: 'mt', lv: 2, dist: 60, atk: 'missile', every: [2.6, 3.2], asm: { rback: 'bw_ms' } },
+        bar: 'missile',
+        goal: [{ ev: 'mdodge', n: 3, lbl: '甩掉導彈' }],
+        demo: [['wait', 'missile'], ['qb', 's'], ['wait', 1.2], ['end']],
+        hints: ['等導彈貼近（時機條的綠色）再按 [qb]。', '太早閃，導彈會轉回來；太晚就被打中了。'],
+      },
+      {
+        id: 'shootdown',
+        t: '擊落',
+        text: '敵人的導彈、火箭彈、榴彈都打得掉：按 [lock] 把鎖定換到飛來的彈上（排在敵人後面），開火打下來。',
+        say: '一發就掉。打下來的地方會爆炸，別在身邊打。',
+        dummy: { type: 'mt', lv: 2, dist: 80, atk: 'rocket', every: [3, 3.6], asm: { larm: 'w_gl' } },
+        goal: [{ ev: 'shotDown', n: 3, lbl: '擊落' }],
+        demo: [['wait', 'shell'], ['lockShot'], ['fire', 0.6], ['wait', 1.2], ['end']],
+        hints: ['砲彈飛出來後按 [lock]，鎖定框會跳到彈上。', '彈很小：換到它之後一直按著開火。'],
+        touch: '觸控：點一下飛來的彈就鎖定它。',
+      },
+      {
+        id: 'mix',
+        t: '甩掉導彈 → 反擊',
+        text: '甩掉導彈也算完美迴避：甩掉之後馬上開火＝COUNTER。',
+        dummy: { type: 'mt', lv: 2, dist: 60, atk: 'missile', every: [2.6, 3.2], asm: { rback: 'bw_ms' } },
+        bar: 'missile',
+        goal: [{ ev: 'rb', tag: 'ctr', n: 2, lbl: '反擊射擊' }],
+        demo: [['wait', 'missile'], ['qb', 's'], ['wait', 'pqbDone'], ['tap'], ['wait', 1.2], ['end']],
+        hints: ['甩掉 → 馬上 [fire]。'],
+      },
+    ],
+  },
+  {
+    id: 'R4',
+    course: 'r',
+    n: '弱點',
+    d: '繞到背後、打壞弱點、在預警中打斷招式',
+    coam: 4000,
+    kit: { rarm: 'w_rifle', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' },
+    steps: [
+      {
+        id: 'back',
+        t: '繞到背後',
+        text: '鎖定目標身上的<b>菱形</b>是弱點：亮黃色＝現在打得到。MT 的推進器在<b>背後</b>，它轉身很慢——繞到它背後開火＝CRITICAL（傷害 ×1.5）。',
+        say: '從正面打是浪費子彈。',
+        dummy: { type: 'mt', lv: 0, dist: 40, turn: 0.35, sense: true },
+        goal: [{ ev: 'crit', n: 4, test: (o) => o.k === 'thr', lbl: 'CRITICAL' }],
+        demo: [['behind'], ['fire', 0.8], ['wait', 0.4], ['end']],
+        hints: ['繞一大圈到它背後，菱形變亮再開火。', '它會慢慢轉回來：繞的時候別停。'],
+      },
+      {
+        id: 'break',
+        t: '打壞弱點',
+        text: '一直打同一個弱點，累積夠了就<b>打壞</b>：推進器壞了它不能 QB、走得更慢；感測器壞了它打不準；彈藥箱壞了會殉爆。打壞一個。',
+        say: '打壞了，它就只剩半條命。',
+        dummy: { type: 'mt', lv: 0, dist: 40, turn: 0.25, sense: true, hpMul: 1 },
+        goal: [{ ev: 'wpBreak', n: 1, lbl: '打壞' }],
+        demo: [['behind'], ['fire', 2], ['wait', 0.3], ['end']],
+        hints: ['繞到背後一直打推進器。'],
+      },
+      {
+        id: 'interrupt',
+        t: '打斷招式',
+        text: '敵人出招前的<b>預備</b>（紅光、瞄準線）整台都是弱點：從哪裡打都是 CRITICAL，衝擊累積夠了就<b>打斷</b>它（INTERRUPT＋短暫失衡）。',
+        say: '它在蓄力的時候，就是你的機會。',
+        dummy: { type: 'mt', lv: 2, dist: 45, atk: 'aim', every: [2.2, 2.8], sense: true },
+        goal: [{ ev: 'interrupt', n: 2, lbl: '打斷' }],
+        demo: [['wait', 'tele'], ['fire', 1.2], ['wait', 0.6], ['end']],
+        hints: ['紅光一亮就開火，不要停。', '衝擊大的武器比較快打斷。'],
+      },
+      {
+        id: 'reaim',
+        t: '改瞄弱點（追尾視角）',
+        opt: true,
+        text: '追尾視角或第一人稱時，把<b>準星壓在弱點上</b>（菱形外多一個圓圈）＝這一發算打在那個弱點，不用繞到那一面。對正面的 MT 瞄頭頂的感測器打 3 次 CRITICAL。',
+        say: '看得見，就打得到。',
+        dummy: { type: 'mt', lv: 0, dist: 35, sense: true },
+        setup: { view: 'chase' },
+        goal: [{ ev: 'crit', n: 3, test: (o) => o.aim, lbl: '改瞄 CRITICAL' }],
+        demo: [['aimWeak'], ['tap'], ['wait', 0.4], ['end']],
+        hints: ['移動滑鼠，讓準星蓋住菱形（出現圓圈）再開火。'],
+        skip: (d, g) => (g.vpadWanted() ? '觸控的鏡頭沒有準星改瞄：這一步跳過。' : ''),
       },
     ],
   },

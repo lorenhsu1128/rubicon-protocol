@@ -52,7 +52,9 @@ Object.assign(Game.prototype, {
     if (v !== 'top') {
       if (!this.spectator && !this.touchActive) {
         try {
-          this.canvas.requestPointerLock();
+          // 不是使用者的操作觸發時（遠程訓練的追尾視角那一步）會被拒絕：Promise 的拒絕也接住
+          const r = this.canvas.requestPointerLock();
+          if (r && r.catch) r.catch(() => {});
         } catch (e) {}
       }
     } else if (document.pointerLockElement) {

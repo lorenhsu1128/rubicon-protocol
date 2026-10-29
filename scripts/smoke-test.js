@@ -15782,7 +15782,7 @@ async function testRangedTut(browser, base) {
   );
   await freezeLoop(page);
   const W = ['w_rifle', 'w_hg', 'w_sg', 'w_bz', 'w_mg'];
-  const L = ['R1', 'R2'];
+  const L = ['R1', 'R2', 'R3', 'R4'];
   if (process.env.TUT_ONLY) {
     const [lid, w] = process.env.TUT_ONLY.split(':');
     await page.evaluate(() => {
@@ -15808,7 +15808,13 @@ async function testRangedTut(browser, base) {
           last = k;
           const w = p.weapons.rarm;
           window.__tr.push(
-            `${g.tut.clock.toFixed(2)}   scr ${k} gr${p.grounded ? 1 : 0} mag${w.mag} rl${(w.reloadT || 0).toFixed(2)} orb${p.rbOrbK().toFixed(2)} v${Math.hypot(p.vel.x, p.vel.z).toFixed(1)} d${g.tut.dummy ? Math.round(g.tut.dummy.pos.distanceTo(p.pos)) : '-'}`,
+            `${g.tut.clock.toFixed(2)}   scr ${k} gr${p.grounded ? 1 : 0} mag${w.mag} rl${(w.reloadT || 0).toFixed(2)} orb${p.rbOrbK().toFixed(2)} v${Math.hypot(p.vel.x, p.vel.z).toFixed(1)} d${g.tut.dummy ? Math.round(g.tut.dummy.pos.distanceTo(p.pos)) : '-'} sh${g
+              .shotTargets(p.team)
+              .map((t) => Math.round(t.pos.distanceTo(p.pos)) + '@' + t.proj.age.toFixed(1))
+              .join('/')} lc${g
+              .lockCands(p)
+              .map((t) => (t.isShot ? 'S' : 'E'))
+              .join('')} reach${Math.round(g.lockReach(p))}`,
           );
         }
         return r;
@@ -15821,12 +15827,13 @@ async function testRangedTut(browser, base) {
     return;
   }
   for (let i = 0; i < L.length; i++) {
-    for (const w of W) {
+    // 第 1～2 課挑主武器（5 把都跑），之後是固定組合
+    for (const w of i < 2 ? W : [null]) {
       const r = await tutRun(page, L[i], w);
       const stuck = r.out.filter((s) => s.t < 0);
       check(
         r.state === 'tutdone' && !stuck.length,
-        `遠程第 ${i + 1} 課 × ${w}：每個練習都在時限內過關（${tutRunTxt(r)}）`,
+        `遠程第 ${i + 1} 課 × ${w || '固定組合'}：每個練習都在時限內過關（${tutRunTxt(r)}）`,
       );
       if (i === 0 && w === W[0])
         check(r.coam === 2000, `跳過過的第 1 課第一次上完：照樣給 COAM +2000（${r.coam}）`);
@@ -15846,7 +15853,7 @@ async function testRangedTut(browser, base) {
     const b = [...document.querySelectorAll('#simList .tutItem')].filter((x) => /^R/.test(x.dataset.tut));
     return { coam, les: g.tutSave().les, dis: b.map((x) => x.disabled) };
   });
-  check(after.coam === 5000, `第 1～2 課第一次完成的 COAM 合計 5,000（${after.coam}）`);
+  check(after.coam === 13000, `第 1～4 課第一次完成的 COAM 合計 13,000（${after.coam}）`);
   check(
     after.les.R1 && after.les.R1.w.length === 5 && after.les.R2 && after.les.R2.w.length === 5,
     '存檔記下兩課完成過的主武器',
@@ -15865,6 +15872,44 @@ async function testRangedTut(browser, base) {
   const bar = await page.evaluate(() => getComputedStyle(document.getElementById('tutBar')).visibility);
   await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-apex.png') });
   check(bar === 'visible', `頂點射擊的時機條在空中顯示（${bar}）`);
+  await page.evaluate(() => window.__game.tutExit(false));
+  // 第 4 課：繞到背後的 CRITICAL（弱點的菱形）、追尾視角的改瞄（準星壓在弱點上）、離開那一步換回俯視
+  const wk = await page.evaluate(() => {
+    const g = window.__game;
+    g.tutStart('R4', null);
+    window.__pump(1.2, () => g.tut.phase === 'try');
+    let crit = 0;
+    const ev = g.tutEv.bind(g);
+    g.tutEv = (k, o = {}) => {
+      if (k === 'crit') crit++;
+      return ev(k, o);
+    };
+    window.__pump(12, () => crit > 0);
+    window.__pump(0.15);
+    return { crit, yawRate: g.tut.dummy.yawRate };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-back.png') });
+  check(wk.crit > 0, `繞到背後打出 CRITICAL（${wk.crit} 次）`);
+  const ra = await page.evaluate(() => {
+    const g = window.__game;
+    g.tutStep(3);
+    window.__pump(1.2, () => g.tut.phase === 'try');
+    const view = g.viewName();
+    window.__pump(8, () => !!g.player.wpAim);
+    window.__pump(0.1);
+    return { view, aim: g.player.wpAim ? g.player.wpAim.k : null };
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-reaim.png') });
+  const back = await page.evaluate(() => {
+    const g = window.__game;
+    g.tutStep(0);
+    window.__pump(0.2);
+    return g.viewName();
+  });
+  check(
+    ra.view === 'chase' && ra.aim === 'sen' && back === 'top',
+    `改瞄的練習換成追尾視角、準星壓在感測器上（${ra.view}、${ra.aim}），下一步換回俯視（${back}）`,
+  );
   await page.evaluate(() => window.__game.tutExit(false));
   await ctx.close();
 }
