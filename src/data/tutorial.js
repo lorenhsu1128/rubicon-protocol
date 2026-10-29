@@ -10,7 +10,6 @@
 //          特殊：{ quiz: n }＝依序打出指定的方向起手；{ exam: 秒 }＝結業考核的技巧收集
 //   bar    時機條：'queue'｜'link'｜'resume'｜'parry'｜'pqb'｜'bash'｜'exec'
 //   dir    'f'｜'s'｜'b'：畫面上畫方向箭頭
-//   speeds 依進度的遊戲速度（[0.5, 1]＝先在 0.5 倍成功 2 次、之後 1 倍；失敗 3 次放慢一級）
 //   reset  每次成功後把兩台放回開始位置
 //   demo   示範腳本（也是冒煙測試的自動操作）；auto 自動操作另外寫的腳本
 //   hints  [第 1 段提示, 失敗 3 次後更具體的提示]
@@ -174,7 +173,6 @@ export const LESSONS = [
         say: '每一刀揮出去就按下一下，按了就會記住。別等它停下來，停太久就斷了。',
         dummy: { lv: 0, dist: 12 },
         bar: 'queue',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'cEnd', n: 3, lbl: '打完一套' }],
         demo: [['near', 0.8], ['press', ''], ['chain', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: [
@@ -219,7 +217,6 @@ export const LESSONS = [
         dummy: { lv: 0, dist: 12 },
         dir: 'f',
         bar: 'queue',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'fEnd', n: 2, lbl: '打到最後一招' }],
         demo: [['near', 0.8], ['press', 'f'], ['chain', 'f'], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['按 [melee] 的那一下要按著 [f]。', '先按住方向、再按 [melee]；連按的時候也一直按著。'],
@@ -257,7 +254,6 @@ export const LESSONS = [
         say: '起手中立，看情況再轉向。這是近戰的節奏感。',
         dummy: { lv: 0, dist: 12 },
         bar: 'queue',
-        speeds: [0.5, 0.75, 1],
         goal: [
           {
             ev: 'mv',
@@ -319,7 +315,6 @@ export const LESSONS = [
         say: '打上去之後別等。跳，跟上去。',
         dummy: { lv: 0, dist: 12 },
         dir: 'b',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'jc', n: 2, lbl: '跳躍取消' }],
         demo: [
           ['near', 0.8],
@@ -363,7 +358,6 @@ export const LESSONS = [
         dummy: { lv: 0, dist: 12 },
         dir: 'b',
         bar: 'queue',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'airEnd', n: 2, lbl: '砸回地面', test: (e, T) => recent(T, 'jc', 5) }],
         demo: [
           ['near', 0.8],
@@ -408,7 +402,6 @@ export const LESSONS = [
         say: '打兩下、閃一下、再接上。對手會以為你停手了。',
         dummy: { lv: 0, dist: 12 },
         bar: 'resume',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'resume', n: 2, lbl: '接回' }],
         demo: [
           ['near', 0.8],
@@ -462,7 +455,6 @@ export const LESSONS = [
         say: '刀砍完補一槍。距離近的時候，這一槍比平常痛。',
         dummy: { lv: 0, dist: 12 },
         bar: 'link',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'link', n: 2, lbl: '接射擊' }],
         demo: [['near', 0.8], ['press', ''], ['wait', 'half'], ['shot', 1], ['wait', 0.8], ['end']],
         hints: ['近戰打中後按 [shot]。', '要等這一刀揮過一半（時機條變綠）。'],
@@ -604,7 +596,6 @@ export const LESSONS = [
         say: '「!」一出現就出刀，剛好趕上。實戰裡敵人出手前也會出「!」。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'parry',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'parry', n: 3, lbl: '彈刀' }],
         demo: [['wait', 'parry'], ['press', ''], ['wait', 'idle'], ['wait', 0.8], ['end']],
         hints: ['「!」出現就按 [melee]。', '「!」之前按的不算；「!」出現到刀揮下來之間都可以。'],
@@ -615,7 +606,6 @@ export const LESSONS = [
         text: '彈刀之後的<b>下一下必定打出失衡</b>。彈開後馬上接 [melee]，再按住處決。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3], kill: true },
         bar: 'parry',
-        speeds: [0.5, 0.75, 1],
         reset: true,
         goal: [{ ev: 'exec', n: 1, lbl: '彈刀 → 處決', test: (e, T) => recent(T, 'parry', 6) }],
         demo: [
@@ -639,7 +629,6 @@ export const LESSONS = [
         say: '實戰裡敵人出手前也會出「!」。看到就閃。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'pqb',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'pqb', n: 3, lbl: '完美迴避' }],
         demo: [['wait', 'pqb'], ['qb', 's'], ['wait', 0.8], ['end']],
         hints: ['「!」出現就按 [qb]。', '「!」之前按的不算；「!」出現到刀揮下來之間都可以。'],
@@ -650,7 +639,6 @@ export const LESSONS = [
         text: '完美迴避之後 1.5 秒內的第一下近戰：<b>衝擊加倍、突進距離加長</b>。閃開後馬上按 [melee] 反打。',
         dummy: { lv: 4, dist: 10, atk: 'melee', every: [2.2, 3] },
         bar: 'pqb',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', n: 2, lbl: '反打', test: (e) => e.pqb }],
         demo: [
           ['wait', 'pqb'],
@@ -671,7 +659,6 @@ export const LESSONS = [
         dummy: { lv: 4, dist: 14, atk: 'shot', every: [1.8, 2.4] },
         setup: { shield: true },
         bar: 'bash',
-        speeds: [0.5, 0.75, 1],
         goal: [{ ev: 'hit', tag: 'bash', n: 2, lbl: '盾擊' }],
         demo: [['wait', 'shield'], ['press', ''], ['wait', 'idle'], ['wait', 0.6], ['end']],
         hints: ['被子彈打中（盾發光）就按 [melee]。', '0.5 秒很短：一被打中就按。'],

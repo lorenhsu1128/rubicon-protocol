@@ -68,6 +68,7 @@ Object.assign(MechEntity.prototype, {
       w.arBuff = true;
     } else w.reloadT += FEEL.AR_JAM;
     const g = this.game;
+    if (g.tut) this.tutE('ar', { ok, slot }); // 遠程訓練（tutorial-ranged.js）
     if (this.isPlayer) g.arFx(slot, ok);
     else if (this.slot !== undefined && g.net && g.net.role === 'host')
       g.netEv({ t: 'fb', s: this.slot, k: 'ar', w: slot, ok: ok ? 1 : 0 });

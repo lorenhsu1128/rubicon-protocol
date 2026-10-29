@@ -33,6 +33,8 @@ const BROWSERS = [
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // SMOKE_ONLY=testLevels,testMpLevels（逗號分隔）：只跑這幾項（開發時用；server＝區網伺服器的部分）
 const ONLY = process.env.SMOKE_ONLY ? process.env.SMOKE_ONLY.split(',') : null;
+// SMOKE_SKIP=testRts（逗號分隔的前綴）：排除名稱以它開頭的步驟（改動和 Coral 戰爭無關時不跑 RTS 的測試）
+const SKIP = process.env.SMOKE_SKIP ? process.env.SMOKE_SKIP.split(',').filter(Boolean) : [];
 // 分段平行（scripts/smoke-jobs.js）：子程序以 SMOKE_CHILD＝段號、SMOKE_UNITS＝要跑的步驟、
 // SMOKE_WORK＝自己的暫存資料夾（跨測試的中間檔、伺服器模型組）、SMOKE_RESULT＝結果 JSON 執行
 const CHILD = process.env.SMOKE_CHILD || '';
@@ -15562,7 +15564,7 @@ async function testMeleeTut(browser, base) {
     g.openHub();
     const dot = document.querySelector('#btnHubSim .hdN').classList.contains('on');
     g.openSim();
-    const b = [...document.querySelectorAll('#simList .tutItem')].map((x) => x.disabled);
+    const b = [...document.querySelectorAll('#simList .tutItem[data-tut^="L"]')].map((x) => x.disabled);
     return { dot, b };
   });
   check(menu0.dot, '作戰室的模擬器有紅點（還沒上第 1 課）');
@@ -15665,7 +15667,7 @@ async function testMeleeTut(browser, base) {
     g.openHub();
     const dot = document.querySelector('#btnHubSim .hdN').classList.contains('on');
     g.openSim();
-    const b = [...document.querySelectorAll('#simList .tutItem')].map((x) => x.disabled);
+    const b = [...document.querySelectorAll('#simList .tutItem[data-tut^="L"]')].map((x) => x.disabled);
     // 存檔讀回
     g.save = g.loadSave ? g.loadSave() : g.save;
     return { coam, dot, b, les: Object.keys(g.campStory().tut.les), prize: g.campStory().tut.prize };
@@ -15730,6 +15732,140 @@ async function testMeleeTut(browser, base) {
     );
     await page.evaluate(() => window.__game.tutExit(false));
   }
+  await ctx.close();
+}
+
+// 遠程訓練課程（docs/ranged-tutorial.md、game/tutorial-ranged.js）：選單的開放順序、第 1 課跳過、每一課 × 主武器自動跑完、
+// 獎勵與存檔；近戰與遠程的教學都不放慢
+async function testRangedTut(browser, base) {
+  console.log('遠程訓練課程：開放順序、第 1 課跳過、每一課 × 主武器自動跑完、獎勵、教學不放慢');
+  const { ctx, page } = await newPage(browser, 'ranged-tut');
+  page.on('pageerror', (e) =>
+    console.log('    pageerror 的位置：' + (e.stack || '').split('\n').slice(0, 4).join(' ← ')),
+  );
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  const m0 = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.coam = 0;
+    g.writeSave();
+    g.openHub();
+    g.openSim();
+    const b = [...document.querySelectorAll('#simList .tutItem')].filter((x) => /^R/.test(x.dataset.tut));
+    return { ids: b.map((x) => x.dataset.tut), dis: b.map((x) => x.disabled), slow: typeof g.tutSpeed };
+  });
+  check(
+    m0.ids.length >= 2 && !m0.dis[0] && m0.dis.slice(1).every((x) => x),
+    `模擬器列出遠程訓練課程，照順序開放：只有第 1 課能選（${m0.ids.join(',')}：${m0.dis.map((x) => (x ? '鎖' : '開')).join('')}）`,
+  );
+  check(m0.slow === 'undefined', '教學沒有放慢（tutSpeed 已拿掉，示範與練習一律正常速度）');
+  // 選課畫面：主武器 5 把、直接跳過
+  await page.click('#simList .tutItem[data-tut="R1"]');
+  const pick = await page.evaluate(() => ({
+    w: [...document.querySelectorAll('.tutWep')].map((b) => b.dataset.w),
+    skip: !!document.getElementById('btnTutSkipL'),
+  }));
+  check(
+    pick.w.length === 5 && pick.skip,
+    `第 1 課列出 5 把主武器（${pick.w.join('、')}）與「直接跳過這一課」`,
+  );
+  await page.click('#btnTutSkipL');
+  const sk = await page.evaluate(() => {
+    const g = window.__game;
+    const b = [...document.querySelectorAll('#simList .tutItem')].filter((x) => /^R/.test(x.dataset.tut));
+    return { coam: g.save.coam, r2: b[1] && !b[1].disabled, txt: b[0].textContent };
+  });
+  check(
+    sk.coam === 0 && sk.r2 && /已跳過/.test(sk.txt),
+    '跳過第 1 課：開放第 2 課、不給 COAM、標示「已跳過」',
+  );
+  await freezeLoop(page);
+  const W = ['w_rifle', 'w_hg', 'w_sg', 'w_bz', 'w_mg'];
+  const L = ['R1', 'R2'];
+  if (process.env.TUT_ONLY) {
+    const [lid, w] = process.env.TUT_ONLY.split(':');
+    await page.evaluate(() => {
+      const g = window.__game;
+      window.__tr = [];
+      const ev = g.tutEv.bind(g);
+      g.tutEv = (k, o = {}) => {
+        const T = g.tut;
+        if (T && !['press', 'shot', 'hurt'].includes(k))
+          window.__tr.push(
+            `${T.clock.toFixed(2)} ${T.step.id}/${T.phase} ${k} ${o.tags ? JSON.stringify(o.tags) : ''}${o.ok !== undefined ? ' ok' + o.ok : ''}`,
+          );
+        return ev(k, o);
+      };
+      const sc = g.tutScriptTick.bind(g);
+      let last = '';
+      g.tutScriptTick = (dt) => {
+        const r = sc(dt);
+        const S = g.tut && g.tut.scr;
+        const p = g.player;
+        const k = S ? S.i + ':' + JSON.stringify(S.list[S.i]) : '-';
+        if (k !== last) {
+          last = k;
+          const w = p.weapons.rarm;
+          window.__tr.push(
+            `${g.tut.clock.toFixed(2)}   scr ${k} gr${p.grounded ? 1 : 0} mag${w.mag} rl${(w.reloadT || 0).toFixed(2)} orb${p.rbOrbK().toFixed(2)} v${Math.hypot(p.vel.x, p.vel.z).toFixed(1)} d${g.tut.dummy ? Math.round(g.tut.dummy.pos.distanceTo(p.pos)) : '-'}`,
+          );
+        }
+        return r;
+      };
+    });
+    const r = await tutRun(page, lid, w);
+    console.log(JSON.stringify(r.out));
+    console.log((await page.evaluate(() => window.__tr.slice(-300))).join('\n'));
+    await ctx.close();
+    return;
+  }
+  for (let i = 0; i < L.length; i++) {
+    for (const w of W) {
+      const r = await tutRun(page, L[i], w);
+      const stuck = r.out.filter((s) => s.t < 0);
+      check(
+        r.state === 'tutdone' && !stuck.length,
+        `遠程第 ${i + 1} 課 × ${w}：每個練習都在時限內過關（${tutRunTxt(r)}）`,
+      );
+      if (i === 0 && w === W[0])
+        check(r.coam === 2000, `跳過過的第 1 課第一次上完：照樣給 COAM +2000（${r.coam}）`);
+      if (i === 0 && w === 'w_bz')
+        check(
+          r.out.some((s) => s.id === 'ideal' && s.sk),
+          '火箭筒沒有理想射程：理想射程的練習說明後跳過',
+        );
+      if (i === 1 && w === W[0]) await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-done.png') });
+      await page.evaluate(() => window.__game.tutExit(false));
+    }
+  }
+  const after = await page.evaluate(() => {
+    const g = window.__game;
+    const coam = g.save.coam;
+    g.openSim();
+    const b = [...document.querySelectorAll('#simList .tutItem')].filter((x) => /^R/.test(x.dataset.tut));
+    return { coam, les: g.tutSave().les, dis: b.map((x) => x.disabled) };
+  });
+  check(after.coam === 5000, `第 1～2 課第一次完成的 COAM 合計 5,000（${after.coam}）`);
+  check(
+    after.les.R1 && after.les.R1.w.length === 5 && after.les.R2 && after.les.R2.w.length === 5,
+    '存檔記下兩課完成過的主武器',
+  );
+  // 面板的截圖：理想射程的練習（圈）與時機條（頂點射擊）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.tutAuto = true;
+    g.tutNoDemo = true;
+    g.tutStart('R2', 'w_rifle');
+    window.__pump(1.2, () => g.tut.phase === 'try');
+    g.tutStep(1);
+    window.__pump(1.2, () => g.tut.phase === 'try');
+    window.__pump(4, () => !g.player.grounded && g.player.rbApex());
+  });
+  const bar = await page.evaluate(() => getComputedStyle(document.getElementById('tutBar')).visibility);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'rtut-apex.png') });
+  check(bar === 'visible', `頂點射擊的時機條在空中顯示（${bar}）`);
+  await page.evaluate(() => window.__game.tutExit(false));
   await ctx.close();
 }
 
@@ -18585,6 +18721,7 @@ const STEPS = [
   ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
   ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
+  ['testRangedTut', (c) => testRangedTut(c.browser, c.base)],
   // 近戰訓練的三種操作方式（鍵盤滑鼠、手把、手機觸控）各自跑 8 課
   ...['kb', 'pad', 'touch'].map((d) => [
     'testMeleeTutDev:' + d,
@@ -18671,10 +18808,12 @@ const GROUPS = [
 // SMOKE_ONLY 選到的步驟（規則和以前相同）
 function selectSteps() {
   const srvOn = WITH_SERVER && (!ONLY || ONLY.includes('server'));
-  return STEPS.filter((s) =>
-    s.server
-      ? srvOn && (s.key === 'server' || !ONLY || ONLY.includes(s.only))
-      : !ONLY || ONLY.includes(s.key) || (s.family && ONLY.includes(s.family)),
+  return STEPS.filter(
+    (s) =>
+      !SKIP.some((x) => s.key.startsWith(x)) &&
+      (s.server
+        ? srvOn && (s.key === 'server' || !ONLY || ONLY.includes(s.only))
+        : !ONLY || ONLY.includes(s.key) || (s.family && ONLY.includes(s.family))),
   );
 }
 

@@ -119,6 +119,7 @@ Object.assign(MechEntity.prototype, {
         target.id,
       );
     }
+    if (g.tut) this.tutE('rb', { tags, tgt: target }); // 遠程訓練（tutorial-ranged.js）
     this.syAdd('rb' + tags, 12 * Math.max(1, popCount(tags)), rbLabel(tags)); // 風格評價（mech-style.js）
     if (this.isPlayer) SFX.rangedBonus(tags);
     else if (this.slot !== undefined && g.net && g.net.role === 'host')

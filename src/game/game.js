@@ -400,10 +400,6 @@ export class Game {
       dt *= pace;
       this.lastDt = dt;
     }
-    if (this.tut) {
-      dt *= this.tutSpeed(); // 近戰訓練：示範與剛開始練習時放慢（game/tutorial.js）
-      this.lastDt = dt;
-    }
     if (this.fx.hitStop > 0) {
       this.fx.hitStop -= dt;
       dt *= 0.25;

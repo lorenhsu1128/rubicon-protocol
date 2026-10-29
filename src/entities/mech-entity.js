@@ -630,6 +630,7 @@ export class MechEntity {
     const near = d.near ? clamp(distT / (d.ideal || 14 * this.dk), 0.45, 1) : 1;
     // 邊閃邊打（data/ranged.js、mech-ranged.js）：QB、完美 QB 反擊、最高點、落地、繞射的加成，只給玩家操作的機體
     const rb = this.pilotEnt() && RB_TYPES.has(d.type) ? this.rbShot() : null;
+    if (rb && this.game.tut) this.tutE('rbFire', { tags: rb.tags, slot }); // 遠程訓練（tutorial-ranged.js）：開火時的加成
     // 蓄力射擊（data/charge.js、mech-charge.js）：這一發是不是強力彈
     if (this.pilotEnt()) this.pwLast = { e: tgtOk ? targetEnt : null, p: targetPos.clone() };
     const pwfx = this.pilotEnt() ? this.pwShot(slot, w, d) : null;
@@ -2050,6 +2051,14 @@ export class MechEntity {
     const real = Math.round(dmg * mul);
     // 風格評價（mech-style.js）：射擊打中加分（近戰由 tutE 的 hit）、自己被打中掉分
     if (real > 0 && !melee && from && from !== this && from.syHit) from.syHit(this, real, wid);
+    // 遠程訓練（tutorial-ranged.js）：射擊打中（dist＝射手到目標的水平距離，判斷理想射程）
+    if (real > 0 && !melee && from && from !== this && g.tut && from === g.player)
+      from.tutE('shot', {
+        tgt: this,
+        real,
+        wid,
+        dist: Math.hypot(this.pos.x - from.pos.x, this.pos.z - from.pos.z),
+      });
     if (real > 0 && this.sy) this.syHurt(real);
     if (g.range) g.rangeHit(this, from, real, real / Math.max(0.05, 1 - this.defCut(A)), impact, wid, A); // 靶場的量測
     const mp = g.net && g.net.role;

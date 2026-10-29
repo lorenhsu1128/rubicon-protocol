@@ -1,9 +1,11 @@
 // Game：近戰訓練課程（作戰室的模擬艙，docs/melee-tutorial.md；課程資料在 data/tutorial.js）。
 // this.tut 存在時是教學（state 照舊 'play'，主迴圈呼叫 tutTick）。一課＝幾個練習（step），每個練習：
-//   intro（說明）→ demo（示範：玩家的機體照腳本的虛擬輸入動作、放慢）→ try（換你做，事件達成目標就過關）→ ok → 下一個
+//   intro（說明）→ demo（示範：玩家的機體照腳本的虛擬輸入動作，正常速度）→ try（換你做，事件達成目標就過關）→ ok → 下一個
 // 判定看遊戲裡實際發生的事（MechEntity 的 tutE：出招、打中、跳躍取消、QB 接回、彈刀…），不看按了什麼鍵。
 // 示範的虛擬輸入：this.tutVirt＝{ 動作名稱: true, wish: 世界座標的移動方向 }（input.js 的 act、player.js 的 wish 改讀它）。
 // 冒煙測試設 g.tutAuto＝true：try 也照示範腳本自動操作（驗證每一步都過得了）。
+// 遠程訓練課程（data/tutorial-ranged.js 的 R_LESSONS，course 'r'）共用這個流程；遠程專用的假人、腳本指令、時機條、
+// 失敗原因在 game/tutorial-ranged.js（tutR*）。近戰與遠程的教學都不放慢（docs/ranged-tutorial.md）。
 import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { clamp } from '../core/math.js';
@@ -26,10 +28,10 @@ import {
   TUT_PRIZES,
   TUT_PRIZE_COAM,
   TUT_WEAPONS,
-  lessonById,
   meleeTags,
   tagName,
 } from '../data/tutorial.js';
+import { RT_PRIZES, RT_PRIZE_COAM, RT_WEAPONS, R_LESSONS } from '../data/tutorial-ranged.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { MeleeAnim } from '../render/melee-anim.js';
 import { World } from '../world/world.js';
@@ -40,6 +42,10 @@ const LUNGE_MAX = 28; // 突進追擊的練習：假人最遠放多遠（舊尺�
 const SWAP2 = (w) => (w === 'w_claw' ? 'w_blade' : 'w_claw'); // 左右手交替：左手的第二把近戰武器
 const wName = (id) => (id === 'w_none' ? '空手（拳擊）' : (partById('arm', id) || {}).name || id);
 const DIRS = { f: '上', s: '左右', b: '下' };
+const ranged = (L) => !!(L && L.course === 'r');
+const listOf = (L) => (ranged(L) ? R_LESSONS : LESSONS);
+const lessonById = (id) => LESSONS.find((L) => L.id === id) || R_LESSONS.find((L) => L.id === id) || null;
+const partName = (id) => (partById('arm', id) || partById('back', id) || {}).name || id;
 
 Object.assign(Game.prototype, {
   // ---------- 存檔 ----------
@@ -52,21 +58,27 @@ Object.assign(Game.prototype, {
   },
   tutDone(lid) {
     const r = this.tutSave().les[lid];
-    return !!(r && r.w && r.w.length);
+    return !!(r && ((r.w && r.w.length) || r.skip));
   },
   tutOpenLesson(lid) {
-    const i = LESSONS.findIndex((L) => L.id === lid);
-    return i <= 0 || this.tutDone(LESSONS[i - 1].id);
+    const list = listOf(lessonById(lid));
+    const i = list.findIndex((L) => L.id === lid);
+    return i <= 0 || this.tutDone(list[i - 1].id);
   },
   // ---------- 模擬器畫面的「近戰訓練課程」 ----------
   tutMenuHtml() {
-    let h = '<h3>近戰訓練課程</h3><div class="tutList">';
-    LESSONS.forEach((L, i) => {
+    return this.tutMenuList('近戰訓練課程', LESSONS) + this.tutMenuList('遠程訓練課程', R_LESSONS);
+  },
+  tutMenuList(title, list) {
+    let h = `<h3>${title}</h3><div class="tutList">`;
+    list.forEach((L, i) => {
       const r = this.tutSave().les[L.id];
       const open = this.tutOpenLesson(L.id);
-      const done = r && r.w && r.w.length;
+      const done = r && ((r.w && r.w.length) || r.skip);
       const ws = done
-        ? r.w.map((w) => `<i class="tutW">${escHtml(wName(w).replace(/^[A-Z0-9-]+ /, ''))}</i>`).join('')
+        ? (r.w || [])
+            .map((w) => `<i class="tutW">${escHtml(wName(w).replace(/^[A-Z0-9-]+ /, ''))}</i>`)
+            .join('') + (r.skip && !(r.w && r.w.length) ? '<i class="tutW">已跳過</i>' : '')
         : '';
       const star = L.final && r && r.stars ? ' ' + '★'.repeat(r.stars) : '';
       h += `<button class="simItem tutItem${done ? ' done' : ''}" data-tut="${L.id}" ${open ? '' : 'disabled'}>
@@ -81,22 +93,35 @@ Object.assign(Game.prototype, {
     const L = lessonById(lid);
     if (!L) return;
     const el = document.getElementById('simList');
-    const i = LESSONS.indexOf(L);
-    const last = this.tutLastW || 'w_blade';
+    const R = ranged(L);
+    const i = listOf(L).indexOf(L);
+    const wl = R ? RT_WEAPONS : TUT_WEAPONS;
+    const last = R ? (wl.includes(this.tutLastRW) ? this.tutLastRW : wl[0]) : this.tutLastW || 'w_blade';
     const r = this.tutSave().les[lid];
     let h = `<h3>第 ${i + 1} 課　${escHtml(L.n)}</h3><p class="dim">${escHtml(L.d)}</p><ol class="tutSteps">`;
     for (const s of L.steps)
       h += `<li>${escHtml(s.t)}${s.opt ? '<span class="dim">（選修）</span>' : ''}</li>`;
-    h += '</ol><h3>選擇近戰武器</h3><div class="tutWeps">';
-    for (const w of TUT_WEAPONS) {
-      const did = r && r.w && r.w.includes(w);
-      h += `<button class="tutWep${w === last ? ' sel' : ''}" data-w="${w}">${escHtml(wName(w))}${did ? ' ✓' : ''}</button>`;
-    }
-    h +=
-      '</div><p class="dim">教學中可以用所有近戰武器（不必先買）；左手是霰彈槍。不會被擊破、沒有時間限制。</p>';
+    h += '</ol>';
+    if (!R || L.pick) {
+      h += `<h3>${R ? '選擇主武器' : '選擇近戰武器'}</h3><div class="tutWeps">`;
+      for (const w of wl) {
+        const did = r && r.w && r.w.includes(w);
+        h += `<button class="tutWep${w === last ? ' sel' : ''}" data-w="${w}">${escHtml(wName(w))}${did ? ' ✓' : ''}</button>`;
+      }
+      h += '</div>';
+    } else if (L.kit)
+      h += `<h3>這一課的裝備</h3><p>${['rarm', 'larm', 'rback', 'lback']
+        .filter((k) => L.kit[k] && !/_none$/.test(L.kit[k]))
+        .map((k) => escHtml(partName(L.kit[k])))
+        .join('、')}</p>`;
+    h += R
+      ? '<p class="dim">教學中可以用所有武器（不必先買）。不會被擊破、沒有時間限制。</p>'
+      : '<p class="dim">教學中可以用所有近戰武器（不必先買）；左手是霰彈槍。不會被擊破、沒有時間限制。</p>';
     if (L.coam && !(r && r.w && r.w.length)) h += `<p>第一次完成：COAM +${L.coam.toLocaleString()}</p>`;
-    if (L.final) h += '<p>結業：從三把近戰武器裡挑一把免費拿走。</p>';
-    h += `<div class="row"><button class="primary" id="btnTutGo">開始</button><button id="btnTutBack">返回</button></div>`;
+    if (L.final) h += `<p>結業：從三把${R ? '遠程' : '近戰'}武器裡挑一把免費拿走。</p>`;
+    const canSkip = L.skippable && !this.tutDone(lid);
+    h += `<div class="row"><button class="primary" id="btnTutGo">開始</button>${canSkip ? '<button id="btnTutSkipL">直接跳過這一課</button>' : ''}<button id="btnTutBack">返回</button></div>`;
+    if (canSkip) h += '<p class="dim">跳過也會開放下一課，但不給獎勵（之後上完一次照樣給）。</p>';
     el.innerHTML = h;
     let sel = last;
     for (const b of el.querySelectorAll('.tutWep'))
@@ -105,7 +130,16 @@ Object.assign(Game.prototype, {
         sel = b.dataset.w;
         for (const x of el.querySelectorAll('.tutWep')) x.classList.toggle('sel', x === b);
       };
-    document.getElementById('btnTutGo').onclick = () => this.tutStart(lid, sel);
+    document.getElementById('btnTutGo').onclick = () => this.tutStart(lid, !R || L.pick ? sel : null);
+    const sk = document.getElementById('btnTutSkipL');
+    if (sk)
+      sk.onclick = () => {
+        SFX.ui();
+        const S = this.tutSave();
+        S.les[lid] = { ...(S.les[lid] || { w: [] }), skip: 1 };
+        this.writeSave();
+        this.openSim();
+      };
     document.getElementById('btnTutBack').onclick = () => this.openSim();
   },
   // ---------- 開始／結束 ----------
@@ -113,7 +147,9 @@ Object.assign(Game.prototype, {
     const L = lessonById(lid);
     if (!L) return;
     SFX.ui();
-    this.tutLastW = wid;
+    if (ranged(L)) {
+      if (wid) this.tutLastRW = wid;
+    } else this.tutLastW = wid;
     this.clearMission();
     this.camp = null;
     this.sim = null;
@@ -123,7 +159,7 @@ Object.assign(Game.prototype, {
     this.worldTheme = 'grid';
     this.styleRefresh();
     this.world = new World(this.scene, 'grid', seed, 2, null, {
-      zone: 'arena',
+      zone: ranged(L) ? undefined : 'arena', // 遠程：整個場地（理想射程的練習要拉開距離）
       level: { blank: true, props: 'none', h: null, water: null, removed: [] },
     });
     this.isClient = false;
@@ -146,7 +182,8 @@ Object.assign(Game.prototype, {
     this.scaleHp = 1;
     this.scaleDmg = 1;
     document.getElementById('bossBar').style.display = 'none';
-    this.levelName = `近戰訓練　第 ${LESSONS.indexOf(L) + 1} 課`;
+    const no = listOf(L).indexOf(L) + 1;
+    this.levelName = `${ranged(L) ? '遠程' : '近戰'}訓練　第 ${no} 課`;
     this.tutRingMake();
     this.state = 'play';
     this.showScreen('');
@@ -159,9 +196,11 @@ Object.assign(Game.prototype, {
     this.tutStep(0);
     this.commSay(
       'instructor',
-      LESSONS.indexOf(L)
-        ? `第 ${LESSONS.indexOf(L) + 1} 課，${L.n}。開始。`
-        : '歡迎來到模擬艙。我們從最基本的開始。',
+      no > 1
+        ? `第 ${no} 課，${L.n}。開始。`
+        : ranged(L)
+          ? '遠程訓練。先從開火開始。'
+          : '歡迎來到模擬艙。我們從最基本的開始。',
     );
   },
   tutExit(toSim = true) {
@@ -207,6 +246,7 @@ Object.assign(Game.prototype, {
   tutAsm(step) {
     const T = this.tut;
     const su = step.setup || {};
+    if (ranged(T.L)) return this.tutRAsm(step);
     return {
       ...this.save.asm,
       rarm: T.wid,
@@ -236,6 +276,8 @@ Object.assign(Game.prototype, {
     T.lastMv = null;
     T.quiz = null;
     T.exam = null;
+    T.dist = (step.goal || []).map(() => new Set());
+    T.lastLock = null;
     T.noEnFill = !!(step.setup && step.setup.en);
     // 這把武器（或裝置）沒有這一步：說明後跳過
     const sk = step.skip ? step.skip(this.tutWDef(), this) : '';
@@ -258,6 +300,9 @@ Object.assign(Game.prototype, {
   tutWDef() {
     return this.player ? this.player.weapons.rarm.def : FIST_DEF;
   },
+  tutRanged() {
+    return !!(this.tut && ranged(this.tut.L));
+  },
   tutSpawnPlayer(asm) {
     if (this.player) {
       this.player.cleanup();
@@ -277,6 +322,7 @@ Object.assign(Game.prototype, {
     const T = this.tut;
     for (const e of this.enemies) if (!e.dead) e.cleanup();
     this.enemies = [];
+    if (ranged(T.L)) return this.tutRSpawn(step);
     const D = step.dummy || { lv: 0 };
     const duel = !!D.duel;
     const e = this.spawnEnemy({
@@ -313,6 +359,7 @@ Object.assign(Game.prototype, {
       e = T.dummy,
       W = this.world;
     const D = T.step.dummy || {};
+    if (ranged(T.L)) return this.tutRReset();
     p.pos.set(0, W.terrainHeight(0, 0), 0);
     p.vel.set(0, 0, 0);
     p.meleeEnd();
@@ -344,6 +391,7 @@ Object.assign(Game.prototype, {
   // 假人的開始距離（公尺）：dist（舊尺度）；lunge＝依武器第一招的突進算（突進距離的 lunge 倍，突進追擊的練習：
   // 每把武器都要真的拉長突進才搆得到，最遠 LUNGE_MAX，霰彈槍還打得到）
   tutDummyDist(D) {
+    if (this.tutRanged()) return this.tutRDist(D);
     if (D.lunge) {
       const s0 = meleeMove(this.tutWDef(), 0);
       return clamp(s0.reach * this.player.scale + s0.dash * D.lunge, 14 * DS, LUNGE_MAX * DS);
@@ -376,8 +424,9 @@ Object.assign(Game.prototype, {
         if (step.reset) this.tutReset();
         else this.tutPlaceDummy();
       }
-    } else if (!p.lock || p.lock.dead) p.lock = e;
-    if (e && !e.dead && this.tutRing) {
+    } else if (!ranged(T.L) && (!p.lock || p.lock.dead)) p.lock = e;
+    if (ranged(T.L)) this.tutRTick(dt);
+    else if (e && !e.dead && this.tutRing) {
       const st = meleeMove(this.tutWDef(), 0);
       const R = st.reach * p.scale + st.dash * 0.45;
       const dist = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
@@ -416,15 +465,6 @@ Object.assign(Game.prototype, {
       this.tutPanelRender();
     }
     this.tutBarTick();
-  },
-  // 遊戲速度（主迴圈的 dt 倍率）：示範 0.5 倍；練習依進度（speeds）
-  tutSpeed() {
-    const T = this.tut;
-    if (!T || this.state !== 'play') return 1;
-    if (T.phase === 'demo') return 0.5;
-    const sp = T.step && T.step.speeds;
-    if (!sp || T.phase !== 'try' || this.tutAuto) return 1;
-    return sp[Math.min(Math.floor(T.reps / 2), sp.length - 1)]; // 每一段速度成功 2 次才加快
   },
   tutBegin(ph) {
     const T = this.tut;
@@ -611,6 +651,7 @@ Object.assign(Game.prototype, {
           parry: tl && tl.k === 'melee' && tl.t <= (tl.so || 0) + meleeMove(this.tutWDef(), 0).dur * 0.45,
           pqb: tl && tl.k === 'melee' && tl.t <= (tl.so || 0) + 0.04, // 假人提早 so 秒出刀（tutTele）
           shield: p.shieldHitT > 0,
+          apex: !!(p.rbApex && p.rbApex()),
           counter: false,
         }[c];
         // 綜合練習：揮刀＝彈刀、開槍＝等盾擋下後盾擊
@@ -676,6 +717,7 @@ Object.assign(Game.prototype, {
         }
         return;
       default:
+        if (this.tutRScript(a, S, V, next)) return;
         return next();
     }
   },
@@ -713,6 +755,7 @@ Object.assign(Game.prototype, {
     const T = this.tut;
     if (!T || !this.player) return;
     T.log[k] = T.clock;
+    if (ranged(T.L)) this.tutREv(k, o);
     const d = this.tutWDef();
     if (k === 'mv') {
       const md = this.player.weapons[o.slot || 'rarm'].def;
@@ -751,6 +794,18 @@ Object.assign(Game.prototype, {
       if (G.ev !== k || T.prog[i] >= G.n) return;
       if (G.tag && !(o.tags && o.tags.has(G.tag))) return;
       if (G.test && !G.test(o, T, this)) return;
+      if (G.distinct) {
+        // 只有新的種類才算
+        const ks = [].concat(G.distinct(o)).filter((x) => !T.dist[i].has(x));
+        if (!ks.length) return;
+        for (const x of ks) {
+          if (T.prog[i] >= G.n) break;
+          T.dist[i].add(x);
+          T.prog[i]++;
+        }
+        any = true;
+        return;
+      }
       T.prog[i]++;
       any = true;
     });
@@ -760,7 +815,7 @@ Object.assign(Game.prototype, {
     const done = (step.goal || []).every((G, i) => T.prog[i] >= G.n);
     if (done) this.tutPass();
     else {
-      T.msg = '<b class="ok">很好！</b>' + (this.tutSpeed() < 1 ? '　繼續（速度會慢慢加快）' : '　再一次');
+      T.msg = '<b class="ok">很好！</b>　再一次';
       T.msgT = 1.6;
       if (step.reset) this.tutResetLater();
     }
@@ -781,7 +836,7 @@ Object.assign(Game.prototype, {
     this.flashMsg('過關 — ' + T.step.t, 0x7ee081, 1.3, { k: 'good', m: '過關', s: T.step.t });
     this.tutPanelRender(true);
   },
-  // 失敗的原因：說清楚錯在哪；同一步失敗 3 次後提示更具體、5 次後放慢
+  // 失敗的原因：說清楚錯在哪；同一步失敗 3 次後提示更具體、5 次後提議再看示範
   tutFeedback(k, o, d) {
     const T = this.tut,
       step = T.step;
@@ -793,10 +848,9 @@ Object.assign(Game.prototype, {
       if (T.failN === 5) s += '<br><span class="dim">要不要再看一次示範？（暫停選單或面板的「示範」）</span>';
       T.msg = s;
       T.msgT = 3.2;
-      if (T.failN % 3 === 0 && step.speeds && T.reps > 0)
-        T.reps = Math.max(0, (Math.floor(T.reps / 2) - 1) * 2); // 失敗 3 次放慢一級
       this.tutPanelRender(true);
     };
+    if (ranged(T.L)) return this.tutRFeedback(k, o, say);
     const wantDir = step.dir;
     if (k === 'early' && step.bar === 'queue') return say('太早按了：這一刀剛開始揮，晚一點點再按');
     if (k === 'mv' && o.late && step.bar === 'queue')
@@ -910,6 +964,7 @@ Object.assign(Game.prototype, {
       D = e.tutD,
       p = this.player;
     if (!T || !p) return true;
+    if (ranged(T.L)) return this.tutRAI(e, dt);
     const dx = p.pos.x - e.pos.x,
       dz = p.pos.z - e.pos.z,
       dist = Math.hypot(dx, dz) || 1;
@@ -1077,31 +1132,38 @@ Object.assign(Game.prototype, {
       reward = `COAM +${L.coam.toLocaleString()}`;
     }
     this.writeSave();
-    const i = LESSONS.indexOf(L);
+    const R = ranged(L);
+    const list = listOf(L);
+    const i = list.indexOf(L);
     const $ = (id) => document.getElementById(id);
     this.state = 'tutdone';
-    let h = `<h2>第 ${i + 1} 課　${escHtml(L.n)}　完成</h2><p>武器：${escHtml(wName(T.wid))}</p>`;
+    let h = `<h2>${R ? '遠程' : '近戰'}訓練　第 ${i + 1} 課　${escHtml(L.n)}　完成</h2>`;
+    if (T.wid) h += `<p>武器：${escHtml(wName(T.wid))}</p>`;
     if (L.final && T.stars) h += `<p class="tutStars">${'★'.repeat(T.stars)}${'☆'.repeat(3 - T.stars)}</p>`;
     if (reward) h += `<p>獎勵：${reward}</p>`;
     if (T.skipped) h += `<p class="dim">跳過了 ${T.skipped} 個練習，之後可以再回來練。</p>`;
     // 結業：選一把近戰武器
-    if (L.final && !S.prize) {
-      const cand = TUT_PRIZES.filter((w) => !this.save.owned.includes(w));
+    const pk = R ? 'rprize' : 'prize',
+      prizes = R ? RT_PRIZES : TUT_PRIZES,
+      prizeCoam = R ? RT_PRIZE_COAM : TUT_PRIZE_COAM,
+      kindTxt = R ? '遠程' : '近戰';
+    if (L.final && !S[pk]) {
+      const cand = prizes.filter((w) => !this.save.owned.includes(w));
       if (cand.length) {
-        h += '<h3>結業獎勵：選一把近戰武器</h3><div class="tutWeps">';
+        h += `<h3>結業獎勵：選一把${kindTxt}武器</h3><div class="tutWeps">`;
         for (const w of cand) h += `<button class="tutPrize" data-w="${w}">${escHtml(wName(w))}</button>`;
         h += '</div>';
       } else {
-        S.prize = 'coam';
-        this.save.coam += TUT_PRIZE_COAM;
+        S[pk] = 'coam';
+        this.save.coam += prizeCoam;
         this.writeSave();
-        h += `<p>結業獎勵：三把近戰武器你都有了，改給 COAM +${TUT_PRIZE_COAM.toLocaleString()}</p>`;
+        h += `<p>結業獎勵：三把${kindTxt}武器你都有了，改給 COAM +${prizeCoam.toLocaleString()}</p>`;
       }
     }
-    const nx = LESSONS[i + 1];
+    const nx = list[i + 1];
     h += '<div class="row">';
     if (nx) h += `<button class="primary" id="btnTutNext">下一課：${escHtml(nx.n)}</button>`;
-    h += '<button id="btnTutAgain">換武器再練</button><button id="btnTutQuit">返回模擬器</button></div>';
+    h += `<button id="btnTutAgain">${!R || L.pick ? '換武器再練' : '再練一次'}</button><button id="btnTutQuit">返回模擬器</button></div>`;
     const card = $('tutDoneCard');
     card.innerHTML = `<div class="panel">${h}</div>`;
     this.showScreen('tutDoneCard');
@@ -1109,20 +1171,25 @@ Object.assign(Game.prototype, {
       b.onclick = () => {
         SFX.ui();
         if (!this.save.owned.includes(b.dataset.w)) this.save.owned.push(b.dataset.w);
-        S.prize = b.dataset.w;
+        S[pk] = b.dataset.w;
         this.writeSave();
         for (const x of card.querySelectorAll('.tutPrize')) x.disabled = true;
         b.classList.add('sel');
         b.textContent += '　✓ 已加入機甲庫';
       };
-    if (nx) $('btnTutNext').onclick = () => this.tutStart(nx.id, T.wid);
+    if (nx)
+      $('btnTutNext').onclick = () =>
+        this.tutStart(nx.id, !R ? T.wid : nx.pick ? T.wid || this.tutLastRW || RT_WEAPONS[0] : null);
     $('btnTutAgain').onclick = () => {
       this.tutExit(false);
       this.openSim();
       this.tutPick(L.id);
     };
     $('btnTutQuit').onclick = () => this.tutExit();
-    this.commSay('instructor', L.final ? '結業。你已經是能用刀的傭兵了。' : '這一課完成。');
+    this.commSay(
+      'instructor',
+      L.final ? (R ? '結業。你的槍已經會說話了。' : '結業。你已經是能用刀的傭兵了。') : '這一課完成。',
+    );
     if (this.pointerLocked && document.exitPointerLock) document.exitPointerLock();
   },
   // ---------- 畫面 ----------
@@ -1142,6 +1209,9 @@ Object.assign(Game.prototype, {
     }
     if (touch) {
       const t = {
+        fire: '攻擊鍵',
+        fire2: '攻擊鍵',
+        lock: '點一下敵人',
         melee: '攻擊鍵',
         melee2: '攻擊鍵',
         shot: '攻擊鍵',
@@ -1152,7 +1222,16 @@ Object.assign(Game.prototype, {
       return `<kbd>${t[act] || act}</kbd>`;
     }
     const name =
-      { melee: 'fireR', melee2: 'fireL', shot: 'fireL', qb: 'qb', jump: 'jump', ab: 'ab' }[act] || act;
+      {
+        melee: 'fireR',
+        melee2: 'fireL',
+        shot: 'fireL',
+        fire: 'fireR',
+        fire2: 'fireL',
+        qb: 'qb',
+        jump: 'jump',
+        ab: 'ab',
+      }[act] || act;
     const lbl = pad ? this.padLabel(this.padmap[name]) : this.keyLabel(this.keymap[name]);
     return `<kbd>${escHtml(lbl)}</kbd>`;
   },
@@ -1175,9 +1254,9 @@ Object.assign(Game.prototype, {
   tutText(s) {
     const d = this.tutWDef();
     return s
-      .replace(/\[(melee2|melee|shot|qb|jump|ab|move|f|s|b)\]/g, (m, k) => this.tutKey(k))
-      .replace(/\{w\}/g, escHtml(wName(this.tut.wid)))
-      .replace(/\{(\w+)\}/g, (m, t) => `<b class="mv">${escHtml(tagName(d, t) || t)}</b>`);
+      .replace(/\[(melee2|melee|shot|fire2|fire|lock|qb|jump|ab|move|f|s|b)\]/g, (m, k) => this.tutKey(k))
+      .replace(/\{w\}/g, escHtml(wName(this.tut.wid || '')))
+      .replace(/\{(\w+)\}/g, (m, t) => `<b class="mv">${escHtml((d.combo && tagName(d, t)) || t)}</b>`);
   },
   tutPanelRender(force) {
     const T = this.tut,
@@ -1185,7 +1264,7 @@ Object.assign(Game.prototype, {
     if (!T || !el || !T.step) return;
     const step = T.step,
       L = T.L,
-      i = LESSONS.indexOf(L);
+      i = listOf(L).indexOf(L);
     const key = [
       T.li,
       T.phase,
@@ -1195,7 +1274,6 @@ Object.assign(Game.prototype, {
       T.quiz && T.quiz.i,
       T.exam && T.exam.kinds.size,
       Math.ceil(T.exam ? T.exam.t : 0),
-      this.tutSpeed(),
       this.padActive,
       this.vpadWanted(),
     ].join('|');
@@ -1212,7 +1290,7 @@ Object.assign(Game.prototype, {
     h += `<div class="tpText">${this.tutText(step.text)}</div>`;
     if (step.tip) h += `<div class="tpTip">${escHtml(step.tip)}</div>`;
     if (step.touch && this.vpadWanted()) h += `<div class="tpDev">${escHtml(step.touch)}</div>`;
-    if (T.phase === 'demo') h += '<div class="tpDemo">▶ 示範中（0.5 倍速）——看清楚按鍵的順序</div>';
+    if (T.phase === 'demo') h += '<div class="tpDemo">▶ 示範中——看清楚按鍵的順序</div>';
     else if (T.phase === 'ok') h += '<div class="tpOk">✓ 過關</div>';
     else {
       const g = step.goal || [];
@@ -1223,7 +1301,7 @@ Object.assign(Game.prototype, {
         h += `<div class="tpProg">剩下 <b>${Math.max(0, Math.ceil(T.exam.t))}</b> 秒　技巧 <b>${T.exam.kinds.size}</b> 種（${EXAM_STARS.join('／')} 種＝★／★★／★★★）</div>`;
         h += `<div class="tpKinds">${EXAM_KINDS.map(([k, n]) => `<i class="${T.exam.kinds.has(k) ? 'd' : ''}">${n}</i>`).join('')}</div>`;
       } else
-        h += `<div class="tpProg">${g.map((G, j) => `${escHtml(G.lbl || '')} <b>${T.prog[j]}／${G.n}</b>`).join('　')}${this.tutSpeed() < 1 ? `<span class="tpSpd">${this.tutSpeed()}× 慢速</span>` : ''}</div>`;
+        h += `<div class="tpProg">${g.map((G, j) => `${escHtml(G.lbl || '')} <b>${T.prog[j]}／${G.n}</b>`).join('　')}</div>`;
     }
     if (T.msgT > 0 && T.msg) h += `<div class="tpMsg">${T.msg}</div>`;
     else if (T.phase === 'try' && T.failN === 0 && step.hints && step.hints[0])
@@ -1250,7 +1328,9 @@ Object.assign(Game.prototype, {
     const st = m.active ? meleeMove(p.weapons[m.slot].def, m.stage) : null;
     const e = T.dummy && !T.dummy.dead ? T.dummy : null;
     const tl = e && e.tutD.tele;
-    if (T.phase === 'try' || T.phase === 'demo') {
+    const rb = ranged(T.L) && (T.phase === 'try' || T.phase === 'demo') ? this.tutRBar(kind) : null;
+    if (rb) ({ show, z0, z1, x, lbl, on } = rb);
+    else if (T.phase === 'try' || T.phase === 'demo') {
       const A = p.meleeA() || { buf: QUEUE_AT, grace: 0 };
       const G = p.meleeGrace;
       if (kind === 'queue' && ((st && !st.exec) || (!m.active && G))) {
