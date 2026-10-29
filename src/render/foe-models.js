@@ -191,8 +191,9 @@ function rig(root, torso, M, o) {
     ...(o.extra || {}),
   };
 }
+const FOE_TINT = { ao: 0.8, grime: 0.28 };
 function finish(root, scale) {
-  bakeAll(root);
+  bakeAll(root, { tint: FOE_TINT, cache: true, k: scale }); // 精細版（docs/model-detail.md）
   root.scale.setScalar(scale);
   root.traverse((o) => {
     if (o.isMesh) o.castShadow = true;

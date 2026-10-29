@@ -393,13 +393,25 @@ function bake(node, outline = true) {
 // 小細節（fine）另外合併並登記距離分級；opts.cache＝快取鍵：同樣的模型第二次建造時直接沿用合併好的幾何
 // （呼叫端照常呼叫 P／CB，零件的數量與材質出現的順序要相同，不同時重新計算）。材質會打開 vertexColors。
 const BAKE_CACHE = new Map();
+// cache: true 時的快取鍵（建模函式外層用 withBakeKey 設定，例如 render/foe-merge.js 以敵人的種類）
+let BAKE_KEY = '';
+export function withBakeKey(k, fn) {
+  const prev = BAKE_KEY;
+  BAKE_KEY = k;
+  try {
+    return fn();
+  } finally {
+    BAKE_KEY = prev;
+  }
+}
 function bakeTint(root, opts) {
   const nodes = [];
   root.traverse((o) => {
     if (o.isGroup && o.userData.prims) nodes.push(o);
   });
   const sig = nodes.map((n) => n.userData.prims.length).join(',');
-  const ck = opts.cache ? opts.cache + '|' + sig : null;
+  const ckey = opts.cache === true ? BAKE_KEY : opts.cache;
+  const ck = ckey ? ckey + '|' + sig : null;
   let C = ck ? BAKE_CACHE.get(ck) : null;
   if (!C) {
     root.updateMatrixWorld(true);

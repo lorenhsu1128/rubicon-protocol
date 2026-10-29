@@ -38,6 +38,8 @@ const SKIP = process.env.SMOKE_SKIP ? process.env.SMOKE_SKIP.split(',').filter(B
 // 分段平行（scripts/smoke-jobs.js）：子程序以 SMOKE_CHILD＝段號、SMOKE_UNITS＝要跑的步驟、
 // SMOKE_WORK＝自己的暫存資料夾（跨測試的中間檔、伺服器模型組）、SMOKE_RESULT＝結果 JSON 執行
 const CHILD = process.env.SMOKE_CHILD || '';
+// 主題專屬敵人的三角形上限（精細版的載具預算，docs/model-detail.md；融合實驗體 2 倍）
+const FOE_TRI = 10000;
 // 跨測試共用的中間檔（模型庫範本 GLB）與伺服器的資料夾；單一程序時照舊放 test-results/
 const WORK_DIR = process.env.SMOKE_WORK ? path.resolve(process.env.SMOKE_WORK) : SHOT_DIR;
 const failures = []; // { test, label }
@@ -8710,7 +8712,7 @@ async function testFoesC2(browser, base) {
     await wait(1800);
     const info = (await lib.page.textContent('#insInfo').catch(() => '')) || '';
     const tri = +((info.match(/三角面\s*([\d,]+)/) || [])[1] || '0').replace(/,/g, '');
-    check(tri > 1500 && tri <= 6000, `模型庫 ${k}：三角面 ${tri}（≤ 6000）`);
+    check(tri > 1500 && tri <= FOE_TRI, `模型庫 ${k}：三角面 ${tri}（≤ ${FOE_TRI}）`);
     const box = await lib.page.$eval('#insView canvas', (c) => {
       const r = c.getBoundingClientRect();
       return [r.x + r.width / 2, r.y + r.height / 2];
@@ -17344,7 +17346,7 @@ async function testFoeModelsD2(browser, base) {
       e.depart();
     });
     res.push(key + ':' + r.tris);
-    const cap = key === 'chimera' ? 12000 : 6000;
+    const cap = key === 'chimera' ? FOE_TRI * 2 : FOE_TRI;
     check(
       r.anim &&
         r.tris > 0 &&
@@ -17828,7 +17830,7 @@ async function testFoesB1(browser, base) {
   );
   await shot('lamp-break');
   await resume();
-  // 三角形預算（一般 ≤ 6000）與 rig.dmg、動作節點
+  // 三角形預算（一般 ≤ FOE_TRI）與 rig.dmg、動作節點
   const tri = await ev(() => {
     const g = window.__game;
     const out = {};
@@ -17857,8 +17859,9 @@ async function testFoesB1(browser, base) {
     return out;
   });
   check(
-    Object.values(tri).every((t) => t.tris <= 6000 && t.nodes >= 3 && t.dmg),
-    'B1 模型：三角形 ≤ 6000、至少 3 個動作節點、rig.dmg（' +
+    Object.values(tri).every((t) => t.tris <= FOE_TRI && t.nodes >= 3 && t.dmg),
+    `B1 模型：三角形 ≤ ${FOE_TRI}、` +
+      '至少 3 個動作節點、rig.dmg（' +
       Object.entries(tri)
         .map(([k, t]) => k + ' ' + t.tris)
         .join('、') +
@@ -18369,7 +18372,10 @@ async function testFoesB2(browser, base) {
         y: r.top + r.height / 2,
       };
     }, HIDE);
-    check(info.tri > 600 && info.tri <= 6000, `模型庫 vehicle/foe_${key}：三角形 ${info.tri}（上限 6000）`);
+    check(
+      info.tri > 600 && info.tri <= FOE_TRI,
+      `模型庫 vehicle/foe_${key}：三角形 ${info.tri}（上限 ${FOE_TRI}）`,
+    );
     const clip = { x: 0, y: 0, width: Math.min(1280, Math.round(info.x * 2)), height: 900 };
     const drag = async (deg) => {
       const dx = (-deg / 360) * info.h;
@@ -19603,7 +19609,7 @@ async function testFoesC1(browser, base) {
     const info = (await lp.textContent('#insInfo')) || '';
     const m = info.replace(/,/g, '').match(/三角面\D*(\d+)/);
     const tris = m ? +m[1] : -1;
-    check(tris > 0 && tris <= 6000, `模型庫 ${key}：三角面 ${tris}（≤ 6000）`);
+    check(tris > 0 && tris <= FOE_TRI, `模型庫 ${key}：三角面 ${tris}（≤ ${FOE_TRI}）`);
     const box = await lp.$eval('#insGl', (c) => {
       const r = c.getBoundingClientRect();
       return { x: r.x, y: r.y, w: r.width, h: r.height };

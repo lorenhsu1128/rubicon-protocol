@@ -437,7 +437,7 @@ export function buildStation() {
     g.add(l);
     lamps.push(l);
   }
-  bakeAll(g);
+  bakeAll(g, { tint: { ao: 0.8, grime: 0 }, cache: 'cine:station' }); // 精細版（docs/model-detail.md）
   return { group: g, bay, lampMat };
 }
 
@@ -470,7 +470,7 @@ export function buildPod() {
     l.position.set(Math.cos(a) * 2.78, 2.2, Math.sin(a) * 2.78);
     g.add(l);
   }
-  bakeAll(g);
+  bakeAll(g, { tint: { ao: 0.8, grime: 0 }, cache: 'cine:pod' }); // 精細版（docs/model-detail.md）
   // 推進器火焰（加色圓錐，scale.y＝推力）
   const fmat = new THREE.MeshBasicMaterial({
     map: glowTex(),
@@ -591,7 +591,7 @@ export function buildCrashSite(groundAt) {
     );
   }
   g.add(rim);
-  bakeAll(g);
+  bakeAll(g, { tint: { ao: 0.8, grime: 0 }, cache: 'cine:crash' }); // 精細版（docs/model-detail.md）
   const pod = buildPod();
   pod.group.rotation.set(0.5, 0.4, 0.3); // 斜插：機頭在地下
   pod.group.position.set(1.5, 1.4, -1);

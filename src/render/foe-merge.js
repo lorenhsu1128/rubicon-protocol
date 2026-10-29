@@ -20,6 +20,7 @@
 // skinAwareSSAO）、冰殼（mech-status.js）都有蒙皮版。只改外觀的網格數，不影響判定與協定。
 // 合併本身（錨點、蒙皮、材質複本）在 mesh-merge.js，機甲與載具也共用。
 
+import { withBakeKey } from './geometry.js';
 import { isUnder, mergeStatic, pathsOf, rigMats, rigRefs, shareDecals } from './mesh-merge.js';
 
 const PROBE = new Map(); // 模型種類 → 會動節點的路徑（Set<string>）
@@ -165,7 +166,9 @@ function rawRig(key, build, rig, pal, scale) {
   }
   return rig;
 }
-export function foeMerged(key, build) {
+export function foeMerged(key, build0) {
+  // 精細版的快取鍵（render/geometry.js 的 bakeAll({ cache: true })）
+  const build = (pal, scale) => withBakeKey('foe:' + key, () => build0(pal, scale));
   return (pal, scale, o) => {
     const rig = build(pal, scale);
     if (o && o.raw && rig && rig.group) return rawRig(key, build, rig, pal, scale);
