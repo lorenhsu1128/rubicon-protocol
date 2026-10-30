@@ -2181,7 +2181,10 @@ export class MechEntity {
     if (this.sts || this.stsV) this.statusClearAll(true);
     const g = this.game;
     const c = this.center();
-    if (g.crowd) g.crowdBlast(c, (this.radius || 3) * 1.4, from); // 擊破的爆炸波及附近的小人（crowd.js）
+    if (g.crowd) {
+      g.crowdBlast(c, (this.radius || 3) * 1.4, from); // 擊破的爆炸波及附近的小人（crowd.js）
+      g.crowdCrew(this); // 乘員逃出、敵對 AC 的駕駛員爬出來
+    }
     this.specialDie(from);
     if (this.explodeOnDeath) {
       const E = this.explodeOnDeath;

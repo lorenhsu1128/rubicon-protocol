@@ -28,7 +28,7 @@ const _m = new THREE.Matrix4(),
   _c = new THREE.Color();
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
-// 姿勢（每個人每格）：{ x, y, z, yaw, sw 擺動（-1～1）, run 0／1, crouch 0～1, work 0～1（手在前面做事）, wave 0～1（揮手、慌張）, lean }
+// 姿勢（每個人每格）：{ x, y, z, yaw, sw 擺動（-1～1）, run 0／1, crouch 0～1, work 0～1（手在前面做事）, wave 0～1（揮手、慌張）, aim 0～1（兩手平舉瞄準）, lean }
 export class CrowdMesh {
   constructor(max) {
     this.max = max;
@@ -112,8 +112,9 @@ export class CrowdMesh {
       fz = 0.55 * Math.sin(lean);
     const armA = -sw * (0.4 + run * 0.5);
     const work = P.work || 0,
-      wave = P.wave || 0;
-    const ax = armA * (1 - work) - work * 1.2 - wave * 2.6;
+      wave = P.wave || 0,
+      aim = P.aim || 0;
+    const ax = armA * (1 - work) - work * 1.2 - wave * 2.6 - aim * 1.5;
     put(M.arm, i * 2, -0.27, sh, fz, ax, -0.08 - wave * 0.3);
     put(
       M.arm,
@@ -121,7 +122,7 @@ export class CrowdMesh {
       0.27,
       sh,
       fz,
-      -armA * (1 - work) - work * (1.0 + 0.3 * sw) - wave * 2.6 * (1 - 0.3 * sw),
+      -armA * (1 - work) - work * (1.0 + 0.3 * sw) - wave * 2.6 * (1 - 0.3 * sw) - aim * 1.4,
       0.08 + wave * 0.3,
     );
     const hy = sh + 0.17 * Math.cos(lean),

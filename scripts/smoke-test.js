@@ -15705,6 +15705,160 @@ async function testCrowd(browser, base) {
     g.drawHud(0);
   });
   await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-close.png') });
+  // 第 3 期：乘員逃出
+  const cr = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.save.hk = { civ: 0, foe: 0 };
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    for (const e of g.enemies) {
+      e.ai = 'none';
+      e.pos.set(900, -80, 900);
+    }
+    const C = g.crowd,
+      W = g.world,
+      K = pl.dk;
+    // 小人先拿掉（只看乘員）
+    for (const h of C.list) if (!h.crew) ((h.alive = false), C.mesh.hide(h.i));
+    const out = {};
+    const at = (e, dx, dz, dy = 0) => {
+      const x = pl.pos.x + dx * K,
+        z = pl.pos.z + dz * K;
+      e.pos.set(x, W.groundAt(x, z, pl.pos.y + 20) + dy, z);
+      e.vel.set(0, 0, 0);
+      e.ai = 'none';
+    };
+    const crew = () => C.list.filter((h) => h.crew && h.alive);
+    // MT 擊破：一部分乘員逃出、離開玩家
+    for (let i = 0; i < 6; i++) {
+      const e = g.spawnType('mt', 1, 1);
+      at(e, -20 + i * 8, -26);
+      e.takeDamage(1e9, 0, pl, e.center());
+    }
+    out.mt = crew().length;
+    out.mtSt = [...new Set(crew().map((h) => h.st))].join();
+    const d0 = crew().map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z));
+    window.__pump(3, null, 1 / 30);
+    out.away = crew().every((h, i) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z) > d0[i]);
+    // 跑遠之後消失（玩家移到很遠的地方）
+    const Z = W.zone;
+    pl.pos.set(Z[0] + 4, W.groundAt(Z[0] + 4, Z[2] + 4, 99), Z[2] + 4);
+    window.__pump(12, null, 1 / 30);
+    out.gone = C.list.filter((h) => h.crew && h.gone).length;
+    pl.pos.set(0, W.groundAt(0, 0, 99), 0);
+    // 裝甲車：AP ≤ 15% 時可能先逃一人
+    let early = 0;
+    for (let i = 0; i < 4; i++) {
+      const e = g.spawnType('tank', 1, 1);
+      at(e, -24 + i * 14, 30);
+      e.hp = e.maxHp * 0.1;
+      const n0 = crew().length;
+      window.__pump(1 / 30, null, 1 / 30);
+      if (e.crewEarly && crew().length > n0) early++;
+      out.tankLeft = e.crewLeft;
+    }
+    out.early = early;
+    // 直升機：乘員用降落傘落下，落地後逃跑
+    const hl = g.spawnType('heli', 1, 1);
+    at(hl, 30, 0, 22);
+    hl.takeDamage(1e9, 0, pl, hl.center());
+    const ch = crew().filter((h) => h.st === 'chute');
+    out.chute = {
+      n: ch.length,
+      mesh: ch.every((h) => h.chute && h.chute.parent),
+      y: Math.round(hl.pos.y - W.groundAt(hl.pos.x, hl.pos.z, hl.pos.y)),
+    };
+    window.__pump(12, null, 1 / 30);
+    out.land = ch.every((h) => !h.alive || (h.st !== 'chute' && !h.chute));
+    out.chutes = C.chutes.length;
+    // 敵對 AC：駕駛員爬出來、站著開槍（傷害很小）
+    const ac = g.spawnType('ac_longshot', 1, 1);
+    at(ac, 0, -18);
+    ac.takeDamage(1e12, 0, pl, ac.center());
+    const pilot = crew().find((h) => h.armed);
+    out.pilot = pilot ? pilot.st : 'none';
+    const hp0 = pl.hp,
+      p0 = pilot && [pilot.x, pilot.z];
+    const sh0 = g.crowdShoot;
+    const per = [];
+    g.crowdShoot = function (h, tp) {
+      const a = tp.hp;
+      sh0.call(this, h, tp);
+      per.push(Math.round(a - tp.hp));
+    };
+    window.__pump(4, null, 1 / 30);
+    g.crowdShoot = sh0;
+    out.per = per.join(',');
+    out.shot = Math.round(hp0 - pl.hp);
+    out.stay = pilot ? Math.hypot(pilot.x - p0[0], pilot.z - p0[1]) < 0.5 : false;
+    // 踩死乘員＝敵方人員
+    const f0 = g.hk.foe;
+    if (pilot) {
+      pl.pos.set(pilot.x, W.groundAt(pilot.x, pilot.z, pilot.y + 20), pilot.z);
+      window.__pump(1 / 30, null, 1 / 30);
+    }
+    out.foe = g.hk.foe - f0;
+    out.civ = g.hk.civ;
+    return out;
+  });
+  check(
+    cr.mt >= 1 && cr.mt < 6 && cr.mtSt === 'flee',
+    `MT 擊破：一部分乘員逃出（6 台逃出 ${cr.mt} 人，${cr.mtSt}）`,
+  );
+  check(cr.away, '逃出的乘員離開玩家');
+  check(cr.gone >= 1, `跑遠之後消失（${cr.gone} 人）`);
+  check(cr.early >= 1, `裝甲車重傷時先逃一人（4 台裡 ${cr.early} 台）`);
+  check(
+    cr.chute.n >= 1 && cr.chute.mesh && cr.land && cr.chutes === 0,
+    `直升機的乘員用降落傘落下、落地後收起（${JSON.stringify(cr.chute)}）`,
+  );
+  check(
+    cr.pilot === 'shoot' &&
+      cr.per.split(',').length >= 3 &&
+      cr.per.split(',').every((v) => +v > 0 && +v <= 10) &&
+      cr.stay,
+    `敵對 AC 的駕駛員爬出來、站著開槍（4 秒每一槍的傷害：${cr.per}）`,
+  );
+  check(cr.foe === 1 && cr.civ === 0, `踩死乘員算敵方人員（${cr.foe}）`);
+  // 截圖：降落傘與開槍的駕駛員
+  await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player,
+      W = g.world,
+      K = pl.dk,
+      C = g.crowd;
+    for (const id of ['tfx', 'msg'])
+      if (document.getElementById(id)) document.getElementById(id).style.visibility = 'hidden';
+    const at = (e, dx, dz, dy = 0) => {
+      const x = pl.pos.x + dx * K,
+        z = pl.pos.z + dz * K;
+      e.pos.set(x, W.groundAt(x, z, pl.pos.y + 20) + dy, z);
+      e.vel.set(0, 0, 0);
+      e.ai = 'none';
+    };
+    const ac = g.spawnType('ac_berserker', 1, 1);
+    at(ac, -6, -14);
+    ac.takeDamage(1e12, 0, pl, ac.center());
+    for (let i = 0; i < 2; i++) {
+      const hl = g.spawnType('heli', 1, 1);
+      at(hl, 4 + i * 5, -16, 16 + i * 4);
+      hl.takeDamage(1e9, 0, pl, hl.center());
+    }
+    window.__pump(1.4, null, 1 / 30);
+    const pi = C.list.filter((h) => h.armed && h.alive).pop();
+    const c = pi ? new THREE.Vector3(pi.x + 6, pi.y + 6, pi.z) : pl.center();
+    g.camera.position.set(c.x - 4, c.y + 3, c.z + 22);
+    g.camera.lookAt(c);
+    g.camera.updateMatrixWorld();
+    g.renderMain();
+    g.banner = null;
+    g.drawHud(0);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-crew.png') });
   await thawLoop(page);
   await ctx.close();
 }
