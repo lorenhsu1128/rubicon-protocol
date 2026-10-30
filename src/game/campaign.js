@@ -167,6 +167,7 @@ Object.assign(Game.prototype, {
       zone,
       zoneAxis: p.zoneAxis,
       entry: (tr || {}).entry,
+      open: type === 'boss' ? 1 : undefined, // Boss 區段：地圖物件少一點（World.openArena）
     };
   },
   // 預排的出擊（docs/hub-ui.md）：可以接的委託先排好種子、排程與第一段的類型，作戰室的全像戰略桌顯示的就是

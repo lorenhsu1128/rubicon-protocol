@@ -330,7 +330,11 @@ Object.assign(Game.prototype, {
       bd0,
     );
     // 武裝列車：地圖一定有鐵路（客機收到開局訊息的地形特徵，跟著一致）
-    this.world = new World(this.scene, theme, seed, L, null, { rail: !!(bd0 && bd0.rail), variant });
+    this.world = new World(this.scene, theme, seed, L, null, {
+      rail: !!(bd0 && bd0.rail),
+      variant,
+      open: bd0 ? 1 : undefined, // Boss 關：地圖物件少一點，不會一直擋住 Boss 的攻擊（World.openArena）
+    });
     this.isClient = false;
     const mp = !!(this.net && this.net.role === 'host');
     this.net.spawnReg = {};

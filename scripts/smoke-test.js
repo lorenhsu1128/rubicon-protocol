@@ -4895,6 +4895,26 @@ async function testPilot(browser, base) {
   check((await rank('a_ap')) === 2, '右鍵退一點');
   await page.click('#pDecBtn');
   check((await rank('a_ap')) === 1, '詳細列的「退一點」');
+  // 觸控長按：手指沒放開時瀏覽器會發 contextmenu，不能變成退點
+  await page.evaluate(() => {
+    const b = document.querySelector('.pNode[data-skill="a_ap"]');
+    b.dispatchEvent(
+      new window.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'touch' }),
+    );
+  });
+  await page.waitForFunction(
+    () => document.querySelector('.pNode[data-skill="a_ap"] .pRk').textContent.startsWith('2/'),
+    null,
+    { timeout: 10000 },
+  );
+  const tLong = await page.evaluate(() => {
+    const b = document.querySelector('.pNode[data-skill="a_ap"]');
+    b.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    window.dispatchEvent(new window.PointerEvent('pointerup', { pointerType: 'touch' }));
+    return b.querySelector('.pRk').textContent;
+  });
+  check(tLong.startsWith('2/'), `觸控長按投點後不會因為 contextmenu 退點（${tLong}）`);
+  await page.click('#pDecBtn');
   // 手把：焦點在節點上按住 A 投點、X 退點（pad-ui.js 的 padHold／padDec）
   await page.evaluate(() => document.querySelector('.pNode[data-skill="v_spd"]').padHold(true));
   // 投下第一點就放開（負載高時 requestAnimationFrame 不準，不用固定的等待時間）
@@ -11247,6 +11267,16 @@ async function testBossField(browser, base) {
     g.save.level = 3;
     g.startMission();
     g.state = 'bf-test';
+    // Boss 關的地圖物件少一點（World.openArena）：只留約兩成、中央全部拿掉，客機以 wopt 的 open 生成一樣的
+    const w = g.world,
+      mid = w.lim * 0.4;
+    out.open = {
+      on: w.netOpt().open === 1,
+      n: w.openRemoved,
+      mid: w.obstacles.filter(
+        (o) => o.group && Math.hypot(o.group.position.x, o.group.position.z) < mid * 0.5,
+      ).length,
+    };
     const pl = g.player;
     pl.hp = pl.maxHp = 1e8;
     const b = g.boss;
@@ -11371,6 +11401,7 @@ async function testBossField(browser, base) {
     g.state = 'title';
     return out;
   });
+  check(r.open.on && r.open.n > 0, `Boss 關的地圖物件變少（拿掉 ${r.open.n} 個、中央剩 ${r.open.mid}）`);
   check(r.qs[0] < 10 && Math.abs(r.qs[1]) > 0.5, `流沙：緩速並往中心吸（${JSON.stringify(r.qs)}）`);
   check(r.ice < 5, `冰面：加速度 18 → ${r.ice}（滑）`);
   check(

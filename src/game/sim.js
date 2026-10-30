@@ -120,7 +120,10 @@ Object.assign(Game.prototype, {
     this.worldSeed = seed;
     this.worldTheme = 'grid';
     this.styleRefresh();
-    this.world = new World(this.scene, 'grid', seed, L, null, { zone: kind === 'boss' ? 'full' : 'arena' });
+    this.world = new World(this.scene, 'grid', seed, L, null, {
+      zone: kind === 'boss' ? 'full' : 'arena',
+      open: kind === 'boss' ? 1 : undefined,
+    });
     this.isClient = false;
     this.net.spawnReg = {};
     this.world.applyLight(this);

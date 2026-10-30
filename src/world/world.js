@@ -79,6 +79,8 @@ import { Weather } from './weather.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 
 const BOUND_R = 20 * DS; // 作戰區域的邊界線：機體離邊界這麼近才顯示、亮的半徑
+const OPEN_KEEP = 0.2; // Boss 關（opt.open）：地圖物件只留這個比例當掩體
+const OPEN_MID = 0.4; // Boss 關：地圖中央這個半徑（× lim）內的物件全部拿掉
 import { LANDMARKS } from './landmarks.js';
 import { buildLandingZone, buildLiftPad, variantOf } from './variants.js';
 import { DAM } from './themes/dam.js';
@@ -379,6 +381,8 @@ export class World {
       const ob0 = this.obstacles.length,
         me0 = this.meshes.length;
       if (!(LV && (LV.blank || LV.props === 'none'))) this.buildProps();
+      // Boss 關（opt.open）：物件太多會一直擋住 Boss 的攻擊，依位置挑掉大部分（不用亂數，各端一樣）
+      if (opt.open && !LV) this.openArena(ob0, opt.open);
       // 以下只在主線（或選了變體）時有：接在原本的亂數呼叫之後，不影響一般地圖
       if (this.variant && this.variant.build) this.variant.build(this);
       if (opt.landmark) this.addLandmark(opt.landmark);
@@ -1099,6 +1103,7 @@ export class World {
       'zone',
       'zoneAxis',
       'entry',
+      'open',
     ])
       if (o[k] !== undefined && o[k] !== null && o[k] !== '') out[k] = o[k];
     return out;
@@ -1211,6 +1216,28 @@ export class World {
       )
         this.removeGenItem(it);
     }
+  }
+  // Boss 關：buildProps 放的物件（依群組）只留約 keep 的比例當掩體，地圖中央一圈全部拿掉；
+  // 以群組位置的雜湊決定（不呼叫亂數，房主與客機一樣），地形特徵與大型結構不動
+  openArena(ob0, open) {
+    const keep = typeof open === 'number' && open < 1 ? open : OPEN_KEEP;
+    const byG = new Map();
+    for (const ob of this.obstacles.slice(ob0)) {
+      if (!ob.group) continue;
+      if (!byG.has(ob.group)) byG.set(ob.group, []);
+      byG.get(ob.group).push(ob);
+    }
+    const mid = this.lim * OPEN_MID;
+    let n = 0;
+    for (const [g, obs] of byG) {
+      const x = g.position.x,
+        z = g.position.z;
+      const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
+      if (Math.hypot(x, z) > mid && h < keep) continue;
+      this.removeGenItem({ g, obs });
+      n++;
+    }
+    this.openRemoved = n;
   }
   removeGenItem(it) {
     it.g.visible = false;

@@ -203,12 +203,15 @@ Object.assign(Game.prototype, {
           b.onfocus = () => this.pilotHover(s.id);
           b.onclick = () => this.pilotSelect(s.id);
           b.onpointerdown = (e) => {
+            this.pPtrType = e.pointerType;
             if (e.button !== 0) return;
             this.pilotSelect(s.id, true);
             this.pilotHoldStart(s.id, 'ptr');
           };
           b.oncontextmenu = (e) => {
             e.preventDefault();
+            // 觸控／觸控筆長按也會觸發 contextmenu：按住投點時不能變成退點（退點用「退一點」按鈕）
+            if (this.pPtrType === 'touch' || this.pPtrType === 'pen' || this.pHoldSrc === 'ptr') return;
             this.pilotDec(s.id);
           };
           // 手把（pad-ui.js）：按住 A＝投點、X＝退一點
