@@ -244,7 +244,7 @@ Object.assign(MechEntity.prototype, {
     const g = this.game;
     // 主題專屬敵人的顯示（房主與客機都跑）：
     const m = this.model;
-    if (m && m.dmg) foeDamageTick(this, dt); // 受損狀態與擊破碎片（render/foe-damage.js）
+    if (m) foeDamageTick(this, dt); // 受損狀態與擊破碎片（render/foe-damage.js：所有敵人＋有 rig.dmg 的模型）
     if (FOE_FX.has(this.ai) || (this.opts && this.opts.vehKey === 'jammer') || (m && m.animD1))
       this.foeFx(dt); // 原本的專屬敵人與第 1、2 章模型的動作（mech-foe.js）
     if (m && m.anim_d2) this.foeAnim_d2(dt); // 第 3～6 章模型的動作（mech-foe-d2.js）

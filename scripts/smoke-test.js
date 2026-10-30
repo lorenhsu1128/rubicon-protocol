@@ -15531,6 +15531,154 @@ async function testRangedReact(browser, base) {
 }
 
 // 受擊反應改版第 1 期（docs/hit-react-design.md）：每把遠程武器各自的受擊動作（人形機甲）
+// 分階段受損（docs/crew-civilians-design.md 第 1 期）：所有敵人依 AP 四段焦黑、冒煙、火、碎板，依機型的受損姿勢，回復後歸位
+async function testDamageStages(browser, base) {
+  console.log('分階段受損：所有敵人的四段（焦黑、冒煙、火、碎板）、依機型的受損姿勢、回復後歸位');
+  const { ctx, page } = await newPage(browser, 'dmg-stages');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const TYPES = ['mt', 'mth', 'tank', 'heli', 'swarm', 'strider', 'blob', 'crane', 'buoy', 'ac_longshot'];
+  const r = await page.evaluate((TYPES) => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.startMission();
+    g.state = 'dmg-test';
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    for (const e of g.enemies) e.pos.set(900, -80, 900);
+    const gc = document.getElementById('goalCard');
+    if (gc) gc.style.display = 'none';
+    const K = pl.dk;
+    const out = [];
+    for (const type of TYPES) {
+      const e = g.spawnType(type, 1, 1);
+      if (!e) {
+        out.push({ type, none: true });
+        continue;
+      }
+      e.ai = 'none';
+      const place = () => {
+        e.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 30 * K, pl.pos.y + 20), pl.pos.z - 30 * K);
+        e.vel.set(0, 0, 0);
+        e.yaw = 0;
+      };
+      place();
+      window.__pump(0.5);
+      const m = e.model;
+      const c0 = m.mats && m.mats[0] && m.mats[0].color.getHSL({}).l;
+      const st = [];
+      for (const f of [0.7, 0.45, 0.2, 0.08]) {
+        e.hp = e.maxHp * f;
+        place();
+        window.__pump(0.8);
+        const fd = e._fd || {};
+        const o = m.dmgOff || {};
+        st.push({
+          f,
+          ch: +(fd.ch || 0).toFixed(2),
+          pl: !!fd.plates,
+          pl2: !!fd.plates2,
+          off: +(Math.abs(o.x || 0) + Math.abs(o.z || 0) + Math.abs(o.nv || 0)).toFixed(3),
+        });
+      }
+      const c1 = m.mats && m.mats[0] && m.mats[0].color.getHSL({}).l;
+      e.hp = e.maxHp;
+      place();
+      window.__pump(2.5);
+      const o = m.dmgOff || {};
+      const c2 = m.mats && m.mats[0] && m.mats[0].color.getHSL({}).l;
+      out.push({
+        type,
+        kind: m.dmgKind,
+        st,
+        dark: c0 > 0 ? +(c1 / c0).toFixed(2) : 1,
+        back: c0 > 0 ? +(c2 / c0).toFixed(2) : 1,
+        offBack: !(o.x || o.z || o.nv),
+      });
+      e.takeDamage(1e12, 0, null, e.center());
+      window.__pump(0.2);
+      g.enemies = g.enemies.filter((x) => x !== e);
+    }
+    return out;
+  }, TYPES);
+  for (const v of r) {
+    if (v.none) {
+      check(false, `${v.type} 生成不了`);
+      continue;
+    }
+    const [s1, s2, s3, s4] = v.st;
+    check(
+      s1.ch > 0.05 && s2.ch > s1.ch && s3.ch > s2.ch && s4.ch > s3.ch && v.dark < 0.75,
+      `${v.type}：焦黑隨階段加深（${v.st.map((s) => s.ch).join('→')}，亮度 ×${v.dark}）`,
+    );
+    check(!s2.pl && s3.pl && !s3.pl2 && s4.pl2, `${v.type}：≤ 25% 掉裝甲板、≤ 10% 再掉一次`);
+    check(
+      v.kind === null ||
+        (s2.off === 0 && s3.off > 0 && (v.kind === 'fly' ? s4.off > 0 : s4.off >= s3.off * 0.9)),
+      `${v.type}：受損姿勢（${v.kind}，${v.st.map((s) => s.off).join('／')}）`,
+    );
+    check(v.back > 0.97 && v.offBack, `${v.type}：回復後顏色與受損姿勢歸位（亮度 ×${v.back}）`);
+  }
+  // 截圖：每一種近拍（第 3 階段 ≤ 25%、第 4 階段 ≤ 10%）
+  for (const [type, f] of [
+    ['mt', 0.08],
+    ['ac_longshot', 0.2],
+    ['tank', 0.08],
+    ['heli', 0.2],
+    ['crane', 0.08],
+  ]) {
+    await page.evaluate(
+      ([type, f]) => {
+        const g = window.__game,
+          pl = g.player,
+          K = pl.dk;
+        // 只留這一台：其他敵人與子彈清掉（不要有別的爆炸與槍口火光）
+        for (const e of g.enemies) {
+          e.dead = true;
+          if (e.specialCleanup) e.specialCleanup(); // 護盾產生器的護盾等
+          g.scene.remove(e.mesh);
+        }
+        g.enemies = [];
+        g.projectiles.length = 0;
+        g.fx.clear();
+        const e = g.spawnType(type, 1, 1);
+        e.dmgShot = true;
+        e.ai = 'none';
+        const place = () => {
+          e.pos.set(
+            pl.pos.x,
+            g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20),
+            pl.pos.z - 26 * K,
+          );
+          e.vel.set(0, 0, 0);
+          e.yaw = 0;
+        };
+        place();
+        e.hp = e.maxHp * f;
+        for (let i = 0; i < 12; i++) {
+          window.__pump(0.1);
+          g.projectiles.length = 0;
+          place();
+        }
+        const H = e.model.height || 6,
+          cc = e.center();
+        g.camera.position.set(cc.x + 0.9 * H, cc.y + 0.35 * H, cc.z + 1.8 * H);
+        g.camera.lookAt(cc);
+        g.camera.updateMatrixWorld();
+        g.renderMain();
+      },
+      [type, f],
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `dmg-stages-${type}.png`) });
+  }
+  await thawLoop(page);
+  await ctx.close();
+}
+
 async function testHitReact(browser, base) {
   console.log('受擊反應改版：每把遠程武器各自的受擊動作（人形機甲）、爆炸、命中高度、幅度分級、客機');
   const { ctx, page } = await newPage(browser, 'hit-react');
@@ -20563,6 +20711,7 @@ const STEPS = [
   ['testRangedReact', (c) => testRangedReact(c.browser, c.base)],
   ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
   ['testHitReact', (c) => testHitReact(c.browser, c.base)],
+  ['testDamageStages', (c) => testDamageStages(c.browser, c.base)],
   ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   ['testRangedTut', (c) => testRangedTut(c.browser, c.base)],

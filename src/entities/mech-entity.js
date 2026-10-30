@@ -81,6 +81,7 @@ import { MeleeAnim } from '../render/melee-anim.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikMeasure, ikOn, ikRestore } from '../render/mech-ik.js';
 import { hrBodyRestore } from '../render/hit-react-pose.js';
+import { dmgOn } from '../render/foe-damage.js';
 import { fireClass } from '../render/mech-fire.js';
 import { mergeRig } from '../render/mesh-merge.js';
 import { nozzleWorld } from '../fx/thruster.js';
@@ -2696,6 +2697,7 @@ export class MechEntity {
       const targetYaw = faceAim ? this.aimYaw : Math.atan2(-this.vel.x, -this.vel.z);
       this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (this.yawRate || (faceAim ? 10 : 14))));
     }
+    this.dmgRestore(); // 受損姿勢（mech-damage.js）：在 IK 還原之前扣掉
     ikRestore(this.model); // IK 改過的關節回到動作層的結果（animateMech 從那裡平滑）
     hrBodyRestore(this.model); // 載具與飛行的受擊偏移（hit-react-pose.js）在前傾的 lerp 之前扣掉
     this.mesh.position.copy(this.pos);
@@ -2853,8 +2855,8 @@ export class MechEntity {
           1.2,
         );
     }
-    // smoke when damaged
-    if (this.hp < this.maxHp * 0.35) {
+    // smoke when damaged（敵人與有 rig.dmg 的模型改由 foe-damage.js 的分階段受損）
+    if (this.hp < this.maxHp * 0.35 && !dmgOn(this)) {
       this.smokeT -= dt;
       if (this.smokeT <= 0) {
         this.smokeT = 0.25;
@@ -2873,6 +2875,7 @@ export class MechEntity {
       );
     this.specialFx(dt);
     this.hrFoeApply(); // 專屬敵人受擊的零件動作（mech-hit-react.js）：在模型自己的動作之後
+    this.dmgApply(dt); // 受損姿勢（mech-damage.js）
     if (this.sts || this.stsV) this.statusFx(dt);
   }
   // 跳躍與懸浮（同一個鍵分段）：地面按下＝跳躍；空中按下＝空中跳（還有次數時，向上的 QB，高度依次遞減）；

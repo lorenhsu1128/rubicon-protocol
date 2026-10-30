@@ -30,6 +30,7 @@ Object.assign(MechEntity.prototype, {
     this.recoil.bl = Math.max(0, (this.recoil.bl || 0) - dt * 8);
     this.recoil.br = Math.max(0, (this.recoil.br || 0) - dt * 8);
     if (this.melee.active) this.melee.t += dt;
+    this.dmgRestore(); // 受損姿勢（mech-damage.js）
     hrBodyRestore(this.model); // 受擊的偏移（hit-react-pose.js）：在模型自己的動作（specialFx）與前傾之前扣掉
     this.specialFx(dt);
     if (this.sts) this.statusRemoteTick(dt);
@@ -105,6 +106,7 @@ Object.assign(MechEntity.prototype, {
     });
     if (!this.model.vehicle) applyIK(this.model, this.ikCtx(dt));
     this.hrFoeApply(); // 專屬敵人受擊的零件動作（mech-hit-react.js）：在模型自己的動作（specialFx）之後
+    this.dmgApply(dt); // 受損姿勢（mech-damage.js）
     this.trailsTick(dt);
     this.trailsTick(dt);
     // 光暈與噴焰

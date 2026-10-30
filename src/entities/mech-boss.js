@@ -87,6 +87,7 @@ Object.assign(MechEntity.prototype, {
     this.vel.set(0, 0, 0);
     this.grounded = false;
     // 受擊反應（mech-hit-react.js、render/hit-react-pose.js）：上一格的偏移先扣掉，動作層算整台的，零件在模型自己的動作之後
+    this.dmgRestore(); // 受損姿勢（mech-damage.js）
     hrBodyRestore(this.model);
     if (this.hrs || this.hrPress) this.hrTick(dt);
     this.mesh.position.copy(this.pos);
@@ -95,6 +96,7 @@ Object.assign(MechEntity.prototype, {
     animateMech(this.model, dt, { t: this.t, leanX: 0, leanZ: 0, hr: this.hrState(), react: null });
     this.specialFx(dt);
     this.hrFoeApply();
+    this.dmgApply(dt);
   },
   // ---------- 移動（mech-special.js 的 aiSpecialMove 轉過來）----------
   bossMove(dt, d, dir, perp, wish, pl) {

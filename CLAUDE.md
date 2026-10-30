@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `server.js`：區網伺服器。遊戲 port 預設 80（提供遊戲頁、`/models` 模型庫、`/health`、`/ws` WebSocket 中繼、`/apng/` 文字動畫 APNG 產生器與 `/paint/` 貼圖繪製（同資料夾的 `apng/`、`paint/`，依副檔名給 Content-Type）、`/api/models/default/…` 伺服器預設組與 `/api/sets/<sha256>` 玩家上傳的模型組、`/api/styles` 分享的渲染風格（`styles.json`）、`/api/levels` 自訂關卡（`levels/`），資料在 exe 旁的 `server-models/`，環境變數 `RUBICON_MODELS_DIR` 可改位置），控制台固定 port 8090。開發時讀 `dist/` 的 HTML，打包成 exe 後讀 exe 同資料夾的檔案（以 `process.pkg` 判斷，改打包方式時要一併修改）。
 - `scripts/build.js`：建置腳本；`scripts/smoke-test.js`：冒煙測試；`scripts/test-server-preload.js`：測試時讓 server.js 改聽 127.0.0.1 測試 port、不開瀏覽器。
 - `docs/glb-spec.md`：給美術的 GLB 製作規格。
+- `docs/crew-civilians-design.md`：分階段受損、乘員逃出、地圖上的小人（踩死、血跡、人員擊殺數）的定案與分期；改受損外觀、乘員、小人時照它進行並同步更新。
 - `docs/humanoid-assets.md`：人形素材的整理（現在格納庫用的 Quaternius 三隻、之後小人與過場可以用的 CC0 人物與動畫包、授權的注意（不用 Mixamo））；新增人物素材時照它挑並同步更新。
 - `docs/world-scale.md`：遊戲的尺度（機甲三倍高改版：機甲 9.7 m、`core/scale.js` 的 MS／WS／DS 三個倍率）與地圖物件的現實尺寸、人的尺寸（之後的小人互動）、掩體的分級；改尺度、新增或重做地圖物件時照它進行並同步更新。程式裡寫死的距離寫成「舊數字 × 倍率」（實體裡用 `this.dk`）。
 - `docs/campaign-design.md`：主線任務模式（機戰傭兵6＋黑帝斯）的設計文件與實作分期；做主線相關功能時照它進行，設計有變動時同步更新。
@@ -91,7 +92,7 @@ render/              detail.js（程式模型的精細化工具：倒角方塊�
                      mech-ik.js（動作的 IK 修正層與開關 IK／setIK）、hit-react-pose.js（受擊反應改版：依受擊特徵的姿勢 hrPose 與衝量 hrKicks）、boss-field-models.js（Boss 改版的場地效果與新掩體的外觀）、hangar.js（機甲庫的格納庫場景：四種場景、整備架、技師人偶、車輛、吊車、換裝的機械臂與地板開口、維修無人機、補給車、出擊用的天花板開口與閘門、火花、蒸氣、tickHangar；外部素材載入後 `H.rich` 的細緻版本：PBR 材質與投影 UV、道具佈置、天車、骨架動畫的技師）、hangar-assets.js（格納庫的外部素材：載入 lib/hangar-assets.js、PBR 材質 pbrMat、道具 haProp、人物 haChar）、mech-spring.js（動作的彈簧 spring／springSet／kick）、mech-fire.js（依武器種類的射擊動作）、melee-anim.js（近戰的關鍵影格：預設片段、求值、鏡像、片段的來源 MeleeAnim）、
                      vehicle-models.js、boss-models.js（新 Boss 與附屬部位的程式模型）、foe-models.js（主題專屬敵人的程式模型、
                      第 1、2 章的 animD1 與第 3～6 章的 anim_d2 動作）、foe-models-b1／b2／c1／c2.js（擴充組的模型）、
-                     foe-damage.js（專屬敵人的受損冒煙、掉板與擊破碎片：rig.dmg）、foe-merge.js（專屬敵人模型的網格合併：
+                     foe-damage.js（分階段受損：所有敵人依 AP 四段的焦黑、冒煙、火、掉板（沒有 rig.dmg 時自動產生冒煙點與同色碎板）與擊破碎片：rig.dmg）、foe-merge.js（專屬敵人模型的網格合併：
                      靜態合併＋SkinnedMesh）、extra-models.js（運輸車輛、
                      掉落物、轟炸機、彈體）、environment.js（攝影棚環境貼圖）、measure.js（外框尺寸與統計）、
                      model-catalog.js（模型槽目錄）、glb.js（GLB 載入／換色／描邊／規格檢查）、
@@ -110,7 +111,7 @@ entities/            projectile.js、mech-entity.js（MechEntity）、mech-boss3
                      mech-special.js（MechEntity 擴充：特殊一般敵人的行為與顯示）、mech-boss.js（MechEntity 擴充：新 Boss 與附屬部位）、
                      mech-boss2.js（第三批 Boss）、mech-objective.js（主線的目標物與護送車隊）、mech-foe.js（主題專屬敵人的行為、擴充組的分派 foeExt）、
                      mech-foe-b1／b2／c1／c2.js（擴充組的新敵人）、mech-foe-d2.js（第 3～6 章模型的動作旗標）、
-                     mech-trails.js（動作的特效：刀光、地面的推進氣流帶、腳印與揚塵，trailsTick 在動作與 IK 之後）、mech-ranged.js（遠程射擊的邊閃邊打：rbTick 記落地／最高點／繞射、rbShot 算這一發的加成、rbHit 的提示）、mech-style.js（風格評價：syAdd 加分與重複遞減、syHit 射擊、syEv 沿用 tutE 的近戰事件、syHurt、syTick、syCoamK）、mech-feel.js（手感：feelHit 依武器的受擊反應與命中標記、arInput 主動裝填）、mech-hit-react.js（受擊反應改版：依武器的受擊特徵 hrFromHit／hrAdd、hr 事件，docs/hit-react-design.md）、mech-react.js（屬性反應：rxHit 記上一次打中的屬性並觸發、過熱裝甲 rxHotT、破甲爆裂、EMP 干擾 rxJamT）、mech-charge.js（蓄力射擊：pwInput 按住蓄力與機槍的收尾、pwShot 強力彈、pwGain 連射累積充能、pwTick 連發）、mech-weak.js（弱點：wpTake 依子彈來向／準備中露出算 CRITICAL、打斷招式、wpBreak 打壞的效果、敵人投射物可以打掉 foeShotOpt、QB 甩掉導彈 missileDodge）、mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
+                     mech-trails.js（動作的特效：刀光、地面的推進氣流帶、腳印與揚塵，trailsTick 在動作與 IK 之後）、mech-ranged.js（遠程射擊的邊閃邊打：rbTick 記落地／最高點／繞射、rbShot 算這一發的加成、rbHit 的提示）、mech-style.js（風格評價：syAdd 加分與重複遞減、syHit 射擊、syEv 沿用 tutE 的近戰事件、syHurt、syTick、syCoamK）、mech-feel.js（手感：feelHit 依武器的受擊反應與命中標記、arInput 主動裝填）、mech-hit-react.js（受擊反應改版：依武器的受擊特徵 hrFromHit／hrAdd、hr 事件，docs/hit-react-design.md）、mech-damage.js（分階段受損的姿勢：dmgRestore／dmgApply，docs/crew-civilians-design.md）、mech-react.js（屬性反應：rxHit 記上一次打中的屬性並觸發、過熱裝甲 rxHotT、破甲爆裂、EMP 干擾 rxJamT）、mech-charge.js（蓄力射擊：pwInput 按住蓄力與機槍的收尾、pwShot 強力彈、pwGain 連射累積充能、pwTick 連發）、mech-weak.js（弱點：wpTake 依子彈來向／準備中露出算 CRITICAL、打斷招式、wpBreak 打壞的效果、敵人投射物可以打掉 foeShotOpt、QB 甩掉導彈 missileDodge）、mech-status.js（狀態效果：鉤住、黏附炸彈、纏附、緩速、禁止跳躍、捕獲網、標定、吸取 EN）、
                      mech-sense.js（一般敵人的感知、警戒狀態、仇恨、找射線）、mech-moves.js（主攻的預警招式）、
 net/                 transports.js（NET_VERSION、PeerJS／BroadcastChannel／WebSocket 傳輸）、net.js（Net）、
                      snapshot.js（serEnt／applyEnt 快照序列化）
