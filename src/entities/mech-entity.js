@@ -80,6 +80,7 @@ import { applyPilotStats, pilotWeaponDef } from '../data/pilot.js';
 import { MeleeAnim } from '../render/melee-anim.js';
 import { animateMech, buildMech, mechFlash } from '../render/mech-model.js';
 import { applyIK, ikMeasure, ikOn, ikRestore } from '../render/mech-ik.js';
+import { hrBodyRestore } from '../render/hit-react-pose.js';
 import { fireClass } from '../render/mech-fire.js';
 import { mergeRig } from '../render/mesh-merge.js';
 import { nozzleWorld } from '../fx/thruster.js';
@@ -300,7 +301,8 @@ export class MechEntity {
   // （+1＝機體的 +x 右側）；房主送 rx 事件給客機。Boss 與敵對 AC 幅度小（霸體）
   // v＝這一招的受擊變化（'武器 id:段號'，data/hit-react.js 的 MELEE_HR）
   reactSet(k, T, sd, net = true, v = null) {
-    if (!this.model || this.model.vehicle || this.isProp || this.opts.modelKind) return;
+    // 人形、四足、戰車腳的機甲與載具（第 3 期）；專屬敵人與 Boss 的程式模型（modelKind 'boss'）之後的期數
+    if (!this.model || this.isProp || this.opts.modelKind === 'boss') return;
     const w = this.isBoss ? 0.3 : this.ace || this.ai === 'ac' || this.isElite ? 0.5 : 1;
     this.react = {
       k,
@@ -312,7 +314,7 @@ export class MechEntity {
       hold: 0,
       v,
     };
-    if (k === 'down' && !this.pilotEnt() && !this.isBoss && w >= 1)
+    if (k === 'down' && !this.pilotEnt() && !this.isBoss && w >= 1 && !this.model.vehicle)
       this.hitStunT = Math.max(this.hitStunT || 0, DOWN_STUN); // 被打倒：一般敵人爬起來之前不能行動
     const g = this.game;
     if (net && g.net && g.net.role === 'host')
@@ -2695,6 +2697,7 @@ export class MechEntity {
       this.yaw = angLerp(this.yaw, targetYaw, Math.min(1, dt * (this.yawRate || (faceAim ? 10 : 14))));
     }
     ikRestore(this.model); // IK 改過的關節回到動作層的結果（animateMech 從那裡平滑）
+    hrBodyRestore(this.model); // 載具與飛行的受擊偏移（hit-react-pose.js）在前傾的 lerp 之前扣掉
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;

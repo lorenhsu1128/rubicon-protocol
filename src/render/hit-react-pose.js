@@ -161,3 +161,38 @@ export function hrKicks(m, an, H, kick) {
   }
   for (const e of H.L) an.hrN = Math.max(an.hrN || 0, e.n);
 }
+
+// ---------- 第 3 期：載具與飛行（車身／機身整台的受擊偏移）----------
+// 依模型種類把受擊姿勢（全身、上身、扭轉、屈膝、翻）換成整台的俯仰 x、側滾 z、偏航 y、高度 dy（公尺）、砲塔的扭轉 tw、
+// 抖動 j：地面載具＝懸吊晃動（側傾、車頭抬起、壓低），直升機＝姿態被打歪、高度掉，無人機＝翻滾、打轉
+const BODY = {
+  vehicle: { x: 0.55, z: 0.6, y: 0.25, dy: -0.35, tw: 0.35, flip: 0.3, j: 0.4 },
+  heli: { x: 0.8, z: 1.0, y: 0.6, dy: -0.9, tw: 0.2, flip: 0.5, j: 0.7 },
+  drone: { x: 1.1, z: 1.7, y: 1.3, dy: -0.7, tw: 0.3, flip: 0.8, j: 1 },
+};
+// m.group 的旋轉 x／z 由實體 lerp 到前傾（leanTilt），所以上一格加的偏移要在那之前扣掉（hrBodyRestore）；
+// 位置與偏航由實體每格直接設定，不用扣
+export function hrBodyRestore(m) {
+  const o = m && m.hrOff;
+  if (!o) return;
+  m.group.rotation.x -= o.x;
+  m.group.rotation.z -= o.z;
+  o.x = o.z = 0;
+}
+export function hrBody(m, P, t) {
+  const B = BODY[m.cls] || (m.cls === 'heli' ? BODY.heli : null);
+  if (!B) return;
+  const o = m.hrOff || (m.hrOff = { x: 0, z: 0 });
+  if (!P.on) return;
+  const j = P.on * B.j;
+  const x = (P.rx + P.tx * 0.45 + P.flip * B.flip) * B.x + Math.sin(t * 37) * 0.012 * j;
+  const z = (P.rz + P.tz * 0.5) * B.z + Math.sin(t * 43 + 1) * 0.015 * j;
+  m.group.rotation.x += x;
+  m.group.rotation.z += z;
+  o.x = x;
+  o.z = z;
+  m.group.rotation.y += (P.yaw + P.tw * 0.25) * B.y;
+  m.group.position.y += (P.crouch + (m.cls === 'vehicle' ? 0 : P.on * 0.15)) * B.dy * (m.height || 3) * 0.5;
+  if (m.torso && m.cls === 'vehicle') m.torso.rotation.y += P.tw * B.tw; // 砲塔被推得轉一下
+  if (m.rotor) m.rotor.rotation.x = Math.sin(t * 31) * 0.06 * P.on; // 旋翼抖
+}

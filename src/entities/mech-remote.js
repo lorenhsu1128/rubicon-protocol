@@ -5,6 +5,7 @@ import { MeleeAnim } from '../render/melee-anim.js';
 import { meleeMove, HITSTOP_K } from '../data/melee.js';
 import { animateMech } from '../render/mech-model.js';
 import { applyIK, ikRestore } from '../render/mech-ik.js';
+import { hrBodyRestore } from '../render/hit-react-pose.js';
 import { MechEntity } from './mech-entity.js';
 
 Object.assign(MechEntity.prototype, {
@@ -34,6 +35,7 @@ Object.assign(MechEntity.prototype, {
     if (this.sts || this.stsV) this.statusFx(dt); // 狀態效果的顯示（mech-status.js）
     this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5;
     ikRestore(this.model);
+    hrBodyRestore(this.model); // 載具與飛行的受擊偏移（hit-react-pose.js）
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = this.yaw;

@@ -15609,6 +15609,105 @@ async function testHitReact(browser, base) {
   check(r.w.foe === 1 && r.w.pl === 0.65, `幅度：一般敵人 ${r.w.foe}、玩家 ${r.w.pl}`);
   check(r.client === 'emp', `客機收到 hr 事件（${r.client}）`);
   check(r.cleared, '動作結束後清掉');
+  // 第 3 期：四足、戰車腳的機甲、地面載具、直升機、無人機：整台的受擊動作
+  const br = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player,
+      K = pl.dk;
+    g.state = 'hr-test';
+    const out = {};
+    for (const type of ['mth', 'strider', 'tank', 'heli', 'swarm']) {
+      const e = g.spawnType(type, 1, 1);
+      e.ai = 'none';
+      const home = new THREE.Vector3(pl.pos.x + 30 * K, 0, pl.pos.z - 30 * K);
+      const m = e.model;
+      const pose = () =>
+        m.vehicle
+          ? [
+              m.group.rotation.x,
+              m.group.rotation.z,
+              m.group.rotation.y - e.yaw,
+              (m.group.position.y - e.pos.y) / K,
+            ]
+          : [
+              m.lift.rotation.x,
+              m.lift.rotation.y,
+              m.lift.rotation.z,
+              (m.lift.position.y || 0) / K,
+              m.torso.rotation.x,
+              m.torso.rotation.z,
+              m.torsoTwist || 0,
+            ];
+      const reset = () => {
+        Object.assign(e, {
+          staggerT: 0,
+          acs: 0,
+          hitStunT: 0,
+          yaw: 0,
+          react: null,
+          hrs: [],
+          hrPress: 0,
+          iFrames: 0,
+        });
+        e.hp = e.maxHp = 1e9;
+        e.vel.set(0, 0, 0);
+        e.pos.set(home.x, g.world.groundAt(home.x, home.z, pl.pos.y + 20) + (e.flying ? 8 * K : 0), home.z);
+        window.__pump(1.2);
+        e.vel.set(0, 0, 0);
+      };
+      const sigs = {};
+      let maxA = 0;
+      for (const w of ['w_rifle', 'w_sg', 'w_bz', 'w_emp', 'w_lr', 'melee']) {
+        reset();
+        const b = pose();
+        if (w === 'melee') e.reactSet('blow', 0.65, 1, false, 'w_blade:6');
+        else e.takeDamage(1, 50, pl, e.center(), new THREE.Vector3(0.4, 0, -1).normalize(), undefined, w);
+        const sg = [];
+        for (const dt of [0.06, 0.08, 0.1, 0.14, 0.2]) {
+          window.__pump(dt);
+          const p = pose();
+          for (let n = 0; n < p.length; n++) {
+            sg.push(p[n] - b[n]);
+            maxA = Math.max(maxA, Math.abs(p[n] - b[n]));
+          }
+        }
+        sigs[w] = sg;
+      }
+      // 結束後回到原本的姿勢
+      reset();
+      const b0 = pose();
+      e.takeDamage(1, 50, pl, e.center(), new THREE.Vector3(0, 0, -1), undefined, 'w_bz');
+      window.__pump(2.5);
+      const b1 = pose();
+      let minD = 9;
+      const ks = Object.keys(sigs);
+      for (let i = 0; i < ks.length; i++)
+        for (let j = i + 1; j < ks.length; j++) {
+          let d = 0;
+          for (let n = 0; n < sigs[ks[i]].length; n++) d += (sigs[ks[i]][n] - sigs[ks[j]][n]) ** 2;
+          minD = Math.min(minD, Math.sqrt(d));
+        }
+      out[type] = {
+        cls: m.cls || m.type,
+        maxA: +maxA.toFixed(3),
+        minD: +minD.toFixed(3),
+        back: m.vehicle
+          ? +(
+              Math.abs((m.hrOff && m.hrOff.x) || 0) +
+              Math.abs((m.hrOff && m.hrOff.z) || 0) +
+              e.hrs.length
+            ).toFixed(3)
+          : +Math.max(...b0.slice(0, 3).map((v, i) => Math.abs(v - b1[i]))).toFixed(3),
+      };
+      e.depart();
+    }
+    return out;
+  });
+  for (const [type, v] of Object.entries(br))
+    check(
+      v.maxA > 0.04 && v.minD > 0.02 && v.back < 0.02,
+      `${type}（${v.cls}）：整台有受擊動作（最大 ${v.maxA}）、不同武器不同（最接近 ${v.minD}）、結束後回到原姿勢（差 ${v.back}）`,
+    );
   // 第 2 期：近戰每一招自己的受擊變化（盾擊每把武器共用，只算一次）
   const mr = await page.evaluate(() => {
     const g = window.__game,
@@ -15732,6 +15831,43 @@ async function testHitReact(browser, base) {
       [wid, at, SPLASH],
     );
     await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${wid}.png`) });
+  }
+  // 載具與飛行：火箭筒打中裝甲車、霰彈打中直升機、EMP 打中無人機、上挑打中四足
+  for (const [type, w, at] of [
+    ['tank', 'w_bz', 0.2],
+    ['heli', 'w_sg', 0.15],
+    ['swarm', 'w_emp', 0.3],
+    ['strider', 'melee', 0.2],
+  ]) {
+    await page.evaluate(
+      ([type, w, at]) => {
+        const g = window.__game,
+          pl = g.player,
+          K = pl.dk;
+        for (const e of g.enemies) if (e.hrShot) e.depart();
+        const e = g.spawnType(type, 1, 1);
+        e.ai = 'none';
+        e.hrShot = true;
+        e.hp = e.maxHp = 1e9;
+        const hx = pl.pos.x + 30 * K,
+          hz = pl.pos.z - 30 * K;
+        e.pos.set(hx, g.world.groundAt(hx, hz, pl.pos.y + 20) + (e.flying ? 8 * K : 0), hz);
+        window.__hrTg.pos.set(9999, -99, 9999);
+        window.__pump(1);
+        e.vel.set(0, 0, 0);
+        if (w === 'melee') e.reactSet('launch', 1, 1, false, 'w_blade:8');
+        else e.takeDamage(1, 50, pl, e.center(), new THREE.Vector3(0.4, 0, -1).normalize(), undefined, w);
+        window.__pump(at);
+        const H = Math.max(e.model.height, 6 * K),
+          cc = e.center();
+        g.camera.position.set(cc.x + 0.9 * H, cc.y + 0.35 * H, cc.z + 1.7 * H);
+        g.camera.lookAt(cc);
+        g.camera.updateMatrixWorld();
+        g.renderMain();
+      },
+      [type, w, at],
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${type}.png`) });
   }
   // 近戰：踢開、撕扯、樁擊、上勾拳、兩斷
   for (const [wid, idx, at] of [

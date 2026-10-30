@@ -29,7 +29,7 @@ import { tagStyle } from './style/shader.js';
 import { kick, spring, springSet, springVel } from './mech-spring.js';
 import { FIRE } from './mech-fire.js';
 import { MJ_AXES, clipPose, clipStrike, clipTarget } from './melee-anim.js';
-import { addPose, hrKicks, hrPose } from './hit-react-pose.js';
+import { addPose, hrBody, hrKicks, hrPose } from './hit-react-pose.js';
 import { meleeHrOf } from '../data/hit-react.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
@@ -2464,6 +2464,9 @@ export function animateMech(m, dt, st) {
       m.torso.rotation.x = lerp(m.torso.rotation.x, -(st.leanX || 0) * 0.6, 0.1); // 加速時機頭下壓（正面 −Z）
       m.torso.rotation.z = lerp(m.torso.rotation.z, (st.leanZ || 0) * 0.8, 0.1);
     }
+    // 受擊反應（hit-react-pose.js 的 hrBody）：整台的懸吊晃動／姿態被打歪
+    if (st.react || st.hr) hrBody(m, addPose(reactPose(st.react), hrPose(st.hr, t)), t);
+    else if (m.hrOff) m.hrOff.x = m.hrOff.z = 0;
     return;
   }
   // ===== 車庫展示姿勢（參考圖：重心左腳、右腳前踏外開、上身左擰、右手步槍斜指前下、左拳抬起、頭側看） =====
@@ -2814,6 +2817,21 @@ export function animateMech(m, dt, st) {
     fo.x = ox;
     fo.y = oy;
     fo.z = oz;
+  } else if (m.lift && (m.type === 'quad' || m.type === 'tank')) {
+    // 四足、戰車腳：平常不轉 lift，只有受擊反應整台倒、轉、翻（四足的腳撐住幅度小一點，履帶更小）；四足另外壓低
+    const qd = m.type === 'quad',
+      K = qd ? 0.7 : 0.45;
+    const rr = an.root || (an.root = { x: 0, z: 0 });
+    const rw = SP.root[0] * (1 + 1.6 * clamp(RE.on * 1.2, 0, 1.6));
+    spring(rr, 'x', (RE.rx + RE.flip * (qd ? 0.4 : 0.2)) * K, rw, SP.root[1], dt);
+    spring(rr, 'z', RE.rz * K, rw, SP.root[1], dt);
+    an.reYaw = an.reYaw || { y: 0 };
+    spring(an.reYaw, 'y', RE.yaw * K, 34, 0.55, dt);
+    m.lift.rotation.set(rr.x, an.reYaw.y, rr.z);
+    const qo = an.qdCr || (an.qdCr = { y: 0 }),
+      cy = qd ? -RE.crouch * (m.hipY || 1.9) * MB * 0.5 : 0;
+    m.lift.position.y += cy - qo.y;
+    qo.y = cy;
   }
   // ===== 上下半身分離：下半身（legsG）朝移動方向，上半身照舊朝機體正面（準星）=====
   const mvA = Math.atan2(strafe, fwdV); // 移動方向（相對機體正面，正值＝strafe 的方向）
