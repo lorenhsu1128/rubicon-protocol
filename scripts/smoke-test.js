@@ -15853,7 +15853,13 @@ async function testCrowd(browser, base) {
     // 踩死乘員＝敵方人員
     const f0 = g.hk.foe;
     if (pilot) {
-      pl.pos.set(pilot.x, W.groundAt(pilot.x, pilot.z, pilot.y + 20), pilot.z);
+      // 先把駕駛員移到空曠的地方（旁邊有物件時機甲會被推開、踩不到）
+      const tmp = { pos: new THREE.Vector3(), vel: new THREE.Vector3() };
+      at(tmp, (pilot.x - pl.pos.x) / K, (pilot.z - pl.pos.z) / K);
+      pilot.x = pilot.nx = tmp.pos.x;
+      pilot.z = pilot.nz = tmp.pos.z;
+      pilot.y = W.groundAt(pilot.x, pilot.z, 999);
+      pl.pos.set(pilot.x, W.groundAt(pilot.x, pilot.z, 999), pilot.z);
       window.__pump(1 / 30, null, 1 / 30);
     }
     out.foe = g.hk.foe - f0;
@@ -16074,6 +16080,73 @@ async function testCrowd(browser, base) {
     g.drawHud(0);
   });
   await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-infantry.png') });
+  // 第 5 期：自訂關卡擺放的小人、「只有擺放的」與隨機
+  const lv = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    const base = JSON.parse(JSON.stringify(g.lvSamples()[0]));
+    const sp = base.marks.find((m) => m.k === 'spawn') || { x: 0, z: 0 };
+    const U = (type, dx, id) => ({
+      id,
+      kind: 'human',
+      type,
+      x: sp.x + dx,
+      y: 0,
+      z: sp.z + 40,
+      yaw: 0,
+      g: '',
+      at: 'start',
+      k: 1,
+      beh: {},
+    });
+    base.units.push(
+      U('civ', -6, 'h1'),
+      U('civ', -3, 'h2'),
+      U('soldier', 0, 'h3'),
+      U('rocket', 3, 'h4'),
+      U('pilot', 6, 'h5'),
+      U('xxx', 9, 'h6'),
+    );
+    base.base.crowd = 'placed';
+    const warn = [];
+    const L = window.__loadLevel(base, warn);
+    out.kept = L.units
+      .filter((u) => u.kind === 'human')
+      .map((u) => u.type)
+      .join();
+    out.crowdKey = L.base.crowd;
+    g.lvPlay(L, { src: 'sample' });
+    const C = g.crowd;
+    out.placed = C
+      ? C.list
+          .filter((h) => h.alive)
+          .map((h) => h.st + (h.rocket ? 'R' : ''))
+          .join()
+      : 'none';
+    out.enemies = g.enemies.filter((e) => !e.dead).length;
+    // 隨機：加上主題的平民與步兵
+    const L2 = window.__loadLevel(
+      Object.assign(JSON.parse(JSON.stringify(base)), {
+        base: Object.assign({}, base.base, { crowd: 'auto' }),
+      }),
+    );
+    g.lvPlay(L2, { src: 'sample' });
+    out.auto = g.crowd ? g.crowd.list.length : 0;
+    // 擊殺數顯示在結果畫面
+    const h = g.crowd.list.find((q) => q.alive && q.kind === 'civ');
+    g.crowdKill(h, g.player, 'crush');
+    g.lvResult(false, '測試');
+    out.row = document.querySelector('#resultGrid').textContent;
+    g.clearMission();
+    return out;
+  });
+  check(
+    lv.kept === 'civ,civ,soldier,rocket,pilot' && lv.crowdKey === 'placed',
+    `自訂關卡的小人單位：讀檔保留 4 種、不認得的略過（${lv.kept}）`,
+  );
+  check(lv.placed === 'idle,idle,post,postR,shoot', `「只有擺放的」：只有擺放的 5 人（${lv.placed}）`);
+  check(lv.auto > 10, `「隨機」：加上主題的平民與步兵（${lv.auto} 人）`);
+  check(/人員擊殺非戰鬥人員 1/.test(lv.row), '自訂關卡的結果畫面有人員擊殺數');
   await thawLoop(page);
   await ctx.close();
 }
@@ -19495,6 +19568,144 @@ async function testHazards2(browser, base) {
 }
 
 // 狀態效果的多人同步：房主套到客機的機體上 → 客機的 HUD、3D 效果、移動預測；客機 QB 掙脫鉤住、房主割開網
+// 多人的小人（docs/crew-civilians-design.md 第 5 期）：房主生成與判定、客機照收到的顯示、擊殺數記在動手的玩家
+async function testMpCrowd(browser, url) {
+  console.log('多人的小人：客機收到同一群人、位置跟上、客機踩死算客機的、乘員逃出、結果畫面各自的擊殺數');
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 680 } });
+  const host = await ctx.newPage();
+  const cli = await ctx.newPage();
+  watch(host, 'mpcrowd:host');
+  watch(cli, 'mpcrowd:client');
+  await host.goto(url, { timeout: 90000 });
+  await cli.goto(url, { timeout: 90000 });
+  await host.$eval('#btnMP', (b) => b.click());
+  await setNick(host, 'HOST');
+  await host.$eval('#btnMPHost', (b) => b.click());
+  await waitVisible(host, 'lobby');
+  await host.check('#mpAuto');
+  await host.dispatchEvent('#mpAuto', 'change');
+  await cli.$eval('#btnMP', (b) => b.click());
+  await setNick(cli, 'CLIENT');
+  await wait(1000);
+  await cli.$eval('#btnMPList', (b) => b.click());
+  await cli.waitForSelector('#mpRooms .part', { timeout: 15000 });
+  await cli.$eval('#mpRooms .part', (b) => b.click());
+  await waitVisible(cli, 'lobby', 15000);
+  await cli.evaluate(() => (window.__game.hostLostMs = 15000));
+  await cli.$eval('#btnLobbyReady', (b) => b.click());
+  await wait(500);
+  await host.$eval('#btnLobbyReady', (b) => b.click());
+  await wait(500);
+  await host.$eval('#btnLobbySortie', (b) => b.click());
+  await cli.bringToFront(); // 客機在背景太久會被當成斷線
+  await cli.evaluate(() => (window.__game.hostLostMs = 60000));
+  const ok = (await waitVisible(host, 'hudWrap', 20000)) && (await waitVisible(cli, 'hudWrap', 20000));
+  await cli.bringToFront();
+  await host.evaluate(() => (window.requestAnimationFrame = () => 0));
+  const pump = async (n) => {
+    for (let i = 0; i < n; i++) {
+      await host.evaluate(() => window.__game.loop()).catch(() => {});
+      await wait(20);
+    }
+  };
+  await host.evaluate(() => {
+    const g = window.__game;
+    g.waves = [];
+    g.wavePend = null;
+    for (const p of g.players) p.hp = p.maxHp = 1e7;
+    for (const e of g.enemies) {
+      e.updateAI = () => {};
+      e.pos.set(900, -80, 900);
+    }
+    g.crowd.fullT = 0; // 馬上送一次完整清單
+  });
+  await pump(40);
+  const a = await Promise.all([
+    host.evaluate(() => {
+      const C = window.__game.crowd;
+      return C ? C.list.filter((h) => h.alive).map((h) => [h.i, h.x, h.z, h.look.shirt]) : [];
+    }),
+    cli.evaluate(() => {
+      const C = window.__game.crowd;
+      return C ? C.list.filter((h) => h.alive).map((h) => [h.i, h.x, h.z, h.look.shirt]) : [];
+    }),
+  ]);
+  const cm = new Map(a[1].map((v) => [v[0], v]));
+  const same = a[0].filter((v) => cm.has(v[0]) && cm.get(v[0])[3] === v[3]).length;
+  const dist = a[0]
+    .filter((v) => cm.has(v[0]))
+    .map((v) => Math.hypot(v[1] - cm.get(v[0])[1], v[2] - cm.get(v[0])[2]));
+  check(
+    ok && a[0].length > 10 && same === a[0].length,
+    `客機收到同一群人（房主 ${a[0].length}、客機 ${a[1].length}、外觀相同 ${same}）`,
+  );
+  check(
+    dist.length && Math.max(...dist) < 6,
+    `客機的位置跟得上（最大差 ${dist.length ? Math.max(...dist).toFixed(1) : '-'} m）`,
+  );
+  // 客機的機體踩死一個平民：房主判定、算客機的
+  const k = await host.evaluate(() => {
+    const g = window.__game,
+      W = g.world;
+    const c = g.players.find((p) => !p.isPlayer);
+    const open = (h) => {
+      const [x, z] = W.collide(h.x, h.z, h.y + 0.1, 4);
+      return Math.abs(x - h.x) + Math.abs(z - h.z) < 0.01 && W.groundAt(h.x, h.z, h.y + 20) - h.y < 1.5;
+    };
+    const h = g.crowd.list.find((q) => q.alive && q.kind === 'civ' && open(q));
+    if (!h) return null;
+    c.pos.set(h.x, W.groundAt(h.x, h.z, h.y + 20), h.z);
+    c.mesh.position.copy(c.pos);
+    g.crowdTick(0.016);
+    return { i: h.i, dead: !h.alive, hk: g.hk.civ };
+  });
+  await pump(10);
+  await wait(300);
+  const kc = await cli.evaluate(
+    (i) => {
+      const g = window.__game;
+      const h = g.crowd.byI.get(i);
+      return { dead: h ? !h.alive : null, hk: g.hk ? g.hk.civ : -1, blood: g.crowd.blood.length };
+    },
+    k ? k.i : -1,
+  );
+  check(
+    k && k.dead && k.hk === 0 && kc.dead === true && kc.hk >= 1 && kc.blood >= kc.hk,
+    `客機的機體踩死人：房主判定、擊殺數算客機的、客機也有血跡（房主 ${k && k.hk}、客機 ${kc.hk}）`,
+  );
+  // 房主擊破 MT：逃出的乘員客機也看得到
+  const crewH = await host.evaluate(() => {
+    const g = window.__game,
+      W = g.world,
+      pl = g.player;
+    let n = 0;
+    for (let i = 0; i < 8; i++) {
+      const e = g.spawnType('mt', 1, 1);
+      e.updateAI = () => {};
+      const x = pl.pos.x - 40 + i * 10,
+        z = pl.pos.z - 50;
+      e.pos.set(x, W.groundAt(x, z, 999), z);
+      e.takeDamage(1e9, 0, pl, e.center());
+    }
+    for (const h of g.crowd.list) if (h.alive && h.crew) n++;
+    return n;
+  });
+  await pump(10);
+  await wait(300);
+  const crewC = await cli.evaluate(() => window.__game.crowd.list.filter((h) => h.alive && h.crew).length);
+  check(crewH >= 1 && crewC >= 1, `房主擊破 MT 的乘員客機也看得到（房主 ${crewH}、客機 ${crewC}）`);
+  await cli.screenshot({ path: path.join(SHOT_DIR, 'crowd-mp-client.png') });
+  // 結果畫面：各自的擊殺數
+  await host.evaluate(() => window.__game.endMission(false, true));
+  await wait(1500);
+  const rows = await cli.evaluate(() => document.querySelector('#resultGrid').textContent);
+  check(
+    rows.includes(`非戰鬥人員 ${kc.hk}・`),
+    `客機的結果畫面是自己的人員擊殺數（${(rows.match(/人員擊殺[^累]*/) || [''])[0]}）`,
+  );
+  await ctx.close();
+}
+
 async function testMpStatus(browser, url) {
   console.log('多人狀態效果：客機看到鉤住與捕獲網、QB 掙脫同步');
   // 頁面忙或在背景時 playwright 的點擊會等不到畫面更新：直接呼叫元素的 click()
@@ -21287,6 +21498,7 @@ const STEPS = [
     { family: 'testMpBosses' },
   ]),
   ['testMpStatus', (c) => testMpStatus(c.browser, c.base + '?lan=local&test')],
+  ['testMpCrowd', (c) => testMpCrowd(c.browser, c.base + '?lan=local&test')],
   ['testMpCampaign', (c) => testMpCampaign(c.browser, c.base + '?lan=local&test')],
   ['testMpLevels', (c) => testMpLevels(c.browser, c.base + '?lan=local&test')],
   ['testServerSeed', () => testServerSeed()],

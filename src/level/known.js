@@ -36,6 +36,13 @@ export function unitTypes(kind) {
       })),
       ally: Object.keys(AC_ROSTER).map((k) => ({ id: k, name: AC_ROSTER[k].name, note: '友軍 AC' })),
       convoy: [{ id: 'convoy', name: '護送車輛', note: '沿路徑前進' }],
+      // 地圖上的小人（game/crowd.js）：不算敵人、不擋勝負
+      human: [
+        { id: 'civ', name: '平民', note: '主題的人物，靠近會逃' },
+        { id: 'soldier', name: '敵方步兵', note: '對玩家開槍' },
+        { id: 'rocket', name: '敵方步兵（火箭筒）', note: '火箭筒' },
+        { id: 'pilot', name: '駕駛員（拿槍）', note: '站著開槍、不逃' },
+      ],
     };
   }
   return UT[kind] || [];
@@ -48,7 +55,8 @@ let KN = null;
 export function knownSets() {
   if (KN) return KN;
   const ok = {};
-  for (const k of ['enemy', 'ace', 'boss', 'ally', 'convoy']) ok[k] = new Set(unitTypes(k).map((t) => t.id));
+  for (const k of ['enemy', 'ace', 'boss', 'ally', 'convoy', 'human'])
+    ok[k] = new Set(unitTypes(k).map((t) => t.id));
   KN = {
     themes: new Set(Object.keys(THEMES)),
     props: placeIds(),

@@ -65,6 +65,7 @@ Object.assign(Game.prototype, {
   // full＝整份關卡（已經過 loadLevel）；o：{ test 編輯器試玩, at 從這裡試玩的位置, src 'local'／'server' }
   lvPlay(full, o = {}) {
     SFX.init();
+    this.hkReset(); // 人員擊殺數（crowd.js）
     this.lvFull = full;
     this.lvOpt = o;
     this.lvBegin(0, null);
@@ -143,6 +144,7 @@ Object.assign(Game.prototype, {
     this.scaleDmg = sc.dmg;
     this.levelName = full.name + (segCount(full) > 1 ? `（${n + 1}／${segCount(full)}）` : '');
     this.lvBuildMarks(true);
+    this.crowdPlan({ ambient: B.crowd !== 'placed' }); // 地圖上的小人（crowd.js）：擺放的小人要先有小人系統
     for (const u of L.units) if (u.at === 'start') this.lvSpawnUnit(u, 'place');
     for (const g of new Set(L.units.filter((u) => u.at === 'start').map((u) => u.g)))
       this.lv.st.spawned[g] = (this.lv.st.spawned[g] || 0) + 1;
@@ -402,6 +404,8 @@ Object.assign(Game.prototype, {
           this.allies.push(e);
           ents.push(e);
         }
+      } else if (u.kind === 'human') {
+        this.crowdSpawnUnit(u.type, at, u.yaw || 0); // 地圖上的小人（crowd.js）：不是實體
       } else if (u.kind === 'convoy') {
         const P = this.lv.L.paths.find((p) => p.id === u.beh.path);
         const path = (P ? P.pts : [[u.x, u.z]]).map(
@@ -1032,6 +1036,7 @@ Object.assign(Game.prototype, {
       ['最佳時間', best ? best.toFixed(1) + ' s' : '—'],
       ['擊破數', String(kills)],
       ['受損 AP', String(Math.round(p ? p.dmgTaken : 0))],
+      ...this.hkRows(), // 人員擊殺數（crowd.js）
       ['獎勵', '自訂關卡沒有 COAM 與經驗'],
     ];
     if (!success && reason) rows.splice(3, 0, ['原因', reason]);

@@ -10,6 +10,7 @@ import { FOES } from '../data/foes.js';
 import { REACT_T, meleeAll, meleeReactOf } from '../data/melee.js';
 import { Effects } from '../fx/effects.js';
 import { targetDist } from '../world/prop-hit.js';
+import { loadLevel } from '../level/known.js';
 
 // 距離分級（lodTick）與 AI 分批（aiStep）的門檻
 const LOD_IK_DIST = 60; // 離鏡頭這麼遠（m）以上不跑 IK（一般模式乘 DS：機甲三倍高改版）
@@ -120,6 +121,7 @@ export class Game {
       window.__PARTS = PARTS; // 冒煙測試列出零件（受擊反應的武器清單）
       window.__MELEE = { FIST_DEF, MELEE_HR, REACT_T, meleeAll, meleeReactOf }; // 近戰每一招的受擊變化
       window.__FOES = { FOES, FOE_HR }; // 專屬敵人的受擊（第 4 期）
+      window.__loadLevel = loadLevel; // 自訂關卡的讀檔驗證（小人單位）
     }
     const sp = new URLSearchParams(location.search).get('spectate');
     if (sp && window.RUBICON_SERVER) {
@@ -502,6 +504,7 @@ export class Game {
       this.clientTick(dt);
       this.updateMapExtras(dt);
       this.updateSupport(dt);
+      if (this.crowd) this.crowdTick(dt); // 地圖上的小人：照房主送來的顯示（crowd.js）
       if (this.lv) this.lvVisTick(dt);
       if (!this.player) {
         this.renderMain();

@@ -477,6 +477,10 @@ Object.assign(Game.prototype, {
         ash: '落灰',
       }),
     );
+    h += field(
+      '地圖上的小人',
+      sel('B.crowd', B.crowd || 'auto', { auto: '隨機（主題的平民與步兵）', placed: '只有擺放的' }),
+    );
     h += `<div class="edSub">作戰區域</div><div class="row"><button data-ea="zoneFull" class="${B.zone ? '' : 'on'}">全場</button><button data-ea="zoneRect" class="${B.zone ? 'on' : ''}">自訂矩形</button></div>`;
     if (B.zone)
       h +=

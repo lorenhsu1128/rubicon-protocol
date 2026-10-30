@@ -15,10 +15,13 @@ import { RemoteSets } from '../render/net-models.js';
 import { World } from '../world/world.js';
 import { Game } from './game.js';
 
+const CROWD_EV = new Set(['crowd', 'cw', 'hadd', 'hkill', 'hgone']);
+
 Object.assign(Game.prototype, {
   // ----- 客機：開始任務 -----
   startMissionClient(d) {
     this.clearMission();
+    if (!(this.hk && this.campC)) this.hkReset(); // 人員擊殺數（crowd.js；主線合作整次出擊累計）
     this.isClient = true;
     this.lastClientTick = 0; // 開局後第一次更新重新起算房主失聯（clientTick）
     this.hostPace = d.pace || 1;
@@ -290,6 +293,7 @@ Object.assign(Game.prototype, {
     for (const ev of s.ev) this.clientEvent(ev);
   },
   clientEvent(e) {
+    if (CROWD_EV.has(e.t)) return this.crowdNetEvent(e); // 地圖上的小人（crowd.js）：放最前面，別的處理不會先接走
     if (this.clientMapEvent(e)) return;
     if (this.tierClientEvent(e)) return; // Boss 改版：作戰區域縮小（boss-tier.js）
     if (this.bfClientEvent(e)) return; // Boss 改版的場地效果（boss-field.js）
@@ -725,8 +729,10 @@ Object.assign(Game.prototype, {
       this.save.coam += d.bonus;
       this.writeSave();
     }
+    // 人員擊殺數：房主的那一列換成自己的（crowd.js）
+    const rows = [...d.rows.filter((r) => r[0] !== '人員擊殺'), ...this.hkRows()];
     $('resultGrid').innerHTML =
-      d.rows.map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`).join('') +
+      rows.map((r) => `<span class="dim">${escHtml(r[0])}</span><span>${escHtml(r[1])}</span>`).join('') +
       `<span class="dim">COAM 結餘</span><span>${this.save.coam.toLocaleString()}</span>`;
     $('btnResultOk').textContent = '返回大廳';
     this.showScreen('result');

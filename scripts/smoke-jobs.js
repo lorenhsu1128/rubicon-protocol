@@ -15,6 +15,7 @@ const SENSITIVE = [
   'testMultiplayer',
   'testMpBosses',
   'testMpStatus',
+  'testMpCrowd',
   'testMpCampaign',
   'testMpLevels',
   'server',

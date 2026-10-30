@@ -42,7 +42,14 @@ export const BEHAVIORS = {
   patrol: '巡邏',
   retreat: '撤退',
 };
-export const UNIT_KINDS = { enemy: '敵人', ace: '宿敵 AC', boss: 'Boss', ally: '友軍', convoy: '護送車輛' };
+export const UNIT_KINDS = {
+  enemy: '敵人',
+  ace: '宿敵 AC',
+  boss: 'Boss',
+  ally: '友軍',
+  convoy: '護送車輛',
+  human: '小人',
+};
 export const GROUP_COLORS = [0xff5050, 0xffb020, 0x7ee081, 0x5cc8ff, 0xc090ff, 0xff80c0, 0xe8e070, 0x80e0d0];
 
 const clampN = (v, a, b, d = a) => {
@@ -349,6 +356,7 @@ export function newLevel(base = {}) {
       props: base.props || 'all',
       tod: base.tod || '',
       weather: base.weather || '',
+      crowd: base.crowd || 'auto',
       zone: null,
       level: base.level || 5,
       np: 1,
@@ -408,6 +416,7 @@ export function sanitizeLevel(raw, known, warn = []) {
       weather: ['', 'none', 'rain', 'snow', 'sand', 'dust', 'ash', 'coral'].includes(B.weather)
         ? B.weather
         : '',
+      crowd: B.crowd === 'placed' ? 'placed' : 'auto', // 地圖上的小人：auto＝隨機加上主題的平民與步兵、placed＝只有擺放的
       zone:
         B.zone && typeof B.zone === 'object'
           ? (() => {

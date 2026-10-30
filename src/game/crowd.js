@@ -21,6 +21,8 @@ const BLOOD_MAX = 32;
 const BLOOD_LIFE = 45; // 秒（最後 6 秒淡出）
 const BLOOD_COL = { red: 0x1c0403, oil: 0x070605 }; // 紅褐（預設）／深色油污（線性值：r128 的 setHex 不做 sRGB 轉換，畫面上會亮很多）
 
+// 狀態（多人同步用的編號）
+const ST = ['idle', 'walk', 'run', 'hide', 'flee', 'shoot', 'chute', 'post', 'engage'];
 // 膚色（衣服與帽子依主題：data/crowd-themes.js）
 const SKIN = [0xe0b896, 0xc69072, 0x8d5a3c, 0xf0cfb0];
 // 乘員的外觀：駕駛服＋頭盔（敵對 AC 的駕駛員另一種）
@@ -106,7 +108,8 @@ Object.assign(Game.prototype, {
     return [['人員擊殺', `非戰鬥人員 ${this.hk.civ}・敵方人員 ${this.hk.foe}（累計 ${S.civ + S.foe}）`]];
   },
   // 生成：地圖建好、玩家放好之後呼叫
-  crowdPlan() {
+  // o.ambient＝false：只建立小人系統，不隨機放（自訂關卡「只有擺放的」）
+  crowdPlan(o = {}) {
     this.crowdClear();
     if (!this.world || !this.scene || this.crowdOff) return;
     if (
@@ -116,7 +119,7 @@ Object.assign(Game.prototype, {
       this.lab ||
       this.cine ||
       this.pvp ||
-      (this.net && this.net.role)
+      (this.net && this.net.role === 'client')
     )
       return;
     const W = this.world,
@@ -133,7 +136,8 @@ Object.assign(Game.prototype, {
       skin: pick(SKIN),
       hat: pick(T.look.hat),
     });
-    const n = Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1) * T.civ * seg[0]));
+    const amb = o.ambient !== false ? 1 : 0;
+    const n = amb * Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1) * T.civ * seg[0]));
     const nc = Math.max(1, Math.round((4 + Math.floor(rng() * 3)) * Math.min(1.3, T.civ * seg[0])));
     // 活動點：地圖物件（貨櫃、倉庫、機具…）的旁邊，一群人面向它做事
     const props = W.obstacles.filter(
@@ -203,7 +207,7 @@ Object.assign(Game.prototype, {
       }
     }
     // 敵方步兵（C3）：小隊守在據點，玩家靠近就開槍，一部分拿火箭筒
-    const ns = Math.round((T.inf[0] + Math.floor(rng() * (T.inf[1] - T.inf[0] + 1))) * seg[1]);
+    const ns = amb * Math.round((T.inf[0] + Math.floor(rng() * (T.inf[1] - T.inf[0] + 1))) * seg[1]);
     for (let q = 0; q < ns; q++) {
       let cx = 0,
         cz = 0,
@@ -260,10 +264,21 @@ Object.assign(Game.prototype, {
     const mesh = quiet(rng, () => new CrowdMesh(list.length + CREW_SLOTS));
     for (const h of list) mesh.setLook(h.i, h.look);
     this.scene.add(mesh.group);
-    this.crowd = { list, mesh, rng, blood: [], scareT: 0, used: list.length, chutes: [], rockets: [] };
+    this.crowd = {
+      list,
+      mesh,
+      rng,
+      blood: [],
+      scareT: 0,
+      used: list.length,
+      chutes: [],
+      rockets: [],
+      byI: new Map(list.map((h) => [h.i, h])),
+    };
     if (!this.hk) this.hkReset();
     this.hkOn = true;
     this.crowdTick(0);
+    this.crowdNetFull(); // 多人：完整清單給客機（第 5 期）
   },
   crowdClear() {
     const C = this.crowd;
@@ -363,7 +378,9 @@ Object.assign(Game.prototype, {
       tz: h.z,
     });
     C.list.push(h);
+    C.byI.set(i, h);
     C.mesh.setLook(i, h.look);
+    if (this.crowdHost()) this.netEv({ t: 'hadd', h: this.crowdEnc(h) });
     return h;
   },
   // 乘員逃出（第 3 期）：擊破時（die）剩下的人；early＝重傷時先逃一人
@@ -420,6 +437,40 @@ Object.assign(Game.prototype, {
           C.chutes.push(h.chute);
         });
     }
+  },
+  // 自訂關卡擺放的小人：civ 平民、soldier 步兵、rocket 火箭筒步兵、pilot 拿槍的駕駛員
+  crowdSpawnUnit(type, at, yaw) {
+    const C = this.crowd;
+    if (!C) return null;
+    const rng = C.rng;
+    const T = CROWD_THEMES[this.world.themeKey] || CROWD_THEME0;
+    const pick = (a) => a[Math.floor(rng() * a.length)];
+    const sol = type === 'soldier' || type === 'rocket';
+    const L =
+      type === 'pilot'
+        ? PILOT_LOOK
+        : sol
+          ? T.soldier
+          : { shirt: pick(T.look.shirt), pants: pick(T.look.pants), hat: pick(T.look.hat) };
+    return this.crowdAdd({
+      x: at.x,
+      z: at.z,
+      y: at.y,
+      yaw,
+      st: type === 'pilot' ? 'shoot' : sol ? 'post' : 'idle',
+      t: 2 + rng() * 4,
+      sT: 0.5 + rng(),
+      rT: INF_K.ROCKET_DT[0] * rng(),
+      look: { shirt: L.shirt, pants: L.pants, skin: pick(SKIN), hat: L.hat },
+      kind: type === 'civ' ? 'civ' : 'foe',
+      soldier: sol,
+      armed: type !== 'civ',
+      rocket: type === 'rocket',
+      kneel: rng() < 0.5,
+      crew: type === 'pilot',
+      dx: 0,
+      dz: 0,
+    });
   },
   // 駕駛員開一槍：曳光＋目標身上的火花，傷害幾乎為零
   crowdShoot(h, tp) {
@@ -487,6 +538,183 @@ Object.assign(Game.prototype, {
       this.crowdBlast(r.p, 2.5, null); // 小人也會被炸到
     }
   },
+  // ---------- 多人（第 5 期）：房主判定、客機照收到的顯示 ----------
+  crowdHost() {
+    return !!(this.net && this.net.role === 'host' && this.crowd);
+  },
+  // 一個人 → 陣列：[i, x, z, y, yaw, 狀態, 種類位元（1 敵方 2 乘員 4 步兵 8 拿槍 16 火箭筒）, 衣服, 褲子, 膚色, 帽子（-1＝沒有）]
+  crowdEnc(h) {
+    const L = h.look;
+    const f =
+      (h.kind === 'foe' ? 1 : 0) |
+      (h.crew ? 2 : 0) |
+      (h.soldier ? 4 : 0) |
+      (h.armed ? 8 : 0) |
+      (h.rocket ? 16 : 0);
+    return [
+      h.i,
+      +h.x.toFixed(1),
+      +h.z.toFixed(1),
+      +h.y.toFixed(1),
+      +h.yaw.toFixed(2),
+      ST.indexOf(h.st),
+      f,
+      L.shirt,
+      L.pants,
+      L.skin,
+      L.hat === null ? -1 : L.hat,
+    ];
+  },
+  crowdNetFull() {
+    const C = this.crowd;
+    if (!this.crowdHost()) return;
+    this.netEv({ t: 'crowd', n: C.mesh.max, l: C.list.filter((h) => h.alive).map((h) => this.crowdEnc(h)) });
+  },
+  // 客機：收到的人加進來或更新
+  crowdNetPut(a, snap) {
+    const C = this.crowd;
+    const [i, x, z, y, yaw, st, f, shirt, pants, skin, hat] = a;
+    let h = C.byI.get(i);
+    if (!h || (!h.alive && !h.gone && f !== undefined)) {
+      if (h) C.list.splice(C.list.indexOf(h), 1);
+      h = {
+        i,
+        x,
+        z,
+        y,
+        yaw,
+        st: ST[st] || 'idle',
+        t: 1,
+        sT: 1,
+        rT: 5,
+        ph: 0,
+        work: 0,
+        cr: 0,
+        sc: 0,
+        hx: x,
+        hz: z,
+        tx: x,
+        tz: z,
+        dx: 0,
+        dz: 0,
+        alive: true,
+        kind: f & 1 ? 'foe' : 'civ',
+        crew: !!(f & 2),
+        soldier: !!(f & 4),
+        armed: !!(f & 8),
+        rocket: !!(f & 16),
+        look: { shirt, pants, skin, hat: hat === -1 ? null : hat },
+      };
+      C.list.push(h);
+      C.byI.set(i, h);
+      C.used = Math.max(C.used, i + 1);
+      C.mesh.setLook(i, h.look);
+    }
+    if (!h.alive) return;
+    h.nx = x;
+    h.nz = z;
+    h.ny = y;
+    h.nyaw = yaw;
+    h.st = ST[st] || h.st;
+    if (snap) {
+      h.x = x;
+      h.z = z;
+      h.y = y;
+      h.yaw = yaw;
+    }
+  },
+  crowdNetEvent(e) {
+    if (e.t === 'crowd') {
+      if (!this.crowd) {
+        if (!this.world || !this.scene || this.crowdOff) return;
+        const rng = makeRng(((this.world.seed | 0) * 131 + 7) >>> 0);
+        const mesh = quiet(rng, () => new CrowdMesh(e.n || CROWD_MAX + 56));
+        this.scene.add(mesh.group);
+        this.crowd = { list: [], mesh, rng, blood: [], used: 0, chutes: [], rockets: [], byI: new Map() };
+        if (!this.hk) this.hkReset();
+        this.hkOn = true;
+      }
+      for (const a of e.l) this.crowdNetPut(a, !this.crowd.byI.get(a[0]));
+      return;
+    }
+    const C = this.crowd;
+    if (!C) return;
+    if (e.t === 'hadd') this.crowdNetPut(e.h, true);
+    else if (e.t === 'cw') {
+      for (let k = 0; k + 5 < e.l.length; k += 6) {
+        const h = C.byI.get(e.l[k]);
+        if (h && h.alive)
+          this.crowdNetPut([e.l[k], e.l[k + 1], e.l[k + 2], e.l[k + 3], e.l[k + 4], e.l[k + 5]], false);
+      }
+    } else if (e.t === 'hkill') {
+      const h = C.byI.get(e.i);
+      if (!h || !h.alive) return;
+      h.x = e.x;
+      h.z = e.z;
+      h.y = e.y;
+      this.crowdKill(h, null, e.w, e.s);
+    } else if (e.t === 'hgone') {
+      const h = C.byI.get(e.i);
+      if (!h || !h.alive) return;
+      h.alive = false;
+      h.gone = true;
+      C.mesh.hide(h.i);
+      this.crowdChuteOff(h);
+    }
+  },
+  // 客機每格：往房主送來的位置內插，依狀態擺姿勢（判定都在房主）
+  crowdClientTick(dt) {
+    const C = this.crowd;
+    const W = this.world;
+    const k = Math.min(1, dt * 4);
+    for (const h of C.list) {
+      if (!h.alive) continue;
+      const ox = h.x,
+        oz = h.z;
+      if (h.nx !== undefined) {
+        h.x += (h.nx - h.x) * k;
+        h.z += (h.nz - h.z) * k;
+        h.y += (h.ny - h.y) * k;
+        let dy = h.nyaw - h.yaw;
+        dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        h.yaw += dy * k;
+      }
+      if (h.st !== 'chute') h.y = Math.max(h.y, W.groundAt(h.x, h.z, h.y + 0.6) - 0.05);
+      // 降落傘
+      if (h.st === 'chute' && !h.chute)
+        quiet(C.rng, () => {
+          h.chute = chuteMesh();
+          this.scene.add(h.chute);
+          C.chutes.push(h.chute);
+        });
+      if (h.st !== 'chute' && h.chute) this.crowdChuteOff(h);
+      if (h.chute) h.chute.position.set(h.x, h.y + 2.6, h.z);
+      const sp = dt > 0 ? Math.hypot(h.x - ox, h.z - oz) / dt : 0;
+      h.ph += dt * (sp > 3 ? 11 : sp > 0.4 ? 6.5 : 0);
+      const crT = h.st === 'hide' ? 1 : h.st === 'engage' && h.soldier && h.i % 2 ? 0.55 : 0;
+      h.cr += (crT - h.cr) * Math.min(1, dt * 6);
+      const t = this.time || 0;
+      C.mesh.pose(
+        h.i,
+        {
+          x: h.x,
+          y: h.y,
+          z: h.z,
+          yaw: h.yaw,
+          sw: sp > 0.4 ? Math.sin(h.ph) : 0,
+          run: sp > 3 ? 1 : 0,
+          crouch: h.cr,
+          work: h.st === 'idle' && h.i % 5 < 3 ? 0.6 + 0.4 * Math.sin(t * 5 + h.i) : 0,
+          wave: h.st === 'chute' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
+          aim: h.st === 'shoot' || h.st === 'engage' ? 1 : 0,
+          lean: h.st === 'hide' ? 0.3 : 0,
+        },
+        h.look.hat !== null,
+      );
+    }
+    C.mesh.commit(C.used);
+    this.crowdBloodTick(dt);
+  },
   crowdChuteOff(h) {
     const C = this.crowd;
     if (!h.chute) return;
@@ -505,9 +733,10 @@ Object.assign(Game.prototype, {
       else if (d < r * 3 + 12) this.crowdScareOne(h, pos.x, pos.z);
     }
   },
-  crowdKill(h, by, how) {
+  crowdKill(h, by, how, slot) {
     const C = this.crowd;
     if (!C || !h.alive) return;
+    if (this.net && this.net.role === 'client' && slot === undefined) return; // 客機：死亡只由房主的事件決定
     h.alive = false;
     C.mesh.hide(h.i);
     this.crowdChuteOff(h);
@@ -527,8 +756,21 @@ Object.assign(Game.prototype, {
       fx._nested = nest;
     }
     if (mode !== 'off') quiet(C.rng, () => this.crowdBlood(h.x, gy, h.z, mode));
-    // 只有玩家造成的算進擊殺數
-    if (by && by === this.player) {
+    // 只有玩家造成的算進擊殺數（多人：房主送 hkill 事件，記在動手的那位玩家名下）
+    if (this.crowdHost()) {
+      const s = by && by.team === 'player' && by.slot !== undefined && !by.isAI ? by.slot : -1;
+      this.netEv({
+        t: 'hkill',
+        i: h.i,
+        x: +h.x.toFixed(2),
+        z: +h.z.toFixed(2),
+        y: +h.y.toFixed(2),
+        w: how,
+        s,
+      });
+    }
+    const mine = slot !== undefined ? this.net && slot === this.net.me : by && by === this.player;
+    if (mine) {
       if (!this.hk) this.hkReset();
       this.hk[h.kind] = (this.hk[h.kind] || 0) + 1;
       const S = this.save;
@@ -539,6 +781,23 @@ Object.assign(Game.prototype, {
     }
     // 附近的人看到了：逃
     this.crowdScare(p, 18);
+  },
+  // 血跡：慢慢擴大、最後淡出
+  crowdBloodTick(dt) {
+    const C = this.crowd;
+    for (let i = C.blood.length - 1; i >= 0; i--) {
+      const b = C.blood[i];
+      b.t += dt;
+      const g = Math.min(1, b.t / 2.5);
+      const s = b.s * (0.1 + 0.9 * (1 - (1 - g) * (1 - g)));
+      b.m.scale.set(s, 1, s);
+      if (b.t > BLOOD_LIFE - 6) b.m.material.opacity = Math.max(0, (BLOOD_LIFE - b.t) / 6);
+      if (b.t > BLOOD_LIFE) {
+        this.scene.remove(b.m);
+        b.m.material.dispose();
+        C.blood.splice(i, 1);
+      }
+    }
   },
   crowdBlood(x, y, z, mode) {
     const C = this.crowd;
@@ -574,6 +833,30 @@ Object.assign(Game.prototype, {
   crowdTick(dt) {
     const C = this.crowd;
     if (!C) return;
+    if (this.net && this.net.role === 'client') return this.crowdClientTick(dt);
+    if (this.crowdHost()) {
+      // 多人：每 0.5 秒送位置與狀態、每 5 秒送完整清單（中途加入、房主遷移）
+      C.syncT = (C.syncT || 0) - dt;
+      C.fullT = (C.fullT === undefined ? 0.5 : C.fullT) - dt; // 開局的事件會被清掉：0.5 秒後送第一次
+      if (C.fullT <= 0) {
+        C.fullT = 5;
+        this.crowdNetFull();
+      } else if (C.syncT <= 0) {
+        C.syncT = 0.5;
+        const l = [];
+        for (const h of C.list)
+          if (h.alive)
+            l.push(
+              h.i,
+              +h.x.toFixed(1),
+              +h.z.toFixed(1),
+              +h.y.toFixed(1),
+              +h.yaw.toFixed(2),
+              ST.indexOf(h.st),
+            );
+        this.netEv({ t: 'cw', l });
+      }
+    }
     const W = this.world,
       rng = C.rng;
     const mechs = this.crowdMechs();
@@ -656,6 +939,7 @@ Object.assign(Game.prototype, {
           h.alive = false;
           h.gone = true;
           C.mesh.hide(h.i);
+          if (this.crowdHost()) this.netEv({ t: 'hgone', i: h.i });
           continue;
         }
       } else if (h.st === 'post' || h.st === 'engage') {
@@ -816,19 +1100,6 @@ Object.assign(Game.prototype, {
     }
     C.mesh.commit(C.used);
     this.crowdRocketTick(dt, pls);
-    // 血跡：慢慢擴大、最後淡出
-    for (let i = C.blood.length - 1; i >= 0; i--) {
-      const b = C.blood[i];
-      b.t += dt;
-      const g = Math.min(1, b.t / 2.5);
-      const s = b.s * (0.1 + 0.9 * (1 - (1 - g) * (1 - g)));
-      b.m.scale.set(s, 1, s);
-      if (b.t > BLOOD_LIFE - 6) b.m.material.opacity = Math.max(0, (BLOOD_LIFE - b.t) / 6);
-      if (b.t > BLOOD_LIFE) {
-        this.scene.remove(b.m);
-        b.m.material.dispose();
-        C.blood.splice(i, 1);
-      }
-    }
+    this.crowdBloodTick(dt);
   },
 });
