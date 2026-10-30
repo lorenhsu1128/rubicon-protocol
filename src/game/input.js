@@ -669,6 +669,10 @@ Object.assign(Game.prototype, {
       this.ctrl.dmgNum = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlBlood').onchange = (e) => {
+      this.ctrl.blood = e.target.value;
+      this.saveKeys();
+    };
     document.getElementById('ctrlPopTag').onchange = (e) => {
       this.ctrl.popTag = e.target.value;
       this.saveKeys();

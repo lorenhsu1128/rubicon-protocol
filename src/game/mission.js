@@ -398,6 +398,8 @@ Object.assign(Game.prototype, {
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
     if (!boss) this.outpostsPlan(L); // 據點與補給箱
+    this.hkReset(); // 人員擊殺數（crowd.js）
+    this.crowdPlan(); // 地圖上的小人
     this.waveAlerted = false;
     this.planVehicles();
     if (this.bossDef && this.bossDef.rail && boss) this.vehPlan = []; // 武裝列車佔用鐵路：不開運輸列車
@@ -901,6 +903,7 @@ Object.assign(Game.prototype, {
     this.fx.clear();
     this.popups = [];
     this.popSeen = null; // 小加成的狀態字：每一場第一次才冒字（juice.js）
+    this.crowdClear(); // 地圖上的小人與血跡（crowd.js）
     this.killStreak = null; // 連殺計數不帶到下一場
   },
   endMission(success, aborted) {
@@ -948,6 +951,7 @@ Object.assign(Game.prototype, {
           this.enemies.filter((e) => !e.decoy).length,
       ],
       ['受損 AP', Math.round(p.dmgTaken)],
+      ...this.hkRows(), // 人員擊殺數（crowd.js）
       // Boss 改版：擊破速度的評價（S 擊破獎金 ×1.5、A ×1.2）
       ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
       ...(this.tierPartsBroken

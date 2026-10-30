@@ -15018,6 +15018,7 @@ async function testRangedDodge(browser, base) {
     };
     pl.rbTagT = -9;
     out.again = hitTag(() => pl.rbHit(tg, 3));
+    g.popSeen = new Set(['COUNTER', 'QB SHOT']); // 這一場前面的射擊可能已經打出過 CRITICAL：從這裡開始算第一次
     out.crit1 = hitTag(() => g.popDamage(tg.center(), 'CRITICAL', false, true, false, 0, tg.id));
     out.crit2 = hitTag(() => g.popDamage(tg.center(), 'CRITICAL', false, true, false, 0, tg.id));
     // 同樣的大事件不疊一行；同一個目標最多 2 行
@@ -15531,6 +15532,183 @@ async function testRangedReact(browser, base) {
 }
 
 // 受擊反應改版第 1 期（docs/hit-react-design.md）：每把遠程武器各自的受擊動作（人形機甲）
+// 地圖上的小人（docs/crew-civilians-design.md 第 2 期）：生成、走動、受驚逃跑、踩死、爆炸、血跡、人員擊殺數、設定
+async function testCrowd(browser, base) {
+  console.log(
+    '地圖上的小人：生成、走動、受驚逃跑、玩家踩死與爆炸（算擊殺）、敵機踩死（不算）、血跡、結果畫面',
+  );
+  const { ctx, page } = await newPage(browser, 'crowd');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.save.hk = { civ: 0, foe: 0 };
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    for (const e of g.enemies) {
+      e.ai = 'none';
+      e.pos.set(900, -80, 900);
+    }
+    const gc = document.getElementById('goalCard');
+    if (gc) gc.style.display = 'none';
+    const C = g.crowd;
+    const out = { n: C ? C.list.length : 0 };
+    if (!C) return out;
+    const W = g.world;
+    // 生成的位置都可以站
+    out.free = C.list.every((h) => g.crowdFree(h.x, h.z));
+    out.minD = Math.round(Math.min(...C.list.map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z))));
+    // 走動：推進 12 秒，有人換了位置；都還在作戰區域裡、沒有走進障礙物
+    const p0 = C.list.map((h) => [h.x, h.z]);
+    window.__pump(12, null, 1 / 30);
+    out.moved = C.list.filter((h, i) => Math.hypot(h.x - p0[i][0], h.z - p0[i][1]) > 1).length;
+    out.inZone = C.list.every(
+      (h) => h.x > W.zone[0] && h.x < W.zone[1] && h.z > W.zone[2] && h.z < W.zone[3],
+    );
+    // 受驚：機甲靠近 → 逃跑，離開機甲
+    const h0 = C.list.find((h) => h.alive);
+    const px = h0.x + 10,
+      pz = h0.z;
+    pl.pos.set(px, W.groundAt(px, pz, h0.y + 20), pz);
+    pl.vel.set(0, 0, 0);
+    window.__pump(0.1, null, 1 / 30);
+    out.scared = h0.st;
+    const d0 = Math.hypot(h0.x - pl.pos.x, h0.z - pl.pos.z);
+    window.__pump(1.5, null, 1 / 30);
+    out.fled = +(Math.hypot(h0.x - pl.pos.x, h0.z - pl.pos.z) - d0).toFixed(1);
+    // 玩家踩到：死、算進非戰鬥人員、留血跡
+    const h1 = C.list.find((h) => h.alive);
+    const nb0 = C.blood.length;
+    pl.pos.set(h1.x, W.groundAt(h1.x, h1.z, h1.y + 20), h1.z);
+    window.__pump(1 / 30, null, 1 / 30);
+    out.crush = { alive: h1.alive, hk: g.hk.civ, save: g.save.hk.civ, blood: C.blood.length - nb0 };
+    // 血跡慢慢擴大
+    window.__pump(3, null, 1 / 30);
+    const B = C.blood[C.blood.length - 1];
+    out.bloodS = B ? +B.m.scale.x.toFixed(2) : -1;
+    out.bloodCol = B ? B.m.material.color.getHexString() : '';
+    // 敵機踩到：死，但不算擊殺數
+    pl.pos.set(W.zone[0] + 5, W.groundAt(W.zone[0] + 5, W.zone[2] + 5, 99), W.zone[2] + 5);
+    const h2 = C.list.find((h) => h.alive);
+    const hk0 = g.hk.civ;
+    const e = g.spawnType('mt', 1, 1);
+    e.ai = 'none';
+    e.pos.set(h2.x, W.groundAt(h2.x, h2.z, h2.y + 20), h2.z);
+    window.__pump(1 / 30, null, 1 / 30);
+    out.enemyCrush = { alive: h2.alive, hk: g.hk.civ - hk0 };
+    e.pos.set(900, -80, 900);
+    // 爆炸（玩家的）：範圍內炸死、算擊殺；外圈受驚
+    const h3 = C.list.find((h) => h.alive);
+    const nb = C.list.filter((h) => h.alive && Math.hypot(h.x - h3.x, h.z - h3.z) < 6).length;
+    g.crowdBlast(new THREE.Vector3(h3.x, h3.y + 0.5, h3.z), 7, pl);
+    out.blast = { alive: h3.alive, hk: g.hk.civ, nb };
+    // 血跡關閉：不留
+    g.ctrl.blood = 'off';
+    const nB = C.blood.length;
+    const h4 = C.list.find((h) => h.alive);
+    g.crowdKill(h4, pl, 'crush');
+    out.offBlood = C.blood.length === nB;
+    g.ctrl.blood = 'oil';
+    const h5 = C.list.find((h) => h.alive);
+    g.crowdKill(h5, pl, 'crush');
+    out.oil = C.blood[C.blood.length - 1].m.material.color.getHexString();
+    g.ctrl.blood = 'red';
+    // 結果畫面
+    const hk = g.hk.civ;
+    g.endMission(false, true);
+    out.row = [...document.querySelectorAll('#resultGrid span')].map((x) => x.textContent).join('|');
+    out.hk = hk;
+    g.clearMission();
+    out.cleared = !g.crowd;
+    return out;
+  });
+  check(r.n >= 15, `生成 ${r.n} 人`);
+  check(r.free && r.minD > 30, `生成在可以站的地方、離玩家 ${r.minD} m 以上`);
+  check(r.moved >= 3 && r.inZone, `推進 12 秒：${r.moved} 人走動、都在作戰區域裡`);
+  check(r.scared === 'run' && r.fled > 3, `機甲靠近 → 逃跑（拉開 ${r.fled} m）`);
+  check(
+    r.crush.alive === false && r.crush.hk === 1 && r.crush.save === 1 && r.crush.blood === 1,
+    `玩家踩到：死、非戰鬥人員 +1、存檔累計、留一攤血（${JSON.stringify(r.crush)}）`,
+  );
+  check(r.bloodS > 0.5 && r.bloodCol === '1c0403', `血跡慢慢擴大、紅褐色（${r.bloodS}、#${r.bloodCol}）`);
+  check(
+    r.enemyCrush.alive === false && r.enemyCrush.hk === 0,
+    `敵機踩到也會死，但不算玩家的擊殺數（${JSON.stringify(r.enemyCrush)}）`,
+  );
+  check(
+    r.blast.alive === false && r.blast.hk >= 2,
+    `玩家的爆炸炸死範圍內的人並算擊殺（${JSON.stringify(r.blast)}）`,
+  );
+  check(r.offBlood && r.oil === '070605', `設定「血跡」：關閉不留、深色油污（#${r.oil}）`);
+  check(
+    r.row.includes(`非戰鬥人員 ${r.hk}`) && r.cleared,
+    `結果畫面的人員擊殺數、結束後清掉小人（${r.row.slice(0, 160)}）`,
+  );
+  // 模擬器、靶場沒有小人
+  const none = await page.evaluate(() => {
+    const g = window.__game;
+    g.sim = { test: true };
+    g.crowdPlan();
+    const a = !g.crowd;
+    g.sim = null;
+    return a;
+  });
+  check(none, '模擬器沒有小人');
+  // 截圖：小人近拍、踩死後的血跡
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.level = 1;
+    g.ctrl.tfx = 'off'; // 開場的橫幅不擋畫面
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    for (const e of g.enemies) {
+      e.ai = 'none';
+      e.pos.set(900, -80, 900);
+    }
+    const gc = document.getElementById('goalCard');
+    if (gc) gc.style.display = 'none';
+    const C = g.crowd,
+      W = g.world,
+      pl = g.player;
+    window.__pump(2, null, 1 / 30);
+    // 人最多的一群
+    let best = C.list[0],
+      bn = 0;
+    for (const h of C.list) {
+      const n = C.list.filter((q) => Math.hypot(q.x - h.x, q.z - h.z) < 8).length;
+      if (n > bn) {
+        bn = n;
+        best = h;
+      }
+    }
+    const k = C.list.find((q) => q !== best && Math.hypot(q.x - best.x, q.z - best.z) < 8);
+    if (k) g.crowdKill(k, pl, 'crush');
+    window.__pump(1.6, null, 1 / 30); // 血跡擴大、旁邊的人剛開始逃
+    // 鏡頭在這一群與血跡之間
+    const c = new THREE.Vector3(best.x, best.y + 1, best.z);
+    if (k) c.lerp(new THREE.Vector3(k.x, best.y + 0.5, k.z), 0.75);
+    g.camera.position.set(c.x + 7, c.y + 6, c.z + 9);
+    g.camera.lookAt(c);
+    g.camera.updateMatrixWorld();
+    g.renderMain();
+    g.banner = null; // 開場的橫幅（HUD 畫布）
+    document.getElementById('msg').classList.remove('on'); // 開場的中央訊息（實際時間的計時器才收起）
+    for (const id of ['tfx', 'msg'])
+      document.getElementById(id) && (document.getElementById(id).style.visibility = 'hidden'); // 開場的文字演出
+    g.drawHud(0);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-close.png') });
+  await thawLoop(page);
+  await ctx.close();
+}
+
 // 分階段受損（docs/crew-civilians-design.md 第 1 期）：所有敵人依 AP 四段焦黑、冒煙、火、碎板，依機型的受損姿勢，回復後歸位
 async function testDamageStages(browser, base) {
   console.log('分階段受損：所有敵人的四段（焦黑、冒煙、火、碎板）、依機型的受損姿勢、回復後歸位');
@@ -20712,6 +20890,7 @@ const STEPS = [
   ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
   ['testHitReact', (c) => testHitReact(c.browser, c.base)],
   ['testDamageStages', (c) => testDamageStages(c.browser, c.base)],
+  ['testCrowd', (c) => testCrowd(c.browser, c.base)],
   ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   ['testRangedTut', (c) => testRangedTut(c.browser, c.base)],

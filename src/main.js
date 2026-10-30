@@ -84,6 +84,7 @@ import './game/goals.js';
 import './entities/mech-sense.js';
 import './entities/mech-moves.js';
 import './game/outposts.js';
+import './game/crowd.js'; // 地圖上的小人：踩死、血跡、人員擊殺數（docs/crew-civilians-design.md）
 import './game/feedback.js';
 import './game/juice.js';
 import './game/ranged.js'; // 遠程射擊：邊閃邊打的回饋與 HUD

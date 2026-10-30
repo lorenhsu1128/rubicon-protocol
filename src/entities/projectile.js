@@ -158,6 +158,7 @@ export class Projectile {
     if (this.netId) g.netEv({ t: 'pend', i: this.netId });
     // 臨時障礙物受傷、爆炸點燃油漬（game/hazards2.js）
     if (!direct || this.splash > 0) g.hz2Blast(this.pos, this.dmg, this.splash, this.attr);
+    if (g.crowd && this.splash > 0) g.crowdBlast(this.pos, this.splash, this.owner); // 爆炸炸到小人（crowd.js）
     if (this.splash > 0) {
       g.fx.explosion(this.pos, (this.splash * 0.9) / g.fx.k, 0xffa040, this.splash > 4 * MS);
       SFX.explode(this.splash > 4 * MS, this.pos);

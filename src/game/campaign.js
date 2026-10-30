@@ -203,6 +203,7 @@ Object.assign(Game.prototype, {
       st = this.campStory();
     this.bossRank = null; // Boss 擊破評價（boss-tier.js）
     this.tierPartsBroken = 0;
+    this.hkReset(); // 人員擊殺數（crowd.js）
     // 作戰室預排的（全像戰略桌顯示的第一段地圖）；重打、危險條款另外排
     const pre = !o.replay && !(o.heat && Object.keys(o.heat).length) && st.pre && st.pre[sid];
     if (st.pre) delete st.pre[sid];
@@ -319,6 +320,7 @@ Object.assign(Game.prototype, {
     this.campSpawnType(type, L, bd);
     c.ss.n0 = this.enemies.length;
     if (['battle', 'destroy', 'intel', 'breakthrough'].includes(c.ss.type || type)) this.outpostsPlan(L); // 據點與補給箱
+    this.crowdPlan(); // 地圖上的小人（crowd.js；人員擊殺數整次出擊累計，campBegin 歸零）
     this.waveAlerted = false;
     this.planVehicles();
     if ((bd && bd.rail) || type === 'escort') this.vehPlan = [];
@@ -1414,6 +1416,7 @@ Object.assign(Game.prototype, {
       ['重試次數', String(c.fails)],
       ...(c.replay ? [['作戰紀錄', this.heatNames(c.heat).join('、') || '無危險條款']] : []),
       ['擊破數', String(c.stats[0] ? c.stats[0].kills : 0)],
+      ...this.hkRows(), // 人員擊殺數（crowd.js）
       // Boss 改版：最後一段 Boss 的擊破評價（S＝多一個戰術模組三選一）
       ...(this.bossRank && success ? [['Boss 擊破評價', this.tierRankTxt(this.bossRank)]] : []),
       ...(this.tierPartsBroken && success

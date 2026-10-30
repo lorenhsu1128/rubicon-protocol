@@ -558,6 +558,10 @@ export class MechEntity {
     if (w.tierOff) return false; // Boss 改版：負責這把武器的部位被打壞了
     if (!this.canAct()) return false;
     if (this.rxJamT > 0) return false; // 屬性反應的 EMP 干擾：不能開火（mech-react.js）
+    if (g.crowd && w.cd <= 0 && this.t - (this.crowdFireT || -9) > 0.4) {
+      this.crowdFireT = this.t;
+      g.crowdScare(this.pos, 45); // 開火聲：附近的小人受驚（crowd.js）
+    }
     if (d.type === 'melee' && this.pilotEnt()) this.cueArmSet('p'); // 提示中按近戰＝彈刀（meleeClash）
     if (this.melee.active && d.type !== 'melee') {
       // 近戰 → 射擊（docs/melee-combo-design.md 第 1 期）：玩家的近戰打中過、過了 LINK_SHOT_AT 時，
@@ -2177,6 +2181,7 @@ export class MechEntity {
     if (this.sts || this.stsV) this.statusClearAll(true);
     const g = this.game;
     const c = this.center();
+    if (g.crowd) g.crowdBlast(c, (this.radius || 3) * 1.4, from); // 擊破的爆炸波及附近的小人（crowd.js）
     this.specialDie(from);
     if (this.explodeOnDeath) {
       const E = this.explodeOnDeath;

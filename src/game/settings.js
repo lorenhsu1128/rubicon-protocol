@@ -74,6 +74,7 @@ Object.assign(Game.prototype, {
     $('ctrlAR').value = this.ctrl.activeReload || 'on';
     $('ctrlDmgNum').value = this.ctrl.dmgNum || 'full';
     $('ctrlPopTag').value = this.ctrl.popTag || 'imp';
+    $('ctrlBlood').value = this.ctrl.blood || 'red';
     $('ctrlDmgSelf').value = this.ctrl.dmgSelf === false ? 'off' : 'on';
     $('ctrlHangar').value = this.hangarFx();
     this.renderLocalModels();

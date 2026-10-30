@@ -561,6 +561,7 @@ export class Game {
     this.updateShocks(dt);
     this.updateSupport(dt);
     this.updateHazards(dt);
+    if (this.crowd) this.crowdTick(dt); // 地圖上的小人（crowd.js）
     this.fx.update(dt);
     this.tickPopups(dt);
     // waves

@@ -1,0 +1,443 @@
+// ============================================================
+//  地圖上的小人（docs/crew-civilians-design.md 第 2 期）：生成、平時的活動（做事、走動）、
+//  受驚逃跑與躲藏、被機甲踩死／撞死、被爆炸炸死、血跡、人員擊殺數（非戰鬥 civ／敵方 foe）。
+//  模型是 render/crowd-model.js 的 CrowdMesh（合批）。亂數一律用自己的亂數串（不動 Math.random，
+//  不影響遊戲其他部分的亂數順序）。自由出擊、主線、自訂關卡才有；靶場、模擬器、訓練、實驗室、過場、PvP 沒有。
+//  第 2 期只在單機（多人在第 5 期：各端依種子生成、房主判定死亡）。
+// ============================================================
+import { Game } from './game.js';
+import { CrowdMesh } from '../render/crowd-model.js';
+import { makeRng, withRng } from '../core/math.js';
+
+const CROWD_MAX = 64;
+const WALK = 1.4; // m/s
+const RUN = 5.5;
+const SCARE_R = 34; // 移動中的機甲在這個距離內＝受驚
+const NEAR_R = 15; // 機甲（就算不動）在這個距離內＝受驚
+const BLOOD_MAX = 32;
+const BLOOD_LIFE = 45; // 秒（最後 6 秒淡出）
+const BLOOD_COL = { red: 0x1c0403, oil: 0x070605 }; // 紅褐（預設）／深色油污（線性值：r128 的 setHex 不做 sRGB 轉換，畫面上會亮很多）
+
+// 一般的外觀（第 4 期換成各主題的人物）
+const SHIRTS = [0x3b6ea8, 0xd9822b, 0x6b7a3a, 0x8a8f96, 0xb8b2a0, 0x2f3a48, 0xc8c2b0, 0x9a4a32];
+const PANTS = [0x2c3440, 0x4a4a42, 0x37465a, 0x5a4a38, 0x3a3a3a];
+const SKIN = [0xe0b896, 0xc69072, 0x8d5a3c, 0xf0cfb0];
+const HATS = [null, null, 0xf2c230, 0xe8e8e8, 0xd05020];
+
+// 血跡的幾何：鋸齒的圓（幾種形狀輪流用，不呼叫亂數）
+let BLOOD_GEO = null;
+function bloodGeos() {
+  if (BLOOD_GEO) return BLOOD_GEO;
+  BLOOD_GEO = [0, 1, 2].map((v) => {
+    const N = 14,
+      s = new THREE.Shape();
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const r = 1 + 0.22 * Math.sin(a * 3 + v * 2.1) + 0.14 * Math.sin(a * 5 + v * 1.3);
+      if (i === 0) s.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      else s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    const g = new THREE.ShapeGeometry(s);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  });
+  return BLOOD_GEO;
+}
+
+// 小人建立 three.js 物件（uuid 用 Math.random）與特效（core/math 的 rnd）時，暫時換成自己的亂數：
+// 不改變遊戲其他部分的亂數順序（冒煙測試的固定亂數、之後多人各端的一致）
+function quiet(rng, fn) {
+  const mr = Math.random;
+  Math.random = rng;
+  try {
+    return withRng(Math.floor(rng() * 1e9), fn);
+  } finally {
+    Math.random = mr;
+  }
+}
+
+Object.assign(Game.prototype, {
+  // 這一場的人員擊殺數歸零（自由出擊、主線出擊、自訂關卡開始時）
+  hkReset() {
+    this.hk = { civ: 0, foe: 0 };
+    this.hkOn = false;
+  },
+  // 結果畫面的一列（這一場有小人時）
+  hkRows() {
+    if (!this.hkOn || !this.hk) return [];
+    const S = (this.save && this.save.hk) || { civ: 0, foe: 0 };
+    return [['人員擊殺', `非戰鬥人員 ${this.hk.civ}・敵方人員 ${this.hk.foe}（累計 ${S.civ + S.foe}）`]];
+  },
+  // 生成：地圖建好、玩家放好之後呼叫
+  crowdPlan() {
+    this.crowdClear();
+    if (!this.world || !this.scene || this.crowdOff) return;
+    if (
+      this.sim ||
+      this.range ||
+      this.tut ||
+      this.lab ||
+      this.cine ||
+      this.pvp ||
+      (this.net && this.net.role)
+    )
+      return;
+    const W = this.world,
+      Z = W.zone;
+    const rng = makeRng(((W.seed | 0) * 131 + 7) >>> 0);
+    const pick = (a) => a[Math.floor(rng() * a.length)];
+    const pl = this.player;
+    const n = Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1)));
+    const nc = 4 + Math.floor(rng() * 3);
+    const list = [];
+    for (let c = 0; c < nc && list.length < n; c++) {
+      let cx = 0,
+        cz = 0,
+        ok = false;
+      for (let t = 0; t < 30 && !ok; t++) {
+        cx = Z[0] + 8 + rng() * (Z[1] - Z[0] - 16);
+        cz = Z[2] + 8 + rng() * (Z[3] - Z[2] - 16);
+        ok = this.crowdFree(cx, cz) && (!pl || Math.hypot(cx - pl.pos.x, cz - pl.pos.z) > 40);
+      }
+      if (!ok) continue;
+      const m = Math.min(n - list.length, 3 + Math.floor(rng() * 5));
+      for (let j = 0; j < m; j++) {
+        let x = cx,
+          z = cz;
+        for (let t = 0; t < 8; t++) {
+          const a = rng() * Math.PI * 2,
+            r = 1.5 + rng() * 6;
+          x = cx + Math.cos(a) * r;
+          z = cz + Math.sin(a) * r;
+          if (this.crowdFree(x, z)) break;
+          x = cx;
+          z = cz;
+        }
+        list.push({
+          i: list.length,
+          x,
+          z,
+          y: W.groundAt(x, z, W.terrainHeight(x, z) + 0.5),
+          yaw: rng() * Math.PI * 2,
+          hx: cx,
+          hz: cz,
+          st: 'idle',
+          t: 1 + rng() * 6,
+          ph: rng() * 6,
+          work: rng() < 0.6 ? 1 : 0,
+          look: { shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN), hat: pick(HATS) },
+          kind: 'civ',
+          alive: true,
+          tx: x,
+          tz: z,
+          dx: 0,
+          dz: 0,
+          cr: 0,
+          sc: 0,
+        });
+      }
+    }
+    if (!list.length) return;
+    const mesh = quiet(rng, () => new CrowdMesh(list.length));
+    for (const h of list) mesh.setLook(h.i, h.look);
+    this.scene.add(mesh.group);
+    this.crowd = { list, mesh, rng, blood: [], scareT: 0 };
+    if (!this.hk) this.hkReset();
+    this.hkOn = true;
+    this.crowdTick(0);
+  },
+  crowdClear() {
+    const C = this.crowd;
+    if (!C) return;
+    C.mesh.dispose();
+    for (const b of C.blood) {
+      this.scene.remove(b.m);
+      b.m.material.dispose();
+    }
+    this.crowd = null;
+  },
+  // 這一點可以站人：不在障礙物裡、不是虛空、水不深、在作戰區域裡
+  crowdFree(x, z) {
+    const W = this.world,
+      Z = W.zone;
+    if (x < Z[0] + 2 || x > Z[1] - 2 || z < Z[2] + 2 || z > Z[3] - 2) return false;
+    if (W.isVoid && W.isVoid(x, z)) return false;
+    if (W.waterDepth && W.waterDepth(x, z) > 0.5) return false;
+    const y = W.groundAt(x, z, W.terrainHeight(x, z) + 0.5);
+    const [cx, cz] = W.collide(x, z, y, 0.4);
+    return Math.abs(cx - x) + Math.abs(cz - z) < 0.05;
+  },
+  // 場上的機甲與載具（會踩人、會嚇到人）
+  crowdMechs() {
+    const out = [];
+    const add = (e) => {
+      if (e && !e.dead && e.model && e.pos && !e.isProp && !e.gone && !(e.mesh && e.mesh.visible === false))
+        out.push(e);
+    };
+    add(this.player);
+    for (const p of this.players || []) if (p !== this.player) add(p);
+    for (const e of this.enemies) add(e);
+    for (const e of this.allies) add(e);
+    return out;
+  },
+  // 踩到的範圍（水平）：人形看腳的範圍，載具看車身；飛在空中的不算
+  crowdCrushR(m) {
+    const md = m.model;
+    const r = m.radius || 2;
+    if (md.legsG && md.torso && !md.vehicle) return r * 0.55;
+    return r * 0.8;
+  },
+  // 受驚：從 src 逃開
+  crowdScareOne(h, sx, sz) {
+    const C = this.crowd;
+    h.sc = 1.2;
+    if (h.st === 'run') return;
+    let dx = h.x - sx,
+      dz = h.z - sz;
+    const d = Math.hypot(dx, dz) || 1;
+    const a = (C.rng() - 0.5) * 0.9;
+    dx /= d;
+    dz /= d;
+    h.dx = dx * Math.cos(a) - dz * Math.sin(a);
+    h.dz = dx * Math.sin(a) + dz * Math.cos(a);
+    h.st = 'run';
+    h.t = 3 + C.rng() * 2.5;
+    h.work = 0;
+  },
+  crowdScare(pos, r) {
+    const C = this.crowd;
+    if (!C) return;
+    for (const h of C.list)
+      if (h.alive && Math.hypot(h.x - pos.x, h.z - pos.z) < r) this.crowdScareOne(h, pos.x, pos.z);
+  },
+  // 爆炸：範圍內炸死，外圈受驚（owner＝攻擊者，玩家的才算進擊殺數）
+  crowdBlast(pos, r, owner) {
+    const C = this.crowd;
+    if (!C || !(r > 0)) return;
+    for (const h of C.list) {
+      if (!h.alive) continue;
+      const d = Math.hypot(h.x - pos.x, h.z - pos.z);
+      if (d < r * 0.9 && Math.abs(h.y + 0.9 - pos.y) < r + 1) this.crowdKill(h, owner, 'blast');
+      else if (d < r * 3 + 12) this.crowdScareOne(h, pos.x, pos.z);
+    }
+  },
+  crowdKill(h, by, how) {
+    const C = this.crowd;
+    if (!C || !h.alive) return;
+    h.alive = false;
+    C.mesh.hide(h.i);
+    const W = this.world;
+    const gy = W.groundAt(h.x, h.z, h.y + 0.5);
+    const mode = (this.ctrl && this.ctrl.blood) || 'red';
+    const fx = this.fx;
+    const p = new THREE.Vector3(h.x, gy + 0.5, h.z);
+    const nest = fx._nested;
+    fx._nested = true; // 不轉送（各端自己演出）
+    try {
+      quiet(C.rng, () => {
+        if (mode !== 'off') fx.streaks(p, 6, BLOOD_COL[mode] || BLOOD_COL.red, 3, 0.35, 20);
+        if (how === 'blast' && fx.dust) fx.dust(p, 0.6);
+      });
+    } finally {
+      fx._nested = nest;
+    }
+    if (mode !== 'off') quiet(C.rng, () => this.crowdBlood(h.x, gy, h.z, mode));
+    // 只有玩家造成的算進擊殺數
+    if (by && by === this.player) {
+      if (!this.hk) this.hkReset();
+      this.hk[h.kind] = (this.hk[h.kind] || 0) + 1;
+      const S = this.save;
+      if (S) {
+        S.hk = S.hk || { civ: 0, foe: 0 };
+        S.hk[h.kind] = (S.hk[h.kind] || 0) + 1;
+      }
+    }
+    // 附近的人看到了：逃
+    this.crowdScare(p, 18);
+  },
+  crowdBlood(x, y, z, mode) {
+    const C = this.crowd;
+    const G = bloodGeos();
+    const v = C.blood.length % G.length;
+    const mat = new THREE.MeshStandardMaterial({
+      color: BLOOD_COL[mode] || BLOOD_COL.red,
+      roughness: 0.35,
+      metalness: 0,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const m = new THREE.Mesh(G[v], mat);
+    const s = 0.7 + C.rng() * 0.6;
+    m.scale.set(s * 0.1, 1, s * 0.1); // 一小攤：從小慢慢擴大
+    m.position.set(x, y + 0.15, z); // 地形網格的三角形內插和 terrainHeight 有落差：抬高一點
+    m.rotation.y = C.rng() * Math.PI * 2;
+    m.receiveShadow = true;
+    m.userData.noFade = true;
+    this.scene.add(m);
+    C.blood.push({ m, t: 0, s });
+    if (C.blood.length > BLOOD_MAX) {
+      const b = C.blood.shift();
+      this.scene.remove(b.m);
+      b.m.material.dispose();
+    }
+  },
+  // 每格（房主／單機的主迴圈）
+  crowdTick(dt) {
+    const C = this.crowd;
+    if (!C) return;
+    const W = this.world,
+      rng = C.rng;
+    const mechs = this.crowdMechs();
+    for (const h of C.list) {
+      if (!h.alive) continue;
+      // 機甲：踩到＝死；靠近＝受驚
+      let near = null,
+        nd = 1e9;
+      for (const m of mechs) {
+        const dx = h.x - m.pos.x,
+          dz = h.z - m.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d < nd) {
+          nd = d;
+          near = m;
+        }
+        const air = m.pos.y - h.y;
+        if (d < this.crowdCrushR(m) && air < 2.2 && air > -3) {
+          this.crowdKill(h, m, 'crush');
+          break;
+        }
+      }
+      if (!h.alive) continue;
+      if (near) {
+        const mv = Math.hypot(near.vel ? near.vel.x : 0, near.vel ? near.vel.z : 0) > 1.5;
+        if (nd < NEAR_R || (nd < SCARE_R && mv)) this.crowdScareOne(h, near.pos.x, near.pos.z);
+      }
+      if (h.sc > 0) h.sc -= dt;
+      let sp = 0;
+      if (h.st === 'idle') {
+        h.t -= dt;
+        if (h.t <= 0) {
+          // 換一個地方：家附近 10 m 內
+          for (let k = 0; k < 4; k++) {
+            const a = rng() * Math.PI * 2,
+              r = 2 + rng() * 9;
+            const x = h.hx + Math.cos(a) * r,
+              z = h.hz + Math.sin(a) * r;
+            if (this.crowdFree(x, z)) {
+              h.tx = x;
+              h.tz = z;
+              break;
+            }
+          }
+          h.st = 'walk';
+          h.t = 10;
+          h.work = 0;
+        }
+      } else if (h.st === 'walk') {
+        h.t -= dt;
+        const dx = h.tx - h.x,
+          dz = h.tz - h.z,
+          d = Math.hypot(dx, dz);
+        if (d < 0.4 || h.t <= 0) {
+          h.st = 'idle';
+          h.t = 3 + rng() * 7;
+          h.work = rng() < 0.6 ? 1 : 0;
+        } else {
+          h.dx = dx / d;
+          h.dz = dz / d;
+          sp = WALK;
+        }
+      } else if (h.st === 'run') {
+        h.t -= dt;
+        sp = RUN;
+        if (h.t <= 0) {
+          h.st = 'hide';
+          h.t = 2.5 + rng() * 3;
+        }
+      } else if (h.st === 'hide') {
+        if (h.sc <= 0) h.t -= dt;
+        if (h.t <= 0) {
+          h.st = 'idle';
+          h.t = 2 + rng() * 4;
+          // 躲完之後在這裡重新開始（家改成這裡）
+          h.hx = h.x;
+          h.hz = h.z;
+        }
+      }
+      if (sp > 0 && dt > 0) {
+        let nx = h.x + h.dx * sp * dt,
+          nz = h.z + h.dz * sp * dt;
+        const blocked = (W.isVoid && W.isVoid(nx, nz)) || (W.waterDepth && W.waterDepth(nx, nz) > 0.8);
+        if (!blocked) {
+          const [cx, cz] = W.collide(nx, nz, h.y, 0.35);
+          // 被擋住：逃跑時轉個方向，走路時放棄這個目的地
+          if (Math.abs(cx - nx) + Math.abs(cz - nz) > 0.01) {
+            if (h.st === 'run') {
+              const a = (rng() < 0.5 ? 1 : -1) * (0.6 + rng() * 0.8);
+              const ox = h.dx;
+              h.dx = ox * Math.cos(a) - h.dz * Math.sin(a);
+              h.dz = ox * Math.sin(a) + h.dz * Math.cos(a);
+            } else h.t = 0;
+          }
+          nx = cx;
+          nz = cz;
+        } else if (h.st === 'run') {
+          h.dx = -h.dx;
+          h.dz = -h.dz;
+          nx = h.x;
+          nz = h.z;
+        } else {
+          h.t = 0;
+          nx = h.x;
+          nz = h.z;
+        }
+        h.x = nx;
+        h.z = nz;
+        h.y = W.groundAt(nx, nz, h.y + 0.6);
+        const ty = Math.atan2(h.dx, h.dz);
+        let dy = ty - h.yaw;
+        dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        h.yaw += dy * Math.min(1, dt * 10);
+      }
+      h.ph += dt * (sp >= RUN ? 11 : sp > 0 ? 6.5 : 0);
+      const crT = h.st === 'hide' ? 1 : 0;
+      h.cr += (crT - h.cr) * Math.min(1, dt * 6);
+      const t = this.time || 0;
+      C.mesh.pose(
+        h.i,
+        {
+          x: h.x,
+          y: h.y,
+          z: h.z,
+          yaw: h.yaw,
+          sw: sp > 0 ? Math.sin(h.ph) : 0,
+          run: sp >= RUN ? 1 : 0,
+          crouch: h.cr,
+          work: h.st === 'idle' && h.work ? 0.6 + 0.4 * Math.sin(t * 5 + h.i) : 0,
+          wave: h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
+          lean: h.st === 'hide' ? 0.3 : 0,
+        },
+        h.look.hat !== null,
+      );
+    }
+    C.mesh.commit(C.list.length);
+    // 血跡：慢慢擴大、最後淡出
+    for (let i = C.blood.length - 1; i >= 0; i--) {
+      const b = C.blood[i];
+      b.t += dt;
+      const g = Math.min(1, b.t / 2.5);
+      const s = b.s * (0.1 + 0.9 * (1 - (1 - g) * (1 - g)));
+      b.m.scale.set(s, 1, s);
+      if (b.t > BLOOD_LIFE - 6) b.m.material.opacity = Math.max(0, (BLOOD_LIFE - b.t) / 6);
+      if (b.t > BLOOD_LIFE) {
+        this.scene.remove(b.m);
+        b.m.material.dispose();
+        C.blood.splice(i, 1);
+      }
+    }
+  },
+});
