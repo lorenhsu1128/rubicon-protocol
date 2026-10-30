@@ -9,6 +9,7 @@ import { Game } from './game.js';
 import { CrowdMesh } from '../render/crowd-model.js';
 import { makeRng, withRng } from '../core/math.js';
 import { CREW, CREW_CHUTE, CREW_K } from '../data/crew.js';
+import { CROWD_SEG, CROWD_THEME0, CROWD_THEMES, INF_K } from '../data/crowd-themes.js';
 
 const CROWD_MAX = 64;
 const CREW_SLOTS = 40; // 戰鬥中逃出來的乘員（第 3 期）預留的位置
@@ -20,11 +21,8 @@ const BLOOD_MAX = 32;
 const BLOOD_LIFE = 45; // 秒（最後 6 秒淡出）
 const BLOOD_COL = { red: 0x1c0403, oil: 0x070605 }; // 紅褐（預設）／深色油污（線性值：r128 的 setHex 不做 sRGB 轉換，畫面上會亮很多）
 
-// 一般的外觀（第 4 期換成各主題的人物）
-const SHIRTS = [0x3b6ea8, 0xd9822b, 0x6b7a3a, 0x8a8f96, 0xb8b2a0, 0x2f3a48, 0xc8c2b0, 0x9a4a32];
-const PANTS = [0x2c3440, 0x4a4a42, 0x37465a, 0x5a4a38, 0x3a3a3a];
+// 膚色（衣服與帽子依主題：data/crowd-themes.js）
 const SKIN = [0xe0b896, 0xc69072, 0x8d5a3c, 0xf0cfb0];
-const HATS = [null, null, 0xf2c230, 0xe8e8e8, 0xd05020];
 // 乘員的外觀：駕駛服＋頭盔（敵對 AC 的駕駛員另一種）
 const CREW_LOOK = [
   { shirt: 0x4a5236, pants: 0x4a5236, hat: 0x2a2d30 },
@@ -126,17 +124,45 @@ Object.assign(Game.prototype, {
     const rng = makeRng(((W.seed | 0) * 131 + 7) >>> 0);
     const pick = (a) => a[Math.floor(rng() * a.length)];
     const pl = this.player;
-    const n = Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1)));
-    const nc = 4 + Math.floor(rng() * 3);
+    // 主題的人物與人數（第 4 期，data/crowd-themes.js）；主線依區段類型增減
+    const T = CROWD_THEMES[W.themeKey] || CROWD_THEME0;
+    const seg = (this.camp && this.camp.ss && CROWD_SEG[this.camp.ss.type]) || [1, 1];
+    const look = () => ({
+      shirt: pick(T.look.shirt),
+      pants: pick(T.look.pants),
+      skin: pick(SKIN),
+      hat: pick(T.look.hat),
+    });
+    const n = Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1) * T.civ * seg[0]));
+    const nc = Math.max(1, Math.round((4 + Math.floor(rng() * 3)) * Math.min(1.3, T.civ * seg[0])));
+    // 活動點：地圖物件（貨櫃、倉庫、機具…）的旁邊，一群人面向它做事
+    const props = W.obstacles.filter(
+      (o) =>
+        !o.deck &&
+        (o.kind === 'box' ? Math.max(o.w, o.d) > 2 && Math.max(o.w, o.d) < 40 : o.r > 0.8 && o.r < 12),
+    );
     const list = [];
-    for (let c = 0; c < nc && list.length < n; c++) {
+    const far = (x, z) => !pl || Math.hypot(x - pl.pos.x, z - pl.pos.z) > 40;
+    for (let c = 0; c < nc && list.length < n && n > 0; c++) {
       let cx = 0,
         cz = 0,
+        face = null,
         ok = false;
+      if (props.length && rng() < T.near)
+        for (let t = 0; t < 12 && !ok; t++) {
+          const o = props[Math.floor(rng() * props.length)];
+          const a = rng() * Math.PI * 2;
+          const r = (o.kind === 'box' ? Math.max(o.w, o.d) / 2 : o.r) + 2 + rng() * 2;
+          cx = o.x + Math.cos(a) * r;
+          cz = o.z + Math.sin(a) * r;
+          face = Math.atan2(o.x - cx, o.z - cz);
+          ok = this.crowdFree(cx, cz) && far(cx, cz);
+        }
       for (let t = 0; t < 30 && !ok; t++) {
         cx = Z[0] + 8 + rng() * (Z[1] - Z[0] - 16);
         cz = Z[2] + 8 + rng() * (Z[3] - Z[2] - 16);
-        ok = this.crowdFree(cx, cz) && (!pl || Math.hypot(cx - pl.pos.x, cz - pl.pos.z) > 40);
+        face = null;
+        ok = this.crowdFree(cx, cz) && far(cx, cz);
       }
       if (!ok) continue;
       const m = Math.min(n - list.length, 3 + Math.floor(rng() * 5));
@@ -145,7 +171,56 @@ Object.assign(Game.prototype, {
           z = cz;
         for (let t = 0; t < 8; t++) {
           const a = rng() * Math.PI * 2,
-            r = 1.5 + rng() * 6;
+            r = 1 + rng() * (face === null ? 6 : 3.5);
+          x = cx + Math.cos(a) * r;
+          z = cz + Math.sin(a) * r;
+          if (this.crowdFree(x, z)) break;
+          x = cx;
+          z = cz;
+        }
+        list.push({
+          i: list.length,
+          x,
+          z,
+          y: W.groundAt(x, z, W.terrainHeight(x, z) + 0.5),
+          yaw: face === null ? rng() * Math.PI * 2 : face + (rng() - 0.5) * 0.8,
+          hx: cx,
+          hz: cz,
+          st: 'idle',
+          t: 1 + rng() * 6 + (face === null ? 0 : 6),
+          ph: rng() * 6,
+          work: face !== null || rng() < 0.6 ? 1 : 0,
+          look: look(),
+          kind: 'civ',
+          alive: true,
+          tx: x,
+          tz: z,
+          dx: 0,
+          dz: 0,
+          cr: 0,
+          sc: 0,
+        });
+      }
+    }
+    // 敵方步兵（C3）：小隊守在據點，玩家靠近就開槍，一部分拿火箭筒
+    const ns = Math.round((T.inf[0] + Math.floor(rng() * (T.inf[1] - T.inf[0] + 1))) * seg[1]);
+    for (let q = 0; q < ns; q++) {
+      let cx = 0,
+        cz = 0,
+        ok = false;
+      for (let t = 0; t < 30 && !ok; t++) {
+        cx = Z[0] + 10 + rng() * (Z[1] - Z[0] - 20);
+        cz = Z[2] + 10 + rng() * (Z[3] - Z[2] - 20);
+        ok = this.crowdFree(cx, cz) && (!pl || Math.hypot(cx - pl.pos.x, cz - pl.pos.z) > 60);
+      }
+      if (!ok) continue;
+      const m = INF_K.SQUAD[0] + Math.floor(rng() * (INF_K.SQUAD[1] - INF_K.SQUAD[0] + 1));
+      for (let j = 0; j < m && list.length < CROWD_MAX + 16; j++) {
+        let x = cx,
+          z = cz;
+        for (let t = 0; t < 8; t++) {
+          const a = rng() * Math.PI * 2,
+            r = 2 + rng() * 4;
           x = cx + Math.cos(a) * r;
           z = cz + Math.sin(a) * r;
           if (this.crowdFree(x, z)) break;
@@ -158,14 +233,20 @@ Object.assign(Game.prototype, {
           z,
           y: W.groundAt(x, z, W.terrainHeight(x, z) + 0.5),
           yaw: rng() * Math.PI * 2,
-          hx: cx,
-          hz: cz,
-          st: 'idle',
-          t: 1 + rng() * 6,
+          hx: x,
+          hz: z,
+          st: 'post',
+          t: 0,
+          sT: 0.5 + rng(),
+          rT: INF_K.ROCKET_DT[0] * rng(),
           ph: rng() * 6,
-          work: rng() < 0.6 ? 1 : 0,
-          look: { shirt: pick(SHIRTS), pants: pick(PANTS), skin: pick(SKIN), hat: pick(HATS) },
-          kind: 'civ',
+          work: 0,
+          look: { shirt: T.soldier.shirt, pants: T.soldier.pants, skin: pick(SKIN), hat: T.soldier.hat },
+          kind: 'foe',
+          soldier: true,
+          armed: true,
+          rocket: rng() < INF_K.ROCKET_P,
+          kneel: rng() < 0.5,
           alive: true,
           tx: x,
           tz: z,
@@ -179,7 +260,7 @@ Object.assign(Game.prototype, {
     const mesh = quiet(rng, () => new CrowdMesh(list.length + CREW_SLOTS));
     for (const h of list) mesh.setLook(h.i, h.look);
     this.scene.add(mesh.group);
-    this.crowd = { list, mesh, rng, blood: [], scareT: 0, used: list.length, chutes: [] };
+    this.crowd = { list, mesh, rng, blood: [], scareT: 0, used: list.length, chutes: [], rockets: [] };
     if (!this.hk) this.hkReset();
     this.hkOn = true;
     this.crowdTick(0);
@@ -230,7 +311,14 @@ Object.assign(Game.prototype, {
   crowdScareOne(h, sx, sz) {
     const C = this.crowd;
     h.sc = 1.2;
-    if (h.st === 'run' || h.st === 'flee' || h.st === 'shoot' || h.st === 'chute') return;
+    if (h.st === 'flee' || h.st === 'shoot' || h.st === 'chute') return;
+    if (h.soldier && h.st === 'hide') return;
+    // 已經在逃：遇到新的威脅時改成離開它（每 0.6 秒最多改一次，不要每格抖）
+    if (h.st === 'run') {
+      if ((this.time || 0) - (h.reT || -9) < 0.6) return;
+      h.t = Math.max(h.t, 2);
+    }
+    h.reT = this.time || 0;
     let dx = h.x - sx,
       dz = h.z - sz;
     const d = Math.hypot(dx, dz) || 1;
@@ -247,7 +335,8 @@ Object.assign(Game.prototype, {
     const C = this.crowd;
     if (!C) return;
     for (const h of C.list)
-      if (h.alive && Math.hypot(h.x - pos.x, h.z - pos.z) < r) this.crowdScareOne(h, pos.x, pos.z);
+      if (h.alive && !h.soldier && Math.hypot(h.x - pos.x, h.z - pos.z) < r)
+        this.crowdScareOne(h, pos.x, pos.z); // 步兵不怕槍聲
   },
   // 戰鬥中加一個人（乘員）：用沒用過的位置，滿了就用已經死掉／離開的
   crowdAdd(h) {
@@ -346,6 +435,57 @@ Object.assign(Game.prototype, {
     });
     const dir = b.clone().sub(a).normalize();
     tp.takeDamage(CREW_K.SHOOT_DMG, 1, null, b, dir, undefined, undefined, 'kin');
+  },
+  // 步兵的火箭筒：看得到、飛得慢，打到玩家附近爆炸（傷害一點點）
+  crowdRocket(h, tp) {
+    const C = this.crowd;
+    const a = new THREE.Vector3(h.x + Math.sin(h.yaw) * 0.4, h.y + 1.4, h.z + Math.cos(h.yaw) * 0.4);
+    const b = tp
+      .center()
+      .add(new THREE.Vector3((C.rng() - 0.5) * 4, (C.rng() - 0.5) * 2, (C.rng() - 0.5) * 4));
+    const v = b.sub(a).normalize().multiplyScalar(INF_K.ROCKET_V);
+    quiet(C.rng, () => {
+      this.fx.flash(a, 0.3, 0xffb050, 0.1);
+      this.fx.smoke(a, 0.8, 0x8a8a8a, 0.8, 1);
+    });
+    C.rockets.push({ p: a, v, life: 4, sm: 0 });
+  },
+  crowdRocketTick(dt, pls) {
+    const C = this.crowd;
+    if (!C.rockets.length) return;
+    const W = this.world,
+      fx = this.fx;
+    for (let i = C.rockets.length - 1; i >= 0; i--) {
+      const r = C.rockets[i];
+      r.p.addScaledVector(r.v, dt);
+      r.life -= dt;
+      r.sm -= dt;
+      if (r.sm <= 0) {
+        r.sm = 0.03;
+        quiet(C.rng, () => {
+          fx.smoke(r.p.clone(), 0.5, 0xb0b0b0, 0.7, 0.5);
+          fx.flash(r.p, 0.12, 0xffa040, 0.04);
+        });
+      }
+      let hit = r.life <= 0 || r.p.y < W.groundAt(r.p.x, r.p.z, r.p.y + 1);
+      for (const p of pls) if (p.center().distanceTo(r.p) < (p.radius || 3) * 0.8) hit = true;
+      if (!hit) continue;
+      C.rockets.splice(i, 1);
+      quiet(C.rng, () => fx.explosion(r.p, 0.5, 0xffa040, false));
+      for (const p of pls)
+        if (p.center().distanceTo(r.p) < INF_K.ROCKET_R + (p.radius || 3))
+          p.takeDamage(
+            INF_K.ROCKET_DMG,
+            30,
+            null,
+            r.p.clone(),
+            r.v.clone().normalize(),
+            undefined,
+            undefined,
+            'exp',
+          );
+      this.crowdBlast(r.p, 2.5, null); // 小人也會被炸到
+    }
   },
   crowdChuteOff(h) {
     const C = this.crowd;
@@ -467,7 +607,9 @@ Object.assign(Game.prototype, {
         }
       }
       if (!h.alive) continue;
-      if (near && !h.crew) {
+      if (near && h.soldier) {
+        if (nd < INF_K.NEAR) this.crowdScareOne(h, near.pos.x, near.pos.z); // 步兵：機甲很近時才散開
+      } else if (near && !h.crew) {
         const mv = Math.hypot(near.vel ? near.vel.x : 0, near.vel ? near.vel.z : 0) > 1.5;
         if (nd < NEAR_R || (nd < SCARE_R && mv)) this.crowdScareOne(h, near.pos.x, near.pos.z);
       }
@@ -476,7 +618,7 @@ Object.assign(Game.prototype, {
       // 最近的玩家（乘員逃開的對象、駕駛員射擊的目標）
       let tp = null,
         td = 1e9;
-      if (h.crew)
+      if (h.crew || h.soldier)
         for (const p of pls) {
           const d = Math.hypot(p.pos.x - h.x, p.pos.z - h.z);
           if (d < td) {
@@ -515,6 +657,28 @@ Object.assign(Game.prototype, {
           h.gone = true;
           C.mesh.hide(h.i);
           continue;
+        }
+      } else if (h.st === 'post' || h.st === 'engage') {
+        // 敵方步兵：守在原地；玩家進到射程就轉向、開槍（一部分拿火箭筒），蹲著或站著
+        h.st = tp && td < INF_K.RANGE ? 'engage' : 'post';
+        if (h.st === 'engage') {
+          const ty = Math.atan2(tp.pos.x - h.x, tp.pos.z - h.z);
+          let dy = ty - h.yaw;
+          dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+          h.yaw += dy * Math.min(1, dt * 5);
+          h.sT -= dt;
+          h.rT -= dt;
+          const eye = new THREE.Vector3(h.x, h.y + 1.5, h.z);
+          if (h.rocket && h.rT <= 0) {
+            h.rT = INF_K.ROCKET_DT[0] + rng() * (INF_K.ROCKET_DT[1] - INF_K.ROCKET_DT[0]);
+            if (!W.losBlocked(eye, tp.center())) this.crowdRocket(h, tp);
+          } else if (h.sT <= 0) {
+            h.sT = CREW_K.SHOOT_DT[0] + rng() * (CREW_K.SHOOT_DT[1] - CREW_K.SHOOT_DT[0]) * 1.5;
+            if (!W.losBlocked(eye, tp.center())) this.crowdShoot(h, tp);
+          }
+        } else if (h.sc <= 0) {
+          // 站哨：偶爾轉頭
+          h.yaw += Math.sin((this.time || 0) * 0.4 + h.i) * dt * 0.3;
         }
       } else if (h.st === 'shoot') {
         // 敵對 AC 的駕駛員：站在原地拿槍射玩家
@@ -571,7 +735,11 @@ Object.assign(Game.prototype, {
         }
       } else if (h.st === 'hide') {
         if (h.sc <= 0) h.t -= dt;
-        if (h.t <= 0) {
+        if (h.t <= 0 && h.soldier) {
+          h.st = 'engage'; // 步兵：躲完回到戰鬥
+          h.hx = h.x;
+          h.hz = h.z;
+        } else if (h.t <= 0) {
           h.st = 'idle';
           h.t = 2 + rng() * 4;
           // 躲完之後在這裡重新開始（家改成這裡）
@@ -588,10 +756,20 @@ Object.assign(Game.prototype, {
           // 被擋住：逃跑時轉個方向，走路時放棄這個目的地
           if (Math.abs(cx - nx) + Math.abs(cz - nz) > 0.01) {
             if (h.st === 'run' || h.st === 'flee') {
-              const a = (rng() < 0.5 ? 1 : -1) * (0.6 + rng() * 0.8);
-              const ox = h.dx;
-              h.dx = ox * Math.cos(a) - h.dz * Math.sin(a);
-              h.dz = ox * Math.sin(a) + h.dz * Math.cos(a);
+              // 換一個走得通的方向（先試偏一點的，再試更偏的）
+              const sg = rng() < 0.5 ? 1 : -1,
+                ox = h.dx,
+                oz = h.dz;
+              for (const a of [0.7, -0.7, 1.3, -1.3, 2, -2, 2.8]) {
+                const b = a * sg,
+                  ux = ox * Math.cos(b) - oz * Math.sin(b),
+                  uz = ox * Math.sin(b) + oz * Math.cos(b);
+                if (this.crowdFree(h.x + ux * 1.5, h.z + uz * 1.5)) {
+                  h.dx = ux;
+                  h.dz = uz;
+                  break;
+                }
+              }
             } else h.t = 0;
           }
           nx = cx;
@@ -615,7 +793,7 @@ Object.assign(Game.prototype, {
         h.yaw += dy * Math.min(1, dt * 10);
       }
       h.ph += dt * (sp >= RUN ? 11 : sp > 0 ? 6.5 : 0);
-      const crT = h.st === 'hide' ? 1 : 0;
+      const crT = h.st === 'hide' ? 1 : h.st === 'engage' && h.kneel ? 0.55 : 0;
       h.cr += (crT - h.cr) * Math.min(1, dt * 6);
       const t = this.time || 0;
       C.mesh.pose(
@@ -630,13 +808,14 @@ Object.assign(Game.prototype, {
           crouch: h.cr,
           work: h.st === 'idle' && h.work ? 0.6 + 0.4 * Math.sin(t * 5 + h.i) : 0,
           wave: h.st === 'chute' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
-          aim: h.st === 'shoot' ? 1 : 0,
+          aim: h.st === 'shoot' || h.st === 'engage' ? 1 : 0,
           lean: h.st === 'hide' ? 0.3 : 0,
         },
         h.look.hat !== null,
       );
     }
     C.mesh.commit(C.used);
+    this.crowdRocketTick(dt, pls);
     // 血跡：慢慢擴大、最後淡出
     for (let i = C.blood.length - 1; i >= 0; i--) {
       const b = C.blood[i];

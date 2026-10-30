@@ -15561,6 +15561,12 @@ async function testCrowd(browser, base) {
     const out = { n: C ? C.list.length : 0 };
     if (!C) return out;
     const W = g.world;
+    // 周圍空得下一台機甲的人（機甲放上去不會被旁邊的物件推開）
+    const open = (h) => {
+      const [x, z] = W.collide(h.x, h.z, h.y + 0.1, 4);
+      // 頭上沒有橋面、高台（機甲放上去會落在上面）
+      return Math.abs(x - h.x) + Math.abs(z - h.z) < 0.01 && W.groundAt(h.x, h.z, h.y + 20) - h.y < 1.5;
+    };
     // 生成的位置都可以站
     out.free = C.list.every((h) => g.crowdFree(h.x, h.z));
     out.minD = Math.round(Math.min(...C.list.map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z))));
@@ -15572,7 +15578,9 @@ async function testCrowd(browser, base) {
       (h) => h.x > W.zone[0] && h.x < W.zone[1] && h.z > W.zone[2] && h.z < W.zone[3],
     );
     // 受驚：機甲靠近 → 逃跑，離開機甲
-    const h0 = C.list.find((h) => h.alive);
+    const h0 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
     const px = h0.x + 10,
       pz = h0.z;
     pl.pos.set(px, W.groundAt(px, pz, h0.y + 20), pz);
@@ -15582,40 +15590,60 @@ async function testCrowd(browser, base) {
     const d0 = Math.hypot(h0.x - pl.pos.x, h0.z - pl.pos.z);
     window.__pump(1.5, null, 1 / 30);
     out.fled = +(Math.hypot(h0.x - pl.pos.x, h0.z - pl.pos.z) - d0).toFixed(1);
+    out.fledSt = h0.st + ':' + h0.alive;
     // 玩家踩到：死、算進非戰鬥人員、留血跡
-    const h1 = C.list.find((h) => h.alive);
+    const h1 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
     const nb0 = C.blood.length;
     pl.pos.set(h1.x, W.groundAt(h1.x, h1.z, h1.y + 20), h1.z);
     window.__pump(1 / 30, null, 1 / 30);
     out.crush = { alive: h1.alive, hk: g.hk.civ, save: g.save.hk.civ, blood: C.blood.length - nb0 };
     // 血跡慢慢擴大
     window.__pump(3, null, 1 / 30);
-    const B = C.blood[C.blood.length - 1];
+    const B = C.blood[nb0]; // 剛踩出來的那一攤（之後別的死亡另外有）
     out.bloodS = B ? +B.m.scale.x.toFixed(2) : -1;
     out.bloodCol = B ? B.m.material.color.getHexString() : '';
     // 敵機踩到：死，但不算擊殺數
     pl.pos.set(W.zone[0] + 5, W.groundAt(W.zone[0] + 5, W.zone[2] + 5, 99), W.zone[2] + 5);
-    const h2 = C.list.find((h) => h.alive);
+    const h2 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
     const hk0 = g.hk.civ;
     const e = g.spawnType('mt', 1, 1);
     e.ai = 'none';
     e.pos.set(h2.x, W.groundAt(h2.x, h2.z, h2.y + 20), h2.z);
     window.__pump(1 / 30, null, 1 / 30);
-    out.enemyCrush = { alive: h2.alive, hk: g.hk.civ - hk0 };
+    out.enemyCrush = {
+      alive: h2.alive,
+      hk: g.hk.civ - hk0,
+      d: +Math.hypot(h2.x - e.pos.x, h2.z - e.pos.z).toFixed(1),
+      air: +(e.pos.y - h2.y).toFixed(1),
+      r: +g.crowdCrushR(e).toFixed(1),
+      dead: e.dead,
+    };
     e.pos.set(900, -80, 900);
     // 爆炸（玩家的）：範圍內炸死、算擊殺；外圈受驚
-    const h3 = C.list.find((h) => h.alive);
-    const nb = C.list.filter((h) => h.alive && Math.hypot(h.x - h3.x, h.z - h3.z) < 6).length;
+    const h3 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
+    const nb = C.list.filter(
+      (h) => h.alive && h.kind === 'civ' && Math.hypot(h.x - h3.x, h.z - h3.z) < 6,
+    ).length;
     g.crowdBlast(new THREE.Vector3(h3.x, h3.y + 0.5, h3.z), 7, pl);
     out.blast = { alive: h3.alive, hk: g.hk.civ, nb };
     // 血跡關閉：不留
     g.ctrl.blood = 'off';
     const nB = C.blood.length;
-    const h4 = C.list.find((h) => h.alive);
+    const h4 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
     g.crowdKill(h4, pl, 'crush');
     out.offBlood = C.blood.length === nB;
     g.ctrl.blood = 'oil';
-    const h5 = C.list.find((h) => h.alive);
+    const h5 =
+      C.list.find((h) => h.alive && h.kind === 'civ' && open(h)) ||
+      C.list.find((h) => h.alive && h.kind === 'civ');
     g.crowdKill(h5, pl, 'crush');
     out.oil = C.blood[C.blood.length - 1].m.material.color.getHexString();
     g.ctrl.blood = 'red';
@@ -15631,10 +15659,10 @@ async function testCrowd(browser, base) {
   check(r.n >= 15, `生成 ${r.n} 人`);
   check(r.free && r.minD > 30, `生成在可以站的地方、離玩家 ${r.minD} m 以上`);
   check(r.moved >= 3 && r.inZone, `推進 12 秒：${r.moved} 人走動、都在作戰區域裡`);
-  check(r.scared === 'run' && r.fled > 3, `機甲靠近 → 逃跑（拉開 ${r.fled} m）`);
+  check(r.scared === 'run' && r.fled > 3, `機甲靠近 → 逃跑（拉開 ${r.fled} m，${r.fledSt}）`);
   check(
-    r.crush.alive === false && r.crush.hk === 1 && r.crush.save === 1 && r.crush.blood === 1,
-    `玩家踩到：死、非戰鬥人員 +1、存檔累計、留一攤血（${JSON.stringify(r.crush)}）`,
+    r.crush.alive === false && r.crush.hk >= 1 && r.crush.save === r.crush.hk && r.crush.blood === r.crush.hk,
+    `玩家踩到：死、算進非戰鬥人員、存檔累計、每人一攤血（${JSON.stringify(r.crush)}）`,
   );
   check(r.bloodS > 0.5 && r.bloodCol === '1c0403', `血跡慢慢擴大、紅褐色（${r.bloodS}、#${r.bloodCol}）`);
   check(
@@ -15725,18 +15753,32 @@ async function testCrowd(browser, base) {
     // 小人先拿掉（只看乘員）
     for (const h of C.list) if (!h.crew) ((h.alive = false), C.mesh.hide(h.i));
     const out = {};
+    // 空曠的地方（旁邊沒有障礙物、頭上沒有橋面）：從想要的位置往外找
     const at = (e, dx, dz, dy = 0) => {
-      const x = pl.pos.x + dx * K,
+      let x = pl.pos.x + dx * K,
         z = pl.pos.z + dz * K;
-      e.pos.set(x, W.groundAt(x, z, pl.pos.y + 20) + dy, z);
+      for (let t = 0; t < 60; t++) {
+        const a = t * 2.4,
+          r = t * 2;
+        const tx = x + Math.cos(a) * r,
+          tz = z + Math.sin(a) * r;
+        const gy = W.groundAt(tx, tz, 999);
+        const [cx, cz] = W.collide(tx, tz, gy + 0.1, 12);
+        if (Math.abs(cx - tx) + Math.abs(cz - tz) < 0.01 && Math.abs(gy - W.terrainHeight(tx, tz)) < 0.5) {
+          x = tx;
+          z = tz;
+          break;
+        }
+      }
+      e.pos.set(x, W.groundAt(x, z, 999) + dy, z);
       e.vel.set(0, 0, 0);
       e.ai = 'none';
     };
     const crew = () => C.list.filter((h) => h.crew && h.alive);
     // MT 擊破：一部分乘員逃出、離開玩家
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 12; i++) {
       const e = g.spawnType('mt', 1, 1);
-      at(e, -20 + i * 8, -26);
+      at(e, -44 + i * 8, -26);
       e.takeDamage(1e9, 0, pl, e.center());
     }
     out.mt = crew().length;
@@ -15752,9 +15794,9 @@ async function testCrowd(browser, base) {
     pl.pos.set(0, W.groundAt(0, 0, 99), 0);
     // 裝甲車：AP ≤ 15% 時可能先逃一人
     let early = 0;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const e = g.spawnType('tank', 1, 1);
-      at(e, -24 + i * 14, 30);
+      at(e, -42 + i * 12, 30);
       e.hp = e.maxHp * 0.1;
       const n0 = crew().length;
       window.__pump(1 / 30, null, 1 / 30);
@@ -15763,9 +15805,12 @@ async function testCrowd(browser, base) {
     }
     out.early = early;
     // 直升機：乘員用降落傘落下，落地後逃跑
-    const hl = g.spawnType('heli', 1, 1);
-    at(hl, 30, 0, 22);
-    hl.takeDamage(1e9, 0, pl, hl.center());
+    let hl = null;
+    for (let i = 0; i < 3; i++) {
+      hl = g.spawnType('heli', 1, 1);
+      at(hl, 30 + i * 8, 0, 22);
+      hl.takeDamage(1e9, 0, pl, hl.center());
+    }
     const ch = crew().filter((h) => h.st === 'chute');
     out.chute = {
       n: ch.length,
@@ -15775,6 +15820,16 @@ async function testCrowd(browser, base) {
     window.__pump(12, null, 1 / 30);
     out.land = ch.every((h) => !h.alive || (h.st !== 'chute' && !h.chute));
     out.chutes = C.chutes.length;
+    // 前面的敵機與步兵清掉（砲彈、火箭不要炸到駕駛員）
+    for (const e of g.enemies)
+      if (!e.dead) {
+        e.dead = true;
+        if (e.specialCleanup) e.specialCleanup();
+        g.scene.remove(e.mesh);
+      }
+    g.enemies = [];
+    g.projectiles.length = 0;
+    C.rockets.length = 0;
     // 敵對 AC：駕駛員爬出來、站著開槍（傷害很小）
     const ac = g.spawnType('ac_longshot', 1, 1);
     at(ac, 0, -18);
@@ -15806,12 +15861,12 @@ async function testCrowd(browser, base) {
     return out;
   });
   check(
-    cr.mt >= 1 && cr.mt < 6 && cr.mtSt === 'flee',
-    `MT 擊破：一部分乘員逃出（6 台逃出 ${cr.mt} 人，${cr.mtSt}）`,
+    cr.mt >= 1 && cr.mt < 12 && cr.mtSt === 'flee',
+    `MT 擊破：一部分乘員逃出（12 台逃出 ${cr.mt} 人，${cr.mtSt}）`,
   );
   check(cr.away, '逃出的乘員離開玩家');
   check(cr.gone >= 1, `跑遠之後消失（${cr.gone} 人）`);
-  check(cr.early >= 1, `裝甲車重傷時先逃一人（4 台裡 ${cr.early} 台）`);
+  check(cr.early >= 1, `裝甲車重傷時先逃一人（8 台裡 ${cr.early} 台）`);
   check(
     cr.chute.n >= 1 && cr.chute.mesh && cr.land && cr.chutes === 0,
     `直升機的乘員用降落傘落下、落地後收起（${JSON.stringify(cr.chute)}）`,
@@ -15859,6 +15914,166 @@ async function testCrowd(browser, base) {
     g.drawHud(0);
   });
   await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-crew.png') });
+  // 第 4 期：各主題的人物、活動點、敵方步兵
+  const th = await page.evaluate(() => {
+    const g = window.__game;
+    const out = {};
+    // 主題的外觀：高空軌道＝白色真空作業服
+    localStorage.setItem('rubicon_map', 'orbit');
+    g.save.level = 1;
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const civO = g.crowd.list.filter((h) => h.kind === 'civ');
+    out.orbit = civO.length > 0 && civO.every((h) => h.look.shirt === 0xe8e8e8 || h.look.shirt === 0xd8d8d0);
+    localStorage.setItem('rubicon_map', 'industrial');
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e8;
+    for (const e of g.enemies) {
+      e.ai = 'none';
+      e.pos.set(900, -80, 900);
+    }
+    const C = g.crowd,
+      W = g.world;
+    // 活動點：一部分人圍著地圖物件、面向它
+    const nearProp = (h) =>
+      W.obstacles.some((o) =>
+        o.kind === 'box'
+          ? Math.abs(h.x - o.x) < o.w / 2 + 6 && Math.abs(h.z - o.z) < o.d / 2 + 6
+          : Math.hypot(h.x - o.x, h.z - o.z) < o.r + 6,
+      );
+    const civ = C.list.filter((h) => h.kind === 'civ');
+    out.nearProp = civ.filter(nearProp).length / Math.max(1, civ.length);
+    out.civ = civ.length;
+    // 步兵：小隊、一部分拿火箭筒
+    const sol = C.list.filter((h) => h.soldier);
+    out.sol = sol.length;
+    out.rocket = sol.filter((h) => h.rocket).length;
+    out.solLook = sol.every((h) => h.look.shirt === 0x4a4e3a);
+    // 玩家進到射程：開槍（每發幾 AP）、火箭筒（一點點）
+    // 這一隊看得到、又空曠的位置（30～60 m）放玩家
+    let s0 = sol[0],
+      x = s0.x + 40,
+      z = s0.z;
+    find: for (const q of sol)
+      for (const r of [35, 50, 65])
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2;
+          const tx = q.x + Math.cos(a) * r,
+            tz = q.z + Math.sin(a) * r;
+          if (tx < W.zone[0] + 5 || tx > W.zone[1] - 5 || tz < W.zone[2] + 5 || tz > W.zone[3] - 5) continue;
+          const gy = W.groundAt(tx, tz, 999);
+          const [cx, cz] = W.collide(tx, tz, gy + 0.1, 8);
+          if (Math.abs(cx - tx) + Math.abs(cz - tz) > 0.01 || Math.abs(gy - W.terrainHeight(tx, tz)) > 0.5)
+            continue;
+          if (W.losBlocked(new THREE.Vector3(q.x, q.y + 1.5, q.z), new THREE.Vector3(tx, gy + 5, tz)))
+            continue;
+          s0 = q;
+          x = tx;
+          z = tz;
+          break find;
+        }
+    pl.pos.set(x, W.groundAt(x, z, 999), z);
+    pl.vel.set(0, 0, 0);
+    // 這一隊之外的步兵拿掉（別的方向打來的不算）
+    for (const h of sol) if (Math.hypot(h.x - s0.x, h.z - s0.z) > 15) ((h.alive = false), C.mesh.hide(h.i));
+    const sh0 = g.crowdShoot,
+      rk0 = g.crowdRocket;
+    const per = [];
+    let rk = 0;
+    g.crowdShoot = function (h, tp) {
+      const a = tp.hp;
+      sh0.call(this, h, tp);
+      per.push(Math.round(a - tp.hp));
+    };
+    g.crowdRocket = function (h, tp) {
+      rk++;
+      rk0.call(this, h, tp);
+    };
+    // 這一隊留下來的人裡，一個拿火箭筒（測試要看到發射）
+    const keep = sol.filter((h) => h.alive);
+    keep.forEach((h) => {
+      h.rocket = h === s0; // 確定看得到玩家的那一個
+      h.rT = 0.2;
+    });
+    window.__pump(5, null, 1 / 30);
+    g.crowdShoot = sh0;
+    g.crowdRocket = rk0;
+    out.engage = sol.filter((h) => h.alive && h.st === 'engage').length;
+    out.per = per;
+    out.rk = rk;
+    out.rockets = C.rockets.length;
+    // 踩死步兵＝敵方人員
+    const f0 = g.hk.foe;
+    // 周圍空得下一台機甲、頭上沒有橋面的步兵
+    const open1 = (h) => {
+      const [cx, cz] = W.collide(h.x, h.z, h.y + 0.1, 4);
+      return Math.abs(cx - h.x) + Math.abs(cz - h.z) < 0.01 && W.groundAt(h.x, h.z, h.y + 20) - h.y < 1.5;
+    };
+    const s1 = sol.find((h) => h.alive && open1(h)) || sol.find((h) => h.alive);
+    if (s1) {
+      pl.pos.set(s1.x, W.groundAt(s1.x, s1.z, s1.y + 20), s1.z);
+      window.__pump(1 / 30, null, 1 / 30);
+    }
+    out.solFoe = g.hk.foe - f0;
+    if (s1)
+      out.solDbg = [
+        s1.alive,
+        s1.st,
+        +Math.hypot(s1.x - pl.pos.x, s1.z - pl.pos.z).toFixed(1),
+        +(pl.pos.y - s1.y).toFixed(1),
+        open1(s1),
+      ].join(':');
+    // 主線的補給區段：平民多、沒有步兵
+    g.camp = { ss: { type: 'supply' } };
+    g.crowdPlan();
+    out.supply = {
+      civ: g.crowd.list.filter((h) => h.kind === 'civ').length,
+      sol: g.crowd.list.filter((h) => h.soldier).length,
+    };
+    g.camp = null;
+    g.crowdPlan();
+    return out;
+  });
+  check(th.orbit, '高空軌道的平民是白色的真空作業服');
+  check(th.nearProp >= 0.1, `一部分平民圍著地圖物件做事（${Math.round(th.nearProp * 100)}%，${th.civ} 人）`);
+  check(th.sol >= 3 && th.solLook, `敵方步兵 ${th.sol} 人（火箭筒 ${th.rocket}）、主題的制服`);
+  check(
+    th.engage >= 1 && th.per.length >= 2 && th.per.every((v) => v > 0 && v <= 10),
+    `玩家進到射程：步兵轉向開槍（${th.engage} 人，每發 ${th.per.slice(0, 6).join(',')} AP）`,
+  );
+  check(th.rk >= 1, `拿火箭筒的會發射（${th.rk} 發）`);
+  check(th.solFoe >= 1, `踩死步兵算敵方人員（${th.solFoe}，${th.solDbg}）`);
+  check(th.supply.sol === 0 && th.supply.civ > 0, `主線的補給區段沒有步兵（平民 ${th.supply.civ}）`);
+  // 截圖：步兵開槍
+  await page.evaluate(() => {
+    const g = window.__game,
+      C = g.crowd,
+      W = g.world,
+      pl = g.player;
+    for (const id of ['tfx', 'msg'])
+      if (document.getElementById(id)) document.getElementById(id).style.visibility = 'hidden';
+    const sol = C.list.filter((h) => h.soldier && h.alive);
+    const s0 = sol[0];
+    if (!s0) return;
+    const x = s0.x + 30,
+      z = s0.z + 10;
+    pl.pos.set(x, W.groundAt(x, z, s0.y + 30), z);
+    pl.vel.set(0, 0, 0);
+    for (const h of sol) if (h.rocket) h.rT = 0.1;
+    window.__pump(1.2, null, 1 / 30);
+    const c = new THREE.Vector3(s0.x, s0.y + 1, s0.z);
+    g.camera.position.set(c.x - 8, c.y + 5, c.z + 9);
+    g.camera.lookAt(c.clone().add(new THREE.Vector3(6, 0, 2)));
+    g.camera.updateMatrixWorld();
+    g.renderMain();
+    g.banner = null;
+    g.drawHud(0);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'crowd-infantry.png') });
   await thawLoop(page);
   await ctx.close();
 }
