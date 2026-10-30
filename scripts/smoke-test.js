@@ -15468,6 +15468,7 @@ async function testHitReact(browser, base) {
         tg.hrPress = 0;
         tg.react = null;
         tg.yaw = 0;
+        Object.assign(tg, { rxPrev: null, rxHotT: 0, rxJamT: 0 }); // 連續換屬性會觸發屬性反應（另外的受擊動作）
         tg.pos.x = pl.pos.x;
         tg.pos.z = pl.pos.z - 26 * K;
       };
@@ -15648,6 +15649,9 @@ async function testHitReact(browser, base) {
           hrs: [],
           hrPress: 0,
           iFrames: 0,
+          rxPrev: null, // 連續換屬性會觸發屬性反應（另外的受擊動作）
+          rxHotT: 0,
+          rxJamT: 0,
         });
         e.hp = e.maxHp = 1e9;
         e.vel.set(0, 0, 0);
@@ -15785,6 +15789,58 @@ async function testHitReact(browser, base) {
     !fr.noTable.length && !fr.bad.length && fr.ok === fr.n && fr.n >= 49,
     `專屬敵人 ${fr.ok}／${fr.n} 種：整台與零件各自的受擊動作、結束後歸零${fr.noTable.length ? '；沒有表 ' + fr.noTable.join(' ') : ''}${fr.bad.length ? '；' + fr.bad.join('、') : ''}`,
   );
+  // 第 5 期：屬性反應、弱點、蓄力強力彈、客機的幅度
+  const xr = await page.evaluate(() => {
+    const g = window.__game,
+      tg = window.__hrTg,
+      pl = g.player,
+      K = pl.dk;
+    g.state = 'hr-test';
+    tg.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20), pl.pos.z - 26 * K);
+    const clr = () => {
+      tg.hrs = [];
+      tg.hrPress = 0;
+      tg.hp = tg.maxHp = 1e9;
+      tg.iFrames = 0;
+    };
+    const out = {};
+    for (const [id, name] of [
+      ['hot', '過熱'],
+      ['jam', 'EMP 干擾'],
+      ['burst', '破甲爆裂'],
+    ]) {
+      clr();
+      tg.rxFire({ id, name, color: '#ffffff' }, pl);
+      out[id] = tg.hrs.map((e) => e.k).join();
+    }
+    const hit = () =>
+      tg.takeDamage(1, 50, pl, tg.center(), new THREE.Vector3(0, 0, -1), undefined, 'w_rifle');
+    clr();
+    hit();
+    out.n = [tg.hrs[0].a, tg.hrs[0].T];
+    clr();
+    tg.hrCrit = true;
+    hit();
+    out.crit = [tg.hrs[0].a, +tg.hrs[0].T.toFixed(3), tg.hrCrit];
+    clr();
+    tg.hrPw = true;
+    hit();
+    tg.hrPw = false;
+    out.pw = tg.hrs[0].a;
+    clr();
+    g.clientEvent({ t: 'hr', i: tg.id, k: 1, x: 0, z: 1, y: 0, w: 0.9, a: 1.5 });
+    out.cl = [tg.hrs[0].w, tg.hrs[0].a];
+    return out;
+  });
+  check(
+    xr.hot === 'rxHot' && xr.jam === 'rxJam' && xr.burst.startsWith('rxBurst'),
+    `屬性反應各自的受擊動作（${xr.hot}、${xr.jam}、${xr.burst}）`,
+  );
+  check(
+    xr.n[0] === 1 && xr.crit[0] === 1.5 && xr.crit[1] > xr.n[1] && !xr.crit[2] && xr.pw === 1.5,
+    `弱點與蓄力強力彈放大受擊動作（一般 ${xr.n}、CRITICAL ${xr.crit.slice(0, 2)}、強力彈 ${xr.pw}）`,
+  );
+  check(xr.cl[0] === 0.9 && xr.cl[1] === 1.5, `客機收到幅度與放大（${xr.cl}）`);
   // 第 2 期：近戰每一招自己的受擊變化（盾擊每把武器共用，只算一次）
   const mr = await page.evaluate(() => {
     const g = window.__game,
@@ -15985,6 +16041,116 @@ async function testHitReact(browser, base) {
       [wid, idx, at],
     );
     await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${wid}-${idx}.png`) });
+  }
+  // 第 5 期：Boss（霸體）與部位
+  const bossR = [];
+  for (const L of [3, 12, 10, 18, 15, 16]) {
+    bossR.push(
+      await page.evaluate((L) => {
+        const g = window.__game;
+        g.clearMission();
+        g.save.level = L;
+        g.startMission();
+        g.state = 'hr-test';
+        g.waves = [];
+        g.wavePend = null;
+        const pl = g.player;
+        pl.hp = pl.maxHp = 1e8;
+        pl.iFrames = 1e9;
+        const b = g.boss;
+        b.hp = b.maxHp = 1e9;
+        const out = { name: b.name.split(' ')[0] };
+        const m = b.model;
+        const pose = () =>
+          m.vehicle
+            ? [m.group.rotation.x, m.group.rotation.z, m.group.scale.y]
+            : [m.lift.rotation.x, m.lift.rotation.z, m.torso.rotation.x, m.torso.rotation.z];
+        const amp = (fn) => {
+          b.hrs = [];
+          b.hrPress = 0;
+          b.react = null;
+          b.staggerT = 0;
+          b.hrStagOn = false;
+          window.__pump(1);
+          const p0 = pose();
+          fn();
+          let mx = 0;
+          for (let i = 0; i < 12; i++) {
+            window.__pump(0.05);
+            const p = pose();
+            for (let n = 0; n < p.length; n++) mx = Math.max(mx, Math.abs(p[n] - p0[n]));
+          }
+          return mx;
+        };
+        const dir = new THREE.Vector3(0.3, 0, -1).normalize();
+        out.small = amp(() => {
+          b.iFrames = 0;
+          b.hrFromHit({ id: 'w_rifle', type: 'bullet' }, 'kin', b.center(), dir, pl); // 鑽地蟲在地下時打不到：直接加
+          out.w = b.hrs.length ? b.hrs[0].w : -1;
+        });
+        b.opts.tier = 3;
+        b.bt = null;
+        out.big = amp(() => b.bossOpen(2));
+        out.open = (b.hrs || []).some((e) => e.k === 'bossOpen' && e.w === 1);
+        b.hrs = [];
+        b.tierInterrupt(pl);
+        out.brk = b.hrs.map((e) => e.k).join();
+        window.__pump(0.05);
+        out.noStag = !b.hrs.some((e) => e.k === 'bossStag'); // 打斷時不再另外放失衡的
+        b.hrs = [];
+        b.staggerT = 0;
+        b.hrStagOn = false;
+        b.hrBreakT = -9;
+        window.__pump(0.05);
+        b.staggerT = 2;
+        window.__pump(0.05);
+        out.stag = b.hrs.some((e) => e.k === 'bossStag' && e.w === 1);
+        b.staggerT = 0;
+        // 部位：被打的那一塊晃，結束後歸零
+        const pt = g.enemies.find(
+          (e) => !e.dead && e.ai === 'part' && e.opts.parent === b.id && e.model.vehicle,
+        );
+        if (pt) {
+          pt.hp = pt.maxHp = 1e9;
+          window.__pump(0.5);
+          const r0 = [pt.model.group.rotation.x, pt.model.group.rotation.z];
+          pt.iFrames = 0;
+          pt.hrFromHit({ id: 'w_bz', type: 'shell' }, 'exp', pt.center(), dir, pl); // 鑽地蟲的部位在地下時打不到：直接加
+          let mx = 0;
+          for (let i = 0; i < 8; i++) {
+            window.__pump(0.05);
+            mx = Math.max(
+              mx,
+              Math.abs(pt.model.group.rotation.x - r0[0]),
+              Math.abs(pt.model.group.rotation.z - r0[1]),
+            );
+          }
+          // Boss 戰的 AI 照常在跑，部位可能又被打到：清掉受擊之後下一格偏移要歸零
+          window.__pump(1);
+          Object.assign(pt, { hrs: [], hrPress: 0, react: null });
+          window.__pump(0.05);
+          out.part = {
+            body: pt.model.hrBody,
+            mx: +mx.toFixed(3),
+            back: !(pt.model.hrOff && (pt.model.hrOff.x || pt.model.hrOff.z)),
+          };
+        }
+        out.small = +out.small.toFixed(3);
+        out.big = +out.big.toFixed(3);
+        return out;
+      }, L),
+    );
+  }
+  for (const v of bossR) {
+    check(
+      v.w === 0.3 && v.open && v.brk.startsWith('bossBreak') && v.noStag && v.stag, // 大動作的幅度是 1（不受霸體限制）；Boss 的 AI 照常在跑，畫面上的幅度混著自己的移動，只列出來
+      `${v.name}：一般被打霸體 ${v.w}（幅度 ${v.small}）、破綻／打斷／失衡的大動作（${v.big}，${v.brk}）`,
+    );
+    if (v.part)
+      check(
+        v.part.body === 'part' && v.part.mx > 0.03 && v.part.back,
+        `${v.name} 的部位：被打的那一塊晃（${v.part.mx}）、結束後歸零`,
+      );
   }
   await ctx.close();
 }

@@ -39,6 +39,9 @@ Object.assign(MechEntity.prototype, {
     if (from.isPlayer) SFX.reaction(r.id);
     else if (from.slot !== undefined && g.net && g.net.role === 'host')
       g.netEv({ t: 'fb', s: from.slot, k: 'rx', r: r.id });
+    // 受擊反應（mech-hit-react.js）：過熱扭動、EMP 強痙攣、破甲被炸開
+    const hk = { hot: 'rxHot', jam: 'rxJam', burst: 'rxBurst' }[r.id];
+    if (hk && this.hrAdd) this.hrAdd(hk, 0, 1, 0, true);
     if (r.id === 'hot') this.rxHotT = RX.HOT_T;
     else if (r.id === 'jam') this.rxJamT = RX.JAM_T * bk;
     else if (r.id === 'burst') g.later(0, () => this.rxBurst(from, bk)); // 下一格（不在 takeDamage 裡再受傷）

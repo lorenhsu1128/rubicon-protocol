@@ -187,6 +187,7 @@ Object.assign(MechEntity.prototype, {
     s.openT = Math.max(s.openT, T);
     s.fake = 0;
     if (was) return;
+    this.hrAdd('bossOpen', 0, 1, 0, true, 1); // 受擊反應：收招時垮下來（mech-hit-react.js）
     if (!nat || !s.natShown) {
       g.popDamage(this.center().setY(this.center().y + 3 * DS), '破綻！', false, true, false, 0, this.id);
       g.fx.shockwave(this.center(), 7 * (this.scale || 1), 0xffd040, 0.45);
@@ -352,6 +353,9 @@ Object.assign(MechEntity.prototype, {
     this.acs = this.acsMax;
     this.staggerT = Math.max(this.staggerT, T.iStun);
     this.stagBy = from ? { id: from.id, cls: 'int' } : null;
+    this.hrBreakT = this.t; // 受擊反應（mech-hit-react.js）：大招被打斷的大動作（不再另外放失衡的）
+    this.hrStagOn = true;
+    this.hrAdd('bossBreak', 0, 1, 0, true, 1);
     const c = this.center();
     g.popDamage(c.clone().setY(c.y + 3 * DS), '打斷！', false, true, false, 0, this.id);
     g.fx.shockwave(c, 14 * (this.scale || 1), 0x7fd8ff, 0.7);

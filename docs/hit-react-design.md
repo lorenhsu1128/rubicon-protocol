@@ -82,3 +82,12 @@
 - **先後順序**：整台的部分在 `animateMech` 的載具分支（`hrBody`，`m.hrBody`＝身體類別、`m.hrFoe`＝受擊表，實體第一次 `hrState` 時記上）；零件的部分要在模型自己的動作（`specialFx` 裡的 `animD1`／`anim_d2`）之後套用（`hrFoeApply` → `hrFoeNodes`，房主在 `specialFx` 之後、客機在 `animateMech` 之後），記在 `m.hrNodes`，下一格 `hrBodyRestore` 在模型自己的動作之前扣掉（客機的 `hrBodyRestore` 移到 `specialFx` 之前）。模型自己的動作不論是直接設定、累加還是 lerp，扣掉之後都和原本一樣。
 - `reactSet` 也記錄專屬敵人的近戰受擊（`cls 'foe'`）；Boss 程式模型留到第 5 期。
 - **冒煙測試** `testHitReact`：49 種專屬敵人各生成一台，被霰彈與近戰打中時整台與零件都有動作、身體類別正確、受擊表的節點都存在、結束後偏移歸零；截圖 `hit-react-<種類>.png`（實驗體、起重機、浮標、平台底部砲塔、電鰻）。
+
+### 第 5 期（已實作）：Boss 與部位、屬性反應、弱點、蓄力強力彈
+
+- **Boss（霸體）**：一般被打照 `hrWeight` 的 0.3；Boss 程式模型的身體類別 `boss`（小幅）＋各自的特有動作（`data/hit-react.js` 的 `BOSS_HR[vehKey]`：VIPER 側滾、SANDWORM 身體甩、CINDER 爐身鼓起、BEHEMOTH 車身跳、JUDGEMENT 塔身擺、LEVIATHAN 傾斜、PULSAR 偏轉…，其他 `BOSS_HR0`）。大動作不受霸體限制（`hrAdd` 的 `wo`＝1）：大招被打斷 `bossBreak`（`tierInterrupt`）、出現破綻 `bossOpen`（`bossOpen` 第一次打開時）、失衡開始 `bossStag`（`hrState` 在房主判斷 `staggerT` 由 0 變正；打斷時已經放了 `bossBreak`，不重複）。人形的 Boss 走人形的姿勢，程式模型走 `hrBody`。
+- **部位**（`ai 'part'` 且模型 `cls 'boss'`）：身體類別 `part`（被打的那一塊晃得比本體大）＋`PART_HR` 的搖晃。部位與鑽地蟲不走 `move`，`bossTick` 補上 `hrBodyRestore`、`hrTick`、`animateMech` 的 `hr`、`hrFoeApply`。
+- **屬性反應**（`mech-react.js` 的 `rxFire`）：過熱 `rxHot`（熱得扭動）、EMP 干擾 `rxJam`（強痙攣、垂頭）、破甲爆裂 `rxBurst`（被炸開），加在武器本身的受擊動作上。
+- **放大**：打中弱點（`wpTake`／`wpBossCrit` 設 `hrCrit`）、蓄力強力彈（投射物的 `pwk` → 目標的 `hrPw`）＝這一下的幅度 ×1.5（兩者都有 ×2.25）、秒數 ×1.25（`hrAdd` 的 `amp`，受擊動作的 `a`）。
+- **同步**：`hr` 事件多 `w`（指定幅度）與 `a`（放大），`NET_VERSION` 11.12。
+- **冒煙測試** `testHitReact`：三種屬性反應、弱點與強力彈的放大、客機的幅度；JUGGERNAUT、SANDWORM、HALBERD、BASTILLE、HELIOS、CINDER 一般被打是 0.3、破綻／打斷／失衡的大動作是 1、打斷時不重複放失衡的，部位被打會晃、結束後歸零。

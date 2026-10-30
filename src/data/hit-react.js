@@ -109,6 +109,40 @@ export const HR = {
   blast: { T: 0.65, c: 'heavy', b: 0.16, t: 0.36, tw: 0.14, cr: 0.12, ka: 2.4, kh: 2.4, kp: 2.6 }, // 爆炸、衝擊波
   burn: { T: 0.45, c: 'burn', b: 0.03, t: 0.16, tw: 0.4, cr: 0.04, ka: 0.8, kh: 1.2, hold: 1 }, // 光束、能量環
   hit: { T: 0.28, c: 'snap', b: 0.04, t: 0.18, tw: 0.16, ka: 0.6, kh: 1.4, kp: 1 }, // 其他實彈
+  // ---- 第 5 期：屬性反應（mech-react.js 的 rxFire）----
+  rxHot: { T: 1.1, c: 'spasm', b: 0.04, t: 0.12, tw: 0.3, cr: 0.08, jit: 0.07, jf: 9, ka: 1.8, kh: 1.2 }, // 過熱：熱得扭動
+  rxJam: { T: 1.3, c: 'spasm', t: 0.08, cr: 0.22, jit: 0.16, jf: 34, dr: 0.35, ka: -1.8, kh: -2.4, kp: 1.4 }, // EMP 干擾：強痙攣
+  rxBurst: { T: 1, c: 'heavy', b: 0.3, t: 0.5, tw: 0.3, cr: 0.2, fl: 0.15, ka: 3.6, kh: 3, kp: 4, kb: 3.5 }, // 破甲爆裂：被炸開
+  // ---- 第 5 期：Boss 的大動作（不受霸體的幅度限制）----
+  bossStag: {
+    T: 1.6,
+    c: 'heavy',
+    b: 0.2,
+    t: 0.38,
+    tw: 0.2,
+    cr: 0.28,
+    jit: 0.03,
+    jf: 7,
+    ka: 2.4,
+    kh: -2.6,
+    kp: 2.4,
+  }, // 失衡：沉下去晃
+  bossBreak: {
+    T: 1.4,
+    c: 'heavy',
+    b: 0.32,
+    t: 0.52,
+    tw: 0.35,
+    cr: 0.2,
+    fl: 0.12,
+    jit: 0.04,
+    jf: 21,
+    ka: 3.2,
+    kh: 3,
+    kp: 3.6,
+    kb: 3,
+  }, // 大招被打斷：往後大仰
+  bossOpen: { T: 1.1, c: 'press', b: 0.12, t: 0.36, cr: 0.32, ka: -1.6, kh: -2.4, kp: -2 }, // 破綻：收招時垮下來
 };
 // 網路用的編號（hr 事件）
 export const HR_KEYS = Object.keys(HR);
@@ -492,3 +526,27 @@ export const FOE_HR = {
     ],
   }, // 聚光鏡陣列：萬向架晃、鏡瓣被打歪
 };
+
+// ---------- 第 5 期：Boss 程式模型（依 vehKey）與附屬部位 ----------
+// 霸體：一般被打時整台只小幅震（身體類別 boss）＋各自的特有動作；部位（ai 'part'）是被打的那一塊晃得比較大（part）
+export const BOSS_HR = {
+  jet: { b: 'boss', sp: [['flip', 0.35]] }, // VIPER：機身被打得側滾
+  railgun: { b: 'boss', sp: [['sw', 0.02, 8]] }, // HALBERD：砲台震
+  worm: { b: 'boss', sp: [['sw', 0.07, 3]] }, // SANDWORM：身體甩
+  furnace: { b: 'boss', sp: [['sq', 0.04, 6]] }, // CINDER：爐身鼓起回縮
+  bunker: { b: 'boss', sp: [['sw', 0.01, 12]] }, // BASTILLE：陣地震
+  dozer: { b: 'boss', sp: [['hop', 0.03, 9]] }, // BEHEMOTH：車身跳
+  spider: { b: 'boss', sp: [['sw', 0.04, 5]] }, // ARACHNE：多足晃
+  tower: { b: 'boss', sp: [['sw', 0.03, 2.5]] }, // JUDGEMENT：塔身擺
+  loco: { b: 'boss', sp: [['sw', 0.025, 7]] }, // IRON CITADEL：車頭搖
+  fortress: {
+    b: 'boss',
+    sp: [
+      ['flip', 0.15],
+      ['sw', 0.03, 3],
+    ],
+  }, // LEVIATHAN：空中要塞傾斜
+  ibis: { b: 'boss', sp: [['spin', 0.4]] }, // PULSAR：被打得偏轉
+};
+export const PART_HR = { b: 'part', sp: [['sw', 0.08, 10]] };
+export const BOSS_HR0 = { b: 'boss', sp: [] };

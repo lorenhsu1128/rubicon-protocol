@@ -360,7 +360,8 @@ Object.assign(Game.prototype, {
       case 'hr': // 依武器的受擊反應（房主的 MechEntity.hrAdd）
         {
           const tgt = this.entById(e.i);
-          if (tgt && tgt.hrAdd && HR_KEYS[e.k]) tgt.hrAdd(HR_KEYS[e.k], e.x, e.z, e.y, false);
+          if (tgt && tgt.hrAdd && HR_KEYS[e.k])
+            tgt.hrAdd(HR_KEYS[e.k], e.x, e.z, e.y, false, e.w || 0, e.a || 1);
         }
         break;
       case 'rx': // 受擊反應（房主的 MechEntity.reactSet）

@@ -100,6 +100,7 @@ Object.assign(MechEntity.prototype, {
     if (!hit && !open) return [dmg, impact];
     dmg *= WP.CRIT;
     this.wpGold = true; // 金色的傷害數字（takeDamage 的 popDamage）
+    this.hrCrit = true; // 受擊反應放大（mech-hit-react.js 的 hrFromHit）
     const g = this.game;
     if (this.t - (this.wpPopT || -9) > 0.35) {
       this.wpPopT = this.t;
@@ -197,6 +198,7 @@ Object.assign(MechEntity.prototype, {
   // Boss 的時機型弱點被打中：CRITICAL（傷害倍率由各 Boss 的 bossDefense 決定，這裡只顯示）
   wpBossCrit(from) {
     this.wpGold = true;
+    this.hrCrit = true; // 受擊反應放大（mech-hit-react.js）
     const g = this.game;
     if (this.t - (this.wpPopT || -9) > 0.35) {
       this.wpPopT = this.t;

@@ -49,7 +49,7 @@ export function hrPose(H, t) {
     const S = HR[e.k];
     if (!S) continue;
     const ph = clamp(e.t / e.T, 0, 1);
-    const a = env(S.c, ph, S) * e.w;
+    const a = env(S.c, ph, S) * e.w * (e.a || 1);
     if (!a) continue;
     const x = e.x * e.s,
       z = e.z;
@@ -135,7 +135,7 @@ export function hrKicks(m, an, H, kick) {
   for (const e of H.L) {
     const S = HR[e.k];
     if (!S) continue;
-    const w = e.w,
+    const w = e.w * (e.a || 1),
       zs = Math.sign(e.z || 1);
     if (e.n > n0) {
       if (S.ka && m.arms) {
@@ -177,6 +177,9 @@ const BODY = {
   soft: { x: 0.4, z: 0.5, y: 0.2, dy: -0.2, flip: 0.2, j: 0.3 },
   boat: { x: 0.5, z: 1.1, y: 0.2, dy: -0.5, flip: 0.2, j: 0.3 },
   hang: { x: 0.9, z: 0.9, y: 0.3, dy: 0, flip: 0, j: 0.4 },
+  // 第 5 期：Boss 程式模型（霸體，小幅）與附屬部位（被打的那一塊晃）
+  boss: { x: 0.35, z: 0.4, y: 0.1, dy: -0.15, flip: 0.1, j: 0.4 },
+  part: { x: 0.55, z: 0.6, y: 0.25, dy: -0.15, flip: 0.2, j: 0.8 },
 };
 // m.group 的旋轉 x／z 由實體 lerp 到前傾（leanTilt），所以上一格加的偏移要在那之前扣掉（hrBodyRestore）；
 // 位置與偏航由實體每格直接設定，不用扣

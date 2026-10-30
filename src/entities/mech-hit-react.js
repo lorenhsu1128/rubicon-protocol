@@ -2,7 +2,7 @@
 // 方向（機體座標）、高度（−1 腳～1 頭）與幅度，animateMech 以 render/hit-react-pose.js 算姿勢。只改外觀。
 // 房主／單機在 takeDamage 呼叫 hrFromHit；客機收到 hr 事件呼叫 hrAdd（不再轉送）。
 import { clamp } from '../core/math.js';
-import { FOE_HR, HR, HR_IDX, hrKindOf, hrWeight } from '../data/hit-react.js';
+import { BOSS_HR, BOSS_HR0, FOE_HR, HR, HR_IDX, PART_HR, hrKindOf, hrWeight } from '../data/hit-react.js';
 import { reactPose } from '../render/mech-model.js';
 import { addPose, hrFoeNodes, hrPose } from '../render/hit-react-pose.js';
 import { MechEntity } from './mech-entity.js';
@@ -44,15 +44,19 @@ Object.assign(MechEntity.prototype, {
     // 命中的高度：命中點相對機體中心（爆炸一律算中間）
     const h = this.model.height || 1;
     const y = dir && at ? clamp((at.y - (this.pos.y + h * 0.5)) / (h * 0.5), -1, 1) : 0;
-    this.hrAdd(k, lx, lz, y, true);
+    // 第 5 期：打中弱點（CRITICAL，wpTake 設的 hrCrit）、蓄力強力彈（投射物設的 hrPw）＝放大、拉長
+    const amp = (this.hrCrit ? 1.5 : 1) * (this.hrPw ? 1.5 : 1);
+    this.hrCrit = false;
+    this.hrAdd(k, lx, lz, y, true, 0, amp);
     return k;
   },
   // 加一個受擊動作（房主／單機 net＝true 時送 hr 事件）
-  hrAdd(k, lx, lz, y, net) {
+  // wo＝指定幅度（Boss 的大動作不受霸體限制）、amp＝放大（弱點、蓄力強力彈）
+  hrAdd(k, lx, lz, y, net, wo = 0, amp = 1) {
     const S = HR[k];
     if (!S) return;
     const L = this.hrs || (this.hrs = []);
-    const w = hrWeight(this);
+    const w = wo || hrWeight(this);
     this.hrN = (this.hrN || 0) + 1;
     // 持續挨打的累積（機槍類）
     if (S.pr) this.hrPress = Math.min(1, (this.hrPress || 0) + S.pr);
@@ -69,13 +73,34 @@ Object.assign(MechEntity.prototype, {
       if (sendNet) same.nt = this.t;
     } else {
       this.hrAlt = -(this.hrAlt || 1);
-      const e = { k, t: 0, T: S.T, x: lx, z: lz, y, w, s: S.alt ? this.hrAlt : 1, n: this.hrN, nt: this.t };
+      const e = {
+        k,
+        t: 0,
+        T: S.T * (amp > 1 ? 1.25 : 1),
+        x: lx,
+        z: lz,
+        y,
+        w,
+        a: amp,
+        s: S.alt ? this.hrAlt : 1,
+        n: this.hrN,
+        nt: this.t,
+      };
       L.push(e);
       if (L.length > MAX_N) L.shift();
     }
     const g = this.game;
     if (sendNet && g.net && g.net.role === 'host')
-      g.netEv({ t: 'hr', i: this.id, k: HR_IDX[k], x: +lx.toFixed(2), z: +lz.toFixed(2), y: +y.toFixed(2) });
+      g.netEv({
+        t: 'hr',
+        i: this.id,
+        k: HR_IDX[k],
+        x: +lx.toFixed(2),
+        z: +lz.toFixed(2),
+        y: +y.toFixed(2),
+        w: wo || undefined,
+        a: amp !== 1 ? +amp.toFixed(2) : undefined,
+      });
   },
   // 每格（move／remoteUpdate）
   hrTick(dt) {
@@ -90,7 +115,9 @@ Object.assign(MechEntity.prototype, {
   hrFoeInit() {
     const m = this.model;
     if (!m || m.hrFoe !== undefined) return;
-    const F = (this.opts && FOE_HR[this.opts.vehKey]) || null;
+    const vk = this.opts && this.opts.vehKey;
+    const boss = m.cls === 'boss'; // Boss 程式模型與部位（render/boss-models.js 的 cls）
+    const F = FOE_HR[vk] || (boss ? (this.ai === 'part' ? PART_HR : BOSS_HR[vk] || BOSS_HR0) : null);
     m.hrFoe = F;
     if (F) m.hrBody = F.b;
   },
@@ -108,6 +135,13 @@ Object.assign(MechEntity.prototype, {
   // animateMech 的 st.hr
   hrState() {
     if (this.model && this.model.hrFoe === undefined) this.hrFoeInit();
+    // 第 5 期：Boss 失衡開始時的大動作（房主判斷，hr 事件給客機；打斷大招時已經放了 bossBreak）
+    if (this.isBoss && !this.remote) {
+      const st = this.staggerT > 0;
+      if (st && !this.hrStagOn && !(this.t - (this.hrBreakT || -9) < 0.2))
+        this.hrAdd('bossStag', 0, 1, 0, true, 1);
+      this.hrStagOn = st;
+    }
     const L = this.hrs;
     if ((!L || !L.length) && !(this.hrPress > 0)) return null;
     return { L: L || [], p: (this.hrPress || 0) * hrWeight(this) };

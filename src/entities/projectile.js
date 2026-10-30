@@ -190,6 +190,7 @@ export class Projectile {
           if (t.isProp) g.damageProp(t, this.dmg * k, im, this.pos, this.owner);
           else {
             t.rbGold = !!this.rb; // 邊閃邊打的加成：金色的傷害數字（mech-ranged.js）
+            t.hrPw = !!this.pwk; // 蓄力強力彈：受擊反應放大（mech-hit-react.js）
             t.takeDamage(
               this.dmg * k,
               im,
@@ -201,6 +202,7 @@ export class Projectile {
               this.attr || (this.wid ? undefined : 'exp'), // 沒有武器 id 的爆炸（迫擊砲、魚雷…）算爆發
             );
             t.rbGold = false;
+            t.hrPw = false;
             if (this.rb && this.owner && this.owner.rbHit && g.isHostile(this.owner, t)) {
               this.owner.rbHit(t, this.rb);
               this.rb = 0; // 一顆只提示一次
@@ -231,6 +233,7 @@ export class Projectile {
         }
         direct.rbGold = !!this.rb;
         direct.wpAimK = this.wpk || null; // 準星壓在弱點上射出的（mech-weak.js）
+        direct.hrPw = !!this.pwk; // 蓄力強力彈：受擊反應放大（mech-hit-react.js）
         direct.takeDamage(
           this.dmg * fk,
           this.impactV,
@@ -243,6 +246,7 @@ export class Projectile {
         );
         direct.rbGold = false;
         direct.wpAimK = null;
+        direct.hrPw = false;
         if (this.rb && this.owner && this.owner.rbHit) this.owner.rbHit(direct, this.rb);
         if (this.wty && this.owner && this.owner.feelHit && !direct.isShot && g.isHostile(this.owner, direct))
           this.owner.feelHit(direct, this.wty, dir, this.impactV, { mg: this.mg, slug: this.pwk === 'slug' }); // 手感
