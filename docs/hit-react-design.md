@@ -75,3 +75,10 @@
 - **載具與飛行**（`render/hit-react-pose.js` 的 `hrBody`）：`animateMech` 的載具分支把受擊姿勢（近戰的 `reactPose`＋依武器的 `hrPose`）換成整台的俯仰、側滾、偏航、高度與砲塔扭轉：地面載具（`cls` vehicle）＝懸吊晃動、車頭抬起、壓低、砲塔被推得轉一下；直升機＝姿態被打歪、高度掉、旋翼抖；無人機＝翻滾、打轉。整台的旋轉 x／z 由實體 lerp 到前傾，所以加上去的偏移記在 `m.hrOff`，實體下一格擺放前 `hrBodyRestore` 先扣掉（房主與客機的 `remoteUpdate` 都是）；位置與偏航每格直接設定，不用扣。
 - `reactSet` 現在也記錄載具的近戰受擊（`modelKind 'boss'` 的專屬敵人與 Boss 程式模型留到第 4、5 期）；被打倒（`down`）的硬直照舊只給人形，載具不會因此多出硬直（只改外觀）。
 - **冒煙測試** `testHitReact`：重型 MT（戰車腳）、步行砲台（四足）、裝甲車、直升機、無人機各一台，被步槍、霰彈、火箭筒、EMP、雷射與近戰打中時整台有動作、不同武器不同、結束後偏移歸零；截圖 `hit-react-<種類>.png`。
+
+### 第 4 期（已實作）：專屬敵人（49 種模型＋拾荒 MT 是人形）
+
+- **受擊表**：`data/hit-react.js` 的 `FOE_HR[vehKey]`＝`{ b: 身體類別, sp: [特有動作] }`。身體類別（`render/hit-react-pose.js` 的 `BODY`）：ground 地面、heavy 重的、fixed 固定、fly 飛行、soft 軟體、boat 水面、hang 吊著的。特有動作：整台的 `sq`（果凍壓扁回彈，乘在 `group.scale`）、`sw`（從底部搖晃）、`spin`（打轉）、`flip`（側翻）、`hop`（彈跳）、`float`（往上飄）；零件的 `n`／`p`（模型 rig 上的節點，例如起重機的貨櫃、實驗體以外的天線盤、鑽頭、桅桿、觸角、鏡瓣；陣列的每個錯開相位）。
+- **先後順序**：整台的部分在 `animateMech` 的載具分支（`hrBody`，`m.hrBody`＝身體類別、`m.hrFoe`＝受擊表，實體第一次 `hrState` 時記上）；零件的部分要在模型自己的動作（`specialFx` 裡的 `animD1`／`anim_d2`）之後套用（`hrFoeApply` → `hrFoeNodes`，房主在 `specialFx` 之後、客機在 `animateMech` 之後），記在 `m.hrNodes`，下一格 `hrBodyRestore` 在模型自己的動作之前扣掉（客機的 `hrBodyRestore` 移到 `specialFx` 之前）。模型自己的動作不論是直接設定、累加還是 lerp，扣掉之後都和原本一樣。
+- `reactSet` 也記錄專屬敵人的近戰受擊（`cls 'foe'`）；Boss 程式模型留到第 5 期。
+- **冒煙測試** `testHitReact`：49 種專屬敵人各生成一台，被霰彈與近戰打中時整台與零件都有動作、身體類別正確、受擊表的節點都存在、結束後偏移歸零；截圖 `hit-react-<種類>.png`（實驗體、起重機、浮標、平台底部砲塔、電鰻）。

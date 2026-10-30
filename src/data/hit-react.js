@@ -249,3 +249,246 @@ export function meleeHrOf(v) {
   const L = MELEE_HR[v.slice(0, i)];
   return (L && L[+v.slice(i + 1)]) || null;
 }
+
+// ---------- 第 4 期：專屬敵人（50 種，依模型的 vehKey）----------
+// b＝身體類別（render/hit-react-pose.js 的 BODY：ground 地面、heavy 重的、fixed 固定、fly 飛行、soft 軟體、boat 水面、
+// hang 吊著的）；sp＝這種敵人特有的受擊動作：
+//   整台：['sq', 幅度, 頻率] 果凍般壓扁回彈、['sw', 幅度, 頻率] 搖晃（從底部）、['spin', 幅度] 被打得打轉、
+//         ['flip', 幅度] 側翻、['hop', 幅度, 頻率] 彈跳、['float', 幅度] 往上飄（低重力）
+//   零件：['n', 節點, 軸, 幅度, 頻率] 旋轉、['p', 節點, 軸, 幅度, 頻率] 位移（節點＝模型 rig 上的名稱，陣列的每個錯開相位；
+//         頻率 0＝往被打的方向甩一下）
+export const FOE_HR = {
+  // 第 1 章（舊）
+  cart: {
+    b: 'ground',
+    sp: [
+      ['hop', 0.12, 16],
+      ['flip', 0.18],
+    ],
+  }, // 炸藥礦車：彈起來、往一側翻
+  crystal_drone: { b: 'fly', sp: [['n', 'shards', 'z', 0.5, 23]] }, // 結晶寄生無人機：結晶亂顫
+  driller: { b: 'heavy', sp: [['n', 'drill', 'x', 0.25, 29]] }, // 鑽頭採礦機：鑽頭打滑發抖
+  junk: {
+    b: 'heavy',
+    sp: [
+      ['n', 'shell', 'z', 0.18, 11],
+      ['sq', 0.06, 9],
+    ],
+  }, // 廢鐵合成體：外殼鬆動、整團晃
+  burrower: { b: 'ground', sp: [['n', 'head', 'x', -0.45, 0]] }, // 沙中伏擊者：頭被打得往後縮
+  jammer: { b: 'fly', sp: [['n', 'dish', 'x', 0.6, 13]] }, // 沙暴干擾機：天線盤亂晃
+  // 第 2 章（舊）
+  crane: {
+    b: 'fixed',
+    sp: [
+      ['sw', 0.035, 3.2],
+      ['p', 'crate', 'x', 0.8, 4],
+    ],
+  }, // 起重機砲台：吊臂搖晃、貨櫃擺盪
+  forklift: { b: 'ground', sp: [['n', 'crate', 'x', 0.3, 0]] }, // 叉架 MT：舉著的貨櫃被打得往後翻
+  gate_turret: {
+    b: 'fixed',
+    sp: [
+      ['n', 'wheel', 'z', 0.9, 0],
+      ['sw', 0.02, 9],
+    ],
+  }, // 閘門砲台：絞盤被打得轉
+  patrol_cart: { b: 'ground', sp: [['hop', 0.1, 21]] }, // 壩頂巡邏砲車：在軌道上跳
+  gunboat: { b: 'boat', sp: [['sw', 0.12, 5]] }, // 潛航砲艇：在水上搖
+  sprayer: {
+    b: 'ground',
+    sp: [
+      ['sw', 0.06, 7],
+      ['sq', 0.05, 12],
+    ],
+  }, // 汙染噴射 MT：水箱晃、整台抖
+  // 第 3 章（舊）
+  lurker: { b: 'ground', sp: [['sq', 0.12, 8]] }, // 雪中潛伏 MT：往雪裡縮
+  skater: { b: 'ground', sp: [['spin', 0.6]] }, // 冰面滑行砲車：被打得在冰上打轉
+  blob: { b: 'soft', sp: [['sq', 0.28, 10]] }, // 實驗體：果凍般壓扁回彈
+  chimera: {
+    b: 'soft',
+    sp: [
+      ['sq', 0.2, 7],
+      ['sw', 0.08, 5],
+    ],
+  }, // 融合實驗體：大團的晃
+  laserpost: {
+    b: 'fixed',
+    sp: [
+      ['sw', 0.07, 6],
+      ['n', 'bar', 'z', 0.4, 15],
+    ],
+  }, // 保全雷射網：柱子被打歪、柵欄抖
+  // 第 4 章（舊）
+  crawler: {
+    b: 'ground',
+    sp: [
+      ['hop', 0.08, 25],
+      ['flip', 0.12],
+    ],
+  }, // 構造體爬行機：腳步亂、翻一邊
+  underturret: { b: 'hang', sp: [['sw', 0.16, 3.5]] }, // 平台底部砲塔：吊著像鐘擺一樣擺
+  testrig: { b: 'fixed', sp: [['sw', 0.015, 14]] }, // 推進器試車台：整座嗡嗡震
+  spacemt: { b: 'ground', sp: [['float', 0.25]] }, // 舊式宇宙用 MT：被打得飄起來
+  // 第 5 章（舊）
+  rammer: { b: 'fly', sp: [['spin', 1.2]] }, // 衝撞無人機：打轉
+  flak: { b: 'fixed', sp: [['sw', 0.03, 11]] }, // 艦載防空砲：底座震
+  // 第 6 章（舊）
+  vacuum: {
+    b: 'fly',
+    sp: [
+      ['flip', 0.6],
+      ['float', 0.1],
+    ],
+  }, // 真空作業機：慢慢翻滾、往上飄
+  marker: {
+    b: 'fly',
+    sp: [
+      ['spin', 0.9],
+      ['flip', 0.3],
+    ],
+  }, // 軌道標定衛星：失去姿態
+  // B1（第 1 章新）
+  harpoon: {
+    b: 'ground',
+    sp: [
+      ['n', 'xLauncher', 'x', 0.4, 0],
+      ['n', 'xHook', 'z', 0.5, 9],
+    ],
+  }, // 魚叉拖車：發射架被頂歪、魚叉晃
+  smoker: { b: 'ground', sp: [['n', 'xMast', 'z', 0.35, 6]] }, // 煙幕投射車：桅桿搖
+  ridgesniper: {
+    b: 'ground',
+    sp: [
+      ['n', 'xGun', 'x', -0.5, 0],
+      ['sq', 0.08, 10],
+    ],
+  }, // 沙脊狙擊機：槍管被打得往上翹、趴低
+  twister: {
+    b: 'fixed',
+    sp: [
+      ['n', 'xVanes', 'z', 0.3, 12],
+      ['sw', 0.04, 8],
+    ],
+  }, // 旋風產生機：葉片晃
+  blaster: { b: 'ground', sp: [['n', 'xArm', 'x', 0.6, 8]] }, // 坍方爆破手：手臂亂甩
+  lamp: { b: 'fixed', sp: [['n', 'xLamp', 'z', 0.5, 5]] }, // 礦燈哨兵：燈頭擺
+  // B2（第 2 章新）
+  riveter: {
+    b: 'ground',
+    sp: [
+      ['n', 'legL', 'x', 0.35, 13],
+      ['n', 'gun', 'x', -0.4, 0],
+    ],
+  }, // 鉚釘槍 MT：踉蹌、槍口上翹
+  welder: {
+    b: 'ground',
+    sp: [
+      ['n', 'mask', 'x', 0.6, 0],
+      ['n', 'arm', 'z', 0.5, 9],
+    ],
+  }, // 電焊 MT：面罩被打開、手臂甩
+  water_cannon: {
+    b: 'heavy',
+    sp: [
+      ['n', 'barrel', 'x', -0.35, 0],
+      ['n', 'pump', 'y', 0.3, 17],
+    ],
+  }, // 高壓水砲車：砲管上翹、幫浦震
+  turbine: {
+    b: 'fixed',
+    sp: [
+      ['n', 'petals', 'x', 0.35, 10],
+      ['n', 'fan', 'z', 0.25, 7],
+    ],
+  }, // 渦輪吸入機：葉片亂拍、風扇偏擺
+  eel_drone: { b: 'boat', sp: [['n', 'segs', 'y', 0.45, 9]] }, // 電鰻無人機：身體波浪般扭
+  mine_buoy: {
+    b: 'boat',
+    sp: [
+      ['flip', 0.7],
+      ['n', 'horns', 'x', 0.3, 14],
+    ],
+  }, // 漂流水雷浮標：翻過來、觸角抖
+  // C1（第 3、4 章新）
+  cryo: {
+    b: 'ground',
+    sp: [
+      ['n', 'cRing', 'z', 0.5, 10],
+      ['n', 'cFlaps', 'x', 0.4, 13],
+    ],
+  }, // 冷凍噴霧機：噴環晃、擋板拍
+  icemortar: {
+    b: 'fixed',
+    sp: [
+      ['n', 'cTube', 'x', 0.35, 0],
+      ['n', 'cStabs', 'z', 0.25, 11],
+    ],
+  }, // 冰錐迫擊砲：砲管被打歪
+  holoproj: {
+    b: 'fixed',
+    sp: [
+      ['n', 'cHead', 'y', 0.6, 27],
+      ['n', 'cPetals', 'x', 0.3, 19],
+    ],
+  }, // 全像投影器：頭部亂閃
+  parasite: {
+    b: 'soft',
+    sp: [
+      ['n', 'cLegs', 'x', 0.6, 15],
+      ['n', 'cJaws', 'x', 0.5, 0],
+    ],
+  }, // 寄生纏附體：腳亂抓、顎張開
+  anchor: {
+    b: 'heavy',
+    sp: [
+      ['n', 'cGyro', 'x', 0.7, 6],
+      ['n', 'cSpike', 'y', 0.3, 0],
+    ],
+  }, // 重力錨：陀螺環偏擺
+  zipline: {
+    b: 'ground',
+    sp: [
+      ['n', 'cHook', 'z', 0.6, 7],
+      ['hop', 0.08, 12],
+    ],
+  }, // 滑索突擊兵：鉤臂甩、跳開
+  // C2（第 4、5、6 章新）
+  fueler: { b: 'ground', sp: [['n', 'boom', 'z', 0.4, 5]] }, // 燃料洩漏車：油管吊臂擺
+  missilerack: {
+    b: 'fixed',
+    sp: [
+      ['n', 'rack', 'x', 0.3, 0],
+      ['n', 'radar', 'z', 0.5, 12],
+    ],
+  }, // 誘導飛彈架：發射架被打歪、雷達晃
+  netter: {
+    b: 'fly',
+    sp: [
+      ['n', 'petals', 'x', 0.5, 14],
+      ['flip', 0.3],
+    ],
+  }, // 拋網無人機：網瓣亂拍
+  boomer: {
+    b: 'fly',
+    sp: [
+      ['spin', 1.5],
+      ['n', 'blade', 'x', 0.3, 20],
+    ],
+  }, // 迴旋刃無人機：被打得打轉
+  mirror: {
+    b: 'fly',
+    sp: [
+      ['n', 'petals', 'x', 0.45, 8],
+      ['n', 'ringG', 'z', 0.4, 5],
+    ],
+  }, // 反射鏡衛星：鏡瓣搖、環偏擺
+  focus: {
+    b: 'fixed',
+    sp: [
+      ['n', 'gimbal', 'x', 0.4, 4],
+      ['n', 'petals', 'z', 0.3, 0],
+    ],
+  }, // 聚光鏡陣列：萬向架晃、鏡瓣被打歪
+};

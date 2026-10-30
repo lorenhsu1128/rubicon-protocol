@@ -2,7 +2,9 @@
 // 方向（機體座標）、高度（−1 腳～1 頭）與幅度，animateMech 以 render/hit-react-pose.js 算姿勢。只改外觀。
 // 房主／單機在 takeDamage 呼叫 hrFromHit；客機收到 hr 事件呼叫 hrAdd（不再轉送）。
 import { clamp } from '../core/math.js';
-import { HR, HR_IDX, hrKindOf, hrWeight } from '../data/hit-react.js';
+import { FOE_HR, HR, HR_IDX, hrKindOf, hrWeight } from '../data/hit-react.js';
+import { reactPose } from '../render/mech-model.js';
+import { addPose, hrFoeNodes, hrPose } from '../render/hit-react-pose.js';
 import { MechEntity } from './mech-entity.js';
 
 const MAX_N = 4; // 同時播放的受擊動作
@@ -84,8 +86,28 @@ Object.assign(MechEntity.prototype, {
     }
     if (this.hrPress > 0) this.hrPress = Math.max(0, this.hrPress - dt * 0.9);
   },
+  // 專屬敵人（第 4 期）：模型的受擊表（FOE_HR，依 vehKey），第一次用到時記在模型上（hrBody 用身體類別）
+  hrFoeInit() {
+    const m = this.model;
+    if (!m || m.hrFoe !== undefined) return;
+    const F = (this.opts && FOE_HR[this.opts.vehKey]) || null;
+    m.hrFoe = F;
+    if (F) m.hrBody = F.b;
+  },
+  // 專屬敵人的零件動作：在模型自己的動作（specialFx 裡的 animD1／anim_d2）之後套用（房主與客機）
+  hrFoeApply() {
+    const m = this.model;
+    if (!m || !m.hrFoe || (!this.react && !(this.hrs && this.hrs.length) && !(this.hrPress > 0))) return;
+    const R = this.react;
+    const P = addPose(
+      reactPose(R ? { k: R.k, ph: clamp(R.t / R.T, 0, 1), sd: R.sd, w: R.w, n: R.n, v: R.v, T: R.T } : null),
+      hrPose(this.hrState(), this.t),
+    );
+    hrFoeNodes(m, P, this.t);
+  },
   // animateMech 的 st.hr
   hrState() {
+    if (this.model && this.model.hrFoe === undefined) this.hrFoeInit();
     const L = this.hrs;
     if ((!L || !L.length) && !(this.hrPress > 0)) return null;
     return { L: L || [], p: (this.hrPress || 0) * hrWeight(this) };

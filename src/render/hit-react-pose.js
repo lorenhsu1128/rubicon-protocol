@@ -169,30 +169,102 @@ const BODY = {
   vehicle: { x: 0.55, z: 0.6, y: 0.25, dy: -0.35, tw: 0.35, flip: 0.3, j: 0.4 },
   heli: { x: 0.8, z: 1.0, y: 0.6, dy: -0.9, tw: 0.2, flip: 0.5, j: 0.7 },
   drone: { x: 1.1, z: 1.7, y: 1.3, dy: -0.7, tw: 0.3, flip: 0.8, j: 1 },
+  // 第 4 期：專屬敵人的身體類別（data/hit-react.js 的 FOE_HR 的 b）
+  ground: { x: 0.6, z: 0.7, y: 0.3, dy: -0.3, flip: 0.3, j: 0.5 },
+  heavy: { x: 0.3, z: 0.35, y: 0.12, dy: -0.15, flip: 0.1, j: 0.3 },
+  fixed: { x: 0.12, z: 0.15, y: 0.04, dy: -0.05, flip: 0, j: 0.6 },
+  fly: { x: 1, z: 1.4, y: 1.1, dy: -0.6, flip: 0.7, j: 1 },
+  soft: { x: 0.4, z: 0.5, y: 0.2, dy: -0.2, flip: 0.2, j: 0.3 },
+  boat: { x: 0.5, z: 1.1, y: 0.2, dy: -0.5, flip: 0.2, j: 0.3 },
+  hang: { x: 0.9, z: 0.9, y: 0.3, dy: 0, flip: 0, j: 0.4 },
 };
 // m.group 的旋轉 x／z 由實體 lerp 到前傾（leanTilt），所以上一格加的偏移要在那之前扣掉（hrBodyRestore）；
 // 位置與偏航由實體每格直接設定，不用扣
 export function hrBodyRestore(m) {
-  const o = m && m.hrOff;
-  if (!o) return;
-  m.group.rotation.x -= o.x;
-  m.group.rotation.z -= o.z;
-  o.x = o.z = 0;
+  if (!m) return;
+  const o = m.hrOff;
+  if (o) {
+    m.group.rotation.x -= o.x;
+    m.group.rotation.z -= o.z;
+    o.x = o.z = 0;
+    if (o.sy) {
+      // 壓扁（專屬敵人的 sq）
+      m.group.scale.y /= o.sy;
+      m.group.scale.x /= o.sxz;
+      m.group.scale.z /= o.sxz;
+      o.sy = o.sxz = 0;
+    }
+  }
+  // 專屬敵人的零件動作（hrFoeNodes）：在模型自己的動作（animD1／anim_d2）之前扣掉
+  const L = m.hrNodes;
+  if (L && L.length) {
+    for (const [obj, pr, ax, v] of L) obj[pr][ax] -= v;
+    L.length = 0;
+  }
 }
 export function hrBody(m, P, t) {
-  const B = BODY[m.cls] || (m.cls === 'heli' ? BODY.heli : null);
+  const B = BODY[m.hrBody || m.cls];
   if (!B) return;
   const o = m.hrOff || (m.hrOff = { x: 0, z: 0 });
   if (!P.on) return;
   const j = P.on * B.j;
-  const x = (P.rx + P.tx * 0.45 + P.flip * B.flip) * B.x + Math.sin(t * 37) * 0.012 * j;
-  const z = (P.rz + P.tz * 0.5) * B.z + Math.sin(t * 43 + 1) * 0.015 * j;
+  let x = (P.rx + P.tx * 0.45 + P.flip * B.flip) * B.x + Math.sin(t * 37) * 0.012 * j;
+  let z = (P.rz + P.tz * 0.5) * B.z + Math.sin(t * 43 + 1) * 0.015 * j;
+  let yaw = 0,
+    dy = 0;
+  // 專屬敵人整台的特有動作（FOE_HR 的 sp）
+  const F = m.hrFoe,
+    s = P.tw < 0 ? -1 : 1,
+    on = Math.min(1, P.on),
+    H = m.height || 3;
+  if (F)
+    for (const op of F.sp) {
+      const [k, a, f] = op;
+      if (k === 'sw') {
+        x += a * on * Math.sin(t * f);
+        z += a * on * Math.cos(t * f * 0.8) * 0.6;
+      } else if (k === 'spin') yaw += a * on * s;
+      else if (k === 'flip') z += -a * on * s;
+      else if (k === 'hop') dy += a * Math.abs(Math.sin(t * f)) * on * H;
+      else if (k === 'float') dy += a * on * H;
+      else if (k === 'sq') {
+        const sy = 1 - a * on * (0.6 + 0.4 * Math.sin(t * f)),
+          sxz = 1 / Math.sqrt(sy);
+        m.group.scale.y *= sy;
+        m.group.scale.x *= sxz;
+        m.group.scale.z *= sxz;
+        o.sy = sy;
+        o.sxz = sxz;
+      }
+    }
   m.group.rotation.x += x;
   m.group.rotation.z += z;
   o.x = x;
   o.z = z;
-  m.group.rotation.y += (P.yaw + P.tw * 0.25) * B.y;
-  m.group.position.y += (P.crouch + (m.cls === 'vehicle' ? 0 : P.on * 0.15)) * B.dy * (m.height || 3) * 0.5;
+  m.group.rotation.y += (P.yaw + P.tw * 0.25) * B.y + yaw;
+  m.group.position.y +=
+    (P.crouch + (m.cls === 'vehicle' ? 0 : P.on * 0.15)) * B.dy * (m.height || 3) * 0.5 + dy;
   if (m.torso && m.cls === 'vehicle') m.torso.rotation.y += P.tw * B.tw; // 砲塔被推得轉一下
   if (m.rotor) m.rotor.rotation.x = Math.sin(t * 31) * 0.06 * P.on; // 旋翼抖
+}
+// 專屬敵人的零件動作（FOE_HR 的 n／p）：在模型自己的動作之後套用（實體的 hrFoeApply），記下來給 hrBodyRestore 扣掉
+export function hrFoeNodes(m, P, t) {
+  const F = m.hrFoe;
+  if (!F || !P.on) return;
+  const L = m.hrNodes || (m.hrNodes = []);
+  const s = P.tw < 0 ? -1 : 1,
+    on = Math.min(1, P.on);
+  for (const op of F.sp) {
+    if (op[0] !== 'n' && op[0] !== 'p') continue;
+    const [k, name, ax, a, f] = op;
+    const pr = k === 'n' ? 'rotation' : 'position';
+    const T = m[name];
+    const list = Array.isArray(T) ? T : [T];
+    list.forEach((obj, i) => {
+      if (!obj || !obj.isObject3D) return;
+      const v = a * on * (f ? Math.sin(t * f + i * 1.3) : s);
+      obj[pr][ax] += v;
+      L.push([obj, pr, ax, v]);
+    });
+  }
 }

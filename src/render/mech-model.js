@@ -3298,7 +3298,7 @@ export function bladeWrist(ML) {
   if (ph < s + 0.04) return back + (F - back) * ramp(s - 0.1, s + 0.04, ph);
   return F * (1 - ramp(s + 0.3, 1, ph));
 }
-function reactPose(R) {
+export function reactPose(R) {
   if (!R) return RE0;
   const ph = R.ph,
     sd = R.sd || 0;

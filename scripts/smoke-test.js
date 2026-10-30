@@ -15708,6 +15708,83 @@ async function testHitReact(browser, base) {
       v.maxA > 0.04 && v.minD > 0.02 && v.back < 0.02,
       `${type}（${v.cls}）：整台有受擊動作（最大 ${v.maxA}）、不同武器不同（最接近 ${v.minD}）、結束後回到原姿勢（差 ${v.back}）`,
     );
+  // 第 4 期：專屬敵人（49 種模型）各自的受擊動作：整台（身體類別＋特有動作）與零件，結束後偏移歸零
+  const fr = await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player,
+      K = pl.dk,
+      { FOES, FOE_HR } = window.__FOES;
+    g.state = 'hr-test';
+    const out = { noTable: [], bad: [], ok: 0, n: 0 };
+    window.__hrTg.pos.set(9999, -99, 9999);
+    for (const key of Object.keys(FOES)) {
+      const vk = FOES[key].vehKey;
+      if (!vk) continue; // 拾荒 MT 是人形
+      out.n++;
+      if (!FOE_HR[vk]) {
+        out.noTable.push(vk);
+        continue;
+      }
+      const e = g.spawnType(key, 1, 1);
+      if (!e) {
+        out.bad.push(vk + ' 生成失敗');
+        continue;
+      }
+      e.ai = 'none';
+      e.hp = e.maxHp = 1e9;
+      const hx = pl.pos.x + 30 * K,
+        hz = pl.pos.z - 30 * K;
+      e.pos.set(hx, g.world.groundAt(hx, hz, pl.pos.y + 20) + (e.flying ? 6 * K : 0), hz);
+      e.vel.set(0, 0, 0);
+      window.__pump(0.8);
+      const m = e.model,
+        F = FOE_HR[vk];
+      const nodes = [];
+      for (const op of F.sp)
+        if (op[0] === 'n' || op[0] === 'p') {
+          const T = m[op[1]];
+          const o = Array.isArray(T) ? T[0] : T;
+          if (!o || !o.isObject3D) out.bad.push(vk + ' 沒有節點 ' + op[1]);
+          else nodes.push([o, op[0] === 'n' ? 'rotation' : 'position', op[2]]);
+        }
+      const pose = () => [
+        m.group.rotation.x,
+        m.group.rotation.z,
+        m.group.rotation.y - e.yaw,
+        (m.group.position.y - e.pos.y) / K,
+        m.group.scale.y / m.group.scale.x - 1,
+        ...nodes.map(([o, pr, ax]) => o[pr][ax]),
+      ];
+      const b = pose();
+      Object.assign(e, { iFrames: 0, staggerT: 0, acs: 0 });
+      e.takeDamage(1, 50, pl, e.center(), new THREE.Vector3(0.4, 0, -1).normalize(), undefined, 'w_sg');
+      e.reactSet('blow', 0.65, 1, false, 'w_pile:1');
+      let maxB = 0,
+        maxN = 0;
+      for (const dt of [0.05, 0.05, 0.08, 0.1, 0.12]) {
+        window.__pump(dt);
+        const p = pose();
+        for (let i = 0; i < p.length; i++) {
+          const d = Math.abs(p[i] - b[i]);
+          if (i < 5) maxB = Math.max(maxB, d);
+          else maxN = Math.max(maxN, d);
+        }
+      }
+      window.__pump(2.5);
+      const rest = !(m.hrNodes && m.hrNodes.length) && !(m.hrOff && (m.hrOff.x || m.hrOff.z || m.hrOff.sy));
+      if (m.hrBody !== F.b) out.bad.push(vk + ' 身體類別 ' + m.hrBody);
+      else if (maxB < 0.02) out.bad.push(vk + ' 整台沒動 ' + maxB.toFixed(3));
+      else if (nodes.length && maxN < 0.02) out.bad.push(vk + ' 零件沒動 ' + maxN.toFixed(3));
+      else if (!rest) out.bad.push(vk + ' 偏移沒有歸零');
+      else out.ok++;
+      e.depart();
+    }
+    return out;
+  });
+  check(
+    !fr.noTable.length && !fr.bad.length && fr.ok === fr.n && fr.n >= 49,
+    `專屬敵人 ${fr.ok}／${fr.n} 種：整台與零件各自的受擊動作、結束後歸零${fr.noTable.length ? '；沒有表 ' + fr.noTable.join(' ') : ''}${fr.bad.length ? '；' + fr.bad.join('、') : ''}`,
+  );
   // 第 2 期：近戰每一招自己的受擊變化（盾擊每把武器共用，只算一次）
   const mr = await page.evaluate(() => {
     const g = window.__game,
@@ -15838,6 +15915,11 @@ async function testHitReact(browser, base) {
     ['heli', 'w_sg', 0.15],
     ['swarm', 'w_emp', 0.3],
     ['strider', 'melee', 0.2],
+    ['blob', 'w_sg', 0.12],
+    ['crane', 'w_bz', 0.4],
+    ['buoy', 'w_sg', 0.25],
+    ['underturret', 'w_bz', 0.35],
+    ['eel', 'w_lr', 0.2],
   ]) {
     await page.evaluate(
       ([type, w, at]) => {

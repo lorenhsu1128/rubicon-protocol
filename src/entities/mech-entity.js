@@ -302,7 +302,7 @@ export class MechEntity {
   // v＝這一招的受擊變化（'武器 id:段號'，data/hit-react.js 的 MELEE_HR）
   reactSet(k, T, sd, net = true, v = null) {
     // 人形、四足、戰車腳的機甲與載具（第 3 期）；專屬敵人與 Boss 的程式模型（modelKind 'boss'）之後的期數
-    if (!this.model || this.isProp || this.opts.modelKind === 'boss') return;
+    if (!this.model || this.isProp || (this.opts.modelKind === 'boss' && this.model.cls !== 'foe')) return;
     const w = this.isBoss ? 0.3 : this.ace || this.ai === 'ac' || this.isElite ? 0.5 : 1;
     this.react = {
       k,
@@ -2872,6 +2872,7 @@ export class MechEntity {
         0xffb020,
       );
     this.specialFx(dt);
+    this.hrFoeApply(); // 專屬敵人受擊的零件動作（mech-hit-react.js）：在模型自己的動作之後
     if (this.sts || this.stsV) this.statusFx(dt);
   }
   // 跳躍與懸浮（同一個鍵分段）：地面按下＝跳躍；空中按下＝空中跳（還有次數時，向上的 QB，高度依次遞減）；
