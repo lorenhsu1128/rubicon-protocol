@@ -3,6 +3,7 @@ import { SFX } from '../audio/audio.js';
 import { escHtml } from '../core/html.js';
 import { angLerp, clamp, lerp } from '../core/math.js';
 import { isBossLevel } from '../data/enemies.js';
+import { HR_KEYS } from '../data/hit-react.js';
 import { partById } from '../data/parts.js';
 import { ENDINGS } from '../data/story.js';
 import { MechEntity } from '../entities/mech-entity.js';
@@ -354,6 +355,12 @@ Object.assign(Game.prototype, {
           });
           this.projectiles.push(p);
           if (!/missile|grenade|torpedo|crate|mortar/.test(e.k || '')) this.clientShotRecoil(p.pos);
+        }
+        break;
+      case 'hr': // 依武器的受擊反應（房主的 MechEntity.hrAdd）
+        {
+          const tgt = this.entById(e.i);
+          if (tgt && tgt.hrAdd && HR_KEYS[e.k]) tgt.hrAdd(HR_KEYS[e.k], e.x, e.z, e.y, false);
         }
         break;
       case 'rx': // 受擊反應（房主的 MechEntity.reactSet）

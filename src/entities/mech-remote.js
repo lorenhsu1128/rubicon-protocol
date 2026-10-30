@@ -17,6 +17,7 @@ Object.assign(MechEntity.prototype, {
     }
     this.t += dt;
     if (this.react) this.reactTick(dt); // 受擊反應（房主的 rx 事件）
+    if (this.hrs || this.hrPress) this.hrTick(dt); // 依武器的受擊反應（房主的 hr 事件）
     if (this.staggerT > 0) this.staggerT = Math.max(0, this.staggerT - dt);
     if (this.stagGuardT > 0) this.stagGuardT -= dt;
     for (const k in this.weapons) {

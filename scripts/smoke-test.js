@@ -15424,6 +15424,247 @@ async function testRangedReact(browser, base) {
   await ctx.close();
 }
 
+// 受擊反應改版第 1 期（docs/hit-react-design.md）：每把遠程武器各自的受擊動作（人形機甲）
+async function testHitReact(browser, base) {
+  console.log('受擊反應改版：每把遠程武器各自的受擊動作（人形機甲）、爆炸、命中高度、幅度分級、客機');
+  const { ctx, page } = await newPage(browser, 'hit-react');
+  await seededRandom(page);
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const SPLASH = ['w_bz', 'w_gl', 'bw_ms', 'bw_ms8', 'bw_pm', 'bw_gr'];
+  const WS = await page.evaluate(() =>
+    ['arm', 'back'].flatMap((c) =>
+      window.__PARTS[c]
+        .filter((d) => d.type && !['none', 'melee', 'shield'].includes(d.type))
+        .map((d) => d.id),
+    ),
+  );
+  const r = await page.evaluate(
+    ([SPLASH, WS]) => {
+      const g = window.__game;
+      g.save.level = 1;
+      g.startMission();
+      g.state = 'hr-test';
+      g.waves = [];
+      g.wavePend = null;
+      const pl = g.player;
+      pl.hp = pl.maxHp = 1e8;
+      for (const e of g.enemies) e.pos.set(900, -80, 900);
+      const tg = g.spawnType('mt', 1, 1);
+      tg.ai = 'none';
+      const K = pl.dk;
+      tg.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20), pl.pos.z - 26 * K);
+      tg.yaw = 0;
+      window.__hrTg = tg;
+      const fresh = () => {
+        tg.hp = tg.maxHp = 1e9;
+        tg.vel.set(0, 0, 0);
+        tg.staggerT = 0;
+        tg.acs = 0;
+        tg.iFrames = 0;
+        tg.wpNo = true;
+        tg.hrs = [];
+        tg.hrPress = 0;
+        tg.react = null;
+        tg.yaw = 0;
+        tg.pos.x = pl.pos.x;
+        tg.pos.z = pl.pos.z - 26 * K;
+      };
+      const out = {};
+      // 武器 → 受擊特徵：手持與肩上的遠程武器各自一種，彼此不同（WS 由 node 端從 data/parts.js 列出）
+      const ws = WS;
+      out.ws = ws;
+      // 打一下（依武器）：直擊從玩家那邊打過來；爆炸類從目標前方爆開
+      const hitW = (wid, side = 0, y = 0) => {
+        fresh();
+        const c = tg.center();
+        const from = c.clone().add(new THREE.Vector3(side * 20 * K, 0, 20 * K));
+        const dir = c.clone().sub(from).normalize();
+        const at = c.clone().add(new THREE.Vector3(0, y * tg.model.height * 0.45, 0));
+        if (SPLASH.includes(wid))
+          tg.takeDamage(
+            1,
+            50,
+            pl,
+            c.clone().add(new THREE.Vector3(side * 3 * K, -2 * K, 3 * K)),
+            undefined,
+            undefined,
+            wid,
+          );
+        else tg.takeDamage(1, 50, pl, at, dir, undefined, wid);
+        return tg.hrs.length ? tg.hrs[tg.hrs.length - 1] : null;
+      };
+      // 姿勢的取樣：全身（lift）、上身、扭轉、右上臂
+      const m = tg.model;
+      const pose = () => [
+        m.lift ? m.lift.rotation.x : 0,
+        m.lift ? m.lift.rotation.z : 0,
+        m.torso.rotation.x,
+        m.torso.rotation.z,
+        m.torsoTwist || 0,
+        m.arms.r.up.rotation.z,
+      ];
+      const sig = (wid, side = 0) => {
+        fresh();
+        window.__pump(1.2); // 回到待機
+        const b = pose();
+        const e = hitW(wid, side);
+        const s = [];
+        for (const dt of [0.08, 0.1, 0.14, 0.2, 0.3]) {
+          window.__pump(dt);
+          const p = pose();
+          for (let i = 0; i < p.length; i++) s.push(p[i] - b[i]);
+        }
+        return { k: e && e.k, s };
+      };
+      out.sig = {};
+      for (const w of ws) out.sig[w] = sig(w);
+      // 同一把（步槍）從左右打：扭轉方向相反
+      const twMax = (q) =>
+        q.s.filter((v, i) => i % 6 === 4).reduce((a, v) => (Math.abs(v) > Math.abs(a) ? v : a), 0);
+      out.left = twMax(sig('w_rifle', -1));
+      out.right = twMax(sig('w_rifle', 1));
+      // 命中高度：打頭、打腳
+      out.head = hitW('w_rifle', 0, 1).y;
+      out.leg = hitW('w_rifle', 0, -1).y;
+      // 沒有武器 id 的攻擊依屬性
+      fresh();
+      tg.takeDamage(
+        1,
+        50,
+        null,
+        tg.center().add(new THREE.Vector3(0, 0, 4 * K)),
+        undefined,
+        undefined,
+        undefined,
+        'exp',
+      );
+      out.exp = tg.hrs[0] && tg.hrs[0].k;
+      fresh();
+      tg.takeDamage(1, 50, null, tg.center(), new THREE.Vector3(0, 0, -1), undefined, undefined, 'en');
+      out.en = tg.hrs[0] && tg.hrs[0].k;
+      // 霰彈的彈丸合併成一個、機槍連續打中累積
+      fresh();
+      for (let i = 0; i < 6; i++) hitWNoFresh('w_sg');
+      function hitWNoFresh(wid) {
+        const c = tg.center();
+        tg.takeDamage(1, 20, pl, c, new THREE.Vector3(0, 0, -1), undefined, wid);
+      }
+      out.sgN = tg.hrs.length;
+      fresh();
+      for (let i = 0; i < 8; i++) hitWNoFresh('w_mg');
+      out.mg = { n: tg.hrs.length, p: +tg.hrPress.toFixed(2) };
+      // 幅度：一般敵人 1、玩家 0.65、Boss 0.3
+      fresh();
+      hitWNoFresh('w_rifle');
+      out.w = { foe: tg.hrs[0].w };
+      pl.hrs = [];
+      pl.iFrames = 0;
+      pl.takeDamage(1, 20, tg, pl.center(), new THREE.Vector3(0, 0, 1), undefined, 'w_rifle');
+      out.w.pl = pl.hrs[0] && pl.hrs[0].w;
+      // 客機：hr 事件建立同樣的受擊動作
+      fresh();
+      g.clientEvent({ t: 'hr', i: tg.id, k: 7, x: 0.5, z: 0.5, y: 0 });
+      out.client = tg.hrs[0] && tg.hrs[0].k;
+      // 動作結束後清掉
+      fresh();
+      hitWNoFresh('w_bz');
+      window.__pump(1.5);
+      out.cleared = !tg.hrs.length;
+      return out;
+    },
+    [SPLASH, WS],
+  );
+  check(r.ws.length >= 18, `遠程武器 ${r.ws.length} 把（${r.ws.join(' ')}）`);
+  const kinds = r.ws.map((w) => r.sig[w].k);
+  check(
+    kinds.every((k) => k) && new Set(kinds).size === kinds.length,
+    `每把遠程武器各自的受擊特徵（${kinds.join(' ')}）`,
+  );
+  // 兩兩比較動作的取樣：差異太小＝看起來一樣
+  let minD = 9,
+    pair = '';
+  for (let i = 0; i < r.ws.length; i++)
+    for (let j = i + 1; j < r.ws.length; j++) {
+      const a = r.sig[r.ws[i]].s,
+        b = r.sig[r.ws[j]].s;
+      let d = 0;
+      for (let n = 0; n < a.length; n++) d += (a[n] - b[n]) ** 2;
+      d = Math.sqrt(d);
+      if (d < minD) {
+        minD = d;
+        pair = r.ws[i] + '／' + r.ws[j];
+      }
+    }
+  check(minD > 0.05, `每把武器的受擊動作兩兩不同（最接近的 ${pair}：${minD.toFixed(3)}）`);
+  check(
+    Math.sign(r.left) !== Math.sign(r.right) && Math.abs(r.left) > 0.05 && Math.abs(r.right) > 0.05,
+    `左右打過來扭轉方向相反（${r.left.toFixed(2)}／${r.right.toFixed(2)}）`,
+  );
+  check(r.head > 0.45 && r.leg < -0.35, `命中高度：頭 ${r.head}、腳 ${r.leg}`);
+  check(r.exp === 'blast' && r.en === 'burn', `沒有武器 id 的攻擊依屬性（爆發 ${r.exp}、能量 ${r.en}）`);
+  check(r.sgN === 1, `霰彈的彈丸合併成一個受擊動作（${r.sgN}）`);
+  check(r.mg.n === 1 && r.mg.p > 0.5, `機槍連續打中：同一個連續震、累積 ${r.mg.p}`);
+  check(r.w.foe === 1 && r.w.pl === 0.65, `幅度：一般敵人 ${r.w.foe}、玩家 ${r.w.pl}`);
+  check(r.client === 'emp', `客機收到 hr 事件（${r.client}）`);
+  check(r.cleared, '動作結束後清掉');
+  // 截圖：受擊動作最大的時候
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const [wid, at] of [
+    ['w_rifle', 0.08],
+    ['w_sg', 0.1],
+    ['w_bz', 0.2],
+    ['w_gl', 0.2],
+    ['w_emp', 0.35],
+    ['w_lr', 0.2],
+    ['bw_gr', 0.2],
+    ['bw_emp_l', 0.6],
+  ]) {
+    await page.evaluate(
+      ([wid, at, SPLASH]) => {
+        const g = window.__game,
+          tg = window.__hrTg,
+          pl = g.player,
+          K = pl.dk;
+        tg.hrs = [];
+        tg.hrPress = 0;
+        tg.react = null;
+        Object.assign(tg, { staggerT: 0, acs: 0, hitStunT: 0, yaw: 0 });
+        tg.vel.set(0, 0, 0);
+        tg.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20), pl.pos.z - 26 * K);
+        const gc = document.getElementById('goalCard');
+        if (gc) gc.style.display = 'none';
+        window.__pump(1);
+        tg.vel.set(0, 0, 0);
+        const c = tg.center();
+        if (SPLASH.includes(wid))
+          tg.takeDamage(
+            1,
+            50,
+            pl,
+            c.clone().add(new THREE.Vector3(2 * K, -2 * K, 3 * K)),
+            undefined,
+            undefined,
+            wid,
+          );
+        else tg.takeDamage(1, 50, pl, c, new THREE.Vector3(0.3, 0, -1).normalize(), undefined, wid);
+        window.__pump(at);
+        // 鏡頭擺到目標的斜前方（玩家那一側）近拍
+        const H = tg.model.height,
+          cc = tg.center();
+        g.camera.position.set(cc.x + 0.9 * H, cc.y + 0.25 * H, cc.z + 1.7 * H);
+        g.camera.lookAt(cc);
+        g.camera.updateMatrixWorld();
+        g.renderMain();
+      },
+      [wid, at, SPLASH],
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${wid}.png`) });
+  }
+  await ctx.close();
+}
+
 async function testRangedFeel(browser, base) {
   console.log('遠程射擊：手感（霰彈推退、爆炸打飛小型敵人、機槍抖動、重擊頓格、命中標記、主動裝填）');
   const { ctx, page } = await newPage(browser, 'ranged-feel');
@@ -19725,6 +19966,7 @@ const STEPS = [
   ['testRangedCharge', (c) => testRangedCharge(c.browser, c.base)],
   ['testRangedReact', (c) => testRangedReact(c.browser, c.base)],
   ['testRangedFeel', (c) => testRangedFeel(c.browser, c.base)],
+  ['testHitReact', (c) => testHitReact(c.browser, c.base)],
   ['testRangedStyle', (c) => testRangedStyle(c.browser, c.base)],
   ['testMeleeTut', (c) => testMeleeTut(c.browser, c.base)],
   ['testRangedTut', (c) => testRangedTut(c.browser, c.base)],

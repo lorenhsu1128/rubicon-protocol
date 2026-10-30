@@ -252,6 +252,7 @@ export class MechEntity {
             n: this.react.n,
           }
         : null,
+      hr: this.hrState(), // 依武器的受擊反應（mech-hit-react.js）
       knockF: this.knockF,
       knockX: this.knockX,
       persona: this.animPersonaOf(),
@@ -1969,9 +1970,11 @@ export class MechEntity {
       dir = null;
     }
     mechFlash(this.model);
+    // 依武器的受擊反應（mech-hit-react.js）：有的時候通用的推一下減半
+    const hrk = melee ? null : this.hrFromHit(W, attr, at, dir, from);
     this.hitAnim(
       dir || (from && from.pos ? this.pos.clone().sub(from.pos) : null),
-      clamp(impact / 600, 0.15, 1.6),
+      clamp(impact / 600, 0.15, 1.6) * (hrk ? 0.5 : 1),
     );
     if (dir) {
       const kb = clamp(impact / 900, 0.05, 1.2) * (this.isBoss ? 0.15 : 1);
@@ -2299,6 +2302,7 @@ export class MechEntity {
     }
     if (this.buffT > 0) this.buffT -= dt;
     if (this.react) this.reactTick(dt); // 受擊反應
+    if (this.hrs || this.hrPress) this.hrTick(dt); // 依武器的受擊反應（mech-hit-react.js）
     if (this.sts) this.statusTick(dt); // 狀態效果（entities/mech-status.js）：倒數、黏附炸彈、纏附、吸取 EN
     // 玩家（含房主端的遠端玩家）：鎖定時間依目前鎖定的目標（導彈的鎖定，missileN）
     if (this.team === 'player' && this.slot !== undefined && 'lock' in this)

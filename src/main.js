@@ -65,6 +65,7 @@ import './entities/mech-weak.js'; // 遠程射擊：弱點、打斷預警、QB �
 import './entities/mech-charge.js'; // 遠程射擊：蓄力射擊（強力彈、連發、充能）
 import './entities/mech-react.js'; // 遠程射擊：屬性反應
 import './entities/mech-feel.js'; // 遠程射擊：手感（受擊反應、命中標記、主動裝填）
+import './entities/mech-hit-react.js'; // 受擊反應改版：依武器的受擊動作
 import './entities/mech-style.js'; // 遠程射擊：風格評價（射擊與近戰共用）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）

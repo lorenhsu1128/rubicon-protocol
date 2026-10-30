@@ -29,6 +29,7 @@ import { tagStyle } from './style/shader.js';
 import { kick, spring, springSet, springVel } from './mech-spring.js';
 import { FIRE } from './mech-fire.js';
 import { MJ_AXES, clipPose, clipStrike, clipTarget } from './melee-anim.js';
+import { addPose, hrKicks, hrPose } from './hit-react-pose.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -2514,7 +2515,8 @@ export function animateMech(m, dt, st) {
   const fwdV = st.fwd || 0; // 前進速度比例（-1 後退 ~ 1 前進，機體座標）
   const ML = st.melee; // 近戰姿勢 {kind, ph, mirror, side}
   const SP = springSet(clamp(st.heavy !== undefined ? st.heavy : 0.4, 0, 1));
-  const RE = reactPose(st.react); // 被近戰打中的受擊反應（全身傾斜、轉身、翻、上身、壓低）
+  // 受擊反應：被近戰打中（全身傾斜、轉身、翻、上身、壓低）＋依武器的受擊特徵（hit-react-pose.js）
+  const RE = addPose(reactPose(st.react), hrPose(st.hr, t));
   // 近戰的關鍵影格（melee-anim.js）：片段寫到的關節改成跟著片段（比較硬的彈簧 SP.clip），其他照程式算的姿勢
   let CP = null,
     CO = null;
@@ -2673,6 +2675,7 @@ export function animateMech(m, dt, st) {
         an.stumD = h.z >= 0 ? 1 : -1;
       }
     }
+  hrKicks(m, an, st.hr, kick); // 依武器的受擊：一開始的衝量、痙攣的抖動
   if (st.react && st.react.n !== an.reN) {
     an.reN = st.react.n;
     const k = st.react.k,
