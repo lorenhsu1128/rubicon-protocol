@@ -73,6 +73,7 @@ Object.assign(Game.prototype, {
     $('ctrlCharge').value = this.ctrl.chargeMode || 'auto';
     $('ctrlAR').value = this.ctrl.activeReload || 'on';
     $('ctrlDmgNum').value = this.ctrl.dmgNum || 'full';
+    $('ctrlPopTag').value = this.ctrl.popTag || 'imp';
     $('ctrlDmgSelf').value = this.ctrl.dmgSelf === false ? 'off' : 'on';
     $('ctrlHangar').value = this.hangarFx();
     this.renderLocalModels();

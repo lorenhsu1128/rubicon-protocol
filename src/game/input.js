@@ -669,6 +669,10 @@ Object.assign(Game.prototype, {
       this.ctrl.dmgNum = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlPopTag').onchange = (e) => {
+      this.ctrl.popTag = e.target.value;
+      this.saveKeys();
+    };
     document.getElementById('ctrlDmgSelf').onchange = (e) => {
       this.ctrl.dmgSelf = e.target.value !== 'off';
       this.saveKeys();

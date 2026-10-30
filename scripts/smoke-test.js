@@ -15007,6 +15007,35 @@ async function testRangedDodge(browser, base) {
     tg.rbGold = false;
     out.tag = g.popups.some((q) => q.val === 'COUNTER + QB SHOT');
     out.gold = g.popups.some((q) => q.num && q.stag);
+    // 狀態字「重要的」（預設）：同一場第二次起不冒字，改成傷害數字後面的記號；CRITICAL 也一樣
+    const hitTag = (fn) => {
+      g.popups.length = 0;
+      tg.iFrames = 0;
+      fn();
+      tg.takeDamage(10, 0, pl, tg.center(), null, undefined, 'w_rifle');
+      const n = g.popups.find((q) => q.num);
+      return { tags: g.popups.filter((q) => !q.num).map((q) => q.val), mk: n ? n.mk : null };
+    };
+    pl.rbTagT = -9;
+    out.again = hitTag(() => pl.rbHit(tg, 3));
+    out.crit1 = hitTag(() => g.popDamage(tg.center(), 'CRITICAL', false, true, false, 0, tg.id));
+    out.crit2 = hitTag(() => g.popDamage(tg.center(), 'CRITICAL', false, true, false, 0, tg.id));
+    // 同樣的大事件不疊一行；同一個目標最多 2 行
+    g.popups.length = 0;
+    for (const t of ['BREAK', 'BREAK', 'INTERRUPT', '連攜'])
+      g.popDamage(tg.center(), t, false, true, false, 0, tg.id);
+    out.lines = g.popups.filter((q) => !q.num && q.life > 0.2).map((q) => q.val);
+    out.breakN = g.popups.filter((q) => q.val === 'BREAK').length;
+    // 全部：照舊每次冒字
+    g.ctrl.popTag = 'all';
+    pl.rbTagT = -9;
+    out.all = hitTag(() => pl.rbHit(tg, 3));
+    // 關閉：連攜這類也不冒，BREAK 照樣
+    g.ctrl.popTag = 'off';
+    g.popups.length = 0;
+    for (const t of ['BREAK', '連攜']) g.popDamage(tg.center(), t, false, true, false, 0, tg.id);
+    out.off = g.popups.map((q) => q.val);
+    g.ctrl.popTag = 'imp';
     return out;
   });
   const k = (a, b) => (a && b ? +(a.imp / b.imp).toFixed(2) : 0);
@@ -15030,6 +15059,23 @@ async function testRangedDodge(browser, base) {
   );
   check(!r.foe || (!r.foe.rb && Math.abs(r.foe.imp - r.foe.base) < 1), '電腦開火沒有加成');
   check(r.tag && r.gold, '打中時顯示加成的文字、傷害數字是金色');
+  check(
+    r.again.tags.length === 0 &&
+      r.again.mk === '»' &&
+      r.crit1.tags[0] === 'CRITICAL' &&
+      r.crit1.mk === '✦' &&
+      r.crit2.tags.length === 0 &&
+      r.crit2.mk === '✦',
+    `狀態字「重要的」：小加成只在第一次冒字，之後是數字的記號（${JSON.stringify([r.again, r.crit1, r.crit2])}）`,
+  );
+  check(
+    r.breakN === 1 && r.lines.join() === 'INTERRUPT,連攜',
+    `同樣的字不疊行、同一個目標最多 2 行（${r.lines}）`,
+  );
+  check(
+    r.all.tags[0] === 'COUNTER + QB SHOT' && r.off.join() === 'BREAK',
+    `狀態字的「全部」與「關閉」（${r.all.tags}／${r.off}）`,
+  );
   await ctx.close();
 }
 

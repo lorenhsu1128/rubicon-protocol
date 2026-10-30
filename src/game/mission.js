@@ -900,6 +900,7 @@ Object.assign(Game.prototype, {
     this.introSeen = null;
     this.fx.clear();
     this.popups = [];
+    this.popSeen = null; // 小加成的狀態字：每一場第一次才冒字（juice.js）
     this.killStreak = null; // 連殺計數不帶到下一場
   },
   endMission(success, aborted) {

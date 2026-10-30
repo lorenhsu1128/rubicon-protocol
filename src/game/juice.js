@@ -6,6 +6,8 @@
 import { Game } from './game.js';
 import { clamp, lerp } from '../core/math.js';
 import { DS } from '../core/scale.js';
+import { RB_TAGS } from '../data/ranged.js';
+import { PW_FX } from '../data/charge.js';
 
 const POP_MERGE = 0.3; // 同一個目標在這段時間內的非近戰命中合併成一個數字
 const POP_MERGE_C = 0.6; // 精簡模式：合併的時間更長（近戰也合併），連射時只剩一個累加的數字
@@ -14,6 +16,20 @@ const POP_FADE = 0.2; // 最後幾秒淡出
 const POP_POP = 0.25; // 剛跳出時放大的比例
 const POP_RISE = 70; // 數字整段往上飄的距離（px／秒 × 顯示秒數）
 const POP_OUT = 30; // 數字整段往外（離開機體）飄的距離
+const POP_TAGS_MAX = 2; // 同一個目標同時最多幾行狀態字（多的讓最舊的提早淡出）
+const POP_MARK_T = 0.25; // 小加成的記號在這段時間內加到同一個目標的傷害數字上
+// 小加成（常常出現）：不冒在機體上，改成傷害數字後面的記號（文字在右側的風格評價），每一場只有第一次冒字
+// ＝ [記號, 每一場第一次的鍵]；邊閃邊打的組合（「QB SHOT + ORBIT」）拆開來看
+const POP_MINOR = new Map([
+  ['CRITICAL', '✦'],
+  ...RB_TAGS.map(([, s]) => [s, '»']),
+  ...Object.values(PW_FX).map((f) => [f.name, '◆']),
+]);
+const minorOf = (val) => {
+  if (typeof val !== 'string') return null;
+  const parts = val.split(' + ');
+  return parts.every((s) => POP_MINOR.has(s)) ? parts : null;
+};
 const _v = new THREE.Vector3(),
   _r = new THREE.Vector3();
 const STREAK_NAMES = [
@@ -62,9 +78,42 @@ Object.assign(Game.prototype, {
   pushPopup(pos, val, onPlayer, stag, melee, combo, key) {
     const num = typeof val === 'number';
     const mode = (this.ctrl && this.ctrl.dmgNum) || 'full';
+    const tagMode = (this.ctrl && this.ctrl.popTag) || 'imp';
     if (num && (mode === 'off' || (onPlayer && this.ctrl && this.ctrl.dmgSelf === false))) return;
     const ent = this.popEnt(pos, key);
     const k = ent ? ent.id : key;
+    let minor = false;
+    if (!num && tagMode !== 'all') {
+      // 狀態字「重要的」／「關閉」：小加成改成數字後面的記號，每一場第一次才冒字
+      const parts = minorOf(val);
+      if (parts) {
+        this.popMarkAdd(
+          k,
+          parts.map((s) => POP_MINOR.get(s)),
+        );
+        this.popSeen = this.popSeen || new Set();
+        const fresh = parts.filter((s) => !this.popSeen.has(s));
+        if (tagMode === 'off' || !fresh.length) return;
+        for (const s of fresh) this.popSeen.add(s);
+        minor = true;
+      } else if (
+        tagMode === 'off' &&
+        val !== 'BREAK' &&
+        !(ent && (ent.isBoss || (ent.model && ent.model.cls === 'boss')))
+      )
+        return; // 關閉：只留 BREAK 與 Boss 的事件
+    }
+    if (!num && ent) {
+      // 同樣的字：重新跳一下、延長，不再疊一行；超過上限時最舊的提早淡出
+      const same = this.popups.find((x) => !x.num && x.ent === ent && x.val === val && x.life > POP_FADE);
+      if (same) {
+        same.pop = 1;
+        same.life = same.max;
+        return;
+      }
+      const tags = this.popups.filter((x) => !x.num && x.ent === ent && x.life > POP_FADE);
+      for (let i = 0; i <= tags.length - POP_TAGS_MAX; i++) tags[i].life = POP_FADE;
+    }
     if (num && k !== undefined && (!melee || mode === 'compact')) {
       const win = mode === 'compact' ? POP_MERGE_C : POP_MERGE;
       const q = this.popups.find((x) => x.key === k && x.num && !!x.melee === !!melee && x.age < win);
@@ -76,6 +125,7 @@ Object.assign(Game.prototype, {
         q.stag = q.stag || stag;
         q.combo = combo || q.combo;
         q.pos.lerp(pos, 0.3);
+        this.popMarkTake(q);
         return;
       }
     }
@@ -106,7 +156,32 @@ Object.assign(Game.prototype, {
       melee,
       combo,
       key: k,
+      minor, // 小加成在這一場第一次出現的提示（淡藍、小字）
+      mk: '', // 小加成的記號（✦ CRITICAL、» 邊閃邊打、◆ 強力彈）
     });
+    if (num) this.popMarkTake(this.popups[this.popups.length - 1]);
+  },
+  // 小加成的記號：加到這個目標剛跳出的傷害數字上；數字還沒出來時先記著，等它出來
+  popMarkAdd(k, marks) {
+    if (k === undefined || k === -1) return;
+    const q = this.popups.find((x) => x.num && x.key === k && x.age < POP_MARK_T);
+    if (q) {
+      for (const m of marks) if (!q.mk.includes(m)) q.mk += m;
+      return;
+    }
+    this.popMarks = this.popMarks || new Map();
+    const o = this.popMarks.get(k);
+    const t = this.popClock || 0;
+    const mk = o && t - o.t < POP_MARK_T ? o.mk : '';
+    this.popMarks.set(k, { mk: mk + marks.filter((m) => !mk.includes(m)).join(''), t });
+    if (this.popMarks.size > 200) this.popMarks.clear();
+  },
+  popMarkTake(q) {
+    const o = this.popMarks && this.popMarks.get(q.key);
+    if (!o) return;
+    this.popMarks.delete(q.key);
+    if ((this.popClock || 0) - o.t > POP_MARK_T) return;
+    for (const m of o.mk) if (!q.mk.includes(m)) q.mk += m;
   },
   // 數字屬於哪個實體：有 key 時照 id 找，沒有時找命中點附近的機體（PARRY、GUARD BREAK…）
   popEnt(pos, key) {
@@ -147,6 +222,7 @@ Object.assign(Game.prototype, {
   },
   // 每格更新數字的時間（主迴圈）；位置在畫的時候依目標的外框算
   tickPopups(dt) {
+    this.popClock = (this.popClock || 0) + dt;
     for (let i = this.popups.length - 1; i >= 0; i--) {
       const q = this.popups[i];
       q.life -= dt;
@@ -180,8 +256,8 @@ Object.assign(Game.prototype, {
       let px, col, glow;
       if (!q.num) {
         // 文字（BREAK、GUARD BREAK、PARRY…）
-        px = 22;
-        col = q.stag ? '#ffcf40' : '#9fe8ff';
+        px = q.minor ? 16 : 22;
+        col = q.stag && !q.minor ? '#ffcf40' : '#9fe8ff';
         glow = col;
       } else {
         const v = Math.abs(q.val);
@@ -203,7 +279,9 @@ Object.assign(Game.prototype, {
       // 遠的目標字小一點（以畫面上的身高判斷）
       const far = q.box ? clamp((q.box.bot - q.box.top) / 160, 0.72, 1) : 1;
       px *= ph * far * (1 + q.pop * POP_POP);
-      const txt = q.num ? String(Math.round(q.val)) + (q.stag && !q.onPlayer ? '!' : '') : q.val;
+      const txt = q.num
+        ? String(Math.round(q.val)) + (q.stag && !q.onPlayer ? '!' : '') + (q.mk || '')
+        : q.val;
       c.font = font(px);
       let x, y;
       const ease = 1 - Math.pow(1 - Math.min(1, q.age / q.max), 2); // 先快後慢

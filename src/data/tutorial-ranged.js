@@ -98,7 +98,7 @@ export const R_LESSONS = [
           { ev: 'shot', n: 1, test: (o) => o.out, lbl: '圈外' },
           { ev: 'shot', n: 2, test: (o) => !o.out, lbl: '圈內' },
         ],
-        demo: [['tap'], ['wait', 0.8], ['approach', 0.7], ['fire', 0.8], ['wait', 0.6], ['end']],
+        demo: [['tapOut'], ['wait', 0.8], ['approach', 0.7], ['fire', 0.8], ['wait', 0.6], ['end']],
         hints: ['先在原地開火，再往假人走、進了圈再打。'],
         skip: (d) =>
           d.ideal ? '' : `${d.name || '這把武器'}是爆發屬性：沒有理想射程，遠近傷害一樣。這一步跳過。`,

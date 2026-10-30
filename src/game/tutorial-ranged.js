@@ -242,6 +242,11 @@ Object.assign(Game.prototype, {
         V.fireR = 1;
         next();
         return true;
+      case 'tapOut':
+        // 理想射程的練習：在圈外一直點放到打中一次（霰彈在遠處的散布大，一發可能整發落空），最多 5 秒
+        if (T.prog[0] >= 1 || S.t > 5) next();
+        else if (!V.fireR && ready()) V.fireR = 1;
+        return true;
       case 'tap2': {
         const w2 = p.weapons.larm;
         if (V.fireL || w2.cd > 0 || w2.reloadT > 0) return true;
