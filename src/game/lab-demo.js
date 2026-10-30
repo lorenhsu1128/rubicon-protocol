@@ -6,6 +6,9 @@ import { clamp } from '../core/math.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { PALETTES } from '../render/materials.js';
 import { mechFlash } from '../render/mech-model.js';
+import { hrKindOf } from '../data/hit-react.js';
+import { REACT_T, meleeAll, meleeReactOf } from '../data/melee.js';
+import { FIST_DEF, partById } from '../data/parts.js';
 import { Game } from './game.js';
 
 const $ = (id) => document.getElementById(id);
@@ -82,6 +85,112 @@ const reacts = (D, t, dt, g) => {
     mechFlash(p.model);
   }
 };
+// ---------- 受擊展示（docs/hit-react-design.md 第 6 期）：依序被每把武器、每一招打，說明列顯示現在是哪一個 ----------
+const HR_ARM = ['w_rifle', 'w_mg', 'w_hg', 'w_sg', 'w_lsg', 'w_bz', 'w_gl', 'w_emp', 'w_lr', 'w_lc'];
+const HR_BACK = ['bw_ms', 'bw_ms8', 'bw_pm', 'bw_gr', 'bw_emp_s', 'bw_emp_l', 'bw_lc', 'bw_gat'];
+const HR_SLOT = 1.5; // 每一個的秒數
+const HR_CONT = new Set(['w_mg', 'bw_gat', 'w_lr', 'bw_lc']); // 連射／持續照射：這段時間一直打
+// 屬性反應與放大版：[說明, 做法]
+const HR_EXTRA = [
+  ['過熱（屬性反應）', (e) => e.hrAdd('rxHot', 0, 1, 0, false, 1)],
+  ['EMP 干擾（屬性反應）', (e) => e.hrAdd('rxJam', 0, 1, 0, false, 1)],
+  ['破甲爆裂（屬性反應）', (e) => e.hrAdd('rxBurst', 0, 1, 0, false, 1)],
+  ['步槍：打中弱點 CRITICAL', (e) => e.hrAdd('rifle', 0, 1, 0.2, false, 1, 1.5)],
+  ['霰彈：蓄力強力彈', (e) => e.hrAdd('shotgun', 0, 1, 0, false, 1, 1.5)],
+  ['打在頭（步槍）', (e) => e.hrAdd('rifle', 0, 1, 0.9, false, 1)],
+  ['打在腳（步槍）', (e) => e.hrAdd('rifle', 0, 1, -0.9, false, 1)],
+  ['從右側打（步槍）', (e) => e.hrAdd('rifle', -1, 0, 0, false, 1)],
+];
+// 說明列的第二行換成現在這一個
+const hrCap = (D, txt) => {
+  if (D.hrCapTxt === txt) return;
+  D.hrCapTxt = txt;
+  const s = document.querySelector('#labDemoCap span');
+  if (s) s.textContent = txt;
+};
+// 遠程武器：玩家的機體被打（幅度照一般敵人，看得清楚）
+const hrRanged = (list) => (D, t, dt, g) => {
+  const p = g.player;
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const i = Math.min(list.length - 1, Math.floor(t / HR_SLOT));
+  const id = list[i],
+    W = partById(id.startsWith('bw_') ? 'back' : 'arm', id);
+  hrCap(D, `${i + 1}／${list.length}　${W ? W.name : id}`);
+  const ti = t - i * HR_SLOT;
+  const fire = i !== D.ri ? ti < 0.6 : HR_CONT.has(id) && ti < 0.9 && (D.hrT = (D.hrT || 0) - dt) <= 0;
+  if (i !== D.ri) D.ri = i;
+  else if (!fire) return;
+  D.hrT = id === 'w_mg' || id === 'bw_gat' ? 0.07 : 0.1;
+  const k = hrKindOf(W, null, false);
+  p.hrAdd(k, 0.25 * flip(i, 1), 1, 0, false, 1);
+  mechFlash(p.model);
+};
+const hrExtra = (D, t, dt, g) => {
+  const p = g.player;
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const i = Math.min(HR_EXTRA.length - 1, Math.floor(t / HR_SLOT));
+  hrCap(D, `${i + 1}／${HR_EXTRA.length}　${HR_EXTRA[i][0]}`);
+  if (i === D.ri) return;
+  D.ri = i;
+  HR_EXTRA[i][1](p);
+  mechFlash(p.model);
+};
+// 近戰：被這把武器的每一招打（招式的基本反應＋這一招自己的變化）
+const hrMelee = (wid) => (D, t, dt, g) => {
+  const p = g.player;
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const d = wid === 'w_fist' ? FIST_DEF : partById('arm', wid);
+  const all = meleeAll(d);
+  const i = Math.min(all.length - 1, Math.floor(t / 1.2));
+  hrCap(D, `${i + 1}／${all.length}　${all[i].name}`);
+  if (i === D.ri) return;
+  D.ri = i;
+  let rk = meleeReactOf(all[i]);
+  if (rk === 'slam' || rk === 'launch') rk = rk === 'slam' ? 'down' : 'blow'; // 展示不讓它飛起來
+  p.reactSet(rk, REACT_T[rk] || 0.4, i % 2 ? -1 : 1, false, wid + ':' + i);
+  mechFlash(p.model);
+};
+const hrMeleeT = (wid) => meleeAll(wid === 'w_fist' ? FIST_DEF : partById('arm', wid)).length * 1.2 + 0.4;
+// 其他身體：在旁邊生成一台（不動、AP 無限），鏡頭看它；每一台被火箭筒、霰彈、EMP、近戰打
+const HR_BODIES = [
+  ['mth', '戰車腳的 MT'],
+  ['strider', '四足的步行砲台'],
+  ['tank', '裝甲車'],
+  ['heli', '直升機'],
+  ['swarm', '無人機'],
+  ['blob', '實驗體（壓扁回彈）'],
+  ['crane', '起重機砲台（吊臂與貨櫃擺）'],
+  ['buoy', '漂流水雷浮標（翻過來）'],
+  ['eel', '電鰻無人機（身體扭）'],
+  ['underturret', '平台底部砲塔（像鐘擺）'],
+  ['skater', '冰面滑行砲車（打轉）'],
+];
+const HR_BODY_T = 2.6;
+const hrBodies = (D, t, dt, g) => {
+  g.labDemoMove(dt, 0, 0, { face: true });
+  const i = Math.min(HR_BODIES.length - 1, Math.floor(t / HR_BODY_T));
+  const [type, name] = HR_BODIES[i];
+  hrCap(D, `${i + 1}／${HR_BODIES.length}　${name}`);
+  if (i !== D.ri) {
+    D.ri = i;
+    g.labDemoBody(type);
+    D.hrStep = 0;
+  }
+  const e = D.dummy;
+  if (!e) return;
+  const ti = t - i * HR_BODY_T;
+  const steps = [0.2, 0.85, 1.5, 2.1];
+  if (D.hrStep < steps.length && ti >= steps[D.hrStep]) {
+    const s = D.hrStep++;
+    if (s === 0) e.hrAdd('rocket', 0.3, 1, 0, false);
+    else if (s === 1) e.hrAdd('shotgun', -0.4, 1, 0, false);
+    else if (s === 2) e.hrAdd('emp', 0, 1, 0, false);
+    else e.reactSet('blow', 0.65, 1, false, 'w_pile:1');
+    mechFlash(e.model);
+  }
+  g.labDemoBodyTick(dt);
+};
+
 const comboT = (id) => {
   // 段落長度：整個連段兩次＋休息
   const d = { w_blade: 1.08, w_saber: 1.99, w_pile: 1.1, w_none: 0.9 }[id] || 1.2;
@@ -267,6 +376,15 @@ const DEMO_SEGS = [
       if (d) g.labDemoHit(d, 1.1);
     },
   },
+  { n: '受擊：手持武器', d: HR_ARM.length * HR_SLOT, s: '', run: hrRanged(HR_ARM) },
+  { n: '受擊：肩上武器', d: HR_BACK.length * HR_SLOT, s: '', run: hrRanged(HR_BACK) },
+  { n: '受擊：屬性反應、弱點、強力彈、命中位置', d: HR_EXTRA.length * HR_SLOT, s: '', run: hrExtra },
+  { n: '受擊：脈衝刀的每一招', d: hrMeleeT('w_blade'), s: '', run: hrMelee('w_blade') },
+  { n: '受擊：光束大劍的每一招', d: hrMeleeT('w_saber'), s: '', run: hrMelee('w_saber') },
+  { n: '受擊：破碎爪的每一招', d: hrMeleeT('w_claw'), s: '', run: hrMelee('w_claw') },
+  { n: '受擊：打樁機的每一招', d: hrMeleeT('w_pile'), s: '', run: hrMelee('w_pile') },
+  { n: '受擊：拳擊的每一招', d: hrMeleeT('w_fist'), s: '', run: hrMelee('w_fist') },
+  { n: '受擊：其他身體', d: HR_BODIES.length * HR_BODY_T, s: '', cam: 'dummy', run: hrBodies },
   {
     n: '失衡（前面打）',
     d: 3.6,
@@ -403,6 +521,7 @@ Object.assign(Game.prototype, {
     D.mi = 0;
     D.ri = -1;
     D.mWait = 0.3;
+    D.hrCapTxt = null;
     if (D.dummy) this.labDemoDummyClear();
     const seg = DEMO_SEGS[D.i];
     const want = { ...D.asm, ...(seg.w || {}) };
@@ -507,6 +626,50 @@ Object.assign(Game.prototype, {
     e.mesh.rotation.y = e.yaw;
     D.dummy = e;
   },
+  // 受擊展示的其他身體：spawnType 生成一台（不記成遇過、不跳介紹，實驗室不寫存檔），從敵人清單拿掉、由展示自己更新
+  labDemoBody(type) {
+    const D = this.lab.demo,
+      p = this.player;
+    this.labDemoDummyClear();
+    if (!this.introSeen) this.introSeen = new Set();
+    this.introSeen.add(type);
+    const sim0 = this.sim;
+    this.sim = sim0 || { labDemo: true }; // spawnType 的 simMark 只在不是模擬器時記錄
+    let e = null;
+    const n0 = this.enemies.length;
+    try {
+      e = this.spawnType(type, 1, 1, null, 1); // 只要 1 台（無人機這類平常一次一群）
+    } finally {
+      this.sim = sim0;
+    }
+    // 生成的全部從敵人清單拿掉（展示自己更新），多出來的清掉
+    for (const x of this.enemies.slice(n0)) if (x !== e) x.cleanup();
+    this.enemies.length = n0;
+    if (!e) return;
+    e.ai = 'none';
+    e.hp = e.maxHp = 1e9;
+    const B = D.B,
+      dd = 9 * p.dk;
+    const x = D.C.x - Math.sin(B) * dd,
+      z = D.C.z - Math.cos(B) * dd;
+    e.hrFly = e.flying ? 5 * p.dk : 0;
+    e.pos.set(x, this.world.terrainHeight(x, z) + e.hrFly, z);
+    e.yaw = e.aimYaw = Math.atan2(-(p.pos.x - x), -(p.pos.z - z));
+    e.vel.set(0, 0, 0);
+    e.mesh.position.copy(e.pos);
+    const box = new THREE.Box3().setFromObject(e.mesh);
+    e.hrSize = Math.max(box.max.y - box.min.y, box.max.x - box.min.x, box.max.z - box.min.z); // 鏡頭的距離
+    D.dummy = e;
+  },
+  labDemoBodyTick(dt) {
+    const e = this.lab.demo.dummy;
+    if (!e || e.dead) return;
+    const pos = e.pos.clone();
+    e.move(dt, V(), false, false, false, null);
+    e.pos.copy(pos); // 不動
+    e.vel.set(0, 0, 0);
+    e.hp = e.maxHp;
+  },
   labDemoDummyClear() {
     const D = this.lab.demo;
     const e = D.dummy;
@@ -522,10 +685,20 @@ Object.assign(Game.prototype, {
       p = this.player,
       cam = this.camera;
     const c = p.center();
-    const D2 = D.dummy && D.i === DEMO_SEGS.length - 1 ? D.dummy.center().lerp(c, 0.5) : c;
-    const a = D.B + D.camA;
-    const cd = D.camD * (D.dummy ? 1.5 : 1); // 擊破示範：拉遠看到兩台
-    const pos = V(D2.x - Math.sin(a) * cd, D2.y + D.camH, D2.z - Math.cos(a) * cd);
+    const focus = D.dummy && DEMO_SEGS[D.i].cam === 'dummy'; // 受擊展示的其他身體：看假人
+    const D2 = focus
+      ? D.dummy.center()
+      : D.dummy && D.i === DEMO_SEGS.length - 1
+        ? D.dummy.center().lerp(c, 0.5)
+        : c;
+    const a = D.B + D.camA + (focus ? Math.PI * 0.7 : 0); // 假人在玩家前方：從它的斜側面看（不和玩家排成一直線）
+    // 擊破示範：拉遠看到兩台；受擊展示的其他身體：依它的外框大小（labDemoBody 量的 hrSize）
+    const cd = focus ? Math.max(D.camD * 1.5, (D.dummy.hrSize || 10) * 3.5) : D.camD * (D.dummy ? 1.5 : 1);
+    const pos = V(
+      D2.x - Math.sin(a) * cd,
+      D2.y + D.camH + (focus ? (D.dummy.hrSize || 10) * 0.35 : 0),
+      D2.z - Math.cos(a) * cd,
+    );
     pos.y = Math.max(pos.y, this.world.terrainHeight(pos.x, pos.z) + 1.2);
     const k = Math.min(1, dt * 10);
     if (L.snap) {

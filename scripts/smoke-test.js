@@ -972,7 +972,7 @@ async function testHangar(browser) {
 
 async function testLabDemo(browser) {
   console.log(
-    '實驗室的動作展示：清掉兩隊、34 段依序播放（移動、機動、射擊、近戰、受擊、擊破）、換段落、回到觀看重建戰場',
+    '實驗室的動作展示：清掉兩隊、43 段依序播放（移動、機動、射擊、近戰、受擊、受擊展示、擊破）、換段落、回到觀看重建戰場',
   );
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
   const page = await ctx.newPage();
@@ -1042,6 +1042,60 @@ async function testLabDemo(browser) {
   check(r.melee > 10, '近戰段落打出連段');
   check(r.hit > 0 && r.stag > 0, '受擊與失衡段落');
   check(r.dummyDead && r.collapse, '擊破段落：假人先跪倒再碎裂');
+  // 受擊展示（docs/hit-react-design.md 第 6 期）：說明列顯示現在是哪一把、哪一招；其他身體依序生成、被打得動
+  const hr = await page.evaluate(() => {
+    const g = window.__game,
+      D = g.lab.demo;
+    const names = [...document.querySelectorAll('#labDemoList button')].map((b) => b.textContent);
+    const find = (s) => names.findIndex((n) => n.includes(s));
+    const out = { caps: [], bodies: [], moved: 0, save: localStorage.getItem('rubicon_save_1') };
+    for (const s of ['受擊：手持武器', '受擊：肩上武器', '受擊：屬性反應', '受擊：脈衝刀的每一招']) {
+      g.labDemoGo(find(s));
+      window.__pump(2);
+      out.caps.push(document.querySelector('#labDemoCap span').textContent);
+    }
+    const bi = find('受擊：其他身體');
+    g.labDemoGo(bi);
+    for (let k = 0; k < 60 * 45 && D.i === bi; k++) {
+      window.__pump(1 / 60);
+      const e = D.dummy;
+      if (!e) continue;
+      const key = e.opts.vehKey || e.name;
+      if (!out.bodies.includes(key)) out.bodies.push(key);
+      const m = e.model;
+      const v = m.vehicle
+        ? Math.abs((m.hrOff && m.hrOff.x) || 0) + Math.abs((m.hrOff && m.hrOff.z) || 0)
+        : Math.abs(m.lift.rotation.x) + Math.abs(m.lift.rotation.z);
+      if (v > 0.03) out.moved++;
+    }
+    out.saveSame = out.save === localStorage.getItem('rubicon_save_1');
+    out.enemies = g.enemies.length;
+    return out;
+  });
+  check(
+    hr.caps.every((c) => /^\d+／\d+/.test(c)),
+    `受擊展示的說明列顯示現在是哪一個（${hr.caps.join('｜')}）`,
+  );
+  check(
+    hr.bodies.length >= 11 && hr.moved > 60 && hr.saveSame && hr.enemies === 0,
+    `受擊展示的其他身體：${hr.bodies.length} 種依序生成（${hr.bodies.join(' ')}）、被打得動（${hr.moved} 格）、不寫存檔、不進敵人清單`,
+  );
+  for (const [s, at, f] of [
+    ['受擊：其他身體', 2.7, 'lab-demo-hr-bodies.png'],
+    ['受擊：破碎爪的每一招', 7.4, 'lab-demo-hr-claw.png'],
+  ]) {
+    await page.evaluate(
+      ([s, at]) => {
+        const g = window.__game;
+        const names = [...document.querySelectorAll('#labDemoList button')].map((b) => b.textContent);
+        g.labDemoGo(names.findIndex((n) => n.includes(s)));
+        g.lab.snap = true;
+        window.__pump(at);
+      },
+      [s, at],
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, f) });
+  }
   await page.evaluate(() => {
     const g = window.__game;
     g.labDemoGo(3);
