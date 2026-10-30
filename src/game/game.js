@@ -386,6 +386,7 @@ export class Game {
     this.fx.view = null; // 粒子的畫面外判斷只在任務中（lodTick 設定）
     const now = performance.now();
     let dt = Math.min(0.05, (now - this.lastT) / 1000);
+    if (this.pumpDt) dt = this.pumpDt; // 冒煙測試的 __pump：固定的時間間隔（負載高時兩次讀時間的差不固定）
     this.lastT = now;
     this.lastDt = dt;
     this.tfxTick(); // 文字演出（game/textfx.js）

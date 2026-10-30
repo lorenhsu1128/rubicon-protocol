@@ -195,10 +195,16 @@ async function freezeLoop(page) {
         window.__pump = (sec, until, dt = 1 / 60) => {
           const g = window.__game;
           let t = 0;
-          for (; t < sec - 1e-6; t += dt) {
-            if (until && until()) return t;
-            g.lastT = performance.now() - dt * 1000;
-            g.loop();
+          // 每一格固定 dt（g.pumpDt）：不靠兩次讀時間的差，負載高時（垃圾回收）也不會多出時間
+          g.pumpDt = dt;
+          try {
+            for (; t < sec - 1e-6; t += dt) {
+              if (until && until()) return t;
+              g.lastT = performance.now() - dt * 1000;
+              g.loop();
+            }
+          } finally {
+            g.pumpDt = 0;
           }
           return !until || until() ? t : -1;
         };
