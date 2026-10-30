@@ -366,7 +366,7 @@ Object.assign(Game.prototype, {
       case 'rx': // 受擊反應（房主的 MechEntity.reactSet）
         {
           const tgt = this.entById(e.i);
-          if (tgt && tgt.reactSet) tgt.reactSet(e.k, e.T, e.s, false);
+          if (tgt && tgt.reactSet) tgt.reactSet(e.k, e.T, e.s, false, e.v || null);
         }
         break;
       case 'pend':

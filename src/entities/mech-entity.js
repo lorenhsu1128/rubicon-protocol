@@ -250,6 +250,8 @@ export class MechEntity {
             sd: this.react.sd,
             w: this.react.w,
             n: this.react.n,
+            v: this.react.v,
+            T: this.react.T,
           }
         : null,
       hr: this.hrState(), // 依武器的受擊反應（mech-hit-react.js）
@@ -296,7 +298,8 @@ export class MechEntity {
   }
   // 受擊反應（animateMech 的 st.react）：k＝種類（data/melee.js 的 meleeReactOf），T＝秒數，sd＝往機體的哪一側推
   // （+1＝機體的 +x 右側）；房主送 rx 事件給客機。Boss 與敵對 AC 幅度小（霸體）
-  reactSet(k, T, sd, net = true) {
+  // v＝這一招的受擊變化（'武器 id:段號'，data/hit-react.js 的 MELEE_HR）
+  reactSet(k, T, sd, net = true, v = null) {
     if (!this.model || this.model.vehicle || this.isProp || this.opts.modelKind) return;
     const w = this.isBoss ? 0.3 : this.ace || this.ai === 'ac' || this.isElite ? 0.5 : 1;
     this.react = {
@@ -307,12 +310,20 @@ export class MechEntity {
       w,
       n: ((this.react && this.react.n) || 0) + 1,
       hold: 0,
+      v,
     };
     if (k === 'down' && !this.pilotEnt() && !this.isBoss && w >= 1)
       this.hitStunT = Math.max(this.hitStunT || 0, DOWN_STUN); // 被打倒：一般敵人爬起來之前不能行動
     const g = this.game;
     if (net && g.net && g.net.role === 'host')
-      g.netEv({ t: 'rx', i: this.id, k, T: +this.react.T.toFixed(2), s: Math.sign(sd || 0) });
+      g.netEv({
+        t: 'rx',
+        i: this.id,
+        k,
+        T: +this.react.T.toFixed(2),
+        s: Math.sign(sd || 0),
+        v: v || undefined,
+      });
   }
   // 每格（move／remoteUpdate）：被挑飛、往下砸的在空中維持姿勢，落地時換成落地／倒地（房主判斷落地，客機等 rx 事件）
   reactTick(dt) {
@@ -1457,6 +1468,7 @@ export class MechEntity {
         finisher: last,
         react: last ? 'blow' : meleeReactOf(st),
         sd: m.exec.hit % 2 ? 1 : -1,
+        rv: d.id + ':' + m.stage, // 這一招的受擊變化（data/hit-react.js 的 MELEE_HR）
       },
       d.id,
       'none',
@@ -1697,6 +1709,7 @@ export class MechEntity {
             stagBonus: st.stagBonus,
             stun: meleeStun(st, ''),
             react: meleeReactOf(st),
+            rv: d.id + ':' + m.stage, // 這一招的受擊變化（data/hit-react.js 的 MELEE_HR）
             sd: this.meleePushSide(t, st),
           },
           d.id,
@@ -1948,7 +1961,13 @@ export class MechEntity {
         let rk = melee.react;
         if (rk === 'slam' && this.grounded) rk = 'down';
         if (rk === 'launch' && (this.isBoss || this.stats.parts.legs.type === 'tank')) rk = 'blow';
-        this.reactSet(rk, Math.max(REACT_T[rk] || 0.4, melee.stun || 0), melee.sd || 0);
+        this.reactSet(
+          rk,
+          Math.max(REACT_T[rk] || 0.4, melee.stun || 0),
+          melee.sd || 0,
+          true,
+          melee.rv || null,
+        );
       }
       const parried = !!(from && from.parryT > 0 && !this.isBoss);
       if (parried) from.parryT = 0;

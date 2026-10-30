@@ -30,6 +30,7 @@ import { kick, spring, springSet, springVel } from './mech-spring.js';
 import { FIRE } from './mech-fire.js';
 import { MJ_AXES, clipPose, clipStrike, clipTarget } from './melee-anim.js';
 import { addPose, hrKicks, hrPose } from './hit-react-pose.js';
+import { meleeHrOf } from '../data/hit-react.js';
 // 受擊閃光結束後還原的自發光（GLB 材質記錄在 userData.emis0，程式材質為黑）
 const BLACK = new THREE.Color(0);
 const unflash = (m) => {
@@ -2690,6 +2691,16 @@ export function animateMech(m, dt, st) {
     }
     if (m.pack) kick(m.pack.rotation, 'x', (big ? 3.5 : 1.5) * w);
     if (m.head) kick(m.head.rotation, 'x', (k === 'thrust' || k === 'down' ? -3 : 3) * w);
+    // 這一招自己的衝量（MELEE_HR 的 ka／kh／kp）
+    const V = meleeHrOf(st.react.v);
+    if (V) {
+      if (V.ka) {
+        kick(m.arms.r.up.rotation, 'z', V.ka * w);
+        kick(m.arms.l.up.rotation, 'z', -V.ka * w);
+      }
+      if (V.kh && m.head) kick(m.head.rotation, 'x', V.kh * w);
+      if (V.kp && m.pack) kick(m.pack.rotation, 'x', V.kp * w);
+    }
   }
   an.stum = Math.max(0, (an.stum || 0) - dt);
   const stW = an.stum > 0 ? Math.sin((an.stum / 0.35) * Math.PI) : 0; // 踉蹌（0→1→0）
@@ -3333,7 +3344,15 @@ function reactPose(R) {
       o.crouch = 0.22;
       break;
   }
+  // 這一招自己的變化（data/hit-react.js 的 MELEE_HR）：加在基本反應上；osc＝來回抖
+  const V = meleeHrOf(R.v);
+  if (V) {
+    const s = sd || 1;
+    for (const k of ['rx', 'flip', 'tx', 'crouch']) if (V[k]) o[k] += V[k];
+    for (const k of ['rz', 'yaw', 'tz', 'tw']) if (V[k]) o[k] += V[k] * s;
+  }
   for (const k of ['rx', 'rz', 'yaw', 'flip', 'tx', 'tz', 'tw', 'crouch']) o[k] *= e;
+  if (V && V.osc) o[V.osc[0]] += Math.sin(ph * (R.T || 0.5) * V.osc[2]) * V.osc[1] * (1 - ph) * R.w;
   return o;
 }
 

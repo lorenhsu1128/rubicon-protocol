@@ -4,7 +4,9 @@
 import { SFX } from '../audio/audio.js';
 import { clamp } from '../core/math.js';
 import { DS, MS } from '../core/scale.js';
-import { PARTS } from '../data/parts.js';
+import { FIST_DEF, PARTS } from '../data/parts.js';
+import { MELEE_HR } from '../data/hit-react.js';
+import { REACT_T, meleeAll, meleeReactOf } from '../data/melee.js';
 import { Effects } from '../fx/effects.js';
 import { targetDist } from '../world/prop-hit.js';
 
@@ -115,6 +117,7 @@ export class Game {
       window.__game = this;
       window.__sfx = SFX; // 冒煙測試檢查混音與回饋音
       window.__PARTS = PARTS; // 冒煙測試列出零件（受擊反應的武器清單）
+      window.__MELEE = { FIST_DEF, MELEE_HR, REACT_T, meleeAll, meleeReactOf }; // 近戰每一招的受擊變化
     }
     const sp = new URLSearchParams(location.search).get('spectate');
     if (sp && window.RUBICON_SERVER) {

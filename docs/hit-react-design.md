@@ -60,5 +60,11 @@
 - **受擊特徵**：`data/hit-react.js` 的 `HR`（每種一組：秒數 `T`、時間曲線 `c`、姿勢 `b`／`t`／`tw`／`cr`／`fl`、抖動 `jit`／`jf`、垂頭 `dr`、一開始的衝量 `ka`／`kh`／`kp`／`kb`、持續挨打的累積 `pr`、合併 `m`／`hold`、左右交替 `alt`）；`HR_OF_WEAPON` 是 18 把遠程武器各自的特徵，沒登記的依武器種類，沒有武器 id 的攻擊依屬性（爆發 `blast`、能量 `burn`、其他 `hit`，水流等 'none' 不套用）。`hrWeight`：一般敵人 1、玩家操作的機體 0.65、敵對 AC／精英 0.5、Boss 0.3。
 - **觸發**（`entities/mech-hit-react.js`）：`takeDamage` 不是近戰時呼叫 `hrFromHit(W, attr, at, dir, from)`：推的方向＝子彈方向（爆炸沒有方向：從爆炸點往機體），轉成機體座標；命中高度＝命中點相對機體中心（−1 腳～1 頭，爆炸算中間）。`hrAdd` 放進 `this.hrs`（最多 4 個）：霰彈的彈丸在 `m` 秒內合併成一個、雷射持續照射時延長、機槍類重來並累積 `hrPress`。有受擊特徵時通用的 `hitAnim` 減半。
 - **姿勢**（`render/hit-react-pose.js`）：`hrPose` 算出和近戰的 `reactPose` 同一組欄位（全身連腿、上身、扭轉、屈膝、往後翻），`addPose` 加在一起給 `animateMech`；`hrKicks` 在每個新的受擊動作開始時甩手臂、頭、背包、肩上武器，痙攣中每格不規則地抖。打在頭＝上身多仰、頭甩得更大；打在腳＝屈膝、膝蓋往那一側軟。
-- **同步**：房主 `hrAdd` 送 `hr` 事件（`i`、特徵編號 `k`＝`HR_KEYS` 的索引、機體座標的 `x`／`z`、高度 `y`），同一種反應 0.12 秒內不重送；客機的 `clientEvent` 呼叫 `hrAdd(…, false)`。`NET_VERSION` 11.10。
+- **同步**：房主 `hrAdd` 送 `hr` 事件（`i`、特徵編號 `k`＝`HR_KEYS` 的索引、機體座標的 `x`／`z`、高度 `y`），同一種反應 0.12 秒內不重送；客機的 `clientEvent` 呼叫 `hrAdd(…, false)`。`NET_VERSION` 11.10（第 2 期的 `rx` 事件多 `v`，11.11）。
 - **冒煙測試** `testHitReact`：18 把遠程武器各自一種特徵、同一台 MT 被每把打中的動作取樣兩兩不同、左右打過來扭轉相反、命中高度、依屬性、霰彈合併、機槍累積、幅度分級、客機事件、結束清掉；截圖 `hit-react-<武器>.png`（鏡頭擺在目標斜前方）。
+
+### 第 2 期（已實作）：人形機甲的近戰
+
+- **每一招的變化**：`data/hit-react.js` 的 `MELEE_HR[武器 id][段號]`（段號＝`meleeAll` 的索引，和招式圖相同），加在原本依招式的基本反應（`meleeReactOf` 的 10 種）上：全身後仰／往後翻 `rx`／`flip`、側傾 `rz`、轉身 `yaw`、上身 `tx`／`tz`／`tw`、屈膝 `crouch`（`rz`／`yaw`／`tz`／`tw` 乘上被推的那一側），`osc`＝[欄位, 幅度, 頻率] 的來回抖（撕扯、連刺、震波、被刺著發抖），一開始的衝量 `ka`／`kh`／`kp`。盾擊是每把武器共用的同一招。
+- **傳遞**：近戰命中的 `melee` 物件帶 `rv`＝'武器 id:段號'，`reactSet` 的第 5 個參數存成 `react.v`，`rx` 事件帶 `v` 給客機；`animExtra` 的 `react` 多 `v`、`T`（`osc` 依實際秒數）。`reactPose` 在基本姿勢之後加上變化，`animateMech` 的受擊衝量也加上這一招的。
+- **冒煙測試** `testHitReact`：5 把近戰武器的變化表和招式數一樣、58 招（盾擊算一次）的動作取樣兩兩不同；截圖 `hit-react-<武器>-<段號>.png`（踢開、撕扯、樁擊、上勾拳、兩斷）。

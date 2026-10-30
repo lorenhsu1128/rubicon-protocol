@@ -15609,6 +15609,77 @@ async function testHitReact(browser, base) {
   check(r.w.foe === 1 && r.w.pl === 0.65, `幅度：一般敵人 ${r.w.foe}、玩家 ${r.w.pl}`);
   check(r.client === 'emp', `客機收到 hr 事件（${r.client}）`);
   check(r.cleared, '動作結束後清掉');
+  // 第 2 期：近戰每一招自己的受擊變化（盾擊每把武器共用，只算一次）
+  const mr = await page.evaluate(() => {
+    const g = window.__game,
+      tg = window.__hrTg,
+      pl = g.player,
+      K = pl.dk,
+      M = window.__MELEE;
+    g.state = 'hr-test';
+    const m = tg.model;
+    const pose = () => [
+      m.lift ? m.lift.rotation.x : 0,
+      m.lift ? m.lift.rotation.y : 0,
+      m.lift ? m.lift.rotation.z : 0,
+      m.torso.rotation.x,
+      m.torso.rotation.z,
+      m.torsoTwist || 0,
+      m.arms.r.up.rotation.z,
+      m.head ? m.head.rotation.x : 0,
+    ];
+    const ws = [...window.__PARTS.arm.filter((d) => d.type === 'melee'), M.FIST_DEF];
+    const out = { len: {}, miss: [], sig: {} };
+    for (const d of ws) {
+      const all = M.meleeAll(d);
+      const T = M.MELEE_HR[d.id] || [];
+      out.len[d.id] = [all.length, T.length];
+      all.forEach((st, i) => {
+        if (!T[i]) out.miss.push(d.id + ':' + i);
+        if (st.id === 'bash' && d.id !== 'w_blade') return;
+        Object.assign(tg, { staggerT: 0, acs: 0, hitStunT: 0, yaw: 0, react: null, hrs: [], hrPress: 0 });
+        tg.vel.set(0, 0, 0);
+        tg.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20), pl.pos.z - 26 * K);
+        window.__pump(1.2);
+        const b = pose();
+        let rk = M.meleeReactOf(st);
+        if (rk === 'slam') rk = 'down';
+        tg.reactSet(rk, M.REACT_T[rk] || 0.4, 1, false, d.id + ':' + i);
+        const sg = [];
+        for (const dt of [0.06, 0.08, 0.1, 0.14, 0.2]) {
+          window.__pump(dt);
+          const p = pose();
+          for (let n = 0; n < p.length; n++) sg.push(p[n] - b[n]);
+        }
+        out.sig[d.id + ':' + i + ' ' + st.name] = sg;
+      });
+    }
+    return out;
+  });
+  check(
+    Object.values(mr.len).every(([a, b]) => a === b) && !mr.miss.length,
+    `近戰每一招都有受擊變化（${Object.entries(mr.len)
+      .map(([k, v]) => k + ' ' + v[0])
+      .join('、')}${mr.miss.length ? '；缺 ' + mr.miss.join(' ') : ''}）`,
+  );
+  {
+    const ks = Object.keys(mr.sig);
+    let minD = 9,
+      pair = '';
+    for (let i = 0; i < ks.length; i++)
+      for (let j = i + 1; j < ks.length; j++) {
+        const a = mr.sig[ks[i]],
+          b = mr.sig[ks[j]];
+        let d = 0;
+        for (let n = 0; n < a.length; n++) d += (a[n] - b[n]) ** 2;
+        d = Math.sqrt(d);
+        if (d < minD) {
+          minD = d;
+          pair = ks[i] + '／' + ks[j];
+        }
+      }
+    check(minD > 0.05, `近戰 ${ks.length} 招的受擊動作兩兩不同（最接近的 ${pair}：${minD.toFixed(3)}）`);
+  }
   // 截圖：受擊動作最大的時候
   await page.setViewportSize({ width: 1280, height: 720 });
   for (const [wid, at] of [
@@ -15661,6 +15732,41 @@ async function testHitReact(browser, base) {
       [wid, at, SPLASH],
     );
     await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${wid}.png`) });
+  }
+  // 近戰：踢開、撕扯、樁擊、上勾拳、兩斷
+  for (const [wid, idx, at] of [
+    ['w_blade', 6, 0.2],
+    ['w_claw', 6, 0.25],
+    ['w_pile', 1, 0.2],
+    ['w_fist', 5, 0.15],
+    ['w_saber', 10, 0.3],
+  ]) {
+    await page.evaluate(
+      ([wid, idx, at]) => {
+        const g = window.__game,
+          tg = window.__hrTg,
+          pl = g.player,
+          K = pl.dk,
+          M = window.__MELEE;
+        const d = wid === 'w_fist' ? M.FIST_DEF : window.__PARTS.arm.find((x) => x.id === wid);
+        Object.assign(tg, { staggerT: 0, acs: 0, hitStunT: 0, yaw: 0, react: null, hrs: [], hrPress: 0 });
+        tg.vel.set(0, 0, 0);
+        tg.pos.set(pl.pos.x, g.world.groundAt(pl.pos.x, pl.pos.z - 26 * K, pl.pos.y + 20), pl.pos.z - 26 * K);
+        window.__pump(1);
+        let rk = M.meleeReactOf(M.meleeAll(d)[idx]);
+        if (rk === 'slam') rk = 'down';
+        tg.reactSet(rk, M.REACT_T[rk] || 0.4, 1, false, wid + ':' + idx);
+        window.__pump(at);
+        const H = tg.model.height,
+          cc = tg.center();
+        g.camera.position.set(cc.x + 0.9 * H, cc.y + 0.25 * H, cc.z + 1.7 * H);
+        g.camera.lookAt(cc);
+        g.camera.updateMatrixWorld();
+        g.renderMain();
+      },
+      [wid, idx, at],
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, `hit-react-${wid}-${idx}.png`) });
   }
   await ctx.close();
 }
