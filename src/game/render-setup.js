@@ -75,6 +75,7 @@ Object.assign(Game.prototype, {
     fineTick(this.camera, 1); // 小細節的距離分級（render/detail.js）
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
+    this.fxAmbientTick(); // 地圖的持續特效（game/fx-ambient.js）
     if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);
     else this.stylePipe.renderPlain(P, t);
   },
@@ -128,6 +129,9 @@ Object.assign(Game.prototype, {
       'firePool',
       'flameCone',
       'pillarStrike',
+      'gather',
+      'arc',
+      'star',
     ];
     const fx = this.fx;
     const g = this;

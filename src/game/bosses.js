@@ -132,6 +132,7 @@ Object.assign(Game.prototype, {
     const rr = R / this.fx.k; // 特效照舊尺度
     this.fx.shockwave(c.clone().setY(c.y + 1), rr, 0x60a8ff, 0.5);
     this.fx.flash(src.center(), 6, 0xbfe0ff, 0.25);
+    this.fx.arc(src.center(), 4, 0x80c8ff); // 電弧（docs/vfx-design.md）
     for (let i = 0; i < 16; i++) this.fx.streaks(src.center(), 2, 0x80c8ff, rr * 0.9, 0.35, rr * 1.5);
     SFX.play('overload', 1, 0.8, 0.05, 0.05, c);
     SFX.play('laserBig', 0.7, 0.5, 0.05, 0.05, c);
@@ -151,6 +152,7 @@ Object.assign(Game.prototype, {
       );
       t.empLockT = 3;
       this.fx.ring(t.center(), 3, 0x80c8ff);
+      this.fx.arc(t.center(), 1.6, 0x80c8ff);
       if (t.isPlayer) this.rumble(1, 1, 400);
     }
     this.alertAll('電磁封鎖 — QB 與懸浮暫時無法使用');

@@ -189,6 +189,14 @@ Object.assign(MechEntity.prototype, {
       if (mv.gT <= 0) {
         mv.gT = 0.2;
         this.game.fx.flash(this.muzzle(mv.slot), (0.5 * (this.scale || 1)) / this.game.fx.k, 0xff4060, 0.12);
+        // 蓄力：粒子往槍口吸進去（fx.gather，docs/vfx-design.md）
+        this.game.fx.gather(
+          this.muzzle(mv.slot),
+          (2.2 * (this.scale || 1)) / this.game.fx.k,
+          0xff4060,
+          0.2,
+          7,
+        );
       }
       if (mv.t > T) {
         const w = this.weapons[mv.slot];

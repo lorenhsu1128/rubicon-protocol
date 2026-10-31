@@ -1353,6 +1353,7 @@ export class MechEntity {
     this.parryT = PARRY_T;
     const c = this.center().lerp(from.center(), 0.5);
     g.fx.flash(c, 1.6, 0xfff0c0, 0.12);
+    g.fx.star(c, 1.4, 0xfff0c0); // 十字星光（docs/vfx-design.md）
     g.fx.streaks(c, 16, 0xffe0a0, 22, 0.3, 22);
     g.fx.shockwave(c, 4, 0xffd070, 0.3);
     this.hitStopLocal(0.12, from);
@@ -1481,6 +1482,7 @@ export class MechEntity {
       'none',
     );
     const hs = last ? HITSTOP[3] : HITSTOP[1];
+    if (last) g.fx.star(hp, 2.2, d.color); // 處決的最後一擊：十字星光
     g.fx.meleeHit(hp, d.color, last, m.dir, {
       sw: last ? 'v' : 't',
       s: hs,
@@ -2988,6 +2990,9 @@ export class MechEntity {
       m.material.opacity = (0.15 + this.thrS * 0.55) * (this.cine ? 0.75 : 1);
     });
     if (!veh) {
+      // QB 的一次噴發（boost 由假變真；客機看別人的機體用快照的 boost，所以各端自己產生、不轉送）
+      if (this.boost && !this.thrB) g.fx.thruster.burst(this.model, flameCol, this.scale, this.vel);
+      this.thrB = this.boost;
       this.model.nzFresh = true; // 噴口的世界矩陣剛算過（fx/thruster.js 的 nozzleWorld 不用再往上更新）
       g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);
       this.model.nzFresh = false;
@@ -3008,6 +3013,13 @@ export class MechEntity {
           flameCol,
         );
       }
+    // 直升機、無人機貼近地面時：旋翼的下洗氣流捲起沙塵（只有外觀，各端自己產生）
+    if (this.flying && Math.random() < dt * 9) {
+      const gy = this.game.world.groundAt(this.pos.x, this.pos.z, this.pos.y);
+      const h = this.pos.y - gy;
+      if (h < 9 * this.dk && h > -0.5)
+        g.fx.downwash(this.pos.x, gy, this.pos.z, this.scale, 1 - h / (9 * this.dk));
+    }
   }
   setAim(targetPos) {
     const c = this.center();

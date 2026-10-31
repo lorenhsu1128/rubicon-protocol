@@ -254,6 +254,12 @@ Object.assign(MechEntity.prototype, {
         return;
       }
       ch.t += dt;
+      // 蓄力：粒子往機體吸進去，越接近放出越密（fx.gather）
+      if ((ch.fxT = (ch.fxT || 0) - dt) <= 0) {
+        ch.fxT = 0.2;
+        const R = (this.radius || 3 * this.dk) * 2.4;
+        g.fx.gather(this.center(), R / g.fx.k, 0xff6030, 0.2, 8 + Math.round((ch.t / ch.T) * 12));
+      }
       // 刁鑽度 3～4：蓄力時慢慢後退（飛行的升高）
       if (T.iTrick === 'retreat' && pl && this.ai !== 'part') {
         if (this.flying) this.pos.y += dt * 2 * DS;

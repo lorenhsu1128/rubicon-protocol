@@ -2,7 +2,7 @@
 // 位置由著色器以時間推算（每格只更新 uniform）；初始位置用 Math.random，各端不必一致。
 const VERT = /* glsl */ `
 uniform vec3 cam, wind;
-uniform float box, size, time, pr, fall, sway;
+uniform float box, size, time, pr, fall, sway, streak;
 attribute float seed;
 varying float vA;
 void main() {
@@ -13,17 +13,18 @@ void main() {
 	vec4 mv = modelViewMatrix * vec4( p, 1.0 );
 	float dist = - mv.z;
 	vA = smoothstep( 0.4, 2.5, dist ) * ( 1.0 - smoothstep( box * 0.32, box * 0.5, dist ) );
-	gl_PointSize = size * pr * ( 0.6 + seed * 0.8 ) * 300.0 / max( dist, 0.5 );
+	gl_PointSize = size * pr * ( 0.6 + seed * 0.8 ) * 300.0 / max( dist, 0.5 ) * ( 1.0 + streak * 5.0 );
 	gl_Position = projectionMatrix * mv;
 }
 `;
 const FRAG = /* glsl */ `
 uniform vec3 color;
-uniform float opacity;
+uniform float opacity, streak;
 varying float vA;
 void main() {
 	vec2 q = gl_PointCoord - 0.5;
-	float a = smoothstep( 0.5, 0.15, length( q ) );
+	// 雨：點畫成細長的垂直條紋（雨絲，docs/vfx-design.md）
+	float a = streak > 0.5 ? exp( - q.x * q.x / 0.0012 ) * smoothstep( 0.5, 0.1, abs( q.y ) ) : smoothstep( 0.5, 0.15, length( q ) );
 	gl_FragColor = vec4( color, a * vA * opacity );
 }
 `;
@@ -42,6 +43,7 @@ const KINDS = {
     sway: 0.05,
     opacity: 0.5,
     color: 0xb8c4cc,
+    streak: 1, // 雨絲
   },
   ash: {
     n: 1800,
@@ -102,6 +104,7 @@ export class Weather {
         sway: { value: K.sway },
         color: { value: col.convertSRGBToLinear() },
         opacity: { value: K.opacity },
+        streak: { value: K.streak || 0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

@@ -241,6 +241,68 @@
         </aside>
       </div>
     </section>
+    <section id="vfx" hidden>
+      <header class="wsTop">
+        <b>特效</b>
+        <span class="dim small"
+          >粒子特效的預設（顯示卡粒子）：存到瀏覽器＝遊戲也用；匯出 presets.json 放回 src/assets/fx/
+          成為內建</span
+        >
+        <span class="sp"></span>
+        <button id="vxBack" title="回到格狀檢視（Esc）">← 回模型庫</button>
+      </header>
+      <div class="wsBody">
+        <aside id="vxLeft">
+          <h3>特效</h3>
+          <select id="vxSel"></select>
+          <div class="small dim" id="vxNote"></div>
+          <h3>層（發射器）</h3>
+          <div id="vxLayers"></div>
+          <div class="wsRow">
+            <button id="vxAddL">新增一層</button><button id="vxDupL">複製這層</button
+            ><button id="vxDelL">刪除這層</button>
+          </div>
+          <h3>存檔 <span class="small dim" id="vxDirty"></span></h3>
+          <div class="wsRow">
+            <button id="vxSave" title="遊戲下次建立特效時使用">存到瀏覽器</button
+            ><button id="vxExport">匯出 presets.json</button>
+          </div>
+          <div class="wsRow">
+            <button id="vxImport">匯入…</button><button id="vxRevert">還原這個</button
+            ><button id="vxResetAll">全部還原</button>
+            <input id="vxImportFile" type="file" accept=".json,application/json" hidden />
+          </div>
+        </aside>
+        <div id="vxView">
+          <canvas id="vxGl"></canvas>
+          <div id="vxBar">
+            <div class="wsRow small">
+              <button id="vxPlay">播放</button>
+              <label><input type="checkbox" id="vxLoop" checked /> 重複</label>
+              <label>間隔 <input type="number" id="vxEvery" value="1.2" step="0.05" min="0.02" /> 秒</label>
+              <label title="呼叫端給的尺度（遊戲的 k＝3；爆炸是半徑 × k）"
+                >尺度 S <input type="number" id="vxS" value="3" step="0.1" min="0.1"
+              /></label>
+              <label title="預設裡「呼叫端的顏色」"
+                >顏色 <input type="color" id="vxColor" value="#ff6030"
+              /></label>
+              <label title="蓄力這類有時長的"
+                >時長 <input type="number" id="vxDur" value="0.6" step="0.05" min="0" /> 秒</label
+              >
+              <label title="渲染風格的粒子色階（動漫系 0.85～1）"
+                >色階 <input type="range" id="vxCel" min="0" max="1" step="0.05" value="0"
+              /></label>
+              <label><input type="checkbox" id="vxDark" /> 暗背景</label>
+            </div>
+          </div>
+        </div>
+        <aside id="vxRight">
+          <h3>這一層</h3>
+          <div id="vxFields"></div>
+        </aside>
+      </div>
+    </section>
+
     <section id="editor" class="edPage" hidden>
       <header class="wsTop">
         <b>GLB 編輯</b>

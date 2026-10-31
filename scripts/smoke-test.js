@@ -10450,7 +10450,7 @@ async function testJuice(browser, base) {
     out.collapse = g.fx.list.some((x) => !x.mesh && x.end) && e.mesh.visible;
     g.fx.update(0.6);
     out.hidden = !e.mesh.visible;
-    out.burst = g.fx.list.length;
+    out.burst = Math.round(g.fx.busyN()); // CPU 的項目＋顯示卡粒子（fx/gpu.js）
     out.tasks = g.fx.list.filter((x) => !x.mesh).length;
     const e2 = g.spawnType('mt', 1, 1);
     e2.pos.copy(pl.pos).add(new THREE.Vector3(5, 0, -12));
@@ -12402,6 +12402,180 @@ async function testCinePeople(browser, base) {
   });
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(SHOT_DIR, 'cine-people.png') });
+  await ctx.close();
+}
+
+// 特效編輯（模型庫的 #vfx，docs/vfx-design.md 第 5 期）：改一層、存到瀏覽器、遊戲照著產生
+async function testVfxEditor(browser, base) {
+  console.log('特效編輯：模型庫的特效頁籤、預覽、改一層的數量、存到瀏覽器、遊戲照存的產生、還原');
+  if (!fs.existsSync(LIBRARY)) return;
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+  const page = await ctx.newPage();
+  watch(page, 'vfx');
+  page.on('dialog', (d) => d.accept());
+  await page.goto(base + 'model-library.html?test#vfx');
+  await page.waitForFunction(() => window.__vfx && window.__vfx.open_ && window.__vfx.mech, null, {
+    timeout: 30000,
+  });
+  const r = await page.evaluate(() => {
+    const v = window.__vfx;
+    const out = {
+      open: !document.getElementById('vfx').hidden,
+      list: document.querySelectorAll('#vxSel option').length,
+    };
+    v.id = 'arc';
+    v.li = 0;
+    v.renderAll();
+    v.play();
+    out.n0 = v.sys.gl.n;
+    // 數量改成 10：預覽照新的數量
+    const el = document.querySelector('#vxFields [data-k="n"]');
+    el.value = '10';
+    el.dispatchEvent(new Event('change'));
+    const a = v.sys.gl.n;
+    v.play();
+    out.n1 = v.sys.gl.n - a;
+    out.dirty = v.dirty;
+    document.getElementById('vxSave').click();
+    out.saved = JSON.parse(localStorage.getItem('rubicon_fx_presets') || '{}');
+    return out;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'vfx-editor.png') });
+  check(r.open && r.list >= 8, `網址 #vfx 開啟特效頁籤（${r.list} 個特效）`);
+  check(r.n0 >= 3 && r.n1 === 10 && r.dirty, `預覽與修改：電弧的數量改成 10（${r.n0} → ${r.n1}）`);
+  check(
+    !!(r.saved.presets && r.saved.presets.arc && r.saved.presets.arc.layers[0].n === 10) &&
+      !r.saved.presets.fireball,
+    '存到瀏覽器：只存和內建不同的特效',
+  );
+  // 遊戲照瀏覽器存的產生
+  const gp = await ctx.newPage();
+  watch(gp, 'vfx-game');
+  await gp.goto(base + 'rubicon-protocol.html?test');
+  await waitVisible(gp, 'title');
+  const n = await gp.evaluate(() => {
+    const g = window.__game;
+    const a = g.fx.g.gl.n;
+    g.fx.arc(new THREE.Vector3(0, 5, 0), 1);
+    return g.fx.g.gl.n - a;
+  });
+  check(n === 10, `遊戲的電弧照瀏覽器存的數量（${n}）`);
+  await gp.close();
+  // 全部還原：清掉瀏覽器存的
+  const back = await page.evaluate(() => {
+    document.getElementById('vxResetAll').click();
+    return localStorage.getItem('rubicon_fx_presets');
+  });
+  check(back === null, '全部還原：清掉瀏覽器存的');
+  await ctx.close();
+}
+
+// 粒子特效（docs/vfx-design.md）：顯示卡粒子（fx/gpu.js）與 Kenney 的圖集
+async function testFx(browser, base) {
+  console.log('粒子特效：圖集載入、各特效產生顯示卡粒子、暫停時不動、清除、渲染風格的色階、截圖');
+  const { ctx, page } = await newPage(browser, 'fx');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.waitForFunction(() => window.__FXA && (window.__FXA.ready || window.__FXA.failed), null, {
+    timeout: 30000,
+  });
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    const pl = g.player;
+    pl.hp = pl.maxHp = 1e7;
+    const at = (x, z, y = 3) =>
+      new THREE.Vector3(pl.pos.x + x, g.world.groundAt(pl.pos.x + x, pl.pos.z + z) + y, pl.pos.z + z);
+    window.__pump(0.2);
+    g.fx.clear();
+    const fx = g.fx,
+      G = fx.g;
+    const out = { atlas: window.__FXA.ready, w: window.__FXA.tex.image.width };
+    fx.explosion(at(20, 0), 4, 0xffa040, true);
+    fx.smoke(at(-20, 0), 2);
+    fx.streaks(at(0, -20), 8, 0xffe080, 18);
+    fx.muzzle(at(10, -10), new THREE.Vector3(1, 0, 0), 0xffd080, 1);
+    fx.beam(at(-10, -15), at(10, -18), 0x60c0ff, 0.2);
+    fx.meleeHit(at(0, 15), 0x80d0ff, true, new THREE.Vector3(0, 0, -1), { sw: 'u' });
+    fx.killBurst(at(-15, 15), 1, true, at(-15, 15, 0).y);
+    fx.firePool(at(15, 15, 0.1), 5, 2);
+    fx.update(0.05);
+    out.n = Object.fromEntries(Object.entries(G).map(([k, v]) => [k, v.n]));
+    out.busy = fx.busyN();
+    out.cnt = G.gl.mesh.geometry.instanceCount;
+    // 時鐘：update 前進、暫停時（state 'pause'）主迴圈不更新特效
+    const t0 = fx.time;
+    window.__pump(0.25);
+    out.run = fx.time - t0;
+    out.uTime = G.ln.uniforms.uTime.value === fx.time;
+    g.state = 'pause';
+    const t1 = fx.time;
+    window.__pump(0.25);
+    out.pause = fx.time - t1;
+    g.state = 'play';
+    // 渲染風格的色階：所有系統共用一個 uniform，寫實＝0
+    out.cel = G.gl.uniforms.uCel === G.sm.uniforms.uCel && G.gl.uniforms.uCel.value === 0;
+    // 第 2～4 期：QB 的噴發（boost 由假變真）、蓄力、電弧、星光、地圖的持續特效
+    fx.clear();
+    const T = fx.thruster.sys;
+    T.clear();
+    pl.boost = true;
+    pl.thrB = false;
+    pl.thrusterFx(1 / 60, 0x9fe8ff, 0x8fe8ff, false);
+    pl.boost = false;
+    out.qb = T.n;
+    const n0 = { ln: G.ln.n, gl: G.gl.n };
+    fx.gather(at(0, -10, 6), 3, 0xff6030, 0.2, 8);
+    out.gather = G.ln.n - n0.ln;
+    const g0 = G.gl.n;
+    fx.arc(at(5, -10, 6), 1);
+    fx.star(at(-5, -10, 6), 1.4);
+    out.arcStar = G.gl.n - g0;
+    const s0 = G.sm.n;
+    fx.ambient('burn', at(10, 10, 2));
+    fx.ambient('steam', at(12, 10, 2));
+    out.amb = G.sm.n - s0;
+    out.noAO = fx.gList.every((x) => x.mesh.userData.noAO && x.mesh.userData.noFade);
+    return out;
+  });
+  check(r.atlas && r.w === 2048, `Kenney 的粒子圖集載入（${r.w} px）`);
+  check(
+    r.n.gl > 0 && r.n.sm > 0 && r.n.ln > 0 && r.n.rg > 0 && r.n.dc > 0 && r.cnt === r.n.gl && r.busy > 50,
+    `各特效產生顯示卡粒子（${JSON.stringify(r.n)}、數量 ${Math.round(r.busy)}）`,
+  );
+  check(
+    r.run > 0.1 && r.run <= 0.2501 && r.uTime && r.pause === 0, // 頓格、慢動作時比實際推進的時間少
+    `特效時鐘照遊戲時間前進、暫停時不動（${r.run.toFixed(2)}／${r.pause}）`,
+  );
+  check(r.cel && r.noAO, '渲染風格的色階共用、寫實時為 0；不進 SSAO 與遮擋淡出');
+  check(r.qb >= 14, `QB 的一次噴發：從噴口噴出一團（${r.qb} 顆）`);
+  check(
+    r.gather === 8 && r.arcStar >= 4 && r.amb >= 2,
+    `蓄力往中心吸（${r.gather}）、電弧與星光（${r.arcStar}）、燃燒的殘骸與蒸氣（${r.amb}）`,
+  );
+  // 截圖：爆炸剛開始
+  await page.evaluate(() => {
+    const g = window.__game,
+      pl = g.player;
+    g.fx.explosion(
+      new THREE.Vector3(pl.pos.x + 18, g.world.groundAt(pl.pos.x + 18, pl.pos.z) + 4, pl.pos.z),
+      4,
+      0xffa040,
+      true,
+    );
+    window.__pump(0.15);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'fx-gpu.png') });
+  const c = await page.evaluate(() => {
+    const g = window.__game;
+    g.fx.clear();
+    return { time: g.fx.time, n: g.fx.gList.reduce((a, x) => a + x.n, 0) };
+  });
+  check(c.time === 0 && c.n === 0, '清除特效：時鐘歸零、沒有粒子');
+  await thawLoop(page);
   await ctx.close();
 }
 
@@ -19657,7 +19831,7 @@ async function testHazards2(browser, base) {
   const st2 = await page.evaluate(() => {
     const g = window.__game,
       e = window.__dmgE;
-    const smokes = g.fx.list.length;
+    const smokes = g.fx.busyN(); // 煙是顯示卡粒子（fx/gpu.js）
     e.hp = 2000;
     for (let i = 0; i < 10; i++) e.specialFx(0.05);
     return { smokes, off: e.model.dmg.plates.every((m) => m.parent === g.scene) };
@@ -21509,6 +21683,8 @@ const STEPS = [
   ['testStory', (c) => testStory(c.browser, c.base)],
   ['testCine', (c) => testCine(c.browser, c.base)],
   ['testCinePeople', (c) => testCinePeople(c.browser, c.base)],
+  ['testFx', (c) => testFx(c.browser, c.base)],
+  ['testVfxEditor', (c) => testVfxEditor(c.browser, c.base)],
   ['testTextFx', (c) => testTextFx(c.browser, c.base)],
   ['testLevels', (c) => testLevels(c.browser, c.base)],
   ['testWaves', (c) => testWaves(c.browser, c.base)],

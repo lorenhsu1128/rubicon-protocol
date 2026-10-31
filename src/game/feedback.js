@@ -209,6 +209,7 @@ Object.assign(Game.prototype, {
   pqbFx(p) {
     const c = p.center();
     this.fx.flash(c, 2.2, 0x9fe8ff, 0.18);
+    this.fx.star(c, 1.2, 0x9fe8ff); // 十字星光（docs/vfx-design.md）
     this.fx.shockwave(c, 6, 0x9fe8ff, 0.35);
     SFX.play('thrBurst', 1.2, 1.3, 0.04, 0.03, null, 'ui');
     this.popDamage(c.clone().add(new THREE.Vector3(0, 2 * p.dk, 0)), '完美迴避', false, true, false, 0, p.id);

@@ -1,4 +1,5 @@
-import { KIN_FALL_MIN } from '../data/attrs.js';
+import { KIN_FALL_MIN, weaponAttr } from '../data/attrs.js';
+import { weaponById } from '../data/parts.js';
 // ============================================================
 //  PROJECTILES
 // ============================================================
@@ -257,6 +258,9 @@ export class Projectile {
         }
       }
       g.fx.spark(this.pos, this.color || 0xffe0a0, dir);
+      // 能量武器打中機體：電弧（docs/vfx-design.md）
+      if ((this.attr || (this.wid && weaponAttr(weaponById(this.wid)))) === 'en')
+        g.fx.arc(this.pos, 0.7, this.color || 0x9fe0ff);
       SFX.hit(direct.isPlayer ? null : this.pos, direct);
       if (this.owner && this.owner.isPlayer && !direct.isPlayer) g.rumble(0.05, 0.25, 40);
     } else {

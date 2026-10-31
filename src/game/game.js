@@ -201,6 +201,7 @@ export class Game {
     this.fx.shockwave(c, rr, color || 0x80c8ff, 0.9);
     this.fx.ring(c.clone().setY(this.world.terrainHeight(c.x, c.z) + 0.2), rr * 0.6, color || 0x80c8ff);
     this.fx.flash(c, 2.5, 0xbfe8ff, 0.25);
+    this.fx.arc(c, 3, color || 0x9fe0ff); // 電弧（docs/vfx-design.md）
     for (let i = 0; i < 14; i++) this.fx.streaks(c, 3, 0x9fe0ff, rr * 0.9, 0.35, rr * 2);
     SFX.play('overload', 0.9, 1.3, 0.05, 0.05, src.isPlayer ? null : c);
     SFX.play('laserBig', 0.6, 0.6, 0.05, 0.05, src.isPlayer ? null : c);
@@ -220,6 +221,7 @@ export class Game {
         }
         const s = stun * (t.isBoss ? 0.4 : 1);
         t.staggerT = Math.max(t.staggerT, s);
+        this.fx.arc(t.center(), 1.6, color || 0x9fe0ff);
         t.acs = t.acsMax;
         t.comboHits = 0;
         if (t.melee && t.melee.active) {

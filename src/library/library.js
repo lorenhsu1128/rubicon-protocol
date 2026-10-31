@@ -10,6 +10,7 @@ import { GlbStore } from './store.js';
 import { Workshop } from './workshop.js';
 import { GlbEditor } from './editor.js';
 import { MotionEditor } from './motion.js';
+import { VfxEditor } from './vfx.js';
 import { SetMenu } from './model-sets.js';
 import { PaintLink } from './paint-link.js';
 import { SERVER_SET, setScoped } from '../render/local-models.js';
@@ -81,7 +82,14 @@ function onSetSwitch() {
   applyFilter();
 }
 
-let grid, inspector, workshop, editor, motion, setMenu;
+let grid, inspector, workshop, editor, motion, vfx, setMenu;
+// 特效編輯：網址 #vfx
+function openVfx() {
+  if (inspector.open_) inspector.close();
+  grid.paused = true;
+  history.replaceState(null, '', '#vfx');
+  vfx.open();
+}
 // 動作編輯：網址 #motion
 function openMotion() {
   if (inspector.open_) inspector.close();
@@ -106,6 +114,7 @@ function openEntry(entry) {
   if (editor.open_) editor.close();
   if (workshop.open_) workshop.close();
   if (motion.open_) motion.close();
+  if (vfx.open_) vfx.close();
   grid.paused = true;
   history.replaceState(null, '', '#' + entry.id);
   inspector.open(entry, grid.palKey);
@@ -123,12 +132,14 @@ function renderTabs() {
       .join('') +
     `<button data-c="workshop" class="wsTab" title="自由預組機甲，在整台機甲上調整連接點">組裝調整</button>` +
     `<button data-c="motion" class="wsTab edTab" title="近戰招式的關鍵影格">動作編輯</button>` +
+    `<button data-c="vfx" class="wsTab edTab" title="粒子特效的預設（顯示卡粒子）">特效</button>` +
     `<button data-c="editor" class="wsTab edTab" title="修正 GLB 的朝向、尺寸、原點與節點">GLB 編輯</button>`;
   for (const b of $('tabs').querySelectorAll('button'))
     b.onclick = () => {
       if (b.dataset.c === 'workshop') return openWorkshop();
       if (b.dataset.c === 'editor') return openEditor(null);
       if (b.dataset.c === 'motion') return openMotion();
+      if (b.dataset.c === 'vfx') return openVfx();
       state.cat = b.dataset.c;
       renderTabs();
       applyFilter();
@@ -315,6 +326,15 @@ async function main() {
     },
   });
   if (/[?&]test\b/.test(location.search)) window.__motion = motion;
+  vfx = new VfxEditor({
+    store,
+    toast,
+    onClose: () => {
+      grid.paused = false;
+      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    },
+  });
+  if (/[?&]test\b/.test(location.search)) window.__vfx = vfx;
   // 貼圖繪製：存回時和拖曳替換一樣更新格子與檢視窗
   paint = new PaintLink({
     store,
@@ -372,6 +392,10 @@ async function main() {
     }
     if (id === 'motion') {
       if (!motion.open_) openMotion();
+      return;
+    }
+    if (id === 'vfx') {
+      if (!vfx.open_) openVfx();
       return;
     }
     const entry = id && MODEL_CATALOG.find((e) => e.id === id);

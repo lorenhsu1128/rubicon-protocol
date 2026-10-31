@@ -190,6 +190,12 @@ Object.assign(MechEntity.prototype, {
         if (g.losClear(mz, s.tp)) {
           s.charge += dt;
           s.lost = Math.max(0, s.lost - dt);
+          // 充能：粒子往砲口吸進去，越接近發射越密（fx.gather）
+          if ((s.gT = (s.gT || 0) - dt) <= 0) {
+            s.gT = 0.15;
+            const k = s.charge / s.chargeMax;
+            g.fx.gather(mz, (7 * MS) / g.fx.k, 0x9fe8ff, 0.15, 5 + Math.round(k * 10));
+          }
         } else if ((s.lost += dt) > 0.45) {
           s.rg = 'idle';
           s.rgT = 1.4;

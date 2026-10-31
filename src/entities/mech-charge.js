@@ -37,6 +37,18 @@ Object.assign(MechEntity.prototype, {
         const was = w.pwCh || 0;
         w.pwCh = Math.min(PW.CH_T, was + dt);
         if (was === 0 && this.isPlayer) SFX.charge(null);
+        // 充能中：粒子往槍口吸進去（fx.gather，會轉送給客機）
+        if (was < PW.CH_T && (w.pwGT = (w.pwGT || 0) - dt) <= 0) {
+          w.pwGT = 0.12;
+          const g = this.game;
+          g.fx.gather(
+            this.muzzle(slot),
+            (1.6 * this.scale) / g.fx.k,
+            0x9fe8ff,
+            0.12,
+            4 + Math.round((was / PW.CH_T) * 6),
+          );
+        }
         if (was < PW.CH_T && w.pwCh >= PW.CH_T) this.pwReadyFx(slot);
       }
     } else if (w.pwH !== undefined) {

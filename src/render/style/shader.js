@@ -3,6 +3,8 @@
 // 參數全是 0 的「寫實」走原本的物理渲染路徑，畫面與修改前相同。
 // 材質分類（機甲／武器／載具＝1、其他＝0）用 WeakMap 記，不寫 userData（GLTFExporter 會把 userData 寫進 GLB）。
 
+import { fxStyle } from '../../fx/gpu.js';
+
 const CAT = new WeakMap();
 // 把 root 底下所有材質標成機體類（金屬只套用在這一類；描線的「地形描線」也以此分辨）
 export function tagStyle(root, cat = 1) {
@@ -68,6 +70,7 @@ export function setStyleUniforms(P, k = 1) {
   SU.stM.value.set(P.metal ? 1 : 0, P.metalness, P.roughness, P.metalTint);
   SU.stN.value.set(P.metalRefl, P.toon ? P.metalAnime : 0, P.litK, P.shadowK);
   SU.stF.value.set(P.hfog, P.hfogH * k, P.hfogFall * k, P.water);
+  fxStyle(P.fxCel); // 粒子特效的色階（fx/gpu.js）
   SU.stW.value.set(P.waterScale / k, 0, 0, 0);
 }
 

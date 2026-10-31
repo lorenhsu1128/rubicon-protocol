@@ -1,0 +1,4 @@
+粒子特效的圖集（atlas.png）：Kenney「Particle Pack」1.1（Kenney Vleugels，www.kenney.nl），CC0 1.0
+來源：https://kenney.nl/assets/particle-pack（取自 GitHub 的鏡像 Calinou/kenney-particle-pack）
+挑 72 張縮成 256 px 的格子、以透明度當灰階，打包成 8×4 格 × RGB 三通道：node scripts/fx-atlas.js --src=<粒子包資料夾>
+程式參考：wawa-vfx（https://github.com/wass08/wawa-vfx，MIT，Copyright (c) 2025 Wassim SAMAD）的顯示卡粒子做法（fx/gpu.js）

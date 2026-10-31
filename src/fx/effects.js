@@ -5,6 +5,9 @@ import { SFX } from '../audio/audio.js';
 import { rnd } from '../core/math.js';
 import { mergeGeos } from '../render/geometry.js';
 import { FxBatch } from './batch.js';
+import { GpuFx } from './gpu.js';
+import { FXC, FXG, pickCell, SOFT, LINE, BEAM } from './atlas.js';
+import { emitPreset } from './presets.js';
 import { ThrusterFx } from './thruster.js';
 import { RibbonFx } from './trail.js';
 import { MB } from '../core/scale.js';
@@ -27,7 +30,6 @@ export class Effects {
     this.chevGeo = new THREE.ConeGeometry(0.35, 0.7, 3);
     this.ringGeo = new THREE.RingGeometry(0.85, 1, 32);
     this.discGeo = new THREE.CircleGeometry(1, 20);
-    this.cylGeo = new THREE.CylinderGeometry(1, 1, 1, 6); // 光束（批次用：半徑、長度都是 1，以縮放決定）
     // k：裝飾性的大小與速度（閃光、火花、煙、衝擊環、光束寬、碎片）的倍率；參數照舊尺度傳，這裡乘上。
     // 和判定一致的範圍（預警圈、地面衝擊波、燃燒地面、能量環、斬擊半徑）是世界尺寸，不乘。Game 設定（setK）
     this.k = 1;
@@ -40,16 +42,20 @@ export class Effects {
     this.ribbons = new RibbonFx(scene); // 帶狀軌跡：刀光、地面的推進氣流帶（fx/trail.js）
     this.view = null; // 粒子的距離分級（skip／far）：上一格鏡頭的視錐與位置
     this.viewPos = new THREE.Vector3();
-    // 粒子批次（fx/batch.js）：同種幾何＋混合模式的粒子一次畫完。透明的依建立順序畫（同一個深度），
-    // 所以一般混合的煙塵先建、加色的後建
-    const N = THREE.NormalBlending;
+    // 顯示卡粒子（fx/gpu.js，docs/vfx-design.md）：產生時寫一次，之後由著色器依 fx.time 算動態。
+    // 時鐘 fx.time 只在 update 前進（暫停時粒子停住），clear 歸零
+    this.time = 0;
+    this.g = {
+      sm: new GpuFx(scene, { add: false }), // 煙、塵土（一般混合，先畫）
+      gl: new GpuFx(scene), // 閃光、火球、火焰
+      ln: new GpuFx(scene, { mode: 'stretch', spd: 0.035, maxL: 1.6 }), // 火花、光束、槍口火焰、刀痕
+      rg: new GpuFx(scene, { mode: 'ground' }), // 衝擊環
+      dc: new GpuFx(scene, { mode: 'ground', add: false, cap: 64 }), // 焦痕
+    };
+    this.gList = Object.values(this.g);
+    // CPU 的粒子批次（fx/batch.js）：受光的碎片與彈殼、跟著實體的光暈與子彈、突進箭頭
     this.batches = {
-      sn: new FxBatch(scene, this.sphereGeo, { blending: N }), // 煙、塵土
-      sa: new FxBatch(scene, this.sphereGeo), // 閃光、火球、槍口、火苗
-      ba: new FxBatch(scene, this.boxGeo), // 火花、斬擊線
-      ca: new FxBatch(scene, this.chevGeo), // 槍口的錐形火焰、突進箭頭
-      ra: new FxBatch(scene, this.ringGeo), // 衝擊波的環
-      ya: new FxBatch(scene, this.cylGeo), // 光束
+      ca: new FxBatch(scene, this.chevGeo), // 突進箭頭
       gl: new FxBatch(scene, this.sphereGeo, { attached: true, renderOrder: 5 }), // 推進器光暈（glareMesh）
       dk: new FxBatch(scene, this.boxGeo, { std: { color: 0x2a2a2a, roughness: 0.9 } }), // 爆炸碎片
       cs: new FxBatch(scene, this.boxGeo, { std: { color: 0xd4a54a, metalness: 0.8, roughness: 0.3 } }), // 彈殼
@@ -60,6 +66,7 @@ export class Effects {
   setK(k) {
     this.k = k;
     this.light.distance = 26 * k;
+    this.g.ln.uniforms.uMaxL.value = 1.6 * k;
     this.thruster.cull = (p) => this.skip(p, 4);
   }
   // 批次粒子的代理（fx/batch.js）：照一般網格改 position／scale／rotation、material.opacity，加進 list 後由 update 更新
@@ -81,6 +88,7 @@ export class Effects {
   // 把批次的代理寫進 InstancedMesh（update 結尾與渲染前各一次，update 之後才產生的粒子也畫得到）
   flush() {
     for (const b of this.batchList) b.flush();
+    for (const g of this.gList) g.update(this.time);
   }
   addM(color, opacity = 1, additive = true) {
     return new THREE.MeshBasicMaterial({
@@ -99,7 +107,7 @@ export class Effects {
   // 粒子很多時（FX_BUSY 以上）畫面外的小粒子不產生（看不到；房主照樣轉送給客機，各端依自己的鏡頭判斷）。
   // view＝上一格鏡頭的視錐（Game.lodTick 設定，null＝不判斷），r＝粒子會擴散到的範圍
   skip(p, r = 0) {
-    if (!this.view || this.list.length < FX_BUSY) return false;
+    if (!this.view || this.busyN() < FX_BUSY) return false;
     _skS.center.copy(p);
     _skS.radius = (4 + r * 1.5) * this.k;
     return !this.view.intersectsSphere(_skS);
@@ -108,9 +116,15 @@ export class Effects {
   far(p) {
     return (
       !!this.view &&
-      this.list.length >= FX_BUSY &&
+      this.busyN() >= FX_BUSY &&
       this.viewPos.distanceToSquared(p) > FX_FAR * FX_FAR * this.k * this.k
     );
+  }
+  // 目前的特效數量：CPU 的項目＋顯示卡粒子最近產生的數量（約等於活著的）
+  busyN() {
+    let n = this.list.length;
+    for (const g of this.gList) n += g.load;
+    return n;
   }
   flashLight(p, color, intensity) {
     this.light.position.copy(p);
@@ -121,13 +135,9 @@ export class Effects {
   // bright sphere flash
   flash(p, r, color, life = 0.12) {
     if (this.skip(p, r)) return;
-    const m = this.P('sa', color, 0.9);
-    m.position.copy(p);
     const rk = r * this.k;
-    this.add(m, life, (e, t) => {
-      e.mesh.scale.setScalar(rk * (0.6 + t * 0.7));
-      e.mesh.material.opacity = 0.9 * (1 - t);
-    });
+    // 柔邊的圓點：看得到的半徑約是格子的 0.6，所以邊長＝半徑 × 3.3（和舊的球同樣大）
+    this.g.gl.emit({ p, life, s0: rk * 2, s1: rk * 4.3, c0: color, a: 0.95, cell: SOFT });
   }
   // spark streaks: elongated additive boxes flying out
   streaks(p, n, color, speed, life = 0.3, grav = 30, dir = null, spread = 1) {
@@ -137,34 +147,41 @@ export class Effects {
     speed *= K;
     grav *= K;
     for (let i = 0; i < n; i++) {
-      const s = this.P('ba', color, 1);
-      s.position.copy(p);
       const v = new THREE.Vector3(rnd(-1, 1), rnd(-0.4, 1), rnd(-1, 1));
       if (dir) v.multiplyScalar(spread).add(dir.clone().multiplyScalar(1.6));
       v.normalize().multiplyScalar(speed * rnd(0.5, 1.3));
-      const w = rnd(0.05, 0.1) * K;
-      this.add(s, life * rnd(0.6, 1.2), (e, t, dt) => {
-        v.y -= grav * dt;
-        e.mesh.position.addScaledVector(v, dt);
-        const L = Math.min(1.6 * K, v.length() * 0.035);
-        e.mesh.scale.set(w, w, L);
-        // 朝速度方向（同 lookAt 的 +Z；剖面是正方形，不管滾轉）。比 lookAt 省：不必算世界矩陣
-        const vl = v.length();
-        if (vl > 1e-4) e.mesh.quaternion.setFromUnitVectors(_Z, _skV.copy(v).divideScalar(vl));
-        e.mesh.material.opacity = 1 - t * t;
+      const w = rnd(0.05, 0.1) * K * 3.5; // 直線的格子：看得到的寬度約是邊長的 0.28
+      // 沿速度拉長：長度＝寬×0.3＋速度×0.035（上限 1.6 m × k）
+      this.g.ln.emit({
+        p,
+        v,
+        life: life * rnd(0.6, 1.2),
+        s0: w,
+        c0: color,
+        cell: LINE,
+        fade: 2,
+        g: grav,
+        asp: 0.3,
       });
     }
   }
   smoke(p, sc = 1, color = 0x5a5e66, life = 1.0, rise = 2) {
     if (this.skip(p, sc + rise * life) || (sc < 0.5 && this.far(p))) return;
-    const sm = this.P('sn', color, 0.28);
-    sm.position.copy(p);
     const K = this.k;
     const drift = new THREE.Vector3(rnd(-1, 1), rise, rnd(-1, 1)).multiplyScalar(K);
-    this.add(sm, life * rnd(0.8, 1.2), (e, t, dt) => {
-      e.mesh.position.addScaledVector(drift, dt);
-      e.mesh.scale.setScalar(sc * K * (0.3 + t * 1.0));
-      e.mesh.material.opacity = 0.28 * (1 - t) * (1 - t);
+    // 煙團的貼圖約佔格子的 0.8：邊長＝半徑 × 2.6
+    this.g.sm.emit({
+      p,
+      v: drift,
+      life: life * rnd(0.8, 1.2),
+      s0: sc * K * 1,
+      s1: sc * K * 4.2,
+      c0: color,
+      a: 0.85,
+      cell: pickCell(FXG.smoke),
+      fade: 1,
+      rot: Math.random() * 6.28,
+      rv: rnd(-0.8, 0.8),
     });
   }
   // 沒有網格的計時工作（延遲爆炸、持續冒煙）：fn(e, t, dt) 每格呼叫
@@ -252,6 +269,8 @@ export class Effects {
       0xffd8a0,
       big ? 0.7 : 0.45,
     );
+    // 噴發：往上噴的火花與慢慢飄起、閃爍的火星（特效預設 eruption；直接寫進顯示卡粒子，不經過會轉送給客機的 streaks）
+    emitPreset(this.g, 'eruption', p, { S: K, n: big ? 2.1 : 1, spd: big ? 1.3 : 1 });
     // 殘骸冒煙：慢慢升起的黑煙柱，幾秒後停
     let acc = 0;
     this.task(big ? 7 : 4.5, (e, t, dt) => {
@@ -262,53 +281,70 @@ export class Effects {
       this.smoke(q, (1.4 + t) * sc, t < 0.2 ? 0x3a3530 : 0x24262a, 2.6, 3.2);
       if (t < 0.4 && Math.random() < 0.35) this.flash(q, 0.7 * sc, 0xff7a20, 0.15);
     });
-    // 地面焦痕
-    const d = new THREE.Mesh(
-      this.discGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0x0c0a08,
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-      }),
-    );
-    d.position.set(p.x, gy + 0.06, p.z);
-    d.rotation.x = -Math.PI / 2;
-    d.scale.setScalar(3.2 * sc * K * (big ? 1.6 : 1));
-    d.userData.noFade = true;
-    this.add(d, 12, (e, t) => {
-      e.mesh.material.opacity = 0.55 * (t < 0.7 ? 1 : (1 - t) / 0.3);
+    // 地面焦痕（平放的焦痕貼圖，維持 8 秒後淡出）
+    this.g.dc.emit({
+      p: new THREE.Vector3(p.x, gy + 0.08, p.z),
+      life: 12,
+      s0: 7.4 * sc * K * (big ? 1.6 : 1),
+      c0: 0x0c0a08,
+      a: 0.8,
+      cell: pickCell(FXG.scorch),
+      fade: 5,
+      rot: Math.random() * 6.28,
     });
   }
+  // 蓄力（倒著播）：粒子從半徑 r（舊尺度）的球面往 p 吸進去，在 dur 秒內陸續出發（每次呼叫一小段，跟著槍口移動）；
+  // 中心的光核同時變亮。蓄力射擊、雷射蓄力、電磁砲台、Boss 的大招（會轉送給客機）
+  gather(p, r, color, dur = 0.2, n = 8) {
+    if (this.skip(p, r)) return;
+    emitPreset(this.g, 'gather', p, { S: r * this.k, color, n: n / 8, dur });
+  }
+  // 電弧：電擊的貼圖在 p 附近閃爍（EMP、能量武器命中；r 舊尺度，會轉送給客機）
+  arc(p, r, color = 0x9fe0ff) {
+    if (this.skip(p, r)) return;
+    emitPreset(this.g, 'arc', p, { S: r * this.k, color, n: r > 2 ? 5 / 3 : 1 });
+  }
+  // 十字星光：彈刀、完美迴避、處決的最後一擊（r 舊尺度，會轉送給客機）
+  star(p, r, color = 0xfff0c0) {
+    emitPreset(this.g, 'star', p, { S: r * this.k, color });
+  }
+  // 地圖的持續特效（game/fx-ambient.js）：burn 燃燒的殘骸（黑煙＋火星）、steam 管線的蒸氣、dust 料斗落下的粉塵
+  ambient(kind, p) {
+    if (this.skip(p, 6)) return;
+    emitPreset(this.g, kind, p, { S: this.k });
+  }
+  // 旋翼的下洗氣流：地面上 (x, gy, z) 往外貼地吹開的沙塵（sc＝機體的縮放、k＝貼近地面的程度 0～1）；只有外觀、不轉送
+  downwash(x, gy, z, sc, k) {
+    const p = new THREE.Vector3(x, gy + 0.3 * this.k, z);
+    if (this.skip(p, 6 * sc)) return;
+    emitPreset(this.g, 'downwash', p, { S: sc, n: (2 + k * 3) / 3, spd: 0.5 + k });
+  }
   shockwave(p, r, color = 0xffd090, life = 0.4) {
-    const g = this.P('ra', color, 1);
-    g.position.copy(p);
-    g.rotation.x = -Math.PI / 2;
     const rk = r * this.k;
-    this.add(g, life, (e, t) => {
-      e.mesh.scale.setScalar(rk * (0.15 + t));
-      e.mesh.material.opacity = 1 - t;
+    // 環在格子半徑的 0.82：邊長＝半徑 × 2.44
+    this.g.rg.emit({
+      p,
+      life,
+      s0: rk * 0.37,
+      s1: rk * 2.8,
+      c0: color,
+      cell: FXC.ring,
+      rot: Math.random() * 6.28,
     });
   }
   explosion(p, r, color = 0xffa040, big = false) {
     this.flash(p, r * 0.32, 0xffffff, 0.08);
     this.flash(p, r * 0.45, color, 0.18);
     const K = this.k;
-    const fb = this.P('sa', 0xff6a20, 0.9);
-    fb.position.copy(p);
-    this.add(fb, big ? 0.45 : 0.3, (e, t) => {
-      e.mesh.scale.setScalar(r * K * (0.22 + t * 0.55));
-      e.mesh.material.opacity = 0.9 * (1 - t) * (1 - t);
-    });
+    // 火球：幾團火焰貼圖由白熱轉成暗紅，往外膨脹、旋轉（特效預設 fireball，fx/presets.js）
+    emitPreset(this.g, 'fireball', p, { S: r * K, n: big ? 2 : 1, lifeK: big ? 1.5 : 1 });
     this.shockwave(p.clone().setY(p.y - r * 0.3 * K), r * 1.6, 0xffc080, big ? 0.5 : 0.3);
     this.streaks(p, big ? 26 : 12, 0xffa030, rnd(16, 26) * (big ? 1.5 : 1), big ? 0.9 : 0.5, 32);
     this.streaks(p, big ? 10 : 5, 0xffe0a0, rnd(24, 34), 0.25, 10);
     for (let i = 0; i < (big ? 14 : 6); i++) {
       const s = this.P('dk', 0x2a2a2a);
       s.position.copy(p);
-      s.scale.setScalar(rnd(0.15, 0.4) * (big ? 2 : 1) * K);
+      s.scale.setScalar(rnd(0.1, 0.24) * (big ? 1.6 : 1) * K);
       const v = new THREE.Vector3(rnd(-1, 1), rnd(0.4, 1.6), rnd(-1, 1))
         .normalize()
         .multiplyScalar(rnd(9, 22) * (big ? 1.6 : 1) * K);
@@ -340,20 +376,19 @@ export class Effects {
   muzzle(p, dir, color = 0xffd080, size = 1) {
     if (this.skip(p, size)) return;
     const sz = size * this.k;
-    const f = this.P('sa', 0xffffff, 1);
-    f.position.copy(p);
-    this.add(f, 0.06, (e, t) => {
-      e.mesh.scale.setScalar(sz * (0.32 - t * 0.15));
-      e.mesh.material.opacity = 1 - t;
-    });
-    const c = this.P('ca', color, 0.95);
-    c.position.copy(p).addScaledVector(dir, sz * 0.6);
-    c.lookAt(c.position.clone().add(dir));
-    c.rotateX(-Math.PI / 2);
-    c.scale.set(sz * 0.9, sz * 1.6, sz * 0.9);
-    this.add(c, 0.07, (e, t) => {
-      e.mesh.material.opacity = 1 - t;
-      e.mesh.scale.multiplyScalar(1.06);
+    this.g.gl.emit({ p, life: 0.06, s0: sz * 1.05, s1: sz * 0.55, c0: 0xffffff, cell: SOFT });
+    // 槍口火焰：沿槍管方向從槍口往外（aspect 負的＝一端固定在槍口）
+    this.g.ln.emit({
+      p,
+      life: 0.07,
+      s0: sz * 2,
+      s1: sz * 2.5,
+      c0: 0xffffff,
+      c1: color,
+      a: 0.95,
+      cell: pickCell(FXG.muzzle),
+      axis: dir,
+      asp: -sz * 2.2,
     });
     if (this.far(p)) return; // 遠處只留閃光
     this.streaks(p, 3, color, 14, 0.14, 4, dir, 0.5);
@@ -387,22 +422,21 @@ export class Effects {
     const d = a.distanceTo(b);
     const w0 = width;
     width *= this.k;
-    const g = this.P('ya', color, 0.95);
-    g.position.copy(a).lerp(b, 0.5);
-    g.lookAt(b);
-    g.rotateX(Math.PI / 2);
-    g.scale.set(width, d, width);
-    this.add(g, 0.2, (e, t) => {
-      e.mesh.material.opacity = 0.95 * (1 - t);
-      e.mesh.scale.x = e.mesh.scale.z = width * (1 + t * 2);
+    const mid = a.clone().lerp(b, 0.5),
+      ax = b.clone().sub(a);
+    // 光束的格子：中央亮線＋外圈光暈，看得到的寬度約是邊長的 0.3
+    this.g.ln.emit({
+      p: mid,
+      life: 0.2,
+      s0: width * 3.4,
+      s1: width * 10,
+      c0: color,
+      a: 0.95,
+      cell: BEAM,
+      axis: ax,
+      asp: d,
     });
-    const core = this.P('ya', 0xffffff, 1);
-    core.position.copy(g.position);
-    core.quaternion.copy(g.quaternion);
-    core.scale.set(width * 0.35, d, width * 0.35);
-    this.add(core, 0.13, (e, t) => {
-      e.mesh.material.opacity = 1 - t;
-    });
+    this.g.ln.emit({ p: mid, life: 0.13, s0: width * 1.2, c0: 0xffffff, cell: BEAM, axis: ax, asp: d });
     this.flash(a, w0 * 6, color, 0.1);
     this.flashLight(a, color, 12);
   }
@@ -426,13 +460,19 @@ export class Effects {
     r *= this.k;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + rnd(-0.3, 0.3);
-      const sm = this.P('sn', color, 0.3);
-      sm.position.copy(p).add(new THREE.Vector3(Math.cos(a) * r * 0.3, 0.2 * this.k, Math.sin(a) * r * 0.3));
       const v = new THREE.Vector3(Math.cos(a) * r * 2.2, rnd(0.5, 1.5) * this.k, Math.sin(a) * r * 2.2);
-      this.add(sm, rnd(0.5, 0.8), (e, t, dt) => {
-        e.mesh.position.addScaledVector(v, dt * (1 - t));
-        e.mesh.scale.setScalar(r * 0.18 * (0.5 + t * 1.4));
-        e.mesh.material.opacity = 0.3 * (1 - t);
+      this.g.sm.emit({
+        p: p.clone().add(new THREE.Vector3(Math.cos(a) * r * 0.3, 0.2 * this.k, Math.sin(a) * r * 0.3)),
+        v,
+        drag: 3,
+        life: rnd(0.5, 0.8),
+        s0: r * 0.24,
+        s1: r * 0.9,
+        c0: color,
+        a: 0.7,
+        cell: pickCell(FXG.smoke),
+        rot: Math.random() * 6.28,
+        rv: rnd(-1, 1),
       });
     }
     this.shockwave(p.clone().setY(p.y + 0.1), r0 * 1.2, 0xffffff, 0.25);
@@ -458,13 +498,16 @@ export class Effects {
   }
   boostFlame(p, dir, color) {
     if (this.skip(p, 1)) return;
-    const m = this.P('sa', color, 0.7);
-    m.position.copy(p);
     const K = this.k;
-    this.add(m, 0.18, (e, t, dt) => {
-      e.mesh.position.addScaledVector(dir, dt * 6 * K);
-      e.mesh.scale.setScalar((0.35 * (1 - t) + 0.05) * K);
-      e.mesh.material.opacity = 0.7 * (1 - t);
+    this.g.gl.emit({
+      p,
+      v: dir.clone().multiplyScalar(6 * K),
+      life: 0.18,
+      s0: 1.3 * K,
+      s1: 0.17 * K,
+      c0: color,
+      a: 0.7,
+      cell: SOFT,
     });
   }
   ring(p, r, color) {
@@ -621,38 +664,51 @@ export class Effects {
       disc.material.opacity = (0.4 + 0.15 * Math.sin(t * life * 9)) * fade;
       core.material.opacity = (0.35 + 0.2 * Math.sin(t * life * 13 + 1)) * fade;
       acc += dt;
-      if (acc > 0.12 && fade > 0.3) {
+      if (acc > 0.06 && fade > 0.3) {
         acc = 0;
         const a = Math.random() * Math.PI * 2,
           r = Math.random() * R * 0.85;
         const K = this.k;
         const q = p.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.3 * K, Math.sin(a) * r));
-        const f = this.P('sa', Math.random() < 0.5 ? C[2] : C[3], 0.8);
-        f.position.copy(q);
-        const up = rnd(2.5, 4.5) * K;
-        this.add(f, rnd(0.4, 0.7), (e2, t2, dt2) => {
-          e2.mesh.position.y += up * dt2;
-          e2.mesh.scale.setScalar((0.5 * (1 - t2) + 0.1) * K);
-          e2.mesh.material.opacity = 0.8 * (1 - t2);
+        // 火苗：直立的火舌貼圖往上飄、縮小
+        this.g.gl.emit({
+          p: q,
+          v: new THREE.Vector3(0, rnd(2.5, 4.5) * K, 0),
+          life: rnd(0.5, 0.8),
+          s0: 2.6 * K,
+          s1: 0.5 * K,
+          c0: C[1],
+          c1: Math.random() < 0.5 ? C[2] : C[3],
+          a: 0.85,
+          occ: 0.4,
+          cell: pickCell(FXG.tongue),
         });
-        if (Math.random() < 0.3) this.smoke(q.clone().setY(q.y + K), 0.9, C[4], 1.2, 3);
+        if (Math.random() < 0.15) this.smoke(q.clone().setY(q.y + K), 0.9, C[4], 1.2, 3);
       }
     });
   }
   // 火焰噴射：從 p 沿 dir 噴出 len 公尺（世界尺寸）、半角 ang 的火焰粒子
   flameCone(p, dir, len, ang, n = 10) {
+    const K = this.k;
     for (let i = 0; i < n; i++) {
       const v = dir
         .clone()
         .add(new THREE.Vector3(rnd(-1, 1), rnd(-0.6, 0.6), rnd(-1, 1)).multiplyScalar(Math.tan(ang)))
         .normalize()
         .multiplyScalar(len * rnd(1.6, 2.4));
-      const f = this.P('sa', Math.random() < 0.6 ? 0xff6a10 : 0xffc040, 0.8);
-      f.position.copy(p);
-      this.add(f, 0.45, (e, t, dt) => {
-        e.mesh.position.addScaledVector(v, dt);
-        e.mesh.scale.setScalar((0.3 + t * 1.6) * this.k);
-        e.mesh.material.opacity = 0.8 * (1 - t);
+      this.g.gl.emit({
+        p,
+        v,
+        life: 0.45,
+        s0: 0.8 * K,
+        s1: 4.6 * K,
+        c0: 0xffe0a0,
+        c1: Math.random() < 0.6 ? 0xa02800 : 0xc06000,
+        a: 0.85,
+        occ: 0.45,
+        cell: pickCell(FXG.fire),
+        rot: Math.random() * 6.28,
+        rv: rnd(-3, 3),
       });
     }
   }
@@ -836,8 +892,6 @@ export class Effects {
     this.flash(p, big ? 0.9 : 0.5, 0xffffff, 0.06);
     this.flash(p, big ? 1.6 : 1.1, color, 0.22);
     // 刀痕：依揮的方向（Euler YXZ：先俯仰再偏航，長邊是本地 z）
-    const cut = this.P('ba', 0xffffff, 1);
-    cut.position.copy(p);
     const yaw = dir && dir.x !== undefined ? Math.atan2(dir.x, dir.z) : 0;
     const sw = o.sw || 'h';
     const tilt = (Math.random() - 0.5) * 0.3;
@@ -856,21 +910,34 @@ export class Effects {
       ry = yaw;
       len = 0.75;
     }
-    cut.rotation.set(pitch, ry, 0, 'YXZ');
     const K = this.k;
-    const p0 = p.clone();
-    this.add(cut, 0.28, (e, t) => {
-      e.mesh.scale.set((0.12 + t * 0.1) * K, 0.12 * K, (big ? 6 : 4.2) * len * K * (0.6 + t * 0.7));
-      e.mesh.material.opacity = 1 - t * t;
-      if (mv) e.mesh.position.set(p0.x, p0.y + mv * t * 1.6 * K, p0.z);
+    // 刀痕的長邊＝本地 z 轉到世界；沿它拉長、面向鏡頭（往上挑、往下砸時整條往上下移）
+    const axis = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(pitch, ry, 0, 'YXZ'));
+    const v = mv ? new THREE.Vector3(0, (mv * 1.6 * K) / 0.3, 0) : null;
+    const L = (big ? 6 : 4.2) * len * K;
+    this.g.ln.emit({
+      p,
+      v,
+      life: 0.28,
+      s0: 0.42 * K,
+      s1: 0.75 * K,
+      c0: 0xffffff,
+      cell: LINE,
+      fade: 2,
+      axis,
+      asp: L,
     });
-    const cut2 = this.P('ba', color, 0.9);
-    cut2.position.copy(p);
-    cut2.rotation.copy(cut.rotation);
-    this.add(cut2, 0.32, (e, t) => {
-      e.mesh.scale.set((0.35 + t * 0.3) * K, 0.35 * K, (big ? 6.5 : 4.6) * len * K * (0.6 + t * 0.7));
-      e.mesh.material.opacity = 0.9 * (1 - t);
-      if (mv) e.mesh.position.set(p0.x, p0.y + mv * t * 1.6 * K, p0.z);
+    this.g.ln.emit({
+      p,
+      v,
+      life: 0.32,
+      s0: 1.2 * K,
+      s1: 2.3 * K,
+      c0: color,
+      a: 0.9,
+      cell: LINE,
+      axis,
+      asp: L * 1.1,
     });
     if (sw === 't') this.shockwave(p, big ? 3.5 : 2.2, 0xffffff, 0.18); // 突刺：貫穿的小衝擊環
     this.shockwave(p.clone().setY(p.y - K), big ? 5 : 3, color, 0.3);
@@ -882,6 +949,13 @@ export class Effects {
     }
   }
   update(dt) {
+    this.time += dt;
+    if (this.time > 2000) {
+      // float 精度：時鐘與所有粒子的產生時間一起往回平移
+      for (const g of this.gList) g.rebase(1900);
+      this.time -= 1900;
+    }
+    for (const g of this.gList) g.update(this.time, dt);
     this.thruster.update(dt);
     this.ribbons.update(dt);
     if (this.lightT > 0) {
@@ -928,6 +1002,8 @@ export class Effects {
     for (const e of this.list) if (e.mesh && !e.mesh.isFxProxy) this.scene.remove(e.mesh);
     this.list = [];
     for (const b of this.batchList) b.clear();
+    for (const g of this.gList) g.clear();
+    this.time = 0;
     this.light.intensity = 0;
     this.thruster.clear();
     this.ribbons.clear();

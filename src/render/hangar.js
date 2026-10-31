@@ -5,6 +5,8 @@
 import { gBox, gCyl, gSph, mergeGeos, P } from './geometry.js';
 import { HA, haChar, haProp, pbrMat, splitMeshY } from './hangar-assets.js';
 import { MS } from '../core/scale.js';
+import { GpuFx } from '../fx/gpu.js';
+import { FXG, LINE, pickCell } from '../fx/atlas.js';
 
 // 三倍高改版：格納庫照舊尺度建（機甲 3.24 m、鏡頭與整備架照舊），人的尺寸的東西（技師、牽引車、道具、欄杆、梯子、
 // 地板的面板）縮成 HU 倍，畫面上機甲和人的比例＝遊戲裡的 9.7 m 對 1.8 m
@@ -641,57 +643,44 @@ function buildCrewChar(type) {
   return { g: C.g, C, tab, torch, tip, tipL, ph: 0, rich: true };
 }
 
-// ---------- 火花（一個 Points，回收使用） ----------
-function buildSparks(n = 180) {
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(n * 3).fill(-999);
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = keepAlpha(
-    new THREE.PointsMaterial({
-      color: 0xffcf7a,
-      size: 0.035 * HU,
-      sizeAttenuation: true,
-      transparent: true,
-      depthWrite: false,
-    }),
-  );
-  const pts = new THREE.Points(geo, mat);
-  pts.frustumCulled = false;
-  const S = { pts, pos, vel: new Float32Array(n * 3), life: new Float32Array(n), n, i: 0 };
-  return S;
+// ---------- 火花與蒸氣（顯示卡粒子 fx/gpu.js，docs/vfx-design.md）----------
+// 一個群組（pts，掛在 H.root）裡兩個系統：火花（沿速度拉長、加色）與蒸氣（煙團）；時間是自己的（tickSparks 累加）。
+// 都不改畫面的 alpha（keepAlpha）
+function buildSparks() {
+  const pts = new THREE.Group();
+  const sp = new GpuFx(pts, { mode: 'stretch', spd: 0.06, maxL: 0.18 * HU, cap: 256, keepAlpha: true });
+  const st = new GpuFx(pts, { add: false, cap: 128, keepAlpha: true });
+  return { pts, sp, st, time: 0 };
 }
 export function emitSparks(S, p, dir, k = 5) {
+  const v = new THREE.Vector3();
   for (let j = 0; j < k; j++) {
-    const i = S.i;
-    S.i = (S.i + 1) % S.n;
-    S.pos[i * 3] = p.x;
-    S.pos[i * 3 + 1] = p.y;
-    S.pos[i * 3 + 2] = p.z;
     const sp = (0.8 + Math.random() * 1.6) * HU;
-    S.vel[i * 3] = (dir.x + (Math.random() - 0.5) * 1.4) * sp;
-    S.vel[i * 3 + 1] = (dir.y + Math.random() * 0.9) * sp;
-    S.vel[i * 3 + 2] = (dir.z + (Math.random() - 0.5) * 1.4) * sp;
-    S.life[i] = 0.25 + Math.random() * 0.4;
+    v.set(
+      (dir.x + (Math.random() - 0.5) * 1.4) * sp,
+      (dir.y + Math.random() * 0.9) * sp,
+      (dir.z + (Math.random() - 0.5) * 1.4) * sp,
+    );
+    S.sp.emit({
+      p,
+      v,
+      life: 0.25 + Math.random() * 0.4,
+      s0: 0.03 * HU,
+      s1: 0.02 * HU,
+      c0: 0xffffff,
+      c1: 0xffa040,
+      k: 1.6,
+      cell: LINE,
+      fade: 2,
+      g: 9.8 * HU,
+      asp: 0.4,
+    });
   }
 }
 function tickSparks(S, dt) {
-  for (let i = 0; i < S.n; i++) {
-    if (S.life[i] <= 0) continue;
-    S.life[i] -= dt;
-    const o = i * 3;
-    S.vel[o + 1] -= 9.8 * HU * dt;
-    S.pos[o] += S.vel[o] * dt;
-    S.pos[o + 1] += S.vel[o + 1] * dt;
-    S.pos[o + 2] += S.vel[o + 2] * dt;
-    if (S.pos[o + 1] < 0.02 && S.vel[o + 1] < 0) {
-      S.pos[o + 1] = 0.02;
-      S.vel[o + 1] *= -0.3;
-      S.vel[o] *= 0.5;
-      S.vel[o + 2] *= 0.5;
-    }
-    if (S.life[i] <= 0) S.pos[o + 1] = -999;
-  }
-  S.pts.geometry.attributes.position.needsUpdate = true;
+  S.time += dt;
+  S.sp.update(S.time, dt);
+  S.st.update(S.time, dt);
 }
 
 // ---------- 空氣中的浮塵（燈光裡看得到；外部素材版） ----------
@@ -2072,7 +2061,6 @@ export function tickHangar(H, dt, t) {
     else if (b.material) b.material.opacity = 0.35 + 0.65 * (Math.sin(t * 8) > 0 ? 1 : 0);
   }
   for (const tx of H.scroll) tx.offset.x = (t * 0.004) % 1;
-  tickPuffs(H, dt);
   if (H.dust) tickDust(H.dust, dt, t);
   // 吊車：沒有工作時在軌道上慢慢換位置（第二期換裝時由 game/hangar.js 指定位置）
   for (const c of H.cranes) {
@@ -2333,54 +2321,32 @@ export function removeHatch(H, h) {
   H.root.remove(h.g);
   h.hole.material.dispose();
 }
-// ---------- 蒸氣（白色煙團，不改 alpha） ----------
-const PUFF_GEO = new THREE.SphereGeometry(1, 10, 6);
+// ---------- 蒸氣（白色煙團，不改 alpha；火花的群組裡的煙團系統） ----------
 export function puff(H, p, n = 4, size = 0.35) {
-  if (!H.puffs) H.puffs = [];
+  const S = H.sparks;
+  if (!S) return;
   for (let i = 0; i < n; i++) {
-    const m = new THREE.MeshBasicMaterial({
-      color: 0xe8eef2,
-      transparent: true,
-      opacity: 0.5,
-      depthWrite: false,
-    });
-    m.blendSrcAlpha = THREE.ZeroFactor;
-    m.blendDstAlpha = THREE.OneFactor;
-    m.blending = THREE.CustomBlending;
-    m.blendSrc = THREE.SrcAlphaFactor;
-    m.blendDst = THREE.OneMinusSrcAlphaFactor;
-    const me = new THREE.Mesh(PUFF_GEO, m);
-    me.position.copy(p);
-    me.scale.setScalar(size * 0.4);
-    H.root.add(me);
     const a = Math.random() * Math.PI * 2;
-    H.puffs.push({
-      me,
+    S.st.emit({
+      p,
       v: new THREE.Vector3(Math.cos(a) * 0.6, 0.5 + Math.random() * 0.6, Math.sin(a) * 0.6),
-      t: 0,
+      drag: 1.5,
       life: 0.9 + Math.random() * 0.5,
-      size,
+      s0: size * 1,
+      s1: size * 4.6,
+      c0: 0xe8eef2,
+      a: 0.7,
+      cell: pickCell(FXG.smoke),
+      rot: Math.random() * 6.28,
+      rv: (Math.random() - 0.5) * 1.6,
     });
   }
 }
-function tickPuffs(H, dt) {
-  if (!H.puffs) return;
-  H.puffs = H.puffs.filter((q) => {
-    q.t += dt;
-    const k = q.t / q.life;
-    if (k >= 1) {
-      H.root.remove(q.me);
-      q.me.material.dispose();
-      return false;
-    }
-    q.me.position.addScaledVector(q.v, dt);
-    q.v.multiplyScalar(1 - dt * 1.5);
-    q.me.scale.setScalar(q.size * (0.4 + k * 1.4));
-    q.me.material.opacity = 0.45 * (1 - k);
-    return true;
-  });
-}
 export function disposeHangar(H) {
+  if (H.sparks) {
+    H.sparks.sp.dispose(); // 顯示卡粒子（幾何、材質）
+    H.sparks.st.dispose();
+  }
   H.root.traverse((o) => {
     if (o.isMesh || o.isPoints) {
       // gBox／gCyl 的快取幾何不釋放（只釋放合併出來的）

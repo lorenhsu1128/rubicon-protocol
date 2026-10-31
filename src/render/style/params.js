@@ -204,6 +204,8 @@ export const STYLE_GROUPS = [
       { k: 'mblurK', t: 'num', label: '模糊強度', min: 0, max: 1, step: 0.01, when: (P) => P.mblur },
       { k: 'mblurMech', t: 'num', label: '機體保持清晰', min: 0, max: 1, step: 0.01, when: (P) => P.mblur },
       { k: 'fxaa', t: 'bool', label: '反鋸齒（FXAA）' },
+      // 粒子特效（fx/gpu.js）：0＝柔和的粒子；越大越像動畫的特效（門檻溶解、3 階的顏色、硬邊）
+      { k: 'fxCel', t: 'num', label: '粒子色階（動畫的特效）', min: 0, max: 1, step: 0.01 },
     ],
   },
 ];
@@ -289,6 +291,7 @@ const REAL = {
   mblurK: 0.5,
   mblurMech: 0.7,
   fxaa: true,
+  fxCel: 0,
 };
 export const STYLE_DEFAULTS = REAL;
 
@@ -344,6 +347,7 @@ export const BUILTIN_STYLES = [
     id: 'gundam',
     name: '2000 年代 Gundam 動畫',
     params: {
+      fxCel: 0.85,
       toon: 1,
       steps: 2,
       thresh: 0.52,
@@ -398,6 +402,7 @@ export const BUILTIN_STYLES = [
     id: 'ghibli',
     name: '宮崎駿／吉卜力',
     params: {
+      fxCel: 1,
       toon: 1,
       steps: 3,
       thresh: 0.42,
@@ -473,6 +478,7 @@ export const BUILTIN_STYLES = [
     id: 'sandland',
     name: '鳥山明 SAND LAND',
     params: {
+      fxCel: 1,
       toon: 1,
       steps: 2,
       thresh: 0.48,

@@ -81,6 +81,9 @@ const HANGAR_DIR = path.join(SRC, 'assets', 'hangar');
 // 過場動畫的人物：src/assets/people/（*.glb）→ dist/lib/people-assets.js（window.RUBICON_PEOPLE），
 // 第一次播過場動畫時才載入（render/hangar-assets.js 的 loadPeopleAssets）
 const PEOPLE_DIR = path.join(SRC, 'assets', 'people');
+// 粒子特效的圖集（docs/vfx-design.md）：src/assets/fx/atlas.png → dist/lib/fx-assets.js（window.RUBICON_FX），
+// 遊戲與模型庫啟動後載入（fx/atlas.js 的 loadFxAssets）；atlas.json（格號）直接打包進程式
+const FX_DIR = path.join(SRC, 'assets', 'fx');
 function writePack(dir, file, name, title) {
   if (!fs.existsSync(dir)) return;
   const data = {};
@@ -88,7 +91,7 @@ function writePack(dir, file, name, title) {
     for (const f of fs.readdirSync(d).sort()) {
       const p = path.join(d, f);
       if (fs.statSync(p).isDirectory()) walk(p, pre + f + '/');
-      else if (/\.(glb|webp)$/.test(f)) data[pre + f] = fs.readFileSync(p).toString('base64');
+      else if (/\.(glb|webp|png)$/.test(f)) data[pre + f] = fs.readFileSync(p).toString('base64');
     }
   };
   walk(dir, '');
@@ -111,6 +114,7 @@ function writePack(dir, file, name, title) {
 function writeHangar() {
   writePack(HANGAR_DIR, 'hangar-assets.js', 'RUBICON_HANGAR', '機甲庫格納庫的素材（src/assets/hangar/）');
   writePack(PEOPLE_DIR, 'people-assets.js', 'RUBICON_PEOPLE', '過場動畫的人物（src/assets/people/）');
+  writePack(FX_DIR, 'fx-assets.js', 'RUBICON_FX', '粒子特效的圖集（src/assets/fx/）');
 }
 
 const PAGES = [
