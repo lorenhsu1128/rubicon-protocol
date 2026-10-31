@@ -5,8 +5,11 @@
 // ============================================================
 import { GpuFx } from './gpu.js';
 import { SOFT, LINE } from './atlas.js';
+import { JetFx } from './jet.js';
 
 const DOWN = new THREE.Vector3(0, -1, 0);
+const _jp = new THREE.Vector3(),
+  _jd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 // 噴口的世界座標與噴射方向（連接點的 −Y 軸）
@@ -27,6 +30,7 @@ export class ThrusterFx {
     this.time = 0;
     // 拉長：長度＝寬×1.2＋速度×0.045（噴流的條紋），上限 3 m
     this.sys = new GpuFx(scene, { mode: 'stretch', spd: 0.045, maxL: 3, order: 6, cap: Math.min(4096, max) });
+    this.jets = new JetFx(scene); // 戰鬥機式的噴流（每個噴口每格一條，fx/jet.js）
   }
   // 一顆噴焰：p 位置、v 速度、color 噴焰色、size 直徑（公尺）、life 秒
   emit(p, v, color, size, life) {
@@ -35,12 +39,13 @@ export class ThrusterFx {
       p,
       v,
       life,
-      s0: size * 1.0,
-      s1: size * 3.6,
+      s0: size * 0.3,
+      s1: size * 0.9,
       c0: 0xffffff,
       c1: color,
-      k: 1.6,
-      a: 0.9,
+      k: 1.4,
+      a: 0.5,
+      occ: 0.1, // 一點遮蔽：明亮的背景上也看得到（機戰傭兵 6 風，docs/vfx-design.md 第 6 期）
       cell: SOFT,
       fade: 1,
       drag: 3,
@@ -55,7 +60,7 @@ export class ThrusterFx {
       v = new THREE.Vector3();
     for (const nz of model.nozzles) {
       nozzleWorld(nz, pos, dir, false);
-      for (let k = 0; k < 14; k++) {
+      for (let k = 0; k < 8; k++) {
         const sp = (14 + Math.random() * 16) * scale;
         v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
           .multiplyScalar(0.7)
@@ -72,10 +77,11 @@ export class ThrusterFx {
           c0: 0xffffff,
           c1: color,
           k: 1.8,
-          cell: k < 5 ? LINE : SOFT,
+          occ: 0.3,
+          cell: LINE, // 細的條紋（不用圓的柔邊點：機戰傭兵 6 風）
           fade: 1,
           drag: 5,
-          asp: k < 5 ? 0.6 : 1.2,
+          asp: 0.8,
         });
       }
     }
@@ -84,7 +90,23 @@ export class ThrusterFx {
   stream(model, thrust, color, scale, dt, carry) {
     if (!model || !model.nozzles || !model.nozzles.length || thrust <= 0.005) return;
     if (this.cull && model.group && this.cull(model.group.position)) return; // 粒子很多時畫面外的不噴（Effects.skip）
-    const rate = (15 + 220 * thrust) * dt;
+    // 噴流：每個噴口一條，長度、寬度、亮度依推力（主體；下面的粒子只是稀疏的尾氣）
+    const nzs0 = model.nozzles;
+    const jp = _jp,
+      jd = _jd;
+    for (let i = 0; i < nzs0.length; i++) {
+      nozzleWorld(nzs0[i], jp, jd, model.nzFresh);
+      this.jets.add(
+        jp,
+        jd,
+        (0.5 + 2.6 * thrust) * scale,
+        (0.1 + 0.07 * thrust) * scale,
+        0.35 + 0.65 * thrust,
+        color,
+        i * 1.7 + (model._jSeed || (model._jSeed = Math.random() * 10)),
+      );
+    }
+    const rate = (4 + 40 * thrust) * dt;
     model._thrAcc = (model._thrAcc || 0) + rate;
     let n = Math.floor(model._thrAcc);
     model._thrAcc -= n;
@@ -117,6 +139,8 @@ export class ThrusterFx {
   }
   update(dt) {
     this.time += dt;
+    this.jets.step(dt);
+    this.jets.flush();
     if (this.time > 2000) {
       this.sys.rebase(1900);
       this.time -= 1900;
@@ -125,6 +149,7 @@ export class ThrusterFx {
   }
   clear() {
     this.sys.clear();
+    this.jets.clear();
     this.time = 0;
   }
 }

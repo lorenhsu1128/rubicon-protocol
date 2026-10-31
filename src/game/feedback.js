@@ -132,19 +132,24 @@ Object.assign(Game.prototype, {
     }
   },
   // 腳步（MechEntity.ikGait 每半個步伐呼叫）：玩家與聽得到的距離內的機體
+  // 地面材質（腳步聲與機甲特效的地面互動共用，entities/mech-vfx.js）：water／metal／ice／snow／sand／conc
+  surfAt(x, z, y) {
+    const w = this.world;
+    if (!w) return 'conc';
+    if (w.waterDepth(x, z) > 0.3 * MS && y < w.terrainHeight(x, z) + 1.5 * MS) return 'water';
+    if (y > w.terrainHeight(x, z) + 0.6 || METAL_THEMES[w.themeKey]) return 'metal';
+    if (w.onIce(x, z)) return 'ice';
+    if (w.themeKey === 'snow') return 'snow';
+    if (w.themeKey === 'dunes' || w.themeKey === 'desert') return 'sand';
+    return 'conc';
+  },
   mechStep(e) {
     const L = e.stats && e.stats.parts && e.stats.parts.legs;
-    if (!L || L.type === 'tank' || e.flying || !this.world || !SFX.ctx) return;
-    if (!e.isPlayer && SFX.dist(e.pos) > 40 * DS) return;
-    const w = this.world,
-      x = e.pos.x,
-      z = e.pos.z;
-    let surf = 'conc';
-    if (w.waterDepth(x, z) > 0.3 * MS && e.pos.y < w.terrainHeight(x, z) + 1.5 * MS) surf = 'water';
-    else if (e.pos.y > w.terrainHeight(x, z) + 0.6 || METAL_THEMES[w.themeKey]) surf = 'metal';
-    else if (w.onIce(x, z)) surf = 'ice';
-    else if (w.themeKey === 'snow') surf = 'snow';
-    else if (w.themeKey === 'dunes' || w.themeKey === 'desert') surf = 'sand';
+    if (!L || L.type === 'tank' || e.flying || !this.world) return;
+    // 腳步的地面互動（機甲特效；近處才產生，不轉送）
+    if (this.ctrl.mechFx !== 'simple' && this.fx && this.camera && e.mvStep) e.mvStep();
+    if (!SFX.ctx || (!e.isPlayer && SFX.dist(e.pos) > 40 * DS)) return;
+    const surf = this.surfAt(e.pos.x, e.pos.z, e.pos.y);
     const wt = e.isBoss ? 1 : L.type === 'reverse' ? 0.25 : L.type === 'quad' ? 0.8 : 0.5;
     // 房主與客機各自依步伐算腳步聲，不轉送
     const m = SFX.mirror;
@@ -210,6 +215,8 @@ Object.assign(Game.prototype, {
     const c = p.center();
     this.fx.flash(c, 2.2, 0x9fe8ff, 0.18);
     this.fx.star(c, 1.2, 0x9fe8ff); // 十字星光（docs/vfx-design.md）
+    if (p === this.player && this.ctrl.ghost !== 'off' && p.model)
+      this.fx.ghosts.snap(p.model.group, 0x9fe8ff); // 殘影
     this.fx.shockwave(c, 6, 0x9fe8ff, 0.35);
     SFX.play('thrBurst', 1.2, 1.3, 0.04, 0.03, null, 'ui');
     this.popDamage(c.clone().add(new THREE.Vector3(0, 2 * p.dk, 0)), '完美迴避', false, true, false, 0, p.id);

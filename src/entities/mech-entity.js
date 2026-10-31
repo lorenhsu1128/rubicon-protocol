@@ -731,7 +731,7 @@ export class MechEntity {
       case 'shotgun':
         if (d.enShot && !this.useEn(d.enShot * (1 - this.pmv('enWpn')))) return false; // 能量霰彈：每發耗 EN
         for (let i = 0; i < (pwK === 'slug' ? 1 : d.pellets); i++) shoot(jitter(dir), 'bullet');
-        g.fx.muzzle(muzzle, dir, 0xffa050, 1.8);
+        g.fx.muzzle(muzzle, dir, 0xffa050, 1.8, 'sg'); // 霰彈槍：前方扇形的煙
         g.fx.casing(muzzle.clone().addScaledVector(dir, -1 * this.dk), w.side, dir);
         SFX.shot('shotgun', undefined, SP);
         w.cd = d.rof;
@@ -750,7 +750,7 @@ export class MechEntity {
             foeShot ? this.foeShotOpt(dmg, 'shell') : {},
           ),
         );
-        g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
+        g.fx.muzzle(muzzle, dir, 0xff8040, 2.4, 'bz'); // 火箭筒：筒子後方的後焰
         g.fx.smoke(muzzle.clone().addScaledVector(dir, -1.5), 1.2, 0x9a9ea6, 0.8, 2);
         SFX.shot('shell', undefined, SP);
         w.cd = d.rof;
@@ -802,7 +802,7 @@ export class MechEntity {
               ...(foeShot ? this.foeShotOpt(dmg, 'grenade') : {}),
             }),
           );
-          g.fx.muzzle(muzzle, dir, 0xff8040, 2.4);
+          g.fx.muzzle(muzzle, dir, 0xff8040, 2.4, 'bz');
           SFX.shot('grenade', undefined, SP);
           w.cd = d.rof;
           this.recoil[w.side > 0 ? 'r' : 'l'] = 1;
@@ -841,7 +841,7 @@ export class MechEntity {
               }),
             );
           }
-          g.fx.flash(muzzle, 1.2, 0xffc0a0, 0.12);
+          g.fx.muzzle(muzzle, dir, 0xffc0a0, 1.2, 'ms'); // 導彈莢艙：發射口的小閃光與往後的煙
           for (let i = 0; i < 3; i++)
             g.fx.smoke(
               muzzle.clone().add(new THREE.Vector3(rnd(-0.4, 0.4), 0.2, rnd(-0.4, 0.4))),
@@ -2806,7 +2806,6 @@ export class MechEntity {
         });
       if (adt && !this.model.vehicle) applyIK(this.model, this.ikCtx(adt));
       if (adt) this.trailsTick(adt);
-      if (adt) this.trailsTick(adt);
     }
     // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
     {
@@ -2865,24 +2864,7 @@ export class MechEntity {
           1.2,
         );
     }
-    // smoke when damaged（敵人與有 rig.dmg 的模型改由 foe-damage.js 的分階段受損）
-    if (this.hp < this.maxHp * 0.35 && !dmgOn(this)) {
-      this.smokeT -= dt;
-      if (this.smokeT <= 0) {
-        this.smokeT = 0.25;
-        g.fx.smoke(
-          this.center().add(
-            new THREE.Vector3(rnd(-0.5, 0.5), 0.5, rnd(-0.5, 0.5)).multiplyScalar(this.scale),
-          ),
-          1.2 * this.scale,
-        );
-      }
-    }
-    if (this.staggerT > 0 && Math.random() < dt * 20)
-      g.fx.spark(
-        this.center().add(new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(this.scale)),
-        0xffb020,
-      );
+    // 低 AP 的冒煙與失衡的火花改由 mvfxTick（entities/mech-vfx.js）：各端自己產生、不轉送
     this.specialFx(dt);
     this.hrFoeApply(); // 專屬敵人受擊的零件動作（mech-hit-react.js）：在模型自己的動作之後
     this.dmgApply(dt); // 受損姿勢（mech-damage.js）
@@ -2984,10 +2966,12 @@ export class MechEntity {
       const m = this.glare[i];
       m.position.copy(wp).addScaledVector(dir, 0.35 * this.scale);
       const ck = this.cine ? 0.45 : 1; // 過場動畫的近拍：推進器的光暈小一點（game/cine.js）
+      // 機戰傭兵 6 風（docs/vfx-design.md 第 6 期）：光暈只是噴口的小亮點，噴流交給 fx/jet.js 的戰鬥機式噴流
+      // （以前推力大時半徑到 1.55 倍、像一團白球）
       m.scale.setScalar(
-        (0.25 + this.thrS * 1.3) * this.scale * ck * (jitter ? 0.9 + Math.random() * 0.2 : 1),
+        (0.03 + this.thrS * 0.04) * this.scale * ck * (jitter ? 0.9 + Math.random() * 0.2 : 1),
       );
-      m.material.opacity = (0.15 + this.thrS * 0.55) * (this.cine ? 0.75 : 1);
+      m.material.opacity = (0.3 + this.thrS * 0.3) * (this.cine ? 0.75 : 1);
     });
     if (!veh) {
       // QB 的一次噴發（boost 由假變真；客機看別人的機體用快照的 boost，所以各端自己產生、不轉送）
@@ -2996,6 +2980,7 @@ export class MechEntity {
       this.model.nzFresh = true; // 噴口的世界矩陣剛算過（fx/thruster.js 的 nozzleWorld 不用再往上更新）
       g.fx.thruster.stream(this.model, this.thrS, flameCol, this.scale, dt, this.vel);
       this.model.nzFresh = false;
+      this.mvfxTick(dt, flameCol); // 機甲特效（entities/mech-vfx.js）
       return;
     }
     if (

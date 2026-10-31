@@ -103,11 +103,13 @@ function cellsOf(L) {
 const rr = (a, d = 0) => (Array.isArray(a) ? a[0] + Math.random() * (a[1] - a[0]) : a != null ? a : d);
 const hexOf = (c, color) =>
   c === '$' ? (color != null ? color : 0xffffff) : c ? parseInt(c.slice(1), 16) : null;
-const _d = new THREE.Vector3(),
+const _ax = new THREE.Vector3(),
+  _d = new THREE.Vector3(),
   _p = new THREE.Vector3(),
   _v = new THREE.Vector3();
 
-// 依預設產生粒子。sys：{ sm, gl, ln, rg, dc }（GpuFx）；p：中心；o：{ S 尺度, color, n 數量倍率, spd 速度倍率, lifeK 壽命倍率, dur }
+// 依預設產生粒子。sys：{ sm, gl, ln, rg, dc }（GpuFx）；p：中心；
+// o：{ S 尺度, color, n 數量倍率, spd 速度倍率, lifeK 壽命倍率, dur, axis 方向的軸, vel 再加的速度 }
 export function emitPreset(sys, id, p, o = {}) {
   const pre = fxPresets()[id];
   if (!pre) return;
@@ -130,6 +132,8 @@ export function emitPreset(sys, id, p, o = {}) {
           rr([L.dir[0][2], L.dir[1][2]]),
         );
       else _d.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+      // o.axis：方向＝軸（正規化）＋範圍內的偏移（槍口、後焰這類依呼叫端的方向）
+      if (o.axis) _d.add(_ax.copy(o.axis).normalize());
       if (_d.lengthSq() < 1e-6) _d.set(0, 1, 0);
       _d.normalize();
       const life = rr(L.life, 0.5) * (L.lifeDur ? dur : 1) * (o.lifeK || 1);
@@ -152,6 +156,7 @@ export function emitPreset(sys, id, p, o = {}) {
         }
         if (L.speed) v = _v.copy(_d).multiplyScalar(rr(L.speed) * S * (o.spd || 1));
       }
+      if (o.vel) v = (v || _v.set(0, 0, 0)).add(o.vel); // 每顆再加的速度（跟著機體移動的一部分）
       G.emit({
         p: _p,
         v,

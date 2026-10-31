@@ -108,7 +108,6 @@ Object.assign(MechEntity.prototype, {
     this.hrFoeApply(); // 專屬敵人受擊的零件動作（mech-hit-react.js）：在模型自己的動作（specialFx）之後
     this.dmgApply(dt); // 受損姿勢（mech-damage.js）
     this.trailsTick(dt);
-    this.trailsTick(dt);
     // 光暈與噴焰
     this.thrusterFx(
       dt,
@@ -116,16 +115,7 @@ Object.assign(MechEntity.prototype, {
       this.isPlayer ? 0x8fe8ff : 0xffb060,
       false,
     );
-    if (this.hp < this.maxHp * 0.35) {
-      this.smokeT -= dt;
-      if (this.smokeT <= 0) {
-        this.smokeT = 0.25;
-        g.fx.smoke(
-          this.center().add(new THREE.Vector3(rnd(-0.5, 0.5), 0.5, rnd(-0.5, 0.5))),
-          1.2 * this.scale,
-        );
-      }
-    }
+    // 低 AP 的冒煙在 mvfxTick（entities/mech-vfx.js，thrusterFx 呼叫）
   },
   dieVisual() {
     if (this.dead) return;

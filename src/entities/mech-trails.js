@@ -82,12 +82,16 @@ Object.assign(MechEntity.prototype, {
     const land0 =
       this.grounded && this.landT !== undefined && this.landT <= dt + 1e-4 && (this.landV || 0) > 10;
     if (legged && this.grounded && (skid0 || brake0 || land0)) {
+      const sfx = g.ctrl.mechFx !== 'simple' && this.mvSurf; // 地面材質的效果（entities/mech-vfx.js）
       for (const L of m.legs) {
         L.foot.getWorldPosition(_f);
         _f.y = gy;
         g.fx.dust(_f.clone(), land0 ? 1.3 : 0.9, land0 ? 7 : 5);
         this.footPrint(_f);
+        if (sfx) this.mvSurf(_f, land0 ? 1 : 0.7, land0 ? 1.6 : 1);
       }
+      // 重落地（含下劈）：貼地的衝擊環與地面的裂痕
+      if (sfx && land0 && this.landV > 14) this.mvLandRing();
     }
   },
   // 腳印：貼地的暗色橢圓，6 秒後淡出

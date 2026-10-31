@@ -66,6 +66,8 @@ Object.assign(Game.prototype, {
     $('ctrlCamMax').value = String(this.ctrl.camMax || 1.8);
     $('ctrlCamDist').value = this.ctrl.camDist || 'std';
     $('ctrlCamCU').value = this.ctrl.camCU || 'on';
+    $('ctrlMechFx').value = this.ctrl.mechFx || 'full';
+    $('ctrlGhost').value = this.ctrl.ghost || 'on';
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
     $('ctrlCine').value = this.ctrl.cine || 'on';
     $('ctrlExec').value = this.ctrl.exec || 'on';

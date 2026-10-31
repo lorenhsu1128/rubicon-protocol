@@ -8,6 +8,7 @@ import { FxBatch } from './batch.js';
 import { GpuFx } from './gpu.js';
 import { FXC, FXG, pickCell, SOFT, LINE, BEAM } from './atlas.js';
 import { emitPreset } from './presets.js';
+import { GhostFx } from '../render/ghost.js';
 import { ThrusterFx } from './thruster.js';
 import { RibbonFx } from './trail.js';
 import { MB } from '../core/scale.js';
@@ -40,6 +41,7 @@ export class Effects {
     this.thruster = new ThrusterFx(scene); // 機甲推進器噴焰粒子
     this.thruster.cull = (p) => this.skip(p, 4);
     this.ribbons = new RibbonFx(scene); // 帶狀軌跡：刀光、地面的推進氣流帶（fx/trail.js）
+    this.ghosts = new GhostFx(scene); // 殘影（render/ghost.js，只給玩家自己）
     this.view = null; // 粒子的距離分級（skip／far）：上一格鏡頭的視錐與位置
     this.viewPos = new THREE.Vector3();
     // 顯示卡粒子（fx/gpu.js，docs/vfx-design.md）：產生時寫一次，之後由著色器依 fx.time 算動態。
@@ -88,6 +90,7 @@ export class Effects {
   // 把批次的代理寫進 InstancedMesh（update 結尾與渲染前各一次，update 之後才產生的粒子也畫得到）
   flush() {
     for (const b of this.batchList) b.flush();
+    this.thruster.jets.flush();
     for (const g of this.gList) g.update(this.time);
   }
   addM(color, opacity = 1, additive = true) {
@@ -373,9 +376,31 @@ export class Effects {
     this.streaks(p, 7, color, rnd(12, 18), 0.3, 30, dir ? dir.clone().negate() : null, 1.2);
     this.smoke(p, 0.35, 0x6a6e75, 0.45, 1.5);
   }
-  muzzle(p, dir, color = 0xffd080, size = 1) {
+  // kind（第 5 個參數，隨轉送帶給客機；docs/vfx-design.md 第 6 期）：'sg' 霰彈槍＝前方扇形的煙、
+  // 'bz' 火箭筒與榴彈＝筒子後方的後焰、'ms' 導彈莢艙＝發射口的小閃光與往後的煙（沒有槍口火焰）
+  muzzle(p, dir, color = 0xffd080, size = 1, kind) {
     if (this.skip(p, size)) return;
     const sz = size * this.k;
+    if (kind === 'ms') {
+      this.g.gl.emit({
+        p,
+        life: 0.08,
+        s0: sz * 1.6,
+        s1: sz * 0.8,
+        c0: 0xffffff,
+        c1: color,
+        k: 1.4,
+        cell: SOFT,
+      });
+      emitPreset(this.g, 'bzBlast', p, { S: this.k * size * 0.5, axis: dir.clone().negate(), n: 0.6 });
+      return;
+    }
+    if (kind === 'sg') emitPreset(this.g, 'sgSmoke', p, { S: this.k, axis: dir });
+    else if (kind === 'bz')
+      emitPreset(this.g, 'bzBlast', p.clone().addScaledVector(dir, -2.2 * this.k), {
+        S: this.k,
+        axis: dir.clone().negate(),
+      });
     this.g.gl.emit({ p, life: 0.06, s0: sz * 1.05, s1: sz * 0.55, c0: 0xffffff, cell: SOFT });
     // 槍口火焰：沿槍管方向從槍口往外（aspect 負的＝一端固定在槍口）
     this.g.ln.emit({
@@ -438,6 +463,7 @@ export class Effects {
     });
     this.g.ln.emit({ p: mid, life: 0.13, s0: width * 1.2, c0: 0xffffff, cell: BEAM, axis: ax, asp: d });
     this.flash(a, w0 * 6, color, 0.1);
+    emitPreset(this.g, 'laserGlow', a, { S: this.k * Math.max(1, w0 * 6), color }); // 開火後槍口的餘光
     this.flashLight(a, color, 12);
   }
   chevrons(p, dir, color = 0xffffff) {
@@ -958,6 +984,7 @@ export class Effects {
     for (const g of this.gList) g.update(this.time, dt);
     this.thruster.update(dt);
     this.ribbons.update(dt);
+    this.ghosts.update(dt);
     if (this.lightT > 0) {
       this.lightT -= dt;
       if (this.lightT <= 0) this.light.intensity = 0;
@@ -1007,6 +1034,7 @@ export class Effects {
     this.light.intensity = 0;
     this.thruster.clear();
     this.ribbons.clear();
+    this.ghosts.clear();
   }
 }
 

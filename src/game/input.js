@@ -652,6 +652,15 @@ Object.assign(Game.prototype, {
       this.ctrl.camDist = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlMechFx').onchange = (e) => {
+      this.ctrl.mechFx = e.target.value;
+      this.saveKeys();
+    };
+    document.getElementById('ctrlGhost').onchange = (e) => {
+      this.ctrl.ghost = e.target.value;
+      if (e.target.value === 'off' && this.fx) this.fx.ghosts.clear();
+      this.saveKeys();
+    };
     document.getElementById('ctrlCamCU').onchange = (e) => {
       this.ctrl.camCU = e.target.value;
       if (e.target.value === 'off') this.camCU = null;
