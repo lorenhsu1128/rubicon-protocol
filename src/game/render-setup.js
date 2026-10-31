@@ -36,6 +36,7 @@ Object.assign(Game.prototype, {
       fogPush: () => this.camExtra || 0, // 鏡頭拉遠時霧往外推，機體附近保持清楚
       chromaPush: () => (this.chromaK || 0) * 0.7, // 受到重擊時的色差（game/juice.js）
       wscale: () => DS, // 機甲三倍高改版
+      sceneTweak: (s) => this.water && this.water.fogTweak(s), // 水面下的霧（fx/water/index.js）
     });
     this.stylePipe.applyStructural(this.styleP);
   },
@@ -76,8 +77,10 @@ Object.assign(Game.prototype, {
     if (this.world && this.world.weather)
       this.world.weather.update(this.camera, t, this.renderer.getPixelRatio());
     this.fxAmbientTick(); // 地圖的持續特效（game/fx-ambient.js）
+    this.waterTick(); // 水面與雲海（game/water.js）：模擬、焦散、平面反射
     if (this.post.enabled && this.post.ok) this.stylePipe.render(P, t, lab && lab.cmp ? lab.cmpArg() : null);
     else this.stylePipe.renderPlain(P, t);
+    this.waterAfter();
   },
   // 低特效（大量單位的場面用）：o＝{ ssao: 'off'｜'half'｜'full', mblur: 布林 }，null＝恢復
   setLowFx(o) {

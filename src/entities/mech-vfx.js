@@ -181,7 +181,9 @@ Object.assign(MechEntity.prototype, {
       });
       // 懸浮貼近地面：把地面的沙塵吹開（旋翼的下洗氣流）
       if (this.hover && air && Math.random() < dt * 6) {
-        const gy = g.world ? g.world.groundAt(this.pos.x, this.pos.z, this.pos.y) : this.pos.y;
+        const gy = g.world
+          ? g.waterSurf(this.pos.x, this.pos.z, g.world.groundAt(this.pos.x, this.pos.z, this.pos.y))
+          : this.pos.y;
         const h = this.pos.y - gy;
         if (h < 9 * dk && h > -0.5) g.fx.downwash(this.pos.x, gy, this.pos.z, k * 0.6, 1 - h / (9 * dk));
       }

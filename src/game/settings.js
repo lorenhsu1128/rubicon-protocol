@@ -68,6 +68,7 @@ Object.assign(Game.prototype, {
     $('ctrlCamCU').value = this.ctrl.camCU || 'on';
     $('ctrlMechFx').value = this.ctrl.mechFx || 'full';
     $('ctrlGhost').value = this.ctrl.ghost || 'on';
+    $('ctrlWater').value = this.ctrl.water || '';
     $('ctrlTfx').value = this.ctrl.tfx || 'full';
     $('ctrlCine').value = this.ctrl.cine || 'on';
     $('ctrlExec').value = this.ctrl.exec || 'on';

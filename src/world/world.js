@@ -76,6 +76,7 @@ import {
 } from './prop-models.js';
 import { propShape, shapeContains, shapeSegT } from './prop-hit.js';
 import { Weather } from './weather.js';
+import { buildWaterMesh, disposeWater } from '../fx/water/surface.js';
 import { FAR_R, OOB_BUF, buildBackdrop, edgeDelta, planEdges } from './edges.js';
 
 const BOUND_R = 20 * DS; // 作戰區域的邊界線：機體離邊界這麼近才顯示、亮的半徑
@@ -566,6 +567,7 @@ export class World {
     if (keepMesh && this.terrainMesh) {
       this.terrainMesh.geometry.dispose();
       this.terrainMesh.geometry = ng;
+      this.waterDirty = true; // 水面的地形高度貼圖要重烘（fx/water/index.js）
       return;
     }
     const m = new THREE.Mesh(
@@ -994,28 +996,30 @@ export class World {
     if (!this.reserved) return false;
     return this.reserved.some((r) => x > r[0] - m && x < r[1] + m && z > r[2] - m && z < r[3] + m);
   }
-  // 水面（只有外觀）：{ level, color, opacity, rough, wide }
+  // 水面（只有外觀）：{ level, color, opacity, rough, wide, cloud }。網格與著色器在 fx/water/surface.js，
+  // 模擬、焦散、反射由遊戲的水面系統（fx/water/index.js）接上（docs/water-design.md）。
+  // cloud（高空軌道的雲海）：只是一片雲底的平面，雲由粒子的煙霧畫（fx/cloudsea.js，this.cloud）
   addWater(W) {
     const ext = (FAR_R + 40) * 2; // 一律延伸到遠景地形外（wide 的海面、雲海也是）
-    const geo = new THREE.PlaneGeometry(ext, ext);
-    geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        color: W.color,
-        roughness: W.rough !== undefined ? W.rough : 0.08,
-        metalness: 0.35,
-        transparent: true,
-        opacity: W.opacity || 0.8,
-        depthWrite: false,
-      }),
-    );
-    m.position.y = W.level;
-    m.renderOrder = 2;
-    m.receiveShadow = true;
-    this.scene.add(m);
-    this.meshes.push(m);
-    this.waterMesh = m;
+    if (W.cloud) {
+      const geo = new THREE.PlaneGeometry(ext, ext);
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: W.color, fog: true }));
+      m.material.color.multiplyScalar(0.7).lerp(new THREE.Color(0x7d8aa4), 0.25); // 雲底：比雲團暗一點
+      m.position.y = W.level - 2 * G;
+      m.renderOrder = 0;
+      m.userData.noFade = true;
+      m.userData.noAO = true;
+      this.scene.add(m);
+      this.meshes.push(m);
+      this.waterMesh = m;
+      this.cloud = { level: W.level, color: W.color };
+      return;
+    }
+    const g = buildWaterMesh(W, ext, G);
+    this.scene.add(g);
+    this.meshes.push(g);
+    this.waterMesh = g;
   }
   // 冰原的冰面（冰湖：地形在冰面高度 −0.7 附近）
   onIce(x, z) {
@@ -2487,11 +2491,13 @@ export class World {
   setWaterLevel(y) {
     const W0 = this.theme.water || { color: 0x37586a, opacity: 0.85, rough: 0.12 };
     this.theme = { ...this.theme, water: { ...W0, level: y } };
-    if (this.waterMesh) this.waterMesh.position.y = y;
+    if (this.waterMesh) this.waterMesh.position.y = this.cloud ? y - 2 * G : y;
     else this.addWater(this.theme.water);
+    if (this.cloud) this.cloud.level = y;
   }
   dispose() {
     if (this.weather) this.weather.dispose();
+    disposeWater(this.waterMesh);
     if (this._fading) for (const f of this._fading.values()) f.m.dispose();
     for (const m of this.meshes) {
       this.scene.remove(m);

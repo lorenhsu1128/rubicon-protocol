@@ -99,6 +99,7 @@ export class Projectile {
     this.life -= dt;
     this.mesh.position.copy(this.pos);
     this.orient();
+    if (g.waterCross) g.waterCross(prev, this.pos, this.kind); // 穿過水面：水花與漣漪（game/water.js，只有外觀）
     if (this.visual) {
       if (this.life <= 0) {
         this.dead = true;

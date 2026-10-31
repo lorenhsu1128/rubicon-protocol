@@ -12436,6 +12436,229 @@ async function testCinePeople(browser, base) {
 }
 
 // 特效編輯（模型庫的 #vfx，docs/vfx-design.md 第 5 期）：改一層、存到瀏覽器、遊戲照著產生
+// 水面（docs/water-design.md）：品質 low／mid／high、模擬（水滴、機體推水、穿過水面的子彈、爆炸）、焦散、反射、
+// 水面下的霧、高空軌道的雲海（粒子）；截圖
+async function testWater(browser, base) {
+  console.log('水面：模擬、機體與爆炸推水、焦散、反射、水面下、雲海、截圖');
+  const { ctx, page } = await newPage(browser, 'water');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.waitForFunction(() => window.__FXA && (window.__FXA.ready || window.__FXA.failed), null, {
+    timeout: 30000,
+  });
+  await freezeLoop(page);
+  // 多重水壩（標準變體）出擊，玩家放在淺水（1.2～3 m）；__simRead 讀回模擬貼圖：{ mx 最大的 |高度|, nan }
+  const start = (q) =>
+    page.evaluate((q) => {
+      const g = window.__game;
+      localStorage.setItem('rubicon_map', 'dam');
+      localStorage.setItem('rubicon_variant', 'base');
+      g.ctrl.water = q;
+      g.startMission();
+      g.waves = [];
+      g.wavePend = null;
+      for (const e of g.enemies) e.pos.x += 2000;
+      const w = g.world,
+        pl = g.player;
+      pl.hp = pl.maxHp = 1e7;
+      w.setWeather('none'); // 雨會一直在水面打出小漣漪
+      let f = null;
+      for (let r = 0; r < w.lim && !f; r += 4)
+        for (let a = 0; a < 48 && !f; a++) {
+          const x = Math.cos((a / 48) * 6.283) * r,
+            z = Math.sin((a / 48) * 6.283) * r;
+          const d = w.waterDepth(x, z),
+            d2 = w.waterDepth(x + 16, z);
+          if (d > 1.2 && d < 3 && d2 > 0.8 && w.inZone(x, z, 40) && w.inZone(x + 16, z, 40)) f = [x, z];
+        }
+      window.__wf = f;
+      if (f) pl.pos.set(f[0], w.terrainHeight(f[0], f[1]), f[1]);
+      window.__pump(0.5);
+      // c＝[x, z, 半徑]：只看這個範圍裡的格子
+      window.__simRead = (c) => {
+        const W = g.water,
+          sim = W.sim;
+        if (!sim) return null;
+        const n = sim.res,
+          buf = new Float32Array(n * n * 4);
+        g.renderer.readRenderTargetPixels(sim.a, 0, 0, n, n, buf);
+        let mx = 0,
+          nan = false;
+        for (let j = 0; j < n; j++)
+          for (let i = 0; i < n; i++) {
+            if (c) {
+              const x = W.win.x + ((i + 0.5) / n - 0.5) * W.win.z,
+                z = W.win.y + ((j + 0.5) / n - 0.5) * W.win.z;
+              if (Math.hypot(x - c[0], z - c[1]) > c[2]) continue;
+            }
+            const v = buf[(j * n + i) * 4];
+            if (!Number.isFinite(v)) nan = true;
+            else mx = Math.max(mx, Math.abs(v));
+          }
+        return { mx, nan };
+      };
+      const W = g.water;
+      return {
+        found: !!f,
+        q: W.quality,
+        sim: W.simOn,
+        near: !!(W.g && W.g.userData.water.near.visible),
+        baked: !!(W.g && !W.g.userData.water.ter.flat),
+      };
+    }, q);
+  const m = await start('mid');
+  check(
+    m.found && m.q === 'mid' && m.sim && m.near && m.baked,
+    `水面（中）：模擬、近處的網格、地形高度貼圖（${JSON.stringify(m)}）`,
+  );
+  const r = await page.evaluate(() => {
+    const g = window.__game,
+      W = g.water,
+      pl = g.player,
+      f = window.__wf;
+    const out = {};
+    // 機體走過水裡（腳推水）：走的路線附近，走之前與走之後
+    const near = [pl.pos.x + 8, pl.pos.z, 26];
+    out.calm = window.__simRead(near);
+    for (let i = 0; i < 40; i++) {
+      const nx = pl.pos.x + 0.4;
+      if (g.world.waterDepth(nx, pl.pos.z) > 0.8) pl.pos.x = nx;
+      pl.pos.y = g.world.terrainHeight(pl.pos.x, pl.pos.z);
+      window.__pump(1 / 60);
+    }
+    out.walk = window.__simRead(near);
+    out.sph = W.sph.size;
+    // 水滴：推出水波，之後慢慢靜下來
+    window.__pump(3);
+    W.drop(f[0], f[1], 5, -1.5);
+    window.__pump(0.3);
+    out.r1 = window.__simRead();
+    window.__pump(4);
+    out.r2 = window.__simRead();
+    // 穿過水面的砲彈、靠近水面的爆炸：排進水滴
+    const L = W.level;
+    W.drops.length = 0;
+    g.waterCross(new THREE.Vector3(f[0], L + 3, f[1]), new THREE.Vector3(f[0], L - 1, f[1]), 'shell');
+    out.cross = W.drops.length;
+    g.fx.explosion(new THREE.Vector3(f[0], L + 1, f[1]), 3, 0xffa040, true);
+    out.blast = W.drops.length - out.cross;
+    window.__pump(0.2);
+    // 焦散：貼圖裡有比平均（0.2＝51）亮的地方
+    const cr = W.caus.rt,
+      cn = cr.width,
+      cb = new Uint8Array(cn * cn * 4);
+    g.renderer.readRenderTargetPixels(cr, 0, 0, cn, cn, cb);
+    let cmx = 0;
+    for (let i = 0; i < cn * cn; i++) cmx = Math.max(cmx, cb[i * 4]);
+    out.caus = cmx;
+    // 螢幕空間反射：管線留著上一格
+    out.ssr = W.g.userData.water.U.uRefl.value;
+    out.prev = !!(g.stylePipe.prev && g.stylePipe.keepPrev);
+    return out;
+  });
+  check(
+    !r.r1.nan && r.r1.mx > 0.1 && r.r2.mx < r.r1.mx * 0.5,
+    `水滴推出水波、之後慢慢靜下來（${r.r1.mx.toFixed(2)} → ${r.r2.mx.toFixed(2)} m）`,
+  );
+  check(
+    r.sph >= 2 && r.walk.mx > r.calm.mx + 0.02 && !r.walk.nan,
+    `機體走過水裡：腳推出水波（${r.sph} 顆球、${r.calm.mx.toFixed(3)} → ${r.walk.mx.toFixed(3)} m）`,
+  );
+  check(r.cross === 1 && r.blast === 1, `穿過水面的砲彈與靠近水面的爆炸推水（${r.cross}／${r.blast}）`);
+  check(r.caus > 60, `焦散：光被集中的地方比平均亮（${r.caus}／51）`);
+  check(r.ssr === 1 && r.prev, '反射（中）：螢幕空間反射用上一格的畫面');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'water-dam-mid.png') });
+  // 水面下：霧變成水色、很近
+  const u = await page.evaluate(() => {
+    const g = window.__game,
+      W = g.water,
+      f = window.__wf;
+    const far0 = g.scene.fog.far;
+    g.camera.position.set(f[0], W.level - 0.8, f[1]);
+    g.renderMain();
+    return { under: W.under, far: g.scene.fog.far, far0 };
+  });
+  check(
+    u.under && u.far < u.far0 * 0.5,
+    `鏡頭在水面下：水色的近霧（霧的遠端 ${u.far0.toFixed(0)} → ${u.far.toFixed(0)}）`,
+  );
+  // 高：平面反射
+  const h = await start('high');
+  const hr = await page.evaluate(() => {
+    window.__pump(0.2);
+    const W = window.__game.water;
+    return { refl: W.g.userData.water.U.uRefl.value, res: W.sim && W.sim.res, rt: !!W.refl };
+  });
+  check(
+    h.q === 'high' && hr.refl === 2 && hr.res === 512 && hr.rt,
+    `水面（高）：512 格、平面反射（${JSON.stringify(hr)}）`,
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'water-dam-high.png') });
+  // 低：沒有模擬，只有遠處的平面
+  const l = await start('low');
+  const lr = await page.evaluate(() => {
+    const W = window.__game.water;
+    return { refl: W.g.userData.water.U.uRefl.value, far: W.g.userData.water.far.visible };
+  });
+  check(
+    l.q === 'low' && !l.sim && !l.near && lr.far && lr.refl === 0,
+    '水面（低）：沒有模擬與焦散，只有細碎波紋與天空的反射',
+  );
+  await page.screenshot({ path: path.join(SHOT_DIR, 'water-dam-low.png') });
+  // 關卡編輯器的筆刷改了地形：重烘地形高度貼圖
+  const rb = await page.evaluate(() => {
+    const g = window.__game,
+      d = g.water.g.userData.water;
+    const t0 = d.ter.tex;
+    g.world.buildTerrainMesh(true);
+    window.__pump(0.05);
+    return d.ter.tex !== t0 && !g.world.waterDirty;
+  });
+  check(rb, '地形改了（關卡編輯器的筆刷）：水面的地形高度貼圖重烘');
+  // 高空軌道的雲海：粒子的煙霧＋雲底，不是水面
+  const c = await page.evaluate(() => {
+    const g = window.__game;
+    localStorage.setItem('rubicon_map', 'orbit');
+    g.ctrl.water = 'mid';
+    g.startMission();
+    g.waves = [];
+    g.wavePend = null;
+    window.__pump(1);
+    const w = g.world;
+    return {
+      cloud: !!w.cloud,
+      n: g.cloudSea ? g.cloudSea.sys.n : 0,
+      water: !!g.water.g,
+      base: !!w.waterMesh && !w.waterMesh.userData.water,
+    };
+  });
+  check(c.cloud && c.n > 300 && !c.water && c.base, `雲海：粒子的煙霧（${c.n} 團）與雲底，不是水面`);
+  await page.evaluate(() => {
+    const g = window.__game,
+      w = g.world,
+      pl = g.player,
+      cam = g.camera;
+    let v = null;
+    for (let r = 20; r < 500 && !v; r += 10)
+      for (let a = 0; a < 32; a++) {
+        const x = pl.pos.x + Math.cos((a / 32) * 6.283) * r,
+          z = pl.pos.z + Math.sin((a / 32) * 6.283) * r;
+        if (w.isVoid(x, z)) {
+          v = [x, z];
+          break;
+        }
+      }
+    if (v) {
+      cam.position.set(v[0] - (v[0] - pl.pos.x) * 0.6, pl.pos.y + 12, v[1] - (v[1] - pl.pos.z) * 0.6);
+      cam.lookAt(v[0] + (v[0] - pl.pos.x) * 2, w.cloud.level, v[1] + (v[1] - pl.pos.z) * 2);
+      cam.updateMatrixWorld();
+    }
+    g.renderMain();
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'water-orbit-clouds.png') });
+  await ctx.close();
+}
+
 async function testVfxEditor(browser, base) {
   console.log('特效編輯：模型庫的特效頁籤、預覽、改一層的數量、存到瀏覽器、遊戲照存的產生、還原');
   if (!fs.existsSync(LIBRARY)) return;
@@ -21774,6 +21997,7 @@ const STEPS = [
   ['testCine', (c) => testCine(c.browser, c.base)],
   ['testCinePeople', (c) => testCinePeople(c.browser, c.base)],
   ['testFx', (c) => testFx(c.browser, c.base)],
+  ['testWater', (c) => testWater(c.browser, c.base)],
   ['testVfxEditor', (c) => testVfxEditor(c.browser, c.base)],
   ['testTextFx', (c) => testTextFx(c.browser, c.base)],
   ['testLevels', (c) => testLevels(c.browser, c.base)],

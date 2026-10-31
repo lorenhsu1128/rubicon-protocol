@@ -656,6 +656,10 @@ Object.assign(Game.prototype, {
       this.ctrl.mechFx = e.target.value;
       this.saveKeys();
     };
+    document.getElementById('ctrlWater').onchange = (e) => {
+      this.ctrl.water = e.target.value; // 水面品質（game/water.js 每格套用）
+      this.saveKeys();
+    };
     document.getElementById('ctrlGhost').onchange = (e) => {
       this.ctrl.ghost = e.target.value;
       if (e.target.value === 'off' && this.fx) this.fx.ghosts.clear();

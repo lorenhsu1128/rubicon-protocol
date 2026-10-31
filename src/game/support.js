@@ -279,6 +279,9 @@ Object.assign(Game.prototype, {
           z = f.z + f.dz * u + f.dx * v;
         const p = new THREE.Vector3(x, Math.max(w.terrainHeight(x, z), wl) + 0.3, z);
         this.fx.dust(p, 1.5, 2, 0xb8dcf0);
+        // 水面的波：沿著流向推（fx/water，只有外觀）
+        if (this.water && this.water.wet(x, z))
+          this.water.drop(x + f.dx * 2 * MS, z + f.dz * 2 * MS, 2.2 * MS, -0.12 * MS);
         if (Math.random() < 0.25)
           this.fx.streaks(p, 2, 0xd8f0ff, 12, 0.35, 8, new THREE.Vector3(f.dx, 0.4, f.dz), 0.4);
       }

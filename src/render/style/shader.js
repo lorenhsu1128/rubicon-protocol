@@ -55,7 +55,19 @@ export const SU = {
   stN: V4(1.6, 0, 1, 1), // 金屬反射強度、動畫金屬反光帶、亮面亮度、陰影濃度
   stF: V4(0, 2, 8, 0), // 高度霧濃度、高度、衰減、水彩地形
   stW: V4(0.08, 0, 0, 0), // 水彩筆觸大小
+  // 水面（fx/water/index.js 每格設定，docs/water-design.md）：水位、焦散開關、濕的岸邊的高度、有水面
+  stWa: V4(-1e9, 0, 0, 0),
+  stWb: V4(0, 0, 1, 0), // 焦散貼圖的視窗：中心 x、z、邊長、強度
+  stWc: V4(0, 0, 0, 0), // 平水面的折射光的水平分量 ÷ 垂直分量（焦散貼圖的座標換算）
+  stCau: { value: null }, // 焦散貼圖（fx/water/caustics.js）
+  stCauT: { value: null }, // 細的焦散花紋（可拼接，fx/water/caustics.js 的 causTex）
+  stWd: V4(0, 0.05, 0, 0), // 焦散花紋：時間、每公尺幾張、強度
 };
+SU.stCau.value = SU.stCauT.value = (() => {
+  const t = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat);
+  t.needsUpdate = true;
+  return t;
+})();
 
 const lin = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 // k：場景的尺度（遊戲＝core/scale.js 的 DS，機甲庫與模型庫 1）：高度霧與水彩筆觸的公尺數乘上它
@@ -75,7 +87,8 @@ export function setStyleUniforms(P, k = 1) {
 }
 
 const PARS = /* glsl */ `
-uniform vec4 stA, stB, stC, stD, stE, stM, stN, stF, stW;
+uniform vec4 stA, stB, stC, stD, stE, stM, stN, stF, stW, stWa, stWb, stWc, stWd;
+uniform sampler2D stCau, stCauT;
 uniform float stCat, stOpq, stAuth;
 #ifdef ST_DECAL
 uniform sampler2D stDecT, stDecW;
@@ -165,6 +178,32 @@ if ( stMk > 0.0 ) {
 	roughnessFactor = mix( roughnessFactor, stM.z, stMk );
 	diffuseColor.rgb = mix( diffuseColor.rgb, mix( vec3( 0.85 ), min( diffuseColor.rgb * 1.25, vec3( 1.0 ) ), stM.w ), stMk );
 }
+// 水面：水位以上一小段是濕的岸邊（變暗、反光變強）；水位以下照焦散貼圖加上晃動的光紋
+float stCa = 0.0;
+if ( stWa.w > 0.5 ) {
+	float stDh = vStW.y - stWa.x;
+	if ( stDh < 0.0 ) {
+		if ( stWa.y > 0.5 ) {
+			// 細的花紋（兩層錯開移動、取小的＝網狀）＋模擬的焦散（機體、爆炸攪動的地方）
+			vec2 stQ = vStW.xz + stWc.xy * ( stWa.x - vStW.y );
+			vec2 stCq = stQ * stWd.y;
+			float stC1 = texture2D( stCauT, stCq + stWd.x * vec2( 0.021, 0.013 ) ).r;
+			float stC2 = texture2D( stCauT, stCq * 1.31 + vec2( 0.37, 0.19 ) - stWd.x * vec2( 0.017, -0.015 ) ).r;
+			stCa = pow( min( stC1, stC2 ) * 2.2, 2.0 ) * stWd.z;
+			vec2 stCu = ( stQ - stWb.xy ) / stWb.z + 0.5;
+			vec2 stCe = min( stCu, 1.0 - stCu );
+			float stIn = smoothstep( 0.0, 0.06, min( stCe.x, stCe.y ) );
+			if ( stIn > 0.0 ) stCa += pow( max( 0.0, texture2D( stCau, stCu ).r * 5.0 - 1.15 ), 1.4 ) * stIn * stWb.w;
+			stCa *= exp( stDh * 0.05 ) * smoothstep( 0.0, 0.3, - stDh );
+		}
+		diffuseColor.rgb *= 0.72;
+		roughnessFactor *= 0.5;
+	} else {
+		float stWet = 1.0 - smoothstep( 0.0, stWa.z, stDh );
+		diffuseColor.rgb *= 1.0 - 0.32 * stWet;
+		roughnessFactor *= 1.0 - 0.55 * stWet;
+	}
+}
 vec3 stAlb = diffuseColor.rgb;
 `;
 
@@ -198,6 +237,7 @@ if ( stA.x > 0.5 ) {
 	}
 	outgoingLight = stCol + totalEmissiveRadiance;
 }
+if ( stCa > 0.0 ) outgoingLight += stAlb * stCa * ( stA.x > 0.5 ? step( 0.35, stCa ) * 0.9 : 1.0 );
 `;
 
 const FOG = /* glsl */ `

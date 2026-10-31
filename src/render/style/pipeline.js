@@ -281,6 +281,9 @@ export class StylePipeline {
       return t;
     };
     this.rtScene = rt(true);
+    this.rtPrev = null; // 上一格的場景（keepPrev：水面的螢幕空間反射，fx/water/index.js）
+    this.keepPrev = false;
+    this.prevOk = false;
     this.rtA = rt(false);
     this.rtB = rt(false);
     this.rtL = rt(false);
@@ -366,7 +369,9 @@ export class StylePipeline {
     if (W === this.w && H === this.h) return;
     this.w = W;
     this.h = H;
-    for (const t of [this.rtScene, this.rtA, this.rtB, this.rtL, this.rtR]) t.setSize(W, H);
+    for (const t of [this.rtScene, this.rtPrev, this.rtA, this.rtB, this.rtL, this.rtR])
+      if (t) t.setSize(W, H);
+    this.prevOk = false;
     this.sizeSSAO();
     if (this.bloom) this.bloom.setSize(W, H);
   }
@@ -386,6 +391,12 @@ export class StylePipeline {
   // 鏡頭切換（瞬移）後呼叫：動態模糊不要拿上一格的位置
   resetHistory() {
     this.hasPrev = false;
+    this.prevOk = false;
+  }
+  // 上一格的場景（顏色＋深度；keepPrev 開著、而且上一格有畫的時候）。投影用 prevVP
+  get prev() {
+    if (!this.keepPrev || !this.prevOk || !this.rtPrev || !this.rtPrev.depthTexture) return null;
+    return { color: this.rtPrev.texture, depth: this.rtPrev.depthTexture };
   }
   // 依場景目前的戰區設定記下基準值（霧、太陽、環境光）；換戰區（新的 Fog 物件）時重新記錄
   captureBase() {
@@ -440,6 +451,7 @@ export class StylePipeline {
       c.sun.intensity = B.sunI * P.sunK;
     }
     if (c.hemi) c.hemi.intensity = B.hemiI * P.hemiK;
+    if (out && c.sceneTweak) c.sceneTweak(s); // 水面下的霧（fx/water/index.js）
     if (c.sunOff) {
       const az = (P.sunAz * Math.PI) / 180,
         el = (P.sunEl * Math.PI) / 180,
@@ -667,13 +679,31 @@ export class StylePipeline {
       u.split.value = cmp.split;
       u.pxX.value = 1 / this.w;
       this.draw(this.split, null);
-    } else this.run(P, null, time);
+    } else {
+      // 上一格的場景留著（水面的螢幕空間反射）：兩張輪流用
+      if (this.keepPrev && this.depthOk) {
+        if (!this.rtPrev) {
+          this.rtPrev = this.rtScene.clone();
+          this.rtPrev.depthTexture = new THREE.DepthTexture(this.w || 4, this.h || 4);
+          this.rtPrev.depthTexture.type = this.rtScene.depthTexture.type;
+          this.rtPrev.setSize(this.w || 4, this.h || 4);
+        }
+      } else this.prevOk = false;
+      this.run(P, null, time);
+      if (this.keepPrev && this.rtPrev) {
+        const t = this.rtPrev;
+        this.rtPrev = this.rtScene;
+        this.rtScene = t;
+        this.prevOk = true;
+      }
+    }
     R.setRenderTarget(null);
     this.prevVP.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.hasPrev = true;
   }
   // 不做後處理時：直接畫到畫面（設定裡關掉後製特效）
   renderPlain(P, time) {
+    this.prevOk = false;
     this.applyScene(P, time);
     this.R.setRenderTarget(null);
     this.R.render(this.scene, this.camera);

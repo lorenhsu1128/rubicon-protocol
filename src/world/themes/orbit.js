@@ -405,7 +405,7 @@ export const ORBIT = {
   container2: 0xd8a020,
   hasRocks: false,
   props: 'orbit',
-  water: { level: -16, color: 0xeef2f8, opacity: 0.97, rough: 1, wide: true }, // 雲海
+  water: { level: -16, color: 0xeef2f8, opacity: 0.97, rough: 1, wide: true, cloud: true }, // 雲海（粒子的煙霧，fx/cloudsea.js）
   void: { y: -4, fall: -7, ref: H },
   sunI: 1.15,
   fogNear: 90,

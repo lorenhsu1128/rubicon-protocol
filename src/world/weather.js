@@ -74,6 +74,7 @@ export class Weather {
   constructor(scene, kind, theme) {
     const K = KINDS[kind];
     this.scene = scene;
+    this.kind = kind; // 水面的雨滴（game/water.js）
     if (!K) return;
     const g = new THREE.BufferGeometry();
     const pos = new Float32Array(K.n * 3),

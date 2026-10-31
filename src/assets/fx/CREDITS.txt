@@ -2,3 +2,20 @@
 來源：https://kenney.nl/assets/particle-pack（取自 GitHub 的鏡像 Calinou/kenney-particle-pack）
 挑 72 張縮成 256 px 的格子、以透明度當灰階，打包成 8×4 格 × RGB 三通道：node scripts/fx-atlas.js --src=<粒子包資料夾>
 程式參考：wawa-vfx（https://github.com/wass08/wawa-vfx，MIT，Copyright (c) 2025 Wassim SAMAD）的顯示卡粒子做法（fx/gpu.js）
+
+水面（src/fx/water/：水波模擬、焦散的面積比、菲涅耳與水色）的做法參考：
+  threejs-water（https://github.com/jeantimex/threejs-water，MIT），
+  Original work Copyright (c) 2011 Evan Wallace（WebGL Water），Modified work Copyright (c) 2026 Yong Su。
+  改寫成遊戲用的版本（跟著鏡頭的模擬視窗、地形當岸、機體推水、三段品質的反射），沒有直接複製檔案。
+  MIT 授權條款：
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+  documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+  to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+  the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+  THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+  CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.

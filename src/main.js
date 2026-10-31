@@ -102,5 +102,6 @@ import './game/editor-ui.js';
 import './game/editor-trig.js';
 import './game/editor-pick.js';
 import './game/fx-ambient.js';
+import './game/water.js';
 
 new Game();

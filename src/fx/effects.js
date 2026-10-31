@@ -319,6 +319,8 @@ export class Effects {
   // 旋翼的下洗氣流：地面上 (x, gy, z) 往外貼地吹開的沙塵（sc＝機體的縮放、k＝貼近地面的程度 0～1）；只有外觀、不轉送
   downwash(x, gy, z, sc, k) {
     const p = new THREE.Vector3(x, gy + 0.3 * this.k, z);
+    // 水面上：往下壓出一圈波（fx/water）
+    if (this.water && this.water.wet(x, z)) this.water.drop(x, z, 2.2 * sc, -0.18 * sc * k);
     if (this.skip(p, 6 * sc)) return;
     emitPreset(this.g, 'downwash', p, { S: sc, n: (2 + k * 3) / 3, spd: 0.5 + k });
   }
@@ -336,6 +338,7 @@ export class Effects {
     });
   }
   explosion(p, r, color = 0xffa040, big = false) {
+    if (this.water) this.water.blast(p, r * this.k * (big ? 1.4 : 1)); // 水面的波（fx/water，各端自己算）
     this.flash(p, r * 0.32, 0xffffff, 0.08);
     this.flash(p, r * 0.45, color, 0.18);
     const K = this.k;

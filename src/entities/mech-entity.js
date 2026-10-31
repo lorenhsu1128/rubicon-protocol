@@ -2959,7 +2959,11 @@ export class MechEntity {
       }
     // 直升機、無人機貼近地面時：旋翼的下洗氣流捲起沙塵（只有外觀，各端自己產生）
     if (this.flying && Math.random() < dt * 9) {
-      const gy = this.game.world.groundAt(this.pos.x, this.pos.z, this.pos.y);
+      const gy = g.waterSurf(
+        this.pos.x,
+        this.pos.z,
+        this.game.world.groundAt(this.pos.x, this.pos.z, this.pos.y),
+      );
       const h = this.pos.y - gy;
       if (h < 9 * this.dk && h > -0.5)
         g.fx.downwash(this.pos.x, gy, this.pos.z, this.scale, 1 - h / (9 * this.dk));
