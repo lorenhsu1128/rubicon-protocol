@@ -177,6 +177,7 @@ Object.assign(Game.prototype, {
       const [ax, az] = this.tutAxes(this.tutVirt.wish.clone().normalize());
       p.inKey = this.meleeInKey(ax, az);
     } else p.inKey = this.meleeInKey(wish.x, wish.z);
+    if (p.air) this.airInput(p, wish); // 空域：推力與橫移照按鍵本身（game/air.js）
     if ((this.ctrl.moveRel === 'mech' || this.camAim()) && wish.lengthSq() > 0) {
       const yy = this.camAim() ? this.fpYaw : p.yaw;
       const fwd = new THREE.Vector3(-Math.sin(yy), 0, -Math.cos(yy)),
@@ -192,7 +193,7 @@ Object.assign(Game.prototype, {
       p.fpFace = true;
       p.aimYaw = this.fpYaw;
       p.aimPitch = this.fpPitch;
-    } else p.fpFace = this.chase; // 追尾：機體面向準星（瞄準方向由 setAim 決定）
+    } else p.fpFace = this.chase || !!p.air; // 追尾：機體面向準星（瞄準方向由 setAim 決定）
     p.move(dt, wish, this.act('jump'), qb, this.act('ab'), p.lock);
     // weapons
     const aimR = this.chase ? this.mouseWorld.clone() : this.reticlePoint(p);

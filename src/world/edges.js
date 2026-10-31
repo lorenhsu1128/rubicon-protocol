@@ -108,6 +108,7 @@ const STYLES = {
   institute: { kinds: { ridge: 3, drop: 2, open: 2 }, H: [20, 30], D: [16, 30], range: 0 },
   xylem: { none: true },
   orbit: { none: true },
+  airspace: { none: true },
 };
 
 function pickW(r, kinds) {

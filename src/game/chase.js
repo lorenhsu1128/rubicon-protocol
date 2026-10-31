@@ -66,6 +66,7 @@ Object.assign(Game.prototype, {
   },
   // V：俯視 → 追尾 → 第一人稱 → 俯視
   cycleView() {
+    if (this.airMode) return this.flashMsg('空域只有追尾視角', 0xffb020, 1.2);
     const i = VIEWS.indexOf(this.viewName());
     this.setView(VIEWS[(i + 1) % VIEWS.length]);
   },
@@ -78,7 +79,13 @@ Object.assign(Game.prototype, {
     this.camera.fov = TP_FOV;
     this.camera.updateProjectionMatrix();
     document.body.classList.remove('chaseView');
-    const v = this.ctrl.view === 'fps' ? 'fp' : this.ctrl.view === 'chase' ? 'chase' : 'top';
+    const v = this.airMode
+      ? 'chase' // 空域只有追尾視角（game/air.js）
+      : this.ctrl.view === 'fps'
+        ? 'fp'
+        : this.ctrl.view === 'chase'
+          ? 'chase'
+          : 'top';
     if (v !== 'top') this.setView(v, true);
   },
   chaseFov() {
@@ -116,8 +123,9 @@ Object.assign(Game.prototype, {
     }
     const inv = this.ctrl.invY ? -1 : 1;
     this.fpYaw -= dx * s;
-    const lo = this.chase ? PITCH_MIN : -1.1,
-      hi = this.chase ? PITCH_MAX : 0.9;
+    const al = this.airPitchLim(),
+      lo = al ? -al : this.chase ? PITCH_MIN : -1.1,
+      hi = al || (this.chase ? PITCH_MAX : 0.9);
     this.fpPitch = clamp(this.fpPitch - dy * s * inv, lo, hi);
   },
   // 每格的瞄準輸入（第一人稱／追尾；單機 updatePlayer 與客機 buildLocalInput 共用）
@@ -133,8 +141,9 @@ Object.assign(Game.prototype, {
         const sn = this.ctrl.sens || 1;
         const inv = this.ctrl.invY ? -1 : 1;
         this.fpYaw -= pa.x * dt * 2.6 * sn;
-        const lo = this.chase ? PITCH_MIN : -1.1,
-          hi = this.chase ? PITCH_MAX : 0.9;
+        const al = this.airPitchLim(),
+          lo = al ? -al : this.chase ? PITCH_MIN : -1.1,
+          hi = al || (this.chase ? PITCH_MAX : 0.9);
         this.fpPitch = clamp(this.fpPitch - pa.z * dt * 1.8 * sn * inv, lo, hi);
       }
     } else this.padFlick = false;
@@ -151,6 +160,7 @@ Object.assign(Game.prototype, {
   },
   // 追尾鏡頭：ent＝跟著的機體；yaw／pitch＝鏡頭方向
   chaseCamera(ent, dt, yaw, pitch) {
+    if (this.airMode && ent.air) return this.airCamera(ent, dt, yaw, pitch); // 空域（game/air.js）
     const w = this.world;
     const h = (ent.model && ent.model.height) || 4.5;
     const look = this.fpLookDir(yaw, pitch);
@@ -273,13 +283,15 @@ Object.assign(Game.prototype, {
     if (!tgt) return;
     const d = tgt.center().sub(this.camera.position);
     const wy = Math.atan2(-d.x, -d.z);
-    const wp = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), PITCH_MIN, PITCH_MAX);
+    const al = this.airPitchLim();
+    const wp = clamp(Math.atan2(d.y, Math.hypot(d.x, d.z)), al ? -al : PITCH_MIN, al || PITCH_MAX);
     const k = Math.min(1, dt * (foe ? 6 : 5));
     this.fpYaw = angLerp(this.fpYaw, wy, k);
     this.fpPitch = lerp(this.fpPitch, wp, k);
   },
   // 準星所指的世界點：從鏡頭沿畫面中央往前，略過機體前方，碰到地形或物件就停；沒碰到取 480 m
   chaseReticle() {
+    if (this.airMode) return this.airReticle(); // 空域（game/air.js）
     const w = this.world;
     const o = this.camera.position.clone();
     const dir = new THREE.Vector3();

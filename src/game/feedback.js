@@ -83,6 +83,13 @@ const AMB = {
     rev: [0.8, 0.08],
   },
   orbit: { L: [{ k: 'ambHum', v: 0.3, r: 0.7 }], rev: [0.4, 0.04] },
+  airspace: {
+    L: [
+      { syn: 'wind', v: 0.45 },
+      { syn: 'gust', v: 0.2 },
+    ],
+    rev: [0.3, 0.03],
+  },
   institute: {
     L: [
       { k: 'ambCave', v: 0.4 },

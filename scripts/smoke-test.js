@@ -5941,6 +5941,273 @@ async function testCamOcclusion(browser, base) {
 }
 
 // 作戰區域邊界：玩家超出 ±lim 時警告並推回（最遠到 limOut），電腦機體停在 ±lim
+// 空域的空戰（docs/air-combat-design.md 第 1 期）：自由出擊選「空域」、飛行（巡航、推進、懸停、轉向、急轉彎）、
+// 機動（側滾翻、前滾翻、後空翻）、撞地受傷彈開、空中的敵人、飛行 HUD；電腦／平板（觸控）／手機截圖
+async function testAir(browser, base) {
+  console.log('空域：飛行、機動、撞地、空中的敵人、HUD');
+  const { ctx, page } = await newPage(browser, 'air');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    localStorage.setItem('rubicon_map', 'airspace');
+    const g = window.__game;
+    g.save.level = 3;
+    g.startMission();
+    g.player.hp = g.player.maxHp = 1e7;
+  });
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player,
+      w = g.world,
+      K = g.keymap;
+    const o = {};
+    const key = (k, on) => (g.down[K[k]] = on);
+    const dyaw = (a, b) =>
+      Math.abs(((((a - b + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI);
+    o.setup = [g.airMode, p.air, w.size, w.cell, g.chase].join();
+    o.sel = g.mapOptionsHtml(true).includes('airspace');
+    o.mpSel = !g.mapOptionsHtml(false).includes('airspace');
+    // 讓敵人不打擾：拿遠
+    for (const e of g.enemies) e.pos.x += 4000;
+    // 巡航：水平直飛
+    g.fpYaw = p.yaw;
+    g.fpPitch = 0;
+    window.__pump(2);
+    o.cruise = Math.round(p.airV);
+    o.alt0 = Math.round(p.pos.y);
+    // 推進
+    key('up', true);
+    window.__pump(3);
+    o.boost = Math.round(p.airV);
+    key('up', false);
+    // 減速到底＝懸停（不失速、不掉下去）
+    key('down', true);
+    const y1 = p.pos.y;
+    window.__pump(3);
+    o.hover = Math.round(p.airV);
+    o.hoverDrop = Math.round(y1 - p.pos.y);
+    key('down', false);
+    window.__pump(2.5);
+    // 轉向 90°：一般與急轉彎的時間
+    const turn = (g2) => {
+      const y0 = p.yaw;
+      g.fpYaw = y0 + Math.PI / 2;
+      key('jump', g2);
+      const t = window.__pump(6, () => dyaw(p.yaw, g.fpYaw) < 0.1);
+      key('jump', false);
+      window.__pump(1.5);
+      return t;
+    };
+    o.tN = +turn(false).toFixed(2);
+    o.tG = +turn(true).toFixed(2);
+    // 側滾翻：往右瞬間側移、翻轉的動作、短暫無敵
+    window.__pump(1.5);
+    g.fpYaw = p.yaw;
+    const f0 = p.airDirNow(),
+      r0 = new THREE.Vector3(-f0.z, 0, f0.x).normalize(),
+      s0 = p.pos.clone();
+    key('right', true);
+    key('qb', true);
+    window.__pump(1 / 60);
+    o.rollIF = p.iFrames > 0;
+    key('qb', false);
+    window.__pump(0.15);
+    o.rollFlip = !!(p.model.an && p.model.an.flip < 1 && Math.abs(p.model.an.flipS) > 0.5);
+    window.__pump(0.35);
+    key('right', false);
+    o.rollSide = Math.round(p.pos.clone().sub(s0).dot(r0));
+    window.__pump(1);
+    // 前滾翻：爆發加速
+    const v0 = p.airV;
+    key('up', true);
+    key('qb', true);
+    window.__pump(1 / 60);
+    key('qb', false);
+    key('up', false);
+    o.fwdGain = Math.round(p.airV - v0);
+    window.__pump(1.2);
+    // 後空翻：機首與鏡頭轉 180°
+    const ya = p.yaw,
+      ca = g.fpYaw;
+    key('down', true);
+    key('qb', true);
+    window.__pump(1 / 60);
+    key('qb', false);
+    key('down', false);
+    window.__pump(0.15);
+    o.revFlip = !!(p.model.an && p.model.an.flip < 1 && p.model.an.flipF < -0.5);
+    window.__pump(1);
+    o.rev = +dyaw(p.yaw, ya + Math.PI).toFixed(2);
+    o.revCam = +dyaw(g.fpYaw, ca + Math.PI).toFixed(2);
+    // 撞地（往下俯衝撞海面）：受傷、彈開、沒有被擊破
+    p.hp = p.maxHp = 10000;
+    window.__pump(1);
+    g.fpPitch = -1.35;
+    const hp0 = p.hp;
+    const tc = window.__pump(20, () => p.hp < hp0);
+    o.crash = tc >= 0 && !p.dead;
+    o.crashDmg = Math.round(((hp0 - p.hp) / p.maxHp) * 100);
+    window.__pump(0.3);
+    o.bounce = p.pos.y > p.airFloor(p.pos.x, p.pos.z) && p.airPit > 0.2;
+    g.fpPitch = 0.3;
+    window.__pump(4);
+    p.hp = p.maxHp = 1e7;
+    // 空中的敵人
+    for (const e of g.enemies) e.pos.x -= 4000;
+    const fl = g.enemies.filter((e) => !e.dead);
+    o.foes = fl.length;
+    o.foeAlt = Math.round(Math.min(...fl.map((e) => e.pos.y - p.airFloor(e.pos.x, e.pos.z))));
+    g.drawHud(1 / 60);
+    return o;
+  });
+  check(
+    r.setup.startsWith('true,true,6000,30,true'),
+    `空域：飛行狀態、6 km 地圖、格子 30 m、追尾視角（${r.setup}）`,
+  );
+  check(r.sel && r.mpSel, '機甲庫的地圖選單有「空域」，多人的選單沒有');
+  check(
+    Math.abs(r.cruise - 70) < 12 && Math.abs(r.alt0 - 320) < 40,
+    `巡航 ${r.cruise} m/s、維持高度（${r.alt0} m）`,
+  );
+  check(r.boost > 95, `按住推進加速到 ${r.boost} m/s`);
+  check(r.hover < 15 && r.hoverDrop < 10, `減速到底＝懸停（${r.hover} m/s、高度只掉 ${r.hoverDrop} m）`);
+  check(r.tG > 0 && r.tN > 0 && r.tG < r.tN * 0.8, `急轉彎比較快（一般 ${r.tN} 秒、急轉彎 ${r.tG} 秒）`);
+  check(r.rollIF && r.rollFlip && r.rollSide > 20, `側滾翻：短暫無敵、側翻的動作、往右側移 ${r.rollSide} m`);
+  check(r.fwdGain > 25, `前滾翻：爆發加速 +${r.fwdGain} m/s`);
+  check(
+    r.revFlip && r.rev < 0.25 && r.revCam < 0.25,
+    `後空翻：後翻的動作、機首與鏡頭轉 180°（差 ${r.rev}／${r.revCam}）`,
+  );
+  check(
+    r.crash && r.crashDmg > 2 && r.crashDmg < 30 && r.bounce,
+    `撞到海面：受傷 ${r.crashDmg}%、彈開、沒有被擊破`,
+  );
+  check(r.foes >= 4 && r.foeAlt > 50, `空中的敵人 ${r.foes} 台（最低離海面 ${r.foeAlt} m）`);
+  // 截圖：飛行中、側滾翻中、懸停
+  await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    g.fpPitch = 0.05;
+    g.fpYaw = p.yaw + 0.4;
+    window.__pump(1.2);
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'air-flight.png') });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.down[g.keymap.left] = true;
+    g.down[g.keymap.qb] = true;
+    window.__pump(1 / 60);
+    g.down[g.keymap.qb] = false;
+    window.__pump(0.22);
+    g.down[g.keymap.left] = false;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'air-roll.png') });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.down[g.keymap.down] = true;
+    window.__pump(2.5);
+    g.down[g.keymap.down] = false;
+  });
+  await page.screenshot({ path: path.join(SHOT_DIR, 'air-hover.png') });
+  // 側面看姿勢：巡航（前傾的飛行姿勢）、轉彎中（橫滾）
+  for (const [nm, turn] of [
+    ['air-side.png', 0],
+    ['air-bank.png', 1],
+  ]) {
+    await page.evaluate((turn) => {
+      const g = window.__game,
+        p = g.player;
+      g.fpPitch = 0;
+      g.fpYaw = p.yaw + turn * 1.2;
+      window.__pump(turn ? 0.5 : 2);
+      const f = p.airDirNow(),
+        rt = new THREE.Vector3(-f.z, 0, f.x).normalize();
+      const c = p.center();
+      g.camera.position
+        .copy(c)
+        .addScaledVector(rt, 26)
+        .add(new THREE.Vector3(0, 4, 0))
+        .addScaledVector(f, turn ? -18 : 0);
+      g.camera.lookAt(c);
+      g.camera.updateMatrixWorld();
+      g.renderMain();
+    }, turn);
+    await page.screenshot({ path: path.join(SHOT_DIR, nm) });
+  }
+  // 雲：兩層、固定擺放，在雲裡的判定；從雲層下方往上看
+  const cl = await page.evaluate(() => {
+    const g = window.__game,
+      p = g.player;
+    const B = g.airBanks;
+    const b = B.reduce((a, x) => (x.y < a.y ? x : a), B[0]);
+    const inC = g.airInCloud(new THREE.Vector3(b.x, b.y, b.z));
+    const outC = g.airInCloud(new THREE.Vector3(b.x, 1150, b.z));
+    p.pos.set(b.x + b.r * 2.2, b.y - 160, b.z);
+    p.vel.set(0, 0, 0);
+    p.yaw = Math.PI / 2;
+    g.fpYaw = p.yaw;
+    g.fpPitch = 0.25;
+    window.__pump(0.6);
+    return { n: B.length, puffs: g.airCloud.n, inC, outC };
+  });
+  check(cl.n >= 40 && cl.puffs > 400 && cl.inC && !cl.outC, `雲：${cl.n} 團、${cl.puffs} 顆粒子，雲裡的判定`);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'air-clouds.png') });
+  const camFar = await page.evaluate(() => {
+    const g = window.__game;
+    g.clearMission();
+    g.state = 'title';
+    g.showScreen('title');
+    localStorage.removeItem('rubicon_map');
+    return g.camera.far;
+  });
+  check(camFar < 2000, `離開空域後鏡頭距離還原（${camFar}）`);
+  await thawLoop(page);
+  await ctx.close();
+  // 平板（觸控）與手機：左搖桿往上＝推進，觸控的跳躍鍵變成急轉
+  for (const [W, H, tag] of [
+    [1180, 820, 'tablet'],
+    [844, 390, 'phone'],
+  ]) {
+    const c2 = await browser.newContext({
+      viewport: { width: W, height: H },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const pg = await c2.newPage();
+    watch(pg, 'air-' + tag);
+    await pg.goto(base + '?test');
+    await waitVisible(pg, 'title');
+    await pg.evaluate(() => {
+      localStorage.setItem('rubicon_map', 'airspace');
+      const g = window.__game;
+      g.save.level = 3;
+      g.touchActive = true;
+      g.startMission();
+      g.player.hp = g.player.maxHp = 1e7;
+    });
+    await freezeLoop(pg);
+    const o = await pg.evaluate(() => {
+      const g = window.__game,
+        p = g.player;
+      g.touchMove.set(0, 0, -1);
+      window.__pump(3);
+      const v = p.airV;
+      g.touchMove.set(0, 0, 0);
+      window.__pump(0.5);
+      const jb = document.querySelector('#vpad .vbtn[data-a="jump"]');
+      return { v: Math.round(v), jb: jb ? jb.textContent : '' };
+    });
+    check(
+      o.v > 95 && o.jb.includes('急轉'),
+      `${tag === 'tablet' ? '平板' : '手機'}：左搖桿往上推進（${o.v} m/s）、跳躍鍵變成急轉`,
+    );
+    await pg.screenshot({ path: path.join(SHOT_DIR, `air-${tag}.png`) });
+    await thawLoop(pg);
+    await c2.close();
+  }
+}
+
 async function testBoundary(browser, base) {
   console.log('作戰區域邊界：警告、推回、電腦機體不出界');
   const { ctx, page } = await newPage(browser, 'bound');
@@ -22231,6 +22498,7 @@ const STEPS = [
   ['testChase', (c) => testChase(c.browser, c.base)],
   ['testPadUi', (c) => testPadUi(c.browser, c.base)],
   ['testBoundary', (c) => testBoundary(c.browser, c.base)],
+  ['testAir', (c) => testAir(c.browser, c.base)],
   ['testCampaign', (c) => testCampaign(c.browser, c.base)],
   ['testCampaign2', (c) => testCampaign2(c.browser, c.base)],
   ['testModules', (c) => testModules(c.browser, c.base)],

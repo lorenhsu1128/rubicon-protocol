@@ -595,6 +595,7 @@ Object.assign(Game.prototype, {
     if (this.pvp) this.drawPvpHud(c, W, H, p);
     if (this.chase) {
       this.drawChaseHud(c, W, H, p);
+      if (this.airMode) this.drawAirHud(c, W, H, p); // 空域的飛行 HUD（game/air.js）
     } else if (this.fp) {
       this.drawFpHud(c, W, H, p);
     } else {

@@ -265,7 +265,7 @@ Object.assign(Game.prototype, {
       el.innerHTML = `<span>地圖</span><span>${escHtml(this.mapName(ps.map))}・${escHtml(vName(ps.map, ps.variant) || '隨機')}（房主選擇）</span>`;
       return;
     }
-    el.innerHTML = `<span>地圖</span><span><select id="gMapSel">${this.mapOptionsHtml()}</select><select id="gVarSel" title="主題變體"></select></span>`;
+    el.innerHTML = `<span>地圖</span><span><select id="gMapSel">${this.mapOptionsHtml(!mp)}</select><select id="gVarSel" title="主題變體"></select></span>`;
     const sel = document.getElementById('gMapSel');
     const vs = document.getElementById('gVarSel');
     sel.value = host ? n.pvpSet.map || '' : this.mapPref();

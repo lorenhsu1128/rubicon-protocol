@@ -34,6 +34,7 @@ import './game/boss-field.js'; // Boss 改版：場地效果（流沙、冰面�
 import './game/hazards2.js';
 import './game/first-person.js';
 import './game/chase.js';
+import './game/air.js'; // 空域的空戰：鏡頭、輸入、HUD（docs/air-combat-design.md）
 import './game/pad-ui.js';
 import './game/pvp.js';
 import './game/mp-models.js';
@@ -70,6 +71,7 @@ import './entities/mech-hit-react.js'; // 受擊反應改版：依武器的受�
 import './entities/mech-damage.js'; // 分階段受損的姿勢（docs/crew-civilians-design.md）
 import './entities/mech-style.js'; // 遠程射擊：風格評價（射擊與近戰共用）
 import './entities/mech-trails.js'; // 動作的特效：刀光、地面的推進氣流帶、腳印（機甲動作第四期）
+import './entities/mech-air.js'; // 空域的飛行（docs/air-combat-design.md）
 import './entities/mech-vfx.js'; // 機甲特效：腳的噴口、地面互動、槍管發熱、狀態、殘影（docs/vfx-design.md 第 6 期）
 import './entities/mech-foe-d2.js';
 import './entities/mech-foe-b1.js';

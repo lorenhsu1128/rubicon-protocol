@@ -36,6 +36,7 @@ Object.assign(Game.prototype, {
     );
     this.waterT0 = ft;
     this.cloudTick(dt);
+    this.airCloudTick(dt); // 空域的雲（game/air.js）
     if (!W.g) {
       W.off();
       if (this.stylePipe) this.stylePipe.keepPrev = false;

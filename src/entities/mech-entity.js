@@ -243,6 +243,8 @@ export class MechEntity {
       dyaw,
       landV: this.landV || 14,
       aj: this.remote ? undefined : this.airJumps, // 空中跳的次數（減少＝空中跳，動作的翻轉）
+      flipGo: this.airFlipTake(), // 空域的機動：翻的方向（mech-air.js）
+      airStand: !!this.air, // 空域：站立微蹲的姿勢
       heavy: this.animHeavy,
       hits: this.takeHits(),
       react: this.react
@@ -2493,6 +2495,11 @@ export class MechEntity {
         this.enMax,
         this.en + P.generator.recharge * dt * (this.grounded ? 1.6 + this.pmv('gnd') : 1),
       );
+    // 空域的飛行（entities/mech-air.js）：推力、轉向、機動，姿勢與動作照下面的 poseTail
+    if (this.air) {
+      this.airMove(dt, wish, wantHover, wantQB, wantAB, targetEnt);
+      return this.poseTail(dt);
+    }
     // quick boost
     // 被鉤住、黏住、纏住時沒有方向也能 QB（原地甩動掙脫）；緩速時 QB 耗能增加
     const qbAny = wish.lengthSq() > 0.1 || (this.sts && this.stsQbEscape());
@@ -2612,7 +2619,10 @@ export class MechEntity {
     }
     if (this.flying) {
       // 上下晃動：貼著水面的（電鰻、漂流水雷）只晃一點點，否則會跳出水面（skimH_b2 設 bobK）
-      const ty = ground + this.hoverH + Math.sin(this.t * 2) * 0.6 * this.dk * (this.bobK ?? 1);
+      // 空域的飛行敵人（game/air.js 的 airSpawn）：照指定的高度，不看下面的地形
+      const ty =
+        (this.airAlt !== undefined ? Math.max(this.airAlt, ground + 60) : ground + this.hoverH) +
+        Math.sin(this.t * 2) * 0.6 * this.dk * (this.bobK ?? 1);
       this.vel.y = lerp(this.vel.y, (ty - this.pos.y) * 3, 0.2);
       this.grounded = false;
       this.hover = true;
@@ -2666,6 +2676,11 @@ export class MechEntity {
       this.pos.y = tg;
     }
     if (w.voidY !== undefined) this.voidCheck(w, px0, pz0);
+    this.poseTail(dt);
+  }
+  // 移動之後：機體的傾斜、朝向、動作（animateMech）、IK、推進器與特效（地面的 move 與空域的 airMove 共用）
+  poseTail(dt) {
+    const g = this.game;
     // ---- 機體動態：依加速度前傾／後仰／側傾（機體座標系） ----
     if (!this.prevVel) this.prevVel = this.vel.clone();
     const accW = this.vel
@@ -2690,9 +2705,10 @@ export class MechEntity {
         this.leanX *= 0.6;
       }
     }
-    // yaw
+    // yaw（空域的飛行：機首方向由 airMove 決定）
     this.moving = Math.hypot(this.vel.x, this.vel.z) > 1.5 * this.dk;
-    {
+    if (this.air) this.faceAimNow = true;
+    else {
       const firing = this.recoil.l + this.recoil.r > 0.05 || this.melee.active;
       const faceAim = this.lock || firing || !this.moving || this.ai || this.fpFace; // 人形：有目標時整台機體面向目標，側移用側步
       this.faceAimNow = !!faceAim; // 手臂瞄準（armAimPoint）：自由移動時照機體正面持槍
@@ -2703,11 +2719,14 @@ export class MechEntity {
     ikRestore(this.model); // IK 改過的關節回到動作層的結果（animateMech 從那裡平滑）
     hrBodyRestore(this.model); // 載具與飛行的受擊偏移（hit-react-pose.js）在前傾的 lerp 之前扣掉
     this.mesh.position.copy(this.pos);
-    this.mesh.rotation.order = 'YXZ';
-    this.mesh.rotation.y = this.yaw;
-    if (this.staggerT <= 0 && !this.downed) {
-      this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanTilt(), Math.min(1, dt * 8));
-      this.mesh.rotation.z = lerp(this.mesh.rotation.z, this.leanZ || 0, Math.min(1, dt * 8));
+    if (this.air) this.airOrient(dt);
+    else {
+      this.mesh.rotation.order = 'YXZ';
+      this.mesh.rotation.y = this.yaw;
+      if (this.staggerT <= 0 && !this.downed) {
+        this.mesh.rotation.x = lerp(this.mesh.rotation.x, this.leanTilt(), Math.min(1, dt * 8));
+        this.mesh.rotation.z = lerp(this.mesh.rotation.z, this.leanZ || 0, Math.min(1, dt * 8));
+      }
     }
     {
       // 人形：上半身與下半身同向；只有載具砲塔（vehicle）獨立旋轉

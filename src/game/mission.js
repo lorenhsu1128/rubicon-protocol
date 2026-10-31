@@ -281,12 +281,14 @@ Object.assign(Game.prototype, {
   variantName(theme, k) {
     return (VARIANTS[theme] && VARIANTS[theme][k] && VARIANTS[theme][k].name) || '';
   },
-  mapOptionsHtml() {
+  // air：列出空域（只有自由出擊的單人；THEMES.airspace 不可列舉，見 world.js）
+  mapOptionsHtml(air) {
     return (
       '<option value="">隨機</option>' +
       Object.keys(THEMES)
         .map((k) => `<option value="${k}">${escHtml(THEMES[k].name)}</option>`)
-        .join('')
+        .join('') +
+      (air ? `<option value="airspace">${escHtml(THEMES.airspace.name)}</option>` : '')
     );
   },
 
@@ -300,7 +302,9 @@ Object.assign(Game.prototype, {
       return this.campBeginMp(this.net.pvpSet.sid);
     // 多人自訂關卡（level-net.js）
     if (mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'level') return this.lvBeginMp();
-    const boss = isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
+    // 空域（空戰，game/air.js）：只有單人；第 1 期沒有 Boss 關
+    const air0 = !mp0 && this.mapPref() === 'airspace';
+    const boss = !air0 && isBossLevel(L) && !(mp0 && this.net.pvpSet && this.net.pvpSet.mode === 'pvp');
     const bd0 = boss ? bossForLevel(L) : null;
     this.clearMission();
     // 地圖：單人用車庫選的，多人用房主在大廳選的；沒選（隨機）或不認得時隨機
@@ -393,15 +397,19 @@ Object.assign(Game.prototype, {
     const sc = enemyScale(L, np),
       scaleHp = sc.hp,
       scaleDmg = sc.dmg;
+    const air = !mp && !!T.air;
+    if (air) this.airBegin(); // 空域：玩家進入飛行狀態（game/air.js）
     if (boss) this.spawnBossDef(bd0, scaleHp, scaleDmg, freeTier(bossIndexForLevel(L)));
+    else if (air) this.airSpawn(L, scaleHp, scaleDmg);
     else this.spawnComp(this.foeMix(this.rollComp(L, np), theme, 0, true), np, scaleHp, scaleDmg);
     this.scaleHp = scaleHp;
     this.scaleDmg = scaleDmg;
-    if (!boss) this.outpostsPlan(L); // 據點與補給箱
+    if (!boss && !air) this.outpostsPlan(L); // 據點與補給箱
     this.hkReset(); // 人員擊殺數（crowd.js）
-    this.crowdPlan(); // 地圖上的小人
+    if (!air) this.crowdPlan(); // 地圖上的小人
     this.waveAlerted = false;
-    this.planVehicles();
+    if (!air) this.planVehicles();
+    else this.vehPlan = [];
     if (this.bossDef && this.bossDef.rail && boss) this.vehPlan = []; // 武裝列車佔用鐵路：不開運輸列車
     if (mp) {
       this.net.tr.broadcast({
@@ -859,6 +867,7 @@ Object.assign(Game.prototype, {
     }, 2600);
   },
   clearMission() {
+    this.airEnd(); // 空域（game/air.js）
     // 機甲庫的維修演出（hangar.js）：記下這次出擊的損傷
     const pl = this.player;
     if (pl && pl.maxHp) this.hgLastDmg = Math.min(1, Math.max(0, 1 - pl.hp / pl.maxHp));

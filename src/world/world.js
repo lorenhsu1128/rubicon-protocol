@@ -91,6 +91,7 @@ import { INSTITUTE } from './themes/institute.js';
 import { ORBIT } from './themes/orbit.js';
 import { SPACEPORT } from './themes/spaceport.js';
 import { XYLEM } from './themes/xylem.js';
+import { AIRSPACE } from './themes/airspace.js';
 
 const _seg = new THREE.Vector3(); // propBlocks 的暫存
 // 網格建造在 prop-models.js（純函式）；這裡只用亂數決定參數與位置，亂數呼叫順序不可改變
@@ -149,6 +150,9 @@ const ARENA = 150,
 const ICE_Y = -0.7 * G;
 // 機體站得上去的高低差（方塊的頂面在腳底這麼高以內就踩上去，否則擋住）
 const STEP_H = 0.6 * MS;
+// 地形的上色：岩石的高度（預設）、山頂的雪
+const ROCK_Y = [9 * G, 6 * G],
+  SNOW_C = new THREE.Color(0xf2f5f8);
 // 主題的高度（水面、岩頂、虛空）跟著地形放大，霧跟著視距放大
 function scaleTheme(T) {
   const o = { ...T };
@@ -281,6 +285,9 @@ const LIN_EXP = {
   institute: 1.15,
 };
 for (const k in LIN_EXP) THEMES[k].linExp = LIN_EXP[k];
+// 空域（空戰，docs/air-combat-design.md）：不可列舉——THEMES.airspace 照樣讀得到，但隨機選圖、編輯器、實驗室、
+// 多人、各種「全部主題」的清單都不會列出（只在自由出擊的單人選得到，mapOptionsHtml）
+Object.defineProperty(THEMES, 'airspace', { value: AIRSPACE, enumerable: false });
 
 export class World {
   constructor(scene, theme, seed, level, feat, opt = {}) {
@@ -306,7 +313,7 @@ export class World {
     this.themeKey = theme;
     this.size = this.theme.size || MAP_SIZE;
     this.k = this.size / ARENA;
-    this.cell = CELL;
+    this.cell = this.theme.cell || CELL; // 空域的格子比較粗（themes/airspace.js）
     this.cells = Math.round(this.size / this.cell);
     this.lim = 62 * this.k; // 作戰區域（電腦機體 collide 限制在 ±lim）
     this.limOut = this.lim + OOB_BUF; // 玩家可以超出作戰區域到這裡（警告並推回），collide 的 soft
@@ -555,7 +562,11 @@ export class World {
       const y = (pp.getY(f) + pp.getY(f + 1) + pp.getY(f + 2)) / 3;
       const steep = clamp((0.93 - ny) * 6, 0, 1);
       tmp.copy(cg).lerp(cs, steep);
-      if (y > 9 * G) tmp.lerp(cr, clamp((y - 9 * G) / (6 * G), 0, 0.7));
+      // 岩石的高度（主題可以另訂 rockY＝[開始, 漸變]）；空域另有海岸的沙灘 shore 與山頂的雪 snowY（themes/airspace.js）
+      const RY = T.rockY || ROCK_Y;
+      if (T.shore && y < T.shore[0]) tmp.lerp(T.shoreC || (T.shoreC = new THREE.Color(T.shore[1])), 0.75);
+      if (y > RY[0]) tmp.lerp(cr, clamp((y - RY[0]) / RY[1], 0, 0.7));
+      if (T.snowY && y > T.snowY) tmp.lerp(SNOW_C, clamp((y - T.snowY) / 60, 0, 0.85) * (1 - steep * 0.6));
       tmp.offsetHSL(0, 0, keepMesh ? ((f * 0.618) % 1) * 0.04 - 0.02 : rnd(-0.02, 0.02));
       for (let q = 0; q < 3; q++) {
         col[(f + q) * 3] = tmp.r;

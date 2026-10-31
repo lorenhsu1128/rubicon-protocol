@@ -2620,9 +2620,17 @@ export function animateMech(m, dt, st) {
     an.flip = 0;
     an.flipF = fwdV / spd;
     an.flipS = strafe / spd;
+    an.flipT = FLIP_T;
+  }
+  // 空域的機動（entities/mech-air.js）：直接指定翻的方向（f＝前後、s＝左右）與秒數
+  if (st.flipGo && legged && !ML) {
+    an.flip = 0;
+    an.flipF = st.flipGo.f || 0;
+    an.flipS = st.flipGo.s || 0;
+    an.flipT = st.flipGo.T || FLIP_T;
   }
   an.vy0 = vy;
-  if (an.flip < 1) an.flip = grounded || ML ? 1 : Math.min(1, an.flip + dt / FLIP_T);
+  if (an.flip < 1) an.flip = grounded || ML ? 1 : Math.min(1, an.flip + dt / (an.flipT || FLIP_T));
   if (land < 0.02) an.landK = clamp(((st.landV || 14) - 4) / 18, 0.35, 1.25);
   const lDur = 0.2 + 0.25 * an.landK;
   const squat = land < lDur ? Math.sin((land / lDur) * Math.PI) * 0.62 * an.landK : 0; // 落地蹲踞：壓下再彈回
@@ -2904,6 +2912,12 @@ export function animateMech(m, dt, st) {
           th -= 0.25;
           ft -= 0.45;
           abd = L.side * 0.06;
+        } else if (st.airStand) {
+          // 空域的飛行（entities/mech-air.js）：站立微蹲
+          th += 0.14;
+          kn -= 0.3;
+          ft += 0.12;
+          abd = L.side * 0.08;
         } else if (st.hover) {
           th += 0.35;
           kn -= 0.6;
