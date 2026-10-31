@@ -2543,14 +2543,6 @@ export class MechEntity {
       this.abT = 0.1;
       this.en -= P.booster.qbCost * 1.4 * dt;
       this.enDelay = 0.3;
-      if (Math.random() < dt * 30)
-        g.fx.boostFlame(
-          this.center().add(
-            new THREE.Vector3(rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(-0.5, 0.5)).multiplyScalar(this.scale),
-          ),
-          this.vel.clone().normalize().negate(),
-          0x9ff0ff,
-        );
     }
     let target = new THREE.Vector3();
     if (this.qbT > 0) {
@@ -2807,47 +2799,10 @@ export class MechEntity {
       if (adt && !this.model.vehicle) applyIK(this.model, this.ikCtx(adt));
       if (adt) this.trailsTick(adt);
     }
-    // ---- 推進器光暈與噴焰粒子、側噴嘴 ----
+    // ---- 推進器光暈與噴焰粒子、姿勢控制的噴口 ----
     {
       this.thrusterFx(dt, this.isPlayer ? 0x9fe8ff : 0xffb070, this.isPlayer ? 0x8fe8ff : 0xffb060, true);
-      // 側移／急減速時的肩腰側噴嘴
-      const ar = this.leanZ || 0,
-        af = this.leanX || 0;
-      if (Math.abs(ar) > 0.08 && Math.random() < dt * 35) {
-        const side = ar > 0 ? -1 : 1;
-        const p = this.pos
-          .clone()
-          .add(
-            new THREE.Vector3(
-              -Math.sin(this.yaw + Math.PI / 2) * side * 0.9 * this.scale,
-              this.model.hipY * this.scale * 1.05,
-              -Math.cos(this.yaw + Math.PI / 2) * side * 0.9 * this.scale,
-            ),
-          );
-        g.fx.boostFlame(
-          p,
-          new THREE.Vector3(
-            -Math.sin(this.yaw + Math.PI / 2) * side,
-            0.1,
-            -Math.cos(this.yaw + Math.PI / 2) * side,
-          ),
-          this.isPlayer ? 0x9fe8ff : 0xffb070,
-        );
-      }
-      if (af < -0.12 && Math.random() < dt * 30) {
-        const p = this.center().add(
-          new THREE.Vector3(
-            -Math.sin(this.yaw) * 0.7 * this.scale,
-            0.3 * this.scale,
-            -Math.cos(this.yaw) * 0.7 * this.scale,
-          ),
-        );
-        g.fx.boostFlame(
-          p,
-          new THREE.Vector3(-Math.sin(this.yaw), 0.1, -Math.cos(this.yaw)),
-          this.isPlayer ? 0x9fe8ff : 0xffb070,
-        );
-      }
+      // 側移、急減速、轉向的肩／腰／胸前噴口：mvJets（entities/mech-vfx.js，thrusterFx 呼叫；客機也看得到）
       // 地面高速推進的塵土尾跡
       if (
         this.grounded &&
@@ -2955,7 +2910,11 @@ export class MechEntity {
   thrusterFx(dt, glareCol, flameCol, jitter) {
     const g = this.game;
     if (!this.glare) this.glare = this.model.nozzles.map(() => g.fx.glareMesh(glareCol, this)); // this：戰爭迷霧裡看不到時不畫
-    const thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
+    let thr = this.boost ? 1.0 : this.hover ? 0.7 : !this.grounded ? 0.45 : this.moving ? 0.28 : 0.06;
+    // 依動態變強變弱：往前加速時加大、減速時收小（V.aF＝上一格 mvJets 算的往前加速度，滿格＝1）
+    const V = this.mv;
+    if (V && V.aF !== undefined && !this.model.vehicle)
+      thr = clamp(thr + Math.max(0, V.aF) * 0.6 - Math.max(0, -V.aF) * 0.5 * thr, 0.04, 1);
     this.thrS = lerp(this.thrS || 0, thr, Math.min(1, dt * 10));
     const wp = new THREE.Vector3(),
       dir = new THREE.Vector3();

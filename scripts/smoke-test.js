@@ -12577,6 +12577,24 @@ async function testFx(browser, base) {
     fx.thruster.jets.flush();
     out.jets = fx.thruster.jets.n; // 戰鬥機式的噴流：背包 2＋腳 2
     pl.hover = false;
+    // 姿勢控制的噴口（mvJets）：往右加速＝一側的肩與腰往外噴；往前急減速＝胸前往前噴
+    pl.grounded = true;
+    pl.mv = null;
+    const rt = new THREE.Vector3(Math.cos(pl.yaw), 0, -Math.sin(pl.yaw)),
+      fw = new THREE.Vector3(-Math.sin(pl.yaw), 0, -Math.cos(pl.yaw));
+    for (let i = 0; i < 10; i++) {
+      pl.vel.copy(rt).multiplyScalar(i * 3 * pl.dk);
+      pl.thrusterFx(1 / 60, 0x9fe8ff, 0x8fe8ff, false);
+    }
+    const I1 = pl.mv.I;
+    out.side = [Math.max(I1['s-1'] || 0, I1.s1 || 0), Math.min(I1['s-1'] || 0, I1.s1 || 0)];
+    pl.mv = null;
+    for (let i = 0; i < 10; i++) {
+      pl.vel.copy(fw).multiplyScalar((30 - i * 3) * pl.dk);
+      pl.thrusterFx(1 / 60, 0x9fe8ff, 0x8fe8ff, false);
+    }
+    out.front = Math.min(pl.mv.I['c-1'] || 0, pl.mv.I.c1 || 0);
+    pl.vel.set(0, 0, 0);
     fx.ghosts.clear();
     if (pl.mv) pl.mv.ghT = 0;
     pl.qbT = 0.16;
@@ -12614,6 +12632,10 @@ async function testFx(browser, base) {
   check(r.cel && r.noAO, '渲染風格的色階共用、寫實時為 0；不進 SSAO 與遮擋淡出');
   check(r.qb >= 14, `QB 的一次噴發：從噴口噴出一團（${r.qb} 顆）`);
   check(r.jets >= 4, `機甲特效：懸浮時背包與腳的噴口都有細長的噴流（${r.jets} 條）`);
+  check(
+    r.side[0] > 0.5 && r.side[1] < 0.05 && r.front > 0.5,
+    `姿勢控制的噴口：橫向加速時只有一側的肩噴（${r.side.map((x) => x.toFixed(2))}）、急減速時胸前噴（${r.front.toFixed(2)}）`,
+  );
   check(
     r.ghost >= 2 && r.ghostMesh > 0 && r.ghostGone === 0 && r.ghostOff === 0,
     `殘影：QB 時留下（${r.ghost} 個、${r.ghostMesh} 個網格）、0.25 秒後消失、設定關閉時沒有`,
