@@ -677,12 +677,23 @@ Object.assign(Game.prototype, {
     // 據點的守衛（guardAt）：一律在箱子旁（不上高處），離玩家 GUARD_MIN_D 以上（否則一開場就出動）
     const guard = !!this.guardAt;
     const wv = !o.at && (!o.perch || guard) && this.waveAt;
+    const minD = wv && wv.drop ? 14 * DS : guard ? GUARD_MIN_D : 28 * DS;
+    // 開場的第一波（待機）離玩家遠一點：不要一進地圖就打起來（2026-10-31 使用者定案）；
+    // 作戰區域放不下時（spawnPoint 找不到會退回安全點）改回原本的距離
+    const far = this.spawnIdle && !o.at && !wv && !guard ? Math.max(minD, this.world.lim * 0.45) : 0;
     let sp = this.world.spawnPoint(
       this.player.pos,
       this.enemies.map((x) => x.pos),
       wv ? wv.pos : null,
-      wv && wv.drop ? 14 * DS : guard ? GUARD_MIN_D : 28 * DS,
+      far || minD,
     );
+    if (far && Math.hypot(sp.x - this.player.pos.x, sp.z - this.player.pos.z) < far)
+      sp = this.world.spawnPoint(
+        this.player.pos,
+        this.enemies.map((x) => x.pos),
+        wv ? wv.pos : null,
+        minD,
+      );
     let y =
       this.world.terrainHeight(sp.x, sp.z) +
       (o.flying ? (o.hoverH || 6) * DS : 0) +

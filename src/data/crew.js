@@ -49,9 +49,9 @@ export const CREW_CHUTE = new Set(['heli', 'dropship']);
 export const CREW_K = {
   EARLY_AP: 0.15, // 多人乘員的機體 AP 低於這個比例時，可能先逃一人
   EARLY_P: 0.5, // 先逃的機率
-  ESCAPE_P: 0.55, // 擊破時每個人逃出來的機率（其他的沒逃出來）
-  GONE_R: 70, // 逃跑的人離所有玩家這麼遠、又跑了一段時間就消失
-  GONE_T: 9,
+  ESCAPE_P: 0.75, // 擊破時每個人逃出來的機率（其他的沒逃出來）
+  GONE_R: 90, // 逃跑的人離所有玩家這麼遠、又跑了一段時間就消失
+  GONE_T: 14,
   CHUTE_V: 4.5, // 降落傘的下降速度 m/s
   SHOOT_R: 110, // 駕駛員開槍的距離
   SHOOT_DT: [0.45, 0.9], // 開槍間隔

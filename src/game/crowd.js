@@ -22,7 +22,7 @@ const BLOOD_LIFE = 45; // 秒（最後 6 秒淡出）
 const BLOOD_COL = { red: 0x1c0403, oil: 0x070605 }; // 紅褐（預設）／深色油污（線性值：r128 的 setHex 不做 sRGB 轉換，畫面上會亮很多）
 
 // 狀態（多人同步用的編號）
-const ST = ['idle', 'walk', 'run', 'hide', 'flee', 'shoot', 'chute', 'post', 'engage'];
+const ST = ['idle', 'walk', 'run', 'hide', 'flee', 'shoot', 'chute', 'post', 'engage', 'eject'];
 // 膚色（衣服與帽子依主題：data/crowd-themes.js）
 const SKIN = [0xe0b896, 0xc69072, 0x8d5a3c, 0xf0cfb0];
 // 乘員的外觀：駕駛服＋頭盔（敵對 AC 的駕駛員另一種）
@@ -138,7 +138,7 @@ Object.assign(Game.prototype, {
     });
     const amb = o.ambient !== false ? 1 : 0;
     const n = amb * Math.min(CROWD_MAX, Math.round((18 + rng() * 10) * (W.k || 1) * T.civ * seg[0]));
-    const nc = Math.max(1, Math.round((4 + Math.floor(rng() * 3)) * Math.min(1.3, T.civ * seg[0])));
+    const nc = Math.max(1, Math.round((6 + Math.floor(rng() * 4)) * Math.min(1.3, T.civ * seg[0])));
     // 活動點：地圖物件（貨櫃、倉庫、機具…）的旁邊，一群人面向它做事
     const props = W.obstacles.filter(
       (o) =>
@@ -146,13 +146,22 @@ Object.assign(Game.prototype, {
         (o.kind === 'box' ? Math.max(o.w, o.d) > 2 && Math.max(o.w, o.d) < 40 : o.r > 0.8 && o.r < 12),
     );
     const list = [];
-    const far = (x, z) => !pl || Math.hypot(x - pl.pos.x, z - pl.pos.z) > 40;
+    const far = (x, z) => !pl || Math.hypot(x - pl.pos.x, z - pl.pos.z) > 15;
     for (let c = 0; c < nc && list.length < n && n > 0; c++) {
       let cx = 0,
         cz = 0,
         face = null,
         ok = false;
-      if (props.length && rng() < T.near)
+      // 前三群在玩家附近（15～50 m）：一開場就看得到（2026-10-31 使用者定案）
+      if (c < 3 && pl)
+        for (let t = 0; t < 40 && !ok; t++) {
+          const a = rng() * Math.PI * 2,
+            r = 15 + rng() * 35;
+          cx = pl.pos.x + Math.cos(a) * r;
+          cz = pl.pos.z + Math.sin(a) * r;
+          ok = this.crowdFree(cx, cz);
+        }
+      if (!ok && props.length && rng() < T.near)
         for (let t = 0; t < 12 && !ok; t++) {
           const o = props[Math.floor(rng() * props.length)];
           const a = rng() * Math.PI * 2;
@@ -169,7 +178,7 @@ Object.assign(Game.prototype, {
         ok = this.crowdFree(cx, cz) && far(cx, cz);
       }
       if (!ok) continue;
-      const m = Math.min(n - list.length, 3 + Math.floor(rng() * 5));
+      const m = Math.min(n - list.length, 2 + Math.floor(rng() * 4));
       for (let j = 0; j < m; j++) {
         let x = cx,
           z = cz;
@@ -212,10 +221,12 @@ Object.assign(Game.prototype, {
       let cx = 0,
         cz = 0,
         ok = false;
-      for (let t = 0; t < 30 && !ok; t++) {
+      // 離玩家遠（150 m 以上，放不下時 90 m）：步兵 100 m 內就開槍，不要一開場就被打
+      for (let t = 0; t < 60 && !ok; t++) {
         cx = Z[0] + 10 + rng() * (Z[1] - Z[0] - 20);
         cz = Z[2] + 10 + rng() * (Z[3] - Z[2] - 20);
-        ok = this.crowdFree(cx, cz) && (!pl || Math.hypot(cx - pl.pos.x, cz - pl.pos.z) > 60);
+        ok =
+          this.crowdFree(cx, cz) && (!pl || Math.hypot(cx - pl.pos.x, cz - pl.pos.z) > (t < 40 ? 150 : 90));
       }
       if (!ok) continue;
       const m = INF_K.SQUAD[0] + Math.floor(rng() * (INF_K.SQUAD[1] - INF_K.SQUAD[0] + 1));
@@ -299,6 +310,7 @@ Object.assign(Game.prototype, {
     if (W.isVoid && W.isVoid(x, z)) return false;
     if (W.waterDepth && W.waterDepth(x, z) > 0.5) return false;
     const y = W.groundAt(x, z, W.terrainHeight(x, z) + 0.5);
+    if (W.groundAt(x, z, 999) > y + 2.2) return false; // 高台、橋面、屋頂底下：從上方的鏡頭看不到
     const [cx, cz] = W.collide(x, z, y, 0.4);
     return Math.abs(cx - x) + Math.abs(cz - z) < 0.05;
   },
@@ -326,7 +338,7 @@ Object.assign(Game.prototype, {
   crowdScareOne(h, sx, sz) {
     const C = this.crowd;
     h.sc = 1.2;
-    if (h.st === 'flee' || h.st === 'shoot' || h.st === 'chute') return;
+    if (h.st === 'flee' || h.st === 'shoot' || h.st === 'chute' || h.st === 'eject') return;
     if (h.soldier && h.st === 'hide') return;
     // 已經在逃：遇到新的威脅時改成離開它（每 0.6 秒最多改一次，不要每格抖）
     if (h.st === 'run') {
@@ -420,7 +432,7 @@ Object.assign(Game.prototype, {
         z,
         y: air ? e.pos.y : W.groundAt(x, z, W.terrainHeight(x, z) + 0.5),
         yaw: rng() * Math.PI * 2,
-        st: air ? 'chute' : cr.armed ? 'shoot' : 'flee',
+        st: air ? 'chute' : 'eject',
         t: 0,
         sT: 0.6 + rng() * 0.8,
         armed: cr.armed,
@@ -430,6 +442,24 @@ Object.assign(Game.prototype, {
         dx: 0,
         dz: 0,
       });
+      // 地面：從機體的艙口（機體中心上方）跳到落點
+      if (h && !air) {
+        const c = e.center();
+        h.ej = {
+          x0: c.x,
+          z0: c.z,
+          y0: c.y + (e.radius || 3) * 0.35,
+          x1: x,
+          z1: z,
+          y1: h.y,
+          t: 0,
+          T: 0.55 + rng() * 0.25,
+        };
+        h.x = c.x;
+        h.z = c.z;
+        h.y = h.ej.y0;
+        quiet(rng, () => this.fx.flash(new THREE.Vector3(c.x, h.ej.y0, c.z), 0.35, 0xfff0c0, 0.12));
+      }
       if (h && air)
         quiet(rng, () => {
           h.chute = chuteMesh();
@@ -679,7 +709,7 @@ Object.assign(Game.prototype, {
         dy = Math.atan2(Math.sin(dy), Math.cos(dy));
         h.yaw += dy * k;
       }
-      if (h.st !== 'chute') h.y = Math.max(h.y, W.groundAt(h.x, h.z, h.y + 0.6) - 0.05);
+      if (h.st !== 'chute' && h.st !== 'eject') h.y = Math.max(h.y, W.groundAt(h.x, h.z, h.y + 0.6) - 0.05);
       // 降落傘
       if (h.st === 'chute' && !h.chute)
         quiet(C.rng, () => {
@@ -705,7 +735,7 @@ Object.assign(Game.prototype, {
           run: sp > 3 ? 1 : 0,
           crouch: h.cr,
           work: h.st === 'idle' && h.i % 5 < 3 ? 0.6 + 0.4 * Math.sin(t * 5 + h.i) : 0,
-          wave: h.st === 'chute' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
+          wave: h.st === 'chute' || h.st === 'eject' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
           aim: h.st === 'shoot' || h.st === 'engage' ? 1 : 0,
           lean: h.st === 'hide' ? 0.3 : 0,
         },
@@ -909,7 +939,24 @@ Object.assign(Game.prototype, {
             tp = p;
           }
         }
-      if (h.st === 'chute') {
+      if (h.st === 'eject') {
+        // 從艙口跳出來：拋物線落到旁邊，落地後逃跑（駕駛員開槍）
+        const E = h.ej;
+        if (!E) h.st = h.armed ? 'shoot' : 'flee';
+        else {
+          E.t += dt;
+          const k = Math.min(1, E.t / E.T);
+          h.x = E.x0 + (E.x1 - E.x0) * k;
+          h.z = E.z0 + (E.z1 - E.z0) * k;
+          h.y = E.y0 + (E.y1 - E.y0) * k + 2.2 * 4 * k * (1 - k);
+          h.yaw = Math.atan2(E.x1 - E.x0, E.z1 - E.z0);
+          if (k >= 1) {
+            h.ej = null;
+            h.st = h.armed ? 'shoot' : 'flee';
+            h.t = 0;
+          }
+        }
+      } else if (h.st === 'chute') {
         // 降落傘：慢慢落下，落地後逃跑（駕駛員開槍）
         h.y -= CREW_K.CHUTE_V * dt;
         const gy = W.groundAt(h.x, h.z, h.y + 0.5);
@@ -1034,7 +1081,10 @@ Object.assign(Game.prototype, {
       if (sp > 0 && dt > 0) {
         let nx = h.x + h.dx * sp * dt,
           nz = h.z + h.dz * sp * dt;
-        const blocked = (W.isVoid && W.isVoid(nx, nz)) || (W.waterDepth && W.waterDepth(nx, nz) > 0.8);
+        const blocked =
+          (W.isVoid && W.isVoid(nx, nz)) ||
+          (W.waterDepth && W.waterDepth(nx, nz) > 0.8) ||
+          W.groundAt(nx, nz, 999) > h.y + 2.2; // 不鑽到高台、橋面底下
         if (!blocked) {
           const [cx, cz] = W.collide(nx, nz, h.y, 0.35);
           // 被擋住：逃跑時轉個方向，走路時放棄這個目的地
@@ -1091,7 +1141,7 @@ Object.assign(Game.prototype, {
           run: sp >= RUN ? 1 : 0,
           crouch: h.cr,
           work: h.st === 'idle' && h.work ? 0.6 + 0.4 * Math.sin(t * 5 + h.i) : 0,
-          wave: h.st === 'chute' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
+          wave: h.st === 'chute' || h.st === 'eject' ? 0.85 : h.st === 'run' && h.i % 3 === 0 ? 0.6 : 0,
           aim: h.st === 'shoot' || h.st === 'engage' ? 1 : 0,
           lean: h.st === 'hide' ? 0.3 : 0,
         },

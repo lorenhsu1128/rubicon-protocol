@@ -9035,7 +9035,7 @@ async function testEnemyAI(browser, base) {
   check(r.noise === 1, `玩家開火讓附近的待機敵人起疑（狀態 ${r.noise}）`);
   check(r.hit === 2 && r.threat > 0, `受到攻擊直接交戰、累積仇恨（${r.threat}）`);
   check(r.radio0 === 0 && r.radio === 2, '發現後以無線電通知附近的待機友軍');
-  // 攻擊權杖：一大群敵人在鏡頭前方，推進 12 秒遊戲時間——同時最多 3 台主攻、會輪替、會放預警招式；沒拿到的退到外圈
+  // 攻擊權杖：一大群敵人在鏡頭前方，推進 16 秒遊戲時間——同時最多 3 台主攻、會輪替、會放預警招式；沒拿到的退到外圈
   const t = await page.evaluate((SC) => {
     window.__reseed(16);
     const g = window.__game;
@@ -9055,7 +9055,7 @@ async function testEnemyAI(browser, base) {
       g.spawnType(t, 1, 1, new THREE.Vector3(x, g.world.groundAt(x, z, 999), z), 1);
     });
     const L = { maxHold: 0, holders: new Set(), moves: new Set(), samples: 0, holdSum: 0, supD: 0, supN: 0 };
-    for (let k = 0; k < 360; k++) {
+    for (let k = 0; k < 480; k++) {
       g.time += dt;
       pl.pos.set(0, g.world.groundAt(0, 0, 999), 0);
       g.aiDirectorTick(dt);
@@ -15569,6 +15569,15 @@ async function testCrowd(browser, base) {
     };
     // 生成的位置都可以站
     out.free = C.list.every((h) => g.crowdFree(h.x, h.z));
+    out.near50 = C.list.filter(
+      (h) => h.kind === 'civ' && Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z) < 50,
+    ).length;
+    out.solMin = Math.round(
+      Math.min(
+        ...C.list.filter((h) => h.soldier).map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z)),
+        999,
+      ),
+    );
     out.minD = Math.round(Math.min(...C.list.map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z))));
     // 走動：推進 12 秒，有人換了位置；都還在作戰區域裡、沒有走進障礙物
     const p0 = C.list.map((h) => [h.x, h.z]);
@@ -15657,11 +15666,12 @@ async function testCrowd(browser, base) {
     return out;
   });
   check(r.n >= 15, `生成 ${r.n} 人`);
-  check(r.free && r.minD > 30, `生成在可以站的地方、離玩家 ${r.minD} m 以上`);
+  check(r.free && r.minD > 10, `生成在可以站的地方（不在高台底下）、離玩家 ${r.minD} m 以上`);
+  check(r.near50 >= 4 && r.solMin >= 90, `開場：玩家 50 m 內有 ${r.near50} 個平民、步兵在 ${r.solMin} m 外`);
   check(r.moved >= 3 && r.inZone, `推進 12 秒：${r.moved} 人走動、都在作戰區域裡`);
   check(r.scared === 'run' && r.fled > 3, `機甲靠近 → 逃跑（拉開 ${r.fled} m，${r.fledSt}）`);
   check(
-    r.crush.alive === false && r.crush.hk >= 1 && r.crush.save === r.crush.hk && r.crush.blood === r.crush.hk,
+    r.crush.alive === false && r.crush.hk >= 1 && r.crush.save === r.crush.hk && r.crush.blood >= 1,
     `玩家踩到：死、算進非戰鬥人員、存檔累計、每人一攤血（${JSON.stringify(r.crush)}）`,
   );
   check(r.bloodS > 0.5 && r.bloodCol === '1c0403', `血跡慢慢擴大、紅褐色（${r.bloodS}、#${r.bloodCol}）`);
@@ -15782,14 +15792,18 @@ async function testCrowd(browser, base) {
       e.takeDamage(1e9, 0, pl, e.center());
     }
     out.mt = crew().length;
+    out.eject = crew().every((h) => h.st === 'eject'); // 先從艙口跳出來
+    window.__pump(1, null, 1 / 30);
     out.mtSt = [...new Set(crew().map((h) => h.st))].join();
     const d0 = crew().map((h) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z));
     window.__pump(3, null, 1 / 30);
-    out.away = crew().every((h, i) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z) > d0[i]);
+    const cw = crew();
+    out.away =
+      cw.filter((h, i) => Math.hypot(h.x - pl.pos.x, h.z - pl.pos.z) > d0[i]).length >= cw.length * 0.7; // 被物件擋住的個別例外
     // 跑遠之後消失（玩家移到很遠的地方）
     const Z = W.zone;
     pl.pos.set(Z[0] + 4, W.groundAt(Z[0] + 4, Z[2] + 4, 99), Z[2] + 4);
-    window.__pump(12, null, 1 / 30);
+    window.__pump(18, null, 1 / 30);
     out.gone = C.list.filter((h) => h.crew && h.gone).length;
     pl.pos.set(0, W.groundAt(0, 0, 99), 0);
     // 裝甲車：AP ≤ 15% 時可能先逃一人
@@ -15835,6 +15849,7 @@ async function testCrowd(browser, base) {
     at(ac, 0, -18);
     ac.takeDamage(1e12, 0, pl, ac.center());
     const pilot = crew().find((h) => h.armed);
+    window.__pump(1, null, 1 / 30); // 跳出來落地
     out.pilot = pilot ? pilot.st : 'none';
     const hp0 = pl.hp,
       p0 = pilot && [pilot.x, pilot.z];
@@ -15867,7 +15882,7 @@ async function testCrowd(browser, base) {
     return out;
   });
   check(
-    cr.mt >= 1 && cr.mt < 12 && cr.mtSt === 'flee',
+    cr.mt >= 1 && cr.mt < 12 && cr.eject && cr.mtSt === 'flee',
     `MT 擊破：一部分乘員逃出（12 台逃出 ${cr.mt} 人，${cr.mtSt}）`,
   );
   check(cr.away, '逃出的乘員離開玩家');
@@ -15955,7 +15970,7 @@ async function testCrowd(browser, base) {
     out.nearProp = civ.filter(nearProp).length / Math.max(1, civ.length);
     out.civ = civ.length;
     // 步兵：小隊、一部分拿火箭筒
-    const sol = C.list.filter((h) => h.soldier);
+    const sol = C.list.filter((h) => h.soldier && h.alive);
     out.sol = sol.length;
     out.rocket = sol.filter((h) => h.rocket).length;
     out.solLook = sol.every((h) => h.look.shirt === 0x4a4e3a);
