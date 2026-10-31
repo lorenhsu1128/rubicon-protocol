@@ -1,5 +1,5 @@
 // 作戰室的玻璃指揮塔（docs/hub-ui.md）：人的尺寸（公尺），架在格納庫前段的半空（格納庫與機體在 game/hub-holo.js）。
-// 正中央是全像戰略桌（render/holo-map.js），周圍是設施：機甲庫閘門、駕駛員區、模擬艙、通訊台、委託方看板、檔案櫃、ECHO 的終端。
+// 正中央是全像戰略桌（render/holo-map.js），周圍是設施：機甲庫閘門、駕駛員區、模擬艙、通訊台、委託方看板、檔案櫃、ECHO 的終端、存檔終端。
 // 每個設施是一個群組（spots[id].obj，點選與游標停留時的發光輪廓用；網格另外開啟圖層 spots[id].layer），
 // 發光材質放在 spots[id].glow，tickHubRoom 依 hot（游標停留／有新東西）調亮。
 // 建好之後每個設施的靜態網格依材質合併（mergeStatic），會動的節點標 userData.keep
@@ -230,9 +230,15 @@ function uiTex(kind, col, seed = 1, w = 256, h = 160) {
     c.fillStyle = '#04090d';
     c.font = 'bold 11px monospace';
     c.fillText(
-      { wave: 'COMM LINK', list: 'LOG', map: 'TACTICAL', bars: 'STATUS', pilot: 'PILOT', sim: 'SIM-01' }[
-        kind
-      ] || '',
+      {
+        wave: 'COMM LINK',
+        list: 'LOG',
+        map: 'TACTICAL',
+        bars: 'STATUS',
+        pilot: 'PILOT',
+        sim: 'SIM-01',
+        save: 'SAVE DATA',
+      }[kind] || '',
       8,
       15,
     );
@@ -268,6 +274,19 @@ function uiTex(kind, col, seed = 1, w = 256, h = 160) {
       }
       c.fillStyle = '#ff5040';
       for (let i = 0; i < 5; i++) c.fillRect(w * (0.1 + R() * 0.8), h * (0.25 + R() * 0.65), 5, 5);
+    } else if (kind === 'save') {
+      // 三個槽位的列＋寫入的進度條
+      for (let i = 0; i < 3; i++) {
+        const y = 30 + i * 30;
+        c.globalAlpha = 0.9;
+        c.fillRect(10, y, 18, 18);
+        c.globalAlpha = 0.3;
+        c.fillRect(36, y + 2, w - 48, 14);
+        c.globalAlpha = 0.85;
+        c.fillRect(36, y + 2, (w - 48) * (0.3 + R() * 0.7), 14);
+      }
+      c.globalAlpha = 0.6;
+      c.fillRect(10, h - 26, w - 20, 4);
     } else if (kind === 'bars' || kind === 'pilot' || kind === 'sim') {
       const n = kind === 'bars' ? 9 : 5;
       for (let i = 0; i < n; i++) {
@@ -1009,6 +1028,73 @@ export function buildHubRoom(factions) {
     mergeStatic(fb);
     spot('fac', new THREE.Vector3(-4.2, 4.2, -ROOM_D / 2 + 0.5), facM, fb);
   }
+  // ---------- 存檔終端（後牆中央偏左，和 ECHO 的終端左右對稱：資料核心的機櫃，正面三個插槽＝三個存檔） ----------
+  // 插槽的燈（R.saveSlots）每格由 game/hub-holo.js 依各槽位的狀態上色；兩側的燈條（R.saveLed）在自動存檔時閃一下
+  let saveSlots, saveLed;
+  {
+    const sv = grp(root, -1.4, 0, -ROOM_D / 2 + 0.75, 0.12);
+    rbox(sv, 0.96, 0.1, 0.66, M.frame, 0, 0.05, 0, 0, 0, 0, 0.03);
+    rbox(sv, 0.82, 2.7, 0.52, M.panelD, 0, 1.45, 0, 0, 0, 0, 0.04);
+    rbox(sv, 0.9, 0.1, 0.6, M.trim, 0, 2.85, 0, 0, 0, 0, 0.03);
+    box(sv, 0.66, 2.36, 0.02, M.dark, 0, 1.52, 0.26);
+    // 側面的散熱鰭片
+    for (const sx of [-1, 1])
+      for (let i = 0; i < 9; i++) box(sv, 0.02, 0.05, 0.36, M.dark, sx * 0.415, 0.5 + i * 0.22, 0);
+    saveLed = glowM(0x5cc8ff, 0.9);
+    for (const sx of [-1, 1]) box(sv, 0.03, 2.3, 0.03, saveLed, sx * 0.355, 1.52, 0.275);
+    // 三個插槽：框、插著的資料匣、狀態燈、編號
+    saveSlots = [];
+    for (let i = 0; i < 3; i++) {
+      const y = 2.38 - i * 0.42;
+      rbox(sv, 0.58, 0.36, 0.06, M.frame, 0, y - 0.015, 0.28, 0, 0, 0, 0.02);
+      box(sv, 0.5, 0.2, 0.02, M.rubber, 0, y, 0.31);
+      rbox(sv, 0.44, 0.15, 0.1, M.panel, 0, y + 0.005, 0.33, 0, 0, 0, 0.02);
+      box(sv, 0.04, 0.12, 0.03, M.chrome, -0.19, y + 0.005, 0.37);
+      const m = glowM(0x1a2229);
+      saveSlots.push(m);
+      box(sv, 0.14, 0.08, 0.02, m, 0.12, y + 0.005, 0.388);
+      const nm = std(0xffffff, 0.6, 0.1, {
+        map: signTex([[`0${i + 1}`, 72, 0.5]], '#1c242c', 128, 96),
+        transparent: true,
+        alphaTest: 0.3,
+      });
+      plane(sv, 0.12, 0.09, nm, -0.06, y + 0.005, 0.382);
+    }
+    // 下方的螢幕與操作面
+    rbox(sv, 0.7, 0.5, 0.06, M.frame, 0, 0.98, 0.28, 0, 0, 0, 0.02);
+    const sScr = new THREE.MeshBasicMaterial({ map: uiTex('save', '#7fd0ff', 31) });
+    plane(sv, 0.62, 0.42, sScr, 0, 0.98, 0.315);
+    rbox(sv, 0.76, 0.06, 0.3, M.trim, 0, 0.62, 0.38, 0.35, 0, 0, 0.02);
+    plane(
+      sv,
+      0.66,
+      0.22,
+      new THREE.MeshBasicMaterial({ map: uiTex('keys', '#7fd0ff', 32) }),
+      0,
+      0.655,
+      0.39,
+      0.35 - Math.PI / 2,
+    );
+    // 上面的看板
+    const sSign = new THREE.MeshBasicMaterial({
+      map: signTex([['DATA CORE ／ 存檔', 40, 0.55]], '#cfe6f5', 512, 64, '#0b1218'),
+    });
+    plane(sv, 0.8, 0.1, sSign, 0, 2.76, 0.27);
+    // 往後接到地板的電纜
+    for (const sx of [-0.2, 0, 0.2])
+      cable(
+        sv,
+        [
+          [sx, 2.6, -0.26],
+          [sx, 1.4, -0.4],
+          [sx * 1.4, 0.03, -0.6],
+        ],
+        0.025,
+        M.rubber,
+      );
+    mergeStatic(sv);
+    spot('save', new THREE.Vector3(-1.4, 3.3, -ROOM_D / 2 + 0.75), [sScr, sSign], sv);
+  }
   // ---------- ECHO 的終端（後牆中央偏右：基座、投影機、浮在上面的全像） ----------
   let eHolo;
   {
@@ -1090,7 +1176,18 @@ export function buildHubRoom(factions) {
     s.obj.userData.hubSpot = s.id;
     s.obj.traverse((o) => o.isMesh && o.layers.enable(s.layer));
   }
-  return { root, spots, table: T, lights: [strip], echo: eHolo, spin, base: M, rich: false };
+  return {
+    root,
+    spots,
+    table: T,
+    lights: [strip],
+    echo: eHolo,
+    spin,
+    base: M,
+    rich: false,
+    saveSlots,
+    saveLed,
+  };
 }
 
 // 格納庫的外部素材（HA）載入後：地板換成 PBR 金屬板、加幾個道具（監視器、工具箱、箱子）

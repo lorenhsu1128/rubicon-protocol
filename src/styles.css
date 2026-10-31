@@ -2340,6 +2340,7 @@ body.lab #fps {
 #hubFacBox,
 #hubEchoBox,
 #hubStoryBox,
+#hubSaveBox,
 #rangeLogBox {
   position: absolute;
   inset: 40px max(16px, calc(50% - 320px));
@@ -2983,7 +2984,8 @@ body.touchDev #cineSkip span::after {
 
 #hubFacBox,
 #hubEchoBox,
-#hubStoryBox {
+#hubStoryBox,
+#hubSaveBox {
   z-index: 45;
 }
 /* 章節回顧（story.js 的 hubStory） */
@@ -5715,5 +5717,66 @@ select:disabled option {
   #tutPanel .tpTip,
   #tutPanel .tpHint {
     display: none;
+  }
+}
+
+/* 作戰室的存檔終端（save.js 的 hubSaves） */
+#hubSaveMsg {
+  margin: 0;
+  font-size: 13px;
+  min-height: 1.2em;
+}
+#hubSaveList {
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hsCard {
+  border: 1px solid #2a3946;
+  background: rgba(20, 30, 40, 0.6);
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+}
+.hsCard.cur {
+  border-color: #5cf0ff;
+  box-shadow: inset 3px 0 0 #5cf0ff;
+}
+.hsCard.bk {
+  border-style: dashed;
+}
+.hsCard b {
+  font-size: 14px;
+}
+.hsCard p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hsCard .row {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 300px;
+}
+.hsCard .row button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.hsCard .tag {
+  margin-left: 8px;
+  font-size: 11px;
+  color: #5cf0ff;
+}
+@media (max-height: 540px) {
+  .hsCard .row {
+    max-width: 220px;
   }
 }

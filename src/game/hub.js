@@ -243,7 +243,9 @@ Object.assign(Game.prototype, {
       record: { t: '重打完成過的委託' },
       sim: this.tutDone('L1') ? null : { t: '近戰訓練 第 1 課', hot: true },
       garage: { t: '組裝與整備' },
+      save: { t: `使用中：存檔 ${this.saveSlot}` },
     });
+    this.hubSlotSync(); // 存檔終端的插槽燈（save.js）
     $('hubCap').textContent = nOpen
       ? `戰略桌：點選委託查看簡報（⚑＝有陣營抉擇）　可以接的委託 ${nOpen}`
       : '戰略桌：這一章的委託都完成了';
@@ -339,6 +341,11 @@ Object.assign(Game.prototype, {
       return this.uiConfirm('目前有進行中的出擊，開始新的出擊會放棄它的紀錄點。確定？', () =>
         this.briefGo(true),
       );
+    // 有陣營抉擇的委託：先存一份抉擇前備份（作戰室的存檔終端可以讀回，save.js）
+    if (SORTIES[sid].segs.some((g) => g.choice)) {
+      this.writeSave();
+      this.saveBackup(sid);
+    }
     st.sortie = null;
     SFX.ui();
     this.campBegin(sid);

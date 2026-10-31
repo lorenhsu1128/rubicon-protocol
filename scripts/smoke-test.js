@@ -9958,6 +9958,184 @@ async function testHubUi(browser, base) {
   await ctx.close();
 }
 
+// 作戰室的存檔終端（docs/hub-ui.md 第六期）：點模型開啟、插槽燈、存到空槽與覆蓋確認（進行中的出擊跟著複製）、
+// 讀取另一個槽位（作戰室依那份存檔重建）、刪除、抉擇前備份（有抉擇的委託才存、讀回）、手機橫式
+async function testHubSave(browser, base) {
+  console.log('作戰室的存檔終端：存到別的槽位、讀取、刪除、抉擇前備份');
+  const { ctx, page } = await newPage(browser, 'hub-save');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.save.coam = 77777;
+    const st = g.campStory();
+    st.done = { c1s1: 1 };
+    st.sortie = { sid: 'c1s2', seg: 1, plan: [], types: [] };
+    g.writeSave();
+    g.openHub();
+  });
+  await waitVisible(page, 'hub');
+  await wait(1500);
+  // 游標停在機櫃上＝存檔終端；點模型開啟面板
+  const pos = await page.evaluate(() => {
+    const g = window.__game;
+    const v = new THREE.Vector3();
+    g.hubRoom.spots.save.obj.getWorldPosition(v);
+    v.y += 1.2;
+    v.project(g.hubCamera);
+    return [((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight];
+  });
+  const pick = await page.evaluate(([x, y]) => window.__game.hubPick(x, y), pos);
+  await page.evaluate(([x, y]) => window.__game.hubSpotGo(window.__game.hubPick(x, y)), pos);
+  await wait(200);
+  const o = await page.evaluate(() => ({
+    open: getComputedStyle(document.getElementById('hubSaveBox')).display !== 'none',
+    cards: document.querySelectorAll('#hubSaveList .hsCard').length,
+    lights: window.__game.hubSlotInfo.join(','),
+  }));
+  check(
+    pick === 'save' && o.open && o.cards === 3 && o.lights === 'cur,empty,empty',
+    `點存檔終端的模型開啟面板、三個槽位、插槽燈（${pick}／${o.cards}／${o.lights}）`,
+  );
+  const act = (slot, a) =>
+    page.click(`#hubSaveList .hsCard[data-slot="${slot}"] button[data-act="${a}"]`, { timeout: 5000 });
+  const modal = async (ok) => {
+    await page.waitForSelector('#uiModal button[data-um="1"]', { state: 'visible', timeout: 5000 });
+    await page.click(`#uiModal button[data-um="${ok ? 1 : 0}"]`);
+    await wait(150);
+  };
+  // 存到空的存檔 2：不用確認，進行中的出擊跟著複製
+  await act(2, 'save');
+  await wait(150);
+  const s1 = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('rubicon_save_2') || 'null');
+    return {
+      coam: s && s.coam,
+      sortie: !!(s && s.story && s.story.sortie && s.story.sortie.sid === 'c1s2'),
+      txt: document.querySelector('#hubSaveList .hsCard[data-slot="2"]').textContent,
+      lights: window.__game.hubSlotInfo.join(','),
+    };
+  });
+  check(
+    s1.coam === 77777 && s1.sortie && s1.txt.includes('出擊中') && s1.lights === 'cur,used,empty',
+    `存到空的存檔 2：COAM、進行中的出擊跟著複製，插槽燈變成有資料（${s1.coam}／${s1.lights}）`,
+  );
+  // 覆蓋有資料的存檔 2：先確認（取消＝不變，確定＝覆蓋）
+  await page.evaluate(() => (window.__game.save.coam = 1));
+  await act(2, 'save');
+  await modal(false);
+  const c0 = await page.evaluate(() => JSON.parse(localStorage.getItem('rubicon_save_2')).coam);
+  await act(2, 'save');
+  await modal(true);
+  const c1 = await page.evaluate(() => JSON.parse(localStorage.getItem('rubicon_save_2')).coam);
+  check(c0 === 77777 && c1 === 1, `覆蓋有資料的存檔要確認：取消不變（${c0}）、確定覆蓋（${c1}）`);
+  // 讀取存檔 3（第 2 周目、另一份 COAM）：換槽位、作戰室依那份存檔重建
+  await page.evaluate(() => {
+    const g = window.__game;
+    const s3 = g.newSave();
+    s3.coam = 33333;
+    s3.story = { cycle: 2, done: {}, choices: {}, storySeen: { p2: 1, i2_1: 1 } };
+    s3.t = Date.now() - 3600e3;
+    localStorage.setItem('rubicon_save_3', JSON.stringify(s3));
+    g.hubSaveRender();
+  });
+  const t3 = await page.evaluate(
+    () => document.querySelector('#hubSaveList .hsCard[data-slot="3"]').textContent,
+  );
+  await act(3, 'load');
+  await modal(true);
+  await waitVisible(page, 'hub');
+  await wait(300);
+  const l = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      slot: g.saveSlot,
+      cur: localStorage.getItem('rubicon_save_cur'),
+      coam: g.save.coam,
+      hud: document.getElementById('hubCoam').textContent,
+      ch: document.getElementById('hubChapter').textContent,
+      closed: getComputedStyle(document.getElementById('hubSaveBox')).display === 'none',
+      state: g.state,
+      lights: g.hubSlotInfo.join(','),
+      kept: JSON.parse(localStorage.getItem('rubicon_save_1')).coam,
+    };
+  });
+  check(
+    t3.includes('第 2 周目') &&
+      l.slot === 3 &&
+      l.cur === '3' &&
+      l.coam === 33333 &&
+      l.hud === '33,333' &&
+      l.ch.includes('第 2 周目') &&
+      l.closed &&
+      l.state === 'hub' &&
+      l.lights === 'used,used,cur' &&
+      l.kept === 1,
+    `讀取存檔 3：換到那個槽位、作戰室依它重建（COAM ${l.hud}、${l.ch}），原本的存檔 1 已自動存好`,
+  );
+  // 刪除存檔 2（目前的存檔只能匯出）
+  await page.click('#btnHubSave');
+  await wait(150);
+  const curBtns = await page.evaluate(() =>
+    [...document.querySelectorAll('#hubSaveList .hsCard[data-slot="3"] button')]
+      .map((b) => b.dataset.act)
+      .join(','),
+  );
+  await act(2, 'del');
+  await modal(true);
+  const d = await page.evaluate(() => ({
+    gone: localStorage.getItem('rubicon_save_2') === null,
+    empty: document.querySelector('#hubSaveList .hsCard[data-slot="2"]').classList.contains('empty'),
+  }));
+  check(curBtns === 'exp' && d.gone && d.empty, `刪除存檔 2（確認後）；使用中的存檔只能匯出（${curBtns}）`);
+  // 抉擇前備份：沒有抉擇的委託不存，有抉擇的（c2s2）接下時存一份；讀回
+  const bk = await page.evaluate(() => {
+    const g = window.__game;
+    g.campBegin = () => {}; // 只測備份，不真的出擊
+    g.briefSid = 'c1s1';
+    g.briefGo(true);
+    const none = !g.readBackup(3);
+    g.save.coam = 44444;
+    g.briefSid = 'c2s2';
+    g.briefGo(true);
+    delete g.campBegin;
+    const b = g.readBackup(3);
+    g.save.coam = 5;
+    g.writeSave();
+    g.openHub();
+    g.hubSaves(true);
+    return {
+      none,
+      sid: b && b.sid,
+      coam: b && b.save.coam,
+      card: !!document.querySelector('#hubSaveList .hsCard.bk'),
+    };
+  });
+  await page.click('#hubSaveList .hsCard.bk button[data-act="load"]');
+  await modal(true);
+  await wait(300);
+  const br = await page.evaluate(() => ({ coam: window.__game.save.coam, state: window.__game.state }));
+  check(
+    bk.none && bk.sid === 'c2s2' && bk.coam === 44444 && bk.card && br.coam === 44444 && br.state === 'hub',
+    `抉擇前備份：沒有抉擇的委託不存、有抉擇的存一份，讀回後進度回到接下之前（COAM ${br.coam}）`,
+  );
+  await page.click('#btnHubSave');
+  await wait(300);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hub-save.png') });
+  // 手機橫式：面板的按鈕都在畫面裡
+  await page.setViewportSize({ width: 844, height: 390 });
+  await wait(500);
+  const ph = await page.evaluate(() =>
+    [...document.querySelectorAll('#hubSaveBox button')].every((b) => {
+      const r = b.getBoundingClientRect();
+      return r.right <= window.innerWidth && r.left >= 0 && r.width > 0;
+    }),
+  );
+  check(ph, '手機橫式：存檔終端的按鈕都在畫面裡');
+  await page.screenshot({ path: path.join(SHOT_DIR, 'hub-save-phone.png') });
+  await ctx.close();
+}
+
 // 機甲庫的換裝介面（docs/garage-ui.md）：雙翼的部位格、零件格子與小卡片、標註線、六角圖與量表、零件縮圖、規格頁、設定頁、手把的 Y
 async function testGarageUi(browser, base) {
   console.log('機甲庫的換裝介面：雙翼、零件格子、小卡片、標註線、六角圖、量表、零件縮圖、規格頁、設定頁');
@@ -22011,6 +22189,7 @@ const STEPS = [
   ['testRange', (c) => testRange(c.browser, c.base)],
   ['testGarageUi', (c) => testGarageUi(c.browser, c.base)],
   ['testHubUi', (c) => testHubUi(c.browser, c.base)],
+  ['testHubSave', (c) => testHubSave(c.browser, c.base)],
   ['testAttrs', (c) => testAttrs(c.browser, c.base)],
   ['testAim', (c) => testAim(c.browser, c.base)],
   ['testAudio', (c) => testAudio(c.browser, c.base)],

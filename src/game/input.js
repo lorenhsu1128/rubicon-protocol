@@ -965,6 +965,13 @@ Object.assign(Game.prototype, {
     });
     $('btnHubEchoClose').onclick = () => this.hubEcho(false);
     $('btnHubFacClose').onclick = () => this.hubFactions(false);
+    $('btnHubSave').onclick = () => this.hubSaves(true);
+    $('btnHubSaveClose').onclick = () => this.hubSaves(false);
+    $('hubSaveList').onclick = (e) => {
+      const b = e.target.closest('button[data-act]');
+      const card = b && b.closest('[data-slot]');
+      if (card) this.hubSaveAct(card.dataset.slot === 'bk' ? 'bk' : Number(card.dataset.slot), b.dataset.act);
+    };
     $('btnHubBack').onclick = () => {
       // 作戰室的「回標題」（自由出擊從標題進機甲庫，兩邊不再互相繞）
       SFX.ui();

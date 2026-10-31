@@ -49,8 +49,10 @@ const HUB_SPOTS = [
   ['story', '章節回顧', 'btnHubStory'],
   ['sim', '模擬艙', 'btnHubSim'],
   ['record', '作戰紀錄', 'btnHubRecord'],
+  ['save', '存檔終端', 'btnHubSave'],
 ];
 const _v = new THREE.Vector3();
+const _white = new THREE.Color(0xffffff);
 // 設施的發光輪廓（游標停留）：只畫那個設施的圖層成遮罩（buildHubRoom 的 spots[id].layer），
 // 再以邊緣偵測加色疊在畫面上，所以模型的外緣出現發亮的線條＋淡淡的光暈
 const OL = { rt: null, mask: null, quad: null, scene: null, cam: null, size: new THREE.Vector2() };
@@ -612,6 +614,17 @@ Object.assign(Game.prototype, {
       sp.on = !(id === 'echo' && this.hubEchoOff);
     }
     tickHubRoom(R, dt, t);
+    // 存檔終端：插槽的燈（目前的槽位＝青色脈動、有資料＝白、空＝暗），自動存檔時兩側的燈條閃一下（game/save.js 的 saveFlashT）
+    if (R.saveSlots) {
+      const inf = this.hubSlotInfo || [];
+      R.saveSlots.forEach((m, i) => {
+        const k = inf[i];
+        if (k === 'cur') m.color.setHex(0x5cf0ff).multiplyScalar(0.8 + 0.2 * Math.sin(t * 3));
+        else m.color.setHex(k === 'used' ? 0xc8d4dc : 0x1a2229);
+      });
+      const f = clamp(1 - (performance.now() - (this.saveFlashT || 0)) / 900, 0, 1);
+      R.saveLed.color.setHex(0x5cc8ff).lerp(_white, f);
+    }
     if (HA.ready && !this.hubHgRich) this.hubHangarBuild();
     if (HA.ready && !R.rich) hubRoomRich(R);
     // 模型來源可能晚一點才讀好（伺服器預設組）：每 0.5 秒檢查一次

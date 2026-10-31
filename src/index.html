@@ -263,6 +263,11 @@
               <path d="M6 3h9l4 4v14H6z M9 12l2 2 4-4" /></svg
             ><span class="hdT">作戰紀錄</span><i class="hdN"></i>
           </button>
+          <button id="btnHubSave" title="三個存檔：存一份備份、換到另一個存檔、匯出與匯入">
+            <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
+              <path d="M5 4h11l3 3v13H5z M8 4v5h7V4 M8 20v-6h8v6" /></svg
+            ><span class="hdT">存檔</span><i class="hdN"></i>
+          </button>
           <button id="btnHubBack">
             <svg viewBox="0 0 24 24" class="hdI" aria-hidden="true">
               <path d="M10 6l-6 6 6 6 M4 12h12a4 4 0 0 1 4 4v3" /></svg
@@ -280,6 +285,11 @@
         <div id="hubStoryBox" class="hubBox" style="display: none">
           <div class="hubLogHead"><b>章節回顧</b><button id="btnHubStoryClose">關閉</button></div>
           <div id="hubStoryList"></div>
+        </div>
+        <div id="hubSaveBox" class="hubBox" style="display: none">
+          <div class="hubLogHead"><b>存檔終端</b><button id="btnHubSaveClose">關閉</button></div>
+          <p id="hubSaveMsg" class="dim"></p>
+          <div id="hubSaveList"></div>
         </div>
         <div id="hubLogBox" style="display: none">
           <div class="hubLogHead"><b>通訊紀錄</b><button id="btnHubLogClose">關閉</button></div>
