@@ -78,18 +78,21 @@ function writeMusic() {
 // 機甲庫格納庫的外部素材：src/assets/hangar/（*.glb、tex/*.webp）→ dist/lib/hangar-assets.js
 // （window.RUBICON_HANGAR＝{ 相對路徑: base64 }）。不內嵌（約 17 MB）：第一次進機甲庫前才以 <script> 載入（render/hangar-assets.js）
 const HANGAR_DIR = path.join(SRC, 'assets', 'hangar');
-function writeHangar() {
-  if (!fs.existsSync(HANGAR_DIR)) return;
+// 過場動畫的人物：src/assets/people/（*.glb）→ dist/lib/people-assets.js（window.RUBICON_PEOPLE），
+// 第一次播過場動畫時才載入（render/hangar-assets.js 的 loadPeopleAssets）
+const PEOPLE_DIR = path.join(SRC, 'assets', 'people');
+function writePack(dir, file, name, title) {
+  if (!fs.existsSync(dir)) return;
   const data = {};
-  const walk = (dir, pre) => {
-    for (const f of fs.readdirSync(dir).sort()) {
-      const p = path.join(dir, f);
+  const walk = (d, pre) => {
+    for (const f of fs.readdirSync(d).sort()) {
+      const p = path.join(d, f);
       if (fs.statSync(p).isDirectory()) walk(p, pre + f + '/');
       else if (/\.(glb|webp)$/.test(f)) data[pre + f] = fs.readFileSync(p).toString('base64');
     }
   };
-  walk(HANGAR_DIR, '');
-  const cr = path.join(HANGAR_DIR, 'CREDITS.txt');
+  walk(dir, '');
+  const cr = path.join(dir, 'CREDITS.txt');
   const credits = fs.existsSync(cr)
     ? fs
         .readFileSync(cr, 'utf8')
@@ -98,14 +101,16 @@ function writeHangar() {
         .map((l) => '// ' + l)
         .join('\n') + '\n'
     : '';
-  const out = path.join(LIB, 'hangar-assets.js');
+  const out = path.join(LIB, file);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(
     out,
-    '// 機甲庫格納庫的素材（src/assets/hangar/），由 scripts/build.js 產生\n' +
-      credits +
-      `window.RUBICON_HANGAR = ${JSON.stringify(data)};\n`,
+    `// ${title}，由 scripts/build.js 產生\n` + credits + `window.${name} = ${JSON.stringify(data)};\n`,
   );
+}
+function writeHangar() {
+  writePack(HANGAR_DIR, 'hangar-assets.js', 'RUBICON_HANGAR', '機甲庫格納庫的素材（src/assets/hangar/）');
+  writePack(PEOPLE_DIR, 'people-assets.js', 'RUBICON_PEOPLE', '過場動畫的人物（src/assets/people/）');
 }
 
 const PAGES = [

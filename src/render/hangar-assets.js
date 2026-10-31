@@ -74,6 +74,50 @@ export function loadHangarAssets() {
   return HA.p;
 }
 
+// ---------- 過場動畫的人物（src/assets/people/ → lib/people-assets.js） ----------
+// 解析後放進同一個 HA.glb（名稱不和格納庫的 worker／crew／soldier 重複），所以 haChar 兩邊都能用；
+// PA.h＝每個人物在待機姿勢的身高（公尺，用來縮成 1.75 m 左右）
+export const PA = { ready: false, failed: false, p: null, h: {} };
+export function loadPeopleAssets() {
+  if (PA.p) return PA.p;
+  PA.p = (async () => {
+    try {
+      if (!THREE.GLTFLoader) throw new Error('沒有 GLTFLoader');
+      if (!window.RUBICON_PEOPLE) {
+        const ok = await new Promise((res) => {
+          const s = document.createElement('script');
+          s.src = 'lib/people-assets.js';
+          s.onload = () => res(!!window.RUBICON_PEOPLE);
+          s.onerror = () => res(false);
+          document.head.appendChild(s);
+        });
+        if (!ok) throw new Error('沒有 lib/people-assets.js');
+      }
+      for (const [k, v] of Object.entries(window.RUBICON_PEOPLE)) {
+        if (!k.endsWith('.glb')) continue;
+        const g = await parseGlb(b64buf(v));
+        g.scene.updateMatrixWorld(true);
+        const n = k.slice(0, -4);
+        HA.glb[n] = g;
+        // 身高：骨架網格的外框是綁定姿勢的公分，不能用；改用最高的骨頭（頭頂）×1.06
+        let top = 0;
+        const wp = new THREE.Vector3();
+        g.scene.traverse((o) => {
+          if (o.isBone) top = Math.max(top, o.getWorldPosition(wp).y);
+        });
+        PA.h[n] = top > 0.3 ? top * 1.06 : 1.8;
+      }
+      window.RUBICON_PEOPLE = null;
+      PA.ready = true;
+    } catch (e) {
+      console.warn('過場動畫的人物載入失敗，改用程式的小人：', e && e.message);
+      PA.failed = true;
+    }
+    return PA.ready;
+  })();
+  return PA.p;
+}
+
 // ---------- 貼圖 ----------
 const TEXC = {};
 // 一組 PBR 貼圖（name_d 顏色、name_n 法線、name_r＝AO／粗糙度／金屬感）；同名共用同一個貼圖物件

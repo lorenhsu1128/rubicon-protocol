@@ -13,13 +13,16 @@
 
 ## 一、現在用的
 
-| 名稱 | 檔案 | 來源 | 授權 | 用在哪裡 | 動畫 |
-|---|---|---|---|---|---|
-| crew（太空服技師） | `src/assets/hangar/crew.glb`（1.5 MB） | Quaternius「Astronaut」，經 [Poly Pizza](https://poly.pizza) | CC0 | 船艙格納庫的主要技師（`render/hangar.js` 的 `buildCrewChar` → `haChar('crew')`） | Idle、Walk、Interact、Idle_Neutral、Wave |
-| soldier（SWAT） | `src/assets/hangar/soldier.glb`（1.2 MB） | Quaternius「SWAT」，經 Poly Pizza | CC0 | 野戰帳篷的人物（`haChar('soldier')`，野戰帳篷 4 人裡 3 人） | 同上 |
-| worker（工人） | `src/assets/hangar/worker.glb`（1.0 MB） | Quaternius「Worker」，經 Poly Pizza | CC0 | 格納庫的主要技師（基地格納庫 4 人裡 3 人） | 同上 |
-| 程式的技師人偶 | `render/hangar.js`（程式模型） | 自製 | — | 外部素材還沒載入或載不到時的替代 | 程式動作 |
+| 名稱                    | 檔案                                      | 來源                                                         | 授權 | 用在哪裡                                                                         | 動畫                                     |
+| ----------------------- | ----------------------------------------- | ------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------- | ---------------------------------------- |
+| crew（太空服技師）      | `src/assets/hangar/crew.glb`（1.5 MB）    | Quaternius「Astronaut」，經 [Poly Pizza](https://poly.pizza) | CC0  | 船艙格納庫的主要技師（`render/hangar.js` 的 `buildCrewChar` → `haChar('crew')`） | Idle、Walk、Interact、Idle_Neutral、Wave |
+| soldier（SWAT）         | `src/assets/hangar/soldier.glb`（1.2 MB） | Quaternius「SWAT」，經 Poly Pizza                            | CC0  | 野戰帳篷的人物（`haChar('soldier')`，野戰帳篷 4 人裡 3 人）                      | 同上                                     |
+| worker（工人）          | `src/assets/hangar/worker.glb`（1.0 MB）  | Quaternius「Worker」，經 Poly Pizza                          | CC0  | 格納庫的主要技師（基地格納庫 4 人裡 3 人）                                       | 同上                                     |
+| 程式的技師人偶          | `render/hangar.js`（程式模型）            | 自製                                                         | —    | 外部素材還沒載入或載不到時的替代                                                 | 程式動作                                 |
+| 過場動畫的人物（11 隻） | `src/assets/people/*.glb`（共約 6.6 MB）  | Quaternius，經 Poly Pizza（2026-10-31 下載）                 | CC0  | 過場動畫的演員 `human`／`people`（`game/cine-people.js`，`docs/cinematics.md`）  | 見下                                     |
 
+- **過場動畫的人物**（`src/assets/people/CREDITS.txt`）：和格納庫同一套骨架的 biz（西裝）、suitw（女性西裝，換白色當白袍）、hoodie、farmer、casual、hooded（斗篷，拿掉劍）、pilot（科幻駕駛服，拿掉手槍），留 Idle、Idle_Neutral、Walk、Run、Interact、Wave、Death、HitRecieve、Idle_Gun_Pointing；另一套低面數骨架（約 2000 面）的 man、woman、womanc、mansuit，留 Idle、Walk、Run、Sitting、Standing、Clapping、Death。處理：用 gltf-transform 拿掉其他動畫與武器網格、去重、頂點量化（KHR_mesh_quantization，r128 的 GLTFLoader 支援），大小約原檔的一半。建置成 `dist/lib/people-assets.js`。**注意**：骨架網格的外框是綁定姿勢的公分，身高要用骨頭量（`loadPeopleAssets`）。
+- Poly Pizza 上 Quaternius 的人物頁面（`poly.pizza/m/<id>`）裡有 GLB 的直接網址（`static.poly.pizza/<uuid>.glb`）；Ultimate Animated Character Pack 只有一部分在 Poly Pizza 上（找得到的見 CREDITS.txt），其他要從 quaternius.com 下載 FBX 再轉。
 - 來源與授權記在 `src/assets/hangar/CREDITS.txt`；建置時由 `scripts/build.js` 寫成 `dist/lib/hangar-assets.js`（`window.RUBICON_HANGAR`）。
 - 在格納庫裡人物縮成 `HU`＝1/MS（`docs/world-scale.md`）。
 - 這三隻是 Quaternius 早期的動畫人物（和「Ultimate Animated Character Pack」同一套骨架），所以那一包裡的其他人物可以直接共用這些動畫。

@@ -1199,11 +1199,12 @@ Object.assign(Game.prototype, {
       key.shadow.mapSize.set(1024, 1024);
       g.add(key, key.target);
       D.spots = D.seats.map(([cx, cz], i) => {
-        const L = new THREE.SpotLight(i === 1 ? 0xe8d880 : 0xffd8a8, 0, 30, 0.2, 0.6, 1);
-        // 空椅子的燈從桌子那一側斜照，照得到椅背
+        const L = new THREE.SpotLight(i === 1 ? 0xe8d880 : 0xffd8a8, 0, 30, i === 1 ? 0.2 : 0.26, 0.6, 1);
+        // 空椅子的燈從桌子那一側斜照，照得到椅背；有人的椅子照椅背和站在後面的代表（人物，第三版分鏡）
+        const ox = i === 1 ? 0 : Math.sign(cx) * 1.3;
         if (i === 1) L.position.set(0.4, 12, cz);
-        else L.position.set(cx, 14, cz + 1);
-        L.target.position.set(cx, 1, cz);
+        else L.position.set(cx + ox, 14, cz + 1);
+        L.target.position.set(cx + ox, 1, cz);
         g.add(L, L.target);
         return L;
       });
@@ -1236,6 +1237,20 @@ Object.assign(Game.prototype, {
     const cam = this.camera.position;
     for (const id of ['repC', 'repA', 'repV']) {
       const A = c.actors.get(id);
+      // 人物（game/cine-people.js）：轉身 50%、轉頭 40%（由 cineHumTick 套用）
+      if (A && A.hum && A.hum[0]) {
+        const H = A.hum[0];
+        const g = H.ch ? H.ch.g : A.head;
+        const want = Math.atan2(cam.x - g.position.x, cam.z - g.position.z);
+        let dd = want - H.yaw;
+        while (dd > Math.PI) dd -= Math.PI * 2;
+        while (dd < -Math.PI) dd += Math.PI * 2;
+        const lag = id === 'repV' ? 0 : id === 'repC' ? 0.12 : 0.24;
+        const k = st.turn ? smooth(clamp((lt - st.turn[0] - lag) / st.turn[1], 0, 1)) : turn;
+        A.turn = dd * 0.5 * k;
+        A.headTurn = dd * 0.4 * k;
+        continue;
+      }
       if (!A || !A.rig) continue;
       const o = A.obj;
       const want = Math.atan2(-(cam.x - o.position.x), -(cam.z - o.position.z));

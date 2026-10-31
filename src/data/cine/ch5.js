@@ -5,7 +5,7 @@
 // 結構：開場＝電視牆 → 各台快切 → 電視牆（UNDERTOW 浮出、切到現場）→ 電視牆（AEGIS 的護盾吃掉每一格）→ 護盾裡 →
 // 直升機轉播的突擊 → 所有頻道都在播 R-07 → 新聞頭條的章名。章末＝電視牆 → 全世界的螢幕同時變白 → 倒數 →
 // 舞台劇式的會議桌（第四張椅子空著、所有人轉頭看鏡頭）→ 黑畫面裡 ECHO 乾淨的聲音。
-import { AC_ROSTER, BOSS_DEFS } from '../enemies.js';
+import { BOSS_DEFS } from '../enemies.js';
 import { CHAPTER_TEXT, pickLines } from '../story.js';
 import { parseLine, timeline } from './kit.js';
 
@@ -175,6 +175,29 @@ const CAST = [
   // 聖域：被夾在中間的盾牌 MT
   { id: 'sa1', k: 'type', key: 'mt_shield', team: 'ally', pal: 'ally', p: [-2, 14], yaw: 90 },
   { id: 'sa2', k: 'type', key: 'mt_shield', team: 'ally', pal: 'ally', p: [-2, 4], yaw: 90 },
+  // 人物（第三版分鏡）：盾牌 MT 身後擠在一起的難民與居民、南岸的居民自衛隊
+  {
+    id: 'evac',
+    k: 'people',
+    who: ['hooded', 'farmer', 'man', 'woman', 'womanc', 'casual'],
+    n: 20,
+    p: [-7, 9],
+    box: [8, 9],
+    anim: ['Idle', 'Idle_Neutral', 'Idle'],
+    face: 'rnd',
+    seed: 71,
+  },
+  {
+    id: 'mil',
+    k: 'people',
+    who: ['soldier', 'soldier', 'casual'],
+    n: 6,
+    p: [-12, 17],
+    box: [8, 1.5],
+    anim: 'Idle_Gun_Pointing',
+    s: [{ t: 0, face: [-16, 40] }],
+    seed: 73,
+  },
   // 都市的守衛：衝撞無人機、艦載防空砲
   { id: 'r1', k: 'type', key: 'rammer', p: [6, -8], yaw: 90, s: [{ t: 0, go: [-10, -10] }] },
   { id: 'r2', k: 'type', key: 'rammer', p: [12, -2], yaw: 90, s: [{ t: 0.3, go: [-6, 0] }] },
@@ -689,36 +712,24 @@ export function ch5Intro() {
   });
 }
 
-// 章末：會議桌的代表（卡斯特隆、艾瑟立克、維爾威），不帶武器。第四張椅子（聖域）空著
-const unarmed = (asm) => ({ ...asm, rarm: 'w_none', larm: 'w_none', rback: 'bw_none', lback: 'bw_none' });
+// 章末：會議桌的代表（卡斯特隆＝霍斯特、艾瑟立克＝薩奇、維爾威＝派克），真人站在各自的高背椅後面；第四張椅子（聖域）空著。
+// 椅子是照舊尺度的機體做的（約 3 m 高的人才配得上），所以人放大 1.8 倍；臉在陰影裡（第三版分鏡的 P2）。
+// （素材的 Sitting 是坐在地上的動作，放在椅面上像跪著，所以改成站著）
+const REP = (id, who, x, z, yaw, tint) => ({
+  id,
+  k: 'human',
+  who,
+  p: [x, 0, z],
+  yaw,
+  scale: 1.8,
+  anim: 'Idle',
+  dark: 0.45,
+  tint,
+});
 const REPS = [
-  {
-    id: 'repC',
-    k: 'model',
-    mech: true,
-    asm: unarmed(AC_ROSTER.bastion.asm),
-    pal: 'castron',
-    p: [-2.9, -1.3, -12.5],
-    yaw: -90,
-  },
-  {
-    id: 'repA',
-    k: 'model',
-    mech: true,
-    asm: unarmed(AC_ROSTER.longshot.asm),
-    pal: 'aetheric',
-    p: [2.9, -1.3, -12.5],
-    yaw: 90,
-  },
-  {
-    id: 'repV',
-    k: 'model',
-    mech: true,
-    asm: unarmed(AC_ROSTER.rain.asm),
-    pal: 'veerwell',
-    p: [-2.9, -1.3, -7.5],
-    yaw: -90,
-  },
+  REP('repC', 'biz', -4.8, -12.5, 90),
+  REP('repA', 'suitw', 4.8, -12.5, -90, { Black: 0xd8dce0 }),
+  REP('repV', 'hoodie', -4.8, -7.5, 90),
 ];
 // 舞台的固定機位（對稱：桌子的正前方）
 const STAGE_CAM = { fov: 32, hand: 0, keys: [{ t: 0, p: [0, 5.2, 6.5], l: [0, 1.6, -10] }] };

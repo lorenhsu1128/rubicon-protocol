@@ -582,7 +582,14 @@ Object.assign(Game.prototype, {
         o.material = Array.isArray(o.material) ? o.material.map(() => nm) : nm;
       };
       // 機體（演員）＝熱：不透明的換成熱色盤；發光的特效照舊
+      // 人物（game/cine-people.js）是骨架網格：要支援骨架的材質（不然會以綁定姿勢的公分尺寸畫出來），
+      // 而且不受霧影響——一般畫面被暴風雪蓋住，熱感應才看得到
+      const hotSkin = new THREE.MeshBasicMaterial({ color: 0xffa040, skinning: true, fog: false });
       for (const A of c.actors.values()) {
+        if (A.hum) {
+          for (const H of A.hum) if (H.ch) H.ch.g.traverse((o) => put(o, () => hotSkin));
+          continue;
+        }
         const root = A.e ? A.e.mesh : A.obj;
         if (!root) continue;
         root.traverse((o) => put(o, (ms) => (ms.some((m) => m.transparent) ? null : hot)));
@@ -595,7 +602,7 @@ Object.assign(Game.prototype, {
       );
       const wt = this.world && this.world.weather && this.world.weather.points;
       if (wt) wt.visible = false;
-      c.c3th = { swap, mats: [cold, coldT, hot], hot, wt };
+      c.c3th = { swap, mats: [cold, coldT, hot, hotSkin], hot, wt };
       return;
     }
     const T = c.c3th;

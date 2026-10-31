@@ -1,0 +1,5 @@
+過場動畫的人物（scripts/build.js 打包成 dist/lib/people-assets.js）。全部是 CC0 1.0（公眾領域）。2026-10-31 從 Poly Pizza 下載。
+處理：只留用得到的動畫、拿掉手上的武器（劍、手槍）、頂點量化（KHR_mesh_quantization）。
+Quaternius（https://quaternius.com，經 poly.pizza，CC0；Ultimate Animated Character Pack，和格納庫的 worker／crew／soldier 同一套骨架）：
+biz＝Business Man（poly.pizza/m/JFrLIKqvCH）、suitw＝Suit（sOUciDsoVV）、hoodie＝Hoodie Character（gKLBoRsyKe）、farmer＝Farmer（7pn3R6hPvE）、casual＝Casual Character（kZ3DmIoGip）、hooded＝Hooded Adventurer（y9KWOVG21R）、pilot＝Sci Fi Character（4pUXv5V8kq）；動畫 Idle、Idle_Neutral、Walk、Run、Interact、Wave、Death、HitRecieve、Idle_Gun_Pointing。
+Quaternius（經 poly.pizza，CC0；Animated Men／Women，另一套低面數骨架）：man＝Man（HMnuH5geEG）、woman＝Woman（AQsd9ngvKU）、womanc＝Woman Casual（jpKRgGDxhk）、mansuit＝Man in Suit（mQnGoME1ez）；動畫 Idle、Walk、Run、Sitting、Standing、Clapping、Death（名稱去掉 Man_／Female_ 前綴）。

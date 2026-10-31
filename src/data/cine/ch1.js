@@ -258,6 +258,21 @@ export function ch1Intro() {
         { id: 'gun1', k: 'model', key: 'cannon', p: [68, -52], yaw: -104, scale: 1.0, pal: 'boss' },
         { id: 'gun2', k: 'model', key: 'cannon', p: [80, -53], yaw: -110, scale: 1.0, pal: 'boss' },
         { id: 'bunk', k: 'model', key: 'bunker', p: [76, -80], yaw: 0, scale: 1.2, pal: 'boss' },
+        // 車隊的護衛與工人：第一發落下前跳下來往鏡頭這邊跑（第三版分鏡：尺度與代價）
+        {
+          id: 'sold',
+          k: 'people',
+          who: ['soldier', 'soldier', 'worker'],
+          n: 9,
+          p: [62, -22],
+          box: [16, 3],
+          yaw: 90,
+          anim: ['Idle_Gun_Pointing', 'Idle'],
+          go: [-2, 14],
+          goT: 0.6,
+          stagger: 1.2,
+          run: true,
+        },
       ],
       cam: {
         fov: 44,
@@ -297,16 +312,69 @@ export function ch1Intro() {
     7,
   );
 
-  // 4. 霍斯特的委託：只有聲音；畫面是主角的腳踩過沙地（低角度），最後抬起來看到逆光的機體
+  // 4. 霍斯特的委託：先是霍斯特的剪影（背對鏡頭、逆光、菸），看著主角的機體往夕陽走；
+  //    接著主角的腳踩過沙地（低角度），最後抬起來看到逆光的機體（委託方不露臉：第三版分鏡的 P2）
+  T.add(
+    {
+      set: WASTE,
+      grade: { ...WEST, contrast: 1.4 },
+      fi: 0.3,
+      hook: 'c1fxclear',
+      ov: 'c1sand',
+      sand: 0.6,
+      actors: [
+        { id: 'hw', k: 'hero', p: [-2, 60], yaw: 0, s: [{ t: 0, go: [-2, -20] }] },
+        {
+          id: 'hst',
+          k: 'human',
+          who: 'biz',
+          p: [1.4, 68],
+          anim: 'Idle_Neutral',
+          dark: 0.85,
+          s: [{ t: 0, face: 'hw' }],
+        },
+      ],
+      cam: {
+        fov: 30,
+        hand: 0.03,
+        ease: 'lin',
+        keys: [
+          { t: 0, p: { g: [2.3, 72.2], h: 0.66 }, l: { a: 'hw', o: [0, 0.6, 0] } },
+          { t: 4, p: { g: [2.2, 71.8], h: 0.64 }, l: { a: 'hw', o: [0, 0.6, 0] } },
+        ],
+      },
+      ev: [
+        sub(L[4], 0.5, 3.4),
+        // 菸
+        {
+          t: 0.4,
+          fx: 'smoke',
+          at: { a: 'hst', o: [0.05, 0.02, -0.08] },
+          r: 0.12,
+          life: 2.5,
+          rise: 0.8,
+          color: 0x9a948c,
+        },
+        {
+          t: 2.2,
+          fx: 'smoke',
+          at: { a: 'hst', o: [0.05, 0.02, -0.08] },
+          r: 0.12,
+          life: 2.5,
+          rise: 0.8,
+          color: 0x9a948c,
+        },
+      ],
+    },
+    4,
+  );
   T.add(
     {
       set: WASTE,
       grade: WEST,
-      fi: 0.3,
-      hook: 'c1fxclear',
+      keep: true,
       ov: 'c1sand',
       sand: 0.8,
-      actors: [{ id: 'hw', k: 'hero', p: [-2, 60], yaw: 0, s: [{ t: 0, go: [-2, -20] }] }],
       cam: {
         fov: 30,
         hand: 0.08,
@@ -318,21 +386,21 @@ export function ch1Intro() {
             l: { a: 'hw', at: 'base', o: [0, 1.2, -1.5], loc: true },
           },
           {
-            t: 6.5,
+            t: 2.5,
             p: { a: 'hw', at: 'base', o: [3.4, 0.7, 4.4], loc: true },
             l: { a: 'hw', at: 'base', o: [0, 1.3, -1.5], loc: true },
           },
           {
-            t: 10,
+            t: 6,
             p: { a: 'hw', at: 'base', o: [2.2, 0.6, 6.5], loc: true },
             l: { a: 'hw', at: 'head', o: [0, 0.4, 0] },
             fov: 34,
           },
         ],
       },
-      ev: [sub(L[4], 0.6, 3.8), sub('霍斯特：「合約就是合約。礦場拿回來，報酬照付。」', 4.8, 4.8)],
+      ev: [sub('霍斯特：「合約就是合約。礦場拿回來，報酬照付。」', 0.6, 4.8)],
     },
-    10,
+    6,
   );
 
   // 5. 對決：隔著 40 m 站定；遠景 → 越肩 → 眼燈／武器的大特寫來回切，越切越短 → 槍響 → 全黑 → RUST 跪倒
@@ -345,6 +413,21 @@ export function ch1Intro() {
       actors: [
         { id: 'hd', k: 'hero', p: [-2, -24], yaw: 180 },
         { id: 'rv', k: 'ace', key: 'rust', p: [-2, 16], yaw: 0 },
+        // 圍觀的拾荒者（西部片的鎮民）：槍響後轉身就跑
+        {
+          id: 'spec',
+          k: 'people',
+          who: ['farmer', 'hooded', 'man', 'casual'],
+          n: 6,
+          p: [-12, 3],
+          box: [4, 5],
+          anim: ['Idle', 'Idle_Neutral'],
+          s: [{ t: 0, face: [-2, -4] }],
+          go: [-14, 18],
+          goT: 19.7,
+          stagger: 0.6,
+          run: true,
+        },
       ],
       cam: {
         fov: 34,
@@ -567,7 +650,29 @@ export function ch1Outro() {
         { t: 20, d: 3.6, who: 'veerwell', n: 3 },
         { t: 23.8, d: 4.4, who: 'sancta', n: 4 },
       ],
-      actors: [{ id: 'hk', k: 'hero', p: [-3.2, 0], yaw: 270, s: [] }],
+      actors: [
+        { id: 'hk', k: 'hero', p: [-3.2, 0], yaw: 270, s: [] },
+        // 營火旁的拾荒者：坐著，軌道站的光點閃一下時一個人站起來
+        {
+          id: 'sc1',
+          k: 'human',
+          who: 'man',
+          p: [0.75, -0.55],
+          anim: 'Sitting',
+          s: [
+            { t: 0, face: [0, 0] },
+            { t: 32.6, anim: 'Standing' },
+          ],
+        },
+        {
+          id: 'sc2',
+          k: 'human',
+          who: 'womanc',
+          p: [0.25, 0.85],
+          anim: 'Sitting',
+          s: [{ t: 0, face: [0, 0] }],
+        },
+      ],
       cam: {
         fov: 30,
         hand: 0.03,

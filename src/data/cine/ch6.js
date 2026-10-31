@@ -47,6 +47,46 @@ const card = (title, s, d = 3) => ({
   ev: [{ t: 0.4, card: title, s, style: 'card', dur: d - 0.6 }],
 });
 const STATION_W = [330, 70, -560]; // 軌道站在太空場景的位置（render/cine-sets.js）
+const PEOPLE = ['hooded', 'hooded', 'farmer', 'man', 'woman', 'womanc', 'casual'];
+// 地上抬頭看天空的人（第三版分鏡：結局落在地上的人身上）；天上的光 sky＝[x, y, z]
+const skyWatch = (set, grade, sky, color, n = 10) => ({
+  set,
+  grade,
+  hook: 'c6snd',
+  snd: SND(0, 0),
+  fi: 0.5,
+  actors: [
+    {
+      id: 'sw',
+      k: 'people',
+      who: PEOPLE,
+      n,
+      p: [-0.3, 2.2],
+      box: [4.5, 1.5],
+      anim: ['Idle_Neutral', 'Idle'],
+      s: [{ t: 0, face: [sky[0], sky[2]] }],
+      dark: 0.6,
+      seed: 81,
+    },
+  ],
+  cam: {
+    fov: 40,
+    hand: 0.06,
+    ease: 'lin',
+    keys: [
+      { t: 0, p: [-1.5, 0.5, 4.5], l: [sky[0] * 0.15, 4, sky[2] * 0.15] },
+      { t: 3.6, p: [-1.2, 0.6, 3.8], l: [sky[0] * 0.15, 4.4, sky[2] * 0.15] },
+    ],
+  },
+  ev: [0.2, 0.9, 1.6, 2.3, 3.0].map((t, i) => ({
+    t,
+    fx: 'flash',
+    at: [sky[0] + i * 4, sky[1] - i * 6, sky[2]],
+    r: 6 - i * 0.6,
+    color,
+    life: 0.9,
+  })),
+});
 
 // ---------- 開場 ----------
 export function ch6Intro(ctx) {
@@ -102,6 +142,19 @@ export function ch6Intro(ctx) {
       hook: ['c6snd', 'c6pad'],
       snd: SND([0.05, 0.35], 0.18, [0.4, 0.55]),
       ck: { alt: 0, spd: 0, heat: 0.02, st: padSt, stc: sancta ? 'rgba(240,220,120,0.9)' : null, count: IGN },
+      actors: [
+        {
+          id: 'see',
+          k: 'people',
+          who: sancta ? PEOPLE : ['crew', 'hoodie', 'casual', 'worker'],
+          n: 40,
+          p: [-8, -70],
+          box: [30, 12],
+          anim: ['Wave', 'Idle_Neutral', 'Wave'],
+          s: [{ t: 0, face: [0, 6] }],
+          seed: 83,
+        },
+      ],
       cam: {
         fov: 52,
         hand: 0.04,
@@ -773,6 +826,15 @@ export function c6Seal() {
     },
     2.8,
   );
+  T.add(
+    skyWatch(
+      { k: 'world', theme: 'dunes', seed: 6115, tod: 'night', clear: 30 },
+      { exposure: 0.7, tintHi: '#ff8050', tintHiK: 0.5, tintLo: '#101830', tintLoK: 0.5, bloom: 1.3 },
+      [30, 70, -160],
+      0xff8a40,
+    ),
+    3.6,
+  );
   T.add(card('天空，安靜了。', 'SILENT SKY', 3), 3);
   return { title: '軌道站：墜落', dur: T.at + 0.3, lb: 2.39, music: [], shots: T.shots };
 }
@@ -870,6 +932,16 @@ export function c6Beyond() {
       ],
     },
     6.4,
+  );
+  T.add(
+    skyWatch(
+      { k: 'world', theme: 'dunes', seed: 6115, tod: 'dawn', clear: 30 },
+      { sunAz: 95, sunEl: 7, sunWarm: 0.7, tintHi: '#ffb070', tintHiK: 0.35, bloom: 1.2 },
+      [30, 70, -160],
+      0x9fe0ff,
+      3,
+    ),
+    3.6,
   );
   T.add(card('這一次，照我們的節奏來。', 'BEYOND', 3), 3);
   return {

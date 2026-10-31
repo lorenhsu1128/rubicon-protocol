@@ -80,6 +80,17 @@ const VISTAS = [
       U('c5', 'mth', [4, -6], 300, [{ t: 0.3, aim: [60, 14, -70], fire: 'all', dur: 2.6 }]),
       U('c6', 'heli', [-30, -12], 290, [{ t: 0, go: [40, -2] }]),
       U('c7', 'crane', [14, -14], 220, []),
+      // 人物（第三版分鏡）：前景換班的礦工，鏡頭從人越過去看到 MT 縱隊
+      {
+        id: 'cw',
+        k: 'people',
+        who: ['worker', 'farmer'],
+        n: 7,
+        p: [-9, 4],
+        box: [6, 2],
+        go: [6, 1],
+        yaw: 90,
+      },
     ],
     ev: [
       { t: 1.4, boom: [55, 4, -60], big: true },
@@ -104,6 +115,18 @@ const VISTAS = [
       U('a5', 'mt_dome', [-10, -10], 45, []),
       U('a6', 'blob', [4, 0], 200, [{ t: 0, go: [0, 4] }]),
       U('a7', 'mt', [8, -6], 120, [{ t: 0, go: [-6, -10] }], { pal: 'aetheric' }),
+      // 白袍的研究員（背影），看著無人機的測試
+      {
+        id: 'ar',
+        k: 'people',
+        who: ['suitw', 'mansuit'],
+        n: 4,
+        p: [7, 6],
+        box: [4, 1.5],
+        anim: ['Idle', 'Interact', 'Idle_Neutral'],
+        s: [{ t: 0, face: [-6, -4] }],
+        tint: { Black: 0xd8dce0, Shirt: 0xd8dce0 },
+      },
     ],
     ev: [{ t: 0.6, fx: 'beam', at: [-2, 2.5, 2], to: [-12, 2.5, -10], color: 0x6ad8ff, w: 0.15 }],
     name: '艾瑟立克研究機構',
@@ -135,6 +158,17 @@ const VISTAS = [
       U('v5', 'mt', [-2, 4], 250, [{ t: 0, go: [12, 0] }], { pal: 'veerwell' }),
       U('v7', 'mt', [-6, 7], 250, [{ t: 0, go: [8, 3] }], { pal: 'veerwell' }),
       U('v6', 'testrig', [12, -12], 180, []),
+      // 地勤揮手送運輸機起飛
+      {
+        id: 'vc',
+        k: 'people',
+        who: ['crew', 'hoodie', 'casual'],
+        n: 5,
+        p: [-4, -4],
+        box: [5, 2],
+        anim: ['Wave', 'Wave', 'Idle'],
+        s: [{ t: 0, face: [-4, -14] }],
+      },
     ],
     ev: [
       { t: 0.4, fx: 'flame', at: [12, 3, -12], to: [12, 12, -12], len: 14, ang: 0.25, n: 14 },
@@ -168,6 +202,19 @@ const VISTAS = [
       U('s3', 'repair', [-4, -6], 0, [{ t: 0, go: [2, 0] }], { team: 'ally', pal: 'ally' }),
       U('s4', 'mt', [-12, 4], 90, [{ t: 0, go: [-2, 10] }], { team: 'ally', pal: 'ally' }),
       U('s5', 'tank', [-14, -8], 60, [{ t: 0, go: [0, -4] }], { team: 'ally', pal: 'ally' }),
+      // 盾牌 MT 腳邊的難民（跟著往營地走）
+      {
+        id: 'sr',
+        k: 'people',
+        who: ['hooded', 'farmer', 'man', 'woman', 'womanc'],
+        n: 14,
+        p: [2, 7],
+        box: [7, 3],
+        go: [5, 3],
+        stagger: 0.8,
+        speed: 0.8,
+        yaw: 60,
+      },
     ],
     name: '聖域互助同盟',
     s: '收容被它燒過的人。',
@@ -388,9 +435,32 @@ export function prologueCine(ctx) {
   shots.push({
     at: 65.1,
     set: { k: 'black' },
+    ev: [{ t: 0.25, card: '他們都需要同一種東西。', dur: 1.7 }],
+  });
+  // 黑暗裡的駕駛員：越過肩膀看手套伸向開關（臉在畫面外；同一個黑畫面，不重建場景）
+  shots.push({
+    at: 67.0,
+    set: { k: 'black' },
+    fi: 0.3,
+    grade: { exposure: 0.8, contrast: 1.2, tintHi: '#ff6040', tintHiK: 0.35, vignette: 0.8 },
+    actors: [
+      { id: 'pil', k: 'human', who: 'pilot', p: [0, 0, 0], yaw: 180, anim: 'Idle_Neutral', dark: 0.85 },
+    ],
+    cam: {
+      fov: 34,
+      dof: 0.8,
+      keys: [
+        { t: 0, p: [0.5, 1.66, 1.05], l: [-0.1, 1.42, -1.0] },
+        { t: 2, p: [0.42, 1.64, 0.9], l: [-0.1, 1.42, -1.0] },
+      ],
+      ease: 'lin',
+    },
     ev: [
-      { t: 0.25, card: '他們都需要同一種東西。', dur: 1.7 },
-      { t: 2.0, card: '不問理由的傭兵。', dur: 1.8 },
+      { t: 0.1, card: '不問理由的傭兵。', dur: 1.8 },
+      // 控制台的待機燈：只從前面照，駕駛員是剪影
+      { t: 0, fx: 'flash', at: [0.1, 1.3, -0.9], r: 0.08, color: 0xff3020, life: 2, i: 3 },
+      { t: 1.2, fx: 'flash', at: [-0.25, 1.45, -1.0], r: 0.06, color: 0x60d0ff, life: 0.8, i: 2 },
+      { t: 1.2, sfx: 'ui2', vol: 0.5, rate: 0.6 },
     ],
   });
   // ---- 1:09 甦醒：駕駛艙開機（地圖在黑畫面後面建好）----
@@ -563,6 +633,18 @@ export function prologueCine(ctx) {
           { t: 0, aim: 'h', hover: true },
           { t: 0.4, fire: 'all', dur: 2.4 },
         ],
+      },
+      // SLUICE 身後往外逃的人（他守的是這些人）
+      {
+        id: 'ev',
+        k: 'people',
+        who: ['farmer', 'man', 'woman', 'womanc', 'casual', 'hooded'],
+        n: 14,
+        p: [6, -35],
+        box: [14, 2.5],
+        go: [-16, 0],
+        run: true,
+        yaw: 270,
       },
     ],
     cam: {
@@ -906,13 +988,28 @@ export function prologueCine(ctx) {
     set: sea,
     grade: { ...red, exposure: 0.75, tintHiK: 0.6 },
     drop: ['zen'],
+    actors: [
+      {
+        id: 'pil2',
+        k: 'human',
+        who: 'pilot',
+        p: [-22, 0],
+        anim: 'Idle_Neutral',
+        dark: 0.8,
+        // Logo 退場後從機體腳邊往前走，鏡頭拉遠時看得到
+        s: [
+          { t: 0, face: [40, -80] },
+          { t: 3.6, go: [-18.5, -5] },
+        ],
+      },
+    ],
     fo: 3,
     cam: {
       fov: 38,
       hand: 0.05,
       keys: [
-        { t: 0, p: { a: 'hero', o: [-3, 2.5, 9] }, l: { a: 'hero', o: [9, 5, -24] } },
-        { t: 12.4, p: { a: 'hero', o: [-8, 4, 17] }, l: { a: 'hero', o: [9, 7, -24] } },
+        { t: 0, p: { a: 'hero', o: [-3, 2.5, 9] }, l: { a: 'hero', o: [9, 3.2, -24] } },
+        { t: 12.4, p: { a: 'hero', o: [-8, 4, 17] }, l: { a: 'hero', o: [9, 4.6, -24] } },
       ],
       ease: 'lin',
     },

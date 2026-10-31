@@ -116,6 +116,7 @@ const TOWER = {
   cloud: { y: 100, th: 6 }, // 雲海的高度、穿過時白霧的厚度
 };
 const PAD = { at: [-30, -260], h: 150, r: 9, ig: 60, t0: 61, acc: 5 };
+const PEOPLE = ['hooded', 'hooded', 'farmer', 'man', 'woman', 'womanc', 'casual'];
 
 // ---------- 開場：一鏡到底 ----------
 export function ch4Intro() {
@@ -160,6 +161,31 @@ export function ch4Intro() {
       ],
     },
     { id: 'hr', k: 'hero', p: [-6, -5], h: 127, yaw: 5 },
+    // Doser 的人住在平台上（第三版分鏡：SPIRE 守的是這些人）；從平台上方往下找地面
+    ...[
+      // 16 秒鏡頭在第 1、2 層之間，看得到第 1 層的上面：抬頭看鏡頭的人、揮手的小孩
+      ['d0', 'man', 1, 2, -1, 'Idle_Neutral'],
+      ['d8', 'womanc', 1, 4, 1.5, 'Wave'],
+      ['d9', 'farmer', 1, -0.5, -3, 'Interact'],
+      ['d1', 'man', 2, 9.5, 5.5, 'Sitting'],
+      ['d2', 'womanc', 2, 2.5, 6.8, 'Interact'],
+      ['d3', 'hoodie', 3, -2.5, -7.5, 'Idle_Neutral'],
+      ['d4', 'casual', 4, -6.5, 4.8, 'Wave'],
+      ['d5', 'woman', 4, 0.5, -3.5, 'Idle'],
+      ['d6', 'farmer', 6, 7.5, 7.2, 'Idle_Neutral'],
+      ['d7', 'hooded', 8, 1.5, -2.2, 'Wave'],
+    ].map(([id, who, lv, x, z, anim]) => {
+      const [dx, dz] = TOWER.off[lv];
+      return {
+        id,
+        k: 'human',
+        who,
+        p: [dx + x, TOWER.lv[lv] + 0.4, dz + z],
+        anim,
+        scale: who === 'womanc' && anim === 'Wave' ? 0.7 : 1, // 小孩
+        s: [{ t: 0, face: lv === 1 ? [20, -15] : [0, 0] }],
+      };
+    }),
   ];
   const pin = [
     {
@@ -285,6 +311,19 @@ export function ch4Outro(ctx) {
         hook: 'c4launch',
         launch: { ...LAUNCH, mode: 'night', town: [] },
         fi: 1.6,
+        actors: [
+          {
+            id: 'press',
+            k: 'people',
+            who: ['biz', 'casual', 'womanc', 'man', 'hoodie'],
+            n: 10,
+            p: [0, -11],
+            box: [16, 3],
+            anim: ['Idle', 'Idle_Neutral'],
+            s: [{ t: 0, face: [0, -46] }],
+            seed: 51,
+          },
+        ],
         cam: {
           ease: 'lin',
           hand: 0.05,
@@ -344,6 +383,17 @@ export function ch4Outro(ctx) {
           },
           { id: 's2', k: 'type', key: 'repair', p: [4, -10], yaw: 0, team: 'ally', pal: 'ally' },
           { id: 's3', k: 'type', key: 'mt_shield', p: [10, -14], yaw: 300, team: 'ally', pal: 'ally' },
+          {
+            id: 'ash',
+            k: 'people',
+            who: PEOPLE,
+            n: 14,
+            p: [0, -6],
+            box: [28, 12],
+            anim: ['Interact', 'Interact', 'Idle_Neutral'],
+            face: 'rnd',
+            seed: 53,
+          },
         ],
         cam: {
           ease: 'lin',
@@ -371,6 +421,17 @@ export function ch4Outro(ctx) {
           { id: 'g1', k: 'type', key: 'mt_shield', p: [-6, -22], yaw: 180, team: 'ally', pal: 'ally' },
           { id: 'g2', k: 'type', key: 'mt_shield', p: [6, -22], yaw: 180, team: 'ally', pal: 'ally' },
           { id: 'g3', k: 'type', key: 'repair', p: [0, -18], yaw: 180, team: 'ally', pal: 'ally' },
+          {
+            id: 'gd',
+            k: 'people',
+            who: ['soldier', 'hooded', 'soldier'],
+            n: 6,
+            p: [0, -24],
+            box: [12, 2],
+            anim: ['Idle', 'Idle_Neutral'],
+            s: [{ t: 0, face: [0, 10] }],
+            seed: 55,
+          },
         ],
         cam: {
           ease: 'lin',
@@ -397,6 +458,17 @@ export function ch4Outro(ctx) {
           { id: 'd1', k: 'type', key: 'dropship', p: [-30, -10], yaw: 270, s: [{ t: 0, go: [90, -20] }] },
           { id: 'd2', k: 'type', key: 'dropship', p: [-50, 4], yaw: 270, s: [{ t: 0.6, go: [80, -6] }] },
           { id: 'd3', k: 'type', key: 'heli', p: [-44, -30], yaw: 270, s: [{ t: 0.3, go: [80, -40] }] },
+          {
+            id: 'look',
+            k: 'people',
+            who: PEOPLE,
+            n: 8,
+            p: [-18, 22],
+            box: [8, 4],
+            anim: ['Idle_Neutral', 'Idle'],
+            s: [{ t: 0, face: [10, -20] }],
+            seed: 57,
+          },
         ],
         cam: {
           ease: 'lin',
@@ -501,7 +573,8 @@ export function c4Pre(ctx) {
   const eo = opts.map((o, i) => ({ ...o, ex: i }));
   const live = { k: 'live' };
   const ROOM = [0, 300, 0];
-  const rp = (x, y, z) => [ROOM[0] + x, ROOM[1] + y, ROOM[2] + z];
+  // 控制室是真實尺寸（公尺）：劇本座標要 ÷3（場景的倍率）
+  const rp = (x, y, z) => [ROOM[0] + x / 3, ROOM[1] + y / 3, ROOM[2] + z / 3];
   const cd = { from: 10.6, at: 0, label: 'PAD-2 // LAUNCH AUTHORIZATION' };
   const T = timeline();
   T.add(
@@ -546,6 +619,27 @@ export function c4Pre(ctx) {
       },
       hook: 'c4room',
       room: ROOM,
+      // 派克與諾拉：控制台後面、對著大螢幕的背影（委託方不露臉，第三版分鏡的 P2）
+      actors: [
+        {
+          id: 'pk',
+          k: 'human',
+          who: 'hoodie',
+          p: rp(-1.7, 0, -3.3),
+          ground: false,
+          dark: 0.75,
+          s: [{ t: 0, face: rp(-0.6, 2.4, -4.2) }],
+        },
+        {
+          id: 'nr',
+          k: 'human',
+          who: 'woman',
+          p: rp(1.7, 0, -3.3),
+          ground: false,
+          dark: 0.75,
+          s: [{ t: 0, face: rp(0.6, 2.4, -4.2) }],
+        },
+      ],
       ov: ['c4count', 'c4duo'],
       cd,
       duo: [
@@ -606,6 +700,23 @@ export function c4Veerwell() {
       ov: 'c4count',
       cd: { from: 3.2, at: 0, label: 'VEERWELL LAUNCH CONTROL // PAD-2' },
       fi: 0.6,
+      actors: [
+        {
+          id: 'run',
+          k: 'people',
+          who: PEOPLE,
+          n: 18,
+          p: [0, -6],
+          box: [30, 14],
+          anim: ['Idle_Neutral', 'Idle'],
+          s: [{ t: 0, face: [0, -46] }],
+          go: [0, 26],
+          goT: 3.3,
+          stagger: 1.2,
+          run: true,
+          seed: 59,
+        },
+      ],
       cam: { ease: 'lin', hand: 0.1, free: true, follow: 8, fog: 40, keys },
       ev: [
         { t: 0.1, sfx: 'alarmBig', vol: 0.4, rate: 0.6 },
@@ -660,6 +771,31 @@ export function c4Sancta() {
         { id: 'g3', k: 'type', key: 'repair', p: [0, -16], yaw: 180, team: 'ally', pal: 'ally' },
         { id: 'd1', k: 'type', key: 'dropship', p: [-36, -4], yaw: 270, s: [{ t: 8, go: [90, -14] }] },
         { id: 'd2', k: 'type', key: 'dropship', p: [-52, 10], yaw: 270, s: [{ t: 8.6, go: [80, 0] }] },
+        {
+          id: 'in',
+          k: 'people',
+          who: PEOPLE,
+          n: 16,
+          p: [0, -37],
+          box: [12, 4],
+          anim: ['Idle_Neutral', 'Idle'],
+          s: [{ t: 0, face: [0, 0] }],
+          seed: 61,
+        },
+        {
+          id: 'late',
+          k: 'people',
+          who: PEOPLE,
+          n: 5,
+          p: [4, -16],
+          box: [8, 3],
+          go: [-3, -12],
+          goT: 3.5,
+          stagger: 2,
+          run: true,
+          yaw: 180,
+          seed: 63,
+        },
       ],
       cam: {
         ease: 'out',

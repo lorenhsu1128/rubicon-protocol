@@ -24,6 +24,7 @@
 - `shots`：依 `at`（秒）排序的鏡頭，每個鏡頭：
   - `set`：`{ k: 'black' }`／`{ k: 'space', coral }`／`{ k: 'world', theme, variant, seed, tod, rail, road, clear, anchor, align: 'rail', light }`。和上一鏡相同（JSON 相同）就沿用同一張地圖與演員；不同就重建（所以換場景放在黑畫面或閃白後）。`clear`＝原點附近要多大的空地（`cineSpot`）；`align: 'rail'`＝原點在鐵路上、局部 +X 沿著鐵路。
   - `actors`：`{ id, k, ... }`：`hero`（玩家的組裝）、`ace`（`ACES` 的宿敵）、`roster`（具名 AC）、`type`（`ENEMY_TYPES`／`FOES`）＝遊戲的機甲實體；`model`（Boss 模型 `key`）、`pod`（空降艙）、`crash`（墜落現場）、`worm`（鑽地蟲，身體沿頭的軌跡）、`train`（武裝列車）＝照關鍵影格 `keys: [{ t, p, r, s, thrust, heat, lin }]` 移動的模型。`parent: 'station'` 掛在軌道站上（p 是軌道站的局部座標）。機甲的 `s`＝時間軸上的動作。`drop`：這一鏡移除的演員。
+  - **人物**（`game/cine-people.js`，第三版分鏡）：`human`＝一個人、`people`＝一群人，GLB 骨架動畫（`who`：`src/assets/people/` 的 biz、suitw、mansuit、hoodie、farmer、casual、hooded、pilot、man、woman、womanc 與格納庫的 worker、crew、soldier；`people` 可以給陣列隨機挑）。一律真實尺寸（約 1.75 m，`scale` 微調），不跟著劇本座標的倍率放大。`anim`（Idle、Idle_Neutral、Walk、Run、Interact、Wave、Death、HitRecieve、Idle_Gun_Pointing；低面數的 man／woman／womanc／mansuit 是 Idle、Walk、Run、Sitting、Standing、Clapping、Death，沒有的動作改用 Idle；`people` 可以給陣列各自挑）、`s` 的 `{ t, go: [x, z], run }`（從那一刻的位置走過去）、`{ t, anim }`、`{ t, face: 演員 id 或 [x, z] }`；`people` 另有 `n`、`r`（半徑）或 `box: [寬, 深]`、`go: [dx, dz]`（整群的位移）、`goT`、`stagger`（各自晚幾秒出發）、`speed`、`face: 'rnd'`、`yawRnd`、`seed`、`far: true`（遠景改用程式的小人 `CrowdMesh`）、`ground: false`（照劇本的高度，不貼地：掛勾自己建的場景）；掛勾可以設演員的 `turn`（轉身）與 `headTurn`（轉頭，繞 `Head` 骨頭）。外觀 `tint: { 材質名稱: 顏色 }`（例：`suitw` 的 `Suit` 換白色＝白袍）、`dark`（0～1，剪影：委託方的臉不露，`docs/cinematics-storyboard.md` 的 P2）。位置與動作由鏡頭時間直接算出（暫停、跳時間一致），貼地用 `World.groundAt`。素材 `dist/lib/people-assets.js`（約 9 MB，`window.RUBICON_PEOPLE`）和配樂一起在第一次播放時載入（`render/hangar-assets.js` 的 `loadPeopleAssets`，解析進 `HA.glb`，身高由骨頭量），沒載到時改用程式的小人。鏡頭的 `{ a: 人物 id }` 對準第一個人的頭（`at: 'base'`＝腳下）。
   - 演員的動作（`s` 或事件的 `a`）：`go`（走到）、`stop`、`aim`（演員 id 或點）、`fire`（武器槽或 `'all'`＋`dur`、`at`）、`qb`（[x, z] 方向的快速推進）、`ab`（突擊推進）、`hover`、`jump`、`melee`、`ai`（交給遊戲的 AI）、`warp`、`die`、`rise`（從坑裡站起來）、`hide`。演員的 AP 不會歸零，要倒下的用 `die`。
   - `cam`：`{ keys: [{ t, p, l, fov, roll }], ease: 'lin'|'in'|'out', follow, hand（手持晃動）, shake, dof（景深強度）, focus, range, fog（霧往外推）, snap, free }`。
   - **尺度**（機甲三倍高改版，`docs/world-scale.md` 第 9 節）：劇本照舊尺度寫（機甲 3.24 m 時的數字），播放時場景的 `set.k`（戰場與太空＝DS，黑幕＝1）把座標、鏡頭的晃動與景深、模型演員、軌道站放大；機甲演員是遊戲實體，本來就是 9.7 m。
@@ -69,4 +70,5 @@
 ## 測試與調整
 
 - 冒煙測試 `testCine`：36 段劇本都產生得出來、序章播到結束、各段落的截圖（`test-results/cine-*.png`）、長按略過、作戰室的接續（略過 → 文字畫面）、設定關閉、手機橫式、過場動畫劇場（清單、代替的戰場、暫停、下一鏡、返回清單）。
+- 臨時劇本：`?test` 時 `window.__CINES` 是目錄，可以放一個臨時的鍵再 `cinePlay`。
 - 調運鏡（或直接用標題的「過場動畫」劇場）：`?test` 開啟後在主控台 `__game.cineTest = 1; __game.cinePlay('p1')`，`__game.cineSeek(秒)` 跳到指定時間；`cineTest` 是沒有配樂時的倍速。

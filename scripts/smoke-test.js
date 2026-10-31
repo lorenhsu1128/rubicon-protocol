@@ -12295,6 +12295,116 @@ async function testStory(browser, base) {
 
 // 各主題的第 5、6 種變體：生成、特徵（物件、涉水、夜間不疊加時間）、主線排程用得到、截圖
 // 過場動畫（game/cine.js、data/cine/）：劇本、配樂、播放到結束、各鏡頭的截圖、略過、接回故事畫面、設定關閉、手機
+// 過場動畫的人物（docs/cinematics-storyboard.md 第三版）：素材載入、真實的身高、照時間走路、跳時間一致、剪影、沒有素材時的程式小人
+async function testCinePeople(browser, base) {
+  console.log(
+    '過場動畫的人物：GLB 人物載入、身高約 1.75 m、一群人照時間走路、跳時間位置一致、剪影變暗、截圖',
+  );
+  const { ctx, page } = await newPage(browser, 'cinepeople');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await page.evaluate(() => {
+    const set = { k: 'world', theme: 'industrial', seed: 5100, clear: 30 };
+    window.__CINES.zzPeople = () => ({
+      title: 'people',
+      dur: 30,
+      lb: 2.39,
+      music: [],
+      shots: [
+        {
+          at: 0,
+          set,
+          actors: [
+            { id: 'hk', k: 'hero', p: [0, 0], yaw: 90 },
+            {
+              id: 'ppl',
+              k: 'people',
+              who: ['hooded', 'farmer', 'man', 'woman', 'womanc', 'casual'],
+              n: 12,
+              p: [3, 4],
+              r: 2,
+              go: [-10, 0],
+              yaw: 270,
+            },
+            { id: 'biz', k: 'human', who: 'biz', p: [-1.2, 1.2], yaw: 200, s: [{ t: 1, anim: 'Wave' }] },
+            {
+              id: 'sil',
+              k: 'human',
+              who: 'suitw',
+              p: [-0.8, 1.6],
+              yaw: 160,
+              dark: 0.9,
+              tint: { Suit: 0xe8e8e8 },
+            },
+          ],
+          cam: { keys: [{ t: 0, p: [-4, 1.2, 6], l: [0, 1.4, 0], fov: 40 }] },
+        },
+      ],
+    });
+    const g = window.__game;
+    g.cineTest = 1;
+    g.cinePlay('zzPeople');
+  });
+  await page.waitForFunction(() => window.__game.cine && window.__game.cine.started, null, {
+    timeout: 30000,
+  });
+  const at = (t) =>
+    page.evaluate((t) => {
+      const g = window.__game,
+        c = g.cine;
+      g.cineSeek(t);
+      c.paused = true;
+      c.t = t;
+      g.cineTick(0.016);
+      const ppl = c.actors.get('ppl'),
+        biz = c.actors.get('biz'),
+        sil = c.actors.get('sil');
+      const H = biz.hum[0];
+      H.ch.g.updateMatrixWorld(true);
+      let top = 0;
+      const v = new THREE.Vector3();
+      H.ch.g.traverse((o) => o.isBone && (top = Math.max(top, o.getWorldPosition(v).y)));
+      let col = null;
+      sil.hum[0].ch.g.traverse((o) => o.isMesh && !col && (col = o.material.color.getHSL({}).l));
+      return {
+        glb: ppl.hum.every((h) => !!h.ch) && !!H.ch,
+        h: top - H.ch.g.position.y,
+        xs: ppl.hum.map((h) => h.ch.g.position.x),
+        ground: ppl.hum.every(
+          (h) =>
+            Math.abs(
+              h.ch.g.position.y -
+                g.world.groundAt(h.ch.g.position.x, h.ch.g.position.z, h.ch.g.position.y + 3),
+            ) < 0.05,
+        ),
+        anim: H.cur,
+        dark: col,
+      };
+    }, t);
+  const a = await at(0.5);
+  const b = await at(6);
+  const a2 = await at(0.5);
+  check(a.glb && a.h > 1.4 && a.h < 2.0, `GLB 人物載入、身高約 1.75 m（頭的骨頭 ${a.h.toFixed(2)} m）`);
+  const moved = a.xs.map((x, i) => x - b.xs[i]);
+  check(
+    Math.min(...moved) > 3 && a.ground && b.ground,
+    `一群人照時間往 −X 走、貼地（6 秒走了 ${Math.min(...moved).toFixed(1)}～${Math.max(...moved).toFixed(1)} m）`,
+  );
+  check(
+    a2.xs.every((x, i) => Math.abs(x - a.xs[i]) < 0.01) && b.anim === 'Wave',
+    `跳回前面的時間位置一樣、劇本的動作（${b.anim}）`,
+  );
+  check(a.dark !== null && a.dark < 0.1, `剪影的材質變暗（亮度 ${a.dark && a.dark.toFixed(2)}）`);
+  await page.evaluate(() => {
+    const c = window.__game.cine;
+    c.paused = false;
+    window.__game.cineSeek(2);
+  });
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(SHOT_DIR, 'cine-people.png') });
+  await ctx.close();
+}
+
 async function testCine(browser, base) {
   console.log(
     '過場動畫：序章與各章的劇本、配樂、播放、略過、故事畫面的接續、設定關閉、手機版面、過場動畫劇場',
@@ -21398,6 +21508,7 @@ const STEPS = [
   ['testCycle3', (c) => testCycle3(c.browser, c.base)],
   ['testStory', (c) => testStory(c.browser, c.base)],
   ['testCine', (c) => testCine(c.browser, c.base)],
+  ['testCinePeople', (c) => testCinePeople(c.browser, c.base)],
   ['testTextFx', (c) => testTextFx(c.browser, c.base)],
   ['testLevels', (c) => testLevels(c.browser, c.base)],
   ['testWaves', (c) => testWaves(c.browser, c.base)],

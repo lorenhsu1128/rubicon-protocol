@@ -158,7 +158,14 @@ Object.assign(Game.prototype, {
       this.scene.add(g);
       // 也登記在場景的 extra：跳時間（cineSeek、劇場的上一鏡）沒有呼叫 exit 時，換場景或結束時引擎也會移除
       if (c.set && c.set.extra) c.set.extra.push(g);
-      c.c4[name] = { g, own: [], obs: [], wm: [], hid: [], st: {} };
+      // 機甲三倍高改版：掛勾的群組以劇本座標建（舊尺度），整組乘上場景的倍率 k；
+      // 真實尺寸的東西（棚屋、帳篷、控制室）放在 g1（不放大，位置自己乘 k）
+      const K = (c.set && c.set.k) || 1;
+      g.scale.setScalar(K);
+      const g1 = new THREE.Group();
+      this.scene.add(g1);
+      if (c.set && c.set.extra) c.set.extra.push(g1);
+      c.c4[name] = { g, g1, K, own: [], obs: [], wm: [], hid: [], st: {} };
     }
     return c.c4[name];
   },
@@ -172,12 +179,14 @@ Object.assign(Game.prototype, {
     const c = this.cine;
     const R = c && c.c4 && c.c4[name];
     if (!R) return;
-    if (R.g.parent) R.g.parent.remove(R.g);
     const ex = c.set && c.set.extra;
-    if (ex && ex.includes(R.g)) ex.splice(ex.indexOf(R.g), 1);
-    R.g.traverse((o) => {
-      if (o.isMesh && o.geometry) o.geometry.dispose();
-    });
+    for (const g of [R.g, R.g1]) {
+      if (g.parent) g.parent.remove(g);
+      if (ex && ex.includes(g)) ex.splice(ex.indexOf(g), 1);
+      g.traverse((o) => {
+        if (o.isMesh && o.geometry) o.geometry.dispose();
+      });
+    }
     for (const m of R.own) m.dispose && m.dispose();
     const w = this.world;
     if (w) {
@@ -204,6 +213,7 @@ Object.assign(Game.prototype, {
   c4Hide(R, r, at) {
     const w = this.world,
       A = this.c4At(at ? { g: at } : [0, 0, 0]);
+    r *= R.K; // 劇本座標 → 公尺
     const v = new THREE.Vector3();
     for (const o of w.obstacles) {
       const g = o.group || o.mesh;
@@ -231,7 +241,7 @@ Object.assign(Game.prototype, {
       if (bb.isEmpty()) continue;
       bb.getCenter(v);
       const hw = Math.hypot(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
-      if (hw > 60 || Math.hypot(v.x - A.x, v.z - A.z) - hw > r) continue;
+      if (hw > 60 * R.K || Math.hypot(v.x - A.x, v.z - A.z) - hw > r) continue;
       m.visible = false;
       R.hid.push(m);
     }
@@ -264,14 +274,21 @@ Object.assign(Game.prototype, {
     // 平台與柱子用 World 的（主題的外觀＋可以站在上面）
     const n0 = w.obstacles.length,
       m0 = w.meshes.length;
+    const K = R.K;
     T.lv.forEach((y, i) => {
       const [dx, dz] = T.off[i] || [0, 0];
-      w.addDeck(A.x + dx, A.z + dz, T.size, T.size, A.y + y, 1.2, false, null);
+      w.addDeck(A.x + dx * K, A.z + dz * K, T.size * K, T.size * K, A.y + y * K, 1.2 * K, false, null);
     });
     const top = T.lv[T.lv.length - 1];
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
-        w.addPillar(A.x + sx * T.col, A.z + sz * T.col, 1.1, A.y - 0.5, A.y + top - 1.2);
+        w.addPillar(
+          A.x + sx * T.col * K,
+          A.z + sz * T.col * K,
+          1.1 * K,
+          A.y - 0.5 * K,
+          A.y + (top - 1.2) * K,
+        );
     R.obs = w.obstacles.slice(n0);
     R.wm = w.meshes.slice(m0);
     // 斜撐：每兩層之間、四個面的 X 形鋼骨
@@ -317,13 +334,14 @@ Object.assign(Game.prototype, {
         R.g.add(l);
       }
     });
-    // Doser 的棚屋與油桶（住在平台上）
+    // Doser 的棚屋與油桶（住在平台上；地圖物件是真實尺寸，只有位置乘 k）
+    R.g1.position.copy(A);
     for (const [i, x, z, r, b] of T.huts || []) {
       const [dx, dz] = T.off[i] || [0, 0];
       const g = b ? buildBarrels() : buildShack(0x6a6a5a);
-      g.position.set(dx + x, T.lv[i], dz + z);
+      g.position.set((dx + x) * K, T.lv[i] * K, (dz + z) * K);
       g.rotation.y = (r || 0) * D2R;
-      R.g.add(g);
+      R.g1.add(g);
     }
     // 雲海：一整片延伸到地平線的雲層（從下面看是雲底；鏡頭穿過去時由 c4cloud 疊一層白霧）
     const cl = T.cloud;
@@ -398,7 +416,7 @@ Object.assign(Game.prototype, {
     const A = c.set.anchor;
     // 雲上：遠景地形與地圖邊緣的高地形（會從雲海裡穿出來）隱藏
     if (R.st.sea) {
-      const up = this.camera.position.y - A.y > R.st.cloudY + 3;
+      const up = this.camera.position.y - A.y > (R.st.cloudY + 3) * R.K;
       for (const m of R.st.far) m.visible = !up;
     }
     if (!P || !R.st.rocket) return;
@@ -407,10 +425,11 @@ Object.assign(Game.prototype, {
     const ry = c4RocketY(lt, P.t0, P.acc);
     R.st.rocket.position.y = 0.8 + ry;
     if (c.paused) return;
-    const noz = new THREE.Vector3(A.x + P.at[0], A.y + ry + 1, A.z + P.at[1]);
+    const K = R.K;
+    const noz = new THREE.Vector3(A.x + P.at[0] * K, A.y + (ry + 1) * K, A.z + P.at[1] * K);
     // 雲海上方才有煙（雲下的被雲海蓋住）
-    if (Math.random() < 0.35 && noz.y - A.y > 95)
-      this.fx.smoke(noz.clone().setY(noz.y - P.h * 0.4), 5 + Math.random() * 3, 0xe8e4dc, 5, 2);
+    if (Math.random() < 0.35 && noz.y - A.y > 95 * K)
+      this.fx.smoke(noz.clone().setY(noz.y - P.h * 0.4 * K), (5 + Math.random() * 3) * K, 0xe8e4dc, 5, 2 * K);
     this.fx.flashLight && this.fx.flashLight(noz, 0xffb070, 8);
   },
   // ---------- 依鏡頭高度改調色：雲下的冷金屬 → 雲上的強光 ----------
@@ -428,7 +447,8 @@ Object.assign(Game.prototype, {
       B = c.c4env;
     if (!E || !B) return;
     const A = c.set.anchor;
-    const k = sstep(E.y0, E.y1, this.camera.position.y - A.y);
+    const K = c.set.k || 1;
+    const k = sstep(E.y0 * K, E.y1 * K, this.camera.position.y - A.y);
     const P = c.P;
     const ca = new THREE.Color(),
       cb = new THREE.Color();
@@ -445,9 +465,9 @@ Object.assign(Game.prototype, {
     for (const key of Object.keys(E.mul || {})) P[key] = B[key] * lerp(1, E.mul[key], k);
     // 雲海＝高度霧：鏡頭在雲下時關掉，到了雲層才出現
     if (E.cloudY != null) {
-      P.hfogH = A.y + E.cloudY;
-      P.hfogFall = E.fall || 5;
-      P.hfog = (E.hfog || 1) * sstep(E.cloudY - 30, E.cloudY - 4, this.camera.position.y - A.y);
+      P.hfogH = A.y + E.cloudY * K;
+      P.hfogFall = (E.fall || 5) * K;
+      P.hfog = (E.hfog || 1) * sstep((E.cloudY - 30) * K, (E.cloudY - 4) * K, this.camera.position.y - A.y);
     }
   },
   // ---------- 把演員釘在關鍵影格上 ----------
@@ -486,7 +506,8 @@ Object.assign(Game.prototype, {
     const tp = A && A.e ? A.e.center() : this.c4At(D.p || [0, 0, 0]);
     const d = this.camera.position.distanceTo(tp);
     const cam = this.camera;
-    cam.fov = clamp((2 * Math.atan(D.h / 2 / Math.max(0.5, d))) / D2R, 6, 100);
+    const K = (this.cine.set && this.cine.set.k) || 1;
+    cam.fov = clamp((2 * Math.atan((D.h * K) / 2 / Math.max(0.5, d))) / D2R, 6, 100);
     cam.updateProjectionMatrix();
   },
 
@@ -498,7 +519,8 @@ Object.assign(Game.prototype, {
       this.c4Sync(S);
       this.c4Free('room');
       const R = this.c4Rec('room');
-      R.g.position.copy(this.c4At(S.room));
+      R.g1.position.copy(this.c4At(S.room));
+      const room = R.g1; // 真實尺寸
       const M = (color, o = {}) => {
         const m = new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.4, ...o });
         R.own.push(m);
@@ -513,7 +535,7 @@ Object.assign(Game.prototype, {
         const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
         o.position.set(x, y, z);
         o.rotation.x = rx;
-        R.g.add(o);
+        room.add(o);
         return o;
       };
       const wall = M(0x15181c),
@@ -536,14 +558,14 @@ Object.assign(Game.prototype, {
       R.own.push(tex, sm);
       const scr = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.8), sm);
       scr.position.set(0, 2.45, -4.08);
-      R.g.add(scr);
+      room.add(scr);
       box(desk, 6.8, 3.2, 0.1, 0, 2.45, -4.14);
       // 控制台：桌身＋斜的面板（按鈕、指示燈）
       box(desk, 4.6, 0.95, 1.1, 0, 0.47, -1.7);
       const panel = new THREE.Group();
       panel.position.set(0, 1.0, -1.62);
       panel.rotation.x = -0.42;
-      R.g.add(panel);
+      room.add(panel);
       const pm = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.08, 1.2), M(0x2a3038, { metalness: 0.7 }));
       panel.add(pm);
       const btn = [];
@@ -629,7 +651,7 @@ Object.assign(Game.prototype, {
         const mon = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), mm);
         mon.position.set(s * 2.0, 1.55, -1.95);
         mon.rotation.y = -s * 0.35;
-        R.g.add(mon);
+        room.add(mon);
         box(desk, 0.8, 0.8, 0.06, s * 2.02, 1.55, -1.99).rotation.y = -s * 0.35;
       }
       R.st = { cv, tex, btn, leds, last: -1 };
@@ -730,10 +752,12 @@ Object.assign(Game.prototype, {
       this.c4Free('launch');
       const R = this.c4Rec('launch');
       R.g.position.copy(c.set.anchor);
+      R.g1.position.copy(c.set.anchor);
       this.c4Hide(R, L.clearR || 70);
+      const K = R.K;
       const P = L.at;
       const tw = buildPadTower(L.h * 1.25, -L.r * 3.2, 8);
-      tw.position.set(P[0], this.c4At({ g: P }).y - c.set.anchor.y, P[1]);
+      tw.position.set(P[0], (this.c4At({ g: P }).y - c.set.anchor.y) / K, P[1]);
       R.g.add(tw);
       const rk = buildRocket(L.h, L.r);
       rk.group.position.set(P[0], tw.position.y + 0.8, P[1]);
@@ -743,7 +767,7 @@ Object.assign(Game.prototype, {
       // 外圍的聚落（棚屋＋帳篷）：每棟自己的材質，尾焰掃過時燒黑
       for (const [x, z, r, kind] of L.town || []) {
         const g = kind ? buildTent([0xb8a070, 0x8a9a7a, 0xa07050][kind % 3]) : buildShack(0x7a7468);
-        g.position.set(x, this.c4At({ g: [x, z] }).y - c.set.anchor.y - 0.1, z);
+        g.position.set(x * K, this.c4At({ g: [x, z] }).y - c.set.anchor.y - 0.1, z * K);
         g.rotation.y = (r || 0) * D2R;
         const mats = [];
         g.traverse((o) => {
@@ -752,7 +776,7 @@ Object.assign(Game.prototype, {
           R.own.push(o.material);
           mats.push([o.material, o.material.color.clone()]);
         });
-        R.g.add(g);
+        R.g1.add(g);
         const d = Math.hypot(x - P[0], z - P[1]);
         R.st.huts.push({ g, mats, d, burnt: L.mode === 'burnt' ? 1 : 0, fire: false });
       }
@@ -793,7 +817,7 @@ Object.assign(Game.prototype, {
       for (const h of R.st.huts)
         if (h.burnt) {
           this.c4Burn(h, 1);
-          if (h.d % 3 < 1.4) this.fx.firePool(h.g.getWorldPosition(new THREE.Vector3()), 2.6, 30, 0);
+          if (h.d % 3 < 1.4) this.fx.firePool(h.g.getWorldPosition(new THREE.Vector3()), 2.6 * K, 30, 0);
         }
       return;
     }
@@ -801,9 +825,10 @@ Object.assign(Game.prototype, {
     const R = c.c4 && c.c4.launch;
     if (!R) return;
     const st = R.st,
-      A = c.set.anchor;
+      A = c.set.anchor,
+      K = R.K;
     const P = L.at;
-    const base = new THREE.Vector3(A.x + P[0], A.y + st.y0, A.z + P[1]);
+    const base = new THREE.Vector3(A.x + P[0] * K, A.y + st.y0 * K, A.z + P[1] * K);
     // 燒過的聚落：一直悶燒冒煙
     if (L.mode === 'burnt') {
       st.smokeT -= c.paused ? 0 : dt;
@@ -812,8 +837,8 @@ Object.assign(Game.prototype, {
         const h = st.huts[Math.floor(Math.random() * st.huts.length)];
         if (h) {
           const p = h.g.getWorldPosition(new THREE.Vector3());
-          this.fx.smoke(p.add(new THREE.Vector3(0, 2, 0)), 2.2, 0x2e2c2a, 3.5, 2.5);
-          if (Math.random() < 0.3) this.fx.flash(p, 0.8, 0xff7a30, 0.3);
+          this.fx.smoke(p.add(new THREE.Vector3(0, 2 * K, 0)), 2.2 * K, 0x2e2c2a, 3.5, 2.5 * K);
+          if (Math.random() < 0.3) this.fx.flash(p, 0.8 * K, 0xff7a30, 0.3);
         }
       }
       return;
@@ -826,25 +851,31 @@ Object.assign(Game.prototype, {
       const d = (lt - tig) * (L.front || 34);
       if (!st.ig) {
         st.ig = true;
-        this.fx.flash(base.clone().setY(base.y + 3), 8, 0xffe0b0, 0.6);
-        this.fx.flashLight && this.fx.flashLight(base.clone().setY(base.y + 6), 0xffb070, 14);
+        this.fx.flash(base.clone().setY(base.y + 3 * K), 8 * K, 0xffe0b0, 0.6);
+        this.fx.flashLight && this.fx.flashLight(base.clone().setY(base.y + 6 * K), 0xffb070, 14);
       }
       const ry = c4RocketY(lt, L.t0, L.acc);
-      const noz = base.clone().setY(base.y + ry);
+      const noz = base.clone().setY(base.y + ry * K);
       // 火箭本體
       st.rk.group.position.y = st.y0 + ry;
       if (!c.paused && Math.random() < 0.8) {
-        this.fx.flameCone(noz, new THREE.Vector3(0, -1, 0), 10 + Math.min(30, ry * 0.3), 0.18, 6);
-        this.fx.smoke(noz.clone().setY(noz.y - 6), 3 + Math.min(6, ry * 0.05), 0xb0aca6, 4, 1.2);
+        this.fx.flameCone(noz, new THREE.Vector3(0, -1, 0), (10 + Math.min(30, ry * 0.3)) * K, 0.18, 6);
+        this.fx.smoke(
+          noz.clone().setY(noz.y - 6 * K),
+          (3 + Math.min(6, ry * 0.05)) * K,
+          0xb0aca6,
+          4,
+          1.2 * K,
+        );
       }
       if (ry < 2 && !c.paused) this.fx.flashLight && this.fx.flashLight(noz, 0xffa060, 10);
       // 地面的尾焰（點火後 3 秒內）
       if (lt - tig < 3.2 && !c.paused && Math.random() < 0.7) {
         const dir = new THREE.Vector3(L.dir[0], 0.04, L.dir[1]).normalize();
-        const p0 = base.clone().setY(base.y + 1.2);
-        this.fx.flameCone(p0, dir, Math.min(d, 60), 0.32, 10);
-        const fp = p0.clone().addScaledVector(dir, Math.min(d, 60));
-        this.fx.smoke(fp, 6, 0x6a625a, 5, 1.5);
+        const p0 = base.clone().setY(base.y + 1.2 * K);
+        this.fx.flameCone(p0, dir, Math.min(d, 60) * K, 0.32, 10);
+        const fp = p0.clone().addScaledVector(dir, Math.min(d, 60) * K);
+        this.fx.smoke(fp, 6 * K, 0x6a625a, 5, 1.5 * K);
       }
       for (const h of st.huts) {
         if (d > h.d && h.burnt < 1) {
@@ -853,8 +884,8 @@ Object.assign(Game.prototype, {
           if (!h.fire) {
             h.fire = true;
             const p = h.g.getWorldPosition(new THREE.Vector3());
-            this.fx.firePool(p, 3.4, 9, 0);
-            this.fx.flash(p.clone().setY(p.y + 2), 3, 0xffb060, 0.25);
+            this.fx.firePool(p, 3.4 * K, 9, 0);
+            this.fx.flash(p.clone().setY(p.y + 2 * K), 3 * K, 0xffb060, 0.25);
           }
         }
       }
@@ -882,7 +913,7 @@ Object.assign(Game.prototype, {
         dk = mat(0x2a2d31, { roughness: 0.8 }),
         yl = mat(0xd8a020, { roughness: 0.6 });
       const [gx, gz] = G.at;
-      const gy = this.c4At({ g: G.at }).y - c.set.anchor.y;
+      const gy = (this.c4At({ g: G.at }).y - c.set.anchor.y) / R.K;
       // 門框：兩根柱子＋橫樑（警示條紋）
       const k = new PK(false);
       for (const s of [-1, 1]) {
@@ -936,8 +967,8 @@ Object.assign(Game.prototype, {
       if (u >= 1 && !st.slam) {
         st.slam = true;
         const p = this.c4At([G.at[0], 1, G.at[1] + 2]);
-        this.fx.dust(p, 16, 24, 0x9a9488);
-        this.fx.shockwave(p, 22, 0xffd090, 0.6);
+        this.fx.dust(p, 16 * R.K, 24, 0x9a9488);
+        this.fx.shockwave(p, 22 * R.K, 0xffd090, 0.6);
       }
     }
     // 狀態燈：關上之前橘色閃、關上之後紅色常亮

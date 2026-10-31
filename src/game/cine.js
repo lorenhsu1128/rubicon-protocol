@@ -16,6 +16,7 @@ import { AC_ROSTER, ENEMY_TYPES } from '../data/enemies.js';
 import { SPEAKERS } from '../data/story.js';
 import { MechEntity } from '../entities/mech-entity.js';
 import { buildBossModel } from '../render/boss-models.js';
+import { loadHangarAssets, loadPeopleAssets } from '../render/hangar-assets.js';
 import { SPACE_SUN, buildCrashSite, buildPod, buildSpaceSet } from '../render/cine-sets.js';
 import { PALETTES } from '../render/materials.js';
 import { buildMech } from '../render/mech-model.js';
@@ -30,6 +31,7 @@ const D2R = Math.PI / 180;
 // 過場的調色（疊在玩家選的渲染風格上）：暗角、底片顆粒、色差、動態模糊、Bloom 下限
 const CINE_GRADE = { vignette: 0.42, grain: 0.16, chroma: 0.18, mblur: true, mblurK: 0.18, mblurMech: 0.35 };
 const SKIP_HOLD = 0.8; // 長按幾秒略過
+if (/[?&]test\b/.test(location.search)) window.__CINES = CINES; // 測試：放臨時的劇本
 
 Object.assign(Game.prototype, {
   // 設定「劇情動畫」：on（預設）／off（改用原本的文字畫面）；多人與文字演出關閉時不播
@@ -107,7 +109,9 @@ Object.assign(Game.prototype, {
     $('cineFade').style.opacity = 1;
     $('cineLoad').classList.add('on');
     // 配樂與字型：最多等 4 秒（沒有配樂也照樣播）
-    const load = this.cineMusicLoad().then(async (has) => {
+    // 人物（lib/people-assets.js 與格納庫的素材）：和配樂一起等；沒等到時人物改用程式的小人
+    const ppl = Promise.all([loadPeopleAssets(), loadHangarAssets()]);
+    const load = Promise.all([this.cineMusicLoad(), ppl]).then(async ([has]) => {
       if (!has) return false;
       const names = [...new Set(def.music.map((m) => m.track))];
       await Promise.all(names.map((n) => SFX.musicDecode(n, window.RUBICON_MUSIC[n])));
@@ -325,6 +329,9 @@ Object.assign(Game.prototype, {
       this.scene.background = new THREE.Color(0x000000);
       this.scene.fog = null;
       SFX.ambStop();
+      // 黑畫面也可能拍近距離的人物（駕駛員的手）：近裁切面不能沿用戰場的
+      cam.near = 0.05;
+      cam.far = 2000;
     }
     cam.updateProjectionMatrix();
     this.stylePipe.rebase();
@@ -426,8 +433,8 @@ Object.assign(Game.prototype, {
         if (p.at === 'head') base.y = e.pos.y + (e.model.height || 4) * 0.92 * (e.scale || 1);
         ay = e.yaw;
       } else {
-        base = (ac.head || ac.obj).getWorldPosition(new THREE.Vector3());
-        ay = ac.obj.rotation.y;
+        base = (p.at === 'base' && ac.hum ? ac.obj : ac.head || ac.obj).getWorldPosition(new THREE.Vector3());
+        ay = ac.hum && ac.hum[0] ? ac.hum[0].yaw : ac.obj.rotation.y;
       }
       const o = p.o ? V(p.o).multiplyScalar(K) : new THREE.Vector3();
       o.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.loc ? ay : yaw);
@@ -557,6 +564,12 @@ Object.assign(Game.prototype, {
       : this.cinePt(p0.length === 2 ? { g: p0, h: spec.h || 0 } : p0, new THREE.Vector3());
     A.parent = parent;
     const fyaw = (c.set && c.set.yaw) || 0;
+    // 人物（game/cine-people.js）：一個人或一群人
+    if (spec.k === 'human' || spec.k === 'people') {
+      this.cineHumAdd(A, spec, pos);
+      c.actors.set(spec.id, A);
+      return A;
+    }
     if (
       spec.k === 'model' ||
       spec.k === 'pod' ||
@@ -698,6 +711,7 @@ Object.assign(Game.prototype, {
       }
       if (this.player === A.e) this.player = null;
     }
+    if (A.hum) this.cineHumDrop(A);
     if (A.obj && A.obj.parent) A.obj.parent.remove(A.obj);
     if (A.segs) for (const s of A.segs) this.scene.remove(s);
   },
@@ -763,6 +777,7 @@ Object.assign(Game.prototype, {
       while (A.si < steps.length && steps[A.si].t <= lt) this.cineDo(A, steps[A.si++]);
       if (A.live) continue;
       if (A.e) this.cinePuppet(A, dt, lt);
+      else if (A.hum) this.cineHumTick(A, dt, lt);
       else this.cineModel(A, lt, dt);
     }
   },
