@@ -93,7 +93,8 @@ Object.assign(Game.prototype, {
   },
   // 目標輔助：鏡頭自動跟著鎖定的目標（觸控一律開啟）
   assistOn() {
-    return !!(this.chase && (this.assist || this.touchActive));
+    // 觸控：推右搖桿（或空域的射擊鍵）轉向時讓出優先權，放開 0.8 秒後恢復（input.js 的 touchSteering）
+    return !!(this.chase && (this.assist || (this.touchActive && !this.touchSteering())));
   },
   toggleAssist() {
     if (!this.chase || this.spectator) return;
@@ -147,6 +148,20 @@ Object.assign(Game.prototype, {
         this.fpPitch = clamp(this.fpPitch - pa.z * dt * 1.8 * sn * inv, lo, hi);
       }
     } else this.padFlick = false;
+    if (this.rsHoldT > 0) this.rsHoldT -= dt;
+    // 觸控的右搖桿：推的幅度用指數曲線（小推微調、推到底快轉）
+    const ta = !pa && this.touchAimVec();
+    if (ta) {
+      const m = ta.length(),
+        k = Math.pow(m, 1.7) / Math.max(m, 1e-3);
+      const sn = this.ctrl.sens || 1;
+      const inv = this.ctrl.invY ? -1 : 1;
+      this.fpYaw -= ta.x * k * dt * 2.6 * sn;
+      const al = this.airPitchLim(),
+        lo = al ? -al : this.chase ? PITCH_MIN : -1.1,
+        hi = al || (this.chase ? PITCH_MAX : 0.9);
+      this.fpPitch = clamp(this.fpPitch - ta.z * k * dt * 1.8 * sn * inv, lo, hi);
+    }
     if (this.fp) {
       const look = this.fpLookDir(this.fpYaw, this.fpPitch);
       this.mouseWorld.copy(this.fpEye(p)).addScaledVector(look, 40 * this.camK());
@@ -304,6 +319,13 @@ Object.assign(Game.prototype, {
       prev = q;
     }
     return prev;
+  },
+  // 目標在不在鎖定框裡（觸控的自動攻擊，input.js）
+  inLockBox(p, e) {
+    const v = e.center().project(this.camera);
+    if (v.z > 1) return false;
+    const b = this.lockBox(p);
+    return Math.abs(v.x * innerWidth * 0.5) < b.hw && Math.abs(v.y * innerHeight * 0.5) < b.hh;
   },
   // 鎖定框（畫面中央；火控的中距離輔助越高框越大）：回傳像素的半寬、半高
   lockBox(p) {

@@ -8,6 +8,8 @@ import { Game } from './game.js';
 const SWIPE_PX = 26; // 攻擊鍵上滑動多遠算方向派生（px）
 const SWIPE_N = 4; // 滑動當成幾格的方向鍵（只給方向派生，不移動）
 
+const RS_HOLD = 0.8; // 右搖桿放開後多久目標輔助才恢復（秒）
+
 Object.assign(Game.prototype, {
   // ---------- 自訂按鍵 ----------
   defaultKeys() {
@@ -220,6 +222,7 @@ Object.assign(Game.prototype, {
       el.addEventListener('touchcancel', end);
     };
     stick(document.getElementById('vsL'), this.touchMove);
+    this.setupRStick();
     const one = ['lock', 'kit', 'cs1', 'cs2', 'pause', 'view'];
     for (const b of vp.querySelectorAll('.vbtn')) {
       const a = b.dataset.a;
@@ -284,6 +287,33 @@ Object.assign(Game.prototype, {
       b.addEventListener('touchstart', press, { passive: false });
       b.addEventListener('touchend', rel);
       b.addEventListener('touchcancel', rel);
+      // 空域：按住射擊鍵往外滑＝轉向（射擊兼搖桿，一隻拇指同時射擊與轉向）
+      if (a === 'attack') {
+        let fid = null,
+          fx = 0,
+          fy = 0;
+        b.addEventListener('touchstart', (e) => {
+          const t = e.changedTouches[0];
+          fid = t.identifier;
+          fx = t.clientX;
+          fy = t.clientY;
+        });
+        b.addEventListener('touchmove', (e) => {
+          if (!this.airMode) return;
+          for (const t of e.changedTouches)
+            if (t.identifier === fid) this.rsSet(this.touchAimF, t.clientX - fx, t.clientY - fy, 55);
+        });
+        const fe = (e) => {
+          for (const t of e.changedTouches)
+            if (t.identifier === fid) {
+              fid = null;
+              if (this.touchAimF.lengthSq() > 0) this.rsHoldT = RS_HOLD;
+              this.touchAimF.set(0, 0, 0);
+            }
+        };
+        b.addEventListener('touchend', fe);
+        b.addEventListener('touchcancel', fe);
+      }
       // 攻擊鍵上滑一下＝方向派生（上＝前、下＝後、左右＝側；docs/melee-combo-design.md 的起手方向）
       if (a === 'attack') {
         let sx = 0,
@@ -302,7 +332,7 @@ Object.assign(Game.prototype, {
           (e) => {
             e.preventDefault();
             for (const t of e.changedTouches) {
-              if (t.identifier !== sid || done) continue;
+              if (t.identifier !== sid || done || this.airMode) continue; // 空域的射擊鍵是搖桿
               const dx = t.clientX - sx,
                 dy = t.clientY - sy;
               if (Math.hypot(dx, dy) < SWIPE_PX) continue;
@@ -335,6 +365,103 @@ Object.assign(Game.prototype, {
     };
     document.getElementById('gl').addEventListener('touchstart', tapLock, { passive: true });
     document.getElementById('hud').addEventListener('touchstart', tapLock, { passive: true });
+  },
+  // 右搖桿（浮動）：追尾、第一人稱、空域時右下角的區域（body.rstick），按下的地方就是中心；
+  // 推的方向與幅度＝鏡頭的轉向速度（camAimInput，和手把的右搖桿相同）。短而快地推到左右邊＝換鎖定目標（甩動）
+  setupRStick() {
+    const zone = document.getElementById('vsRZone'),
+      rs = document.getElementById('vsR'),
+      knob = rs.querySelector('.knob');
+    this.touchAimF = new THREE.Vector3(); // 空域：射擊鍵兼搖桿
+    this.rsHoldT = 0;
+    let id = null,
+      cx = 0,
+      cy = 0,
+      t0 = 0,
+      mx = 0;
+    const R = () => rs.offsetWidth * 0.42 || 50;
+    zone.addEventListener(
+      'touchstart',
+      (e) => {
+        e.preventDefault();
+        SFX.init();
+        this.touchActive = true;
+        if (id !== null) return;
+        const t = e.changedTouches[0];
+        id = t.identifier;
+        cx = t.clientX;
+        cy = t.clientY;
+        t0 = performance.now();
+        mx = 0;
+        const zr = zone.getBoundingClientRect();
+        const w = rs.offsetWidth;
+        rs.style.left = cx - zr.left - w / 2 + 'px';
+        rs.style.top = cy - zr.top - w / 2 + 'px';
+        rs.style.right = rs.style.bottom = 'auto';
+        rs.classList.add('act');
+        this.touchAim.set(0, 0, 0);
+        this.rsAct = true;
+      },
+      { passive: false },
+    );
+    zone.addEventListener(
+      'touchmove',
+      (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches)
+          if (t.identifier === id) {
+            const r = R();
+            this.rsSet(this.touchAim, t.clientX - cx, t.clientY - cy, r);
+            if (Math.abs(this.touchAim.x) > Math.abs(mx)) mx = this.touchAim.x;
+            const k = Math.min(1, Math.hypot(t.clientX - cx, t.clientY - cy) / r);
+            const a = Math.atan2(t.clientY - cy, t.clientX - cx);
+            knob.style.transform = `translate(${Math.cos(a) * k * r}px,${Math.sin(a) * k * r}px)`;
+          }
+      },
+      { passive: false },
+    );
+    const end = (e) => {
+      for (const t of e.changedTouches)
+        if (t.identifier === id) {
+          id = null;
+          this.rsAct = false;
+          this.rsHoldT = RS_HOLD;
+          this.touchAim.set(0, 0, 0);
+          knob.style.transform = '';
+          rs.classList.remove('act');
+          rs.style.left = rs.style.top = rs.style.right = rs.style.bottom = '';
+          // 甩動換目標：0.3 秒內推到左右邊就放開（有鎖定目標時）
+          const p = this.player;
+          if (
+            performance.now() - t0 < 300 &&
+            Math.abs(mx) > 0.85 &&
+            p &&
+            p.lock &&
+            !p.lock.dead &&
+            this.chase
+          )
+            this.chaseFlick(Math.sign(mx));
+        }
+    };
+    zone.addEventListener('touchend', end);
+    zone.addEventListener('touchcancel', end);
+  },
+  // 觸控搖桿的位移 → 向量（x＝右、z＝下，長度 0～1，中心的死區 0.1）
+  rsSet(v, dx, dy, r) {
+    const L = Math.hypot(dx, dy) || 1,
+      k = Math.min(1, L / r);
+    if (k < 0.1) return v.set(0, 0, 0);
+    return v.set((dx / L) * k, 0, (dy / L) * k);
+  },
+  // 觸控的右搖桿（或空域的射擊鍵）正在轉向：放開後 RS_HOLD 秒內也算（目標輔助讓出優先權；遊戲時間，camAimInput 倒數）
+  touchSteering() {
+    return !!(this.rsAct || (this.touchAimF && this.touchAimF.lengthSq() > 0) || this.rsHoldT > 0);
+  },
+  // 觸控的轉向輸入：右搖桿優先，再來空域的射擊鍵
+  touchAimVec() {
+    if (this.rsAct && this.touchAim.lengthSq() > 0) return this.touchAim;
+    if (this.touchAimF && this.touchAimF.lengthSq() > 0) return this.touchAimF;
+    return null;
   },
   // 智慧攻擊鍵：射擊 ↔ 近戰 自動切換；肩部鍵＝雙背齊射；QB 長按＝突擊；自動攻擊
   // 攻擊鍵上的滑動 → SWIPE_N 格的方向鍵（swipePulse；只給方向派生，機體不移動）
@@ -379,7 +506,11 @@ Object.assign(Game.prototype, {
       const t = p.weapons[s].def.type;
       return t !== 'none' && t !== 'melee';
     });
-    const inRange = lock && ranged.some((s) => dist <= p.weapons[s].def.range + 4);
+    // 追尾、第一人稱、空域：目標要在鎖定框內（不會對著背後的目標一直開火）
+    const inRange =
+      lock &&
+      ranged.some((s) => dist <= p.weapons[s].def.range + 4) &&
+      (!this.camAim() || this.inLockBox(p, lock));
     d['Touch_fireR'] = d['Touch_fireL'] = false;
     d['Touch_meleeR'] = d['Touch_meleeL'] = false;
     if (meleeSlot) {
@@ -432,6 +563,7 @@ Object.assign(Game.prototype, {
     document.body.classList.toggle('touchDev', this.touchAvailable());
     if (this.vpadEl) this.vpadEl.classList.toggle('on', on);
     document.body.classList.toggle('vpad', on);
+    document.body.classList.toggle('rstick', on && this.camAim() && !this.spectator); // 右搖桿（setupRStick）
   },
   pollGamepad(dt) {
     const gps = navigator.getGamepads ? navigator.getGamepads() : null;

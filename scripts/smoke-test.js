@@ -6055,6 +6055,7 @@ async function testAir(browser, base) {
     p.hp = p.maxHp = 1e7;
     // 空中的敵人
     for (const e of g.enemies) e.pos.x -= 4000;
+    window.__pump(2); // 移回來之後回到離地的高度
     const fl = g.enemies.filter((e) => !e.dead);
     o.foes = fl.length;
     o.foeAlt = Math.round(Math.min(...fl.map((e) => e.pos.y - p.airFloor(e.pos.x, e.pos.z))));
@@ -6198,11 +6199,120 @@ async function testAir(browser, base) {
       const jb = document.querySelector('#vpad .vbtn[data-a="jump"]');
       return { v: Math.round(v), jb: jb ? jb.textContent : '' };
     });
+    const nm = tag === 'tablet' ? '平板' : '手機';
+    check(o.v > 95 && o.jb.includes('急轉'), `${nm}：左搖桿往上推進（${o.v} m/s）、跳躍鍵變成急轉`);
+    // 右搖桿（浮動）：按下的地方就是中心、往右推＝往右轉、推的時候目標輔助讓開，放開 0.8 秒後恢復；
+    // 空域的射擊鍵兼搖桿；按鈕不重疊、都在畫面裡；自動攻擊只打鎖定框裡的目標
+    const rs = await pg.evaluate(() => {
+      const g = window.__game,
+        p = g.player;
+      g.updateVpad();
+      const T = (el, type, x, y) => {
+        const t = new window.Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+        el.dispatchEvent(
+          new window.TouchEvent(type, {
+            changedTouches: [t],
+            touches: type === 'touchend' ? [] : [t],
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      };
+      const out = { cls: document.body.classList.contains('rstick') };
+      const zone = document.getElementById('vsRZone'),
+        stick = document.getElementById('vsR');
+      const zr = zone.getBoundingClientRect();
+      const x0 = zr.right - 90,
+        y0 = zr.bottom - 160;
+      // 有鎖定目標（目標輔助開著）
+      const e = g.enemies.find((q) => !q.dead);
+      p.lock = e;
+      out.assist0 = g.assistOn();
+      T(zone, 'touchstart', x0, y0);
+      const sr = stick.getBoundingClientRect();
+      out.float = Math.hypot(sr.left + sr.width / 2 - x0, sr.top + sr.height / 2 - y0) < 3;
+      T(zone, 'touchmove', x0 + 60, y0);
+      out.ax = +g.touchAim.x.toFixed(2);
+      out.assistOff = !g.assistOn();
+      const yaw0 = g.fpYaw;
+      window.__pump(0.5);
+      out.turn = +(yaw0 - g.fpYaw).toFixed(2); // 往右轉＝fpYaw 變小
+      T(zone, 'touchend', x0 + 60, y0);
+      window.__pump(0.3);
+      out.assistWait = !g.assistOn();
+      window.__pump(0.7);
+      out.assistBack = g.assistOn();
+      // 射擊鍵兼搖桿
+      const ab = document.getElementById('vbAttack'),
+        ar = ab.getBoundingClientRect();
+      const fx = ar.left + ar.width / 2,
+        fy = ar.top + ar.height / 2;
+      T(ab, 'touchstart', fx, fy);
+      T(ab, 'touchmove', fx, fy - 45);
+      out.fireSteer = +g.touchAimF.z.toFixed(2);
+      out.fireHeld = !!g.down['Touch_attack'];
+      T(ab, 'touchend', fx, fy - 45);
+      // 按鈕：互相不重疊、都在畫面裡
+      const ids = ['#vbAttack', '#vbShoulder', '#vpad .vbtn[data-a="jump"]', '#vbQB', '#vsR', '#vsL'];
+      const R = ids
+        .map((s) => document.querySelector(s))
+        .filter((el) => el && el.offsetWidth)
+        .map((el) => el.getBoundingClientRect());
+      let ov = 0;
+      for (let i = 0; i < R.length; i++)
+        for (let j = i + 1; j < R.length; j++) {
+          const a = R[i],
+            b = R[j];
+          if (a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2)
+            ov++;
+        }
+      out.overlap = ov;
+      out.inside = R.every(
+        (r) => r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight,
+      );
+      // 自動攻擊：鎖定框裡的目標才算
+      const f = new THREE.Vector3();
+      g.camera.getWorldDirection(f);
+      e.pos.copy(g.camera.position).addScaledVector(f, 200);
+      out.boxFront = g.inLockBox(p, e);
+      e.pos.copy(g.camera.position).addScaledVector(f, -200);
+      out.boxBack = g.inLockBox(p, e);
+      return out;
+    });
+    check(rs.cls && rs.float, `${nm}：空域有右搖桿，浮動（按下的地方就是中心）`);
+    check(rs.ax > 0.9 && rs.turn > 0.3, `${nm}：右搖桿往右推＝往右轉（${rs.ax}、轉了 ${rs.turn} rad）`);
     check(
-      o.v > 95 && o.jb.includes('急轉'),
-      `${tag === 'tablet' ? '平板' : '手機'}：左搖桿往上推進（${o.v} m/s）、跳躍鍵變成急轉`,
+      rs.assist0 && rs.assistOff && rs.assistWait && rs.assistBack,
+      `${nm}：推右搖桿時目標輔助讓開，放開 0.8 秒後恢復`,
+    );
+    check(
+      rs.fireHeld && rs.fireSteer < -0.5,
+      `${nm}：空域的射擊鍵兼搖桿（按住射擊、往上滑 ${rs.fireSteer}）`,
+    );
+    check(rs.overlap === 0 && rs.inside, `${nm}：右搖桿與按鈕不重疊（${rs.overlap}）、都在畫面裡`);
+    check(
+      rs.boxFront && !rs.boxBack,
+      `${nm}：自動攻擊只打鎖定框裡的目標（前方 ${rs.boxFront}、背後 ${rs.boxBack}）`,
     );
     await pg.screenshot({ path: path.join(SHOT_DIR, `air-${tag}.png`) });
+    // 地面：追尾視角也有右搖桿，俯視沒有
+    const gr = await pg.evaluate(() => {
+      const g = window.__game;
+      localStorage.removeItem('rubicon_map');
+      g.startMission();
+      g.setView('chase', true);
+      g.updateVpad();
+      const chase = document.body.classList.contains('rstick');
+      g.setView('top', true);
+      g.updateVpad();
+      const top = document.body.classList.contains('rstick');
+      g.setView('chase', true);
+      g.updateVpad();
+      return { chase, top };
+    });
+    check(gr.chase && !gr.top, `${nm}：地面的追尾視角也有右搖桿、俯視沒有`);
+    await pg.evaluate(() => window.__pump(0.5));
+    await pg.screenshot({ path: path.join(SHOT_DIR, `chase-rstick-${tag}.png`) });
     await thawLoop(pg);
     await c2.close();
   }

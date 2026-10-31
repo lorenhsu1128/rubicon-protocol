@@ -511,8 +511,47 @@ table.keys td {
 #vsL {
   left: calc(30px + env(safe-area-inset-left, 0px));
 }
+/* 右搖桿（浮動）：追尾、第一人稱、空域時（body.rstick）右下角的區域，按下的地方就是搖桿中心 */
+#vsRZone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: calc(330px + env(safe-area-inset-right, 0px));
+  height: calc(270px + env(safe-area-inset-bottom, 0px));
+  pointer-events: auto;
+  display: none;
+}
+body.rstick #vsRZone {
+  display: block;
+}
 #vsR {
-  right: calc(30px + env(safe-area-inset-right, 0px));
+  width: 130px;
+  height: 130px;
+  left: auto;
+  right: calc(70px + env(safe-area-inset-right, 0px));
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  opacity: 0.45;
+  pointer-events: none;
+}
+#vsR.act {
+  opacity: 1;
+}
+/* 右搖桿時按鈕排成弧形，圍在搖桿區域的上方與左方 */
+body.rstick #vbAttack {
+  right: calc(340px + env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+}
+body.rstick #vbShoulder {
+  right: calc(350px + env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(190px + env(safe-area-inset-bottom, 0px)) !important;
+}
+body.rstick .vbtn[data-a='jump'] {
+  right: calc(250px + env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(285px + env(safe-area-inset-bottom, 0px)) !important;
+}
+body.rstick #vbQB {
+  right: calc(130px + env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(295px + env(safe-area-inset-bottom, 0px)) !important;
 }
 .vbtn {
   position: absolute;
@@ -704,6 +743,37 @@ body.vpad #vpad .top {
   body.vpad #vbQB {
     right: calc(18px + env(safe-area-inset-right, 0px)) !important;
     bottom: calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.rstick #vsRZone {
+    width: calc(220px + env(safe-area-inset-right, 0px));
+    height: calc(180px + env(safe-area-inset-bottom, 0px));
+  }
+  body.rstick #vsR {
+    width: 96px;
+    height: 96px;
+    right: calc(40px + env(safe-area-inset-right, 0px));
+    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+  }
+  body.rstick #vsR .knob {
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+  }
+  body.rstick #vbAttack {
+    right: calc(228px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(34px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.rstick #vbShoulder {
+    right: calc(238px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.rstick .vbtn[data-a='jump'] {
+    right: calc(166px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(190px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  body.rstick #vbQB {
+    right: calc(84px + env(safe-area-inset-right, 0px)) !important;
+    bottom: calc(196px + env(safe-area-inset-bottom, 0px)) !important;
   }
   body.vpad #vpad .top {
     top: calc(6px + env(safe-area-inset-top, 0px)) !important;

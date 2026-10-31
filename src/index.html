@@ -25,6 +25,10 @@
 
     <div id="vpad">
       <div class="vstick" id="vsL"><div class="knob"></div></div>
+      <!-- 右搖桿（浮動：在右下區域按下的地方就是中心；追尾、第一人稱、空域時才有，game/input.js 的 setupRStick） -->
+      <div id="vsRZone">
+        <div class="vstick" id="vsR"><div class="knob"></div></div>
+      </div>
       <!-- 右手拇指四鍵菱形：攻擊（大）、肩部、跳躍、QB（長按＝突擊） -->
       <div
         class="vbtn big"
@@ -957,7 +961,7 @@
             <span>自動攻擊（觸控／手把）</span
             ><label
               ><input type="checkbox" id="ctrlAuto" />
-              有鎖定目標且在射程內時手部武器自動連射（攻擊鍵只用於近戰）</label
+              有鎖定目標且在射程內時手部武器自動連射（攻擊鍵只用於近戰；追尾、第一人稱、空域時目標要在鎖定框內）</label
             >
           </div>
           <div class="krow">
