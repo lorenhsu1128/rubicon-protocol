@@ -15464,6 +15464,82 @@ function quickWin() {
 quickWin.clear = true;
 
 // 區網伺服器的自訂關卡：上傳要先通關、作者金鑰（別人不能覆寫或刪除）、清單、遊玩與通關次數、下載、刪除
+// 自訂關卡的觸發器「Boss 進入型態」（docs/level-editor-design.md E3）：指定群組的第 2 型態、任一 Boss 的第 3 型態
+async function testLevelBossPhase(browser, base) {
+  console.log('自訂關卡：觸發器「Boss 進入型態」');
+  const { ctx, page } = await newPage(browser, 'lv-bphase');
+  await page.goto(base + '?test');
+  await waitVisible(page, 'title');
+  await freezeLoop(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const L0 = JSON.parse(JSON.stringify(g.lvSamples()[0]));
+    const sp = L0.marks.find((m) => m.k === 'spawn') || { x: 0, z: 0 };
+    L0.groups.push({ id: 'gb', name: 'Boss', color: 0xff5050 });
+    L0.counters.push({ id: 'cb2', name: '第 2', v: 0 }, { id: 'cb3', name: '第 3', v: 0 });
+    L0.units.push({
+      id: 'ub',
+      kind: 'boss',
+      type: '0',
+      x: sp.x,
+      y: 0,
+      z: sp.z + 60,
+      yaw: 0,
+      g: 'gb',
+      at: 'start',
+      k: 1,
+      beh: {},
+    });
+    const T = (id, ev, c) => ({
+      id,
+      name: id,
+      on: true,
+      once: true,
+      any: false,
+      ev,
+      cond: [],
+      act: [{ k: 'add', c, v: 1 }],
+    });
+    L0.triggers.push(
+      T('tb2', { k: 'bphase', g: 'gb', ph: '2' }, 'cb2'),
+      T('tb3', { k: 'bphase', g: '', ph: '3' }, 'cb3'),
+    );
+    const L = window.__loadLevel(L0, []);
+    const out = {
+      ev: L.triggers
+        .filter((t) => t.ev.k === 'bphase')
+        .map((t) => t.ev.g + ':' + t.ev.ph)
+        .join(),
+    };
+    g.lvPlay(L, { src: 'sample' });
+    const b = g.bosses.find((e) => !e.dead);
+    out.boss = !!b;
+    if (!b) return out;
+    const cnt = () => [g.lv.st.cnt.cb2 || 0, g.lv.st.cnt.cb3 || 0].join();
+    g.lvTriggers(0.1);
+    out.c0 = cnt();
+    b.hp = b.maxHp * 0.6;
+    g.lvTriggers(0.1);
+    g.lvTriggers(0.1);
+    out.c1 = cnt();
+    b.hp = b.maxHp * 0.3;
+    g.lvTriggers(0.1);
+    g.lvTriggers(0.1);
+    out.c2 = cnt();
+    g.clearMission();
+    g.state = 'title';
+    g.showScreen('title');
+    return out;
+  });
+  check(r.ev === 'gb:2,:3', `觸發器「Boss 進入型態」讀檔保留群組與型態（${r.ev}）`);
+  check(
+    r.boss && r.c0 === '0,0' && r.c1 === '1,0' && r.c2 === '1,1',
+    `Boss 的 AP 降到 60%＝第 2 型態、30%＝第 3 型態時各觸發一次（${r.c0} → ${r.c1} → ${r.c2}）`,
+  );
+  await thawLoop(page);
+  await ctx.close();
+}
+
 async function testLevelsServer(browser, url) {
   console.log('自訂關卡（伺服器）：上傳要通關、作者金鑰、清單、遊玩次數、下載、刪除');
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
@@ -22179,6 +22255,7 @@ const STEPS = [
   ['testVfxEditor', (c) => testVfxEditor(c.browser, c.base)],
   ['testTextFx', (c) => testTextFx(c.browser, c.base)],
   ['testLevels', (c) => testLevels(c.browser, c.base)],
+  ['testLevelBossPhase', (c) => testLevelBossPhase(c.browser, c.base)],
   ['testWaves', (c) => testWaves(c.browser, c.base)],
   ['testEnemyAI', (c) => testEnemyAI(c.browser, c.base)],
   ['testGoals', (c) => testGoals(c.browser, c.base)],

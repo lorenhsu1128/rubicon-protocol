@@ -92,6 +92,13 @@ export const EVENTS = {
       { k: 'p', type: 'num', name: '%', min: 1, max: 99, def: 50 },
     ],
   },
+  bphase: {
+    name: 'Boss 進入型態',
+    p: [
+      { k: 'g', type: 'group', name: '群組（空白＝任一 Boss）' },
+      { k: 'ph', type: 'sel', name: '型態', opts: { 2: '第 2 型態', 3: '第 3 型態' }, def: '2' },
+    ],
+  },
   prop: { name: '物件被破壞', p: [{ k: 'tag', type: 'tag', name: '物件標籤' }] },
   target: { name: '目標設施被破壞', p: [{ k: 'm', type: 'mark', mk: 'target', name: '目標（空白＝任一）' }] },
   defend: { name: '防衛目標被毀', p: [{ k: 'm', type: 'mark', mk: 'defend', name: '目標（空白＝任一）' }] },

@@ -780,6 +780,12 @@ Object.assign(Game.prototype, {
           else hit = poll(alive.some((e) => e.hp / e.maxHp < ev.p / 100));
           break;
         }
+        case 'bphase': {
+          // Boss 的型態（AP 70%＝第 2、35%＝第 3，bossPhase）；空白群組＝場上任一台 Boss
+          const bs = (ev.g ? this.lvGroupEnts(ev.g) : this.bosses).filter((e) => e.isBoss && !e.dead);
+          hit = poll(bs.some((e) => e.bossPhase() >= +ev.ph));
+          break;
+        }
         case 'counter':
           hit = poll(cmpOp(st.cnt[ev.c] || 0, ev.op, ev.v));
           break;

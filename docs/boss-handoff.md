@@ -108,7 +108,7 @@
 - **K**：`onEnemyKilled` → `tierOnKill` → 玩家實體的 `bkAdd`（`this.bk`，快照 `bk` 給客機）；破甲彈在 `tierHitMods`（只打本體）。小隊在 `bossPhaseTick` → `bossTierTick`（`spawnType(..., null, 1)` 一台一台）。
 - **L**：`tierHitMods` 依風格評價等級加成（本體與部位）；`syHurt` 在 Boss 戰中掉 `lDrop` 級、`syAdd` 重複的加分乘 `lRepeat`。
 - **O**：最後一個 Boss 的 `die` → `tierBossRank`（`bossRank`），橫幅與 `bossDown` 事件帶評價；擊破獎金乘 `tierBountyK`；結算畫面多一列「Boss 擊破評價」；主線評價 S＝`camp.bossS` → `campEnd` 多一個三選一（`modPickQ` 排在 `endPick` 之後；**只有單人與房主**，客機沒有）。
-- **還沒做（排在之後的期）**：J、M（反擊點的 `cpHitK` 已在 `tierGauge` 預留）、C、E、每隻 Boss 的 `intro` 多一句、`BOSS_KIT`、每隻的 `par`。
+- **第 1 期當時還沒做的**（J、M、C、E、每隻 Boss 的 `intro` 多一句、`BOSS_KIT`、每隻的 `par`）：已在第 2～9 期完成，見下面各期。
 
 ### 第 2 期的實作
 
